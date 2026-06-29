@@ -1,0 +1,10 @@
+// Phase 1: Async Runtime
+
+fn worker(id: Int) -> Int {
+  return id * 2;
+}
+
+fn main() -> Int {
+  let r = worker(1);
+  return 0;
+}

@@ -1,0 +1,7 @@
+// Phase 1: Generics Monomorphisation
+
+fn main() -> Int {
+  let a = 42;
+  let b = 100;
+  return a + b;
+}

@@ -13,7 +13,7 @@ use std::process::{self, Command};
 
 use axiom_lexer::Lexer;
 use axiom_parser::Parser;
-use axiom_check::Checker;
+use axiom_check::{Checker, BorrowChecker};
 use axiom_codegen::IrEmitter;
 
 fn main() {
@@ -28,8 +28,10 @@ fn main() {
     let target_wasm = parse_flag_value(&args, "--target")
         .map(|v| v == "wasm")
         .unwrap_or(false);
+    let check_contracts = !args.iter().any(|a| a == "--no-contracts");
+    let _explicit_contracts = args.iter().any(|a| a == "--check-contracts");
 
-    let mut output_file = parse_flag_value(&args, "-o");
+    let output_file = parse_flag_value(&args, "-o");
 
     // Find the source file — last arg that doesn't start with -
     let source_path = args.iter().rev()
@@ -88,8 +90,18 @@ fn main() {
         process::exit(1);
     }
 
-    // ── Stage 4: Codegen ──────────────────────────────────
+    // ── Stage 4: Borrow Check ─────────────────────────────
+    let mut borrow_checker = BorrowChecker::new();
+    if let Err(errors) = borrow_checker.check_program(&program) {
+        for err in &errors {
+            eprintln!("error[E001]: {l}:{c}: {m}", l = err.span.line, c = err.span.col, m = err.message);
+        }
+        process::exit(1);
+    }
+
+    // ── Stage 5: Codegen ──────────────────────────────────
     let mut emitter = IrEmitter::new();
+    emitter.set_check_contracts(check_contracts);
     let llvm_ir = match emitter.compile_program(&program) {
         Ok(ir) => ir,
         Err(e) => {
@@ -104,7 +116,7 @@ fn main() {
         return;
     }
 
-    // ── Stage 5: Compile to binary via clang ──────────────
+    // ── Stage 6: Compile to binary via clang ──────────────
     let default_output = if target_wasm { "a.wasm" } else { "a.exe" };
     let output = output_file.as_deref().unwrap_or(default_output);
 
@@ -180,7 +192,7 @@ fn main() {
 }
 
 fn print_usage() {
-    eprintln!("AXIOM Compiler v0.1 — Phase 0");
+    eprintln!("AXIOM Compiler v0.1 — Phase 1");
     eprintln!("Usage:");
     eprintln!("  axiomc <source.ax>                             print LLVM IR");
     eprintln!("  axiomc --emit-ir <source.ax>                   print LLVM IR");
@@ -188,6 +200,7 @@ fn print_usage() {
     eprintln!("  axiomc --run <source.ax>                       compile + run");
     eprintln!("  axiomc --target wasm <source.ax>               compile to WASM");
     eprintln!("  axiomc --target wasm -o out.wasm <source.ax>   compile to WASM");
+    eprintln!("  axiomc --no-contracts <source.ax>              disable contract checks");
 }
 
 fn parse_flag_value(args: &[String], flag: &str) -> Option<String> {

@@ -40,6 +40,7 @@ impl Parser {
         kind(self.peek_kind())
     }
 
+    #[allow(dead_code)]
     fn expect(&mut self, expected: &str) -> Result<Token, ParseError> {
         if self.peek().is_eof() {
             return Err(self.error(format!("expected {expected}, found end of file")));
@@ -98,6 +99,7 @@ impl Parser {
             TokenKind::Enum => self.parse_enum_decl(is_pub),
             TokenKind::Interface => self.parse_interface_decl(is_pub),
             TokenKind::Fn => self.parse_fn_decl(is_pub, None),
+            TokenKind::Async => self.parse_fn_decl(is_pub, Some(true)),
             TokenKind::Const => {
                 if is_pub { return Err(self.error("'pub' not valid on const declarations")); }
                 self.parse_const_decl()
@@ -291,7 +293,8 @@ impl Parser {
     // ========================================================================
 
     fn parse_fn_decl(&mut self, is_pub: bool, is_async: Option<bool>) -> Result<TopDecl, ParseError> {
-        let async_flag = is_async.unwrap_or(false) || self.skip(TokenKind::Async);
+        let has_async = self.skip(TokenKind::Async);
+        let async_flag = is_async.unwrap_or(false) || has_async;
         let start = self.peek().span;
 
         if !self.check(|k| matches!(k, TokenKind::Fn)) {
@@ -939,8 +942,19 @@ impl Parser {
             }
             TokenKind::Ampersand => {
                 self.advance();
+                let mutable = match self.peek_kind() {
+                    TokenKind::Ident(s) if s == "mut" => {
+                        self.advance();
+                        true
+                    }
+                    _ => false,
+                };
                 let inner = self.parse_unary_expr()?;
-                Ok(Expr::Ref(Box::new(inner), span))
+                if mutable {
+                    Ok(Expr::MutRef(Box::new(inner), span))
+                } else {
+                    Ok(Expr::Ref(Box::new(inner), span))
+                }
             }
             _ => self.parse_postfix_expr(),
         }
@@ -1411,5 +1425,80 @@ mod tests {
         let src = r#"module stack { use io; type Stack = { items: Int; capacity: Int; } fn new(capacity: Int) -> Stack { return Stack{ items: 0, capacity: capacity, }; } fn push(s: Stack, value: Int) -> Stack { return Stack{ items: s.items + value, capacity: s.capacity, }; } fn main() -> Int { var s = new(3); s = push(s, 10); return s.items; } }"#;
         let prog = parse(src).unwrap();
         assert!(prog.items.len() >= 1);
+    }
+
+    #[test]
+    fn test_borrow_syntax() {
+        let prog = parse("fn test(x: &Int) -> Int { return x; }").unwrap();
+        match &prog.items[0] {
+            TopDecl::Fn(f) => {
+                assert_eq!(f.params.len(), 1);
+                assert!(matches!(f.params[0].ty, Type::Ref(_)));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_mut_borrow_syntax() {
+        let prog = parse("fn test(x: &mut Int) { x = 42; }").unwrap();
+        match &prog.items[0] {
+            TopDecl::Fn(f) => {
+                assert_eq!(f.params.len(), 1);
+                assert!(matches!(f.params[0].ty, Type::MutRef(_)));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_clone_call() {
+        let prog = parse("fn test(x: Int) -> Int { return x.clone(); }").unwrap();
+        match &prog.items[0] {
+            TopDecl::Fn(f) => assert!(f.body.is_some()),
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_result_question() {
+        let prog = parse("fn test() -> Result[Int, Str] { let x = compute()?; return Ok(x); }").unwrap();
+        match &prog.items[0] {
+            TopDecl::Fn(f) => assert!(f.body.is_some()),
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_async_fn() {
+        let prog = parse("async fn fetch(url: Str) -> Str;").unwrap();
+        match &prog.items[0] {
+            TopDecl::Fn(f) => assert!(f.is_async),
+            _ => panic!("expected async function"),
+        }
+    }
+
+    #[test]
+    fn test_spawn_stmt() {
+        let prog = parse("fn main() { spawn { work(); } }").unwrap();
+        match &prog.items[0] {
+            TopDecl::Fn(f) => {
+                let body = f.body.as_ref().unwrap();
+                assert!(matches!(&body.stmts[0], StmtOrExpr::Stmt(Stmt::Spawn(_, _))));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_for_in_loop() {
+        let prog = parse("fn main() { for i in [0, 1, 2] { print(i); } }").unwrap();
+        match &prog.items[0] {
+            TopDecl::Fn(f) => {
+                let body = f.body.as_ref().unwrap();
+                assert!(matches!(&body.stmts[0], StmtOrExpr::Stmt(Stmt::For(_, _, _, _))));
+            }
+            _ => panic!("expected function"),
+        }
     }
 }

@@ -1,0 +1,16 @@
+// Phase 1: Error Handling
+
+fn safe_divide(a: Float64, b: Float64) -> Result[Float64, Str] {
+  if b == 0.0 {
+    return Err("division by zero");
+  }
+  return Ok(a / b);
+}
+
+fn main() -> Int {
+  let r = safe_divide(10.0, 2.0);
+  match r {
+    Ok(v) => { return 0; }
+    Err(e) => { return -1; }
+  }
+}
