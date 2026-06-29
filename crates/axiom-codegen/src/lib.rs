@@ -198,6 +198,10 @@ impl IrEmitter {
         self.emitln("declare i32 @printf(i8*, ...)");
         self.emitln("declare i32 @puts(i8*)");
         self.emitln("declare void @llvm.trap()");
+        self.emitln("declare i64 @axiom_is_sorted(i8*, i64)");
+        self.emitln("declare i64 @axiom_all(i8*, i64, i8*)");
+        self.emitln("declare i64 @axiom_none(i8*, i64, i8*)");
+        self.emitln("declare i64 @axiom_contains(i8*, i64)");
         self.emitln("");
 
         // Emit derive implementations for types with derive clauses
@@ -335,7 +339,7 @@ impl IrEmitter {
 
         // Capture self@pre for ensures (method functions with self@pre references)
         if self.check_contracts && !self.current_ensures.is_empty() {
-            if let Some(ref recv) = fd.receiver {
+            if let Some(recv) = fd.receiver.as_ref() {
                 if let Some((ptr, llvm_ty)) = self.lookup_local(&recv.name).cloned() {
                     let pre_alloca = self.fresh_tmp();
                     self.emitln(&format!("  {pre_alloca} = alloca {llvm_ty}"));
@@ -366,10 +370,10 @@ impl IrEmitter {
         }
 
         // Compile body
-        if let Some(ref body) = fd.body {
+        if let Some(body) = fd.body.as_ref() {
             self.compile_block(body, fd.return_type.is_some())?;
         }
-
+        
         // Implicit return
         if fd.return_type.is_none() {
             // Check ensures before implicit void return
@@ -480,6 +484,54 @@ impl IrEmitter {
     }
 
     /// Emit a call to a type's invariant check function.
+    /// Helper: given an expression and its compiled value register, emit invariant
+    /// check if the expression evaluates to a struct type that has invariants.
+    fn maybe_check_value_invariants(&mut self, value: &Expr, val_reg: &str) {
+        let type_name = self.struct_type_from_expr(value);
+        if let Some(ref tn) = type_name {
+            if self.type_meta.get(tn).map(|m| !m.invariants.is_empty()).unwrap_or(false) {
+                self.compile_invariant_call(tn, val_reg);
+            }
+        }
+    }
+
+    /// Infer the struct type name from an expression (if it produces a struct value).
+    fn struct_type_from_expr(&self, expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Struct(ident, _, _) => Some(ident.name.clone()),
+            Expr::Ident(ident) => {
+                if let Some((_, llvm_ty)) = self.lookup_local(&ident.name) {
+                    if llvm_ty.starts_with("%struct.") {
+                        return Some(llvm_ty[8..].to_string());
+                    }
+                }
+                None
+            }
+            Expr::Call(func, _, _) => {
+                let fn_name = match &**func {
+                    Expr::Ident(name) => Some(name.name.clone()),
+                    Expr::Field(_, field, _) => Some(field.name.clone()),
+                    _ => None,
+                };
+                if let Some(name) = fn_name {
+                    // Check if the known return type is a struct
+                    if self.type_meta.contains_key(&name) {
+                        return Some(name);
+                    }
+                }
+                None
+            }
+            Expr::Some(_, _) => {
+                // Some(x) produces Option[T] — not a struct with user invariants
+                None
+            }
+            Expr::Ok(_, _) | Expr::Err(_, _) => {
+                None
+            }
+            _ => None,
+        }
+    }
+
     fn compile_invariant_call(&mut self, type_name: &str, struct_val_reg: &str) {
         let meta = match self.type_meta.get(type_name) {
             Some(m) => m,
@@ -840,7 +892,7 @@ impl IrEmitter {
             }
 
             // Compile body
-            if let Some(ref body) = fd.body {
+            if let Some(body) = fd.body.as_ref() {
                 self.compile_block(body, fd.return_type.is_some())?;
             }
             if fd.return_type.is_none() {
@@ -866,7 +918,7 @@ impl IrEmitter {
                     let result = self.compile_expr(expr)?;
                     if is_last && is_expression {
                         // Store result in the result alloca for ensures checks
-                        if let Some(ref res_ptr) = self.result_ptr {
+                        if let Some(res_ptr) = self.result_ptr.as_ref() {
                             let ret_ty = &self.current_return_type.clone();
                             self.emitln(&format!("  store {ret_ty} {result}, {ret_ty}* {res_ptr}"));
                         }
@@ -893,6 +945,10 @@ impl IrEmitter {
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
                 self.emitln(&format!("  store {llvm_ty} {val}, {llvm_ty}* {alloca}"));
                 self.add_local(&name.name, alloca, llvm_ty);
+                // Check invariants if the value is a struct with invariants
+                if self.check_contracts {
+                    self.maybe_check_value_invariants(value, &val);
+                }
             }
             Stmt::Var(name, _ty, value, _) => {
                 let val = self.compile_expr(value)?;
@@ -901,6 +957,10 @@ impl IrEmitter {
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
                 self.emitln(&format!("  store {llvm_ty} {val}, {llvm_ty}* {alloca}"));
                 self.add_local(&name.name, alloca, llvm_ty);
+                // Check invariants if the value is a struct with invariants
+                if self.check_contracts {
+                    self.maybe_check_value_invariants(value, &val);
+                }
             }
             Stmt::Assign(place, value, _) => {
                 let val = self.compile_expr(value)?;
@@ -932,7 +992,7 @@ impl IrEmitter {
                 if let Some(e) = expr {
                     let val = self.compile_expr(e)?;
                     // Store result for ensures checks
-                    if let Some(ref res_ptr) = self.result_ptr {
+                    if let Some(res_ptr) = self.result_ptr.as_ref() {
                         let ret_ty = self.current_return_type.clone();
                         self.emitln(&format!("  store {ret_ty} {val}, {ret_ty}* {res_ptr}"));
                     }
@@ -1152,35 +1212,98 @@ impl IrEmitter {
             }
             Expr::Try(inner, _span) => {
                 let val = self.compile_expr(inner)?;
-                // Simplified ? operator: assume Result is {i64 tag, i64 value, i64 error}
-                // Store the result in an alloca for field access
-                let result_ty = "{ i64, i64, i64 }";
-                let result_alloca = self.fresh_tmp();
-                self.emitln(&format!("  {result_alloca} = alloca {result_ty}"));
-                self.emitln(&format!("  store {result_ty} {val}, {result_ty}* {result_alloca}"));
-                // Check tag (field 0)
-                let tag_gep = self.fresh_tmp();
-                let tag = self.fresh_tmp();
-                self.emitln(&format!("  {tag_gep} = getelementptr {result_ty}, {result_ty}* {result_alloca}, i32 0, i32 0"));
-                self.emitln(&format!("  {tag} = load i64, i64* {tag_gep}"));
-                let ok_block = self.fresh_block("try_ok");
-                let err_block = self.fresh_block("try_err");
-                self.emitln(&format!("  br i1 {tag}, label %{ok_block}, label %{err_block}"));
-                self.emitln(&format!("\n{err_block}:"));
-                // Extract error value (field 2) and return it
-                let err_gep = self.fresh_tmp();
-                let err_val = self.fresh_tmp();
-                self.emitln(&format!("  {err_gep} = getelementptr {result_ty}, {result_ty}* {result_alloca}, i32 0, i32 2"));
-                self.emitln(&format!("  {err_val} = load i64, i64* {err_gep}"));
-                let ret_ty = self.current_return_type.clone();
-                self.emitln(&format!("  ret {ret_ty} {err_val}"));
-                self.emitln(&format!("\n{ok_block}:"));
-                // Extract value (field 1) and continue
-                let val_gep = self.fresh_tmp();
-                let ok_val = self.fresh_tmp();
-                self.emitln(&format!("  {val_gep} = getelementptr {result_ty}, {result_ty}* {result_alloca}, i32 0, i32 1"));
-                self.emitln(&format!("  {ok_val} = load i64, i64* {val_gep}"));
-                Ok(ok_val)
+                // Determine if this is Option (2 fields) or Result (3 fields)
+                let is_option = match &**inner {
+                    Expr::Some(..) | Expr::None(..) => true,
+                    Expr::Ok(..) | Expr::Err(..) => false,
+                    Expr::Ident(id) => {
+                        // Check type from locals
+                        let mut opt_like = true;
+                        if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
+                            if llvm_ty.starts_with("%struct.") {
+                                let type_name = &llvm_ty[8..];
+                                if let Some(field_names) = self.types.get(type_name) {
+                                    opt_like = field_names.len() <= 2;
+                                }
+                            }
+                        }
+                        opt_like
+                    }
+                    Expr::Call(func, _, _) => {
+                        // Check return type from function signatures
+                        let fn_name = match &**func {
+                            Expr::Ident(name) => Some(name.name.clone()),
+                            Expr::Field(_, field, _) => Some(field.name.clone()),
+                            _ => None,
+                        };
+                        if let Some(name) = fn_name {
+                            // If function is defined and its return type is a struct with ≤2 fields
+                            if let Some(field_names) = self.types.get(&name) {
+                                field_names.len() <= 2
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    }
+                    _ => false, // Default to Result (backward compat)
+                };
+                if is_option {
+                    // Option: { i64 is_some, i64 value }
+                    let opt_ty = "{ i64, i64 }";
+                    let opt_alloca = self.fresh_tmp();
+                    self.emitln(&format!("  {opt_alloca} = alloca {opt_ty}"));
+                    self.emitln(&format!("  store {opt_ty} {val}, {opt_ty}* {opt_alloca}"));
+                    // Check is_some (field 0)
+                    let tag_gep = self.fresh_tmp();
+                    let tag = self.fresh_tmp();
+                    self.emitln(&format!("  {tag_gep} = getelementptr {opt_ty}, {opt_ty}* {opt_alloca}, i32 0, i32 0"));
+                    self.emitln(&format!("  {tag} = load i64, i64* {tag_gep}"));
+                    let some_block = self.fresh_block("try_some");
+                    let none_block = self.fresh_block("try_none");
+                    self.emitln(&format!("  br i1 {tag}, label %{some_block}, label %{none_block}"));
+                    self.emitln(&format!("\n{none_block}:"));
+                    // Return 0 (None) as early return
+                    let ret_ty = self.current_return_type.clone();
+                    self.emitln(&format!("  ret {ret_ty} 0"));
+                    self.emitln(&format!("\n{some_block}:"));
+                    // Extract value (field 1) and continue
+                    let val_gep = self.fresh_tmp();
+                    let some_val = self.fresh_tmp();
+                    self.emitln(&format!("  {val_gep} = getelementptr {opt_ty}, {opt_ty}* {opt_alloca}, i32 0, i32 1"));
+                    self.emitln(&format!("  {some_val} = load i64, i64* {val_gep}"));
+                    Ok(some_val)
+                } else {
+                    // Result: {i64 tag, i64 value, i64 error}
+                    let result_ty = "{ i64, i64, i64 }";
+                    let result_alloca = self.fresh_tmp();
+                    self.emitln(&format!("  {result_alloca} = alloca {result_ty}"));
+                    self.emitln(&format!("  store {result_ty} {val}, {result_ty}* {result_alloca}"));
+                    // Check tag (field 0)
+                    let tag_gep = self.fresh_tmp();
+                    let tag = self.fresh_tmp();
+                    self.emitln(&format!("  {tag_gep} = getelementptr {result_ty}, {result_ty}* {result_alloca}, i32 0, i32 0"));
+                    self.emitln(&format!("  {tag} = load i64, i64* {tag_gep}"));
+                    let ok_block = self.fresh_block("try_ok");
+                    let err_block = self.fresh_block("try_err");
+                    self.emitln(&format!("  br i1 {tag}, label %{ok_block}, label %{err_block}"));
+                    self.emitln(&format!("\n{err_block}:"));
+                    // Extract error value (field 2) and return it
+                    let err_gep = self.fresh_tmp();
+                    let err_val = self.fresh_tmp();
+                    self.emitln(&format!("  {err_gep} = getelementptr {result_ty}, {result_ty}* {result_alloca}, i32 0, i32 2"));
+                    self.emitln(&format!("  {err_val} = load i64, i64* {err_gep}"));
+                    let ret_ty = self.current_return_type.clone();
+                    self.emitln(&format!("  ret {ret_ty} {err_val}"));
+                    self.emitln(&format!("\n{ok_block}:"));
+                    // Extract value (field 1) and continue
+                    let val_gep = self.fresh_tmp();
+                    let ok_val = self.fresh_tmp();
+                    self.emitln(&format!("  {val_gep} = getelementptr {result_ty}, {result_ty}* {result_alloca}, i32 0, i32 1"));
+                    self.emitln(&format!("  {ok_val} = load i64, i64* {val_gep}"));
+                    Ok(ok_val)
+                }
             }
             Expr::Imply(left, right, _) => {
                 let l = self.compile_expr(left)?;
@@ -1220,86 +1343,141 @@ impl IrEmitter {
                 Ok("0".to_string())
             }
             Expr::Call(func, args, _) => {
-                if let Expr::Ident(ref name) = **func {
-                    let compiled_args: Vec<String> = args.iter()
-                        .map(|a| self.compile_expr(a))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    if name.name == "io" {
-                        if let Some(arg) = compiled_args.first() {
-                            let tmp = self.fresh_tmp();
-                            self.emitln(&format!("  {tmp} = call i32 @puts(i8* {arg})"));
-                            return Ok(tmp);
-                        }
-                        return Ok("0".to_string());
-                    }
-                    // Check if this is a call to a generic function and track instantiation
-                    let fn_key = name.name.clone();
-                    let is_generic = self.generic_fn_decls.iter().any(|f| self.fn_key(f) == fn_key);
-                    if is_generic {
-                        // Infer concrete types from argument types
-                        let mut concrete_types: Vec<String> = Vec::new();
-                        // Find the generic function declaration
-                        if let Some(fd) = self.generic_fn_decls.iter().find(|f| self.fn_key(f) == fn_key) {
-                            for (gp, arg_expr) in fd.generics.iter().zip(args.iter()) {
-                                let concrete_ty = match arg_expr {
-                                    Expr::Int(..) => "Int".to_string(),
-                                    Expr::Float(..) => "Float64".to_string(),
-                                    Expr::Bool(..) => "Bool".to_string(),
-                                    Expr::Str(..) => "Str".to_string(),
-                                    Expr::Char(..) => "Char".to_string(),
-                                    Expr::Ident(id) => {
-                                        // Try to find the type of this identifier
-                                        if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
-                                            llvm_ty.clone()
-                                        } else {
-                                            gp.name.name.clone()
-                                        }
-                                    }
-                                    _ => "Int".to_string(),
-                                };
-                                concrete_types.push(concrete_ty);
+                // Determine function name and receiver for both direct and method call forms
+                let (fn_name_opt, receiver_expr) = match &**func {
+                    Expr::Ident(name) => (Some(name.name.clone()), None),
+                    Expr::Field(obj, field, _) => (Some(field.name.clone()), Some(obj)),
+                    _ => (None, None),
+                };
+                let fn_name = match fn_name_opt {
+                    Some(ref n) => n.clone(),
+                    None => return Ok("0".to_string()),
+                };
+                // Check for contract collection methods
+                let is_contract_method = matches!(fn_name.as_str(), "is_sorted" | "all" | "none" | "contains");
+                if is_contract_method {
+                    let tmp = self.fresh_tmp();
+                    if let Some(receiver) = receiver_expr {
+                        // Method form: receiver.method(args)
+                        let recv_val = self.compile_expr(receiver)?;
+                        let recv_llvm_ty = self.infer_llvm_type(receiver);
+                        let recv_alloca = self.fresh_tmp();
+                        self.emitln(&format!("  {recv_alloca} = alloca {recv_llvm_ty}"));
+                        self.emitln(&format!("  store {recv_llvm_ty} {recv_val}, {recv_llvm_ty}* {recv_alloca}"));
+                        let ptr = self.fresh_tmp();
+                        self.emitln(&format!("  {ptr} = bitcast {recv_llvm_ty}* {recv_alloca} to i8*"));
+                        let extra_args: Vec<String> = args.iter()
+                            .map(|a| self.compile_expr(a))
+                            .collect::<Result<Vec<_>, _>>()?;
+                        match fn_name.as_str() {
+                            "is_sorted" => {
+                                self.emitln(&format!("  {tmp} = call i64 @axiom_is_sorted(i8* {ptr}, i64 0)"));
                             }
-                        }
-                        if !concrete_types.is_empty() {
-                            let specialized_name = self.monomorphised_fn_name(&fn_key, &concrete_types);
-                            // Record this instantiation if not already tracked
-                            let already_tracked = self.generic_instantiations.iter()
-                                .any(|(f, cts)| f == &fn_key && cts == &concrete_types);
-                            if !already_tracked {
-                                self.generic_instantiations.push((fn_key.clone(), concrete_types.clone()));
+                            "all" => {
+                                let pred = extra_args.first().cloned().unwrap_or_else(|| "0".to_string());
+                                self.emitln(&format!("  {tmp} = call i64 @axiom_all(i8* {ptr}, i64 0, i8* {pred})"));
                             }
-                            // Call the specialized version
-                            let (ret_ty, param_types) = if let Some((pts, rt)) = self.functions.get(&specialized_name) {
-                                (rt.clone(), pts.clone())
-                            } else {
-                                // Not yet registered - use the generic signature
-                                if let Some((pts, rt)) = self.functions.get(&fn_key) {
-                                    (rt.clone(), pts.clone())
-                                } else {
-                                    ("i64".to_string(), vec!["i64".to_string(); args.len()])
-                                }
-                            };
-                            let args_str = param_types.iter().zip(compiled_args.iter())
-                                .map(|(ty, arg)| format!("{ty} {arg}"))
-                                .collect::<Vec<_>>()
-                                .join(", ");
-                            let tmp = self.fresh_tmp();
-                            if ret_ty == "void" {
-                                self.emitln(&format!("  call void @{specialized_name}({args_str})"));
-                                Ok(tmp)
-                            } else {
-                                self.emitln(&format!("  {tmp} = call {ret_ty} @{specialized_name}({args_str})"));
-                                Ok(tmp)
+                            "none" => {
+                                let pred = extra_args.first().cloned().unwrap_or_else(|| "0".to_string());
+                                self.emitln(&format!("  {tmp} = call i64 @axiom_none(i8* {ptr}, i64 0, i8* {pred})"));
                             }
-                        } else {
-                            Ok("0".to_string())
+                            "contains" => {
+                                let val = extra_args.first().cloned().unwrap_or_else(|| "0".to_string());
+                                self.emitln(&format!("  {tmp} = call i64 @axiom_contains(i8* {ptr}, i64 {val})"));
+                            }
+                            _ => unreachable!(),
                         }
+                        return Ok(tmp);
                     } else {
-                        // Look up function signature for proper types
-                        let (ret_ty, param_types) = if let Some((pts, rt)) = self.functions.get(&fn_key) {
+                        // Direct form: method(args) — compile all args
+                        let compiled_args: Vec<String> = args.iter()
+                            .map(|a| self.compile_expr(a))
+                            .collect::<Result<Vec<_>, _>>()?;
+                        match fn_name.as_str() {
+                            "is_sorted" => {
+                                let ptr = compiled_args.first().cloned().unwrap_or_else(|| "0".to_string());
+                                let len = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
+                                self.emitln(&format!("  {tmp} = call i64 @axiom_is_sorted(i8* {ptr}, i64 {len})"));
+                            }
+                            "all" => {
+                                let ptr = compiled_args.first().cloned().unwrap_or_else(|| "0".to_string());
+                                let len = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
+                                let pred = compiled_args.get(2).cloned().unwrap_or_else(|| "0".to_string());
+                                self.emitln(&format!("  {tmp} = call i64 @axiom_all(i8* {ptr}, i64 {len}, i8* {pred})"));
+                            }
+                            "none" => {
+                                let ptr = compiled_args.first().cloned().unwrap_or_else(|| "0".to_string());
+                                let len = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
+                                let pred = compiled_args.get(2).cloned().unwrap_or_else(|| "0".to_string());
+                                self.emitln(&format!("  {tmp} = call i64 @axiom_none(i8* {ptr}, i64 {len}, i8* {pred})"));
+                            }
+                            "contains" => {
+                                let ptr = compiled_args.first().cloned().unwrap_or_else(|| "0".to_string());
+                                let val = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
+                                self.emitln(&format!("  {tmp} = call i64 @axiom_contains(i8* {ptr}, i64 {val})"));
+                            }
+                            _ => unreachable!(),
+                        }
+                        return Ok(tmp);
+                    }
+                }
+                let compiled_args: Vec<String> = args.iter()
+                    .map(|a| self.compile_expr(a))
+                    .collect::<Result<Vec<_>, _>>()?;
+                if fn_name == "io" {
+                    if let Some(arg) = compiled_args.first() {
+                        let tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {tmp} = call i32 @puts(i8* {arg})"));
+                        return Ok(tmp);
+                    }
+                    return Ok("0".to_string());
+                }
+                // Check if this is a call to a generic function and track instantiation
+                let fn_key = fn_name.clone();
+                let is_generic = self.generic_fn_decls.iter().any(|f| self.fn_key(f) == fn_key);
+                if is_generic {
+                    // Infer concrete types from argument types
+                    let mut concrete_types: Vec<String> = Vec::new();
+                    // Find the generic function declaration
+                    if let Some(fd) = self.generic_fn_decls.iter().find(|f| self.fn_key(f) == fn_key) {
+                        for (gp, arg_expr) in fd.generics.iter().zip(args.iter()) {
+                            let concrete_ty = match arg_expr {
+                                Expr::Int(..) => "Int".to_string(),
+                                Expr::Float(..) => "Float64".to_string(),
+                                Expr::Bool(..) => "Bool".to_string(),
+                                Expr::Str(..) => "Str".to_string(),
+                                Expr::Char(..) => "Char".to_string(),
+                                Expr::Ident(id) => {
+                                    // Try to find the type of this identifier
+                                    if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
+                                        llvm_ty.clone()
+                                    } else {
+                                        gp.name.name.clone()
+                                    }
+                                }
+                                _ => "Int".to_string(),
+                            };
+                            concrete_types.push(concrete_ty);
+                        }
+                    }
+                    if !concrete_types.is_empty() {
+                        let specialized_name = self.monomorphised_fn_name(&fn_key, &concrete_types);
+                        // Record this instantiation if not already tracked
+                        let already_tracked = self.generic_instantiations.iter()
+                            .any(|(f, cts)| f == &fn_key && cts == &concrete_types);
+                        if !already_tracked {
+                            self.generic_instantiations.push((fn_key.clone(), concrete_types.clone()));
+                        }
+                        // Call the specialized version
+                        let (ret_ty, param_types) = if let Some((pts, rt)) = self.functions.get(&specialized_name) {
                             (rt.clone(), pts.clone())
                         } else {
-                            ("i64".to_string(), vec!["i64".to_string(); args.len()])
+                            // Not yet registered - use the generic signature
+                            if let Some((pts, rt)) = self.functions.get(&fn_key) {
+                                (rt.clone(), pts.clone())
+                            } else {
+                                ("i64".to_string(), vec!["i64".to_string(); args.len()])
+                            }
                         };
                         let args_str = param_types.iter().zip(compiled_args.iter())
                             .map(|(ty, arg)| format!("{ty} {arg}"))
@@ -1307,15 +1485,34 @@ impl IrEmitter {
                             .join(", ");
                         let tmp = self.fresh_tmp();
                         if ret_ty == "void" {
-                            self.emitln(&format!("  call void @{fn_key}({args_str})"));
+                            self.emitln(&format!("  call void @{specialized_name}({args_str})"));
                             Ok(tmp)
                         } else {
-                            self.emitln(&format!("  {tmp} = call {ret_ty} @{fn_key}({args_str})"));
+                            self.emitln(&format!("  {tmp} = call {ret_ty} @{specialized_name}({args_str})"));
                             Ok(tmp)
                         }
+                    } else {
+                        Ok("0".to_string())
                     }
                 } else {
-                    Ok("0".to_string())
+                    // Look up function signature for proper types
+                    let (ret_ty, param_types) = if let Some((pts, rt)) = self.functions.get(&fn_key) {
+                        (rt.clone(), pts.clone())
+                    } else {
+                        ("i64".to_string(), vec!["i64".to_string(); args.len()])
+                    };
+                    let args_str = param_types.iter().zip(compiled_args.iter())
+                        .map(|(ty, arg)| format!("{ty} {arg}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let tmp = self.fresh_tmp();
+                    if ret_ty == "void" {
+                        self.emitln(&format!("  call void @{fn_key}({args_str})"));
+                        Ok(tmp)
+                    } else {
+                        self.emitln(&format!("  {tmp} = call {ret_ty} @{fn_key}({args_str})"));
+                        Ok(tmp)
+                    }
                 }
             }
             Expr::Index(_, _, _) => Ok("0".to_string()),
@@ -1380,8 +1577,13 @@ impl IrEmitter {
                 "i64"
             }
             Expr::Call(func, _, _) => {
-                if let Expr::Ident(ref name) = **func {
-                    if let Some((_, ret_ty)) = self.functions.get(&name.name) {
+                let fn_name = match func.as_ref() {
+                    Expr::Ident(name) => Some(name.name.clone()),
+                    Expr::Field(_, field, _) => Some(field.name.clone()),
+                    _ => None,
+                };
+                if let Some(ref name) = fn_name {
+                    if let Some((_, ret_ty)) = self.functions.get(name) {
                         if ret_ty == "double" { return "double"; }
                     }
                 }
