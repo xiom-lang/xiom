@@ -41,6 +41,9 @@ Thumbs.db
 # --- Package manager ---
 /axiom-packages/
 
+# --- Test artifacts ---
+*.snap.new
+
 # --- Environment / Config ---
 .env
 .env.local
