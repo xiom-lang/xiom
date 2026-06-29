@@ -117,6 +117,17 @@ impl CheckedType {
 }
 
 // ============================================================================
+// Module export representation
+// ============================================================================
+
+#[derive(Debug, Clone)]
+pub enum ModuleExport {
+    Type { fields: HashMap<String, CheckedType>, is_pub: bool },
+    Function { sig: FnSig, is_pub: bool },
+    SubModule(HashMap<String, ModuleExport>),
+}
+
+// ============================================================================
 // Type Checker
 // ============================================================================
 
@@ -130,12 +141,22 @@ pub struct Checker {
     /// Local variable types
     locals: Vec<HashMap<String, CheckedType>>,
     errors: Vec<CheckError>,
+    /// Imported module paths (use declarations)
+    imports: Vec<UseDecl>,
+    /// Module namespace: module name → { exported names }
+    modules: HashMap<String, HashMap<String, ModuleExport>>,
+    /// Method registry: type name → { method name → FnSig }
+    methods: HashMap<String, HashMap<String, FnSig>>,
+    /// Visibility: name → is_pub for top-level items
+    visibility: HashMap<String, bool>,
+    /// Resolved imported names from use declarations
+    imported_items: HashMap<String, ModuleExport>,
 }
 
 #[derive(Debug, Clone)]
-struct FnSig {
-    params: Vec<(String, CheckedType)>,
-    return_type: Option<CheckedType>,
+pub struct FnSig {
+    pub params: Vec<(String, CheckedType)>,
+    pub return_type: Option<CheckedType>,
 }
 
 #[derive(Debug, Clone)]
@@ -158,6 +179,11 @@ impl Checker {
             current_return: None,
             locals: vec![HashMap::new()],
             errors: Vec::new(),
+            imports: Vec::new(),
+            modules: HashMap::new(),
+            methods: HashMap::new(),
+            visibility: HashMap::new(),
+            imported_items: HashMap::new(),
         };
         // Register built-in types
         checker.register_builtins();
@@ -216,6 +242,9 @@ impl Checker {
             self.register_fn_signature(item);
         }
 
+        // Resolve module system (imports and module hierarchy)
+        self.resolve_imports(program);
+
         // Check all function bodies
         for item in &program.items {
             self.check_top_decl(item);
@@ -239,10 +268,12 @@ impl Checker {
                     fields.insert(name.name.clone(), CheckedType::from_ast_type(ty));
                 }
                 self.types.insert(td.name.name.clone(), fields);
+                self.visibility.insert(td.name.name.clone(), td.is_pub);
             }
             TopDecl::Enum(ed) => {
                 // Enums are known types with no struct fields
                 self.types.insert(ed.name.name.clone(), HashMap::new());
+                self.visibility.insert(ed.name.name.clone(), ed.is_pub);
             }
             TopDecl::Module(md) => {
                 for item in &md.items {
@@ -265,7 +296,16 @@ impl Checker {
                 } else {
                     fd.name.name.clone()
                 };
-                self.functions.insert(key, FnSig { params, return_type });
+                let sig = FnSig { params, return_type };
+                self.functions.insert(key.clone(), sig.clone());
+                self.visibility.insert(fd.name.name.clone(), fd.is_pub);
+                // Track methods separately
+                if let Some(ref recv) = fd.receiver {
+                    self.methods
+                        .entry(recv.name.clone())
+                        .or_default()
+                        .insert(fd.name.name.clone(), sig);
+                }
             }
             TopDecl::Module(md) => {
                 for item in &md.items {
@@ -302,6 +342,236 @@ impl Checker {
             }
             _ => {}
         }
+    }
+
+    // ========================================================================
+    // Module system
+    // ========================================================================
+
+    fn resolve_imports(&mut self, program: &Program) {
+        // Build module hierarchy from all module declarations
+        for item in &program.items {
+            if let TopDecl::Module(md) = item {
+                let exports = self.build_module_map(&md.items);
+                self.modules.insert(md.name.name.clone(), exports);
+            }
+        }
+
+        // Collect use declarations
+        for item in &program.items {
+            if let TopDecl::Use(ud) = item {
+                self.imports.push(ud.clone());
+            }
+        }
+
+        // Process each use declaration
+        let import_snapshot = std::mem::take(&mut self.imports);
+        for ud in &import_snapshot {
+            self.process_use(ud);
+        }
+        self.imports = import_snapshot;
+    }
+
+    fn build_module_map(&self, items: &[TopDecl]) -> HashMap<String, ModuleExport> {
+        let mut map = HashMap::new();
+        for item in items {
+            match item {
+                TopDecl::Type(td) => {
+                    let fields = self.types.get(&td.name.name).cloned().unwrap_or_default();
+                    map.insert(td.name.name.clone(), ModuleExport::Type { fields, is_pub: td.is_pub });
+                }
+                TopDecl::Enum(ed) => {
+                    map.insert(ed.name.name.clone(), ModuleExport::Type { fields: HashMap::new(), is_pub: ed.is_pub });
+                }
+                TopDecl::Fn(fd) => {
+                    let key = if fd.is_method() {
+                        format!("{}.{}", fd.receiver.as_ref().unwrap().name, fd.name.name)
+                    } else {
+                        fd.name.name.clone()
+                    };
+                    if let Some(sig) = self.functions.get(&key) {
+                        let is_pub = fd.is_pub;
+                        map.insert(fd.name.name.clone(), ModuleExport::Function { sig: sig.clone(), is_pub });
+                    }
+                }
+                TopDecl::Module(md) => {
+                    let sub = self.build_module_map(&md.items);
+                    map.insert(md.name.name.clone(), ModuleExport::SubModule(sub));
+                }
+                _ => {}
+            }
+        }
+        map
+    }
+
+    fn process_use(&mut self, ud: &UseDecl) {
+        if ud.path.is_empty() {
+            return;
+        }
+
+        let module_name = &ud.path[0].name;
+        let exports = match self.modules.get(module_name) {
+            Some(e) => e,
+            None => return,
+        };
+
+        // Walk through intermediate path segments (submodules)
+        let mut current = exports;
+        for i in 1..ud.path.len() - 1 {
+            let seg = &ud.path[i].name;
+            match current.get(seg) {
+                Some(ModuleExport::SubModule(sub)) => current = sub,
+                _ => return,
+            }
+        }
+
+        if ud.glob {
+            // `use module.*;` — import all pub items
+            for (name, export) in current {
+                if matches!(export, ModuleExport::SubModule(_)) { continue; }
+                let is_pub = match export {
+                    ModuleExport::Type { is_pub, .. } => *is_pub,
+                    ModuleExport::Function { is_pub, .. } => *is_pub,
+                    _ => false,
+                };
+                if is_pub {
+                    self.imported_items.insert(name.clone(), export.clone());
+                }
+            }
+        } else {
+            // `use module.item;` or `use module.item as alias;`
+            let item_name = &ud.path.last().unwrap().name;
+            let export = match current.get(item_name) {
+                Some(e) => e.clone(),
+                None => return,
+            };
+            let local_name = ud.alias.as_ref()
+                .map(|a| a.name.clone())
+                .unwrap_or_else(|| item_name.clone());
+            self.imported_items.insert(local_name, export);
+        }
+    }
+
+    /// Try to resolve a module-qualified call: `module.func(args)` or `module.submodule.func(args)`
+    fn check_module_call(&mut self, obj: &Expr, method: &Ident, args: &[Expr], span: Span) -> Option<CheckedType> {
+        // Build the module path from the expression chain
+        let mut reversed: Vec<String> = Vec::new();
+        let mut current = obj;
+        loop {
+            match current {
+                Expr::Ident(ident) => {
+                    reversed.push(ident.name.clone());
+                    break;
+                }
+                Expr::Field(inner, field, _) => {
+                    reversed.push(field.name.clone());
+                    current = inner;
+                }
+                _ => return None,
+            }
+        }
+
+        // reversed is [inner, ..., outer]; flip to [outer, ..., inner]
+        let mut path: Vec<String> = reversed.into_iter().rev().collect();
+        path.push(method.name.clone());
+
+        // If the path has only 1 element (bare method name), not a module call
+        if path.len() < 2 {
+            return None;
+        }
+
+        // Clone the relevant export data to avoid borrow conflicts
+        let sig = self.resolve_module_function(&path)?;
+        let sig = sig.clone();
+
+        for (i, arg) in args.iter().enumerate() {
+            let arg_ty = self.check_expr(arg);
+            if i < sig.params.len() {
+                let expected = &sig.params[i].1;
+                if !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
+                    self.error(
+                        format!("argument {} type mismatch: expected {}, found {}",
+                            i + 1, expected.name(), arg_ty.name()),
+                        span,
+                    );
+                }
+            }
+        }
+        Some(sig.return_type.unwrap_or(CheckedType::Unit))
+    }
+
+    /// Resolve a module path to a function signature, checking pub visibility.
+    /// Returns None if the path doesn't resolve to a pub function.
+    fn resolve_module_function(&self, path: &[String]) -> Option<&FnSig> {
+        let module_name = &path[0];
+        let exports = self.modules.get(module_name)?;
+        let mut current_exports = exports;
+        for i in 1..path.len() - 1 {
+            let seg = &path[i];
+            let export = current_exports.get(seg)?;
+            match export {
+                ModuleExport::SubModule(sub) => current_exports = sub,
+                _ => return None,
+            }
+        }
+        let func_name = &path[path.len() - 1];
+        let export = current_exports.get(func_name)?;
+        match export {
+            ModuleExport::Function { sig, is_pub: true } => Some(sig),
+            _ => None,
+        }
+    }
+
+    /// Resolve a module path to a function signature without pub check
+    /// (used by check_module_field_access to verify visibility separately).
+    /// Try to resolve module-qualified field access: `module.Type` or `module.sub.Type`
+    fn check_module_field_access(&self, obj: &Expr, field: &Ident) -> Option<CheckedType> {
+        let mut reversed: Vec<String> = Vec::new();
+        let mut current = obj;
+        loop {
+            match current {
+                Expr::Ident(ident) => {
+                    reversed.push(ident.name.clone());
+                    break;
+                }
+                Expr::Field(inner, f, _) => {
+                    reversed.push(f.name.clone());
+                    current = inner;
+                }
+                _ => return None,
+            }
+        }
+
+        let mut path: Vec<String> = reversed.into_iter().rev().collect();
+        path.push(field.name.clone());
+
+        if path.len() < 2 {
+            return None;
+        }
+
+        let module_name = &path[0];
+        let exports = self.modules.get(module_name)?;
+        let mut current_exports = exports;
+        for i in 1..path.len() - 1 {
+            let seg = &path[i];
+            let export = current_exports.get(seg)?;
+            match export {
+                ModuleExport::SubModule(sub) => current_exports = sub,
+                _ => return None,
+            }
+        }
+
+        let name = &path[path.len() - 1];
+        let export = current_exports.get(name)?;
+        Some(match export {
+            ModuleExport::Function { is_pub, .. } => {
+                if *is_pub { CheckedType::Named("fn".into()) } else { return None; }
+            }
+            ModuleExport::Type { is_pub, .. } => {
+                if *is_pub { CheckedType::Named(field.name.clone()) } else { return None; }
+            }
+            ModuleExport::SubModule(_) => CheckedType::Named("module".into()),
+        })
     }
 
     // ========================================================================
@@ -469,13 +739,18 @@ impl Checker {
             Expr::Ident(ident) => {
                 if let Some(ty) = self.lookup_local(&ident.name) {
                     ty.clone()
-                } else {
-                    // Could be a function name — look it up
-                    if self.functions.contains_key(&ident.name) {
-                        CheckedType::Named("fn".into())
-                    } else {
-                        self.error(format!("undefined variable '{}'", ident.name), ident.span)
+                } else if self.functions.contains_key(&ident.name) {
+                    CheckedType::Named("fn".into())
+                } else if self.types.contains_key(&ident.name) {
+                    CheckedType::Named(ident.name.clone())
+                } else if let Some(export) = self.imported_items.get(&ident.name) {
+                    match export {
+                        ModuleExport::Function { .. } => CheckedType::Named("fn".into()),
+                        ModuleExport::Type { .. } => CheckedType::Named(ident.name.clone()),
+                        ModuleExport::SubModule(_) => CheckedType::Named("module".into()),
                     }
+                } else {
+                    self.error(format!("undefined variable '{}'", ident.name), ident.span)
                 }
             }
             Expr::Int(_, _) => CheckedType::Int,
@@ -539,6 +814,11 @@ impl Checker {
             Expr::Imply(_, _, _) => CheckedType::Bool,
             Expr::Is(_, _, _) => CheckedType::Bool,
             Expr::Field(obj, field, span) => {
+                // Module-qualified access: module.Type or module.sub.Type
+                if let Some(ty) = self.check_module_field_access(obj, field) {
+                    return ty;
+                }
+                // Struct field access
                 let obj_ty = self.check_expr(obj);
                 match &obj_ty {
                     CheckedType::Named(name) => {
@@ -562,7 +842,41 @@ impl Checker {
                 }
             }
             Expr::Call(func, args, span) => {
-                let _func_ty = self.check_expr(func);
+                // Method call or module-qualified call: receiver.method(args) or module.func(args)
+                if let Expr::Field(obj, method, _) = func.as_ref() {
+                    // Try module-qualified call first
+                    if let Some(return_ty) = self.check_module_call(obj, method, args, *span) {
+                        return return_ty;
+                    }
+                    // Try method call: receiver.method(args)
+                    let obj_ty = self.check_expr(obj);
+                    if let CheckedType::Named(type_name) = &obj_ty {
+                        let method_key = format!("{}.{}", type_name, method.name);
+                        if let Some(sig) = self.functions.get(&method_key).cloned() {
+                            for (i, arg) in args.iter().enumerate() {
+                                let arg_ty = self.check_expr(arg);
+                                let param_idx = i + 1; // skip receiver parameter (first param is self-like)
+                                if param_idx < sig.params.len() {
+                                    let expected = &sig.params[param_idx].1;
+                                    if !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
+                                        self.error(
+                                            format!("argument {} type mismatch: expected {}, found {}",
+                                                i + 1, expected.name(), arg_ty.name()),
+                                            *span,
+                                        );
+                                    }
+                                }
+                            }
+                            return sig.return_type.unwrap_or(CheckedType::Unit);
+                        }
+                    }
+                    // Fallback: unknown call target
+                    self.error(
+                        format!("cannot call '{}' on this expression", method.name),
+                        *span,
+                    );
+                    return CheckedType::Error;
+                }
                 // Look up the function by name if it's a simple identifier
                 if let Expr::Ident(ref name) = **func {
                     if let Some(sig) = self.functions.get(&name.name).cloned() {
@@ -580,6 +894,25 @@ impl Checker {
                             }
                         }
                         return sig.return_type.unwrap_or(CheckedType::Unit);
+                    }
+                    // Also check imported items for function aliases
+                    if let Some(export) = self.imported_items.get(&name.name).cloned() {
+                        if let ModuleExport::Function { sig, .. } = export {
+                            for (i, arg) in args.iter().enumerate() {
+                                let arg_ty = self.check_expr(arg);
+                                if i < sig.params.len() {
+                                    let expected = &sig.params[i].1;
+                                    if !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
+                                        self.error(
+                                            format!("argument {} type mismatch: expected {}, found {}",
+                                                i + 1, expected.name(), arg_ty.name()),
+                                            *span,
+                                        );
+                                    }
+                                }
+                            }
+                            return sig.return_type.unwrap_or(CheckedType::Unit);
+                        }
                     }
                 }
                 // Fallback: could be a method call or unknown function
@@ -681,6 +1014,541 @@ impl Default for Checker {
 }
 
 // ============================================================================
+// Borrow Checker — Phase 1: ownership and lexical scope borrow checking
+// ============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum BorrowState {
+    Owned,
+    Moved,
+    ReadBorrowed,
+    WriteBorrowed,
+}
+
+#[derive(Debug, Clone)]
+struct OwnershipInfo {
+    state: BorrowState,
+    read_borrow_count: u32,
+    is_mutable: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum BorrowType {
+    Read,
+    Write,
+}
+
+#[derive(Debug, Clone)]
+struct ScopeBorrow {
+    var_name: String,
+    borrow_type: BorrowType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ExprResult {
+    Value,
+    ReadRef,
+    WriteRef,
+}
+
+#[derive(Debug, Clone)]
+pub struct BorrowError {
+    pub message: String,
+    pub span: Span,
+}
+
+impl std::fmt::Display for BorrowError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "borrow error at {}: {}", self.span, self.message)
+    }
+}
+
+pub struct BorrowChecker {
+    ownership: Vec<HashMap<String, OwnershipInfo>>,
+    borrow_stack: Vec<Vec<ScopeBorrow>>,
+    errors: Vec<BorrowError>,
+}
+
+impl BorrowChecker {
+    pub fn new() -> Self {
+        Self {
+            ownership: vec![HashMap::new()],
+            borrow_stack: vec![Vec::new()],
+            errors: Vec::new(),
+        }
+    }
+
+    fn push_scope(&mut self) {
+        self.ownership.push(HashMap::new());
+        self.borrow_stack.push(Vec::new());
+    }
+
+    fn pop_scope(&mut self) {
+        // Release all borrows created in this scope
+        if let Some(borrows) = self.borrow_stack.pop() {
+            for scope_borrow in borrows {
+                self.release_borrow(&scope_borrow.var_name, scope_borrow.borrow_type);
+            }
+        }
+        self.ownership.pop();
+    }
+
+    fn release_borrow(&mut self, name: &str, borrow_type: BorrowType) {
+        if let Some(info) = self.find_var_mut(name) {
+            match borrow_type {
+                BorrowType::Read => {
+                    info.read_borrow_count = info.read_borrow_count.saturating_sub(1);
+                    if info.read_borrow_count == 0 {
+                        info.state = BorrowState::Owned;
+                    }
+                }
+                BorrowType::Write => {
+                    info.state = BorrowState::Owned;
+                }
+            }
+        }
+    }
+
+    fn find_var(&self, name: &str) -> Option<&OwnershipInfo> {
+        for scope in self.ownership.iter().rev() {
+            if let Some(info) = scope.get(name) {
+                return Some(info);
+            }
+        }
+        None
+    }
+
+    fn find_var_mut(&mut self, name: &str) -> Option<&mut OwnershipInfo> {
+        for scope in self.ownership.iter_mut().rev() {
+            if let Some(info) = scope.get_mut(name) {
+                return Some(info);
+            }
+        }
+        None
+    }
+
+    fn add_local(&mut self, name: &str, is_mutable: bool) {
+        if let Some(scope) = self.ownership.last_mut() {
+            scope.insert(name.to_string(), OwnershipInfo {
+                state: BorrowState::Owned,
+                read_borrow_count: 0,
+                is_mutable,
+            });
+        }
+    }
+
+    fn error(&mut self, message: impl Into<String>, span: Span) {
+        self.errors.push(BorrowError { message: message.into(), span });
+    }
+
+    fn check_use(&mut self, name: &str, span: Span) -> ExprResult {
+        match self.find_var(name) {
+            Some(info) => match info.state {
+                BorrowState::Moved => {
+                    self.error(format!("use of moved value '{}'", name), span);
+                    ExprResult::Value
+                }
+                BorrowState::Owned => ExprResult::Value,
+                BorrowState::ReadBorrowed => ExprResult::ReadRef,
+                BorrowState::WriteBorrowed => ExprResult::WriteRef,
+            }
+            None => ExprResult::Value,
+        }
+    }
+
+    fn read_borrow(&mut self, name: &str, span: Span) {
+        let ok = match self.find_var(name) {
+            Some(info) => match info.state {
+                BorrowState::Moved => {
+                    self.error(format!("use of moved value '{}'", name), span);
+                    false
+                }
+                BorrowState::WriteBorrowed => {
+                    self.error(format!("cannot borrow '{}' as immutable while mutably borrowed", name), span);
+                    false
+                }
+                BorrowState::Owned | BorrowState::ReadBorrowed => {
+                    true
+                }
+            }
+            None => true,
+        };
+        if ok {
+            if let Some(info) = self.find_var_mut(name) {
+                info.state = BorrowState::ReadBorrowed;
+                info.read_borrow_count += 1;
+            }
+            if let Some(borrows) = self.borrow_stack.last_mut() {
+                borrows.push(ScopeBorrow {
+                    var_name: name.to_string(),
+                    borrow_type: BorrowType::Read,
+                });
+            }
+        }
+    }
+
+    fn write_borrow(&mut self, name: &str, span: Span) {
+        let ok = match self.find_var(name) {
+            Some(info) => match info.state {
+                BorrowState::Moved => {
+                    self.error(format!("use of moved value '{}'", name), span);
+                    false
+                }
+                BorrowState::ReadBorrowed => {
+                    self.error(format!("cannot borrow '{}' as mutable while immutably borrowed", name), span);
+                    false
+                }
+                BorrowState::WriteBorrowed => {
+                    self.error(format!("cannot borrow '{}' as mutable more than once at a time", name), span);
+                    false
+                }
+                BorrowState::Owned => {
+                    if !info.is_mutable {
+                        self.error(format!("cannot borrow immutable local variable '{}' as mutable", name), span);
+                        false
+                    } else {
+                        true
+                    }
+                }
+            }
+            None => true,
+        };
+        if ok {
+            if let Some(info) = self.find_var_mut(name) {
+                info.state = BorrowState::WriteBorrowed;
+                info.read_borrow_count = 1;
+            }
+            if let Some(borrows) = self.borrow_stack.last_mut() {
+                borrows.push(ScopeBorrow {
+                    var_name: name.to_string(),
+                    borrow_type: BorrowType::Write,
+                });
+            }
+        }
+    }
+
+    fn move_var(&mut self, name: &str, span: Span) {
+        let ok = match self.find_var(name) {
+            Some(info) => match info.state {
+                BorrowState::Moved => {
+                    self.error(format!("use of moved value '{}'", name), span);
+                    false
+                }
+                BorrowState::ReadBorrowed | BorrowState::WriteBorrowed => {
+                    self.error(format!("cannot move '{}' while borrowed", name), span);
+                    false
+                }
+                BorrowState::Owned => true,
+            }
+            None => true,
+        };
+        if ok {
+            if let Some(info) = self.find_var_mut(name) {
+                info.state = BorrowState::Moved;
+            }
+        }
+    }
+
+    pub fn check_program(&mut self, program: &Program) -> Result<(), Vec<BorrowError>> {
+        for item in &program.items {
+            self.check_top_decl(item);
+        }
+        if self.errors.is_empty() {
+            Ok(())
+        } else {
+            Err(std::mem::take(&mut self.errors))
+        }
+    }
+
+    fn check_top_decl(&mut self, item: &TopDecl) {
+        match item {
+            TopDecl::Fn(fd) => {
+                if fd.body.is_some() {
+                    self.check_fn_decl(fd);
+                }
+            }
+            TopDecl::Module(md) => {
+                for item in &md.items {
+                    self.check_top_decl(item);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn check_fn_decl(&mut self, fd: &FnDecl) {
+        self.push_scope();
+        for param in &fd.params {
+            self.add_local(&param.name.name, true);
+        }
+        if let Some(ref body) = fd.body {
+            self.check_block(body);
+        }
+        self.pop_scope();
+    }
+
+    fn check_block(&mut self, block: &Block) {
+        for item in &block.stmts {
+            match item {
+                StmtOrExpr::Stmt(stmt) => self.check_stmt(stmt),
+                StmtOrExpr::Expr(expr) => { self.check_expr(expr); }
+            }
+        }
+    }
+
+    fn check_stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::Let(name, _, value, _) => {
+                let _ = self.check_expr(value);
+                if let Expr::Ident(ident) = value {
+                    self.move_var(&ident.name, ident.span);
+                }
+                self.add_local(&name.name, false);
+            }
+            Stmt::Var(name, _, value, _) => {
+                let _ = self.check_expr(value);
+                if let Expr::Ident(ident) = value {
+                    self.move_var(&ident.name, ident.span);
+                }
+                self.add_local(&name.name, true);
+            }
+            Stmt::Assign(place, value, _) => {
+                let _ = self.check_expr(value);
+                if let Expr::Ident(ident) = value {
+                    self.move_var(&ident.name, ident.span);
+                }
+                self.check_expr(place);
+            }
+            Stmt::Return(expr, span) => {
+                if let Some(e) = expr {
+                    let result = self.check_expr(e);
+                    if result == ExprResult::ReadRef || result == ExprResult::WriteRef {
+                        self.error("cannot return a borrow from a function", *span);
+                    }
+                }
+            }
+            Stmt::Expr(expr, _) => {
+                self.check_expr(expr);
+            }
+            Stmt::If(cond, then_block, elifs, else_block, _) => {
+                self.check_expr(cond);
+                self.push_scope();
+                self.check_block(then_block);
+                self.pop_scope();
+                for (econd, eblock) in elifs {
+                    self.check_expr(econd);
+                    self.push_scope();
+                    self.check_block(eblock);
+                    self.pop_scope();
+                }
+                if let Some(eb) = else_block {
+                    self.push_scope();
+                    self.check_block(eb);
+                    self.pop_scope();
+                }
+            }
+            Stmt::Match(expr, arms, _) => {
+                self.check_expr(expr);
+                for arm in arms {
+                    match &arm.body {
+                        MatchBody::Block(b) => {
+                            self.push_scope();
+                            self.check_block(b);
+                            self.pop_scope();
+                        }
+                        MatchBody::Expr(e) => {
+                            self.check_expr(e);
+                        }
+                    }
+                }
+            }
+            Stmt::While(cond, body, _) => {
+                self.check_expr(cond);
+                self.push_scope();
+                self.check_block(body);
+                self.pop_scope();
+            }
+            Stmt::For(var, iter, body, _) => {
+                self.check_expr(iter);
+                self.add_local(&var.name, true);
+                self.push_scope();
+                self.check_block(body);
+                self.pop_scope();
+            }
+            Stmt::Spawn(body, _) => {
+                self.push_scope();
+                self.check_block(body);
+                self.pop_scope();
+            }
+        }
+    }
+
+    fn check_expr(&mut self, expr: &Expr) -> ExprResult {
+        match expr {
+            Expr::Ident(ident) => {
+                self.check_use(&ident.name, ident.span)
+            }
+            Expr::Int(_, _) | Expr::Float(_, _) | Expr::Str(_, _)
+                | Expr::Char(_, _) | Expr::Bool(_, _) => ExprResult::Value,
+            Expr::Paren(inner, _) => self.check_expr(inner),
+            Expr::Unary(op, inner, span) => {
+                match op {
+                    UnaryOp::Ref => {
+                        let _ = self.check_expr(inner);
+                        if let Expr::Ident(ident) = inner.as_ref() {
+                            self.read_borrow(&ident.name, *span);
+                        }
+                        ExprResult::ReadRef
+                    }
+                    UnaryOp::MutRef => {
+                        let _ = self.check_expr(inner);
+                        if let Expr::Ident(ident) = inner.as_ref() {
+                            self.write_borrow(&ident.name, *span);
+                        }
+                        ExprResult::WriteRef
+                    }
+                    _ => {
+                        self.check_expr(inner);
+                        ExprResult::Value
+                    }
+                }
+            }
+            Expr::Binary(left, _, right, _) => {
+                self.check_expr(left);
+                self.check_expr(right);
+                ExprResult::Value
+            }
+            Expr::Try(inner, _) => self.check_expr(inner),
+            Expr::Imply(a, b, _) => {
+                self.check_expr(a);
+                self.check_expr(b);
+                ExprResult::Value
+            }
+            Expr::Is(expr, _, _) => {
+                self.check_expr(expr);
+                ExprResult::Value
+            }
+            Expr::Field(obj, _, _) => {
+                self.check_expr(obj)
+            }
+            Expr::Call(func, args, span) => {
+                self.check_call(func, args, *span)
+            }
+            Expr::Index(arr, idx, _) => {
+                self.check_expr(arr);
+                self.check_expr(idx);
+                ExprResult::Value
+            }
+            Expr::AtPre(inner, _) => self.check_expr(inner),
+            Expr::Ref(inner, _) => {
+                self.check_expr(inner);
+                if let Expr::Ident(ident) = inner.as_ref() {
+                    self.read_borrow(&ident.name, expr.span());
+                }
+                ExprResult::ReadRef
+            }
+            Expr::MutRef(inner, _) => {
+                self.check_expr(inner);
+                if let Expr::Ident(ident) = inner.as_ref() {
+                    self.write_borrow(&ident.name, expr.span());
+                }
+                ExprResult::WriteRef
+            }
+            Expr::Some(inner, _) => {
+                self.check_expr(inner);
+                ExprResult::Value
+            }
+            Expr::None(_) => ExprResult::Value,
+            Expr::Ok(inner, _) => {
+                self.check_expr(inner);
+                ExprResult::Value
+            }
+            Expr::Err(inner, _) => {
+                self.check_expr(inner);
+                ExprResult::Value
+            }
+            Expr::Struct(_, fields, span) => {
+                for (_, val) in fields {
+                    let result = self.check_expr(val);
+                    if result == ExprResult::ReadRef || result == ExprResult::WriteRef {
+                        self.error("cannot store borrow in struct", *span);
+                    }
+                }
+                ExprResult::Value
+            }
+            Expr::Array(items, _) => {
+                for item in items {
+                    self.check_expr(item);
+                }
+                ExprResult::Value
+            }
+            Expr::Closure(_, _, _) | Expr::PipeClosure(_, _, _) => ExprResult::Value,
+            Expr::Await(inner, _) => self.check_expr(inner),
+            Expr::Comptime(inner, _) => self.check_expr(inner),
+        }
+    }
+
+    fn check_call(&mut self, callee: &Expr, args: &[Expr], span: Span) -> ExprResult {
+        // Special case: x.clone()
+        if let Expr::Field(obj, method, _) = callee {
+            if method.name == "clone" && args.is_empty() {
+                self.check_expr(obj);
+                // clone() read-borrows self and returns a fresh owned copy
+                if let Expr::Ident(ident) = obj.as_ref() {
+                    self.read_borrow(&ident.name, span);
+                    self.release_borrow(&ident.name, BorrowType::Read);
+                }
+                return ExprResult::Value;
+            }
+        }
+
+        // Push scope for temporary borrows from arguments
+        self.push_scope();
+
+        self.check_expr(callee);
+
+        for arg in args {
+            // Check the argument expression
+            let arg_result = self.check_expr(arg);
+            // If it's a bare identifier (not wrapped in & or &mut), move ownership
+            if let Expr::Ident(ident) = arg {
+                // Only move if the arg was not wrapped in a borrow operator
+                if arg_result != ExprResult::ReadRef && arg_result != ExprResult::WriteRef {
+                    // Re-check: did check_expr already change state?
+                    // check_expr for Ident only checks use, doesn't move
+                    self.move_var(&ident.name, ident.span);
+                }
+            }
+        }
+
+        self.pop_scope();
+
+        ExprResult::Value
+    }
+
+    #[allow(dead_code)]
+    fn release_borrows_for(&mut self, name: &str) {
+        let to_release: Vec<(String, BorrowType)> = self.borrow_stack.iter()
+            .flat_map(|scope| scope.iter())
+            .filter(|b| b.var_name == name)
+            .map(|b| (b.var_name.clone(), b.borrow_type))
+            .collect();
+        for (n, ty) in to_release {
+            self.release_borrow(&n, ty);
+        }
+        for borrows in self.borrow_stack.iter_mut() {
+            borrows.retain(|b| b.var_name != name);
+        }
+    }
+}
+
+impl Default for BorrowChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -759,6 +1627,287 @@ mod tests {
     #[test]
     fn test_multiple_functions() {
         let result = check("fn square(x: Int) -> Int { return x * x; } fn sum_squares(a: Int, b: Int) -> Int { return square(a) + square(b); }");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    // ========================================================================
+    // Borrow Checker Tests
+    // ========================================================================
+
+    fn check_borrow(source: &str) -> Result<(), Vec<BorrowError>> {
+        let tokens = Lexer::new(source).tokenize();
+        let program = Parser::new(tokens).parse_program();
+        match program {
+            Ok(p) => BorrowChecker::new().check_program(&p),
+            Err(e) => Err(vec![BorrowError {
+                message: format!("parse error: {e}"),
+                span: e.span,
+            }]),
+        }
+    }
+
+    #[test]
+    fn test_use_after_move() {
+        let result = check_borrow("fn main() { var x = 42; var y = x; let z = x; }");
+        assert!(result.is_err(), "expected use-after-move error");
+        let errs = result.err().unwrap();
+        assert!(errs.iter().any(|e| e.message.contains("use of moved value")));
+    }
+
+    #[test]
+    fn test_double_mut_borrow() {
+        let result = check_borrow("fn main() { var x = 42; var r1 = &mut x; var r2 = &mut x; }");
+        assert!(result.is_err(), "expected double mutable borrow error");
+        let errs = result.err().unwrap();
+        assert!(errs.iter().any(|e| e.message.contains("cannot borrow") && e.message.contains("more than once")));
+    }
+
+    #[test]
+    fn test_read_while_mut_borrowed() {
+        let result = check_borrow("fn main() { var x = 42; let r1 = &mut x; let r2 = &x; }");
+        assert!(result.is_err(), "expected read while mut borrowed error");
+        let errs = result.err().unwrap();
+        assert!(errs.iter().any(|e| e.message.contains("immutable while mutably borrowed")));
+    }
+
+    #[test]
+    fn test_move_while_borrowed() {
+        let result = check_borrow("fn main() { var x = 42; let r = &x; var y = x; }");
+        assert!(result.is_err(), "expected move while borrowed error");
+        let errs = result.err().unwrap();
+        assert!(errs.iter().any(|e| e.message.contains("cannot move") && e.message.contains("while borrowed")));
+    }
+
+    #[test]
+    fn test_let_immutable_no_mut_borrow() {
+        let result = check_borrow("fn main() { let x = 42; let r = &mut x; }");
+        assert!(result.is_err(), "expected cannot borrow immutable as mutable error");
+        let errs = result.err().unwrap();
+        assert!(errs.iter().any(|e| e.message.contains("immutable local")));
+    }
+
+    #[test]
+    fn test_var_mutable_allows_mut_borrow() {
+        let result = check_borrow("fn main() { var x = 42; let r = &mut x; }");
+        assert!(result.is_ok(), "var binding should allow mutable borrow: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_clone_restores_ownership() {
+        let result = check_borrow("fn main() { var x = 42; let y = x.clone(); let z = x.clone(); }");
+        assert!(result.is_ok(), "clone should restore ownership: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_borrow_return_rejected() {
+        let result = check_borrow("fn main(x: Int) -> &Int { return &x; }");
+        assert!(result.is_err(), "expected borrow return error");
+        let errs = result.err().unwrap();
+        assert!(errs.iter().any(|e| e.message.contains("cannot return a borrow")));
+    }
+
+    #[test]
+    fn test_borrow_expires_at_scope_end() {
+        let result = check_borrow("fn main() -> Int { var x = 42; if true { let r = &x; } return x; }");
+        assert!(result.is_ok(), "borrow should expire at scope end: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_function_call_moves() {
+        let result = check_borrow("fn foo(x: Int) -> Int { return x; } fn main() { var a = 42; foo(a); let b = a; }");
+        assert!(result.is_err(), "expected use-after-move after function call");
+        let errs = result.err().unwrap();
+        assert!(errs.iter().any(|e| e.message.contains("use of moved value")));
+    }
+
+    #[test]
+    fn test_read_borrow_allows_multiple() {
+        let result = check_borrow("fn main() { var x = 42; let r1 = &x; let r2 = &x; let r3 = &x; }");
+        assert!(result.is_ok(), "multiple read borrows should be allowed: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_borrow_in_struct_rejected() {
+        let result = check_borrow("type Foo = { a: Int; } fn main() { var x = 42; let f = Foo{ a: &x }; }");
+        assert!(result.is_err(), "expected cannot store borrow in struct error");
+        let errs = result.err().unwrap();
+        assert!(errs.iter().any(|e| e.message.contains("cannot store borrow in struct")));
+    }
+
+    #[test]
+    fn test_mut_borrow_read_after_release() {
+        let result = check_borrow("fn main() -> Int { var x = 42; if true { let r = &mut x; } return x; }");
+        assert!(result.is_ok(), "read after mut borrow released should be ok: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_borrow_with_function_args_ref() {
+        let result = check_borrow("fn foo(x: &Int) -> Int { return 1; } fn main() -> Int { var a = 42; foo(&a); return a; }");
+        assert!(result.is_ok(), "passing &x should not move x: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_option_type() {
+        let result = check("fn test() -> Option[Int] { return Some(42); }");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_result_type_ok() {
+        let result = check("fn test() -> Result[Int, Str] { return Ok(42); }");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_result_type_err() {
+        let result = check("fn test() -> Result[Int, Str] { return Err(\"fail\"); }");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_match_option() {
+        let result = check("fn test(x: Option[Int]) -> Int { match x { Some(v) => 1, None => 0, } }");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_match_result() {
+        let result = check("fn test(r: Result[Int, Str]) -> Int { match r { Ok(v) => 1, Err(e) => -1, } }");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_contract_function() {
+        let result = check("fn div(a: Float64, b: Float64) -> Float64 requires: b != 0.0 { return a / b; }");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_type_with_invariant() {
+        let result = check("type Positive = { val: Int; invariant: val > 0; } fn main() -> Int { return 0; }");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_type_with_derive() {
+        let result = check("type Point = { x: Float64; y: Float64; } derive[Eq, Clone] fn main() -> Int { return 0; }");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_while_loop() {
+        let result = check("fn test() -> Int { var i = 0; while i < 10 { i = i + 1; } return i; }");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_field_assignment() {
+        let result = check("type Point = { x: Float64; y: Float64; } fn test(p: Point) -> Point { p.x = 5.0; return p; }");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    // ========================================================================
+    // Module System Tests
+    // ========================================================================
+
+    #[test]
+    fn test_module_basic() {
+        let result = check("\
+module math {
+    pub fn add(a: Int, b: Int) -> Int { return a + b; }
+}
+fn main() -> Int { return math.add(1, 2); }
+");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_module_use_single() {
+        let result = check("\
+module math {
+    pub fn add(a: Int, b: Int) -> Int { return a + b; }
+}
+use math.add;
+fn main() -> Int { return add(1, 2); }
+");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_module_use_alias() {
+        let result = check("\
+module math {
+    pub fn add(a: Int, b: Int) -> Int { return a + b; }
+}
+use math.add as plus;
+fn main() -> Int { return plus(1, 2); }
+");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_module_use_glob() {
+        let result = check("\
+module math {
+    pub fn add(a: Int, b: Int) -> Int { return a + b; }
+    pub fn sub(a: Int, b: Int) -> Int { return a - b; }
+}
+use math.*;
+fn main() -> Int { return add(1, 2); }
+");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_module_private_access_rejected() {
+        let result = check("\
+module math {
+    fn secret(a: Int) -> Int { return a; }
+}
+fn main() -> Int { return math.secret(1); }
+");
+        assert!(result.is_err(), "expected private access error: {:?}", result.ok());
+    }
+
+    #[test]
+    fn test_module_nested() {
+        let result = check("\
+module outer {
+    module inner {
+        pub fn val() -> Int { return 42; }
+    }
+}
+fn main() -> Int { return outer.inner.val(); }
+");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_method_call_basic() {
+        let result = check("\
+type Point = { x: Int; y: Int; }
+fn Point.twice(val: Int) -> Int { return val * 2; }
+fn main() -> Int {
+    let p = Point{ x: 1, y: 2 };
+    return p.twice(5);
+}
+");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_method_call_mut() {
+        let result = check("\
+type Counter = { val: Int; }
+fn Counter.add(c: Counter, amount: Int) -> Counter {
+    return Counter{ val: c.val + amount };
+}
+fn main() -> Int {
+    var c = Counter{ val: 0 };
+    let c2 = c.add(5);
+    return c2.val;
+}
+");
         assert!(result.is_ok(), "{:?}", result.err());
     }
 }

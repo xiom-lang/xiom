@@ -1,0 +1,18 @@
+// Phase 1: Derive Code Generation
+
+type Point = {
+  x: Float64;
+  y: Float64;
+} derive[Eq, Clone, Display]
+
+type Color = {
+  r: Int;
+  g: Int;
+  b: Int;
+} derive[Eq, Clone, Hash, Ord]
+
+fn main() -> Int {
+  let p = Point{ x: 1.0, y: 2.0 };
+  let c = Color{ r: 255, g: 128, b: 64 };
+  return 0;
+}

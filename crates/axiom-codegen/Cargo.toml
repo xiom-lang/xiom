@@ -5,3 +5,7 @@ edition = "2024"
 
 [dependencies]
 axiom-ast = { path = "../axiom-ast" }
+
+[dev-dependencies]
+axiom-lexer = { path = "../axiom-lexer" }
+axiom-parser = { path = "../axiom-parser" }
