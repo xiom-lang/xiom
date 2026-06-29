@@ -1,7 +1,11 @@
 //! AXIOM Compiler CLI — Phase 0
-//! Usage: axiomc <source.ax>
-//!        axiomc --emit-ir <source.ax>    (print LLVM IR)
-//!        axiomc -o <output> <source.ax>  (compile via llc)
+//! Usage:
+//!   axiomc <source.ax>                         print LLVM IR to stdout
+//!   axiomc --emit-ir <source.ax>               print LLVM IR to stdout
+//!   axiomc -o <output> <source.ax>             compile to native binary
+//!   axiomc --target wasm <source.ax>           compile to WASM
+//!   axiomc --target wasm -o out.wasm <src.ax>  compile to WASM with name
+//!   axiomc --run <source.ax>                   compile and run, print exit code
 
 use std::env;
 use std::fs;
@@ -15,46 +19,41 @@ use axiom_codegen::IrEmitter;
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("AXIOM Compiler v0.1 — Phase 0");
-        eprintln!("Usage:");
-        eprintln!("  axiomc <source.ax>                    print LLVM IR to stdout");
-        eprintln!("  axiomc --emit-ir <source.ax>          print LLVM IR to stdout");
-        eprintln!("  axiomc -o <output> <source.ax>        compile to native binary");
-        eprintln!("  axiomc --target wasm <source.ax>     compile to WASM");
+        print_usage();
         process::exit(1);
     }
 
-    // Parse flags
     let emit_ir = args.iter().any(|a| a == "--emit-ir");
-    let target_wasm = args.iter().any(|a| a == "--target" && args.iter().position(|x| x == a).map_or(false, |i| args.get(i + 1).map_or(false, |v| v == "wasm")));
+    let do_run = args.iter().any(|a| a == "--run");
+    let target_wasm = parse_flag_value(&args, "--target")
+        .map(|v| v == "wasm")
+        .unwrap_or(false);
 
-    let mut output_file = None;
-    if let Some(pos) = args.iter().position(|a| a == "-o") {
-        if let Some(out) = args.get(pos + 1) {
-            output_file = Some(out.clone());
-        }
-    }
+    let mut output_file = parse_flag_value(&args, "-o");
 
-    // Find the source file (last positional arg)
+    // Find the source file — last arg that doesn't start with -
     let source_path = args.iter().rev()
-        .find(|a| !a.starts_with("--") && !a.starts_with('-'))
-        .expect("no source file provided");
+        .find(|a| !a.starts_with('-'))
+        .unwrap_or_else(|| {
+            // Also skip flag values like "wasm"
+            eprintln!("error: no source file provided");
+            process::exit(1);
+        });
 
-    if source_path == "wasm" || source_path.starts_with('-') {
+    if source_path.starts_with('-') || source_path == "wasm" {
         eprintln!("error: no source file provided");
         process::exit(1);
     }
 
-    // Read source
+    // ── Stage 1: Lex ──────────────────────────────────────
     let source = match fs::read_to_string(source_path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("error: cannot read '{}': {}", source_path, e);
+            eprintln!("error: cannot read '{source_path}': {e}");
             process::exit(1);
         }
     };
 
-    // ── Stage 1: Lex ──────────────────────────────────────────
     let mut lexer = Lexer::new(&source);
     let tokens = lexer.tokenize();
 
@@ -64,32 +63,32 @@ fn main() {
     if !lex_errors.is_empty() {
         for tok in &lex_errors {
             if let axiom_lexer::TokenKind::Error(ref msg) = tok.kind {
-                eprintln!("error[L001]: {} at {}:{}", msg, tok.span.line, tok.span.col);
+                eprintln!("error[L001]: {msg} at {l}:{c}", l = tok.span.line, c = tok.span.col);
             }
         }
         process::exit(1);
     }
 
-    // ── Stage 2: Parse ─────────────────────────────────────────
+    // ── Stage 2: Parse ────────────────────────────────────
     let mut parser = Parser::new(tokens);
     let program = match parser.parse_program() {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("error[P001]: {}:{}: {}", e.span.line, e.span.col, e.message);
+            eprintln!("error[P001]: {l}:{c}: {m}", l = e.span.line, c = e.span.col, m = e.message);
             process::exit(1);
         }
     };
 
-    // ── Stage 3: Type Check ────────────────────────────────────
+    // ── Stage 3: Type Check ───────────────────────────────
     let mut checker = Checker::new();
     if let Err(errors) = checker.check_program(&program) {
         for err in &errors {
-            eprintln!("error[T{:03}]: {}:{}: {}", 1, err.span.line, err.span.col, err.message);
+            eprintln!("error[T001]: {l}:{c}: {m}", l = err.span.line, c = err.span.col, m = err.message);
         }
         process::exit(1);
     }
 
-    // ── Stage 4: Codegen ───────────────────────────────────────
+    // ── Stage 4: Codegen ──────────────────────────────────
     let mut emitter = IrEmitter::new();
     let llvm_ir = match emitter.compile_program(&program) {
         Ok(ir) => ir,
@@ -99,74 +98,111 @@ fn main() {
         }
     };
 
-    if emit_ir || output_file.is_none() {
-        // Print IR to stdout
+    // Just emit IR?
+    if emit_ir || (output_file.is_none() && !do_run && !target_wasm) {
         println!("{llvm_ir}");
         return;
     }
 
-    // ── Stage 5: Compile to binary via llc + clang ──────────────
-    let output = output_file.as_deref().unwrap_or("a.out");
+    // ── Stage 5: Compile to binary via clang ──────────────
+    let default_output = if target_wasm { "a.wasm" } else { "a.exe" };
+    let output = output_file.as_deref().unwrap_or(default_output);
 
-    // Write IR to temp file
+    // Write IR to temp .ll file
     let ir_path = format!("{output}.ll");
     if let Err(e) = fs::write(&ir_path, &llvm_ir) {
         eprintln!("error: cannot write IR file: {e}");
         process::exit(1);
     }
 
-    // Run llc to produce object file
-    let obj_path = format!("{output}.o");
-    let llc_target = if target_wasm { "wasm32-unknown-unknown" } else { "x86_64-pc-windows-msvc" };
+    let clang = find_tool("clang", &[
+        "C:\\Program Files\\LLVM\\bin\\clang.exe",
+    ]);
 
-    let llc_status = Command::new("llc")
-        .args(["-filetype=obj", &format!("-mtriple={llc_target}"), "-o", &obj_path, &ir_path])
-        .status();
-
-    match llc_status {
-        Ok(s) if s.success() => {
+    match clang {
+        Some(clang_path) => {
+            let mut cmd = Command::new(&clang_path);
             if target_wasm {
-                // Rename .o to .wasm
-                let wasm_path = format!("{output}.wasm");
-                let _ = fs::rename(&obj_path, &wasm_path);
-                eprintln!("compiled: {wasm_path}");
+                cmd.args(["--target=wasm32-unknown-unknown", "-nostdlib", "-Wl,--no-entry", "-Wl,--export-all"]);
+            }
+            cmd.args(["-o", output, &ir_path]);
+
+            let status = cmd.status();
+            match status {
+                Ok(s) if s.success() => {
+                    let _ = fs::remove_file(&ir_path);
+                    eprintln!("  compiled: {output}");
+
+                    if do_run && !target_wasm {
+                        let exe = if output.contains('\\') || output.contains('/') {
+                            output.to_string()
+                        } else {
+                            format!(".\\{output}")
+                        };
+                        let run_status = Command::new(&exe).status();
+                        match run_status {
+                            Ok(s) => eprintln!("  exit code: {}", s.code().unwrap_or(-1)),
+                            Err(e) => {
+                                eprintln!("error: cannot run '{exe}': {e}");
+                                process::exit(1);
+                            }
+                        }
+                    }
+
+                    if target_wasm {
+                        // Verify WASM by checking file size
+                        if let Ok(meta) = fs::metadata(output) {
+                            eprintln!("  wasm size: {} bytes", meta.len());
+                        }
+                    }
+                }
+                Ok(s) => {
+                    eprintln!("error: clang failed with exit code {}", s.code().unwrap_or(-1));
+                    process::exit(1);
+                }
+                Err(e) => {
+                    eprintln!("error: cannot run clang: {e}");
+                    eprintln!("note: LLVM IR written to {ir_path}");
+                    process::exit(1);
+                }
             }
         }
-        Ok(s) => {
-            eprintln!("error: llc failed with exit code {}", s.code().unwrap_or(-1));
-            let _ = fs::remove_file(&ir_path);
-            process::exit(1);
-        }
-        Err(e) => {
-            eprintln!("error: cannot run llc (LLVM not installed or not in PATH): {e}");
-            eprintln!("note: LLVM IR written to {ir_path} — compile manually with: llc {ir_path}");
+        None => {
+            eprintln!("note: clang not found — LLVM IR written to {ir_path}");
+            if target_wasm {
+                eprintln!("  compile manually: clang --target=wasm32 -nostdlib -Wl,--no-entry -Wl,--export-all -o {output} {ir_path}");
+            } else {
+                eprintln!("  compile manually: clang -o {output} {ir_path}");
+            }
             process::exit(1);
         }
     }
+}
 
-    if !target_wasm {
-        // Link with clang to produce executable
-        let clang_status = Command::new("clang")
-            .args(["-o", output, &obj_path])
-            .status();
+fn print_usage() {
+    eprintln!("AXIOM Compiler v0.1 — Phase 0");
+    eprintln!("Usage:");
+    eprintln!("  axiomc <source.ax>                             print LLVM IR");
+    eprintln!("  axiomc --emit-ir <source.ax>                   print LLVM IR");
+    eprintln!("  axiomc -o <output> <source.ax>                 compile to native");
+    eprintln!("  axiomc --run <source.ax>                       compile + run");
+    eprintln!("  axiomc --target wasm <source.ax>               compile to WASM");
+    eprintln!("  axiomc --target wasm -o out.wasm <source.ax>   compile to WASM");
+}
 
-        match clang_status {
-            Ok(s) if s.success() => {
-                eprintln!("compiled: {output}");
-                // Clean up temp files
-                let _ = fs::remove_file(&ir_path);
-                let _ = fs::remove_file(&obj_path);
-            }
-            Ok(s) => {
-                eprintln!("error: clang linking failed with exit code {}", s.code().unwrap_or(-1));
-                eprintln!("note: object file at {obj_path}");
-                process::exit(1);
-            }
-            Err(e) => {
-                eprintln!("error: cannot run clang (not in PATH): {e}");
-                eprintln!("note: object file at {obj_path} — link manually");
-                process::exit(1);
-            }
+fn parse_flag_value(args: &[String], flag: &str) -> Option<String> {
+    let pos = args.iter().position(|a| a == flag)?;
+    args.get(pos + 1).cloned()
+}
+
+fn find_tool(name: &str, extra_paths: &[&str]) -> Option<String> {
+    for path in extra_paths {
+        if std::path::Path::new(path).exists() {
+            return Some(path.to_string());
         }
     }
+    if Command::new(name).arg("--version").output().is_ok() {
+        return Some(name.to_string());
+    }
+    None
 }
