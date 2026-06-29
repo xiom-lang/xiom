@@ -64,7 +64,7 @@ fn main() {
         .collect();
     if !lex_errors.is_empty() {
         for tok in &lex_errors {
-            if let axiom_lexer::TokenKind::Error(ref msg) = tok.kind {
+            if let axiom_lexer::TokenKind::Error(msg) = &tok.kind {
                 eprintln!("error[L001]: {msg} at {l}:{c}", l = tok.span.line, c = tok.span.col);
             }
         }

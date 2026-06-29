@@ -157,6 +157,7 @@ pub struct Checker {
 pub struct FnSig {
     pub params: Vec<(String, CheckedType)>,
     pub return_type: Option<CheckedType>,
+    pub generics: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -291,16 +292,17 @@ impl Checker {
                     (p.name.name.clone(), CheckedType::from_ast_type(&p.ty))
                 }).collect();
                 let return_type = fd.return_type.as_ref().map(|t| CheckedType::from_ast_type(t));
-                let key = if let Some(ref recv) = fd.receiver {
+                let key = if let Some(recv) = fd.receiver.as_ref() {
                     format!("{}.{}", recv.name, fd.name.name)
                 } else {
                     fd.name.name.clone()
                 };
-                let sig = FnSig { params, return_type };
+                let generics = fd.generics.iter().map(|g| g.name.name.clone()).collect();
+                let sig = FnSig { params, return_type, generics };
                 self.functions.insert(key.clone(), sig.clone());
                 self.visibility.insert(fd.name.name.clone(), fd.is_pub);
                 // Track methods separately
-                if let Some(ref recv) = fd.receiver {
+                if let Some(recv) = fd.receiver.as_ref() {
                     self.methods
                         .entry(recv.name.clone())
                         .or_default()
@@ -591,7 +593,7 @@ impl Checker {
         self.current_return = expected_return.clone();
 
         // Check body
-        if let Some(ref body) = fd.body {
+        if let Some(body) = fd.body.as_ref() {
             self.check_block(body, expected_return);
         }
 
@@ -672,7 +674,7 @@ impl Checker {
             }
             Stmt::Return(expr, span) => {
                 let ret_ty = expr.as_ref().map(|e| self.check_expr(e)).unwrap_or(CheckedType::Unit);
-                if let Some(ref expected) = self.current_return {
+                if let Some(expected) = self.current_return.as_ref() {
                     if !self.types_compatible(&ret_ty, expected) && ret_ty != CheckedType::Error {
                         self.error(
                             format!("return type mismatch: expected {}, found {}", expected.name(), ret_ty.name()),
@@ -878,13 +880,26 @@ impl Checker {
                     return CheckedType::Error;
                 }
                 // Look up the function by name if it's a simple identifier
-                if let Expr::Ident(ref name) = **func {
+                if let Expr::Ident(name) = func.as_ref() {
                     if let Some(sig) = self.functions.get(&name.name).cloned() {
+                        // Build generic substitution map from the call arguments
+                        let mut subst: HashMap<String, CheckedType> = HashMap::new();
+                        if !sig.generics.is_empty() {
+                            for (i, arg) in args.iter().enumerate() {
+                                if i < sig.params.len() {
+                                    let pname = &sig.params[i].1.name();
+                                    if sig.generics.iter().any(|g| g == pname) {
+                                        subst.insert(pname.clone(), self.check_expr(arg));
+                                    }
+                                }
+                            }
+                        }
                         for (i, arg) in args.iter().enumerate() {
                             let arg_ty = self.check_expr(arg);
                             if i < sig.params.len() {
                                 let expected = &sig.params[i].1;
-                                if !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
+                                let is_generic = sig.generics.iter().any(|g| g == &expected.name());
+                                if !is_generic && !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
                                     self.error(
                                         format!("argument {} type mismatch: expected {}, found {}",
                                             i + 1, expected.name(), arg_ty.name()),
@@ -893,16 +908,38 @@ impl Checker {
                                 }
                             }
                         }
-                        return sig.return_type.unwrap_or(CheckedType::Unit);
+                        let ret_ty = sig.return_type.unwrap_or(CheckedType::Unit);
+                        if sig.generics.is_empty() {
+                            return ret_ty;
+                        }
+                        // Substitute generic return type with the concrete arg type
+                        let ret_name = ret_ty.name();
+                        if let Some(concrete) = subst.get(&ret_name) {
+                            return concrete.clone();
+                        }
+                        return ret_ty;
                     }
                     // Also check imported items for function aliases
                     if let Some(export) = self.imported_items.get(&name.name).cloned() {
                         if let ModuleExport::Function { sig, .. } = export {
+                            // Build generic substitution map from the call arguments
+                            let mut subst: HashMap<String, CheckedType> = HashMap::new();
+                            if !sig.generics.is_empty() {
+                                for (i, arg) in args.iter().enumerate() {
+                                    if i < sig.params.len() {
+                                        let pname = &sig.params[i].1.name();
+                                        if sig.generics.iter().any(|g| g == pname) {
+                                            subst.insert(pname.clone(), self.check_expr(arg));
+                                        }
+                                    }
+                                }
+                            }
                             for (i, arg) in args.iter().enumerate() {
                                 let arg_ty = self.check_expr(arg);
                                 if i < sig.params.len() {
                                     let expected = &sig.params[i].1;
-                                    if !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
+                                    let is_generic = sig.generics.iter().any(|g| g == &expected.name());
+                                    if !is_generic && !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
                                         self.error(
                                             format!("argument {} type mismatch: expected {}, found {}",
                                                 i + 1, expected.name(), arg_ty.name()),
@@ -911,7 +948,16 @@ impl Checker {
                                     }
                                 }
                             }
-                            return sig.return_type.unwrap_or(CheckedType::Unit);
+                            let ret_ty = sig.return_type.unwrap_or(CheckedType::Unit);
+                            if sig.generics.is_empty() {
+                                return ret_ty;
+                            }
+                            // Substitute generic return type with the concrete arg type
+                            let ret_name = ret_ty.name();
+                            if let Some(concrete) = subst.get(&ret_name) {
+                                return concrete.clone();
+                            }
+                            return ret_ty;
                         }
                     }
                 }
@@ -1281,7 +1327,7 @@ impl BorrowChecker {
         for param in &fd.params {
             self.add_local(&param.name.name, true);
         }
-        if let Some(ref body) = fd.body {
+        if let Some(body) = fd.body.as_ref() {
             self.check_block(body);
         }
         self.pop_scope();

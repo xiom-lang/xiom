@@ -1,4 +1,4 @@
-// Phase 1: Module System
+// Phase 1: Module System Demo
 
 module math {
   pub fn add(a: Int, b: Int) -> Int {
@@ -10,6 +10,8 @@ module math {
   }
 }
 
+use math.add;
+
 fn main() -> Int {
-  return math.add(10, 20);
+  return add(10, 20);
 }

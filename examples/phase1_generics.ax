@@ -1,7 +1,9 @@
-// Phase 1: Generics Monomorphisation
+// Phase 1: Generics Monomorphisation Demo
+
+fn wrap[T](x: T) -> T {
+  return x;
+}
 
 fn main() -> Int {
-  let a = 42;
-  let b = 100;
-  return a + b;
+  return wrap(42);
 }

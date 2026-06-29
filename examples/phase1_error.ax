@@ -1,4 +1,4 @@
-// Phase 1: Error Handling
+// Phase 1: Error Handling Demo
 
 fn safe_divide(a: Float64, b: Float64) -> Result[Float64, Str] {
   if b == 0.0 {
