@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/axiom-lexer",
+    "crates/axiom-ast",
+    "crates/axiom-parser",
+    "crates/axiom-check",
+    "crates/axiom-codegen",
+    "crates/axiomc",
+]
