@@ -1,28 +1,29 @@
 # AXIOM
 
-**A compiled, contract-first, AI-native systems language targeting WASM + Vulkan + LLVM**
+**A compiled, contract-first systems language targeting LLVM + WASM**
 
 ---
 
 ## Vision
 
-AXIOM is a systems programming language designed around three core beliefs that no existing language fully satisfies simultaneously:
+AXIOM is a systems programming language designed around three properties no existing language provides simultaneously:
 
-| SAFE | Memory safety without a garbage collector. Ownership is explicit and verified at compile time. |
-| VERIFIED | Contracts are first-class language constructs, not documentation. The compiler enforces them. |
-| AI-NATIVE | Unambiguous grammar, dense semantics, and self-describing contracts minimize token cost for AI-generated code. |
+| SAFE | Memory safety without a garbage collector. Ownership with lexical scope borrowing — no lifetime annotations. |
+| VERIFIED | Contracts are first-class language constructs enforced by the compiler, not documentation conventions. |
+| PRECISE | One way to write each thing. No implicit coercions, no hidden allocations, no surprising control flow. |
 
-AXIOM compiles via LLVM to native code, WASM, and GPU-adjacent targets via Vulkan bindings. It is self-hostable — the compiler is written in AXIOM once the language is stable enough to bootstrap.
+AXIOM compiles to native code via LLVM and to WebAssembly as a co-equal target. The language is designed for a world where code is increasingly written by AI and maintained by people who did not write the original. Contracts are machine-readable intent — when AI generates code, the compiler verifies it against stated expectations before it ever runs.
 
 ## Design Principles
 
-- **Unambiguous Grammar** — Every construct has exactly one canonical form. No style debates. The grammar is deterministic and parseable without context.
-- **Explicit Over Implicit** — No hidden constructors, no operator overloading surprises, no implicit type coercions. What you read is exactly what runs.
-- **Contracts As First-Class Citizens** — Pre-conditions, post-conditions, and invariants are part of the function signature. The compiler verifies them statically where possible.
-- **No Nulls** — Absence is expressed via `Option[T]`. The compiler enforces handling of the absent case everywhere.
-- **Errors Are Values** — No exceptions. Functions that can fail return `Result[T, E]`. Error handling is explicit at the call site.
-- **Structural Typing** — Types are compatible by shape, not by declared hierarchy. No `implements` keyword needed.
-- **Comptime Metaprogramming** — Code that runs at compile time flows through a single `comptime` mechanism. No preprocessor, no macros, no templates.
+- **One Way** — Every construct has exactly one canonical form. `axiom fmt` enforces it.
+- **Explicit Over Implicit** — No hidden constructors, no implicit type coercions, no silent allocations. What you read is what runs.
+- **Contracts As Specification** — `requires`, `ensures`, and `invariant` are part of the function signature. The compiler enforces them at minimum via runtime guards with precise error messages.
+- **No Null** — Absence is `Option[T]`. Exhaustive handling enforced at every use site.
+- **Errors Are Values** — No exceptions. `Result[T, E]` with `?` propagation. Unhandled error paths are compile errors.
+- **Structural Typing** — Types satisfy interfaces by shape. No `implements` keyword.
+- **Derive** — Compiler generates `Eq`, `Clone`, `Display`, `Hash`, `Ord` implementations. Correct by construction, zero boilerplate.
+- **Comptime** — A single mechanism for generics, reflection, and compile-time code generation. No macros, no templates.
 
 ## Quick Syntax Preview
 
@@ -31,12 +32,24 @@ AXIOM compiles via LLVM to native code, WASM, and GPU-adjacent targets via Vulka
 let x: Int = 42
 var y: Float64 = 3.14
 
+// Types with derive — compiler generates Eq, Clone, Display
+type Point = {
+  x: Float64;
+  y: Float64;
+} derive[Eq, Clone, Display]
+
 // Functions with contracts
 fn divide(a: Float64, b: Float64) -> Float64
   requires: b != 0.0
   ensures:  result * b == a
 {
   return a / b
+}
+
+// Generics with inline type constraints
+fn max[T: Comparable](a: T, b: T) -> T {
+  if a > b { return a }
+  return b
 }
 
 // Algebraic types
@@ -47,7 +60,7 @@ enum AgentState {
   Dead(cause: DamageCause)
 }
 
-// Structural interfaces (no implements keyword)
+// Structural interfaces — no implements keyword
 interface Damageable {
   health: Int
   fn takeDamage(amount: Int) -> Self
@@ -55,112 +68,92 @@ interface Damageable {
     ensures:  result.health <= self.health
 }
 
-// Error handling with Result
-fn loadFile(path: Str) -> Result[File, IOError] {
-  let f = open(path)?   // ? propagates error up
-  return Ok(f)
+// Methods use implicit self
+fn Vec3.dot(other: &Vec3) -> Float32 {
+  return x * other.x + y * other.y + z * other.z
 }
 
-// Ownership model
-fn process(data: Vec[Int]) { }          // takes ownership
-fn inspect(data: &Vec[Int]) { }         // read borrow
-fn mutate(data: &mut Vec[Int]) { }      // write borrow
+// Error handling with Result + ?
+fn loadFile(path: Str) -> Result[File, IOError] {
+  let f = open(path)?
+  return Ok(f)
+}
 ```
-
-## Target Platforms
-
-| Platform | Path |
-|----------|------|
-| **x86-64** (Windows, Linux, macOS) | AXIOM → LLVM → native |
-| **ARM64** (Apple Silicon, iOS, Android) | AXIOM → LLVM → native |
-| **RISC-V** (Embedded) | AXIOM → LLVM → native |
-| **WASM** (Browsers, Node.js, Edge, WASI) | AXIOM → LLVM → WASM32 |
-| **GPU** (Vulkan, Metal via MoltenVK, DX12 via VKD3D) | AXIOM → Vulkan bindings |
-| **Console** (PS5, Xbox Series) | AXIOM → LLVM + platform SDK |
-
-## Build Roadmap
-
-### Phase 0 — Foundation (Months 1–6)
-Compiler written in Rust. Targets a minimal AXIOM subset.
-- Lexer, Parser → AST
-- Basic type checker (primitives, structs, functions)
-- LLVM IR output → Hello World on native and WASM
-
-### Phase 1 — Core Language (Months 6–14)
-Full language minus advanced contracts. Compiled by Phase 0.
-- Full type system: generics, enums, interfaces
-- Ownership model (borrow checker lite)
-- Basic contracts (requires/ensures, runtime checks)
-- Error handling (Result, ? operator)
-- Async/await and channels
-- C FFI layer
-- Basic stdlib
-
-### Phase 2 — Self-Hosting (Months 14–24)
-Rewrite the compiler in AXIOM. Bootstrap.
-- Rewrite lexer, parser, type checker in AXIOM
-- Compiler compiles itself
-- Retire Rust prototype
-- Static contract verification via Z3 SMT solver
-
-### Phase 3 — Ecosystem (Months 24–48)
-Production ready.
-- Vulkan GPU layer
-- Full WASM + WASI support
-- Platform SDKs: iOS, Android, consoles
-- Language server protocol (LSP)
-- Package registry
 
 ## Compiler Architecture
 
 ```
-Source → Lexer → Parser → Semantic Analysis → Contract Verifier → IR Generation → Optimizer → LLVM Backend → Binary
+Source → Lexer → Parser → Name Resolution → Type Checker → Contract Verifier → AXIOM IR → Optimizer → LLVM Backend → Binary
 ```
 
-- **Contract Verifier** — Attempts static proof of contracts using Z3 SMT solver; falls back to runtime checks where static verification is impossible.
-- **AXIOM IR** — Explicitly typed intermediate representation. Human-readable. AI can target AXIOM IR directly for performance-critical code generation.
+- **LL(1) Grammar** — Single deterministic parse path. No backtracking.
+- **AXIOM IR** — Explicitly typed, SSA-form intermediate representation. Human-readable. Platform-independent.
+- **Contract Verifier** — Phase 1: runtime guards with precise error messages. Phase 3: Z3 SMT solver for static proof.
+- **Dual Target** — Native machine code and WebAssembly from the same IR, available from Phase 0.
+
+## Build Roadmap
+
+### Phase 0 — Prototype Compiler (2–3 weeks)
+**Status: starting** — Hello World on native + WASM.
+
+- Lexer + Parser → AST (full grammar, including `derive`, inline constraints, method syntax)
+- Basic type checker (primitives, structs, enums, functions)
+- LLVM IR emission (arithmetic, control flow, function calls)
+- Test suite: 200+ parser tests, 100+ type checker tests
+- **No generics. No ownership. No contracts. Pipeline first.**
+
+### Phase 1 — Full Language (3–6 months)
+- Ownership model: lexical scope borrowing
+- Generics via comptime with inline constraints
+- Contracts as runtime guards
+- `derive` code generation
+- Standard library: core, io, collections, string, math, ffi
+- Package manager, formatter (`axiom fmt`), LSP prototype
+
+### Phase 2 — Self-Hosting (6–12 months)
+- Rewrite the compiler in AXIOM itself
+- Compiler compiles itself — bootstrap complete
+
+### Phase 3 — Ecosystem (ongoing)
+- Z3 SMT integration for static contract verification
+- Package registry, documentation generator, additional targets
+
+## AXIOM vs Existing Languages
+
+| Feature | AXIOM | Rust | Go | Zig |
+|---------|-------|------|----|-----|
+| Memory model | Ownership, lexical borrows | Full borrow checker + lifetimes | GC | Manual |
+| Contracts | First-class, compiler-enforced | Assertions only | None | None |
+| Null safety | `Option[T]` | `Option<T>` | Null exists | Null exists |
+| Error handling | `Result[T, E]` + `?` | `Result<T, E>` + `?` | Multi-return | Error unions |
+| Generics | Comptime, inline constraints | Trait bounds | Limited | comptime |
+| Interfaces | Structural | Nominal | Structural | — |
+| Derive | Compiler-generated `Eq`, `Clone`, `Display`, `Hash`, `Ord` | `#[derive(...)]` | None (manual) | None |
+| WASM target | First-class, co-equal | Supported | Limited | Supported |
+| C FFI | Zero-cost | Zero-cost | Cgo (overhead) | First-class |
+| Method receiver | Implicit `self`, inferred | Explicit `&self` | Explicit | Explicit |
+| Grammar | No ambiguity, canonical form | Some | Minimal | Minimal |
 
 ## Repository Structure
 
 ```
 AXIOM/
-├── specs/             # Language specification and design documents
-├── docs/              # Developer documentation
+├── specs/             # Language specification and design decisions
 ├── src/               # Compiler source (Rust in Phase 0, AXIOM in Phase 2+)
 ├── tests/             # Language conformance test suite
 ├── stdlib/            # Standard library (axiom.core, axiom.io, etc.)
 ├── examples/          # Example AXIOM programs
-└── tools/             # Build tooling, formatter, LSP
+└── docs/              # Developer documentation
 ```
 
 ## Getting Started
 
-> **Status: Phase 0 — Pre-prototype specification.** The language is currently in design. The compiler implementation has not yet begun.
+> **Status: Phase 0 — Language defined. Compiler implementation beginning.**
 
-To contribute or follow development:
-1. Read the full [Language Specification](specs/AXIOM_Language_Spec.md)
-2. Study [Crafting Interpreters](https://craftinginterpreters.com/) by Robert Nystrom
-3. Review the [LLVM Kaleidoscope tutorial](https://llvm.org/docs/tutorial/)
-4. Explore the [Z3 theorem prover](https://github.com/Z3Prover/z3)
-
-## AXIOM vs Today's Languages
-
-| Feature | AXIOM | Closest Alternative |
-|---------|-------|-------------------|
-| Memory Safety | Ownership-lite, no GC | Rust (borrow checker, more complex) |
-| Contracts | First-class, compiler-verified | Eiffel (not mainstream) |
-| WASM Target | Primary target | Rust (secondary), Go (limited) |
-| GPU Bindings | Vulkan stdlib | Rust via ash crate |
-| AI Code Gen | Unambiguous grammar, dense semantics | No language designed for this |
-| C Interop | Zero-cost FFI, first-class | Zig (closest) |
-| Async | Built-in, unified model | Rust (complex), Go (goroutines) |
-| Bootstrapped | Yes, in AXIOM itself | Rust, Go, Zig |
-| Learning Curve | Moderate | Easier than Rust, stricter than Go |
-
-## License
-
-*To be determined*
+1. Read the [Language Specification](specs/AXIOM_Language_Spec.md) — normative definition
+2. Read the [Build Strategy](specs/AXIOM_Build_Strategy.md) — decisions and timeline
+3. Read the [Purpose Document](specs/AXIOM_Purpose.md) — why this language exists
 
 ---
 
-**AXIOM — Language Specification v0.1** — This is a living specification. All syntax and APIs subject to revision.
+**AXIOM — Language Specification v0.3**
