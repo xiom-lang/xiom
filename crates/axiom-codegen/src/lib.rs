@@ -19,10 +19,10 @@ pub struct IrEmitter {
     block_counter: u32,
     /// Counter for unique string constants
     str_counter: u32,
-    /// Local variables: name → IR register name
-    locals: Vec<HashMap<String, String>>,
-    /// Known function signatures: name → (param_count, has_return)
-    functions: HashMap<String, (usize, bool)>,
+    /// Local variables: name → (alloca_register, llvm_type)
+    locals: Vec<HashMap<String, (String, String)>>,
+    /// Known function signatures: name → (param_llvm_types, return_llvm_type_or_empty)
+    functions: HashMap<String, (Vec<String>, String)>,
     /// Known type structures: name → field names
     types: HashMap<String, Vec<String>>,
     /// Current function name (for labels)
@@ -31,6 +31,8 @@ pub struct IrEmitter {
     current_return_type: String,
     /// String constants to emit at the top
     strings: Vec<String>,
+    /// Current function's param LLVM types (index → type)
+    current_param_llvm_types: Vec<String>,
 }
 
 impl IrEmitter {
@@ -46,6 +48,7 @@ impl IrEmitter {
             current_fn: None,
             current_return_type: String::new(),
             strings: Vec::new(),
+            current_param_llvm_types: Vec::new(),
         }
     }
 
@@ -69,23 +72,19 @@ impl IrEmitter {
         self.locals.pop();
     }
 
-    fn add_local(&mut self, name: &str, reg: String) {
+    fn add_local(&mut self, name: &str, reg: String, llvm_ty: &str) {
         if let Some(scope) = self.locals.last_mut() {
-            scope.insert(name.to_string(), reg);
+            scope.insert(name.to_string(), (reg, llvm_ty.to_string()));
         }
     }
 
-    fn lookup_local(&self, name: &str) -> Option<&String> {
+    fn lookup_local(&self, name: &str) -> Option<&(String, String)> {
         for scope in self.locals.iter().rev() {
-            if let Some(reg) = scope.get(name) {
-                return Some(reg);
+            if let Some(info) = scope.get(name) {
+                return Some(info);
             }
         }
         None
-    }
-
-    fn emit(&mut self, s: &str) {
-        self.output.push_str(s);
     }
 
     fn emitln(&mut self, s: &str) {
@@ -159,11 +158,6 @@ impl IrEmitter {
         self.emitln("declare i32 @puts(i8*)");
         self.emitln("");
 
-        // Declare all user functions
-        for item in &program.items {
-            self.declare_functions_ir(item)?;
-        }
-
         // Define all function bodies
         for item in &program.items {
             self.compile_top_decl(item)?;
@@ -188,13 +182,14 @@ impl IrEmitter {
 
     fn register_functions(&mut self, item: &TopDecl) {
         if let TopDecl::Fn(fd) = item {
-            let has_return = fd.return_type.is_some();
-            let key = if let Some(recv_name) = &fd.receiver {
-                format!("{}.{}", recv_name.name, fd.name.name)
-            } else {
-                fd.name.name.clone()
-            };
-            self.functions.insert(key, (fd.params.len(), has_return));
+            let param_types: Vec<String> = fd.params.iter()
+                .map(|p| Self::axiom_to_llvm_type(&Self::type_from_ast(&p.ty)).to_string())
+                .collect();
+            let ret_type = fd.return_type.as_ref()
+                .map(|t| Self::axiom_to_llvm_type(&Self::type_from_ast(t)).to_string())
+                .unwrap_or_else(|| "void".to_string());
+            let key = self.fn_key(fd);
+            self.functions.insert(key, (param_types, ret_type));
         }
         if let TopDecl::Module(md) = item {
             for sub in &md.items {
@@ -203,27 +198,12 @@ impl IrEmitter {
         }
     }
 
-    fn declare_functions_ir(&mut self, item: &TopDecl) -> Result<(), String> {
-        if let TopDecl::Fn(fd) = item {
-            let ret_llvm = fd.return_type.as_ref()
-                .map(|t| Self::axiom_to_llvm_type(&Self::type_from_ast(t)))
-                .unwrap_or("void");
-            let name = if let Some(recv_name) = &fd.receiver {
-                format!("{}.{}", recv_name.name, fd.name.name)
-            } else {
-                fd.name.name.clone()
-            };
-            let param_count = fd.params.len();
-            let params_str = "i64, ".repeat(param_count);
-            let params_str = params_str.trim_end_matches(", ");
-            self.emitln(&format!("declare {ret_llvm} @{name}({params_str})"));
+    fn fn_key(&self, fd: &FnDecl) -> String {
+        if let Some(recv_name) = &fd.receiver {
+            format!("{}.{}", recv_name.name, fd.name.name)
+        } else {
+            fd.name.name.clone()
         }
-        if let TopDecl::Module(md) = item {
-            for sub in &md.items {
-                self.declare_functions_ir(sub)?;
-            }
-        }
-        Ok(())
     }
 
     fn compile_top_decl(&mut self, item: &TopDecl) -> Result<(), String> {
@@ -248,12 +228,11 @@ impl IrEmitter {
             .map(|t| Self::axiom_to_llvm_type(&Self::type_from_ast(t)))
             .unwrap_or("void");
         self.current_return_type = ret_llvm.to_string();
+        self.current_param_llvm_types = fd.params.iter()
+            .map(|p| Self::axiom_to_llvm_type(&Self::type_from_ast(&p.ty)).to_string())
+            .collect();
 
-        let name = if let Some(recv_name) = &fd.receiver {
-            format!("{}.{}", recv_name.name, fd.name.name)
-        } else {
-            fd.name.name.clone()
-        };
+        let name = self.fn_key(fd);
         self.current_fn = Some(name.clone());
 
         let params_str: Vec<String> = fd.params.iter()
@@ -276,7 +255,7 @@ impl IrEmitter {
             let alloca = self.fresh_tmp();
             self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
             self.emitln(&format!("  store {llvm_ty} %param{i}, {llvm_ty}* {alloca}"));
-            self.add_local(&param.name.name, alloca);
+            self.add_local(&param.name.name, alloca, llvm_ty);
         }
 
         // Compile body
@@ -326,7 +305,7 @@ impl IrEmitter {
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
                 self.emitln(&format!("  store {llvm_ty} {val}, {llvm_ty}* {alloca}"));
-                self.add_local(&name.name, alloca);
+                self.add_local(&name.name, alloca, llvm_ty);
             }
             Stmt::Var(name, _ty, value, _) => {
                 let val = self.compile_expr(value)?;
@@ -334,13 +313,12 @@ impl IrEmitter {
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
                 self.emitln(&format!("  store {llvm_ty} {val}, {llvm_ty}* {alloca}"));
-                self.add_local(&name.name, alloca);
+                self.add_local(&name.name, alloca, llvm_ty);
             }
             Stmt::Assign(place, value, _) => {
                 let val = self.compile_expr(value)?;
                 if let Expr::Ident(ident) = place {
-                    if let Some(ptr) = self.lookup_local(&ident.name).cloned() {
-                        let llvm_ty = self.infer_llvm_type(value);
+                    if let Some((ptr, llvm_ty)) = self.lookup_local(&ident.name).cloned() {
                         self.emitln(&format!("  store {llvm_ty} {val}, {llvm_ty}* {ptr}"));
                     }
                 }
@@ -455,9 +433,9 @@ impl IrEmitter {
     fn compile_expr(&mut self, expr: &Expr) -> Result<String, String> {
         match expr {
             Expr::Ident(ident) => {
-                if let Some(ptr) = self.lookup_local(&ident.name).cloned() {
+                if let Some((ptr, llvm_ty)) = self.lookup_local(&ident.name).cloned() {
                     let tmp = self.fresh_tmp();
-                    self.emitln(&format!("  {tmp} = load i64, i64* {ptr}"));
+                    self.emitln(&format!("  {tmp} = load {llvm_ty}, {llvm_ty}* {ptr}"));
                     Ok(tmp)
                 } else {
                     Ok("0".to_string())
@@ -512,7 +490,8 @@ impl IrEmitter {
                 let l = self.compile_expr(left)?;
                 let r = self.compile_expr(right)?;
                 let tmp = self.fresh_tmp();
-                let is_float = matches!(**left, Expr::Float(..)) || matches!(**right, Expr::Float(..));
+                let is_float = matches!(**left, Expr::Float(..)) || matches!(**right, Expr::Float(..))
+                    || is_float_local(left, &self.locals);
                 let (ty, inst) = match op {
                     BinOp::Add => (if is_float { "double" } else { "i64" }, if is_float { "fadd" } else { "add" }),
                     BinOp::Sub => (if is_float { "double" } else { "i64" }, if is_float { "fsub" } else { "sub" }),
@@ -554,7 +533,6 @@ impl IrEmitter {
                         .map(|a| self.compile_expr(a))
                         .collect::<Result<Vec<_>, _>>()?;
                     if name.name == "io" {
-                        // Print call — use puts for now
                         if let Some(arg) = compiled_args.first() {
                             let tmp = self.fresh_tmp();
                             self.emitln(&format!("  {tmp} = call i32 @puts(i8* {arg})"));
@@ -562,19 +540,20 @@ impl IrEmitter {
                         }
                         return Ok("0".to_string());
                     }
-                    let tmp = self.fresh_tmp();
-                    let ret_ty = if let Some((_, has_ret)) = self.functions.get(&name.name) {
-                        if *has_ret { "i64" } else { "void" }
+                    // Look up function signature for proper types
+                    let (ret_ty, param_types) = if let Some((pts, rt)) = self.functions.get(&name.name) {
+                        (rt.clone(), pts.clone())
                     } else {
-                        "i64"
+                        ("i64".to_string(), vec!["i64".to_string(); args.len()])
                     };
-                    let args_str = compiled_args.iter()
-                        .map(|a| format!("i64 {a}"))
+                    let args_str = param_types.iter().zip(compiled_args.iter())
+                        .map(|(ty, arg)| format!("{ty} {arg}"))
                         .collect::<Vec<_>>()
                         .join(", ");
+                    let tmp = self.fresh_tmp();
                     if ret_ty == "void" {
                         self.emitln(&format!("  call void @{}({})", name.name, args_str));
-                        Ok(tmp) // dummy
+                        Ok(tmp)
                     } else {
                         self.emitln(&format!("  {tmp} = call {ret_ty} @{}({})", name.name, args_str));
                         Ok(tmp)
@@ -616,11 +595,33 @@ impl IrEmitter {
             Expr::Int(_, _) | Expr::Bool(_, _) => "i64",
             Expr::Float(_, _) => "double",
             Expr::Str(_, _) | Expr::Char(_, _) => "i8*",
-            Expr::Struct(_name, _, _) => {
-                // We'll use i64 for all struct values in Phase 0
+            Expr::Ident(ident) => {
+                if let Some((_, llvm_ty)) = self.lookup_local(&ident.name) {
+                    if llvm_ty == "double" { return "double"; }
+                }
+                "i64"
+            }
+            Expr::Call(func, _, _) => {
+                if let Expr::Ident(ref name) = **func {
+                    if let Some((_, ret_ty)) = self.functions.get(&name.name) {
+                        if ret_ty == "double" { return "double"; }
+                    }
+                }
                 "i64"
             }
             _ => "i64",
         }
     }
+}
+
+/// Check if a local named in an expression is a float type
+fn is_float_local(expr: &Expr, locals: &[HashMap<String, (String, String)>]) -> bool {
+    if let Expr::Ident(ident) = expr {
+        for scope in locals.iter().rev() {
+            if let Some((_, llvm_ty)) = scope.get(&ident.name) {
+                return llvm_ty == "double";
+            }
+        }
+    }
+    false
 }

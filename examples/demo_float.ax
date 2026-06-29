@@ -1,0 +1,10 @@
+fn add(a: Int, b: Int) -> Int {
+  return a + b;
+}
+fn sq(x: Float64) -> Float64 {
+  return x * x;
+}
+fn main() -> Int {
+  let f = sq(3.0);
+  return add(10, 20);
+}
