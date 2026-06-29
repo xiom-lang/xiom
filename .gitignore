@@ -1,0 +1,59 @@
+# ============================================================
+# AXIOM Project .gitignore
+# ============================================================
+
+# --- Rust (Phase 0 compiler implementation) ---
+/target/
+**/*.rs.bk
+*.pdb
+
+# --- LLVM / Compiler artifacts ---
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.wasm
+*.wat
+*.bc
+*.ll
+
+# Native binaries
+*.exe
+*.out
+
+# --- IDE / Editor ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# --- Build output ---
+/build/
+/dist/
+/out/
+
+# --- Package manager ---
+/axiom-packages/
+
+# --- Environment / Config ---
+.env
+.env.local
+.env.*.local
+
+# --- OS files ---
+Desktop.ini
+$RECYCLE.BIN/
+
+# --- Logs ---
+*.log
+
+# --- Temporary ---
+/tmp/
+/temp/
+*.tmp
