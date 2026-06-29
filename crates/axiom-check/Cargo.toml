@@ -1,0 +1,12 @@
+[package]
+name = "axiom-check"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axiom-ast = { path = "../axiom-ast" }
+
+[dev-dependencies]
+insta = { version = "1", features = ["yaml"] }
+axiom-lexer = { path = "../axiom-lexer" }
+axiom-parser = { path = "../axiom-parser" }
