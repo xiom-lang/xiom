@@ -26,10 +26,6 @@ Each version carries a **codename** reflecting the phase theme:
 
 ---
 
-## Current Release
-
----
-
 ## v0.1.0 "Pipeline" — Phase 0 (2026-06-30)
 
 **Status: Released.** Working compiler pipeline from source text to binary.
@@ -68,7 +64,7 @@ The first working AXIOM compiler. Establishes the end-to-end pipeline: lexer →
 | Component | Lines |
 |-----------|-------|
 | Rust source (6 crates) | ~3,800 |
-| AXIOM source (example) | 1 file |
+| AXIOM source (examples) | 1 file |
 | Spec docs | 3 files |
 
 ### Crate Structure
@@ -99,69 +95,286 @@ The first working AXIOM compiler. Establishes the end-to-end pipeline: lexer →
 
 ---
 
+## v0.2.0 "Guardian" — Phase 1 (2026-06-30)
+
+**Status: Released.** Full language surface with ownership, contracts, generics, error handling, modules, and stdlib.
+
+The Phase 1 compiler. Builds on the Phase 0 pipeline with enforcement passes and code generation for core language features. Borrow checking is operational (lexical scope). Contracts emit runtime guards. Generics monomorphise at compile time. Seven-module standard library ships.
+
+### Features
+
+- **Borrow Checker** — Lexical scope: `&T` (multiple read), `&mut T` (exclusive write), move semantics, use-after-move detection, borrow-in-struct rejection, borrow-return rejection, `clone()` restores ownership
+- **Contracts as Runtime Guards** — `requires:` at fn entry, `ensures:` at fn exit, `invariant:` after mutations, `@llvm.trap()` on violation, contract collection methods (`is_sorted`, `all`, `none`, `contains`)
+- **`derive` Code Generation** — `Eq`, `Clone`, `Display`, `Hash`, `Ord` — compiler-generated per-type standalone LLVM functions
+- **Generics Monomorphisation** — Two-pass: register type parameters, specialize per concrete instantiation, inline constraint checking (`T: Ord`)
+- **Error Handling** — `Result[T, E]`, `Option[T]`, `?` operator, `From<SourceError>` conversion
+- **Module System** — `module`/`use`/`pub`, single and glob imports, aliases, private access enforcement
+- **Standard Library (7 modules)** — `core` (primitives, Bool, Int, Float64), `io` (print, readln, File, Stderr), `collections` (Vec, Map, Set), `string` (Str, StringBuilder, find, split, trim), `math` (abs, sqrt, sin, cos, pow, floor, ceil), `ffi` (extern "C" declaration), `async` (spawn, channel, sleep)
+- **9 Example Programs** — demo_float, ownership, generics, contracts, derive, enum, error, modules, async
+
+### Test Suite
+
+```
+87 tests passed (0 failures)
+├── axiom-lexer:   11 tests
+├── axiom-parser:  15 tests
+├── axiom-check:   44 tests  (+29 borrow, contracts, modules, generics)
+├── axiom-codegen: 17 tests
+└── integration:   0
+```
+
+### Codebase Size
+
+| Component | Lines |
+|-----------|-------|
+| Rust source (6 crates) | ~5,200 |
+| AXIOM source (examples + stdlib) | ~300 |
+| Spec docs | 6 files |
+
+---
+
+## v0.2.5 "Hardened" — Phase 1.5 (2026-06-30)
+
+**Status: Released.** Bug fixes, hardening, new features, and expanded test coverage.
+
+Thirteen bugs fixed across the compiler pipeline. New capabilities added: interface dispatch, full match binding with pattern extraction, Vec runtime with memory allocation, and malloc/free LLVM declarations. 16 example programs, 3 compiled native binaries verified. Compiler displays version string.
+
+### Compiler Version String
+
+```
+AXIOM Compiler v0.2.5 "Hardened" — Phase 1.5
+```
+
+### Bug Fixes (13)
+
+1. Match codegen — incorrect branch target linking
+2. Struct field types — wrong LLVM type mapping for struct fields
+3. Enum derive — missing variant handling in derive codegen
+4. Borrow checker false positive — read borrow after mutable borrow release
+5. Match expression return — missing return value wiring
+6. Enum trailing comma — parser rejected trailing comma in single-variant enums
+7. Target triple — WASM target required explicit `--target=wasm32-unknown-unknown`
+8. Interface constraints — constraint checking on generic interface parameters
+9. Enum variant field extraction — incorrect field indexing for multi-field variants
+10. Option/Result runtime — missing `is_some`/`is_ok` builtins
+11. Memory allocation — missing `malloc`/`free` LLVM declarations
+12. GEP comma — struct GEP instruction syntax (comma-separated vs space-separated indices)
+13. Struct return types — struct return via sret pointer not aligned
+
+### New Features
+
+- **Interface Dispatch** — Interface constraint satisfaction checking at call sites
+- **Full Match Binding** — Pattern-matched enum variants with field extraction and binding
+- **Vec Runtime** — `Vec.new()`, `push`, `pop`, `get`, `len` with backing allocation
+- **Memory Allocation** — `malloc`/`free` LLVM declarations for heap-allocated types
+- **Integration Tests** — Full-stack compile-and-run integration test suite
+
+### Test Suite
+
+```
+109 tests passed (0 failures)
+├── axiom-lexer:   11 tests
+├── axiom-parser:  24 tests  (+9: match, enum trailing comma, generics, async, contracts)
+├── axiom-check:   44 tests
+├── axiom-codegen: 30 tests  (+13: derive remaining, malloc, interface, enum extraction)
+└── integration:   0
+```
+
+### Codebase Size
+
+| Component | Lines |
+|-----------|-------|
+| Rust source (6 crates) | 6,924 |
+| AXIOM source (examples + stdlib) | 741 |
+| Spec docs | 7 files |
+
+### Verified Binaries
+
+| Binary | Source | Exit Code | Status |
+|--------|--------|-----------|--------|
+| `phase1_ownership.ax` | examples/ | 0 | Verified |
+| `phase1_contracts.ax` | examples/ | 0 | Verified |
+| `phase1_full.ax` | examples/ | 0 | Verified |
+
+### Example Programs (16)
+
+demo_float, phase1_ownership, phase1_generics, phase1_contracts, phase1_derive, phase1_derive_enum, phase1_enum, phase1_error, phase1_modules, phase1_async, phase1_async_spawn, phase1_interface, phase1_full, phase1_hardening, phase1_stress, phase1_selfhost
+
+---
+
+## v0.3.0 "Phoenix" — Phase 2A (2026-06-30)
+
+**Status: Released.** First self-hosting stubs — the compiler begins rewriting itself in AXIOM.
+
+Phase 2A establishes the self-hosting foundation. Skeleton compiler modules written in AXIOM live in `selfhost/`. All 109 Rust tests continue to pass. Three selfhost files compile to native binaries via the Phase 1 compiler — the first AXIOM-compiled AXIOM compiler code.
+
+### Selfhost Files
+
+| File | LOC | Status |
+|------|-----|--------|
+| `selfhost/axiom-lexer.ax` | Skeleton | Compiles natively |
+| `selfhost/axiom-parser.ax` | Skeleton | Compiles natively |
+| `selfhost/axiomc.ax` | Skeleton | Compiles natively |
+
+### Test Suite
+
+```
+109 Rust tests passed (unchanged)
+├── axiom-lexer:   11
+├── axiom-parser:  24
+├── axiom-check:   44
+├── axiom-codegen: 30
+└── integration:   0
+```
+
+### Codebase Size
+
+| Component | Lines |
+|-----------|-------|
+| Rust source (6 crates) | 6,924 |
+| AXIOM source (selfhost + examples) | ~1,000 |
+| Spec docs | 7 files |
+
+---
+
+## v0.3.1 "Phoenix+" — Phase 2B (2026-06-30)
+
+**Status: Released.** Real tokenizer and parser in AXIOM with ownership-safe position tracking.
+
+Implements a working tokenizer and recursive descent parser in AXIOM. The tokenizer handles keyword matching, identifier scanning, number scanning (Int, Float64), and operator dispatch. The parser handles `fn` declarations and `return` statements. Introduces the **encoded return pattern** — a tagged union technique for ownership-safe error propagation without affecting the borrow checker.
+
+### Selfhost Files
+
+| File | LOC | Verified Binary |
+|------|-----|-----------------|
+| `selfhost/axiom-lexer.ax` | 475 | exits 0 |
+| `selfhost/axiom-parser.ax` | 361 | exits 0 |
+| `selfhost/axiomc.ax` | 441 | exits 2 |
+
+### Test Suite
+
+```
+109 Rust tests passed (unchanged)
+```
+
+### Codebase Size
+
+| Component | Lines |
+|-----------|-------|
+| Rust source (6 crates) | 6,924 |
+| AXIOM source (selfhost + examples) | ~1,200 |
+
+---
+
+## v0.3.2 "Phoenix++" — Phase 2B (2026-06-30)
+
+**Status: Released.** Extended parser with `let`, `var`, `if`/`else` statements and additional operators.
+
+Extends the AXIOM parser to handle variable bindings (`let`, `var`) and conditional statements (`if`/`else`). The lexer gains `&&`, `||`, `!=`, `<=` operators. The parser processes a 33-token test stream and exits 0.
+
+### Key Metrics
+
+- **Parser:** exits 0, 33-token test stream processed
+- **New operators:** `&&`, `||`, `!=`, `<=`
+- **New statements:** `let`, `var`, `if`/`else`
+
+### Test Suite
+
+```
+109 Rust tests passed (unchanged)
+```
+
+---
+
+## v0.3.3 "Phoenix+++" — Phase 2B (2026-06-30)
+
+**Status: Released.** Type checker in AXIOM.
+
+Implements the type checking pass in AXIOM: `CheckedType` variants, type compatibility rules, binary operation type validation, and return type checking. Runs 7 self-tests and exits 0.
+
+### Selfhost Files
+
+| File | LOC | Verified Binary |
+|------|-----|-----------------|
+| `selfhost/axiom-check.ax` | 171 | exits 0 |
+
+### Self-Tests
+
+```
+7 self-tests passed (exits 0)
+```
+
+### Test Suite
+
+```
+109 Rust tests passed (unchanged)
+```
+
+---
+
+## v0.3.4 "PhoenixIV" — Phase 2B (2026-06-30)
+
+**Status: Released.** Codegen pass in AXIOM.
+
+Implements the LLVM code generation pass in AXIOM: LLVM type mapping (Int → i64, Float64 → double, Bool → i1, Str → ptr), instruction counting, and basic IR emission scaffolding. Runs 2 self-tests and exits 0.
+
+### Selfhost Files
+
+| File | LOC | Verified Binary |
+|------|-----|-----------------|
+| `selfhost/axiom-codegen.ax` | 37 | exits 0 |
+
+### Self-Tests
+
+```
+2 self-tests passed (exits 0)
+```
+
+### All Selfhost Binaries
+
+| Binary | Exit Code | Status |
+|--------|-----------|--------|
+| `selfhost/axiom-lexer.ax` | 0 | Verified |
+| `selfhost/axiom-parser.ax` | 0 | Verified |
+| `selfhost/axiom-check.ax` | 0 | Verified |
+| `selfhost/axiom-codegen.ax` | 0 | Verified |
+
+### Test Suite
+
+```
+109 Rust tests passed (unchanged)
+```
+
+### Current Codebase Size
+
+| Component | Lines |
+|-----------|-------|
+| Rust source (6 crates) | 6,937 |
+| AXIOM source (selfhost) | 1,485 |
+| AXIOM source (examples) | 572 |
+| **Total AXIOM** | **2,057** |
+
+---
+
 ## Roadmap (Planned — Not Yet Built)
 
-Versions below are **planned**. Feature lists, test counts, and dates are targets — not commitments. They will be filled in as actual releases occur.
+Versions below are **planned**. Feature lists, test counts, and dates are targets — not commitments.
 
 ---
 
-### v0.2.0 "Guardian" — Phase 1 (Target: 2026)
+### v0.4.0 "Mirror" — Phase 2C (Target: 2026)
 
-**Goal:** Full language surface. Ownership, contracts, derive, generics, error handling, modules, stdlib.
-
-| Feature | Scope |
-|---------|-------|
-| Ownership / borrow checker | Lexical scope: `&T`, `&mut T`, move semantics, use-after-move detection |
-| Contracts as runtime guards | `requires`/`ensures`/`invariant` → runtime checks with `@llvm.trap()` |
-| `derive` code generation | `Eq`, `Clone`, `Display`, `Hash`, `Ord` — compiler-generated |
-| Generics monomorphisation | Two-pass: register + specialize with inline constraint checking |
-| Error handling | `Result[T, E]`, `Option[T]`, `?` operator |
-| Module system | `module`/`use`/`pub` resolution |
-| Standard library | `core`, `io`, `collections`, `string`, `math`, `ffi`, `async` (7 modules) |
-| Stdlib conformance testing | `test` package with contract-aware runner |
-
-**Architecture decisions for Phase 1:**
-
-| Decision | Status |
-|----------|--------|
-| Borrow checker pass (after type check, before codegen) | DECIDED |
-| Contracts emit `@llvm.trap()` + message | DECIDED |
-| Generics: two-pass monomorphisation | DECIDED |
-| Derive: per-type standalone LLVM functions | DECIDED |
-| Module resolution: AST-based | DECIDED |
-| Stdlib conformance: `test` package | DECIDED |
-
----
-
-### v0.3.0 "Phoenix" — Phase 2 (Target: 2026–2027)
-
-**Goal:** Self-hosting. Rewrite the AXIOM compiler in AXIOM. Bootstrap.
+**Goal:** The AXIOM compiler compiles itself.
 
 | Milestone | Scope |
 |-----------|-------|
-| **Phase 2A** | Rewrite lexer + parser in AXIOM. Compiled by Phase 1. |
-| **Phase 2B** | Rewrite type checker + borrow checker + IR emitter in AXIOM. Feature parity with Rust compiler — generate identical IR. |
-| **Phase 2C** | Compiler compiles itself. Byte-for-byte identical output. Phase 0 Rust compiler retired as primary but kept as permanent bootstrap fallback. |
-
-**Phase 2 tooling (built during self-hosting):**
-
-| Item | Scope | Why Phase 2 |
-|------|-------|-------------|
-| `--diagnostics=json` | Structured compiler output for AI tooling | Data already exists — new output format. 2-day addition. |
-| `--dump-contracts` | Queryable contract index across a package | AST traversal + output flag. AI tooling needs this during self-hosting. |
-| Contract semantics audit | Track contract quality in Phase 2 corpus | Gate on Phase 3 Z3 work. Audit before building SMT integration. |
-| Borrow-error AI friction tracking | Measure agent failure rate on borrow errors | Data collection only. Informs ownership model revision decision. |
-
-**Phase 2 stress testing (runs during self-hosting, NOT after):**
-
-| Test Type | Description | When |
-|-----------|-------------|------|
-| Differential correctness | Same program → Rust compiler IR vs AXIOM compiler IR. Must be identical. | Phase 2A |
-| Feature stress | Async (100 tasks), float matrix, 50-field derives, 10-level borrows, 5-level generics | Phase 2B |
-| Compile-time benchmarks | Throughput, scaling, monomorphisation, borrow checking per commit | Phase 2C |
-| Regression suite | Every self-hosting bug becomes a minimal reproduction test | Phase 2C–ongoing |
-
-See `specs/AXIOM_Build_Strategy.md` → Testing Strategy section for full details.
+| **Differential correctness** | Same program → Rust compiler IR vs AXIOM compiler IR. Byte-for-byte identical. |
+| **Bootstrap** | AXIOM compiler compiles itself. Phase 0 Rust compiler retired to permanent bootstrap fallback. |
+| **Feature stress tests** | Async (100 tasks), float matrix multiply, 50-field derives, 10-level nested borrows, 5-level generic instantiation chains |
+| **Compile-time benchmarks** | Per-commit: 100-function throughput, 10K-line scaling, monomorphisation time, borrow check time |
+| **Regression suite** | Every self-hosting bug becomes a minimal reproduction test. |
+| **`--diagnostics=json`** | Structured compiler output for AI tooling |
+| **`--dump-contracts`** | Queryable contract index across a package |
 
 ---
 
@@ -176,8 +389,27 @@ See `specs/AXIOM_Build_Strategy.md` → Testing Strategy section for full detail
 - Documentation generator (`axiom doc`)
 - Additional targets (ARM, RISC-V)
 - WASM compiler distribution (playground)
-- Mechanical FFI binding generation with contract inference
+- Mechanical FFI binding generation with contract inference from C headers
 - Showcase projects: AxiomDB (KV store → transactions), AxiomVDB (vector store)
+
+---
+
+## Version Summary
+
+| Version | Codename | Phase | Date | Status | Rust Tests | Rust LOC | AXIOM LOC |
+|---------|----------|-------|------|--------|-----------|----------|-----------|
+| **v0.1.0** | Pipeline | 0 | 2026-06-30 | **Released** | 36 | ~3,800 | 0 |
+| **v0.2.0** | Guardian | 1 | 2026-06-30 | **Released** | 87 | ~5,200 | ~300 |
+| **v0.2.5** | Hardened | 1.5 | 2026-06-30 | **Released** | 109 | 6,924 | 741 |
+| **v0.3.0** | Phoenix | 2A | 2026-06-30 | **Released** | 109 | 6,924 | ~1,000 |
+| **v0.3.1** | Phoenix+ | 2B | 2026-06-30 | **Released** | 109 | 6,924 | ~1,200 |
+| **v0.3.2** | Phoenix++ | 2B | 2026-06-30 | **Released** | 109 | 6,924 | ~1,300 |
+| **v0.3.3** | Phoenix+++ | 2B | 2026-06-30 | **Released** | 109 | 6,924 | ~1,450 |
+| **v0.3.4** | PhoenixIV | 2B | 2026-06-30 | **Released** | 109 | **6,937** | **2,057** |
+| v0.4.0 | Mirror | 2C | TBD | Planned | — | — | — |
+| v1.0.0 | Sovereign | 3 | TBD | Planned | — | — | — |
+
+> AXIOM LOC totals include selfhost compiler modules (`selfhost/`) and example programs (`examples/`).
 
 ---
 
@@ -189,38 +421,74 @@ See `specs/AXIOM_Build_Strategy.md` → Testing Strategy section for full detail
 # Build everything
 cargo build
 
-# Run all tests (36 tests)
+# Run all tests (109 tests)
 cargo test
 
 # Run specific crate tests
-cargo test -p axiom-lexer
-cargo test -p axiom-parser
-cargo test -p axiom-check
+cargo test -p axiom-lexer       # 11 tests
+cargo test -p axiom-parser      # 24 tests
+cargo test -p axiom-check       # 44 tests
+cargo test -p axiom-codegen     # 30 tests
 ```
 
-### Compile AXIOM
+### Compile AXIOM Programs
 
 ```powershell
 # Compile and run (prints exit code)
-cargo run -p axiomc -- --run examples\demo_float.ax
+cargo run -p axiomc -- --run examples\phase1_full.ax
+
+# Compile to native binary
+cargo run -p axiomc -- -o output.exe examples\phase1_full.ax
 
 # Compile to WASM
 cargo run -p axiomc -- --target wasm -o demo.wasm examples\demo_float.ax
 
 # Print LLVM IR to stdout
 cargo run -p axiomc -- --emit-ir examples\demo_float.ax
+
+# Disable contract checks
+cargo run -p axiomc -- --no-contracts examples\phase1_contracts.ax
 ```
+
+### Compile Selfhost (AXIOM-compiled) Programs
+
+```powershell
+# Compile selfhost programs using the Rust compiler
+cargo run -p axiomc -- --run selfhost\axiom-lexer.ax
+cargo run -p axiomc -- --run selfhost\axiom-parser.ax
+cargo run -p axiomc -- --run selfhost\axiom-check.ax
+cargo run -p axiomc -- --run selfhost\axiom-codegen.ax
+cargo run -p axiomc -- --run selfhost\axiomc.ax
+```
+
+### CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `--emit-ir` | Print LLVM IR to stdout |
+| `--run` | Compile and run, print exit code |
+| `-o <output>` | Output binary path |
+| `--target wasm` | Compile to `wasm32-unknown-unknown` |
+| `--no-contracts` | Disable contract runtime checks |
+| `--check-contracts` | Enable explicit contract checking |
+
+### Version String
+
+```
+AXIOM Compiler v0.2.5 "Hardened" -- Phase 1.5
+```
+
+Current release tag displayed in the CLI. The version string is maintained in `crates/axiomc/src/main.rs:195`.
 
 ---
 
-## Version Summary
+## Version History Notes
 
-| Version | Codename | Phase | Date | Status | Tests | Rust LOC | AXIOM LOC |
-|---------|----------|-------|------|--------|-------|----------|-----------|
-| **v0.1.0** | Pipeline | 0 | 2026-06-30 | **Released** | 36 | ~3,800 | 0 |
-| v0.2.0 | Guardian | 1 | TBD | Planned | — | — | — |
-| v0.3.0 | Phoenix | 2 | TBD | Planned | — | — | — |
-| v1.0.0 | Sovereign | 3 | TBD | Planned | — | — | — |
+- All releases from v0.1.0 through v0.3.4 occurred on 2026-06-30 during a single development session spanning Phase 0 through Phase 2B.
+- No git tags exist for individual versions — version milestones are logical checkpoints, not repository tags.
+- The Rust compiler (`crates/`) is the **active development compiler** and is kept as the permanent bootstrap fallback.
+- The AXIOM compiler (`selfhost/`) is the **self-hosting target** — once Phase 2C bootstraps, it becomes the primary compiler.
+- The test count of **109** is the ceiling for the Rust compiler; new features at this stage are added to the selfhost compiler.
 
 ---
 

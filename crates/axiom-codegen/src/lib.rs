@@ -1474,7 +1474,7 @@ impl IrEmitter {
                 } else if elifs.is_empty() {
                     // prev_label == merge_label — skip redundant label emission
                     merge_reachable = true;
-                } else {
+                } else if prev_label != merge_label {
                     self.emitln(&format!("\n{prev_label}:"));
                     self.emitln(&format!("  br label %{merge_label}"));
                     merge_reachable = true;
