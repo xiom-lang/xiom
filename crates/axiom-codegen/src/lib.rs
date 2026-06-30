@@ -289,6 +289,8 @@ impl IrEmitter {
         self.emitln("declare i8* @axiom_read_file(i8*)");
         self.emitln("declare i64 @axiom_file_size(i8*)");
         self.emitln("declare void @axiom_free(i8*)");
+        self.emitln("declare i8 @axiom_char_at(i8*, i64)");
+        self.emitln("declare i64 @axiom_str_len(i8*)");
         self.emitln("");
 
         // Emit derive implementations for types with derive clauses
@@ -2179,6 +2181,21 @@ impl IrEmitter {
                     }
                     return Ok("0".to_string());
                 }
+                if fn_name == "axiom_char_at" && args.len() >= 2 {
+                    let src = self.compile_expr(&args[0])?;
+                    let pos = self.compile_expr(&args[1])?;
+                    let tmp = self.fresh_tmp();
+                    let tmp_ext = self.fresh_tmp();
+                    self.emitln(&format!("  {tmp} = call i8 @axiom_char_at(i8* {src}, i64 {pos})"));
+                    self.emitln(&format!("  {tmp_ext} = zext i8 {tmp} to i64"));
+                    return Ok(tmp_ext);
+                }
+                if fn_name == "axiom_str_len" && args.len() >= 1 {
+                    let src = self.compile_expr(&args[0])?;
+                    let tmp = self.fresh_tmp();
+                    self.emitln(&format!("  {tmp} = call i64 @axiom_str_len(i8* {src})"));
+                    return Ok(tmp);
+                }
                 // Check if this is a call to a generic function and track instantiation
                 let fn_key = fn_name.clone();
                 let is_generic = self.generic_fn_decls.iter().any(|f| self.fn_key(f) == fn_key);
@@ -2479,6 +2496,7 @@ impl IrEmitter {
                 };
                 if let Some(ref name) = fn_name {
                     if name == "axiom_read_file" { return "i8*".to_string(); }
+                    if name == "axiom_char_at" || name == "axiom_str_len" { return "i64".to_string(); }
                     if let Some((_, ret_ty)) = self.functions.get(name) {
                         if ret_ty == "double" { return "double".to_string(); }
                         return ret_ty.clone();

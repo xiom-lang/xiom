@@ -268,3 +268,13 @@ fn test_selfhost_bootstrap_v050() {
     //   hash = 4*100000 + 29*1000 + 2*100 + 192*10 + 3*5 + 192 = 431327
     assert_eq!(hash, 431327, "Selfhost v0.5.0 bootstrap hash mismatch");
 }
+
+#[test]
+fn test_selfhost_v092_compiles() {
+    // v0.9.2 selfhost compiler should compile and produce IR with
+    // string constants matching the three demo_float functions
+    let ir = compile_to_ir("selfhost/axiomc_v092.ax");
+    assert!(ir.contains("define i64 @add"), "missing add function IR");
+    assert!(ir.contains("define double @sq"), "missing sq function IR");
+    assert!(ir.contains("define i64 @main"), "missing main function IR");
+}
