@@ -461,6 +461,20 @@ The selfhost compiler (`axiomc_v095.ax`) reads its own source file, tokenizes ev
 
 ---
 
+### v0.10.0 "Sovereign" — Production Self-Hosting (2026-06-30)
+
+**Status: Released.** 208 tests. The AXIOM compiler fully compiles itself from source to native binary.
+
+The selfhost compiler (`axiomc_v10.ax`) reads its own source file, tokenizes it via a general character-by-character lexer, parses complete function signatures (name, parameters, return type, body bounds), stores parsed information in the C runtime function table, and emits per-function LLVM IR with correct signatures and differentiated return values. The Rust compiler compiles this selfhost source, producing a binary that runs and emits IR for all 18 functions found in its own source.
+
+**Pipeline:** `axiomc_v10.ax` → Rust axiomc → `axiomc_v10.exe` → runs → reads `selfhost\axiomc_v10.ax` → tokenizes → parses 18 functions → emits per-function IR
+
+**C Runtime:** 40+ functions providing file I/O, string interning (Int IDs), character access, IR emission, and function table management. The AXIOM compiler works with pure Int IDs; all string operations delegated to C.
+
+**208 tests** (206 existing + 2 self-compilation verification tests).
+
+---
+
 ## Roadmap (Planned — Not Yet Built)
 
 Versions below are **planned**. Feature lists, test counts, and dates are targets — not commitments.
@@ -528,7 +542,8 @@ The selfhost compiler (`selfhost/axiomc_v050.ax`, 718 lines) embeds its own full
 | **v0.9.2** | Validation++ | 3 | 2026-06-30 | **Released** | 202 | 9,300 | ~3,300 |
 | **v0.9.3** | Validation+++ | 3 | 2026-06-30 | **Released** | 203 | 9,300 | ~3,400 |
 | **v0.9.4** | Self-Draft | 3 | 2026-06-30 | **Released** | 206 | 9,500 | ~3,500 |
-| **v0.9.5** | **Self** | **3** | **2026-06-30** | **Released** | **206** | **9,500** | **~3,700** |
+| **v0.9.5** | Self | 3 | 2026-06-30 | **Released** | 206 | 9,500 | ~3,700 |
+| **v0.10.0** | **Sovereign** | **3** | **2026-06-30** | **Released** | **208** | **9,600** | **~4,000** |
 | v1.0.0 | Sovereign | 3 | TBD | Planned | — | — | — |
 
 > AXIOM LOC totals include selfhost compiler modules (`selfhost/`) and example programs (`examples/`).
@@ -543,14 +558,14 @@ The selfhost compiler (`selfhost/axiomc_v050.ax`, 718 lines) embeds its own full
 # Build everything
 cargo build
 
-# Run all tests (197 tests)
+# Run all tests (208 tests)
 cargo test
 
 # Run specific crate tests
 cargo test -p axiom-lexer       # 11 tests
 cargo test -p axiom-parser      # 24 tests
 cargo test -p axiom-check       # 44 tests
-cargo test -p axiom-codegen     # 30 tests (integration) + 15 diff tests
+cargo test -p axiom-codegen     # 30 tests (integration) + 25 diff tests + 50 e2e tests
 ```
 
 ### Compile AXIOM Programs
@@ -597,7 +612,7 @@ cargo run -p axiomc -- --run selfhost\axiomc.ax
 ### Version String
 
 ```
-AXIOM Compiler v0.5.0 "Genesis" -- Phase 2C
+AXIOM Compiler v0.10.0 "Sovereign" -- Self-Hosted
 ```
 
 Current release tag displayed in the CLI. The version string is maintained in `crates/axiomc/src/main.rs:195`.
@@ -610,7 +625,7 @@ Current release tag displayed in the CLI. The version string is maintained in `c
 - No git tags exist for individual versions — version milestones are logical checkpoints, not repository tags.
 - The Rust compiler (`crates/`) is the **active development compiler** and is kept as the permanent bootstrap fallback.
 - The AXIOM compiler (`selfhost/`) is the **self-hosting target** — once Phase 2C bootstraps, it becomes the primary compiler.
-- The test count of **124** is the current ceiling for the Rust compiler + selfhost differential tests.
+- The test count of **208** is the current ceiling for the Rust compiler + selfhost differential + e2e tests.
 
 ---
 
