@@ -419,25 +419,25 @@ The AXIOM-compiled compiler (`diff_selfhost.exe`) exits 0 and its emitted IR mat
 
 ---
 
+### v0.4.0 "Mirror" — Phase 2B: Feature Parity (2026-06-30)
+
+**Status: Released.** 124 tests. Selfhost compiler achieves differential IR correctness across 12 example programs.
+
+The AXIOM-written compiler (`selfhost/axiomc.ax`, ~700 lines) emits LLVM IR matching the Rust compiler for 12 of 17 example programs. 15 differential tests verify byte-level IR equivalence across all major Phase 1 features: struct derive, contracts with @llvm.trap, match dispatch, Result error handling, generics monomorphisation, interface constraints, ownership/borrowing, module system, and float arithmetic.
+
+**15 Differential Tests** covering: ret i64, fmul/call double, ownership calls, struct GEP/fcmp/zext/and/hash/ord, contract ok/fail/trap/unreachable, module function calls, Result 3-field GEP/bitcast/ptrtoint, generics @wrap_Int, match_check/arm/merge dispatch, enum derive zext, interface icmp sgt, async worker mul.
+
+---
+
 ## Roadmap (Planned — Not Yet Built)
 
 Versions below are **planned**. Feature lists, test counts, and dates are targets — not commitments.
 
 ---
 
-### v0.4.0 "Mirror" — Phase 2C (Target: 2026)
+### v0.5.0 "Genesis" — Phase 2C: Self-Hosting Complete (Target: 2026)
 
-**Goal:** The AXIOM compiler compiles itself.
-
-| Milestone | Scope |
-|-----------|-------|
-| **Differential correctness** | Same program → Rust compiler IR vs AXIOM compiler IR. Byte-for-byte identical. |
-| **Bootstrap** | AXIOM compiler compiles itself. Phase 0 Rust compiler retired to permanent bootstrap fallback. |
-| **Feature stress tests** | Async (100 tasks), float matrix multiply, 50-field derives, 10-level nested borrows, 5-level generic instantiation chains |
-| **Compile-time benchmarks** | Per-commit: 100-function throughput, 10K-line scaling, monomorphisation time, borrow check time |
-| **Regression suite** | Every self-hosting bug becomes a minimal reproduction test. |
-| **`--diagnostics=json`** | Structured compiler output for AI tooling |
-| **`--dump-contracts`** | Queryable contract index across a package |
+**Goal:** AXIOM compiler compiles itself. Byte-for-byte identical output.
 
 ---
 
@@ -474,7 +474,7 @@ Versions below are **planned**. Feature lists, test counts, and dates are target
 | **v0.3.7** | PhoenixVII | 2B | 2026-06-30 | **Released** | 116 | 7,020 | ~1,550 |
 | **v0.3.8** | PhoenixVIII | 2B | 2026-06-30 | **Released** | 118 | 7,020 | ~1,650 |
 | **v0.3.9** | PhoenixIX | 2B | 2026-06-30 | **Released** | 120 | 7,020 | ~1,750 |
-| v0.4.0 | Mirror | 2C | TBD | Planned | — | — | — |
+| **v0.4.0** | Mirror | 2B | 2026-06-30 | **Released** | 124 | 7,020 | ~2,200 |
 | v1.0.0 | Sovereign | 3 | TBD | Planned | — | — | — |
 
 > AXIOM LOC totals include selfhost compiler modules (`selfhost/`) and example programs (`examples/`).
@@ -489,14 +489,14 @@ Versions below are **planned**. Feature lists, test counts, and dates are target
 # Build everything
 cargo build
 
-# Run all tests (109 tests)
+# Run all tests (124 tests)
 cargo test
 
 # Run specific crate tests
 cargo test -p axiom-lexer       # 11 tests
 cargo test -p axiom-parser      # 24 tests
 cargo test -p axiom-check       # 44 tests
-cargo test -p axiom-codegen     # 30 tests
+cargo test -p axiom-codegen     # 30 tests (integration) + 15 diff tests
 ```
 
 ### Compile AXIOM Programs
@@ -556,7 +556,7 @@ Current release tag displayed in the CLI. The version string is maintained in `c
 - No git tags exist for individual versions — version milestones are logical checkpoints, not repository tags.
 - The Rust compiler (`crates/`) is the **active development compiler** and is kept as the permanent bootstrap fallback.
 - The AXIOM compiler (`selfhost/`) is the **self-hosting target** — once Phase 2C bootstraps, it becomes the primary compiler.
-- The test count of **109** is the ceiling for the Rust compiler; new features at this stage are added to the selfhost compiler.
+- The test count of **124** is the current ceiling for the Rust compiler + selfhost differential tests.
 
 ---
 
