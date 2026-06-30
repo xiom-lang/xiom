@@ -152,6 +152,17 @@ Versions below are **planned**. Feature lists, test counts, and dates are target
 | Contract semantics audit | Track contract quality in Phase 2 corpus | Gate on Phase 3 Z3 work. Audit before building SMT integration. |
 | Borrow-error AI friction tracking | Measure agent failure rate on borrow errors | Data collection only. Informs ownership model revision decision. |
 
+**Phase 2 stress testing (runs during self-hosting, NOT after):**
+
+| Test Type | Description | When |
+|-----------|-------------|------|
+| Differential correctness | Same program → Rust compiler IR vs AXIOM compiler IR. Must be identical. | Phase 2A |
+| Feature stress | Async (100 tasks), float matrix, 50-field derives, 10-level borrows, 5-level generics | Phase 2B |
+| Compile-time benchmarks | Throughput, scaling, monomorphisation, borrow checking per commit | Phase 2C |
+| Regression suite | Every self-hosting bug becomes a minimal reproduction test | Phase 2C–ongoing |
+
+See `specs/AXIOM_Build_Strategy.md` → Testing Strategy section for full details.
+
 ---
 
 ### v1.0.0 "Sovereign" — Phase 3 (Target: 2027+)
