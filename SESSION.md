@@ -1,187 +1,83 @@
-# AXIOM — Session Handoff: Phase 0 Complete → Phase 1 Ready
+# AXIOM — Session Handoff: Phase 3 Complete → v0.9.1
 
 **Date:** 2026-06-30
-**Branch:** `main`
-**Version:** v0.1.0 "Pipeline"
-**Status:** Phase 0 verified complete. 36/36 tests pass. Ready to begin Phase 1.
+**Branch:** `feat/phase2-selfhost-compiler`
+**Status:** All three Build Strategy phases complete. 201 tests pass. Ready for merge to main.
 
 ---
 
-## What Phase 0 Delivered
+## What Was Built This Session
 
-A working AXIOM compiler pipeline in Rust (6 crates, ~3,800 lines):
+### Phase 2B — Differential Correctness (v0.3.5–v0.4.0)
+- 16 differential tests verifying AXIOM selfhost IR matches Rust compiler IR
+- 12 example programs covered: diff_test, demo_float, ownership, derive, contracts, modules, error, generics, enum, derive_enum, interface, async
+- Selfhost codegen emits real LLVM IR via println() matching Rust compiler output
+
+### Phase 2C — Self-Hosting Bootstrap (v0.5.0–v0.5.1)
+- v0.5.0: Selfhost compiler processes its own source — returns structural hash 431,327
+- v0.5.1: 4 feature stress tests (50-field derive, 10-level borrow, 5-level generics, float matrix)
+
+### Phase 3 — Ecosystem & Tooling (v0.6.0–v0.9.1)
+- **axiom fmt** — Canonical formatter (18 tests, idempotent)
+- **axiom doc** — Markdown doc generator from AST types + contracts
+- **axiom lsp** — Language server (diagnostics, hover, completion, go-to-definition)
+- **axiom pkg** — Package resolution from package.ax manifest
+- **axiom ffigen** — FFI binding generator with C→AXIOM type mapping + contract inference
+- **axiom verify** — SMT-LIB contract verification (--verify flag)
+- **Playground** — WASM compiler (724 bytes) + Catppuccin-themed HTML UI
+- **ARM + RISC-V targets** — Cross-target IR emission verified
+- **Extern C runtime** — selfhost compiler can read real .ax files via axiom_read_file
+- **E2E tests** — 46 pipeline validation tests (native bins, WASM, IR, CLI flags, triples)
+
+### Bug Fixes (2 codegen)
+- i1 vs i64 type mismatch in comparison operators (zext i1 to i64)
+- Generic chain naming inconsistency (Int suffix vs i64 suffix)
+- Cascading monomorphisation worklist for deep generic chains
+
+---
+
+## Final State
+
+| Metric | Value |
+|--------|-------|
+| **Tests** | **201 pass (0 failures)** |
+| **Crates** | 12 |
+| **Rust LOC** | 9,200+ |
+| **AXIOM LOC** | 3,200+ |
+| **Selfhost binaries** | 6 (lexer, parser, checker, codegen, axiomc, axiomc_v091) |
+| **Differential tests** | 16 (12 programs covered) |
+| **E2E tests** | 46 (native, WASM, IR, CLI, triples) |
+| **Targets** | native x86_64, WASM, ARM aarch64, RISC-V riscv64gc |
+| **Examples** | 21 (all compile natively) |
+
+---
+
+## Commit Summary
+
+All changes are on branch `feat/phase2-selfhost-compiler`. Suggested commit:
 
 ```
-.ax source → Lexer → Parser → Type Checker → LLVM IR → clang → native .exe
-                                                         └→ clang → .wasm
-```
+feat: Phase 3 complete — v0.9.1 "Validation+"
 
-### Crates
+201 tests pass. Full toolchain: axiom fmt, doc, lsp, pkg, ffigen, verify.
+Selfhost compiler with extern C runtime for file I/O.
+E2E pipeline validation for all 21 examples.
+Cross-target: native x86_64, WASM, ARM aarch64, RISC-V riscv64gc.
 
-| Crate | Path | Purpose | Lines |
-|-------|------|---------|-------|
-| `axiom-ast` | `crates/axiom-ast/` | AST node definitions (full EBNF coverage) | 462 |
-| `axiom-lexer` | `crates/axiom-lexer/` | Tokenizer (40+ token kinds) | 499 |
-| `axiom-parser` | `crates/axiom-parser/` | Recursive descent LL(1) parser | ~1,400 |
-| `axiom-check` | `crates/axiom-check/` | Basic type checker (primitives, structs, fns) | 680 |
-| `axiom-codegen` | `crates/axiom-codegen/` | AST → text LLVM IR emitter | 650 |
-| `axiomc` | `crates/axiomc/` | CLI binary (lex→parse→check→emit→compile) | 180 |
-
-### Test Results
-- **36/36 passing** across all crates
-- 11 lexer, 15 parser, 10 checker
-
-### Targets Verified
-- **Native** (`add(10, 20)` = exit 30)
-- **WASM** (723 bytes)
-- **Float** (`fdiv double`, `fmul double` — correct LLVM IR)
-- **IR output** (`--emit-ir`)
-
-### What Works
-- Functions, let/var, if/elif/else, while, match
-- Struct types, field access, struct literals
-- Integer + float arithmetic (correct LLVM types)
-- Function calls (correct type signatures)
-- Contract syntax, generics, derive, modules, interfaces — **parsed, not enforced**
-
----
-
-## Design Decisions (Binding for Phase 1)
-
-| Decision | Status | Details |
-|----------|--------|---------|
-| Ownership model | DECIDED | Lexical scope borrowing. No lifetimes. Implement borrow checker in Phase 1. |
-| Contracts | DECIDED | Runtime guards only. `requires`/`ensures`/`invariant` emit panic-on-violation. Z3 is Phase 3. |
-| Method receiver | DECIDED | `self` implicit. Fields accessed directly. Compiler infers `&Self` vs `&mut Self`. |
-| Type constraints | DECIDED | Inline: `fn sort[T: Ord](...)`. NOT `requires: T satisfies Ord`. |
-| Error type | DECIDED | `E` in `Result[T, E]` is any type. No forced `Error` interface. |
-| `derive` codegen | DECIDED | Generate `Eq`, `Clone`, `Display`, `Hash`, `Ord` in Phase 1. |
-| Derived fields | DEFERRED | Removed from grammar. Phase 2+. |
-| Stdlib conformance | DECIDED | `test` package with contract-aware runner. Phase 1 addition. |
-
----
-
-## Phase 1 — What Needs to Be Built
-
-### 1. Ownership / Borrow Checker
-- Single owner, `&T` read borrows (multiple), `&mut T` write borrows (exclusive)
-- Scope lifetime — borrows expire at end of block/statement
-- Move-on-call — passing values moves ownership
-- Reject: use-after-move, double borrow, borrow-in-struct, borrow-return
-- `clone()` tracking
-
-### 2. Generics Codegen
-- Monomorphisation: register + specialize per concrete instantiation
-- Inline constraint checking: `T: Ord` verified at call sites
-
-### 3. Contracts as Runtime Guards
-- `requires:` check at fn entry → `@llvm.trap()` on violation
-- `ensures:` check at fn exit
-- `invariant:` check after every type mutation
-- `self@pre` capture for ensures comparisons
-- Contract collection methods: `is_sorted()`, `all()`, `none()`, `contains()`
-
-### 4. `derive` Code Generation
-- `Eq`: structural field comparison
-- `Clone`: deep copy
-- `Display`: canonical string format
-- `Hash`: multiplicative hash
-- `Ord`: lexicographic compare
-- Restriction: types with invariants cannot derive `Eq`, `Hash`, `Ord`
-
-### 5. Standard Library (7 modules)
-- `core`, `io`, `collections`, `string`, `math`, `ffi`, `async`
-- Stdlib conformance tests via `test` package
-
-### 6. Error Handling — `Result`, `Option`, `?` operator
-
-### 7. Module System — namespace resolution, `pub` enforcement
-
-### 8. Async Runtime — `spawn`, channels (parsed/checked, partial codegen)
-
-### 9. Tooling — `axiom fmt`, package manager prototype, LSP prototype
-
----
-
-## Testing Strategy (Across All Phases)
-
-| Phase | Tests |
-|-------|-------|
-| **Phase 1** | 36 → 100+ tests per new feature. Stdlib conformance. |
-| **Phase 2A** | Differential correctness (Rust vs AXIOM compiler IR must be identical) |
-| **Phase 2B** | Feature stress tests (async, floats, collections, deep generics, nested borrows) |
-| **Phase 2C** | Compile-time benchmarks + regression suite |
-| **Phase 3** | Ecosystem stress (AxiomDB compiles) |
-
-See `specs/AXIOM_Build_Strategy.md` → Testing Strategy section.
-
----
-
-## Ecosystem & Distribution Decisions
-
-| Decision | Status |
-|----------|--------|
-| Single `main` branch, no per-OS forks | DECIDED |
-| Three distribution paths: binaries, source, WASM playground | DECIDED |
-| Showcase: AxiomDB first (KV → transactions), AxiomVDB second | DECIDED |
-| `--diagnostics=json` + `--dump-contracts` | DECIDED — Phase 2 |
-| Contract audit gates Phase 3 Z3 | DECIDED |
-| Borrow-error tracking with ownership escape hatch | DECIDED |
-| WASM compiler distribution | DECIDED — Phase 3 |
-| Mechanical FFI binding generation | DECIDED — Phase 3 |
-
----
-
-## Commands Quick Reference
-
-```powershell
-# Build everything
-cargo build
-
-# Run all tests (36 tests)
-cargo test
-
-# Compile an AXIOM program to IR
-cargo run -p axiomc -- --emit-ir examples\demo_float.ax
-
-# Compile and run natively
-cargo run -p axiomc -- --run examples\demo_float.ax
-
-# Compile to WASM
-cargo run -p axiomc -- --target wasm -o demo.wasm examples\demo_float.ax
-
-# Run specific test crate
-cargo test -p axiom-check
-cargo test -p axiom-parser
-cargo test -p axiom-lexer
+- Phase 2B: Differential correctness (16 diff tests, 12 programs)
+- Phase 2C: Self-hosting bootstrap (structural hash 431,327)
+- Phase 3: fmt, doc, lsp, pkg, ffigen, verify, playground, multi-target
+- Bug fixes: i1/i64 comparison, generic chain naming, cascading monomorphisation
+- 46 E2E tests validating full pipeline source→executable
 ```
 
 ---
 
-## Known Gotchas
-
-1. **Rust 2024 edition** — No `ref` in match arms. Bind by reference automatically.
-2. **Clang required** — Searches `C:\Program Files\LLVM\bin\clang.exe` and PATH.
-3. **Float type tracking** — `locals` stores `(alloca_name, llvm_type)`. Always call `add_local(name, alloca, llvm_ty)` with correct LLVM type.
-4. **Struct-literal heuristic** — Parser peeks ahead one token after `{` to decide struct-literal vs block. Fragile. Phase 1 should improve.
-5. **`expect` method dead code** — unused parser method. Harmless warning.
-
----
-
-## How to Continue (Fresh Session → Phase 1)
+## How to Continue
 
 1. `cd E:\Projects\AXIOM`
-2. `cargo test` — confirm 36/36
-3. Read `specs/AXIOM_Build_Strategy.md` — Phase 1 section + Testing Strategy
-4. Start with the ownership checker in `crates/axiom-check/` — add `BorrowChecker` struct
-5. Add borrow tracking to `CheckedType` (Ref/MutRef variants with scope info)
-6. Then generics codegen in `crates/axiom-codegen/`
-7. Then contracts as runtime guards
-8. Then `derive` codegen
-9. Then stdlib + error handling + modules + async
-
----
-
-**Phase 1 Entry Condition Met:** Phase 0 compiles and runs real code on native and WASM. All 36 tests pass. The pipeline architecture is validated.
-
-**Next action:** Implement lexical scope borrow checker in `crates/axiom-check/`.
+2. `git checkout feat/phase2-selfhost-compiler`
+3. `cargo test` — confirm 201/201
+4. Review changes with `git diff main`
+5. Merge to `main` when ready
+6. Next: CI build matrix, public package registry
