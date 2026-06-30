@@ -504,6 +504,7 @@ The selfhost compiler (`selfhost/axiomc_v050.ax`, 718 lines) embeds its own full
 | **v0.8.1** | Prover+ | 3 | 2026-06-30 | **Released** | 151 | 8,900 | ~3,100 |
 | **v0.9.0** | Validation | 3 | 2026-06-30 | **Released** | 197 | 9,100 | ~3,100 |
 | **v0.9.1** | Validation+ | 3 | 2026-06-30 | **Released** | 201 | 9,200 | ~3,200 |
+| **v0.9.2** | Validation++ | 3 | 2026-06-30 | **Released** | 202 | 9,300 | ~3,300 |
 | v1.0.0 | Sovereign | 3 | TBD | Planned | — | — | — |
 
 > AXIOM LOC totals include selfhost compiler modules (`selfhost/`) and example programs (`examples/`).
