@@ -3,7 +3,7 @@
 //! No generics, no ownership, no contracts enforcement.
 
 use axiom_ast::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // ============================================================================
 // Type representation for the checker
@@ -1113,6 +1113,7 @@ pub struct BorrowChecker {
     ownership: Vec<HashMap<String, OwnershipInfo>>,
     borrow_stack: Vec<Vec<ScopeBorrow>>,
     errors: Vec<BorrowError>,
+    param_names: HashSet<String>,
 }
 
 impl BorrowChecker {
@@ -1121,6 +1122,7 @@ impl BorrowChecker {
             ownership: vec![HashMap::new()],
             borrow_stack: vec![Vec::new()],
             errors: Vec::new(),
+            param_names: HashSet::new(),
         }
     }
 
@@ -1323,6 +1325,10 @@ impl BorrowChecker {
     }
 
     fn check_fn_decl(&mut self, fd: &FnDecl) {
+        self.param_names.clear();
+        for param in &fd.params {
+            self.param_names.insert(param.name.name.clone());
+        }
         self.push_scope();
         for param in &fd.params {
             self.add_local(&param.name.name, true);
@@ -1331,6 +1337,7 @@ impl BorrowChecker {
             self.check_block(body);
         }
         self.pop_scope();
+        self.param_names.clear();
     }
 
     fn check_block(&mut self, block: &Block) {
@@ -1347,14 +1354,22 @@ impl BorrowChecker {
             Stmt::Let(name, _, value, _) => {
                 let _ = self.check_expr(value);
                 if let Expr::Ident(ident) = value {
-                    self.move_var(&ident.name, ident.span);
+                    if self.param_names.contains(&ident.name) {
+                        self.read_borrow(&ident.name, ident.span);
+                    } else {
+                        self.move_var(&ident.name, ident.span);
+                    }
                 }
                 self.add_local(&name.name, false);
             }
             Stmt::Var(name, _, value, _) => {
                 let _ = self.check_expr(value);
                 if let Expr::Ident(ident) = value {
-                    self.move_var(&ident.name, ident.span);
+                    if self.param_names.contains(&ident.name) {
+                        self.read_borrow(&ident.name, ident.span);
+                    } else {
+                        self.move_var(&ident.name, ident.span);
+                    }
                 }
                 self.add_local(&name.name, true);
             }
@@ -1562,7 +1577,11 @@ impl BorrowChecker {
                 if arg_result != ExprResult::ReadRef && arg_result != ExprResult::WriteRef {
                     // Re-check: did check_expr already change state?
                     // check_expr for Ident only checks use, doesn't move
-                    self.move_var(&ident.name, ident.span);
+                    if self.param_names.contains(&ident.name) {
+                        self.read_borrow(&ident.name, ident.span);
+                    } else {
+                        self.move_var(&ident.name, ident.span);
+                    }
                 }
             }
         }
@@ -1790,6 +1809,18 @@ mod tests {
     fn test_borrow_with_function_args_ref() {
         let result = check_borrow("fn foo(x: &Int) -> Int { return 1; } fn main() -> Int { var a = 42; foo(&a); return a; }");
         assert!(result.is_ok(), "passing &x should not move x: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_param_ref_read_borrow_not_move() {
+        let result = check_borrow("fn read(pos: &mut Int) -> Int { let current = pos; return 42; }");
+        assert!(result.is_ok(), "reading &mut param should not move: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_param_ref_in_call() {
+        let result = check_borrow("fn inner(x: &mut Int) -> Int { return 42; } fn outer(pos: &mut Int) -> Int { return inner(pos); }");
+        assert!(result.is_ok(), "passing &mut param to fn should reborrow: {:?}", result.err());
     }
 
     #[test]
