@@ -516,3 +516,51 @@ fn e2e_runtime_ir_declares_externs() {
     assert!(stdout.contains("@axiom_file_size"), "IR should declare axiom_file_size");
     assert!(stdout.contains("@axiom_free"), "IR should declare axiom_free");
 }
+
+#[test]
+fn e2e_selfhost_v10_self_compile() {
+    let output = std::process::Command::new(axiomc_path())
+        .args(["-o", "e2e_v10_self.exe", "selfhost\\axiomc_v10.ax"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed to compile v10 selfhost");
+    assert!(output.status.success(), "v10 selfhost compilation failed");
+
+    let run = std::process::Command::new(project_root().join("e2e_v10_self.exe"))
+        .current_dir(project_root())
+        .output()
+        .expect("failed to run v10 selfhost");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+
+    assert!(stdout.contains("define i64 @main"), "Selfhost must emit its own main");
+    assert!(stdout.contains("define"), "Selfhost must emit function definitions");
+    let fn_count = stdout.matches("define ").count();
+    assert!(fn_count >= 5, "Selfhost found only {} functions, expected >= 5", fn_count);
+}
+
+#[test]
+fn e2e_selfhost_v10_self_compile_to_native() {
+    let output = std::process::Command::new(axiomc_path())
+        .args(["-o", "e2e_v10_self.exe", "selfhost\\axiomc_v10.ax"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed v10 compile");
+    assert!(output.status.success());
+
+    let run = std::process::Command::new(project_root().join("e2e_v10_self.exe"))
+        .current_dir(project_root())
+        .output()
+        .expect("failed v10 run");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+
+    std::fs::write(project_root().join("e2e_v10_output.ll"), stdout.as_bytes()).expect("write IR");
+
+    let clang_result = std::process::Command::new("clang")
+        .args(["-o", "e2e_v10_bootstrap.exe", "e2e_v10_output.ll", "stdlib\\runtime\\axiom_runtime.c"])
+        .current_dir(project_root())
+        .output();
+
+    if let Ok(result) = clang_result {
+        assert!(result.status.success(), "Bootstrap IR compilation failed");
+    }
+}

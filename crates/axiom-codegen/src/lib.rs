@@ -327,6 +327,16 @@ impl IrEmitter {
         self.emitln("declare void @axiom_ir_call_arg_lit(i8*, i8*)");
         self.emitln("declare void @axiom_ir_ret_reg(i64)");
         self.emitln("declare void @axiom_ir_ret_lit(i64)");
+        // v0.10.0 function table
+        self.emitln("declare void @axiom_fn_table_init()");
+        self.emitln("declare void @axiom_fn_table_add(i64, i64, i64, i64, i64)");
+        self.emitln("declare i64 @axiom_fn_table_count()");
+        self.emitln("declare i64 @axiom_fn_name_id(i64)");
+        self.emitln("declare i64 @axiom_fn_ret_type_id(i64)");
+        self.emitln("declare i64 @axiom_fn_param_count(i64)");
+        self.emitln("declare i64 @axiom_fn_body_start(i64)");
+        self.emitln("declare i64 @axiom_fn_body_end(i64)");
+        self.emitln("declare void @axiom_fn_emit_all()");
         self.emitln("");
 
         // Emit derive implementations for types with derive clauses

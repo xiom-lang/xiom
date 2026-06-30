@@ -306,7 +306,7 @@ fn main() {
 }
 
 fn print_usage() {
-    eprintln!("AXIOM Compiler v0.9.5 \"Self\" — Self-Hosted");
+    eprintln!("AXIOM Compiler v0.10.0 \"Sovereign\" — Self-Hosted");
     eprintln!("Usage:");
     eprintln!("  axiomc <source.ax>                             print LLVM IR");
     eprintln!("  axiomc --emit-ir <source.ax>                   print LLVM IR");
