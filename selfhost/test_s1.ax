@@ -1,6 +1,0 @@
-fn main() -> Int {
-  var count = 0;
-  var done = 1 == 0;
-  while !(done) { count = count + 1; }
-  return 0;
-}

@@ -156,4 +156,21 @@ AXIOM/
 
 ---
 
+## Install
+
+```powershell
+# Quick install (one-liner):
+powershell -ExecutionPolicy Bypass -c "iex (Get-Content install.ps1 -Raw)"
+```
+
+Or run the installer directly:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+The installer builds `axiomc` in release mode and adds it to your `PATH`.
+
+---
+
 **AXIOM — Language Specification v0.3**
