@@ -472,6 +472,8 @@ Versions below are **planned**. Feature lists, test counts, and dates are target
 | **v0.3.5** | PhoenixV | 2B | 2026-06-30 | **Released** | 113 | 7,020 | ~1,200 |
 | **v0.3.6** | PhoenixVI | 2B | 2026-06-30 | **Released** | 114 | 7,020 | ~1,300 |
 | **v0.3.7** | PhoenixVII | 2B | 2026-06-30 | **Released** | 116 | 7,020 | ~1,550 |
+| **v0.3.8** | PhoenixVIII | 2B | 2026-06-30 | **Released** | 118 | 7,020 | ~1,650 |
+| **v0.3.9** | PhoenixIX | 2B | 2026-06-30 | **Released** | 120 | 7,020 | ~1,750 |
 | v0.4.0 | Mirror | 2C | TBD | Planned | — | — | — |
 | v1.0.0 | Sovereign | 3 | TBD | Planned | — | — | — |
 
