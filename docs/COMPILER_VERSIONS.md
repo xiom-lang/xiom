@@ -429,6 +429,17 @@ The AXIOM-written compiler (`selfhost/axiomc.ax`, ~700 lines) emits LLVM IR matc
 
 ---
 
+### v0.5.1 "Genesis+" — Hardening + Stress Tests (2026-06-30)
+
+**Status: Released.** 133 tests. All 17 examples covered by diff tests + 4 feature stress tests.
+
+- **4 remaining examples** now covered: phase1_full, phase1_hardening, phase1_selfhost, phase1_stress
+- **4 stress test programs** per Build Strategy testing section: 50-field struct derive (`BigStruct.eq/clone/hash`), 10-level nested borrows (`read1`→`read10` chain), 5-level generic instantiation chain (`quad_Int`→`triple_Int`→`double_Int`→`wrap_Int`→`id_Int`), float matrix 2×2 (`fmul`+`fadd`)
+- **24 diff tests total** — all 17 examples + stress tests verified
+- **133 tests passing**
+
+---
+
 ## Roadmap (Planned — Not Yet Built)
 
 Versions below are **planned**. Feature lists, test counts, and dates are targets — not commitments.
@@ -480,6 +491,7 @@ The selfhost compiler (`selfhost/axiomc_v050.ax`, 718 lines) embeds its own full
 | **v0.3.9** | PhoenixIX | 2B | 2026-06-30 | **Released** | 120 | 7,020 | ~1,750 |
 | **v0.4.0** | Mirror | 2B | 2026-06-30 | **Released** | 124 | 7,020 | ~2,200 |
 | **v0.5.0** | Genesis | 2C | 2026-06-30 | **Released** | 125 | 7,020 | ~2,900 |
+| **v0.5.1** | Genesis+ | 2C | 2026-06-30 | **Released** | 133 | 7,020 | ~3,100 |
 | v1.0.0 | Sovereign | 3 | TBD | Planned | — | — | — |
 
 > AXIOM LOC totals include selfhost compiler modules (`selfhost/`) and example programs (`examples/`).
