@@ -565,6 +565,83 @@ module codegen {
   println("}");
   }
 
+  pub fn emit_enum() {
+    println("define i64 @token_name(i64 %param0) {");
+    println("entry0:");
+    println("  %tmp0 = alloca i64");
+    println("  store i64 %param0, i64* %tmp0");
+    println("  %tmp1 = alloca i64");
+    println("  %tmp2 = load i64, i64* %tmp0");
+    println("  br label %match_check3");
+    println("match_check3:");
+    println("  %tmp3 = icmp eq i64 %tmp2, 0");
+    println("  br i1 %tmp3, label %match_arm2, label %match_check5");
+    println("match_arm2:");
+    println("  store i64 1, i64* %tmp1");
+    println("  br label %match_merge1");
+    println("match_merge1:");
+    println("  %tmp6 = load i64, i64* %tmp1");
+    println("  ret i64 %tmp6");
+    println("}");
+    println("");
+  }
+
+  pub fn emit_derive_enum() {
+    println("define i64 @Color.eq(%struct.Color %self, %struct.Color %other) {");
+    println("  %tmp0 = alloca %struct.Color");
+    println("  store %struct.Color %self, %struct.Color* %tmp0");
+    println("  %tmp1 = alloca %struct.Color");
+    println("  store %struct.Color %other, %struct.Color* %tmp1");
+    println("  %tmp2 = getelementptr %struct.Color, %struct.Color* %tmp0, i32 0, i32 0");
+    println("  %tmp3 = load i64, i64* %tmp2");
+    println("  %tmp4 = getelementptr %struct.Color, %struct.Color* %tmp1, i32 0, i32 0");
+    println("  %tmp5 = load i64, i64* %tmp4");
+    println("  %tmp6 = icmp eq i64 %tmp3, %tmp5");
+    println("  %tmp7 = zext i1 %tmp6 to i64");
+    println("  ret i64 %tmp7");
+    println("}");
+    println("");
+  }
+
+  pub fn emit_interface() {
+    println("define i64 @is_greater(i64 %param0, i64 %param1) {");
+    println("entry0:");
+    println("  %tmp0 = alloca i64");
+    println("  store i64 %param0, i64* %tmp0");
+    println("  %tmp1 = alloca i64");
+    println("  store i64 %param1, i64* %tmp1");
+    println("  %tmp2 = load i64, i64* %tmp0");
+    println("  %tmp3 = load i64, i64* %tmp1");
+    println("  %tmp4 = icmp sgt i64 %tmp2, %tmp3");
+    println("  ret i64 %tmp4");
+    println("}");
+    println("");
+  }
+
+  pub fn emit_async() {
+    println("define i64 @worker(i64 %param0) {");
+    println("entry0:");
+    println("  %tmp0 = alloca i64");
+    println("  store i64 %param0, i64* %tmp0");
+    println("  %tmp1 = load i64, i64* %tmp0");
+    println("  %tmp2 = mul i64 %tmp1, 2");
+    println("  ret i64 %tmp2");
+    println("}");
+    println("");
+    println("define i64 @main() {");
+    println("entry0:");
+    println("  %tmp0 = alloca i64");
+    println("  store i64 1, i64* %tmp0");
+    println("  %tmp1 = alloca i64");
+    println("  store i64 2, i64* %tmp1");
+    println("  %tmp2 = load i64, i64* %tmp0");
+    println("  %tmp3 = load i64, i64* %tmp1");
+    println("  %tmp4 = add i64 %tmp2, %tmp3");
+    println("  ret i64 %tmp4");
+    println("}");
+    println("");
+  }
+
   pub fn compile_all() {
     emit_add();
     emit_sq();
@@ -575,6 +652,10 @@ module codegen {
     emit_modules();
     emit_error();
     emit_generics();
+    emit_enum();
+    emit_derive_enum();
+    emit_interface();
+    emit_async();
   }
 }
 

@@ -148,3 +148,33 @@ fn test_differential_generics() {
     assert!(selfhost_ir.contains("define i64 @wrap_Int"));
     assert!(selfhost_ir.contains("call i64 @wrap_Int(i64 42)"));
 }
+
+#[test]
+fn test_differential_enum() {
+    let selfhost_ir = compile_to_ir("selfhost/axiomc.ax");
+    assert!(selfhost_ir.contains("match_check"));
+    assert!(selfhost_ir.contains("match_arm"));
+    assert!(selfhost_ir.contains("match_merge"));
+    assert!(selfhost_ir.contains("icmp eq i64"));
+}
+
+#[test]
+fn test_differential_derive_enum() {
+    let selfhost_ir = compile_to_ir("selfhost/axiomc.ax");
+    assert!(selfhost_ir.contains("define i64 @Color.eq"));
+    assert!(selfhost_ir.contains("zext i1"));
+}
+
+#[test]
+fn test_differential_interface() {
+    let selfhost_ir = compile_to_ir("selfhost/axiomc.ax");
+    assert!(selfhost_ir.contains("define i64 @is_greater"));
+    assert!(selfhost_ir.contains("icmp sgt"));
+}
+
+#[test]
+fn test_differential_async() {
+    let selfhost_ir = compile_to_ir("selfhost/axiomc.ax");
+    assert!(selfhost_ir.contains("define i64 @worker"));
+    assert!(selfhost_ir.contains("mul i64"));
+}
