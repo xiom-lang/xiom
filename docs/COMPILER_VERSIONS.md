@@ -502,6 +502,7 @@ The selfhost compiler (`selfhost/axiomc_v050.ax`, 718 lines) embeds its own full
 | **v0.7.0** | Forge | 3 | 2026-06-30 | **Released** | 151 | 8,700 | ~3,100 |
 | **v0.8.0** | Prover | 3 | 2026-06-30 | **Released** | 151 | 8,900 | ~3,100 |
 | **v0.8.1** | Prover+ | 3 | 2026-06-30 | **Released** | 151 | 8,900 | ~3,100 |
+| **v0.9.0** | Validation | 3 | 2026-06-30 | **Released** | 197 | 9,100 | ~3,100 |
 | v1.0.0 | Sovereign | 3 | TBD | Planned | — | — | — |
 
 > AXIOM LOC totals include selfhost compiler modules (`selfhost/`) and example programs (`examples/`).
@@ -516,7 +517,7 @@ The selfhost compiler (`selfhost/axiomc_v050.ax`, 718 lines) embeds its own full
 # Build everything
 cargo build
 
-# Run all tests (124 tests)
+# Run all tests (197 tests)
 cargo test
 
 # Run specific crate tests

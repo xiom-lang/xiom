@@ -300,7 +300,7 @@ fn main() {
 }
 
 fn print_usage() {
-    eprintln!("AXIOM Compiler v0.5.0 \"Genesis\" — Phase 2C");
+    eprintln!("AXIOM Compiler v0.9.0 \"Validation\" — E2E Verified");
     eprintln!("Usage:");
     eprintln!("  axiomc <source.ax>                             print LLVM IR");
     eprintln!("  axiomc --emit-ir <source.ax>                   print LLVM IR");
