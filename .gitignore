@@ -43,6 +43,16 @@ Thumbs.db
 
 # --- Test artifacts ---
 *.snap.new
+*.ilk
+a.exe
+test_*.exe
+e2e_*.exe
+selfhost_*.exe
+diff_*.exe
+output.exe
+demo.wasm
+axiomc.wasm
+!new_axiomc.exe
 
 # --- Environment / Config ---
 .env
