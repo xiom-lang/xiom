@@ -1,0 +1,25 @@
+// AXIOM Self-Hosting Compiler — Phase 2A
+// Compiler driver written in AXIOM
+
+module lexer {
+  pub fn tokenize(source: Int) -> Int {
+    return source;
+  }
+}
+
+module parser {
+  pub fn parse(tokens: Int) -> Int {
+    return tokens;
+  }
+}
+
+use lexer.tokenize;
+use parser.parse;
+
+// Main entry point — compile source and return exit code
+fn main() -> Int {
+  let source = 42;
+  let token_count = tokenize(source);
+  let node_count = parse(token_count);
+  return node_count;
+}

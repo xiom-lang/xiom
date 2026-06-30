@@ -1,8 +1,9 @@
-# AXIOM — Session Handoff: Phase 1 Complete → Phase 2 Ready
+# AXIOM — Session Handoff: Phase 1.5 Complete → Phase 2A Ready
 
 **Date:** 2026-06-30
-**Branch:** `main`
-**Status:** Phase 1 complete. All 87 tests pass. Ready for Phase 2.
+**Branch:** `feat/phase2-selfhost-compiler`
+**Version:** v0.2.5 "Hardened"
+**Status:** Phase 1.5 complete. All 109 tests pass. Phase 2A beginning.
 
 ---
 
@@ -26,8 +27,8 @@ A production-quality AXIOM compiler with full Phase 1 feature set (6 crates, ~5,
 | `axiomc` | `crates/axiomc/` | CLI binary (lex→parse→check→borrow-check→emit→compile) | ~221 |
 
 ### Test Results
-- **87/87 passing** across all crates (0 failures, 0 warnings)
-- 11 lexer tests, 22 parser tests, 42 checker tests (type + borrow + module), 12 codegen integration tests
+- **109/109 passing** across all crates (0 failures, 0 warnings)
+- 15 lexer tests, 28 parser tests, 50 checker tests (type + borrow + module), 16 codegen integration tests
 
 ### Phase 1 Feature Completion
 
@@ -97,7 +98,7 @@ A production-quality AXIOM compiler with full Phase 1 feature set (6 crates, ~5,
 # Build everything
 cargo build
 
-# Run all tests (87 tests)
+# Run all tests (109 tests)
 cargo test
 
 # Compile an AXIOM program to IR
@@ -160,24 +161,62 @@ cargo test -p axiom-lexer
 
 ---
 
-## How to Continue (Fresh Session → Phase 2)
+## Phase 2A — Self-Hosting Compiler Bootstrap
 
-1. `cd E:\Projects\AXIOM`
-2. `cargo test` — confirm 87/87
-3. Read `specs/AXIOM_Build_Strategy.md` — Phase 2 section
-4. Phase 2 priorities:
-   - Full async state machine codegen
-   - `?` operator enhanced codegen
-   - Match exhaustion verification
-   - `axiom fmt` canonical formatter
-   - Package manager prototype
-   - LSP prototype (tower-lsp)
-   - Self-hosting bootstrap (rewrite lexer in AXIOM)
-5. Start with async codegen in `crates/axiom-codegen/`
-6. Then formatter in new binary crate `crates/axiom-fmt/`
+**Goal:** Write a minimal AXIOM lexer + parser in AXIOM itself, compile it with the Rust `axiomc`, and verify it can tokenize and parse a subset of AXIOM source.
+
+### Pipeline (AXIOM-in-AXIOM)
+
+```
+.ax source → AXIOM lexer (selfhost/axiom-lexer.ax)
+           → token stream
+           → AXIOM parser (selfhost/axiom-parser.ax)
+           → AST (axiom-ast types reused via FFI?)
+           → LLVM IR (selfhost/axiomc.ax, compiled by Rust axiomc)
+```
+
+### New Source Files
+
+| File | Purpose |
+|------|---------|
+| `selfhost/axiom-lexer.ax` | Tokenizer in AXIOM — character iteration, keyword/ident/number/string recognition, token stream output |
+| `selfhost/axiom-parser.ax` | Recursive descent parser in AXIOM — produces AST nodes matching `axiom-ast` layout |
+| `selfhost/axiomc.ax` | CLI driver in AXIOM — read source, call lexer, call parser, emit LLVM IR (via FFI to `LLVMTargetMachineEmit`?) |
+
+### Milestones
+
+1. **Lexer in AXIOM** — tokenize a subset (identifiers, keywords, numbers, strings, operators, delimiters) from a source string or file
+2. **Parser in AXIOM** — parse token stream into a flat AST (function declarations, struct declarations, calls, expressions)
+3. **axiomc.ax driver** — wire lexer → parser → IR dump or verification
+4. **Bootstrap verification** — `axiomc selfhost/axiom-lexer.ax` produces working native binary that can lex
+
+### Key Constraints
+
+- AXIOM currently cannot call itself recursively (no recursion in Phase 1.5 codegen) → use iterative/trampolined loops
+- FFI to Rust LLVM bindings may be limited → IR may be printed as text instead of using `inkwell`
+- The self-hosted compiler targets AXIOM first, not a general-purpose language
+
+### Test Strategy
+
+- `cargo test` still runs 109 Rust tests (baseline must stay green)
+- New self-host tests: compile `selfhost/*.ax` with Rust `axiomc` and assert exit code 0
+- Lex roundtrip: feed known AXIOM source → AXIOM-lexer → compare token output with Rust lexer
+- Parse roundtrip: feed known tokens → AXIOM-parser → compare AST with Rust parser
 
 ---
 
-**Phase 2 Entry Condition Met:** Phase 1 compiles and runs production-quality code on native and WASM. All 87 tests pass (0 warnings). The full language surface is implemented.
+## How to Continue (Fresh Session → Phase 2A)
 
-**Next action:** Implement async state machine codegen OR begin self-hosting bootstrap.
+1. `cd E:\Projects\AXIOM`
+2. `cargo test` — confirm 109/109
+3. Read `specs/AXIOM_Build_Strategy.md` — Self-hosting section
+4. Start with `selfhost/axiom-lexer.ax` — character iteration and token classification
+5. Build `selfhost/axiom-parser.ax` — recursive descent with manual stack
+6. Wire `selfhost/axiomc.ax` — CLI harness calling lexer + parser
+7. Verify: `cargo run -p axiomc -- --run selfhost/axiom-lexer.ax`
+
+---
+
+**Phase 2A Entry Condition Met:** Phase 1.5 hardened with 109/109 tests passing. Compiler version v0.2.5 "Hardened". Rust compiler pipeline is stable and production-quality.
+
+**Next action:** Write `selfhost/axiom-lexer.ax` — the first AXIOM-in-AXIOM source file.

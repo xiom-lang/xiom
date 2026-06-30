@@ -1,0 +1,287 @@
+// AXIOM Self-Hosting Compiler — Phase 2A
+// Minimal lexer (tokenizer) written in AXIOM.
+// v0.2.5 bootstrap — fully compilable by the Rust axiomc.
+//
+// Limitations (Phase 2A):
+//   - Source character iteration uses a stub (no string indexing yet).
+//   - Keyword matching is structural — deferred to Phase 2B.
+//   - Tokenization scans a predefined test pattern.
+//
+// Ownership model: Int values are MOVED when passed to functions.
+// Helper functions that inspect Int arguments are designed so the
+// caller does NOT need the value afterward.
+//
+// Functions taking `&Int` create a read borrow (released on return)
+// and let the caller reuse the variable.
+//
+// Next: Phase 2B replaces source_char() with proper Str indexing.
+
+module lexer {
+
+// ============================================================================
+// Token type
+// ============================================================================
+pub type Token = {
+  kind: Int;
+  line: Int;
+  col: Int;
+  text: Str;
+} derive[Eq, Clone]
+
+// ============================================================================
+// Character classification — fully functional in Phase 2A.
+// These consume their argument; call once per character.
+// ============================================================================
+
+pub fn is_alpha(c: Int) -> Bool {
+  if c >= 65 {
+    if c <= 90 { return true; }
+  }
+  if c >= 97 {
+    if c <= 122 { return true; }
+  }
+  return false;
+}
+
+pub fn is_digit(c: Int) -> Bool {
+  if c >= 48 {
+    if c <= 57 { return true; }
+  }
+  return false;
+}
+
+pub fn is_alphanumeric(c: Int) -> Bool {
+  if c >= 48 && c <= 57 { return true; }
+  if c >= 65 && c <= 90 { return true; }
+  if c >= 97 && c <= 122 { return true; }
+  if c == 95 { return true; }
+  return false;
+}
+
+// ============================================================================
+// Token factory
+// ============================================================================
+pub fn make_token(kind: Int, line: Int, col: Int, text: Str) -> Token {
+  return Token{ kind: kind, line: line, col: col, text: text };
+}
+
+// ============================================================================
+// Character access — STUB for Phase 2A.
+// Will be replaced by source[pos] once the compiler supports string indexing.
+// Takes &Int to avoid moving the caller's pos variable.
+// ============================================================================
+pub fn source_char(source: Str, pos: &Int) -> Int {
+  return 0;
+}
+
+// ============================================================================
+// Keyword/identifier dispatch — STUB for Phase 2A.
+// Takes &Int for cursor position (read borrow, caller retains ownership).
+// Returns encoded (kind * 1000000 + new_pos).
+// ============================================================================
+pub fn scan_ident(source: Str, pos: &Int) -> Int {
+  let kind = 20;
+  let new_pos = 0;
+  return kind * 1000000 + new_pos;
+}
+
+pub fn scan_number(source: Str, pos: &Int) -> Int {
+  let kind = 21;
+  let new_pos = 0;
+  return kind * 1000000 + new_pos;
+}
+
+// ============================================================================
+// Main tokenizer
+// Scans source string, returns token count.
+// Ownership-safe: all character checks are inlined against local `c`,
+// and source_char is called with `&pos` (read borrow).
+// ============================================================================
+
+pub fn tokenize(source: Str) -> Int {
+  var pos = 0;
+  var count = 0;
+  var line = 1;
+  var col = 1;
+
+  while 1 == 1 {
+    let c = source_char(source, &pos);
+    if c == 0 {
+      count = count + 1;
+      return count;
+    }
+
+    // Inline whitespace check (avoids moving c with a helper call)
+    if c == 32 {
+      pos = pos + 1;
+      col = col + 1;
+    } elif c == 9 {
+      pos = pos + 1;
+      col = col + 1;
+    } elif c == 10 {
+      pos = pos + 1;
+      line = line + 1;
+      col = 1;
+    } elif c == 13 {
+      pos = pos + 1;
+      col = col + 1;
+    } elif c == 47 {
+      // '/' — comment or operator
+      // Phase 2A: treat as single-char slash operator
+      pos = pos + 1;
+      col = col + 1;
+      count = count + 1;
+    } elif c >= 65 && c <= 90 || c >= 97 && c <= 122 {
+      // alphabetic → identifier or keyword
+      let r1 = scan_ident(source, &pos);
+      pos = r1;
+      col = col + 1;
+      count = count + 1;
+    } elif c >= 48 && c <= 57 {
+      // digit → number literal
+      let r2 = scan_number(source, &pos);
+      pos = r2;
+      col = col + 1;
+      count = count + 1;
+    } elif c == 34 {
+      // '"' — string literal
+      pos = pos + 1;
+      col = col + 1;
+      count = count + 1;
+    } elif c == 61 {
+      // '=' — could be =, ==, or =>
+      pos = pos + 1;
+      col = col + 1;
+      count = count + 1;
+    } elif c == 43 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 45 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 42 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 40 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 41 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 123 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 125 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 91 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 93 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 44 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 59 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 58 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 46 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 60 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 62 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 33 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } else {
+      // skip unknown character
+      pos = pos + 1;
+      col = col + 1;
+    }
+  }
+  return count;
+}
+
+} // end module lexer
+
+// ============================================================================
+// Module exports for other self-hosting compiler modules
+// ============================================================================
+use lexer.Token;
+use lexer.make_token;
+use lexer.is_alpha;
+use lexer.is_digit;
+use lexer.is_alphanumeric;
+use lexer.tokenize;
+
+// ============================================================================
+// Test harness — exercises all fully functional components
+// ============================================================================
+
+fn test_is_alpha() -> Int {
+  if !(is_alpha(65)) { return 1; }
+  if !(is_alpha(90)) { return 2; }
+  if !(is_alpha(97)) { return 3; }
+  if !(is_alpha(122)) { return 4; }
+  if is_alpha(48) { return 5; }
+  if is_alpha(32) { return 6; }
+  return 0;
+}
+
+fn test_is_digit() -> Int {
+  if !(is_digit(48)) { return 1; }
+  if !(is_digit(57)) { return 2; }
+  if is_digit(65) { return 3; }
+  if is_digit(32) { return 4; }
+  return 0;
+}
+
+fn test_is_alphanumeric() -> Int {
+  if !(is_alphanumeric(65)) { return 1; }
+  if !(is_alphanumeric(48)) { return 2; }
+  if !(is_alphanumeric(95)) { return 3; }
+  if is_alphanumeric(32) { return 4; }
+  if is_alphanumeric(43) { return 5; }
+  return 0;
+}
+
+fn test_make_token() -> Int {
+  let tok = make_token(1, 1, 1, "fn");
+  if tok.kind != 1 { return 1; }
+  if tok.line != 1 { return 2; }
+  if tok.col != 1 { return 3; }
+  return 0;
+}
+
+fn test_tokenize_empty() -> Int {
+  let count = tokenize("");
+  if count != 1 { return 1; }
+  return 0;
+}
+
+fn test_module_exports() -> Int {
+  let tok = make_token(20, 1, 5, "hello");
+  if tok.kind != 20 { return 1; }
+  if tok.col != 5 { return 2; }
+  return 0;
+}
+
+// ============================================================================
+// Entry point — runs all tests, returns 0 on success
+// ============================================================================
+
+fn main() -> Int {
+  var exit = 0;
+
+  exit = test_is_alpha();
+  if exit != 0 { return 100 + exit; }
+
+  exit = test_is_digit();
+  if exit != 0 { return 200 + exit; }
+
+  exit = test_is_alphanumeric();
+  if exit != 0 { return 300 + exit; }
+
+  exit = test_make_token();
+  if exit != 0 { return 400 + exit; }
+
+  exit = test_tokenize_empty();
+  if exit != 0 { return 500 + exit; }
+
+  exit = test_module_exports();
+  if exit != 0 { return 600 + exit; }
+
+  return 0;
+}

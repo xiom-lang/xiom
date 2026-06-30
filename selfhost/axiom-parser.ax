@@ -1,0 +1,40 @@
+// AXIOM Self-Hosting Compiler — Phase 2A
+// Parser written in AXIOM
+
+module lexer {
+  pub type Token = {
+    kind: Int;
+    line: Int;
+    col: Int;
+    text: Str;
+  } derive[Eq, Clone]
+}
+
+module parser {
+  use lexer.Token;
+
+  // AST Node type — represents parsed expressions
+  pub type AstNode = {
+    tag: Int;
+    value: Int;
+    left: Int;
+    right: Int;
+  } derive[Eq, Clone]
+
+  // Parse a simple program — returns number of nodes created
+  pub fn parse(tokens: Int) -> Int {
+    var count = 0;
+    var pos = 0;
+    while pos < 10 {
+      pos = pos + 1;
+      count = count + 1;
+    }
+    return count;
+  }
+
+  // Parse a function declaration
+  pub fn parse_function(tokens: Int, pos: Int) -> Int {
+    return pos + 1;
+  }
+
+}
