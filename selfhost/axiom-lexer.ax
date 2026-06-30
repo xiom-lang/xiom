@@ -389,6 +389,34 @@ pub fn tokenize() -> Int {
       } else {
         pos = pos + 1; col = col + 1;
       }
+    } elif c == 38 {
+      let c2 = source_at(pos + 1);
+      if c2 == 38 {
+        pos = pos + 2; col = col + 2; count = count + 1;
+      } else {
+        pos = pos + 1; col = col + 1;
+      }
+    } elif c == 124 {
+      let c2 = source_at(pos + 1);
+      if c2 == 124 {
+        pos = pos + 2; col = col + 2; count = count + 1;
+      } else {
+        pos = pos + 1; col = col + 1;
+      }
+    } elif c == 33 {
+      let c2 = source_at(pos + 1);
+      if c2 == 61 {
+        pos = pos + 2; col = col + 2; count = count + 1;
+      } else {
+        pos = pos + 1; col = col + 1; count = count + 1;
+      }
+    } elif c == 60 {
+      let c2 = source_at(pos + 1);
+      if c2 == 61 {
+        pos = pos + 2; col = col + 2; count = count + 1;
+      } else {
+        pos = pos + 1; col = col + 1; count = count + 1;
+      }
     } else {
       // Unknown character — skip
       pos = pos + 1;
