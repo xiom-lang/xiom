@@ -1,4 +1,6 @@
-// Phase 1: Interface and generic constraints test
+// AXIOM — phase1_interface
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 
 interface Comparable {
   fn compare(other: &Int) -> Int;

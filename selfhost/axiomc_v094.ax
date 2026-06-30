@@ -1,5 +1,6 @@
-// AXIOM Self-Hosted Compiler v0.9.4 — True Self-Compilation
-// Reads demo_float.ax, tokenizes, identifies functions, emits matching IR.
+// AXIOM — Self-Hosted Compiler v0.9.4
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 
 fn axiom_read_file(path: Str) -> Int;
 fn axiom_str_len(src: Int) -> Int;

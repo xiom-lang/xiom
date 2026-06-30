@@ -1,5 +1,6 @@
-// AXIOM Self-Hosted Compiler v0.9.5 — Self-Compilation
-// Reads ITSELF, tokenizes, counts functions, emits structural IR hash.
+// AXIOM — Self-Hosted Compiler v0.9.5
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 
 fn axiom_read_file(path: Str) -> Int;
 fn axiom_str_len(src: Int) -> Int;

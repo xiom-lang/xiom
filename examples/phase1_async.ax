@@ -1,4 +1,6 @@
-// Phase 1: Async Runtime Demo
+// AXIOM — phase1_async
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 
 fn worker(id: Int) -> Int {
   return id * 2;

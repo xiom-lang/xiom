@@ -1,5 +1,6 @@
-// AXIOM Self-Hosting Compiler v0.9.1
-// Reads actual .ax files via axiom_read_file extern
+// AXIOM — Self-Hosted Compiler v0.9.1
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 
 module lexer {
   pub type Token = { kind: Int; line: Int; col: Int; } derive[Eq, Clone]

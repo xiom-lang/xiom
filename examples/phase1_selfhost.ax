@@ -1,5 +1,6 @@
-// Phase 1.5: Self-Hosting Simulation
-// A minimal tokenizer → parser pipeline in AXIOM
+// AXIOM — phase1_selfhost
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 
 module lexer {
     pub type Token = {

@@ -1,3 +1,7 @@
+// AXIOM — Language Server
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
+
 use std::collections::HashMap;
 use std::io::{self, BufRead, Read, Write};
 use std::sync::Arc;

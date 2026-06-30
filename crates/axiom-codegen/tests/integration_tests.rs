@@ -1,3 +1,7 @@
+// AXIOM — Integration Tests
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
+
 use axiom_lexer::Lexer;
 use axiom_parser::Parser;
 use axiom_codegen::IrEmitter;

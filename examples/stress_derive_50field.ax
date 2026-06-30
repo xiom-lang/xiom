@@ -1,3 +1,7 @@
+// AXIOM — stress_derive_50field
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
+
 type BigStruct = {
   f0: Int; f1: Int; f2: Int; f3: Int; f4: Int;
   f5: Int; f6: Int; f7: Int; f8: Int; f9: Int;

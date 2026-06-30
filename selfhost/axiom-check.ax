@@ -1,7 +1,7 @@
-// AXIOM Self-Hosting Compiler — v0.3.3
-// Type checker written in AXIOM.
-// Compiled by Rust axiomc v0.2.5
-//
+// AXIOM — Self-Hosted Type Checker
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
+
 // Checks types on AST nodes produced by the parser.
 // For bootstrap, operates on hardcoded AST data.
 // Type kinds: 0=Unknown, 1=Int, 2=Bool, 3=Float64, 4=Str, 5=Void, 9=Error
