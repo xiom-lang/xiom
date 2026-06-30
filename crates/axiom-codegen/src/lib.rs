@@ -286,6 +286,9 @@ impl IrEmitter {
         self.emitln("declare i64 @axiom_all(i8*, i64, i8*)");
         self.emitln("declare i64 @axiom_none(i8*, i64, i8*)");
         self.emitln("declare i64 @axiom_contains(i8*, i64)");
+        self.emitln("declare i8* @axiom_read_file(i8*)");
+        self.emitln("declare i64 @axiom_file_size(i8*)");
+        self.emitln("declare void @axiom_free(i8*)");
         self.emitln("");
 
         // Emit derive implementations for types with derive clauses
@@ -2148,6 +2151,34 @@ impl IrEmitter {
                     }
                     return Ok("0".to_string());
                 }
+                // Extern runtime functions for file I/O
+                if fn_name == "axiom_read_file" {
+                    let tmp = self.fresh_tmp();
+                    if let Some(path_arg) = args.first() {
+                        let path_ptr = self.compile_expr(path_arg)?;
+                        self.emitln(&format!("  {tmp} = call i8* @axiom_read_file(i8* {path_ptr})"));
+                    } else {
+                        self.emitln(&format!("  {tmp} = call i8* @axiom_read_file(i8* null)"));
+                    }
+                    return Ok(tmp);
+                }
+                if fn_name == "axiom_file_size" {
+                    let tmp = self.fresh_tmp();
+                    if let Some(path_arg) = args.first() {
+                        let path_ptr = self.compile_expr(path_arg)?;
+                        self.emitln(&format!("  {tmp} = call i64 @axiom_file_size(i8* {path_ptr})"));
+                    } else {
+                        self.emitln(&format!("  {tmp} = call i64 @axiom_file_size(i8* null)"));
+                    }
+                    return Ok(tmp);
+                }
+                if fn_name == "axiom_free" {
+                    if let Some(ptr_arg) = args.first() {
+                        let ptr_val = self.compile_expr(ptr_arg)?;
+                        self.emitln(&format!("  call void @axiom_free(i8* {ptr_val})"));
+                    }
+                    return Ok("0".to_string());
+                }
                 // Check if this is a call to a generic function and track instantiation
                 let fn_key = fn_name.clone();
                 let is_generic = self.generic_fn_decls.iter().any(|f| self.fn_key(f) == fn_key);
@@ -2447,6 +2478,7 @@ impl IrEmitter {
                     _ => None,
                 };
                 if let Some(ref name) = fn_name {
+                    if name == "axiom_read_file" { return "i8*".to_string(); }
                     if let Some((_, ret_ty)) = self.functions.get(name) {
                         if ret_ty == "double" { return "double".to_string(); }
                         return ret_ty.clone();
