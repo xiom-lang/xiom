@@ -468,7 +468,7 @@ The selfhost compiler (`selfhost/axiomc_v050.ax`, 718 lines) embeds its own full
 - Additional targets (ARM, RISC-V)
 - WASM compiler distribution (playground)
 - Mechanical FFI binding generation with contract inference from C headers
-- Showcase projects: AxiomDB (KV store → transactions), AxiomVDB (vector store)
+- Showcase projects: AxiomDB (KV store → transactions), AxiomVDB (vector store) — gated on full self-hosting bootstrap (byte-for-byte identical output)
 
 ---
 
@@ -496,6 +496,7 @@ The selfhost compiler (`selfhost/axiomc_v050.ax`, 718 lines) embeds its own full
 | **v0.6.1** | Sovereign+ | 3 | 2026-06-30 | **Released** | 151 | 7,800 | ~3,100 |
 | **v0.6.2** | Sovereign++ | 3 | 2026-06-30 | **Released** | 151 | 8,100 | ~3,100 |
 | **v0.6.3** | Sovereign+++ | 3 | 2026-06-30 | **Released** | 151 | 8,100 | ~3,100 |
+| **v0.6.4** | SovereignIV | 3 | 2026-06-30 | **Released** | 151 | 8,200 | ~3,100 |
 | v1.0.0 | Sovereign | 3 | TBD | Planned | — | — | — |
 
 > AXIOM LOC totals include selfhost compiler modules (`selfhost/`) and example programs (`examples/`).
