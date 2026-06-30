@@ -12,10 +12,9 @@ use axiom_parser::Parser;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("axiom doc: missing file operand");
-        eprintln!("Usage: axiom doc <file.ax>");
-        process::exit(1);
+    if args.len() < 2 || args.iter().any(|a| a == "--help") {
+        print_usage();
+        process::exit(if args.iter().any(|a| a == "--help") { 0 } else { 1 });
     }
 
     let file = &args[1];
@@ -240,4 +239,17 @@ fn op_to_str(op: &BinOp) -> &str {
         BinOp::Le => "<=", BinOp::Ge => ">=", BinOp::And => "&&", BinOp::Or => "||",
         BinOp::Assign => "=",
     }
+}
+
+fn print_usage() {
+    eprintln!("AXIOM Doc v0.10.1 -- Documentation Generator");
+    eprintln!();
+    eprintln!("USAGE:");
+    eprintln!("  axiom doc <file.ax>");
+    eprintln!();
+    eprintln!("OPTIONS:");
+    eprintln!("  --help        Show this help message");
+    eprintln!();
+    eprintln!("EXAMPLES:");
+    eprintln!("  axiom doc examples/phase1_contracts.ax");
 }

@@ -10,6 +10,11 @@ use std::process;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+    if args.iter().any(|a| a == "--help") {
+        print_usage();
+        return;
+    }
+
     let mut list_mode = false;
     let mut resolve_mode = false;
     let mut project_root = PathBuf::from(".");
@@ -33,7 +38,7 @@ fn main() {
     let manifest_path = project_root.join("package.ax");
     if !manifest_path.exists() {
         eprintln!("axiom pkg: no package.ax found in {}", project_root.display());
-        eprintln!("Usage: axiom pkg [--list] [--resolve] [--root <path>]");
+        eprintln!("Usage: axiom pkg [OPTIONS] --root <dir>");
         process::exit(1);
     }
 
@@ -246,4 +251,21 @@ fn find_workspace_root(project_root: &Path) -> PathBuf {
         }
     }
     project_root.to_path_buf()
+}
+
+fn print_usage() {
+    eprintln!("AXIOM Package v0.10.1 -- Package Manager");
+    eprintln!();
+    eprintln!("USAGE:");
+    eprintln!("  axiom pkg [OPTIONS] --root <dir>");
+    eprintln!();
+    eprintln!("OPTIONS:");
+    eprintln!("  --help        Show this help message");
+    eprintln!("  --list        List package modules");
+    eprintln!("  --resolve     Show resolved dependency tree");
+    eprintln!("  --root <dir>  Package root directory");
+    eprintln!();
+    eprintln!("EXAMPLES:");
+    eprintln!("  axiom pkg --list --root stdlib");
+    eprintln!("  axiom pkg --root myproject");
 }
