@@ -291,6 +291,42 @@ impl IrEmitter {
         self.emitln("declare void @axiom_free(i8*)");
         self.emitln("declare i8 @axiom_char_at(i8*, i64)");
         self.emitln("declare i64 @axiom_str_len(i8*)");
+        // String interning
+        self.emitln("declare i64 @axiom_intern(i8*, i64, i64)");
+        self.emitln("declare i8* @axiom_lookup(i64)");
+        // IR emission
+        self.emitln("declare i64 @axiom_ir_open(i8*)");
+        self.emitln("declare void @axiom_ir_close()");
+        self.emitln("declare void @axiom_ir_header()");
+        self.emitln("declare void @axiom_ir_define(i64, i64)");
+        self.emitln("declare void @axiom_ir_param(i64, i64)");
+        self.emitln("declare void @axiom_ir_entry()");
+        self.emitln("declare void @axiom_ir_alloca(i64, i64)");
+        self.emitln("declare void @axiom_ir_store(i64, i64, i64)");
+        self.emitln("declare void @axiom_ir_load(i64, i64, i64)");
+        self.emitln("declare void @axiom_ir_binop(i8*, i64, i64, i64, i64)");
+        self.emitln("declare void @axiom_ir_call(i64, i64, i64)");
+        self.emitln("declare void @axiom_ir_call_arg(i64, i64)");
+        self.emitln("declare void @axiom_ir_call_lit(i8*)");
+        self.emitln("declare void @axiom_ir_call_end()");
+        self.emitln("declare void @axiom_ir_ret(i64, i64)");
+        self.emitln("declare void @axiom_ir_ret_void()");
+        self.emitln("declare void @axiom_ir_endfn()");
+        self.emitln("declare void @axiom_ir_raw(i8*)");
+        self.emitln("declare void @axiom_ir_emit_program(i64)");
+        // v0.9.4 string-based IR emission
+        self.emitln("declare void @axiom_ir_define_s(i8*, i8*)");
+        self.emitln("declare void @axiom_ir_param_int(i64)");
+        self.emitln("declare void @axiom_ir_param_double(i64)");
+        self.emitln("declare void @axiom_ir_alloca_s(i64)");
+        self.emitln("declare void @axiom_ir_store_param(i64, i64)");
+        self.emitln("declare void @axiom_ir_load_s(i64, i64)");
+        self.emitln("declare void @axiom_ir_add(i64, i64, i64)");
+        self.emitln("declare void @axiom_ir_fmul(i64, i64, i64)");
+        self.emitln("declare void @axiom_ir_call_fn(i64, i8*, i8*)");
+        self.emitln("declare void @axiom_ir_call_arg_lit(i8*, i8*)");
+        self.emitln("declare void @axiom_ir_ret_reg(i64)");
+        self.emitln("declare void @axiom_ir_ret_lit(i64)");
         self.emitln("");
 
         // Emit derive implementations for types with derive clauses
@@ -412,7 +448,9 @@ impl IrEmitter {
             TopDecl::Fn(fd) => {
                 // Skip generic functions — they will be monomorphised later
                 if fd.generics.is_empty() {
-                    self.compile_fn(fd)?;
+                    if fd.body.is_some() {
+                        self.compile_fn(fd)?;
+                    }
                 }
                 Ok(())
             }
@@ -702,6 +740,22 @@ impl IrEmitter {
             bc
         } else {
             val.to_string()
+        }
+    }
+
+    /// Convert a value to i8* via bitcast (for pointers) or inttoptr (for ints)
+    fn val_to_i8ptr(&mut self, val: &str, ty: &str) -> String {
+        if ty == "i8*" {
+            val.to_string()
+        } else if ty.contains('*') {
+            let cast = self.fresh_tmp();
+            self.emitln(&format!("  {cast} = bitcast {ty} {val} to i8*"));
+            cast
+        } else {
+            let i64_val = self.val_to_i64(val, ty);
+            let cast = self.fresh_tmp();
+            self.emitln(&format!("  {cast} = inttoptr i64 {i64_val} to i8*"));
+            cast
         }
     }
 
@@ -2162,7 +2216,9 @@ impl IrEmitter {
                     } else {
                         self.emitln(&format!("  {tmp} = call i8* @axiom_read_file(i8* null)"));
                     }
-                    return Ok(tmp);
+                    let tmp_int = self.fresh_tmp();
+                    self.emitln(&format!("  {tmp_int} = ptrtoint i8* {tmp} to i64"));
+                    return Ok(tmp_int);
                 }
                 if fn_name == "axiom_file_size" {
                     let tmp = self.fresh_tmp();
@@ -2177,24 +2233,101 @@ impl IrEmitter {
                 if fn_name == "axiom_free" {
                     if let Some(ptr_arg) = args.first() {
                         let ptr_val = self.compile_expr(ptr_arg)?;
-                        self.emitln(&format!("  call void @axiom_free(i8* {ptr_val})"));
+                        let ptr_ty = self.infer_llvm_type(ptr_arg);
+                        let ptr_ptr = self.val_to_i8ptr(&ptr_val, &ptr_ty);
+                        self.emitln(&format!("  call void @axiom_free(i8* {ptr_ptr})"));
                     }
                     return Ok("0".to_string());
                 }
                 if fn_name == "axiom_char_at" && args.len() >= 2 {
                     let src = self.compile_expr(&args[0])?;
+                    let src_ty = self.infer_llvm_type(&args[0]);
                     let pos = self.compile_expr(&args[1])?;
                     let tmp = self.fresh_tmp();
                     let tmp_ext = self.fresh_tmp();
-                    self.emitln(&format!("  {tmp} = call i8 @axiom_char_at(i8* {src}, i64 {pos})"));
+                    let src_ptr = self.val_to_i8ptr(&src, &src_ty);
+                    self.emitln(&format!("  {tmp} = call i8 @axiom_char_at(i8* {src_ptr}, i64 {pos})"));
                     self.emitln(&format!("  {tmp_ext} = zext i8 {tmp} to i64"));
                     return Ok(tmp_ext);
                 }
                 if fn_name == "axiom_str_len" && args.len() >= 1 {
                     let src = self.compile_expr(&args[0])?;
+                    let src_ty = self.infer_llvm_type(&args[0]);
                     let tmp = self.fresh_tmp();
-                    self.emitln(&format!("  {tmp} = call i64 @axiom_str_len(i8* {src})"));
+                    let src_ptr = self.val_to_i8ptr(&src, &src_ty);
+                    self.emitln(&format!("  {tmp} = call i64 @axiom_str_len(i8* {src_ptr})"));
                     return Ok(tmp);
+                }
+                // v0.9.4 string-based IR emission externs
+                if fn_name == "axiom_ir_define_s" && args.len() >= 2 {
+                    let name = self.compile_expr(&args[0])?;
+                    let ret_type = self.compile_expr(&args[1])?;
+                    self.emitln(&format!("  call void @axiom_ir_define_s(i8* {name}, i8* {ret_type})"));
+                    return Ok("0".to_string());
+                }
+                if fn_name == "axiom_ir_param_int" && args.len() >= 1 {
+                    let index = self.compile_expr(&args[0])?;
+                    self.emitln(&format!("  call void @axiom_ir_param_int(i64 {index})"));
+                    return Ok("0".to_string());
+                }
+                if fn_name == "axiom_ir_param_double" && args.len() >= 1 {
+                    let index = self.compile_expr(&args[0])?;
+                    self.emitln(&format!("  call void @axiom_ir_param_double(i64 {index})"));
+                    return Ok("0".to_string());
+                }
+                if fn_name == "axiom_ir_alloca_s" && args.len() >= 1 {
+                    let reg = self.compile_expr(&args[0])?;
+                    self.emitln(&format!("  call void @axiom_ir_alloca_s(i64 {reg})"));
+                    return Ok("0".to_string());
+                }
+                if fn_name == "axiom_ir_store_param" && args.len() >= 2 {
+                    let reg = self.compile_expr(&args[0])?;
+                    let param = self.compile_expr(&args[1])?;
+                    self.emitln(&format!("  call void @axiom_ir_store_param(i64 {reg}, i64 {param})"));
+                    return Ok("0".to_string());
+                }
+                if fn_name == "axiom_ir_load_s" && args.len() >= 2 {
+                    let reg = self.compile_expr(&args[0])?;
+                    let from_reg = self.compile_expr(&args[1])?;
+                    self.emitln(&format!("  call void @axiom_ir_load_s(i64 {reg}, i64 {from_reg})"));
+                    return Ok("0".to_string());
+                }
+                if fn_name == "axiom_ir_add" && args.len() >= 3 {
+                    let dst = self.compile_expr(&args[0])?;
+                    let left = self.compile_expr(&args[1])?;
+                    let right = self.compile_expr(&args[2])?;
+                    self.emitln(&format!("  call void @axiom_ir_add(i64 {dst}, i64 {left}, i64 {right})"));
+                    return Ok("0".to_string());
+                }
+                if fn_name == "axiom_ir_fmul" && args.len() >= 3 {
+                    let dst = self.compile_expr(&args[0])?;
+                    let left = self.compile_expr(&args[1])?;
+                    let right = self.compile_expr(&args[2])?;
+                    self.emitln(&format!("  call void @axiom_ir_fmul(i64 {dst}, i64 {left}, i64 {right})"));
+                    return Ok("0".to_string());
+                }
+                if fn_name == "axiom_ir_call_fn" && args.len() >= 3 {
+                    let dst = self.compile_expr(&args[0])?;
+                    let fn_name_str = self.compile_expr(&args[1])?;
+                    let ret_type = self.compile_expr(&args[2])?;
+                    self.emitln(&format!("  call void @axiom_ir_call_fn(i64 {dst}, i8* {fn_name_str}, i8* {ret_type})"));
+                    return Ok("0".to_string());
+                }
+                if fn_name == "axiom_ir_call_arg_lit" && args.len() >= 2 {
+                    let ty = self.compile_expr(&args[0])?;
+                    let val = self.compile_expr(&args[1])?;
+                    self.emitln(&format!("  call void @axiom_ir_call_arg_lit(i8* {ty}, i8* {val})"));
+                    return Ok("0".to_string());
+                }
+                if fn_name == "axiom_ir_ret_reg" && args.len() >= 1 {
+                    let reg = self.compile_expr(&args[0])?;
+                    self.emitln(&format!("  call void @axiom_ir_ret_reg(i64 {reg})"));
+                    return Ok("0".to_string());
+                }
+                if fn_name == "axiom_ir_ret_lit" && args.len() >= 1 {
+                    let val = self.compile_expr(&args[0])?;
+                    self.emitln(&format!("  call void @axiom_ir_ret_lit(i64 {val})"));
+                    return Ok("0".to_string());
                 }
                 // Check if this is a call to a generic function and track instantiation
                 let fn_key = fn_name.clone();
@@ -2495,7 +2628,7 @@ impl IrEmitter {
                     _ => None,
                 };
                 if let Some(ref name) = fn_name {
-                    if name == "axiom_read_file" { return "i8*".to_string(); }
+                    if name == "axiom_read_file" { return "i64".to_string(); }
                     if name == "axiom_char_at" || name == "axiom_str_len" { return "i64".to_string(); }
                     if let Some((_, ret_ty)) = self.functions.get(name) {
                         if ret_ty == "double" { return "double".to_string(); }

@@ -1,0 +1,6 @@
+fn main() -> Int {
+  var pos = 0;
+  var len = 10;
+  while pos < len { pos = pos + 1; }
+  return 0;
+}

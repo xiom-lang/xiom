@@ -1,0 +1,7 @@
+fn main() -> Int {
+  var pos = 0;
+  var len = 100;
+  var count = 0;
+  if (pos >= len) { count = count + 1; }
+  return 0;
+}

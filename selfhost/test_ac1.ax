@@ -1,0 +1,5 @@
+fn main() -> Int {
+  var done = 1 == 0;
+  while !(done) { done = true; }
+  return 0;
+}
