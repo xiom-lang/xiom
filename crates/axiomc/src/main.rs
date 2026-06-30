@@ -28,9 +28,7 @@ fn main() {
 
     let emit_ir = args.iter().any(|a| a == "--emit-ir");
     let do_run = args.iter().any(|a| a == "--run");
-    let target_wasm = parse_flag_value(&args, "--target")
-        .map(|v| v == "wasm")
-        .unwrap_or(false);
+    let target = parse_target(&args);
     let check_contracts = !args.iter().any(|a| a == "--no-contracts");
     let _explicit_contracts = args.iter().any(|a| a == "--check-contracts");
     let diagnostics_json = args.iter().any(|a| a == "--diagnostics=json");
@@ -46,7 +44,7 @@ fn main() {
             process::exit(1);
         });
 
-    if source_path.starts_with('-') || source_path == "wasm" {
+    if source_path.starts_with('-') || matches!(source_path.as_str(), "wasm" | "arm" | "riscv") {
         eprintln!("error: no source file provided");
         process::exit(1);
     }
@@ -155,6 +153,12 @@ fn main() {
     // ── Stage 5: Codegen ──────────────────────────────────
     let mut emitter = IrEmitter::new();
     emitter.set_check_contracts(check_contracts);
+    emitter.set_target_triple(match target {
+        Target::Wasm => "wasm32-unknown-unknown",
+        Target::Arm => "aarch64-unknown-linux-gnu",
+        Target::RisCv => "riscv64gc-unknown-linux-gnu",
+        Target::Native => "x86_64-pc-windows-msvc",
+    });
     let llvm_ir = match emitter.compile_program(&program) {
         Ok(ir) => ir,
         Err(e) => {
@@ -175,13 +179,17 @@ fn main() {
     }
 
     // Just emit IR?
-    if emit_ir || (output_file.is_none() && !do_run && !target_wasm) {
+    if emit_ir || (output_file.is_none() && !do_run && target == Target::Native) {
         println!("{llvm_ir}");
         return;
     }
 
     // ── Stage 6: Compile to binary via clang ──────────────
-    let default_output = if target_wasm { "a.wasm" } else { "a.exe" };
+    let default_output = match target {
+        Target::Wasm => "a.wasm",
+        Target::Arm | Target::RisCv => "a.out",
+        Target::Native => "a.exe",
+    };
     let output = output_file.as_deref().unwrap_or(default_output);
 
     // Write IR to temp .ll file
@@ -198,8 +206,17 @@ fn main() {
     match clang {
         Some(clang_path) => {
             let mut cmd = Command::new(&clang_path);
-            if target_wasm {
-                cmd.args(["--target=wasm32-unknown-unknown", "-nostdlib", "-Wl,--no-entry", "-Wl,--export-all"]);
+            match target {
+                Target::Wasm => {
+                    cmd.args(["--target=wasm32-unknown-unknown", "-nostdlib", "-Wl,--no-entry", "-Wl,--export-all"]);
+                }
+                Target::Arm => {
+                    cmd.args(["--target=aarch64-unknown-linux-gnu"]);
+                }
+                Target::RisCv => {
+                    cmd.args(["--target=riscv64gc-unknown-linux-gnu"]);
+                }
+                Target::Native => {}
             }
             cmd.args(["-o", output, &ir_path]);
 
@@ -209,7 +226,7 @@ fn main() {
                     let _ = fs::remove_file(&ir_path);
                     eprintln!("  compiled: {output}");
 
-                    if do_run && !target_wasm {
+                    if do_run && target == Target::Native {
                         let exe = if output.contains('\\') || output.contains('/') {
                             output.to_string()
                         } else {
@@ -225,7 +242,7 @@ fn main() {
                         }
                     }
 
-                    if target_wasm {
+                    if target == Target::Wasm {
                         if let Ok(meta) = fs::metadata(output) {
                             eprintln!("  wasm size: {} bytes", meta.len());
                         }
@@ -244,10 +261,19 @@ fn main() {
         }
         None => {
             eprintln!("note: clang not found — LLVM IR written to {ir_path}");
-            if target_wasm {
-                eprintln!("  compile manually: clang --target=wasm32 -nostdlib -Wl,--no-entry -Wl,--export-all -o {output} {ir_path}");
-            } else {
-                eprintln!("  compile manually: clang -o {output} {ir_path}");
+            match target {
+                Target::Wasm => {
+                    eprintln!("  compile manually: clang --target=wasm32-unknown-unknown -nostdlib -Wl,--no-entry -Wl,--export-all -o {output} {ir_path}");
+                }
+                Target::Arm => {
+                    eprintln!("  compile manually: clang --target=aarch64-unknown-linux-gnu -o {output} {ir_path}");
+                }
+                Target::RisCv => {
+                    eprintln!("  compile manually: clang --target=riscv64gc-unknown-linux-gnu -o {output} {ir_path}");
+                }
+                Target::Native => {
+                    eprintln!("  compile manually: clang -o {output} {ir_path}");
+                }
             }
             process::exit(1);
         }
@@ -262,10 +288,29 @@ fn print_usage() {
     eprintln!("  axiomc -o <output> <source.ax>                 compile to native");
     eprintln!("  axiomc --run <source.ax>                       compile + run");
     eprintln!("  axiomc --target wasm <source.ax>               compile to WASM");
-    eprintln!("  axiomc --target wasm -o out.wasm <src.ax>      compile to WASM");
+    eprintln!("  axiomc --target arm <source.ax>                compile to ARM (aarch64)");
+    eprintln!("  axiomc --target riscv <source.ax>              compile to RISC-V (riscv64gc)");
+    eprintln!("  axiomc --target wasm -o out.wasm <src.ax>      compile to WASM with name");
     eprintln!("  axiomc --no-contracts <source.ax>              disable contract checks");
     eprintln!("  axiomc --diagnostics=json <source.ax>          JSON-structured errors");
     eprintln!("  axiomc --dump-contracts <source.ax>            emit contract index JSON");
+}
+
+#[derive(PartialEq)]
+enum Target {
+    Native,
+    Wasm,
+    Arm,
+    RisCv,
+}
+
+fn parse_target(args: &[String]) -> Target {
+    match parse_flag_value(args, "--target").as_deref() {
+        Some("wasm") => Target::Wasm,
+        Some("arm") => Target::Arm,
+        Some("riscv") => Target::RisCv,
+        _ => Target::Native,
+    }
 }
 
 fn parse_flag_value(args: &[String], flag: &str) -> Option<String> {
