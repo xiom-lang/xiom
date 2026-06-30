@@ -237,6 +237,12 @@ fn main() {
                 }
                 Target::Native => {}
             }
+            // Include runtime C library for non-WASM targets (resolves extern functions)
+            if target != Target::Wasm {
+                if let Some(rt) = find_runtime_c() {
+                    cmd.arg(&rt);
+                }
+            }
             cmd.args(["-o", output, &ir_path]);
 
             let status = cmd.status();
@@ -337,6 +343,19 @@ fn parse_target(args: &[String]) -> Target {
 fn parse_flag_value(args: &[String], flag: &str) -> Option<String> {
     let pos = args.iter().position(|a| a == flag)?;
     args.get(pos + 1).cloned()
+}
+
+fn find_runtime_c() -> Option<String> {
+    let candidates = [
+        "stdlib\\runtime\\axiom_runtime.c",
+        "stdlib/runtime/axiom_runtime.c",
+    ];
+    for candidate in &candidates {
+        if std::path::Path::new(candidate).exists() {
+            return Some(candidate.to_string());
+        }
+    }
+    None
 }
 
 fn find_tool(name: &str, extra_paths: &[&str]) -> Option<String> {

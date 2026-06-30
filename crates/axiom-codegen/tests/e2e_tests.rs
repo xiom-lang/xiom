@@ -421,3 +421,50 @@ fn e2e_target_wasm_selfhost_lexer() {
         .expect("failed");
     assert!(output.status.success(), "selfhost lexer should compile to WASM IR");
 }
+
+// ============================================================================
+// E2E: Extern Runtime (axiom_runtime.c)
+// ============================================================================
+
+#[test]
+fn e2e_runtime_c_exists() {
+    assert!(
+        project_root().join("stdlib\\runtime\\axiom_runtime.c").exists()
+            || project_root().join("stdlib/runtime/axiom_runtime.c").exists(),
+        "stdlib/runtime/axiom_runtime.c should exist"
+    );
+}
+
+#[test]
+fn e2e_selfhost_v091_compiles() {
+    let output = Command::new(axiomc_path())
+        .args(["--emit-ir", "selfhost\\axiomc_v091.ax"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    assert!(output.status.success(), "selfhost/axiomc_v091.ax should compile to IR");
+}
+
+#[test]
+fn e2e_selfhost_v091_has_main() {
+    let output = Command::new(axiomc_path())
+        .args(["--emit-ir", "selfhost\\axiomc_v091.ax"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("define i64 @main"), "v091 should have main");
+}
+
+#[test]
+fn e2e_runtime_ir_declares_externs() {
+    let output = Command::new(axiomc_path())
+        .args(["--emit-ir", "selfhost\\axiomc_v091.ax"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("@axiom_read_file"), "IR should declare axiom_read_file");
+    assert!(stdout.contains("@axiom_file_size"), "IR should declare axiom_file_size");
+    assert!(stdout.contains("@axiom_free"), "IR should declare axiom_free");
+}
