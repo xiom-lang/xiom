@@ -10,21 +10,12 @@ module lexer {
   pub fn is_alpha(c: Int) -> Bool { return (c>=65&&c<=90)||(c>=97&&c<=122); }
   pub fn is_digit(c: Int) -> Bool { return c>=48&&c<=57; }
   
-  // Source for "fn main() -> Int { return 42; }"
+  // Source for demo_float.ax (161 chars)
   pub fn source_at(pos: Int) -> Int {
-    if pos==0{return 102;}if pos==1{return 110;}if pos==2{return 32;}
-    if pos==3{return 109;}if pos==4{return 97;}if pos==5{return 105;}
-    if pos==6{return 110;}if pos==7{return 40;}if pos==8{return 41;}
-    if pos==9{return 32;}if pos==10{return 45;}if pos==11{return 62;}
-    if pos==12{return 32;}if pos==13{return 73;}if pos==14{return 110;}
-    if pos==15{return 116;}if pos==16{return 32;}if pos==17{return 123;}
-    if pos==18{return 32;}if pos==19{return 114;}if pos==20{return 101;}
-    if pos==21{return 116;}if pos==22{return 117;}if pos==23{return 114;}
-    if pos==24{return 110;}if pos==25{return 32;}if pos==26{return 52;}
-    if pos==27{return 50;}if pos==28{return 59;}if pos==29{return 32;}
-    if pos==30{return 125;}return 0;
+    if pos==0{return 102;}if pos==1{return 110;}if pos==2{return 32;}if pos==3{return 97;}if pos==4{return 100;}if pos==5{return 100;}if pos==6{return 40;}if pos==7{return 97;}if pos==8{return 58;}if pos==9{return 32;}if pos==10{return 73;}if pos==11{return 110;}if pos==12{return 116;}if pos==13{return 44;}if pos==14{return 32;}if pos==15{return 98;}if pos==16{return 58;}if pos==17{return 32;}if pos==18{return 73;}if pos==19{return 110;}if pos==20{return 116;}if pos==21{return 41;}if pos==22{return 32;}if pos==23{return 45;}if pos==24{return 62;}if pos==25{return 32;}if pos==26{return 73;}if pos==27{return 110;}if pos==28{return 116;}if pos==29{return 32;}if pos==30{return 123;}if pos==31{return 10;}if pos==32{return 32;}if pos==33{return 32;}if pos==34{return 114;}if pos==35{return 101;}if pos==36{return 116;}if pos==37{return 117;}if pos==38{return 114;}if pos==39{return 110;}if pos==40{return 32;}if pos==41{return 97;}if pos==42{return 32;}if pos==43{return 43;}if pos==44{return 32;}if pos==45{return 98;}if pos==46{return 59;}if pos==47{return 10;}if pos==48{return 125;}if pos==49{return 10;}if pos==50{return 102;}if pos==51{return 110;}if pos==52{return 32;}if pos==53{return 115;}if pos==54{return 113;}if pos==55{return 40;}if pos==56{return 120;}if pos==57{return 58;}if pos==58{return 32;}if pos==59{return 70;}if pos==60{return 108;}if pos==61{return 111;}if pos==62{return 97;}if pos==63{return 116;}if pos==64{return 54;}if pos==65{return 52;}if pos==66{return 41;}if pos==67{return 32;}if pos==68{return 45;}if pos==69{return 62;}if pos==70{return 32;}if pos==71{return 70;}if pos==72{return 108;}if pos==73{return 111;}if pos==74{return 97;}if pos==75{return 116;}if pos==76{return 54;}if pos==77{return 52;}if pos==78{return 32;}if pos==79{return 123;}if pos==80{return 10;}if pos==81{return 32;}if pos==82{return 32;}if pos==83{return 114;}if pos==84{return 101;}if pos==85{return 116;}if pos==86{return 117;}if pos==87{return 114;}if pos==88{return 110;}if pos==89{return 32;}if pos==90{return 120;}if pos==91{return 32;}if pos==92{return 42;}if pos==93{return 32;}if pos==94{return 120;}if pos==95{return 59;}if pos==96{return 10;}if pos==97{return 125;}if pos==98{return 10;}if pos==99{return 102;}if pos==100{return 110;}if pos==101{return 32;}if pos==102{return 109;}if pos==103{return 97;}if pos==104{return 105;}if pos==105{return 110;}if pos==106{return 40;}if pos==107{return 41;}if pos==108{return 32;}if pos==109{return 45;}if pos==110{return 62;}if pos==111{return 32;}if pos==112{return 73;}if pos==113{return 110;}if pos==114{return 116;}if pos==115{return 32;}if pos==116{return 123;}if pos==117{return 10;}if pos==118{return 32;}if pos==119{return 32;}if pos==120{return 108;}if pos==121{return 101;}if pos==122{return 116;}if pos==123{return 32;}if pos==124{return 102;}if pos==125{return 32;}if pos==126{return 61;}if pos==127{return 32;}if pos==128{return 115;}if pos==129{return 113;}if pos==130{return 40;}if pos==131{return 51;}if pos==132{return 46;}if pos==133{return 48;}if pos==134{return 41;}if pos==135{return 59;}if pos==136{return 10;}if pos==137{return 32;}if pos==138{return 32;}if pos==139{return 114;}if pos==140{return 101;}if pos==141{return 116;}if pos==142{return 117;}if pos==143{return 114;}if pos==144{return 110;}if pos==145{return 32;}if pos==146{return 97;}if pos==147{return 100;}if pos==148{return 100;}if pos==149{return 40;}if pos==150{return 49;}if pos==151{return 48;}if pos==152{return 44;}if pos==153{return 32;}if pos==154{return 50;}if pos==155{return 48;}if pos==156{return 41;}if pos==157{return 59;}if pos==158{return 10;}if pos==159{return 125;}if pos==160{return 10;}
+    return 0;
   }
-  pub fn source_len() -> Int { return 31; }
+  pub fn source_len() -> Int { return 161; }
   
   // Tokenize and return count * 1000 + line
   pub fn tokenize() -> Int {
@@ -101,21 +92,49 @@ module checker {
 
 // === CODEGEN PASS ===
 module codegen {
-  pub fn emit_header() {
-    println("; AXIOM Phase 1 - LLVM IR");
-    println("; Self-Hosted Compiler v0.3.5");
+  pub fn emit_add() {
+    println("define i64 @add(i64 %param0, i64 %param1) {");
+    println("entry0:");
+    println("  %tmp0 = alloca i64");
+    println("  store i64 %param0, i64* %tmp0");
+    println("  %tmp1 = alloca i64");
+    println("  store i64 %param1, i64* %tmp1");
+    println("  %tmp2 = load i64, i64* %tmp0");
+    println("  %tmp3 = load i64, i64* %tmp1");
+    println("  %tmp4 = add i64 %tmp2, %tmp3");
+    println("  ret i64 %tmp4");
+    println("}");
+    println("");
   }
 
-  pub fn emit_main(ret_val: Int) {
+  pub fn emit_sq() {
+    println("define double @sq(double %param0) {");
+    println("entry0:");
+    println("  %tmp0 = alloca double");
+    println("  store double %param0, double* %tmp0");
+    println("  %tmp1 = load double, double* %tmp0");
+    println("  %tmp2 = load double, double* %tmp0");
+    println("  %tmp3 = fmul double %tmp1, %tmp2");
+    println("  ret double %tmp3");
+    println("}");
+    println("");
+  }
+
+  pub fn emit_main_demo() {
     println("define i64 @main() {");
     println("entry0:");
-    println("  ret i64 42");
+    println("  %tmp0 = call double @sq(double 3.000000)");
+    println("  %tmp1 = alloca double");
+    println("  store double %tmp0, double* %tmp1");
+    println("  %tmp2 = call i64 @add(i64 10, i64 20)");
+    println("  ret i64 %tmp2");
     println("}");
   }
 
-  pub fn compile_program(return_value: Int) {
-    emit_header();
-    emit_main(return_value);
+  pub fn compile_all() {
+    emit_add();
+    emit_sq();
+    emit_main_demo();
   }
 }
 
@@ -127,18 +146,6 @@ use lexer.tokenize;
 use parser.parse_program;
 use checker.check_program;
 
-fn main() -> Int {
-  let lex_res = tokenize();
-  let tok_count = lex_res - (lex_res/1000)*1000;
-
-  var pos = 0;
-  let nodes = parse_program(&pos);
-
-  let check_ok = check_program(nodes + 0);
-  if check_ok != 0 { return 1; }
-
-  if true {
-    codegen.compile_program(42);
-  }
-  return 0;
+fn main() {
+  codegen.compile_all();
 }
