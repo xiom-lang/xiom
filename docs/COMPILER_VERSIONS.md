@@ -260,35 +260,47 @@ The first working AXIOM compiler. Establishes the end-to-end pipeline: lexer →
 
 ## Roadmap
 
-### v0.3.1 "Phoenix+" — Phase 2B: Real Tokenizer + Parser (2026-06-30)
+### v0.3.2 "Phoenix++" — Extended Parser (2026-06-30)
 
-**Status:** Phase 2B in progress. Real AXIOM-written lexer and parser, compiled by Rust v0.2.5.
+**Status:** Parser now handles let/var/if/else/return statements.
 
-The selfhost compiler graduated from stubs to real implementations:
+**Parser** extended with new grammar constructs:
+- `let` statement: `let IDENT = EXPR ;`
+- `var` statement: `var IDENT = EXPR ;`
+- `if`/`else` statement: `if EXPR { STMTS } else { STMTS }`
+- `return` statement with expression
+- Binary expression operators: `+`, `-`, `*`, `/`, `>`, `<`
+- Token stream: 33 tokens for `fn main() -> Int { let x = 10; var y = 20; if x > y { return x; } else { return y; } }`
 
-**Lexer** (`selfhost/axiom-lexer.ax`, ~300 lines):
-- Real keyword matching: `fn`, `return`, `if`, `else`, `let`, `var`, `while`, `Int`, `Bool`, `type` → token kinds
-- Real identifier scanning with alphanumeric advance
-- Real number literal scanning
-- Operator/punctuation dispatch: `()`, `{}`, `;`, `->`, `==`, `+`, `-`, `*`, etc.
-- Comment skipping: `//` to end-of-line
-- Whitespace skip: space, tab, newline, CR
-- Source provided via `source_at(pos)` character lookup (hardcoded test program)
-- Encoded return pattern: `kind * 1000000 + new_pos` for ownership-safe position tracking
-- 5 self-tests covering char classification, keywords, source, tokenizing
-- **Verified:** compiles natively, exits 0
+**Lexer** extended with:
+- Multi-char operators: `&&` (logical AND), `||` (logical OR), `!=` (not-equal), `<=` (less-equal)
+- `!` (not) operator
 
-**Parser** (`selfhost/axiom-parser.ax`, ~200 lines):
-- Real recursive descent: `parse_program` → `parse_fn_decl` → body statements
-- Token stream via `next_token()` with encoded position return
-- Parses fn declarations with params, return types, and blocks
-- Handles `return` statements with expression + semicolon
-- **Verified:** compiles natively, exits 0
+**Verified:** All 3 binaries compile natively and run (lexer:0, parser:0, driver:2). 109 Rust tests pass.
 
-**Driver** (`selfhost/axiomc.ax`, ~250 lines):
-- Self-contained with inline lexer+parser modules
-- Chains: source → tokenize → parse → node count
-- **Verified:** compiles natively, exits 2
+### v0.3.3 "Phoenix+++" — Type Checker (2026-06-30)
+
+**Status:** Type checker pass written in AXIOM.
+
+- `CheckedType` struct with `kind` field (1=Int, 2=Bool, 3=Float64, 4=Str, 5=Void, 9=Error)
+- `types_compatible()` — Int↔Float64 promotion, Unit compatibility
+- `check_binary()` — arithmetic (Int+Float→Float), comparison → Bool, logic → Bool
+- `check_return()` — verifies expr type vs expected return
+- `check_let()` — type annotation or inference
+- 7 self-tests covering all type checker rules
+- **Verified:** compiles natively and runs (exit 0)
+
+### v0.3.4 "PhoenixIV" — Codegen Pass (2026-06-30)
+
+**Status:** Codegen pass structure written in AXIOM.
+
+- LLVM type mapping: Int→i64, Float64→double, Str→i8*
+- Instruction counter for: alloca, store, load, arith, ret
+- `compile_add()` — simulates compiling fn add(a:Int,b:Int)→Int
+- `compile_main_const()` — simulates main returning constant
+- 2 self-tests
+- **Verified:** compiles natively and runs (exit 0)
+- **All 4 selfhost binaries:** codegen(0), lexer(0), parser(0), checker(0)
 
 ### v0.4.0 "Mirror" — Phase 2B: Feature Parity
 
@@ -383,6 +395,9 @@ cargo run -p axiomc -- --no-contracts --emit-ir examples\phase1_contracts.ax
 | v0.2.5 | Hardened | 1.5 | 2026-06-30 | 109 | 6,924 | 741 | 16 |
 | v0.3.0 | Phoenix | 2A | 2026-06-30 | 109 | 6,924 | ~265 | 16 |
 | v0.3.1 | Phoenix+ | 2B | 2026-06-30 | 109 | 6,940 | ~750 | 19 |
+| v0.3.2 | Phoenix++ | 2B | 2026-06-30 | 109 | 6,940 | ~850 | 19 |
+| v0.3.3 | Phoenix+++ | 2B | 2026-06-30 | 109 | 6,940 | ~1,050 | 19 |
+| v0.3.4 | PhoenixIV | 2B | 2026-06-30 | 109 | 6,940 | ~1,100 | 19 |
 | v0.4.0 | Mirror | 2B | TBD | — | — | — | — |
 | v0.5.0 | Genesis | 2C | TBD | — | — | — | — |
 | v1.0.0 | Sovereign | 3 | TBD | — | — | — | — |
