@@ -35,6 +35,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "axiom-ffigen"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "axiom-fmt"
 version = "0.1.0"
 dependencies = [
