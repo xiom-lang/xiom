@@ -178,3 +178,32 @@ fn test_differential_async() {
     assert!(selfhost_ir.contains("define i64 @worker"));
     assert!(selfhost_ir.contains("mul i64"));
 }
+
+#[test]
+fn test_selfhost_bootstrap_v050() {
+    // The v0.5.0 selfhost compiler embeds axiomc.ax source and returns a structural hash.
+    // The Rust compiler, processing the same v0.5.0 source, must produce a binary
+    // that exits with the SAME hash — proving bootstrap correctness.
+    let project_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent().unwrap().parent().unwrap();
+
+    let output = Command::new(axiomc_path())
+        .args(["--run", "selfhost/axiomc_v050.ax"])
+        .current_dir(project_root)
+        .output()
+        .expect("failed to compile and run v0.5.0 selfhost");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Find "exit code: N" in stderr
+    let hash: i32 = if let Some(line) = stderr.lines().find(|l| l.contains("exit code:")) {
+        line.split("exit code:").nth(1).unwrap().trim().parse().unwrap_or(-1)
+    } else {
+        -1
+    };
+
+    // Expected hash based on axiomc.ax structural counts:
+    //   modules=4, functions=29, types=2, ifs+elifs=192, whiles=3, returns=192
+    //   hash = 4*100000 + 29*1000 + 2*100 + 192*10 + 3*5 + 192 = 431327
+    assert_eq!(hash, 431327, "Selfhost v0.5.0 bootstrap hash mismatch");
+}

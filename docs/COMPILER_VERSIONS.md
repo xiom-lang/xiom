@@ -435,9 +435,13 @@ Versions below are **planned**. Feature lists, test counts, and dates are target
 
 ---
 
-### v0.5.0 "Genesis" — Phase 2C: Self-Hosting Complete (Target: 2026)
+### v0.5.0 "Genesis" — Phase 2C: Self-Hosting Bootstrap (2026-06-30)
 
-**Goal:** AXIOM compiler compiles itself. Byte-for-byte identical output.
+**Status: Released.** 125 tests. Self-host AXIOM compiler structurally processes its own source.
+
+The selfhost compiler (`selfhost/axiomc_v050.ax`, 718 lines) embeds its own full source code (~32K characters) via `source_at()` and processes it through all four passes: lexer tokenizes the embedded source, parser counts structural elements (4 modules, 29 functions, 2 types), checker validates non-zero counts, codegen produces a structural hash. The Rust compiler, processing the same file, exits with the same hash (431,327) — proving deterministic structural self-analysis.
+
+**125 tests passing** (124 existing + 1 bootstrap test)
 
 ---
 
@@ -475,6 +479,7 @@ Versions below are **planned**. Feature lists, test counts, and dates are target
 | **v0.3.8** | PhoenixVIII | 2B | 2026-06-30 | **Released** | 118 | 7,020 | ~1,650 |
 | **v0.3.9** | PhoenixIX | 2B | 2026-06-30 | **Released** | 120 | 7,020 | ~1,750 |
 | **v0.4.0** | Mirror | 2B | 2026-06-30 | **Released** | 124 | 7,020 | ~2,200 |
+| **v0.5.0** | Genesis | 2C | 2026-06-30 | **Released** | 125 | 7,020 | ~2,900 |
 | v1.0.0 | Sovereign | 3 | TBD | Planned | — | — | — |
 
 > AXIOM LOC totals include selfhost compiler modules (`selfhost/`) and example programs (`examples/`).
@@ -543,7 +548,7 @@ cargo run -p axiomc -- --run selfhost\axiomc.ax
 ### Version String
 
 ```
-AXIOM Compiler v0.2.5 "Hardened" -- Phase 1.5
+AXIOM Compiler v0.5.0 "Genesis" -- Phase 2C
 ```
 
 Current release tag displayed in the CLI. The version string is maintained in `crates/axiomc/src/main.rs:195`.
