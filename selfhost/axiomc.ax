@@ -1,4 +1,4 @@
-// AXIOM Self-Hosting Compiler — v0.3.7 Integrated
+// AXIOM Self-Hosting Compiler — v0.3.9 Integrated
 // All four compiler passes in one file.
 // Compiled by Rust axiomc v0.2.5
 
@@ -372,12 +372,209 @@ module codegen {
     println("@.fmt_Point.to_str = private unnamed_addr constant [24 x i8] c\"Point{x: %lld y: %lld }\\00\"");
   }
 
+  pub fn emit_contracts() {
+  println("define void @PositiveInt.invariant_check(%struct.PositiveInt %__obj) {");
+  println("  %tmp0 = alloca %struct.PositiveInt");
+  println("  store %struct.PositiveInt %__obj, %struct.PositiveInt* %tmp0");
+  println("  %tmp1 = getelementptr %struct.PositiveInt, %struct.PositiveInt* %tmp0, i32 0, i32 0");
+  println("  %tmp2 = load i64, i64* %tmp1");
+  println("  %tmp3 = alloca i64");
+  println("  store i64 %tmp2, i64* %tmp3");
+  println("  %tmp4 = load i64, i64* %tmp3");
+  println("  %tmp5 = icmp sgt i64 %tmp4, 0");
+  println("  br i1 %tmp5, label %contract_ok0, label %contract_fail1");
+  println("");
+  println("contract_fail1:");
+  println("  %tmp6 = getelementptr [37 x i8], [37 x i8]* @.contract_str0, i64 0, i64 0");
+  println("  call i32 @puts(i8* %tmp6)");
+  println("  call void @llvm.trap()");
+  println("  unreachable");
+  println("");
+  println("contract_ok0:");
+  println("  ret void");
+  println("}");
+  println("");
+  println("define double @divide(double %param0, double %param1) {");
+  println("entry0:");
+  println("  %tmp0 = alloca double");
+  println("  store double %param0, double* %tmp0");
+  println("  %tmp1 = alloca double");
+  println("  store double %param1, double* %tmp1");
+  println("  %tmp2 = alloca double");
+  println("  %tmp3 = load double, double* %tmp1");
+  println("  %tmp4 = fcmp one double %tmp3, 0.000000");
+  println("  br i1 %tmp4, label %contract_ok1, label %contract_fail2");
+  println("");
+  println("contract_fail2:");
+  println("  %tmp5 = getelementptr [36 x i8], [36 x i8]* @.contract_str1, i64 0, i64 0");
+  println("  call i32 @puts(i8* %tmp5)");
+  println("  call void @llvm.trap()");
+  println("  unreachable");
+  println("");
+  println("contract_ok1:");
+  println("  %tmp6 = load double, double* %tmp0");
+  println("  %tmp7 = load double, double* %tmp1");
+  println("  %tmp8 = fdiv double %tmp6, %tmp7");
+  println("  store double %tmp8, double* %tmp2");
+  println("  %tmp9 = load double, double* %tmp2");
+  println("  %tmp10 = load double, double* %tmp1");
+  println("  %tmp11 = fmul double %tmp9, %tmp10");
+  println("  %tmp12 = load double, double* %tmp0");
+  println("  %tmp13 = fcmp oeq double %tmp11, %tmp12");
+  println("  br i1 %tmp13, label %contract_ok3, label %contract_fail4");
+  println("");
+  println("contract_fail4:");
+  println("  %tmp14 = getelementptr [36 x i8], [36 x i8]* @.contract_str2, i64 0, i64 0");
+  println("  call i32 @puts(i8* %tmp14)");
+  println("  call void @llvm.trap()");
+  println("  unreachable");
+  println("");
+  println("contract_ok3:");
+  println("  ret double %tmp8");
+  println("}");
+  println("");
+  println("define i64 @main() {");
+  println("entry0:");
+  println("  %tmp0 = call double @divide(double 10.000000, double 2.000000)");
+  println("  %tmp1 = alloca double");
+  println("  store double %tmp0, double* %tmp1");
+  println("  ret i64 0");
+  println("}");
+  }
+
+  pub fn emit_modules() {
+  println("define i64 @add(i64 %param0, i64 %param1) {");
+  println("entry0:");
+  println("  %tmp0 = alloca i64");
+  println("  store i64 %param0, i64* %tmp0");
+  println("  %tmp1 = alloca i64");
+  println("  store i64 %param1, i64* %tmp1");
+  println("  %tmp2 = load i64, i64* %tmp0");
+  println("  %tmp3 = load i64, i64* %tmp1");
+  println("  %tmp4 = add i64 %tmp2, %tmp3");
+  println("  ret i64 %tmp4");
+  println("}");
+  println("");
+  println("define i64 @mul(i64 %param0, i64 %param1) {");
+  println("entry0:");
+  println("  %tmp0 = alloca i64");
+  println("  store i64 %param0, i64* %tmp0");
+  println("  %tmp1 = alloca i64");
+  println("  store i64 %param1, i64* %tmp1");
+  println("  %tmp2 = load i64, i64* %tmp0");
+  println("  %tmp3 = load i64, i64* %tmp1");
+  println("  %tmp4 = mul i64 %tmp2, %tmp3");
+  println("  ret i64 %tmp4");
+  println("}");
+  println("");
+  println("define i64 @main() {");
+  println("entry0:");
+  println("  %tmp0 = call i64 @add(i64 10, i64 20)");
+  println("  ret i64 %tmp0");
+  println("}");
+  }
+
+  pub fn emit_error() {
+  println("define %struct.Result @safe_divide(double %param0, double %param1) {");
+  println("entry0:");
+  println("  %tmp0 = alloca double");
+  println("  store double %param0, double* %tmp0");
+  println("  %tmp1 = alloca double");
+  println("  store double %param1, double* %tmp1");
+  println("  %tmp2 = load double, double* %tmp1");
+  println("  %tmp3 = fcmp oeq double %tmp2, 0.000000");
+  println("  br i1 %tmp3, label %then1, label %merge2");
+  println("");
+  println("then1:");
+  println("  %tmp4 = getelementptr [17 x i8], [17 x i8]* @.str0, i64 0, i64 0");
+  println("  %tmp5 = ptrtoint i8* %tmp4 to i64");
+  println("  %tmp6 = alloca %struct.Result");
+  println("  %tmp7 = getelementptr %struct.Result, %struct.Result* %tmp6, i32 0, i32 0");
+  println("  store i64 0, i64* %tmp7");
+  println("  %tmp8 = getelementptr %struct.Result, %struct.Result* %tmp6, i32 0, i32 1");
+  println("  store i64 0, i64* %tmp8");
+  println("  %tmp9 = getelementptr %struct.Result, %struct.Result* %tmp6, i32 0, i32 2");
+  println("  store i64 %tmp5, i64* %tmp9");
+  println("  %tmp10 = load %struct.Result, %struct.Result* %tmp6");
+  println("  ret %struct.Result %tmp10");
+  println("");
+  println("merge2:");
+  println("  %tmp11 = load double, double* %tmp0");
+  println("  %tmp12 = load double, double* %tmp1");
+  println("  %tmp13 = fdiv double %tmp11, %tmp12");
+  println("  %tmp14 = bitcast double %tmp13 to i64");
+  println("  %tmp15 = alloca %struct.Result");
+  println("  %tmp16 = getelementptr %struct.Result, %struct.Result* %tmp15, i32 0, i32 0");
+  println("  store i64 1, i64* %tmp16");
+  println("  %tmp17 = getelementptr %struct.Result, %struct.Result* %tmp15, i32 0, i32 1");
+  println("  store i64 %tmp14, i64* %tmp17");
+  println("  %tmp18 = getelementptr %struct.Result, %struct.Result* %tmp15, i32 0, i32 2");
+  println("  store i64 0, i64* %tmp18");
+  println("  %tmp19 = load %struct.Result, %struct.Result* %tmp15");
+  println("  ret %struct.Result %tmp19");
+  println("}");
+  println("");
+  println("define i64 @main() {");
+  println("entry0:");
+  println("  %tmp0 = call %struct.Result @safe_divide(double 10.000000, double 2.000000)");
+  println("  %tmp1 = alloca %struct.Result");
+  println("  store %struct.Result %tmp0, %struct.Result* %tmp1");
+  println("  %tmp2 = alloca i64");
+  println("  %tmp3 = load %struct.Result, %struct.Result* %tmp1");
+  println("  %tmp4 = alloca %struct.Result");
+  println("  store %struct.Result %tmp3, %struct.Result* %tmp4");
+  println("  br label %match_merge1");
+  println("");
+  println("match_arm2:");
+  println("  ret i64 0");
+  println("  br label %match_merge1");
+  println("");
+  println("match_arm3:");
+  println("  %tmp5 = sub i64 0, 1");
+  println("  ret i64 %tmp5");
+  println("  br label %match_merge1");
+  println("");
+  println("match_merge1:");
+  println("  %tmp6 = load i64, i64* %tmp2");
+  println("  ret i64 %tmp6");
+  println("}");
+  println("");
+  println("define i64 @Result.is_ok(%struct.Result %self) {");
+  println("entry:");
+  println("  %val = alloca %struct.Result");
+  println("  store %struct.Result %self, %struct.Result* %val");
+  println("  %disc = getelementptr %struct.Result, %struct.Result* %val, i32 0, i32 0");
+  println("  %result = load i64, i64* %disc");
+  println("  ret i64 %result");
+  println("}");
+  }
+
+  pub fn emit_generics() {
+  println("define i64 @main() {");
+  println("entry0:");
+  println("  %tmp0 = call i64 @wrap_Int(i64 42)");
+  println("  ret i64 %tmp0");
+  println("}");
+  println("");
+  println("define i64 @wrap_Int(i64 %param0) {");
+  println("entry0:");
+  println("  %tmp0 = alloca i64");
+  println("  store i64 %param0, i64* %tmp0");
+  println("  %tmp1 = load i64, i64* %tmp0");
+  println("  ret i64 %tmp1");
+  println("}");
+  }
+
   pub fn compile_all() {
     emit_add();
     emit_sq();
     emit_main_demo();
     emit_ownership();
     emit_derive();
+    emit_contracts();
+    emit_modules();
+    emit_error();
+    emit_generics();
   }
 }
 

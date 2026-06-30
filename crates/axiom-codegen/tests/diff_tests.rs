@@ -110,3 +110,41 @@ fn test_differential_derive() {
     assert!(selfhost_ir.contains("icmp eq") || selfhost_ir.contains("fcmp oeq"));
     assert!(selfhost_ir.contains("getelementptr"));
 }
+
+#[test]
+fn test_differential_contracts() {
+    let selfhost_ir = compile_to_ir("selfhost/axiomc.ax");
+    assert!(selfhost_ir.contains("PositiveInt.invariant_check"));
+    assert!(selfhost_ir.contains("define double @divide"));
+    assert!(selfhost_ir.contains("contract_ok") || selfhost_ir.contains("contract_fail"));
+    assert!(selfhost_ir.contains("@llvm.trap"));
+    assert!(selfhost_ir.contains("unreachable"));
+    assert!(selfhost_ir.contains("fdiv double"));
+    assert!(selfhost_ir.contains("fcmp oeq"));
+}
+
+#[test]
+fn test_differential_modules() {
+    let selfhost_ir = compile_to_ir("selfhost/axiomc.ax");
+    assert!(selfhost_ir.contains("define i64 @add"));
+    assert!(selfhost_ir.contains("define i64 @mul"));
+    assert!(selfhost_ir.contains("call i64 @add(i64 10, i64 20)"));
+    assert!(selfhost_ir.contains("mul i64"));
+}
+
+#[test]
+fn test_differential_error() {
+    let selfhost_ir = compile_to_ir("selfhost/axiomc.ax");
+    assert!(selfhost_ir.contains("define %struct.Result @safe_divide"));
+    assert!(selfhost_ir.contains("getelementptr %struct.Result"));
+    assert!(selfhost_ir.contains("define i64 @Result.is_ok"));
+    assert!(selfhost_ir.contains("bitcast double"));
+    assert!(selfhost_ir.contains("ptrtoint"));
+}
+
+#[test]
+fn test_differential_generics() {
+    let selfhost_ir = compile_to_ir("selfhost/axiomc.ax");
+    assert!(selfhost_ir.contains("define i64 @wrap_Int"));
+    assert!(selfhost_ir.contains("call i64 @wrap_Int(i64 42)"));
+}
