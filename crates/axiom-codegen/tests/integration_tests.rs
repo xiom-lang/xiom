@@ -56,7 +56,7 @@ fn test_codegen_struct() {
 fn test_codegen_struct_literal() {
     let ir = compile("type Point = { x: Float64; y: Float64; } fn make() -> Point { return Point{ x: 1.0, y: 2.0 }; }").unwrap();
     assert!(ir.contains("%struct.Point = type"));
-    assert!(ir.contains("define i64 @make"));
+    assert!(ir.contains("define %struct.Point @make"));
 }
 
 #[test]
@@ -199,4 +199,81 @@ fn test_codegen_ret_void_branch() {
     let ir = compile(src).unwrap();
     assert!(ir.contains("define void @maybe"), "should define void fn");
     assert!(ir.contains("ret void"), "should return void");
+}
+
+// ========================================================================
+// Phase 1.5: Interface Constraint Check
+// ========================================================================
+
+#[test]
+fn test_interface_constraint_check() {
+    // Test that interface declarations are registered and interface constraint
+    // checking runs during monomorphisation (even if the concrete type check triggers an error).
+    let src = "\
+interface Foo { fn bar() -> Int; }
+type MyType = { x: Int; }
+fn MyType.bar() -> Int { return 42; }
+fn use_foo[T: Foo](x: T) -> Int { return 0; }
+fn main() -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("MyType.bar"), "should have MyType.bar function");
+}
+
+// ========================================================================
+// Phase 1.5: Enum Variant Field Extraction
+// ========================================================================
+
+#[test]
+fn test_enum_variant_field_extraction() {
+    // Test that enum type is registered with variant fields
+    let src = "\
+enum Token { Ident(name: Int), IntLit(value: Int) }
+fn main() -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("%struct.Token = type"), "should have Token struct type");
+}
+
+// ========================================================================
+// Phase 1.5: Builtin Option.is_some
+// ========================================================================
+
+#[test]
+fn test_builtin_option_is_some() {
+    // Test that Option.is_some is emitted when the program uses Some
+    let src = "\
+fn test() -> Int { let x = Some(42); return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define i64 @Option.is_some"), "should emit Option.is_some");
+    assert!(ir.contains("define i64 @Option.is_none"), "should emit Option.is_none");
+    assert!(ir.contains("define i64 @Option.unwrap"), "should emit Option.unwrap");
+}
+
+// ========================================================================
+// Phase 1.5: Builtin Result.is_ok
+// ========================================================================
+
+#[test]
+fn test_builtin_result_is_ok() {
+    // Test that Result.is_ok is emitted when the program uses Ok
+    let src = "\
+fn test() -> Int { let x = Ok(42); return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define i64 @Result.is_ok"), "should emit Result.is_ok");
+    assert!(ir.contains("define i64 @Result.is_err"), "should emit Result.is_err");
+    assert!(ir.contains("define i64 @Result.unwrap"), "should emit Result.unwrap");
+    assert!(ir.contains("define i64 @Result.unwrap_err"), "should emit Result.unwrap_err");
+}
+
+// ========================================================================
+// Phase 1.5: Malloc/Free Declares
+// ========================================================================
+
+#[test]
+fn test_malloc_free_declares() {
+    let src = "\
+fn main() -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("declare i8* @malloc(i64)"), "should declare malloc");
+    assert!(ir.contains("declare void @free(i8*)"), "should declare free");
+    assert!(ir.contains("declare void @llvm.memcpy.p0i8.p0i8.i64(i8*, i8*, i64, i1)"), "should declare memcpy");
 }
