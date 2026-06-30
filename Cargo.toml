@@ -11,4 +11,5 @@ members = [
     "crates/axiom-doc",
     "crates/axiom-lsp",
     "crates/axiom-pkg",
+    "crates/axiom-ffigen",
 ]
