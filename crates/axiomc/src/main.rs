@@ -28,9 +28,14 @@ use axiom_verify::SMTGenerator;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
+    if args.len() < 2 || args.iter().any(|a| a == "--help") {
         print_usage();
-        process::exit(1);
+        process::exit(if args.iter().any(|a| a == "--help") { 0 } else { 1 });
+    }
+
+    if args.iter().any(|a| a == "--version") {
+        println!("AXIOM Compiler v0.10.1 \"Sovereign\" -- Self-Hosted");
+        return;
     }
 
     let emit_ir = args.iter().any(|a| a == "--emit-ir");
@@ -312,21 +317,30 @@ fn main() {
 }
 
 fn print_usage() {
-    eprintln!("AXIOM Compiler v0.10.0 \"Sovereign\" — Self-Hosted");
-    eprintln!("Usage:");
-    eprintln!("  axiomc <source.ax>                             print LLVM IR");
-    eprintln!("  axiomc --emit-ir <source.ax>                   print LLVM IR");
-    eprintln!("  axiomc -o <output> <source.ax>                 compile to native");
-    eprintln!("  axiomc --run <source.ax>                       compile + run");
-    eprintln!("  axiomc --target wasm <source.ax>               compile to WASM");
-    eprintln!("  axiomc --target arm <source.ax>                compile to ARM (aarch64)");
-    eprintln!("  axiomc --target riscv <source.ax>              compile to RISC-V (riscv64gc)");
-    eprintln!("  axiomc --target wasm -o out.wasm <src.ax>      compile to WASM with name");
-    eprintln!("  axiomc --no-contracts <source.ax>              disable contract checks");
-    eprintln!("  axiomc --diagnostics=json <source.ax>          JSON-structured errors");
-    eprintln!("  axiomc --dump-contracts <source.ax>            emit contract index JSON");
-    eprintln!("  axiomc --verify <source.ax>                    SMT-LIB contract verification");
-    eprintln!("  axiomc --verify-output <file> <source.ax>      SMT-LIB output to file");
+    eprintln!("AXIOM Compiler v0.10.1 \"Sovereign\" -- Self-Hosted");
+    eprintln!();
+    eprintln!("USAGE:");
+    eprintln!("  axiomc [OPTIONS] <source.ax>");
+    eprintln!();
+    eprintln!("OPTIONS:");
+    eprintln!("  --help              Show this help message");
+    eprintln!("  --version           Print version");
+    eprintln!("  -o <output>         Output binary path (default: a.exe)");
+    eprintln!("  --run               Compile and run, print exit code");
+    eprintln!("  --emit-ir           Print LLVM IR to stdout (no compilation)");
+    eprintln!("  --target <target>   Target: native (default), wasm, arm, riscv");
+    eprintln!("  --no-contracts      Disable contract runtime checks");
+    eprintln!("  --diagnostics=json  Output diagnostics as JSON");
+    eprintln!("  --dump-contracts    Print contract index as JSON");
+    eprintln!("  --verify            Generate SMT-LIB contract verification output");
+    eprintln!("  --verify-output <f> Write SMT-LIB to file");
+    eprintln!();
+    eprintln!("EXAMPLES:");
+    eprintln!("  axiomc --run examples/demo_float.ax");
+    eprintln!("  axiomc -o prog.exe source.ax");
+    eprintln!("  axiomc --emit-ir examples/demo_float.ax");
+    eprintln!("  axiomc --target wasm -o prog.wasm source.ax");
+    eprintln!("  axiomc --verify examples/phase1_contracts.ax");
 }
 
 #[derive(PartialEq)]

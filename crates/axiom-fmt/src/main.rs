@@ -18,14 +18,16 @@ fn main() {
     for arg in &args[1..] {
         if arg == "--check" {
             check_mode = true;
+        } else if arg == "--help" {
+            print_usage();
+            return;
         } else {
             files.push(arg.clone());
         }
     }
 
     if files.is_empty() {
-        eprintln!("axiom fmt: missing file operand");
-        eprintln!("Usage: axiom fmt [--check] <file.ax>");
+        print_usage();
         process::exit(1);
     }
 
@@ -59,4 +61,19 @@ fn main() {
             }
         }
     }
+}
+
+fn print_usage() {
+    eprintln!("AXIOM Format v0.10.1 -- Canonical Formatter");
+    eprintln!();
+    eprintln!("USAGE:");
+    eprintln!("  axiom fmt [OPTIONS] <file.ax>");
+    eprintln!();
+    eprintln!("OPTIONS:");
+    eprintln!("  --help        Show this help message");
+    eprintln!("  --check       Check only (exit 1 if not formatted, no output)");
+    eprintln!();
+    eprintln!("EXAMPLES:");
+    eprintln!("  axiom fmt source.ax");
+    eprintln!("  axiom fmt --check source.ax");
 }

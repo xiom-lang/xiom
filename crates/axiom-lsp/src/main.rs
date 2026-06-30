@@ -3,6 +3,7 @@
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
 use std::collections::HashMap;
+use std::env;
 use std::io::{self, BufRead, Read, Write};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -300,6 +301,12 @@ fn write_lsp_message(body: &serde_json::Value) {
 // ============================================================================
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
+    if args.iter().any(|a| a == "--help") {
+        print_usage();
+        return;
+    }
+
     let backend = Arc::new(Backend::new());
     let reader = LspReader::new();
 
@@ -539,4 +546,16 @@ fn publish_diagnostics(backend: &Backend, uri: &str) {
             "diagnostics": diagnostics
         }
     }));
+}
+
+fn print_usage() {
+    eprintln!("AXIOM Language Server v0.10.1");
+    eprintln!();
+    eprintln!("USAGE:");
+    eprintln!("  axiom lsp");
+    eprintln!();
+    eprintln!("The AXIOM Language Server provides diagnostics, hover, completion,");
+    eprintln!("and go-to-definition for .ax files. Launch from editor configuration.");
+    eprintln!();
+    eprintln!("VS Code: editors/vscode/package.json");
 }

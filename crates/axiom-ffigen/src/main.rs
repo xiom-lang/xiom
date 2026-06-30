@@ -23,6 +23,11 @@ struct Library {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+    if args.iter().any(|a| a == "--help") {
+        print_usage();
+        return;
+    }
+
     let mut json_mode = false;
     let mut input_file = None;
 
@@ -36,8 +41,7 @@ fn main() {
     }
 
     let input_file = input_file.unwrap_or_else(|| {
-        eprintln!("axiom ffigen: missing binding specification file");
-        eprintln!("Usage: axiom ffigen [--json] <spec.axiom-bind>");
+        print_usage();
         process::exit(1);
     });
 
@@ -251,4 +255,19 @@ fn output_json(libraries: &[Library]) {
         }));
     }
     println!("{}", serde_json::to_string_pretty(&json_libs).unwrap());
+}
+
+fn print_usage() {
+    eprintln!("AXIOM FFI Gen v0.10.1 -- FFI Binding Generator");
+    eprintln!();
+    eprintln!("USAGE:");
+    eprintln!("  axiom ffigen [OPTIONS] <spec.axiom-bind>");
+    eprintln!();
+    eprintln!("OPTIONS:");
+    eprintln!("  --help        Show this help message");
+    eprintln!("  --json        Output as JSON");
+    eprintln!();
+    eprintln!("EXAMPLES:");
+    eprintln!("  axiom ffigen stdlib/libc.axiom-bind");
+    eprintln!("  axiom ffigen ecosystem/axiom-http/libcurl.axiom-bind");
 }
