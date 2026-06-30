@@ -1,5 +1,7 @@
-// Phase 1.5: Self-Hosting Readiness Stress Test
-// Exercises ALL Phase 1.5 features required for a self-hosting AXIOM compiler.
+// AXIOM — phase1_hardening
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
+
 // Covers: module system, structs with derive, enums with derive,
 // generic functions, ownership/borrowing, control flow, error handling, contracts.
 

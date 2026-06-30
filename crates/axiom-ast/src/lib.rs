@@ -1,3 +1,7 @@
+// AXIOM — AST
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
+
 //! AXIOM Abstract Syntax Tree — every construct from the EBNF grammar.
 //! This is the single source of truth for what the parser produces
 //! and what every downstream pass consumes.

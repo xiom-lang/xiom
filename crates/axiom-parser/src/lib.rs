@@ -1,3 +1,7 @@
+// AXIOM — Parser
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
+
 //! AXIOM Parser — recursive descent, LL(1), single deterministic parse path.
 //! Converts the token stream into a typed AST.
 //! Implements the full EBNF grammar from Section 3 of the language spec.

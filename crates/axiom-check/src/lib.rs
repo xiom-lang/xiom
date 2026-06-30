@@ -1,3 +1,7 @@
+// AXIOM — Type Checker
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
+
 //! AXIOM Type Checker — Phase 0: basic type checking for primitives,
 //! struct types, function signatures, and return types.
 //! No generics, no ownership, no contracts enforcement.

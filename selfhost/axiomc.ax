@@ -1,6 +1,6 @@
-// AXIOM Self-Hosting Compiler — v0.3.9 Integrated
-// All four compiler passes in one file.
-// Compiled by Rust axiomc v0.2.5
+// AXIOM — Self-Hosted Compiler Driver
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 
 // === LEXER PASS ===
 module lexer {

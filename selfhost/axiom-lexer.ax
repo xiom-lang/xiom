@@ -1,7 +1,7 @@
-// AXIOM Self-Hosting Compiler — Phase 2B
-// Real lexer (tokenizer) written in AXIOM.
-// v0.3.0 — compiled by Rust axiomc v0.2.5
-//
+// AXIOM — Self-Hosted Lexer
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
+
 // Tokenizes source via character-at-position lookup.
 // Since AXIOM v0.2.5 does not support arbitrary string indexing,
 // source characters are provided by source_at(pos) which maps

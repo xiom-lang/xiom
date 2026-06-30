@@ -1,3 +1,7 @@
+// AXIOM — LLVM IR Codegen
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
+
 //! AXIOM Codegen — Phase 0: AST → LLVM IR text.
 //! Emits human-readable LLVM IR that can be compiled with `llc`.
 //! No external dependencies — pure string emission.

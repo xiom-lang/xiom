@@ -1,4 +1,6 @@
-// Phase 1: Contract Runtime Guards
+// AXIOM — phase1_contracts
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 
 type PositiveInt = {
   value: Int;

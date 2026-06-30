@@ -1,7 +1,6 @@
-// AXIOM Self-Hosting Bootstrap — v0.5.0 "Genesis"
-// Embeds axiomc.ax source and returns a structural hash.
-// Hash formula: modules*100000 + functions*1000 + types*100 + ifs*10 + whiles*5 + returns
-// Expected hash: 431327
+// AXIOM — Self-Hosted Compiler v0.5.0
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 
 module lexer {
   pub fn source_len() -> Int { return 31982; }

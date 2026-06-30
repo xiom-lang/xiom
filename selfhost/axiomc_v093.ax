@@ -1,5 +1,6 @@
-// AXIOM Self-Hosted Compiler v0.9.3
-// Reads its own source, tokenizes, emits LLVM IR via C runtime.
+// AXIOM — Self-Hosted Compiler v0.9.3
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 
 // Extern C runtime declarations
 fn axiom_read_file(path: Str) -> Int;
