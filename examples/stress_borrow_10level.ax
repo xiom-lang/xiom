@@ -1,0 +1,16 @@
+fn read1(x: &Int) -> Int { return x + 0; }
+fn read2(x: &Int) -> Int { return read1(x); }
+fn read3(x: &Int) -> Int { return read2(x); }
+fn read4(x: &Int) -> Int { return read3(x); }
+fn read5(x: &Int) -> Int { return read4(x); }
+fn read6(x: &Int) -> Int { return read5(x); }
+fn read7(x: &Int) -> Int { return read6(x); }
+fn read8(x: &Int) -> Int { return read7(x); }
+fn read9(x: &Int) -> Int { return read8(x); }
+fn read10(x: &Int) -> Int { return read9(x); }
+
+fn main() -> Int {
+  let v = 42;
+  let r = read10(&v);
+  return r;
+}
