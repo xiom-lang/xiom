@@ -87,3 +87,26 @@ fn test_differential_demo_float() {
     assert!(selfhost_ir.contains("call double @sq"), "missing sq call");
     assert!(selfhost_ir.contains("call i64 @add"), "missing add call");
 }
+
+#[test]
+fn test_differential_ownership() {
+    let selfhost_ir = compile_to_ir("selfhost/axiomc.ax");
+    assert!(selfhost_ir.contains("define i64 @take_ownership"));
+    assert!(selfhost_ir.contains("define i64 @read_borrow"));
+    assert!(selfhost_ir.contains("call i64 @take_ownership(i64 41)"));
+    assert!(selfhost_ir.contains("call i64 @read_borrow"));
+    assert!(selfhost_ir.contains("add i64"));
+}
+
+#[test]
+fn test_differential_derive() {
+    let selfhost_ir = compile_to_ir("selfhost/axiomc.ax");
+    assert!(selfhost_ir.contains("define i64 @Point.eq"));
+    assert!(selfhost_ir.contains("define %struct.Point @Point.clone"));
+    assert!(selfhost_ir.contains("define i64 @Color.eq"));
+    assert!(selfhost_ir.contains("define %struct.Color @Color.clone"));
+    assert!(selfhost_ir.contains("define i64 @Color.hash"));
+    assert!(selfhost_ir.contains("define i64 @Color.compare"));
+    assert!(selfhost_ir.contains("icmp eq") || selfhost_ir.contains("fcmp oeq"));
+    assert!(selfhost_ir.contains("getelementptr"));
+}
