@@ -182,6 +182,103 @@ fn is_ident_char(c: u8) -> bool {
 }
 
 // ============================================================================
+// Symbol collection for completion
+// ============================================================================
+
+fn collect_symbols(item: &axiom_ast::TopDecl, items: &mut Vec<serde_json::Value>, prefix: &str) {
+    match item {
+        axiom_ast::TopDecl::Fn(f) => {
+            let name = &f.name.name;
+            if name.starts_with(prefix) || prefix.is_empty() {
+                items.push(serde_json::json!({
+                    "label": name,
+                    "kind": 3, // Function
+                    "detail": "function",
+                    "insertText": name
+                }));
+            }
+        }
+        axiom_ast::TopDecl::Type(td) => {
+            let name = &td.name.name;
+            if name.starts_with(prefix) || prefix.is_empty() {
+                items.push(serde_json::json!({
+                    "label": name,
+                    "kind": 23, // Struct
+                    "detail": "type",
+                    "insertText": name
+                }));
+            }
+        }
+        axiom_ast::TopDecl::Enum(ed) => {
+            let name = &ed.name.name;
+            if name.starts_with(prefix) || prefix.is_empty() {
+                items.push(serde_json::json!({
+                    "label": name,
+                    "kind": 13, // Enum
+                    "detail": "enum",
+                    "insertText": name
+                }));
+            }
+        }
+        axiom_ast::TopDecl::Interface(id) => {
+            let name = &id.name.name;
+            if name.starts_with(prefix) || prefix.is_empty() {
+                items.push(serde_json::json!({
+                    "label": name,
+                    "kind": 11, // Interface
+                    "detail": "interface",
+                    "insertText": name
+                }));
+            }
+        }
+        axiom_ast::TopDecl::Module(m) => {
+            for inner in &m.items {
+                collect_symbols(inner, items, prefix);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn find_definition(program: &axiom_ast::Program, name: &str) -> Option<(u64, u64)> {
+    for item in &program.items {
+        if let Some(pos) = find_def_in_item(item, name) {
+            return Some(pos);
+        }
+    }
+    None
+}
+
+fn find_def_in_item(item: &axiom_ast::TopDecl, name: &str) -> Option<(u64, u64)> {
+    match item {
+        axiom_ast::TopDecl::Fn(f) if f.name.name == name => {
+            let line = if f.name.span.line > 0 { f.name.span.line as u64 - 1 } else { 0 };
+            let col = if f.name.span.col > 0 { f.name.span.col as u64 - 1 } else { 0 };
+            Some((line, col))
+        }
+        axiom_ast::TopDecl::Type(td) if td.name.name == name => {
+            let line = if td.name.span.line > 0 { td.name.span.line as u64 - 1 } else { 0 };
+            let col = if td.name.span.col > 0 { td.name.span.col as u64 - 1 } else { 0 };
+            Some((line, col))
+        }
+        axiom_ast::TopDecl::Enum(ed) if ed.name.name == name => {
+            let line = if ed.name.span.line > 0 { ed.name.span.line as u64 - 1 } else { 0 };
+            let col = if ed.name.span.col > 0 { ed.name.span.col as u64 - 1 } else { 0 };
+            Some((line, col))
+        }
+        axiom_ast::TopDecl::Module(m) => {
+            for inner in &m.items {
+                if let Some(pos) = find_def_in_item(inner, name) {
+                    return Some(pos);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+// ============================================================================
 // LSP message I/O
 // ============================================================================
 
@@ -205,7 +302,11 @@ fn main() {
     let init_result = serde_json::json!({
         "capabilities": {
             "textDocumentSync": 1,
-            "hoverProvider": true
+            "hoverProvider": true,
+            "completionProvider": {
+                "triggerCharacters": ["."]
+            },
+            "definitionProvider": true
         }
     });
 
@@ -233,7 +334,7 @@ fn main() {
                     "method": "window/logMessage",
                     "params": {
                         "type": 3,
-                        "message": "AXIOM Language Server v0.6.2"
+                        "message": "AXIOM Language Server v0.6.6"
                     }
                 }));
             }
@@ -312,6 +413,110 @@ fn main() {
                     "jsonrpc": "2.0",
                     "id": id,
                     "result": hover
+                }));
+            }
+
+            "textDocument/completion" => {
+                let uri = msg["params"]["textDocument"]["uri"].as_str().map(|s| s.to_string());
+                let line = msg["params"]["position"]["line"].as_u64().unwrap_or(0) as usize;
+                let character = msg["params"]["position"]["character"].as_u64().unwrap_or(0) as usize;
+
+                let mut items = Vec::new();
+
+                let prefix = uri.as_ref().and_then(|u| {
+                    let docs = backend.documents.lock().unwrap();
+                    let text = docs.get(u)?;
+                    let line_str = text.lines().nth(line)?;
+                    Some(extract_word(line_str, character))
+                }).unwrap_or_default();
+
+                let keywords = vec![
+                    "fn", "let", "var", "return", "if", "else", "elif", "while",
+                    "match", "for", "in", "module", "use", "pub", "type", "enum",
+                    "interface", "derive", "requires", "ensures", "invariant",
+                    "async", "await", "spawn", "true", "false", "Some", "None", "Ok", "Err",
+                ];
+                let primitives = vec![
+                    "Int", "Float64", "Bool", "Str", "Char", "Int8", "Int16", "Int32", "Int64",
+                    "UInt", "UInt8", "Float32", "Option", "Result", "Vec", "Map", "Set", "Slice",
+                ];
+
+                for kw in keywords.iter().chain(primitives.iter()) {
+                    if kw.starts_with(&prefix) || prefix.is_empty() {
+                        items.push(serde_json::json!({
+                            "label": kw,
+                            "kind": 14, // Keyword
+                            "insertText": kw
+                        }));
+                    }
+                }
+
+                if let Some(ref u) = uri {
+                    let docs = backend.documents.lock().unwrap();
+                    if let Some(text) = docs.get(u) {
+                        let mut lexer = axiom_lexer::Lexer::new(text);
+                        let tokens = lexer.tokenize();
+                        let mut parser = axiom_parser::Parser::new(tokens);
+                        if let Ok(program) = parser.parse_program() {
+                            for item in &program.items {
+                                collect_symbols(item, &mut items, &prefix);
+                            }
+                        }
+                    }
+                }
+
+                let id = msg["id"].clone();
+                write_lsp_message(&serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": items
+                }));
+            }
+
+            "textDocument/definition" => {
+                let uri = msg["params"]["textDocument"]["uri"].as_str().map(|s| s.to_string());
+                let line = msg["params"]["position"]["line"].as_u64().unwrap_or(0) as usize;
+                let character = msg["params"]["position"]["character"].as_u64().unwrap_or(0) as usize;
+
+                let mut location = None;
+
+                if let Some(ref u) = uri {
+                    let word = {
+                        let docs = backend.documents.lock().unwrap();
+                        if let Some(text) = docs.get(u) {
+                            let line_str = text.lines().nth(line).unwrap_or("");
+                            extract_word(line_str, character)
+                        } else {
+                            String::new()
+                        }
+                    };
+
+                    if !word.is_empty() {
+                        let docs = backend.documents.lock().unwrap();
+                        if let Some(text) = docs.get(u) {
+                            let mut lexer = axiom_lexer::Lexer::new(text);
+                            let tokens = lexer.tokenize();
+                            let mut parser = axiom_parser::Parser::new(tokens);
+                            if let Ok(program) = parser.parse_program() {
+                                if let Some(pos) = find_definition(&program, &word) {
+                                    location = Some(serde_json::json!({
+                                        "uri": u,
+                                        "range": {
+                                            "start": { "line": pos.0, "character": pos.1 },
+                                            "end": { "line": pos.0, "character": pos.1 + word.len() as u64 }
+                                        }
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let id = msg["id"].clone();
+                write_lsp_message(&serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": location
                 }));
             }
 
