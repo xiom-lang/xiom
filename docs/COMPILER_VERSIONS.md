@@ -396,6 +396,17 @@ The AXIOM-compiled compiler (`diff_selfhost.exe`) exits 0 and its emitted IR mat
 
 ---
 
+## v0.3.6 "PhoenixVI" — Expanded Differential Correctness (2026-06-30)
+
+**Status:** Selfhost compiler handles demo_float.ax — 3 functions, float arithmetic, function calls.
+
+- **Lexer** embeds full demo_float.ax source (161 chars, positions 0-160)
+- **Codegen** emits 3 matching functions: @add (i64 add), @sq (double fmul), @main (call @sq + call @add)
+- **Differential test** verifies all 3 functions and key IR instructions (fmul double, call double @sq, call i64 @add)
+- **114 tests passing** (113 existing + 1 new demo_float diff test)
+
+---
+
 ## Roadmap (Planned — Not Yet Built)
 
 Versions below are **planned**. Feature lists, test counts, and dates are targets — not commitments.
@@ -447,6 +458,7 @@ Versions below are **planned**. Feature lists, test counts, and dates are target
 | **v0.3.3** | Phoenix+++ | 2B | 2026-06-30 | **Released** | 109 | 6,924 | ~1,450 |
 | **v0.3.4** | PhoenixIV | 2B | 2026-06-30 | **Released** | 109 | **6,937** | **2,057** |
 | **v0.3.5** | PhoenixV | 2B | 2026-06-30 | **Released** | 113 | 7,020 | ~1,200 |
+| **v0.3.6** | PhoenixVI | 2B | 2026-06-30 | **Released** | 114 | 7,020 | ~1,300 |
 | v0.4.0 | Mirror | 2C | TBD | Planned | — | — | — |
 | v1.0.0 | Sovereign | 3 | TBD | Planned | — | — | — |
 

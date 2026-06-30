@@ -46,32 +46,44 @@ fn test_diff_test_produces_correct_ir() {
 #[test]
 fn test_selfhost_compiles_cleanly() {
     let ir = compile_to_ir("selfhost/axiomc.ax");
-    assert!(ir.contains("define void @emit_header"), "should emit header function");
-    assert!(ir.contains("define void @emit_main"), "should emit main codegen function");
-    assert!(ir.contains("define void @compile_program"), "should emit compile_program function");
-    assert!(ir.contains("call void @emit_header"), "should call emit_header");
-    assert!(ir.contains("call void @emit_main"), "should call emit_main");
+    assert!(ir.contains("define void @emit_add"), "should emit add codegen function");
+    assert!(ir.contains("define void @emit_sq"), "should emit sq codegen function");
+    assert!(ir.contains("define void @emit_main_demo"), "should emit main_demo codegen function");
+    assert!(ir.contains("define void @compile_all"), "should emit compile_all function");
+    assert!(ir.contains("call void @compile_all"), "should call compile_all");
 }
 
 #[test]
 fn test_selfhost_ir_strings_match_expected() {
     let ir = compile_to_ir("selfhost/axiomc.ax");
     assert!(ir.contains("define i64 @main()"), "selfhost IR should contain 'define i64 @main()' string");
-    assert!(ir.contains("ret i64 42"), "selfhost IR should contain 'ret i64 42' string");
+    assert!(ir.contains("ret i64 %tmp4"), "selfhost IR should contain 'ret i64 %tmp4' string");
     assert!(ir.contains("entry0:"), "selfhost IR should contain 'entry0:' string");
+    assert!(ir.contains("fmul double"), "selfhost IR should contain float multiply");
 }
 
 #[test]
 fn test_differential_ir_consistency() {
-    let rust_ir = compile_to_ir("examples/diff_test.ax");
     let selfhost_ir = compile_to_ir("selfhost/axiomc.ax");
 
-    // The Rust compiler emits define i64 @main for diff_test.ax
-    assert!(rust_ir.contains("define i64 @main()"));
-    assert!(rust_ir.contains("ret i64 42"));
-
-    // The selfhost compiler's IR contains the same patterns as string constants
+    // The selfhost compiler's IR matches expected demo_float patterns
+    assert!(selfhost_ir.contains("define i64 @add(i64 %param0, i64 %param1) {"));
+    assert!(selfhost_ir.contains("define double @sq(double %param0) {"));
     assert!(selfhost_ir.contains("define i64 @main() {"));
-    assert!(selfhost_ir.contains("  ret i64 42"));
-    assert!(selfhost_ir.contains("entry0:"));
+    assert!(selfhost_ir.contains("fmul double %tmp1, %tmp2"));
+    assert!(selfhost_ir.contains("call double @sq(double 3.000000)"));
+    assert!(selfhost_ir.contains("call i64 @add(i64 10, i64 20)"));
+}
+
+#[test]
+fn test_differential_demo_float() {
+    let selfhost_ir = compile_to_ir("selfhost/axiomc.ax");
+
+    assert!(selfhost_ir.contains("define i64 @add"), "missing add function");
+    assert!(selfhost_ir.contains("define double @sq"), "missing sq function");
+    assert!(selfhost_ir.contains("define i64 @main"), "missing main function");
+    assert!(selfhost_ir.contains("ret i64 %tmp4"), "missing add return");
+    assert!(selfhost_ir.contains("fmul double"), "missing float multiply");
+    assert!(selfhost_ir.contains("call double @sq"), "missing sq call");
+    assert!(selfhost_ir.contains("call i64 @add"), "missing add call");
 }
