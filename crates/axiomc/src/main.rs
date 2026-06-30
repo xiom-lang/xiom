@@ -18,6 +18,7 @@ use axiom_lexer::Lexer;
 use axiom_parser::Parser;
 use axiom_check::{Checker, BorrowChecker};
 use axiom_codegen::IrEmitter;
+use axiom_verify::SMTGenerator;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -33,6 +34,8 @@ fn main() {
     let _explicit_contracts = args.iter().any(|a| a == "--check-contracts");
     let diagnostics_json = args.iter().any(|a| a == "--diagnostics=json");
     let dump_contracts = args.iter().any(|a| a == "--dump-contracts");
+    let verify = args.iter().any(|a| a == "--verify") || args.iter().any(|a| a == "--verify-output");
+    let verify_output = parse_flag_value(&args, "--verify-output");
 
     let output_file = parse_flag_value(&args, "-o");
 
@@ -128,6 +131,22 @@ fn main() {
     if dump_contracts {
         let json = dump_contracts_json(&program);
         println!("{json}");
+        return;
+    }
+
+    // ── Stage 3.6: SMT Verification (if requested) ────────
+    if verify {
+        let mut generator = SMTGenerator::new();
+        let smt = generator.generate(&program);
+        if let Some(path) = &verify_output {
+            fs::write(path, &smt).expect("failed to write SMT output");
+            eprintln!("SMT-LIB written to {}", path);
+        } else {
+            println!("{}", smt);
+        }
+        if let Ok(_) = std::process::Command::new("z3").arg("-version").output() {
+            eprintln!("Z3 found — use 'z3 file.smt2' to verify");
+        }
         return;
     }
 
@@ -294,6 +313,8 @@ fn print_usage() {
     eprintln!("  axiomc --no-contracts <source.ax>              disable contract checks");
     eprintln!("  axiomc --diagnostics=json <source.ax>          JSON-structured errors");
     eprintln!("  axiomc --dump-contracts <source.ax>            emit contract index JSON");
+    eprintln!("  axiomc --verify <source.ax>                    SMT-LIB contract verification");
+    eprintln!("  axiomc --verify-output <file> <source.ax>      SMT-LIB output to file");
 }
 
 #[derive(PartialEq)]
