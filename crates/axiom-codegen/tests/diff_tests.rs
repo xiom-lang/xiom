@@ -230,7 +230,7 @@ fn test_stress_borrow_10level() {
 fn test_stress_generic_5chain() {
     let ir = compile_to_ir("examples\\stress_generic_5chain.ax");
     assert!(ir.contains("define i64 @quad_Int"));
-    assert!(ir.contains("call i64 @triple_i64"));
+    assert!(ir.contains("call i64 @triple_Int"));
 }
 
 #[test]

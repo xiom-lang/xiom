@@ -1021,9 +1021,15 @@ impl IrEmitter {
 
     /// After all non-generic functions have been compiled, emit specialized
     /// versions for each tracked generic instantiation.
+    /// Uses a worklist pattern: monomorphising one function may trigger new
+    /// instantiations (generic chains), which are processed in subsequent passes.
     fn compile_generic_monomorphisations(&mut self) -> Result<(), String> {
-        let instantiations = std::mem::take(&mut self.generic_instantiations);
-        for (base_name, concrete_types) in &instantiations {
+        loop {
+            let instantiations = std::mem::take(&mut self.generic_instantiations);
+            if instantiations.is_empty() {
+                break;
+            }
+            for (base_name, concrete_types) in &instantiations {
             // Find the generic function decl
             let fd = match self.generic_fn_decls.iter().find(|f| self.fn_key(f) == *base_name) {
                 Some(f) => f.clone(),
@@ -1129,9 +1135,10 @@ impl IrEmitter {
             if fd.return_type.is_none() {
                 self.emitln("  ret void");
             }
-            self.emitln("}\n");
-            self.pop_scope();
-            self.current_fn = None;
+                self.emitln("}\n");
+                self.pop_scope();
+                self.current_fn = None;
+            }
         }
         Ok(())
     }
@@ -1811,7 +1818,14 @@ impl IrEmitter {
                     _ => unreachable!(),
                 };
                 self.emitln(&format!("  {tmp} = {inst} {ty} {l}, {r}"));
-                Ok(tmp)
+                let result = if inst.starts_with("icmp") || inst.starts_with("fcmp") {
+                    let ext = self.fresh_tmp();
+                    self.emitln(&format!("  {ext} = zext i1 {tmp} to i64"));
+                    ext
+                } else {
+                    tmp
+                };
+                Ok(result)
             }
             Expr::Try(inner, _span) => {
                 let val = self.compile_expr(inner)?;
@@ -2150,8 +2164,10 @@ impl IrEmitter {
                                 Expr::Str(..) => "Str".to_string(),
                                 Expr::Char(..) => "Char".to_string(),
                                 Expr::Ident(id) => {
-                                    // Try to find the type of this identifier
-                                    if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
+                                    // Check param_concrete_types first (AXIOM type name during monomorphisation)
+                                    if let Some(concrete) = self.param_concrete_types.get(&id.name) {
+                                        concrete.clone()
+                                    } else if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
                                         llvm_ty.clone()
                                     } else {
                                         gp.name.name.clone()
@@ -2460,7 +2476,7 @@ impl IrEmitter {
             }
             Expr::Binary(left, op, right, _) => {
                 match op {
-                    BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => "i1".to_string(),
+                    BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => "i64".to_string(),
                     BinOp::And | BinOp::Or => "i64".to_string(),
                     BinOp::Assign => self.infer_llvm_type(right),
                     _ => {
