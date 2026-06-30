@@ -75,6 +75,10 @@ pub struct IrEmitter {
     scrutinee_info: Option<(String, String)>,
     /// Builtin types whose impls have been referenced by the program
     used_builtins: HashSet<String>,
+    /// Current type substitution map for monomorphisation: generic_name → concrete_type
+    current_type_map: HashMap<String, String>,
+    /// Maps variable name to concrete type for generic params in monomorphised functions
+    param_concrete_types: HashMap<String, String>,
 }
 
 impl IrEmitter {
@@ -104,6 +108,8 @@ impl IrEmitter {
             enum_variants: HashMap::new(),
             scrutinee_info: None,
             used_builtins: HashSet::new(),
+            current_type_map: HashMap::new(),
+            param_concrete_types: HashMap::new(),
         }
     }
 
@@ -153,7 +159,8 @@ impl IrEmitter {
 
     fn axiom_to_llvm_type(axiom_ty: &str) -> &'static str {
         match axiom_ty {
-            "Bool" | "Int8" | "UInt8" | "Char" => "i8",
+            "Int8" | "UInt8" | "Char" => "i8",
+            "Bool" => "i64",
             "Int16" | "UInt16" => "i16",
             "Int32" | "UInt32" => "i32",
             "Int" | "Int64" | "UInt" | "UInt64" => "i64",
@@ -225,6 +232,10 @@ impl IrEmitter {
                 ("Ok".to_string(), vec!["value".to_string()]),
             ]);
         }
+        // Register Vec type for runtime operations
+        if !self.types.contains_key("Vec") {
+            self.types.insert("Vec".to_string(), vec!["data".to_string(), "len".to_string(), "cap".to_string()]);
+        }
 
         // Register type structures
         for item in &program.items {
@@ -252,6 +263,10 @@ impl IrEmitter {
         if !self.types.is_empty() {
             self.emitln("");
         }
+
+        // Emit Vec struct type for runtime operations
+        self.emitln("%struct.Vec = type { i8*, i64, i64 }");
+        self.emitln("");
 
         // Declare external C functions + LLVM intrinsics
         self.emitln("declare i32 @printf(i8*, ...)");
@@ -1084,12 +1099,26 @@ impl IrEmitter {
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
                 self.emitln(&format!("  store {llvm_ty} %param{i}, {llvm_ty}* {alloca}"));
                 self.add_local(&param.name.name, alloca, &llvm_ty);
+                // Track params whose original type is a generic parameter being monomorphised
+                let axiom_ty = Self::type_from_ast(&param.ty);
+                if type_map.contains_key(&axiom_ty) {
+                    if let Some(concrete) = type_map.get(&axiom_ty) {
+                        self.param_concrete_types.insert(param.name.name.clone(), concrete.clone());
+                    }
+                }
             }
+
+            // Set type substitution map for method dispatch in body
+            self.current_type_map = type_map.clone();
 
             // Compile body
             if let Some(body) = fd.body.as_ref() {
                 self.compile_block(body, fd.return_type.is_some())?;
             }
+
+            // Clear type substitution state
+            self.current_type_map.clear();
+            self.param_concrete_types.clear();
             if fd.return_type.is_none() {
                 self.emitln("  ret void");
             }
@@ -1488,7 +1517,7 @@ impl IrEmitter {
                         Pattern::Variant(..) => {
                             check_labels.push(self.fresh_block("match_check"));
                         }
-                        Pattern::Wildcard(_) => { wildcard_idx = Some(i); }
+                        Pattern::Wildcard(_) | Pattern::Ident(_) => { wildcard_idx = Some(i); }
                         _ => {}
                     }
                 }
@@ -1613,6 +1642,13 @@ impl IrEmitter {
                                 }
                             }
                         }
+                    }
+                    // For Ident patterns, bind the matched value to the identifier
+                    if let Pattern::Ident(ident) = &arm.pattern {
+                        let match_alloca = self.fresh_tmp();
+                        self.emitln(&format!("  {match_alloca} = alloca i64"));
+                        self.emitln(&format!("  store i64 {val}, i64* {match_alloca}"));
+                        self.add_local(&ident.name, match_alloca, "i64");
                     }
                     match &arm.body {
                         MatchBody::Block(b) => { self.compile_block(b, false)?; }
@@ -2006,6 +2042,72 @@ impl IrEmitter {
                     self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {dest_val}, i8* {src_val}, i64 {size_val}, i1 false)"));
                     return Ok("0".to_string());
                 }
+                // Vec.new() — static method on Vec type
+                if let Some(receiver) = receiver_expr {
+                    if let Expr::Ident(id) = &**receiver {
+                        if id.name == "Vec" && fn_name == "new" {
+                            let struct_alloca = self.fresh_tmp();
+                            self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
+                            let data_ptr = self.fresh_tmp();
+                            self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 128)"));
+                            let data_gep = self.fresh_tmp();
+                            self.emitln(&format!("  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 0"));
+                            self.emitln(&format!("  store i8* {data_ptr}, i8** {data_gep}"));
+                            let len_gep = self.fresh_tmp();
+                            self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 1"));
+                            self.emitln(&format!("  store i64 0, i64* {len_gep}"));
+                            let cap_gep = self.fresh_tmp();
+                            self.emitln(&format!("  {cap_gep} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 2"));
+                            self.emitln(&format!("  store i64 16, i64* {cap_gep}"));
+                            let loaded = self.fresh_tmp();
+                            self.emitln(&format!("  {loaded} = load %struct.Vec, %struct.Vec* {struct_alloca}"));
+                            return Ok(loaded);
+                        }
+                    }
+                }
+                // Vec.push(vec, val) — method call on Vec
+                if fn_name == "push" && args.len() >= 1 {
+                    if let Some(receiver) = receiver_expr {
+                        let recv_val = self.compile_expr(receiver)?;
+                        let val = self.compile_expr(&args[0])?;
+                        let vec_alloca = self.fresh_tmp();
+                        self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
+                        self.emitln(&format!("  store %struct.Vec {recv_val}, %struct.Vec* {vec_alloca}"));
+                        let len_gep = self.fresh_tmp();
+                        let len_val = self.fresh_tmp();
+                        self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 1"));
+                        self.emitln(&format!("  {len_val} = load i64, i64* {len_gep}"));
+                        let data_gep = self.fresh_tmp();
+                        let data_ptr = self.fresh_tmp();
+                        self.emitln(&format!("  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 0"));
+                        self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
+                        let offset = self.fresh_tmp();
+                        self.emitln(&format!("  {offset} = mul i64 {len_val}, 8"));
+                        let dest = self.fresh_tmp();
+                        self.emitln(&format!("  {dest} = getelementptr i8, i8* {data_ptr}, i64 {offset}"));
+                        self.emitln(&format!("  store i64 {val}, i64* {dest}"));
+                        let new_len = self.fresh_tmp();
+                        self.emitln(&format!("  {new_len} = add i64 {len_val}, 1"));
+                        self.emitln(&format!("  store i64 {new_len}, i64* {len_gep}"));
+                        let loaded = self.fresh_tmp();
+                        self.emitln(&format!("  {loaded} = load %struct.Vec, %struct.Vec* {vec_alloca}"));
+                        return Ok(loaded);
+                    }
+                }
+                // Vec.len(vec) — method call on Vec
+                if fn_name == "len" && args.is_empty() {
+                    if let Some(receiver) = receiver_expr {
+                        let recv_val = self.compile_expr(receiver)?;
+                        let vec_alloca = self.fresh_tmp();
+                        self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
+                        self.emitln(&format!("  store %struct.Vec {recv_val}, %struct.Vec* {vec_alloca}"));
+                        let len_gep = self.fresh_tmp();
+                        let len_val = self.fresh_tmp();
+                        self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 1"));
+                        self.emitln(&format!("  {len_val} = load i64, i64* {len_gep}"));
+                        return Ok(len_val);
+                    }
+                }
                 let compiled_args: Vec<String> = args.iter()
                     .map(|a| self.compile_expr(a))
                     .collect::<Result<Vec<_>, _>>()?;
@@ -2085,6 +2187,21 @@ impl IrEmitter {
                         let recv_type = self.infer_struct_type_name(receiver);
                         if let Some(rt) = recv_type {
                             format!("{}.{}", rt, fn_name)
+                        } else if !self.current_type_map.is_empty() {
+                            // Check if receiver is a generic param being monomorphised
+                            let obj_var_name = match &**receiver {
+                                Expr::Ident(id) => id.name.clone(),
+                                _ => String::new(),
+                            };
+                            if !obj_var_name.is_empty() {
+                                if let Some(concrete_type) = self.param_concrete_types.get(&obj_var_name) {
+                                    format!("{}.{}", concrete_type, fn_name)
+                                } else {
+                                    fn_key.clone()
+                                }
+                            } else {
+                                fn_key.clone()
+                            }
                         } else {
                             fn_key.clone()
                         }
@@ -2285,6 +2402,14 @@ impl IrEmitter {
                 "i64".to_string()
             }
             Expr::Call(func, _, _) => {
+                // Check for Vec.new() first
+                if let Expr::Field(obj, field, _) = func.as_ref() {
+                    if let Expr::Ident(id) = obj.as_ref() {
+                        if id.name == "Vec" && field.name == "new" {
+                            return "%struct.Vec".to_string();
+                        }
+                    }
+                }
                 let fn_name = match func.as_ref() {
                     Expr::Ident(name) => Some(name.name.clone()),
                     Expr::Field(_, field, _) => Some(field.name.clone()),
