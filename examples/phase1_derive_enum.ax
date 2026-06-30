@@ -1,0 +1,11 @@
+// Phase 1: Derive on Enum
+
+enum Color {
+  Red,
+  Green,
+  Blue
+} derive[Eq, Clone]
+
+fn main() -> Int {
+  return 0;
+}

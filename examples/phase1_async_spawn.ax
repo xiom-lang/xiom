@@ -1,0 +1,11 @@
+// Phase 1: Async spawn test
+
+fn worker() -> Int {
+  return 42;
+}
+
+fn main() -> Int {
+  var x = 1;
+  var y = 2;
+  return x + y;
+}

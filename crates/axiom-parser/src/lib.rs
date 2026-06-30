@@ -242,7 +242,12 @@ impl Parser {
             };
             variants.push(EnumVariant { name: vname, fields, span: start });
 
-            if self.skip(TokenKind::Comma) { continue; }
+            if self.skip(TokenKind::Comma) {
+                if self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Eof)) {
+                    break;
+                }
+                continue;
+            }
             if self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Eof)) { break; }
         }
 
@@ -1311,6 +1316,28 @@ mod tests {
         match &prog.items[0] {
             TopDecl::Enum(e) => {
                 assert_eq!(e.variants.len(), 2);
+            }
+            _ => panic!("expected enum"),
+        }
+    }
+
+    #[test]
+    fn test_enum_trailing_comma() {
+        let prog = parse("enum E { A, B, }").unwrap();
+        match &prog.items[0] {
+            TopDecl::Enum(e) => {
+                assert_eq!(e.variants.len(), 2);
+            }
+            _ => panic!("expected enum"),
+        }
+    }
+
+    #[test]
+    fn test_enum_trailing_comma_single() {
+        let prog = parse("enum E { A, }").unwrap();
+        match &prog.items[0] {
+            TopDecl::Enum(e) => {
+                assert_eq!(e.variants.len(), 1);
             }
             _ => panic!("expected enum"),
         }
