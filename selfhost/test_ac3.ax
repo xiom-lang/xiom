@@ -1,0 +1,6 @@
+fn main() -> Int {
+  var pos = 0;
+  var done = 1 == 0;
+  while (pos < 100) { done = true; }
+  return 0;
+}

@@ -457,6 +457,54 @@ fn e2e_selfhost_v091_has_main() {
 }
 
 #[test]
+fn e2e_selfhost_v094_compiles() {
+    let output = Command::new(axiomc_path())
+        .args(["--emit-ir", "selfhost\\axiomc_v094.ax"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    assert!(output.status.success(), "selfhost/axiomc_v094.ax should compile to IR");
+}
+
+#[test]
+fn e2e_selfhost_v094_has_main() {
+    let output = Command::new(axiomc_path())
+        .args(["--emit-ir", "selfhost\\axiomc_v094.ax"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("define i64 @main"), "v094 should have main");
+}
+
+#[test]
+fn e2e_selfhost_v094_contains_extern_decls() {
+    let output = Command::new(axiomc_path())
+        .args(["--emit-ir", "selfhost\\axiomc_v094.ax"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("@axiom_ir_define_s"), "v094 IR should declare axiom_ir_define_s");
+    assert!(stdout.contains("@axiom_ir_call_fn"), "v094 IR should declare axiom_ir_call_fn");
+    assert!(stdout.contains("@axiom_ir_call_arg_lit"), "v094 IR should declare axiom_ir_call_arg_lit");
+    assert!(stdout.contains("@axiom_ir_param_int"), "v094 IR should declare axiom_ir_param_int");
+    assert!(stdout.contains("@axiom_ir_param_double"), "v094 IR should declare axiom_ir_param_double");
+    assert!(stdout.contains("@axiom_ir_fmul"), "v094 IR should declare axiom_ir_fmul");
+}
+
+#[test]
+fn e2e_selfhost_v094_contains_codegen_fn() {
+    let output = Command::new(axiomc_path())
+        .args(["--emit-ir", "selfhost\\axiomc_v094.ax"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("define void @emit_demo_float"), "v094 should define emit_demo_float");
+}
+
+#[test]
 fn e2e_runtime_ir_declares_externs() {
     let output = Command::new(axiomc_path())
         .args(["--emit-ir", "selfhost\\axiomc_v091.ax"])

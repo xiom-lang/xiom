@@ -1,0 +1,7 @@
+fn main() -> Int {
+  var c = 90;
+  var c1 = 100;
+  var kw_count = 0;
+  if c == 90 && c1 == 100 { kw_count = kw_count + 1; }
+  return 0;
+}

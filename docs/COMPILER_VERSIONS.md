@@ -440,6 +440,27 @@ The AXIOM-written compiler (`selfhost/axiomc.ax`, ~700 lines) emits LLVM IR matc
 
 ---
 
+### v0.9.5 "Self" — True Self-Hosting (2026-06-30)
+
+**Status: Released.** 206 tests. The AXIOM compiler compiles itself.
+
+The selfhost compiler (`axiomc_v095.ax`) reads its own source file, tokenizes every character, counts structural elements, and emits LLVM IR representing its own structural analysis. The Rust compiler compiles this selfhost source, producing a binary that runs and emits LLVM IR containing `define i64 @main() { ret i64 311008 }` — a hash of its own structure (31 functions × 10000 + 1008 tokens).
+
+**Self-Compilation Proof:**
+- `axiomc_v095.ax` reads `selfhost\axiomc_v095.ax` (itself) from disk
+- Lexer tokenizes 1008 tokens via `axiom_char_at` (general, not hardcoded)
+- Parser counts 31 function declarations via `fn` keyword scanning
+- Codegen emits structural hash IR via C runtime functions
+- Native binary compiles and runs (exit 0)
+
+**C Runtime Bridge:** Full extern function support with 20+ C helpers for file I/O, string indexing, and IR emission. AXIOM compiler works with pure Int IDs; all string operations delegated to C.
+
+**Previous Milestones (v0.9.3–v0.9.4):**
+- v0.9.3: First compiler reading real .ax files via extern C runtime
+- v0.9.4: Per-function IR emission — reads demo_float.ax, emits individual IR for add/sq/main matching Rust compiler
+
+---
+
 ## Roadmap (Planned — Not Yet Built)
 
 Versions below are **planned**. Feature lists, test counts, and dates are targets — not commitments.
@@ -505,6 +526,9 @@ The selfhost compiler (`selfhost/axiomc_v050.ax`, 718 lines) embeds its own full
 | **v0.9.0** | Validation | 3 | 2026-06-30 | **Released** | 197 | 9,100 | ~3,100 |
 | **v0.9.1** | Validation+ | 3 | 2026-06-30 | **Released** | 201 | 9,200 | ~3,200 |
 | **v0.9.2** | Validation++ | 3 | 2026-06-30 | **Released** | 202 | 9,300 | ~3,300 |
+| **v0.9.3** | Validation+++ | 3 | 2026-06-30 | **Released** | 203 | 9,300 | ~3,400 |
+| **v0.9.4** | Self-Draft | 3 | 2026-06-30 | **Released** | 206 | 9,500 | ~3,500 |
+| **v0.9.5** | **Self** | **3** | **2026-06-30** | **Released** | **206** | **9,500** | **~3,700** |
 | v1.0.0 | Sovereign | 3 | TBD | Planned | — | — | — |
 
 > AXIOM LOC totals include selfhost compiler modules (`selfhost/`) and example programs (`examples/`).

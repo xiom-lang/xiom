@@ -1,0 +1,10 @@
+fn main() -> Int {
+  var pos = 0;
+  var len = 10;
+  while pos < len {
+    if pos >= 5 { var x = 1; }
+    elif pos < 3 { var y = 2; }
+    pos = pos + 1;
+  }
+  return 0;
+}

@@ -1,0 +1,7 @@
+fn main() -> Int {
+  var pos = 0;
+  var count = 0;
+  var done = 1 == 0;
+  while !(done) { if pos >= count { count = count + 1; } }
+  return 0;
+}
