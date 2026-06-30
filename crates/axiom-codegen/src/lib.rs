@@ -333,6 +333,7 @@ impl IrEmitter {
         self.emitln("declare void @axiom_ir_ret_lit(i64)");
         // v0.10.0 function table
         self.emitln("declare void @axiom_fn_table_init()");
+        self.emitln("declare void @axiom_set_source(i64)");
         self.emitln("declare void @axiom_fn_table_add(i64, i64, i64, i64, i64)");
         self.emitln("declare i64 @axiom_fn_table_count()");
         self.emitln("declare i64 @axiom_fn_name_id(i64)");

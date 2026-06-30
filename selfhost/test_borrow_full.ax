@@ -1,8 +1,3 @@
-// AXIOM — Self-Hosted Compiler v0.10.0
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
-
-// === EXTERN C RUNTIME ===
 fn axiom_read_file(path: Str) -> Int;
 fn axiom_str_len(src: Int) -> Int;
 fn axiom_char_at(src: Int, pos: Int) -> Int;
@@ -19,8 +14,6 @@ fn axiom_fn_table_count() -> Int;
 fn axiom_fn_emit_all();
 fn axiom_set_source(src: Int);
 
-// === PARSER ===
-// Direct inline parsing — no helper function calls that conflict with borrow checker.
 fn parse_functions(src: &Int) -> Int {
   var len = axiom_str_len(src);
   var pos = 0;
@@ -37,7 +30,6 @@ fn parse_functions(src: &Int) -> Int {
       if c2 == 32 || c2 == 9 {
         pos = pos + 3;
 
-        // Skip whitespace before function name
         var ws_done = 1 == 0;
         while !(ws_done) {
           if (pos >= len) { ws_done = 1 == 1; }
@@ -48,7 +40,6 @@ fn parse_functions(src: &Int) -> Int {
           if !(ws_done) { pos = pos + 1; }
         }
 
-        // Parse function name (alphanumeric + underscore)
         var name_start = pos + 0;
         var name_done = 1 == 0;
         while !(name_done) {
@@ -67,7 +58,6 @@ fn parse_functions(src: &Int) -> Int {
         var name_len = pos - name_start + 0;
         var name_id = axiom_intern(&src, &name_start, &name_len);
 
-          // Skip to ')' 
         var pdone = 1 == 0;
         while !(pdone) {
           if (pos >= len) { pdone = 1 == 1; }
@@ -77,11 +67,8 @@ fn parse_functions(src: &Int) -> Int {
           }
           if !(pdone) { pos = pos + 1; }
         }
-        // Now pos is at ')'
-        // Skip past ')'
         if (pos < len) { pos = pos + 1; }
 
-        // Skip whitespace and check for -> return type
         var rt_done = 1 == 0;
         while !(rt_done) {
           if (pos >= len) { rt_done = 1 == 1; }
@@ -97,7 +84,6 @@ fn parse_functions(src: &Int) -> Int {
         var arrow1 = axiom_char_at(&src, &pos + 1);
         if arrow0 == 45 && arrow1 == 62 {
           pos = pos + 2;
-          // Skip whitespace after ->
           var rws_done = 1 == 0;
           while !(rws_done) {
             if (pos >= len) { rws_done = 1 == 1; }
@@ -107,7 +93,6 @@ fn parse_functions(src: &Int) -> Int {
             }
             if !(rws_done) { pos = pos + 1; }
           }
-          // Parse return type name
           var rt_start = pos + 0;
           var rt_name_done = 1 == 0;
           while !(rt_name_done) {
@@ -126,20 +111,19 @@ fn parse_functions(src: &Int) -> Int {
           ret_type_id = axiom_intern(&src, &rt_start, &pos - rt_start);
         }
 
-        // Skip whitespace to find opening brace
+        // Body parsing addition
         var bws_done = 1 == 0;
         while !(bws_done) {
           if (pos >= len) { bws_done = 1 == 1; }
           else {
             var bws_c = axiom_char_at(&src, &pos);
-            if bws_c == 123 { bws_done = 1 == 1; } // found '{'
+            if bws_c == 123 { bws_done = 1 == 1; }
             elif bws_c != 32 && bws_c != 9 && bws_c != 10 && bws_c != 13 { bws_done = 1 == 1; }
           }
           if !(bws_done) { pos = pos + 1; }
         }
-        var body_start = pos; // position of '{'
-        var body_end = pos;
-        // Find matching '}'
+        var body_start = pos + 0;
+        var body_end = pos + 0;
         if axiom_char_at(&src, &pos) == 123 {
           var depth = 1;
           pos = pos + 1;
@@ -153,10 +137,8 @@ fn parse_functions(src: &Int) -> Int {
               if depth > 0 { pos = pos + 1; }
             }
           }
-          body_end = pos; // position of '}'
+          body_end = pos;
         }
-
-        // Record function in C function table
         axiom_fn_table_add(&name_id, &ret_type_id, &z, &body_start, &body_end);
         fn_count = fn_count + 1;
       } else { pos = pos + 1; }
@@ -172,7 +154,6 @@ fn parse_functions(src: &Int) -> Int {
   return fn_count;
 }
 
-// === CODEGEN ===
 fn emit_program() {
   axiom_ir_open(0);
   axiom_ir_header();
@@ -181,26 +162,14 @@ fn emit_program() {
   axiom_ir_close();
 }
 
-// === DRIVER ===
 fn main() -> Int {
-  // Initialize function table
   axiom_fn_table_init();
-
-  // Read source file
-  var src = axiom_read_file("selfhost\\axiomc_v10.ax");
+  var src = axiom_read_file("examples\\demo_float.ax");
   if src == 0 { return 1; }
-
-  // Parse all function declarations
   var fns = parse_functions(&src);
   if fns == 0 { return 3; }
-
-  // Set source for body parsing in emit_all
-  axiom_set_source(src);
-
-  // Emit IR for all functions (needs source for body parsing)
+  axiom_set_source(&src);
   emit_program();
-
-  // Free source AFTER emission
   axiom_free(&src);
   0;
   return 0;

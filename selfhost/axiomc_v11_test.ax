@@ -20,7 +20,6 @@ fn axiom_fn_emit_all();
 fn axiom_set_source(src: Int);
 
 // === PARSER ===
-// Direct inline parsing — no helper function calls that conflict with borrow checker.
 fn parse_functions(src: &Int) -> Int {
   var len = axiom_str_len(src);
   var pos = 0;
@@ -67,15 +66,29 @@ fn parse_functions(src: &Int) -> Int {
         var name_len = pos - name_start + 0;
         var name_id = axiom_intern(&src, &name_start, &name_len);
 
-          // Skip to ')' 
+        // Count parameters between '(' and ')'
+        var comma_count = 0;
+        var pfound = 1 == 0;
         var pdone = 1 == 0;
         while !(pdone) {
           if (pos >= len) { pdone = 1 == 1; }
           else {
-            var pc = axiom_char_at(&src, &pos);
-            if pc == 41 { pdone = 1 == 1; }
+            var pc_char = axiom_char_at(&src, &pos);
+            if pc_char == 41 { pdone = 1 == 1; }
+            elif pc_char == 44 { comma_count = comma_count + 1; pfound = 1 == 1; }
+            elif pc_char >= 65 && pc_char <= 90 { pfound = 1 == 1; }
+            elif pc_char >= 97 && pc_char <= 122 { pfound = 1 == 1; }
           }
           if !(pdone) { pos = pos + 1; }
+        }
+        var param_count = 0;
+        if comma_count > 0 {
+          param_count = comma_count + 1;
+        }
+        elif pfound == 1 == 1 {
+          param_count = 1;
+        } else {
+          param_count = 0;
         }
         // Now pos is at ')'
         // Skip past ')'
@@ -137,8 +150,8 @@ fn parse_functions(src: &Int) -> Int {
           }
           if !(bws_done) { pos = pos + 1; }
         }
-        var body_start = pos; // position of '{'
-        var body_end = pos;
+        var body_start = pos + 0; // position of '{'
+        var body_end = pos + 0;
         // Find matching '}'
         if axiom_char_at(&src, &pos) == 123 {
           var depth = 1;
@@ -153,11 +166,11 @@ fn parse_functions(src: &Int) -> Int {
               if depth > 0 { pos = pos + 1; }
             }
           }
-          body_end = pos; // position of '}'
+          body_end = pos + 0; // position of '}'
         }
 
         // Record function in C function table
-        axiom_fn_table_add(&name_id, &ret_type_id, &z, &body_start, &body_end);
+        axiom_fn_table_add(&name_id, &ret_type_id, &param_count, &body_start, &body_end);
         fn_count = fn_count + 1;
       } else { pos = pos + 1; }
     }
@@ -187,7 +200,7 @@ fn main() -> Int {
   axiom_fn_table_init();
 
   // Read source file
-  var src = axiom_read_file("selfhost\\axiomc_v10.ax");
+  var src = axiom_read_file("examples\\demo_float.ax");
   if src == 0 { return 1; }
 
   // Parse all function declarations
@@ -195,7 +208,7 @@ fn main() -> Int {
   if fns == 0 { return 3; }
 
   // Set source for body parsing in emit_all
-  axiom_set_source(src);
+  axiom_set_source(&src);
 
   // Emit IR for all functions (needs source for body parsing)
   emit_program();
