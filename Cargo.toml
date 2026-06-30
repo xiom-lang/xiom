@@ -12,4 +12,5 @@ members = [
     "crates/axiom-lsp",
     "crates/axiom-pkg",
     "crates/axiom-ffigen",
+    "crates/axiom-verify",
 ]

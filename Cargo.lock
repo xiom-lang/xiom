@@ -84,6 +84,16 @@ name = "axiom-pkg"
 version = "0.1.0"
 
 [[package]]
+name = "axiom-verify"
+version = "0.1.0"
+dependencies = [
+ "axiom-ast",
+ "axiom-check",
+ "axiom-lexer",
+ "axiom-parser",
+]
+
+[[package]]
 name = "axiomc"
 version = "0.1.0"
 dependencies = [
@@ -92,6 +102,7 @@ dependencies = [
  "axiom-codegen",
  "axiom-lexer",
  "axiom-parser",
+ "axiom-verify",
 ]
 
 [[package]]

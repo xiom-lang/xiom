@@ -13,3 +13,4 @@ axiom-parser = { path = "../axiom-parser" }
 axiom-ast = { path = "../axiom-ast" }
 axiom-check = { path = "../axiom-check" }
 axiom-codegen = { path = "../axiom-codegen" }
+axiom-verify = { path = "../axiom-verify" }
