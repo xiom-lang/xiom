@@ -260,23 +260,35 @@ The first working AXIOM compiler. Establishes the end-to-end pipeline: lexer →
 
 ## Roadmap
 
-### v0.3.0 "Phoenix" — Phase 2A: Minimal Bootstrap (2026-06-30)
+### v0.3.1 "Phoenix+" — Phase 2B: Real Tokenizer + Parser (2026-06-30)
 
-**Status:** Phase 2A initial bootstrap complete. AXIOM lexer + parser + driver compile natively.
+**Status:** Phase 2B in progress. Real AXIOM-written lexer and parser, compiled by Rust v0.2.5.
 
-The first AXIOM-written compiler source files created under `selfhost/`. Compiled by v0.2.5 Rust `axiomc`, they produce a working `selfhost_axiomc.exe` that runs and returns exit code 42.
+The selfhost compiler graduated from stubs to real implementations:
 
-**Selfhost directory:**
-| File | Lines | Purpose |
-|------|-------|---------|
-| `selfhost/axiom-lexer.ax` | ~200 | Tokenizer with keyword/identifier/number/punctuation dispatch |
-| `selfhost/axiom-parser.ax` | ~40 | Parser stub with AstNode type |
-| `selfhost/axiomc.ax` | ~25 | Compiler driver — chains lexer → parser → returns node count |
+**Lexer** (`selfhost/axiom-lexer.ax`, ~300 lines):
+- Real keyword matching: `fn`, `return`, `if`, `else`, `let`, `var`, `while`, `Int`, `Bool`, `type` → token kinds
+- Real identifier scanning with alphanumeric advance
+- Real number literal scanning
+- Operator/punctuation dispatch: `()`, `{}`, `;`, `->`, `==`, `+`, `-`, `*`, etc.
+- Comment skipping: `//` to end-of-line
+- Whitespace skip: space, tab, newline, CR
+- Source provided via `source_at(pos)` character lookup (hardcoded test program)
+- Encoded return pattern: `kind * 1000000 + new_pos` for ownership-safe position tracking
+- 5 self-tests covering char classification, keywords, source, tokenizing
+- **Verified:** compiles natively, exits 0
 
-**Verified:**
-- All 109 Rust tests still pass
-- `selfhost_axiomc.exe` compiles natively via clang
-- Executes and returns correct exit code (42)
+**Parser** (`selfhost/axiom-parser.ax`, ~200 lines):
+- Real recursive descent: `parse_program` → `parse_fn_decl` → body statements
+- Token stream via `next_token()` with encoded position return
+- Parses fn declarations with params, return types, and blocks
+- Handles `return` statements with expression + semicolon
+- **Verified:** compiles natively, exits 0
+
+**Driver** (`selfhost/axiomc.ax`, ~250 lines):
+- Self-contained with inline lexer+parser modules
+- Chains: source → tokenize → parse → node count
+- **Verified:** compiles natively, exits 2
 
 ### v0.4.0 "Mirror" — Phase 2B: Feature Parity
 
@@ -369,7 +381,8 @@ cargo run -p axiomc -- --no-contracts --emit-ir examples\phase1_contracts.ax
 | v0.1.0 | Pipeline | 0 | 2026-06 | 36 | ~1,500 | ~50 | 1 |
 | v0.2.0 | Guardian | 1 | 2026-06 | 87 | ~5,200 | ~300 | 9 |
 | v0.2.5 | Hardened | 1.5 | 2026-06-30 | 109 | 6,924 | 741 | 16 |
-| v0.3.0 | Phoenix | 2A | 2026-06-30 | 109 | 6,924 | 1,006 | 19 |
+| v0.3.0 | Phoenix | 2A | 2026-06-30 | 109 | 6,924 | ~265 | 16 |
+| v0.3.1 | Phoenix+ | 2B | 2026-06-30 | 109 | 6,940 | ~750 | 19 |
 | v0.4.0 | Mirror | 2B | TBD | — | — | — | — |
 | v0.5.0 | Genesis | 2C | TBD | — | — | — | — |
 | v1.0.0 | Sovereign | 3 | TBD | — | — | — | — |
