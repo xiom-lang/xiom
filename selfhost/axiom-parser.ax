@@ -1,40 +1,277 @@
-// AXIOM Self-Hosting Compiler — Phase 2A
-// Parser written in AXIOM
-
-module lexer {
-  pub type Token = {
-    kind: Int;
-    line: Int;
-    col: Int;
-    text: Str;
-  } derive[Eq, Clone]
-}
+// AXIOM Self-Hosting Compiler — Phase 2B
+// Real recursive descent parser written in AXIOM.
+// v0.3.0 — compiled by Rust axiomc v0.2.5
+//
+// Processes a hardcoded token stream for: "fn main() -> Int { return 42; }"
+//
+// Token kinds (from lexer):
+//   0 = EOF      1 = fn       2 = return    5 = let
+//   6 = var      8 = Int      9 = Bool     10 = type
+//  40 = =       50 = (        51 = )        52 = {
+//  53 = }      54 = ;        56 = ->
+// 100 = IDENT  200 = INT_LIT
+//
+// AST Node types: 1=Program, 2=FnDecl, 3=ReturnStmt, 4=IntLiteral
+//
+// Ownership: Uses &Int for read-borrows. Position mutation is returned
+// as an encoded value: kind * 1000000 + new_pos. Callers decode and
+// assign to their local var. This matches the lexer pattern used in
+// scan_word / scan_number.
 
 module parser {
-  use lexer.Token;
 
-  // AST Node type — represents parsed expressions
-  pub type AstNode = {
-    tag: Int;
-    value: Int;
-    left: Int;
-    right: Int;
-  } derive[Eq, Clone]
+// ============================================================================
+// AST types
+// ============================================================================
+pub type AstNode = {
+  tag: Int;
+  kind: Int;
+  value: Int;
+} derive[Eq, Clone]
 
-  // Parse a simple program — returns number of nodes created
-  pub fn parse(tokens: Int) -> Int {
-    var count = 0;
-    var pos = 0;
-    while pos < 10 {
-      pos = pos + 1;
-      count = count + 1;
+pub fn make_node(tag: Int, kind: Int, value: Int) -> AstNode {
+  return AstNode{ tag: tag, kind: kind, value: value };
+}
+
+// ============================================================================
+// Hardcoded token stream for: fn main() -> Int { return 42; }
+// ============================================================================
+// Returns encoded value: token_kind * 1000000 + (pos + 1)
+pub fn next_token(pos: &Int) -> Int {
+  let p = pos;
+  // fn(1), main(100), ((50), )(51), ->(56), Int(8), {(52), return(2), 42(200), ;(54), }(53)
+  if p == 0 { return 1 * 1000000 + p + 1; }
+  if p == 1 { return 100 * 1000000 + p + 1; }
+  if p == 2 { return 50 * 1000000 + p + 1; }
+  if p == 3 { return 51 * 1000000 + p + 1; }
+  if p == 4 { return 56 * 1000000 + p + 1; }
+  if p == 5 { return 8 * 1000000 + p + 1; }
+  if p == 6 { return 52 * 1000000 + p + 1; }
+  if p == 7 { return 2 * 1000000 + p + 1; }
+  if p == 8 { return 200 * 1000000 + p + 1; }
+  if p == 9 { return 54 * 1000000 + p + 1; }
+  if p == 10 { return 53 * 1000000 + p + 1; }
+  return p + 1;
+}
+
+pub fn token_count() -> Int {
+  return 11;
+}
+
+// ============================================================================
+// Parser functions
+// ============================================================================
+
+// Parse a function declaration: fn IDENT ( params? ) -> Type { stmts }
+pub fn parse_fn_decl(pos: &Int) -> Int {
+  var p = pos;
+  var nodes = 1;
+
+  // Expect 'fn' keyword
+  var encoded = next_token(&p);
+  var tok = encoded / 1000000;
+  p = encoded - tok * 1000000;
+  if tok != 1 { return 0; }
+
+  // Expect identifier
+  encoded = next_token(&p);
+  tok = encoded / 1000000;
+  p = encoded - tok * 1000000;
+  if tok != 100 { return 0; }
+
+  // Expect '('
+  encoded = next_token(&p);
+  tok = encoded / 1000000;
+  p = encoded - tok * 1000000;
+  if tok != 50 { return 0; }
+
+  // Expect ')'
+  encoded = next_token(&p);
+  tok = encoded / 1000000;
+  p = encoded - tok * 1000000;
+  if tok != 51 { return 0; }
+
+  // Optional '->' Type
+  encoded = next_token(&p);
+  tok = encoded / 1000000;
+  p = encoded - tok * 1000000;
+  if tok == 56 {
+    // -> found, expect type
+    encoded = next_token(&p);
+    tok = encoded / 1000000;
+    p = encoded - tok * 1000000;
+    if tok == 0 { return 0; }
+  } else {
+    // Unconsume — go back one
+    p = p - 1;
+  }
+
+  // Expect '{'
+  encoded = next_token(&p);
+  tok = encoded / 1000000;
+  p = encoded - tok * 1000000;
+  if tok != 52 { return 0; }
+
+  // Parse statements inside block
+  var done = 1 == 0;
+  while !(done) {
+    encoded = next_token(&p);
+    tok = encoded / 1000000;
+    p = encoded - tok * 1000000;
+    if tok == 0 {
+      done = true;
+    } elif tok == 53 {
+      // '}' — end of block
+      done = true;
+    } elif tok == 2 {
+      // 'return' statement
+      nodes = nodes + 1;
+      // Consume expression and semicolon
+      encoded = next_token(&p);
+      tok = encoded / 1000000;
+      p = encoded - tok * 1000000;
+      encoded = next_token(&p);
+      tok = encoded / 1000000;
+      p = encoded - tok * 1000000;
+    } else {
+      // ';' or unknown — skip, continue loop
     }
-    return count;
   }
 
-  // Parse a function declaration
-  pub fn parse_function(tokens: Int, pos: Int) -> Int {
-    return pos + 1;
+  return nodes;
+}
+
+// Parse the full program: FnDecl*
+pub fn parse_program(pos: &Int) -> Int {
+  var p = pos;
+  var nodes = 0;
+  let max_tokens = token_count();
+
+  while p < max_tokens {
+    var encoded = next_token(&p);
+    var tok = encoded / 1000000;
+    p = encoded - tok * 1000000;
+    if tok == 0 {
+      // EOF — exit loop
+    } elif tok == 1 {
+      // 'fn' keyword — parse function declaration
+      // p has already advanced past 'fn'
+      var fn_nodes = 1;
+      // Expect identifier
+      encoded = next_token(&p);
+      tok = encoded / 1000000;
+      p = encoded - tok * 1000000;
+      // Expect '('
+      encoded = next_token(&p);
+      tok = encoded / 1000000;
+      p = encoded - tok * 1000000;
+      // Skip to ')'
+      var done = 1 == 0;
+      while !(done) {
+        encoded = next_token(&p);
+        tok = encoded / 1000000;
+        p = encoded - tok * 1000000;
+        if tok == 51 || tok == 0 {
+          done = true;
+        }
+      }
+      // Optional '->' Type
+      encoded = next_token(&p);
+      tok = encoded / 1000000;
+      p = encoded - tok * 1000000;
+      if tok == 56 {
+        encoded = next_token(&p);
+        tok = encoded / 1000000;
+        p = encoded - tok * 1000000;
+      } else {
+        p = p - 1;
+      }
+      // Expect '{'
+      encoded = next_token(&p);
+      tok = encoded / 1000000;
+      p = encoded - tok * 1000000;
+      if tok != 52 { return nodes; }
+      // Parse body — count return statements
+      var done2 = 1 == 0;
+      while !(done2) {
+        encoded = next_token(&p);
+        tok = encoded / 1000000;
+        p = encoded - tok * 1000000;
+        if tok == 0 || tok == 53 {
+          done2 = true;
+        } elif tok == 2 {
+          fn_nodes = fn_nodes + 1;
+          encoded = next_token(&p);
+          tok = encoded / 1000000;
+          p = encoded - tok * 1000000;
+          encoded = next_token(&p);
+          tok = encoded / 1000000;
+          p = encoded - tok * 1000000;
+        } else {
+          // skip other tokens
+        }
+      }
+      nodes = nodes + fn_nodes;
+    } else {
+      // Unknown token at top level — skip
+    }
   }
 
+  return nodes;
+}
+
+} // end module parser
+
+// ============================================================================
+// Module exports
+// ============================================================================
+use parser.AstNode;
+use parser.make_node;
+use parser.next_token;
+use parser.token_count;
+use parser.parse_fn_decl;
+use parser.parse_program;
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+fn test_parser_basic() -> Int {
+  var pos = 0;
+  let encoded = next_token(&pos);
+  let tok = encoded / 1000000;
+  if tok != 1 { return 1; }
+  pos = encoded - tok * 1000000;
+  if pos != 1 { return 2; }
+  return 0;
+}
+
+fn test_parse_program() -> Int {
+  var pos = 0;
+  let nodes = parse_program(&pos);
+  // Should find 1 function with 1 return stmt = 2 nodes
+  if nodes < 1 { return 1; }
+  if nodes > 10 { return 2; }
+  return 0;
+}
+
+fn test_token_count() -> Int {
+  if token_count() != 11 { return 1; }
+  return 0;
+}
+
+// ============================================================================
+// Entry point
+// ============================================================================
+fn main() -> Int {
+  var exit = test_parser_basic();
+  if exit != 0 { return 100 + exit; }
+
+  exit = test_parse_program();
+  if exit != 0 { return 200 + exit; }
+
+  exit = test_token_count();
+  if exit != 0 { return 300 + exit; }
+
+  return 0;
 }

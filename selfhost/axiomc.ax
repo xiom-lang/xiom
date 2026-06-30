@@ -1,25 +1,482 @@
-// AXIOM Self-Hosting Compiler — Phase 2A
-// Compiler driver written in AXIOM
+// AXIOM Self-Hosting Compiler — Phase 2B
+// Compiler driver — ties lexer and parser together.
+// v0.3.0 — compiled by Rust axiomc v0.2.5
+//
+// Pipeline: source → tokenize → parse → exit code
+//
+// Since the lexer and parser work with hardcoded test programs,
+// the driver calls tokenize() then passes the token stream position
+// to parse_program().
+//
+// Ownership: Uses &Int for read-borrows. Position mutation uses encoded
+// return values: kind * 1000000 + new_pos. Callers decode and assign
+// to their local var. This matches the lexer pattern used in
+// scan_word / scan_number.
 
 module lexer {
-  pub fn tokenize(source: Int) -> Int {
-    return source;
-  }
+
+// Token type
+pub type Token = {
+  kind: Int;
+  line: Int;
+  col: Int;
+} derive[Eq, Clone]
+
+// Character classification
+pub fn is_alpha(c: Int) -> Bool {
+  if c >= 65 && c <= 90 { return true; }
+  if c >= 97 && c <= 122 { return true; }
+  return false;
 }
+
+pub fn is_digit(c: Int) -> Bool {
+  if c >= 48 && c <= 57 { return true; }
+  return false;
+}
+
+pub fn is_alphanumeric(c: Int) -> Bool {
+  if is_alpha(c + 0) { return true; }
+  if is_digit(c + 0) { return true; }
+  if c == 95 { return true; }
+  return false;
+}
+
+// Source: "fn main() -> Int { return 42; }"
+pub fn source_at(pos: Int) -> Int {
+  if pos == 0 { return 102; }
+  if pos == 1 { return 110; }
+  if pos == 2 { return 32; }
+  if pos == 3 { return 109; }
+  if pos == 4 { return 97; }
+  if pos == 5 { return 105; }
+  if pos == 6 { return 110; }
+  if pos == 7 { return 40; }
+  if pos == 8 { return 41; }
+  if pos == 9 { return 32; }
+  if pos == 10 { return 45; }
+  if pos == 11 { return 62; }
+  if pos == 12 { return 32; }
+  if pos == 13 { return 73; }
+  if pos == 14 { return 110; }
+  if pos == 15 { return 116; }
+  if pos == 16 { return 32; }
+  if pos == 17 { return 123; }
+  if pos == 18 { return 32; }
+  if pos == 19 { return 114; }
+  if pos == 20 { return 101; }
+  if pos == 21 { return 116; }
+  if pos == 22 { return 117; }
+  if pos == 23 { return 114; }
+  if pos == 24 { return 110; }
+  if pos == 25 { return 32; }
+  if pos == 26 { return 52; }
+  if pos == 27 { return 50; }
+  if pos == 28 { return 59; }
+  if pos == 29 { return 32; }
+  if pos == 30 { return 125; }
+  return 0;
+}
+
+pub fn source_len() -> Int {
+  return 31;
+}
+
+// Keyword matching
+pub fn match_keyword(first: Int, second: Int, third: Int, fourth: Int, fifth: Int, sixth: Int) -> Int {
+  if first == 102 && second == 110 {
+    return 1;
+  }
+  if first == 114 && second == 101 && third == 116 && fourth == 117 && fifth == 114 && sixth == 110 {
+    return 2;
+  }
+  if first == 105 && second == 102 {
+    return 3;
+  }
+  if first == 101 && second == 108 && third == 115 && fourth == 101 {
+    return 4;
+  }
+  if first == 108 && second == 101 && third == 116 {
+    return 5;
+  }
+  if first == 118 && second == 97 && third == 114 {
+    return 6;
+  }
+  if first == 119 && second == 104 && third == 105 && fourth == 108 && fifth == 101 {
+    return 7;
+  }
+  if first == 73 && second == 110 && third == 116 {
+    return 8;
+  }
+  if first == 66 && second == 111 && third == 111 && fourth == 108 {
+    return 9;
+  }
+  if first == 116 && second == 121 && third == 112 && fourth == 101 {
+    return 10;
+  }
+  return 100;
+}
+
+// Token factory
+pub fn make_token(kind: Int, line: Int, col: Int) -> Token {
+  return Token{ kind: kind, line: line, col: col };
+}
+
+// Scan word / keyword
+pub fn scan_word(pos: &Int, line: Int, col: Int, c1: Int) -> Int {
+  var np = pos;
+  let c2 = source_at(np + 1);
+  let c3 = source_at(np + 2);
+  let c4 = source_at(np + 3);
+  let c5 = source_at(np + 4);
+  let c6 = source_at(np + 5);
+  np = np + 5;
+
+  let kind = match_keyword(c1, c2, c3, c4, c5, c6);
+
+  if kind == 1 || kind == 3 {
+    np = pos + 1;
+  } elif kind == 2 {
+    np = pos + 5;
+  } elif kind == 4 {
+    np = pos + 3;
+  } elif kind == 5 || kind == 6 {
+    np = pos + 2;
+  } elif kind == 8 {
+    np = pos + 2;
+  } elif kind == 7 {
+    np = pos + 4;
+  } elif kind == 9 {
+    np = pos + 3;
+  } elif kind == 10 {
+    np = pos + 3;
+  } else {
+    np = pos + 1;
+    var done = 1 == 0;
+    while !(done) {
+      if np >= source_len() {
+        done = true;
+      } elif !(is_alphanumeric(source_at(np + 0))) {
+        done = true;
+      } else {
+        np = np + 1;
+        if np - pos > 20 {
+          done = true;
+        }
+      }
+    }
+    np = np - 1;
+  }
+
+  return kind * 1000000 + np + 1;
+}
+
+// Scan number literal
+pub fn scan_number(pos: &Int) -> Int {
+  var np = pos + 1;
+  var done = 1 == 0;
+  while !(done) {
+    if np >= source_len() {
+      done = true;
+    } elif !(is_digit(source_at(np + 0))) {
+      done = true;
+    } else {
+      np = np + 1;
+      if np - pos > 10 {
+        done = true;
+      }
+    }
+  }
+  return 200 * 1000000 + np;
+}
+
+// Main tokenizer
+pub fn tokenize() -> Int {
+  var pos = 0;
+  var count = 0;
+  var line = 1;
+  var col = 1;
+  let max_pos = source_len();
+
+  while pos < max_pos {
+    let c = source_at(pos + 0);
+
+    if c == 32 || c == 9 || c == 13 {
+      pos = pos + 1;
+      col = col + 1;
+    } elif c == 10 {
+      pos = pos + 1;
+      line = line + 1;
+      col = 1;
+    }
+    elif is_alpha(c + 0) || c == 95 {
+      let res = scan_word(&pos, line + 0, col + 0, c + 0);
+      let kind = res / 1000000;
+      let new_pos = res - kind * 1000000;
+      pos = new_pos;
+      col = col + 1;
+      count = count + 1;
+    }
+    elif is_digit(c + 0) {
+      let res = scan_number(&pos);
+      let kind = res / 1000000;
+      let new_pos = res - kind * 1000000;
+      pos = new_pos;
+      col = col + 1;
+      count = count + 1;
+    }
+    elif c == 40 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 41 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 123 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 125 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 59 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 45 {
+      let c2 = source_at(pos + 1);
+      if c2 == 62 {
+        pos = pos + 2; col = col + 2; count = count + 1;
+      } else {
+        pos = pos + 1; col = col + 1; count = count + 1;
+      }
+    } elif c == 62 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 61 {
+      let c2 = source_at(pos + 1);
+      if c2 == 61 {
+        pos = pos + 2; col = col + 2; count = count + 1;
+      } else {
+        pos = pos + 1; col = col + 1; count = count + 1;
+      }
+    } elif c == 43 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 42 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 58 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 44 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 46 {
+      pos = pos + 1; col = col + 1; count = count + 1;
+    } elif c == 47 {
+      var np = pos + 1;
+      if np < max_pos {
+        let nc = source_at(np + 0);
+        if nc == 47 {
+          var found_nl = 1 == 0;
+          while !(found_nl) && np < max_pos {
+            if source_at(np + 0) == 10 {
+              found_nl = true;
+            } else {
+              np = np + 1;
+            }
+          }
+          pos = np;
+          line = line + 1;
+          col = 1;
+        } else {
+          pos = pos + 1; col = col + 1; count = count + 1;
+        }
+      } else {
+        pos = pos + 1; col = col + 1;
+      }
+    } else {
+      pos = pos + 1;
+      col = col + 1;
+    }
+  }
+
+  return count + line * 1000;
+}
+
+} // end module lexer
 
 module parser {
-  pub fn parse(tokens: Int) -> Int {
-    return tokens;
-  }
+
+// AST types
+pub type AstNode = {
+  tag: Int;
+  kind: Int;
+  value: Int;
+} derive[Eq, Clone]
+
+pub fn make_node(tag: Int, kind: Int, value: Int) -> AstNode {
+  return AstNode{ tag: tag, kind: kind, value: value };
 }
 
-use lexer.tokenize;
-use parser.parse;
+// Hardcoded token stream for: fn main() -> Int { return 42; }
+// Returns encoded value: token_kind * 1000000 + (pos + 1)
+pub fn next_token(pos: &Int) -> Int {
+  let p = pos;
+  if p == 0 { return 1 * 1000000 + p + 1; }
+  if p == 1 { return 100 * 1000000 + p + 1; }
+  if p == 2 { return 50 * 1000000 + p + 1; }
+  if p == 3 { return 51 * 1000000 + p + 1; }
+  if p == 4 { return 56 * 1000000 + p + 1; }
+  if p == 5 { return 8 * 1000000 + p + 1; }
+  if p == 6 { return 52 * 1000000 + p + 1; }
+  if p == 7 { return 2 * 1000000 + p + 1; }
+  if p == 8 { return 200 * 1000000 + p + 1; }
+  if p == 9 { return 54 * 1000000 + p + 1; }
+  if p == 10 { return 53 * 1000000 + p + 1; }
+  return p + 1;
+}
 
-// Main entry point — compile source and return exit code
+pub fn token_count() -> Int {
+  return 11;
+}
+
+// Parse a function declaration
+pub fn parse_fn_decl(pos: &Int) -> Int {
+  var p = pos;
+  var nodes = 1;
+
+  var encoded = next_token(&p);
+  var tok = encoded / 1000000;
+  p = encoded - tok * 1000000;
+  if tok != 1 { return 0; }
+
+  encoded = next_token(&p);
+  tok = encoded / 1000000;
+  p = encoded - tok * 1000000;
+  if tok != 100 { return 0; }
+
+  encoded = next_token(&p);
+  tok = encoded / 1000000;
+  p = encoded - tok * 1000000;
+  if tok != 50 { return 0; }
+
+  encoded = next_token(&p);
+  tok = encoded / 1000000;
+  p = encoded - tok * 1000000;
+  if tok != 51 { return 0; }
+
+  encoded = next_token(&p);
+  tok = encoded / 1000000;
+  p = encoded - tok * 1000000;
+  if tok == 56 {
+    encoded = next_token(&p);
+    tok = encoded / 1000000;
+    p = encoded - tok * 1000000;
+    if tok == 0 { return 0; }
+  } else {
+    p = p - 1;
+  }
+
+  encoded = next_token(&p);
+  tok = encoded / 1000000;
+  p = encoded - tok * 1000000;
+  if tok != 52 { return 0; }
+
+  var done = 1 == 0;
+  while !(done) {
+    encoded = next_token(&p);
+    tok = encoded / 1000000;
+    p = encoded - tok * 1000000;
+    if tok == 0 {
+      done = true;
+    } elif tok == 53 {
+      done = true;
+    } elif tok == 2 {
+      nodes = nodes + 1;
+      encoded = next_token(&p);
+      tok = encoded / 1000000;
+      p = encoded - tok * 1000000;
+      encoded = next_token(&p);
+      tok = encoded / 1000000;
+      p = encoded - tok * 1000000;
+    } else {
+    }
+  }
+
+  return nodes;
+}
+
+// Parse the full program
+pub fn parse_program(pos: &Int) -> Int {
+  var p = pos;
+  var nodes = 0;
+  let max_tokens = token_count();
+
+  while p < max_tokens {
+    var encoded = next_token(&p);
+    var tok = encoded / 1000000;
+    p = encoded - tok * 1000000;
+    if tok == 0 {
+    } elif tok == 1 {
+      var fn_nodes = 1;
+      encoded = next_token(&p);
+      tok = encoded / 1000000;
+      p = encoded - tok * 1000000;
+      encoded = next_token(&p);
+      tok = encoded / 1000000;
+      p = encoded - tok * 1000000;
+      var done = 1 == 0;
+      while !(done) {
+        encoded = next_token(&p);
+        tok = encoded / 1000000;
+        p = encoded - tok * 1000000;
+        if tok == 51 || tok == 0 {
+          done = true;
+        }
+      }
+      encoded = next_token(&p);
+      tok = encoded / 1000000;
+      p = encoded - tok * 1000000;
+      if tok == 56 {
+        encoded = next_token(&p);
+        tok = encoded / 1000000;
+        p = encoded - tok * 1000000;
+      } else {
+        p = p - 1;
+      }
+      encoded = next_token(&p);
+      tok = encoded / 1000000;
+      p = encoded - tok * 1000000;
+      if tok != 52 { return nodes; }
+      var done2 = 1 == 0;
+      while !(done2) {
+        encoded = next_token(&p);
+        tok = encoded / 1000000;
+        p = encoded - tok * 1000000;
+        if tok == 0 || tok == 53 {
+          done2 = true;
+        } elif tok == 2 {
+          fn_nodes = fn_nodes + 1;
+          encoded = next_token(&p);
+          tok = encoded / 1000000;
+          p = encoded - tok * 1000000;
+          encoded = next_token(&p);
+          tok = encoded / 1000000;
+          p = encoded - tok * 1000000;
+        } else {
+        }
+      }
+      nodes = nodes + fn_nodes;
+    } else {
+    }
+  }
+
+  return nodes;
+}
+
+} // end module parser
+
+use lexer.tokenize;
+use parser.parse_program;
+
 fn main() -> Int {
-  let source = 42;
-  let token_count = tokenize(source);
-  let node_count = parse(token_count);
-  return node_count;
+  let res = tokenize();
+  let line = res / 1000;
+  let tokens = res - line * 1000;
+
+  var pos = 0;
+  let nodes = parse_program(&pos);
+
+  if nodes > 0 {
+    return nodes;
+  }
+  return 1;
 }

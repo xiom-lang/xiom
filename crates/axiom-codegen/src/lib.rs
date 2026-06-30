@@ -1751,7 +1751,15 @@ impl IrEmitter {
                         }
                     }
                     UnaryOp::Not => {
-                        self.emitln(&format!("  {tmp} = xor i64 {val}, 1"));
+                        let val_ty = self.infer_llvm_type(inner);
+                        let xor_val = if val_ty == "i1" || val_ty == "i8" {
+                            let ext = self.fresh_tmp();
+                            self.emitln(&format!("  {ext} = zext {val_ty} {val} to i64"));
+                            ext
+                        } else {
+                            val
+                        };
+                        self.emitln(&format!("  {tmp} = xor i64 {xor_val}, 1"));
                     }
                     UnaryOp::Ref | UnaryOp::MutRef => return Ok(val),
                 }
@@ -2437,7 +2445,12 @@ impl IrEmitter {
                 }
             }
             Expr::Paren(inner, _) => self.infer_llvm_type(inner),
-            Expr::Unary(_, inner, _) => self.infer_llvm_type(inner),
+            Expr::Unary(op, inner, _) => {
+                match op {
+                    UnaryOp::Not => "i64".to_string(),
+                    UnaryOp::Neg | UnaryOp::Ref | UnaryOp::MutRef => self.infer_llvm_type(inner),
+                }
+            }
             Expr::Binary(left, op, right, _) => {
                 match op {
                     BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => "i1".to_string(),
