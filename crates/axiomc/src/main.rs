@@ -255,7 +255,7 @@ fn main() {
 }
 
 fn print_usage() {
-    eprintln!("AXIOM Compiler v0.2.5 \"Hardened\" — Phase 1.5");
+    eprintln!("AXIOM Compiler v0.5.0 \"Genesis\" — Phase 2C");
     eprintln!("Usage:");
     eprintln!("  axiomc <source.ax>                             print LLVM IR");
     eprintln!("  axiomc --emit-ir <source.ax>                   print LLVM IR");
