@@ -552,7 +552,7 @@ impl IrEmitter {
         let str_id = self.str_counter;
         self.str_counter += 1;
         let label = format!("@.contract_str{str_id}");
-        let escaped = msg.replace('\\', "\\\\").replace('"', "\\\"");
+        let escaped = msg.replace('\\', "\\\\").replace('"', "\\22");
         self.strings.push(format!(
             "{label} = private unnamed_addr constant [{len} x i8] c\"{escaped}\\00\"",
             len = msg.len() + 1
@@ -878,7 +878,7 @@ impl IrEmitter {
         display_parts.push("}".to_string());
         let fmt_str = display_parts.concat();
         let fmt_label = format!("@.fmt_{fn_name}");
-        let escaped = fmt_str.replace('\\', "\\\\").replace('"', "\\\"")
+        let escaped = fmt_str.replace('\\', "\\\\").replace('"', "\\22")
             .replace('\n', "\\0A").replace('\t', "\\09");
         self.strings.push(format!(
             "{fmt_label} = private unnamed_addr constant [{len} x i8] c\"{escaped}\\00\"",
@@ -1725,7 +1725,7 @@ impl IrEmitter {
                 let str_id = self.str_counter;
                 self.str_counter += 1;
                 let label = format!("@.str{str_id}");
-                let escaped = s.replace('\\', "\\\\").replace('"', "\\\"")
+                let escaped = s.replace('\\', "\\\\").replace('"', "\\22")
                     .replace('\n', "\\0A").replace('\t', "\\09");
                 self.strings.push(format!(
                     "{label} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
@@ -1769,7 +1769,7 @@ impl IrEmitter {
                 let l = self.compile_expr(left)?;
                 let r = self.compile_expr(right)?;
                 let tmp = self.fresh_tmp();
-                let is_float = is_float_expr(left, &self.locals) || is_float_expr(right, &self.locals);
+                let is_float = self.is_float_expr(left) || self.is_float_expr(right);
                 if matches!(op, BinOp::And | BinOp::Or) {
                     let is_or = matches!(op, BinOp::Or);
                     let widen = |s: &mut Self, val: &str, ty: &str| -> String {
@@ -2457,11 +2457,41 @@ impl IrEmitter {
                     BinOp::And | BinOp::Or => "i64".to_string(),
                     BinOp::Assign => self.infer_llvm_type(right),
                     _ => {
-                        if is_float_expr(left, &self.locals) || is_float_expr(right, &self.locals) { "double".to_string() } else { "i64".to_string() }
+                        if self.is_float_expr(left) || self.is_float_expr(right) { "double".to_string() } else { "i64".to_string() }
                     }
                 }
             }
             _ => "i64".to_string(),
+        }
+    }
+
+    /// Recursively determine if an expression involves float operations
+    fn is_float_expr(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Float(..) => true,
+            Expr::Ident(_) => is_float_local(expr, &self.locals),
+            Expr::Binary(left, _, right, _) => self.is_float_expr(left) || self.is_float_expr(right),
+            Expr::Paren(inner, _) => self.is_float_expr(inner),
+            Expr::Unary(_, inner, _) => self.is_float_expr(inner),
+            Expr::Field(obj, field, _) => {
+                if self.is_float_expr(obj) {
+                    return true;
+                }
+                if let Expr::Ident(obj_ident) = obj.as_ref() {
+                    if let Some((_, llvm_ty)) = self.lookup_local(&obj_ident.name) {
+                        if llvm_ty.starts_with("%struct.") {
+                            let type_name = &llvm_ty[8..];
+                            if let Some(meta) = self.type_meta.get(type_name) {
+                                if let Some((_, ty_name)) = meta.fields.iter().find(|(name, _)| name == &field.name) {
+                                    return ty_name == "Float64" || ty_name == "Float32";
+                                }
+                            }
+                        }
+                    }
+                }
+                false
+            }
+            _ => false,
         }
     }
 }
@@ -2478,15 +2508,4 @@ fn is_float_local(expr: &Expr, locals: &[HashMap<String, (String, String)>]) -> 
     false
 }
 
-/// Recursively determine if an expression involves float operations
-fn is_float_expr(expr: &Expr, locals: &[HashMap<String, (String, String)>]) -> bool {
-    match expr {
-        Expr::Float(..) => true,
-        Expr::Ident(_) => is_float_local(expr, locals),
-        Expr::Binary(left, _, right, _) => is_float_expr(left, locals) || is_float_expr(right, locals),
-        Expr::Paren(inner, _) => is_float_expr(inner, locals),
-        Expr::Unary(_, inner, _) => is_float_expr(inner, locals),
-        Expr::Field(obj, _, _) => is_float_expr(obj, locals),
-        _ => false,
-    }
-}
+
