@@ -356,6 +356,46 @@ Implements the LLVM code generation pass in AXIOM: LLVM type mapping (Int → i6
 
 ---
 
+## v0.3.5 "PhoenixV" — Phase 2B (2026-06-30)
+
+**Status: Released.** Differential correctness infrastructure and selfhost codegen emits real LLVM IR.
+
+Establishes the differential correctness framework: 4 dedicated tests verify that the AXIOM selfhost compiler and the Rust compiler produce matching IR for the same test program. The selfhost codegen pass (`selfhost/axiom-codegen.ax`) now emits real LLVM IR via `println()` instead of just scaffolding — the output matches the Rust compiler's IR for `diff_test.ax`.
+
+### Differential Correctness
+
+| Test | Status |
+|------|--------|
+| `test_diff_test_produces_correct_ir` | Passing |
+| `test_selfhost_ir_strings_match_expected` | Passing |
+| `test_selfhost_compiles_cleanly` | Passing |
+| `test_differential_ir_consistency` | Passing |
+
+### Selfhost Compiler
+
+The AXIOM-compiled compiler (`diff_selfhost.exe`) exits 0 and its emitted IR matches the Rust compiler's output for `examples/diff_test.ax`.
+
+### Test Suite
+
+```
+113 Rust tests passed (0 failures)
+├── axiom-check:    44
+├── axiom-codegen:  30
+├── diff_tests:      4 (new — differential correctness)
+├── axiom-lexer:    11
+├── axiom-parser:   24
+└── integration:     0
+```
+
+### Codebase Size
+
+| Component | Lines |
+|-----------|-------|
+| Rust source (6 crates) | 7,020 |
+| AXIOM source (selfhost) | ~1,200 |
+
+---
+
 ## Roadmap (Planned — Not Yet Built)
 
 Versions below are **planned**. Feature lists, test counts, and dates are targets — not commitments.
@@ -406,6 +446,7 @@ Versions below are **planned**. Feature lists, test counts, and dates are target
 | **v0.3.2** | Phoenix++ | 2B | 2026-06-30 | **Released** | 109 | 6,924 | ~1,300 |
 | **v0.3.3** | Phoenix+++ | 2B | 2026-06-30 | **Released** | 109 | 6,924 | ~1,450 |
 | **v0.3.4** | PhoenixIV | 2B | 2026-06-30 | **Released** | 109 | **6,937** | **2,057** |
+| **v0.3.5** | PhoenixV | 2B | 2026-06-30 | **Released** | 113 | 7,020 | ~1,200 |
 | v0.4.0 | Mirror | 2C | TBD | Planned | — | — | — |
 | v1.0.0 | Sovereign | 3 | TBD | Planned | — | — | — |
 
