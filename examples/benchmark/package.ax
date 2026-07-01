@@ -31,5 +31,9 @@ package {
     "benchmark.extreme",
     "benchmark.comptime",
     "benchmark.concurrency",
+    "benchmark.crypto",
+    "benchmark.sort",
+    "benchmark.interfaces",
+    "benchmark.serialize",
   ]
 }
