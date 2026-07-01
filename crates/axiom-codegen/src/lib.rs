@@ -85,6 +85,10 @@ pub struct IrEmitter {
     param_concrete_types: HashMap<String, String>,
     /// LLVM target triple (default: x86_64-pc-windows-msvc)
     target_triple: String,
+    /// Recursion depth tracking for stack overflow prevention
+    recursion_depth: u32,
+    /// Maximum allowed recursion depth
+    max_recursion_depth: u32,
 }
 
 impl IrEmitter {
@@ -105,7 +109,7 @@ impl IrEmitter {
             check_contracts: true,
             generic_fn_decls: Vec::new(),
             generic_instantiations: Vec::new(),
-            has_llvm_trap_decl: false,
+            has_llvm_trap_decl: true,
             self_pre_value: None,
             current_ensures: Vec::new(),
             result_ptr: None,
@@ -117,6 +121,8 @@ impl IrEmitter {
             current_type_map: HashMap::new(),
             param_concrete_types: HashMap::new(),
             target_triple: "x86_64-pc-windows-msvc".to_string(),
+            recursion_depth: 0,
+            max_recursion_depth: 500,
         }
     }
 
@@ -126,6 +132,10 @@ impl IrEmitter {
 
     pub fn set_check_contracts(&mut self, enabled: bool) {
         self.check_contracts = enabled;
+    }
+
+    pub fn set_max_recursion_depth(&mut self, depth: u32) {
+        self.max_recursion_depth = depth;
     }
 
     fn fresh_tmp(&mut self) -> String {
@@ -283,7 +293,9 @@ impl IrEmitter {
         self.emitln("declare i32 @printf(i8*, ...)");
         self.emitln("declare i32 @puts(i8*)");
         self.emitln("declare void @llvm.trap()");
+        self.emitln("@axiom_recursion_counter = internal global i64 0");
         self.emitln("declare i8* @malloc(i64)");
+        self.emitln("declare i8* @realloc(i8*, i64)");
         self.emitln("declare void @free(i8*)");
         self.emitln("declare void @llvm.memcpy.p0i8.p0i8.i64(i8*, i8*, i64, i1)");
         self.emitln("declare i64 @axiom_is_sorted(i8*, i64)");
@@ -515,9 +527,23 @@ impl IrEmitter {
 
         self.emitln(&format!("define {ret_llvm} @{name}({}) {{", params_str.join(", ")));
 
-        // Entry block
+        // Recursion depth check
         let entry_block = self.fresh_block("entry");
         self.emitln(&format!("{entry_block}:"));
+        let depth_tmp = self.fresh_tmp();
+        self.emitln(&format!("  {depth_tmp} = load i64, i64* @axiom_recursion_counter"));
+        let new_depth = self.fresh_tmp();
+        self.emitln(&format!("  {new_depth} = add i64 {depth_tmp}, 1"));
+        let depth_ok = self.fresh_tmp();
+        self.emitln(&format!("  {depth_ok} = icmp slt i64 {new_depth}, {}", self.max_recursion_depth));
+        let trap_block = self.fresh_block("depth_trap");
+        let ok_block = self.fresh_block("depth_ok");
+        self.emitln(&format!("  br i1 {depth_ok}, label %{ok_block}, label %{trap_block}"));
+        self.emitln(&format!("\n{trap_block}:"));
+        self.emitln("  call void @llvm.trap()");
+        self.emitln("  unreachable");
+        self.emitln(&format!("\n{ok_block}:"));
+        self.emitln(&format!("  store i64 {new_depth}, i64* @axiom_recursion_counter"));
 
         // Allocate parameters as locals
         for (i, param) in fd.params.iter().enumerate() {
@@ -571,6 +597,12 @@ impl IrEmitter {
             if !self.current_ensures.is_empty() {
                 self.compile_ensures_checks();
             }
+            // Decrement recursion depth
+            let depth_dec = self.fresh_tmp();
+            self.emitln(&format!("  {depth_dec} = load i64, i64* @axiom_recursion_counter"));
+            let new_depth_dec = self.fresh_tmp();
+            self.emitln(&format!("  {new_depth_dec} = sub i64 {depth_dec}, 1"));
+            self.emitln(&format!("  store i64 {new_depth_dec}, i64* @axiom_recursion_counter"));
             self.emitln("  ret void");
         }
 
@@ -1460,11 +1492,23 @@ impl IrEmitter {
                         self.compile_ensures_checks();
                     }
                     let ret_ty = self.current_return_type.clone();
+                    // Decrement recursion depth
+                    let depth_dec = self.fresh_tmp();
+                    self.emitln(&format!("  {depth_dec} = load i64, i64* @axiom_recursion_counter"));
+                    let new_depth_dec = self.fresh_tmp();
+                    self.emitln(&format!("  {new_depth_dec} = sub i64 {depth_dec}, 1"));
+                    self.emitln(&format!("  store i64 {new_depth_dec}, i64* @axiom_recursion_counter"));
                     self.emitln(&format!("  ret {ret_ty} {val}"));
                 } else {
                     if !self.current_ensures.is_empty() {
                         self.compile_ensures_checks();
                     }
+                    // Decrement recursion depth
+                    let depth_dec = self.fresh_tmp();
+                    self.emitln(&format!("  {depth_dec} = load i64, i64* @axiom_recursion_counter"));
+                    let new_depth_dec = self.fresh_tmp();
+                    self.emitln(&format!("  {new_depth_dec} = sub i64 {depth_dec}, 1"));
+                    self.emitln(&format!("  store i64 {new_depth_dec}, i64* @axiom_recursion_counter"));
                     self.emitln("  ret void");
                 }
             }
@@ -1891,6 +1935,21 @@ impl IrEmitter {
                     BinOp::Assign => return Ok(r),
                     _ => unreachable!(),
                 };
+                let div_cont = if !is_float && matches!(op, BinOp::Div | BinOp::Rem) {
+                    let zero_check = self.fresh_tmp();
+                    self.emitln(&format!("  {zero_check} = icmp eq i64 {r}, 0"));
+                    let trap_block = self.fresh_block("div_zero_trap");
+                    let safe_block = self.fresh_block("div_safe");
+                    let cont_block = self.fresh_block("div_continue");
+                    self.emitln(&format!("  br i1 {zero_check}, label %{trap_block}, label %{safe_block}"));
+                    self.emitln(&format!("\n{trap_block}:"));
+                    self.emitln("  call void @llvm.trap()");
+                    self.emitln("  unreachable");
+                    self.emitln(&format!("\n{safe_block}:"));
+                    Some(cont_block)
+                } else {
+                    None
+                };
                 self.emitln(&format!("  {tmp} = {inst} {ty} {l}, {r}"));
                 let result = if inst.starts_with("icmp") || inst.starts_with("fcmp") {
                     let ext = self.fresh_tmp();
@@ -1899,6 +1958,10 @@ impl IrEmitter {
                 } else {
                     tmp
                 };
+                if let Some(cont_block) = div_cont {
+                    self.emitln(&format!("  br label %{cont_block}"));
+                    self.emitln(&format!("\n{cont_block}:"));
+                }
                 Ok(result)
             }
             Expr::Try(inner, _span) => {
@@ -2180,14 +2243,40 @@ impl IrEmitter {
                         let len_val = self.fresh_tmp();
                         self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 1"));
                         self.emitln(&format!("  {len_val} = load i64, i64* {len_gep}"));
-                        let data_gep = self.fresh_tmp();
-                        let data_ptr = self.fresh_tmp();
-                        self.emitln(&format!("  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 0"));
-                        self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
+                        let cap_gep = self.fresh_tmp();
+                        let cap_val = self.fresh_tmp();
+                        self.emitln(&format!("  {cap_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 2"));
+                        self.emitln(&format!("  {cap_val} = load i64, i64* {cap_gep}"));
+                        let cap_check = self.fresh_tmp();
+                        self.emitln(&format!("  {cap_check} = icmp ult i64 {len_val}, {cap_val}"));
+                        let grow_block = self.fresh_block("vec_grow");
+                        let store_block = self.fresh_block("vec_store");
+                        self.emitln(&format!("  br i1 {cap_check}, label %{store_block}, label %{grow_block}"));
+                        self.emitln(&format!("\n{grow_block}:"));
+                        let new_cap = self.fresh_tmp();
+                        self.emitln(&format!("  {new_cap} = mul i64 {cap_val}, 2"));
+                        let new_size = self.fresh_tmp();
+                        self.emitln(&format!("  {new_size} = mul i64 {new_cap}, 8"));
+                        let grow_data_gep = self.fresh_tmp();
+                        let grow_data_ptr = self.fresh_tmp();
+                        self.emitln(&format!("  {grow_data_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 0"));
+                        self.emitln(&format!("  {grow_data_ptr} = load i8*, i8** {grow_data_gep}"));
+                        let new_data = self.fresh_tmp();
+                        self.emitln(&format!("  {new_data} = call i8* @realloc(i8* {grow_data_ptr}, i64 {new_size})"));
+                        self.emitln(&format!("  store i8* {new_data}, i8** {grow_data_gep}"));
+                        let grow_cap_gep = self.fresh_tmp();
+                        self.emitln(&format!("  {grow_cap_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 2"));
+                        self.emitln(&format!("  store i64 {new_cap}, i64* {grow_cap_gep}"));
+                        self.emitln(&format!("  br label %{store_block}"));
+                        self.emitln(&format!("\n{store_block}:"));
+                        let store_data_gep = self.fresh_tmp();
+                        let store_data_ptr = self.fresh_tmp();
+                        self.emitln(&format!("  {store_data_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 0"));
+                        self.emitln(&format!("  {store_data_ptr} = load i8*, i8** {store_data_gep}"));
                         let offset = self.fresh_tmp();
                         self.emitln(&format!("  {offset} = mul i64 {len_val}, 8"));
                         let dest = self.fresh_tmp();
-                        self.emitln(&format!("  {dest} = getelementptr i8, i8* {data_ptr}, i64 {offset}"));
+                        self.emitln(&format!("  {dest} = getelementptr i8, i8* {store_data_ptr}, i64 {offset}"));
                         self.emitln(&format!("  store i64 {val}, i64* {dest}"));
                         let new_len = self.fresh_tmp();
                         self.emitln(&format!("  {new_len} = add i64 {len_val}, 1"));

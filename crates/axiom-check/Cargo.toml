@@ -5,8 +5,8 @@ edition = "2024"
 
 [dependencies]
 axiom-ast = { path = "../axiom-ast" }
+axiom-lexer = { path = "../axiom-lexer" }
+axiom-parser = { path = "../axiom-parser" }
 
 [dev-dependencies]
 insta = { version = "1", features = ["yaml"] }
-axiom-lexer = { path = "../axiom-lexer" }
-axiom-parser = { path = "../axiom-parser" }

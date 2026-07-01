@@ -7,7 +7,11 @@
 //! No generics, no ownership, no contracts enforcement.
 
 use axiom_ast::*;
+use axiom_lexer::Lexer;
+use axiom_parser::Parser;
 use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::path::Path;
 
 // ============================================================================
 // Type representation for the checker
@@ -155,6 +159,8 @@ pub struct Checker {
     visibility: HashMap<String, bool>,
     /// Resolved imported names from use declarations
     imported_items: HashMap<String, ModuleExport>,
+    /// Directories to search for external module files
+    pub source_dirs: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -189,6 +195,7 @@ impl Checker {
             methods: HashMap::new(),
             visibility: HashMap::new(),
             imported_items: HashMap::new(),
+            source_dirs: Vec::new(),
         };
         // Register built-in types
         checker.register_builtins();
@@ -370,12 +377,36 @@ impl Checker {
             }
         }
 
-        // Process each use declaration
+        // Process each use declaration — try filesystem resolution for missing modules
         let import_snapshot = std::mem::take(&mut self.imports);
         for ud in &import_snapshot {
+            if !ud.path.is_empty() {
+                let module_name = &ud.path[0].name;
+                if !self.modules.contains_key(module_name) {
+                    if let Some(exports) = self.load_external_module(module_name) {
+                        self.modules.insert(module_name.clone(), exports);
+                    }
+                }
+            }
             self.process_use(ud);
         }
         self.imports = import_snapshot;
+    }
+
+    /// Try to load an external module file `{source_dir}/{module_name}.ax` from the
+    /// configured source directories.  Returns the module's export map if found.
+    fn load_external_module(&mut self, module_name: &str) -> Option<HashMap<String, ModuleExport>> {
+        for dir in &self.source_dirs {
+            let file_path = format!("{}/{}.ax", dir, module_name);
+            if !Path::new(&file_path).exists() {
+                continue;
+            }
+            let source = fs::read_to_string(&file_path).ok()?;
+            let tokens = Lexer::new(&source).tokenize();
+            let program = Parser::new(tokens).parse_program().ok()?;
+            return Some(self.build_module_map(&program.items));
+        }
+        None
     }
 
     fn build_module_map(&self, items: &[TopDecl]) -> HashMap<String, ModuleExport> {

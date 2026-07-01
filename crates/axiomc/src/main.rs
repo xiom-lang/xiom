@@ -50,74 +50,73 @@ fn main() {
 
     let output_file = parse_flag_value(&args, "-o");
 
-    // Find the source file — last arg that doesn't start with -
-    let source_path = args.iter().rev()
-        .find(|a| !a.starts_with('-'))
-        .unwrap_or_else(|| {
-            eprintln!("error: no source file provided");
-            process::exit(1);
-        });
-
-    if source_path.starts_with('-') || matches!(source_path.as_str(), "wasm" | "arm" | "riscv") {
-        eprintln!("error: no source file provided");
+    // ── Stage 0: Resolve source files ─────────────────────
+    let source_paths = resolve_source_files(&args);
+    if source_paths.is_empty() {
+        eprintln!("error: no source file(s) provided");
         process::exit(1);
     }
 
-    // ── Stage 1: Lex ──────────────────────────────────────
-    let source = match fs::read_to_string(source_path) {
-        Ok(s) => s,
-        Err(e) => {
+    // ── Stage 1: Lex & Parse all source files ─────────────
+    let mut all_programs: Vec<Program> = Vec::new();
+    for source_path in &source_paths {
+        let source = match fs::read_to_string(source_path) {
+            Ok(s) => s,
+            Err(e) => {
+                if diagnostics_json {
+                    println!(r#"{{"kind":"io_error","code":"F001","message":"cannot read '{source_path}': {e}","location":{{"file":"{source_path}","line":0,"col":0}}}}"#);
+                } else {
+                    eprintln!("error: cannot read '{source_path}': {e}");
+                }
+                process::exit(1);
+            }
+        };
+
+        let mut lexer = Lexer::new(&source);
+        let tokens = lexer.tokenize();
+
+        let lex_errors: Vec<_> = tokens.iter()
+            .filter(|t| matches!(t.kind, axiom_lexer::TokenKind::Error(_)))
+            .collect();
+        if !lex_errors.is_empty() {
             if diagnostics_json {
-                println!(r#"{{"kind":"io_error","code":"F001","message":"cannot read '{source_path}': {e}","location":{{"file":"{source_path}","line":0,"col":0}}}}"#);
+                let mut parts: Vec<String> = Vec::new();
+                for tok in &lex_errors {
+                    if let axiom_lexer::TokenKind::Error(msg) = &tok.kind {
+                        parts.push(format!(
+                            r#"{{"kind":"lex_error","code":"L001","message":"{}","location":{{"file":"{}","line":{},"col":{}}}}}"#,
+                            escape_json(msg), escape_json(source_path), tok.span.line, tok.span.col
+                        ));
+                    }
+                }
+                println!("[{}]", parts.join(","));
             } else {
-                eprintln!("error: cannot read '{source_path}': {e}");
+                for tok in &lex_errors {
+                    if let axiom_lexer::TokenKind::Error(msg) = &tok.kind {
+                        eprintln!("error[L001]: {msg} at {l}:{c}", l = tok.span.line, c = tok.span.col);
+                    }
+                }
             }
             process::exit(1);
         }
-    };
 
-    let mut lexer = Lexer::new(&source);
-    let tokens = lexer.tokenize();
-
-    let lex_errors: Vec<_> = tokens.iter()
-        .filter(|t| matches!(t.kind, axiom_lexer::TokenKind::Error(_)))
-        .collect();
-    if !lex_errors.is_empty() {
-        if diagnostics_json {
-            let mut parts: Vec<String> = Vec::new();
-            for tok in &lex_errors {
-                if let axiom_lexer::TokenKind::Error(msg) = &tok.kind {
-                    parts.push(format!(
-                        r#"{{"kind":"lex_error","code":"L001","message":"{}","location":{{"file":"{}","line":{},"col":{}}}}}"#,
-                        escape_json(msg), escape_json(source_path), tok.span.line, tok.span.col
-                    ));
+        let mut parser = Parser::new(tokens);
+        let program = match parser.parse_program() {
+            Ok(p) => p,
+            Err(e) => {
+                if diagnostics_json {
+                    println!(r#"{{"kind":"parse_error","code":"P001","message":"{}","location":{{"file":"{}","line":{},"col":{}}}}}"#,
+                        escape_json(&e.message), escape_json(source_path), e.span.line, e.span.col);
+                } else {
+                    eprintln!("error[P001]: {l}:{c}: {m}", l = e.span.line, c = e.span.col, m = e.message);
                 }
+                process::exit(1);
             }
-            println!("[{}]", parts.join(","));
-        } else {
-            for tok in &lex_errors {
-                if let axiom_lexer::TokenKind::Error(msg) = &tok.kind {
-                    eprintln!("error[L001]: {msg} at {l}:{c}", l = tok.span.line, c = tok.span.col);
-                }
-            }
-        }
-        process::exit(1);
+        };
+        all_programs.push(program);
     }
 
-    // ── Stage 2: Parse ────────────────────────────────────
-    let mut parser = Parser::new(tokens);
-    let program = match parser.parse_program() {
-        Ok(p) => p,
-        Err(e) => {
-            if diagnostics_json {
-                println!(r#"{{"kind":"parse_error","code":"P001","message":"{}","location":{{"file":"{}","line":{},"col":{}}}}}"#,
-                    escape_json(&e.message), escape_json(source_path), e.span.line, e.span.col);
-            } else {
-                eprintln!("error[P001]: {l}:{c}: {m}", l = e.span.line, c = e.span.col, m = e.message);
-            }
-            process::exit(1);
-        }
-    };
+    let program = merge_programs(all_programs, &source_paths);
 
     // ── Stage 3: Type Check ───────────────────────────────
     let mut checker = Checker::new();
@@ -126,7 +125,7 @@ fn main() {
             let parts: Vec<String> = errors.iter().map(|err| {
                 format!(
                     r#"{{"kind":"type_error","code":"T001","message":"{}","location":{{"file":"{}","line":{},"col":{}}}}}"#,
-                    escape_json(&err.message), escape_json(source_path), err.span.line, err.span.col
+                    escape_json(&err.message), escape_json("<unknown>"), err.span.line, err.span.col
                 )
             }).collect();
             println!("[{}]", parts.join(","));
@@ -161,6 +160,8 @@ fn main() {
         return;
     }
 
+    let primary_source = source_paths.first().map(|s| s.as_str()).unwrap_or("<unknown>");
+
     // ── Stage 4: Borrow Check ─────────────────────────────
     let mut borrow_checker = BorrowChecker::new();
     if let Err(errors) = borrow_checker.check_program(&program) {
@@ -168,7 +169,7 @@ fn main() {
             let parts: Vec<String> = errors.iter().map(|err| {
                 format!(
                     r#"{{"kind":"borrow_error","code":"E001","message":"{}","location":{{"file":"{}","line":{},"col":{}}}}}"#,
-                    escape_json(&err.message), escape_json(source_path), err.span.line, err.span.col
+                    escape_json(&err.message), escape_json(primary_source), err.span.line, err.span.col
                 )
             }).collect();
             println!("[{}]", parts.join(","));
@@ -194,7 +195,7 @@ fn main() {
         Err(e) => {
             if diagnostics_json {
                 println!(r#"{{"kind":"codegen_error","code":"C001","message":"{}","location":{{"file":"{}","line":0,"col":0}}}}"#,
-                    escape_json(&e), escape_json(source_path));
+                    escape_json(&e), escape_json(primary_source));
             } else {
                 eprintln!("error[C001]: codegen: {e}");
             }
@@ -314,6 +315,263 @@ fn main() {
             process::exit(1);
         }
     }
+}
+
+/// Resolve source files from CLI arguments.
+/// - If argument is a directory, load all `.ax` files (excluding `package.ax`)
+/// - If multiple `.ax` file arguments, return them all
+/// - Single file is returned as-is
+fn resolve_source_files(args: &[String]) -> Vec<String> {
+    let mut sources = Vec::new();
+    let mut skip_next = false;
+
+    for arg in args.iter().skip(1) {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if matches!(arg.as_str(), "-o" | "--target" | "--verify-output") {
+            skip_next = true;
+            continue;
+        }
+        if arg.starts_with('-') {
+            continue;
+        }
+        if matches!(arg.as_str(), "wasm" | "arm" | "riscv") {
+            continue;
+        }
+        sources.push(arg.clone());
+    }
+
+    if sources.is_empty() {
+        return Vec::new();
+    }
+
+    // If a single directory is given, load the package
+    if sources.len() == 1 {
+        if let Ok(metadata) = fs::metadata(&sources[0]) {
+            if metadata.is_dir() {
+                return load_package_dir(&sources[0]);
+            }
+        }
+    }
+
+    sources
+}
+
+/// Load all `.ax` files from a package directory.
+/// Reads `package.ax` if present for the module list, otherwise scans the directory.
+fn load_package_dir(dir: &str) -> Vec<String> {
+    let mut files = Vec::new();
+    let package_path = format!("{}/package.ax", dir);
+
+    // Try package.ax manifest first
+    if fs::metadata(&package_path).is_ok() {
+        if let Ok(modules) = parse_package_manifest(&package_path) {
+            // Resolve each module to a file by scanning the directory
+            let ax_files = scan_ax_files(dir);
+            let module_file_map = build_module_file_map(&ax_files);
+            for module_path in &modules {
+                if let Some(file) = module_file_map.get(module_path) {
+                    files.push(file.clone());
+                }
+            }
+            if !files.is_empty() {
+                return files;
+            }
+        }
+    }
+
+    // Fallback: scan all .ax files in directory
+    files = scan_ax_files(dir);
+    files
+}
+
+/// Scan a directory for `.ax` files (excluding `package.ax`).
+fn scan_ax_files(dir: &str) -> Vec<String> {
+    let mut files = Vec::new();
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("ax") {
+                let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if file_name != "package.ax" {
+                    files.push(path.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+    files
+}
+
+/// Build a map from module path (from `module` declaration) to file path.
+/// Reads each file's first lines to find the `module` declaration.
+fn build_module_file_map(files: &[String]) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    for file in files {
+        if let Ok(content) = fs::read_to_string(file) {
+            let module_path = extract_module_path(&content);
+            if let Some(path) = module_path {
+                map.insert(path, file.clone());
+            }
+        }
+    }
+    map
+}
+
+/// Extract the module path from the first `module` declaration found in source.
+fn extract_module_path(source: &str) -> Option<String> {
+    let lexer = Lexer::new(source);
+    let tokens = lexer.tokenize();
+    let mut i = 0;
+    // Skip leading comments/whitespace (lexer already removed them)
+    while i < tokens.len() {
+        if tokens[i].is_eof() {
+            return None;
+        }
+        if let axiom_lexer::TokenKind::Module = &tokens[i].kind {
+            i += 1;
+            // Parse the module path
+            let mut path_parts = Vec::new();
+            if i < tokens.len() {
+                if let axiom_lexer::TokenKind::Ident(name) = &tokens[i].kind {
+                    path_parts.push(name.clone());
+                    i += 1;
+                }
+                while i < tokens.len() {
+                    if let axiom_lexer::TokenKind::Dot = &tokens[i].kind {
+                        i += 1;
+                        if i < tokens.len() {
+                            if let axiom_lexer::TokenKind::Ident(name) = &tokens[i].kind {
+                                path_parts.push(name.clone());
+                                i += 1;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+            if !path_parts.is_empty() {
+                return Some(path_parts.join("."));
+            }
+            return None;
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Simple parser for `package.ax` manifest format.
+/// Extracts the `modules: [...]` array.
+fn parse_package_manifest(path: &str) -> Result<Vec<String>, String> {
+    let content = fs::read_to_string(path).map_err(|e| format!("cannot read package manifest: {e}"))?;
+    let mut modules = Vec::new();
+    let mut in_modules = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with("modules:") || trimmed.starts_with("\"modules\":") {
+            in_modules = true;
+        }
+
+        if in_modules {
+            let bracket_start = trimmed.find('[');
+            let bracket_end = trimmed.find(']');
+            let extract = if let (Some(s), Some(e)) = (bracket_start, bracket_end) {
+                &trimmed[s..=e]
+            } else if bracket_start.is_some() {
+                &trimmed[bracket_start..]
+            } else if bracket_end.is_some() {
+                return Ok(modules);
+            } else {
+                continue;
+            };
+
+            if let Some(start) = extract.find('[') {
+                let inner = &extract[start..];
+                let inner = inner.trim_start_matches('[');
+                let inner = if let Some(end) = inner.rfind(']') {
+                    &inner[..=end]
+                } else {
+                    inner
+                };
+                let inner = inner.trim_end_matches(']');
+
+                for part in inner.split(',') {
+                    let part = part.trim().trim_matches('"').trim();
+                    if !part.is_empty() {
+                        modules.push(part.to_string());
+                    }
+                }
+            }
+
+            if trimmed.contains(']') {
+                break;
+            }
+        }
+    }
+
+    Ok(modules)
+}
+
+/// Merge multiple parsed programs into one, merging duplicate top-level modules.
+fn merge_programs(programs: Vec<Program>, source_paths: &[String]) -> Program {
+    let mut all_items: Vec<TopDecl> = Vec::new();
+    let mut all_sources = Vec::new();
+    let mut span = Span::new(0, 0);
+
+    for prog in programs {
+        span = prog.span;
+        all_sources.extend(prog.source_files);
+        for item in prog.items {
+            all_items.push(item);
+        }
+    }
+
+    // Merge duplicate ModuleDecl items with the same name
+    all_items = merge_duplicate_modules(all_items);
+
+    // Track the source files
+    all_sources.extend(source_paths.iter().cloned());
+
+    Program {
+        items: all_items,
+        source_files: all_sources,
+        root_dir: None,
+        span,
+    }
+}
+
+/// Merge duplicate `ModuleDecl` items that have the same `name`.
+/// This handles files that declare the same top-level module (e.g. `benchmark`).
+fn merge_duplicate_modules(items: Vec<TopDecl>) -> Vec<TopDecl> {
+    let mut merged: Vec<TopDecl> = Vec::new();
+    for item in items {
+        match item {
+            TopDecl::Module(md) => {
+                let name = md.name.name.clone();
+                if let Some(existing) = merged.iter_mut().find_map(|m| match m {
+                    TopDecl::Module(ref mut existing_md) if existing_md.name.name == name => Some(existing_md),
+                    _ => None,
+                }) {
+                    // Recursively merge sub-modules of the same name
+                    let new_items = std::mem::take(&mut existing.items);
+                    let combined: Vec<TopDecl> = new_items.into_iter().chain(md.items).collect();
+                    existing.items = merge_duplicate_modules(combined);
+                } else {
+                    merged.push(TopDecl::Module(md));
+                }
+            }
+            _ => merged.push(item),
+        }
+    }
+    merged
 }
 
 fn print_usage() {

@@ -149,6 +149,7 @@ foreach ($file in $files) {
     Write-Host "  + $file$tag" -ForegroundColor DarkGray
 }
 Copy-Item "$axiomRoot\axiom.bat" "$binDir\axiom.bat" -Force
+Copy-Item "$axiomRoot\resource\img\axiom-icon.ico" "$binDir\axiom-icon.ico" -Force
 
 # ============================================================================
 # PATH

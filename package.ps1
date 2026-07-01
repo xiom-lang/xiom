@@ -35,6 +35,7 @@ foreach ($tool in $tools) {
     Copy-Item "$root\target\release\$tool.exe" "$binDir\$tool.exe" -Force
 }
 Copy-Item "$root\axiom.bat" "$binDir\axiom.bat" -Force
+Copy-Item "$root\resource\img\axiom-icon.ico" "$binDir\axiom-icon.ico" -Force
 
 # Copy stdlib + runtime
 Copy-Item "$root\stdlib" "$binDir\stdlib" -Recurse -Force
