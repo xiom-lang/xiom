@@ -35,5 +35,9 @@ package {
     "benchmark.sort",
     "benchmark.interfaces",
     "benchmark.serialize",
+    "benchmark.data_primes",
+    "benchmark.data_tables",
+    "benchmark.data_random",
+    "benchmark.bench_data",
   ]
 }
