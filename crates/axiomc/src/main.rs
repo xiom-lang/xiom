@@ -34,7 +34,7 @@ fn main() {
     }
 
     if args.iter().any(|a| a == "--version") {
-        println!("AXIOM Compiler v0.10.1 \"Sovereign\" -- Self-Hosted");
+        println!("AXIOM Compiler v0.11.0 \"Self-Hosted\" -- Full Self-Hosting");
         return;
     }
 
@@ -317,7 +317,7 @@ fn main() {
 }
 
 fn print_usage() {
-    eprintln!("AXIOM Compiler v0.10.1 \"Sovereign\" -- Self-Hosted");
+    eprintln!("AXIOM Compiler v0.11.0 \"Self-Hosted\" -- Full Self-Hosting");
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("  axiomc [OPTIONS] <source.ax>");

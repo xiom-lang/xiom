@@ -6,6 +6,15 @@
 
 ### Install
 
+#### Option 1: Pre-built (Recommended)
+Download the latest release from [GitHub Releases](https://github.com/NgonArt_STUDIO/AXIOM/releases) and run:
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1 -BinaryPath path\to\extracted\axiom
+```
+No Rust or clang needed.
+
+#### Option 2: Build from Source
+Requires Rust and LLVM/clang.
 ```powershell
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
@@ -64,7 +73,7 @@ axiom compile --run hello.ax
 
 ```powershell
 cargo build --release
-cargo test  # 208 tests
+cargo test
 ```
 
 ## License
