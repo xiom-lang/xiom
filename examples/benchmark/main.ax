@@ -29,6 +29,7 @@ use benchmark.crypto;
 use benchmark.sort;
 use benchmark.interfaces;
 use benchmark.serialize;
+use benchmark.bench_data;
 
 // --- Benchmark Result Type ---
 pub type BenchResult = {
@@ -193,6 +194,11 @@ fn main() -> Int {
   report_start("serialize");
   var r24 = serialize.run_all();
   suite.add_result(r24);
+
+  // ---- MODULE 25: Data Processing ----
+  report_start("data");
+  var r25 = bench_data.run_all();
+  suite.add_result(r25);
 
   // Final summary
   return suite.total_score;
