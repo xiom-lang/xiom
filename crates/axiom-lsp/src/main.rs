@@ -284,6 +284,157 @@ fn find_def_in_item(item: &axiom_ast::TopDecl, name: &str) -> Option<(u64, u64)>
 }
 
 // ============================================================================
+// Type helpers for dot-completion / signature help
+// ============================================================================
+
+fn type_to_string(ty: &axiom_ast::Type) -> String {
+    match ty {
+        axiom_ast::Type::Named(ident, args) => {
+            if args.is_empty() {
+                ident.name.clone()
+            } else {
+                let args_str: Vec<String> = args.iter().map(type_to_string).collect();
+                format!("{}[{}]", ident.name, args_str.join(", "))
+            }
+        }
+        axiom_ast::Type::Ref(t) => format!("&{}", type_to_string(t)),
+        axiom_ast::Type::MutRef(t) => format!("&mut {}", type_to_string(t)),
+        axiom_ast::Type::Option(t) => format!("Option[{}]", type_to_string(t)),
+        axiom_ast::Type::Result(t, e) => format!("Result[{}, {}]", type_to_string(t), type_to_string(e)),
+        axiom_ast::Type::Vec(t) => format!("Vec[{}]", type_to_string(t)),
+        axiom_ast::Type::Slice(t) => format!("Slice[{}]", type_to_string(t)),
+        axiom_ast::Type::Map(k, v) => format!("Map[{}, {}]", type_to_string(k), type_to_string(v)),
+        axiom_ast::Type::Set(t) => format!("Set[{}]", type_to_string(t)),
+        axiom_ast::Type::Tuple(types) => {
+            let items: Vec<String> = types.iter().map(type_to_string).collect();
+            format!("({})", items.join(", "))
+        }
+        axiom_ast::Type::Ptr(t) => format!("*{}", type_to_string(t)),
+        axiom_ast::Type::Array(_, _) => "Array".to_string(),
+    }
+}
+
+fn infer_type_from_expr(expr: &axiom_ast::Expr) -> Option<String> {
+    match expr {
+        axiom_ast::Expr::Struct(ident, _, _) => Some(ident.name.clone()),
+        axiom_ast::Expr::Some(_, _) => Some("Option".to_string()),
+        axiom_ast::Expr::None(_) => Some("Option".to_string()),
+        axiom_ast::Expr::Ok(_, _) => Some("Result".to_string()),
+        axiom_ast::Expr::Err(_, _) => Some("Result".to_string()),
+        axiom_ast::Expr::Int(_, _) => Some("Int".to_string()),
+        axiom_ast::Expr::Float(_, _) => Some("Float64".to_string()),
+        axiom_ast::Expr::Str(_, _) => Some("Str".to_string()),
+        axiom_ast::Expr::Bool(_, _) => Some("Bool".to_string()),
+        axiom_ast::Expr::Char(_, _) => Some("Char".to_string()),
+        _ => None,
+    }
+}
+
+fn find_variable_type_in_program(program: &axiom_ast::Program, var_name: &str) -> Option<String> {
+    for item in &program.items {
+        if let Some(ty) = find_variable_type_in_item(item, var_name) {
+            return Some(ty);
+        }
+    }
+    None
+}
+
+fn find_variable_type_in_item(item: &axiom_ast::TopDecl, var_name: &str) -> Option<String> {
+    match item {
+        axiom_ast::TopDecl::Fn(f) => {
+            if let Some(body) = &f.body {
+                for soe in &body.stmts {
+                    if let axiom_ast::StmtOrExpr::Stmt(stmt) = soe {
+                        match stmt {
+                            axiom_ast::Stmt::Let(ident, ty, expr, _)
+                            | axiom_ast::Stmt::Var(ident, ty, expr, _) => {
+                                if ident.name == var_name {
+                                    if let Some(t) = ty {
+                                        return Some(type_to_string(t));
+                                    }
+                                    return infer_type_from_expr(expr);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            None
+        }
+        axiom_ast::TopDecl::Module(m) => {
+            for inner in &m.items {
+                if let Some(ty) = find_variable_type_in_item(inner, var_name) {
+                    return Some(ty);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn find_struct_fields_in_program(program: &axiom_ast::Program, type_name: &str) -> Vec<(String, String)> {
+    let mut fields = Vec::new();
+    for item in &program.items {
+        if let axiom_ast::TopDecl::Type(td) = item {
+            if td.name.name == type_name {
+                for field in &td.fields {
+                    fields.push((field.name.name.clone(), type_to_string(&field.ty)));
+                }
+            }
+        }
+    }
+    fields
+}
+
+fn find_methods_in_program(program: &axiom_ast::Program, type_name: &str) -> Vec<(String, String)> {
+    let mut methods = Vec::new();
+    for item in &program.items {
+        if let axiom_ast::TopDecl::Fn(f) = item {
+            if let Some(receiver) = &f.receiver {
+                if receiver.name == type_name {
+                    methods.push((f.name.name.clone(), format_fn_signature(f)));
+                }
+            }
+        }
+    }
+    methods
+}
+
+fn format_fn_signature(f: &axiom_ast::FnDecl) -> String {
+    let mut sig = String::new();
+    if f.is_pub { sig.push_str("pub "); }
+    if f.is_async { sig.push_str("async "); }
+    sig.push_str("fn ");
+    if let Some(receiver) = &f.receiver {
+        sig.push_str(&receiver.name);
+        sig.push('.');
+    }
+    sig.push_str(&f.name.name);
+    sig.push('(');
+    let params: Vec<String> = f.params.iter().map(|p| format!("{}: {}", p.name.name, type_to_string(&p.ty))).collect();
+    sig.push_str(&params.join(", "));
+    sig.push(')');
+    if let Some(rt) = &f.return_type {
+        sig.push_str(" -> ");
+        sig.push_str(&type_to_string(rt));
+    }
+    sig
+}
+
+fn find_function_signature(program: &axiom_ast::Program, fn_name: &str) -> Option<String> {
+    for item in &program.items {
+        if let axiom_ast::TopDecl::Fn(f) = item {
+            if f.name.name == fn_name {
+                return Some(format_fn_signature(f));
+            }
+        }
+    }
+    None
+}
+
+// ============================================================================
 // LSP message I/O
 // ============================================================================
 
@@ -317,7 +468,10 @@ fn main() {
             "completionProvider": {
                 "triggerCharacters": ["."]
             },
-            "definitionProvider": true
+            "definitionProvider": true,
+            "signatureHelpProvider": {
+                "triggerCharacters": ["(", ","]
+            }
         }
     });
 
@@ -434,11 +588,21 @@ fn main() {
 
                 let mut items = Vec::new();
 
-                let prefix = uri.as_ref().and_then(|u| {
+                let (prefix, is_dot_completion, obj_name) = uri.as_ref().and_then(|u| {
                     let docs = backend.documents.lock().unwrap();
                     let text = docs.get(u)?;
                     let line_str = text.lines().nth(line)?;
-                    Some(extract_word(line_str, character))
+                    let bytes = line_str.as_bytes();
+                    if character > 0 && character <= bytes.len() && bytes[character - 1] == b'.' {
+                        let dot_pos = character - 1;
+                        let mut start = dot_pos;
+                        while start > 0 && is_ident_char(bytes[start - 1]) {
+                            start -= 1;
+                        }
+                        Some((String::new(), true, line_str[start..dot_pos].to_string()))
+                    } else {
+                        Some((extract_word(line_str, character), false, String::new()))
+                    }
                 }).unwrap_or_default();
 
                 let keywords = vec![
@@ -452,13 +616,15 @@ fn main() {
                     "UInt", "UInt8", "Float32", "Option", "Result", "Vec", "Map", "Set", "Slice",
                 ];
 
-                for kw in keywords.iter().chain(primitives.iter()) {
-                    if kw.starts_with(&prefix) || prefix.is_empty() {
-                        items.push(serde_json::json!({
-                            "label": kw,
-                            "kind": 14, // Keyword
-                            "insertText": kw
-                        }));
+                if !is_dot_completion {
+                    for kw in keywords.iter().chain(primitives.iter()) {
+                        if kw.starts_with(&prefix) || prefix.is_empty() {
+                            items.push(serde_json::json!({
+                                "label": kw,
+                                "kind": 14, // Keyword
+                                "insertText": kw
+                            }));
+                        }
                     }
                 }
 
@@ -469,8 +635,33 @@ fn main() {
                         let tokens = lexer.tokenize();
                         let mut parser = axiom_parser::Parser::new(tokens);
                         if let Ok(program) = parser.parse_program() {
-                            for item in &program.items {
-                                collect_symbols(item, &mut items, &prefix);
+                            if !is_dot_completion {
+                                for item in &program.items {
+                                    collect_symbols(item, &mut items, &prefix);
+                                }
+                            }
+
+                            if is_dot_completion && !obj_name.is_empty() {
+                                if let Some(type_name) = find_variable_type_in_program(&program, &obj_name) {
+                                    let fields = find_struct_fields_in_program(&program, &type_name);
+                                    for (field_name, field_type) in &fields {
+                                        items.push(serde_json::json!({
+                                            "label": field_name,
+                                            "kind": 5,
+                                            "detail": field_type,
+                                            "insertText": field_name
+                                        }));
+                                    }
+                                    let methods = find_methods_in_program(&program, &type_name);
+                                    for (method_name, sig) in &methods {
+                                        items.push(serde_json::json!({
+                                            "label": method_name,
+                                            "kind": 2,
+                                            "detail": sig,
+                                            "insertText": format!("{}(", method_name)
+                                        }));
+                                    }
+                                }
                             }
                         }
                     }
@@ -528,6 +719,51 @@ fn main() {
                     "jsonrpc": "2.0",
                     "id": id,
                     "result": location
+                }));
+            }
+
+            "textDocument/signatureHelp" => {
+                let uri = msg["params"]["textDocument"]["uri"].as_str().unwrap_or("");
+                let line = msg["params"]["position"]["line"].as_u64().unwrap_or(0) as usize;
+                let character = msg["params"]["position"]["character"].as_u64().unwrap_or(0) as usize;
+
+                let mut signatures = Vec::new();
+
+                let docs = backend.documents.lock().unwrap();
+                if let Some(text) = docs.get(uri) {
+                    let line_str = text.lines().nth(line).unwrap_or("");
+                    let before_cursor = &line_str[..character.min(line_str.len())];
+                    if let Some(paren_pos) = before_cursor.rfind('(') {
+                        let before_paren = &before_cursor[..paren_pos];
+                        let fn_name = before_paren.split_whitespace()
+                            .last()
+                            .unwrap_or("")
+                            .trim();
+                        if !fn_name.is_empty() {
+                            let mut lexer = axiom_lexer::Lexer::new(text);
+                            let tokens = lexer.tokenize();
+                            let mut parser = axiom_parser::Parser::new(tokens);
+                            if let Ok(program) = parser.parse_program() {
+                                if let Some(sig) = find_function_signature(&program, fn_name) {
+                                    signatures.push(serde_json::json!({
+                                        "label": sig,
+                                        "documentation": ""
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let id = msg["id"].clone();
+                write_lsp_message(&serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "signatures": signatures,
+                        "activeSignature": 0,
+                        "activeParameter": 0
+                    }
                 }));
             }
 
