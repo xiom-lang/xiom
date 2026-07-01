@@ -207,7 +207,7 @@ fn main() -> Int {
   if fns == 0 { return 3; }
 
   // Set source for body parsing in emit_all
-  axiom_set_source(&src);
+  axiom_set_source(src + 0);
 
   // Emit IR for all functions (needs source for body parsing)
   emit_program();

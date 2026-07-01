@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    AXIOM Compiler v0.10.1 Installer
+    AXIOM Compiler v0.11.0 Installer
 .DESCRIPTION
     Installs the AXIOM toolchain: axiomc, axiom fmt, axiom doc, axiom ffigen, axiom pkg, axiom lsp
 .PARAMETER InstallDir
@@ -24,12 +24,47 @@ param(
     [string]$InstallDir = "",
     [switch]$NoPath,
     [switch]$Shortcut,
-    [switch]$Unattended
+    [switch]$Unattended,
+    [string]$BinaryPath = ""
 )
 
 $ErrorActionPreference = "Stop"
-$axiomVersion = "0.10.1"
+$axiomVersion = "0.11.0"
 $axiomRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# ============================================================================
+# Dependency checks (only if building from source)
+# ============================================================================
+if (-not $BinaryPath) {
+    $depsOk = $true
+    Write-Host "Checking dependencies..." -ForegroundColor Cyan
+
+    $rustVersion = (rustc --version 2>$null)
+    if (-not $rustVersion) {
+        Write-Host "  ✗ Rust not found. Install from https://rustup.rs" -ForegroundColor Red
+        $depsOk = $false
+    } else {
+        Write-Host "  ✓ $rustVersion" -ForegroundColor Green
+    }
+
+    $clangVersion = (clang --version 2>$null | Select-Object -First 1)
+    if (-not $clangVersion) {
+        Write-Host "  ✗ clang not found. Install LLVM from https://github.com/llvm/llvm-project/releases" -ForegroundColor Yellow
+        Write-Host "    Or install Visual Studio with 'Desktop development with C++'" -ForegroundColor Yellow
+        $depsOk = $false
+    } else {
+        Write-Host "  ✓ $clangVersion" -ForegroundColor Green
+    }
+
+    if (-not $depsOk) {
+        Write-Host ""
+        Write-Host "Cannot build from source — missing dependencies." -ForegroundColor Red
+        Write-Host "Download pre-built binaries: https://github.com/NgonArt_STUDIO/AXIOM/releases" -ForegroundColor Cyan
+        Write-Host "Or install the missing tools and run install.ps1 again." -ForegroundColor Cyan
+        exit 1
+    }
+    Write-Host ""
+}
 
 # ============================================================================
 # Welcome
@@ -66,34 +101,36 @@ if ($Unattended -or $InstallDir) {
 $binDir = "$installDir\bin"
 
 # ============================================================================
-# Build
+# Build (or use pre-built binaries)
 # ============================================================================
-Write-Host ""
-Write-Host "Building AXIOM toolchain (release mode)..." -ForegroundColor Cyan
-Write-Host ""
+if ($BinaryPath) {
+    Write-Host "Installing pre-built binaries from: $BinaryPath" -ForegroundColor Cyan
+    Write-Host ""
+    $releaseDir = $BinaryPath
+} else {
+    Write-Host ""
+    Write-Host "Building AXIOM toolchain (release mode)..." -ForegroundColor Cyan
+    Write-Host ""
 
-Push-Location $axiomRoot
-$tools = @("axiomc", "axiom-fmt", "axiom-doc", "axiom-ffigen", "axiom-pkg", "axiom-lsp")
-$built = 0
-$total = $tools.Count
+    Push-Location $axiomRoot
+    $tools = @("axiomc", "axiom-fmt", "axiom-doc", "axiom-ffigen", "axiom-pkg", "axiom-lsp")
+    $built = 0
+    $total = $tools.Count
 
-foreach ($tool in $tools) {
-    Write-Progress -Activity "Building AXIOM" -Status $tool -PercentComplete (($built / $total) * 100)
-    cmd /c "cargo build -p $tool --release >nul 2>nul"
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "ERROR: Failed to build $tool" -ForegroundColor Red
-        Pop-Location
-        exit 1
+    foreach ($tool in $tools) {
+        Write-Progress -Activity "Building AXIOM" -Status $tool -PercentComplete (($built / $total) * 100)
+        cmd /c "cargo build -p $tool --release >nul 2>nul"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "ERROR: Failed to build $tool" -ForegroundColor Red
+            Pop-Location
+            exit 1
+        }
+        $built++
     }
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "ERROR: Failed to build $tool" -ForegroundColor Red
-        Pop-Location
-        exit 1
-    }
-    $built++
+    Write-Progress -Activity "Building AXIOM" -Completed
+    Pop-Location
+    $releaseDir = "$axiomRoot\target\release"
 }
-Write-Progress -Activity "Building AXIOM" -Completed
-Pop-Location
 
 # ============================================================================
 # Install
@@ -107,8 +144,9 @@ $files = @(
     "axiom-ffigen.exe", "axiom-pkg.exe", "axiom-lsp.exe"
 )
 foreach ($file in $files) {
-    Copy-Item "$axiomRoot\target\release\$file" "$binDir\$file" -Force
-    Write-Host "  + $file" -ForegroundColor DarkGray
+    Copy-Item "$releaseDir\$file" "$binDir\$file" -Force
+    $tag = if ($BinaryPath) { " (pre-built)" } else { "" }
+    Write-Host "  + $file$tag" -ForegroundColor DarkGray
 }
 Copy-Item "$axiomRoot\axiom.bat" "$binDir\axiom.bat" -Force
 
