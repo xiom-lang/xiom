@@ -25,6 +25,10 @@ use benchmark.algorithms;
 use benchmark.extreme;
 use benchmark.comptime;
 use benchmark.concurrency;
+use benchmark.crypto;
+use benchmark.sort;
+use benchmark.interfaces;
+use benchmark.serialize;
 
 // --- Benchmark Result Type ---
 pub type BenchResult = {
@@ -169,6 +173,26 @@ fn main() -> Int {
   report_start("concurrency");
   var r20 = concurrency.run_all();
   suite.add_result(r20);
+
+  // ---- MODULE 21: Cryptographic Patterns ----
+  report_start("crypto");
+  var r21 = crypto.run_all();
+  suite.add_result(r21);
+
+  // ---- MODULE 22: Sorting Algorithms ----
+  report_start("sort");
+  var r22 = sort.run_all();
+  suite.add_result(r22);
+
+  // ---- MODULE 23: Interface Dispatch ----
+  report_start("interfaces");
+  var r23 = interfaces.run_all();
+  suite.add_result(r23);
+
+  // ---- MODULE 24: Serialization/I/O ----
+  report_start("serialize");
+  var r24 = serialize.run_all();
+  suite.add_result(r24);
 
   // Final summary
   return suite.total_score;
