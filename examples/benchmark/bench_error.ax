@@ -1,0 +1,376 @@
+// AXIOM — Error Handling Stress Benchmark
+// Exercises Result[T,E], Option[T], match, ? operator, and error type hierarchies.
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
+
+module benchmark.error
+
+use benchmark.main.BenchResult;
+
+// ============================================================
+// SECTION 1: Error Type Definitions
+// ============================================================
+
+pub type MathError = {
+  code: Int;
+  msg: Str;
+} derive[Eq, Clone]
+
+pub type ParseError = {
+  line: Int;
+  col: Int;
+  msg: Str;
+} derive[Clone]
+
+pub type AppError = {
+  kind: Int;
+  message: Str;
+} derive[Clone]
+
+// ============================================================
+// SECTION 2: Safe Math Operations
+// ============================================================
+
+pub fn safe_div(a: Int, b: Int) -> Result[Int, MathError] {
+  if b == 0 {
+    return Err(MathError{ code: 1, msg: "division by zero" });
+  }
+  return Ok(a / b);
+}
+
+pub fn safe_mod(a: Int, b: Int) -> Result[Int, MathError] {
+  if b == 0 {
+    return Err(MathError{ code: 2, msg: "modulo by zero" });
+  }
+  return Ok(a % b);
+}
+
+pub fn safe_sub(a: Int, b: Int) -> Result[Int, MathError] {
+  if a < b {
+    return Err(MathError{ code: 3, msg: "underflow" });
+  }
+  return Ok(a - b);
+}
+
+pub fn safe_mul(a: Int, b: Int) -> Result[Int, MathError] {
+  if a == 0 || b == 0 { return Ok(0); }
+  var max_val = 1000000;
+  if a > max_val / b {
+    return Err(MathError{ code: 4, msg: "overflow" });
+  }
+  return Ok(a * b);
+}
+
+fn test_safe_ops() -> Int {
+  var score = 0;
+
+  // safe_div
+  match safe_div(10, 2) {
+    Ok(v) => if v == 5 { score = score + 1; }
+    Err(_) => {}
+  }
+  match safe_div(10, 0) {
+    Ok(_) => {}
+    Err(e) => if e.code == 1 { score = score + 1; }
+  }
+
+  // safe_mod
+  match safe_mod(10, 3) {
+    Ok(v) => if v == 1 { score = score + 1; }
+    Err(_) => {}
+  }
+  match safe_mod(10, 0) {
+    Ok(_) => {}
+    Err(e) => if e.code == 2 { score = score + 1; }
+  }
+
+  // safe_sub
+  match safe_sub(10, 3) {
+    Ok(v) => if v == 7 { score = score + 1; }
+    Err(_) => {}
+  }
+  match safe_sub(3, 10) {
+    Ok(_) => {}
+    Err(e) => if e.code == 3 { score = score + 1; }
+  }
+
+  // safe_mul
+  match safe_mul(10, 20) {
+    Ok(v) => if v == 200 { score = score + 1; }
+    Err(_) => {}
+  }
+  match safe_mul(100000, 100000) {
+    Ok(_) => {}
+    Err(e) => if e.code == 4 { score = score + 1; }
+  }
+
+  return score;
+}
+
+// ============================================================
+// SECTION 3: Option Operations
+// ============================================================
+
+pub fn find_first_even(v: &Vec[Int]) -> Option[Int] {
+  var i = 0;
+  while i < v.len() {
+    if v[i] % 2 == 0 { return Some(v[i]); }
+    i = i + 1;
+  }
+  return None;
+}
+
+pub fn find_index(v: &Vec[Int], target: Int) -> Option[Int] {
+  var i = 0;
+  while i < v.len() {
+    if v[i] == target { return Some(i); }
+    i = i + 1;
+  }
+  return None;
+}
+
+pub fn opt_unwrap_or(opt: Option[Int], default: Int) -> Int {
+  match opt {
+    Some(v) => v,
+    None => default,
+  }
+}
+
+pub fn opt_map(opt: Option[Int], f: fn(Int) -> Int) -> Option[Int] {
+  match opt {
+    Some(v) => Some(f(v)),
+    None => None,
+  }
+}
+
+pub fn opt_flat_map(opt: Option[Int], f: fn(Int) -> Option[Int]) -> Option[Int] {
+  match opt {
+    Some(v) => f(v),
+    None => None,
+  }
+}
+
+fn double(n: Int) -> Int { return n * 2; }
+
+fn test_option() -> Int {
+  var score = 0;
+  var nums = [1, 3, 5, 8, 9];
+
+  match find_first_even(&nums) {
+    Some(v) => if v == 8 { score = score + 1; }
+    None => {}
+  }
+
+  var odds = [1, 3, 5, 7];
+  match find_first_even(&odds) {
+    Some(_) => {}
+    None => { score = score + 1; }
+  }
+
+  match find_index(&nums, 8) {
+    Some(idx) => if idx == 3 { score = score + 1; }
+    None => {}
+  }
+
+  match find_index(&nums, 99) {
+    Some(_) => {}
+    None => { score = score + 1; }
+  }
+
+  if opt_unwrap_or(Some(42), 0) == 42 { score = score + 1; }
+  if opt_unwrap_or(None, 0) == 0 { score = score + 1; }
+
+  match opt_map(Some(5), double) {
+    Some(v) => if v == 10 { score = score + 1; }
+    None => {}
+  }
+
+  match opt_map(None, double) {
+    Some(_) => {}
+    None => { score = score + 1; }
+  }
+
+  return score;
+}
+
+// ============================================================
+// SECTION 4: Result Chaining (Manual)
+// ============================================================
+
+pub fn compute_chain(a: Int, b: Int, c: Int) -> Result[Int, MathError] {
+  var sum = safe_add(a, b);
+  match sum {
+    Ok(s) => {
+      var div_result = safe_div(s, c);
+      match div_result {
+        Ok(d) => return Ok(d),
+        Err(e) => return Err(e),
+      }
+    }
+    Err(e) => return Err(e),
+  }
+}
+
+pub fn safe_add(a: Int, b: Int) -> Result[Int, MathError] {
+  return Ok(a + b);
+}
+
+pub fn multi_step(a: Int, b: Int, c: Int, d: Int) -> Result[Int, MathError] {
+  // (a - b) * c / d
+  var sub_result = safe_sub(a, b);
+  match sub_result {
+    Ok(diff) => {
+      var mul_result = safe_mul(diff, c);
+      match mul_result {
+        Ok(prod) => {
+          var div_result = safe_div(prod, d);
+          return div_result;
+        }
+        Err(e) => return Err(e),
+      }
+    }
+    Err(e) => return Err(e),
+  }
+}
+
+fn test_chaining() -> Int {
+  var score = 0;
+  match compute_chain(10, 20, 3) {
+    Ok(v) => if v == 10 { score = score + 1; }
+    Err(_) => {}
+  }
+
+  match compute_chain(10, 20, 0) {
+    Ok(_) => {}
+    Err(_) => { score = score + 1; }
+  }
+
+  match multi_step(20, 5, 3, 5) {
+    Ok(v) => if v == 9 { score = score + 1; }
+    Err(_) => {}
+  }
+
+  match multi_step(5, 20, 3, 5) {
+    Ok(_) => {}
+    Err(e) => if e.code == 3 { score = score + 1; }
+  }
+
+  return score;
+}
+
+// ============================================================
+// SECTION 5: Error Type Matching
+// ============================================================
+
+pub type DivError = {
+  dividend: Int;
+  divisor: Int;
+} derive[Clone]
+
+pub type ErrorKind = {
+  DivByZero,
+  OverUnderflow(value: Int),
+  NotEnough(available: Int, required: Int),
+  ParseFail(line: Int, col: Int),
+}
+
+pub fn describe_error(kind: ErrorKind) -> Int {
+  match kind {
+    DivByZero => 1,
+    OverUnderflow(value: _) => 2,
+    NotEnough(available: _, required: _) => 3,
+    ParseFail(line: _, col: _) => 4,
+  }
+}
+
+fn test_error_matching() -> Int {
+  var score = 0;
+  if describe_error(DivByZero) == 1 { score = score + 1; }
+  if describe_error(OverUnderflow(42)) == 2 { score = score + 1; }
+  if describe_error(NotEnough(10, 20)) == 3 { score = score + 1; }
+  if describe_error(ParseFail(5, 3)) == 4 { score = score + 1; }
+
+  return score;
+}
+
+// ============================================================
+// SECTION 6: Pattern-Based Error Recovery
+// ============================================================
+
+pub fn try_parse(input: Int) -> Result[Int, AppError] {
+  if input < 0 {
+    return Err(AppError{ kind: 1, message: "negative" });
+  }
+  return Ok(input);
+}
+
+pub fn try_divide(a: Int, b: Int) -> Result[Int, AppError] {
+  if b == 0 {
+    return Err(AppError{ kind: 2, message: "zero" });
+  }
+  return Ok(a / b);
+}
+
+pub fn robust_compute(a: Int, b: Int) -> Int {
+  match try_parse(a) {
+    Err(_) => return -1,
+    Ok(parsed_a) => {
+      match try_parse(b) {
+        Err(_) => return -2,
+        Ok(parsed_b) => {
+          match try_divide(parsed_a, parsed_b) {
+            Err(_) => return -3,
+            Ok(result) => return result,
+          }
+        }
+      }
+    }
+  }
+}
+
+fn test_recovery() -> Int {
+  var score = 0;
+  if robust_compute(10, 2) == 5 { score = score + 1; }
+  if robust_compute(-1, 2) == -1 { score = score + 1; }
+  if robust_compute(10, -2) == -2 { score = score + 1; }
+  if robust_compute(10, 0) == -3 { score = score + 1; }
+
+  return score;
+}
+
+// ============================================================
+// SECTION 7: Aggregate Runner
+// ============================================================
+
+pub fn run_all() -> BenchResult {
+  var total = 0;
+  var max_score = 0;
+
+  var s1 = test_safe_ops();
+  total = total + s1;
+  max_score = max_score + 8;
+
+  var s2 = test_option();
+  total = total + s2;
+  max_score = max_score + 8;
+
+  var s3 = test_chaining();
+  total = total + s3;
+  max_score = max_score + 4;
+
+  var s4 = test_error_matching();
+  total = total + s4;
+  max_score = max_score + 4;
+
+  var s5 = test_recovery();
+  total = total + s5;
+  max_score = max_score + 4;
+
+  return BenchResult{
+    name: "error",
+    score: total,
+    max_score: max_score,
+    passed: total == max_score,
+    elapsed_ms: 0,
+  };
+}
