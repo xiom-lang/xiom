@@ -345,3 +345,29 @@ fn diff_benchmark() {
     );
     assert!(fns >= 30, "Expected at least 30 functions in benchmark IR");
 }
+
+// ============================================================================
+// Body Parser Stress Test — edge case coverage for C runtime emit_body_ir
+// ============================================================================
+
+#[test]
+fn diff_stress_body_parser() {
+    let rust = rust_ir("examples\\stress_body_parser.ax");
+    assert!(rust.len() > 0);
+    assert!(rust.iter().any(|l| l.contains("define i64 @test_negative")));
+    assert!(rust.iter().any(|l| l.contains("define i64 @test_paren_expr")));
+    assert!(rust.iter().any(|l| l.contains("define i64 @test_multi_param_call")));
+    assert!(rust.iter().any(|l| l.contains("define i64 @test_string_literal")));
+    assert!(rust.iter().any(|l| l.contains("define i64 @test_empty_stmts")));
+    assert!(rust.iter().any(|l| l.contains("define i64 @test_comment_skip")));
+    assert!(rust.iter().any(|l| l.contains("define i64 @test_multi_line")));
+    assert!(rust.iter().any(|l| l.contains("define i64 @test_nested_if")));
+    assert!(rust.iter().any(|l| l.contains("define i64 @test_nested_while")));
+    assert!(rust.iter().any(|l| l.contains("define i64 @main")));
+
+    let (fns, calls, branches, rets, structs) = count_features(&rust);
+    eprintln!(
+        "  stress_body_parser: fns={} calls={} br={} ret={} structs={}",
+        fns, calls, branches, rets, structs
+    );
+}
