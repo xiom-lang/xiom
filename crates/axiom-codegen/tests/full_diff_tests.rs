@@ -1,5 +1,5 @@
 // AXIOM — Comprehensive Differential Tests
-// Compares Rust compiler IR against Selfhost compiler IR for all 21 examples.
+// Compares Rust compiler IR against Selfhost compiler IR for all examples.
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -295,3 +295,53 @@ diff_test!(diff_stress_derive, "stress_derive_50field.ax", 1, 0.5, 0.4);
 // selfhost emits generic names without type suffix. Only 'main' matches.
 // name_match = 0.16 = 1/6 ≈ 0.1667, so 0.16 rounds safely below.
 diff_test!(diff_stress_generic, "stress_generic_5chain.ax", 1, 0.5, 0.16, 1.5, 2.0, 0.5);
+
+// ============================================================================
+// Selfhost Compiler Benchmark — comprehensive 500+ line stress test
+// ============================================================================
+
+#[test]
+fn diff_benchmark() {
+    let source = "examples\\benchmark_selfhost.ax";
+    let rust = rust_ir(source);
+    assert!(rust.len() > 0, "Rust IR should be non-empty");
+    assert!(
+        rust.iter().any(|l| l.contains("define i64 @run_math")),
+        "Expected run_math function in IR"
+    );
+    assert!(
+        rust.iter().any(|l| l.contains("define i64 @run_predicates")),
+        "Expected run_predicates function in IR"
+    );
+    assert!(
+        rust.iter().any(|l| l.contains("define i64 @run_control")),
+        "Expected run_control function in IR"
+    );
+    assert!(
+        rust.iter().any(|l| l.contains("define i64 @run_structures")),
+        "Expected run_structures function in IR"
+    );
+    assert!(
+        rust.iter().any(|l| l.contains("define i64 @run_generics")),
+        "Expected run_generics function in IR"
+    );
+    assert!(
+        rust.iter().any(|l| l.contains("define i64 @run_errors")),
+        "Expected run_errors function in IR"
+    );
+    assert!(
+        rust.iter().any(|l| l.contains("define i64 @run_contracts")),
+        "Expected run_contracts function in IR"
+    );
+    assert!(
+        rust.iter().any(|l| l.contains("define i64 @main")),
+        "Expected main function in IR"
+    );
+
+    let (fns, calls, branches, rets, structs) = count_features(&rust);
+    eprintln!(
+        "  benchmark_selfhost: fns={} calls={} br={} ret={} structs={}",
+        fns, calls, branches, rets, structs
+    );
+    assert!(fns >= 30, "Expected at least 30 functions in benchmark IR");
+}

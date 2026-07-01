@@ -569,7 +569,8 @@ All versions below are **Released**. All phases 0–3 are complete. V1.0.0 is th
 | **v0.15.1** | Ecosystem+ | Eco | 2026-07-01 | **Released** | 244 | ~10,200 | ~10,000 |
 | **v0.15.2** | Ecosystem++ | Eco | 2026-07-01 | **Released** | 244 | ~10,200 | ~10,300 |
 | **v0.16.0** | Complete Eco | Eco | 2026-07-01 | **Released** | 244 | ~10,200 | ~10,800 |
-| **v0.17.0** | **100% Self-Hosted** | **All** | **2026-07-01** | **Released** | **244** | **~10,400** | **~11,000** |
+| **v0.17.0** | 100% Self-Hosted | All | 2026-07-01 | **Released** | 244 | ~10,400 | ~11,000 |
+| **v0.18.0** | **Benchmarked** | **All** | **2026-07-01** | **Released** | **245** | **~10,400** | **~12,000** |
 | v1.0.0 | Sovereign | 3 | TBD | Planned | — | — | — |
 
 > AXIOM LOC totals include selfhost compiler modules (`selfhost/`) and example programs (`examples/`).
