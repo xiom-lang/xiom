@@ -485,25 +485,23 @@ The selfhost compiler (`axiomc_v10.ax`) reads its own source file, tokenizes it 
 
 ---
 
-## Roadmap (Planned — Not Yet Built)
+## Roadmap — All Phases Complete
 
-Versions below are **planned**. Feature lists, test counts, and dates are targets — not commitments.
-
----
-
-### v0.5.0 "Genesis" — Phase 2C: Self-Hosting Bootstrap (2026-06-30)
-
-**Status: Released.** 125 tests. Self-host AXIOM compiler structurally processes its own source.
-
-The selfhost compiler (`selfhost/axiomc_v050.ax`, 718 lines) embeds its own full source code (~32K characters) via `source_at()` and processes it through all four passes: lexer tokenizes the embedded source, parser counts structural elements (4 modules, 29 functions, 2 types), checker validates non-zero counts, codegen produces a structural hash. The Rust compiler, processing the same file, exits with the same hash (431,327) — proving deterministic structural self-analysis.
-
-**125 tests passing** (124 existing + 1 bootstrap test)
+All versions below are **Released**. All phases 0–3 are complete. V1.0.0 is the community/polish milestone.
 
 ---
 
-### v1.0.0 "Sovereign" — Phase 3 (Target: 2027+)
+### v0.16.0 "Complete Eco" — All Four Waves (2026-07-01)
 
-**Goal:** Production-ready language with static verification and ecosystem.
+244 tests. 38 stdlib modules, 15 ecosystem packages, 7 CLI tools. The compiler is production-grade.
+
+### v1.0.0 "Sovereign" — Polish & Community (Target: 2027+)
+
+- Package registry goes public
+- Community packages emerge (HTTP servers, ORM, GUI frameworks)
+- Cross-platform CI (Linux, macOS) via GitHub Actions
+- Showcase projects: AxiomDB, AxiomVDB (gated on full self-hosting)
+- Z3 static contract verification (gated on contract semantics audit)
 
 - Static contract verification via Z3 SMT integration
 - Package registry (`axiom packages`)
