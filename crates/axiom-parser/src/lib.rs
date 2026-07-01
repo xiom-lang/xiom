@@ -87,10 +87,69 @@ impl Parser {
     pub fn parse_program(&mut self) -> Result<Program, ParseError> {
         let mut items = Vec::new();
         let start = self.peek().span;
+
+        let file_module_path = self.parse_file_module_header()?;
+
         while !self.peek().is_eof() {
             items.push(self.parse_top_decl()?);
         }
+
+        if let Some(path) = file_module_path {
+            let wrapped = Self::build_file_module_result(path, items, start);
+            return Ok(Program::new(vec![wrapped], start));
+        }
+
         Ok(Program::new(items, start))
+    }
+
+    /// Try to parse a file-level `module a.b.c` declaration at the start of the file.
+    /// If the next tokens are `module ident {`, restores position and returns None
+    /// (inline module).  If they are `module ident . ...` or `module ident` followed by
+    /// newline/EOF, consumes the declaration and returns the module path.
+    fn parse_file_module_header(&mut self) -> Result<Option<Vec<Ident>>, ParseError> {
+        let saved = self.pos;
+        let _is_pub = self.skip(TokenKind::Pub);
+        if !self.check(|k| matches!(k, TokenKind::Module)) {
+            self.pos = saved;
+            return Ok(None);
+        }
+        self.advance();
+        let first = self.parse_ident()?;
+
+        match self.peek_kind() {
+            TokenKind::LBrace => {
+                self.pos = saved;
+                Ok(None)
+            }
+            _ => {
+                if _is_pub {
+                    return Err(self.error("'pub' not valid on module declarations"));
+                }
+                let mut path = vec![first];
+                while self.skip(TokenKind::Dot) {
+                    path.push(self.parse_ident()?);
+                }
+                Ok(Some(path))
+            }
+        }
+    }
+
+    /// Build a nested `ModuleDecl` tree from a dot-path and the collected items.
+    /// e.g. path = [benchmark, math], items = [fn f1, fn f2]
+    ///   → ModuleDecl { name: "benchmark", items: [ModuleDecl { name: "math", items: [fn f1, fn f2] }] }
+    fn build_file_module_result(path: Vec<Ident>, items: Vec<TopDecl>, span: Span) -> TopDecl {
+        let mut current_items = items;
+        for segment in path.into_iter().rev() {
+            current_items = vec![TopDecl::Module(ModuleDecl {
+                name: segment,
+                path: Vec::new(),
+                items: current_items,
+                is_file_level: false,
+                source_file: None,
+                span,
+            })];
+        }
+        current_items.into_iter().next().unwrap()
     }
 
     fn parse_top_decl(&mut self) -> Result<TopDecl, ParseError> {
@@ -129,7 +188,14 @@ impl Parser {
         }
         self.expect_kind(TokenKind::RBrace, "'}'")?;
         if is_pub { return Err(self.error("'pub' not valid on module declarations")); }
-        Ok(TopDecl::Module(ModuleDecl { name, items, span: start }))
+        Ok(TopDecl::Module(ModuleDecl {
+            name,
+            path: Vec::new(),
+            items,
+            is_file_level: false,
+            source_file: None,
+            span: start,
+        }))
     }
 
     // ========================================================================

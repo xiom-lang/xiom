@@ -444,7 +444,10 @@ pub struct UseDecl {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModuleDecl {
     pub name: Ident,
+    pub path: Vec<Ident>,
     pub items: Vec<TopDecl>,
+    pub is_file_level: bool,
+    pub source_file: Option<String>,
     pub span: Span,
 }
 
@@ -470,11 +473,13 @@ pub enum TopDecl {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub items: Vec<TopDecl>,
+    pub source_files: Vec<String>,
+    pub root_dir: Option<String>,
     pub span: Span,
 }
 
 impl Program {
     pub fn new(items: Vec<TopDecl>, span: Span) -> Self {
-        Self { items, span }
+        Self { items, source_files: Vec::new(), root_dir: None, span }
     }
 }
