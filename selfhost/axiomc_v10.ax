@@ -183,7 +183,6 @@ fn emit_program() {
 
 // === DRIVER ===
 fn main() -> Int {
-  // Initialize function table
   axiom_fn_table_init();
 
   // Read source file
@@ -195,13 +194,11 @@ fn main() -> Int {
   if fns == 0 { return 3; }
 
   // Set source for body parsing in emit_all
-  axiom_set_source(src + 0);
+  axiom_set_source(src);
 
-  // Emit IR for all functions (needs source for body parsing)
+  // Emit IR for all functions
   emit_program();
 
-  // Free source AFTER emission
-  axiom_free(&src);
   0;
   return 0;
 }
