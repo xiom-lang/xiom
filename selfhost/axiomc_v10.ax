@@ -137,8 +137,8 @@ fn parse_functions(src: &Int) -> Int {
           }
           if !(bws_done) { pos = pos + 1; }
         }
-        var body_start = pos; // position of '{'
-        var body_end = pos;
+        var body_start = pos + 0; // position of '{'
+        var body_end = pos + 0;
         // Find matching '}'
         if axiom_char_at(&src, &pos) == 123 {
           var depth = 1;
@@ -153,7 +153,7 @@ fn parse_functions(src: &Int) -> Int {
               if depth > 0 { pos = pos + 1; }
             }
           }
-          body_end = pos; // position of '}'
+          body_end = pos + 0; // position of '}'
         }
 
         // Record function in C function table
@@ -195,7 +195,7 @@ fn main() -> Int {
   if fns == 0 { return 3; }
 
   // Set source for body parsing in emit_all
-  axiom_set_source(src);
+  axiom_set_source(src + 0);
 
   // Emit IR for all functions (needs source for body parsing)
   emit_program();
