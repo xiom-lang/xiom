@@ -246,6 +246,18 @@ fn test_stress_float_matrix() {
 
 #[test]
 fn test_selfhost_bootstrap_v050() {
+    // This test requires clang for native linking via --run.
+    // Skip if clang is not available (e.g. fresh laptop without LLVM).
+    if !std::process::Command::new("clang")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        eprintln!("skipping test_selfhost_bootstrap_v050: clang not found in PATH");
+        return;
+    }
+
     // The v0.5.0 selfhost compiler embeds axiomc.ax source and returns a structural hash.
     // The Rust compiler, processing the same v0.5.0 source, must produce a binary
     // that exits with the SAME hash — proving bootstrap correctness.

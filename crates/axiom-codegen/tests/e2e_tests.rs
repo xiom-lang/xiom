@@ -568,3 +568,76 @@ fn e2e_selfhost_v10_self_compile_to_native() {
         assert!(result.status.success(), "Bootstrap IR compilation failed");
     }
 }
+
+// ============================================================================
+// E2E: Selfhost v11_test — Parameter-counting compiler for demo_float.ax
+// ============================================================================
+
+#[test]
+fn e2e_selfhost_v11_compiles() {
+    let output = Command::new(axiomc_path())
+        .args(["--emit-ir", "selfhost\\axiomc_v11_test.ax"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    assert!(output.status.success(), "selfhost/axiomc_v11_test.ax should compile to IR");
+}
+
+#[test]
+fn e2e_selfhost_v11_has_main() {
+    let output = Command::new(axiomc_path())
+        .args(["--emit-ir", "selfhost\\axiomc_v11_test.ax"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("define i64 @main"), "v11_test IR should contain main");
+    assert!(stdout.contains("define"), "v11_test IR should contain function definitions");
+}
+
+#[test]
+fn e2e_selfhost_v11_self_run() {
+    // Compile v11_test to binary, run it — it should emit IR for demo_float.ax functions
+    let output = Command::new(axiomc_path())
+        .args(["-o", "e2e_v11_self.exe", "selfhost\\axiomc_v11_test.ax"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed to compile v11 selfhost");
+    assert!(output.status.success(), "v11_test selfhost compilation failed");
+
+    let run = Command::new(project_root().join("e2e_v11_self.exe"))
+        .current_dir(project_root())
+        .output()
+        .expect("failed to run v11 selfhost");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+
+    assert!(stdout.contains("define i64 @main"), "v11_test must emit main function");
+    assert!(stdout.contains("define i64 @add"), "v11_test must emit add function");
+    assert!(stdout.contains("define double @sq"), "v11_test must emit sq function");
+    let fn_count = stdout.matches("define ").count();
+    assert!(fn_count >= 3, "v11_test found only {} functions, expected >= 3", fn_count);
+}
+
+// ============================================================================
+// E2E: Selfhost v093 / v095 — Pipeline compilation checks
+// ============================================================================
+
+#[test]
+fn e2e_selfhost_v093_compiles() {
+    let output = Command::new(axiomc_path())
+        .args(["--emit-ir", "selfhost\\axiomc_v093.ax"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    assert!(output.status.success(), "selfhost/axiomc_v093.ax should compile to IR");
+}
+
+#[test]
+fn e2e_selfhost_v095_compiles() {
+    let output = Command::new(axiomc_path())
+        .args(["--emit-ir", "selfhost\\axiomc_v095.ax"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    assert!(output.status.success(), "selfhost/axiomc_v095.ax should compile to IR");
+}
