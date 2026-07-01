@@ -34,7 +34,7 @@ fn main() {
     }
 
     if args.iter().any(|a| a == "--version") {
-        println!("AXIOM Compiler v0.11.1 \"Self-Hosted\" -- Full Control Flow");
+        println!("AXIOM Compiler v0.12.0 \"Production\" -- Self-Hosted");
         return;
     }
 
