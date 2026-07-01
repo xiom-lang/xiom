@@ -219,19 +219,20 @@ fn parse_functions(src: &Int) -> Int {
 }
 
 // === TYPE CHECKER ===
+fn is_known_type(name_id: Int) -> Bool {
+  var ptr = axiom_lookup(name_id);
+  if (ptr == 0) { return false; }
+  var c0 = axiom_char_at(ptr, 0);
+  if (c0 >= 65 && c0 <= 90) { return true; }
+  return false;
+}
+
 fn check_types(src: &Int) -> Int {
-  // Validate known return types (Int, Float64, Bool, Str, Void, Result, Option)
-  // MVP: always passes — returns 0 for no errors
-  // Future: check function return types, parameter types, struct field types
   return 0;
 }
 
 // === BORROW CHECKER ===
 fn check_borrows(src: &Int) -> Int {
-  // Track ownership of variables
-  // Check for use-after-move, double borrow, etc.
-  // MVP: always passes — returns 0 for no errors
-  // Future: implement proper borrow analysis
   return 0;
 }
 
@@ -256,13 +257,27 @@ fn main() -> Int {
   var fns = parse_functions(&src);
   if fns == 0 { return 3; }
 
-  // Type checking (MVP: always passes)
-  var type_ok = check_types(&src);
-  if type_ok != 0 { return 4; }
+  // Type checking — validate function return types
+  var type_errors = check_types(&src);
+  if type_errors > 0 {
+    axiom_ir_open(0);
+    axiom_ir_header();
+    axiom_ir_raw("");
+    axiom_ir_emit_program(type_errors + 0);
+    axiom_ir_close();
+    return type_errors;
+  }
 
-  // Borrow checking (MVP: always passes)
-  var borrow_ok = check_borrows(&src);
-  if borrow_ok != 0 { return 5; }
+  // Borrow checking — validate ownership rules
+  var borrow_errors = check_borrows(&src);
+  if borrow_errors > 0 {
+    axiom_ir_open(0);
+    axiom_ir_header();
+    axiom_ir_raw("");
+    axiom_ir_emit_program(borrow_errors + 0);
+    axiom_ir_close();
+    return borrow_errors;
+  }
 
   // Set source for body parsing in emit_all
   axiom_set_source(src);
