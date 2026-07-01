@@ -25,11 +25,12 @@ param(
     [switch]$NoPath,
     [switch]$Shortcut,
     [switch]$Unattended,
+    [switch]$RegisterExt,
     [string]$BinaryPath = ""
 )
 
 $ErrorActionPreference = "Stop"
-$axiomVersion = "0.11.0"
+$axiomVersion = "0.20.0"
 $axiomRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # ============================================================================
@@ -199,20 +200,49 @@ if ($createShortcut -eq "y" -or $createShortcut -eq "Y") {
 }
 
 # ============================================================================
+# .ax file association (Windows)
+# ============================================================================
+if ($Unattended) {
+    $registerExt = if ($RegisterExt) { "y" } else { "n" }
+} else {
+    Write-Host ""
+    Write-Host "Register .ax files with AXIOM icon? (admin required) [y/N]:" -ForegroundColor Yellow -NoNewline
+    $registerExt = Read-Host
+}
+if ($registerExt -eq "y" -or $registerExt -eq "Y") {
+    try {
+        $regPath = "HKCU:\Software\Classes\.ax"
+        New-Item -Path $regPath -Force | Out-Null
+        Set-ItemProperty -Path $regPath -Name "(Default)" -Value "AXIOM.Source" -Type String
+        New-Item -Path "HKCU:\Software\Classes\AXIOM.Source" -Force | Out-Null
+        Set-ItemProperty -Path "HKCU:\Software\Classes\AXIOM.Source" -Name "(Default)" -Value "AXIOM Source File" -Type String
+        New-Item -Path "HKCU:\Software\Classes\AXIOM.Source\DefaultIcon" -Force | Out-Null
+        Set-ItemProperty -Path "HKCU:\Software\Classes\AXIOM.Source\DefaultIcon" -Name "(Default)" -Value "$binDir\axiom-icon.ico" -Type String
+        Write-Host "  .ax files now show AXIOM icon in Explorer." -ForegroundColor Green
+        Write-Host "  (Registered under HKCU — no admin required, current user only)" -ForegroundColor DarkGray
+    } catch {
+        Write-Host "  Could not register .ax file association: $_" -ForegroundColor Yellow
+    }
+}
+
+# ============================================================================
 # Uninstaller
 # ============================================================================
 $uninstaller = @"
-echo AXIOM Uninstaller
+@echo off
+echo AXIOM Uninstaller v$axiomVersion
 echo.
 echo This will remove AXIOM from: $installDir
 echo.
 set /p confirm="Continue? [y/N]: "
 if /i not "%confirm%"=="y" exit /b
 rmdir /s /q "$installDir"
+reg delete "HKCU\Software\Classes\.ax" /f >nul 2>nul
+reg delete "HKCU\Software\Classes\AXIOM.Source" /f >nul 2>nul
 echo AXIOM has been removed.
 echo.
 echo NOTE: You may need to manually remove AXIOM from your system PATH.
-echo   Settings > System > About > Advanced system settings > Environment Variables
+echo   Settings ^> System ^> About ^> Advanced system settings ^> Environment Variables
 pause
 "@
 Set-Content -Path "$binDir\uninstall.bat" -Value $uninstaller -Encoding ASCII
