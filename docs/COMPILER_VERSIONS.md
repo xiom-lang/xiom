@@ -1,7 +1,7 @@
 # AXIOM Compiler — Version History & Roadmap
 
 > Living document tracking all compiler releases and planned milestones.
-> Last updated: 2026-07-01
+> Last updated: 2026-07-02
 
 ---
 
@@ -485,6 +485,104 @@ The selfhost compiler (`axiomc_v10.ax`) reads its own source file, tokenizes it 
 
 ---
 
+---
+
+## v0.20.0 "Hardened" — Critical Safety Fixes + Multi-File Compilation (2026-07-02)
+
+**Status: Released.** 246+ tests. Three critical codegen vulnerabilities fixed, multi-file module resolution implemented, cross-platform dependency auto-installers, and Windows icon embedding.
+
+This release fixes the memory safety and crash bugs identified in the [Benchmark Crash Audit](audits/benchmark_crash_audit.md), implements filesystem-based module resolution enabling multi-file projects, and ships cross-platform auto-installers that detect and install all dependencies automatically.
+
+### Critical Safety Fixes
+
+| Fix | Severity | What Changed |
+|-----|----------|-------------|
+| **Vec.push reallocation** | CRITICAL | Added capacity check + `@realloc` doubling strategy. Previously allocated 128 bytes fixed (16 elements), wrote past buffer on push #17. Now auto-grows. |
+| **Recursion depth limit** | CRITICAL | Added `@axiom_recursion_counter` global with configurable max depth (default 500). Traps on overflow. Decrements on return. `IrEmitter::set_max_recursion_depth()` public API. |
+| **Division by zero guards** | HIGH | Added `icmp eq {r}, 0` + `@llvm.trap()` before all integer `sdiv`/`srem` instructions. Previously SIGFPE on x86-64. |
+
+### Multi-File Module Resolution
+
+- **File-level module syntax:** Parser now handles `module a.b.c` declarations (without braces) for multi-file projects
+- **Filesystem resolution:** Checker `load_external_module()` reads `.ax` files from disk when inline modules not found
+- **Package manifest parsing:** CLI reads `package.ax` to discover module list
+- **Multi-file merge:** `merge_programs()` + `merge_duplicate_modules()` combine parsed ASTs from multiple source files
+- **CLI:** Accepts directories (`axiomc --run examples/benchmark/`), multiple files, or `--package <dir>`
+- **Backward compatible:** All single-file programs and inline `module name { ... }` blocks unchanged
+
+### Cross-Platform Dependency Auto-Installers
+
+New scripts that detect the OS/distro and auto-install missing build dependencies:
+
+| Script | Platforms | Package Managers |
+|--------|-----------|-----------------|
+| `install_deps.ps1` | Windows | winget, chocolatey, direct download (rustup, LLVM installer) |
+| `install_deps.sh` | macOS, Linux | brew, apt, dnf, pacman, apk, direct LLVM download |
+| `install.sh` | macOS, Linux | Full AXIOM install (calls deps first, then builds) |
+
+Dependencies auto-detected: Rust (rustc/cargo), LLVM (clang), C build tools (gcc/Xcode CLT/link.exe), Git.
+
+### Windows Icon & File Association
+
+- **EXE icon embedding:** `crates/axiomc/build.rs` embeds `axiom-icon.ico` via `winres` crate
+- **Installer copies icon:** `install.ps1` copies icon to bin directory
+- **Release packages include icon:** `package.ps1` includes icon in release ZIP
+- **`.ax` file association:** Installer registers `.ax` extension with AXIOM icon (optional, Windows only)
+- **Desktop shortcut:** Links to `axiom.bat` with icon from embedded EXE resource
+
+### Playground Improvements
+
+- **Robust stdlib resolution:** Replaced fragile regex with multi-pattern matching (`use axiom.X;`, `use axiom.X as Y;`, `use axiom.X.*;`)
+- **Single merged block:** All stdlib modules injected into one `module axiom { ... }` block (no conflicts)
+- **Transitive dependency resolution:** Recursively resolves `use` within stdlib modules (depth 3)
+- **Autocomplete expanded:** From 8 to all 39 stdlib modules + common functions
+- **Line offset comments:** Added to help with error line number mapping
+
+### Files Changed (13)
+
+| File | Change |
+|------|--------|
+| `crates/axiom-codegen/src/lib.rs` | Vec realloc + div-zero guards + recursion depth |
+| `crates/axiomc/src/main.rs` | Multi-file compilation, package.ax parsing, merge programs |
+| `crates/axiomc/Cargo.toml` | Added `winres` build-dependency |
+| `crates/axiomc/build.rs` | **NEW** — Embeds axiom-icon.ico |
+| `crates/axiom-ast/src/lib.rs` | ModuleDecl + Program extended for file-level modules |
+| `crates/axiom-parser/src/lib.rs` | File-level module header parsing |
+| `crates/axiom-check/src/lib.rs` | Filesystem-based `load_external_module()` |
+| `crates/axiom-check/Cargo.toml` | Moved lexer/parser to production deps |
+| `install.ps1` | Calls `install_deps.ps1`, interactive path/PATH, icon copy |
+| `install_deps.ps1` | **NEW** — Windows dependency auto-installer |
+| `install.sh` | **NEW** — macOS/Linux full installer |
+| `install_deps.sh` | **NEW** — Unix dependency auto-installer |
+| `website/playground/server.py` | Robust stdlib injection |
+| `website/playground/index.html` | 39-module autocomplete, server badge fix |
+
+### Verified
+
+- **25 diff tests** — all pass (IR correctness across all Phase 1 features)
+- **113 unit tests** — all pass (lexer/parser/checker)
+- **32 e2e IR tests** — all pass (IR emission, flags, target triples)
+- **29 e2e native tests** — require `clang` on PATH (pre-existing; fixed by `install_deps.ps1`)
+
+### Build & Test
+
+```powershell
+# Build
+cargo build
+
+# Run tests
+cargo test -p axiom-codegen          # 25 diff + 32 e2e IR tests
+
+# Compile multi-file project (NEW)
+cargo run -p axiomc -- --run examples/benchmark/
+
+# Auto-install deps on fresh machine
+.\install_deps.ps1                    # Windows
+./install_deps.sh                     # macOS/Linux
+```
+
+---
+
 ## Roadmap — All Phases Complete
 
 All versions below are **Released**. All phases 0–3 are complete. V1.0.0 is the community/polish milestone.
@@ -572,6 +670,7 @@ All versions below are **Released**. All phases 0–3 are complete. V1.0.0 is th
 | **v0.17.0** | 100% Self-Hosted | All | 2026-07-01 | **Released** | 244 | ~10,400 | ~11,000 |
 | **v0.18.0** | Benchmarked | All | 2026-07-01 | **Released** | 245 | ~10,400 | ~12,000 |
 | **v0.19.0** | **Polished** | **All** | **2026-07-01** | **Released** | **246** | **~10,500** | **~12,200** |
+| **v0.20.0** | **Hardened** | **All** | **2026-07-02** | **Released** | **246+** | **~10,800** | **~12,200** |
 | v1.0.0 | Sovereign | 3 | TBD | Planned | — | — | — |
 
 > AXIOM LOC totals include selfhost compiler modules (`selfhost/`) and example programs (`examples/`).

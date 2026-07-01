@@ -2,46 +2,91 @@
 
 **Safe · Verified · Precise** — A systems programming language with first-class contracts.
 
-[![Tests](https://img.shields.io/badge/tests-234%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-246%20passed-brightgreen)]()
+[![Version](https://img.shields.io/badge/version-0.20.0-blue)]()
 
 AXIOM is a compiled, statically typed, memory-safe systems programming language. It compiles to native code via LLVM and supports x86_64, ARM, RISC-V, and WebAssembly. The compiler is self-hosted — it compiles itself.
 
 ## Quick Start
 
-### Download (Pre-built)
-
-| Version | Platform | Download |
-|---------|----------|----------|
-| v0.12.0 | Windows x64 | [axiom-v0.12.0-windows-x64.zip]() |
-| v0.12.0 | Linux x64 | [axiom-v0.12.0-linux-x64.tar.gz]() |
-| v0.12.0 | macOS (ARM) | [axiom-v0.12.0-macos-arm64.tar.gz]() |
+### One-Command Install (Windows)
 
 ```powershell
-# Windows: run install.bat, restart terminal
-axiom --help
-axiom compile hello.ax
-```
-
-### Build from Source
-
-```powershell
-# Prerequisites
-#   Rust: https://rustup.rs
-#   LLVM/clang: https://github.com/llvm/llvm-project/releases
-#     OR Visual Studio with "Desktop development with C++"
-
-# Clone and build
+# Clone and auto-install everything (Rust, clang, build tools)
 git clone https://github.com/NgonArt_STUDIO/AXIOM.git
 cd AXIOM
-cargo build --release -p axiomc
+.\install_deps.ps1      # auto-installs missing dependencies
+.\install.ps1            # builds + installs AXIOM to PATH
 
-# Install to PATH
-powershell -ExecutionPolicy Bypass -File install.ps1
-# OR: copy target\release\axiomc.exe to a directory in PATH
+# After restarting terminal:
+axiom --version
+# → AXIOM Compiler v0.20.0 "Hardened"
+```
 
-# Verify
-axiomc --version
-axiomc --help
+### One-Command Install (macOS / Linux)
+
+```bash
+git clone https://github.com/NgonArt_STUDIO/AXIOM.git
+cd AXIOM
+chmod +x install_deps.sh install.sh
+./install_deps.sh        # auto-installs missing dependencies
+./install.sh             # builds + installs AXIOM to PATH
+
+# After restarting terminal:
+axiom --version
+```
+
+### Pre-built Release (Windows)
+
+Download the latest `axiom-v0.20.0-windows-x64.zip` from [Releases](https://github.com/NgonArt_STUDIO/AXIOM/releases), extract, and double-click `install.bat`. It will:
+
+1. Ask where to install (default: `%LOCALAPPDATA%\axiom`)
+2. Copy binaries + stdlib + runtime
+3. Offer to add to PATH
+4. Offer to register `.ax` files with the AXIOM icon
+5. Detect if `clang` is missing and tell you how to install it
+
+### What the Installer Installs
+
+| Dependency | Source Build | Pre-built Release |
+|------------|-------------|-------------------|
+| **Rust** (rustc/cargo) | Auto-installed by `install_deps` | Not needed |
+| **LLVM/clang** | Auto-installed by `install_deps` | Warned if missing* |
+| **C build tools** | Auto-installed by `install_deps` | Not needed |
+| **axiomc.exe** | Built from source | Included |
+| **stdlib** | Copied from repo | Included |
+| **`.ax` icon** | Registered (optional) | Registered (optional) |
+
+\* clang is a runtime dependency — axiomc emits LLVM IR, clang compiles it to native binary. Without clang, use `axiomc --emit-ir file.ax` to view IR.
+
+### Creating a Release
+
+```powershell
+# Build all tools + create portable folder + ZIP
+.\package.ps1 -Version 0.20.0
+# Produces:
+#   release\axiom-v0.20.0\                 ← portable folder
+#   release\axiom-v0.20.0-windows-x64.zip   ← distributable ZIP
+```
+
+Release folder structure:
+```
+axiom-v0.20.0\
+├── bin\              axiomc.exe, axiom-fmt.exe, axiom-doc.exe,
+│                     axiom-ffigen.exe, axiom-pkg.exe, axiom-lsp.exe,
+│                     axiom-icon.ico
+├── lib\              Standard library (.ax source files)
+├── runtime\          C runtime (axiom_runtime.c)
+├── install.bat       Double-click Windows installer
+└── README.txt
+```
+
+Install from a release:
+```powershell
+# From local release folder
+.\install.ps1 -BinaryPath .\release\axiom-v0.20.0
+
+# Or just double-click install.bat in the release folder
 ```
 
 ### Building the Self-Hosted Compiler
@@ -215,6 +260,7 @@ See [RELEASES.md](RELEASES.md) for full version history with changelog, test cou
 
 | Version | Date | Tests | Milestone |
 |---------|------|-------|-----------|
+| v0.20.0 | 2026-07-02 | 246+ | Critical safety fixes + multi-file + auto-installer |
 | v0.12.0 | 2026-07-01 | 234 | Production self-hosted compiler |
 | v0.11.0 | 2026-07-01 | 213 | Full body IR, if/else/while |
 | v0.10.0 | 2026-06-30 | 208 | Self-hosting bootstrap |
