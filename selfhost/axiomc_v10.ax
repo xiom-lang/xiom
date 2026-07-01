@@ -21,11 +21,12 @@ fn axiom_set_source(src: Int);
 
 // === PARSER ===
 // Direct inline parsing — no helper function calls that conflict with borrow checker.
+// NOTE: Use `var done = 1 == 0` / `while !(done)` / `done = 1 == 1` pattern
+// to avoid AXIOM borrow checker issues with `== 0` comparisons.
 fn parse_functions(src: &Int) -> Int {
   var len = axiom_str_len(src);
   var pos = 0;
   var fn_count = 0;
-  var z = 0;
 
   while (pos + 2 < len) {
     var c0 = axiom_char_at(&src, &pos);
@@ -67,17 +68,41 @@ fn parse_functions(src: &Int) -> Int {
         var name_len = pos - name_start + 0;
         var name_id = axiom_intern(&src, &name_start, &name_len);
 
-          // Skip to ')' 
+        // Find '(' for parameter start
+        var pfind_done = 1 == 0;
+        while !(pfind_done) {
+          if (pos >= len) { pfind_done = 1 == 1; }
+          else {
+            var pfc = axiom_char_at(&src, &pos);
+            if pfc == 40 { pfind_done = 1 == 1; } // '('
+          }
+          if !(pfind_done) { pos = pos + 1; }
+        }
+        // Skip '('
+        if (pos < len) { pos = pos + 1; }
+
+        // Count parameters and skip to ')'
+        var param_count = 0;
+        var paren_depth = 0;
         var pdone = 1 == 0;
         while !(pdone) {
           if (pos >= len) { pdone = 1 == 1; }
           else {
-            var pc = axiom_char_at(&src, &pos);
-            if pc == 41 { pdone = 1 == 1; }
+            var pcc = axiom_char_at(&src, &pos);
+            if pcc == 41 { // ')'
+              if paren_depth == 0 { pdone = 1 == 1; }
+              else { paren_depth = paren_depth - 1; }
+            }
+            elif pcc == 40 { paren_depth = paren_depth + 1; } // nested '('
+            elif pcc == 44 { // ','
+              if paren_depth == 0 { param_count = param_count + 1; }
+            }
           }
           if !(pdone) { pos = pos + 1; }
         }
-        // Now pos is at ')'
+        // pos is at ')'. Adjust param_count: commas+1 = param count (if > 0 commas, we have param_count+1 params)
+        if param_count > 0 { param_count = param_count + 1; }
+
         // Skip past ')'
         if (pos < len) { pos = pos + 1; }
 
@@ -124,6 +149,27 @@ fn parse_functions(src: &Int) -> Int {
             if !(rt_name_done) { pos = pos + 1; }
           }
           ret_type_id = axiom_intern(&src, &rt_start, &pos - rt_start);
+
+          // Skip generic type brackets: [T, U, ...] after return type
+          if (pos < len) {
+            var bc = axiom_char_at(&src, &pos);
+            if bc == 91 { // '['
+              pos = pos + 1;
+              var bdepth = 1;
+              var blk_done = 1 == 0;
+              while !(blk_done) {
+                if pos >= len || bdepth == 0 { blk_done = 1 == 1; }
+                else {
+                  var bch = axiom_char_at(&src, &pos);
+                  if bch == 91 { bdepth = bdepth + 1; }
+                  elif bch == 93 { bdepth = bdepth - 1; }
+                  if bdepth > 0 { pos = pos + 1; }
+                }
+              }
+              // pos is at ']'; skip past it
+              if (pos < len) { pos = pos + 1; }
+            }
+          }
         }
 
         // Skip whitespace to find opening brace
@@ -157,7 +203,7 @@ fn parse_functions(src: &Int) -> Int {
         }
 
         // Record function in C function table
-        axiom_fn_table_add(&name_id, &ret_type_id, &z, &body_start, &body_end);
+        axiom_fn_table_add(&name_id, &ret_type_id, &param_count, &body_start, &body_end);
         fn_count = fn_count + 1;
       } else { pos = pos + 1; }
     }
@@ -170,6 +216,23 @@ fn parse_functions(src: &Int) -> Int {
     else { pos = pos + 1; }
   }
   return fn_count;
+}
+
+// === TYPE CHECKER ===
+fn check_types(src: &Int) -> Int {
+  // Validate known return types (Int, Float64, Bool, Str, Void, Result, Option)
+  // MVP: always passes — returns 0 for no errors
+  // Future: check function return types, parameter types, struct field types
+  return 0;
+}
+
+// === BORROW CHECKER ===
+fn check_borrows(src: &Int) -> Int {
+  // Track ownership of variables
+  // Check for use-after-move, double borrow, etc.
+  // MVP: always passes — returns 0 for no errors
+  // Future: implement proper borrow analysis
+  return 0;
 }
 
 // === CODEGEN ===
@@ -192,6 +255,14 @@ fn main() -> Int {
   // Parse all function declarations
   var fns = parse_functions(&src);
   if fns == 0 { return 3; }
+
+  // Type checking (MVP: always passes)
+  var type_ok = check_types(&src);
+  if type_ok != 0 { return 4; }
+
+  // Borrow checking (MVP: always passes)
+  var borrow_ok = check_borrows(&src);
+  if borrow_ok != 0 { return 5; }
 
   // Set source for body parsing in emit_all
   axiom_set_source(src);
