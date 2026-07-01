@@ -33,34 +33,38 @@ $axiomVersion = "0.11.0"
 $axiomRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # ============================================================================
-# Dependency checks (only if building from source)
+# Auto-install dependencies (only if building from source)
 # ============================================================================
 if (-not $BinaryPath) {
-    $depsOk = $true
-    Write-Host "Checking dependencies..." -ForegroundColor Cyan
-
-    $rustVersion = (rustc --version 2>$null)
-    if (-not $rustVersion) {
-        Write-Host "  ✗ Rust not found. Install from https://rustup.rs" -ForegroundColor Red
-        $depsOk = $false
+    Write-Host "Auto-installing missing dependencies..." -ForegroundColor Cyan
+    Write-Host ""
+    $depsScript = Join-Path $axiomRoot "install_deps.ps1"
+    if (Test-Path $depsScript) {
+        & $depsScript
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Dependency installation had issues — check output above." -ForegroundColor Yellow
+        }
     } else {
-        Write-Host "  ✓ $rustVersion" -ForegroundColor Green
+        Write-Host "Dependency script not found at $depsScript" -ForegroundColor Yellow
     }
 
-    $clangVersion = (clang --version 2>$null | Select-Object -First 1)
-    if (-not $clangVersion) {
-        Write-Host "  ✗ clang not found. Install LLVM from https://github.com/llvm/llvm-project/releases" -ForegroundColor Yellow
-        Write-Host "    Or install Visual Studio with 'Desktop development with C++'" -ForegroundColor Yellow
+    # Verify critical deps are now available
+    $depsOk = $true
+    if (-not (Get-Command rustc -ErrorAction SilentlyContinue)) {
+        Write-Host "  ✗ Rust not found. Install from https://rustup.rs" -ForegroundColor Red
         $depsOk = $false
-    } else {
-        Write-Host "  ✓ $clangVersion" -ForegroundColor Green
+    }
+    if (-not (Get-Command clang -ErrorAction SilentlyContinue)) {
+        Write-Host "  ✗ clang not found (needed to link native binaries)." -ForegroundColor Yellow
+        Write-Host "    The compiler can emit .ll IR files without clang." -ForegroundColor DarkGray
+        # NOT a hard failure — compiler can emit IR without clang
     }
 
     if (-not $depsOk) {
         Write-Host ""
-        Write-Host "Cannot build from source — missing dependencies." -ForegroundColor Red
-        Write-Host "Download pre-built binaries: https://github.com/NgonArt_STUDIO/AXIOM/releases" -ForegroundColor Cyan
-        Write-Host "Or install the missing tools and run install.ps1 again." -ForegroundColor Cyan
+        Write-Host "Critical dependencies missing — cannot build from source." -ForegroundColor Red
+        Write-Host "Run: .\install_deps.ps1  to auto-install dependencies" -ForegroundColor Cyan
+        Write-Host "Or use pre-built binaries: .\install.ps1 -BinaryPath .\release\axiom" -ForegroundColor Cyan
         exit 1
     }
     Write-Host ""

@@ -421,7 +421,7 @@ fn build_module_file_map(files: &[String]) -> std::collections::HashMap<String, 
 
 /// Extract the module path from the first `module` declaration found in source.
 fn extract_module_path(source: &str) -> Option<String> {
-    let lexer = Lexer::new(source);
+    let mut lexer = Lexer::new(source);
     let tokens = lexer.tokenize();
     let mut i = 0;
     // Skip leading comments/whitespace (lexer already removed them)
@@ -486,7 +486,7 @@ fn parse_package_manifest(path: &str) -> Result<Vec<String>, String> {
             let extract = if let (Some(s), Some(e)) = (bracket_start, bracket_end) {
                 &trimmed[s..=e]
             } else if bracket_start.is_some() {
-                &trimmed[bracket_start..]
+                &trimmed[bracket_start.unwrap()..]
             } else if bracket_end.is_some() {
                 return Ok(modules);
             } else {
@@ -556,14 +556,22 @@ fn merge_duplicate_modules(items: Vec<TopDecl>) -> Vec<TopDecl> {
         match item {
             TopDecl::Module(md) => {
                 let name = md.name.name.clone();
-                if let Some(existing) = merged.iter_mut().find_map(|m| match m {
-                    TopDecl::Module(ref mut existing_md) if existing_md.name.name == name => Some(existing_md),
-                    _ => None,
-                }) {
+                let mut found_idx: Option<usize> = None;
+                for (idx, m) in merged.iter().enumerate() {
+                    if let TopDecl::Module(existing_md) = m {
+                        if existing_md.name.name == name {
+                            found_idx = Some(idx);
+                            break;
+                        }
+                    }
+                }
+                if let Some(idx) = found_idx {
                     // Recursively merge sub-modules of the same name
-                    let new_items = std::mem::take(&mut existing.items);
-                    let combined: Vec<TopDecl> = new_items.into_iter().chain(md.items).collect();
-                    existing.items = merge_duplicate_modules(combined);
+                    if let TopDecl::Module(existing) = &mut merged[idx] {
+                        let new_items = std::mem::take(&mut existing.items);
+                        let combined: Vec<TopDecl> = new_items.into_iter().chain(md.items).collect();
+                        existing.items = merge_duplicate_modules(combined);
+                    }
                 } else {
                     merged.push(TopDecl::Module(md));
                 }

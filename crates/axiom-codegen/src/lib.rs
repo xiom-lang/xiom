@@ -86,6 +86,7 @@ pub struct IrEmitter {
     /// LLVM target triple (default: x86_64-pc-windows-msvc)
     target_triple: String,
     /// Recursion depth tracking for stack overflow prevention
+    #[allow(dead_code)]
     recursion_depth: u32,
     /// Maximum allowed recursion depth
     max_recursion_depth: u32,
