@@ -1,4 +1,4 @@
-# Batch test selfhost against multiple AXIOM examples
+# Batch test selfhost against ALL 21 AXIOM examples
 param([switch]$Quick)
 
 $examples = @(
@@ -10,13 +10,19 @@ $examples = @(
     "phase1_generics.ax",
     "phase1_interface.ax",
     "phase1_error.ax",
+    "phase1_derive.ax",
+    "phase1_derive_enum.ax",
+    "phase1_enum.ax",
+    "phase1_contracts.ax",
+    "phase1_modules.ax",
+    "phase1_full.ax",
+    "phase1_stress.ax",
+    "phase1_selfhost.ax",
+    "phase1_hardening.ax",
     "stress_borrow_10level.ax",
     "stress_float_matrix.ax",
-    "stress_generic_5chain.ax"
-)
-
-$skip = @(
-    "phase1_error.ax"  # Uses match/Result/derive - body parser can't handle
+    "stress_generic_5chain.ax",
+    "stress_derive_50field.ax"
 )
 
 $pass = 0
@@ -27,16 +33,9 @@ $results = @()
 foreach ($ex in $examples) {
     Write-Host "Testing: $ex " -ForegroundColor Cyan -NoNewline
 
-    if ($skip -contains $ex) {
-        Write-Host "SKIP" -ForegroundColor Yellow
-        $skipCount++
-        $results += "$ex : SKIP (uses match/Result/derive - unsupported)"
-        continue
-    }
-
     # Create a temp selfhost variant targeting this example
     $selfhostSrc = Get-Content "selfhost\axiomc_v10.ax" -Raw
-    $selfhostSrc = $selfhostSrc -replace 'selfhost\\\\axiomc_v10\.ax', "examples\\$ex"
+    $selfhostSrc = $selfhostSrc -replace 'selfhost\\\\axiomc_v10\.ax', "examples\\\\$ex"
     $stem = $ex.Replace('.ax', '')
     $tempFile = "selfhost\test_temp_$stem.ax"
     Set-Content -Path $tempFile -Value $selfhostSrc
