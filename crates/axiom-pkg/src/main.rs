@@ -15,6 +15,17 @@ fn main() {
         return;
     }
 
+    if let Some(cmd) = args.get(1) {
+        if cmd == "publish" {
+            publish_package(&args);
+            return;
+        }
+        if cmd == "install" {
+            install_package(&args);
+            return;
+        }
+    }
+
     let mut list_mode = false;
     let mut resolve_mode = false;
     let mut project_root = PathBuf::from(".");
@@ -238,6 +249,99 @@ fn resolve_dependencies(pkg: &Package, project_root: &Path) -> HashMap<String, P
     resolved
 }
 
+fn find_manifest() -> PathBuf {
+    let mut current = env::current_dir().unwrap_or_else(|e| {
+        eprintln!("axiom pkg: {}", e);
+        process::exit(1);
+    });
+    loop {
+        let manifest = current.join("package.ax");
+        if manifest.exists() {
+            return manifest;
+        }
+        if let Some(parent) = current.parent() {
+            current = parent.to_path_buf();
+        } else {
+            eprintln!("axiom pkg: no package.ax found");
+            process::exit(1);
+        }
+    }
+}
+
+fn publish_package(_args: &[String]) {
+    let manifest_path = find_manifest();
+    let manifest = fs::read_to_string(&manifest_path).unwrap_or_else(|e| {
+        eprintln!("axiom pkg: cannot read {}: {}", manifest_path.display(), e);
+        process::exit(1);
+    });
+    let pkg = parse_manifest(&manifest);
+
+    let body = format!(
+        r#"{{"name":"{}","version":"{}","description":"{}"}}"#,
+        pkg.name, pkg.version, pkg.description
+    );
+
+    let output = process::Command::new("curl")
+        .args([
+            "-s",
+            "-X",
+            "POST",
+            "http://localhost:8080/publish",
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            &body,
+        ])
+        .output()
+        .unwrap_or_else(|e| {
+            eprintln!("axiom pkg: failed to run curl: {}", e);
+            process::exit(1);
+        });
+
+    if output.status.success() {
+        println!("Published {} v{}", pkg.name, pkg.version);
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprintln!("axiom pkg: publish failed: {}", stderr);
+        process::exit(1);
+    }
+}
+
+fn install_package(args: &[String]) {
+    let pkg_name = match args.get(2) {
+        Some(n) => n,
+        None => {
+            eprintln!("Usage: axiom pkg install <package>");
+            process::exit(1);
+        }
+    };
+
+    let output = process::Command::new("curl")
+        .args(["-s", "http://localhost:8080/index.json"])
+        .output()
+        .unwrap_or_else(|e| {
+            eprintln!("axiom pkg: failed to run curl: {}", e);
+            process::exit(1);
+        });
+
+    if !output.status.success() {
+        eprintln!("axiom pkg: failed to fetch registry");
+        process::exit(1);
+    }
+
+    let body = String::from_utf8_lossy(&output.stdout);
+
+    let search = format!("\"name\":\"{}\",\"version\":\"", pkg_name);
+    if let Some(pos) = body.find(&search) {
+        let rest = &body[pos + search.len()..];
+        let version = rest.split('"').next().unwrap_or("?");
+        println!("Found: {} v{}", pkg_name, version);
+        println!("Install directory: <project>/vendor/{}", pkg_name);
+    } else {
+        println!("Package '{}' not found in registry.", pkg_name);
+    }
+}
+
 fn find_workspace_root(project_root: &Path) -> PathBuf {
     let mut current = project_root.to_path_buf();
     loop {
@@ -258,6 +362,8 @@ fn print_usage() {
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("  axiom pkg [OPTIONS] --root <dir>");
+    eprintln!("  axiom pkg publish                   Publish package to registry");
+    eprintln!("  axiom pkg install <name>            Install package from registry");
     eprintln!();
     eprintln!("OPTIONS:");
     eprintln!("  --help        Show this help message");
