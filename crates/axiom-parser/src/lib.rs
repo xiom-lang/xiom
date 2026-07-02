@@ -1182,10 +1182,37 @@ impl Parser {
                         let span = expr.span();
                         expr = Expr::Call(Box::new(expr), Vec::new(), span);
                     } else {
-                        let args = self.parse_arg_list()?;
-                        self.expect_kind(TokenKind::RParen, "')'")?;
-                        let span = expr.span();
-                        expr = Expr::Call(Box::new(expr), args, span);
+                        // Check for named args: Circle(radius: 2.0)
+                        // If the first token after ( is an ident and the next is :, parse as named args
+                        let use_named = if let TokenKind::Ident(_) = self.peek_kind() {
+                            // Save position, try to peek ahead
+                            let saved = self.pos;
+                            self.advance(); // skip ident
+                            let is_named = self.peek_kind() == &TokenKind::Colon;
+                            self.pos = saved;
+                            is_named
+                        } else {
+                            false
+                        };
+                        if use_named {
+                            // Parse named args: field: value, field: value, ...
+                            let mut fields = Vec::new();
+                            loop {
+                                let fname = self.parse_ident()?;
+                                self.expect_kind(TokenKind::Colon, "':'")?;
+                                let fval = self.parse_expr()?;
+                                fields.push((fname, fval));
+                                if !self.skip(TokenKind::Comma) { break; }
+                            }
+                            self.expect_kind(TokenKind::RParen, "')'")?;
+                            let span = expr.span();
+                            expr = Expr::Struct(Ident::new("_", span), fields, span);
+                        } else {
+                            let args = self.parse_arg_list()?;
+                            self.expect_kind(TokenKind::RParen, "')'")?;
+                            let span = expr.span();
+                            expr = Expr::Call(Box::new(expr), args, span);
+                        }
                     }
                 }
                 TokenKind::LBracket => {
@@ -1200,7 +1227,7 @@ impl Parser {
                         let after_first = self.peek_ahead(1);
                         let looks_like_type_args = matches!(after_first,
                             Some(TokenKind::Colon) | Some(TokenKind::Comma) |
-                            Some(TokenKind::Dot) | Some(TokenKind::LBrace) |
+                            Some(TokenKind::LBrace) |
                             Some(TokenKind::LBracket) | Some(TokenKind::RBracket)
                         );
                         if looks_like_type_args {
@@ -1365,8 +1392,13 @@ impl Parser {
             }
             TokenKind::Comptime => {
                 self.advance();
-                let inner = self.parse_expr()?;
-                Ok(Expr::Comptime(Box::new(inner), span))
+                // If followed by . ( ) [ { — treat as identifier (module name), not keyword
+                if matches!(self.peek_kind(), TokenKind::Dot | TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace) {
+                    Ok(Expr::Ident(Ident::new("comptime".to_string(), span)))
+                } else {
+                    let inner = self.parse_expr()?;
+                    Ok(Expr::Comptime(Box::new(inner), span))
+                }
             }
             TokenKind::If => {
                 self.advance();
