@@ -54,6 +54,7 @@ impl CheckedType {
             }
             Type::Ptr(_) => CheckedType::Named("Ptr".into()),
             Type::Array(_, _) => CheckedType::Named("Array".into()),
+            Type::Fn(_, _) => CheckedType::Named("fn".into()),
         }
     }
 
@@ -1075,10 +1076,21 @@ impl Checker {
                     CheckedType::Named("Vec".into())
                 }
             }
-            Expr::Closure(_, _, _) => CheckedType::Named("fn".into()),
+            Expr::Closure(_, _, _, _) => CheckedType::Named("fn".into()),
             Expr::PipeClosure(_, body, _) => {
                 let _ = self.check_expr(body);
                 CheckedType::Named("fn".into())
+            }
+            Expr::As(inner, ty, span) => {
+                let inner_ty = self.check_expr(inner);
+                let target_ty = CheckedType::from_ast_type(ty);
+                match (&inner_ty, &target_ty) {
+                    (CheckedType::Int, CheckedType::Float64) => target_ty,
+                    (CheckedType::Float64, CheckedType::Int) => target_ty,
+                    _ if inner_ty == target_ty => target_ty,
+                    _ if inner_ty == CheckedType::Error => CheckedType::Error,
+                    _ => self.error(format!("unsupported type cast: {} to {}", inner_ty.name(), target_ty.name()), *span),
+                }
             }
             Expr::Await(inner, _) => self.check_expr(inner),
             Expr::Comptime(inner, _) => self.check_expr(inner),
@@ -1596,9 +1608,13 @@ impl BorrowChecker {
                 }
                 ExprResult::Value
             }
-            Expr::Closure(_, _, _) | Expr::PipeClosure(_, _, _) => ExprResult::Value,
+            Expr::Closure(_, _, _, _) | Expr::PipeClosure(_, _, _) => ExprResult::Value,
             Expr::Await(inner, _) => self.check_expr(inner),
             Expr::Comptime(inner, _) => self.check_expr(inner),
+            Expr::As(inner, _, _) => {
+                self.check_expr(inner);
+                ExprResult::Value
+            }
         }
     }
 

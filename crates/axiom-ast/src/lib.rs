@@ -77,6 +77,8 @@ pub enum Type {
     Ptr(Box<Type>),
     /// `[N]T` (fixed array)
     Array(Box<Expr>, Box<Type>),
+    /// `fn(T, U) -> V` (function pointer)
+    Fn(Vec<Type>, Box<Type>),
 }
 
 // ============================================================================
@@ -146,15 +148,16 @@ pub enum Expr {
     Struct(Ident, Vec<(Ident, Expr)>, Span),
     /// `[expr, ...]` — array literal
     Array(Vec<Expr>, Span),
-    /// `fn(params) { ... }` — closure
-    Closure(Vec<Param>, Block, Span),
+    /// `fn(params) -> RetType { ... }` — closure
+    Closure(Vec<Param>, Option<Box<Type>>, Block, Span),
     /// `|x, y| expr` — pipe closure
     PipeClosure(Vec<Ident>, Box<Expr>, Span),
     /// `await expr`
     Await(Box<Expr>, Span),
     /// `comptime expr`
     Comptime(Box<Expr>, Span),
-    // `&raw expr` / `&mut raw expr` — in unary, covered by Unary with `&` / `&mut`
+    /// `expr as Type` — type cast
+    As(Box<Expr>, Type, Span),
 }
 
 impl Expr {
@@ -166,8 +169,8 @@ impl Expr {
             Expr::Imply(_, _, s) | Expr::Is(_, _, s) | Expr::Field(_, _, s) | Expr::Call(_, _, s) => *s,
             Expr::Index(_, _, s) | Expr::AtPre(_, s) | Expr::Ref(_, s) | Expr::MutRef(_, s) => *s,
             Expr::Some(_, s) | Expr::None(s) | Expr::Ok(_, s) | Expr::Err(_, s) => *s,
-            Expr::Struct(_, _, s) | Expr::Array(_, s) | Expr::Closure(_, _, s) | Expr::PipeClosure(_, _, s) => *s,
-            Expr::Await(_, s) | Expr::Comptime(_, s) => *s,
+            Expr::Struct(_, _, s) | Expr::Array(_, s) | Expr::Closure(_, _, _, s) | Expr::PipeClosure(_, _, s) => *s,
+            Expr::Await(_, s) | Expr::Comptime(_, s) | Expr::As(_, _, s) => *s,
         }
     }
 }

@@ -167,6 +167,10 @@ fn type_to_string(ty: &Type) -> String {
         }
         Type::Ptr(inner) => format!("*{}", type_to_string(inner)),
         Type::Array(size, elem) => format!("[{}]{}", expr_to_string(size), type_to_string(elem)),
+        Type::Fn(params, ret) => {
+            let p: Vec<String> = params.iter().map(type_to_string).collect();
+            format!("fn({}) -> {}", p.join(", "), type_to_string(ret))
+        }
     }
 }
 
