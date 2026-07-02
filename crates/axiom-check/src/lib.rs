@@ -1250,6 +1250,17 @@ impl Checker {
             return true;
         }
         // Named types are compatible if they have the same name
+        // Generic type parameters (single uppercase letter) are compatible with any type
+        let is_generic_param = |ty: &CheckedType| -> bool {
+            if let CheckedType::Named(s) = ty {
+                s.len() == 1 && s.chars().next().map_or(false, |c| c.is_ascii_uppercase())
+            } else {
+                false
+            }
+        };
+        if is_generic_param(found) || is_generic_param(expected) {
+            return true;
+        }
         match (found, expected) {
             (CheckedType::Named(a), CheckedType::Named(b)) => a == b,
             // Numeric promotions

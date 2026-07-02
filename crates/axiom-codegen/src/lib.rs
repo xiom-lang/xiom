@@ -192,6 +192,15 @@ impl IrEmitter {
         }
     }
 
+    fn axiom_type_name_from_llvm(llvm_ty: &str) -> String {
+        llvm_ty
+            .trim_start_matches("%struct.")
+            .trim_start_matches('%')
+            .trim_end_matches('*')
+            .trim()
+            .to_string()
+    }
+
     fn type_from_ast(ty: &Type) -> String {
         match ty {
             Type::Named(ident, _) => ident.name.clone(),
@@ -752,13 +761,31 @@ impl IrEmitter {
             Expr::Call(func, _, _) => {
                 let fn_name = match &**func {
                     Expr::Ident(name) => Some(name.name.clone()),
-                    Expr::Field(_, field, _) => Some(field.name.clone()),
+                    Expr::Field(obj, field, _) => {
+                        let bare = field.name.clone();
+                        if let Some(recv_type) = self.infer_struct_type_name(obj) {
+                            let qualified = format!("{}.{}", recv_type, field.name);
+                            if self.functions.contains_key(&qualified) {
+                                Some(qualified)
+                            } else {
+                                Some(bare)
+                            }
+                        } else {
+                            Some(bare)
+                        }
+                    }
                     _ => None,
                 };
-                if let Some(name) = fn_name {
+                if let Some(ref name) = fn_name {
                     // Check if the known return type is a struct
-                    if self.type_meta.contains_key(&name) {
-                        return Some(name);
+                    if self.type_meta.contains_key(name) {
+                        return Some(name.clone());
+                    }
+                    // Also check the return type from the function registry
+                    if let Some((_, ret_ty)) = self.functions.get(name) {
+                        if ret_ty.starts_with("%struct.") {
+                            return Some(ret_ty[8..].to_string());
+                        }
                     }
                 }
                 None
@@ -784,6 +811,13 @@ impl IrEmitter {
         } else if ty == "i8*" || ty.contains('*') {
             let bc = self.fresh_tmp();
             self.emitln(&format!("  {bc} = ptrtoint {ty} {val} to i64"));
+            bc
+        } else if ty.starts_with('%') {
+            let ptr = self.fresh_tmp();
+            let bc = self.fresh_tmp();
+            self.emitln(&format!("  {ptr} = alloca {ty}"));
+            self.emitln(&format!("  store {ty} {val}, {ty}* {ptr}"));
+            self.emitln(&format!("  {bc} = ptrtoint {ty}* {ptr} to i64"));
             bc
         } else {
             val.to_string()
@@ -2501,26 +2535,57 @@ impl IrEmitter {
                     let mut concrete_types: Vec<String> = Vec::new();
                     // Find the generic function declaration
                     if let Some(fd) = self.generic_fn_decls.iter().find(|f| self.fn_key(f) == fn_key) {
-                        for (gp, arg_expr) in fd.generics.iter().zip(args.iter()) {
-                            let concrete_ty = match arg_expr {
-                                Expr::Int(..) => "Int".to_string(),
-                                Expr::Float(..) => "Float64".to_string(),
-                                Expr::Bool(..) => "Bool".to_string(),
-                                Expr::Str(..) => "Str".to_string(),
-                                Expr::Char(..) => "Char".to_string(),
-                                Expr::Ident(id) => {
-                                    // Check param_concrete_types first (AXIOM type name during monomorphisation)
-                                    if let Some(concrete) = self.param_concrete_types.get(&id.name) {
-                                        concrete.clone()
-                                    } else if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
-                                        llvm_ty.clone()
-                                    } else {
-                                        gp.name.name.clone()
-                                    }
+                        for gp in &fd.generics {
+                            // Find a function parameter whose type directly uses this generic (not wrapped)
+                            let mut inferred = false;
+                            for (param, arg_expr) in fd.params.iter().zip(args.iter()) {
+                                let param_type = Self::type_from_ast(&param.ty);
+                                if param_type == gp.name.name {
+                                    let concrete_ty = match arg_expr {
+                                        Expr::Int(..) => "Int".to_string(),
+                                        Expr::Float(..) => "Float64".to_string(),
+                                        Expr::Bool(..) => "Bool".to_string(),
+                                        Expr::Str(..) => "Str".to_string(),
+                                        Expr::Char(..) => "Char".to_string(),
+                                        Expr::Ident(id) => {
+                                            if let Some(concrete) = self.param_concrete_types.get(&id.name) {
+                                                concrete.clone()
+                                            } else if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
+                                                Self::axiom_type_name_from_llvm(llvm_ty)
+                                            } else {
+                                                gp.name.name.clone()
+                                            }
+                                        }
+                                        _ => "Int".to_string(),
+                                    };
+                                    concrete_types.push(concrete_ty);
+                                    inferred = true;
+                                    break;
                                 }
-                                _ => "Int".to_string(),
-                            };
-                            concrete_types.push(concrete_ty);
+                            }
+                            if !inferred {
+                                // Fallback: use the first argument's outer type
+                                if let Some(arg_expr) = args.first() {
+                                    let concrete_ty = match arg_expr {
+                                        Expr::Int(..) => "Int".to_string(),
+                                        Expr::Float(..) => "Float64".to_string(),
+                                        Expr::Bool(..) => "Bool".to_string(),
+                                        Expr::Str(..) => "Str".to_string(),
+                                        Expr::Char(..) => "Char".to_string(),
+                                        Expr::Ident(id) => {
+                                            if let Some(concrete) = self.param_concrete_types.get(&id.name) {
+                                                concrete.clone()
+                                            } else if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
+                                                Self::axiom_type_name_from_llvm(llvm_ty)
+                                            } else {
+                                                gp.name.name.clone()
+                                            }
+                                        }
+                                        _ => "Int".to_string(),
+                                    };
+                                    concrete_types.push(concrete_ty);
+                                }
+                            }
                         }
                     }
                     if !concrete_types.is_empty() {
@@ -2789,6 +2854,10 @@ impl IrEmitter {
                         return Some(llvm_ty[8..].to_string());
                     }
                 }
+                // Check if it's a type name (for static method calls like Rect.new(...))
+                if self.types.contains_key(&ident.name) || self.type_meta.contains_key(&ident.name) {
+                    return Some(ident.name.clone());
+                }
                 None
             }
             Expr::Struct(ident, _, _) => Some(ident.name.clone()),
@@ -2822,7 +2891,20 @@ impl IrEmitter {
                 }
                 let fn_name = match func.as_ref() {
                     Expr::Ident(name) => Some(name.name.clone()),
-                    Expr::Field(_, field, _) => Some(field.name.clone()),
+                    Expr::Field(obj, field, _) => {
+                        // Try to resolve method call: obj.method → Type.method
+                        let bare = field.name.clone();
+                        if let Some(recv_type) = self.infer_struct_type_name(obj) {
+                            let qualified = format!("{}.{}", recv_type, field.name);
+                            if self.functions.contains_key(&qualified) {
+                                Some(qualified)
+                            } else {
+                                Some(bare)
+                            }
+                        } else {
+                            Some(bare)
+                        }
+                    }
                     _ => None,
                 };
                 if let Some(ref name) = fn_name {
