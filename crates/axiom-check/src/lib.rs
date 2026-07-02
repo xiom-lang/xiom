@@ -370,12 +370,20 @@ impl Checker {
             }
         }
 
-        // Collect use declarations
-        for item in &program.items {
-            if let TopDecl::Use(ud) = item {
-                self.imports.push(ud.clone());
+        // Flatten submodules into self.modules for short-name resolution (e.g. "math" instead of "benchmark.math")
+        self.flatten_submodules(&program.items);
+
+        // Collect use declarations recursively (they may be nested inside ModuleDecl items)
+        fn collect_use_decls(items: &[TopDecl], imports: &mut Vec<UseDecl>) {
+            for item in items {
+                match item {
+                    TopDecl::Use(ud) => imports.push(ud.clone()),
+                    TopDecl::Module(md) => collect_use_decls(&md.items, imports),
+                    _ => {}
+                }
             }
         }
+        collect_use_decls(&program.items, &mut self.imports);
 
         // Process each use declaration — try filesystem resolution for missing modules
         let import_snapshot = std::mem::take(&mut self.imports);
@@ -391,6 +399,16 @@ impl Checker {
             self.process_use(ud);
         }
         self.imports = import_snapshot;
+    }
+
+    fn flatten_submodules(&mut self, items: &[TopDecl]) {
+        for item in items {
+            if let TopDecl::Module(md) = item {
+                let exports = self.build_module_map(&md.items);
+                self.modules.insert(md.name.name.clone(), exports);
+                self.flatten_submodules(&md.items);
+            }
+        }
     }
 
     /// Try to load an external module file `{source_dir}/{module_name}.ax` from the
