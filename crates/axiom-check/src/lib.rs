@@ -152,6 +152,8 @@ pub enum ModuleExport {
 pub struct Checker {
     /// Known type names → their field types
     types: HashMap<String, HashMap<String, CheckedType>>,
+    /// Current module context for scoped type lookups
+    current_module: Option<String>,
     /// Known function signatures
     functions: HashMap<String, FnSig>,
     /// Current function return type
@@ -169,6 +171,8 @@ pub struct Checker {
     visibility: HashMap<String, bool>,
     /// Resolved imported names from use declarations
     imported_items: HashMap<String, ModuleExport>,
+    /// Enum variant name → parent enum type name
+    enum_variants: HashMap<String, String>,
     /// Directories to search for external module files
     pub source_dirs: Vec<String>,
 }
@@ -196,6 +200,7 @@ impl Checker {
     pub fn new() -> Self {
         let mut checker = Self {
             types: HashMap::new(),
+            current_module: None,
             functions: HashMap::new(),
             current_return: None,
             locals: vec![HashMap::new()],
@@ -205,6 +210,7 @@ impl Checker {
             methods: HashMap::new(),
             visibility: HashMap::new(),
             imported_items: HashMap::new(),
+            enum_variants: HashMap::new(),
             source_dirs: Vec::new(),
         };
         // Register built-in types
@@ -290,6 +296,26 @@ impl Checker {
         None
     }
 
+    fn get_type(&self, name: &str) -> Option<&HashMap<String, CheckedType>> {
+        if let Some(ref module) = self.current_module {
+            let prefixed = format!("{}.{}", module, name);
+            if self.types.contains_key(&prefixed) {
+                return self.types.get(&prefixed);
+            }
+        }
+        self.types.get(name)
+    }
+
+    fn contains_type(&self, name: &str) -> bool {
+        if let Some(ref module) = self.current_module {
+            let prefixed = format!("{}.{}", module, name);
+            if self.types.contains_key(&prefixed) {
+                return true;
+            }
+        }
+        self.types.contains_key(name)
+    }
+
     fn error(&mut self, message: impl Into<String>, span: Span) -> CheckedType {
         self.errors.push(CheckError { message: message.into(), span });
         CheckedType::Error
@@ -326,6 +352,10 @@ impl Checker {
     }
 
     fn register_type_decl(&mut self, item: &TopDecl) {
+        self.register_type_decl_inner(item, "");
+    }
+
+    fn register_type_decl_inner(&mut self, item: &TopDecl, module_path: &str) {
         match item {
             TopDecl::Type(td) => {
                 let mut fields = HashMap::new();
@@ -335,17 +365,31 @@ impl Checker {
                 for (name, ty, _) in &td.derived_fields {
                     fields.insert(name.name.clone(), CheckedType::from_ast_type(ty));
                 }
-                self.types.insert(td.name.name.clone(), fields);
+                let key = if module_path.is_empty() { td.name.name.clone() } else { format!("{}.{}", module_path, td.name.name) };
+                let bare_key = td.name.name.clone();
+                self.types.insert(key.clone(), fields.clone());
+                // Also register with bare name as fallback (don't overwrite existing)
+                if bare_key != key {
+                    self.types.entry(bare_key).or_insert(fields);
+                }
                 self.visibility.insert(td.name.name.clone(), td.is_pub);
             }
             TopDecl::Enum(ed) => {
-                // Enums are known types with no struct fields
-                self.types.insert(ed.name.name.clone(), HashMap::new());
+                let key = if module_path.is_empty() { ed.name.name.clone() } else { format!("{}.{}", module_path, ed.name.name) };
+                let bare_key = ed.name.name.clone();
+                self.types.insert(key.clone(), HashMap::new());
+                if bare_key != key {
+                    self.types.entry(bare_key).or_insert(HashMap::new());
+                }
                 self.visibility.insert(ed.name.name.clone(), ed.is_pub);
+                for variant in &ed.variants {
+                    self.enum_variants.insert(variant.name.name.clone(), ed.name.name.clone());
+                }
             }
             TopDecl::Module(md) => {
+                let new_path = if module_path.is_empty() { md.name.name.clone() } else { format!("{}.{}", module_path, md.name.name) };
                 for item in &md.items {
-                    self.register_type_decl(item);
+                    self.register_type_decl_inner(item, &new_path);
                 }
             }
             _ => {}
@@ -393,9 +437,12 @@ impl Checker {
                 }
             }
             TopDecl::Module(md) => {
+                let prev = self.current_module.take();
+                self.current_module = Some(md.name.name.clone());
                 for item in &md.items {
                     self.check_top_decl(item);
                 }
+                self.current_module = prev;
             }
             TopDecl::Const(cd) => {
                 let val_ty = self.check_expr(&cd.value);
@@ -421,7 +468,7 @@ impl Checker {
         // Build module hierarchy from all module declarations
         for item in &program.items {
             if let TopDecl::Module(md) = item {
-                let exports = self.build_module_map(&md.items);
+                let exports = self.build_module_map_inner(&md.items, &md.name.name);
                 self.modules.insert(md.name.name.clone(), exports);
             }
         }
@@ -458,11 +505,16 @@ impl Checker {
     }
 
     fn flatten_submodules(&mut self, items: &[TopDecl]) {
+        self.flatten_submodules_inner(items, "");
+    }
+
+    fn flatten_submodules_inner(&mut self, items: &[TopDecl], prefix: &str) {
         for item in items {
             if let TopDecl::Module(md) = item {
-                let exports = self.build_module_map(&md.items);
+                let new_prefix = if prefix.is_empty() { md.name.name.clone() } else { format!("{}.{}", prefix, md.name.name) };
+                let exports = self.build_module_map_inner(&md.items, &new_prefix);
                 self.modules.insert(md.name.name.clone(), exports);
-                self.flatten_submodules(&md.items);
+                self.flatten_submodules_inner(&md.items, &new_prefix);
             }
         }
     }
@@ -484,11 +536,16 @@ impl Checker {
     }
 
     fn build_module_map(&self, items: &[TopDecl]) -> HashMap<String, ModuleExport> {
+        self.build_module_map_inner(items, "")
+    }
+
+    fn build_module_map_inner(&self, items: &[TopDecl], prefix: &str) -> HashMap<String, ModuleExport> {
         let mut map = HashMap::new();
         for item in items {
             match item {
                 TopDecl::Type(td) => {
-                    let fields = self.types.get(&td.name.name).cloned().unwrap_or_default();
+                    let key = if prefix.is_empty() { td.name.name.clone() } else { format!("{}.{}", prefix, td.name.name) };
+                    let fields = self.types.get(&key).cloned().unwrap_or_default();
                     map.insert(td.name.name.clone(), ModuleExport::Type { fields, is_pub: td.is_pub });
                 }
                 TopDecl::Enum(ed) => {
@@ -506,7 +563,8 @@ impl Checker {
                     }
                 }
                 TopDecl::Module(md) => {
-                    let sub = self.build_module_map(&md.items);
+                    let new_prefix = if prefix.is_empty() { md.name.name.clone() } else { format!("{}.{}", prefix, md.name.name) };
+                    let sub = self.build_module_map_inner(&md.items, &new_prefix);
                     map.insert(md.name.name.clone(), ModuleExport::SubModule(sub));
                 }
                 _ => {}
@@ -699,7 +757,7 @@ impl Checker {
 
         // For methods, inject the receiver's fields into scope (implicit self)
         if let Some(recv) = fd.receiver.as_ref() {
-            let fields_clone = self.types.get(&recv.name).cloned();
+            let fields_clone = self.get_type(&recv.name).cloned();
             if let Some(fields) = fields_clone {
                 for (field_name, field_ty) in fields {
                     self.add_local(&field_name, field_ty);
@@ -876,8 +934,10 @@ impl Checker {
                     ty.clone()
                 } else if self.functions.contains_key(&ident.name) {
                     CheckedType::Named("fn".into())
-                } else if self.types.contains_key(&ident.name) {
+                } else if self.contains_type(&ident.name) {
                     CheckedType::Named(ident.name.clone())
+                } else if let Some(parent_enum) = self.enum_variants.get(&ident.name) {
+                    CheckedType::Named(parent_enum.clone())
                 } else if let Some(export) = self.imported_items.get(&ident.name) {
                     match export {
                         ModuleExport::Function { .. } => CheckedType::Named("fn".into()),
@@ -964,7 +1024,7 @@ impl Checker {
                 let obj_ty = self.check_expr(obj);
                 match &obj_ty {
                     CheckedType::Named(name) => {
-                        if let Some(fields) = self.types.get(name) {
+                        if let Some(fields) = self.get_type(name) {
                             if let Some(field_ty) = fields.get(&field.name) {
                                 field_ty.clone()
                             } else if !fields.is_empty() {
@@ -989,7 +1049,14 @@ impl Checker {
             }
             Expr::Call(func, args, span) => {
                 // Method call or module-qualified call: receiver.method(args) or module.func(args)
-                if let Expr::Field(obj, method, _) = func.as_ref() {
+                // Also handle type-parameterized calls like Stack.new[Int]() which parse as
+                // Expr::Call(Expr::Index(Expr::Field(Expr::Ident("Stack"), "new"), [Expr::Ident("Int")]), [])
+                let method_target = match func.as_ref() {
+                    Expr::Field(..) => Some(func.as_ref()),
+                    Expr::Index(field_expr, _, _) if matches!(field_expr.as_ref(), Expr::Field(..)) => Some(field_expr.as_ref()),
+                    _ => None,
+                };
+                if let Some(Expr::Field(obj, method, _)) = method_target {
                     // Try module-qualified call first
                     if let Some(return_ty) = self.check_module_call(obj, method, args, *span) {
                         return return_ty;
@@ -1130,7 +1197,7 @@ impl Checker {
                 // Check if this is a type parameter expression like Vec[Int] or a real index like v[0]
                 // Type parameter expressions: the container is a known type name and the index is a type identifier
                 if let Expr::Ident(container_ident) = arr.as_ref() {
-                    if self.types.contains_key(&container_ident.name) || 
+                    if self.contains_type(&container_ident.name) || 
                        container_ident.name == "Vec" || container_ident.name == "Option" || 
                        container_ident.name == "Result" || container_ident.name == "Map" ||
                        container_ident.name == "Set" || container_ident.name == "Stack" ||
@@ -1170,7 +1237,7 @@ impl Checker {
                 CheckedType::Named("Result".into())
             }
             Expr::Struct(name, fields, span) => {
-                let struct_fields = self.types.get(&name.name).cloned();
+                let struct_fields = self.get_type(&name.name).cloned();
                 match struct_fields {
                     Some(expected_fields) => {
                         for (fname, fval) in fields {

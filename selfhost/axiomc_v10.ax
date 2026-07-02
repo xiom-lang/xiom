@@ -18,6 +18,7 @@ fn axiom_fn_table_add(name_id: Int, ret_type_id: Int, param_count: Int, body_sta
 fn axiom_fn_table_count() -> Int;
 fn axiom_fn_emit_all();
 fn axiom_set_source(src: Int);
+fn axiom_ir_emit_program(val: Int);
 
 // === PARSER ===
 // Direct inline parsing — no helper function calls that conflict with borrow checker.
