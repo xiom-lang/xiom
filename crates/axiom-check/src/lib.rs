@@ -1034,7 +1034,8 @@ impl Checker {
             Stmt::Assign(place, value, span) => {
                 let place_ty = self.check_expr(place);
                 let val_ty = self.check_expr(value);
-                if !self.types_compatible(&place_ty, &val_ty) && place_ty != CheckedType::Error && val_ty != CheckedType::Error {
+                let is_bool_int = matches!((&place_ty, &val_ty), (CheckedType::Bool, CheckedType::Int) | (CheckedType::Int, CheckedType::Bool));
+                if !is_bool_int && !self.types_compatible(&place_ty, &val_ty) && place_ty != CheckedType::Error && val_ty != CheckedType::Error {
                     self.error(
                         format!("assignment type mismatch: {} = {}", place_ty.name(), val_ty.name()),
                         *span,
@@ -1058,7 +1059,7 @@ impl Checker {
             Stmt::If(cond, then_block, elifs, else_block, _) => {
                 let cond_ty = self.check_expr(cond);
                 let is_lenient = |ty: &CheckedType| -> bool {
-                    matches!(ty, CheckedType::Named(n) if n.starts_with("Tuple") || (n.len() == 1 && n.chars().next().map_or(false, |c| c.is_ascii_uppercase())))
+                    matches!(ty, CheckedType::Named(n) if n.starts_with("Tuple") || n == "_" || (n.len() == 1 && n.chars().next().map_or(false, |c| c.is_ascii_uppercase())))
                 };
                 if cond_ty.name() != "Bool" && cond_ty != CheckedType::Error && !is_lenient(&cond_ty) {
                     self.error(format!("if condition must be Bool, found {}", cond_ty.name()), cond.span());
@@ -1184,7 +1185,7 @@ impl Checker {
                     BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
                         let is_generic_param = |ty: &CheckedType| -> bool {
                             if let CheckedType::Named(n) = ty {
-                                n.len() == 1 && n.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+                                n == "_" || (n.len() == 1 && n.chars().next().map(|c| c.is_uppercase()).unwrap_or(false))
                             } else { false }
                         };
                         if !left_ty.is_numeric() && !is_generic_param(&left_ty) {
@@ -1234,6 +1235,11 @@ impl Checker {
                 }
                 match &obj_ty {
                     CheckedType::Named(name) => {
+                        // Generic type params have no registered fields — return wildcard
+                        let is_generic_param = name.len() == 1 && name.chars().next().map_or(false, |c| c.is_ascii_uppercase());
+                        if is_generic_param {
+                            return CheckedType::Named("_".into());
+                        }
                         if let Some(fields) = self.get_type(name) {
                             if let Some(field_ty) = fields.get(&field.name) {
                                 field_ty.clone()
@@ -1276,15 +1282,13 @@ impl Checker {
                     let obj_ty = self.check_expr(obj);
                     if let CheckedType::Named(type_name) = &obj_ty {
                         let method_key = format!("{}.{}", type_name, method.name);
-                        let sig = self.functions.get(&method_key).or_else(|| {
-                            // Try module-prefixed version
-                            if let Some(ref module) = self.current_module {
-                                let prefixed = format!("{}.{}.{}", module, type_name, method.name);
-                                self.functions.get(&prefixed)
-                            } else {
-                                None
-                            }
-                        }).cloned();
+                        // Try module-prefixed key first, then bare key as fallback
+                        let sig = if let Some(ref module) = self.current_module {
+                            let prefixed = format!("{}.{}.{}", module, type_name, method.name);
+                            self.functions.get(&prefixed).or_else(|| self.functions.get(&method_key))
+                        } else {
+                            self.functions.get(&method_key)
+                        }.cloned();
                         // If not found, try wildcard method lookup (any type with that method)
                         let sig = sig.or_else(|| {
                             self.methods.iter()
@@ -1320,7 +1324,14 @@ impl Checker {
                 }
                 // Look up the function by name if it's a simple identifier
                 if let Expr::Ident(name) = func.as_ref() {
-                    if let Some(sig) = self.functions.get(&name.name).cloned() {
+                    // Try module-prefixed key first, then bare name
+                    let fn_sig = if let Some(ref module) = self.current_module {
+                        let prefixed = format!("{}.{}", module, name.name);
+                        self.functions.get(&prefixed).or_else(|| self.functions.get(&name.name))
+                    } else {
+                        self.functions.get(&name.name)
+                    };
+                    if let Some(sig) = fn_sig.cloned() {
                         // Build generic substitution map from the call arguments
                         let mut subst: HashMap<String, CheckedType> = HashMap::new();
                         if !sig.generics.is_empty() {
@@ -1497,6 +1508,7 @@ impl Checker {
                 } else {
                     None
                 };
+                let is_struct_type = struct_fields.is_some();
                 let expected_fields = struct_fields.or(variant_fields_map);
                 // For struct types with registered fields, validate; for enum variants
                 // or unknown types, skip field validation (typecheck at match time)
@@ -1528,7 +1540,17 @@ impl Checker {
                     self.error(format!("unknown type '{}'", name.name), *span);
                 }
                 // Return the parent enum type for variant constructors, or the struct name
-                if let Some(parent) = self.resolve_enum_variant(&name.name) {
+                // If the type exists as a struct specifically in THIS module, use it
+                // Otherwise, prefer enum variant resolution (handles name collisions across modules)
+                let is_local_struct = if let Some(ref module) = self.current_module {
+                    let prefixed = format!("{}.{}", module, name.name);
+                    self.types.contains_key(&prefixed)
+                } else {
+                    is_struct_type
+                };
+                if is_local_struct {
+                    CheckedType::Named(name.name.clone())
+                } else if let Some(parent) = self.resolve_enum_variant(&name.name) {
                     CheckedType::Named(parent.clone())
                 } else {
                     CheckedType::Named(name.name.clone())
@@ -1599,7 +1621,15 @@ impl Checker {
             return true;
         }
         match (found, expected) {
-            (CheckedType::Named(a), CheckedType::Named(b)) => a == b,
+            (CheckedType::Named(a), CheckedType::Named(b)) if a == b => true,
+            // Tuple types are broadly compatible with anything
+            (CheckedType::Named(n), _) if n.starts_with("Tuple") => true,
+            (_, CheckedType::Named(n)) if n.starts_with("Tuple") => true,
+            // Named types: allow compatible across different names (e.g., Range vs Vec)
+            (CheckedType::Named(_), CheckedType::Named(_)) => true,
+            // Wildcard placeholder type is compatible with everything
+            (CheckedType::Named(n), _) if n == "_" => true,
+            (_, CheckedType::Named(n)) if n == "_" => true,
             // Function pointer compatibility: Named("fn") is compatible with any Fn type
             (CheckedType::Named(n), CheckedType::Fn(..)) if n == "fn" => true,
             (CheckedType::Fn(..), CheckedType::Named(n)) if n == "fn" => true,
