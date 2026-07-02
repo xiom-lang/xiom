@@ -256,10 +256,10 @@ impl Checker {
         self.functions.insert("Vec.push".to_string(), FnSig {
             params: vec![
                 ("self".to_string(), CheckedType::Named("Vec".into())),
-                ("val".to_string(), CheckedType::Int),
+                ("val".to_string(), CheckedType::Named("T".into())),
             ],
             return_type: Some(CheckedType::Unit),
-            generics: vec![],
+            generics: vec!["T".to_string()],
         });
         self.functions.insert("Vec.len".to_string(), FnSig {
             params: vec![
@@ -330,7 +330,8 @@ impl Checker {
                 if self.enum_variants.contains_key(&name.name) || self.resolve_enum_variant(&name.name).is_some() {
                     return;
                 }
-                self.add_local(&name.name, CheckedType::Int); // simplified: bind as Int
+                // Use Error type to suppress cascade errors (actual type resolved later)
+                self.add_local(&name.name, CheckedType::Error);
             }
             Pattern::Variant(name, fields, _) => {
                 // Look up variant field types for correct binding types
@@ -346,13 +347,13 @@ impl Checker {
                     self.add_local(&field.name, field_ty);
                 }
             }
-            Pattern::Some(inner, _) => {
-                self.add_pattern_bindings(inner);
-            }
             Pattern::Ok(inner, _) => {
                 self.add_pattern_bindings(inner);
             }
             Pattern::Err(inner, _) => {
+                self.add_pattern_bindings(inner);
+            }
+            Pattern::Some(inner, _) => {
                 self.add_pattern_bindings(inner);
             }
             Pattern::Wildcard(_) | Pattern::None(_) | Pattern::Lit(_) => {}
@@ -372,6 +373,40 @@ impl Checker {
     fn error(&mut self, message: impl Into<String>, span: Span) -> CheckedType {
         self.errors.push(CheckError { message: message.into(), span });
         CheckedType::Error
+    }
+
+    fn register_derived_method(&mut self, type_name: &str, module_path: &str, derive_trait: &DeriveTrait) {
+        let method_name = match derive_trait {
+            DeriveTrait::Clone => "clone",
+            DeriveTrait::Eq => "eq",
+            DeriveTrait::Display => "to_str",
+            DeriveTrait::Hash => "hash",
+            DeriveTrait::Ord => "compare",
+            _ => return,
+        };
+        let ret_type = match derive_trait {
+            DeriveTrait::Clone => CheckedType::Named(type_name.to_string()),
+            DeriveTrait::Eq => CheckedType::Bool,
+            DeriveTrait::Display => CheckedType::Str,
+            DeriveTrait::Hash => CheckedType::Int,
+            DeriveTrait::Ord => CheckedType::Int,
+            _ => return,
+        };
+        let sig = FnSig {
+            params: vec![], // no explicit params, self is implicit
+            return_type: Some(ret_type),
+            generics: vec![],
+        };
+        let bare_key = format!("{}.{}", type_name, method_name);
+        let key = if module_path.is_empty() { bare_key.clone() } else { format!("{}.{}", module_path, bare_key) };
+        self.functions.insert(key.clone(), sig.clone());
+        if key != bare_key {
+            self.functions.entry(bare_key).or_insert(sig.clone());
+        }
+        self.methods
+            .entry(type_name.to_string())
+            .or_default()
+            .insert(method_name.to_string(), sig);
     }
 
     fn register_all_variant_fields(&mut self, program: &Program) {
@@ -470,6 +505,10 @@ impl Checker {
                 let key = if module_path.is_empty() { td.name.name.clone() } else { format!("{}.{}", module_path, td.name.name) };
                 let bare_key = td.name.name.clone();
                 self.types.insert(key.clone(), fields.clone());
+                // Register derived methods (clone, eq, etc.)
+                for derive_trait in &td.derives {
+                    self.register_derived_method(&td.name.name, module_path, derive_trait);
+                }
                 // Also register with bare name as fallback (don't overwrite existing)
                 if bare_key != key {
                     self.types.entry(bare_key).or_insert(fields);
@@ -1130,10 +1169,15 @@ impl Checker {
                 let right_ty = self.check_expr(right);
                 match op {
                     BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
-                        if !left_ty.is_numeric() {
+                        let is_generic_param = |ty: &CheckedType| -> bool {
+                            if let CheckedType::Named(n) = ty {
+                                n.len() == 1 && n.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+                            } else { false }
+                        };
+                        if !left_ty.is_numeric() && !is_generic_param(&left_ty) {
                             self.error(format!("left operand must be numeric, found {}", left_ty.name()), *span);
                         }
-                        if !right_ty.is_numeric() {
+                        if !right_ty.is_numeric() && !is_generic_param(&right_ty) {
                             self.error(format!("right operand must be numeric, found {}", right_ty.name()), *span);
                         }
                         left_ty // result type is the left operand type (promotion in Phase 1)
@@ -1187,6 +1231,7 @@ impl Checker {
                             CheckedType::Error // unknown type
                         }
                     }
+                    CheckedType::Error => CheckedType::Error, // suppress cascade
                     _ => self.error(
                         format!("cannot access field on non-struct type {}", obj_ty.name()),
                         *span,
@@ -1220,6 +1265,13 @@ impl Checker {
                                 None
                             }
                         }).cloned();
+                        // If not found, try wildcard method lookup (any type with that method)
+                        let sig = sig.or_else(|| {
+                            self.methods.iter()
+                                .find(|(_, methods)| methods.contains_key(&method.name))
+                                .and_then(|(_, methods)| methods.get(&method.name))
+                                .cloned()
+                        });
                         if let Some(sig) = sig {
                             for (i, arg) in args.iter().enumerate() {
                                 let arg_ty = self.check_expr(arg);
@@ -1350,9 +1402,9 @@ impl Checker {
             }
             Expr::Index(arr, idx, _) => {
                 // Check if this is a type parameter expression like Vec[Int] or a real index like v[0]
-                // Type parameter expressions: the container is a known type name and the index is a type identifier
+                // Type parameter expressions: the container is a known type name AND not a local variable
                 if let Expr::Ident(container_ident) = arr.as_ref() {
-                    if self.contains_type(&container_ident.name) || 
+                    let is_type_name = self.contains_type(&container_ident.name) || 
                        container_ident.name == "Vec" || container_ident.name == "Option" || 
                        container_ident.name == "Result" || container_ident.name == "Map" ||
                        container_ident.name == "Set" || container_ident.name == "Stack" ||
@@ -1360,7 +1412,9 @@ impl Checker {
                        container_ident.name == "List" || container_ident.name == "Channel" ||
                        container_ident.name == "Box" || container_ident.name == "Wrapper" ||
                        container_ident.name == "Pair" || container_ident.name == "Counter" ||
-                       container_ident.name == "Range" || container_ident.name == "Nested" {
+                       container_ident.name == "Range" || container_ident.name == "Nested";
+                    let is_local = self.lookup_local(&container_ident.name).is_some();
+                    if is_type_name && !is_local {
                         // Type parameter expression — return the container type
                         return CheckedType::Named(container_ident.name.clone());
                     }
@@ -1370,8 +1424,8 @@ impl Checker {
                 let _ = self.check_expr(idx);
                 match &arr_ty {
                     CheckedType::Named(name) if name == "Vec" => {
-                        // Vec[T][i] -> T (simplified as Int)
-                        CheckedType::Int
+                        // Vec[T][i] -> T (use Vec as placeholder, actual type inferred from usage)
+                        CheckedType::Named("T".into())
                     }
                     _ => CheckedType::Int,
                 }
@@ -1512,6 +1566,9 @@ impl Checker {
         }
         match (found, expected) {
             (CheckedType::Named(a), CheckedType::Named(b)) => a == b,
+            // Function pointer compatibility: Named("fn") is compatible with any Fn type
+            (CheckedType::Named(n), CheckedType::Fn(..)) if n == "fn" => true,
+            (CheckedType::Fn(..), CheckedType::Named(n)) if n == "fn" => true,
             // Numeric promotions
             (CheckedType::Int, CheckedType::Float64) => true,
             (CheckedType::Float64, CheckedType::Int) => true,
