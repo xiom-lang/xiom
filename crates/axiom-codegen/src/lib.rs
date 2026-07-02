@@ -85,10 +85,7 @@ pub struct IrEmitter {
     param_concrete_types: HashMap<String, String>,
     /// LLVM target triple (default: x86_64-pc-windows-msvc)
     target_triple: String,
-    /// Recursion depth tracking for stack overflow prevention
-    #[allow(dead_code)]
-    recursion_depth: u32,
-    /// Maximum allowed recursion depth
+    /// Maximum allowed recursion depth (emitted into LLVM IR as constant)
     max_recursion_depth: u32,
 }
 
@@ -108,9 +105,12 @@ impl IrEmitter {
             strings: Vec::new(),
             current_param_llvm_types: Vec::new(),
             check_contracts: true,
+            max_recursion_depth: 500,
+
+            // Remaining fields use defaults
             generic_fn_decls: Vec::new(),
             generic_instantiations: Vec::new(),
-            has_llvm_trap_decl: true,
+            has_llvm_trap_decl: false,
             self_pre_value: None,
             current_ensures: Vec::new(),
             result_ptr: None,
@@ -122,8 +122,6 @@ impl IrEmitter {
             current_type_map: HashMap::new(),
             param_concrete_types: HashMap::new(),
             target_triple: "x86_64-pc-windows-msvc".to_string(),
-            recursion_depth: 0,
-            max_recursion_depth: 500,
         }
     }
 
@@ -294,7 +292,7 @@ impl IrEmitter {
         self.emitln("declare i32 @printf(i8*, ...)");
         self.emitln("declare i32 @puts(i8*)");
         self.emitln("declare void @llvm.trap()");
-        self.emitln("@axiom_recursion_counter = internal global i64 0");
+        self.emitln("@axiom_recursion_counter = internal thread_local global i64 0");
         self.emitln("declare i8* @malloc(i64)");
         self.emitln("declare i8* @realloc(i8*, i64)");
         self.emitln("declare void @free(i8*)");
@@ -2240,6 +2238,16 @@ impl IrEmitter {
                             self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
                             let data_ptr = self.fresh_tmp();
                             self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 128)"));
+                            // Null check on malloc — trap on OOM
+                            let null_check = self.fresh_tmp();
+                            let ok_block = self.fresh_block("vec_new_malloc_ok");
+                            let trap_block = self.fresh_block("vec_new_malloc_trap");
+                            self.emitln(&format!("  {null_check} = icmp eq i8* {data_ptr}, null"));
+                            self.emitln(&format!("  br i1 {null_check}, label %{trap_block}, label %{ok_block}"));
+                            self.emitln(&format!("\n{trap_block}:"));
+                            self.emitln("  call void @llvm.trap()");
+                            self.emitln("  unreachable");
+                            self.emitln(&format!("\n{ok_block}:"));
                             let data_gep = self.fresh_tmp();
                             self.emitln(&format!("  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 0"));
                             self.emitln(&format!("  store i8* {data_ptr}, i8** {data_gep}"));
@@ -2287,6 +2295,16 @@ impl IrEmitter {
                         self.emitln(&format!("  {grow_data_ptr} = load i8*, i8** {grow_data_gep}"));
                         let new_data = self.fresh_tmp();
                         self.emitln(&format!("  {new_data} = call i8* @realloc(i8* {grow_data_ptr}, i64 {new_size})"));
+                        // Null check on realloc — trap on OOM
+                        let grow_null_check = self.fresh_tmp();
+                        let grow_ok_block = self.fresh_block("vec_realloc_ok");
+                        let grow_trap_block = self.fresh_block("vec_realloc_trap");
+                        self.emitln(&format!("  {grow_null_check} = icmp eq i8* {new_data}, null"));
+                        self.emitln(&format!("  br i1 {grow_null_check}, label %{grow_trap_block}, label %{grow_ok_block}"));
+                        self.emitln(&format!("\n{grow_trap_block}:"));
+                        self.emitln("  call void @llvm.trap()");
+                        self.emitln("  unreachable");
+                        self.emitln(&format!("\n{grow_ok_block}:"));
                         self.emitln(&format!("  store i8* {new_data}, i8** {grow_data_gep}"));
                         let grow_cap_gep = self.fresh_tmp();
                         self.emitln(&format!("  {grow_cap_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 2"));

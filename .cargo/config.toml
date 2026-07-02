@@ -1,13 +1,16 @@
 # Increase stack size for large multi-file benchmarks (30 files, 1000+ functions)
 # Default 1MB stack overflows during type-checking and codegen recursion
-[target.x86_64-pc-windows-msvc]
+[target.'cfg(all(target_os = "windows", target_arch = "x86_64"))']
 rustflags = ["-C", "link-args=/STACK:16777216"]
 
-[target.x86_64-unknown-linux-gnu]
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))']
 rustflags = ["-C", "link-args=-Wl,-z,stack-size=16777216"]
 
-[target.x86_64-apple-darwin]
+[target.'cfg(all(target_os = "linux", target_arch = "aarch64"))']
+rustflags = ["-C", "link-args=-Wl,-z,stack-size=16777216"]
+
+[target.'cfg(all(target_os = "macos", target_arch = "x86_64"))']
 rustflags = ["-C", "link-args=-Wl,-stack_size,0x1000000"]
 
-[target.aarch64-apple-darwin]
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))']
 rustflags = ["-C", "link-args=-Wl,-stack_size,0x1000000"]
