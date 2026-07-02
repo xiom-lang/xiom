@@ -20,7 +20,7 @@ pub enum TokenKind {
     Module, Use, Pub, As,
     Type, Enum, Interface, Derive,
     Requires, Ensures, Invariant,
-    True, False, Self_, Result_,
+    True, False, Self_,
     Some, None, Ok_, Err_,
     Unsafe, Extern, Is,
 
@@ -366,7 +366,7 @@ impl Lexer {
             "true"      => TokenKind::True,
             "false"     => TokenKind::False,
             "self"      => TokenKind::Self_,
-            "result"    => TokenKind::Result_,
+
             "Some"      => TokenKind::Some,
             "None"      => TokenKind::None,
             "Ok"        => TokenKind::Ok_,
@@ -407,7 +407,7 @@ mod tests {
 
     #[test]
     fn test_keywords() {
-        let tokens = lex("let var const fn return if elif else match while for in spawn async await comptime module use pub as type enum interface derive requires ensures invariant true false self result");
+        let tokens = lex("let var const fn return if elif else match while for in spawn async await comptime module use pub as type enum interface derive requires ensures invariant true false self");
         assert!(tokens.iter().any(|t| matches!(t, TokenKind::Let)));
         assert!(tokens.iter().any(|t| matches!(t, TokenKind::Fn)));
         assert!(tokens.iter().any(|t| matches!(t, TokenKind::Interface)));
@@ -417,9 +417,10 @@ mod tests {
 
     #[test]
     fn test_identifiers() {
-        let tokens = lex("foo bar_baz Point Vec3 new");
+        let tokens = lex("foo bar_baz Point Vec3 new result");
         assert!(matches!(&tokens[0], TokenKind::Ident(s) if s == "foo"));
         assert!(matches!(&tokens[4], TokenKind::Ident(s) if s == "new"));
+        assert!(matches!(&tokens[5], TokenKind::Ident(s) if s == "result"));
     }
 
     #[test]

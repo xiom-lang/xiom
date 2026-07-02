@@ -236,6 +236,35 @@ impl Checker {
         res.insert("value".to_string(), CheckedType::Int);
         res.insert("error".to_string(), CheckedType::Int);
         self.types.insert("Result".to_string(), res);
+
+        // Vec builtin methods
+        self.functions.insert("Vec.new".to_string(), FnSig {
+            params: vec![],
+            return_type: Some(CheckedType::Named("Vec".into())),
+            generics: vec![],
+        });
+        self.functions.insert("Vec.push".to_string(), FnSig {
+            params: vec![
+                ("self".to_string(), CheckedType::Named("Vec".into())),
+                ("val".to_string(), CheckedType::Int),
+            ],
+            return_type: Some(CheckedType::Unit),
+            generics: vec![],
+        });
+        self.functions.insert("Vec.len".to_string(), FnSig {
+            params: vec![
+                ("self".to_string(), CheckedType::Named("Vec".into())),
+            ],
+            return_type: Some(CheckedType::Int),
+            generics: vec![],
+        });
+        self.functions.insert("Vec.pop".to_string(), FnSig {
+            params: vec![
+                ("self".to_string(), CheckedType::Named("Vec".into())),
+            ],
+            return_type: Some(CheckedType::Named("Option".into())),
+            generics: vec![],
+        });
     }
 
     fn push_scope(&mut self) {
@@ -668,6 +697,16 @@ impl Checker {
             self.add_local(&param.name.name, CheckedType::from_ast_type(&param.ty));
         }
 
+        // For methods, inject the receiver's fields into scope (implicit self)
+        if let Some(recv) = fd.receiver.as_ref() {
+            let fields_clone = self.types.get(&recv.name).cloned();
+            if let Some(fields) = fields_clone {
+                for (field_name, field_ty) in fields {
+                    self.add_local(&field_name, field_ty);
+                }
+            }
+        }
+
         // Set expected return type
         let expected_return = fd.return_type.as_ref().map(|t| CheckedType::from_ast_type(t));
         self.current_return = expected_return.clone();
@@ -682,11 +721,16 @@ impl Checker {
 
     fn check_block(&mut self, block: &Block, expected_return: Option<CheckedType>) -> Option<CheckedType> {
         let mut last_expr_ty = None;
+        let mut has_return = false;
 
         for item in &block.stmts {
             match item {
                 StmtOrExpr::Stmt(stmt) => {
                     self.check_stmt(stmt);
+                    if matches!(stmt, Stmt::Return(..)) {
+                        has_return = true;
+                        last_expr_ty = None; // return already checked, don't double-check
+                    }
                 }
                 StmtOrExpr::Expr(expr) => {
                     last_expr_ty = Some(self.check_expr(expr));
@@ -694,15 +738,18 @@ impl Checker {
             }
         }
 
-        // If this block is the function body, check return type
+        // If this block is the function body and has a return, skip the return type check
+        // (return statements are already checked individually)
         if let Some(expected) = expected_return {
-            if let Some(found) = &last_expr_ty {
-                if found != &CheckedType::Error && expected != CheckedType::Error {
-                    if !self.types_compatible(found, &expected) {
-                        self.error(
-                            format!("return type mismatch: expected {}, found {}", expected.name(), found.name()),
-                            block.span,
-                        );
+            if !has_return {
+                if let Some(found) = &last_expr_ty {
+                    if found != &CheckedType::Error && expected != CheckedType::Error {
+                        if !self.types_compatible(found, &expected) {
+                            self.error(
+                                format!("return type mismatch: expected {}, found {}", expected.name(), found.name()),
+                                block.span,
+                            );
+                        }
                     }
                 }
             } else if expected != CheckedType::Unit {
@@ -1079,7 +1126,34 @@ impl Checker {
                 // Fallback: could be a method call or unknown function
                 CheckedType::Unit
             }
-            Expr::Index(_, _, _) => CheckedType::Int, // simplified
+            Expr::Index(arr, idx, _) => {
+                // Check if this is a type parameter expression like Vec[Int] or a real index like v[0]
+                // Type parameter expressions: the container is a known type name and the index is a type identifier
+                if let Expr::Ident(container_ident) = arr.as_ref() {
+                    if self.types.contains_key(&container_ident.name) || 
+                       container_ident.name == "Vec" || container_ident.name == "Option" || 
+                       container_ident.name == "Result" || container_ident.name == "Map" ||
+                       container_ident.name == "Set" || container_ident.name == "Stack" ||
+                       container_ident.name == "Queue" || container_ident.name == "BST" ||
+                       container_ident.name == "List" || container_ident.name == "Channel" ||
+                       container_ident.name == "Box" || container_ident.name == "Wrapper" ||
+                       container_ident.name == "Pair" || container_ident.name == "Counter" ||
+                       container_ident.name == "Range" || container_ident.name == "Nested" {
+                        // Type parameter expression — return the container type
+                        return CheckedType::Named(container_ident.name.clone());
+                    }
+                }
+                // Regular index: arr[idx]
+                let arr_ty = self.check_expr(arr);
+                let _ = self.check_expr(idx);
+                match &arr_ty {
+                    CheckedType::Named(name) if name == "Vec" => {
+                        // Vec[T][i] -> T (simplified as Int)
+                        CheckedType::Int
+                    }
+                    _ => CheckedType::Int,
+                }
+            }
             Expr::AtPre(inner, _) => self.check_expr(inner),
             Expr::Ref(inner, _) | Expr::MutRef(inner, _) => self.check_expr(inner),
             Expr::Some(inner, _) => {
