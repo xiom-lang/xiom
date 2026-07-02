@@ -60,7 +60,6 @@ fn main() {
 
     // ── Stage 1: Lex & Parse ──────────────────────────────
     let mut all_programs: Vec<axiom_ast::Program> = Vec::new();
-    let mut source_label = "<unknown>".to_string();
 
     for source_path in &source_paths {
         let file_name = Path::new(source_path).file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -69,8 +68,6 @@ fn main() {
         let source = fs::read_to_string(source_path)
             .map_err(|e| format!("cannot read '{source_path}': {e}"))
             .unwrap_or_else(|e| { eprintln!("error: {e}"); process::exit(1); });
-        
-        source_label = source_path.clone();
         
         let mut lexer = Lexer::new(&source);
         let tokens = lexer.tokenize();
@@ -540,60 +537,6 @@ fn parse_package_manifest(path: &str) -> Result<Vec<String>, String> {
     }
 
     Ok(modules)
-}
-
-/// Build a concatenated source string from multiple `.ax` files,
-/// wrapping each file's content inside nested module blocks derived
-/// from its `module` declaration.
-fn build_concatenated_source(files: &[String]) -> Result<String, String> {
-    let mut result = String::from("module benchmark {\n");
-
-    for file_path in files {
-        let file_name = Path::new(file_path).file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if file_name == "package.ax" { continue; }
-
-        let source = fs::read_to_string(file_path).map_err(|e| format!("cannot read '{file_path}': {e}"))?;
-        let module_path = extract_module_path(&source);
-
-        if let Some(_path) = module_path {
-            let body = strip_module_decl(&source);
-
-            // Emit body with single-level indent (inside `module benchmark {`)
-            for line in body.lines() {
-                result.push_str("  ");
-                result.push_str(line);
-                result.push('\n');
-            }
-        }
-    }
-
-    result.push_str("}\n");
-    Ok(result)
-}
-
-/// Strip the module declaration line and any leading content (e.g. copyright header)
-/// from a source file, returning only the code body after the `module` line.
-fn strip_module_decl(source: &str) -> String {
-    let mut result = String::new();
-    let mut found_module = false;
-    for line in source.lines() {
-        let trimmed = line.trim();
-        if !found_module {
-            // Skip blank lines and comment lines before the module declaration
-            if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*') {
-                continue;
-            }
-            if trimmed.starts_with("module ") {
-                found_module = true;
-                continue;
-            }
-            // If we hit non-comment, non-module content before module declaration, include it
-            found_module = true;
-        }
-        result.push_str(line);
-        result.push('\n');
-    }
-    result
 }
 
 fn print_usage() {
