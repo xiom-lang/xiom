@@ -511,10 +511,19 @@ impl Parser {
 
     fn parse_param(&mut self) -> Result<Param, ParseError> {
         let span = self.peek().span;
+        // Check for 'mut' keyword on parameters
         let name = self.parse_ident()?;
-        self.expect_kind(TokenKind::Colon, "':'")?;
-        let ty = self.parse_type()?;
-        Ok(Param { name, ty, span })
+        if name.name == "mut" {
+            // mut parameter — parse the real name
+            let name = self.parse_ident()?;
+            self.expect_kind(TokenKind::Colon, "':'")?;
+            let ty = self.parse_type()?;
+            Ok(Param { name, ty, span })
+        } else {
+            self.expect_kind(TokenKind::Colon, "':'")?;
+            let ty = self.parse_type()?;
+            Ok(Param { name, ty, span })
+        }
     }
 
     fn parse_optional_generic_params(&mut self) -> Result<Vec<GenericParam>, ParseError> {
@@ -1526,6 +1535,10 @@ impl Parser {
     fn parse_arg_list(&mut self) -> Result<Vec<Expr>, ParseError> {
         let mut args = vec![self.parse_expr()?];
         while self.skip(TokenKind::Comma) {
+            // Allow trailing comma before )
+            if self.peek_kind() == &TokenKind::RParen {
+                break;
+            }
             args.push(self.parse_expr()?);
         }
         Ok(args)
