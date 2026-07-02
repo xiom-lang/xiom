@@ -638,6 +638,26 @@ impl Parser {
             return Err(self.error("expected integer for fixed array size"));
         }
 
+        // Function pointer type: fn(T, U) -> V
+        if self.peek_kind() == &TokenKind::Fn {
+            self.advance();
+            self.expect_kind(TokenKind::LParen, "'('")?;
+            let mut param_types = Vec::new();
+            if self.peek_kind() != &TokenKind::RParen {
+                param_types.push(self.parse_type()?);
+                while self.skip(TokenKind::Comma) {
+                    param_types.push(self.parse_type()?);
+                }
+            }
+            self.expect_kind(TokenKind::RParen, "')'")?;
+            let ret = if self.skip(TokenKind::Arrow) {
+                self.parse_type()?
+            } else {
+                Type::Named(Ident::new("Unit", Span::new(0, 0)), vec![])
+            };
+            return Ok(Type::Fn(param_types, Box::new(ret)));
+        }
+
         // Named type with optional generics: TypeName or TypeName[T, U]
         let name = self.parse_ident()?;
         let args = if self.skip(TokenKind::LBracket) {
@@ -1081,6 +1101,12 @@ impl Parser {
                         return Err(self.error("expected 'pre' after '@'"));
                     }
                 }
+                TokenKind::As => {
+                    self.advance();
+                    let ty = self.parse_type()?;
+                    let span = expr.span();
+                    expr = Expr::As(Box::new(expr), ty, span);
+                }
                 _ => break,
             }
         }
@@ -1166,8 +1192,13 @@ impl Parser {
                     self.expect_kind(TokenKind::RParen, "')'")?;
                     p
                 };
+                let ret_ty = if self.skip(TokenKind::Arrow) {
+                    Some(Box::new(self.parse_type()?))
+                } else {
+                    None
+                };
                 let body = self.parse_block()?;
-                Ok(Expr::Closure(params, body, span))
+                Ok(Expr::Closure(params, ret_ty, body, span))
             }
             TokenKind::Pipe => {
                 self.advance(); // skip |
@@ -1215,9 +1246,13 @@ impl Parser {
                 // could be a field name (identifier or }) — not a keyword like return/if/let
                 if self.check(|k| matches!(k, TokenKind::LBrace)) {
                     let after_brace = self.peek_ahead(1);
-                    let looks_like_struct = matches!(after_brace,
-                        Some(TokenKind::Ident(_)) | Some(TokenKind::RBrace)
-                    );
+                    let looks_like_struct = match after_brace {
+                        Some(TokenKind::RBrace) => true,
+                        Some(TokenKind::Ident(_)) => {
+                            matches!(self.peek_ahead(2), Some(TokenKind::Colon))
+                        }
+                        _ => false,
+                    };
                     if looks_like_struct {
                         self.expect_kind(TokenKind::LBrace, "'{'")?;
                         let mut fields = Vec::new();
@@ -1252,6 +1287,8 @@ impl Parser {
         let tok = self.advance();
         match &tok.kind {
             TokenKind::Ident(name) => Ok(Ident::new(name.clone(), tok.span)),
+            // Allow keyword-like identifiers that can appear as variable names
+            TokenKind::Result_ => Ok(Ident::new("result".to_string(), tok.span)),
             _ => {
                 let lexeme = tok.lexeme.clone();
                 Err(self.error(format!("expected identifier, found '{lexeme}'")))
@@ -1597,5 +1634,25 @@ mod tests {
             }
             _ => panic!("expected function"),
         }
+    }
+
+    #[test]
+    fn test_while_with_param_rhs() {
+        let result = parse("fn test(n: Int) { var i = 0; while i < n { i = i + 1; } }");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_fn_type_in_param() {
+        let src = "fn trapezoidal(f: fn(Float64) -> Float64, a: Float64, b: Float64) -> Float64 { return 0.0; }";
+        let result = parse(src);
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_closure_with_return_type() {
+        let src = "fn foo() { var d = fn(x: Int) -> Int { return x * 2; }; }";
+        let result = parse(src);
+        assert!(result.is_ok(), "{:?}", result.err());
     }
 }

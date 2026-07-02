@@ -563,6 +563,10 @@ fn type_to_string(ty: &axiom_ast::Type) -> String {
         }
         axiom_ast::Type::Ptr(t) => format!("*{}", type_to_string(t)),
         axiom_ast::Type::Array(_, _) => "Array".to_string(),
+        axiom_ast::Type::Fn(params, ret) => {
+            let params_str: Vec<String> = params.iter().map(type_to_string).collect();
+            format!("fn({}) -> {}", params_str.join(", "), type_to_string(ret))
+        }
     }
 }
 

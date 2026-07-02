@@ -435,7 +435,7 @@ impl Formatter {
                 self.format_expr(inner);
                 self.buf.push(')');
             }
-            Expr::Closure(params, body, _) => {
+            Expr::Closure(params, ret_ty, body, _) => {
                 self.buf.push_str("fn(");
                 for (i, p) in params.iter().enumerate() {
                     if i > 0 { self.buf.push_str(", "); }
@@ -443,7 +443,12 @@ impl Formatter {
                     self.buf.push_str(": ");
                     self.format_type(&p.ty);
                 }
-                self.buf.push_str(") {\n");
+                self.buf.push(')');
+                if let Some(rt) = ret_ty {
+                    self.buf.push_str(" -> ");
+                    self.format_type(rt);
+                }
+                self.buf.push_str(" {\n");
                 self.indent += 1;
                 self.format_block(body);
                 self.indent -= 1;
@@ -466,6 +471,11 @@ impl Formatter {
             Expr::Comptime(inner, _) => {
                 self.buf.push_str("comptime ");
                 self.format_expr(inner);
+            }
+            Expr::As(inner, ty, _) => {
+                self.format_expr(inner);
+                self.buf.push_str(" as ");
+                self.format_type(ty);
             }
         }
     }
@@ -542,6 +552,15 @@ impl Formatter {
                 self.format_expr(size);
                 self.buf.push(']');
                 self.format_type(inner);
+            }
+            Type::Fn(params, ret) => {
+                self.buf.push_str("fn(");
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 { self.buf.push_str(", "); }
+                    self.format_type(p);
+                }
+                self.buf.push_str(") -> ");
+                self.format_type(ret);
             }
         }
     }

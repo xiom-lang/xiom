@@ -2682,7 +2682,24 @@ impl IrEmitter {
                 Ok(loaded)
             }
             Expr::Array(_, _) => Ok("0".to_string()),
-            Expr::Closure(_, _, _) | Expr::PipeClosure(_, _, _) => Ok("0".to_string()),
+            Expr::Closure(_, _, _, _) | Expr::PipeClosure(_, _, _) => Ok("0".to_string()),
+            Expr::As(inner, ty, _) => {
+                let val = self.compile_expr(inner)?;
+                let inner_llvm_ty = self.infer_llvm_type(inner);
+                let target_llvm_ty = self.llvm_type_for(&Self::type_from_ast(ty));
+                let tmp = self.fresh_tmp();
+                match (inner_llvm_ty.as_str(), target_llvm_ty.as_str()) {
+                    ("i64", "double") => {
+                        self.emitln(&format!("  {tmp} = sitofp i64 {val} to double"));
+                        Ok(tmp)
+                    }
+                    ("double", "i64") => {
+                        self.emitln(&format!("  {tmp} = fptosi double {val} to i64"));
+                        Ok(tmp)
+                    }
+                    _ => Ok(val),
+                }
+            }
             Expr::Await(inner, _) => self.compile_expr(inner),
             Expr::Comptime(inner, _) => self.compile_expr(inner),
         }
@@ -2772,6 +2789,7 @@ impl IrEmitter {
                     }
                 }
             }
+            Expr::As(_, ty, _) => self.llvm_type_for(&Self::type_from_ast(ty)),
             _ => "i64".to_string(),
         }
     }
@@ -2802,6 +2820,7 @@ impl IrEmitter {
                 }
                 false
             }
+            Expr::As(_, ty, _) => Self::type_from_ast(ty) == "Float64" || Self::type_from_ast(ty) == "Float32",
             _ => false,
         }
     }
