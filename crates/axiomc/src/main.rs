@@ -34,7 +34,7 @@ fn main() {
     }
 
     if args.iter().any(|a| a == "--version") {
-        println!("AXIOM Compiler v0.12.0 \"Production\" -- Self-Hosted");
+        println!("AXIOM Compiler v0.20.0 \"Hardened\" -- Multi-File + Safety Fixes");
         return;
     }
 
@@ -257,9 +257,9 @@ fn main() {
             }
             cmd.args(["-o", output, &ir_path]);
 
-            let status = cmd.status();
-            match status {
-                Ok(s) if s.success() => {
+            let clang_output = cmd.output();
+            match clang_output {
+                Ok(out) if out.status.success() => {
                     let _ = fs::remove_file(&ir_path);
                     eprintln!("  compiled: {output}");
 
@@ -285,8 +285,17 @@ fn main() {
                         }
                     }
                 }
-                Ok(s) => {
-                    eprintln!("error: clang failed with exit code {}", s.code().unwrap_or(-1));
+                Ok(out) => {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    eprintln!("error: clang failed with exit code {}", out.status.code().unwrap_or(-1));
+                    // Detect common failures and give actionable advice
+                    if stderr.contains("stdio.h") || stderr.contains("fatal error") {
+                        eprintln!("  → Missing C standard library headers (stdio.h).");
+                        eprintln!("  → Install Visual Studio 2022 Build Tools with 'Desktop development with C++':");
+                        eprintln!("      winget install Microsoft.VisualStudio.2022.BuildTools");
+                        eprintln!("    Or run: .\\install_deps.ps1");
+                    }
+                    eprintln!("  stderr: {}", stderr.trim());
                     process::exit(1);
                 }
                 Err(e) => {
@@ -632,10 +641,27 @@ fn parse_flag_value(args: &[String], flag: &str) -> Option<String> {
 }
 
 fn find_runtime_c() -> Option<String> {
-    let candidates = [
-        "stdlib\\runtime\\axiom_runtime.c",
-        "stdlib/runtime/axiom_runtime.c",
-    ];
+    // Search paths — ordered by priority:
+    // 1. Relative to CWD (development: running from repo root)
+    // 2. Relative to the axiomc.exe binary (installed: %LOCALAPPDATA%\axiom\bin\)
+    // 3. Absolute Windows SDK paths
+    let candidates: Vec<String> = {
+        let mut paths = vec![
+            "stdlib\\runtime\\axiom_runtime.c".to_string(),
+            "stdlib/runtime/axiom_runtime.c".to_string(),
+        ];
+        // Installed path: bin/../runtime/axiom_runtime.c
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(exe_dir) = exe.parent() {
+                // Look in ../runtime/ relative to bin/
+                if let Some(parent) = exe_dir.parent() {
+                    paths.push(format!("{}/runtime/axiom_runtime.c", parent.display()));
+                    paths.push(format!("{}\\runtime\\axiom_runtime.c", parent.display()));
+                }
+            }
+        }
+        paths
+    };
     for candidate in &candidates {
         if std::path::Path::new(candidate).exists() {
             return Some(candidate.to_string());

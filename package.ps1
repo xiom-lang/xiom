@@ -60,6 +60,14 @@ Write-Host "    + stdlib/ -> lib/" -ForegroundColor DarkGray
 Copy-Item "$root\stdlib\runtime\axiom_runtime.c" "$rtDir\" -Force
 Write-Host "    + axiom_runtime.c -> runtime/" -ForegroundColor DarkGray
 
+# ── Copy documentation ─────────────────────────────────────────────────
+$docsDir = "$pkgDir\docs"
+if (Test-Path "$root\docs\language\html") {
+    New-Item -ItemType Directory -Force -Path $docsDir | Out-Null
+    Copy-Item "$root\docs\language\html\*" "$docsDir\" -Recurse -Force
+    Write-Host "    + docs/ (API reference)" -ForegroundColor DarkGray
+}
+
 # ── Create install.bat (portable CLI installer) ────────────────────────
 @"
 @echo off
@@ -103,6 +111,16 @@ if exist "%~dp0runtime\" (
     echo     + Runtime installed
 )
 
+:: Install documentation (optional)
+if exist "%~dp0docs\" (
+    echo.
+    set /p INSTALL_DOCS="  Install API documentation? [Y/n]: "
+    if /i not "!INSTALL_DOCS!"=="n" if /i not "!INSTALL_DOCS!"=="N" (
+        xcopy /Y /E /Q "%~dp0docs\*" "!AXIOM_DIR!\docs\" >nul 2>nul
+        echo     + Documentation installed ^(open !AXIOM_DIR!\docs\index.html^)
+    )
+)
+
 :: ── Create axiom.bat wrapper ──────────────────────────────────────────
 (
 echo @echo off
@@ -125,21 +143,17 @@ set /p ADD_PATH="  Add to user PATH? [Y/n]: "
 if /i "!ADD_PATH!"=="n" goto :skip_path
 if /i "!ADD_PATH!"=="N" goto :skip_path
 
-for /f "usebackq tokens=2,*" %%A in (`reg query HKCU\Environment /v PATH 2^>nul`) do set "USER_PATH=%%B"
-if "!USER_PATH!"=="" set "USER_PATH="
-echo !USER_PATH! | find /i "!AXIOM_BIN!" >nul
-if errorlevel 1 (
-    if "!USER_PATH!"=="" (
-        setx PATH "!AXIOM_BIN!" >nul
-    ) else (
-        setx PATH "!USER_PATH!;!AXIOM_BIN!" >nul
-    )
-    echo     + Added to PATH ^(restart terminal to take effect^)
+:: Use reg add instead of setx (setx truncates at 1024 chars)
+for /f "usebackq tokens=2,*" %%A in (`reg query HKCU\Environment /v PATH 2^>nul`) do set "CUR_PATH=%%B"
+if "!CUR_PATH!"=="" (
+    reg add HKCU\Environment /v PATH /t REG_EXPAND_SZ /d "!AXIOM_BIN!" /f >nul 2>nul
 ) else (
-    echo     - Already in PATH
+    echo !CUR_PATH! | find /i "!AXIOM_BIN!" >nul 2>nul
+    if errorlevel 1 (
+        reg add HKCU\Environment /v PATH /t REG_EXPAND_SZ /d "!CUR_PATH!;!AXIOM_BIN!" /f >nul 2>nul
+    )
 )
-
-:skip_path
+echo     + Added to PATH ^(restart terminal to take effect^)
 
 :: ── Register .ax file icon ────────────────────────────────────────────
 echo.
