@@ -765,6 +765,7 @@ impl IrEmitter {
                 }
                 None
             }
+            Expr::Tuple(_, _) => None,
             Expr::Some(_, _) => {
                 // Some(x) produces Option[T] — not a struct with user invariants
                 None
@@ -1827,6 +1828,17 @@ impl IrEmitter {
                 // Phase 0: simplified for — just execute body once
                 self.compile_block(body, false)?;
             }
+            Stmt::Destructure(names, value, _) => {
+                let val = self.compile_expr(value)?;
+                let llvm_ty = self.infer_llvm_type(value);
+                // Allocate each name and share the same storage (no individual extraction)
+                for name in names {
+                    let alloca = self.fresh_tmp();
+                    self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
+                    self.emitln(&format!("  store {llvm_ty} {val}, {llvm_ty}* {alloca}"));
+                    self.add_local(&name.name, alloca, &llvm_ty);
+                }
+            }
             Stmt::Spawn(body, _) => {
                 self.compile_block(body, false)?;
             }
@@ -1872,6 +1884,17 @@ impl IrEmitter {
                 Ok(format!("{}", *c as u32))
             }
             Expr::Paren(inner, _) => self.compile_expr(inner),
+            Expr::Tuple(items, _) => {
+                if items.is_empty() {
+                    Ok("0".to_string())
+                } else {
+                    let mut last = "0".to_string();
+                    for item in items {
+                        last = self.compile_expr(item)?;
+                    }
+                    Ok(last)
+                }
+            }
             Expr::Unary(op, inner, _) => {
                 let val = self.compile_expr(inner)?;
                 let tmp = self.fresh_tmp();
@@ -2702,6 +2725,23 @@ impl IrEmitter {
             }
             Expr::Await(inner, _) => self.compile_expr(inner),
             Expr::Comptime(inner, _) => self.compile_expr(inner),
+            Expr::If(cond, then_block, elifs, else_block, _) => {
+                self.compile_expr(cond)?;
+                for stmt in &then_block.stmts {
+                    match stmt { axiom_ast::StmtOrExpr::Expr(e) => { self.compile_expr(e)?; } _ => {} }
+                }
+                for (_econd, eblock) in elifs {
+                    for stmt in &eblock.stmts {
+                        match stmt { axiom_ast::StmtOrExpr::Expr(e) => { self.compile_expr(e)?; } _ => {} }
+                    }
+                }
+                if let Some(eb) = else_block {
+                    for stmt in &eb.stmts {
+                        match stmt { axiom_ast::StmtOrExpr::Expr(e) => { self.compile_expr(e)?; } _ => {} }
+                    }
+                }
+                Ok(String::new())
+            }
         }
     }
 
@@ -2773,6 +2813,9 @@ impl IrEmitter {
                 }
             }
             Expr::Paren(inner, _) => self.infer_llvm_type(inner),
+            Expr::Tuple(items, _) => {
+                if items.is_empty() { "i64".to_string() } else { self.infer_llvm_type(&items[items.len() - 1]) }
+            }
             Expr::Unary(op, inner, _) => {
                 match op {
                     UnaryOp::Not => "i64".to_string(),
@@ -2801,6 +2844,7 @@ impl IrEmitter {
             Expr::Ident(_) => is_float_local(expr, &self.locals),
             Expr::Binary(left, _, right, _) => self.is_float_expr(left) || self.is_float_expr(right),
             Expr::Paren(inner, _) => self.is_float_expr(inner),
+            Expr::Tuple(items, _) => items.iter().any(|i| self.is_float_expr(i)),
             Expr::Unary(_, inner, _) => self.is_float_expr(inner),
             Expr::Field(obj, field, _) => {
                 if self.is_float_expr(obj) {

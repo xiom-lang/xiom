@@ -260,6 +260,16 @@ impl Formatter {
                 self.push_indent();
                 self.buf.push_str("}\n");
             }
+            Stmt::Destructure(names, val, _) => {
+                self.buf.push_str("var (");
+                for (i, n) in names.iter().enumerate() {
+                    if i > 0 { self.buf.push_str(", "); }
+                    self.buf.push_str(&n.name);
+                }
+                self.buf.push_str(") = ");
+                self.format_expr(val);
+                self.buf.push_str(";\n");
+            }
         }
     }
 
@@ -321,6 +331,14 @@ impl Formatter {
             Expr::Paren(inner, _) => {
                 self.buf.push('(');
                 self.format_expr(inner);
+                self.buf.push(')');
+            }
+            Expr::Tuple(items, _) => {
+                self.buf.push('(');
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 { self.buf.push_str(", "); }
+                    self.format_expr(item);
+                }
                 self.buf.push(')');
             }
             Expr::Unary(op, inner, _) => {
@@ -477,6 +495,22 @@ impl Formatter {
                 self.buf.push_str(" as ");
                 self.format_type(ty);
             }
+            Expr::If(cond, then_block, elifs, else_block, _) => {
+                self.buf.push_str("if ");
+                self.format_expr(cond);
+                self.buf.push(' ');
+                self.format_block(then_block);
+                for (econd, eblock) in elifs {
+                    self.buf.push_str(" elif ");
+                    self.format_expr(econd);
+                    self.buf.push(' ');
+                    self.format_block(eblock);
+                }
+                if let Some(eblock) = else_block {
+                    self.buf.push_str(" else ");
+                    self.format_block(eblock);
+                }
+            }
         }
     }
 
@@ -583,6 +617,12 @@ impl Formatter {
                 }
             }
             self.buf.push(']');
+        }
+        if let Some(alias) = &td.alias {
+            self.buf.push_str(" = ");
+            self.format_type(alias);
+            self.buf.push_str(";\n");
+            return;
         }
         self.buf.push_str(" = {\n");
         self.indent += 1;

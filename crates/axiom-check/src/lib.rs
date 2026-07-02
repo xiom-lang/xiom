@@ -31,6 +31,8 @@ pub enum CheckedType {
     Named(String),
     /// A generic type parameter (still unresolved)
     Generic(String),
+    /// Function pointer type: fn(T, U) -> V
+    Fn(Vec<CheckedType>, Box<CheckedType>),
     /// Error type — used when type checking fails
     Error,
 }
@@ -54,7 +56,10 @@ impl CheckedType {
             }
             Type::Ptr(_) => CheckedType::Named("Ptr".into()),
             Type::Array(_, _) => CheckedType::Named("Array".into()),
-            Type::Fn(_, _) => CheckedType::Named("fn".into()),
+            Type::Fn(params, ret) => CheckedType::Fn(
+                params.iter().map(CheckedType::from_ast_type).collect(),
+                Box::new(CheckedType::from_ast_type(ret)),
+            ),
         }
     }
 
@@ -119,6 +124,10 @@ impl CheckedType {
             CheckedType::Unit => "()".into(),
             CheckedType::Never => "!".into(),
             CheckedType::Named(s) => s.clone(),
+            CheckedType::Fn(params, ret) => {
+                let params_str: Vec<String> = params.iter().map(|p| p.name()).collect();
+                format!("fn({}) -> {}", params_str.join(", "), ret.name())
+            }
             CheckedType::Generic(s) => s.clone(),
             CheckedType::Error => "<error>".into(),
         }
@@ -780,6 +789,12 @@ impl Checker {
                 self.add_local(&var.name, CheckedType::Int); // simplified
                 self.check_block(body, None);
             }
+            Stmt::Destructure(names, value, _) => {
+                let val_ty = self.check_expr(value);
+                for name in names {
+                    self.add_local(&name.name, val_ty.clone());
+                }
+            }
             Stmt::Spawn(body, _) => {
                 self.check_block(body, None);
             }
@@ -815,6 +830,13 @@ impl Checker {
             Expr::Char(_, _) => CheckedType::Char,
             Expr::Bool(_, _) => CheckedType::Bool,
             Expr::Paren(inner, _) => self.check_expr(inner),
+            Expr::Tuple(items, _) => {
+                let mut last = CheckedType::Unit;
+                for item in items {
+                    last = self.check_expr(item);
+                }
+                last
+            }
             Expr::Unary(op, inner, span) => {
                 let inner_ty = self.check_expr(inner);
                 match op {
@@ -1015,6 +1037,24 @@ impl Checker {
                         }
                     }
                 }
+                // Check if callee evaluates to a function pointer type
+                let callee_ty = self.check_expr(func);
+                if let CheckedType::Fn(param_types, ret_ty) = &callee_ty {
+                    for (i, arg) in args.iter().enumerate() {
+                        let arg_ty = self.check_expr(arg);
+                        if i < param_types.len() {
+                            let expected = &param_types[i];
+                            if !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
+                                self.error(
+                                    format!("argument {} type mismatch: expected {}, found {}",
+                                        i + 1, expected.name(), arg_ty.name()),
+                                    *span,
+                                );
+                            }
+                        }
+                    }
+                    return *ret_ty.clone();
+                }
                 // Fallback: could be a method call or unknown function
                 CheckedType::Unit
             }
@@ -1094,6 +1134,16 @@ impl Checker {
             }
             Expr::Await(inner, _) => self.check_expr(inner),
             Expr::Comptime(inner, _) => self.check_expr(inner),
+            Expr::If(cond, then_block, elifs, else_block, _) => {
+                self.check_expr(cond);
+                self.check_block(then_block, None);
+                for (econd, eblock) in elifs {
+                    self.check_expr(econd);
+                    self.check_block(eblock, None);
+                }
+                if let Some(eb) = else_block { self.check_block(eb, None); }
+                CheckedType::Named("_".into())
+            }
         }
     }
 
@@ -1501,6 +1551,19 @@ impl BorrowChecker {
                 self.check_block(body);
                 self.pop_scope();
             }
+            Stmt::Destructure(names, value, _) => {
+                let _ = self.check_expr(value);
+                if let Expr::Ident(ident) = value {
+                    if self.param_names.contains(&ident.name) {
+                        self.read_borrow(&ident.name, ident.span);
+                    } else {
+                        self.move_var(&ident.name, ident.span);
+                    }
+                }
+                for name in names {
+                    self.add_local(&name.name, true);
+                }
+            }
             Stmt::Spawn(body, _) => {
                 self.push_scope();
                 self.check_block(body);
@@ -1517,6 +1580,12 @@ impl BorrowChecker {
             Expr::Int(_, _) | Expr::Float(_, _) | Expr::Str(_, _)
                 | Expr::Char(_, _) | Expr::Bool(_, _) => ExprResult::Value,
             Expr::Paren(inner, _) => self.check_expr(inner),
+            Expr::Tuple(items, _) => {
+                for item in items {
+                    self.check_expr(item);
+                }
+                ExprResult::Value
+            }
             Expr::Unary(op, inner, span) => {
                 match op {
                     UnaryOp::Ref => {
@@ -1613,6 +1682,13 @@ impl BorrowChecker {
             Expr::Comptime(inner, _) => self.check_expr(inner),
             Expr::As(inner, _, _) => {
                 self.check_expr(inner);
+                ExprResult::Value
+            }
+            Expr::If(cond, _then_block, elifs, _else_block, _) => {
+                self.check_expr(cond);
+                for (econd, _eblock) in elifs {
+                    self.check_expr(econd);
+                }
                 ExprResult::Value
             }
         }
