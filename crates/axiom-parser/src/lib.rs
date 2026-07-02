@@ -872,7 +872,9 @@ impl Parser {
         let span = self.peek().span;
         let pattern = self.parse_pattern()?;
         let guard = if self.skip(TokenKind::If) {
-            Some(self.parse_expr()?)
+            // Use parse_or_expr instead of parse_expr to prevent the guard from
+            // consuming the => FatArrow via parse_imply_expr.
+            Some(self.parse_or_expr()?)
         } else {
             None
         };
@@ -1189,34 +1191,71 @@ impl Parser {
                 TokenKind::LBracket => {
                     // Could be index, generic args, or struct literal type args
                     self.advance();
-                    // Check if the bracket content looks like a type (for generic args / struct literal)
                     let is_type_like = matches!(self.peek_kind(), TokenKind::Ident(_));
                     if is_type_like {
-                        // Parse as generic type args: Name[T, U, ...]
-                        let mut type_args = vec![self.parse_type()?];
-                        while self.skip(TokenKind::Comma) {
-                            type_args.push(self.parse_type()?);
-                        }
-                        self.expect_kind(TokenKind::RBracket, "']'")?;
-                        // Check if followed by { — struct literal with generic args
-                        if self.peek_kind() == &TokenKind::LBrace {
-                            let span = expr.span();
-                            self.advance(); // skip {
-                            let mut fields = Vec::new();
-                            while !self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Eof)) {
-                                let fname = self.parse_ident()?;
-                                self.expect_kind(TokenKind::Colon, "':'")?;
-                                let fval = self.parse_expr()?;
-                                fields.push((fname, fval));
-                                self.skip(TokenKind::Comma);
+                        // Look ahead after the ident to distinguish type args from index expressions
+                        // Type args indicators: ident follows by : (bound), , (multiple), . (method),
+                        //   { (struct literal), [ (nested generic), or ] (single)
+                        // Index indicators: ident followed by an operator (+, -, *, /, %, etc.)
+                        let after_first = self.peek_ahead(1);
+                        let looks_like_type_args = matches!(after_first,
+                            Some(TokenKind::Colon) | Some(TokenKind::Comma) |
+                            Some(TokenKind::Dot) | Some(TokenKind::LBrace) |
+                            Some(TokenKind::LBracket) | Some(TokenKind::RBracket)
+                        );
+                        if looks_like_type_args {
+                            // When ident is followed by ] only, distinguish type names (uppercase)
+                            // from variable/index access (lowercase) to avoid mis-parsing
+                            // v[i] { block } as type args + struct literal.
+                            if after_first == Some(&TokenKind::RBracket) {
+                                let is_type_name = match &expr {
+                                    Expr::Ident(name) => name.name.chars().next().map_or(false, |c| c.is_uppercase()),
+                                    _ => false,
+                                };
+                                if !is_type_name {
+                                    let inner = self.parse_expr()?;
+                                    self.expect_kind(TokenKind::RBracket, "']'")?;
+                                    let span = expr.span();
+                                    expr = Expr::Index(Box::new(expr), Box::new(inner), span);
+                                    continue;
+                                }
                             }
-                            self.expect_kind(TokenKind::RBrace, "'}'")?;
-                            // Build Expr::Struct — extract name from preceding expr
-                            let struct_name = match &expr {
-                                Expr::Ident(name) => name.clone(),
-                                _ => Ident::new("__struct", span),
-                            };
-                            expr = Expr::Struct(struct_name, fields, span);
+                            // Parse as generic type args: Name[T, U, ...] or Name[T, U]{...}
+                            let mut type_args = vec![self.parse_type()?];
+                            while self.skip(TokenKind::Comma) {
+                                type_args.push(self.parse_type()?);
+                            }
+                            self.expect_kind(TokenKind::RBracket, "']'")?;
+                            // Check if followed by { — struct literal with generic args
+                            if self.peek_kind() == &TokenKind::LBrace {
+                                let span = expr.span();
+                                self.advance(); // skip {
+                                let mut fields = Vec::new();
+                                while !self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Eof)) {
+                                    let fname = self.parse_ident()?;
+                                    // Support field shorthand: { field } => { field: field }
+                                    if self.skip(TokenKind::Colon) {
+                                        let fval = self.parse_expr()?;
+                                        fields.push((fname, fval));
+                                    } else {
+                                        fields.push((fname.clone(), Expr::Ident(fname)));
+                                    }
+                                    self.skip(TokenKind::Comma);
+                                }
+                                self.expect_kind(TokenKind::RBrace, "'}'")?;
+                                // Build Expr::Struct — extract name from preceding expr
+                                let struct_name = match &expr {
+                                    Expr::Ident(name) => name.clone(),
+                                    _ => Ident::new("__struct", span),
+                                };
+                                expr = Expr::Struct(struct_name, fields, span);
+                            }
+                        } else {
+                            // Looks like an index expression: expr[ident + ...]
+                            let inner = self.parse_expr()?;
+                            self.expect_kind(TokenKind::RBracket, "']'")?;
+                            let span = expr.span();
+                            expr = Expr::Index(Box::new(expr), Box::new(inner), span);
                         }
                     } else {
                         let inner = self.parse_expr()?;
@@ -1420,7 +1459,9 @@ impl Parser {
                     let looks_like_struct = match after_brace {
                         Some(TokenKind::RBrace) => true,
                         Some(TokenKind::Ident(_)) => {
-                            matches!(self.peek_ahead(2), Some(TokenKind::Colon))
+                            let third = self.peek_ahead(2);
+                            // field: value => normal field, field, => shorthand, field } => shorthand
+                            matches!(third, Some(TokenKind::Colon) | Some(TokenKind::Comma) | Some(TokenKind::RBrace))
                         }
                         _ => false,
                     };
@@ -1429,9 +1470,13 @@ impl Parser {
                         let mut fields = Vec::new();
                         while !self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Eof)) {
                             let fname = self.parse_ident()?;
-                            self.expect_kind(TokenKind::Colon, "':'")?;
-                            let fval = self.parse_expr()?;
-                            fields.push((fname, fval));
+                            // Support field shorthand: { field } => { field: field }
+                            if self.skip(TokenKind::Colon) {
+                                let fval = self.parse_expr()?;
+                                fields.push((fname, fval));
+                            } else {
+                                fields.push((fname.clone(), Expr::Ident(fname)));
+                            }
                             self.skip(TokenKind::Comma);
                         }
                         self.expect_kind(TokenKind::RBrace, "'}'")?;
@@ -1458,8 +1503,11 @@ impl Parser {
         let tok = self.advance();
         match &tok.kind {
             TokenKind::Ident(name) => Ok(Ident::new(name.clone(), tok.span)),
-            // Allow keyword-like identifiers that can appear as variable names
+            // Allow keyword-like identifiers that can appear as variable names, module names, etc.
+            TokenKind::Self_ => Ok(Ident::new("self".to_string(), tok.span)),
             TokenKind::Result_ => Ok(Ident::new("result".to_string(), tok.span)),
+            TokenKind::Comptime => Ok(Ident::new("comptime".to_string(), tok.span)),
+            TokenKind::Derive => Ok(Ident::new("derive".to_string(), tok.span)),
             _ => {
                 let lexeme = tok.lexeme.clone();
                 Err(self.error(format!("expected identifier, found '{lexeme}'")))
