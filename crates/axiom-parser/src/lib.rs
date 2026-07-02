@@ -1011,10 +1011,16 @@ impl Parser {
                         // Check for labeled pattern field: name: subpattern
                         if self.skip(TokenKind::Colon) {
                             // Parse sub-pattern (e.g., _, another variant, etc.)
-                            let _sub = self.parse_pattern()?;
-                            // For now, just push the field name (ignore sub-pattern binding)
+                            let sub = self.parse_pattern()?;
+                            // Collect bindings from sub-pattern
+                            match &sub {
+                                Pattern::Ident(binding) => fields.push(binding.clone()),
+                                Pattern::Wildcard(_) => {} // no binding for _
+                                _ => fields.push(field), // fallback: use field name
+                            }
+                        } else {
+                            fields.push(field);
                         }
-                        fields.push(field);
                         if !self.skip(TokenKind::Comma) { break; }
                     }
                     self.expect_kind(TokenKind::RParen, "')'")?;
@@ -1215,7 +1221,12 @@ impl Parser {
                             }
                             self.expect_kind(TokenKind::RParen, "')'")?;
                             let span = expr.span();
-                            expr = Expr::Struct(Ident::new("_", span), fields, span);
+                            // Preserve the original constructor/type name from expr
+                            let type_name = match &expr {
+                                Expr::Ident(id) => id.clone(),
+                                _ => Ident::new("_", span),
+                            };
+                            expr = Expr::Struct(type_name, fields, span);
                         } else {
                             let args = self.parse_arg_list()?;
                             self.expect_kind(TokenKind::RParen, "')'")?;
