@@ -174,6 +174,8 @@ pub struct Checker {
     imported_items: HashMap<String, ModuleExport>,
     /// Enum variant name → parent enum type name
     enum_variants: HashMap<String, String>,
+    /// Enum variant name → field name → field type (for variant constructors)
+    variant_fields: HashMap<String, Vec<(String, CheckedType)>>,
     /// Directories to search for external module files
     pub source_dirs: Vec<String>,
 }
@@ -212,6 +214,7 @@ impl Checker {
             visibility: HashMap::new(),
             imported_items: HashMap::new(),
             enum_variants: HashMap::new(),
+            variant_fields: HashMap::new(),
             source_dirs: Vec::new(),
         };
         // Register built-in types
@@ -320,11 +323,21 @@ impl Checker {
     fn add_pattern_bindings(&mut self, pattern: &Pattern) {
         match pattern {
             Pattern::Ident(name) => {
+                // Don't add bindings for unit enum variants (like Empty, None)
+                if self.enum_variants.contains_key(&name.name) || self.resolve_enum_variant(&name.name).is_some() {
+                    return;
+                }
                 self.add_local(&name.name, CheckedType::Int); // simplified: bind as Int
             }
-            Pattern::Variant(_, fields, _) => {
+            Pattern::Variant(name, fields, _) => {
+                // For variant pattern bindings, give all bindings the parent enum type
+                // as a conservative fallback (field-specific types require variant_fields)
+                let parent_ty = self.resolve_enum_variant(&name.name)
+                    .map(|p| CheckedType::Named(p.clone()))
+                    .or_else(|| self.enum_variants.get(&name.name).map(|p| CheckedType::Named(p.clone())))
+                    .unwrap_or(CheckedType::Int);
                 for field in fields {
-                    self.add_local(&field.name, CheckedType::Int);
+                    self.add_local(&field.name, parent_ty.clone());
                 }
             }
             Pattern::Some(inner, _) => {
@@ -427,6 +440,15 @@ impl Checker {
                     // Also register bare variant name (first registration wins)
                     if variant_key != variant.name.name {
                         self.enum_variants.entry(variant.name.name.clone()).or_insert(parent);
+                    }
+                    // Store variant fields for constructor field validation
+                    let mut vfields: Vec<(String, CheckedType)> = Vec::new();
+                    for field in &variant.fields {
+                        vfields.push((field.name.name.clone(), CheckedType::from_ast_type(&field.ty)));
+                    }
+                    self.variant_fields.entry(variant_key.clone()).or_insert(vfields.clone());
+                    if variant_key != variant.name.name {
+                        self.variant_fields.entry(variant.name.name.clone()).or_insert(vfields);
                     }
                 }
             }
@@ -1001,6 +1023,9 @@ impl Checker {
                     CheckedType::Named(ident.name.clone())
                 } else if let Some(parent_enum) = self.resolve_enum_variant(&ident.name) {
                     CheckedType::Named(parent_enum.clone())
+                } else if let Some(parent) = self.enum_variants.get(&ident.name) {
+                    // Direct fallback for bare variant names (bypass module-scoped lookup)
+                    CheckedType::Named(parent.clone())
                 } else if let Some(export) = self.imported_items.get(&ident.name) {
                     match export {
                         ModuleExport::Function { .. } => CheckedType::Named("fn".into()),
@@ -1310,19 +1335,40 @@ impl Checker {
             }
             Expr::Struct(name, fields, span) => {
                 let struct_fields = self.get_type(&name.name).cloned();
-                match struct_fields {
-                    Some(expected_fields) => {
+                let variant_fields_map = if struct_fields.is_none() {
+                    self.variant_fields.get(&name.name).or_else(|| {
+                        if let Some(ref module) = self.current_module {
+                            let prefixed = format!("{}.{}", module, name.name);
+                            self.variant_fields.get(&prefixed)
+                        } else {
+                            None
+                        }
+                    }).map(|vf| {
+                        let mut m = HashMap::new();
+                        for (k, v) in vf { m.insert(k.clone(), v.clone()); }
+                        m
+                    })
+                } else {
+                    None
+                };
+                let expected_fields = struct_fields.or(variant_fields_map);
+                // For struct types with registered fields, validate; for enum variants
+                // or unknown types, skip field validation (typecheck at match time)
+                if let Some(expected) = expected_fields {
+                    if !expected.is_empty() {
                         for (fname, fval) in fields {
                             let val_ty = self.check_expr(fval);
-                            if let Some(expected) = expected_fields.get(&fname.name) {
-                                if !self.types_compatible(&val_ty, expected) && val_ty != CheckedType::Error {
+                            if let Some(expected_ty) = expected.get(&fname.name) {
+                                if !self.types_compatible(&val_ty, expected_ty) && val_ty != CheckedType::Error {
                                     self.error(
                                         format!("field '{}' type mismatch: expected {}, found {}",
-                                            fname.name, expected.name(), val_ty.name()),
+                                            fname.name, expected_ty.name(), val_ty.name()),
                                         *span,
                                     );
                                 }
-                            } else {
+                            } else if !self.enum_variants.contains_key(&name.name)
+                                && self.resolve_enum_variant(&name.name).is_none()
+                            {
                                 self.error(
                                     format!("type '{}' has no field '{}'", name.name, fname.name),
                                     *span,
@@ -1330,14 +1376,17 @@ impl Checker {
                             }
                         }
                     }
-                    None => {
-                        // Check if it's an enum variant constructor
-                        if !self.enum_variants.contains_key(&name.name) && self.resolve_enum_variant(&name.name).is_none() {
-                            self.error(format!("unknown type '{}'", name.name), *span);
-                        }
-                    }
+                } else if !self.enum_variants.contains_key(&name.name)
+                    && self.resolve_enum_variant(&name.name).is_none()
+                {
+                    self.error(format!("unknown type '{}'", name.name), *span);
                 }
-                CheckedType::Named(name.name.clone())
+                // Return the parent enum type for variant constructors, or the struct name
+                if let Some(parent) = self.resolve_enum_variant(&name.name) {
+                    CheckedType::Named(parent.clone())
+                } else {
+                    CheckedType::Named(name.name.clone())
+                }
             }
             Expr::Array(items, _) => {
                 if items.is_empty() {
