@@ -139,21 +139,35 @@ echo "%%AXIOM_BIN%%\axiomc.exe" %%*
 
 :: ── Add to PATH ───────────────────────────────────────────────────────
 echo.
-set /p ADD_PATH="  Add to user PATH? [Y/n]: "
-if /i "!ADD_PATH!"=="n" goto :skip_path
-if /i "!ADD_PATH!"=="N" goto :skip_path
+echo   PATH options:
+echo     [U] User PATH  - only your account ^(default, no admin needed^)
+echo     [S] System PATH - all users ^(requires admin^)
+echo     [N] Skip       - add manually later
+echo.
+set /p PATH_TYPE="  Choose [U/s/N]: "
+if /i "!PATH_TYPE!"=="N" goto :skip_path
+if "!PATH_TYPE!"=="" set PATH_TYPE=U
 
-:: Use reg add instead of setx (setx truncates at 1024 chars)
-for /f "usebackq tokens=2,*" %%A in (`reg query HKCU\Environment /v PATH 2^>nul`) do set "CUR_PATH=%%B"
+set "REG_HIVE=HKCU"
+set "REG_KEY=Environment"
+if /i "!PATH_TYPE!"=="S" (
+    set "REG_HIVE=HKLM"
+    set "REG_KEY=SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+    echo   Requesting System PATH ^(needs admin^)...
+)
+
+for /f "usebackq tokens=2,*" %%A in (`reg query !REG_HIVE!\!REG_KEY! /v PATH 2^>nul`) do set "CUR_PATH=%%B"
 if "!CUR_PATH!"=="" (
-    reg add HKCU\Environment /v PATH /t REG_EXPAND_SZ /d "!AXIOM_BIN!" /f >nul 2>nul
+    reg add !REG_HIVE!\!REG_KEY! /v PATH /t REG_EXPAND_SZ /d "!AXIOM_BIN!" /f >nul 2>nul
 ) else (
     echo !CUR_PATH! | find /i "!AXIOM_BIN!" >nul 2>nul
     if errorlevel 1 (
-        reg add HKCU\Environment /v PATH /t REG_EXPAND_SZ /d "!CUR_PATH!;!AXIOM_BIN!" /f >nul 2>nul
+        reg add !REG_HIVE!\!REG_KEY! /v PATH /t REG_EXPAND_SZ /d "!CUR_PATH!;!AXIOM_BIN!" /f >nul 2>nul
     )
 )
-echo     + Added to PATH ^(restart terminal to take effect^)
+echo     + Added to PATH ^(restart terminal^)
+:: Refresh PATH in current cmd session
+set "PATH=%PATH%;!AXIOM_BIN!"
 
 :: ── Register .ax file icon ────────────────────────────────────────────
 echo.
