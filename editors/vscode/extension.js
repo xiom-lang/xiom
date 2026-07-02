@@ -32,17 +32,36 @@ class LspClient {
     const config = vscode.workspace.getConfiguration('axiom');
     let lspPath = config.get('lsp.path') || '';
 
+    // Resolve workspace root for relative path lookups
+    const rootFolder = vscode.workspace.workspaceFolders
+      && vscode.workspace.workspaceFolders.length > 0
+      ? vscode.workspace.workspaceFolders[0].uri.fsPath
+      : null;
+
     if (!lspPath) {
-      const candidates = [
-        'axiom-lsp',
-        './axiom-lsp',
-        'target/debug/axiom-lsp.exe',
-        'target/release/axiom-lsp.exe'
-      ];
-      for (const c of candidates) {
+      const candidates = [];
+      const names = ['axiom-lsp', 'axiom-lsp.exe'];
+      // Try workspace-root-relative paths first
+      if (rootFolder) {
+        for (const name of names) {
+          candidates.push(vscode.Uri.joinPath(vscode.Uri.file(rootFolder), 'target', 'debug', name));
+          candidates.push(vscode.Uri.joinPath(vscode.Uri.file(rootFolder), 'target', 'release', name));
+        }
+      }
+      // Try extension directory
+      if (this.context.extensionUri) {
+        for (const name of names) {
+          candidates.push(vscode.Uri.joinPath(this.context.extensionUri, name));
+        }
+      }
+      // Try PATH
+      candidates.push(vscode.Uri.file('axiom-lsp'));
+      candidates.push(vscode.Uri.file('axiom-lsp.exe'));
+
+      for (const uri of candidates) {
         try {
-          await vscode.workspace.fs.stat(vscode.Uri.file(c));
-          lspPath = c;
+          await vscode.workspace.fs.stat(uri);
+          lspPath = uri.fsPath;
           break;
         } catch {}
       }
@@ -50,9 +69,12 @@ class LspClient {
 
     if (!lspPath) {
       vscode.window.showInformationMessage(
-        'AXIOM LSP not found. Install with: cargo build -p axiom-lsp\nSyntax highlighting is still active.'
+        'AXIOM LSP not found. Build it with: cargo build -p axiom-lsp\nSyntax highlighting is still active. Auto-completion and go-to-definition will be unavailable.'
       );
-      throw new Error('LSP binary not found');
+      // Register providers anyway so they show "LSP not found" hints
+      this._registerProviders();
+      this._registerDocumentListeners();
+      return;
     }
 
     this.server = spawn(lspPath, [], { stdio: ['pipe', 'pipe', 'pipe'] });
@@ -132,10 +154,15 @@ class LspClient {
   }
 
   _sendNotification(method, params) {
-    this._write({ jsonrpc: '2.0', method, params });
+    if (this.server) {
+      this._write({ jsonrpc: '2.0', method, params });
+    }
   }
 
   _sendRequest(method, params) {
+    if (!this.server) {
+      return Promise.reject(new Error('LSP server not available'));
+    }
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
       const timer = setTimeout(() => {
@@ -148,6 +175,7 @@ class LspClient {
   }
 
   _write(msg) {
+    if (!this.server || !this.server.stdin) return;
     const body = JSON.stringify(msg);
     const header = 'Content-Length: ' + Buffer.byteLength(body) + '\r\n\r\n';
     this.server.stdin.write(header + body);
