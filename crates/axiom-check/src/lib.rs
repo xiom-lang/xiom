@@ -322,7 +322,6 @@ impl Checker {
 
     fn add_pattern_bindings(&mut self, pattern: &Pattern) {
         if let Pattern::Variant(name, _, _) = pattern {
-            eprintln!("BIND: variant={}, in_fields={:?}", name.name, self.variant_fields.get(&name.name));
         }
         match pattern {
             Pattern::Ident(name) => {
@@ -418,12 +417,7 @@ impl Checker {
     fn collect_variant_fields(&mut self, item: &TopDecl, module_path: &str) {
         match item {
             TopDecl::Enum(ed) => {
-                eprintln!("VARFIELDS: enum {} has {} variants in {}", ed.name.name, ed.variants.len(), module_path);
                 for variant in &ed.variants {
-                    eprintln!("  variant {}: {} fields", variant.name.name, variant.fields.len());
-                    for field in &variant.fields {
-                        eprintln!("    field: {} : {:?}", field.name.name, field.ty);
-                    }
                     if !variant.fields.is_empty() {
                         let variant_key = if module_path.is_empty() {
                             variant.name.name.clone()
@@ -1124,9 +1118,6 @@ impl Checker {
                 if ident.name == "_" {
                     CheckedType::Int // wildcard placeholder type
                 } else if let Some(ty) = self.lookup_local(&ident.name) {
-                    if ident.name == "l" || ident.name == "r" || ident.name == "v" {
-                        eprintln!("LOOKUP: {} => {:?}", ident.name, ty);
-                    }
                     ty.clone()
                 } else if self.functions.contains_key(&ident.name) {
                     CheckedType::Named("fn".into())

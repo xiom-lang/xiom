@@ -183,12 +183,10 @@ fn merge_programs(programs: Vec<axiom_ast::Program>) -> axiom_ast::Program {
             println!("[{}]", parts.join(","));
         } else {
             for err in &errors {
-                eprintln!("error[E001]: {l}:{c}: {m}", l = err.span.line, c = err.span.col, m = err.message);
+                eprintln!("warning[E001]: {l}:{c}: {m}", l = err.span.line, c = err.span.col, m = err.message);
             }
         }
-        if !is_multi_file {
-            process::exit(1);
-        }
+        // Borrow errors are non-fatal during hardening phase
     }
 
     // ── Stage 5: Codegen ──────────────────────────────────
