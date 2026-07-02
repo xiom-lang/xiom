@@ -321,6 +321,9 @@ impl Checker {
     }
 
     fn add_pattern_bindings(&mut self, pattern: &Pattern) {
+        if let Pattern::Variant(name, _, _) = pattern {
+            eprintln!("BIND: variant={}, in_fields={:?}", name.name, self.variant_fields.get(&name.name));
+        }
         match pattern {
             Pattern::Ident(name) => {
                 // Don't add bindings for unit enum variants (like Empty, None)
@@ -330,14 +333,17 @@ impl Checker {
                 self.add_local(&name.name, CheckedType::Int); // simplified: bind as Int
             }
             Pattern::Variant(name, fields, _) => {
-                // For variant pattern bindings, give all bindings the parent enum type
-                // as a conservative fallback (field-specific types require variant_fields)
-                let parent_ty = self.resolve_enum_variant(&name.name)
-                    .map(|p| CheckedType::Named(p.clone()))
-                    .or_else(|| self.enum_variants.get(&name.name).map(|p| CheckedType::Named(p.clone())))
-                    .unwrap_or(CheckedType::Int);
-                for field in fields {
-                    self.add_local(&field.name, parent_ty.clone());
+                // Look up variant field types for correct binding types
+                let field_types = self.variant_fields.get(&name.name)
+                    .or_else(|| self.variant_fields.get(&name.name))
+                    .cloned()
+                    .unwrap_or_default();
+                for (i, field) in fields.iter().enumerate() {
+                    if field.name == "_" { continue; } // skip wildcard placeholders
+                    let field_ty = field_types.get(i)
+                        .map(|(_, ty)| ty.clone())
+                        .unwrap_or(CheckedType::Int);
+                    self.add_local(&field.name, field_ty);
                 }
             }
             Pattern::Some(inner, _) => {
@@ -368,6 +374,52 @@ impl Checker {
         CheckedType::Error
     }
 
+    fn register_all_variant_fields(&mut self, program: &Program) {
+        for item in &program.items {
+            self.collect_variant_fields(item, "");
+        }
+    }
+
+    fn collect_variant_fields(&mut self, item: &TopDecl, module_path: &str) {
+        match item {
+            TopDecl::Enum(ed) => {
+                eprintln!("VARFIELDS: enum {} has {} variants in {}", ed.name.name, ed.variants.len(), module_path);
+                for variant in &ed.variants {
+                    eprintln!("  variant {}: {} fields", variant.name.name, variant.fields.len());
+                    for field in &variant.fields {
+                        eprintln!("    field: {} : {:?}", field.name.name, field.ty);
+                    }
+                    if !variant.fields.is_empty() {
+                        let variant_key = if module_path.is_empty() {
+                            variant.name.name.clone()
+                        } else {
+                            format!("{}.{}", module_path, variant.name.name)
+                        };
+                        let mut vfields: Vec<(String, CheckedType)> = Vec::new();
+                        for field in &variant.fields {
+                            vfields.push((field.name.name.clone(), CheckedType::from_ast_type(&field.ty)));
+                        }
+                        self.variant_fields.insert(variant_key.clone(), vfields.clone());
+                        if variant_key != variant.name.name {
+                            self.variant_fields.insert(variant.name.name.clone(), vfields);
+                        }
+                    }
+                }
+            }
+            TopDecl::Module(md) => {
+                let new_path = if module_path.is_empty() {
+                    md.name.name.clone()
+                } else {
+                    format!("{}.{}", module_path, md.name.name)
+                };
+                for sub in &md.items {
+                    self.collect_variant_fields(sub, &new_path);
+                }
+            }
+            _ => {}
+        }
+    }
+
     // ========================================================================
     // Program-level checking
     // ========================================================================
@@ -377,6 +429,9 @@ impl Checker {
         for item in &program.items {
             self.register_type_decl(item);
         }
+
+        // Build variant field maps from all enum declarations
+        self.register_all_variant_fields(program);
 
         // Register all function signatures
         for item in &program.items {
@@ -1016,6 +1071,9 @@ impl Checker {
                 if ident.name == "_" {
                     CheckedType::Int // wildcard placeholder type
                 } else if let Some(ty) = self.lookup_local(&ident.name) {
+                    if ident.name == "l" || ident.name == "r" || ident.name == "v" {
+                        eprintln!("LOOKUP: {} => {:?}", ident.name, ty);
+                    }
                     ty.clone()
                 } else if self.functions.contains_key(&ident.name) {
                     CheckedType::Named("fn".into())
