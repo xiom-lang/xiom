@@ -4780,7 +4780,7 @@ module error {
     divisor: Int;
   } derive[Clone]
 
-  pub type ErrorKind = {
+  pub enum ErrorKind {
     DivByZero,
     OverUnderflow(value: Int),
     NotEnough(available: Int, required: Int),
