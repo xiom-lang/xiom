@@ -1012,11 +1012,10 @@ impl Parser {
                         if self.skip(TokenKind::Colon) {
                             // Parse sub-pattern (e.g., _, another variant, etc.)
                             let sub = self.parse_pattern()?;
-                            // Collect bindings from sub-pattern
+                            // Always push an entry to maintain index alignment with variant fields
                             match &sub {
                                 Pattern::Ident(binding) => fields.push(binding.clone()),
-                                Pattern::Wildcard(_) => {} // no binding for _
-                                _ => fields.push(field), // fallback: use field name
+                                _ => fields.push(Ident::new("_", field.span)), // placeholder for wildcard
                             }
                         } else {
                             fields.push(field);
