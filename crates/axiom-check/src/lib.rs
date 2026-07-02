@@ -81,6 +81,7 @@ impl CheckedType {
             "Char" => CheckedType::Char,
             "Str" => CheckedType::Str,
             "()" => CheckedType::Unit,
+            "_" => CheckedType::Int, // wildcard placeholder
             _ => CheckedType::Named(s.to_string()),
         }
     }
@@ -316,6 +317,39 @@ impl Checker {
         self.types.contains_key(name)
     }
 
+    fn add_pattern_bindings(&mut self, pattern: &Pattern) {
+        match pattern {
+            Pattern::Ident(name) => {
+                self.add_local(&name.name, CheckedType::Int); // simplified: bind as Int
+            }
+            Pattern::Variant(_, fields, _) => {
+                for field in fields {
+                    self.add_local(&field.name, CheckedType::Int);
+                }
+            }
+            Pattern::Some(inner, _) => {
+                self.add_pattern_bindings(inner);
+            }
+            Pattern::Ok(inner, _) => {
+                self.add_pattern_bindings(inner);
+            }
+            Pattern::Err(inner, _) => {
+                self.add_pattern_bindings(inner);
+            }
+            Pattern::Wildcard(_) | Pattern::None(_) | Pattern::Lit(_) => {}
+        }
+    }
+
+    fn resolve_enum_variant(&self, name: &str) -> Option<&String> {
+        if let Some(ref module) = self.current_module {
+            let prefixed = format!("{}.{}", module, name);
+            if let Some(parent) = self.enum_variants.get(&prefixed) {
+                return Some(parent);
+            }
+        }
+        self.enum_variants.get(name)
+    }
+
     fn error(&mut self, message: impl Into<String>, span: Span) -> CheckedType {
         self.errors.push(CheckError { message: message.into(), span });
         CheckedType::Error
@@ -383,7 +417,17 @@ impl Checker {
                 }
                 self.visibility.insert(ed.name.name.clone(), ed.is_pub);
                 for variant in &ed.variants {
-                    self.enum_variants.insert(variant.name.name.clone(), ed.name.name.clone());
+                    let variant_key = if module_path.is_empty() {
+                        variant.name.name.clone()
+                    } else {
+                        format!("{}.{}", module_path, variant.name.name)
+                    };
+                    let parent = ed.name.name.clone();
+                    self.enum_variants.entry(variant_key.clone()).or_insert(parent.clone());
+                    // Also register bare variant name (first registration wins)
+                    if variant_key != variant.name.name {
+                        self.enum_variants.entry(variant.name.name.clone()).or_insert(parent);
+                    }
                 }
             }
             TopDecl::Module(md) => {
@@ -397,23 +441,33 @@ impl Checker {
     }
 
     fn register_fn_signature(&mut self, item: &TopDecl) {
+        self.register_fn_signature_inner(item, "");
+    }
+
+    fn register_fn_signature_inner(&mut self, item: &TopDecl, module_path: &str) {
         match item {
             TopDecl::Fn(fd) => {
                 let params: Vec<_> = fd.params.iter().map(|p| {
                     (p.name.name.clone(), CheckedType::from_ast_type(&p.ty))
                 }).collect();
                 let return_type = fd.return_type.as_ref().map(|t| CheckedType::from_ast_type(t));
-                let key = if let Some(recv) = fd.receiver.as_ref() {
+                let bare_key = if let Some(recv) = fd.receiver.as_ref() {
                     format!("{}.{}", recv.name, fd.name.name)
                 } else {
                     fd.name.name.clone()
                 };
+                let key = if module_path.is_empty() { bare_key.clone() } else { format!("{}.{}", module_path, bare_key) };
                 let generics = fd.generics.iter().map(|g| g.name.name.clone()).collect();
                 let sig = FnSig { params, return_type, generics };
                 self.functions.insert(key.clone(), sig.clone());
+                // Also register with bare key as fallback (don't overwrite existing)
+                if key != bare_key {
+                    self.functions.entry(bare_key).or_insert(sig.clone());
+                }
                 self.visibility.insert(fd.name.name.clone(), fd.is_pub);
                 // Track methods separately
                 if let Some(recv) = fd.receiver.as_ref() {
+                    let method_key = format!("{}.{}", recv.name, fd.name.name);
                     self.methods
                         .entry(recv.name.clone())
                         .or_default()
@@ -421,8 +475,9 @@ impl Checker {
                 }
             }
             TopDecl::Module(md) => {
+                let new_path = if module_path.is_empty() { md.name.name.clone() } else { format!("{}.{}", module_path, md.name.name) };
                 for item in &md.items {
-                    self.register_fn_signature(item);
+                    self.register_fn_signature_inner(item, &new_path);
                 }
             }
             _ => {}
@@ -557,7 +612,8 @@ impl Checker {
                     } else {
                         fd.name.name.clone()
                     };
-                    if let Some(sig) = self.functions.get(&key) {
+                    let prefixed_key = if prefix.is_empty() { key.clone() } else { format!("{}.{}", prefix, key) };
+                    if let Some(sig) = self.functions.get(&prefixed_key).or_else(|| self.functions.get(&key)) {
                         let is_pub = fd.is_pub;
                         map.insert(fd.name.name.clone(), ModuleExport::Function { sig: sig.clone(), is_pub });
                     }
@@ -757,6 +813,8 @@ impl Checker {
 
         // For methods, inject the receiver's fields into scope (implicit self)
         if let Some(recv) = fd.receiver.as_ref() {
+            // Add self as a variable (for match self { ... } in enum methods)
+            self.add_local("self", CheckedType::Named(recv.name.clone()));
             let fields_clone = self.get_type(&recv.name).cloned();
             if let Some(fields) = fields_clone {
                 for (field_name, field_ty) in fields {
@@ -891,11 +949,14 @@ impl Checker {
             Stmt::Match(expr, arms, _) => {
                 let matched_ty = self.check_expr(expr);
                 for arm in arms {
-                    let _ = &arm.pattern; // Phase 0: patterns aren't fully checked
+                    self.push_scope();
+                    // Add pattern bindings to scope
+                    self.add_pattern_bindings(&arm.pattern);
                     match &arm.body {
                         MatchBody::Block(b) => { self.check_block(b, None); }
                         MatchBody::Expr(e) => { self.check_expr(e); }
                     }
+                    self.pop_scope();
                 }
                 let _ = matched_ty;
             }
@@ -930,13 +991,15 @@ impl Checker {
     fn check_expr(&mut self, expr: &Expr) -> CheckedType {
         match expr {
             Expr::Ident(ident) => {
-                if let Some(ty) = self.lookup_local(&ident.name) {
+                if ident.name == "_" {
+                    CheckedType::Int // wildcard placeholder type
+                } else if let Some(ty) = self.lookup_local(&ident.name) {
                     ty.clone()
                 } else if self.functions.contains_key(&ident.name) {
                     CheckedType::Named("fn".into())
                 } else if self.contains_type(&ident.name) {
                     CheckedType::Named(ident.name.clone())
-                } else if let Some(parent_enum) = self.enum_variants.get(&ident.name) {
+                } else if let Some(parent_enum) = self.resolve_enum_variant(&ident.name) {
                     CheckedType::Named(parent_enum.clone())
                 } else if let Some(export) = self.imported_items.get(&ident.name) {
                     match export {
@@ -1065,7 +1128,16 @@ impl Checker {
                     let obj_ty = self.check_expr(obj);
                     if let CheckedType::Named(type_name) = &obj_ty {
                         let method_key = format!("{}.{}", type_name, method.name);
-                        if let Some(sig) = self.functions.get(&method_key).cloned() {
+                        let sig = self.functions.get(&method_key).or_else(|| {
+                            // Try module-prefixed version
+                            if let Some(ref module) = self.current_module {
+                                let prefixed = format!("{}.{}.{}", module, type_name, method.name);
+                                self.functions.get(&prefixed)
+                            } else {
+                                None
+                            }
+                        }).cloned();
+                        if let Some(sig) = sig {
                             for (i, arg) in args.iter().enumerate() {
                                 let arg_ty = self.check_expr(arg);
                                 let param_idx = i + 1; // skip receiver parameter (first param is self-like)
@@ -1259,7 +1331,10 @@ impl Checker {
                         }
                     }
                     None => {
-                        self.error(format!("unknown type '{}'", name.name), *span);
+                        // Check if it's an enum variant constructor
+                        if !self.enum_variants.contains_key(&name.name) && self.resolve_enum_variant(&name.name).is_none() {
+                            self.error(format!("unknown type '{}'", name.name), *span);
+                        }
                     }
                 }
                 CheckedType::Named(name.name.clone())

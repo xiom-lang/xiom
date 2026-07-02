@@ -442,9 +442,15 @@ impl IrEmitter {
 
     fn register_functions(&mut self, item: &TopDecl) {
         if let TopDecl::Fn(fd) = item {
-            let param_types: Vec<String> = fd.params.iter()
+            let mut param_types: Vec<String> = Vec::new();
+            // For methods, self is the first parameter
+            if let Some(recv) = fd.receiver.as_ref() {
+                param_types.push(self.llvm_type_for(&recv.name));
+            }
+            let explicit_params: Vec<String> = fd.params.iter()
                 .map(|p| self.llvm_type_for(&Self::type_from_ast(&p.ty)))
                 .collect();
+            param_types.extend(explicit_params);
             let ret_type = fd.return_type.as_ref()
                 .map(|t| self.llvm_type_for(&Self::type_from_ast(t)))
                 .unwrap_or_else(|| "void".to_string());
@@ -528,13 +534,24 @@ impl IrEmitter {
         let name = self.fn_key(fd);
         self.current_fn = Some(name.clone());
 
-        let params_str: Vec<String> = fd.params.iter()
+        // For methods, prepend the self struct parameter
+        let self_llvm_ty = fd.receiver.as_ref().map(|r| {
+            format!("%struct.{}", r.name)
+        });
+        let self_offset: usize = if self_llvm_ty.is_some() { 1 } else { 0 };
+
+        let mut params_str: Vec<String> = Vec::new();
+        if let Some(ref st) = self_llvm_ty {
+            params_str.push(format!("{st} %param_self"));
+        }
+        let explicit_params: Vec<String> = fd.params.iter()
             .enumerate()
             .map(|(i, p)| {
                 let llvm_ty = self.llvm_type_for(&Self::type_from_ast(&p.ty));
-                format!("{llvm_ty} %param{i}")
+                format!("{llvm_ty} %param{}", i + self_offset)
             })
             .collect();
+        params_str.extend(explicit_params);
 
         self.emitln(&format!("define {ret_llvm} @{name}({}) {{", params_str.join(", ")));
 
@@ -557,11 +574,31 @@ impl IrEmitter {
         self.emitln(&format!("  store i64 {new_depth}, i64* @axiom_recursion_counter"));
 
         // Allocate parameters as locals
+        // For methods, first allocate the self struct
+        if let (Some(recv), Some(st)) = (fd.receiver.as_ref(), self_llvm_ty.as_ref()) {
+            let self_alloca = self.fresh_tmp();
+            self.emitln(&format!("  {self_alloca} = alloca {st}"));
+            self.emitln(&format!("  store {st} %param_self, {st}* {self_alloca}"));
+            self.add_local("self", self_alloca.clone(), st);
+            // Also add struct fields as locals for direct access
+            let fields_clone = self.types.get(&recv.name).cloned();
+            if let Some(fields) = fields_clone {
+                let alloca_ref = self_alloca;
+                for (idx, field_name) in fields.iter().enumerate() {
+                    let field_llvm_ty = self.field_llvm_type(&recv.name, idx);
+                    let gep = self.fresh_tmp();
+                    self.emitln(&format!("  {gep} = getelementptr {st}, {st}* {alloca_ref}, i32 0, i32 {idx}"));
+                    self.add_local(field_name, gep, &field_llvm_ty);
+                }
+            }
+        }
+        // Then allocate explicit parameters
         for (i, param) in fd.params.iter().enumerate() {
             let llvm_ty = self.llvm_type_for(&Self::type_from_ast(&param.ty));
             let alloca = self.fresh_tmp();
+            let param_idx = i + self_offset;
             self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
-            self.emitln(&format!("  store {llvm_ty} %param{i}, {llvm_ty}* {alloca}"));
+            self.emitln(&format!("  store {llvm_ty} %param{param_idx}, {llvm_ty}* {alloca}"));
             self.add_local(&param.name.name, alloca, &llvm_ty);
         }
 
