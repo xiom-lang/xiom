@@ -538,31 +538,58 @@ Dependencies auto-detected: Rust (rustc/cargo), LLVM (clang), C build tools (gcc
 - **Autocomplete expanded:** From 8 to all 39 stdlib modules + common functions
 - **Line offset comments:** Added to help with error line number mapping
 
-### Files Changed (13)
+### Parser Features Added (15+ new syntax constructs)
+
+| Feature | Example | Use Count |
+|---------|---------|-----------|
+| `as` type cast | `(i as Float64)` | 7 |
+| Function pointer types | `fn(Int) -> Bool` | 44 |
+| Closure expressions | `fn(x: Int) -> Int { body }` | 40+ |
+| Tuple expressions | `(a, b)` | 7 |
+| Destructuring bindings | `var (a, b) = tuple` | 2 |
+| Named constructor args | `Circle(radius: 2.0)` | 1 |
+| Trailing commas in calls | `fn(a, b,)` | 2 |
+| `mut` params | `fn foo(mut x: Int)` | 1 |
+| Keyword-as-identifier | `comptime`, `derive` | module names |
+| Type alias shorthand | `type Vec2 = Point2D` | 1 |
+| Match guard `if` | `pattern if guard => body` | 1 |
+| If-expression | `(if cond { a } else { b })` | 1 |
+| Generic struct literals | `Box[T]{ value: val }` | 4 |
+| Enum-like type skip | `type E = { Variant, }` | 1 |
+| Pattern named fields | `Variant(field: _)` | 4 |
+
+### Files Changed (20)
 
 | File | Change |
 |------|--------|
-| `crates/axiom-codegen/src/lib.rs` | Vec realloc + div-zero guards + recursion depth |
-| `crates/axiomc/src/main.rs` | Multi-file compilation, package.ax parsing, merge programs |
+| `crates/axiom-codegen/src/lib.rs` | Vec realloc + div-zero guards + recursion depth + Expr::Tuple/As/If |
+| `crates/axiomc/src/main.rs` | Multi-file per-file parsing + merge, package.ax loading |
 | `crates/axiomc/Cargo.toml` | Added `winres` build-dependency |
 | `crates/axiomc/build.rs` | **NEW** — Embeds axiom-icon.ico |
-| `crates/axiom-ast/src/lib.rs` | ModuleDecl + Program extended for file-level modules |
-| `crates/axiom-parser/src/lib.rs` | File-level module header parsing |
-| `crates/axiom-check/src/lib.rs` | Filesystem-based `load_external_module()` |
+| `crates/axiom-ast/src/lib.rs` | ModuleDecl + Program extended, Expr::Tuple/As/If, Type::Fn, Stmt::Destructure, MatchArm.guard |
+| `crates/axiom-parser/src/lib.rs` | 15+ new syntax constructs, file-level module parsing |
+| `crates/axiom-check/src/lib.rs` | Filesystem module resolution, CheckedType::Fn, Expr variants |
 | `crates/axiom-check/Cargo.toml` | Moved lexer/parser to production deps |
-| `install.ps1` | Calls `install_deps.ps1`, interactive path/PATH, icon copy |
-| `install_deps.ps1` | **NEW** — Windows dependency auto-installer |
+| `crates/axiom-fmt/src/lib.rs` | Format support for all new Expr/Stmt/Type variants |
+| `crates/axiom-codegen/src/lib.rs` | Codegen for new Expr variants |
+| `install.ps1` | Calls `install_deps.ps1`, interactive path/PATH, icon + .ax registration |
+| `install_deps.ps1` | **NEW** — Windows dependency auto-installer (winget/choco/direct) |
 | `install.sh` | **NEW** — macOS/Linux full installer |
-| `install_deps.sh` | **NEW** — Unix dependency auto-installer |
-| `website/playground/server.py` | Robust stdlib injection |
+| `install_deps.sh` | **NEW** — Unix dependency auto-installer (brew/apt/dnf/pacman) |
+| `package.ps1` | Release packaging with icon, docs, portable install.bat |
+| `website/playground/server.py` | Robust stdlib injection with transitive resolution |
 | `website/playground/index.html` | 39-module autocomplete, server badge fix |
+| `stdlib/runtime/axiom_runtime.c` | Fixed selfhost IR emission (load-inside-call bug) |
 
 ### Verified
 
+- **27 parser tests** — all pass (including 3 new: while/param, fn type, closure return)
+- **44 checker tests** — all pass
 - **25 diff tests** — all pass (IR correctness across all Phase 1 features)
-- **113 unit tests** — all pass (lexer/parser/checker)
 - **32 e2e IR tests** — all pass (IR emission, flags, target triples)
-- **29 e2e native tests** — require `clang` on PATH (pre-existing; fixed by `install_deps.ps1`)
+- **29 e2e native tests** — require `clang` on PATH (auto-installed by `install_deps.ps1`)
+- **Benchmark suite** — 30 files, 0 parse errors (all P001 fixed), parses into 10,000+ line merged program
+- **`benchmark_stress.ax`** — 8,577 lines, 28 inline modules, parses correctly
 
 ### Build & Test
 
@@ -670,7 +697,7 @@ All versions below are **Released**. All phases 0–3 are complete. V1.0.0 is th
 | **v0.17.0** | 100% Self-Hosted | All | 2026-07-01 | **Released** | 244 | ~10,400 | ~11,000 |
 | **v0.18.0** | Benchmarked | All | 2026-07-01 | **Released** | 245 | ~10,400 | ~12,000 |
 | **v0.19.0** | **Polished** | **All** | **2026-07-01** | **Released** | **246** | **~10,500** | **~12,200** |
-| **v0.20.0** | **Hardened** | **All** | **2026-07-02** | **Released** | **246+** | **~10,800** | **~12,200** |
+| **v0.20.0** | **Hardened** | **All** | **2026-07-02** | **Released** | **246+** | **~11,000** | **~12,200** |
 | v1.0.0 | Sovereign | 3 | TBD | Planned | — | — | — |
 
 > AXIOM LOC totals include selfhost compiler modules (`selfhost/`) and example programs (`examples/`).
@@ -685,14 +712,14 @@ All versions below are **Released**. All phases 0–3 are complete. V1.0.0 is th
 # Build everything
 cargo build
 
-# Run all tests (213 tests)
+# Run all tests (246+ tests)
 cargo test
 
 # Run specific crate tests
 cargo test -p axiom-lexer       # 11 tests
-cargo test -p axiom-parser      # 24 tests
+cargo test -p axiom-parser      # 27 tests
 cargo test -p axiom-check       # 44 tests
-cargo test -p axiom-codegen     # 30 tests (integration) + 25 diff tests + 50 e2e tests
+cargo test -p axiom-codegen     # 25 diff tests + 61 e2e tests
 ```
 
 ### Compile AXIOM Programs
@@ -739,7 +766,7 @@ cargo run -p axiomc -- --run selfhost\axiomc.ax
 ### Version String
 
 ```
-AXIOM Compiler v0.11.0 "Self-Hosted" -- Full Self-Hosting
+AXIOM Compiler v0.20.0 "Hardened" -- Multi-File + Safety Fixes
 ```
 
 Current release tag displayed in the CLI. The version string is maintained in `crates/axiomc/src/main.rs:37`.
@@ -752,7 +779,7 @@ Current release tag displayed in the CLI. The version string is maintained in `c
 - No git tags exist for individual versions — version milestones are logical checkpoints, not repository tags.
 - The Rust compiler (`crates/`) is the **active development compiler** and is kept as the permanent bootstrap fallback.
 - The AXIOM compiler (`selfhost/`) is the **self-hosting target** — once Phase 2C bootstraps, it becomes the primary compiler.
-- The test count of **213** is the current ceiling for the Rust compiler + selfhost differential + e2e tests.
+- The test count of **246+** is the current total for all Rust compiler tests.
 
 ---
 
