@@ -232,6 +232,22 @@ impl Parser {
         let name = self.parse_ident()?;
         let generics = self.parse_optional_generic_params()?;
         self.expect_kind(TokenKind::Eq, "'='")?;
+
+        // Type alias: type Name = ExistingType;
+        if !self.check(|k| matches!(k, TokenKind::LBrace)) {
+            let alias_type = self.parse_type()?;
+            self.expect_kind(TokenKind::Semicolon, "';'")?;
+            return Ok(TopDecl::Type(TypeDecl {
+                is_pub, name, generics,
+                fields: Vec::new(),
+                derived_fields: Vec::new(),
+                invariants: Vec::new(),
+                derives: Vec::new(),
+                alias: Some(Box::new(alias_type)),
+                span: start,
+            }));
+        }
+
         self.expect_kind(TokenKind::LBrace, "'{'")?;
 
         let mut fields = Vec::new();
@@ -247,6 +263,30 @@ impl Parser {
                 invariants.push(expr);
             } else {
                 let field_name = self.parse_ident()?;
+                // Check if this looks like an enum variant (no colon, followed by , or } or ()
+                if matches!(self.peek_kind(), TokenKind::Comma | TokenKind::RBrace) || self.peek_kind() == &TokenKind::LParen {
+                    // Enum-like type definition — skip to closing brace
+                    let mut depth = 0i32;
+                    loop {
+                        match self.peek_kind() {
+                            TokenKind::LParen => { self.advance(); depth += 1; }
+                            TokenKind::RParen => { self.advance(); depth -= 1; if depth < 0 { break; } }
+                            TokenKind::LBrace => { self.advance(); depth += 1; }
+                            TokenKind::RBrace => { if depth == 0 { break; } self.advance(); depth -= 1; }
+                            TokenKind::Eof => break,
+                            _ => { self.advance(); }
+                        }
+                    }
+                    // Now at }, advance past it and return
+                    self.advance();
+                    return Ok(TopDecl::Type(TypeDecl {
+                        is_pub: false,
+                        name, generics, fields, derived_fields, invariants,
+                        derives: vec![],
+                        alias: None,
+                        span: start,
+                    }));
+                }
                 self.expect_kind(TokenKind::Colon, "':'")?;
                 let ty = self.parse_type()?;
                 if self.check(|k| matches!(k, TokenKind::Ident(_))) {
@@ -279,7 +319,7 @@ impl Parser {
         };
 
         Ok(TopDecl::Type(TypeDecl {
-            is_pub, name, generics, fields, derived_fields, invariants, derives, span: start,
+            is_pub, name, generics, fields, derived_fields, invariants, derives, alias: None, span: start,
         }))
     }
 
@@ -741,6 +781,9 @@ impl Parser {
 
     fn parse_let_stmt(&mut self) -> Result<Stmt, ParseError> {
         let span = self.advance().span; // skip 'let'
+        if self.peek_kind() == &TokenKind::LParen {
+            return self.parse_destructure(span);
+        }
         let name = self.parse_ident()?;
         let ty = if self.skip(TokenKind::Colon) {
             Some(Box::new(self.parse_type()?))
@@ -755,6 +798,9 @@ impl Parser {
 
     fn parse_var_stmt(&mut self) -> Result<Stmt, ParseError> {
         let span = self.advance().span; // skip 'var'
+        if self.peek_kind() == &TokenKind::LParen {
+            return self.parse_destructure(span);
+        }
         let name = self.parse_ident()?;
         let ty = if self.skip(TokenKind::Colon) {
             Some(Box::new(self.parse_type()?))
@@ -765,6 +811,20 @@ impl Parser {
         let value = self.parse_expr()?;
         self.expect_kind(TokenKind::Semicolon, "';'")?;
         Ok(Stmt::Var(name, ty, value, span))
+    }
+
+    fn parse_destructure(&mut self, span: Span) -> Result<Stmt, ParseError> {
+        self.advance(); // skip (
+        let mut names = Vec::new();
+        names.push(self.parse_ident()?);
+        while self.skip(TokenKind::Comma) {
+            names.push(self.parse_ident()?);
+        }
+        self.expect_kind(TokenKind::RParen, "')'")?;
+        self.expect_kind(TokenKind::Eq, "'='")?;
+        let value = self.parse_expr()?;
+        self.expect_kind(TokenKind::Semicolon, "';'")?;
+        Ok(Stmt::Destructure(names, value, span))
     }
 
     fn parse_return_stmt(&mut self) -> Result<Stmt, ParseError> {
@@ -811,15 +871,47 @@ impl Parser {
     fn parse_match_arm(&mut self) -> Result<MatchArm, ParseError> {
         let span = self.peek().span;
         let pattern = self.parse_pattern()?;
+        let guard = if self.skip(TokenKind::If) {
+            Some(self.parse_expr()?)
+        } else {
+            None
+        };
         self.expect_kind(TokenKind::FatArrow, "'=>'")?;
         let body = if self.check(|k| matches!(k, TokenKind::LBrace)) {
             MatchBody::Block(self.parse_block()?)
+        } else if self.check(|k| matches!(k, TokenKind::If | TokenKind::Return | TokenKind::Match | TokenKind::While | TokenKind::For)) {
+            let stmt = self.parse_arm_stmt()?;
+            self.skip(TokenKind::Comma);
+            MatchBody::Block(Block {
+                stmts: vec![StmtOrExpr::Stmt(stmt)],
+                span,
+            })
         } else {
             let expr = self.parse_expr()?;
             self.skip(TokenKind::Comma);
             MatchBody::Expr(expr)
         };
-        Ok(MatchArm { pattern, body, span })
+        Ok(MatchArm { pattern, guard, body, span })
+    }
+
+    fn parse_arm_stmt(&mut self) -> Result<Stmt, ParseError> {
+        match self.peek_kind() {
+            TokenKind::If => self.parse_if_stmt(),
+            TokenKind::Return => {
+                self.advance();
+                let expr = if self.check(|k| matches!(k, TokenKind::Comma | TokenKind::RBrace)) {
+                    None
+                } else {
+                    Some(self.parse_expr()?)
+                };
+                let span = self.peek().span;
+                Ok(Stmt::Return(expr, span))
+            }
+            TokenKind::Match => self.parse_match_stmt(),
+            TokenKind::While => self.parse_while_stmt(),
+            TokenKind::For => self.parse_for_stmt(),
+            _ => Err(self.error("expected statement in match arm")),
+        }
     }
 
     fn parse_while_stmt(&mut self) -> Result<Stmt, ParseError> {
@@ -904,7 +996,14 @@ impl Parser {
                     let span = name.span;
                     let mut fields = Vec::new();
                     loop {
-                        fields.push(self.parse_ident()?);
+                        let field = self.parse_ident()?;
+                        // Check for labeled pattern field: name: subpattern
+                        if self.skip(TokenKind::Colon) {
+                            // Parse sub-pattern (e.g., _, another variant, etc.)
+                            let _sub = self.parse_pattern()?;
+                            // For now, just push the field name (ignore sub-pattern binding)
+                        }
+                        fields.push(field);
                         if !self.skip(TokenKind::Comma) { break; }
                     }
                     self.expect_kind(TokenKind::RParen, "')'")?;
@@ -1061,9 +1160,18 @@ impl Parser {
             match self.peek_kind() {
                 TokenKind::Dot => {
                     self.advance();
-                    let field = self.parse_ident()?;
-                    let span = expr.span();
-                    expr = Expr::Field(Box::new(expr), field, span);
+                    // Check for tuple index access: expr.0, expr.1, etc.
+                    if let TokenKind::Int(n) = self.peek_kind() {
+                        let idx = *n;
+                        self.advance();
+                        let span = expr.span();
+                        let field_id = Ident::new(format!("_{idx}"), span);
+                        expr = Expr::Field(Box::new(expr), field_id, span);
+                    } else {
+                        let field = self.parse_ident()?;
+                        let span = expr.span();
+                        expr = Expr::Field(Box::new(expr), field, span);
+                    }
                 }
                 TokenKind::LParen => {
                     self.advance();
@@ -1079,12 +1187,43 @@ impl Parser {
                     }
                 }
                 TokenKind::LBracket => {
-                    // Could be index or generic args — try index first
+                    // Could be index, generic args, or struct literal type args
                     self.advance();
-                    let inner = self.parse_expr()?;
-                    self.expect_kind(TokenKind::RBracket, "']'")?;
-                    let span = expr.span();
-                    expr = Expr::Index(Box::new(expr), Box::new(inner), span);
+                    // Check if the bracket content looks like a type (for generic args / struct literal)
+                    let is_type_like = matches!(self.peek_kind(), TokenKind::Ident(_));
+                    if is_type_like {
+                        // Parse as generic type args: Name[T, U, ...]
+                        let mut type_args = vec![self.parse_type()?];
+                        while self.skip(TokenKind::Comma) {
+                            type_args.push(self.parse_type()?);
+                        }
+                        self.expect_kind(TokenKind::RBracket, "']'")?;
+                        // Check if followed by { — struct literal with generic args
+                        if self.peek_kind() == &TokenKind::LBrace {
+                            let span = expr.span();
+                            self.advance(); // skip {
+                            let mut fields = Vec::new();
+                            while !self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Eof)) {
+                                let fname = self.parse_ident()?;
+                                self.expect_kind(TokenKind::Colon, "':'")?;
+                                let fval = self.parse_expr()?;
+                                fields.push((fname, fval));
+                                self.skip(TokenKind::Comma);
+                            }
+                            self.expect_kind(TokenKind::RBrace, "'}'")?;
+                            // Build Expr::Struct — extract name from preceding expr
+                            let struct_name = match &expr {
+                                Expr::Ident(name) => name.clone(),
+                                _ => Ident::new("__struct", span),
+                            };
+                            expr = Expr::Struct(struct_name, fields, span);
+                        }
+                    } else {
+                        let inner = self.parse_expr()?;
+                        self.expect_kind(TokenKind::RBracket, "']'")?;
+                        let span = expr.span();
+                        expr = Expr::Index(Box::new(expr), Box::new(inner), span);
+                    }
                 }
                 TokenKind::At => {
                     self.advance();
@@ -1142,9 +1281,18 @@ impl Parser {
             }
             TokenKind::LParen => {
                 self.advance();
-                let inner = self.parse_expr()?;
-                self.expect_kind(TokenKind::RParen, "')'")?;
-                Ok(Expr::Paren(Box::new(inner), span))
+                let first = self.parse_expr()?;
+                if self.skip(TokenKind::Comma) {
+                    let mut items = vec![first, self.parse_expr()?];
+                    while self.skip(TokenKind::Comma) {
+                        items.push(self.parse_expr()?);
+                    }
+                    self.expect_kind(TokenKind::RParen, "')'")?;
+                    Ok(Expr::Tuple(items, span))
+                } else {
+                    self.expect_kind(TokenKind::RParen, "')'")?;
+                    Ok(Expr::Paren(Box::new(first), span))
+                }
             }
             TokenKind::Some => {
                 self.advance();
@@ -1180,6 +1328,23 @@ impl Parser {
                 self.advance();
                 let inner = self.parse_expr()?;
                 Ok(Expr::Comptime(Box::new(inner), span))
+            }
+            TokenKind::If => {
+                self.advance();
+                let cond = self.parse_expr()?;
+                let then_block = self.parse_block()?;
+                let mut elifs = Vec::new();
+                while self.skip(TokenKind::Elif) {
+                    let econd = self.parse_expr()?;
+                    let eblock = self.parse_block()?;
+                    elifs.push((econd, eblock));
+                }
+                let else_block = if self.skip(TokenKind::Else) {
+                    Some(self.parse_block()?)
+                } else {
+                    None
+                };
+                Ok(Expr::If(Box::new(cond), then_block, elifs, else_block, span))
             }
             TokenKind::Fn => {
                 self.advance();
@@ -1220,8 +1385,14 @@ impl Parser {
                 }
                 let first = self.parse_expr()?;
                 if self.skip(TokenKind::Comma) {
-                    let mut items = vec![first, self.parse_expr()?];
+                    let mut items = vec![first];
+                    if !self.check(|k| matches!(k, TokenKind::RBracket)) {
+                        items.push(self.parse_expr()?);
+                    }
                     while self.skip(TokenKind::Comma) {
+                        if self.check(|k| matches!(k, TokenKind::RBracket)) {
+                            break;
+                        }
                         items.push(self.parse_expr()?);
                     }
                     self.expect_kind(TokenKind::RBracket, "']'")?;

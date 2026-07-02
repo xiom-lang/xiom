@@ -158,6 +158,10 @@ pub enum Expr {
     Comptime(Box<Expr>, Span),
     /// `expr as Type` — type cast
     As(Box<Expr>, Type, Span),
+    /// `(a, b, ...)` — tuple expression
+    Tuple(Vec<Expr>, Span),
+    /// `if cond { then } else { else }` — if-expression
+    If(Box<Expr>, Block, Vec<(Expr, Block)>, Option<Block>, Span),
 }
 
 impl Expr {
@@ -170,7 +174,7 @@ impl Expr {
             Expr::Index(_, _, s) | Expr::AtPre(_, s) | Expr::Ref(_, s) | Expr::MutRef(_, s) => *s,
             Expr::Some(_, s) | Expr::None(s) | Expr::Ok(_, s) | Expr::Err(_, s) => *s,
             Expr::Struct(_, _, s) | Expr::Array(_, s) | Expr::Closure(_, _, _, s) | Expr::PipeClosure(_, _, s) => *s,
-            Expr::Await(_, s) | Expr::Comptime(_, s) | Expr::As(_, _, s) => *s,
+            Expr::Await(_, s) | Expr::Comptime(_, s) | Expr::As(_, _, s) | Expr::Tuple(_, s) | Expr::If(_, _, _, _, s) => *s,
         }
     }
 }
@@ -263,6 +267,8 @@ pub enum Stmt {
     For(Ident, Expr, Block, Span),
     /// `spawn block`
     Spawn(Block, Span),
+    /// `var (a, b) = expr;` / `let (a, b) = expr;`
+    Destructure(Vec<Ident>, Expr, Span),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -275,6 +281,7 @@ pub enum StmtOrExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchArm {
     pub pattern: Pattern,
+    pub guard: Option<Expr>,
     pub body: MatchBody,
     pub span: Span,
 }
@@ -381,6 +388,7 @@ pub struct TypeDecl {
     pub derived_fields: Vec<(Ident, Type, Expr)>,
     pub invariants: Vec<Expr>,
     pub derives: Vec<DeriveTrait>,
+    pub alias: Option<Box<Type>>,
     pub span: Span,
 }
 
