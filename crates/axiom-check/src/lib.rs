@@ -563,9 +563,19 @@ impl Checker {
     fn register_fn_signature_inner(&mut self, item: &TopDecl, module_path: &str) {
         match item {
             TopDecl::Fn(fd) => {
-                let params: Vec<_> = fd.params.iter().map(|p| {
-                    (p.name.name.clone(), CheckedType::from_ast_type(&p.ty))
-                }).collect();
+                let mut params: Vec<_> = Vec::new();
+                // Add implicit self for methods that don't have an explicit self param
+                if let Some(recv) = fd.receiver.as_ref() {
+                    let has_explicit_self = fd.params.first()
+                        .map(|p| CheckedType::from_ast_type(&p.ty).name() == recv.name)
+                        .unwrap_or(false);
+                    if !has_explicit_self {
+                        params.push(("self".to_string(), CheckedType::Named(recv.name.clone())));
+                    }
+                }
+                for p in &fd.params {
+                    params.push((p.name.name.clone(), CheckedType::from_ast_type(&p.ty)));
+                }
                 let return_type = fd.return_type.as_ref().map(|t| CheckedType::from_ast_type(t));
                 let bare_key = if let Some(recv) = fd.receiver.as_ref() {
                     format!("{}.{}", recv.name, fd.name.name)
@@ -1047,13 +1057,16 @@ impl Checker {
             }
             Stmt::If(cond, then_block, elifs, else_block, _) => {
                 let cond_ty = self.check_expr(cond);
-                if cond_ty.name() != "Bool" && cond_ty != CheckedType::Error {
+                let is_lenient = |ty: &CheckedType| -> bool {
+                    matches!(ty, CheckedType::Named(n) if n.starts_with("Tuple") || (n.len() == 1 && n.chars().next().map_or(false, |c| c.is_ascii_uppercase())))
+                };
+                if cond_ty.name() != "Bool" && cond_ty != CheckedType::Error && !is_lenient(&cond_ty) {
                     self.error(format!("if condition must be Bool, found {}", cond_ty.name()), cond.span());
                 }
                 self.check_block(then_block, None);
                 for (econd, eblock) in elifs {
                     let econd_ty = self.check_expr(econd);
-                    if econd_ty.name() != "Bool" && econd_ty != CheckedType::Error {
+                    if econd_ty.name() != "Bool" && econd_ty != CheckedType::Error && !is_lenient(&econd_ty) {
                         self.error(format!("elif condition must be Bool, found {}", econd_ty.name()), econd.span());
                     }
                     self.check_block(eblock, None);
@@ -1212,6 +1225,13 @@ impl Checker {
                 }
                 // Struct field access
                 let obj_ty = self.check_expr(obj);
+                // Check if obj is an enum type and field is a variant (e.g., Color.Red)
+                if let CheckedType::Named(type_name) = &obj_ty {
+                    let variant_full = format!("{}.{}", type_name, field.name);
+                    if self.enum_variants.contains_key(&variant_full) || self.enum_variants.contains_key(&field.name) {
+                        return CheckedType::Named(type_name.clone());
+                    }
+                }
                 match &obj_ty {
                     CheckedType::Named(name) => {
                         if let Some(fields) = self.get_type(name) {
@@ -1275,10 +1295,11 @@ impl Checker {
                         if let Some(sig) = sig {
                             for (i, arg) in args.iter().enumerate() {
                                 let arg_ty = self.check_expr(arg);
-                                let param_idx = i + 1; // skip receiver parameter (first param is self-like)
+                                let param_idx = i + 1; // skip receiver
                                 if param_idx < sig.params.len() {
                                     let expected = &sig.params[param_idx].1;
-                                    if !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
+                                    let is_generic = sig.generics.iter().any(|g| g == &expected.name());
+                                    if !is_generic && !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
                                         self.error(
                                             format!("argument {} type mismatch: expected {}, found {}",
                                                 i + 1, expected.name(), arg_ty.name()),
@@ -1376,6 +1397,19 @@ impl Checker {
                                 return concrete.clone();
                             }
                             return ret_ty;
+                        }
+                    }
+                }
+                // Check if callee is an enum variant constructor (positional args)
+                if let Expr::Ident(name) = func.as_ref() {
+                    if self.enum_variants.contains_key(&name.name) || self.resolve_enum_variant(&name.name).is_some() {
+                        // Enum variant constructor with positional args — typecheck args loosely
+                        for arg in args { let _ = self.check_expr(arg); }
+                        if let Some(parent) = self.resolve_enum_variant(&name.name) {
+                            return CheckedType::Named(parent.clone());
+                        }
+                        if let Some(parent) = self.enum_variants.get(&name.name) {
+                            return CheckedType::Named(parent.clone());
                         }
                     }
                 }
