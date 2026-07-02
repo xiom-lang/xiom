@@ -263,6 +263,24 @@ New-Item -ItemType Directory -Force -Path $rtDir | Out-Null
 Copy-Item "$axiomRoot\stdlib\runtime\*" "$rtDir\" -Force
 Write-Host "  + runtime -> $rtDir" -ForegroundColor DarkGray
 
+# Documentation (optional)
+$docsDir = "$installDir\docs"
+if (Test-Path "$axiomRoot\docs\language\html") {
+    if ($Unattended) {
+        $installDocs = "y"
+    } else {
+        Write-Host ""
+        Write-Host "Install API documentation? [Y/n]:" -ForegroundColor Yellow -NoNewline
+        $installDocs = Read-Host
+    }
+    if ($installDocs -ne "n" -and $installDocs -ne "N") {
+        New-Item -ItemType Directory -Force -Path $docsDir | Out-Null
+        Copy-Item "$axiomRoot\docs\language\html\*" "$docsDir\" -Recurse -Force
+        Write-Host "  + docs -> $docsDir" -ForegroundColor DarkGray
+        Write-Host "    (Open $docsDir\index.html in your browser)" -ForegroundColor DarkGray
+    }
+}
+
 # ============================================================================
 # Done
 # ============================================================================

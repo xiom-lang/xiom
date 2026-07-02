@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    AXIOM Dependency Auto-Installer — Windows
+    AXIOM Dependency Auto-Installer -- Windows
 .DESCRIPTION
     Detects OS, checks for required build/runtime dependencies,
     and auto-installs any that are missing using winget, choco, or direct download.
@@ -37,9 +37,13 @@ function Test-Choco {
     return $null -ne (Get-Command choco -ErrorAction SilentlyContinue)
 }
 
-function Invoke-WingetInstall($id, $name) {
+function Invoke-WingetInstall($id, $name, $extraArgs = "") {
     Write-Info "Installing $name via winget..."
-    $result = cmd /c "winget install --id $id --silent --accept-package-agreements --accept-source-agreements 2>&1"
+    $wingetArgs = "install --id $id --silent --accept-package-agreements --accept-source-agreements"
+    if ($extraArgs) {
+        $wingetArgs += " $extraArgs"
+    }
+    $result = cmd /c "winget $wingetArgs 2>&1"
     if ($LASTEXITCODE -eq 0) {
         Write-Info "winget reported success for $name (may need terminal restart)"
         return $true
@@ -89,10 +93,10 @@ Write-Header "1. Rust (rustc + cargo)"
 
 if (Test-Command "rustc") {
     $ver = (rustc --version 2>$null)
-    Write-Ok "already installed — $ver"
+    Write-Ok "already installed -- $ver"
     $script:skippedCount++
 } else {
-    Write-Info "Rust not found — installing..."
+    Write-Info "Rust not found -- installing..."
     $installed = $false
 
     # Try winget first
@@ -135,87 +139,183 @@ Write-Header "2. LLVM / clang (required to compile IR to native binary)"
 
 if (Test-Command "clang") {
     $ver = (clang --version 2>$null | Select-Object -First 1)
-    Write-Ok "already installed — $ver"
+    Write-Ok "already installed -- $ver"
     $script:skippedCount++
 } else {
-    Write-Info "clang not found — installing..."
-    $installed = $false
-
-    # Try winget first (LLVM ships clang)
-    if ($hasWinget -and -not $installed) {
-        $installed = Invoke-WingetInstall "LLVM.LLVM" "LLVM/clang"
-    }
-    # Try choco
-    if ($hasChoco -and -not $installed) {
-        $installed = Invoke-ChocoInstall "llvm" "LLVM/clang"
-    }
-    # Fallback: direct LLVM download
-    if (-not $installed) {
-        $llvmVersion = "19.1.0"
-        $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$llvmVersion/LLVM-$llvmVersion-win64.exe"
-        $llvmExe = "$env:TEMP\LLVM-$llvmVersion-win64.exe"
-        Write-Info "Downloading LLVM $llvmVersion..."
-        Invoke-WebRequest -Uri $llvmUrl -OutFile $llvmExe -UseBasicParsing
-        Write-Info "Running LLVM installer (unattended, add to PATH)..."
-        $proc = Start-Process -FilePath $llvmExe -ArgumentList "/S /D=C:\Program Files\LLVM" -Wait -PassThru -NoNewWindow
-        Remove-Item $llvmExe -Force -ErrorAction SilentlyContinue
-        if ($proc.ExitCode -eq 0) {
-            Write-Ok "LLVM installed. Restart terminal for PATH to take effect."
-            $script:installedCount++
-            $installed = $true
+    # clang not on PATH, but LLVM might be installed elsewhere.
+    # Search common installation directories first.
+    $llvmPaths = @(
+        "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\LLVM.LLVM_*\bin\clang.exe",
+        "C:\Program Files\LLVM\bin\clang.exe",
+        "$env:LOCALAPPDATA\Programs\LLVM\bin\clang.exe",
+        "$env:ProgramData\Microsoft\WinGet\Packages\LLVM.LLVM_*\bin\clang.exe"
+    )
+    $foundClang = $null
+    foreach ($pattern in $llvmPaths) {
+        $found = Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) {
+            $foundClang = $found.FullName
+            break
         }
     }
 
-    if ($installed) {
-        Update-SessionPath
+    if ($foundClang) {
+        $llvmBin = Split-Path -Parent $foundClang
+        Write-Ok "LLVM found at $llvmBin (not on PATH)"
+        Write-Info "Adding $llvmBin to user PATH..."
+        $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+        if ($userPath -notlike "*$llvmBin*") {
+            [Environment]::SetEnvironmentVariable("Path", "$userPath;$llvmBin", "User")
+        }
+        $env:Path = "$env:Path;$llvmBin"
         $script:installedCount++
     } else {
-        Write-Fail "Could not install LLVM/clang."
-        Write-Info "  Manual install: https://github.com/llvm/llvm-project/releases"
-        Write-Info "  NOTE: Without clang, the compiler emits .ll IR files but cannot link native binaries."
-        Write-Info "  The compiler itself (axiomc) does not require clang to run."
-        $script:failedCount++
+        Write-Info "clang not found -- installing..."
+        $installed = $false
+
+        # Try winget first (even if it says "already installed", try anyway)
+        if ($hasWinget -and -not $installed) {
+            $installed = Invoke-WingetInstall "LLVM.LLVM" "LLVM/clang"
+        }
+        # Try choco
+        if ($hasChoco -and -not $installed) {
+            $installed = Invoke-ChocoInstall "llvm" "LLVM/clang"
+        }
+        # Fallback: direct LLVM download
+        if (-not $installed) {
+            $llvmVersion = "19.1.0"
+            $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$llvmVersion/LLVM-$llvmVersion-win64.exe"
+            $llvmExe = "$env:TEMP\LLVM-$llvmVersion-win64.exe"
+            Write-Info "Downloading LLVM $llvmVersion..."
+            try {
+                Invoke-WebRequest -Uri $llvmUrl -OutFile $llvmExe -UseBasicParsing -TimeoutSec 120
+                Write-Info "Running LLVM installer (unattended, add to PATH)..."
+                $proc = Start-Process -FilePath $llvmExe -ArgumentList "/S /D=C:\Program Files\LLVM" -Wait -PassThru -NoNewWindow
+                Remove-Item $llvmExe -Force -ErrorAction SilentlyContinue
+                if ($proc.ExitCode -eq 0) {
+                    Write-Ok "LLVM installed. Restart terminal for PATH to take effect."
+                    $script:installedCount++
+                    $installed = $true
+                }
+            } catch {
+                Write-Warn "LLVM download failed (timeout/network): $_"
+                Write-Info "  Install manually: https://github.com/llvm/llvm-project/releases"
+            }
+        }
+
+        if ($installed) {
+            Update-SessionPath
+            $script:installedCount++
+        } else {
+            Write-Fail "Could not install LLVM/clang."
+            Write-Info "  Manual install: https://github.com/llvm/llvm-project/releases"
+            Write-Info "  NOTE: Without clang, the compiler emits .ll IR files but cannot link native binaries."
+            Write-Info "  The compiler itself (axiomc) does not require clang to run."
+            $script:failedCount++
+        }
+    }
+}
+
+# After LLVM install, verify it's on PATH
+if (Test-Command "clang") {
+    $clangPath = (Get-Command clang -ErrorAction SilentlyContinue).Source
+    Write-Info "clang location: $clangPath"
+    # Ensure LLVM bin is in user PATH for persistence
+    if ($clangPath) {
+        $llvmBin = Split-Path -Parent $clangPath
+        $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+        if ($userPath -notlike "*$llvmBin*") {
+            Write-Info "Adding $llvmBin to user PATH..."
+            [Environment]::SetEnvironmentVariable("Path", "$userPath;$llvmBin", "User")
+        }
     }
 }
 
 # ============================================================================
-# 3. C++ Build Tools / Windows SDK (linker — needed by clang on Windows)
+# 3. C Headers & Windows SDK (stdio.h -- needed by clang to compile axiom_runtime.c)
 # ============================================================================
-Write-Header "3. C++ Build Tools / Windows SDK (link.exe)"
+Write-Header "3. C/C++ Headers + Windows SDK (stdio.h, stdlib.h)"
 
-if (Test-Command "link") {
-    Write-Ok "link.exe already available"
+# Test if clang can actually compile a trivial C program (verifies headers exist)
+$clangCanCompile = $false
+if (Test-Command "clang") {
+    $testDir = "$env:TEMP\axiom_clang_test"
+    New-Item -ItemType Directory -Force -Path $testDir | Out-Null
+    "#include <stdio.h>`nint main() { return 0; }" | Out-File -FilePath "$testDir\test.c" -Encoding ASCII
+    $savedErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $clangOut = clang -o "$testDir\test.exe" "$testDir\test.c" 2>&1
+    $ErrorActionPreference = $savedErrorAction
+    if ($LASTEXITCODE -eq 0) {
+        Write-Ok "clang can compile C -- C headers found"
+        $clangCanCompile = $true
+    } else {
+        Write-Warn "clang cannot compile C (missing C standard library headers)"
+        if ($clangOut) { Write-Info "  $clangOut" }
+    }
+    Remove-Item -Recurse -Force $testDir -ErrorAction SilentlyContinue
+}
+
+if ($clangCanCompile) {
     $script:skippedCount++
 } else {
-    Write-Info "link.exe not found — may need Visual Studio Build Tools"
-    Write-Info "  If clang complains about missing 'link.exe' after install:"
-    Write-Info "  Run: winget install Microsoft.VisualStudio.2022.BuildTools --override '--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools'"
+    Write-Info "C headers not found -- clang needs Windows SDK or VS Build Tools"
+    Write-Info "  On Windows, stdio.h comes from the Windows SDK, which is installed"
+    Write-Info "  with Visual Studio Build Tools (C++ workload). Installing now..."
 
-    # Try winget auto-install
-    if ($hasWinget) {
-        $vsInstalled = Invoke-WingetInstall "Microsoft.VisualStudio.2022.BuildTools" "VS Build Tools"
-        if ($vsInstalled) {
-            Write-Info "VS Build Tools queued. You may need to run the installer GUI once."
-            Write-Info "Or use lld-link which ships with LLVM: clang -fuse-ld=lld"
-        }
+    $vsInstalled = $false
+
+    # Try winget with full C++ workload
+    if ($hasWinget -and -not $vsInstalled) {
+        $overrideArgs = '--override "--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.22621 --includeRecommended"'
+        $vsInstalled = Invoke-WingetInstall "Microsoft.VisualStudio.2022.BuildTools" "VS 2022 Build Tools (C++)" $overrideArgs
     }
 
-    # Not a hard failure — clang can use lld-link which ships with LLVM
-    Write-Info "  Alternatively, clang can use lld-link (ships with LLVM)."
-    Write-Info "  Pass -fuse-ld=lld to clang, or set it as default."
+    # Try choco
+    if ($hasChoco -and -not $vsInstalled) {
+        $vsInstalled = Invoke-ChocoInstall "visualstudio2022buildtools --params '--add Microsoft.VisualStudio.Workload.VCTools'" "VS Build Tools"
+    }
+
+    if (-not $vsInstalled) {
+        Write-Fail "Could not auto-install C/C++ headers."
+        Write-Info "  Manual fix -- run ONE of the following:"
+        Write-Info ""
+        Write-Info "  Option A (recommended): Install VS 2022 Build Tools with C++"
+        Write-Info "    winget install Microsoft.VisualStudio.2022.BuildTools"
+        Write-Info "    Then run the Visual Studio Installer, select 'Desktop development with C++'"
+        Write-Info ""
+        Write-Info "  Option B: Install just the Windows SDK"
+        Write-Info "    winget install Microsoft.WindowsSDK.10.0.22621"
+        Write-Info ""
+        Write-Info "  Option C: Install MinGW-w64 (alternative CRT)"
+        Write-Info "    winget install MSYS2.MSYS2"
+        Write-Info "    Then: pacman -S mingw-w64-ucrt-x86_64-gcc"
+        Write-Info ""
+        Write-Info "  After installing, RESTART your terminal and re-run this script."
+        Write-Info "  NOTE: This is needed because axiom_runtime.c uses stdio."
+        Write-Info "  The compiler emits valid LLVM IR without C headers."
+        Write-Info "  Only native binary linking requires them."
+        $script:failedCount++
+    } else {
+        Write-Info "VS Build Tools installation queued."
+        Write-Info "  The installer may open a GUI -- select 'Desktop development with C++'"
+        Write-Info "  and click Install. After it completes, RESTART your terminal."
+        Write-Info "  Then re-run: .\install_deps.ps1"
+        $script:installedCount++
+    }
 }
 
 # ============================================================================
 # 4. Git
 # ============================================================================
-Write-Header "4. Git (optional — for package manager)"
+Write-Header "4. Git (optional - for package manager)"
 
 if (Test-Command "git") {
     $ver = (git --version 2>$null)
-    Write-Ok "already installed — $ver"
+    Write-Ok "already installed -- $ver"
     $script:skippedCount++
 } else {
-    Write-Info "Git not found — optional, only needed for 'axiom pkg install'"
+    Write-Info "Git not found -- optional, only needed for 'axiom pkg install'"
     if ($hasWinget) {
         Invoke-WingetInstall "Git.Git" "Git" | Out-Null
     }
