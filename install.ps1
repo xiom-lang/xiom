@@ -157,23 +157,32 @@ Copy-Item "$axiomRoot\axiom.bat" "$binDir\axiom.bat" -Force
 Copy-Item "$axiomRoot\resource\img\axiom-icon.ico" "$binDir\axiom-icon.ico" -Force
 
 # ============================================================================
-# PATH
+# PATH (User or System)
 # ============================================================================
 if (-not $NoPath) {
     if ($Unattended) {
-        $addPath = "y"
+        $pathType = "u"
     } else {
         Write-Host ""
-        Write-Host "Add to user PATH? [Y/n]:" -ForegroundColor Yellow -NoNewline
-        $addPath = Read-Host
+        Write-Host "Add to PATH? [U]ser (default) / [S]ystem (admin) / [N]o:" -ForegroundColor Yellow -NoNewline
+        $pathType = Read-Host
     }
-    if ($addPath -ne "n" -and $addPath -ne "N") {
-        $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-        if ($userPath -notlike "*$binDir*") {
-            [Environment]::SetEnvironmentVariable("Path", "$userPath;$binDir", "User")
-            Write-Host "  Added to PATH. Restart terminal to take effect." -ForegroundColor Green
+    if ($pathType -ne "n" -and $pathType -ne "N") {
+        $isSystem = ($pathType -eq "s" -or $pathType -eq "S")
+        if ($isSystem) {
+            $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+            if (-not $isAdmin) {
+                Write-Host "  System PATH requires admin. Adding to user PATH instead." -ForegroundColor Yellow
+                $isSystem = $false
+            }
+        }
+        $target = if ($isSystem) { "Machine" } else { "User" }
+        $currentPath = [Environment]::GetEnvironmentVariable("Path", $target)
+        if ($currentPath -notlike "*$binDir*") {
+            [Environment]::SetEnvironmentVariable("Path", "$currentPath;$binDir", $target)
+            Write-Host "  Added to $target PATH. Restart terminal to take effect." -ForegroundColor Green
         } else {
-            Write-Host "  Already in PATH." -ForegroundColor DarkGray
+            Write-Host "  Already in $target PATH." -ForegroundColor DarkGray
         }
     }
 }
