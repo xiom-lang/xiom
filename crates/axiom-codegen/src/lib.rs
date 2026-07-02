@@ -208,6 +208,9 @@ impl IrEmitter {
             Type::MutRef(inner) => Self::type_from_ast(inner),
             Type::Option(_) => "Option".to_string(),
             Type::Result(_, _) => "Result".to_string(),
+            Type::Vec(_) => "Vec".to_string(),
+            Type::Map(_, _) => "Map".to_string(),
+            Type::Set(_) => "Set".to_string(),
             _ => "Int".to_string(),
         }
     }
@@ -2528,7 +2531,15 @@ impl IrEmitter {
                     return Ok("0".to_string());
                 }
                 // Check if this is a call to a generic function and track instantiation
-                let fn_key = fn_name.clone();
+                let fn_key = if let Some(receiver) = receiver_expr {
+                    if let Some(recv_type) = self.infer_struct_type_name(receiver) {
+                        format!("{}.{}", recv_type, fn_name)
+                    } else {
+                        fn_name.clone()
+                    }
+                } else {
+                    fn_name.clone()
+                };
                 let is_generic = self.generic_fn_decls.iter().any(|f| self.fn_key(f) == fn_key);
                 if is_generic {
                     // Infer concrete types from argument types
@@ -2863,6 +2874,20 @@ impl IrEmitter {
             Expr::Struct(ident, _, _) => Some(ident.name.clone()),
             Expr::Field(obj, _, _) => {
                 self.infer_struct_type_name(obj.as_ref())
+            }
+            Expr::Call(func, _, _) => {
+                // Infer type from the return type of a method/function call
+                if let Expr::Field(obj, field, _) = func.as_ref() {
+                    if let Some(recv_type) = self.infer_struct_type_name(obj.as_ref()) {
+                        let fn_key = format!("{}.{}", recv_type, field.name);
+                        if let Some((_, ret_ty)) = self.functions.get(&fn_key) {
+                            if ret_ty.starts_with("%struct.") {
+                                return Some(ret_ty[8..].to_string());
+                            }
+                        }
+                    }
+                }
+                None
             }
             _ => None,
         }

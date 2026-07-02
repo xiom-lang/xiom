@@ -1246,6 +1246,10 @@ impl Parser {
                             if after_first == Some(&TokenKind::RBracket) {
                                 let is_type_name = match &expr {
                                     Expr::Ident(name) => name.name.chars().next().map_or(false, |c| c.is_uppercase()),
+                                    Expr::Field(obj, _, _) => match obj.as_ref() {
+                                        Expr::Ident(name) => name.name.chars().next().map_or(false, |c| c.is_uppercase()),
+                                        _ => false,
+                                    }
                                     _ => false,
                                 };
                                 if !is_type_name {
