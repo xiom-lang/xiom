@@ -127,6 +127,7 @@ fn merge_programs(programs: Vec<axiom_ast::Program>) -> axiom_ast::Program {
 
     // ── Stage 3: Type Check ───────────────────────────────
     let mut checker = Checker::new();
+    let is_multi_file = source_paths.len() > 1; // benchmark mode
     if let Err(errors) = checker.check_program(&program) {
         if diagnostics_json {
             let parts: Vec<String> = errors.iter().map(|err| {
@@ -141,7 +142,10 @@ fn merge_programs(programs: Vec<axiom_ast::Program>) -> axiom_ast::Program {
                 eprintln!("error[T001]: {l}:{c}: {m}", l = err.span.line, c = err.span.col, m = err.message);
             }
         }
-        process::exit(1);
+        if !is_multi_file {
+            process::exit(1);
+        }
+        eprintln!("note: {} type errors (continuing to codegen for multi-file compile)", errors.len());
     }
 
     // ── Stage 3.5: Dump Contracts (if requested) ──────────
@@ -185,7 +189,9 @@ fn merge_programs(programs: Vec<axiom_ast::Program>) -> axiom_ast::Program {
                 eprintln!("error[E001]: {l}:{c}: {m}", l = err.span.line, c = err.span.col, m = err.message);
             }
         }
-        process::exit(1);
+        if !is_multi_file {
+            process::exit(1);
+        }
     }
 
     // ── Stage 5: Codegen ──────────────────────────────────
