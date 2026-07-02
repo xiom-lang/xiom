@@ -1482,10 +1482,6 @@ impl Parser {
                     Ok(Expr::Array(vec![first], span))
                 }
             }
-            TokenKind::Result_ => {
-                let span = self.advance().span;
-                Ok(Expr::Ident(Ident::new("result", span)))
-            }
             TokenKind::Self_ => {
                 let span = self.advance().span;
                 Ok(Expr::Ident(Ident::new("self", span)))
@@ -1550,7 +1546,6 @@ impl Parser {
             TokenKind::Ident(name) => Ok(Ident::new(name.clone(), tok.span)),
             // Allow keyword-like identifiers that can appear as variable names, module names, etc.
             TokenKind::Self_ => Ok(Ident::new("self".to_string(), tok.span)),
-            TokenKind::Result_ => Ok(Ident::new("result".to_string(), tok.span)),
             TokenKind::Comptime => Ok(Ident::new("comptime".to_string(), tok.span)),
             TokenKind::Derive => Ok(Ident::new("derive".to_string(), tok.span)),
             _ => {

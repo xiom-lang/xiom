@@ -910,10 +910,20 @@ impl IrEmitter {
             self.emitln(&format!("  {self_val} = load {field_llvm_ty}, {field_llvm_ty}* {self_gep}"));
             self.emitln(&format!("  {other_gep} = getelementptr {struct_ty}, {struct_ty}* {other_alloca}, i32 0, i32 {i}"));
             self.emitln(&format!("  {other_val} = load {field_llvm_ty}, {field_llvm_ty}* {other_gep}"));
-            // Check if field is float
             let is_float = fields.get(i).map(|f| matches!(&f.ty, Type::Named(id, _) if id.name == "Float64" || id.name == "Float32")).unwrap_or(false);
-            if is_float {
-                self.emitln(&format!("  {cmp} = fcmp oeq double {self_val}, {other_val}"));
+            if field_llvm_ty.starts_with("%struct.") {
+                let field_type_name = &field_llvm_ty[8..];
+                let eq_fn = format!("{field_type_name}.eq");
+                self.emitln(&format!("  {cmp} = call i64 @{eq_fn}({field_llvm_ty} {self_val}, {field_llvm_ty} {other_val})"));
+                if last_cmp.is_empty() {
+                    last_cmp = cmp;
+                } else {
+                    let and_tmp = self.fresh_tmp();
+                    self.emitln(&format!("  {and_tmp} = and i64 {last_cmp}, {cmp}"));
+                    last_cmp = and_tmp;
+                }
+            } else if is_float {
+                self.emitln(&format!("  {cmp} = fcmp oeq {field_llvm_ty} {self_val}, {other_val}"));
                 let ze = self.fresh_tmp();
                 self.emitln(&format!("  {ze} = zext i1 {cmp} to i64"));
                 if last_cmp.is_empty() {
@@ -1083,22 +1093,30 @@ impl IrEmitter {
             self.emitln(&format!("  {other_gep} = getelementptr {struct_ty}, {struct_ty}* {other_alloca}, i32 0, i32 {i}"));
             self.emitln(&format!("  {other_val} = load {field_llvm_ty}, {field_llvm_ty}* {other_gep}"));
 
-            self.emitln(&format!("  {cmp_eq} = icmp eq {field_llvm_ty} {self_val}, {other_val}"));
             let next_field = self.fresh_block("next_field");
             let ret_block = self.fresh_block("ord_ret");
-            self.emitln(&format!("  br i1 {cmp_eq}, label %{next_field}, label %{ret_block}"));
-            self.emitln(&format!("\n{ret_block}:"));
-            if is_float {
-                let fself = self.fresh_tmp();
-                let fother = self.fresh_tmp();
+            if field_llvm_ty.starts_with("%struct.") {
+                let field_type_name = &field_llvm_ty[8..];
+                let compare_fn = format!("{field_type_name}.compare");
+                let cmp_result = self.fresh_tmp();
+                self.emitln(&format!("  {cmp_result} = call i64 @{compare_fn}({field_llvm_ty} {self_val}, {field_llvm_ty} {other_val})"));
+                self.emitln(&format!("  {cmp_eq} = icmp eq i64 {cmp_result}, 0"));
+                self.emitln(&format!("  br i1 {cmp_eq}, label %{next_field}, label %{ret_block}"));
+                self.emitln(&format!("\n{ret_block}:"));
+                self.emitln(&format!("  ret i64 {cmp_result}"));
+            } else if is_float {
+                self.emitln(&format!("  {cmp_eq} = fcmp oeq {field_llvm_ty} {self_val}, {other_val}"));
+                self.emitln(&format!("  br i1 {cmp_eq}, label %{next_field}, label %{ret_block}"));
+                self.emitln(&format!("\n{ret_block}:"));
                 let fcmp = self.fresh_tmp();
-                self.emitln(&format!("  {fself} = sitofp i64 {self_val} to double"));
-                self.emitln(&format!("  {fother} = sitofp i64 {other_val} to double"));
-                self.emitln(&format!("  {fcmp} = fcmp olt double {fself}, {fother}"));
+                self.emitln(&format!("  {fcmp} = fcmp olt {field_llvm_ty} {self_val}, {other_val}"));
                 let result = self.fresh_tmp();
                 self.emitln(&format!("  {result} = select i1 {fcmp}, i64 -1, i64 1"));
                 self.emitln(&format!("  ret i64 {result}"));
             } else {
+                self.emitln(&format!("  {cmp_eq} = icmp eq {field_llvm_ty} {self_val}, {other_val}"));
+                self.emitln(&format!("  br i1 {cmp_eq}, label %{next_field}, label %{ret_block}"));
+                self.emitln(&format!("\n{ret_block}:"));
                 let cmp_lt = self.fresh_tmp();
                 self.emitln(&format!("  {cmp_lt} = icmp slt {field_llvm_ty} {self_val}, {other_val}"));
                 let result = self.fresh_tmp();
