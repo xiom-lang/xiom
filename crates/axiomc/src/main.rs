@@ -17,6 +17,7 @@
 
 use std::env;
 use std::fs;
+use std::path::Path;
 use std::process::{self, Command};
 
 use axiom_ast::*;
@@ -57,66 +58,72 @@ fn main() {
         process::exit(1);
     }
 
-    // ── Stage 1: Lex & Parse all source files ─────────────
-    let mut all_programs: Vec<Program> = Vec::new();
-    for source_path in &source_paths {
-        let source = match fs::read_to_string(source_path) {
-            Ok(s) => s,
-            Err(e) => {
-                if diagnostics_json {
-                    println!(r#"{{"kind":"io_error","code":"F001","message":"cannot read '{source_path}': {e}","location":{{"file":"{source_path}","line":0,"col":0}}}}"#);
-                } else {
-                    eprintln!("error: cannot read '{source_path}': {e}");
-                }
-                process::exit(1);
-            }
-        };
+    // ── Stage 1: Lex & Parse ──────────────────────────────
+    let mut all_programs: Vec<axiom_ast::Program> = Vec::new();
+    let mut source_label = "<unknown>".to_string();
 
+    for source_path in &source_paths {
+        let file_name = Path::new(source_path).file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if file_name == "package.ax" { continue; }
+        
+        let source = fs::read_to_string(source_path)
+            .map_err(|e| format!("cannot read '{source_path}': {e}"))
+            .unwrap_or_else(|e| { eprintln!("error: {e}"); process::exit(1); });
+        
+        source_label = source_path.clone();
+        
         let mut lexer = Lexer::new(&source);
         let tokens = lexer.tokenize();
-
+        
         let lex_errors: Vec<_> = tokens.iter()
             .filter(|t| matches!(t.kind, axiom_lexer::TokenKind::Error(_)))
             .collect();
         if !lex_errors.is_empty() {
-            if diagnostics_json {
-                let mut parts: Vec<String> = Vec::new();
-                for tok in &lex_errors {
-                    if let axiom_lexer::TokenKind::Error(msg) = &tok.kind {
-                        parts.push(format!(
-                            r#"{{"kind":"lex_error","code":"L001","message":"{}","location":{{"file":"{}","line":{},"col":{}}}}}"#,
-                            escape_json(msg), escape_json(source_path), tok.span.line, tok.span.col
-                        ));
-                    }
-                }
-                println!("[{}]", parts.join(","));
-            } else {
-                for tok in &lex_errors {
-                    if let axiom_lexer::TokenKind::Error(msg) = &tok.kind {
-                        eprintln!("error[L001]: {msg} at {l}:{c}", l = tok.span.line, c = tok.span.col);
-                    }
+            for tok in &lex_errors {
+                if let axiom_lexer::TokenKind::Error(msg) = &tok.kind {
+                    eprintln!("error[L001]: {msg} at {l}:{c}", l = tok.span.line, c = tok.span.col);
                 }
             }
             process::exit(1);
         }
-
+        
         let mut parser = Parser::new(tokens);
-        let program = match parser.parse_program() {
-            Ok(p) => p,
+        match parser.parse_program() {
+            Ok(p) => all_programs.push(p),
             Err(e) => {
-                if diagnostics_json {
-                    println!(r#"{{"kind":"parse_error","code":"P001","message":"{}","location":{{"file":"{}","line":{},"col":{}}}}}"#,
-                        escape_json(&e.message), escape_json(source_path), e.span.line, e.span.col);
-                } else {
-                    eprintln!("error[P001]: {l}:{c}: {m}", l = e.span.line, c = e.span.col, m = e.message);
-                }
+                eprintln!("error[P001]: {l}:{c}: {m}", l = e.span.line, c = e.span.col, m = e.message);
                 process::exit(1);
             }
-        };
-        all_programs.push(program);
+        }
     }
+    
+    // Merge all parsed programs into one
+    let program = merge_programs(all_programs);
 
-    let program = merge_programs(all_programs, &source_paths);
+fn merge_programs(programs: Vec<axiom_ast::Program>) -> axiom_ast::Program {
+    let mut items: Vec<axiom_ast::TopDecl> = Vec::new();
+    for p in programs {
+        for item in p.items {
+            match item {
+                axiom_ast::TopDecl::Module(md) => {
+                    // Merge with existing module of same name
+                    let md_name = md.name.name.clone();
+                    if let Some(existing) = items.iter_mut().find_map(|i| {
+                        if let axiom_ast::TopDecl::Module(emd) = i {
+                            if emd.name.name == md_name { Some(emd) } else { None }
+                        } else { None }
+                    }) {
+                        existing.items.extend(md.items);
+                    } else {
+                        items.push(axiom_ast::TopDecl::Module(md));
+                    }
+                }
+                other => items.push(other),
+            }
+        }
+    }
+    axiom_ast::Program::new(items, axiom_ast::Span::new(0, 0))
+}
 
     // ── Stage 3: Type Check ───────────────────────────────
     let mut checker = Checker::new();
@@ -420,7 +427,7 @@ fn build_module_file_map(files: &[String]) -> std::collections::HashMap<String, 
     for file in files {
         if let Ok(content) = fs::read_to_string(file) {
             let module_path = extract_module_path(&content);
-            if let Some(path) = module_path {
+        if let Some(path) = module_path {
                 map.insert(path, file.clone());
             }
         }
@@ -529,66 +536,58 @@ fn parse_package_manifest(path: &str) -> Result<Vec<String>, String> {
     Ok(modules)
 }
 
-/// Merge multiple parsed programs into one, merging duplicate top-level modules.
-fn merge_programs(programs: Vec<Program>, source_paths: &[String]) -> Program {
-    let mut all_items: Vec<TopDecl> = Vec::new();
-    let mut all_sources = Vec::new();
-    let mut span = Span::new(0, 0);
+/// Build a concatenated source string from multiple `.ax` files,
+/// wrapping each file's content inside nested module blocks derived
+/// from its `module` declaration.
+fn build_concatenated_source(files: &[String]) -> Result<String, String> {
+    let mut result = String::from("module benchmark {\n");
 
-    for prog in programs {
-        span = prog.span;
-        all_sources.extend(prog.source_files);
-        for item in prog.items {
-            all_items.push(item);
+    for file_path in files {
+        let file_name = Path::new(file_path).file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if file_name == "package.ax" { continue; }
+
+        let source = fs::read_to_string(file_path).map_err(|e| format!("cannot read '{file_path}': {e}"))?;
+        let module_path = extract_module_path(&source);
+
+        if let Some(_path) = module_path {
+            let body = strip_module_decl(&source);
+
+            // Emit body with single-level indent (inside `module benchmark {`)
+            for line in body.lines() {
+                result.push_str("  ");
+                result.push_str(line);
+                result.push('\n');
+            }
         }
     }
 
-    // Merge duplicate ModuleDecl items with the same name
-    all_items = merge_duplicate_modules(all_items);
-
-    // Track the source files
-    all_sources.extend(source_paths.iter().cloned());
-
-    Program {
-        items: all_items,
-        source_files: all_sources,
-        root_dir: None,
-        span,
-    }
+    result.push_str("}\n");
+    Ok(result)
 }
 
-/// Merge duplicate `ModuleDecl` items that have the same `name`.
-/// This handles files that declare the same top-level module (e.g. `benchmark`).
-fn merge_duplicate_modules(items: Vec<TopDecl>) -> Vec<TopDecl> {
-    let mut merged: Vec<TopDecl> = Vec::new();
-    for item in items {
-        match item {
-            TopDecl::Module(md) => {
-                let name = md.name.name.clone();
-                let mut found_idx: Option<usize> = None;
-                for (idx, m) in merged.iter().enumerate() {
-                    if let TopDecl::Module(existing_md) = m {
-                        if existing_md.name.name == name {
-                            found_idx = Some(idx);
-                            break;
-                        }
-                    }
-                }
-                if let Some(idx) = found_idx {
-                    // Recursively merge sub-modules of the same name
-                    if let TopDecl::Module(existing) = &mut merged[idx] {
-                        let new_items = std::mem::take(&mut existing.items);
-                        let combined: Vec<TopDecl> = new_items.into_iter().chain(md.items).collect();
-                        existing.items = merge_duplicate_modules(combined);
-                    }
-                } else {
-                    merged.push(TopDecl::Module(md));
-                }
+/// Strip the module declaration line and any leading content (e.g. copyright header)
+/// from a source file, returning only the code body after the `module` line.
+fn strip_module_decl(source: &str) -> String {
+    let mut result = String::new();
+    let mut found_module = false;
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if !found_module {
+            // Skip blank lines and comment lines before the module declaration
+            if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*') {
+                continue;
             }
-            _ => merged.push(item),
+            if trimmed.starts_with("module ") {
+                found_module = true;
+                continue;
+            }
+            // If we hit non-comment, non-module content before module declaration, include it
+            found_module = true;
         }
+        result.push_str(line);
+        result.push('\n');
     }
-    merged
+    result
 }
 
 fn print_usage() {
