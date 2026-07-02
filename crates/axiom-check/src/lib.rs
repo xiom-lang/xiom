@@ -219,6 +219,23 @@ impl Checker {
                        "Float32", "Float64", "Char", "Str"] {
             self.types.insert(prim.to_string(), HashMap::new());
         }
+        // Compound builtin types (empty fields = permissive field access)
+        for comp in &["Vec", "Map", "Set", "Stack", "Slice"] {
+            self.types.insert(comp.to_string(), HashMap::new());
+        }
+        // Option with known fields
+        let mut opt = HashMap::new();
+        opt.insert("is_some".to_string(), CheckedType::Named("Bool".into()));
+        opt.insert("is_none".to_string(), CheckedType::Named("Bool".into()));
+        opt.insert("value".to_string(), CheckedType::Int);
+        self.types.insert("Option".to_string(), opt);
+        // Result with known fields
+        let mut res = HashMap::new();
+        res.insert("is_ok".to_string(), CheckedType::Named("Bool".into()));
+        res.insert("is_err".to_string(), CheckedType::Named("Bool".into()));
+        res.insert("value".to_string(), CheckedType::Int);
+        res.insert("error".to_string(), CheckedType::Int);
+        self.types.insert("Result".to_string(), res);
     }
 
     fn push_scope(&mut self) {
@@ -751,13 +768,13 @@ impl Checker {
             }
             Stmt::If(cond, then_block, elifs, else_block, _) => {
                 let cond_ty = self.check_expr(cond);
-                if cond_ty != CheckedType::Bool && cond_ty != CheckedType::Error {
+                if cond_ty.name() != "Bool" && cond_ty != CheckedType::Error {
                     self.error(format!("if condition must be Bool, found {}", cond_ty.name()), cond.span());
                 }
                 self.check_block(then_block, None);
                 for (econd, eblock) in elifs {
                     let econd_ty = self.check_expr(econd);
-                    if econd_ty != CheckedType::Bool && econd_ty != CheckedType::Error {
+                    if econd_ty.name() != "Bool" && econd_ty != CheckedType::Error {
                         self.error(format!("elif condition must be Bool, found {}", econd_ty.name()), econd.span());
                     }
                     self.check_block(eblock, None);
@@ -779,7 +796,7 @@ impl Checker {
             }
             Stmt::While(cond, body, _) => {
                 let cond_ty = self.check_expr(cond);
-                if cond_ty != CheckedType::Bool && cond_ty != CheckedType::Error {
+                if cond_ty.name() != "Bool" && cond_ty != CheckedType::Error {
                     self.error(format!("while condition must be Bool, found {}", cond_ty.name()), cond.span());
                 }
                 self.check_block(body, None);
@@ -847,7 +864,7 @@ impl Checker {
                         inner_ty
                     }
                     UnaryOp::Not => {
-                        if inner_ty != CheckedType::Bool {
+                        if inner_ty.name() != "Bool" {
                             self.error(format!("cannot logically negate type {}", inner_ty.name()), *span);
                         }
                         CheckedType::Bool
@@ -872,10 +889,10 @@ impl Checker {
                         CheckedType::Bool
                     }
                     BinOp::And | BinOp::Or => {
-                        if left_ty != CheckedType::Bool {
+                        if left_ty.name() != "Bool" {
                             self.error(format!("left operand of logical op must be Bool, found {}", left_ty.name()), *span);
                         }
-                        if right_ty != CheckedType::Bool {
+                        if right_ty.name() != "Bool" {
                             self.error(format!("right operand of logical op must be Bool, found {}", right_ty.name()), *span);
                         }
                         CheckedType::Bool
@@ -903,11 +920,15 @@ impl Checker {
                         if let Some(fields) = self.types.get(name) {
                             if let Some(field_ty) = fields.get(&field.name) {
                                 field_ty.clone()
-                            } else {
+                            } else if !fields.is_empty() {
+                                // Known type with registered fields — unknown field
                                 self.error(
                                     format!("type '{}' has no field '{}'", name, field.name),
                                     *span,
                                 )
+                            } else {
+                                // Known type with no registered fields (builtin) — allow access
+                                CheckedType::Int
                             }
                         } else {
                             CheckedType::Error // unknown type
