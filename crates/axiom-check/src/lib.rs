@@ -133,34 +133,6 @@ impl CheckedType {
             CheckedType::Error => "<error>".into(),
         }
     }
-
-    /// Convert this checked type back to an AST Type for codegen consumption
-    pub fn to_ast_type(&self) -> Type {
-        let span = Span::new(0, 0);
-        match self {
-            CheckedType::Bool => Type::Named(Ident::new("Bool", span), vec![]),
-            CheckedType::Int => Type::Named(Ident::new("Int", span), vec![]),
-            CheckedType::Int8 => Type::Named(Ident::new("Int8", span), vec![]),
-            CheckedType::Int16 => Type::Named(Ident::new("Int16", span), vec![]),
-            CheckedType::Int32 => Type::Named(Ident::new("Int32", span), vec![]),
-            CheckedType::Int64 => Type::Named(Ident::new("Int64", span), vec![]),
-            CheckedType::UInt => Type::Named(Ident::new("UInt", span), vec![]),
-            CheckedType::UInt8 => Type::Named(Ident::new("UInt8", span), vec![]),
-            CheckedType::UInt16 => Type::Named(Ident::new("UInt16", span), vec![]),
-            CheckedType::UInt32 => Type::Named(Ident::new("UInt32", span), vec![]),
-            CheckedType::UInt64 => Type::Named(Ident::new("UInt64", span), vec![]),
-            CheckedType::Float32 => Type::Named(Ident::new("Float32", span), vec![]),
-            CheckedType::Float64 => Type::Named(Ident::new("Float64", span), vec![]),
-            CheckedType::Char => Type::Named(Ident::new("Char", span), vec![]),
-            CheckedType::Str => Type::Named(Ident::new("Str", span), vec![]),
-            CheckedType::Unit => Type::Named(Ident::new("()", span), vec![]),
-            CheckedType::Never => Type::Named(Ident::new("!", span), vec![]),
-            CheckedType::Named(s) => Type::Named(Ident::new(s, span), vec![]),
-            CheckedType::Generic(s) => Type::Named(Ident::new(s, span), vec![]),
-            CheckedType::Fn(_, _) => Type::Named(Ident::new("fn", span), vec![]),
-            CheckedType::Error => Type::Named(Ident::new("Int", span), vec![]),
-        }
-    }
 }
 
 // ============================================================================
@@ -175,333 +147,7 @@ pub enum ModuleExport {
 }
 
 // ============================================================================
-// Module Catalog — pre-loaded cache for multi-file compilation
-// ============================================================================
-
-/// Pre-parsed module data cached from an external .ax file
-#[derive(Clone)]
-struct CachedModule {
-    /// Parsed AST program
-    program: Program,
-    /// Module export map
-    exports: HashMap<String, ModuleExport>,
-    /// Registered types from this module: type_name → { field → type }
-    types: HashMap<String, HashMap<String, CheckedType>>,
-    /// Registered function signatures from this module
-    functions: HashMap<String, FnSig>,
-    /// Enum variants: variant name → parent enum type
-    enum_variants: HashMap<String, String>,
-    /// Variant fields: variant name → field list
-    variant_fields: HashMap<String, Vec<(String, CheckedType)>>,
-}
-
-/// Module catalog: pre-loads and caches all .ax files from source directories
-/// for fast multi-file compilation without repeated I/O or parsing.
-struct ModuleCatalog {
-    /// file_path → cached module data
-    modules: HashMap<String, CachedModule>,
-    /// Directory paths where modules were found (for path resolution)
-    dirs: Vec<String>,
-}
-
-impl ModuleCatalog {
-    pub fn new(dirs: &[String]) -> Self {
-        ModuleCatalog { modules: HashMap::new(), dirs: dirs.to_vec() }
-    }
-
-    /// Scan all .ax files in source directories and pre-load them
-    pub fn load_all(&mut self) {
-        let mut files_to_load: Vec<String> = Vec::new();
-        // Collect all .ax file paths from all source dirs (skip package.ax)
-        for dir in &self.dirs {
-            if let Ok(entries) = std::fs::read_dir(dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().map(|e| e == "ax").unwrap_or(false) {
-                        let file_name = path.file_name().unwrap().to_string_lossy().to_string();
-                        if file_name == "package.ax" { continue; }
-                        let file_path = path.to_string_lossy().to_string();
-                        if !self.modules.contains_key(&file_path) {
-                            files_to_load.push(file_path);
-                        }
-                    }
-                    // Also recurse into subdirectories
-                    if path.is_dir() {
-                        if let Ok(sub_entries) = std::fs::read_dir(&path) {
-                            for sub_entry in sub_entries.flatten() {
-                                let sub_path = sub_entry.path();
-                                if sub_path.extension().map(|e| e == "ax").unwrap_or(false) {
-                                    let sub_file = sub_path.to_string_lossy().to_string();
-                                    if !self.modules.contains_key(&sub_file) {
-                                        files_to_load.push(sub_file);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Parse and cache each file
-        for file_path in &files_to_load {
-            self.load_file(file_path);
-        }
-    }
-
-    /// Load and cache a single file
-    fn load_file(&mut self, file_path: &str) {
-        let source = match std::fs::read_to_string(file_path) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-        let tokens = Lexer::new(&source).tokenize();
-        let program = match Parser::new(tokens).parse_program() {
-            Ok(p) => p,
-            Err(_) => return,
-        };
-
-        // Build type/function registries and exports from this file
-        let mut types: HashMap<String, HashMap<String, CheckedType>> = HashMap::new();
-        let mut functions: HashMap<String, FnSig> = HashMap::new();
-        let mut enum_variants: HashMap<String, String> = HashMap::new();
-        let mut variant_fields: HashMap<String, Vec<(String, CheckedType)>> = HashMap::new();
-
-        // Walk all module declarations and register their types/functions
-        fn register_from_items(
-            items: &[TopDecl],
-            types: &mut HashMap<String, HashMap<String, CheckedType>>,
-            functions: &mut HashMap<String, FnSig>,
-            enum_variants: &mut HashMap<String, String>,
-            variant_fields: &mut HashMap<String, Vec<(String, CheckedType)>>,
-            prefix: &str,
-        ) {
-            for item in items {
-                match item {
-                    TopDecl::Type(td) => {
-                        let key = if prefix.is_empty() { td.name.name.clone() }
-                                  else { format!("{}.{}", prefix, td.name.name) };
-                        let mut fields = HashMap::new();
-                        for f in &td.fields {
-                            fields.insert(f.name.name.clone(), CheckedType::from_ast_type(&f.ty));
-                        }
-                        types.insert(key, fields);
-                    }
-                    TopDecl::Enum(ed) => {
-                        let key = if prefix.is_empty() { ed.name.name.clone() }
-                                  else { format!("{}.{}", prefix, ed.name.name) };
-                        types.entry(key.clone()).or_insert_with(HashMap::new);
-                        for variant in &ed.variants {
-                            let vkey = if prefix.is_empty() { variant.name.name.clone() }
-                                       else { format!("{}.{}", prefix, variant.name.name) };
-                            enum_variants.insert(variant.name.name.clone(), key.clone());
-                            let mut vfields = Vec::new();
-                            for f in &variant.fields {
-                                vfields.push((f.name.name.clone(), CheckedType::from_ast_type(&f.ty)));
-                            }
-                            variant_fields.insert(vkey, vfields);
-                        }
-                    }
-                    TopDecl::Fn(fd) => {
-                        let fn_name = if let Some(recv) = &fd.receiver {
-                            format!("{}.{}", recv.name, fd.name.name)
-                        } else {
-                            fd.name.name.clone()
-                        };
-                        let key = if prefix.is_empty() { fn_name }
-                                  else { format!("{}.{}", prefix, fn_name) };
-                        let params: Vec<(String, CheckedType)> = fd.params.iter()
-                            .map(|p| (p.name.name.clone(), CheckedType::from_ast_type(&p.ty)))
-                            .collect();
-                        let return_type = fd.return_type.as_ref()
-                            .map(|t| CheckedType::from_ast_type(t));
-                        functions.entry(key.clone()).or_insert(FnSig {
-                            params, return_type, generics: vec![],
-                        });
-                    }
-                    TopDecl::Module(md) => {
-                        let new_prefix = if prefix.is_empty() { md.name.name.clone() }
-                                         else { format!("{}.{}", prefix, md.name.name) };
-                        register_from_items(&md.items, types, functions, enum_variants, variant_fields, &new_prefix);
-                    }
-                    _ => {}
-                }
-            }
-        }
-        register_from_items(&program.items, &mut types, &mut functions, &mut enum_variants, &mut variant_fields, "");
-
-        // Build export map from this file's types/functions
-        let exports = build_module_exports(&program.items, &types, &functions, "");
-
-        self.modules.insert(file_path.to_string(), CachedModule {
-            program,
-            exports,
-            types,
-            functions,
-            enum_variants,
-            variant_fields,
-        });
-    }
-
-    /// Find a cached module by its module path (e.g., "benchmark.main" or "main").
-    /// Lazily loads the file from disk if not yet cached.
-    /// Find a file path matching `module_name` from the catalog directories,
-    /// checking cache first and falling back to filesystem scan.
-    fn find_module_file(&self, module_name: &str) -> Option<String> {
-        for dir in &self.dirs {
-            let path = format!("{}/{}.ax", dir, module_name);
-            if self.modules.contains_key(&path) || std::path::Path::new(&path).exists() {
-                return Some(path);
-            }
-            if let Ok(entries) = std::fs::read_dir(dir) {
-                for entry in entries.flatten() {
-                    let entry_path = entry.path();
-                    if entry_path.extension().map(|e| e == "ax").unwrap_or(false) {
-                        let name = entry_path.file_stem().unwrap().to_string_lossy();
-                        if name == module_name || name.replace("_", ".").contains(module_name) {
-                            return Some(entry_path.to_string_lossy().to_string());
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    pub fn find_by_module_name(&mut self, module_name: &str) -> Option<&CachedModule> {
-        let file_path = self.find_module_file(module_name)?;
-        if !self.modules.contains_key(&file_path) {
-            self.load_file(&file_path);
-        }
-        let cm = self.modules.get(&file_path)?;
-        // If the file contains a module declaration matching the name, return it
-        // otherwise return the cached module itself
-        for item in &cm.program.items {
-            if let TopDecl::Module(md) = item {
-                if md.name.name == module_name {
-                    return Some(cm);
-                }
-            }
-        }
-        Some(cm)
-    }
-
-    /// Find a submodule export within a module hierarchy
-    pub fn find_submodule(&mut self, parent_module: &str, sub_name: &str) -> Option<HashMap<String, ModuleExport>> {
-        if let Some(cm) = self.find_by_module_name(parent_module) {
-            // Walk the module's exports to find the submodule
-            if let Some(ModuleExport::SubModule(sub)) = cm.exports.get(sub_name) {
-                return Some(sub.clone());
-            }
-            // Check if the cached module itself is the submodule
-            for item in &cm.program.items {
-                if let TopDecl::Module(md) = item {
-                    if md.name.name == sub_name {
-                        let exports = build_module_exports(&md.items, &cm.types, &cm.functions, "");
-                        return Some(exports);
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    /// Find the exports for a dotted module path (e.g., "benchmark.main")
-    pub fn resolve_module_path(&mut self, path: &[String]) -> Option<HashMap<String, ModuleExport>> {
-        if path.is_empty() { return None; }
-        let root = &path[0];
-        let cm = self.find_by_module_name(root)?;
-        let mut current = cm.exports.clone();
-        for seg in &path[1..] {
-            match current.get(seg) {
-                Some(ModuleExport::SubModule(sub)) => current = sub.clone(),
-                _ => {
-                    // Try to find the submodule directly from catalog
-                    if let Some(sub) = self.find_submodule(root, seg) {
-                        current = sub;
-                    } else {
-                        return None;
-                    }
-                }
-            }
-        }
-        Some(current)
-    }
-
-    /// Register all cached types from all modules into a Checker
-    pub fn register_all_types_into(&self, checker: &mut Checker) {
-        for cm in self.modules.values() {
-            for (name, fields) in &cm.types {
-                checker.types.entry(name.clone()).or_insert_with(|| fields.clone());
-            }
-            for (name, sig) in &cm.functions {
-                checker.functions.entry(name.clone()).or_insert_with(|| sig.clone());
-            }
-            for (name, parent) in &cm.enum_variants {
-                checker.enum_variants.entry(name.clone()).or_insert_with(|| parent.clone());
-            }
-            for (name, vfields) in &cm.variant_fields {
-                checker.variant_fields.entry(name.clone()).or_insert_with(|| vfields.clone());
-            }
-            // Also register module exports for direct lookup
-            for item in &cm.program.items {
-                if let TopDecl::Module(md) = item {
-                    let mod_name = md.name.name.clone();
-                    if !checker.modules.contains_key(&mod_name) {
-                        checker.modules.insert(mod_name, cm.exports.clone());
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Build a module export map from items, types, and functions.
-/// Extracted as a standalone function so it can be used from both `ModuleCatalog`
-/// (in `load_file`) and `find_submodule`.
-fn build_module_exports(
-    items: &[TopDecl],
-    types: &HashMap<String, HashMap<String, CheckedType>>,
-    functions: &HashMap<String, FnSig>,
-    prefix: &str,
-) -> HashMap<String, ModuleExport> {
-    let mut map = HashMap::new();
-    for item in items {
-        match item {
-            TopDecl::Type(td) => {
-                let key = if prefix.is_empty() { td.name.name.clone() }
-                          else { format!("{}.{}", prefix, td.name.name) };
-                let fields = types.get(&key).cloned().unwrap_or_default();
-                map.insert(td.name.name.clone(), ModuleExport::Type { fields, is_pub: td.is_pub });
-            }
-            TopDecl::Enum(ed) => {
-                map.insert(ed.name.name.clone(), ModuleExport::Type { fields: HashMap::new(), is_pub: ed.is_pub });
-            }
-            TopDecl::Fn(fd) => {
-                let fn_key = if fd.is_method() {
-                    format!("{}.{}", fd.receiver.as_ref().unwrap().name, fd.name.name)
-                } else {
-                    fd.name.name.clone()
-                };
-                let prefixed_key = if prefix.is_empty() { fn_key.clone() } else { format!("{}.{}", prefix, fn_key) };
-                if let Some(sig) = functions.get(&prefixed_key).or_else(|| functions.get(&fn_key)) {
-                    map.insert(fd.name.name.clone(), ModuleExport::Function { sig: sig.clone(), is_pub: fd.is_pub });
-                }
-            }
-            TopDecl::Module(md) => {
-                let new_prefix = if prefix.is_empty() { md.name.name.clone() }
-                                 else { format!("{}.{}", prefix, md.name.name) };
-                let sub = build_module_exports(&md.items, types, functions, &new_prefix);
-                map.insert(md.name.name.clone(), ModuleExport::SubModule(sub));
-            }
-            _ => {}
-        }
-    }
-    map
-}
-
-// ============================================================================
-// Checker
+// Type Checker
 // ============================================================================
 
 pub struct Checker {
@@ -532,8 +178,6 @@ pub struct Checker {
     variant_fields: HashMap<String, Vec<(String, CheckedType)>>,
     /// Directories to search for external module files
     pub source_dirs: Vec<String>,
-    /// Pre-loaded module catalog for fast multi-file resolution
-    pub catalog: ModuleCatalog,
 }
 
 #[derive(Debug, Clone)]
@@ -572,7 +216,6 @@ impl Checker {
             enum_variants: HashMap::new(),
             variant_fields: HashMap::new(),
             source_dirs: Vec::new(),
-            catalog: ModuleCatalog::new(&[]),
         };
         // Register built-in types
         checker.register_builtins();
@@ -824,12 +467,6 @@ impl Checker {
             self.register_fn_signature(item);
         }
 
-        // Load module catalog lazily: pre-parse .ax files when they're first needed.
-        // The catalog is populated on-demand via `resolve_imports` and `process_use`.
-        if !self.source_dirs.is_empty() {
-            self.catalog = ModuleCatalog::new(&self.source_dirs);
-        }
-
         // Resolve module system (imports and module hierarchy)
         self.resolve_imports(program);
 
@@ -1032,17 +669,7 @@ impl Checker {
             if !ud.path.is_empty() {
                 let module_name = &ud.path[0].name;
                 if !self.modules.contains_key(module_name) {
-                    // Try catalog first (lazy-loading cache)
-                    if let Some(cm) = self.catalog.find_by_module_name(module_name) {
-                        self.modules.insert(module_name.clone(), cm.exports.clone());
-                        // Register types/functions from the loaded module
-                        for (tname, tfields) in &cm.types {
-                            self.types.entry(tname.clone()).or_insert_with(|| tfields.clone());
-                        }
-                        for (fname, fsig) in &cm.functions {
-                            self.functions.entry(fname.clone()).or_insert_with(|| fsig.clone());
-                        }
-                    } else if let Some(exports) = self.load_external_module(module_name) {
+                    if let Some(exports) = self.load_external_module(module_name) {
                         self.modules.insert(module_name.clone(), exports);
                     }
                 }
@@ -1078,11 +705,6 @@ impl Checker {
             let source = fs::read_to_string(&file_path).ok()?;
             let tokens = Lexer::new(&source).tokenize();
             let program = Parser::new(tokens).parse_program().ok()?;
-            // Register types and functions from the loaded module so they can be used
-            for item in &program.items {
-                self.register_type_decl(item);
-                self.register_fn_signature(item);
-            }
             return Some(self.build_module_map(&program.items));
         }
         None
@@ -1178,21 +800,8 @@ impl Checker {
                     current = sub.clone();
                 }
                 _ => {
-                    // Try catalog first for submodule resolution
-                    if let Some(cat_exports) = self.catalog.find_submodule(module_name, seg) {
-                        // Also register types/functions from the found module
-                        if let Some(cm) = self.catalog.find_by_module_name(seg) {
-                            for (tname, tfields) in &cm.types {
-                                self.types.entry(tname.clone()).or_insert_with(|| tfields.clone());
-                            }
-                            for (fname, fsig) in &cm.functions {
-                                self.functions.entry(fname.clone()).or_insert_with(|| fsig.clone());
-                            }
-                        }
-                        current = cat_exports;
-                        continue;
-                    }
-                    // Try to load submodule from external file as fallback
+                    // Try to load submodule from external file.
+                    // The path is relative to the source directory: {source_dir}/{seg}.ax
                     if let Some(mut sub_exports) = self.load_external_module(seg) {
                         // The loaded file may have nested module wrappers
                         // (e.g., main.ax contains `module benchmark.main { ... }`).
@@ -1244,78 +853,6 @@ impl Checker {
                 .unwrap_or_else(|| item_name.clone());
             self.imported_items.insert(local_name, export);
         }
-    }
-
-    /// Collect type declarations for types that were registered from
-    /// externally-loaded modules but are missing from the current file's AST.
-    /// Returns AST TypeDecls that can be injected into the program before codegen.
-    pub fn collect_external_decls(&self, program: &Program) -> Vec<axiom_ast::TopDecl> {
-        use axiom_ast::{TopDecl, TypeDecl, FieldDecl, FnDecl, Ident, Param, Span, DeriveTrait};
-        let span = Span::new(0, 0);
-        let mut decls: Vec<TopDecl> = Vec::new();
-
-        // Collect all type/function names from the current program's AST
-        let mut known_types: HashSet<String> = HashSet::new();
-        let mut known_fns: HashSet<String> = HashSet::new();
-        fn collect_names(items: &[TopDecl], types: &mut HashSet<String>, fns: &mut HashSet<String>) {
-            for item in items {
-                match item {
-                    TopDecl::Type(td) => { types.insert(td.name.name.clone()); }
-                    TopDecl::Enum(ed) => { types.insert(ed.name.name.clone()); }
-                    TopDecl::Fn(fd) => { fns.insert(fd.name.name.clone()); }
-                    TopDecl::Module(md) => collect_names(&md.items, types, fns),
-                    _ => {}
-                }
-            }
-        }
-        collect_names(&program.items, &mut known_types, &mut known_fns);
-
-        // Add type declarations for types that are in the checker but not in the AST
-        for (type_name, fields) in &self.types {
-            let bare_name = type_name.rsplit('.').next().unwrap_or(type_name);
-            // Skip builtins and primitives (check bare name, which strips module prefix)
-            if matches!(bare_name,
-                "Bool"|"Int"|"Int8"|"Int16"|"Int32"|"Int64"|
-                "UInt"|"UInt8"|"UInt16"|"UInt32"|"UInt64"|
-                "Float32"|"Float64"|"Char"|"Str"|"Unit"|"Slice"|
-                "Vec"|"Option"|"Result"|"Map"|"Set"|"fn") { continue; }
-            if bare_name.is_empty() || fields.is_empty() && !bare_name.chars().next().map_or(false, |c| c.is_uppercase()) { continue; }
-            if !known_types.contains(type_name) && !known_types.contains(bare_name) {
-                let field_decls: Vec<FieldDecl> = fields.iter().map(|(fname, ftype)| {
-                    FieldDecl { name: Ident::new(fname, span), ty: ftype.to_ast_type(), span }
-                }).collect();
-                decls.push(TopDecl::Type(TypeDecl {
-                    is_pub: true, name: Ident::new(bare_name, span),
-                    generics: vec![], fields: field_decls, derived_fields: vec![],
-                    invariants: vec![], derives: vec![DeriveTrait::Clone, DeriveTrait::Eq],
-                    alias: None, span,
-                }));
-            }
-        }
-
-        // Add function declarations for functions that are in the checker but not in the AST
-        for (fn_name, sig) in &self.functions {
-            let bare_name = fn_name.rsplit('.').next().unwrap_or(fn_name);
-            if !known_fns.contains(fn_name) && !known_fns.contains(bare_name) {
-                let params: Vec<Param> = sig.params.iter().map(|(pname, pty)| {
-                    Param {
-                        name: Ident::new(pname, span),
-                        ty: pty.to_ast_type(),
-                        span,
-                    }
-                }).collect();
-                let return_type = sig.return_type.as_ref().map(|rt| rt.to_ast_type());
-                decls.push(TopDecl::Fn(FnDecl {
-                    is_async: false, is_pub: true,
-                    receiver: None, name: Ident::new(bare_name, span),
-                    generics: vec![], params,
-                    return_type, contracts: vec![],
-                    body: None,
-                    span,
-                }));
-            }
-        }
-        decls
     }
 
     /// Try to resolve a module-qualified call: `module.func(args)` or `module.submodule.func(args)`
