@@ -87,6 +87,8 @@ pub struct IrEmitter {
     target_triple: String,
     /// Maximum allowed recursion depth (emitted into LLVM IR as constant)
     max_recursion_depth: u32,
+    /// Tracks emitted function names to avoid duplicate definitions
+    emitted_fns: HashSet<String>,
 }
 
 impl IrEmitter {
@@ -122,6 +124,7 @@ impl IrEmitter {
             current_type_map: HashMap::new(),
             param_concrete_types: HashMap::new(),
             target_triple: "x86_64-pc-windows-msvc".to_string(),
+            emitted_fns: HashSet::new(),
         }
     }
 
@@ -287,8 +290,12 @@ impl IrEmitter {
 
         // Emit struct type definitions using actual field types from type_meta
         for (name, meta) in &self.type_meta.clone() {
+            let struct_ref = format!("%struct.{name}");
             let field_types: Vec<String> = meta.fields.iter()
-                .map(|(_, ty_name)| self.llvm_type_for(ty_name))
+                .map(|(_, ty_name)| {
+                    let t = self.llvm_type_for(ty_name);
+                    if t == struct_ref { format!("{t}*") } else { t }
+                })
                 .collect();
             self.emitln(&format!("%struct.{name} = type {{ {} }}", field_types.join(", ")));
         }
@@ -392,16 +399,19 @@ impl IrEmitter {
         Ok(self.output.clone())
     }
 
-    fn register_type_layout(&mut self, item: &TopDecl) {
+     fn register_type_layout(&mut self, item: &TopDecl) {
         if let TopDecl::Type(td) = item {
+            // Skip type aliases (no fields)
+            if td.fields.is_empty() { return; }
             let fields: Vec<String> = td.fields.iter()
                 .map(|f| f.name.name.clone())
                 .collect();
-            self.types.insert(td.name.name.clone(), fields);
+            let type_name = td.name.name.clone();
+            self.types.insert(type_name.clone(), fields);
             let full_fields: Vec<(String, String)> = td.fields.iter()
                 .map(|f| (f.name.name.clone(), Self::type_from_ast(&f.ty)))
                 .collect();
-            self.type_meta.insert(td.name.name.clone(), TypeMeta {
+            self.type_meta.insert(type_name, TypeMeta {
                 fields: full_fields,
                 derives: td.derives.clone(),
                 invariants: td.invariants.clone(),
@@ -409,6 +419,10 @@ impl IrEmitter {
         }
         if let TopDecl::Enum(ed) = item {
             let enum_name = ed.name.name.clone();
+            // Don't overwrite an existing struct type with the same name
+            if self.types.contains_key(&enum_name) && !self.types.get(&enum_name).map(|f| f.is_empty()).unwrap_or(true) {
+                return;
+            }
             let mut all_fields = vec!["discriminant".to_string()];
             let mut all_meta = vec![("discriminant".to_string(), "Int".to_string())];
             let mut variants_info = Vec::new();
@@ -493,6 +507,11 @@ impl IrEmitter {
                 // Skip generic functions — they will be monomorphised later
                 if fd.generics.is_empty() {
                     if fd.body.is_some() {
+                        let fn_name = self.fn_key(fd);
+                        if self.emitted_fns.contains(&fn_name) {
+                            return Ok(());
+                        }
+                        self.emitted_fns.insert(fn_name);
                         self.compile_fn(fd)?;
                     }
                 }
@@ -844,6 +863,9 @@ impl IrEmitter {
 
     /// Convert a value to i64 via bitcast or ptrtoint if needed
     fn val_to_i64(&mut self, val: &str, ty: &str) -> String {
+        if ty == "void" {
+            return "0".to_string();
+        }
         if ty == "double" {
             let bc = self.fresh_tmp();
             self.emitln(&format!("  {bc} = bitcast double {val} to i64"));
@@ -964,6 +986,10 @@ impl IrEmitter {
 
     fn compile_eq_impl(&mut self, type_name: &str, struct_ty: &str, field_names: &[String], fields: &[FieldDecl]) -> Result<(), String> {
         let fn_name = format!("{type_name}.eq");
+        if self.emitted_fns.contains(&fn_name) {
+            return Ok(());
+        }
+        self.emitted_fns.insert(fn_name.clone());
         self.emitln(&format!("define i64 @{fn_name}({struct_ty} %self, {struct_ty} %other) {{"));
         let self_alloca = self.fresh_tmp();
         let other_alloca = self.fresh_tmp();
@@ -984,7 +1010,7 @@ impl IrEmitter {
             self.emitln(&format!("  {self_val} = load {field_llvm_ty}, {field_llvm_ty}* {self_gep}"));
             self.emitln(&format!("  {other_gep} = getelementptr {struct_ty}, {struct_ty}* {other_alloca}, i32 0, i32 {i}"));
             self.emitln(&format!("  {other_val} = load {field_llvm_ty}, {field_llvm_ty}* {other_gep}"));
-            let is_float = fields.get(i).map(|f| matches!(&f.ty, Type::Named(id, _) if id.name == "Float64" || id.name == "Float32")).unwrap_or(false);
+            let is_float = field_llvm_ty == "double";
             if field_llvm_ty.starts_with("%struct.") {
                 let field_type_name = &field_llvm_ty[8..];
                 let eq_fn = format!("{field_type_name}.eq");
@@ -1033,6 +1059,10 @@ impl IrEmitter {
 
     fn compile_clone_impl(&mut self, type_name: &str, struct_ty: &str, field_names: &[String]) -> Result<(), String> {
         let fn_name = format!("{type_name}.clone");
+        if self.emitted_fns.contains(&fn_name) {
+            return Ok(());
+        }
+        self.emitted_fns.insert(fn_name.clone());
         self.emitln(&format!("define {struct_ty} @{fn_name}({struct_ty} %self) {{"));
         let self_alloca = self.fresh_tmp();
         let result_alloca = self.fresh_tmp();
@@ -1061,6 +1091,10 @@ impl IrEmitter {
 
     fn compile_display_impl(&mut self, type_name: &str, struct_ty: &str, field_names: &[String]) -> Result<(), String> {
         let fn_name = format!("{type_name}.to_str");
+        if self.emitted_fns.contains(&fn_name) {
+            return Ok(());
+        }
+        self.emitted_fns.insert(fn_name.clone());
         self.emitln(&format!("define i8* @{fn_name}({struct_ty} %self) {{"));
         let self_alloca = self.fresh_tmp();
         self.emitln(&format!("  {self_alloca} = alloca {struct_ty}"));
@@ -1113,6 +1147,10 @@ impl IrEmitter {
 
     fn compile_hash_impl(&mut self, type_name: &str, struct_ty: &str, field_names: &[String]) -> Result<(), String> {
         let fn_name = format!("{type_name}.hash");
+        if self.emitted_fns.contains(&fn_name) {
+            return Ok(());
+        }
+        self.emitted_fns.insert(fn_name.clone());
         self.emitln(&format!("define i64 @{fn_name}({struct_ty} %self) {{"));
         let self_alloca = self.fresh_tmp();
         self.emitln(&format!("  {self_alloca} = alloca {struct_ty}"));
@@ -1146,6 +1184,10 @@ impl IrEmitter {
 
     fn compile_ord_impl(&mut self, type_name: &str, struct_ty: &str, field_names: &[String], fields: &[FieldDecl]) -> Result<(), String> {
         let fn_name = format!("{type_name}.compare");
+        if self.emitted_fns.contains(&fn_name) {
+            return Ok(());
+        }
+        self.emitted_fns.insert(fn_name.clone());
         self.emitln(&format!("define i64 @{fn_name}({struct_ty} %self, {struct_ty} %other) {{"));
         let self_alloca = self.fresh_tmp();
         let other_alloca = self.fresh_tmp();
@@ -1161,7 +1203,7 @@ impl IrEmitter {
             let other_val = self.fresh_tmp();
             let cmp_eq = self.fresh_tmp();
             let field_llvm_ty = self.field_llvm_type(type_name, i);
-            let is_float = fields.get(i).map(|f| matches!(&f.ty, Type::Named(id, _) if id.name == "Float64" || id.name == "Float32")).unwrap_or(false);
+            let is_float = field_llvm_ty == "double";
             self.emitln(&format!("  {self_gep} = getelementptr {struct_ty}, {struct_ty}* {self_alloca}, i32 0, i32 {i}"));
             self.emitln(&format!("  {self_val} = load {field_llvm_ty}, {field_llvm_ty}* {self_gep}"));
             self.emitln(&format!("  {other_gep} = getelementptr {struct_ty}, {struct_ty}* {other_alloca}, i32 0, i32 {i}"));
@@ -1473,13 +1515,14 @@ impl IrEmitter {
             match item {
                 StmtOrExpr::Stmt(stmt) => {
                     if is_last && is_expression && matches!(stmt, Stmt::Match(..)) {
+                        let ret_ty = &self.current_return_type.clone();
                         let result_alloca = self.fresh_tmp();
-                        self.emitln(&format!("  {result_alloca} = alloca i64"));
+                        self.emitln(&format!("  {result_alloca} = alloca {ret_ty}"));
                         self.match_result_ptr = Some(result_alloca.clone());
                         self.compile_stmt(stmt)?;
                         self.match_result_ptr = None;
                         let loaded = self.fresh_tmp();
-                        self.emitln(&format!("  {loaded} = load i64, i64* {result_alloca}"));
+                        self.emitln(&format!("  {loaded} = load {ret_ty}, {ret_ty}* {result_alloca}"));
                         if let Some(res_ptr) = self.result_ptr.as_ref() {
                             let ret_ty = &self.current_return_type.clone();
                             self.emitln(&format!("  store {ret_ty} {loaded}, {ret_ty}* {res_ptr}"));
@@ -1497,7 +1540,8 @@ impl IrEmitter {
                 StmtOrExpr::Expr(expr) => {
                     let result = self.compile_expr(expr)?;
                     if let Some(ref ptr) = self.match_result_ptr {
-                        self.emitln(&format!("  store i64 {result}, i64* {ptr}"));
+                        let ret_ty = &self.current_return_type.clone();
+                        self.emitln(&format!("  store {ret_ty} {result}, {ret_ty}* {ptr}"));
                     }
                     if is_last && is_expression {
                         // Store result in the result alloca for ensures checks
@@ -1879,7 +1923,8 @@ impl IrEmitter {
                         MatchBody::Expr(e) => {
                             let arm_val = self.compile_expr(e)?;
                             if let Some(ref ptr) = self.match_result_ptr {
-                                self.emitln(&format!("  store i64 {arm_val}, i64* {ptr}"));
+                                let ret_ty = &self.current_return_type.clone();
+                                self.emitln(&format!("  store {ret_ty} {arm_val}, {ret_ty}* {ptr}"));
                             }
                         }
                     }
@@ -1990,7 +2035,7 @@ impl IrEmitter {
                 let tmp = self.fresh_tmp();
                 match op {
                     UnaryOp::Neg => {
-                        if let Expr::Float(..) = **inner {
+                        if self.infer_llvm_type(inner) == "double" {
                             self.emitln(&format!("  {tmp} = fneg double {val}"));
                         } else {
                             self.emitln(&format!("  {tmp} = sub i64 0, {val}"));
@@ -2146,7 +2191,8 @@ impl IrEmitter {
                     self.emitln(&format!("  br i1 {tag}, label %{some_block}, label %{none_block}"));
                     self.emitln(&format!("\n{none_block}:"));
                     let ret_ty = self.current_return_type.clone();
-                    self.emitln(&format!("  ret {ret_ty} 0"));
+                    let default_val = if ret_ty.starts_with('%') { "zeroinitializer".to_string() } else { "0".to_string() };
+                    self.emitln(&format!("  ret {ret_ty} {default_val}"));
                     self.emitln(&format!("\n{some_block}:"));
                     let val_gep = self.fresh_tmp();
                     let some_val = self.fresh_tmp();
@@ -2697,33 +2743,25 @@ impl IrEmitter {
                     } else {
                         fn_key.clone()
                     };
-                    let (ret_ty, param_types) = if let Some((pts, rt)) = self.functions.get(&resolved_fn_key) {
-                        (rt.clone(), pts.clone())
-                    } else {
-                        ("i64".to_string(), vec!["i64".to_string(); args.len()])
-                    };
                     let args_str = if let Some(receiver) = receiver_expr {
-                        if param_types.len() > compiled_args.len() {
-                            // Method call: prepend receiver value, skip first param type when zipping
-                            let recv_val = self.compile_expr(receiver)?;
-                            let recv_llvm_ty = self.infer_llvm_type(receiver);
-                            let rest_str: Vec<String> = param_types[1..].iter().zip(compiled_args.iter())
-                                .map(|(ty, arg)| format!("{ty} {arg}"))
-                                .collect();
-                            format!("{recv_llvm_ty} {recv_val}, {}", rest_str.join(", "))
-                        } else {
-                            param_types.iter().zip(compiled_args.iter())
-                                .map(|(ty, arg)| format!("{ty} {arg}"))
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        }
+                        let recv_val = self.compile_expr(receiver)?;
+                        let recv_llvm_ty = self.infer_llvm_type(receiver);
+                        let rest_str: Vec<String> = args.iter().zip(compiled_args.iter())
+                            .map(|(arg_expr, arg_val)| format!("{} {}", self.infer_llvm_type(arg_expr), arg_val))
+                            .collect();
+                        format!("{recv_llvm_ty} {recv_val}, {}", rest_str.join(", "))
                     } else {
-                        param_types.iter().zip(compiled_args.iter())
-                            .map(|(ty, arg)| format!("{ty} {arg}"))
+                        args.iter().zip(compiled_args.iter())
+                            .map(|(arg_expr, arg_val)| format!("{} {}", self.infer_llvm_type(arg_expr), arg_val))
                             .collect::<Vec<_>>()
                             .join(", ")
                     };
                     let tmp = self.fresh_tmp();
+                    let ret_ty = if let Some((_, rt)) = self.functions.get(&resolved_fn_key) {
+                        rt.clone()
+                    } else {
+                        "i64".to_string()
+                    };
                     if ret_ty == "void" {
                         self.emitln(&format!("  call void @{resolved_fn_key}({args_str})"));
                         Ok(tmp)
@@ -2857,7 +2895,17 @@ impl IrEmitter {
             Expr::Closure(_, _, _, _) | Expr::PipeClosure(_, _, _) => Ok("0".to_string()),
             Expr::As(inner, ty, _) => {
                 let val = self.compile_expr(inner)?;
-                let inner_llvm_ty = self.infer_llvm_type(inner);
+                let mut inner_llvm_ty = self.infer_llvm_type(inner);
+                if inner_llvm_ty == "i64" {
+                    if let Expr::Ident(id) = inner.as_ref() {
+                        if let Some(concrete) = self.param_concrete_types.get(&id.name) {
+                            let cty = self.llvm_type_for(concrete);
+                            if cty == "double" {
+                                inner_llvm_ty = "double".to_string();
+                            }
+                        }
+                    }
+                }
                 let target_llvm_ty = self.llvm_type_for(&Self::type_from_ast(ty));
                 let tmp = self.fresh_tmp();
                 match (inner_llvm_ty.as_str(), target_llvm_ty.as_str()) {
