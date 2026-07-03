@@ -133,6 +133,36 @@ impl CheckedType {
             CheckedType::Error => "<error>".into(),
         }
     }
+
+    /// Convert CheckedType back to an AST Type for codegen consumption.
+    pub fn to_ast_type(&self) -> Type {
+        match self {
+            CheckedType::Bool => Type::Named(Ident::new("Bool", Span::new(0, 0)), vec![]),
+            CheckedType::Int => Type::Named(Ident::new("Int", Span::new(0, 0)), vec![]),
+            CheckedType::Int8 => Type::Named(Ident::new("Int8", Span::new(0, 0)), vec![]),
+            CheckedType::Int16 => Type::Named(Ident::new("Int16", Span::new(0, 0)), vec![]),
+            CheckedType::Int32 => Type::Named(Ident::new("Int32", Span::new(0, 0)), vec![]),
+            CheckedType::Int64 => Type::Named(Ident::new("Int64", Span::new(0, 0)), vec![]),
+            CheckedType::UInt => Type::Named(Ident::new("UInt", Span::new(0, 0)), vec![]),
+            CheckedType::UInt8 => Type::Named(Ident::new("UInt8", Span::new(0, 0)), vec![]),
+            CheckedType::UInt16 => Type::Named(Ident::new("UInt16", Span::new(0, 0)), vec![]),
+            CheckedType::UInt32 => Type::Named(Ident::new("UInt32", Span::new(0, 0)), vec![]),
+            CheckedType::UInt64 => Type::Named(Ident::new("UInt64", Span::new(0, 0)), vec![]),
+            CheckedType::Float32 => Type::Named(Ident::new("Float32", Span::new(0, 0)), vec![]),
+            CheckedType::Float64 => Type::Named(Ident::new("Float64", Span::new(0, 0)), vec![]),
+            CheckedType::Char => Type::Named(Ident::new("Char", Span::new(0, 0)), vec![]),
+            CheckedType::Str => Type::Named(Ident::new("Str", Span::new(0, 0)), vec![]),
+            CheckedType::Unit => Type::Named(Ident::new("()", Span::new(0, 0)), vec![]),
+            CheckedType::Never => Type::Named(Ident::new("!", Span::new(0, 0)), vec![]),
+            CheckedType::Named(s) => Type::Named(Ident::new(s.clone(), Span::new(0, 0)), vec![]),
+            CheckedType::Fn(params, ret) => Type::Fn(
+                params.iter().map(|p| p.to_ast_type()).collect(),
+                Box::new(ret.to_ast_type()),
+            ),
+            CheckedType::Generic(s) => Type::Named(Ident::new(s.clone(), Span::new(0, 0)), vec![]),
+            CheckedType::Error => Type::Named(Ident::new("<error>", Span::new(0, 0)), vec![]),
+        }
+    }
 }
 
 // ============================================================================
@@ -144,6 +174,272 @@ pub enum ModuleExport {
     Type { fields: HashMap<String, CheckedType>, is_pub: bool },
     Function { sig: FnSig, is_pub: bool },
     SubModule(HashMap<String, ModuleExport>),
+}
+
+// ============================================================================
+// Module Catalog — lazy multi-file resolution
+// ============================================================================
+
+/// A cached entry for one resolved external module file.
+#[derive(Debug, Clone)]
+pub struct CachedModule {
+    /// The dotted module name declared by the file (e.g., "benchmark.main").
+    pub dotted_name: String,
+    /// The parsed AST of the entire file.
+    pub program: Program,
+    /// Bare type-name → CheckedType for pub types/enums declared in this file.
+    pub types: HashMap<String, CheckedType>,
+    /// Key → FnSig for pub functions declared in this file.
+    pub functions: HashMap<String, FnSig>,
+    /// Type-name → field-name → CheckedType for structs declared in this file.
+    pub type_fields: HashMap<String, HashMap<String, CheckedType>>,
+}
+
+/// Lazy-loading cache of external `.ax` files keyed by dotted module path.
+pub struct ModuleCatalog {
+    pub source_dirs: Vec<String>,
+    cache: HashMap<String, CachedModule>,
+}
+
+impl ModuleCatalog {
+    pub fn new(source_dirs: Vec<String>) -> Self {
+        Self { source_dirs, cache: HashMap::new() }
+    }
+
+    pub fn add_source_dir(&mut self, dir: String) {
+        if !self.source_dirs.contains(&dir) {
+            self.source_dirs.push(dir);
+        }
+    }
+
+    /// Look up a module by its dotted path segments (e.g., ["benchmark", "main"]).
+    /// Returns an owned clone of the CachedModule so the caller can drop the catalog
+    /// borrow before mutating other checker fields.
+    /// Loads and caches the file on first access.
+    pub fn find_owned(&mut self, path_segments: &[String]) -> Option<CachedModule> {
+        let key = path_segments.join(".");
+        if let Some(cached) = self.cache.get(&key) {
+            return Some(cached.clone());
+        }
+
+        let cached = self.load_module(path_segments)?;
+        self.cache.insert(key.clone(), cached.clone());
+        Some(cached)
+    }
+
+    /// Returns all cached modules as owned clones (for snapshot iteration).
+    pub fn all_cached(&self) -> Vec<CachedModule> {
+        self.cache.values().cloned().collect()
+    }
+
+    /// Scan source_dirs for a file whose declared module matches path_segments.
+    fn load_module(&self, path_segments: &[String]) -> Option<CachedModule> {
+        // Strategy a: path-based lookup — <source_dir>/<p0>/<p1>/.../<pn>.ax
+        for dir in &self.source_dirs {
+            let file_path = format!("{}/{}.ax", dir, path_segments.join("/"));
+            if Path::new(&file_path).exists() {
+                if let Some(mut cached) = self.parse_file(&file_path, path_segments) {
+                    cached.dotted_name = path_segments.join(".");
+                    return Some(cached);
+                }
+            }
+            // Also try single-level: <source_dir>/<dotted>.ax
+            let file_path2 = format!("{}/{}.ax", dir, path_segments.join("."));
+            if Path::new(&file_path2).exists() {
+                if let Some(mut cached) = self.parse_file(&file_path2, path_segments) {
+                    cached.dotted_name = path_segments.join(".");
+                    return Some(cached);
+                }
+            }
+        }
+
+        // Strategy b: scan-based — walk source_dirs for any .ax file whose declared
+        // module name (parsed from the file's header) matches path_segments.
+        for dir in &self.source_dirs {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().map_or(false, |e| e == "ax") {
+                        // Quick-parse just the module header to check identity.
+                        if let Some(dotted) = self.read_module_header(&path) {
+                            let declared: Vec<String> = dotted.split('.').map(|s| s.to_string()).collect();
+                            if declared == path_segments {
+                                if let Some(mut cached) = self.parse_file(&path.to_string_lossy(), path_segments) {
+                                    cached.dotted_name = path_segments.join(".");
+                                    return Some(cached);
+                                }
+                            }
+                        }
+                    }
+                }
+                // Recurse into subdirectories
+                if let Ok(entries) = std::fs::read_dir(dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_dir() {
+                            if let Some(cached) = self.load_from_dir(&path, path_segments) {
+                                return Some(cached);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Recurse into a subdirectory looking for a matching module header.
+    fn load_from_dir(&self, dir: &Path, path_segments: &[String]) -> Option<CachedModule> {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().map_or(false, |e| e == "ax") {
+                    if let Some(dotted) = self.read_module_header(&path) {
+                        let declared: Vec<String> = dotted.split('.').map(|s| s.to_string()).collect();
+                        if declared == path_segments {
+                            return self.parse_file(&path.to_string_lossy(), path_segments);
+                        }
+                    }
+                } else if path.is_dir() {
+                    if let Some(cached) = self.load_from_dir(&path, path_segments) {
+                        return Some(cached);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Quick-parse the `module a.b.c` header of a file without a full parse.
+    fn read_module_header(&self, file_path: &Path) -> Option<String> {
+        let source = std::fs::read_to_string(file_path).ok()?;
+        let mut chars = source.chars().peekable();
+
+        // Skip any initial whitespace / comments
+        let mut buf = String::new();
+        loop {
+            match chars.peek() {
+                None => return None,
+                Some(&c) if c.is_whitespace() => { chars.next(); }
+                Some(&'/') => {
+                    chars.next();
+                    if chars.peek() == Some(&'/') {
+                        while let Some(&c) = chars.peek() { chars.next(); if c == '\n' { break; } }
+                    } else if chars.peek() == Some(&'*') {
+                        chars.next(); // skip *
+                        loop {
+                            match chars.next() {
+                                None => return None,
+                                Some('*') if chars.peek() == Some(&'/') => { chars.next(); break; }
+                                _ => {}
+                            }
+                        }
+                    } else {
+                        return None;
+                    }
+                }
+                _ => break,
+            }
+        }
+
+        // Read "module "
+        for expected in "module ".chars() {
+            match chars.next() {
+                Some(c) if c == expected => {}
+                _ => return None,
+            }
+        }
+
+        // Read the module name: ident(.ident)*
+        buf.clear();
+        loop {
+            match chars.peek() {
+                Some(&c) if c.is_alphanumeric() || c == '_' => {
+                    buf.push(c);
+                    chars.next();
+                }
+                Some(&'.') => {
+                    buf.push('.');
+                    chars.next();
+                }
+                _ => break,
+            }
+        }
+
+        if buf.is_empty() { return None; }
+        Some(buf)
+    }
+
+    /// Full parse of a .ax file into a CachedModule.
+    fn parse_file(&self, file_path: &str, path_segments: &[String]) -> Option<CachedModule> {
+        let source = std::fs::read_to_string(file_path).ok()?;
+        let tokens = Lexer::new(&source).tokenize();
+        let program = Parser::new(tokens).parse_program().ok()?;
+
+        let mut types = HashMap::new();
+        let mut functions = HashMap::new();
+        let mut type_fields = HashMap::new();
+
+        // Flatten the module tree to collect pub items.
+        self.collect_pub_items(&program.items, "", &mut types, &mut functions, &mut type_fields);
+
+        Some(CachedModule {
+            dotted_name: path_segments.join("."),
+            program,
+            types,
+            functions,
+            type_fields,
+        })
+    }
+
+    /// Walk nested ModuleDecl tree, collecting pub type/fn/enum info.
+    fn collect_pub_items(
+        &self,
+        items: &[TopDecl],
+        prefix: &str,
+        types: &mut HashMap<String, CheckedType>,
+        functions: &mut HashMap<String, FnSig>,
+        type_fields: &mut HashMap<String, HashMap<String, CheckedType>>,
+    ) {
+        for item in items {
+            match item {
+                TopDecl::Type(td) if td.is_pub => {
+                    let mut fields = HashMap::new();
+                    for field in &td.fields {
+                        fields.insert(field.name.name.clone(), CheckedType::from_ast_type(&field.ty));
+                    }
+                    let key = if prefix.is_empty() { td.name.name.clone() } else { format!("{}.{}", prefix, td.name.name) };
+                    types.insert(td.name.name.clone(), CheckedType::Named(td.name.name.clone()));
+                    type_fields.insert(td.name.name.clone(), fields);
+                    type_fields.insert(key.clone(), type_fields.get(&td.name.name).cloned().unwrap_or_default());
+                }
+                TopDecl::Enum(ed) if ed.is_pub => {
+                    let key = if prefix.is_empty() { ed.name.name.clone() } else { format!("{}.{}", prefix, ed.name.name) };
+                    types.insert(ed.name.name.clone(), CheckedType::Named(ed.name.name.clone()));
+                    types.insert(key, CheckedType::Named(ed.name.name.clone()));
+                }
+                TopDecl::Fn(fd) if fd.is_pub && !fd.is_method() => {
+                    let mut params: Vec<(String, CheckedType)> = Vec::new();
+                    for p in &fd.params {
+                        params.push((p.name.name.clone(), CheckedType::from_ast_type(&p.ty)));
+                    }
+                    let return_type = fd.return_type.as_ref().map(|t| CheckedType::from_ast_type(t));
+                    let generics: Vec<String> = fd.generics.iter().map(|g| g.name.name.clone()).collect();
+                    let sig = FnSig { params, return_type, generics };
+                    let bare_key = fd.name.name.clone();
+                    let key = if prefix.is_empty() { bare_key.clone() } else { format!("{}.{}", prefix, bare_key) };
+                    functions.insert(bare_key, sig.clone());
+                    functions.insert(key, sig);
+                }
+                TopDecl::Module(md) => {
+                    let new_prefix = if prefix.is_empty() { md.name.name.clone() } else { format!("{}.{}", prefix, md.name.name) };
+                    self.collect_pub_items(&md.items, &new_prefix, types, functions, type_fields);
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -178,6 +474,10 @@ pub struct Checker {
     variant_fields: HashMap<String, Vec<(String, CheckedType)>>,
     /// Directories to search for external module files
     pub source_dirs: Vec<String>,
+    /// Lazy external module catalog for multi-file resolution
+    catalog: ModuleCatalog,
+    /// Set of dotted module paths that have been loaded into this checker
+    cached_loaded: HashSet<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -216,10 +516,58 @@ impl Checker {
             enum_variants: HashMap::new(),
             variant_fields: HashMap::new(),
             source_dirs: Vec::new(),
+            catalog: ModuleCatalog::new(Vec::new()),
+            cached_loaded: HashSet::new(),
         };
         // Register built-in types
         checker.register_builtins();
         checker
+    }
+
+    /// Add a directory to search for external .ax module files.
+    /// Updates both the legacy source_dirs and the ModuleCatalog.
+    pub fn add_source_dir(&mut self, dir: String) {
+        if !self.source_dirs.contains(&dir) {
+            self.source_dirs.push(dir.clone());
+        }
+        self.catalog.add_source_dir(dir);
+    }
+
+    /// Register an externally-loaded CachedModule into this checker's tables.
+    /// Populates self.types, self.functions, self.modules, self.enum_variants,
+    /// self.variant_fields, and self.visibility so subsequent resolution steps
+    /// can find the external module's types and functions.
+    pub fn register_external_module(&mut self, cached: &CachedModule) {
+        for item in &cached.program.items {
+            self.register_type_decl(item);
+            self.register_fn_signature(item);
+            self.register_all_variant_fields(&cached.program);
+        }
+        for item in &cached.program.items {
+            if let TopDecl::Module(md) = item {
+                let exports = self.build_module_map_inner(&md.items, &md.name.name);
+                // Merge into existing module instead of replacing (in case the
+                // same parent name is used by in-program and external modules).
+                self.modules.entry(md.name.name.clone())
+                    .and_modify(|existing| {
+                        for (k, v) in &exports {
+                            match existing.get_mut(k) {
+                                Some(ModuleExport::SubModule(existing_sub)) => {
+                                    if let ModuleExport::SubModule(new_sub) = v {
+                                        for (sk, sv) in new_sub {
+                                            existing_sub.entry(sk.clone()).or_insert(sv.clone());
+                                        }
+                                    }
+                                }
+                                Some(_) => {} // non-SubModule entry already present, keep it
+                                None => { existing.insert(k.clone(), v.clone()); }
+                            }
+                        }
+                    })
+                    .or_insert(exports);
+            }
+        }
+        self.flatten_submodules(&cached.program.items);
     }
 
     fn register_builtins(&mut self) {
@@ -321,7 +669,7 @@ impl Checker {
     }
 
     fn add_pattern_bindings(&mut self, pattern: &Pattern) {
-        if let Pattern::Variant(name, _, _) = pattern {
+        if let Pattern::Variant(_name, _, _) = pattern {
         }
         match pattern {
             Pattern::Ident(name) => {
@@ -381,7 +729,6 @@ impl Checker {
             DeriveTrait::Display => "to_str",
             DeriveTrait::Hash => "hash",
             DeriveTrait::Ord => "compare",
-            _ => return,
         };
         let ret_type = match derive_trait {
             DeriveTrait::Clone => CheckedType::Named(type_name.to_string()),
@@ -389,7 +736,6 @@ impl Checker {
             DeriveTrait::Display => CheckedType::Str,
             DeriveTrait::Hash => CheckedType::Int,
             DeriveTrait::Ord => CheckedType::Int,
-            _ => return,
         };
         let sig = FnSig {
             params: vec![], // no explicit params, self is implicit
@@ -587,7 +933,7 @@ impl Checker {
                 self.visibility.insert(fd.name.name.clone(), fd.is_pub);
                 // Track methods separately
                 if let Some(recv) = fd.receiver.as_ref() {
-                    let method_key = format!("{}.{}", recv.name, fd.name.name);
+                    let _method_key = format!("{}.{}", recv.name, fd.name.name);
                     self.methods
                         .entry(recv.name.clone())
                         .or_default()
@@ -640,7 +986,7 @@ impl Checker {
     // ========================================================================
 
     fn resolve_imports(&mut self, program: &Program) {
-        // Build module hierarchy from all module declarations
+        // Build module hierarchy from all in-program module declarations
         for item in &program.items {
             if let TopDecl::Module(md) = item {
                 let exports = self.build_module_map_inner(&md.items, &md.name.name);
@@ -648,7 +994,7 @@ impl Checker {
             }
         }
 
-        // Flatten submodules into self.modules for short-name resolution (e.g. "math" instead of "benchmark.math")
+        // Flatten submodules into self.modules for short-name resolution
         self.flatten_submodules(&program.items);
 
         // Collect use declarations recursively (they may be nested inside ModuleDecl items)
@@ -663,17 +1009,35 @@ impl Checker {
         }
         collect_use_decls(&program.items, &mut self.imports);
 
-        // Process each use declaration — try filesystem resolution for missing modules
         let import_snapshot = std::mem::take(&mut self.imports);
+
+        // Pre-load every path-prefix module via the catalog so that process_use
+        // can walk self.modules for multi-segment `use a.b.c` paths.
         for ud in &import_snapshot {
-            if !ud.path.is_empty() {
-                let module_name = &ud.path[0].name;
-                if !self.modules.contains_key(module_name) {
-                    if let Some(exports) = self.load_external_module(module_name) {
-                        self.modules.insert(module_name.clone(), exports);
-                    }
+            if ud.path.is_empty() {
+                continue;
+            }
+            // Load each prefix [p0], [p0,p1], ..., [p0,...,pn] via catalog.
+            for end in 1..=ud.path.len() {
+                let prefix: Vec<String> = ud.path[..end].iter().map(|i| i.name.clone()).collect();
+                let dotted = prefix.join(".");
+                if self.cached_loaded.contains(&dotted) {
+                    continue;
+                }
+                // Only try catalog if the leaf segment isn't already in self.modules.
+                let leaf = &prefix.last().unwrap();
+                if self.modules.contains_key(leaf.as_str()) {
+                    continue;
+                }
+                if let Some(cached) = self.catalog.find_owned(&prefix) {
+                    self.cached_loaded.insert(dotted);
+                    self.register_external_module(&cached);
                 }
             }
+        }
+
+        // Now process each use declaration — self.modules is fully populated.
+        for ud in &import_snapshot {
             self.process_use(ud);
         }
         self.imports = import_snapshot;
@@ -688,7 +1052,7 @@ impl Checker {
             if let TopDecl::Module(md) = item {
                 let new_prefix = if prefix.is_empty() { md.name.name.clone() } else { format!("{}.{}", prefix, md.name.name) };
                 let exports = self.build_module_map_inner(&md.items, &new_prefix);
-                self.modules.insert(md.name.name.clone(), exports);
+                self.modules.entry(md.name.name.clone()).or_insert(exports);
                 self.flatten_submodules_inner(&md.items, &new_prefix);
             }
         }
@@ -710,34 +1074,105 @@ impl Checker {
         None
     }
 
-    /// Try to load a module from `{source_dir}/{parent_path}/{module_name}.ax`.
-    /// Used when walking dotted module paths (e.g., `benchmark.main` → `benchmark/main.ax`).
-    fn load_external_module_path(&mut self, parent_path: &str, module_name: &str) -> Option<HashMap<String, ModuleExport>> {
-        for dir in &self.source_dirs {
-            let file_path = format!("{}/{}/{}.ax", dir, parent_path, module_name);
-            if !Path::new(&file_path).exists() {
-                // Also try without .ax extension for directory-based modules
-                let dir_path = format!("{}/{}/{}", dir, parent_path, module_name);
-                if Path::new(&dir_path).is_dir() {
-                    // Try package.ax inside the subdirectory
-                    let pkg_path = format!("{}/package.ax", dir_path);
-                    if Path::new(&pkg_path).exists() {
-                        if let Ok(source) = fs::read_to_string(&pkg_path) {
-                            let tokens = Lexer::new(&source).tokenize();
-                            if let Ok(program) = Parser::new(tokens).parse_program() {
-                                return Some(self.build_module_map(&program.items));
+    /// Collect external declarations from the catalog that are not already present
+    /// in the given program, for injection before codegen. Types, enums, and function
+    /// stubs from lazily-loaded external modules are returned as TopDecl items.
+    /// Primitive types are filtered out.
+    pub fn collect_external_decls(&self, program: &Program) -> Vec<TopDecl> {
+        // Names already declared in the program (to avoid duplicates).
+        let mut existing: HashSet<String> = HashSet::new();
+        fn collect_names(items: &[TopDecl], existing: &mut HashSet<String>) {
+            for item in items {
+                match item {
+                    TopDecl::Type(td) => { existing.insert(td.name.name.clone()); }
+                    TopDecl::Enum(ed) => { existing.insert(ed.name.name.clone()); }
+                    TopDecl::Fn(fd) => { existing.insert(fd.name.name.clone()); }
+                    TopDecl::Module(md) => { collect_names(&md.items, existing); }
+                    _ => {}
+                }
+            }
+        }
+        collect_names(&program.items, &mut existing);
+
+        // Primitive / builtin types that should never be injected.
+        const PRIMITIVES: &[&str] = &[
+            "Bool", "Int", "Int8", "Int16", "Int32", "Int64",
+            "UInt", "UInt8", "UInt16", "UInt32", "UInt64",
+            "Float32", "Float64", "Char", "Str", "()", "!",
+            "Option", "Result", "Vec", "Slice", "Map", "Set",
+            "Ptr", "Array", "Tuple", "fn", "Tuple2",
+        ];
+
+        let mut decls: Vec<TopDecl> = Vec::new();
+        let zero_span = Span::new(0, 0);
+
+        for cached in self.catalog.all_cached() {
+            // Inject type declarations for pub structs
+            for (name, fields_map) in &cached.type_fields {
+                if existing.contains(name) || PRIMITIVES.contains(&name.as_str()) {
+                    continue;
+                }
+                let field_decls: Vec<FieldDecl> = fields_map.iter().map(|(fname, fty)| {
+                    FieldDecl { name: Ident::new(fname, zero_span), ty: fty.to_ast_type(), span: zero_span }
+                }).collect();
+                decls.push(TopDecl::Type(TypeDecl {
+                    is_pub: true,
+                    name: Ident::new(name, zero_span),
+                    generics: vec![],
+                    fields: field_decls,
+                    derived_fields: vec![],
+                    invariants: vec![],
+                    derives: vec![],
+                    alias: None,
+                    span: zero_span,
+                }));
+                existing.insert(name.clone());
+            }
+
+            // Inject enum declarations
+            // Walk the cached program items to find pub enum decls.
+            fn collect_enum_decls(items: &[TopDecl], existing: &HashSet<String>, decls: &mut Vec<TopDecl>, zero_span: Span) {
+                for item in items {
+                    match item {
+                        TopDecl::Enum(ed) => {
+                            if ed.is_pub && !existing.contains(&ed.name.name) && !PRIMITIVES.contains(&ed.name.name.as_str()) {
+                                decls.push(TopDecl::Enum(ed.clone()));
                             }
                         }
+                        TopDecl::Module(md) => collect_enum_decls(&md.items, existing, decls, zero_span),
+                        _ => {}
                     }
                 }
-                continue;
             }
-            let source = fs::read_to_string(&file_path).ok()?;
-            let tokens = Lexer::new(&source).tokenize();
-            let program = Parser::new(tokens).parse_program().ok()?;
-            return Some(self.build_module_map(&program.items));
+            collect_enum_decls(&cached.program.items, &existing, &mut decls, zero_span);
+
+            // Inject function stubs (default pub, no body) for externally-defined pub fns.
+            // Only inject if the function name is not already declared.
+            for (name, sig) in &cached.functions {
+                if existing.contains(name) || PRIMITIVES.contains(&name.as_str()) {
+                    continue;
+                }
+                let params: Vec<Param> = sig.params.iter().map(|(pname, pty)| {
+                    Param { name: Ident::new(pname, zero_span), ty: pty.to_ast_type(), span: zero_span }
+                }).collect();
+                let return_type = sig.return_type.as_ref().map(|t| t.to_ast_type());
+                decls.push(TopDecl::Fn(FnDecl {
+                    is_async: false,
+                    is_pub: true,
+                    receiver: None,
+                    name: Ident::new(name, zero_span),
+                    generics: vec![],
+                    params,
+                    return_type,
+                    contracts: vec![],
+                    body: None, // stub — codegen will handle as declare or skip
+                    span: zero_span,
+                }));
+                existing.insert(name.clone());
+            }
         }
-        None
+
+        decls
     }
 
     fn build_module_map(&self, items: &[TopDecl]) -> HashMap<String, ModuleExport> {
@@ -763,10 +1198,22 @@ impl Checker {
                         fd.name.name.clone()
                     };
                     let prefixed_key = if prefix.is_empty() { key.clone() } else { format!("{}.{}", prefix, key) };
-                    if let Some(sig) = self.functions.get(&prefixed_key).or_else(|| self.functions.get(&key)) {
-                        let is_pub = fd.is_pub;
-                        map.insert(fd.name.name.clone(), ModuleExport::Function { sig: sig.clone(), is_pub });
-                    }
+                    let is_pub = fd.is_pub;
+                    // Try self.functions first (populated by register_fn_signature).
+                    // Fallback: build FnSig from the FnDecl AST (needed for external modules
+                    // loaded via load_external_module before register_fn_signature runs).
+                    let sig = self.functions.get(&prefixed_key)
+                        .or_else(|| self.functions.get(&key))
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            let params: Vec<(String, CheckedType)> = fd.params.iter().map(|p| {
+                                (p.name.name.clone(), CheckedType::from_ast_type(&p.ty))
+                            }).collect();
+                            let return_type = fd.return_type.as_ref().map(|t| CheckedType::from_ast_type(t));
+                            let generics = fd.generics.iter().map(|g| g.name.name.clone()).collect();
+                            FnSig { params, return_type, generics }
+                        });
+                    map.insert(fd.name.name.clone(), ModuleExport::Function { sig, is_pub });
                 }
                 TopDecl::Module(md) => {
                     let new_prefix = if prefix.is_empty() { md.name.name.clone() } else { format!("{}.{}", prefix, md.name.name) };

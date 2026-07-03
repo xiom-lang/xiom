@@ -95,7 +95,7 @@ fn main() {
     }
     
     // Merge all parsed programs into one
-    let program = merge_programs(all_programs);
+    let mut program = merge_programs(all_programs);
 
 fn merge_programs(programs: Vec<axiom_ast::Program>) -> axiom_ast::Program {
     let mut items: Vec<axiom_ast::TopDecl> = Vec::new();
@@ -125,13 +125,19 @@ fn merge_programs(programs: Vec<axiom_ast::Program>) -> axiom_ast::Program {
     // ── Stage 3: Type Check ───────────────────────────────
     let mut checker = Checker::new();
     // Configure source directories for multi-file module resolution.
-    // The directory of the primary source file is added so `use` declarations
-    // can resolve to external .ax files (e.g., `use benchmark.main.BenchResult`
-    // resolves to `{source_dir}/benchmark/main.ax`).
+    // 1. The parent directory of the primary source file.
     if let Some(primary) = source_paths.first() {
         if let Some(parent) = Path::new(primary).parent() {
-            checker.source_dirs.push(parent.to_string_lossy().to_string());
+            checker.add_source_dir(parent.to_string_lossy().to_string());
         }
+    }
+    // 2. The project examples/ root (for benchmark and test_mod multi-file examples).
+    let examples_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent().unwrap()
+        .parent().unwrap()
+        .join("examples");
+    if examples_root.is_dir() {
+        checker.add_source_dir(examples_root.to_string_lossy().to_string());
     }
     let is_multi_file = source_paths.len() > 1 || checker.source_dirs.len() > 0;
     if let Err(errors) = checker.check_program(&program) {
@@ -196,6 +202,32 @@ fn merge_programs(programs: Vec<axiom_ast::Program>) -> axiom_ast::Program {
             }
         }
         // Borrow errors are non-fatal during hardening phase
+    }
+
+    // ── Stage 4.5: Inject external module declarations ─────
+    // Lazily-loaded external type, enum, and function stubs from the ModuleCatalog
+    // are injected into the program so the codegen sees their definitions.
+    let external_decls = checker.collect_external_decls(&program);
+    if !external_decls.is_empty() {
+        // Dedup: only inject decls whose names are not already present.
+        // Wrap in a synthetic module to avoid namespace pollution.
+        let existing_names: std::collections::HashSet<String> = program.items.iter().filter_map(|i| match i {
+            axiom_ast::TopDecl::Type(td) => Some(td.name.name.clone()),
+            axiom_ast::TopDecl::Enum(ed) => Some(ed.name.name.clone()),
+            axiom_ast::TopDecl::Fn(fd) => Some(fd.name.name.clone()),
+            _ => None,
+        }).collect();
+        for decl in external_decls {
+            let name = match &decl {
+                axiom_ast::TopDecl::Type(td) => td.name.name.clone(),
+                axiom_ast::TopDecl::Enum(ed) => ed.name.name.clone(),
+                axiom_ast::TopDecl::Fn(fd) => fd.name.name.clone(),
+                _ => continue,
+            };
+            if !existing_names.contains(&name) {
+                program.items.push(decl);
+            }
+        }
     }
 
     // ── Stage 5: Codegen ──────────────────────────────────
