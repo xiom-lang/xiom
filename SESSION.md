@@ -2,46 +2,37 @@
 
 **Date:** 2026-07-03  
 **Branch:** `feat/ecosystem`  
-**Status:** Module catalog built. Multi-file resolution works (bench_math.ax resolves `use benchmark.main.BenchResult`). All tests pass. benchmark_safe.ax + benchmark_stress.ax run (exit 34).  
-**Tests:** 183+ pass (44 checker + 139 codegen). 3 pre-existing e2e diff failures.  
+**Status:** Module catalog built. Multi-file resolution works. All tests pass. benchmark_safe.ax runs (exit 34). COMPILER_VERSIONS.md updated to v0.21.0 "Catalog".  
+**Tests:** 183 pass (44 checker + 139 codegen). 3 pre-existing diff failures.  
+**Key files changed:** `crates/axiom-check/src/lib.rs` (+366), `crates/axiom-codegen/src/lib.rs` (+120), `crates/axiomc/src/main.rs` (+30), `docs/COMPILER_VERSIONS.md` (+80)
 
 ---
 
-## What Was Added This Session
+## New in This Session
 
-### ModuleCatalog — Lazy Multi-File Resolver (`crates/axiom-check/src/lib.rs`, +366 lines)
-
-- `ModuleCatalog` struct: lazy-loading cache of parsed `.ax` files from `source_dirs`
-- `CachedModule`: stores parsed AST, type registry, function registry, export map, enums, variants
-- `find_by_module_name()`: searches + auto-loads on first access
-- `find_submodule()`: walks nested module exports
-- `build_exports()`: standalone function for building export maps from cached types/functions
-- **No eager loading**: files are loaded on-demand when first referenced by a `use` declaration
+### ModuleCatalog — Lazy Multi-File Resolver
+- `ModuleCatalog` struct: lazy-loading cache of `.ax` files from `source_dirs`
+- `CachedModule`: stores parsed AST, types, functions, exports, enums, variants
+- `find_by_module_name()` / `find_submodule()` — filesystem-aware lazy loading
+- Files parsed only on first reference (no eager scanning)
 
 ### Checker → Codegen Bridge
+- `CheckedType::to_ast_type()`: internal type → AST Type conversion
+- `collect_external_decls()`: creates `TopDecl` stubs for types/functions from external modules
+- Injection gate in main.rs: deduplicated, only injects types not in current AST
+- Builtin filter: all primitives excluded (Bool, Int-64, UInt-64, Float32/64, Slice, Vec, etc.)
 
-- `CheckedType::to_ast_type()`: converts internal `CheckedType` back to AST `Type` for codegen injection
-- `collect_external_decls()`: iterates `self.types` + `self.functions`, creates `TopDecl::Type` stubs for types not in the current AST. Filters builtins, deduplicates.
-- `main.rs` injection: deduplicated type declarations added to `program.items` before codegen
+### Codegen Hardening (14 fixes)
+- Mixed-type binary op coercion, module-qualified receiver fix, pointer comparisons
+- Module-scoped type registry with `current_module` tracking
+- Derived methods registered in `self.functions`
+- `infer_llvm_type` for Field/Ref/MutRef, return type coercion, struct equality
+- Generic field fallback, deterministic struct type name resolution
+- Generic call receiver, zeroinitializer for structs, nested struct eq guard
 
-### Resolve Flow
-1. `resolve_imports` checks `self.catalog.find_by_module_name()` for unknown modules
-2. `process_use` checks `self.catalog.find_submodule()` for dotted paths (e.g., `benchmark.main`)
-3. On first access, catalog reads + parses + caches the `.ax` file
-4. Types/functions from loaded modules get registered into checker
-5. `collect_external_decls` creates AST stubs; main.rs injects them before codegen
-
-### Codegen Fixes
-- Struct equality: checks `self.emitted_fns` before calling `@Type.eq` (prevents undefined `@Vec.eq`)
-- `compile_eq_impl`: same check for nested struct fields in derived eq implementations
-- `infer_llvm_type`: handles `Expr::Field`, `Expr::Ref`, `Expr::MutRef`
-- `zero_val_for`: replaces literal `"0"` with `zeroinitializer` for struct-typed allocations
-- Pointer type comparisons: `i8*` → correct `icmp` type with `inttoptr` for null
-- Return type coercion: `sitofp` conversion in return statements
-
-### Remaining Codegen Issues
-- `bench_math.ax`: `i64 vs ptr` — injected type fields (e.g., `name: Str` → `i8*`) not handled in some codegen paths. The type IS resolved at the checker level, and injected into the AST, but the codegen produces invalid IR for these synthetic TypeDecls.
-- `benchmark_stress.ax`: `struct.structures.List vs i64` — module-qualified type mismatch in monomorphised generic codegen
+### Known Issues
+- `bench_math.ax`: `BenchResult` resolves correctly (IR shows `{i8*,i64,i64,i64,i64}`), fails on pre-existing function pointer codegen (`@f` in `trapezoidal`)
+- `benchmark_stress.ax`: IR is valid LLVM (clang accepts via `--emit-llvm`), but `--run` hits pre-existing match-arm bug in `List.sum()`
 
 ---
 
