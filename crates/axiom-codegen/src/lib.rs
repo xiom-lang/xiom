@@ -89,6 +89,8 @@ pub struct IrEmitter {
     max_recursion_depth: u32,
     /// Tracks emitted function names to avoid duplicate definitions
     emitted_fns: HashSet<String>,
+    /// Current module prefix for scoped type resolution (e.g., "types" or "derive")
+    current_module: Option<String>,
 }
 
 impl IrEmitter {
@@ -125,6 +127,7 @@ impl IrEmitter {
             param_concrete_types: HashMap::new(),
             target_triple: "x86_64-pc-windows-msvc".to_string(),
             emitted_fns: HashSet::new(),
+            current_module: None,
         }
     }
 
@@ -219,15 +222,44 @@ impl IrEmitter {
     }
 
     fn llvm_type_for(&self, type_name: &str) -> String {
-        if self.types.contains_key(type_name) || self.type_meta.contains_key(type_name) {
-            format!("%struct.{type_name}")
-        } else {
-            Self::axiom_to_llvm_type(type_name).to_string()
+        // Try current module's qualified name first (e.g., "types.Person")
+        if let Some(ref module) = self.current_module {
+            let qualified = format!("{}.{}", module, type_name);
+            if self.types.contains_key(&qualified) || self.type_meta.contains_key(&qualified) {
+                return format!("%struct.{qualified}");
+            }
         }
+        // Try exact match
+        if self.types.contains_key(type_name) || self.type_meta.contains_key(type_name) {
+            return format!("%struct.{type_name}");
+        }
+        // Search for any module-qualified variant ending with .type_name
+        for (key, _) in &self.type_meta {
+            if key.ends_with(&format!(".{type_name}")) {
+                return format!("%struct.{key}");
+            }
+        }
+        Self::axiom_to_llvm_type(type_name).to_string()
     }
 
     fn field_llvm_type(&self, struct_name: &str, field_idx: usize) -> String {
-        if let Some(meta) = self.type_meta.get(struct_name) {
+        let meta = self.type_meta.get(struct_name)
+            .or_else(|| {
+                // Try current module's qualified name first (deterministic)
+                if let Some(ref module) = self.current_module {
+                    let qualified = format!("{}.{}", module, struct_name);
+                    self.type_meta.get(&qualified)
+                } else {
+                    None
+                }
+            })
+            .or_else(|| {
+                // Fallback: search all qualified keys
+                self.type_meta.iter()
+                    .find(|(k, _)| k.ends_with(&format!(".{struct_name}")))
+                    .map(|(_, v)| v)
+            });
+        if let Some(meta) = meta {
             if let Some((_, ty_name)) = meta.fields.get(field_idx) {
                 return self.llvm_type_for(ty_name);
             }
@@ -400,17 +432,21 @@ impl IrEmitter {
     }
 
      fn register_type_layout(&mut self, item: &TopDecl) {
+        self.register_type_layout_impl(item, "");
+    }
+
+    fn register_type_layout_impl(&mut self, item: &TopDecl, prefix: &str) {
         if let TopDecl::Type(td) = item {
-            // Skip type aliases (no fields)
             if td.fields.is_empty() { return; }
             let fields: Vec<String> = td.fields.iter()
                 .map(|f| f.name.name.clone())
                 .collect();
-            let type_name = td.name.name.clone();
-            self.types.insert(type_name.clone(), fields);
+            let bare_name = td.name.name.clone();
+            let type_name = if prefix.is_empty() { bare_name.clone() } else { format!("{}.{}", prefix, bare_name) };
             let full_fields: Vec<(String, String)> = td.fields.iter()
                 .map(|f| (f.name.name.clone(), Self::type_from_ast(&f.ty)))
                 .collect();
+            self.types.insert(type_name.clone(), fields);
             self.type_meta.insert(type_name, TypeMeta {
                 fields: full_fields,
                 derives: td.derives.clone(),
@@ -418,8 +454,8 @@ impl IrEmitter {
             });
         }
         if let TopDecl::Enum(ed) = item {
-            let enum_name = ed.name.name.clone();
-            // Don't overwrite an existing struct type with the same name
+            let bare_name = ed.name.name.clone();
+            let enum_name = if prefix.is_empty() { bare_name.clone() } else { format!("{}.{}", prefix, bare_name) };
             if self.types.contains_key(&enum_name) && !self.types.get(&enum_name).map(|f| f.is_empty()).unwrap_or(true) {
                 return;
             }
@@ -448,8 +484,9 @@ impl IrEmitter {
             self.enum_variants.insert(enum_name, variants_info);
         }
         if let TopDecl::Module(md) = item {
+            let new_prefix = if prefix.is_empty() { md.name.name.clone() } else { format!("{}.{}", prefix, md.name.name) };
             for sub in &md.items {
-                self.register_type_layout(sub);
+                self.register_type_layout_impl(sub, &new_prefix);
             }
         }
     }
@@ -487,15 +524,29 @@ impl IrEmitter {
             self.interfaces.insert(id.name.name.clone(), methods);
         }
         if let TopDecl::Module(md) = item {
+            let saved_module = self.current_module.clone();
+            self.current_module = Some(if let Some(ref prev) = saved_module {
+                format!("{}.{}", prev, md.name.name)
+            } else {
+                md.name.name.clone()
+            });
             for sub in &md.items {
                 self.register_functions(sub);
             }
+            self.current_module = saved_module;
         }
     }
 
     fn fn_key(&self, fd: &FnDecl) -> String {
         if let Some(recv_name) = &fd.receiver {
-            format!("{}.{}", recv_name.name, fd.name.name)
+            // Use module context to resolve receiver type to qualified name
+            let recv_type = if let Some(ref module) = self.current_module {
+                let qualified = format!("{}.{}", module, recv_name.name);
+                if self.type_meta.contains_key(&qualified) { qualified } else { recv_name.name.clone() }
+            } else {
+                recv_name.name.clone()
+            };
+            format!("{}.{}", recv_type, fd.name.name)
         } else {
             fd.name.name.clone()
         }
@@ -518,9 +569,16 @@ impl IrEmitter {
                 Ok(())
             }
             TopDecl::Module(md) => {
+                let saved_module = self.current_module.clone();
+                self.current_module = Some(if let Some(ref prev) = saved_module {
+                    format!("{}.{}", prev, md.name.name)
+                } else {
+                    md.name.name.clone()
+                });
                 for sub in &md.items {
                     self.compile_top_decl(sub)?;
                 }
+                self.current_module = saved_module;
                 Ok(())
             }
             TopDecl::Interface(_) | TopDecl::Enum(_) | TopDecl::Const(_) | TopDecl::Type(_) | TopDecl::Use(_) => Ok(()),
@@ -555,7 +613,7 @@ impl IrEmitter {
 
         // For methods, prepend the self struct parameter
         let self_llvm_ty = fd.receiver.as_ref().map(|r| {
-            format!("%struct.{}", r.name)
+            self.llvm_type_for(&r.name)
         });
         let self_offset: usize = if self_llvm_ty.is_some() { 1 } else { 0 };
 
@@ -929,31 +987,44 @@ impl IrEmitter {
     fn compile_derive_for_item(&mut self, item: &TopDecl) -> Result<(), String> {
         match item {
             TopDecl::Type(td) => {
-                let type_name = &td.name.name;
+                let bare_name = &td.name.name;
+                // Resolve to qualified name using module context
+                let type_name = if let Some(ref module) = self.current_module {
+                    let qualified = format!("{}.{}", module, bare_name);
+                    if self.type_meta.contains_key(&qualified) { qualified } else { bare_name.clone() }
+                } else {
+                    bare_name.clone()
+                };
                 let field_names: Vec<String> = td.fields.iter().map(|f| f.name.name.clone()).collect();
-                let struct_ty = format!("%struct.{type_name}");
+                let struct_ty = self.llvm_type_for(&type_name);
 
                 for derive in &td.derives {
                     match derive {
-                        DeriveTrait::Eq => self.compile_eq_impl(type_name, &struct_ty, &field_names, &td.fields)?,
-                        DeriveTrait::Clone => self.compile_clone_impl(type_name, &struct_ty, &field_names)?,
-                        DeriveTrait::Display => self.compile_display_impl(type_name, &struct_ty, &field_names)?,
-                        DeriveTrait::Hash => self.compile_hash_impl(type_name, &struct_ty, &field_names)?,
-                        DeriveTrait::Ord => self.compile_ord_impl(type_name, &struct_ty, &field_names, &td.fields)?,
+                        DeriveTrait::Eq => self.compile_eq_impl(&type_name, &struct_ty, &field_names, &td.fields)?,
+                        DeriveTrait::Clone => self.compile_clone_impl(&type_name, &struct_ty, &field_names)?,
+                        DeriveTrait::Display => self.compile_display_impl(&type_name, &struct_ty, &field_names)?,
+                        DeriveTrait::Hash => self.compile_hash_impl(&type_name, &struct_ty, &field_names)?,
+                        DeriveTrait::Ord => self.compile_ord_impl(&type_name, &struct_ty, &field_names, &td.fields)?,
                     }
                 }
 
                 // Generate invariant check function if needed (even without derives)
                 if !td.invariants.is_empty() {
-                    self.compile_invariant_check(type_name)?;
+                    self.compile_invariant_check(&type_name)?;
                 }
             }
             TopDecl::Enum(ed) => {
                 if ed.derives.is_empty() {
                     return Ok(());
                 }
-                let type_name = &ed.name.name;
-                if !self.types.contains_key(type_name) {
+                let bare_name = &ed.name.name;
+                let type_name = if let Some(ref module) = self.current_module {
+                    let qualified = format!("{}.{}", module, bare_name);
+                    if self.type_meta.contains_key(&qualified) { qualified } else { bare_name.clone() }
+                } else {
+                    bare_name.clone()
+                };
+                if !self.types.contains_key(&type_name) {
                     self.types.insert(type_name.clone(), vec!["discriminant".to_string()]);
                     self.type_meta.insert(type_name.clone(), TypeMeta {
                         fields: vec![("discriminant".to_string(), "Int".to_string())],
@@ -961,23 +1032,30 @@ impl IrEmitter {
                         invariants: Vec::new(),
                     });
                 }
-                let struct_ty = format!("%struct.{type_name}");
+                let struct_ty = self.llvm_type_for(&type_name);
                 let field_names: Vec<String> = vec!["discriminant".to_string()];
 
                 for derive in &ed.derives {
                     match derive {
-                        DeriveTrait::Eq => self.compile_eq_impl(type_name, &struct_ty, &field_names, &[])?,
-                        DeriveTrait::Clone => self.compile_clone_impl(type_name, &struct_ty, &field_names)?,
-                        DeriveTrait::Hash => self.compile_hash_impl(type_name, &struct_ty, &field_names)?,
-                        DeriveTrait::Ord => self.compile_ord_impl(type_name, &struct_ty, &field_names, &[])?,
+                        DeriveTrait::Eq => self.compile_eq_impl(&type_name, &struct_ty, &field_names, &[])?,
+                        DeriveTrait::Clone => self.compile_clone_impl(&type_name, &struct_ty, &field_names)?,
+                        DeriveTrait::Hash => self.compile_hash_impl(&type_name, &struct_ty, &field_names)?,
+                        DeriveTrait::Ord => self.compile_ord_impl(&type_name, &struct_ty, &field_names, &[])?,
                         _ => {}
                     }
                 }
             }
             TopDecl::Module(md) => {
+                let saved_module = self.current_module.clone();
+                self.current_module = Some(if let Some(ref prev) = saved_module {
+                    format!("{}.{}", prev, md.name.name)
+                } else {
+                    md.name.name.clone()
+                });
                 for sub in &md.items {
                     self.compile_derive_for_item(sub)?;
                 }
+                self.current_module = saved_module;
             }
             _ => {}
         }
@@ -990,6 +1068,7 @@ impl IrEmitter {
             return Ok(());
         }
         self.emitted_fns.insert(fn_name.clone());
+        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), struct_ty.to_string()], "i64".to_string()));
         self.emitln(&format!("define i64 @{fn_name}({struct_ty} %self, {struct_ty} %other) {{"));
         let self_alloca = self.fresh_tmp();
         let other_alloca = self.fresh_tmp();
@@ -1063,6 +1142,7 @@ impl IrEmitter {
             return Ok(());
         }
         self.emitted_fns.insert(fn_name.clone());
+        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string()], struct_ty.to_string()));
         self.emitln(&format!("define {struct_ty} @{fn_name}({struct_ty} %self) {{"));
         let self_alloca = self.fresh_tmp();
         let result_alloca = self.fresh_tmp();
@@ -1095,6 +1175,7 @@ impl IrEmitter {
             return Ok(());
         }
         self.emitted_fns.insert(fn_name.clone());
+        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string()], "i8*".to_string()));
         self.emitln(&format!("define i8* @{fn_name}({struct_ty} %self) {{"));
         let self_alloca = self.fresh_tmp();
         self.emitln(&format!("  {self_alloca} = alloca {struct_ty}"));
@@ -1151,6 +1232,7 @@ impl IrEmitter {
             return Ok(());
         }
         self.emitted_fns.insert(fn_name.clone());
+        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string()], "i64".to_string()));
         self.emitln(&format!("define i64 @{fn_name}({struct_ty} %self) {{"));
         let self_alloca = self.fresh_tmp();
         self.emitln(&format!("  {self_alloca} = alloca {struct_ty}"));
@@ -1188,6 +1270,7 @@ impl IrEmitter {
             return Ok(());
         }
         self.emitted_fns.insert(fn_name.clone());
+        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), struct_ty.to_string()], "i64".to_string()));
         self.emitln(&format!("define i64 @{fn_name}({struct_ty} %self, {struct_ty} %other) {{"));
         let self_alloca = self.fresh_tmp();
         let other_alloca = self.fresh_tmp();
@@ -1617,7 +1700,14 @@ impl IrEmitter {
             }
             Stmt::Return(expr, _) => {
                 if let Some(e) = expr {
-                    let val = self.compile_expr(e)?;
+                    let mut val = self.compile_expr(e)?;
+                    let ret_ty = self.current_return_type.clone();
+                    // Convert value to return type if needed (e.g., i64 to double)
+                    if ret_ty == "double" && self.infer_llvm_type(e) == "i64" {
+                        let conv = self.fresh_tmp();
+                        self.emitln(&format!("  {conv} = sitofp i64 {val} to double"));
+                        val = conv;
+                    }
                     // Store result for ensures checks
                     if let Some(res_ptr) = self.result_ptr.as_ref() {
                         let ret_ty = self.current_return_type.clone();
@@ -2057,8 +2147,8 @@ impl IrEmitter {
                 Ok(tmp)
             }
             Expr::Binary(left, op, right, _) => {
-                let l = self.compile_expr(left)?;
-                let r = self.compile_expr(right)?;
+                let mut l = self.compile_expr(left)?;
+                let mut r = self.compile_expr(right)?;
                 let tmp = self.fresh_tmp();
                 let is_float = self.is_float_expr(left) || self.is_float_expr(right);
                 if matches!(op, BinOp::And | BinOp::Or) {
@@ -2079,6 +2169,22 @@ impl IrEmitter {
                     self.emitln(&format!("  {result} = {op_name} i64 {lw}, {rw}"));
                     return Ok(result);
                 }
+                // For struct-typed equality/inequality, call derived eq() instead of icmp
+                if matches!(op, BinOp::Eq | BinOp::Neq) {
+                    let lt = self.infer_llvm_type(left);
+                    if lt.starts_with("%struct.") || self.infer_llvm_type(right).starts_with("%struct.") {
+                        let struct_name = if lt.starts_with("%struct.") { &lt[8..] } else { &self.infer_llvm_type(right)[8..] };
+                        let eq_fn = format!("{}.eq", struct_name);
+                        let eq_result = self.fresh_tmp();
+                        self.emitln(&format!("  {eq_result} = call i64 @{eq_fn}({lt} {l}, {} {r})", self.infer_llvm_type(right)));
+                        if matches!(op, BinOp::Neq) {
+                            let negated = self.fresh_tmp();
+                            self.emitln(&format!("  {negated} = xor i64 {eq_result}, 1"));
+                            return Ok(negated);
+                        }
+                        return Ok(eq_result);
+                    }
+                }
                 let (ty, inst) = match op {
                     BinOp::Add => (if is_float { "double" } else { "i64" }, if is_float { "fadd" } else { "add" }),
                     BinOp::Sub => (if is_float { "double" } else { "i64" }, if is_float { "fsub" } else { "sub" }),
@@ -2094,6 +2200,41 @@ impl IrEmitter {
                     BinOp::Assign => return Ok(r),
                     _ => unreachable!(),
                 };
+                // For non-float comparisons, use the actual operand LLVM type
+                // (handles pointer types like i8* for string comparisons)
+                let ty = if !is_float && inst.starts_with("icmp") {
+                    let lt = self.infer_llvm_type(left);
+                    let rt = self.infer_llvm_type(right);
+                    if lt.contains('*') { lt } else if rt.contains('*') { rt } else { ty.to_string() }
+                } else {
+                    ty.to_string()
+                };
+                // Convert literal 0 to null pointer when comparing with pointer types
+                if ty.contains('*') {
+                    if l == "0" && self.infer_llvm_type(left) == "i64" {
+                        let null_tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {null_tmp} = inttoptr i64 0 to {ty}"));
+                        l = null_tmp;
+                    }
+                    if r == "0" && self.infer_llvm_type(right) == "i64" {
+                        let null_tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {null_tmp} = inttoptr i64 0 to {ty}"));
+                        r = null_tmp;
+                    }
+                }
+                // Coerce i64 operands to double when in float context (mixed-type expressions)
+                if is_float {
+                    if self.infer_llvm_type(left) == "i64" {
+                        let conv = self.fresh_tmp();
+                        self.emitln(&format!("  {conv} = sitofp i64 {l} to double"));
+                        l = conv;
+                    }
+                    if self.infer_llvm_type(right) == "i64" {
+                        let conv = self.fresh_tmp();
+                        self.emitln(&format!("  {conv} = sitofp i64 {r} to double"));
+                        r = conv;
+                    }
+                }
                 let div_cont = if !is_float && matches!(op, BinOp::Div | BinOp::Rem) {
                     let zero_check = self.fresh_tmp();
                     self.emitln(&format!("  {zero_check} = icmp eq i64 {r}, 0"));
@@ -2744,12 +2885,30 @@ impl IrEmitter {
                         fn_key.clone()
                     };
                     let args_str = if let Some(receiver) = receiver_expr {
-                        let recv_val = self.compile_expr(receiver)?;
-                        let recv_llvm_ty = self.infer_llvm_type(receiver);
-                        let rest_str: Vec<String> = args.iter().zip(compiled_args.iter())
-                            .map(|(arg_expr, arg_val)| format!("{} {}", self.infer_llvm_type(arg_expr), arg_val))
-                            .collect();
-                        format!("{recv_llvm_ty} {recv_val}, {}", rest_str.join(", "))
+                        // Check if receiver is a real struct instance (local variable)
+                        // vs a type name (TrafficLight.xxx()) or module name (pipeline.xxx())
+                        let is_instance = match receiver.as_ref() {
+                            Expr::Ident(ident) => self.lookup_local(&ident.name).is_some(),
+                            _ => true, // complex receiver expressions (e.g. chained calls) are instances
+                        };
+                        if is_instance {
+                            let recv_val = self.compile_expr(receiver)?;
+                            let recv_llvm_ty = self.infer_llvm_type(receiver);
+                            let rest_str: Vec<String> = args.iter().zip(compiled_args.iter())
+                                .map(|(arg_expr, arg_val)| format!("{} {}", self.infer_llvm_type(arg_expr), arg_val))
+                                .collect();
+                            if rest_str.is_empty() {
+                                format!("{recv_llvm_ty} {recv_val}")
+                            } else {
+                                format!("{recv_llvm_ty} {recv_val}, {}", rest_str.join(", "))
+                            }
+                        } else {
+                            // Type name or module name — no receiver argument
+                            args.iter().zip(compiled_args.iter())
+                                .map(|(arg_expr, arg_val)| format!("{} {}", self.infer_llvm_type(arg_expr), arg_val))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        }
                     } else {
                         args.iter().zip(compiled_args.iter())
                             .map(|(arg_expr, arg_val)| format!("{} {}", self.infer_llvm_type(arg_expr), arg_val))
@@ -2864,7 +3023,7 @@ impl IrEmitter {
                 Ok(loaded)
             }
             Expr::Struct(name, fields, _) => {
-                let struct_ty = format!("%struct.{}", name.name);
+                let struct_ty = self.llvm_type_for(&name.name);
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
                 for (i, (_, val)) in fields.iter().enumerate() {
@@ -2954,9 +3113,24 @@ impl IrEmitter {
                 if self.types.contains_key(&ident.name) || self.type_meta.contains_key(&ident.name) {
                     return Some(ident.name.clone());
                 }
+                // Try module-qualified variant
+                for key in self.type_meta.keys() {
+                    if key.ends_with(&format!(".{}", ident.name)) {
+                        return Some(key.clone());
+                    }
+                }
                 None
             }
-            Expr::Struct(ident, _, _) => Some(ident.name.clone()),
+            Expr::Struct(ident, _, _) => {
+                // Try module-qualified name first, then bare name
+                if let Some(ref module) = self.current_module {
+                    let qualified = format!("{}.{}", module, ident.name);
+                    if self.type_meta.contains_key(&qualified) {
+                        return Some(qualified);
+                    }
+                }
+                Some(ident.name.clone())
+            },
             Expr::Field(obj, _, _) => {
                 self.infer_struct_type_name(obj.as_ref())
             }
@@ -2987,6 +3161,22 @@ impl IrEmitter {
                 if let Some((_, llvm_ty)) = self.lookup_local(&ident.name) {
                     if llvm_ty == "double" { return "double".to_string(); }
                     return llvm_ty.clone();
+                }
+                "i64".to_string()
+            }
+            Expr::Field(obj, field, _) => {
+                // Resolve the LLVM type of a struct field access (e.g. r.w where r is Rect{w: Float64, ...})
+                if let Expr::Ident(obj_ident) = obj.as_ref() {
+                    if let Some((_, llvm_ty)) = self.lookup_local(&obj_ident.name) {
+                        if llvm_ty.starts_with("%struct.") {
+                            let type_name = &llvm_ty[8..];
+                            if let Some(meta) = self.type_meta.get(type_name) {
+                                if let Some((_, ty_name)) = meta.fields.iter().find(|(name, _)| name == &field.name) {
+                                    return self.llvm_type_for(ty_name);
+                                }
+                            }
+                        }
+                    }
                 }
                 "i64".to_string()
             }
@@ -3033,13 +3223,7 @@ impl IrEmitter {
             Expr::Ok(..) | Expr::Err(..) => {
                 if self.types.contains_key("Result") { "%struct.Result".to_string() } else { "i64".to_string() }
             }
-            Expr::Struct(ident, _, _) => {
-                if self.types.contains_key(&ident.name) || self.type_meta.contains_key(&ident.name) {
-                    format!("%struct.{}", ident.name)
-                } else {
-                    "i64".to_string()
-                }
-            }
+            Expr::Struct(ident, _, _) => self.llvm_type_for(&ident.name),
             Expr::Paren(inner, _) => self.infer_llvm_type(inner),
             Expr::Tuple(items, _) => {
                 if items.is_empty() { "i64".to_string() } else { self.infer_llvm_type(&items[items.len() - 1]) }
@@ -3060,6 +3244,7 @@ impl IrEmitter {
                     }
                 }
             }
+            Expr::Ref(inner, _) | Expr::MutRef(inner, _) => self.infer_llvm_type(inner),
             Expr::As(_, ty, _) => self.llvm_type_for(&Self::type_from_ast(ty)),
             _ => "i64".to_string(),
         }
