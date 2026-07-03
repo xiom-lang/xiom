@@ -1272,10 +1272,14 @@ impl Checker {
 
         // Add type declarations for types that are in the checker but not in the AST
         for (type_name, fields) in &self.types {
-            if matches!(type_name.as_str(),
-                "Bool"|"Int"|"Str"|"Float64"|"Float32"|"Char"|
-                "Vec"|"Option"|"Result"|"Map"|"Set") { continue; }
             let bare_name = type_name.rsplit('.').next().unwrap_or(type_name);
+            // Skip builtins and primitives (check bare name, which strips module prefix)
+            if matches!(bare_name,
+                "Bool"|"Int"|"Int8"|"Int16"|"Int32"|"Int64"|
+                "UInt"|"UInt8"|"UInt16"|"UInt32"|"UInt64"|
+                "Float32"|"Float64"|"Char"|"Str"|"Unit"|"Slice"|
+                "Vec"|"Option"|"Result"|"Map"|"Set"|"fn") { continue; }
+            if bare_name.is_empty() || fields.is_empty() && !bare_name.chars().next().map_or(false, |c| c.is_uppercase()) { continue; }
             if !known_types.contains(type_name) && !known_types.contains(bare_name) {
                 let field_decls: Vec<FieldDecl> = fields.iter().map(|(fname, ftype)| {
                     FieldDecl { name: Ident::new(fname, span), ty: ftype.to_ast_type(), span }
@@ -1311,7 +1315,6 @@ impl Checker {
                 }));
             }
         }
-
         decls
     }
 
