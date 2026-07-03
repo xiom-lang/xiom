@@ -95,7 +95,7 @@ fn main() {
     }
     
     // Merge all parsed programs into one
-    let mut program = merge_programs(all_programs);
+    let program = merge_programs(all_programs);
 
 fn merge_programs(programs: Vec<axiom_ast::Program>) -> axiom_ast::Program {
     let mut items: Vec<axiom_ast::TopDecl> = Vec::new();
@@ -134,7 +134,6 @@ fn merge_programs(programs: Vec<axiom_ast::Program>) -> axiom_ast::Program {
         }
     }
     let is_multi_file = source_paths.len() > 1 || checker.source_dirs.len() > 0;
-    let has_external_imports = source_paths.len() > 1; // True when multiple .ax files are compiled together
     if let Err(errors) = checker.check_program(&program) {
         if diagnostics_json {
             let parts: Vec<String> = errors.iter().map(|err| {
@@ -197,26 +196,6 @@ fn merge_programs(programs: Vec<axiom_ast::Program>) -> axiom_ast::Program {
             }
         }
         // Borrow errors are non-fatal during hardening phase
-    }
-
-    // ── Stage 4.5: Inject externally-imported type/function declarations ─
-    // The checker resolved types/functions from external modules, but they're
-    // not in the AST. We inject them so the codegen can see their layouts.
-    // Deduplication prevents re-inserting types already in the program AST.
-    {
-        let external_decls = checker.collect_external_decls(&program);
-        if !external_decls.is_empty() {
-            let existing: std::collections::HashSet<String> = program.items.iter().filter_map(|i| {
-                match i { axiom_ast::TopDecl::Type(td) => Some(td.name.name.clone()), _ => None }
-            }).collect();
-            let new_decls: Vec<_> = external_decls.into_iter().filter(|decl| {
-                match decl {
-                    axiom_ast::TopDecl::Type(td) => !existing.contains(&td.name.name),
-                    _ => false, // only inject types (functions already handled by codegen's register_functions)
-                }
-            }).collect();
-            program.items.extend(new_decls);
-        }
     }
 
     // ── Stage 5: Codegen ──────────────────────────────────

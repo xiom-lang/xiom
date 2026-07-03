@@ -1102,20 +1102,13 @@ impl IrEmitter {
             if field_llvm_ty.starts_with("%struct.") {
                 let field_type_name = &field_llvm_ty[8..];
                 let eq_fn = format!("{field_type_name}.eq");
-                // Only call eq if it's emitted; otherwise fall through to icmp
-                if self.emitted_fns.contains(&eq_fn) {
-                    self.emitln(&format!("  {cmp} = call i64 @{eq_fn}({field_llvm_ty} {self_val}, {field_llvm_ty} {other_val})"));
-                    if last_cmp.is_empty() {
-                        last_cmp = cmp;
-                    } else {
-                        let and_tmp = self.fresh_tmp();
-                        self.emitln(&format!("  {and_tmp} = and i64 {last_cmp}, {cmp}"));
-                        last_cmp = and_tmp;
-                    }
+                self.emitln(&format!("  {cmp} = call i64 @{eq_fn}({field_llvm_ty} {self_val}, {field_llvm_ty} {other_val})"));
+                if last_cmp.is_empty() {
+                    last_cmp = cmp;
                 } else {
-                    // eq not available for this field type — skip comparison
-                    // (e.g., Vec doesn't have .eq())
-                    continue;
+                    let and_tmp = self.fresh_tmp();
+                    self.emitln(&format!("  {and_tmp} = and i64 {last_cmp}, {cmp}"));
+                    last_cmp = and_tmp;
                 }
             } else if is_float {
                 self.emitln(&format!("  {cmp} = fcmp oeq {field_llvm_ty} {self_val}, {other_val}"));
@@ -2217,22 +2210,17 @@ impl IrEmitter {
                 // For struct-typed equality/inequality, call derived eq() instead of icmp
                 if matches!(op, BinOp::Eq | BinOp::Neq) {
                     let lt = self.infer_llvm_type(left);
-                    let rt = self.infer_llvm_type(right);
-                    if lt.starts_with("%struct.") && rt.starts_with("%struct.") {
-                        let struct_name = &lt[8..];
+                    if lt.starts_with("%struct.") || self.infer_llvm_type(right).starts_with("%struct.") {
+                        let struct_name = if lt.starts_with("%struct.") { &lt[8..] } else { &self.infer_llvm_type(right)[8..] };
                         let eq_fn = format!("{}.eq", struct_name);
-                        // Only call eq if it's emitted
-                        if self.emitted_fns.contains(&eq_fn) {
-                            let eq_result = self.fresh_tmp();
-                            self.emitln(&format!("  {eq_result} = call i64 @{eq_fn}({lt} {l}, {rt} {r})"));
-                            if matches!(op, BinOp::Neq) {
-                                let negated = self.fresh_tmp();
-                                self.emitln(&format!("  {negated} = xor i64 {eq_result}, 1"));
-                                return Ok(negated);
-                            }
-                            return Ok(eq_result);
+                        let eq_result = self.fresh_tmp();
+                        self.emitln(&format!("  {eq_result} = call i64 @{eq_fn}({lt} {l}, {} {r})", self.infer_llvm_type(right)));
+                        if matches!(op, BinOp::Neq) {
+                            let negated = self.fresh_tmp();
+                            self.emitln(&format!("  {negated} = xor i64 {eq_result}, 1"));
+                            return Ok(negated);
                         }
-                        // eq() not available — fall through to regular icmp
+                        return Ok(eq_result);
                     }
                 }
                 let (ty, inst) = match op {
