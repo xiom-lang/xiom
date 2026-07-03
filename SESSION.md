@@ -1,10 +1,100 @@
-# AXIOM — Session Handoff: v0.22.1 "ModuleCatalog"
+# AXIOM — Session Handoff: v0.22.1 "Hardened"
 
 **Date:** 2026-07-03  
 **Branch:** `feat/ecosystem`  
-**Status:** ModuleCatalog implemented and verified. All multi-file examples compile via catalog. axiom-check 44/44. axiom-codegen 141/141 (including 2 new multi-file e2e tests). Zero warnings. v10 selfhost flake resolved.  
-**Tests:** 44/44 axiom-check, 141/141 axiom-codegen (25 diff + 63 e2e + 23 full_diff + 30 integration). e2e: 2 new multi-file tests pass, 1 ignored (24-module benchmark/main.ax — deferred to Wave 2).  
-**Key files changed:** `crates/axiom-check/src/lib.rs` (+~290 catalog + ~30 loading fixes), `crates/axiomc/src/main.rs` (+~55 injection gate + subsystem fix), `crates/axiom-codegen/src/lib.rs` (warnings), `crates/axiom-codegen/tests/e2e_tests.rs` (v10 flake + 3 multi-file tests), `crates/axiom-codegen/tests/full_diff_tests.rs` (warnings), `docs/requirements/multi-file-catalog.md` (NEW), `docs/checklists/multi-file-catalog.md` (NEW)
+**Status:** Ready to merge to main. All 186 tests green. 30-module benchmark suite compiles. Architecture and improvement plan documented.
+
+---
+
+## Next Session: Rebranding AXIOM → XIOM
+
+### Why
+
+AXIOM is a trademarked name and `.ax` is used by other tools. Full rebranding is needed before public release.
+
+### Target Names
+
+| Old | New |
+|-----|-----|
+| Language: **AXIOM** | **XIOM** |
+| Source files: `.ax` | `.xi` |
+| Bytecode: `.axbc` | `.xibc` |
+| Compiler: `axiomc` | `xiomc` |
+| Crate prefix: `axiom-*` | `xiom-*` |
+| Config: `kilo.jsonc` → unchanged | Project name doesn't need renaming |
+
+### Rebranding Difficulty Assessment (Updated — Full Scope)
+
+**Scale:** ~250 files across the entire project. Mechanical but extensive.
+
+| Layer | Files | Effort | Risk |
+|-------|-------|--------|------|
+| **Source files** (.ax → .xi) | ~35 example/benchmark/spec files | Low — batch rename | Low |
+| **Module declarations** (in .ax files) | `module a.b.c` stays the same — only file extension changes | None | None |
+| **Crate names** (Cargo.toml) | 7 `Cargo.toml` files | Low — string replace | Medium |
+| **Rust source** (`axiom_*` → `xiom_*`) | ~15 .rs files | Medium — crate refs, use statements, strings | Medium |
+| **Docs** (COMPILER_VERSIONS.md, etc.) | ~15 .md files | Low — find/replace | Low |
+| **Specs** (AXIOM_*.md → XIOM_*.md) | 9 files | Low — rename + content | Low |
+| **Website** (all HTML/CSS/JS) | **12 HTML + 1 CSS + images + playground** | Medium — every page has AXIOM in title, nav, headers, code samples, footer | Medium |
+| **Grammar** (axiom.tmLanguage.json → xiom.tmLanguage.json) | 1 file + scopeName | Low | Low |
+| **C runtime** (axiom_runtime.c) | 1 file | Low | Low |
+| **Build/install scripts** | 5 scripts (install.ps1, install.sh, install_deps.ps1, install_deps.sh, install.bat) | Low — PATH references, binary names | Low |
+| **Website content** | index.html, axiom-landing.html, spec.html, docs.html, download.html, ecosystem.html, versions.html, AI_CONTEXT.html, style.css, playground/ | Medium — ~150 "AXIOM" references across all pages | Low |
+| **VS Code extension** | grammar, snippets, config | Low | Low |
+| **kilo.jsonc** | No changes needed | None | None |
+| **Total** | **~250 files** | **3-4 hour session** | **Low-Medium** |
+
+### Website Files to Update
+
+| File | AXIOM Refs | What Changes |
+|------|-----------|--------------|
+| `index.html` | 25+ | Title, logo text, nav, hero, pillars, code samples, footer |
+| `axiom-landing.html` | 30+ | Title, nav, hero, proof panel filename, pillars, footer |
+| `spec.html` | 40+ | Title, nav, type names in code samples, comparison table |
+| `docs.html` | 5+ | Redirect, title, nav |
+| `download.html` | 20+ | Title, nav, CLI commands, binary names, paths |
+| `ecosystem.html` | 35+ | Title, nav, package names (axiom-http → xiom-http, etc.) |
+| `versions.html` | 15+ | Title, nav, version rows |
+| `AI_CONTEXT.html` | 50+ | Every code sample, type reference, keyword |
+| `style.css` | 2 | Title in CSS comment |
+| `playground/` | ~10 | Server config, HTML templates |
+| `docs/` subdirectory | ~15 .md files | Internal references |
+
+### Distribution / Installer Scope
+
+| File | What Changes |
+|------|-------------|
+| `install.ps1` | Binary name `axiomc.exe` → `xiomc.exe`, PATH additions, icon references |
+| `install.sh` | Same — Unix paths, binary names |
+| `install_deps.ps1` | Tool references (likely unchanged — installs Rust/LLVM) |
+| `install_deps.sh` | Same |
+| `release/axiom-v0.20.0/install.bat` | Binary name, PATH |
+| `package.ps1` | Archive names, binary references |
+| `Cargo.toml` (root) | Workspace member names |
+| `.vscode/` | Extension config, task names |
+
+### Recommended Approach
+
+1. **Atomic commits** — one commit per layer (source files, then crates, then docs, then tests)
+2. **Compile after each commit** — `cargo build` to catch missed references immediately
+3. **Keep `feat/ecosystem` branch** — do rebranding on `feat/rebrand` branch, merge to main
+4. **Run full test suite** after rebranding — 186 tests must stay green
+5. **Update SESSION.md with rebranded names** after the session
+
+### Phase Reordering
+
+**Decision: Self-hosting comes after Phase 3 (Z3, toolchain, debugger), not before.**
+
+The v0.9.x–v0.11.x self-hosting MVP worked — concept proven. But pursuing self-hosting while the Rust compiler was unstable caused benchmark breakage. The revised order:
+
+1. **Phase 2 (now):** Harden Rust compiler — performance, warnings, benchmarks, multi-file, hot reload
+2. **Phase 3 (next):** Z3 static verification, debugger (DAP), LSP, CLI toolchain, visual benchmarks
+3. **Phase 4 (final):** Self-hosting — bootstrap AXIOM compiler in AXIOM, byte-for-byte verified
+4. **Ecosystem (after):** Showcase projects (AxiomDB, AxiomVDB), package registry
+
+The Rust compiler is the PERMANENT bootstrap fallback — never deleted.
+
+See `docs/COMPILER_IMPROVEMENT_PLAN.md` for the detailed roadmap and `specs/AXIOM_Build_Strategy.md` for the decision log.
 
 ---
 
