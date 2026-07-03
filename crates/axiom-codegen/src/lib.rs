@@ -329,6 +329,10 @@ impl IrEmitter {
         self.emitln(&format!("target triple = \"{}\"", self.target_triple));
         self.emitln("");
 
+        // Emit builtin struct types FIRST so user types can reference them
+        self.emitln("%struct.Vec = type { i8*, i64, i64 }");
+        self.emitln("");
+
         // Emit struct type definitions using actual field types from type_meta
         for (name, meta) in &self.type_meta.clone() {
             let struct_ref = format!("%struct.{name}");
@@ -343,10 +347,6 @@ impl IrEmitter {
         if !self.types.is_empty() {
             self.emitln("");
         }
-
-        // Emit Vec struct type for runtime operations
-        self.emitln("%struct.Vec = type { i8*, i64, i64 }");
-        self.emitln("");
 
         // Declare external C functions + LLVM intrinsics
         self.emitln("declare i32 @printf(i8*, ...)");
@@ -1911,7 +1911,19 @@ impl IrEmitter {
                         Pattern::Variant(..) => {
                             check_labels.push(self.fresh_block("match_check"));
                         }
-                        Pattern::Wildcard(_) | Pattern::Ident(_) => { wildcard_idx = Some(i); }
+                        Pattern::Ident(ident) => {
+                            // If this ident matches an enum variant name, treat it as a variant check
+                            if let Some(ref type_name) = scrutinee_type {
+                                if let Some(variants) = self.enum_variants.get(type_name) {
+                                    if variants.iter().any(|(v, _)| v == &ident.name) {
+                                        check_labels.push(self.fresh_block("match_check"));
+                                        continue;
+                                    }
+                                }
+                            }
+                            wildcard_idx = Some(i);
+                        }
+                        Pattern::Wildcard(_) => { wildcard_idx = Some(i); }
                         _ => {}
                     }
                 }
@@ -1996,6 +2008,30 @@ impl IrEmitter {
                             }
                             check_idx += 1;
                         }
+                        Pattern::Ident(ident) => {
+                            // Handle ident that is actually an enum variant name (no parens like `Nil`)
+                            if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
+                                self.emitln(&format!("\n{}:", check_labels[check_idx]));
+                                let variant_idx = self.enum_variants.get(type_name)
+                                    .and_then(|variants| variants.iter().position(|(vn, _)| vn == &ident.name))
+                                    .unwrap_or(0);
+                                let disc_gep = self.fresh_tmp();
+                                let disc_val = self.fresh_tmp();
+                                self.emitln(&format!("  {disc_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
+                                self.emitln(&format!("  {disc_val} = load i64, i64* {disc_gep}"));
+                                let check = self.fresh_tmp();
+                                self.emitln(&format!("  {check} = icmp eq i64 {disc_val}, {variant_idx}"));
+                                let next = if check_idx + 1 < check_labels.len() {
+                                    check_labels[check_idx + 1].clone()
+                                } else if let Some(wi) = wildcard_idx {
+                                    arm_labels[wi].clone()
+                                } else {
+                                    merge_label.clone()
+                                };
+                                self.emitln(&format!("  br i1 {check}, label %{}, label %{next}", arm_labels[i]));
+                            }
+                            check_idx += 1;
+                        }
                         Pattern::Wildcard(_) => {}
                         _ => {}
                     }
@@ -2038,11 +2074,18 @@ impl IrEmitter {
                         }
                     }
                     // For Ident patterns, bind the matched value to the identifier
+                    // (skip for enum variant names, which are handled by the check block)
                     if let Pattern::Ident(ident) = &arm.pattern {
-                        let match_alloca = self.fresh_tmp();
-                        self.emitln(&format!("  {match_alloca} = alloca i64"));
-                        self.emitln(&format!("  store i64 {val}, i64* {match_alloca}"));
-                        self.add_local(&ident.name, match_alloca, "i64");
+                        let is_variant = scrutinee_type.as_ref().and_then(|tn| {
+                            self.enum_variants.get(tn)
+                                .map(|vars| vars.iter().any(|(v, _)| v == &ident.name))
+                        }).unwrap_or(false);
+                        if !is_variant {
+                            let match_alloca = self.fresh_tmp();
+                            self.emitln(&format!("  {match_alloca} = alloca i64"));
+                            self.emitln(&format!("  store i64 {val}, i64* {match_alloca}"));
+                            self.add_local(&ident.name, match_alloca, "i64");
+                        }
                     }
                     match &arm.body {
                         MatchBody::Block(b) => { self.compile_block(b, false)?; }
@@ -2985,7 +3028,22 @@ impl IrEmitter {
                     } else {
                         "i64".to_string()
                     };
-                    if ret_ty == "void" {
+                    let callee_is_fn_ptr = receiver_expr.is_none() && self.lookup_local(&fn_name).is_some() && self.functions.get(&resolved_fn_key).is_none();
+                    if callee_is_fn_ptr {
+                        let (alloca_reg, local_llvm_ty) = self.lookup_local(&fn_name).cloned().unwrap();
+                        let fn_ptr_loaded = self.fresh_tmp();
+                        self.emitln(&format!("  {fn_ptr_loaded} = load {local_llvm_ty}, {local_llvm_ty}* {alloca_reg}"));
+                        let param_types: Vec<String> = args.iter().map(|a| self.infer_llvm_type(a)).collect();
+                        let fn_ptr_ty = format!("{ret_ty} ({})*", param_types.join(", "));
+                        let fn_ptr = self.fresh_tmp();
+                        self.emitln(&format!("  {fn_ptr} = inttoptr {local_llvm_ty} {fn_ptr_loaded} to {fn_ptr_ty}"));
+                        if ret_ty == "void" {
+                            self.emitln(&format!("  call {fn_ptr_ty} {fn_ptr}({args_str})"));
+                        } else {
+                            self.emitln(&format!("  {tmp} = call {ret_ty} {fn_ptr}({args_str})"));
+                        }
+                        Ok(tmp)
+                    } else if ret_ty == "void" {
                         self.emitln(&format!("  call void @{resolved_fn_key}({args_str})"));
                         Ok(tmp)
                     } else {
