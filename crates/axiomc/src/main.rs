@@ -296,7 +296,12 @@ fn merge_programs(programs: Vec<axiom_ast::Program>) -> axiom_ast::Program {
                 Target::RisCv => {
                     cmd.args(["--target=riscv64gc-unknown-linux-gnu"]);
                 }
-                Target::Native => {}
+                Target::Native => {
+                    // On Windows MSVC targets, the linker requires a subsystem declaration.
+                    if cfg!(target_os = "windows") {
+                        cmd.args(["-Xlinker", "/SUBSYSTEM:CONSOLE"]);
+                    }
+                }
             }
             // Include runtime C library for non-WASM targets (resolves extern functions)
             if target != Target::Wasm {
