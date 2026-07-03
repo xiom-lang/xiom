@@ -211,12 +211,22 @@ impl IrEmitter {
     }
 
     fn axiom_type_name_from_llvm(llvm_ty: &str) -> String {
-        llvm_ty
+        let base = llvm_ty
             .trim_start_matches("%struct.")
             .trim_start_matches('%')
             .trim_end_matches('*')
-            .trim()
-            .to_string()
+            .trim();
+        match base {
+            "i64" => "Int".to_string(),
+            "i32" => "Int32".to_string(),
+            "i16" => "Int16".to_string(),
+            "i8" => "Int8".to_string(),
+            "double" => "Float64".to_string(),
+            "float" => "Float32".to_string(),
+            "i1" => "Bool".to_string(),
+            "i8*" => "Str".to_string(),
+            _ => base.to_string(),
+        }
     }
 
     fn type_from_ast(ty: &Type) -> String {
@@ -229,6 +239,10 @@ impl IrEmitter {
             Type::Vec(_) => "Vec".to_string(),
             Type::Map(_, _) => "Map".to_string(),
             Type::Set(_) => "Set".to_string(),
+            Type::Tuple(types) => {
+                let parts: Vec<String> = types.iter().map(Self::type_from_ast).collect();
+                format!("Tuple_{}", parts.join("_"))
+            }
             _ => "Int".to_string(),
         }
     }
@@ -516,8 +530,106 @@ impl IrEmitter {
         }
     }
 
+    fn ensure_tuple_type_registered(&mut self, ty: &Type) {
+        match ty {
+            Type::Tuple(elems) => {
+                let name = Self::type_from_ast(ty);
+                if self.type_meta.contains_key(&name) { return; }
+                let field_names: Vec<String> = (0..elems.len()).map(|i| format!("_{i}")).collect();
+                let field_types: Vec<(String, String)> = elems.iter()
+                    .enumerate()
+                    .map(|(i, t)| (format!("_{i}"), Self::type_from_ast(t)))
+                    .collect();
+                self.types.insert(name.clone(), field_names);
+                self.type_meta.insert(name, TypeMeta {
+                    fields: field_types,
+                    derives: vec![],
+                    invariants: vec![],
+                });
+                for elem in elems {
+                    self.ensure_tuple_type_registered(elem);
+                }
+            }
+            Type::Ref(inner) | Type::MutRef(inner) | Type::Option(inner) | Type::Vec(inner) |
+            Type::Slice(inner) | Type::Set(inner) | Type::Ptr(inner) => {
+                self.ensure_tuple_type_registered(inner);
+            }
+            Type::Result(ok, err) => {
+                self.ensure_tuple_type_registered(ok);
+                self.ensure_tuple_type_registered(err);
+            }
+            Type::Map(k, v) => {
+                self.ensure_tuple_type_registered(k);
+                self.ensure_tuple_type_registered(v);
+            }
+            Type::Fn(params, ret) => {
+                for p in params { self.ensure_tuple_type_registered(p); }
+                self.ensure_tuple_type_registered(ret);
+            }
+            _ => {}
+        }
+    }
+
+    fn substitute_concrete_name(ty: &Type, type_map: &HashMap<String, String>) -> String {
+        match ty {
+            Type::Named(id, _) => type_map.get(&id.name).cloned().unwrap_or_else(|| id.name.clone()),
+            Type::Tuple(elems) => {
+                let parts: Vec<String> = elems.iter()
+                    .map(|e| Self::substitute_concrete_name(e, type_map))
+                    .collect();
+                format!("Tuple_{}", parts.join("_"))
+            }
+            _ => Self::type_from_ast(ty),
+        }
+    }
+
+    fn ensure_concrete_tuple_type_registered(&mut self, ty: &Type, type_map: &HashMap<String, String>) {
+        match ty {
+            Type::Tuple(elems) => {
+                let name = Self::substitute_concrete_name(ty, type_map);
+                if self.type_meta.contains_key(&name) { return; }
+                let field_names: Vec<String> = (0..elems.len()).map(|i| format!("_{i}")).collect();
+                let field_types: Vec<(String, String)> = elems.iter()
+                    .enumerate()
+                    .map(|(i, e)| (format!("_{i}"), Self::substitute_concrete_name(e, type_map)))
+                    .collect();
+                self.types.insert(name.clone(), field_names);
+                self.type_meta.insert(name, TypeMeta {
+                    fields: field_types,
+                    derives: vec![],
+                    invariants: vec![],
+                });
+                for e in elems {
+                    self.ensure_concrete_tuple_type_registered(e, type_map);
+                }
+            }
+            Type::Ref(inner) | Type::MutRef(inner) | Type::Option(inner) | Type::Vec(inner) |
+            Type::Slice(inner) | Type::Set(inner) | Type::Ptr(inner) => {
+                self.ensure_concrete_tuple_type_registered(inner, type_map);
+            }
+            Type::Result(ok, err) => {
+                self.ensure_concrete_tuple_type_registered(ok, type_map);
+                self.ensure_concrete_tuple_type_registered(err, type_map);
+            }
+            Type::Map(k, v) => {
+                self.ensure_concrete_tuple_type_registered(k, type_map);
+                self.ensure_concrete_tuple_type_registered(v, type_map);
+            }
+            Type::Fn(params, ret) => {
+                for p in params { self.ensure_concrete_tuple_type_registered(p, type_map); }
+                self.ensure_concrete_tuple_type_registered(ret, type_map);
+            }
+            _ => {}
+        }
+    }
+
     fn register_functions(&mut self, item: &TopDecl) {
         if let TopDecl::Fn(fd) = item {
+            // Register tuple types used in function signature before resolving LLVM types
+            fd.return_type.as_ref().map(|t| self.ensure_tuple_type_registered(t));
+            for p in &fd.params {
+                self.ensure_tuple_type_registered(&p.ty);
+            }
             let mut param_types: Vec<String> = Vec::new();
             // For methods, self is the first parameter
             if let Some(recv) = fd.receiver.as_ref() {
@@ -1476,6 +1588,13 @@ impl IrEmitter {
             for (gp, ct) in fd.generics.iter().zip(concrete_types.iter()) {
                 type_map.insert(gp.name.name.clone(), ct.clone());
             }
+            // Register concrete tuple types for this monomorphisation
+            if let Some(ref ret_ty) = fd.return_type {
+                self.ensure_concrete_tuple_type_registered(ret_ty, &type_map);
+            }
+            for p in &fd.params {
+                self.ensure_concrete_tuple_type_registered(&p.ty, &type_map);
+            }
             // Register the specialized function signature
             let struct_types: HashSet<String> = self.types.keys().cloned().collect();
             let subst_type = |t: &Type| -> String {
@@ -1491,6 +1610,22 @@ impl IrEmitter {
                         } else {
                             Self::axiom_to_llvm_type(&raw).to_string()
                         }
+                    }
+                    Type::Tuple(elems) => {
+                        let parts: Vec<String> = elems.iter().map(|e| {
+                            // Resolve element types: substitute generics, then resolve to LLVM name
+                            let axiom_name = match e {
+                                Type::Named(id, _) => type_map.get(&id.name).cloned().unwrap_or_else(|| id.name.clone()),
+                                _ => Self::type_from_ast(e),
+                            };
+                            // Strip %struct. prefix if present (element might already be a struct type)
+                            if let Some(stripped) = axiom_name.strip_prefix("%struct.") {
+                                stripped.to_string()
+                            } else {
+                                axiom_name
+                            }
+                        }).collect();
+                        format!("%struct.Tuple_{}", parts.join("_"))
                     }
                     _ => Self::axiom_to_llvm_type(&Self::type_from_ast(t)).to_string(),
                 }
@@ -2265,13 +2400,27 @@ impl IrEmitter {
             Stmt::Destructure(names, value, _) => {
                 let val = self.compile_expr(value)?;
                 let llvm_ty = self.infer_llvm_type(value);
-                let store_val = self.zero_val_for(&val, &llvm_ty);
-                // Allocate each name and share the same storage (no individual extraction)
-                for name in names {
-                    let alloca = self.fresh_tmp();
-                    self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
-                    self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}"));
-                    self.add_local(&name.name, alloca, &llvm_ty);
+                if llvm_ty.starts_with("%struct.") {
+                    let struct_name = &llvm_ty[8..];
+                    for (i, name) in names.iter().enumerate() {
+                        let gep = self.fresh_tmp();
+                        self.emitln(&format!("  {gep} = getelementptr {llvm_ty}, {llvm_ty}* {val}, i32 0, i32 {i}"));
+                        let field_ty = self.field_llvm_type(struct_name, i);
+                        let loaded = self.fresh_tmp();
+                        self.emitln(&format!("  {loaded} = load {field_ty}, {field_ty}* {gep}"));
+                        let alloca = self.fresh_tmp();
+                        self.emitln(&format!("  {alloca} = alloca {field_ty}"));
+                        self.emitln(&format!("  store {field_ty} {loaded}, {field_ty}* {alloca}"));
+                        self.add_local(&name.name, alloca, &field_ty);
+                    }
+                } else {
+                    let store_val = self.zero_val_for(&val, &llvm_ty);
+                    for name in names {
+                        let alloca = self.fresh_tmp();
+                        self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
+                        self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}"));
+                        self.add_local(&name.name, alloca, &llvm_ty);
+                    }
                 }
             }
             Stmt::Spawn(body, _) => {
@@ -2345,11 +2494,22 @@ impl IrEmitter {
                 if items.is_empty() {
                     Ok("0".to_string())
                 } else {
-                    let mut last = "0".to_string();
-                    for item in items {
-                        last = self.compile_expr(item)?;
+                    let struct_ty = self.infer_llvm_type(expr);
+                    if !struct_ty.starts_with("%struct.") {
+                        return Ok("0".to_string());
                     }
-                    Ok(last)
+                    let alloca = self.fresh_tmp();
+                    self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
+                    for (i, item) in items.iter().enumerate() {
+                        let item_val = self.compile_expr(item)?;
+                        let gep = self.fresh_tmp();
+                        self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {i}"));
+                        let item_ty = self.infer_llvm_type(item);
+                        self.emitln(&format!("  store {item_ty} {item_val}, {item_ty}* {gep}"));
+                    }
+                    let loaded = self.fresh_tmp();
+                    self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
+                    Ok(loaded)
                 }
             }
             Expr::Unary(op, inner, _) => {
@@ -3656,7 +3816,18 @@ impl IrEmitter {
             Expr::Struct(ident, _, _) => self.llvm_type_for(&ident.name),
             Expr::Paren(inner, _) => self.infer_llvm_type(inner),
             Expr::Tuple(items, _) => {
-                if items.is_empty() { "i64".to_string() } else { self.infer_llvm_type(&items[items.len() - 1]) }
+                if items.is_empty() { "void".to_string() } else {
+                    let parts: Vec<String> = items.iter().map(|i| {
+                        let t = self.infer_llvm_type(i);
+                        Self::axiom_type_name_from_llvm(&t)
+                    }).collect();
+                    let name = format!("Tuple_{}", parts.join("_"));
+                    if self.types.contains_key(&name) || self.type_meta.contains_key(&name) {
+                        format!("%struct.{name}")
+                    } else {
+                        "i64".to_string()
+                    }
+                }
             }
             Expr::Unary(op, inner, _) => {
                 match op {
