@@ -1829,7 +1829,6 @@ impl IrEmitter {
                     if ret_ty.starts_with("%struct.") && !val_ty.starts_with("%struct.") {
                         let coerced = self.val_to_struct(&val, &val_ty, &ret_ty);
                         val = coerced;
-                        val_ty = ret_ty.clone();
                     }
                     // Store result for ensures checks
                     if let Some(res_ptr) = self.result_ptr.as_ref() {
@@ -3166,7 +3165,7 @@ impl IrEmitter {
                             .join(", ")
                     };
                     let tmp = self.fresh_tmp();
-                    let mut ret_ty = if let Some((_, rt)) = self.functions.get(&resolved_fn_key) {
+                    let ret_ty = if let Some((_, rt)) = self.functions.get(&resolved_fn_key) {
                         rt.clone()
                     } else {
                         // Fallback: try current-module qualified name

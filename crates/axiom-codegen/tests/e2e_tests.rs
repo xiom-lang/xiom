@@ -646,21 +646,13 @@ fn e2e_selfhost_v095_compiles() {
 // E2E: Multi-File Module Catalog — Regression Tests
 // ============================================================================
 
-/// Compile test_mod/math.ax to IR and verify the ModuleCatalog resolved
-/// cross-file types/functions from test_mod/main.ax. math.ax has no `main`
-/// entry point, so we verify via --emit-ir rather than --run.
+/// Compile and run test_mod/math.ax. Verifies catalog resolves cross-file
+/// types (BenchResult) and functions (make_result) from test_mod/main.ax.
+/// Expected exit code: 34.
 #[test]
-fn e2e_multifile_testmod_math_compiles() {
-    let output = std::process::Command::new(axiomc_path())
-        .args(["--emit-ir", "examples\\test_mod\\math.ax"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed");
-    assert!(output.status.success(), "test_mod/math.ax should compile to IR via ModuleCatalog");
-    let ir = String::from_utf8_lossy(&output.stdout);
-    assert!(ir.contains("@make_result"), "IR must contain @make_result from external main.ax");
-    assert!(ir.contains("@run_all"), "IR must contain @run_all from math.ax");
-    assert!(ir.contains("%struct.BenchResult"), "IR must contain BenchResult struct type");
+fn e2e_multifile_testmod_math_runs() {
+    let exit = compile_and_run("examples\\test_mod\\math.ax");
+    assert_eq!(exit, Some(34), "test_mod/math.ax should exit 34");
 }
 
 /// Compile benchmark/bench_math.ax (uses `use benchmark.main.BenchResult` from

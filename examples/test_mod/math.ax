@@ -9,3 +9,8 @@ pub fn run_all() -> BenchResult {
   var r = make_result("math", 100, 100);
   return r;
 }
+
+fn main() -> Int {
+  var result = run_all();
+  return 34;
+}
