@@ -133,6 +133,34 @@ impl CheckedType {
             CheckedType::Error => "<error>".into(),
         }
     }
+
+    /// Convert this checked type back to an AST Type for codegen consumption
+    pub fn to_ast_type(&self) -> Type {
+        let span = Span::new(0, 0);
+        match self {
+            CheckedType::Bool => Type::Named(Ident::new("Bool", span), vec![]),
+            CheckedType::Int => Type::Named(Ident::new("Int", span), vec![]),
+            CheckedType::Int8 => Type::Named(Ident::new("Int8", span), vec![]),
+            CheckedType::Int16 => Type::Named(Ident::new("Int16", span), vec![]),
+            CheckedType::Int32 => Type::Named(Ident::new("Int32", span), vec![]),
+            CheckedType::Int64 => Type::Named(Ident::new("Int64", span), vec![]),
+            CheckedType::UInt => Type::Named(Ident::new("UInt", span), vec![]),
+            CheckedType::UInt8 => Type::Named(Ident::new("UInt8", span), vec![]),
+            CheckedType::UInt16 => Type::Named(Ident::new("UInt16", span), vec![]),
+            CheckedType::UInt32 => Type::Named(Ident::new("UInt32", span), vec![]),
+            CheckedType::UInt64 => Type::Named(Ident::new("UInt64", span), vec![]),
+            CheckedType::Float32 => Type::Named(Ident::new("Float32", span), vec![]),
+            CheckedType::Float64 => Type::Named(Ident::new("Float64", span), vec![]),
+            CheckedType::Char => Type::Named(Ident::new("Char", span), vec![]),
+            CheckedType::Str => Type::Named(Ident::new("Str", span), vec![]),
+            CheckedType::Unit => Type::Named(Ident::new("()", span), vec![]),
+            CheckedType::Never => Type::Named(Ident::new("!", span), vec![]),
+            CheckedType::Named(s) => Type::Named(Ident::new(s, span), vec![]),
+            CheckedType::Generic(s) => Type::Named(Ident::new(s, span), vec![]),
+            CheckedType::Fn(_, _) => Type::Named(Ident::new("fn", span), vec![]),
+            CheckedType::Error => Type::Named(Ident::new("Int", span), vec![]),
+        }
+    }
 }
 
 // ============================================================================
@@ -307,16 +335,7 @@ impl Checker {
                 return self.types.get(&prefixed);
             }
         }
-        if self.types.contains_key(name) {
-            return self.types.get(name);
-        }
-        // Search all qualified keys for types from imported modules
-        for key in self.types.keys() {
-            if key.ends_with(&format!(".{}", name)) {
-                return self.types.get(key);
-            }
-        }
-        None
+        self.types.get(name)
     }
 
     fn contains_type(&self, name: &str) -> bool {
@@ -326,16 +345,7 @@ impl Checker {
                 return true;
             }
         }
-        if self.types.contains_key(name) {
-            return true;
-        }
-        // Search all qualified keys for types from imported modules
-        for key in self.types.keys() {
-            if key.ends_with(&format!(".{}", name)) {
-                return true;
-            }
-        }
-        false
+        self.types.contains_key(name)
     }
 
     fn add_pattern_bindings(&mut self, pattern: &Pattern) {
@@ -876,6 +886,75 @@ impl Checker {
                 .unwrap_or_else(|| item_name.clone());
             self.imported_items.insert(local_name, export);
         }
+    }
+
+    /// Collect type declarations for types that were registered from
+    /// externally-loaded modules but are missing from the current file's AST.
+    /// Returns AST TypeDecls that can be injected into the program before codegen.
+    pub fn collect_external_decls(&self, program: &Program) -> Vec<axiom_ast::TopDecl> {
+        use axiom_ast::{TopDecl, TypeDecl, FieldDecl, FnDecl, Ident, Param, Span, DeriveTrait};
+        let span = Span::new(0, 0);
+        let mut decls: Vec<TopDecl> = Vec::new();
+
+        // Collect all type/function names from the current program's AST
+        let mut known_types: HashSet<String> = HashSet::new();
+        let mut known_fns: HashSet<String> = HashSet::new();
+        fn collect_names(items: &[TopDecl], types: &mut HashSet<String>, fns: &mut HashSet<String>) {
+            for item in items {
+                match item {
+                    TopDecl::Type(td) => { types.insert(td.name.name.clone()); }
+                    TopDecl::Enum(ed) => { types.insert(ed.name.name.clone()); }
+                    TopDecl::Fn(fd) => { fns.insert(fd.name.name.clone()); }
+                    TopDecl::Module(md) => collect_names(&md.items, types, fns),
+                    _ => {}
+                }
+            }
+        }
+        collect_names(&program.items, &mut known_types, &mut known_fns);
+
+        // Add type declarations for types that are in the checker but not in the AST
+        for (type_name, fields) in &self.types {
+            if matches!(type_name.as_str(),
+                "Bool"|"Int"|"Str"|"Float64"|"Float32"|"Char"|
+                "Vec"|"Option"|"Result"|"Map"|"Set") { continue; }
+            let bare_name = type_name.rsplit('.').next().unwrap_or(type_name);
+            if !known_types.contains(type_name) && !known_types.contains(bare_name) {
+                let field_decls: Vec<FieldDecl> = fields.iter().map(|(fname, ftype)| {
+                    FieldDecl { name: Ident::new(fname, span), ty: ftype.to_ast_type(), span }
+                }).collect();
+                decls.push(TopDecl::Type(TypeDecl {
+                    is_pub: true, name: Ident::new(bare_name, span),
+                    generics: vec![], fields: field_decls, derived_fields: vec![],
+                    invariants: vec![], derives: vec![DeriveTrait::Clone, DeriveTrait::Eq],
+                    alias: None, span,
+                }));
+            }
+        }
+
+        // Add function declarations for functions that are in the checker but not in the AST
+        for (fn_name, sig) in &self.functions {
+            let bare_name = fn_name.rsplit('.').next().unwrap_or(fn_name);
+            if !known_fns.contains(fn_name) && !known_fns.contains(bare_name) {
+                let params: Vec<Param> = sig.params.iter().map(|(pname, pty)| {
+                    Param {
+                        name: Ident::new(pname, span),
+                        ty: pty.to_ast_type(),
+                        span,
+                    }
+                }).collect();
+                let return_type = sig.return_type.as_ref().map(|rt| rt.to_ast_type());
+                decls.push(TopDecl::Fn(FnDecl {
+                    is_async: false, is_pub: true,
+                    receiver: None, name: Ident::new(bare_name, span),
+                    generics: vec![], params,
+                    return_type, contracts: vec![],
+                    body: None,
+                    span,
+                }));
+            }
+        }
+
+        decls
     }
 
     /// Try to resolve a module-qualified call: `module.func(args)` or `module.submodule.func(args)`

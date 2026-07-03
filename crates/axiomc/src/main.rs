@@ -95,7 +95,7 @@ fn main() {
     }
     
     // Merge all parsed programs into one
-    let program = merge_programs(all_programs);
+    let mut program = merge_programs(all_programs);
 
 fn merge_programs(programs: Vec<axiom_ast::Program>) -> axiom_ast::Program {
     let mut items: Vec<axiom_ast::TopDecl> = Vec::new();
@@ -196,6 +196,24 @@ fn merge_programs(programs: Vec<axiom_ast::Program>) -> axiom_ast::Program {
             }
         }
         // Borrow errors are non-fatal during hardening phase
+    }
+
+    // ── Stage 4.5: Inject externally-imported type/function declarations ─
+    // The checker resolved types/functions from external modules, but they're
+    // not in the AST. We inject them so the codegen can see their layouts.
+    let external_decls = checker.collect_external_decls(&program);
+    if !external_decls.is_empty() {
+        // Deduplicate: skip types already in the program
+        let existing: std::collections::HashSet<String> = program.items.iter().filter_map(|i| {
+            match i { axiom_ast::TopDecl::Type(td) => Some(td.name.name.clone()), _ => None }
+        }).collect();
+        let new_decls: Vec<_> = external_decls.into_iter().filter(|decl| {
+            match decl {
+                axiom_ast::TopDecl::Type(td) => !existing.contains(&td.name.name),
+                _ => true,
+            }
+        }).collect();
+        program.items.extend(new_decls);
     }
 
     // ── Stage 5: Codegen ──────────────────────────────────
