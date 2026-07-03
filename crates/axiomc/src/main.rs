@@ -134,6 +134,7 @@ fn merge_programs(programs: Vec<axiom_ast::Program>) -> axiom_ast::Program {
         }
     }
     let is_multi_file = source_paths.len() > 1 || checker.source_dirs.len() > 0;
+    let has_external_imports = source_paths.len() > 1; // True when multiple .ax files are compiled together
     if let Err(errors) = checker.check_program(&program) {
         if diagnostics_json {
             let parts: Vec<String> = errors.iter().map(|err| {
@@ -201,19 +202,21 @@ fn merge_programs(programs: Vec<axiom_ast::Program>) -> axiom_ast::Program {
     // ── Stage 4.5: Inject externally-imported type/function declarations ─
     // The checker resolved types/functions from external modules, but they're
     // not in the AST. We inject them so the codegen can see their layouts.
-    let external_decls = checker.collect_external_decls(&program);
-    if !external_decls.is_empty() {
-        // Deduplicate: skip types already in the program
-        let existing: std::collections::HashSet<String> = program.items.iter().filter_map(|i| {
-            match i { axiom_ast::TopDecl::Type(td) => Some(td.name.name.clone()), _ => None }
-        }).collect();
-        let new_decls: Vec<_> = external_decls.into_iter().filter(|decl| {
-            match decl {
-                axiom_ast::TopDecl::Type(td) => !existing.contains(&td.name.name),
-                _ => true,
-            }
-        }).collect();
-        program.items.extend(new_decls);
+    // Only run when there ARE external imports (multi-file compilation).
+    if has_external_imports {
+        let external_decls = checker.collect_external_decls(&program);
+        if !external_decls.is_empty() {
+            let existing: std::collections::HashSet<String> = program.items.iter().filter_map(|i| {
+                match i { axiom_ast::TopDecl::Type(td) => Some(td.name.name.clone()), _ => None }
+            }).collect();
+            let new_decls: Vec<_> = external_decls.into_iter().filter(|decl| {
+                match decl {
+                    axiom_ast::TopDecl::Type(td) => !existing.contains(&td.name.name),
+                    _ => true,
+                }
+            }).collect();
+            program.items.extend(new_decls);
+        }
     }
 
     // ── Stage 5: Codegen ──────────────────────────────────

@@ -2210,17 +2210,22 @@ impl IrEmitter {
                 // For struct-typed equality/inequality, call derived eq() instead of icmp
                 if matches!(op, BinOp::Eq | BinOp::Neq) {
                     let lt = self.infer_llvm_type(left);
-                    if lt.starts_with("%struct.") || self.infer_llvm_type(right).starts_with("%struct.") {
-                        let struct_name = if lt.starts_with("%struct.") { &lt[8..] } else { &self.infer_llvm_type(right)[8..] };
+                    let rt = self.infer_llvm_type(right);
+                    if lt.starts_with("%struct.") && rt.starts_with("%struct.") {
+                        let struct_name = &lt[8..];
                         let eq_fn = format!("{}.eq", struct_name);
-                        let eq_result = self.fresh_tmp();
-                        self.emitln(&format!("  {eq_result} = call i64 @{eq_fn}({lt} {l}, {} {r})", self.infer_llvm_type(right)));
-                        if matches!(op, BinOp::Neq) {
-                            let negated = self.fresh_tmp();
-                            self.emitln(&format!("  {negated} = xor i64 {eq_result}, 1"));
-                            return Ok(negated);
+                        // Only call eq if it's emitted
+                        if self.emitted_fns.contains(&eq_fn) {
+                            let eq_result = self.fresh_tmp();
+                            self.emitln(&format!("  {eq_result} = call i64 @{eq_fn}({lt} {l}, {rt} {r})"));
+                            if matches!(op, BinOp::Neq) {
+                                let negated = self.fresh_tmp();
+                                self.emitln(&format!("  {negated} = xor i64 {eq_result}, 1"));
+                                return Ok(negated);
+                            }
+                            return Ok(eq_result);
                         }
-                        return Ok(eq_result);
+                        // eq() not available — fall through to regular icmp
                     }
                 }
                 let (ty, inst) = match op {
