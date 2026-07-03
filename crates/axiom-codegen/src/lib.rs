@@ -91,6 +91,8 @@ pub struct IrEmitter {
     emitted_fns: HashSet<String>,
     /// Current module prefix for scoped type resolution (e.g., "types" or "derive")
     current_module: Option<String>,
+    /// Maps function pointer parameter names to their LLVM return types
+    fn_ptr_return_types: HashMap<String, String>,
 }
 
 impl IrEmitter {
@@ -128,6 +130,7 @@ impl IrEmitter {
             target_triple: "x86_64-pc-windows-msvc".to_string(),
             emitted_fns: HashSet::new(),
             current_module: None,
+            fn_ptr_return_types: HashMap::new(),
         }
     }
 
@@ -248,7 +251,20 @@ impl IrEmitter {
                 return format!("%struct.{key}");
             }
         }
-        Self::axiom_to_llvm_type(type_name).to_string()
+        // Check builtin types first (match known Axiom type names, NOT the default i64 fallback)
+        let builtin = Self::axiom_to_llvm_type(type_name);
+        match type_name {
+            "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
+            | "Bool" | "Float32" | "Float64" | "Str" | "Char" | "()" => return builtin.to_string(),
+            _ => {}
+        }
+        // If type_name is an enum variant (e.g., "Image"), find its parent enum type
+        for (enum_key, variants) in &self.enum_variants {
+            if variants.iter().any(|(v, _)| v == type_name) {
+                return format!("%struct.{enum_key}");
+            }
+        }
+        builtin.to_string()
     }
 
     fn field_llvm_type(&self, struct_name: &str, field_idx: usize) -> String {
@@ -598,6 +614,7 @@ impl IrEmitter {
         self.push_scope();
         self.block_counter = 0;
         self.tmp_counter = 0;
+        self.fn_ptr_return_types.clear();
 
         let ret_llvm = fd.return_type.as_ref()
             .map(|t| self.llvm_type_for(&Self::type_from_ast(t)))
@@ -686,6 +703,12 @@ impl IrEmitter {
             self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
             self.emitln(&format!("  store {llvm_ty} %param{param_idx}, {llvm_ty}* {alloca}"));
             self.add_local(&param.name.name, alloca, &llvm_ty);
+            // Track function pointer return types for function pointer parameters
+            if let Type::Fn(_, ret) = &param.ty {
+                let ret_ty_name = Self::type_from_ast(ret);
+                let ret_llvm = self.llvm_type_for(&ret_ty_name);
+                self.fn_ptr_return_types.insert(param.name.name.clone(), ret_llvm);
+            }
         }
 
         // Capture self@pre for ensures (method functions with self@pre references)
@@ -1452,11 +1475,46 @@ impl IrEmitter {
 
             // Allocate parameters as locals
             // Allocate self parameter first (for methods)
-            if let (Some(st), Some(_recv)) = (&self_llvm_ty, &fd.receiver) {
+            if let (Some(st), Some(recv)) = (&self_llvm_ty, &fd.receiver) {
                 let self_alloca = self.fresh_tmp();
                 self.emitln(&format!("  {self_alloca} = alloca {st}"));
                 self.emitln(&format!("  store {st} %param_self, {st}* {self_alloca}"));
-                self.add_local("self", self_alloca, st);
+                self.add_local("self", self_alloca.clone(), st);
+                // Register each struct field as a local (bare name access like `items`)
+                let recv_type_name = &recv.name;
+                let names_opt = self.types.get(recv_type_name).cloned()
+                    .or_else(|| {
+                        // Try module-qualified variant
+                        if let Some(ref module) = self.current_module {
+                            let qualified = format!("{}.{}", module, recv_type_name);
+                            self.types.get(&qualified).cloned()
+                        } else {
+                            // Search all keys
+                            self.types.iter()
+                                .find(|(k, _)| k.ends_with(&format!(".{recv_type_name}")))
+                                .map(|(_, v)| v.clone())
+                        }
+                    });
+                if let Some(names) = names_opt {
+                    // Use the found type key for field_llvm_type lookups
+                    let type_key = self.types.get(recv_type_name).map(|_| recv_type_name.clone())
+                        .or_else(|| {
+                            if let Some(ref module) = self.current_module {
+                                let q = format!("{}.{}", module, recv_type_name);
+                                if self.types.contains_key(&q) { Some(q) } else { None }
+                            } else { None }
+                        })
+                        .or_else(|| {
+                            self.types.keys().find(|k| k.ends_with(&format!(".{recv_type_name}"))).cloned()
+                        })
+                        .unwrap_or_else(|| recv_type_name.clone());
+                    for (idx, field_name) in names.iter().enumerate() {
+                        let field_llvm_ty = self.field_llvm_type(&type_key, idx);
+                        let gep = self.fresh_tmp();
+                        self.emitln(&format!("  {gep} = getelementptr {st}, {st}* {self_alloca}, i32 0, i32 {idx}"));
+                        self.add_local(field_name, gep, &field_llvm_ty);
+                    }
+                }
             }
             for (i, param) in fd.params.iter().enumerate() {
                 let llvm_ty = subst_type(&param.ty);
@@ -2159,6 +2217,28 @@ impl IrEmitter {
                     let tmp = self.fresh_tmp();
                     self.emitln(&format!("  {tmp} = load {llvm_ty}, {llvm_ty}* {ptr}"));
                     Ok(tmp)
+                } else if let Some(enum_key) = self.enum_variants.iter()
+                    .find(|(_, vars)| vars.iter().any(|(v, _)| v == &ident.name))
+                    .map(|(ek, _)| ek)
+                    .filter(|ek| self.types.contains_key(*ek))
+                {
+                    if let Some(vars) = self.enum_variants.get(enum_key) {
+                        if let Some(var_idx) = vars.iter().position(|(v, _)| v == &ident.name) {
+                            let struct_ty = self.llvm_type_for(enum_key);
+                            let alloca = self.fresh_tmp();
+                            self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
+                            let disc_gep = self.fresh_tmp();
+                            self.emitln(&format!("  {disc_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
+                            self.emitln(&format!("  store i64 {var_idx}, i64* {disc_gep}"));
+                            let loaded = self.fresh_tmp();
+                            self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
+                            Ok(loaded)
+                        } else {
+                            Ok("0".to_string())
+                        }
+                    } else {
+                        Ok("0".to_string())
+                    }
                 } else {
                     Ok("0".to_string())
                 }
@@ -2537,26 +2617,35 @@ impl IrEmitter {
                         let compiled_args: Vec<String> = args.iter()
                             .map(|a| self.compile_expr(a))
                             .collect::<Result<Vec<_>, _>>()?;
+                        // Convert first argument to i8* pointer via alloca+bitcast
+                        let ptr_val = compiled_args.first().cloned().unwrap_or_else(|| "0".to_string());
+                        let ptr_ty = if let Some(arg) = args.first() { self.infer_llvm_type(arg) } else { "i64".to_string() };
+                        let ptr = if ptr_ty == "i8*" {
+                            ptr_val
+                        } else {
+                            let arg_alloca = self.fresh_tmp();
+                            self.emitln(&format!("  {arg_alloca} = alloca {ptr_ty}"));
+                            self.emitln(&format!("  store {ptr_ty} {ptr_val}, {ptr_ty}* {arg_alloca}"));
+                            let arg_ptr = self.fresh_tmp();
+                            self.emitln(&format!("  {arg_ptr} = bitcast {ptr_ty}* {arg_alloca} to i8*"));
+                            arg_ptr
+                        };
                         match fn_name.as_str() {
                             "is_sorted" => {
-                                let ptr = compiled_args.first().cloned().unwrap_or_else(|| "0".to_string());
                                 let len = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
                                 self.emitln(&format!("  {tmp} = call i64 @axiom_is_sorted(i8* {ptr}, i64 {len})"));
                             }
                             "all" => {
-                                let ptr = compiled_args.first().cloned().unwrap_or_else(|| "0".to_string());
                                 let len = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
                                 let pred = compiled_args.get(2).cloned().unwrap_or_else(|| "0".to_string());
                                 self.emitln(&format!("  {tmp} = call i64 @axiom_all(i8* {ptr}, i64 {len}, i8* {pred})"));
                             }
                             "none" => {
-                                let ptr = compiled_args.first().cloned().unwrap_or_else(|| "0".to_string());
                                 let len = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
                                 let pred = compiled_args.get(2).cloned().unwrap_or_else(|| "0".to_string());
                                 self.emitln(&format!("  {tmp} = call i64 @axiom_none(i8* {ptr}, i64 {len}, i8* {pred})"));
                             }
                             "contains" => {
-                                let ptr = compiled_args.first().cloned().unwrap_or_else(|| "0".to_string());
                                 let val = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
                                 self.emitln(&format!("  {tmp} = call i64 @axiom_contains(i8* {ptr}, i64 {val})"));
                             }
@@ -2626,6 +2715,9 @@ impl IrEmitter {
                 // Vec.push(vec, val) — method call on Vec
                 if fn_name == "push" && args.len() >= 1 {
                     if let Some(receiver) = receiver_expr {
+                        if self.infer_llvm_type(receiver) != "%struct.Vec" || self.infer_llvm_type(&args[0]) != "i64" {
+                            // Not a Vec receiver or non-i64 element type — fall through to general method dispatch
+                        } else {
                         let recv_val = self.compile_expr(receiver)?;
                         let val = self.compile_expr(&args[0])?;
                         let vec_alloca = self.fresh_tmp();
@@ -2686,11 +2778,15 @@ impl IrEmitter {
                         let loaded = self.fresh_tmp();
                         self.emitln(&format!("  {loaded} = load %struct.Vec, %struct.Vec* {vec_alloca}"));
                         return Ok(loaded);
+                        }
                     }
                 }
                 // Vec.len(vec) — method call on Vec
                 if fn_name == "len" && args.is_empty() {
                     if let Some(receiver) = receiver_expr {
+                        if self.infer_llvm_type(receiver) != "%struct.Vec" {
+                            // Not a Vec receiver — fall through to general method dispatch
+                        } else {
                         let recv_val = self.compile_expr(receiver)?;
                         let vec_alloca = self.fresh_tmp();
                         self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
@@ -2700,6 +2796,7 @@ impl IrEmitter {
                         self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 1"));
                         self.emitln(&format!("  {len_val} = load i64, i64* {len_gep}"));
                         return Ok(len_val);
+                        }
                     }
                 }
                 let compiled_args: Vec<String> = args.iter()
@@ -2916,12 +3013,16 @@ impl IrEmitter {
                         let (ret_ty, param_types) = if let Some((pts, rt)) = self.functions.get(&specialized_name) {
                             (rt.clone(), pts.clone())
                         } else {
-                            // Not yet registered - use the generic signature
-                            if let Some((pts, rt)) = self.functions.get(&fn_key) {
-                                (rt.clone(), pts.clone())
-                            } else {
-                                ("i64".to_string(), vec!["i64".to_string(); args.len()])
-                            }
+                            // Not yet registered - use the generic signature with
+                            // argument-inferred param types (generic placeholder i64
+                            // may be wrong for types like Str → i8*)
+                            let inferred_types: Vec<String> = args.iter()
+                                .map(|a| self.infer_llvm_type(a))
+                                .collect();
+                            let generic_ret = self.functions.get(&fn_key)
+                                .map(|(_, rt)| rt.clone())
+                                .unwrap_or_else(|| "i64".to_string());
+                            (generic_ret, inferred_types)
                         };
                         // Include receiver argument only if it's an actual struct instance
                         // AND it's not already in the registered param_types
@@ -3034,13 +3135,18 @@ impl IrEmitter {
                         let fn_ptr_loaded = self.fresh_tmp();
                         self.emitln(&format!("  {fn_ptr_loaded} = load {local_llvm_ty}, {local_llvm_ty}* {alloca_reg}"));
                         let param_types: Vec<String> = args.iter().map(|a| self.infer_llvm_type(a)).collect();
-                        let fn_ptr_ty = format!("{ret_ty} ({})*", param_types.join(", "));
+                        let actual_ret_ty = if ret_ty == "i64" {
+                            self.fn_ptr_return_types.get(&fn_name).cloned().unwrap_or_else(|| "i64".to_string())
+                        } else {
+                            ret_ty.clone()
+                            };
+                        let fn_ptr_ty = format!("{actual_ret_ty} ({})*", param_types.join(", "));
                         let fn_ptr = self.fresh_tmp();
                         self.emitln(&format!("  {fn_ptr} = inttoptr {local_llvm_ty} {fn_ptr_loaded} to {fn_ptr_ty}"));
-                        if ret_ty == "void" {
+                        if actual_ret_ty == "void" {
                             self.emitln(&format!("  call {fn_ptr_ty} {fn_ptr}({args_str})"));
                         } else {
-                            self.emitln(&format!("  {tmp} = call {ret_ty} {fn_ptr}({args_str})"));
+                            self.emitln(&format!("  {tmp} = call {actual_ret_ty} {fn_ptr}({args_str})"));
                         }
                         Ok(tmp)
                     } else if ret_ty == "void" {
@@ -3148,25 +3254,70 @@ impl IrEmitter {
                 let struct_ty = self.llvm_type_for(&name.name);
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
-                for (i, (_, val)) in fields.iter().enumerate() {
-                    let field_val = self.compile_expr(val)?;
-                    let mut field_llvm_ty = self.field_llvm_type(&name.name, i);
-                    // For generic types, field_llvm_type may return "i64" for unresolved type params (like T).
-                    // Fall back to the field value expression's inferred LLVM type.
-                    if field_llvm_ty == "i64" {
-                        let val_ty = self.infer_llvm_type(val);
-                        if val_ty != "i64" {
-                            field_llvm_ty = val_ty;
-                        }
+                // Check if this is an enum variant constructor (e.g., Image(url:, width:, height:))
+                let parent_enum = self.enum_variants.iter()
+                    .find(|(ek, vars)| vars.iter().any(|(v, _)| v == &name.name) && self.llvm_type_for(ek) == struct_ty)
+                    .map(|(ek, _)| ek.clone());
+                if let Some(ref enum_key) = parent_enum {
+                    // Set discriminant (field 0) to the variant index
+                    let var_idx = self.enum_variants.get(enum_key)
+                        .and_then(|vars| vars.iter().position(|(v, _)| v == &name.name))
+                        .unwrap_or(0);
+                    let disc_gep = self.fresh_tmp();
+                    self.emitln(&format!("  {disc_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
+                    self.emitln(&format!("  store i64 {var_idx}, i64* {disc_gep}"));
+                    // Map variant fields to their parent enum offsets (after discriminant)
+                    // The parent enum stores field names uniquely across all variants,
+                    // so we need to look up the actual field index in the parent's field list.
+                    let parent_field_names = self.types.get(enum_key).cloned().unwrap_or_default();
+                    let variant_fields = self.enum_variants.get(enum_key)
+                        .and_then(|vars| vars.iter().find(|(v, _)| v == &name.name))
+                        .map(|(_, vf)| vf.clone())
+                        .unwrap_or_default();
+                    for (i, (_, val)) in fields.iter().enumerate() {
+                        let field_val = self.compile_expr(val)?;
+                        // Find the actual parent field index for this variant field
+                        let field_name = variant_fields.get(i).cloned().unwrap_or_default();
+                        let parent_field_idx = parent_field_names.iter()
+                            .position(|f| f == &field_name)
+                            .unwrap_or(i + 1);
+                        let field_llvm_ty = self.field_llvm_type(enum_key, parent_field_idx);
+                        let store_val = if field_val == "0" && (field_llvm_ty.ends_with('*') || field_llvm_ty.contains('*')) {
+                            "null".to_string()
+                        } else if field_llvm_ty.ends_with('*') && field_val.chars().all(|c| c.is_ascii_digit() || c == '-') {
+                            let ptr_tmp = self.fresh_tmp();
+                            self.emitln(&format!("  {ptr_tmp} = inttoptr i64 {field_val} to {field_llvm_ty}"));
+                            ptr_tmp
+                        } else { field_val };
+                        let gep = self.fresh_tmp();
+                        self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {parent_field_idx}"));
+                        self.emitln(&format!("  store {field_llvm_ty} {store_val}, {field_llvm_ty}* {gep}"));
                     }
-                    let store_val = if field_val == "0" && (field_llvm_ty.ends_with('*') || field_llvm_ty.starts_with('\"')) {
-                        "null".to_string()
-                    } else {
-                        field_val
-                    };
-                    let gep = self.fresh_tmp();
-                    self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {i}"));
-                    self.emitln(&format!("  store {field_llvm_ty} {store_val}, {field_llvm_ty}* {gep}"));
+                } else {
+                    for (i, (_, val)) in fields.iter().enumerate() {
+                        let field_val = self.compile_expr(val)?;
+                        let mut field_llvm_ty = self.field_llvm_type(&name.name, i);
+                        // For generic types, field_llvm_type may return "i64" for unresolved type params (like T).
+                        // Fall back to the field value expression's inferred LLVM type.
+                        if field_llvm_ty == "i64" {
+                            let val_ty = self.infer_llvm_type(val);
+                            if val_ty != "i64" {
+                                field_llvm_ty = val_ty;
+                            }
+                        }
+                        let store_val = if field_val == "0" && (field_llvm_ty.ends_with('*') || field_llvm_ty.starts_with('\"')) {
+                            "null".to_string()
+                        } else if field_llvm_ty.ends_with('*') && field_val.chars().all(|c| c.is_ascii_digit() || c == '-') {
+                            let ptr_tmp = self.fresh_tmp();
+                            self.emitln(&format!("  {ptr_tmp} = inttoptr i64 {field_val} to {field_llvm_ty}"));
+                            ptr_tmp
+                        } else {
+                            field_val
+                        };
+                        let gep = self.fresh_tmp();
+                        self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {i}"));
+                        self.emitln(&format!("  store {field_llvm_ty} {store_val}, {field_llvm_ty}* {gep}"));
+                    }
                 }
                 let loaded = self.fresh_tmp();
                 self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
@@ -3299,6 +3450,13 @@ impl IrEmitter {
                     if llvm_ty == "double" { return "double".to_string(); }
                     return llvm_ty.clone();
                 }
+                // If the ident is an enum variant name (e.g., DivByZero), return the parent enum's struct type
+                if let Some(enum_key) = self.enum_variants.iter()
+                    .find(|(_, vars)| vars.iter().any(|(v, _)| v == &ident.name))
+                    .map(|(ek, _)| ek)
+                {
+                    return format!("%struct.{enum_key}");
+                }
                 "i64".to_string()
             }
             Expr::Field(obj, field, _) => {
@@ -3351,6 +3509,13 @@ impl IrEmitter {
                         if ret_ty == "double" { return "double".to_string(); }
                         return ret_ty.clone();
                     }
+                    // Function pointer call — look up tracked return type
+                    if self.lookup_local(name).is_some() {
+                        if let Some(ret_ty) = self.fn_ptr_return_types.get(name) {
+                            if ret_ty == "double" { return "double".to_string(); }
+                            return ret_ty.clone();
+                        }
+                    }
                 }
                 "i64".to_string()
             }
@@ -3383,6 +3548,16 @@ impl IrEmitter {
             }
             Expr::Ref(inner, _) | Expr::MutRef(inner, _) => self.infer_llvm_type(inner),
             Expr::As(_, ty, _) => self.llvm_type_for(&Self::type_from_ast(ty)),
+            Expr::If(cond, then_block, elifs, else_block, _) => {
+                // if-expressions return the type of the last expression in each branch
+                let then_ty = then_block.stmts.last()
+                    .and_then(|s| if let axiom_ast::StmtOrExpr::Expr(e) = s { Some(self.infer_llvm_type(e)) } else { None })
+                    .unwrap_or_else(|| "i64".to_string());
+                let else_ty = else_block.as_ref().and_then(|b| b.stmts.last()
+                    .and_then(|s| if let axiom_ast::StmtOrExpr::Expr(e) = s { Some(self.infer_llvm_type(e)) } else { None }))
+                    .unwrap_or_else(|| "i64".to_string());
+                if then_ty == "double" || else_ty == "double" { "double".to_string() } else { "i64".to_string() }
+            }
             _ => "i64".to_string(),
         }
     }
@@ -3415,6 +3590,7 @@ impl IrEmitter {
                 false
             }
             Expr::As(_, ty, _) => Self::type_from_ast(ty) == "Float64" || Self::type_from_ast(ty) == "Float32",
+            Expr::Call(_, _, _) | Expr::If(..) => self.infer_llvm_type(expr) == "double",
             _ => false,
         }
     }
