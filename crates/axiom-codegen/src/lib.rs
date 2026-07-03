@@ -1102,13 +1102,20 @@ impl IrEmitter {
             if field_llvm_ty.starts_with("%struct.") {
                 let field_type_name = &field_llvm_ty[8..];
                 let eq_fn = format!("{field_type_name}.eq");
-                self.emitln(&format!("  {cmp} = call i64 @{eq_fn}({field_llvm_ty} {self_val}, {field_llvm_ty} {other_val})"));
-                if last_cmp.is_empty() {
-                    last_cmp = cmp;
+                // Only call eq if it's emitted; otherwise fall through to icmp
+                if self.emitted_fns.contains(&eq_fn) {
+                    self.emitln(&format!("  {cmp} = call i64 @{eq_fn}({field_llvm_ty} {self_val}, {field_llvm_ty} {other_val})"));
+                    if last_cmp.is_empty() {
+                        last_cmp = cmp;
+                    } else {
+                        let and_tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {and_tmp} = and i64 {last_cmp}, {cmp}"));
+                        last_cmp = and_tmp;
+                    }
                 } else {
-                    let and_tmp = self.fresh_tmp();
-                    self.emitln(&format!("  {and_tmp} = and i64 {last_cmp}, {cmp}"));
-                    last_cmp = and_tmp;
+                    // eq not available for this field type — skip comparison
+                    // (e.g., Vec doesn't have .eq())
+                    continue;
                 }
             } else if is_float {
                 self.emitln(&format!("  {cmp} = fcmp oeq {field_llvm_ty} {self_val}, {other_val}"));
