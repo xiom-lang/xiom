@@ -1094,7 +1094,7 @@ impl IrEmitter {
         Ok(())
     }
 
-    fn compile_eq_impl(&mut self, type_name: &str, struct_ty: &str, field_names: &[String], fields: &[FieldDecl]) -> Result<(), String> {
+    fn compile_eq_impl(&mut self, type_name: &str, struct_ty: &str, field_names: &[String], _fields: &[FieldDecl]) -> Result<(), String> {
         let fn_name = format!("{type_name}.eq");
         if self.emitted_fns.contains(&fn_name) {
             return Ok(());
@@ -1296,7 +1296,7 @@ impl IrEmitter {
         Ok(())
     }
 
-    fn compile_ord_impl(&mut self, type_name: &str, struct_ty: &str, field_names: &[String], fields: &[FieldDecl]) -> Result<(), String> {
+    fn compile_ord_impl(&mut self, type_name: &str, struct_ty: &str, field_names: &[String], _fields: &[FieldDecl]) -> Result<(), String> {
         let fn_name = format!("{type_name}.compare");
         if self.emitted_fns.contains(&fn_name) {
             return Ok(());
@@ -3548,7 +3548,7 @@ impl IrEmitter {
             }
             Expr::Ref(inner, _) | Expr::MutRef(inner, _) => self.infer_llvm_type(inner),
             Expr::As(_, ty, _) => self.llvm_type_for(&Self::type_from_ast(ty)),
-            Expr::If(cond, then_block, elifs, else_block, _) => {
+            Expr::If(_cond, then_block, _elifs, else_block, _) => {
                 // if-expressions return the type of the last expression in each branch
                 let then_ty = then_block.stmts.last()
                     .and_then(|s| if let axiom_ast::StmtOrExpr::Expr(e) = s { Some(self.infer_llvm_type(e)) } else { None })

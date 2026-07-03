@@ -524,13 +524,13 @@ fn e2e_runtime_ir_declares_externs() {
 #[test]
 fn e2e_selfhost_v10_self_compile() {
     let output = std::process::Command::new(axiomc_path())
-        .args(["-o", "e2e_v10_self.exe", "selfhost\\axiomc_v10.ax"])
+        .args(["-o", "e2e_v10_self_compile.exe", "selfhost\\axiomc_v10.ax"])
         .current_dir(project_root())
         .output()
         .expect("failed to compile v10 selfhost");
     assert!(output.status.success(), "v10 selfhost compilation failed");
 
-    let run = std::process::Command::new(project_root().join("e2e_v10_self.exe"))
+    let run = std::process::Command::new(project_root().join("e2e_v10_self_compile.exe"))
         .current_dir(project_root())
         .output()
         .expect("failed to run v10 selfhost");
@@ -545,13 +545,13 @@ fn e2e_selfhost_v10_self_compile() {
 #[test]
 fn e2e_selfhost_v10_self_compile_to_native() {
     let output = std::process::Command::new(axiomc_path())
-        .args(["-o", "e2e_v10_self.exe", "selfhost\\axiomc_v10.ax"])
+        .args(["-o", "e2e_v10_self_bootstrap_src.exe", "selfhost\\axiomc_v10.ax"])
         .current_dir(project_root())
         .output()
         .expect("failed v10 compile");
     assert!(output.status.success());
 
-    let run = std::process::Command::new(project_root().join("e2e_v10_self.exe"))
+    let run = std::process::Command::new(project_root().join("e2e_v10_self_bootstrap_src.exe"))
         .current_dir(project_root())
         .output()
         .expect("failed v10 run");
@@ -640,4 +640,42 @@ fn e2e_selfhost_v095_compiles() {
         .output()
         .expect("failed");
     assert!(output.status.success(), "selfhost/axiomc_v095.ax should compile to IR");
+}
+
+// ============================================================================
+// E2E: Multi-File Module Catalog — Regression Tests
+// ============================================================================
+
+/// Compile and run test_mod/math.ax (uses `use benchmark.main.BenchResult` and
+/// `use benchmark.main.make_result` from external test_mod/main.ax).
+/// Expected exit code: 34.
+#[test]
+fn e2e_multifile_testmod_math_runs() {
+    let exit = compile_and_run("examples\\test_mod\\math.ax");
+    assert_eq!(exit, Some(34), "test_mod/math.ax should exit 34");
+}
+
+/// Compile benchmark/bench_math.ax (uses `use benchmark.main.BenchResult` from
+/// external benchmark/main.ax). Verifies the catalog resolves cross-file types.
+#[test]
+fn e2e_multifile_bench_math_compiles() {
+    let output = std::process::Command::new(axiomc_path())
+        .args(["--emit-ir", "examples\\benchmark\\bench_math.ax"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    assert!(output.status.success(), "bench_math.ax should compile to IR via ModuleCatalog");
+}
+
+/// Compile benchmark/main.ax (imports 24 submodule files). Ignored by default
+/// until all submodule linking is verified.
+#[test]
+#[ignore = "requires full 24-module cross-file linking (Wave 2 codegen visibility)"]
+fn e2e_multifile_benchmark_main_compiles() {
+    let output = std::process::Command::new(axiomc_path())
+        .args(["--emit-ir", "examples\\benchmark\\main.ax"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    assert!(output.status.success(), "benchmark/main.ax should compile via ModuleCatalog");
 }
