@@ -30,11 +30,11 @@ use benchmark.sort;
 use benchmark.interfaces;
 use benchmark.serialize;
 use benchmark.bench_data;
-use benchmark.bench_ownership;
-use benchmark.bench_borrow;
-use benchmark.bench_contracts_hard;
-use benchmark.bench_generics_hard;
-use benchmark.bench_monomorph;
+use benchmark.ownership;
+use benchmark.borrow;
+use benchmark.contracts_hard;
+use benchmark.generics_hard;
+use benchmark.monomorph;
 
 // --- Benchmark Result Type ---
 pub type BenchResult = {
@@ -207,27 +207,27 @@ fn main() -> Int {
 
   // ---- MODULE 26: Deep Ownership Chains ----
   report_start("ownership");
-  var r26 = bench_ownership.run_all();
+  var r26 = ownership.run_all();
   suite.add_result(r26);
 
   // ---- MODULE 27: Borrow Checker Torture ----
   report_start("borrow");
-  var r27 = bench_borrow.run_all();
+  var r27 = borrow.run_all();
   suite.add_result(r27);
 
   // ---- MODULE 28: Massive Contract Verification ----
   report_start("contracts_hard");
-  var r28 = bench_contracts_hard.run_all();
+  var r28 = contracts_hard.run_all();
   suite.add_result(r28);
 
   // ---- MODULE 29: Heavy Generics + Comptime ----
   report_start("generics_hard");
-  var r29 = bench_generics_hard.run_all();
+  var r29 = generics_hard.run_all();
   suite.add_result(r29);
 
   // ---- MODULE 30: Huge Monomorphisation Stress ----
   report_start("monomorph");
-  var r30 = bench_monomorph.run_all();
+  var r30 = monomorph.run_all();
   suite.add_result(r30);
 
   // Final summary

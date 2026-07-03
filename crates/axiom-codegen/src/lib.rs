@@ -2275,7 +2275,9 @@ impl IrEmitter {
                         Pattern::Ident(ident) => {
                             // Handle ident that is actually an enum variant name (no parens like `Nil`)
                             if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
-                                self.emitln(&format!("\n{}:", check_labels[check_idx]));
+                                if check_idx < check_labels.len() {
+                                    self.emitln(&format!("\n{}:", check_labels[check_idx]));
+                                }
                                 let variant_idx = self.enum_variants.get(type_name)
                                     .and_then(|variants| variants.iter().position(|(vn, _)| vn == &ident.name))
                                     .unwrap_or(0);
@@ -2400,11 +2402,15 @@ impl IrEmitter {
             Stmt::Destructure(names, value, _) => {
                 let val = self.compile_expr(value)?;
                 let llvm_ty = self.infer_llvm_type(value);
-                if llvm_ty.starts_with("%struct.") {
+                if llvm_ty.starts_with("%struct.") && names.len() > 0 {
+                    // Alloca + store the struct value, then GEP to extract each field
+                    let alloca_struct = self.fresh_tmp();
+                    self.emitln(&format!("  {alloca_struct} = alloca {llvm_ty}"));
+                    self.emitln(&format!("  store {llvm_ty} {val}, {llvm_ty}* {alloca_struct}"));
                     let struct_name = &llvm_ty[8..];
                     for (i, name) in names.iter().enumerate() {
                         let gep = self.fresh_tmp();
-                        self.emitln(&format!("  {gep} = getelementptr {llvm_ty}, {llvm_ty}* {val}, i32 0, i32 {i}"));
+                        self.emitln(&format!("  {gep} = getelementptr {llvm_ty}, {llvm_ty}* {alloca_struct}, i32 0, i32 {i}"));
                         let field_ty = self.field_llvm_type(struct_name, i);
                         let loaded = self.fresh_tmp();
                         self.emitln(&format!("  {loaded} = load {field_ty}, {field_ty}* {gep}"));
