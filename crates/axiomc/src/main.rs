@@ -124,7 +124,16 @@ fn merge_programs(programs: Vec<axiom_ast::Program>) -> axiom_ast::Program {
 
     // ── Stage 3: Type Check ───────────────────────────────
     let mut checker = Checker::new();
-    let is_multi_file = source_paths.len() > 1; // benchmark mode
+    // Configure source directories for multi-file module resolution.
+    // The directory of the primary source file is added so `use` declarations
+    // can resolve to external .ax files (e.g., `use benchmark.main.BenchResult`
+    // resolves to `{source_dir}/benchmark/main.ax`).
+    if let Some(primary) = source_paths.first() {
+        if let Some(parent) = Path::new(primary).parent() {
+            checker.source_dirs.push(parent.to_string_lossy().to_string());
+        }
+    }
+    let is_multi_file = source_paths.len() > 1 || checker.source_dirs.len() > 0;
     if let Err(errors) = checker.check_program(&program) {
         if diagnostics_json {
             let parts: Vec<String> = errors.iter().map(|err| {

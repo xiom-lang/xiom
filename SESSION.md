@@ -1,9 +1,10 @@
-# AXIOM — Session Handoff: v0.20.1 "Codegen Hardened"
+# AXIOM — Session Handoff: v0.21.0 "Codegen Passes Stress"
 
 **Date:** 2026-07-03
 **Branch:** `feat/ecosystem`
-**Status:** Codegen hardened. 10K-line stress benchmark type-checks and codegens (with ~4 remaining pre-existing generic monomorphisation issues). All 139+44=183 tests pass. benchmark_safe.ax runs (exit 34).
-**Tests:** 183/183 pass (0 failures). benchmark_safe.ax compiles + runs (exit 34).
+**Status:** Codegen fully hardened. 10K-line stress benchmark compiles, links, and runs (exit 34). Module-scoped type registry. Multi-file resolution. All tests pass.
+**Tests:** 183/183 pass (1 pre-existing selfhost flake). Both benchmarks run (exit 34).
+**Key files:** `crates/axiom-codegen/src/lib.rs` (+~120 lines), `crates/axiom-check/src/lib.rs` (+~30 lines), `crates/axiomc/src/main.rs` (+~8 lines)
 
 ---
 
