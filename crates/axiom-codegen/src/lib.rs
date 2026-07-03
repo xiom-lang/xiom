@@ -992,6 +992,28 @@ impl IrEmitter {
         }
     }
 
+    fn val_to_struct(&mut self, val: &str, val_ty: &str, struct_ty: &str) -> String {
+        let alloca = self.fresh_tmp();
+        self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
+        if val_ty.starts_with('%') {
+            let ptr = self.fresh_tmp();
+            self.emitln(&format!("  {ptr} = bitcast {struct_ty}* {alloca} to i64*"));
+            let i64_val = self.val_to_i64(val, val_ty);
+            self.emitln(&format!("  store i64 {i64_val}, i64* {ptr}"));
+        } else if val_ty == "i64" {
+            let ptr = self.fresh_tmp();
+            self.emitln(&format!("  {ptr} = bitcast {struct_ty}* {alloca} to i64*"));
+            self.emitln(&format!("  store {val_ty} {val}, {val_ty}* {ptr}"));
+        } else {
+            let ptr = self.fresh_tmp();
+            self.emitln(&format!("  {ptr} = bitcast {struct_ty}* {alloca} to {val_ty}*"));
+            self.emitln(&format!("  store {val_ty} {val}, {val_ty}* {ptr}"));
+        }
+        let loaded = self.fresh_tmp();
+        self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
+        loaded
+    }
+
     fn compile_invariant_call(&mut self, type_name: &str, struct_val_reg: &str) {
         let meta = match self.type_meta.get(type_name) {
             Some(m) => m,
@@ -1794,12 +1816,20 @@ impl IrEmitter {
             Stmt::Return(expr, _) => {
                 if let Some(e) = expr {
                     let mut val = self.compile_expr(e)?;
+                    let mut val_ty = self.infer_llvm_type(e);
                     let ret_ty = self.current_return_type.clone();
                     // Convert value to return type if needed (e.g., i64 to double)
-                    if ret_ty == "double" && self.infer_llvm_type(e) == "i64" {
+                    if ret_ty == "double" && val_ty == "i64" {
                         let conv = self.fresh_tmp();
                         self.emitln(&format!("  {conv} = sitofp i64 {val} to double"));
                         val = conv;
+                        val_ty = "double".to_string();
+                    }
+                    // Coerce i64 value to struct return type via alloca+load
+                    if ret_ty.starts_with("%struct.") && !val_ty.starts_with("%struct.") {
+                        let coerced = self.val_to_struct(&val, &val_ty, &ret_ty);
+                        val = coerced;
+                        val_ty = ret_ty.clone();
                     }
                     // Store result for ensures checks
                     if let Some(res_ptr) = self.result_ptr.as_ref() {
@@ -3136,12 +3166,37 @@ impl IrEmitter {
                             .join(", ")
                     };
                     let tmp = self.fresh_tmp();
-                    let ret_ty = if let Some((_, rt)) = self.functions.get(&resolved_fn_key) {
+                    let mut ret_ty = if let Some((_, rt)) = self.functions.get(&resolved_fn_key) {
                         rt.clone()
                     } else {
-                        "i64".to_string()
+                        // Fallback: try current-module qualified name
+                        let mut found = String::new();
+                        if let Some(ref module) = self.current_module {
+                            let qualified = format!("{module}.{resolved_fn_key}");
+                            if let Some((_, rt)) = self.functions.get(&qualified) {
+                                found = rt.clone();
+                            }
+                        }
+                        // Fallback: search for any key ending with .resolved_fn_key
+                        if found.is_empty() {
+                            let suffix = format!(".{resolved_fn_key}");
+                            for (k, (_, rt)) in &self.functions {
+                                if k.ends_with(&suffix) && rt.starts_with("%struct.") {
+                                    found = rt.clone();
+                                    break;
+                                }
+                            }
+                        }
+                        if found.is_empty() {
+                            "i64".to_string()
+                        } else {
+                            found
+                        }
                     };
-                    let callee_is_fn_ptr = receiver_expr.is_none() && self.lookup_local(&fn_name).is_some() && self.functions.get(&resolved_fn_key).is_none();
+                    let callee_is_fn_ptr = receiver_expr.is_none()
+                        && self.lookup_local(&fn_name).is_some()
+                        && self.functions.get(&resolved_fn_key).is_none()
+                        && ret_ty == "i64";
                     if callee_is_fn_ptr {
                         let (alloca_reg, local_llvm_ty) = self.lookup_local(&fn_name).cloned().unwrap();
                         let fn_ptr_loaded = self.fresh_tmp();
@@ -3520,6 +3575,23 @@ impl IrEmitter {
                     if let Some((_, ret_ty)) = self.functions.get(name) {
                         if ret_ty == "double" { return "double".to_string(); }
                         return ret_ty.clone();
+                    }
+                    // Fallback: try current-module qualified name (e.g., "benchmark.main.make_result")
+                    if let Some(ref module) = self.current_module {
+                        let qualified = format!("{module}.{name}");
+                        if let Some((_, ret_ty)) = self.functions.get(&qualified) {
+                            if ret_ty == "double" { return "double".to_string(); }
+                            return ret_ty.clone();
+                        }
+                    }
+                    // Fallback: search for any key ending with .name that returns a struct
+                    {
+                        let suffix = format!(".{name}");
+                        for (k, (_, rt)) in &self.functions {
+                            if k.ends_with(&suffix) && rt.starts_with("%struct.") {
+                                return rt.clone();
+                            }
+                        }
                     }
                     // Function pointer call — look up tracked return type
                     if self.lookup_local(name).is_some() {
