@@ -183,6 +183,15 @@ impl IrEmitter {
         self.output.push('\n');
     }
 
+    /// Convert literal "0" to "zeroinitializer" for aggregate (struct) types
+    fn zero_val_for(&self, val: &str, llvm_ty: &str) -> String {
+        if val == "0" && llvm_ty.starts_with("%struct.") {
+            "zeroinitializer".to_string()
+        } else {
+            val.to_string()
+        }
+    }
+
     fn axiom_to_llvm_type(axiom_ty: &str) -> &'static str {
         match axiom_ty {
             "Int8" | "UInt8" | "Char" => "i8",
@@ -1402,9 +1411,16 @@ impl IrEmitter {
             let specialized_ret_type = fd.return_type.as_ref()
                 .map(|t| subst_type(t))
                 .unwrap_or_else(|| "void".to_string());
-            let specialized_param_types: Vec<String> = fd.params.iter()
+            let mut specialized_param_types: Vec<String> = Vec::new();
+            // Include self/receiver parameter for methods
+            let self_llvm_ty = fd.receiver.as_ref().map(|r| self.llvm_type_for(&r.name));
+            if let Some(ref st) = self_llvm_ty {
+                specialized_param_types.push(st.clone());
+            }
+            let explicit_param_types: Vec<String> = fd.params.iter()
                 .map(|p| subst_type(&p.ty))
                 .collect();
+            specialized_param_types.extend(explicit_param_types);
             self.functions.insert(specialized_name.clone(), (specialized_param_types.clone(), specialized_ret_type.clone()));
 
             // Emit the specialized function
@@ -1416,24 +1432,38 @@ impl IrEmitter {
             self.current_param_llvm_types = specialized_param_types.clone();
             self.current_fn = Some(specialized_name.clone());
 
-            let params_str: Vec<String> = fd.params.iter()
+            let self_offset: usize = if self_llvm_ty.is_some() { 1 } else { 0 };
+            let mut params_str: Vec<String> = Vec::new();
+            if let Some(ref st) = self_llvm_ty {
+                params_str.push(format!("{st} %param_self"));
+            }
+            let explicit_params_str: Vec<String> = fd.params.iter()
                 .enumerate()
                 .map(|(i, p)| {
                     let llvm_ty = subst_type(&p.ty);
-                    format!("{llvm_ty} %param{i}")
+                    format!("{llvm_ty} %param{}", i + self_offset)
                 })
                 .collect();
+            params_str.extend(explicit_params_str);
 
             self.emitln(&format!("define {specialized_ret_type} @{specialized_name}({}) {{", params_str.join(", ")));
             let entry_block = self.fresh_block("entry");
             self.emitln(&format!("{entry_block}:"));
 
             // Allocate parameters as locals
+            // Allocate self parameter first (for methods)
+            if let (Some(st), Some(_recv)) = (&self_llvm_ty, &fd.receiver) {
+                let self_alloca = self.fresh_tmp();
+                self.emitln(&format!("  {self_alloca} = alloca {st}"));
+                self.emitln(&format!("  store {st} %param_self, {st}* {self_alloca}"));
+                self.add_local("self", self_alloca, st);
+            }
             for (i, param) in fd.params.iter().enumerate() {
                 let llvm_ty = subst_type(&param.ty);
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
-                self.emitln(&format!("  store {llvm_ty} %param{i}, {llvm_ty}* {alloca}"));
+                let param_idx = i + self_offset;
+                self.emitln(&format!("  store {llvm_ty} %param{param_idx}, {llvm_ty}* {alloca}"));
                 self.add_local(&param.name.name, alloca, &llvm_ty);
                 // Track params whose original type is a generic parameter being monomorphised
                 let axiom_ty = Self::type_from_ast(&param.ty);
@@ -1623,14 +1653,16 @@ impl IrEmitter {
                 StmtOrExpr::Expr(expr) => {
                     let result = self.compile_expr(expr)?;
                     if let Some(ref ptr) = self.match_result_ptr {
-                        let ret_ty = &self.current_return_type.clone();
-                        self.emitln(&format!("  store {ret_ty} {result}, {ret_ty}* {ptr}"));
+                        let ret_ty = self.current_return_type.clone();
+                        let store_val = self.zero_val_for(&result, &ret_ty);
+                        self.emitln(&format!("  store {ret_ty} {store_val}, {ret_ty}* {ptr}"));
                     }
                     if is_last && is_expression {
                         // Store result in the result alloca for ensures checks
                         if let Some(res_ptr) = self.result_ptr.as_ref() {
-                            let ret_ty = &self.current_return_type.clone();
-                            self.emitln(&format!("  store {ret_ty} {result}, {ret_ty}* {res_ptr}"));
+                            let ret_ty = self.current_return_type.clone();
+                            let store_val = self.zero_val_for(&result, &ret_ty);
+                            self.emitln(&format!("  store {ret_ty} {store_val}, {ret_ty}* {res_ptr}"));
                         }
                         // Check ensures before returning
                         if !self.current_ensures.is_empty() {
@@ -1651,9 +1683,10 @@ impl IrEmitter {
             Stmt::Let(name, _ty, value, _) => {
                 let val = self.compile_expr(value)?;
                 let llvm_ty = self.infer_llvm_type(value);
+                let store_val = self.zero_val_for(&val, &llvm_ty);
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
-                self.emitln(&format!("  store {llvm_ty} {val}, {llvm_ty}* {alloca}"));
+                self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}"));
                 self.add_local(&name.name, alloca, &llvm_ty);
                 // Check invariants if the value is a struct with invariants
                 if self.check_contracts {
@@ -1663,9 +1696,10 @@ impl IrEmitter {
             Stmt::Var(name, _ty, value, _) => {
                 let val = self.compile_expr(value)?;
                 let llvm_ty = self.infer_llvm_type(value);
+                let store_val = self.zero_val_for(&val, &llvm_ty);
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
-                self.emitln(&format!("  store {llvm_ty} {val}, {llvm_ty}* {alloca}"));
+                self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}"));
                 self.add_local(&name.name, alloca, &llvm_ty);
                 // Check invariants if the value is a struct with invariants
                 if self.check_contracts {
@@ -1676,7 +1710,8 @@ impl IrEmitter {
                 let val = self.compile_expr(value)?;
                 if let Expr::Ident(ident) = place {
                     if let Some((ptr, llvm_ty)) = self.lookup_local(&ident.name).cloned() {
-                        self.emitln(&format!("  store {llvm_ty} {val}, {llvm_ty}* {ptr}"));
+                        let store_val = self.zero_val_for(&val, &llvm_ty);
+                        self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {ptr}"));
                     }
                 }
                 // Emit invariant check if the assigned place is a struct with invariants
@@ -1855,8 +1890,9 @@ impl IrEmitter {
                 if let Some(ref type_name) = scrutinee_type {
                     let struct_ty = format!("%struct.{type_name}");
                     let alloca = self.fresh_tmp();
+                    let store_val = self.zero_val_for(&val, &struct_ty);
                     self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
-                    self.emitln(&format!("  store {struct_ty} {val}, {struct_ty}* {alloca}"));
+                    self.emitln(&format!("  store {struct_ty} {store_val}, {struct_ty}* {alloca}"));
                     scrutinee_alloca_info = Some((alloca, type_name.clone(), struct_ty));
                 }
 
@@ -2013,8 +2049,9 @@ impl IrEmitter {
                         MatchBody::Expr(e) => {
                             let arm_val = self.compile_expr(e)?;
                             if let Some(ref ptr) = self.match_result_ptr {
-                                let ret_ty = &self.current_return_type.clone();
-                                self.emitln(&format!("  store {ret_ty} {arm_val}, {ret_ty}* {ptr}"));
+                                let ret_ty = self.current_return_type.clone();
+                                let store_val = self.zero_val_for(&arm_val, &ret_ty);
+                                self.emitln(&format!("  store {ret_ty} {store_val}, {ret_ty}* {ptr}"));
                             }
                         }
                     }
@@ -2056,11 +2093,12 @@ impl IrEmitter {
             Stmt::Destructure(names, value, _) => {
                 let val = self.compile_expr(value)?;
                 let llvm_ty = self.infer_llvm_type(value);
+                let store_val = self.zero_val_for(&val, &llvm_ty);
                 // Allocate each name and share the same storage (no individual extraction)
                 for name in names {
                     let alloca = self.fresh_tmp();
                     self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
-                    self.emitln(&format!("  store {llvm_ty} {val}, {llvm_ty}* {alloca}"));
+                    self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}"));
                     self.add_local(&name.name, alloca, &llvm_ty);
                 }
             }
@@ -2842,7 +2880,33 @@ impl IrEmitter {
                                 ("i64".to_string(), vec!["i64".to_string(); args.len()])
                             }
                         };
-                        let args_str = param_types.iter().zip(compiled_args.iter())
+                        // Include receiver argument only if it's an actual struct instance
+                        // AND it's not already in the registered param_types
+                        let mut all_args = compiled_args.clone();
+                        let mut all_param_types = param_types.clone();
+                        if let Some(receiver) = receiver_expr {
+                            let is_instance = match receiver.as_ref() {
+                                Expr::Ident(ident) => self.lookup_local(&ident.name).is_some(),
+                                _ => true,
+                            };
+                            // Check if param_types already includes a receiver (from monomorphised registration)
+                            let has_receiver_in_params = !all_param_types.is_empty() && all_param_types.len() > all_args.len();
+                            if is_instance {
+                                let recv_val = self.compile_expr(receiver)?;
+                                let recv_llvm_ty = self.infer_llvm_type(receiver);
+                                if has_receiver_in_params {
+                                    // Receiver type already in param_types, just need the value
+                                    all_args.insert(0, recv_val);
+                                } else {
+                                    all_param_types.insert(0, recv_llvm_ty);
+                                    all_args.insert(0, recv_val);
+                                }
+                            } else if has_receiver_in_params {
+                                // Type name or module name receiver — remove extra param type
+                                all_param_types.remove(0);
+                            }
+                        }
+                        let args_str = all_param_types.iter().zip(all_args.iter())
                             .map(|(ty, arg)| format!("{ty} {arg}"))
                             .collect::<Vec<_>>()
                             .join(", ");
@@ -3028,7 +3092,15 @@ impl IrEmitter {
                 self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
                 for (i, (_, val)) in fields.iter().enumerate() {
                     let field_val = self.compile_expr(val)?;
-                    let field_llvm_ty = self.field_llvm_type(&name.name, i);
+                    let mut field_llvm_ty = self.field_llvm_type(&name.name, i);
+                    // For generic types, field_llvm_type may return "i64" for unresolved type params (like T).
+                    // Fall back to the field value expression's inferred LLVM type.
+                    if field_llvm_ty == "i64" {
+                        let val_ty = self.infer_llvm_type(val);
+                        if val_ty != "i64" {
+                            field_llvm_ty = val_ty;
+                        }
+                    }
                     let store_val = if field_val == "0" && (field_llvm_ty.ends_with('*') || field_llvm_ty.starts_with('\"')) {
                         "null".to_string()
                     } else {
@@ -3113,7 +3185,14 @@ impl IrEmitter {
                 if self.types.contains_key(&ident.name) || self.type_meta.contains_key(&ident.name) {
                     return Some(ident.name.clone());
                 }
-                // Try module-qualified variant
+                // Try current module's qualified name first (deterministic)
+                if let Some(ref module) = self.current_module {
+                    let qualified = format!("{}.{}", module, ident.name);
+                    if self.type_meta.contains_key(&qualified) {
+                        return Some(qualified);
+                    }
+                }
+                // Fallback: search all qualified keys (last resort)
                 for key in self.type_meta.keys() {
                     if key.ends_with(&format!(".{}", ident.name)) {
                         return Some(key.clone());

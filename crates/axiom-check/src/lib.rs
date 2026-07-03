@@ -710,6 +710,36 @@ impl Checker {
         None
     }
 
+    /// Try to load a module from `{source_dir}/{parent_path}/{module_name}.ax`.
+    /// Used when walking dotted module paths (e.g., `benchmark.main` → `benchmark/main.ax`).
+    fn load_external_module_path(&mut self, parent_path: &str, module_name: &str) -> Option<HashMap<String, ModuleExport>> {
+        for dir in &self.source_dirs {
+            let file_path = format!("{}/{}/{}.ax", dir, parent_path, module_name);
+            if !Path::new(&file_path).exists() {
+                // Also try without .ax extension for directory-based modules
+                let dir_path = format!("{}/{}/{}", dir, parent_path, module_name);
+                if Path::new(&dir_path).is_dir() {
+                    // Try package.ax inside the subdirectory
+                    let pkg_path = format!("{}/package.ax", dir_path);
+                    if Path::new(&pkg_path).exists() {
+                        if let Ok(source) = fs::read_to_string(&pkg_path) {
+                            let tokens = Lexer::new(&source).tokenize();
+                            if let Ok(program) = Parser::new(tokens).parse_program() {
+                                return Some(self.build_module_map(&program.items));
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+            let source = fs::read_to_string(&file_path).ok()?;
+            let tokens = Lexer::new(&source).tokenize();
+            let program = Parser::new(tokens).parse_program().ok()?;
+            return Some(self.build_module_map(&program.items));
+        }
+        None
+    }
+
     fn build_module_map(&self, items: &[TopDecl]) -> HashMap<String, ModuleExport> {
         self.build_module_map_inner(items, "")
     }
@@ -755,7 +785,8 @@ impl Checker {
         }
 
         let module_name = &ud.path[0].name;
-        let exports = match self.modules.get(module_name) {
+        // Clone the exports map to avoid borrow conflicts with self.modules.insert below
+        let exports = match self.modules.get(module_name).cloned() {
             Some(e) => e,
             None => return,
         };
@@ -765,8 +796,35 @@ impl Checker {
         for i in 1..ud.path.len() - 1 {
             let seg = &ud.path[i].name;
             match current.get(seg) {
-                Some(ModuleExport::SubModule(sub)) => current = sub,
-                _ => return,
+                Some(ModuleExport::SubModule(sub)) => {
+                    current = sub.clone();
+                }
+                _ => {
+                    // Try to load submodule from external file.
+                    // The path is relative to the source directory: {source_dir}/{seg}.ax
+                    if let Some(mut sub_exports) = self.load_external_module(seg) {
+                        // The loaded file may have nested module wrappers
+                        // (e.g., main.ax contains `module benchmark.main { ... }`).
+                        // Walk into any top-level module to find the actual exports.
+                        while sub_exports.len() == 1 {
+                            let (only_key, only_val) = sub_exports.iter().next().unwrap();
+                            if let ModuleExport::SubModule(inner) = only_val {
+                                if !only_key.is_empty() {
+                                    sub_exports = inner.clone();
+                                } else {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                        // Store in self.modules for future lookups
+                        self.modules.insert(seg.clone(), sub_exports.clone());
+                        current = sub_exports;
+                        continue;
+                    }
+                    return;
+                }
             }
         }
 
@@ -775,8 +833,8 @@ impl Checker {
             for (name, export) in current {
                 if matches!(export, ModuleExport::SubModule(_)) { continue; }
                 let is_pub = match export {
-                    ModuleExport::Type { is_pub, .. } => *is_pub,
-                    ModuleExport::Function { is_pub, .. } => *is_pub,
+                    ModuleExport::Type { is_pub, .. } => is_pub,
+                    ModuleExport::Function { is_pub, .. } => is_pub,
                     _ => false,
                 };
                 if is_pub {
