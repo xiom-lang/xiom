@@ -1,10 +1,10 @@
-# AXIOM — Session Handoff: v0.22.1 "ModuleCatalog Real + Warnings Cleaned"
+# AXIOM — Session Handoff: v0.22.1 "ModuleCatalog"
 
 **Date:** 2026-07-03  
 **Branch:** `feat/ecosystem`  
-**Status:** ModuleCatalog implemented (lazy multi-file resolution w/ scan-fallback). axiom-codegen 139/139 green, zero warnings. axiom-check catalog wiring complete, awaiting recompile verification. v10 selfhost flake resolved.  
-**Tests:** 139/139 axiom-codegen (25 diff + 61 e2e + 23 full_diff + 30 integration). axiom-check: compile pending (44 expected).  
-**Key files changed:** `crates/axiom-check/src/lib.rs` (+~290 catalog), `crates/axiomc/src/main.rs` (+~50 injection gate), `crates/axiom-codegen/src/lib.rs` (warnings), `crates/axiom-codegen/tests/e2e_tests.rs` (v10 flake fix + 3 regression tests), `crates/axiom-codegen/tests/full_diff_tests.rs` (warnings), `docs/requirements/multi-file-catalog.md` (NEW), `docs/checklists/multi-file-catalog.md` (NEW)
+**Status:** ModuleCatalog implemented and verified. All multi-file examples compile via catalog. axiom-check 44/44. axiom-codegen 141/141 (including 2 new multi-file e2e tests). Zero warnings. v10 selfhost flake resolved.  
+**Tests:** 44/44 axiom-check, 141/141 axiom-codegen (25 diff + 63 e2e + 23 full_diff + 30 integration). e2e: 2 new multi-file tests pass, 1 ignored (24-module benchmark/main.ax — deferred to Wave 2).  
+**Key files changed:** `crates/axiom-check/src/lib.rs` (+~290 catalog + ~30 loading fixes), `crates/axiomc/src/main.rs` (+~55 injection gate + subsystem fix), `crates/axiom-codegen/src/lib.rs` (warnings), `crates/axiom-codegen/tests/e2e_tests.rs` (v10 flake + 3 multi-file tests), `crates/axiom-codegen/tests/full_diff_tests.rs` (warnings), `docs/requirements/multi-file-catalog.md` (NEW), `docs/checklists/multi-file-catalog.md` (NEW)
 
 ---
 
