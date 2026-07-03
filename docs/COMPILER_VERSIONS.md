@@ -610,9 +610,9 @@ cargo run -p axiomc -- --run examples/benchmark/
 
 ---
 
-## v0.22.1 "Hardened" — ModuleCatalog + Multi-File + All Green (2026-07-03)
+## v0.22.1 "Hardened" — ModuleCatalog + Tuple Return + Hardened Benchmarks (2026-07-03)
 
-**Status: Released.** 185+ tests, zero warnings. ModuleCatalog with lazy multi-file resolution, full-body injection, struct-return codegen fix, module-qualified naming for collision-free multi-file merges, 12 compiler warnings eliminated, v10 selfhost flake resolved, clang linker subsystem fix for Windows.
+**Status: Released.** 185+ tests, zero warnings, zero failures. ModuleCatalog with lazy multi-file resolution, struct-return + tuple-return codegen fixes, module-qualified naming for collision-free multi-file merges, 5 new hardened benchmark files (ownership chains, borrow torture, contract stress, generics stress, monomorphisation stress), 30-module benchmark suite compiles cleanly.
 
 This release completes the multi-file module system that v0.21.0 claimed but didn't actually ship. The `ModuleCatalog` and `CachedModule` structs are now implemented in `axiom-check` with path-based + scan-based fallback file loading, `collect_external_decls` injects full pub type/function AST bodies (not just stubs) from lazily-loaded external modules, and the axiomc injection gate deduplicates before codegen. All 10 pre-existing compiler warnings are resolved. The v10 selfhost e2e tests no longer race on shared output files.
 
