@@ -577,16 +577,58 @@ impl IrEmitter {
         }
     }
 
+    /// Return the LLVM symbol name for a function, avoiding collisions.
+    /// If a bare name already exists in emitted_fns, use module-qualified.
+    fn fn_symbol(&self, fd: &FnDecl) -> String {
+        let bare = self.fn_key(fd);
+        // Keep `main` as bare entry point regardless of module
+        if bare == "main" { return bare; }
+        // If bare name already emitted (collision from multi-file merge), qualify it
+        if self.emitted_fns.contains(&bare) {
+            if let Some(ref module) = self.current_module {
+                return format!("{}.{}", module, bare);
+            }
+        }
+        bare
+    }
+
+    /// Resolve a module-qualified function call like `math.run_all()`.
+    /// Looks up `math.run_all`, then `*.math.run_all` in registered functions.
+    fn resolve_module_call(&self, receiver: &Expr, fn_name: &str) -> String {
+        if let Expr::Ident(id) = receiver {
+            let module_name = &id.name;
+            // Try leaf-qualified: "math.run_all"
+            let leaf_key = format!("{}.{}", module_name, fn_name);
+            if self.functions.contains_key(&leaf_key) {
+                return leaf_key;
+            }
+            // Try parent-qualified: "benchmark.math.run_all" (current_module parent + module_name)
+            if let Some(ref cur_mod) = self.current_module {
+                if let Some(parent) = cur_mod.rsplitn(2, '.').last() {
+                    let parent_key = format!("{}.{}.{}", parent, module_name, fn_name);
+                    if self.functions.contains_key(&parent_key) {
+                        return parent_key;
+                    }
+                }
+            }
+            // Try any key ending with ".module_name.fn_name" as a fallback
+            let suffix = format!(".{}.{}", module_name, fn_name);
+            for k in self.functions.keys() {
+                if k.ends_with(&suffix) {
+                    return k.clone();
+                }
+            }
+        }
+        fn_name.to_string()
+    }
+
     fn compile_top_decl(&mut self, item: &TopDecl) -> Result<(), String> {
         match item {
             TopDecl::Fn(fd) => {
                 // Skip generic functions — they will be monomorphised later
                 if fd.generics.is_empty() {
                     if fd.body.is_some() {
-                        let fn_name = self.fn_key(fd);
-                        if self.emitted_fns.contains(&fn_name) {
-                            return Ok(());
-                        }
+                        let fn_name = self.fn_symbol(fd);
                         self.emitted_fns.insert(fn_name);
                         self.compile_fn(fd)?;
                     }
@@ -2978,7 +3020,9 @@ impl IrEmitter {
                     if let Some(recv_type) = self.infer_struct_type_name(receiver) {
                         format!("{}.{}", recv_type, fn_name)
                     } else {
-                        fn_name.clone()
+                        // Receiver is a module name (not a struct type) — resolve
+                        // to module-qualified function name if registered.
+                        self.resolve_module_call(receiver, &fn_name)
                     }
                 } else {
                     fn_name.clone()
@@ -3128,7 +3172,8 @@ impl IrEmitter {
                                 fn_key.clone()
                             }
                         } else {
-                            fn_key.clone()
+                            // Receiver is a module name — use module-qualified resolution
+                            self.resolve_module_call(receiver, &fn_name)
                         }
                     } else {
                         fn_key.clone()
