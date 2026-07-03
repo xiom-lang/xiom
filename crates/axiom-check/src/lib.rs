@@ -307,7 +307,16 @@ impl Checker {
                 return self.types.get(&prefixed);
             }
         }
-        self.types.get(name)
+        if self.types.contains_key(name) {
+            return self.types.get(name);
+        }
+        // Search all qualified keys for types from imported modules
+        for key in self.types.keys() {
+            if key.ends_with(&format!(".{}", name)) {
+                return self.types.get(key);
+            }
+        }
+        None
     }
 
     fn contains_type(&self, name: &str) -> bool {
@@ -317,7 +326,16 @@ impl Checker {
                 return true;
             }
         }
-        self.types.contains_key(name)
+        if self.types.contains_key(name) {
+            return true;
+        }
+        // Search all qualified keys for types from imported modules
+        for key in self.types.keys() {
+            if key.ends_with(&format!(".{}", name)) {
+                return true;
+            }
+        }
+        false
     }
 
     fn add_pattern_bindings(&mut self, pattern: &Pattern) {
@@ -705,6 +723,11 @@ impl Checker {
             let source = fs::read_to_string(&file_path).ok()?;
             let tokens = Lexer::new(&source).tokenize();
             let program = Parser::new(tokens).parse_program().ok()?;
+            // Register types and functions from the loaded module so they can be used
+            for item in &program.items {
+                self.register_type_decl(item);
+                self.register_fn_signature(item);
+            }
             return Some(self.build_module_map(&program.items));
         }
         None
