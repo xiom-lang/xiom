@@ -251,6 +251,25 @@ impl ModuleCatalog {
                     return Some(cached);
                 }
             }
+            // Also try the last path segment as a flat filename in this source_dir.
+            // This resolves cases where a module like `benchmark.main` is declared
+            // in a file named `main.ax` (not `benchmark/main.ax` or `benchmark.main.ax`).
+            // The header must match to avoid false positives against sibling dirs.
+            if path_segments.len() >= 2 {
+                let last = &path_segments[path_segments.len() - 1];
+                let file_path3 = format!("{}/{}.ax", dir, last);
+                if Path::new(&file_path3).exists() {
+                    if let Some(dotted) = self.read_module_header(Path::new(&file_path3)) {
+                        let declared: Vec<String> = dotted.split('.').map(|s| s.to_string()).collect();
+                        if declared == path_segments {
+                            if let Some(mut cached) = self.parse_file(&file_path3, path_segments) {
+                                cached.dotted_name = path_segments.join(".");
+                                return Some(cached);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Strategy b: scan-based — walk source_dirs for any .ax file whose declared
@@ -1104,72 +1123,51 @@ impl Checker {
         ];
 
         let mut decls: Vec<TopDecl> = Vec::new();
-        let zero_span = Span::new(0, 0);
 
         for cached in self.catalog.all_cached() {
-            // Inject type declarations for pub structs
-            for (name, fields_map) in &cached.type_fields {
-                if existing.contains(name) || PRIMITIVES.contains(&name.as_str()) {
-                    continue;
-                }
-                let field_decls: Vec<FieldDecl> = fields_map.iter().map(|(fname, fty)| {
-                    FieldDecl { name: Ident::new(fname, zero_span), ty: fty.to_ast_type(), span: zero_span }
-                }).collect();
-                decls.push(TopDecl::Type(TypeDecl {
-                    is_pub: true,
-                    name: Ident::new(name, zero_span),
-                    generics: vec![],
-                    fields: field_decls,
-                    derived_fields: vec![],
-                    invariants: vec![],
-                    derives: vec![],
-                    alias: None,
-                    span: zero_span,
-                }));
-                existing.insert(name.clone());
-            }
-
-            // Inject enum declarations
-            // Walk the cached program items to find pub enum decls.
-            fn collect_enum_decls(items: &[TopDecl], existing: &HashSet<String>, decls: &mut Vec<TopDecl>, zero_span: Span) {
+            // Walk the cached program items recursively and inject pub type/enum/fn decls
+            // with full bodies (not stubs), deduplicated against existing names.
+            fn collect_pub_decls(
+                items: &[TopDecl],
+                existing: &mut HashSet<String>,
+                primitives: &[&str],
+                out: &mut Vec<TopDecl>,
+            ) {
                 for item in items {
                     match item {
-                        TopDecl::Enum(ed) => {
-                            if ed.is_pub && !existing.contains(&ed.name.name) && !PRIMITIVES.contains(&ed.name.name.as_str()) {
-                                decls.push(TopDecl::Enum(ed.clone()));
+                        TopDecl::Type(td) => {
+                            if td.is_pub && !existing.contains(&td.name.name)
+                                && !primitives.contains(&td.name.name.as_str()) {
+                                existing.insert(td.name.name.clone());
+                                out.push(TopDecl::Type(td.clone()));
                             }
                         }
-                        TopDecl::Module(md) => collect_enum_decls(&md.items, existing, decls, zero_span),
+                        TopDecl::Enum(ed) => {
+                            if ed.is_pub && !existing.contains(&ed.name.name)
+                                && !primitives.contains(&ed.name.name.as_str()) {
+                                existing.insert(ed.name.name.clone());
+                                out.push(TopDecl::Enum(ed.clone()));
+                            }
+                        }
+                        TopDecl::Fn(fd) => {
+                            // Note: fd.is_pub may be unreliable for file-level module
+                            // parsing; since we only load modules explicitly imported
+                            // via `use`, inject all candidate functions unconditionally.
+                            if !existing.contains(&fd.name.name)
+                                && !primitives.contains(&fd.name.name.as_str()) {
+                                existing.insert(fd.name.name.clone());
+                                // Inject with full body so codegen emits define, not declare.
+                                out.push(TopDecl::Fn(fd.clone()));
+                            }
+                        }
+                        TopDecl::Module(md) => {
+                            collect_pub_decls(&md.items, existing, primitives, out);
+                        }
                         _ => {}
                     }
                 }
             }
-            collect_enum_decls(&cached.program.items, &existing, &mut decls, zero_span);
-
-            // Inject function stubs (default pub, no body) for externally-defined pub fns.
-            // Only inject if the function name is not already declared.
-            for (name, sig) in &cached.functions {
-                if existing.contains(name) || PRIMITIVES.contains(&name.as_str()) {
-                    continue;
-                }
-                let params: Vec<Param> = sig.params.iter().map(|(pname, pty)| {
-                    Param { name: Ident::new(pname, zero_span), ty: pty.to_ast_type(), span: zero_span }
-                }).collect();
-                let return_type = sig.return_type.as_ref().map(|t| t.to_ast_type());
-                decls.push(TopDecl::Fn(FnDecl {
-                    is_async: false,
-                    is_pub: true,
-                    receiver: None,
-                    name: Ident::new(name, zero_span),
-                    generics: vec![],
-                    params,
-                    return_type,
-                    contracts: vec![],
-                    body: None, // stub — codegen will handle as declare or skip
-                    span: zero_span,
-                }));
-                existing.insert(name.clone());
-            }
+            collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &mut decls);
         }
 
         decls
