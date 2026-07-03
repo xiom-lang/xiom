@@ -2799,6 +2799,18 @@ impl IrEmitter {
                         }
                     }
                 }
+                // Str.len(s) — method call on Str
+                if fn_name == "len" && args.is_empty() {
+                    if let Some(receiver) = receiver_expr {
+                        let recv_ty = self.infer_llvm_type(receiver);
+                        if recv_ty == "i8*" || recv_ty == "ptr" {
+                            let recv_val = self.compile_expr(receiver)?;
+                            let tmp = self.fresh_tmp();
+                            self.emitln(&format!("  {tmp} = call i64 @axiom_str_len(i8* {recv_val})"));
+                            return Ok(tmp);
+                        }
+                    }
+                }
                 let compiled_args: Vec<String> = args.iter()
                     .map(|a| self.compile_expr(a))
                     .collect::<Result<Vec<_>, _>>()?;
