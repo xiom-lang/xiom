@@ -667,15 +667,15 @@ fn e2e_multifile_bench_math_compiles() {
     assert!(output.status.success(), "bench_math.ax should compile to IR via ModuleCatalog");
 }
 
-/// Compile benchmark/main.ax (imports 24 submodule files). Ignored by default
-/// until all submodule linking is verified.
+/// Compile the full 30-module benchmark suite. Uses the ModuleCatalog
+/// (single-file path with lazy loading of all 30 submodules).
 #[test]
-#[ignore = "requires full 24-module cross-file linking (Wave 2 codegen visibility)"]
 fn e2e_multifile_benchmark_main_compiles() {
     let output = std::process::Command::new(axiomc_path())
         .args(["--emit-ir", "examples\\benchmark\\main.ax"])
         .current_dir(project_root())
         .output()
         .expect("failed");
-    assert!(output.status.success(), "benchmark/main.ax should compile via ModuleCatalog");
+    assert!(output.status.success(),
+        "benchmark/main.ax 30-module suite should compile via ModuleCatalog");
 }
