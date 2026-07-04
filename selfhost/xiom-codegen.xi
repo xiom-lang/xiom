@@ -4,10 +4,10 @@
 
 module codegen {
 
-pub fn llvm_type_kind(axiom_ty: Int) -> Int {
-  if axiom_ty == 1 { return 0; }
-  if axiom_ty == 3 { return 1; }
-  if axiom_ty == 4 { return 2; }
+pub fn llvm_type_kind(xiom_ty: Int) -> Int {
+  if xiom_ty == 1 { return 0; }
+  if xiom_ty == 3 { return 1; }
+  if xiom_ty == 4 { return 2; }
   return 0;
 }
 

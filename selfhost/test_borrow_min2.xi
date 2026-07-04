@@ -1,4 +1,4 @@
-fn axiom_char_at(src: Int, pos: Int) -> Int;
+fn xiom_char_at(src: Int, pos: Int) -> Int;
 
 fn test(src: Int) -> Int {
   var pos = 0;
@@ -6,7 +6,7 @@ fn test(src: Int) -> Int {
   while !(done) {
     if (pos >= 10) { done = 1 == 1; }
     else {
-      var c = axiom_char_at(&src, &pos);
+      var c = xiom_char_at(&src, &pos);
       if c == 42 { done = 1 == 1; }
     }
     if !(done) { pos = pos + 1; }

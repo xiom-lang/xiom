@@ -1,18 +1,18 @@
-fn axiom_str_len(src: Int) -> Int;
-fn axiom_char_at(src: Int, pos: Int) -> Int;
+fn xiom_str_len(src: Int) -> Int;
+fn xiom_char_at(src: Int, pos: Int) -> Int;
 
 fn test(src: Int) -> Int {
   var pos = 0;
-  var len = axiom_str_len(src);
+  var len = xiom_str_len(src);
   while (pos + 2 < len) {
-    var c = axiom_char_at(&src, &pos);
+    var c = xiom_char_at(&src, &pos);
     if c == 102 {
       pos = pos + 1;
       var done = 1 == 0;
       while !(done) {
         if (pos >= len) { done = 1 == 1; }
         else {
-          var c2 = axiom_char_at(&src, &pos);
+          var c2 = xiom_char_at(&src, &pos);
           if c2 == 123 { done = 1 == 1; }
         }
         if !(done) { pos = pos + 1; }

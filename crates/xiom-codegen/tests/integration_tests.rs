@@ -104,10 +104,10 @@ fn test_codegen_let_var() {
 #[test]
 fn test_contract_collection_declares() {
     let ir = compile("fn main() -> Int { return 0; }").unwrap();
-    assert!(ir.contains("declare i64 @axiom_is_sorted(i8*, i64)"));
-    assert!(ir.contains("declare i64 @axiom_all(i8*, i64, i8*)"));
-    assert!(ir.contains("declare i64 @axiom_none(i8*, i64, i8*)"));
-    assert!(ir.contains("declare i64 @axiom_contains(i8*, i64)"));
+    assert!(ir.contains("declare i64 @xiom_is_sorted(i8*, i64)"));
+    assert!(ir.contains("declare i64 @xiom_all(i8*, i64, i8*)"));
+    assert!(ir.contains("declare i64 @xiom_none(i8*, i64, i8*)"));
+    assert!(ir.contains("declare i64 @xiom_contains(i8*, i64)"));
 }
 
 #[test]

@@ -9,10 +9,10 @@
 // The codegen emits matching IR for examples/demo_float.xi.
 
 // Extern C runtime functions — declared as signatures (no body)
-fn axiom_read_file(path: Str) -> Int;
-fn axiom_str_len(src: Int) -> Int;
-fn axiom_char_at(src: Int, pos: Int) -> Int;
-fn axiom_free(ptr: Int) -> Int;
+fn xiom_read_file(path: Str) -> Int;
+fn xiom_str_len(src: Int) -> Int;
+fn xiom_char_at(src: Int, pos: Int) -> Int;
+fn xiom_free(ptr: Int) -> Int;
 
 module lexer {
   pub fn is_alpha(c: Int) -> Bool {
@@ -24,16 +24,16 @@ module lexer {
   }
 
   pub fn tokenize() -> Int {
-    var src = axiom_read_file("examples\\demo_float.xi");
+    var src = xiom_read_file("examples\\demo_float.xi");
     if src == 0 { return 0; }
 
-    var len = axiom_str_len(&src);
+    var len = xiom_str_len(&src);
     if len < 0 { return 0; }
 
     var pos = 0;
     var count = 0;
     while pos < len {
-      var c = axiom_char_at(&src, &pos);
+      var c = xiom_char_at(&src, &pos);
       if c == 32 || c == 9 || c == 10 || c == 13 {
         pos = pos + 1;
       } elif is_alpha(&c) || c == 95 {
@@ -61,7 +61,7 @@ module lexer {
       }
     }
 
-    axiom_free(&src);
+    xiom_free(&src);
     return count;
   }
 }
