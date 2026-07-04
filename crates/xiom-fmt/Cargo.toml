@@ -1,0 +1,9 @@
+[package]
+name = "xiom-fmt"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+xiom-ast = { path = "../xiom-ast" }
+xiom-lexer = { path = "../xiom-lexer" }
+xiom-parser = { path = "../xiom-parser" }

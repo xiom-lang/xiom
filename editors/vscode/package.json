@@ -1,37 +1,37 @@
 {
-  "name": "axiom",
-  "displayName": "AXIOM Language Support",
-  "description": "Syntax highlighting, autocomplete, go-to-definition, and diagnostics for the AXIOM programming language.",
+  "name": "xiom",
+  "displayName": "XIOM Language Support",
+  "description": "Syntax highlighting, autocomplete, go-to-definition, and diagnostics for the XIOM programming language.",
   "version": "0.10.0",
-  "publisher": "axiom-lang",
+  "publisher": "xiom-lang",
   "license": "MIT OR Apache-2.0",
   "engines": {
     "vscode": "^1.80.0"
   },
   "categories": ["Programming Languages"],
   "activationEvents": [
-    "onLanguage:axiom"
+    "onLanguage:xiom"
   ],
   "main": "./extension.js",
   "contributes": {
     "languages": [{
-      "id": "axiom",
-      "aliases": ["AXIOM", "axiom"],
-      "extensions": [".ax"],
+      "id": "xiom",
+      "aliases": ["XIOM", "xiom"],
+      "extensions": [".xi"],
       "configuration": "./language-configuration.json"
     }],
     "grammars": [{
-      "language": "axiom",
-      "scopeName": "source.axiom",
-      "path": "./syntaxes/axiom.tmLanguage.json"
+      "language": "xiom",
+      "scopeName": "source.xiom",
+      "path": "./syntaxes/xiom.tmLanguage.json"
     }],
     "configuration": {
-      "title": "AXIOM",
+      "title": "XIOM",
       "properties": {
-        "axiom.lsp.path": {
+        "xiom.lsp.path": {
           "type": "string",
           "default": "",
-          "description": "Path to the axiom-lsp binary. Leave empty to use bundled binary."
+          "description": "Path to the xiom-lsp binary. Leave empty to use bundled binary."
         }
       }
     }

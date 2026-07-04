@@ -1,0 +1,11 @@
+[package]
+name = "xiom-codegen"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+xiom-ast = { path = "../xiom-ast" }
+
+[dev-dependencies]
+xiom-lexer = { path = "../xiom-lexer" }
+xiom-parser = { path = "../xiom-parser" }

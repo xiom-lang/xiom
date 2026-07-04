@@ -1,0 +1,10 @@
+[package]
+name = "xiom-lexer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+xiom-ast = { path = "../xiom-ast" }
+
+[dev-dependencies]
+insta = { version = "1", features = ["yaml"] }

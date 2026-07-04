@@ -1,0 +1,35 @@
+// XIOM — Collections Conformance Tests
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
+
+module collections_tests
+use xiom.test;
+
+fn test_vec_new_empty() -> TestResult { let v = Vec[Int].new(); return assert(v.len() == 0, "Vec::new empty"); }
+fn test_vec_push_one() -> TestResult { var v = Vec[Int].new(); v.push(42); if v.len()==1 { return assert(true, "Vec::push one"); } return assert(false, "Vec::push one"); }
+fn test_vec_push_many() -> TestResult { var v = Vec[Int].new(); v.push(1); v.push(2); v.push(3); if v.len()==3 { return assert(true, "Vec::push many"); } return assert(false, "Vec::push many"); }
+fn test_vec_pop_empty() -> TestResult { var v = Vec[Int].new(); if v.pop().is_none() { return assert(true, "Vec::pop empty"); } return assert(false, "Vec::pop empty"); }
+fn test_vec_pop_nonempty() -> TestResult { var v = Vec[Int].new(); v.push(42); if v.pop().unwrap() == 42 { return assert(true, "Vec::pop nonempty"); } return assert(false, "Vec::pop nonempty"); }
+fn test_vec_get_valid() -> TestResult { var v = Vec[Int].new(); v.push(10); if v.get(0).unwrap() == 10 { return assert(true, "Vec::get valid"); } return assert(false, "Vec::get valid"); }
+fn test_vec_get_invalid() -> TestResult { let v = Vec[Int].new(); if v.get(0).is_none() { return assert(true, "Vec::get invalid"); } return assert(false, "Vec::get invalid"); }
+fn test_vec_is_empty() -> TestResult { let v = Vec[Int].new(); if v.is_empty() { return assert(true, "Vec::is_empty"); } return assert(false, "Vec::is_empty"); }
+fn test_vec_clear() -> TestResult { var v = Vec[Int].new(); v.push(1); v.clear(); if v.is_empty() { return assert(true, "Vec::clear"); } return assert(false, "Vec::clear"); }
+fn test_vec_lifo() -> TestResult { var v = Vec[Int].new(); v.push(1); v.push(2); v.push(3); if v.pop()==Some(3)&&v.pop()==Some(2)&&v.pop()==Some(1) { return assert(true, "Vec LIFO"); } return assert(false, "Vec LIFO"); }
+
+fn test_map_new_empty() -> TestResult { let m = Map[Str, Int].new(); return assert(m.len() == 0, "Map::new empty"); }
+fn test_map_insert_get() -> TestResult { var m = Map[Str, Int].new(); m.insert("a", 1); if m.get("a").unwrap()==1 { return assert(true, "Map::insert/get"); } return assert(false, "Map::insert/get"); }
+fn test_map_get_missing() -> TestResult { let m = Map[Str, Int].new(); if m.get("x").is_none() { return assert(true, "Map::get missing"); } return assert(false, "Map::get missing"); }
+fn test_map_contains() -> TestResult { var m = Map[Str, Int].new(); m.insert("a", 1); if m.contains("a")&&!m.contains("b") { return assert(true, "Map::contains"); } return assert(false, "Map::contains"); }
+fn test_map_remove() -> TestResult { var m = Map[Str, Int].new(); m.insert("a", 1); let v = m.remove("a"); if v==Some(1)&&!m.contains("a") { return assert(true, "Map::remove"); } return assert(false, "Map::remove"); }
+
+fn test_set_insert_contains() -> TestResult { var s = Set[Int].new(); s.insert(42); if s.contains(42)&&!s.contains(43) { return assert(true, "Set::insert/contains"); } return assert(false, "Set::insert/contains"); }
+fn test_set_remove() -> TestResult { var s = Set[Int].new(); s.insert(42); s.remove(42); if !s.contains(42) { return assert(true, "Set::remove"); } return assert(false, "Set::remove"); }
+fn test_set_empty() -> TestResult { let s = Set[Int].new(); if s.is_empty() { return assert(true, "Set empty"); } return assert(false, "Set empty"); }
+
+fn main() -> Int {
+  var tests = [test_vec_new_empty, test_vec_push_one, test_vec_push_many, test_vec_pop_empty, test_vec_pop_nonempty,
+    test_vec_get_valid, test_vec_get_invalid, test_vec_is_empty, test_vec_clear, test_vec_lifo,
+    test_map_new_empty, test_map_insert_get, test_map_get_missing, test_map_contains, test_map_remove,
+    test_set_insert_contains, test_set_remove, test_set_empty];
+  return test.run_all(tests);
+}

@@ -1,11 +1,11 @@
-# AXIOM Programming Language
+# XIOM Programming Language
 
 **Safe · Verified · Precise** — A systems programming language with first-class contracts.
 
 [![Tests](https://img.shields.io/badge/tests-246%20passed-brightgreen)]()
 [![Version](https://img.shields.io/badge/version-0.20.0-blue)]()
 
-AXIOM is a compiled, statically typed, memory-safe systems programming language. It compiles to native code via LLVM and supports x86_64, ARM, RISC-V, and WebAssembly. The compiler is self-hosted — it compiles itself.
+XIOM is a compiled, statically typed, memory-safe systems programming language. It compiles to native code via LLVM and supports x86_64, ARM, RISC-V, and WebAssembly. The compiler is self-hosted — it compiles itself.
 
 ## Quick Start
 
@@ -13,37 +13,37 @@ AXIOM is a compiled, statically typed, memory-safe systems programming language.
 
 ```powershell
 # Clone and auto-install everything (Rust, clang, build tools)
-git clone https://github.com/NgonArt_STUDIO/AXIOM.git
-cd AXIOM
+git clone https://github.com/NgonArt_STUDIO/XIOM.git
+cd XIOM
 .\install_deps.ps1      # auto-installs missing dependencies
-.\install.ps1            # builds + installs AXIOM to PATH
+.\install.ps1            # builds + installs XIOM to PATH
 
 # After restarting terminal:
-axiom --version
-# → AXIOM Compiler v0.20.0 "Hardened"
+xiom --version
+# → XIOM Compiler v0.20.0 "Hardened"
 ```
 
 ### One-Command Install (macOS / Linux)
 
 ```bash
-git clone https://github.com/NgonArt_STUDIO/AXIOM.git
-cd AXIOM
+git clone https://github.com/NgonArt_STUDIO/XIOM.git
+cd XIOM
 chmod +x install_deps.sh install.sh
 ./install_deps.sh        # auto-installs missing dependencies
-./install.sh             # builds + installs AXIOM to PATH
+./install.sh             # builds + installs XIOM to PATH
 
 # After restarting terminal:
-axiom --version
+xiom --version
 ```
 
 ### Pre-built Release (Windows)
 
-Download the latest `axiom-v0.20.0-windows-x64.zip` from [Releases](https://github.com/NgonArt_STUDIO/AXIOM/releases), extract, and double-click `install.bat`. It will:
+Download the latest `xiom-v0.20.0-windows-x64.zip` from [Releases](https://github.com/NgonArt_STUDIO/XIOM/releases), extract, and double-click `install.bat`. It will:
 
-1. Ask where to install (default: `%LOCALAPPDATA%\axiom`)
+1. Ask where to install (default: `%LOCALAPPDATA%\xiom`)
 2. Copy binaries + stdlib + runtime
 3. Offer to add to PATH
-4. Offer to register `.ax` files with the AXIOM icon
+4. Offer to register `.xi` files with the XIOM icon
 5. Detect if `clang` is missing and tell you how to install it
 
 ### What the Installer Installs
@@ -53,11 +53,11 @@ Download the latest `axiom-v0.20.0-windows-x64.zip` from [Releases](https://gith
 | **Rust** (rustc/cargo) | Auto-installed by `install_deps` | Not needed |
 | **LLVM/clang** | Auto-installed by `install_deps` | Warned if missing* |
 | **C build tools** | Auto-installed by `install_deps` | Not needed |
-| **axiomc.exe** | Built from source | Included |
+| **xiomc.exe** | Built from source | Included |
 | **stdlib** | Copied from repo | Included |
-| **`.ax` icon** | Registered (optional) | Registered (optional) |
+| **`.xi` icon** | Registered (optional) | Registered (optional) |
 
-\* clang is a runtime dependency — axiomc emits LLVM IR, clang compiles it to native binary. Without clang, use `axiomc --emit-ir file.ax` to view IR.
+\* clang is a runtime dependency — xiomc emits LLVM IR, clang compiles it to native binary. Without clang, use `xiomc --emit-ir file.xi` to view IR.
 
 ### Creating a Release
 
@@ -65,18 +65,18 @@ Download the latest `axiom-v0.20.0-windows-x64.zip` from [Releases](https://gith
 # Build all tools + create portable folder + ZIP
 .\package.ps1 -Version 0.20.0
 # Produces:
-#   release\axiom-v0.20.0\                 ← portable folder
-#   release\axiom-v0.20.0-windows-x64.zip   ← distributable ZIP
+#   release\xiom-v0.20.0\                 ← portable folder
+#   release\xiom-v0.20.0-windows-x64.zip   ← distributable ZIP
 ```
 
 Release folder structure:
 ```
-axiom-v0.20.0\
-├── bin\              axiomc.exe, axiom-fmt.exe, axiom-doc.exe,
-│                     axiom-ffigen.exe, axiom-pkg.exe, axiom-lsp.exe,
-│                     axiom-icon.ico
-├── lib\              Standard library (.ax source files)
-├── runtime\          C runtime (axiom_runtime.c)
+xiom-v0.20.0\
+├── bin\              xiomc.exe, xiom-fmt.exe, xiom-doc.exe,
+│                     xiom-ffigen.exe, xiom-pkg.exe, xiom-lsp.exe,
+│                     xiom-icon.ico
+├── lib\              Standard library (.xi source files)
+├── runtime\          C runtime (xiom_runtime.c)
 ├── install.bat       Double-click Windows installer
 └── README.txt
 ```
@@ -84,59 +84,59 @@ axiom-v0.20.0\
 Install from a release:
 ```powershell
 # From local release folder
-.\install.ps1 -BinaryPath .\release\axiom-v0.20.0
+.\install.ps1 -BinaryPath .\release\xiom-v0.20.0
 
 # Or just double-click install.bat in the release folder
 ```
 
 ### Building the Self-Hosted Compiler
 
-The AXIOM compiler can compile itself. The Rust compiler is the bootstrap.
+The XIOM compiler can compile itself. The Rust compiler is the bootstrap.
 
 ```powershell
 # Step 1: Compile the self-hosted compiler with Rust
-cargo run -p axiomc -- -o axiomc.exe selfhost/axiomc_v10.ax
+cargo run -p xiomc -- -o xiomc.exe selfhost/xiomc_v10.xi
 
-# Step 2: The resulting axiomc.exe IS the AXIOM compiler
-.\axiomc.exe --help
+# Step 2: The resulting xiomc.exe IS the XIOM compiler
+.\xiomc.exe --help
 
-# Step 3: Use it to compile AXIOM code
-.\axiomc.exe examples/demo_float.ax --run
+# Step 3: Use it to compile XIOM code
+.\xiomc.exe examples/demo_float.xi --run
 ```
 
 ### Bootstrap Chain (Self-Hosting Proof)
 
-The AXIOM compiler can compile itself. The bootstrap chain begins with the Rust-compiled compiler and produces a self-sustaining loop:
+The XIOM compiler can compile itself. The bootstrap chain begins with the Rust-compiled compiler and produces a self-sustaining loop:
 
 ```
-   Rust axiomc (bootstrap)
+   Rust xiomc (bootstrap)
         │
-        ▼ compiles selfhost/axiomc_v10.ax
+        ▼ compiles selfhost/xiomc_v10.xi
         │
-   axiomc.exe  ─── stage 1 selfhost binary
+   xiomc.exe  ─── stage 1 selfhost binary
         │
         ▼ reads its own source, emits LLVM IR
         │
    bootstrap_output.ll  (18 function definitions)
         │
-        ▼ compiled by clang + axiom_runtime.c
+        ▼ compiled by clang + xiom_runtime.c
         │
-   axiomc_stage2.exe  ─── stage 2 selfhost binary (target)
+   xiomc_stage2.exe  ─── stage 2 selfhost binary (target)
 ```
 
 ```powershell
 # Step 1: Compile the selfhost with Rust (bootstrap)
-cargo run -p axiomc -- -o axiomc.exe selfhost/axiomc_v10.ax
+cargo run -p xiomc -- -o xiomc.exe selfhost/xiomc_v10.xi
 
-# Step 2: The resulting axiomc.exe is the AXIOM compiler
-.\axiomc.exe --help
-# → AXIOM Compiler v0.12.0
+# Step 2: The resulting xiomc.exe is the XIOM compiler
+.\xiomc.exe --help
+# → XIOM Compiler v0.12.0
 
-# Step 3: Use it to compile AXIOM code
-.\axiomc.exe examples/demo_float.ax --emit-ir
+# Step 3: Use it to compile XIOM code
+.\xiomc.exe examples/demo_float.xi --emit-ir
 
 # Step 4: Self-host the bootstrap
-.\axiomc.exe selfhost/axiomc_v10.ax --emit-ir
+.\xiomc.exe selfhost/xiomc_v10.xi --emit-ir
 # → produces LLVM IR for all 18 functions
 ```
 
@@ -144,31 +144,31 @@ Latest verification (2026-07-01, feat/ecosystem branch):
 
 | Step | Command | Result |
 |------|---------|--------|
-| 1 | `cargo run -p axiomc -- -o bootstrap_selfhost.exe selfhost\axiomc_v10.ax` | ✅ Compiled, exit 0 |
+| 1 | `cargo run -p xiomc -- -o bootstrap_selfhost.exe selfhost\xiomc_v10.xi` | ✅ Compiled, exit 0 |
 | 2 | `.\bootstrap_selfhost.exe` | ✅ Emits `define i64 @main()` + 17 other functions |
 | 3 | `.\bootstrap_selfhost.exe > bootstrap_output.ll` | ✅ 18 function definitions captured |
-| 4 | `clang -o bootstrap_stage2.exe bootstrap_output.ll stdlib\runtime\axiom_runtime.c` | ❌ IR syntax issues (named SSA values in calls lack `%` prefix) |
+| 4 | `clang -o bootstrap_stage2.exe bootstrap_output.ll stdlib\runtime\xiom_runtime.c` | ❌ IR syntax issues (named SSA values in calls lack `%` prefix) |
 
-**Status**: The Rust→selfhost→IR pipeline is fully verified. The selfhost compiler emits valid LLVM IR structurally (18 functions, proper module triple) but has two known IR emission bugs: (1) named SSA values in `call` operands lack `%` prefix, (2) string literal arguments are not properly quoted. These affect `codegen/expr.ax` in the selfhost source. Once fixed, `clang` will produce a working stage-2 binary, completing the bootstrap loop.
+**Status**: The Rust→selfhost→IR pipeline is fully verified. The selfhost compiler emits valid LLVM IR structurally (18 functions, proper module triple) but has two known IR emission bugs: (1) named SSA values in `call` operands lack `%` prefix, (2) string literal arguments are not properly quoted. These affect `codegen/expr.xi` in the selfhost source. Once fixed, `clang` will produce a working stage-2 binary, completing the bootstrap loop.
 
-**Bootstrap verified (partial)**: The AXIOM compiler, compiled by Rust, can read and compile its own source, producing structured LLVM IR with 18 function definitions. Rust is the permanent bootstrap fallback; the selfhost compiler is IR-verified and awaiting codegen fixes for full stage-2 closure.
+**Bootstrap verified (partial)**: The XIOM compiler, compiled by Rust, can read and compile its own source, producing structured LLVM IR with 18 function definitions. Rust is the permanent bootstrap fallback; the selfhost compiler is IR-verified and awaiting codegen fixes for full stage-2 closure.
 
 ## Toolchain
 
 | Command | Description |
 |---------|-------------|
-| `axiomc` | Compiler — compiles .ax to native binary |
-| `axiom fmt` | Canonical formatter |
-| `axiom doc` | Documentation generator |
-| `axiom lsp` | Language server |
-| `axiom pkg` | Package manager |
-| `axiom ffigen` | FFI binding generator |
-| `axiom verify` | Contract verification (SMT-LIB) |
+| `xiomc` | Compiler — compiles .xi to native binary |
+| `xiom fmt` | Canonical formatter |
+| `xiom doc` | Documentation generator |
+| `xiom lsp` | Language server |
+| `xiom pkg` | Package manager |
+| `xiom ffigen` | FFI binding generator |
+| `xiom verify` | Contract verification (SMT-LIB) |
 
 ### Compiler Flags
 
 ```
-axiomc [OPTIONS] <source.ax>
+xiomc [OPTIONS] <source.xi>
 
 OPTIONS:
   --help              Show help
@@ -245,13 +245,13 @@ clang --version
 
 ```powershell
 # Build for Windows
-cargo build --release -p axiomc --target x86_64-pc-windows-msvc
+cargo build --release -p xiomc --target x86_64-pc-windows-msvc
 
 # Build for Linux
-cargo build --release -p axiomc --target x86_64-unknown-linux-gnu
+cargo build --release -p xiomc --target x86_64-unknown-linux-gnu
 
 # Build for macOS ARM
-cargo build --release -p axiomc --target aarch64-apple-darwin
+cargo build --release -p xiomc --target aarch64-apple-darwin
 ```
 
 ## Version History
@@ -273,13 +273,13 @@ See [RELEASES.md](RELEASES.md) for full version history with changelog, test cou
 
 | Library | Purpose | Status |
 |---------|---------|--------|
-| `axiom-http` | HTTP client (libcurl) | 🚧 |
-| `axiom-crypto` | Cryptography (OpenSSL) | 🚧 |
-| `axiom-sql` | SQL database (SQLite) | 🚧 |
+| `xiom-http` | HTTP client (libcurl) | 🚧 |
+| `xiom-crypto` | Cryptography (OpenSSL) | 🚧 |
+| `xiom-sql` | SQL database (SQLite) | 🚧 |
 
 ## Package Registry
 
-AXIOM has a local package registry. Start the server, then publish and install packages.
+XIOM has a local package registry. Start the server, then publish and install packages.
 
 ```powershell
 # Start the registry
@@ -287,37 +287,37 @@ python registry/server.py
 # → http://localhost:8080
 
 # Publish a package
-axiom pkg publish
+xiom pkg publish
 
 # List available packages
 curl http://localhost:8080/index.json
 
 # Install a package
-axiom pkg install axiom-http
+xiom pkg install xiom-http
 ```
 
 ## Project Structure
 
 ```
-AXIOM/
+XIOM/
 ├── crates/           # Rust bootstrap compiler (12 crates)
-│   ├── axiomc/       #   Compiler CLI
-│   ├── axiom-ast/    #   AST definitions
-│   ├── axiom-lexer/  #   Tokenizer
-│   ├── axiom-parser/ #   Recursive descent parser
-│   ├── axiom-check/  #   Type checker + borrow checker
-│   ├── axiom-codegen/#   LLVM IR emitter
+│   ├── xiomc/       #   Compiler CLI
+│   ├── xiom-ast/    #   AST definitions
+│   ├── xiom-lexer/  #   Tokenizer
+│   ├── xiom-parser/ #   Recursive descent parser
+│   ├── xiom-check/  #   Type checker + borrow checker
+│   ├── xiom-codegen/#   LLVM IR emitter
 │   └── ...           #   fmt, doc, lsp, pkg, ffigen, verify
-├── selfhost/         # AXIOM self-hosted compiler
-│   └── axiomc_v10.ax #   Main compiler source
+├── selfhost/         # XIOM self-hosted compiler
+│   └── xiomc_v10.xi #   Main compiler source
 ├── stdlib/           # Standard library
-│   ├── axiom/        #   core, io, collections, string, math, ffi, async
-│   └── runtime/      #   C runtime (axiom_runtime.c)
+│   ├── xiom/        #   core, io, collections, string, math, ffi, async
+│   └── runtime/      #   C runtime (xiom_runtime.c)
 ├── examples/         # Example programs (21)
 ├── ecosystem/        # Ecosystem libraries
-│   ├── axiom-http/   #   HTTP (libcurl)
-│   ├── axiom-crypto/ #   Cryptography (OpenSSL)
-│   └── axiom-sql/    #   SQL (SQLite)
+│   ├── xiom-http/   #   HTTP (libcurl)
+│   ├── xiom-crypto/ #   Cryptography (OpenSSL)
+│   └── xiom-sql/    #   SQL (SQLite)
 ├── editors/vscode/   # VS Code extension
 ├── playground/       # WASM playground
 ├── dist/             # Distribution packages

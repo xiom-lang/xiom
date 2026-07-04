@@ -1,16 +1,16 @@
-# AXIOM Compiler Architecture
+# XIOM Compiler Architecture
 
 **Version:** v0.20.0 "Hardened"
 **Date:** 2026-07-03
 **Status:** Living document — updated as the compiler evolves
 
-This document is the authoritative reference for understanding how the AXIOM Rust compiler is structured, its data flow, current limitations, and what would need to change to support extreme-scale benchmarks (10K contracts, deep generics, 1000+ file projects). Every section is grounded in the three pillars defined in `specs/AXIOM_Purpose.md`.
+This document is the authoritative reference for understanding how the XIOM Rust compiler is structured, its data flow, current limitations, and what would need to change to support extreme-scale benchmarks (10K contracts, deep generics, 1000+ file projects). Every section is grounded in the three pillars defined in `specs/XIOM_Purpose.md`.
 
 ---
 
 ## 1. Overview & Three Pillars
 
-The AXIOM compiler (`axiomc`) is a multi-stage, single-pass compiler written in Rust. It takes `.ax` source files, produces LLVM IR text, and shells out to `clang` for final native or WASM binary emission. The compiler is currently in Phase 0 (Rust bootstrap) — it compiles a large subset of AXIOM and is progressing toward self-hosting.
+The XIOM compiler (`xiomc`) is a multi-stage, single-pass compiler written in Rust. It takes `.xi` source files, produces LLVM IR text, and shells out to `clang` for final native or WASM binary emission. The compiler is currently in Phase 0 (Rust bootstrap) — it compiles a large subset of XIOM and is progressing toward self-hosting.
 
 The compiler's architecture directly embodies the three pillars:
 
@@ -22,7 +22,7 @@ The compiler's architecture directly embodies the three pillars:
 ### VERIFIED — Contracts as compiler-enforced specification
 - **Contract system** supports `requires`, `ensures`, and `invariant` clauses directly in function and type declarations.
 - **Phase 1 (current):** Every contract clause emits a runtime guard block in LLVM IR. On violation, the program calls `@llvm.trap()`. Guards can be toggled via `--no-contracts`.
-- **Phase 3 (planned):** Static verification via Z3 SMT solver. The `axiom-verify` crate already generates SMT-LIB 2.6 output via `--verify`. The contract is the specification — the compiler is the verifier.
+- **Phase 3 (planned):** Static verification via Z3 SMT solver. The `xiom-verify` crate already generates SMT-LIB 2.6 output via `--verify`. The contract is the specification — the compiler is the verifier.
 
 ### PRECISE — One canonical way to write each thing
 - **LL(1) recursive descent parser** with no backtracking. The grammar has exactly one derivation per construct.
@@ -38,19 +38,19 @@ The compiler processes source through six sequential stages. Each stage consumes
 
 ```mermaid
 flowchart LR
-    Source[".ax Source\n(multiple files)"] --> Lexer["Lexer\n(axiom-lexer)"]
+    Source[".xi Source\n(multiple files)"] --> Lexer["Lexer\n(xiom-lexer)"]
     Lexer --> Tokens["Token Stream"]
-    Tokens --> Parser["Parser\n(axiom-parser)"]
-    Parser --> AST["AST\n(axiom-ast)"]
-    AST --> Checker["Type Checker\n(axiom-check)"]
-    Checker --> BorrowChecker["Borrow Checker\n(axiom-check)"]
+    Tokens --> Parser["Parser\n(xiom-parser)"]
+    Parser --> AST["AST\n(xiom-ast)"]
+    AST --> Checker["Type Checker\n(xiom-check)"]
+    Checker --> BorrowChecker["Borrow Checker\n(xiom-check)"]
     BorrowChecker --> Catalog["ModuleCatalog\n(external decls injected)"]
-    Catalog --> Codegen["LLVM IR Emitter\n(axiom-codegen)"]
+    Catalog --> Codegen["LLVM IR Emitter\n(xiom-codegen)"]
     Codegen --> IR[".ll file"]
     IR --> Clang["clang"]
     Clang --> Binary["native .exe / .wasm"]
 
-    Checker -.-> Verify["SMT Generator\n(axiom-verify)\n--verify only"]
+    Checker -.-> Verify["SMT Generator\n(xiom-verify)\n--verify only"]
     Verify --> SMT["SMT-LIB 2.6 (.smt2)"]
 ```
 
@@ -58,18 +58,18 @@ flowchart LR
 
 | Stage | Crate | Input | Output | Key Activity |
 |-------|-------|-------|--------|--------------|
-| **Lex** | `axiom-lexer` | UTF-8 source string | `Vec<Token>` | Tokenizes source into a flat token stream. Handles keywords, literals, operators, comments. |
-| **Parse** | `axiom-parser` | `Vec<Token>` | `Program` (AST) | Recursive-descent parser producing a typed AST. Merges multi-file programs by module name. |
-| **Check** | `axiom-check` | `Program` | Type-validated `Program` + errors | Registers type/function declarations, resolves imports/module paths, type-checks all expressions and statements. Populates `ModuleCatalog` for external `.ax` files. |
-| **Borrow Check** | `axiom-check` | `Program` | Borrow validation + warnings | Tracks ownership with lexical scopes. Detects use-after-move, double-borrow, and mutation-during-borrow. |
-| **Codegen** | `axiom-codegen` | `Program` | LLVM IR string | Walks the AST, emits text LLVM IR. Handles struct layout, contract guards, generic monomorphisation, derive impls, and runtime extern declarations. |
-| **SMT Verify** | `axiom-verify` | `Program` | SMT-LIB 2.6 string | Optional pass triggered by `--verify`. Translates contracts to SMT assertions for Z3. |
+| **Lex** | `xiom-lexer` | UTF-8 source string | `Vec<Token>` | Tokenizes source into a flat token stream. Handles keywords, literals, operators, comments. |
+| **Parse** | `xiom-parser` | `Vec<Token>` | `Program` (AST) | Recursive-descent parser producing a typed AST. Merges multi-file programs by module name. |
+| **Check** | `xiom-check` | `Program` | Type-validated `Program` + errors | Registers type/function declarations, resolves imports/module paths, type-checks all expressions and statements. Populates `ModuleCatalog` for external `.xi` files. |
+| **Borrow Check** | `xiom-check` | `Program` | Borrow validation + warnings | Tracks ownership with lexical scopes. Detects use-after-move, double-borrow, and mutation-during-borrow. |
+| **Codegen** | `xiom-codegen` | `Program` | LLVM IR string | Walks the AST, emits text LLVM IR. Handles struct layout, contract guards, generic monomorphisation, derive impls, and runtime extern declarations. |
+| **SMT Verify** | `xiom-verify` | `Program` | SMT-LIB 2.6 string | Optional pass triggered by `--verify`. Translates contracts to SMT assertions for Z3. |
 
 ### Multi-File Flow
 
-The `axiomc` binary (in `crates/axiomc/src/main.rs`) orchestrates the full pipeline:
+The `xiomc` binary (in `crates/xiomc/src/main.rs`) orchestrates the full pipeline:
 
-1. **Resolve sources** — parses CLI arguments. Can accept a single `.ax` file, multiple `.ax` files, or a directory with a `package.ax` manifest.
+1. **Resolve sources** — parses CLI arguments. Can accept a single `.xi` file, multiple `.xi` files, or a directory with a `package.xi` manifest.
 2. **Lex + Parse** each source file independently, producing one `Program` per file.
 3. **Merge** all programs into a single `Program` by folding same-named `ModuleDecl` items together (`merge_programs` at `main.rs:100`).
 4. **Type Check** the merged program. The `Checker` also lazily loads external modules via `ModuleCatalog` when it encounters `use` declarations referencing modules not present in the merged program.
@@ -82,9 +82,9 @@ The `axiomc` binary (in `crates/axiomc/src/main.rs`) orchestrates the full pipel
 
 ## 3. Crate-by-Crate Architecture
 
-### 3.1 `axiom-ast` — Abstract Syntax Tree
+### 3.1 `xiom-ast` — Abstract Syntax Tree
 
-**Purpose:** Defines every node in the AXIOM grammar as Rust types. This is the single source of truth consumed by parser, checker, and codegen.
+**Purpose:** Defines every node in the XIOM grammar as Rust types. This is the single source of truth consumed by parser, checker, and codegen.
 
 **Key Types:**
 
@@ -112,7 +112,7 @@ The `axiomc` binary (in `crates/axiomc/src/main.rs`) orchestrates the full pipel
 
 ---
 
-### 3.2 `axiom-lexer` — Tokenizer
+### 3.2 `xiom-lexer` — Tokenizer
 
 **Purpose:** Converts UTF-8 source text into a flat `Vec<Token>`. Handles all lexical rules from Section 3.1 of the language spec.
 
@@ -133,7 +133,7 @@ The `axiomc` binary (in `crates/axiomc/src/main.rs`) orchestrates the full pipel
 
 ---
 
-### 3.3 `axiom-parser` — Recursive Descent Parser
+### 3.3 `xiom-parser` — Recursive Descent Parser
 
 **Purpose:** Converts the token stream into a typed AST. Implements the full EBNF grammar. LL(1), no backtracking.
 
@@ -169,7 +169,7 @@ pub struct Parser {
 
 ---
 
-### 3.4 `axiom-check` — Type Checker + Module Catalog + Borrow Checker
+### 3.4 `xiom-check` — Type Checker + Module Catalog + Borrow Checker
 
 **Purpose:** The largest and most complex crate. Performs type checking, name resolution, module loading, and borrow checking in a single compilation unit.
 
@@ -211,7 +211,7 @@ pub struct BorrowChecker {
 ```
 
 #### `CachedModule` (line:185)
-Contains the parsed `Program`, type map, function map, and type field map for an externally loaded `.ax` file.
+Contains the parsed `Program`, type map, function map, and type field map for an externally loaded `.xi` file.
 
 **Key Methods:**
 
@@ -224,7 +224,7 @@ Contains the parsed `Program`, type map, function map, and type field map for an
 | `Checker::check_expr()` | Type-checks an expression, returns the inferred `CheckedType` |
 | `Checker::resolve_imports()` | Processes `use` declarations, loads external modules via `ModuleCatalog` |
 | `Checker::collect_external_decls()` | Returns `Vec<TopDecl>` of pub types/enums/functions from cached external modules for injection before codegen |
-| `ModuleCatalog::find_owned()` | Lazy-loads an external `.ax` file by dotted path, caches it |
+| `ModuleCatalog::find_owned()` | Lazy-loads an external `.xi` file by dotted path, caches it |
 | `ModuleCatalog::load_module()` | Tries path-based lookup, then scan-based fallback across `source_dirs` |
 | `BorrowChecker::check_program()` | Walks all function bodies, tracks ownership/borrow state |
 
@@ -244,7 +244,7 @@ Contains the parsed `Program`, type map, function map, and type field map for an
 
 ---
 
-### 3.5 `axiom-codegen` — LLVM IR Emitter
+### 3.5 `xiom-codegen` — LLVM IR Emitter
 
 **Purpose:** Walks the AST and emits human-readable LLVM IR as text. No LLVM library dependency — pure string emission.
 
@@ -333,14 +333,14 @@ entry:
 | **Division by zero** — raw `sdiv`/`srem` with no guard (V4) | HIGH | Fixed (v0.20.0 — trap before div) |
 | **Fixed-size C runtime arrays** — 16 fields, 64 locals, 16 match arms (V5) | HIGH | Open |
 | **Generic monomorphisation infinite loop** — worklist with no iteration limit (V6) | MEDIUM | Open |
-| **Unknown types → i64 silently** — `axiom_to_llvm_type` default case (V7) | MEDIUM | Open |
+| **Unknown types → i64 silently** — `xiom_to_llvm_type` default case (V7) | MEDIUM | Open |
 | **Text IR only** — no LLVM optimization passes applied | INFO | By design (Phase 0) |
 
 ---
 
-### 3.6 `axiomc` — CLI Binary
+### 3.6 `xiomc` — CLI Binary
 
-**Purpose:** The `axiomc` executable that orchestrates the full pipeline: lex → parse → merge → check → borrow check → external decl injection → codegen → clang compile.
+**Purpose:** The `xiomc` executable that orchestrates the full pipeline: lex → parse → merge → check → borrow check → external decl injection → codegen → clang compile.
 
 **Key Functions:**
 
@@ -348,9 +348,9 @@ entry:
 |----------|------|---------|
 | `main()` | 30 | CLI orchestration: parses flags, resolves sources, runs all stages |
 | `merge_programs()` | 100 | Merges multiple parsed `Program`s by folding same-named modules |
-| `resolve_source_files()` | 387 | Parses CLI args to determine source files; handles single files, multi-files, directories, and `package.ax` manifests |
-| `load_package_dir()` | 427 | Reads `package.ax` manifest to determine module load order |
-| `scan_ax_files()` | 454 | Scans a directory for `.ax` files |
+| `resolve_source_files()` | 387 | Parses CLI args to determine source files; handles single files, multi-files, directories, and `package.xi` manifests |
+| `load_package_dir()` | 427 | Reads `package.xi` manifest to determine module load order |
+| `scan_ax_files()` | 454 | Scans a directory for `.xi` files |
 | `build_module_file_map()` | 472 | Maps module paths to file paths by reading `module` declarations |
 | `dump_contracts_json()` | 853 | Serializes all contracts in the program to JSON (`--dump-contracts`) |
 | `fn_signature_string()` | 809 | Formats a function signature for JSON output |
@@ -361,7 +361,7 @@ entry:
 
 | Flag | Purpose |
 |------|---------|
-| `<source.ax>` | Primary source file (required) |
+| `<source.xi>` | Primary source file (required) |
 | `--emit-ir` | Print LLVM IR to stdout |
 | `-o <output>` | Output binary path |
 | `--target <target>` | `native`, `wasm`, `arm`, `riscv` |
@@ -377,14 +377,14 @@ entry:
 
 | Target | Triple | Output | Notes |
 |--------|--------|--------|-------|
-| Native | `x86_64-pc-windows-msvc` | `.exe` | Links `axiom_runtime.c` |
+| Native | `x86_64-pc-windows-msvc` | `.exe` | Links `xiom_runtime.c` |
 | WASM | `wasm32-unknown-unknown` | `.wasm` | `-nostdlib`, exports all |
 | ARM | `aarch64-unknown-linux-gnu` | `.out` | Cross-compile only |
 | RISC-V | `riscv64gc-unknown-linux-gnu` | `.out` | Cross-compile only |
 
 ---
 
-### 3.7 `axiom-verify` — SMT Contract Generator (Optional Pass)
+### 3.7 `xiom-verify` — SMT Contract Generator (Optional Pass)
 
 **Purpose:** Translates function contracts (`requires`/`ensures`) and type invariants into SMT-LIB 2.6 format for offline verification with Z3.
 
@@ -402,7 +402,7 @@ pub struct SMTGenerator {
 |--------|---------|
 | `generate()` | Entry point. Emits `(set-logic QF_NRA)`, declares params, emits assertions for `requires`, emits negated assertions for `ensures` (checking counterexamples) |
 | `verify_function()` | For each contracted function: declares param constants, emits `(assert requires)`, pushes, asserts `(not ensures)`, calls `(check-sat)` |
-| `translate_expr()` | Recursively translates AXIOM expressions to SMT-LIB s-expressions |
+| `translate_expr()` | Recursively translates XIOM expressions to SMT-LIB s-expressions |
 
 **Data Flow:**
 - **Consumes:** `Program` (AST)
@@ -421,7 +421,7 @@ pub struct SMTGenerator {
 
 Walking through the compilation of a simple function:
 
-```axiom
+```xiom
 fn add(a: Int, b: Int) -> Int {
     return a + b;
 }
@@ -517,11 +517,11 @@ If the user specified `--run` or `-o`, the IR is written to a temporary `.ll` fi
 
 ## 5. Multi-File Module Resolution
 
-The AXIOM compiler supports three module patterns:
+The XIOM compiler supports three module patterns:
 
 ### 5.1 Inline Modules
 
-```axiom
+```xiom
 module Math {
     pub fn add(a: Int, b: Int) -> Int { return a + b; }
 }
@@ -531,7 +531,7 @@ The parser produces a `TopDecl::Module(ModuleDecl { name: "Math", items: [FnDecl
 
 ### 5.2 File-Level Modules (Single File)
 
-```axiom
+```xiom
 module a.b.c;
 
 fn greet() -> Str { return "hello"; }
@@ -543,15 +543,15 @@ The parser's `parse_file_module_header()` detects the leading `module a.b.c;` de
 
 When the checker encounters a `use` declaration referencing a module not present in the current program:
 
-```axiom
+```xiom
 use benchmark.math;  // triggered by identifier "math" not in local scope
 ```
 
 The resolution flow:
 
 1. **Checker** calls `ModuleCatalog::find_owned(["benchmark", "math"])`.
-2. **Strategy A (path-based):** tries `<source_dir>/benchmark/math.ax`, then `<source_dir>/benchmark.math.ax`, then `<source_dir>/math.ax` (matching the last segment via header verification).
-3. **Strategy B (scan-based fallback):** walks all `.ax` files in `source_dirs` recursively, quick-parsing each file's `module` header to find a match.
+2. **Strategy A (path-based):** tries `<source_dir>/benchmark/math.xi`, then `<source_dir>/benchmark.math.xi`, then `<source_dir>/math.xi` (matching the last segment via header verification).
+3. **Strategy B (scan-based fallback):** walks all `.xi` files in `source_dirs` recursively, quick-parsing each file's `module` header to find a match.
 4. On success, the file is fully parsed and cached as a `CachedModule` containing the parsed `Program`, type map, and function map.
 5. **Checker** calls `register_external_module()` to merge the cached types and functions into its own tables.
 6. **After borrow check**, `collect_external_decls()` gathers all cached external pub types/enums/functions and injects them as `TopDecl` items into the program so the codegen emits their definitions.
@@ -561,10 +561,10 @@ The resolution flow:
 When multiple files define functions with the same bare name (e.g., two modules both have a `run()` function), the codegen's `fn_symbol()` method at `codegen/lib.rs:694` detects the collision via the `emitted_fns` set and qualifies subsequent definitions with their module prefix:
 
 ```llvm
-; First definition (bare name, in benchmark/main.ax module)
+; First definition (bare name, in benchmark/main.xi module)
 define i64 @run() { ... }
 
-; Second definition (module-qualified, in benchmark/math.ax module)
+; Second definition (module-qualified, in benchmark/math.xi module)
 define i64 @math.run() { ... }
 ```
 
@@ -592,7 +592,7 @@ define i64 @math.run() { ... }
 - **No verification at compile time.** Contracts catch violations at runtime only. A function with `requires x > 0` and a caller passing `x = -1` compiles successfully and traps at runtime.
 - `@pre` (pre-state) is recognized syntactically but not semantically modeled — it compares against the runtime value at the point of the `ensures` check rather than the entry-point snapshot.
 
-**Future:** Z3 static verification (Phase 3) would eliminate runtime overhead for statically-proven contracts. This requires: (1) translating the full AXIOM type system to SMT theories, (2) modeling heap state for `@pre`, (3) handling loops with invariant annotations. Current `axiom-verify` generates SMT-LIB but does not integrate Z3 into the compile pipeline.
+**Future:** Z3 static verification (Phase 3) would eliminate runtime overhead for statically-proven contracts. This requires: (1) translating the full XIOM type system to SMT theories, (2) modeling heap state for `@pre`, (3) handling loops with invariant annotations. Current `xiom-verify` generates SMT-LIB but does not integrate Z3 into the compile pipeline.
 
 ### 6.3 Generic Monomorphisation
 
@@ -612,8 +612,8 @@ define i64 @math.run() { ... }
 
 **Scalability:**
 - 30 modules: sub-second resolution.
-- 1000+ modules: scan-based fallback reads every `.ax` file header in every source directory. For N files and M lookups, worst case is O(N*M). The cache mitigates repeated lookups but cold-start resolution is expensive.
-- **No incremental compilation.** Every `axiomc` invocation re-parses all files.
+- 1000+ modules: scan-based fallback reads every `.xi` file header in every source directory. For N files and M lookups, worst case is O(N*M). The cache mitigates repeated lookups but cold-start resolution is expensive.
+- **No incremental compilation.** Every `xiomc` invocation re-parses all files.
 
 **Future:** Indexed lookup — build a `module_path → file_path` map on startup by scanning once, then resolve all lookups in O(1). File watcher + incremental recompilation for dev loops.
 
@@ -623,7 +623,7 @@ define i64 @math.run() { ... }
 
 **Scalability:**
 - **Vec.push reallocation (V1):** Fixed 128-byte allocation for Vec data. Any Vec exceeding 16 `i64` elements corrupts heap memory. This is a correctness bug, not a scalability concern — but it makes any non-trivial benchmark using Vec unsafe to run.
-- **Recursion depth (V2 - fixed):** A `@axiom_recursion_counter` global is incremented at each call site, with `icmp` + trap at the configured limit (default 500). Safe for deep recursion.
+- **Recursion depth (V2 - fixed):** A `@xiom_recursion_counter` global is incremented at each call site, with `icmp` + trap at the configured limit (default 500). Safe for deep recursion.
 - **Div-by-zero guard (V4 - fixed):** `icmp eq` + conditional branch to trap before every `sdiv`/`srem`. Safe.
 - **C runtime limits (V5):** 16 struct fields, 64 local variables, 16 match arms. Programs exceeding these limits silently produce wrong IR. The benchmark suite's `BigStruct` (50 fields) triggers this.
 - **String constant limit:** All string constants are collected in a `Vec<String>`. For programs with 10K+ string literals (unlikely in systems code), this would consume significant memory during compilation.
@@ -632,7 +632,7 @@ define i64 @math.run() { ... }
 **Future:**
 - Vec reallocation: add capacity check + `realloc` doubling strategy.
 - C runtime limits: replace fixed arrays with dynamic allocation, or increase limits significantly (e.g., 256 fields, 1024 locals).
-- Unknown types: remove the `_ => "i64"` default in `axiom_to_llvm_type()` and return an error.
+- Unknown types: remove the `_ => "i64"` default in `xiom_to_llvm_type()` and return an error.
 - Optimization: emit LLVM IR with `opt` passes (at least `-O1`).
 - Type map: use a prefix-trie or separate HashMap for module-qualified lookups.
 
@@ -641,7 +641,7 @@ define i64 @math.run() { ... }
 **Current state:** LL(1) recursive descent (O(n) for n tokens). Single-pass checker. Both are linear in input size.
 
 **Scalability:**
-- 10K+ line single files: compiles successfully (verified with `benchmark_stress.ax` at 8,577 lines, 28 inline modules).
+- 10K+ line single files: compiles successfully (verified with `benchmark_stress.xi` at 8,577 lines, 28 inline modules).
 - **No incremental parsing.** On any change, the entire file is re-tokenized and re-parsed.
 - **No error recovery.** The first parse or type error terminates the compile. For large projects, this means fixing one error at a time.
 
@@ -676,8 +676,8 @@ define i64 @math.run() { ... }
 
 | Benchmark | Result | Notes |
 |-----------|--------|-------|
-| 10K+ line single files | Passes | `benchmark_stress.ax`: 8,577 lines, 28 inline modules |
-| 30+ module multi-file projects | Passes | `benchmark/main.ax` with cross-module calls |
+| 10K+ line single files | Passes | `benchmark_stress.xi`: 8,577 lines, 28 inline modules |
+| 30+ module multi-file projects | Passes | `benchmark/main.xi` with cross-module calls |
 | 50-field structs | Fails (V5) | `BigStruct` in benchmark_extreme hits C runtime limit of 16 fields |
 | Deep recursion | Passes (V2 fixed) | Depth counter traps at 500 by default |
 | Tuple/struct return types | Passes | Tuples synthesised as anonymous structs |
@@ -700,11 +700,11 @@ define i64 @math.run() { ... }
 | Unbounded generic chains | Infinite monomorphisation loop (V6) | Medium |
 | Filesystem I/O at scale | No async I/O — all file reads are synchronous blocking | Low |
 | GPU compute | No Vulkan/CUDA FFI — requires manual `extern "C"` bindings | Out of scope |
-| Self-hosting | Compiler is in Rust, not AXIOM — bootstrapping Phase 1 not yet started | Out of scope |
+| Self-hosting | Compiler is in Rust, not XIOM — bootstrapping Phase 1 not yet started | Out of scope |
 
 ### Compilation time characteristics
 
-For a typical 1000-line AXIOM file with 10 functions, 2 structs, and no generics:
+For a typical 1000-line XIOM file with 10 functions, 2 structs, and no generics:
 
 | Stage | Approximate Time | Dominated By |
 |-------|-----------------|--------------|
@@ -722,42 +722,42 @@ For a 10K-line stress file with 50 functions and generics: approximately 200-300
 ## Appendix A: Crate Dependency Graph
 
 ```
-axiomc
-  ├── axiom-ast        (types only)
-  ├── axiom-lexer      (tokenizer)
-  ├── axiom-parser     (parser)
-  ├── axiom-check      (type checker + borrow checker)
-  ├── axiom-codegen    (LLVM IR emitter)
-  └── axiom-verify     (SMT generator)
+xiomc
+  ├── xiom-ast        (types only)
+  ├── xiom-lexer      (tokenizer)
+  ├── xiom-parser     (parser)
+  ├── xiom-check      (type checker + borrow checker)
+  ├── xiom-codegen    (LLVM IR emitter)
+  └── xiom-verify     (SMT generator)
 
-axiom-parser
-  ├── axiom-ast
-  └── axiom-lexer
+xiom-parser
+  ├── xiom-ast
+  └── xiom-lexer
 
-axiom-check
-  ├── axiom-ast
-  ├── axiom-lexer      (for header parsing in ModuleCatalog)
-  └── axiom-parser     (for file loading in ModuleCatalog)
+xiom-check
+  ├── xiom-ast
+  ├── xiom-lexer      (for header parsing in ModuleCatalog)
+  └── xiom-parser     (for file loading in ModuleCatalog)
 
-axiom-codegen
-  └── axiom-ast
+xiom-codegen
+  └── xiom-ast
 
-axiom-verify
-  └── axiom-ast
+xiom-verify
+  └── xiom-ast
 ```
 
 ## Appendix B: Key File Reference
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `crates/axiom-ast/src/lib.rs` | 496 | AST node definitions |
-| `crates/axiom-lexer/src/lib.rs` | 503 | Tokenizer |
-| `crates/axiom-parser/src/lib.rs` | 1931 | Recursive descent parser |
-| `crates/axiom-check/src/lib.rs` | 3105 | Type checker, module catalog, borrow checker |
-| `crates/axiom-codegen/src/lib.rs` | 3910 | LLVM IR text emitter |
-| `crates/axiom-verify/src/lib.rs` | 218 | SMT-LIB generator |
-| `crates/axiomc/src/main.rs` | 968 | CLI orchestration |
-| `stdlib/runtime/axiom_runtime.c` | ~1200 | C runtime for native compilation |
-| `specs/AXIOM_Purpose.md` | 102 | Language purpose and three pillars |
-| `specs/AXIOM_Language_Spec.md` | 1044 | Full language specification |
+| `crates/xiom-ast/src/lib.rs` | 496 | AST node definitions |
+| `crates/xiom-lexer/src/lib.rs` | 503 | Tokenizer |
+| `crates/xiom-parser/src/lib.rs` | 1931 | Recursive descent parser |
+| `crates/xiom-check/src/lib.rs` | 3105 | Type checker, module catalog, borrow checker |
+| `crates/xiom-codegen/src/lib.rs` | 3910 | LLVM IR text emitter |
+| `crates/xiom-verify/src/lib.rs` | 218 | SMT-LIB generator |
+| `crates/xiomc/src/main.rs` | 968 | CLI orchestration |
+| `stdlib/runtime/xiom_runtime.c` | ~1200 | C runtime for native compilation |
+| `specs/XIOM_Purpose.md` | 102 | Language purpose and three pillars |
+| `specs/XIOM_Language_Spec.md` | 1044 | Full language specification |
 | `docs/audits/benchmark_crash_audit.md` | 178 | Known crash bugs and fix roadmap |

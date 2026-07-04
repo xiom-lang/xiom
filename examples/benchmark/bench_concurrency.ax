@@ -1,4 +1,4 @@
-// AXIOM — Concurrency & Async Stress Benchmark
+// XIOM — Concurrency & Async Stress Benchmark
 // Exercises spawn, channels, async/await patterns (for future selfhost support).
 // These functions simulate concurrent patterns that the compiler must verify.
 // Copyright (c) 2026 Eleftherios Notas

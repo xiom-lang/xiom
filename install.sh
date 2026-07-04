@@ -1,31 +1,31 @@
 #!/usr/bin/env bash
 # ============================================================================
-# AXIOM Compiler Installer — macOS & Linux
+# XIOM Compiler Installer — macOS & Linux
 # ============================================================================
-# Installs the AXIOM toolchain: axiomc, axiom fmt, axiom doc (and aux tools)
+# Installs the XIOM toolchain: xiomc, xiom fmt, xiom doc (and aux tools)
 #
 # Two modes:
 #   Source build:  ./install.sh                  (auto-installs deps first)
 #   Pre-built:     ./install.sh /path/to/release  (skips build)
 #
 # Environment:
-#   AXIOM_INSTALL_DIR   Override install directory (default: ~/.local/axiom)
-#   AXIOM_SKIP_DEPS     Set to 1 to skip dependency auto-install
+#   XIOM_INSTALL_DIR   Override install directory (default: ~/.local/xiom)
+#   XIOM_SKIP_DEPS     Set to 1 to skip dependency auto-install
 # ============================================================================
 
 set -euo pipefail
 
-AXIOM_VERSION="0.20.0"
+XIOM_VERSION="0.20.0"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BINARY_PATH="${1:-}"
 
 # ── Install directory ───────────────────────────────────────────────────
-if [ -n "${AXIOM_INSTALL_DIR:-}" ]; then
-    INSTALL_DIR="$AXIOM_INSTALL_DIR"
+if [ -n "${XIOM_INSTALL_DIR:-}" ]; then
+    INSTALL_DIR="$XIOM_INSTALL_DIR"
 elif [ "$(uname -s)" = "Darwin" ]; then
-    INSTALL_DIR="$HOME/.local/axiom"
+    INSTALL_DIR="$HOME/.local/xiom"
 else
-    INSTALL_DIR="$HOME/.local/axiom"
+    INSTALL_DIR="$HOME/.local/xiom"
 fi
 BIN_DIR="$INSTALL_DIR/bin"
 LIB_DIR="$INSTALL_DIR/lib"
@@ -45,12 +45,12 @@ echo -e "  ${MAGENTA}██╔══██║ ██╔██╗ ██║██
 echo -e "  ${MAGENTA}██║  ██║██╔╝ ██╗██║╚██████╔╝██║ ╚═╝ ██║${NC}"
 echo -e "  ${MAGENTA}╚═╝  ╚═╝╚═╝  ╚═╝╚═╝ ╚═════╝ ╚═╝     ╚═╝${NC}"
 echo ""
-echo -e "  ${CYAN}AXIOM Compiler v${AXIOM_VERSION}${NC}"
+echo -e "  ${CYAN}XIOM Compiler v${XIOM_VERSION}${NC}"
 echo -e "  ${CYAN}Safe, Verified, Precise — Systems Programming${NC}"
 echo ""
 
 # ── Step 0: Auto-install dependencies ───────────────────────────────────
-if [ -z "$BINARY_PATH" ] && [ "${AXIOM_SKIP_DEPS:-0}" != "1" ]; then
+if [ -z "$BINARY_PATH" ] && [ "${XIOM_SKIP_DEPS:-0}" != "1" ]; then
     DEPS_SCRIPT="$SCRIPT_DIR/install_deps.sh"
     if [ -f "$DEPS_SCRIPT" ]; then
         echo -e "${CYAN}Auto-installing missing dependencies...${NC}"
@@ -67,10 +67,10 @@ if [ -n "$BINARY_PATH" ]; then
         exit 1
     fi
 else
-    echo -e "${CYAN}Building AXIOM toolchain (release mode)...${NC}"
+    echo -e "${CYAN}Building XIOM toolchain (release mode)...${NC}"
     cd "$SCRIPT_DIR"
 
-    TOOLS=("axiomc" "axiom-fmt" "axiom-doc" "axiom-ffigen" "axiom-pkg" "axiom-lsp")
+    TOOLS=("xiomc" "xiom-fmt" "xiom-doc" "xiom-ffigen" "xiom-pkg" "xiom-lsp")
     for tool in "${TOOLS[@]}"; do
         echo "  Building $tool..."
         cargo build -p "$tool" --release 2>/dev/null || {
@@ -87,7 +87,7 @@ echo -e "${CYAN}Installing to $INSTALL_DIR...${NC}"
 mkdir -p "$BIN_DIR" "$LIB_DIR" "$RUNTIME_DIR"
 
 # Binaries
-for exe in axiomc axiom-fmt axiom-doc axiom-ffigen axiom-pkg axiom-lsp; do
+for exe in xiomc xiom-fmt xiom-doc xiom-ffigen xiom-pkg xiom-lsp; do
     if [ -f "$RELEASE_DIR/$exe" ]; then
         cp "$RELEASE_DIR/$exe" "$BIN_DIR/"
         echo -e "  ${GREEN}✓${NC} $exe"
@@ -97,22 +97,22 @@ for exe in axiomc axiom-fmt axiom-doc axiom-ffigen axiom-pkg axiom-lsp; do
     fi
 done
 
-# Wrapper script (like axiom.bat but for Unix)
-cat > "$BIN_DIR/axiom" << 'WRAPPER'
+# Wrapper script (like xiom.bat but for Unix)
+cat > "$BIN_DIR/xiom" << 'WRAPPER'
 #!/usr/bin/env bash
-# AXIOM toolchain dispatcher
+# XIOM toolchain dispatcher
 BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 case "${1:-}" in
-    compile) shift; exec "$BIN_DIR/axiomc" "$@" ;;
-    fmt)     shift; exec "$BIN_DIR/axiom-fmt" "$@" ;;
-    doc)     shift; exec "$BIN_DIR/axiom-doc" "$@" ;;
-    ffigen)  shift; exec "$BIN_DIR/axiom-ffigen" "$@" ;;
-    pkg)     shift; exec "$BIN_DIR/axiom-pkg" "$@" ;;
-    lsp)     shift; exec "$BIN_DIR/axiom-lsp" "$@" ;;
-    *)       exec "$BIN_DIR/axiomc" "$@" ;;
+    compile) shift; exec "$BIN_DIR/xiomc" "$@" ;;
+    fmt)     shift; exec "$BIN_DIR/xiom-fmt" "$@" ;;
+    doc)     shift; exec "$BIN_DIR/xiom-doc" "$@" ;;
+    ffigen)  shift; exec "$BIN_DIR/xiom-ffigen" "$@" ;;
+    pkg)     shift; exec "$BIN_DIR/xiom-pkg" "$@" ;;
+    lsp)     shift; exec "$BIN_DIR/xiom-lsp" "$@" ;;
+    *)       exec "$BIN_DIR/xiomc" "$@" ;;
 esac
 WRAPPER
-chmod +x "$BIN_DIR/axiom"
+chmod +x "$BIN_DIR/xiom"
 
 # Stdlib + runtime
 if [ -d "$SCRIPT_DIR/stdlib" ]; then
@@ -125,8 +125,8 @@ if [ -d "$SCRIPT_DIR/stdlib/runtime" ]; then
 fi
 
 # Icon (if present)
-if [ -f "$SCRIPT_DIR/resource/img/axiom-icon.ico" ]; then
-    cp "$SCRIPT_DIR/resource/img/axiom-icon.ico" "$BIN_DIR/"
+if [ -f "$SCRIPT_DIR/resource/img/xiom-icon.ico" ]; then
+    cp "$SCRIPT_DIR/resource/img/xiom-icon.ico" "$BIN_DIR/"
 fi
 
 # ── Step 3: PATH ────────────────────────────────────────────────────────
@@ -142,7 +142,7 @@ esac
 
 if [ -n "$SHELL_RC" ]; then
     if ! grep -q "$BIN_DIR" "$SHELL_RC" 2>/dev/null; then
-        echo "export PATH=\"$BIN_DIR:\$PATH\"  # AXIOM" >> "$SHELL_RC"
+        echo "export PATH=\"$BIN_DIR:\$PATH\"  # XIOM" >> "$SHELL_RC"
         echo -e "  ${GREEN}✓${NC} Added to $SHELL_RC"
     else
         echo -e "  ${GREEN}✓${NC} Already in $SHELL_RC"
@@ -158,23 +158,23 @@ echo -e "${CYAN}Verifying installation...${NC}"
 
 export PATH="$BIN_DIR:$PATH"
 
-if [ -x "$BIN_DIR/axiomc" ]; then
-    "$BIN_DIR/axiomc" --version 2>/dev/null || true
-    echo -e "  ${GREEN}✓${NC} axiomc is ready"
+if [ -x "$BIN_DIR/xiomc" ]; then
+    "$BIN_DIR/xiomc" --version 2>/dev/null || true
+    echo -e "  ${GREEN}✓${NC} xiomc is ready"
 else
-    echo -e "  ${RED}✗${NC} axiomc not found in $BIN_DIR"
+    echo -e "  ${RED}✗${NC} xiomc not found in $BIN_DIR"
 fi
 
 # ── Done ────────────────────────────────────────────────────────────────
 echo ""
 echo -e "  ${MAGENTA}========================================${NC}"
-echo -e "  ${MAGENTA}AXIOM installed successfully!${NC}"
+echo -e "  ${MAGENTA}XIOM installed successfully!${NC}"
 echo -e "  ${MAGENTA}========================================${NC}"
 echo ""
-echo -e "  Binary:   ${GREEN}$BIN_DIR/axiomc${NC}"
-echo -e "  Usage:    ${GREEN}axiom compile file.ax${NC}"
-echo -e "            ${GREEN}axiom fmt file.ax${NC}"
-echo -e "            ${GREEN}axiom doc .${NC}"
+echo -e "  Binary:   ${GREEN}$BIN_DIR/xiomc${NC}"
+echo -e "  Usage:    ${GREEN}xiom compile file.xi${NC}"
+echo -e "            ${GREEN}xiom fmt file.xi${NC}"
+echo -e "            ${GREEN}xiom doc .${NC}"
 echo ""
-echo -e "  ${YELLOW}Run 'source $SHELL_RC' or restart your terminal to use 'axiom'.${NC}"
+echo -e "  ${YELLOW}Run 'source $SHELL_RC' or restart your terminal to use 'xiom'.${NC}"
 echo ""
