@@ -475,7 +475,16 @@
             let mut specialized_param_types: Vec<String> = Vec::new();
             // Include self/receiver parameter for methods
             let self_llvm_ty = if let Some(ref r) = fd.receiver {
-                Some(self.llvm_type_for(&r.name)?)
+                Some(self.llvm_type_for(&r.name).unwrap_or_else(|_| {
+                    // Fallback: try via suffix search across all registered type_meta keys
+                    let search = format!(".{}", r.name);
+                    for key in self.type_meta.keys() {
+                        if key.ends_with(&search) {
+                            return format!("%struct.{key}");
+                        }
+                    }
+                    "i64".to_string()
+                }))
             } else {
                 None
             };

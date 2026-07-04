@@ -1199,6 +1199,10 @@ impl IrEmitter {
     fn compile_derive_for_item(&mut self, item: &TopDecl) -> Result<(), String> {
         match item {
             TopDecl::Type(td) => {
+                // Type aliases have no fields — nothing to derive or invariant-check
+                if td.fields.is_empty() && td.alias.is_some() {
+                    return Ok(());
+                }
                 let bare_name = &td.name.name;
                 // Resolve to qualified name using module context
                 let type_name = if let Some(ref module) = self.current_module {
@@ -1649,7 +1653,16 @@ impl IrEmitter {
             let mut specialized_param_types: Vec<String> = Vec::new();
             // Include self/receiver parameter for methods
             let self_llvm_ty = if let Some(ref r) = fd.receiver {
-                Some(self.llvm_type_for(&r.name)?)
+                Some(self.llvm_type_for(&r.name).unwrap_or_else(|_| {
+                    // Fallback: try via suffix search across all registered type_meta keys
+                    let search = format!(".{}", r.name);
+                    for key in self.type_meta.keys() {
+                        if key.ends_with(&search) {
+                            return format!("%struct.{key}");
+                        }
+                    }
+                    "i64".to_string()
+                }))
             } else {
                 None
             };
@@ -3555,13 +3568,17 @@ impl IrEmitter {
                 Ok(loaded)
             }
             Expr::Struct(name, fields, _) => {
-                let struct_ty = self.llvm_type_for(&name.name)?;
+                // If `name` is an enum variant (e.g., `Single`), resolve to parent enum type
+                let parent_enum = self.enum_variants.iter()
+                    .find(|(_, vars)| vars.iter().any(|(v, _)| v == &name.name))
+                    .map(|(ek, _)| ek.clone());
+                let struct_ty = if let Some(ref ek) = parent_enum {
+                    self.llvm_type_for(ek)?
+                } else {
+                    self.llvm_type_for(&name.name)?
+                };
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
-                // Check if this is an enum variant constructor (e.g., Image(url:, width:, height:))
-                let parent_enum = self.enum_variants.iter()
-                    .find(|(ek, vars)| vars.iter().any(|(v, _)| v == &name.name) && self.llvm_type_for(ek).unwrap_or_else(|_| "i64".to_string()) == struct_ty)
-                    .map(|(ek, _)| ek.clone());
                 if let Some(ref enum_key) = parent_enum {
                     // Set discriminant (field 0) to the variant index
                     let var_idx = self.enum_variants.get(enum_key)

@@ -19,6 +19,7 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::process::{self, Command};
+use std::time::Duration;
 
 use xiom_ast::*;
 use xiom_lexer::Lexer;
@@ -50,6 +51,45 @@ fn main() {
     let verify_output = parse_flag_value(&args, "--verify-output");
 
     let output_file = parse_flag_value(&args, "-o");
+
+    let timeout_secs: u64 = parse_flag_value(&args, "--timeout")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(60);
+
+    // Phase 2.4: Background timeout watchdog
+    if timeout_secs > 0 {
+        let duration = Duration::from_secs(timeout_secs);
+        std::thread::spawn(move || {
+            std::thread::sleep(duration);
+            eprintln!("error: compilation timed out after {} seconds", timeout_secs);
+            std::process::exit(1);
+        });
+    }
+
+    let max_memory_mb: u64 = parse_flag_value(&args, "--max-memory-mb")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+
+    // Phase 2.3: Memory budget watchdog
+    if max_memory_mb > 0 {
+        let max_bytes = max_memory_mb * 1024 * 1024;
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_secs(2));
+                if let Some(used_bytes) = get_process_memory_bytes() {
+                    if used_bytes > max_bytes {
+                        eprintln!(
+                            "error: memory budget exceeded ({} MB used of {} MB limit). \
+                             Try --max-memory-mb with a higher value or simplify the input.",
+                            used_bytes / 1024 / 1024,
+                            max_memory_mb
+                        );
+                        std::process::exit(1);
+                    }
+                }
+            }
+        });
+    }
 
     // Stage 0: Resolve source files
     let source_paths = resolve_source_files(&args);
@@ -136,6 +176,7 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
     if examples_root.is_dir() {
         checker.add_source_dir(examples_root.to_string_lossy().to_string());
     }
+    checker.build_catalog_index();
     let is_multi_file = source_paths.len() > 1 || checker.source_dirs.len() > 0;
     if let Err(errors) = checker.check_program(&program) {
         if diagnostics_json {
@@ -264,6 +305,22 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
     if let Err(e) = fs::write(&ir_path, &llvm_ir) {
         eprintln!("error: cannot write IR file: {e}");
         process::exit(1);
+    }
+
+    // Phase 1.4: Run LLVM opt -O1 to optimize IR before clang
+    let opt = find_tool("opt", &[
+        "C:\\Program Files\\LLVM\\bin\\opt.exe",
+    ]);
+    if let Some(opt_path) = &opt {
+        let opt_status = Command::new(opt_path)
+            .args(["-O1", "-S", "-o", &ir_path, &ir_path])
+            .status();
+        if let Ok(s) = opt_status {
+            if !s.success() {
+                eprintln!("  warning: opt -O1 failed, proceeding with unoptimized IR");
+                let _ = fs::write(&ir_path, &llvm_ir);
+            }
+        }
     }
 
     let clang = find_tool("clang", &[
@@ -569,6 +626,8 @@ fn print_usage() {
     eprintln!("  --dump-contracts    Print contract index as JSON");
     eprintln!("  --verify            Generate SMT-LIB contract verification output");
     eprintln!("  --verify-output <f> Write SMT-LIB to file");
+    eprintln!("  --timeout <seconds>  Set compilation timeout (default: 60)");
+    eprintln!("  --max-memory-mb <N>       Set max memory budget in MB (0 = disabled)");
     eprintln!();
     eprintln!("EXAMPLES:");
     eprintln!("  xiomc --run examples/demo_float.xi");
@@ -622,6 +681,47 @@ fn find_runtime_c() -> Option<String> {
         }
     }
     None
+}
+
+fn get_process_memory_bytes() -> Option<u64> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::mem;
+        #[repr(C)]
+        #[allow(non_snake_case)]
+        struct PROCESS_MEMORY_COUNTERS {
+            cb: u32,
+            page_fault_count: u32,
+            peak_working_set_size: usize,
+            working_set_size: usize,
+            quota_peak_paged_pool_usage: usize,
+            quota_paged_pool_usage: usize,
+            quota_peak_non_paged_pool_usage: usize,
+            quota_non_paged_pool_usage: usize,
+            pagefile_usage: usize,
+            peak_pagefile_usage: usize,
+        }
+        extern "system" {
+            fn GetCurrentProcess() -> *mut std::ffi::c_void;
+            fn GetProcessMemoryInfo(
+                process: *mut std::ffi::c_void,
+                counters: *mut PROCESS_MEMORY_COUNTERS,
+                cb: u32,
+            ) -> i32;
+        }
+        unsafe {
+            let mut pmc: PROCESS_MEMORY_COUNTERS = mem::zeroed();
+            pmc.cb = mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+            if GetProcessMemoryInfo(GetCurrentProcess(), &mut pmc, pmc.cb) != 0 {
+                return Some(pmc.working_set_size as u64);
+            }
+        }
+        None
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
 }
 
 fn find_tool(name: &str, extra_paths: &[&str]) -> Option<String> {
