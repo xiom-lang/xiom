@@ -468,6 +468,46 @@ fn sum_range(lo: Int, hi: Int) -> Int
 | Modular verification | 3 | None (compile-time) | Large multi-module projects |
 | `--no-contracts` | 1 (now) | None (stripped) | Production, benchmarks |
 
+### 3.0G Borrow System Enhancement — Lifetime Tracking
+
+**Goal:** Remove the two primary borrow system restrictions: storing borrows in struct fields and returning borrows from functions.
+
+**Current state (Phase 1):** XIOM uses lexical scope borrowing — borrows are valid from `let r = &x` to the closing `}` of the block. This is simple and correct but restrictive:
+- ❌ `type Container = { ref: &Vec[Int]; }` — compile error: cannot store borrow in struct
+- ❌ `fn get_first(v: &Vec[Int]) -> &Int { return &v[0]; }` — compile error: cannot return borrow
+
+**Alternatives developers use today:**
+- Clone values instead of borrowing (`v[0].clone()`)
+- Return owned types, not references
+- Use indices instead of references (`return 0` instead of `&v[0]`)
+- Allocate in arenas or use `Rc[T]` for shared ownership
+
+**Phase 3 plan — Relaxed borrow rules:**
+
+| Milestone | What | Effort |
+|-----------|------|--------|
+| 3.0G.1 | **Borrow-from-borrow:** Allow returning a borrow that is derived from a borrow parameter. The checker must verify: output lifetime ≤ input lifetime. | 2-3 weeks |
+| 3.0G.2 | **Struct field borrows:** Allow storing borrows in struct fields with lexical lifetime tracking. Struct lifetime = min(field lifetimes). | 2-3 weeks |
+| 3.0G.3 | **Lifetime elision:** Simple heuristic rules (like Rust's elision) so most functions need no annotations. | 1 week |
+| 3.0G.4 | **Explicit lifetime annotations:** For complex cases, allow `fn foo<'a>(x: &'a Int) -> &'a Int` syntax. | 1-2 weeks |
+
+**Design principle:** Keep it simpler than Rust. No lifetime subtyping, no variance, no HRTB (Higher-Ranked Trait Bounds). The goal is to cover the 90% use case (iterators, views, zero-copy parsers) without the complexity burden of Rust's full lifetime system.
+
+**Example after Phase 3:**
+```xiom
+// 3.0G.1: Return borrow derived from parameter (today: compile error)
+fn first[T](v: &Vec[T]) -> &T { return &v[0]; }
+
+// 3.0G.2: Store borrow in struct (today: compile error)
+type Window<'a> = { data: &'a [Int]; start: Int; end: Int; }
+
+// 3.0G.3: Lifetime elision — no annotations needed for common patterns
+fn get_ref(v: &Vec[Int]) -> &Int { return &v[0]; }  // elided lifetime
+fn get_mut(v: &mut Vec[Int]) -> &mut Int { return &mut v[0]; }
+```
+
+**Total effort:** 5-8 weeks for the full borrow enhancement system. This is a Phase 3 feature — DO NOT start until Phase 0-2 hardening is complete and the compiler is stable.
+
 ### 3.1 Debugger (DAP-based)
 
 **Architecture:** The debugger is a separate process that speaks the Debug Adapter Protocol (DAP) to VS Code / JetBrains / etc. It controls the target process via platform debug APIs.

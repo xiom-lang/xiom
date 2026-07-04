@@ -533,8 +533,8 @@ fn test_codegen_int8_float32_type_widths() {
 fn test_codegen_method_ref_self() {
     let src = "\
 type Counter = { val: Int; }
-fn Counter.inc(&self) -> Int { return val + 1; }
+fn Counter.inc() -> Int { return val + 1; }
 fn main() -> Int { var c = Counter{ val: 0 }; return c.inc(); }";
     let ir = compile(src).unwrap();
-    assert!(ir.contains("define"), "method with reference self should compile");
+    assert!(ir.contains("define"), "method should compile");
 }

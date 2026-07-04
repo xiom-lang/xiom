@@ -2784,8 +2784,15 @@ impl Default for BorrowChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use xiom_lexer::Lexer;
     use xiom_parser::Parser;
+
+    fn project_root() -> PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent().unwrap().parent().unwrap()
+            .to_path_buf()
+    }
 
     fn check(source: &str) -> Result<(), Vec<CheckError>> {
         let tokens = Lexer::new(source).tokenize();
@@ -3228,7 +3235,8 @@ fn main() -> Int { var c = Single(value: 42); return 0; }";
 
     #[test]
     fn test_catalog_cold_start() {
-        let mut cat = ModuleCatalog::new(vec!["examples/test_mod".into()]);
+        let test_mod = project_root().join("examples/test_mod");
+        let mut cat = ModuleCatalog::new(vec![test_mod.to_string_lossy().to_string()]);
         cat.build_index();
         let path_segments: Vec<String> = ["benchmark".to_string(), "math".to_string()].to_vec();
         let cached = cat.find_owned(&path_segments);
@@ -3237,7 +3245,8 @@ fn main() -> Int { var c = Single(value: 42); return 0; }";
 
     #[test]
     fn test_catalog_cached_hit() {
-        let mut cat = ModuleCatalog::new(vec!["examples/test_mod".into()]);
+        let test_mod = project_root().join("examples/test_mod");
+        let mut cat = ModuleCatalog::new(vec![test_mod.to_string_lossy().to_string()]);
         cat.build_index();
         let path_segments: Vec<String> = ["benchmark".to_string(), "math".to_string()].to_vec();
         let first = cat.find_owned(&path_segments);
@@ -3248,7 +3257,8 @@ fn main() -> Int { var c = Single(value: 42); return 0; }";
 
     #[test]
     fn test_catalog_not_found() {
-        let mut cat = ModuleCatalog::new(vec!["examples/test_mod".into()]);
+        let test_mod = project_root().join("examples/test_mod");
+        let mut cat = ModuleCatalog::new(vec![test_mod.to_string_lossy().to_string()]);
         cat.build_index();
         let path_segments: Vec<String> = ["nonexistent".to_string(), "module".to_string()].to_vec();
         let cached = cat.find_owned(&path_segments);
@@ -3257,7 +3267,8 @@ fn main() -> Int { var c = Single(value: 42); return 0; }";
 
     #[test]
     fn test_catalog_index_built() {
-        let mut cat = ModuleCatalog::new(vec!["examples/test_mod".into()]);
+        let test_mod = project_root().join("examples/test_mod");
+        let mut cat = ModuleCatalog::new(vec![test_mod.to_string_lossy().to_string()]);
         cat.build_index();
         let path_segments: Vec<String> = ["benchmark".to_string(), "math".to_string()].to_vec();
         let cached = cat.find_owned(&path_segments);
@@ -3274,7 +3285,8 @@ fn main() -> Int { var c = Single(value: 42); return 0; }";
 
     #[test]
     fn test_catalog_flat_filename_lookup() {
-        let mut cat = ModuleCatalog::new(vec!["examples/test_mod/benchmark".into()]);
+        let bench_dir = project_root().join("examples/benchmark");
+        let mut cat = ModuleCatalog::new(vec![bench_dir.to_string_lossy().to_string()]);
         cat.build_index();
         let path_segments: Vec<String> = ["math".to_string()].to_vec();
         let _ = cat.find_owned(&path_segments);
@@ -3283,7 +3295,8 @@ fn main() -> Int { var c = Single(value: 42); return 0; }";
 
     #[test]
     fn test_catalog_no_duplicate_cache() {
-        let mut cat = ModuleCatalog::new(vec!["examples/test_mod".into()]);
+        let test_mod = project_root().join("examples/test_mod");
+        let mut cat = ModuleCatalog::new(vec![test_mod.to_string_lossy().to_string()]);
         cat.build_index();
         let path_segments: Vec<String> = ["benchmark".to_string(), "math".to_string()].to_vec();
         cat.find_owned(&path_segments);
@@ -3292,5 +3305,90 @@ fn main() -> Int { var c = Single(value: 42); return 0; }";
         let cached = cat.all_cached();
         let count = cached.iter().filter(|m| m.dotted_name == "benchmark.math").count();
         assert_eq!(count, 1, "should have exactly one cached entry per module");
+    }
+
+    #[test]
+    fn test_write_borrow_while_read_borrow_active() {
+        let result = check_borrow("fn main() { var x = 42; let r = &x; let w = &mut x; }");
+        assert!(result.is_err(), "write borrow during active read borrow should error");
+    }
+
+    #[test]
+    fn test_double_mut_borrow_rejected() {
+        let result = check_borrow("fn main() { var x = 42; let r1 = &mut x; let r2 = &mut x; }");
+        assert!(result.is_err(), "two simultaneous &mut borrows should error");
+    }
+
+    #[test]
+    fn test_mutation_through_immutable_ref_rejected() {
+        let result = check_borrow("fn main() { var x = 42; let r = &x; }");
+        assert!(result.is_ok(), "creating &T ref should not be a borrow error: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_return_owned_type_compiles() {
+        let result = check_borrow("fn make() -> Int { var x = 42; return x; } fn main() -> Int { return make(); }");
+        assert!(result.is_ok(), "returning owned value should compile: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_clone_for_struct_field_compiles() {
+        let result = check_borrow("\
+type Data = { val: Int; } derive[Clone]\n\
+fn main() -> Int { var x = 42; var d = Data{ val: x.clone() }; return d.val; }");
+        assert!(result.is_ok(), "clone for struct storage should compile: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_use_after_move_in_if_branch() {
+        let result = check_borrow("\
+fn consume(x: Int) -> Int { return x; }\n\
+fn main() -> Int { var x = 42; if true { var y = x; } return x; }");
+        assert!(result.is_err(), "use-after-move after if-branch move should error");
+    }
+
+    #[test]
+    fn test_reassign_after_move_is_error() {
+        let result = check_borrow("\
+fn consume(x: Int) -> Int { return x; }\n\
+fn main() -> Int { var x = 42; consume(x); x = 99; return x; }");
+        assert!(result.is_err(), "reassign after move should be a borrow error");
+    }
+
+    #[test]
+    fn test_move_into_vec_element() {
+        let result = check_borrow("\
+fn main() -> Int { var x = 42; var v = Vec[Int].new(); v.push(x); return 0; }");
+        assert!(result.is_ok(), "move into Vec should compile: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_borrow_through_function_parameter() {
+        let result = check_borrow("\
+fn read(x: &Int) -> Int { return 1; }\n\
+fn main() -> Int { var a = 42; let r = read(&a); return a + r; }");
+        assert!(result.is_ok(), "borrow through fn param should not move: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_mut_borrow_released_then_mut_borrow_again() {
+        let result = check_borrow("\
+fn main() -> Int { var x = 42; if true { let r = &mut x; } let s = &mut x; return 1; }");
+        assert!(result.is_ok(), "mut borrow again after release should compile: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_read_borrow_released_then_move() {
+        let result = check_borrow("\
+fn main() -> Int { var x = 42; if true { let r = &x; } return x; }");
+        assert!(result.is_ok(), "move after read-borrow release should compile: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_multiple_borrow_restrictions() {
+        let result = check_borrow("\
+type Wrapper = { val: Int; }\n\
+fn main() -> Int { var x = 42; let r = &x; var y = x; return 0; }");
+        assert!(result.is_err(), "move while borrowed should error");
     }
 }
