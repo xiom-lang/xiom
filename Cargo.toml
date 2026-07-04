@@ -1,16 +1,16 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/axiom-lexer",
-    "crates/axiom-ast",
-    "crates/axiom-parser",
-    "crates/axiom-check",
-    "crates/axiom-codegen",
-    "crates/axiomc",
-    "crates/axiom-fmt",
-    "crates/axiom-doc",
-    "crates/axiom-lsp",
-    "crates/axiom-pkg",
-    "crates/axiom-ffigen",
-    "crates/axiom-verify",
+    "crates/xiom-lexer",
+    "crates/xiom-ast",
+    "crates/xiom-parser",
+    "crates/xiom-check",
+    "crates/xiom-codegen",
+    "crates/xiomc",
+    "crates/xiom-fmt",
+    "crates/xiom-doc",
+    "crates/xiom-lsp",
+    "crates/xiom-pkg",
+    "crates/xiom-ffigen",
+    "crates/xiom-verify",
 ]

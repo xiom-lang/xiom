@@ -1,0 +1,19 @@
+[package]
+name = "xiomc"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "xiomc"
+path = "src/main.rs"
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
+
+[dependencies]
+xiom-lexer = { path = "../xiom-lexer" }
+xiom-parser = { path = "../xiom-parser" }
+xiom-ast = { path = "../xiom-ast" }
+xiom-check = { path = "../xiom-check" }
+xiom-codegen = { path = "../xiom-codegen" }
+xiom-verify = { path = "../xiom-verify" }

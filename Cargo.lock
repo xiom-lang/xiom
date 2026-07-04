@@ -3,110 +3,6 @@
 version = 4
 
 [[package]]
-name = "axiom-ast"
-version = "0.1.0"
-
-[[package]]
-name = "axiom-check"
-version = "0.1.0"
-dependencies = [
- "axiom-ast",
- "axiom-lexer",
- "axiom-parser",
- "insta",
-]
-
-[[package]]
-name = "axiom-codegen"
-version = "0.1.0"
-dependencies = [
- "axiom-ast",
- "axiom-lexer",
- "axiom-parser",
-]
-
-[[package]]
-name = "axiom-doc"
-version = "0.1.0"
-dependencies = [
- "axiom-ast",
- "axiom-lexer",
- "axiom-parser",
-]
-
-[[package]]
-name = "axiom-ffigen"
-version = "0.1.0"
-dependencies = [
- "serde_json",
-]
-
-[[package]]
-name = "axiom-fmt"
-version = "0.1.0"
-dependencies = [
- "axiom-ast",
- "axiom-lexer",
- "axiom-parser",
-]
-
-[[package]]
-name = "axiom-lexer"
-version = "0.1.0"
-dependencies = [
- "axiom-ast",
- "insta",
-]
-
-[[package]]
-name = "axiom-lsp"
-version = "0.1.0"
-dependencies = [
- "axiom-ast",
- "axiom-check",
- "axiom-lexer",
- "axiom-parser",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "axiom-parser"
-version = "0.1.0"
-dependencies = [
- "axiom-ast",
- "axiom-lexer",
- "insta",
-]
-
-[[package]]
-name = "axiom-pkg"
-version = "0.1.0"
-
-[[package]]
-name = "axiom-verify"
-version = "0.1.0"
-dependencies = [
- "axiom-ast",
- "axiom-check",
- "axiom-lexer",
- "axiom-parser",
-]
-
-[[package]]
-name = "axiomc"
-version = "0.1.0"
-dependencies = [
- "axiom-ast",
- "axiom-check",
- "axiom-codegen",
- "axiom-lexer",
- "axiom-parser",
- "axiom-verify",
- "winres",
-]
-
-[[package]]
 name = "bitflags"
 version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -352,6 +248,110 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b68db261ef59e9e52806f688020631e987592bd83619edccda9c47d42cde4f6c"
 dependencies = [
  "toml",
+]
+
+[[package]]
+name = "xiom-ast"
+version = "0.1.0"
+
+[[package]]
+name = "xiom-check"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "xiom-ast",
+ "xiom-lexer",
+ "xiom-parser",
+]
+
+[[package]]
+name = "xiom-codegen"
+version = "0.1.0"
+dependencies = [
+ "xiom-ast",
+ "xiom-lexer",
+ "xiom-parser",
+]
+
+[[package]]
+name = "xiom-doc"
+version = "0.1.0"
+dependencies = [
+ "xiom-ast",
+ "xiom-lexer",
+ "xiom-parser",
+]
+
+[[package]]
+name = "xiom-ffigen"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "xiom-fmt"
+version = "0.1.0"
+dependencies = [
+ "xiom-ast",
+ "xiom-lexer",
+ "xiom-parser",
+]
+
+[[package]]
+name = "xiom-lexer"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "xiom-ast",
+]
+
+[[package]]
+name = "xiom-lsp"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "xiom-ast",
+ "xiom-check",
+ "xiom-lexer",
+ "xiom-parser",
+]
+
+[[package]]
+name = "xiom-parser"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "xiom-ast",
+ "xiom-lexer",
+]
+
+[[package]]
+name = "xiom-pkg"
+version = "0.1.0"
+
+[[package]]
+name = "xiom-verify"
+version = "0.1.0"
+dependencies = [
+ "xiom-ast",
+ "xiom-check",
+ "xiom-lexer",
+ "xiom-parser",
+]
+
+[[package]]
+name = "xiomc"
+version = "0.1.0"
+dependencies = [
+ "winres",
+ "xiom-ast",
+ "xiom-check",
+ "xiom-codegen",
+ "xiom-lexer",
+ "xiom-parser",
+ "xiom-verify",
 ]
 
 [[package]]

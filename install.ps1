@@ -1,11 +1,11 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    AXIOM Compiler v0.11.0 Installer
+    XIOM Compiler v0.11.0 Installer
 .DESCRIPTION
-    Installs the AXIOM toolchain: axiomc, axiom fmt, axiom doc, axiom ffigen, axiom pkg, axiom lsp
+    Installs the XIOM toolchain: xiomc, xiom fmt, xiom doc, xiom ffigen, xiom pkg, xiom lsp
 .PARAMETER InstallDir
-    Installation directory (default: %LOCALAPPDATA%\axiom)
+    Installation directory (default: %LOCALAPPDATA%\xiom)
 .PARAMETER NoPath
     Skip adding to user PATH
 .PARAMETER Shortcut
@@ -30,8 +30,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$axiomVersion = "0.20.0"
-$axiomRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$xiomVersion = "0.20.0"
+$xiomRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # ============================================================================
 # Auto-install dependencies (only if building from source)
@@ -39,7 +39,7 @@ $axiomRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $BinaryPath) {
     Write-Host "Auto-installing missing dependencies..." -ForegroundColor Cyan
     Write-Host ""
-    $depsScript = Join-Path $axiomRoot "install_deps.ps1"
+    $depsScript = Join-Path $xiomRoot "install_deps.ps1"
     if (Test-Path $depsScript) {
         & $depsScript
         if ($LASTEXITCODE -ne 0) {
@@ -65,7 +65,7 @@ if (-not $BinaryPath) {
         Write-Host ""
         Write-Host "Critical dependencies missing — cannot build from source." -ForegroundColor Red
         Write-Host "Run: .\install_deps.ps1  to auto-install dependencies" -ForegroundColor Cyan
-        Write-Host "Or use pre-built binaries: .\install.ps1 -BinaryPath .\release\axiom" -ForegroundColor Cyan
+        Write-Host "Or use pre-built binaries: .\install.ps1 -BinaryPath .\release\xiom" -ForegroundColor Cyan
         exit 1
     }
     Write-Host ""
@@ -83,14 +83,14 @@ Write-Host " ██╔══██║ ██╔██╗ ██║██║   �
 Write-Host " ██║  ██║██╔╝ ██╗██║╚██████╔╝██║ ╚═╝ ██║" -ForegroundColor Magenta
 Write-Host " ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝ ╚═════╝ ╚═╝     ╚═╝" -ForegroundColor Magenta
 Write-Host ""
-Write-Host "  AXIOM Compiler v$axiomVersion" -ForegroundColor Cyan
+Write-Host "  XIOM Compiler v$xiomVersion" -ForegroundColor Cyan
 Write-Host "  Safe, Verified, Precise — Systems Programming" -ForegroundColor DarkGray
 Write-Host ""
 
 # ============================================================================
 # Installation directory
 # ============================================================================
-$defaultDir = "$env:LOCALAPPDATA\axiom"
+$defaultDir = "$env:LOCALAPPDATA\xiom"
 if ($Unattended -or $InstallDir) {
     $installDir = $InstallDir
     if ([string]::IsNullOrWhiteSpace($installDir)) {
@@ -114,16 +114,16 @@ if ($BinaryPath) {
     $releaseDir = $BinaryPath
 } else {
     Write-Host ""
-    Write-Host "Building AXIOM toolchain (release mode)..." -ForegroundColor Cyan
+    Write-Host "Building XIOM toolchain (release mode)..." -ForegroundColor Cyan
     Write-Host ""
 
-    Push-Location $axiomRoot
-    $tools = @("axiomc", "axiom-fmt", "axiom-doc", "axiom-ffigen", "axiom-pkg", "axiom-lsp")
+    Push-Location $xiomRoot
+    $tools = @("xiomc", "xiom-fmt", "xiom-doc", "xiom-ffigen", "xiom-pkg", "xiom-lsp")
     $built = 0
     $total = $tools.Count
 
     foreach ($tool in $tools) {
-        Write-Progress -Activity "Building AXIOM" -Status $tool -PercentComplete (($built / $total) * 100)
+        Write-Progress -Activity "Building XIOM" -Status $tool -PercentComplete (($built / $total) * 100)
         cmd /c "cargo build -p $tool --release >nul 2>nul"
         if ($LASTEXITCODE -ne 0) {
             Write-Host "ERROR: Failed to build $tool" -ForegroundColor Red
@@ -132,9 +132,9 @@ if ($BinaryPath) {
         }
         $built++
     }
-    Write-Progress -Activity "Building AXIOM" -Completed
+    Write-Progress -Activity "Building XIOM" -Completed
     Pop-Location
-    $releaseDir = "$axiomRoot\target\release"
+    $releaseDir = "$xiomRoot\target\release"
 }
 
 # ============================================================================
@@ -145,16 +145,16 @@ Write-Host "Installing to $installDir..." -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
 
 $files = @(
-    "axiomc.exe", "axiom-fmt.exe", "axiom-doc.exe",
-    "axiom-ffigen.exe", "axiom-pkg.exe", "axiom-lsp.exe"
+    "xiomc.exe", "xiom-fmt.exe", "xiom-doc.exe",
+    "xiom-ffigen.exe", "xiom-pkg.exe", "xiom-lsp.exe"
 )
 foreach ($file in $files) {
     Copy-Item "$releaseDir\$file" "$binDir\$file" -Force
     $tag = if ($BinaryPath) { " (pre-built)" } else { "" }
     Write-Host "  + $file$tag" -ForegroundColor DarkGray
 }
-Copy-Item "$axiomRoot\axiom.bat" "$binDir\axiom.bat" -Force
-Copy-Item "$axiomRoot\resource\img\axiom-icon.ico" "$binDir\axiom-icon.ico" -Force
+Copy-Item "$xiomRoot\xiom.bat" "$binDir\xiom.bat" -Force
+Copy-Item "$xiomRoot\resource\img\xiom-icon.ico" "$binDir\xiom-icon.ico" -Force
 
 # ============================================================================
 # PATH (User or System)
@@ -199,38 +199,38 @@ if ($Unattended) {
 }
 if ($createShortcut -eq "y" -or $createShortcut -eq "Y") {
     $WshShell = New-Object -ComObject WScript.Shell
-    $Shortcut = $WshShell.CreateShortcut("$env:USERPROFILE\Desktop\AXIOM CLI.lnk")
+    $Shortcut = $WshShell.CreateShortcut("$env:USERPROFILE\Desktop\XIOM CLI.lnk")
     $Shortcut.TargetPath = "cmd.exe"
-    $Shortcut.Arguments = "/k `"$binDir\axiom.bat`" --help"
+    $Shortcut.Arguments = "/k `"$binDir\xiom.bat`" --help"
     $Shortcut.WorkingDirectory = $env:USERPROFILE
-    $Shortcut.IconLocation = "$binDir\axiomc.exe,0"
+    $Shortcut.IconLocation = "$binDir\xiomc.exe,0"
     $Shortcut.Save()
     Write-Host "  Desktop shortcut created." -ForegroundColor Green
 }
 
 # ============================================================================
-# .ax file association (Windows)
+# .xi file association (Windows)
 # ============================================================================
 if ($Unattended) {
     $registerExt = if ($RegisterExt) { "y" } else { "n" }
 } else {
     Write-Host ""
-    Write-Host "Register .ax files with AXIOM icon? (admin required) [y/N]:" -ForegroundColor Yellow -NoNewline
+    Write-Host "Register .xi files with XIOM icon? (admin required) [y/N]:" -ForegroundColor Yellow -NoNewline
     $registerExt = Read-Host
 }
 if ($registerExt -eq "y" -or $registerExt -eq "Y") {
     try {
-        $regPath = "HKCU:\Software\Classes\.ax"
+        $regPath = "HKCU:\Software\Classes\.xi"
         New-Item -Path $regPath -Force | Out-Null
-        Set-ItemProperty -Path $regPath -Name "(Default)" -Value "AXIOM.Source" -Type String
-        New-Item -Path "HKCU:\Software\Classes\AXIOM.Source" -Force | Out-Null
-        Set-ItemProperty -Path "HKCU:\Software\Classes\AXIOM.Source" -Name "(Default)" -Value "AXIOM Source File" -Type String
-        New-Item -Path "HKCU:\Software\Classes\AXIOM.Source\DefaultIcon" -Force | Out-Null
-        Set-ItemProperty -Path "HKCU:\Software\Classes\AXIOM.Source\DefaultIcon" -Name "(Default)" -Value "$binDir\axiom-icon.ico" -Type String
-        Write-Host "  .ax files now show AXIOM icon in Explorer." -ForegroundColor Green
+        Set-ItemProperty -Path $regPath -Name "(Default)" -Value "XIOM.Source" -Type String
+        New-Item -Path "HKCU:\Software\Classes\XIOM.Source" -Force | Out-Null
+        Set-ItemProperty -Path "HKCU:\Software\Classes\XIOM.Source" -Name "(Default)" -Value "XIOM Source File" -Type String
+        New-Item -Path "HKCU:\Software\Classes\XIOM.Source\DefaultIcon" -Force | Out-Null
+        Set-ItemProperty -Path "HKCU:\Software\Classes\XIOM.Source\DefaultIcon" -Name "(Default)" -Value "$binDir\xiom-icon.ico" -Type String
+        Write-Host "  .xi files now show XIOM icon in Explorer." -ForegroundColor Green
         Write-Host "  (Registered under HKCU — no admin required, current user only)" -ForegroundColor DarkGray
     } catch {
-        Write-Host "  Could not register .ax file association: $_" -ForegroundColor Yellow
+        Write-Host "  Could not register .xi file association: $_" -ForegroundColor Yellow
     }
 }
 
@@ -239,18 +239,18 @@ if ($registerExt -eq "y" -or $registerExt -eq "Y") {
 # ============================================================================
 $uninstaller = @"
 @echo off
-echo AXIOM Uninstaller v$axiomVersion
+echo XIOM Uninstaller v$xiomVersion
 echo.
-echo This will remove AXIOM from: $installDir
+echo This will remove XIOM from: $installDir
 echo.
 set /p confirm="Continue? [y/N]: "
 if /i not "%confirm%"=="y" exit /b
 rmdir /s /q "$installDir"
-reg delete "HKCU\Software\Classes\.ax" /f >nul 2>nul
-reg delete "HKCU\Software\Classes\AXIOM.Source" /f >nul 2>nul
-echo AXIOM has been removed.
+reg delete "HKCU\Software\Classes\.xi" /f >nul 2>nul
+reg delete "HKCU\Software\Classes\XIOM.Source" /f >nul 2>nul
+echo XIOM has been removed.
 echo.
-echo NOTE: You may need to manually remove AXIOM from your system PATH.
+echo NOTE: You may need to manually remove XIOM from your system PATH.
 echo   Settings ^> System ^> About ^> Advanced system settings ^> Environment Variables
 pause
 "@
@@ -263,18 +263,18 @@ Write-Host ""
 Write-Host "Installing standard library..." -ForegroundColor Cyan
 $libDir = "$installDir\lib"
 New-Item -ItemType Directory -Force -Path $libDir | Out-Null
-Copy-Item "$axiomRoot\stdlib\*" "$libDir\" -Recurse -Force
+Copy-Item "$xiomRoot\stdlib\*" "$libDir\" -Recurse -Force
 Write-Host "  + stdlib -> $libDir" -ForegroundColor DarkGray
 
 # Runtime
 $rtDir = "$installDir\runtime"
 New-Item -ItemType Directory -Force -Path $rtDir | Out-Null
-Copy-Item "$axiomRoot\stdlib\runtime\*" "$rtDir\" -Force
+Copy-Item "$xiomRoot\stdlib\runtime\*" "$rtDir\" -Force
 Write-Host "  + runtime -> $rtDir" -ForegroundColor DarkGray
 
 # Documentation (optional)
 $docsDir = "$installDir\docs"
-if (Test-Path "$axiomRoot\docs\language\html") {
+if (Test-Path "$xiomRoot\docs\language\html") {
     if ($Unattended) {
         $installDocs = "y"
     } else {
@@ -284,7 +284,7 @@ if (Test-Path "$axiomRoot\docs\language\html") {
     }
     if ($installDocs -ne "n" -and $installDocs -ne "N") {
         New-Item -ItemType Directory -Force -Path $docsDir | Out-Null
-        Copy-Item "$axiomRoot\docs\language\html\*" "$docsDir\" -Recurse -Force
+        Copy-Item "$xiomRoot\docs\language\html\*" "$docsDir\" -Recurse -Force
         Write-Host "  + docs -> $docsDir" -ForegroundColor DarkGray
         Write-Host "    (Open $docsDir\index.html in your browser)" -ForegroundColor DarkGray
     }
@@ -295,12 +295,12 @@ if (Test-Path "$axiomRoot\docs\language\html") {
 # ============================================================================
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Green
-Write-Host "  AXIOM v$axiomVersion installed successfully!" -ForegroundColor Green
+Write-Host "  XIOM v$xiomVersion installed successfully!" -ForegroundColor Green
 Write-Host "============================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Restart your terminal, then try:" -ForegroundColor White
-Write-Host "    axiom --help" -ForegroundColor Cyan
-Write-Host "    axiom compile hello.ax" -ForegroundColor Cyan
+Write-Host "    xiom --help" -ForegroundColor Cyan
+Write-Host "    xiom compile hello.xi" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Uninstall:" -ForegroundColor DarkGray
 Write-Host "    $binDir\uninstall.bat" -ForegroundColor DarkGray

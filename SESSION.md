@@ -1,4 +1,4 @@
-# AXIOM — Session Handoff: v0.22.1 "Hardened"
+# XIOM — Session Handoff: v0.22.1 "Hardened"
 
 **Date:** 2026-07-03  
 **Branch:** `feat/ecosystem`  
@@ -6,21 +6,21 @@
 
 ---
 
-## Next Session: Rebranding AXIOM → XIOM
+## Next Session: Rebranding XIOM → XIOM
 
 ### Why
 
-AXIOM is a trademarked name and `.ax` is used by other tools. Full rebranding is needed before public release.
+XIOM is a trademarked name and `.xi` is used by other tools. Full rebranding is needed before public release.
 
 ### Target Names
 
 | Old | New |
 |-----|-----|
-| Language: **AXIOM** | **XIOM** |
-| Source files: `.ax` | `.xi` |
-| Bytecode: `.axbc` | `.xibc` |
-| Compiler: `axiomc` | `xiomc` |
-| Crate prefix: `axiom-*` | `xiom-*` |
+| Language: **XIOM** | **XIOM** |
+| Source files: `.xi` | `.xi` |
+| Bytecode: `.xibc` | `.xibc` |
+| Compiler: `xiomc` | `xiomc` |
+| Crate prefix: `xiom-*` | `xiom-*` |
 | Config: `kilo.jsonc` → unchanged | Project name doesn't need renaming |
 
 ### Rebranding Difficulty Assessment (Updated — Full Scope)
@@ -29,31 +29,31 @@ AXIOM is a trademarked name and `.ax` is used by other tools. Full rebranding is
 
 | Layer | Files | Effort | Risk |
 |-------|-------|--------|------|
-| **Source files** (.ax → .xi) | ~35 example/benchmark/spec files | Low — batch rename | Low |
-| **Module declarations** (in .ax files) | `module a.b.c` stays the same — only file extension changes | None | None |
+| **Source files** (.xi → .xi) | ~35 example/benchmark/spec files | Low — batch rename | Low |
+| **Module declarations** (in .xi files) | `module a.b.c` stays the same — only file extension changes | None | None |
 | **Crate names** (Cargo.toml) | 7 `Cargo.toml` files | Low — string replace | Medium |
-| **Rust source** (`axiom_*` → `xiom_*`) | ~15 .rs files | Medium — crate refs, use statements, strings | Medium |
+| **Rust source** (`xiom_*` → `xiom_*`) | ~15 .rs files | Medium — crate refs, use statements, strings | Medium |
 | **Docs** (COMPILER_VERSIONS.md, etc.) | ~15 .md files | Low — find/replace | Low |
-| **Specs** (AXIOM_*.md → XIOM_*.md) | 9 files | Low — rename + content | Low |
-| **Website** (all HTML/CSS/JS) | **12 HTML + 1 CSS + images + playground** | Medium — every page has AXIOM in title, nav, headers, code samples, footer | Medium |
-| **Grammar** (axiom.tmLanguage.json → xiom.tmLanguage.json) | 1 file + scopeName | Low | Low |
-| **C runtime** (axiom_runtime.c) | 1 file | Low | Low |
+| **Specs** (XIOM_*.md → XIOM_*.md) | 9 files | Low — rename + content | Low |
+| **Website** (all HTML/CSS/JS) | **12 HTML + 1 CSS + images + playground** | Medium — every page has XIOM in title, nav, headers, code samples, footer | Medium |
+| **Grammar** (xiom.tmLanguage.json → xiom.tmLanguage.json) | 1 file + scopeName | Low | Low |
+| **C runtime** (xiom_runtime.c) | 1 file | Low | Low |
 | **Build/install scripts** | 5 scripts (install.ps1, install.sh, install_deps.ps1, install_deps.sh, install.bat) | Low — PATH references, binary names | Low |
-| **Website content** | index.html, axiom-landing.html, spec.html, docs.html, download.html, ecosystem.html, versions.html, AI_CONTEXT.html, style.css, playground/ | Medium — ~150 "AXIOM" references across all pages | Low |
+| **Website content** | index.html, xiom-landing.html, spec.html, docs.html, download.html, ecosystem.html, versions.html, AI_CONTEXT.html, style.css, playground/ | Medium — ~150 "XIOM" references across all pages | Low |
 | **VS Code extension** | grammar, snippets, config | Low | Low |
 | **kilo.jsonc** | No changes needed | None | None |
 | **Total** | **~250 files** | **3-4 hour session** | **Low-Medium** |
 
 ### Website Files to Update
 
-| File | AXIOM Refs | What Changes |
+| File | XIOM Refs | What Changes |
 |------|-----------|--------------|
 | `index.html` | 25+ | Title, logo text, nav, hero, pillars, code samples, footer |
-| `axiom-landing.html` | 30+ | Title, nav, hero, proof panel filename, pillars, footer |
+| `xiom-landing.html` | 30+ | Title, nav, hero, proof panel filename, pillars, footer |
 | `spec.html` | 40+ | Title, nav, type names in code samples, comparison table |
 | `docs.html` | 5+ | Redirect, title, nav |
 | `download.html` | 20+ | Title, nav, CLI commands, binary names, paths |
-| `ecosystem.html` | 35+ | Title, nav, package names (axiom-http → xiom-http, etc.) |
+| `ecosystem.html` | 35+ | Title, nav, package names (xiom-http → xiom-http, etc.) |
 | `versions.html` | 15+ | Title, nav, version rows |
 | `AI_CONTEXT.html` | 50+ | Every code sample, type reference, keyword |
 | `style.css` | 2 | Title in CSS comment |
@@ -64,11 +64,11 @@ AXIOM is a trademarked name and `.ax` is used by other tools. Full rebranding is
 
 | File | What Changes |
 |------|-------------|
-| `install.ps1` | Binary name `axiomc.exe` → `xiomc.exe`, PATH additions, icon references |
+| `install.ps1` | Binary name `xiomc.exe` → `xiomc.exe`, PATH additions, icon references |
 | `install.sh` | Same — Unix paths, binary names |
 | `install_deps.ps1` | Tool references (likely unchanged — installs Rust/LLVM) |
 | `install_deps.sh` | Same |
-| `release/axiom-v0.20.0/install.bat` | Binary name, PATH |
+| `release/xiom-v0.20.0/install.bat` | Binary name, PATH |
 | `package.ps1` | Archive names, binary references |
 | `Cargo.toml` (root) | Workspace member names |
 | `.vscode/` | Extension config, task names |
@@ -89,20 +89,20 @@ The v0.9.x–v0.11.x self-hosting MVP worked — concept proven. But pursuing se
 
 1. **Phase 2 (now):** Harden Rust compiler — performance, warnings, benchmarks, multi-file, hot reload
 2. **Phase 3 (next):** Z3 static verification, debugger (DAP), LSP, CLI toolchain, visual benchmarks
-3. **Phase 4 (final):** Self-hosting — bootstrap AXIOM compiler in AXIOM, byte-for-byte verified
+3. **Phase 4 (final):** Self-hosting — bootstrap XIOM compiler in XIOM, byte-for-byte verified
 4. **Ecosystem (after):** Showcase projects (AxiomDB, AxiomVDB), package registry
 
 The Rust compiler is the PERMANENT bootstrap fallback — never deleted.
 
-See `docs/COMPILER_IMPROVEMENT_PLAN.md` for the detailed roadmap and `specs/AXIOM_Build_Strategy.md` for the decision log.
+See `docs/COMPILER_IMPROVEMENT_PLAN.md` for the detailed roadmap, `docs/XIOM_DISTRIBUTION_SPEC.md` for the distribution + installer specification, and `specs/XIOM_Build_Strategy.md` for the decision log.
 
 ---
 
 ## What Was Accomplished This Session
 
-### Branch 1: Multi-File Module Catalog (`axiom-check` + `axiomc`)
+### Branch 1: Multi-File Module Catalog (`xiom-check` + `xiomc`)
 
-- **`ModuleCatalog`** struct: lazy-loading cache of `.ax` files from `source_dirs`. Files are parsed + cached on first reference (no eager scanning).
+- **`ModuleCatalog`** struct: lazy-loading cache of `.xi` files from `source_dirs`. Files are parsed + cached on first reference (no eager scanning).
 - **`CachedModule`**: stores parsed AST, type registry, function registry, export map, enum variants, variant fields.
 - **`find_by_module_name()` / `find_submodule()`**: filesystem-aware lookups with auto-load.
 - **`register_all_types_into()`**: bulk-registers catalog entries into a Checker.
@@ -111,7 +111,7 @@ See `docs/COMPILER_IMPROVEMENT_PLAN.md` for the detailed roadmap and `specs/AXIO
 - **Injection gate** (`main.rs`): deduplicated type-only injection before codegen. Functions filtered out (bodies handled by codegen's own `register_functions`).
 - **Resolve flow**: `resolve_imports` → `process_use` → catalog → lazy-load → register types/fns → inject AST stubs → codegen.
 
-### Branch 2: Codegen Hardening (~20 fixes in `axiom-codegen`)
+### Branch 2: Codegen Hardening (~20 fixes in `xiom-codegen`)
 
 **Structural fixes:**
 | # | Fix | Error resolved |
@@ -145,10 +145,10 @@ See `docs/COMPILER_IMPROVEMENT_PLAN.md` for the detailed roadmap and `specs/AXIO
 |--------|-------|
 | **Axiom-check tests** | **44/44 pass** |
 | **Axiom-codegen tests** | **139/139 pass** (diff + e2e + full_diff + integration) |
-| **benchmark_safe.ax** | Compiles + runs, exit 34 |
-| **benchmark_stress.ax** | Compiles via `--emit-llvm`; `--run` has 1 pre-existing issue (tuple return in `partition()`) |
-| **bench_math.ax** (multi-file) | Resolves `use benchmark.main.BenchResult` via ModuleCatalog; IR has correct `BenchResult` type |
-| **test_mod/math.ax** (multi-file) | Compiles + runs, exit 34 |
+| **benchmark_safe.xi** | Compiles + runs, exit 34 |
+| **benchmark_stress.xi** | Compiles via `--emit-llvm`; `--run` has 1 pre-existing issue (tuple return in `partition()`) |
+| **bench_math.xi** (multi-file) | Resolves `use benchmark.main.BenchResult` via ModuleCatalog; IR has correct `BenchResult` type |
+| **test_mod/math.xi** (multi-file) | Compiles + runs, exit 34 |
 | **Multi-file resolution** | ModuleCatalog works for lazy file loading and `collect_external_decls` injection |
 
 ### Remaining: 1 Pre-Existing Codegen Issue
@@ -165,27 +165,27 @@ Tuples are parsed and type-checked but codegen lacks tuple struct type emission 
 ## Testing Commands
 
 ```powershell
-cd E:\Projects\AXIOM
+cd E:\Projects\XIOM
 
 # Full test suite
-cargo test -p axiom-check          # 44 tests
-cargo test -p axiom-codegen        # 139 tests
+cargo test -p xiom-check          # 44 tests
+cargo test -p xiom-codegen        # 139 tests
 cargo test                          # all tests
 
 # Safe benchmark (always works)
-cargo run -p axiomc -- --run examples\benchmark_safe.ax
+cargo run -p xiomc -- --run examples\benchmark_safe.xi
 # Expected: compiled: a.exe, exit code: 34
 
 # Stress benchmark (1 remaining pre-existing tuple return issue)
-cargo run -p axiomc -- --emit-llvm examples\benchmark_stress.ax 2>$null | Out-String | Set-Content a.exe.ll -NoNewline
+cargo run -p xiomc -- --emit-llvm examples\benchmark_stress.xi 2>$null | Out-String | Set-Content a.exe.ll -NoNewline
 & "C:\Program Files\LLVM\bin\clang.exe" -o a.exe a.exe.ll 2>&1
 # If OK: .\a.exe ; echo "EXIT: $LASTEXITCODE"
 
 # Multi-file test
-cargo run -p axiomc -- --run examples\test_mod\math.ax
+cargo run -p xiomc -- --run examples\test_mod\math.xi
 
 # Individual benchmark with multi-file resolution
-cargo run -p axiomc -- --run examples\benchmark\bench_math.ax
+cargo run -p xiomc -- --run examples\benchmark\bench_math.xi
 ```
 
 ---
@@ -195,7 +195,7 @@ cargo run -p axiomc -- --run examples\benchmark\bench_math.ax
 ```
 File B: `use fileA.Type`
   → process_use → catalog.find_by_module_name("fileA")
-  → lazy-load + parse + cache fileA.ax
+  → lazy-load + parse + cache fileA.xi
   → register types/functions into checker
   → collect_external_decls → create AST stubs
   → inject into program.items before codegen

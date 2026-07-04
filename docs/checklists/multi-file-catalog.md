@@ -1,14 +1,14 @@
-# AXIOM — Checklist: Multi-File Module Catalog
+# XIOM — Checklist: Multi-File Module Catalog
 
 **Branch:** `feat/ecosystem`
 **Date:** 2026-07-03
 
 > Step-by-step execution checklist. Mark `- [x]` when a step is verified green.
 
-## Wave 1 — axiom-check catalog
+## Wave 1 — xiom-check catalog
 
 ### 1.1 Add to_ast_type on CheckedType
-- [x] Add `CheckedType::to_ast_type(&self) -> Type` method in `crates/axiom-check/src/lib.rs`
+- [x] Add `CheckedType::to_ast_type(&self) -> Type` method in `crates/xiom-check/src/lib.rs`
   that converts back to AST `Type` for codegen consumption. Map primitives to `Type::Named`,
   `Named` to `Type::Named`, `Generic` to `Type::Named`, `Fn` to `Type::Fn`, `Unit` to `Type::Named("()")`.
 
@@ -23,9 +23,9 @@
 - [x] Implement `ModuleCatalog::new(source_dirs)`, `add_source_dir`, `find_owned(&mut self, dotted_path: &[String]) -> Option<CachedModule>`.
 
 ### 1.4 Multi-segment path loading
-- [x] `find_owned` walks `source_dirs` for `<dir>/<p0>/<p1>/.../<pn>.ax` (path-based). Falls back to
-  scanning `source_dirs` for any `.ax` file whose declared module matches the dotted path (scan-based
-  for files like `test_mod/main.ax` that declare `module benchmark.main` but aren't nested in a
+- [x] `find_owned` walks `source_dirs` for `<dir>/<p0>/<p1>/.../<pn>.xi` (path-based). Falls back to
+  scanning `source_dirs` for any `.xi` file whose declared module matches the dotted path (scan-based
+  for files like `test_mod/main.xi` that declare `module benchmark.main` but aren't nested in a
   `benchmark/` directory). Parses once, caches.
 
 ### 1.5 Wire catalog into Checker
@@ -56,13 +56,13 @@
   - Functions get empty bodies (stubs for codegen to resolve symbols).
 
 ### 1.8 Verify checker
-- [ ] `cargo test -p axiom-check` — 44/44.
-- [ ] `cargo test -p axiom-codegen` — 139/139 (post v10 flake fix).
+- [ ] `cargo test -p xiom-check` — 44/44.
+- [ ] `cargo test -p xiom-codegen` — 139/139 (post v10 flake fix).
 
-## Wave 1 — axiomc wiring
+## Wave 1 — xiomc wiring
 
 ### 1.9 Auto-add source directories
-- [x] Replace direct `checker.source_dirs.push()` in `crates/axiomc/src/main.rs` with
+- [x] Replace direct `checker.source_dirs.push()` in `crates/xiomc/src/main.rs` with
   `checker.add_source_dir()` calls for:
   - Parent directory of the primary source file.
   - Project `examples/` root (derived from `CARGO_MANIFEST_DIR` → parent → parent → join("examples")).
@@ -73,9 +73,9 @@
 - [x] Keep the `is_multi_file` soft-error gate logic unchanged.
 
 ### 1.11 Verify examples
-- [ ] `cargo run -p axiomc -- --run examples\test_mod\math.ax` → exit 34.
-- [ ] `cargo run -p axiomc -- --run examples\benchmark\bench_math.ax` → compiles and runs.
-- [ ] `cargo run -p axiomc -- --run examples\benchmark\main.ax` → compiles and runs.
+- [ ] `cargo run -p xiomc -- --run examples\test_mod\math.xi` → exit 34.
+- [ ] `cargo run -p xiomc -- --run examples\benchmark\bench_math.xi` → compiles and runs.
+- [ ] `cargo run -p xiomc -- --run examples\benchmark\main.xi` → compiles and runs.
 
 ## Wave 2 — Codegen visibility
 
@@ -88,38 +88,38 @@
   external modules have proper LLVM type tags (not defaulted to `i64`).
 
 ### 2.2 Verify codegen
-- [ ] `cargo test -p axiom-codegen` — all 139 pass.
-- [ ] `cargo run -p axiomc -- --run examples\test_mod\math.ax` — exit 34.
+- [ ] `cargo test -p xiom-codegen` — all 139 pass.
+- [ ] `cargo run -p xiomc -- --run examples\test_mod\math.xi` — exit 34.
 
 ## Wave 3 — Stability + cleanup
 
 ### 3.1 Isolate v10 selfhost tests
 - [x] Unique output filenames: `e2e_v10_self_compile.exe` vs `e2e_v10_self_bootstrap_src.exe`.
-  File: `crates/axiom-codegen/tests/e2e_tests.rs`.
+  File: `crates/xiom-codegen/tests/e2e_tests.rs`.
 
 ### 3.2 Clean compiler warnings (9 total)
-- [ ] `axiom-codegen/src/lib.rs`: prefix `fields` (lines 1097, 1299) and `cond`/`elifs` (line 3551) with `_`.
-- [ ] `axiom-check/src/lib.rs`: prefix `name` (line 324) and `method_key` (line 590) with `_`.
-- [ ] `axiom-check/src/lib.rs`: remove unreachable `_ => return` arms at lines 384 and 392
+- [ ] `xiom-codegen/src/lib.rs`: prefix `fields` (lines 1097, 1299) and `cond`/`elifs` (line 3551) with `_`.
+- [ ] `xiom-check/src/lib.rs`: prefix `name` (line 324) and `method_key` (line 590) with `_`.
+- [ ] `xiom-check/src/lib.rs`: remove unreachable `_ => return` arms at lines 384 and 392
   (all `DeriveTrait` variants are covered).
-- [ ] `axiom-check/src/lib.rs`: wire `load_external_module_path` (remove `#[warn(dead_code)]`),
+- [ ] `xiom-check/src/lib.rs`: wire `load_external_module_path` (remove `#[warn(dead_code)]`),
   OR delete it if unused after Wave 1.
 - [ ] `full_diff_tests.rs` line 163: fix `rust_fns >= $min_fns` / `sh_fns >= $min_fns` useless
   comparison warnings (caused by `min_fns = 0` in `diff_error` macro expansion).
 
 ### 3.3 Final verification
 - [ ] `cargo test` (full workspace) — green except pre-known tuple-return issue.
-- [ ] No warnings from `cargo build` on axiom-check and axiom-codegen.
+- [ ] No warnings from `cargo build` on xiom-check and xiom-codegen.
 
 ## Wave 4 — Regression + docs
 
 ### 4.1 E2E regression tests
-- [ ] Add test `e2e_testmod_math_runs` in `crates/axiom-codegen/tests/e2e_tests.rs`: compiles
-  and runs `examples/test_mod/math.ax`, asserts exit code 34.
-- [ ] Add test `e2e_benchmark_bench_math_compiles`: compiles `examples/benchmark/bench_math.ax`
+- [ ] Add test `e2e_testmod_math_runs` in `crates/xiom-codegen/tests/e2e_tests.rs`: compiles
+  and runs `examples/test_mod/math.xi`, asserts exit code 34.
+- [ ] Add test `e2e_benchmark_bench_math_compiles`: compiles `examples/benchmark/bench_math.xi`
   (assert success, no run requirement yet until linking is solid).
 - [ ] Add test `e2e_benchmark_main_compiles` (ignore by default until all 24 submodules link):
-  compiles `examples/benchmark/main.ax`.
+  compiles `examples/benchmark/main.xi`.
 
 ### 4.2 Update SESSION.md
 - [ ] Replace the inaccurate "multi-file catalog built" claim with accurate status reflecting

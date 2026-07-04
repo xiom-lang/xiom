@@ -1,4 +1,4 @@
-// AXIOM — Data Processing Benchmark
+// XIOM — Data Processing Benchmark
 // Imports all data modules and verifies them, then runs analytics.
 // This module stresses the compiler's ability to handle large static data,
 // cross-module imports, and data-oriented processing patterns.

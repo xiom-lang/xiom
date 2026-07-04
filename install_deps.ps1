@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    AXIOM Dependency Auto-Installer -- Windows
+    XIOM Dependency Auto-Installer -- Windows
 .DESCRIPTION
     Detects OS, checks for required build/runtime dependencies,
     and auto-installs any that are missing using winget, choco, or direct download.
@@ -74,7 +74,7 @@ function Update-SessionPath {
 # ============================================================================
 Clear-Host
 Write-Host ""
-Write-Host "  AXIOM Dependency Installer (Windows)" -ForegroundColor Magenta
+Write-Host "  XIOM Dependency Installer (Windows)" -ForegroundColor Magenta
 Write-Host "  --------------------------------------" -ForegroundColor Magenta
 Write-Host ""
 Write-Host "  Detecting package managers..." -ForegroundColor Cyan
@@ -210,7 +210,7 @@ if (Test-Command "clang") {
             Write-Fail "Could not install LLVM/clang."
             Write-Info "  Manual install: https://github.com/llvm/llvm-project/releases"
             Write-Info "  NOTE: Without clang, the compiler emits .ll IR files but cannot link native binaries."
-            Write-Info "  The compiler itself (axiomc) does not require clang to run."
+            Write-Info "  The compiler itself (xiomc) does not require clang to run."
             $script:failedCount++
         }
     }
@@ -232,14 +232,14 @@ if (Test-Command "clang") {
 }
 
 # ============================================================================
-# 3. C Headers & Windows SDK (stdio.h -- needed by clang to compile axiom_runtime.c)
+# 3. C Headers & Windows SDK (stdio.h -- needed by clang to compile xiom_runtime.c)
 # ============================================================================
 Write-Header "3. C/C++ Headers + Windows SDK (stdio.h, stdlib.h)"
 
 # Test if clang can actually compile a trivial C program (verifies headers exist)
 $clangCanCompile = $false
 if (Test-Command "clang") {
-    $testDir = "$env:TEMP\axiom_clang_test"
+    $testDir = "$env:TEMP\xiom_clang_test"
     New-Item -ItemType Directory -Force -Path $testDir | Out-Null
     "#include <stdio.h>`nint main() { return 0; }" | Out-File -FilePath "$testDir\test.c" -Encoding ASCII
     $savedErrorAction = $ErrorActionPreference
@@ -292,7 +292,7 @@ if ($clangCanCompile) {
         Write-Info "    Then: pacman -S mingw-w64-ucrt-x86_64-gcc"
         Write-Info ""
         Write-Info "  After installing, RESTART your terminal and re-run this script."
-        Write-Info "  NOTE: This is needed because axiom_runtime.c uses stdio."
+        Write-Info "  NOTE: This is needed because xiom_runtime.c uses stdio."
         Write-Info "  The compiler emits valid LLVM IR without C headers."
         Write-Info "  Only native binary linking requires them."
         $script:failedCount++
@@ -315,7 +315,7 @@ if (Test-Command "git") {
     Write-Ok "already installed -- $ver"
     $script:skippedCount++
 } else {
-    Write-Info "Git not found -- optional, only needed for 'axiom pkg install'"
+    Write-Info "Git not found -- optional, only needed for 'xiom pkg install'"
     if ($hasWinget) {
         Invoke-WingetInstall "Git.Git" "Git" | Out-Null
     }
@@ -339,7 +339,7 @@ if ($script:installedCount -gt 0) {
     Write-Host "  Close and reopen PowerShell for PATH changes to take effect." -ForegroundColor Yellow
     Write-Host "  Then run: .\install.ps1" -ForegroundColor White
 } elseif ($script:failedCount -eq 0) {
-    Write-Host "  All dependencies present. Ready to install AXIOM:" -ForegroundColor Green
+    Write-Host "  All dependencies present. Ready to install XIOM:" -ForegroundColor Green
     Write-Host "  Run: .\install.ps1" -ForegroundColor White
 } else {
     Write-Host "  Some dependencies could not be installed automatically." -ForegroundColor Red

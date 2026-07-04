@@ -1,0 +1,11 @@
+[package]
+name = "xiom-parser"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+xiom-lexer = { path = "../xiom-lexer" }
+xiom-ast = { path = "../xiom-ast" }
+
+[dev-dependencies]
+insta = { version = "1", features = ["yaml"] }

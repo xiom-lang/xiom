@@ -4,10 +4,10 @@ const { spawn } = require('child_process');
 let client;
 
 function activate(context) {
-  console.log('AXIOM extension activated');
+  console.log('XIOM extension activated');
   client = new LspClient(context);
   client.start().catch(() => {
-    console.log('AXIOM LSP not available — syntax highlighting only');
+    console.log('XIOM LSP not available — syntax highlighting only');
   });
 }
 
@@ -24,12 +24,12 @@ class LspClient {
     this.buffer = '';
     this.nextId = 1;
     this.pending = new Map();
-    this.diagCollection = vscode.languages.createDiagnosticCollection('axiom');
+    this.diagCollection = vscode.languages.createDiagnosticCollection('xiom');
     this.initialized = false;
   }
 
   async start() {
-    const config = vscode.workspace.getConfiguration('axiom');
+    const config = vscode.workspace.getConfiguration('xiom');
     let lspPath = config.get('lsp.path') || '';
 
     // Resolve workspace root for relative path lookups
@@ -40,7 +40,7 @@ class LspClient {
 
     if (!lspPath) {
       const candidates = [];
-      const names = ['axiom-lsp', 'axiom-lsp.exe'];
+      const names = ['xiom-lsp', 'xiom-lsp.exe'];
       // Try workspace-root-relative paths first
       if (rootFolder) {
         for (const name of names) {
@@ -55,8 +55,8 @@ class LspClient {
         }
       }
       // Try PATH
-      candidates.push(vscode.Uri.file('axiom-lsp'));
-      candidates.push(vscode.Uri.file('axiom-lsp.exe'));
+      candidates.push(vscode.Uri.file('xiom-lsp'));
+      candidates.push(vscode.Uri.file('xiom-lsp.exe'));
 
       for (const uri of candidates) {
         try {
@@ -69,7 +69,7 @@ class LspClient {
 
     if (!lspPath) {
       vscode.window.showInformationMessage(
-        'AXIOM LSP not found. Build it with: cargo build -p axiom-lsp\nSyntax highlighting is still active. Auto-completion and go-to-definition will be unavailable.'
+        'XIOM LSP not found. Build it with: cargo build -p xiom-lsp\nSyntax highlighting is still active. Auto-completion and go-to-definition will be unavailable.'
       );
       // Register providers anyway so they show "LSP not found" hints
       this._registerProviders();
@@ -204,11 +204,11 @@ class LspClient {
 
     this._sendNotification('initialized', {});
     this.initialized = true;
-    console.log('AXIOM LSP initialized');
+    console.log('XIOM LSP initialized');
   }
 
   _registerProviders() {
-    const selector = { language: 'axiom', scheme: 'file' };
+    const selector = { language: 'xiom', scheme: 'file' };
 
     this.context.subscriptions.push(
       vscode.languages.registerCompletionItemProvider(selector, {
@@ -304,11 +304,11 @@ class LspClient {
   _registerDocumentListeners() {
     this.context.subscriptions.push(
       vscode.workspace.onDidOpenTextDocument((doc) => {
-        if (doc.languageId !== 'axiom' || !this.server) return;
+        if (doc.languageId !== 'xiom' || !this.server) return;
         this._sendNotification('textDocument/didOpen', {
           textDocument: {
             uri: doc.uri.toString(),
-            languageId: 'axiom',
+            languageId: 'xiom',
             version: 1,
             text: doc.getText()
           }
@@ -318,7 +318,7 @@ class LspClient {
 
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeTextDocument((e) => {
-        if (e.document.languageId !== 'axiom' || !this.server) return;
+        if (e.document.languageId !== 'xiom' || !this.server) return;
         this._sendNotification('textDocument/didChange', {
           textDocument: {
             uri: e.document.uri.toString(),
@@ -333,20 +333,20 @@ class LspClient {
 
     this.context.subscriptions.push(
       vscode.workspace.onDidCloseTextDocument((doc) => {
-        if (doc.languageId !== 'axiom' || !this.server) return;
+        if (doc.languageId !== 'xiom' || !this.server) return;
         this._sendNotification('textDocument/didClose', {
           textDocument: { uri: doc.uri.toString() }
         });
       })
     );
 
-    // Send didOpen for already-open .ax documents
+    // Send didOpen for already-open .xi documents
     vscode.workspace.textDocuments.forEach((doc) => {
-      if (doc.languageId === 'axiom' && this.server) {
+      if (doc.languageId === 'xiom' && this.server) {
         this._sendNotification('textDocument/didOpen', {
           textDocument: {
             uri: doc.uri.toString(),
-            languageId: 'axiom',
+            languageId: 'xiom',
             version: 1,
             text: doc.getText()
           }

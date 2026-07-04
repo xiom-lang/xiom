@@ -1,12 +1,12 @@
-# AXIOM Compiler — Improvement Plan
+# XIOM Compiler — Improvement Plan
 
 **Date:** 2026-07-03
 **Status:** Living plan — updated as the compiler evolves
-**Companion to:** `docs/COMPILER_ARCHITECTURE.md` (source of truth for current state)
+**Companion to:** `docs/COMPILER_ARCHITECTURE.md` (source of truth for current state), `docs/XIOM_DISTRIBUTION_SPEC.md` (distribution + installer spec), `docs/XIOM_TOOLING_SPEC.md` (debugger, benchmarks, LSP, hot reload), `docs/XIOM_ECOSYSTEM_ROADMAP.md` (packages, FFI, demos)
 
 > This document describes what the compiler SHOULD become. `COMPILER_ARCHITECTURE.md` describes what it IS.
 > Every item here is grounded in the three pillars: SAFE, VERIFIED, PRECISE.
-> The goal is production-grade: AXIOM must compete with Rust, Zig, and C++ in benchmarks — faster where possible, safer by design.
+> The goal is production-grade: XIOM must compete with Rust, Zig, and C++ in benchmarks — faster where possible, safer by design.
 
 ---
 
@@ -16,7 +16,7 @@ Before any phase work, these are the hard targets that define production-readine
 
 ### Speed Target: Within 10% of Rust (Release, O2)
 
-| Benchmark | Rust | AXIOM Target | How |
+| Benchmark | Rust | XIOM Target | How |
 |-----------|------|-------------|-----|
 | matmul 1024×1024 | ~2.1s | ≤2.3s | LLVM O2, no-contracts mode |
 | n-body simulation | ~4.5s | ≤5.0s | LLVM O2, struct-return optimization |
@@ -30,7 +30,7 @@ Before any phase work, these are the hard targets that define production-readine
 
 ### Safety Target: Zero Memory Bugs in Benchmark Suite
 
-| Category | Rust | AXIOM Target |
+| Category | Rust | XIOM Target |
 |----------|------|-------------|
 | Use-after-free | Compile error | Compile error (borrow checker) |
 | Double-free | Compile error | Compile error (ownership) |
@@ -45,7 +45,7 @@ Before any phase work, these are the hard targets that define production-readine
 
 ### Binary Size Target: ≤2× Rust (Release, stripped)
 
-| Program | Rust | AXIOM Target | Notes |
+| Program | Rust | XIOM Target | Notes |
 |---------|------|-------------|-------|
 | Hello World | ~200KB | ≤400KB | Contract guards add IR, stripped in release |
 | JSON parser | ~600KB | ≤1.2MB | Stdlib + serde equivalent |
@@ -55,7 +55,7 @@ Before any phase work, these are the hard targets that define production-readine
 
 ### Compile-Time Target: ≤3× Rust (Debug)
 
-| Project Size | Rust (debug) | AXIOM Target | Bottleneck |
+| Project Size | Rust (debug) | XIOM Target | Bottleneck |
 |-------------|-------------|-------------|-----------|
 | 1K lines, 10 fns | ~0.3s | ≤1.0s | Codegen string formatting |
 | 10K lines, 50 fns | ~2.5s | ≤8.0s | Monomorphisation + codegen |
@@ -65,34 +65,34 @@ Before any phase work, these are the hard targets that define production-readine
 
 ### Benchmark Categories to Build
 
-AXIOM must compete in all four categories:
+XIOM must compete in all four categories:
 
 **1. Compute-Intensive (measures LLVM codegen quality):**
 ```
 matmul, n-body, mandelbrot, prime sieve, fibonacci, FFT, neural net inference
 → Competes on: raw CPU throughput, LLVM optimization
-→ AXIOM advantage: contracts stripped in release → zero overhead
+→ XIOM advantage: contracts stripped in release → zero overhead
 ```
 
 **2. Memory-Intensive (measures allocation safety):**
 ```
 binary tree alloc/free, b-tree insert/lookup, graph traversal, ring buffer, Vec push/pop at scale
 → Competes on: allocation speed, memory safety guarantees
-→ AXIOM advantage: ownership model prevents leaks, borrow checker prevents use-after-free
+→ XIOM advantage: ownership model prevents leaks, borrow checker prevents use-after-free
 ```
 
 **3. I/O-Intensive (measures stdlib quality):**
 ```
 file read/write, JSON parse, HTTP server, CSV processing, log parsing
 → Competes on: I/O throughput, string handling
-→ AXIOM advantage: contracts on I/O operations catch errors at the boundary
+→ XIOM advantage: contracts on I/O operations catch errors at the boundary
 ```
 
 **4. Safety-Verification (measures contract system):**
 ```
 contract-intensive functions, invariant-heavy types, borrow stress tests
 → Competes on: bugs caught at compile time vs runtime
-→ AXIOM advantage: UNIQUE — no other language has first-class contracts
+→ XIOM advantage: UNIQUE — no other language has first-class contracts
 ```
 
 ### Competitive Benchmark Framework (`xiom bench`)
@@ -102,7 +102,7 @@ A dedicated tool that produces standardized, reproducible benchmarks:
 ```
 $ xiom bench --compare rust,zig,cpp --category compute
 ┌─────────────────────┬──────────┬──────────┬──────────┬──────────┐
-│ Benchmark           │ AXIOM    │ Rust     │ Zig      │ C++      │
+│ Benchmark           │ XIOM    │ Rust     │ Zig      │ C++      │
 ├─────────────────────┼──────────┼──────────┼──────────┼──────────┤
 │ matmul 1024×1024    │ 2.18s    │ 2.12s    │ 2.05s    │ 1.98s    │
 │ n-body 10M steps    │ 4.42s    │ 4.51s    │ 4.38s    │ 4.15s    │
@@ -128,9 +128,9 @@ $ xiom bench --compare rust,zig,cpp --category compute
 | 0 — Correctness | Fixes Vec crash (precondition for any benchmark) | Div-zero guards, mono loop guard | — | No infinite compiles | — |
 | 1 — Performance | O2 passes, parallel mono | — | LTO stripping | Indexed catalog, incremental, parallel mono | — |
 | 2 — Advanced | Hot reload (game engines) | Memory budgets, timeout guards | — | Multithreaded compilation | — |
-| 3 — Toolchain | — | Z3 static verification | — | — | Visual benchmark tool, safety scoring |
+| 3 — Toolchain | — | Z3 static verification (3.0A-G), contract coverage (3.5) | — | — | Visual benchmark tool (3.2), verification dashboard (3.7), WASM playground (3.6) |
 | 4 — Self-Hosting | Byte-for-byte IR parity with Rust compiler | Proves correctness | — | — | Ultimate correctness test |
-| 5 — Production Pillars | inkwell API (10-50× codegen speedup) | Stdlib with contracts on every function | Contract stripping in release | Build system caching | Full benchmark suite |
+| 5 — Production Pillars | inkwell API (10-50× codegen speedup), FFI binding gen (3.8) | Stdlib with contracts on every function | Contract stripping in release | Build system caching | Full benchmark suite |
 
 ---
 
@@ -148,7 +148,7 @@ These are NOT features. They are bugs that make the compiler unsafe to use at sc
 
 ### 0.2 C Runtime Fixed Limits (V5)
 
-**Problem:** The C runtime (`stdlib/runtime/axiom_runtime.c`) uses fixed-size arrays:
+**Problem:** The C runtime (`stdlib/runtime/xiom_runtime.c`) uses fixed-size arrays:
 - `MAX_STRUCT_FIELDS = 16`
 - `MAX_LOCAL_VARS = 64`
 - `MAX_MATCH_ARMS = 16`
@@ -161,7 +161,7 @@ Exceeding any silently produces wrong IR.
 
 ### 0.3 Unknown Type → Error, Not i64 (V7)
 
-**Problem:** `axiom_to_llvm_type` has `_ => "i64"` as a catch-all. Unknown types silently compile as `i64`, producing wrong IR instead of a clear error.
+**Problem:** `xiom_to_llvm_type` has `_ => "i64"` as a catch-all. Unknown types silently compile as `i64`, producing wrong IR instead of a clear error.
 
 **Solution:** Return `Result` instead of `String` from `llvm_type_for`. On unknown type, emit a structured error with the type name and source location. Never silently default to `i64`.
 
@@ -179,7 +179,7 @@ Exceeding any silently produces wrong IR.
 
 **Problem:** The compiler itself does unchecked integer division in several places (e.g., `sdiv` during offset calculations). A compiler crash from div-by-zero in the COMPILER is unacceptable.
 
-**Solution:** Audit all `sdiv`/`srem` in Rust code (`axiom-codegen`, `axiom-check`, `axiomc`). Wrap in `checked_div` with proper error handling. The target AXIOM programs already have div-zero guards (V4 fixed) — the compiler itself needs them too.
+**Solution:** Audit all `sdiv`/`srem` in Rust code (`xiom-codegen`, `xiom-check`, `xiomc`). Wrap in `checked_div` with proper error handling. The target XIOM programs already have div-zero guards (V4 fixed) — the compiler itself needs them too.
 
 **Effort:** 2-3 hours. Grep + audit ~15-20 division sites.
 
@@ -191,10 +191,10 @@ These make the compiler fast enough for absurd benchmarks. Without them, 100+ ge
 
 ### 1.1 Indexed Module Catalog
 
-**Problem:** `ModuleCatalog::load_module` walks all source directories and reads every `.ax` header on cache miss. For 1000 files, cold start = 1000 file reads × M lookups = O(N×M).
+**Problem:** `ModuleCatalog::load_module` walks all source directories and reads every `.xi` header on cache miss. For 1000 files, cold start = 1000 file reads × M lookups = O(N×M).
 
 **Solution:**
-1. On first `find_owned()` call OR at `axiomc` startup, build a `HashMap<String, String>` (module_path → file_path) by scanning source_dirs once.
+1. On first `find_owned()` call OR at `xiomc` startup, build a `HashMap<String, String>` (module_path → file_path) by scanning source_dirs once.
 2. All subsequent lookups are O(1) hash map access — no path guessing, no scan fallback.
 3. The scan still exists as a cold-start bootstrap, but only runs ONCE per compilation session.
 
@@ -218,7 +218,7 @@ These make the compiler fast enough for absurd benchmarks. Without them, 100+ ge
 
 ### 1.3 Incremental Compilation Foundations
 
-**Problem:** Every `axiomc` invocation re-parses every file. For a 1000-file project changing one line, this is wasteful.
+**Problem:** Every `xiomc` invocation re-parses every file. For a 1000-file project changing one line, this is wasteful.
 
 **Solution (Phase 1 — foundations only):**
 1. Add `--incremental` flag. On first build, hash every source file and write `target/incremental.json`.
@@ -260,7 +260,7 @@ Source Change → File Watcher → Recompile Module → Generate .dll/.so → Lo
 **Implementation steps:**
 1. **`--shared` flag:** Emit position-independent code (PIC). On x86-64 this is mostly free; on other targets use `-fPIC`.
 2. **Symbol table export:** Generate a `.def` file or `__declspec(dllexport)` annotations for every `pub fn`.
-3. **Function table indirection:** Instead of direct `call @foo`, use a function pointer table `@axiom_fn_table`. Hot-reload swaps the pointer.
+3. **Function table indirection:** Instead of direct `call @foo`, use a function pointer table `@xiom_fn_table`. Hot-reload swaps the pointer.
 4. **State migration:** When a module is reloaded, its global state (`static var`) must be preserved. Use a separate data segment that survives reload.
 5. **`--watch` + `--hot-reload`:** Watch source files. On change, recompile only the changed module, emit `.dll`, inject via `LoadLibrary`.
 
@@ -311,6 +311,163 @@ Source Change → File Watcher → Recompile Module → Generate .dll/.so → Lo
 
 ## Phase 3 — Toolchain & Ecosystem (P3: Future)
 
+### 3.0 Advanced Contract Verification
+
+The contract system is XIOM's killer feature. Phase 1 provides runtime guards. Phase 3 makes contracts zero-cost and statically proven. This is what separates XIOM from every other systems language.
+
+#### 3.0A SMT-Based Static Verification (Z3 Integration)
+
+**Goal:** Prove contracts at compile time. No runtime guards, no performance penalty.
+
+**Architecture:**
+```
+Source.xi → Parser → AST → Checker → Contract IR → Z3 SMT Solver → Proof / Counterexample
+```
+
+**How it works:**
+1. For each function with contracts, the verifier extracts the contract clauses as SMT-LIB assertions
+2. The function body is symbolically executed to produce a path condition
+3. Z3 checks: does the path condition imply the `ensures` clause, assuming the `requires` clause?
+4. If SAT (satisfiable): contract is provably correct → strip runtime guard, emit `; verified: divide.ensures`
+5. If UNSAT (unsatisfiable): contract can be violated → emit compile error with counterexample
+
+**Example:**
+```xiom
+fn divide(a: Float64, b: Float64) -> Float64
+  requires: b != 0.0
+  ensures:  result * b == a
+{
+  return a / b;
+}
+
+// Z3 proves: (b != 0.0) ∧ (result = a / b) → (result * b == a)
+// Result: VERIFIED. Runtime guard eliminated. Zero overhead.
+```
+
+**Supported theories:**
+- QF_NRA (non-linear real arithmetic) — floats, division, multiplication
+- QF_LIA (linear integer arithmetic) — integers, addition, subtraction
+- QF_ABV (arrays + bitvectors) — Vec bounds, bit operations
+- UF (uninterpreted functions) — function calls with contracts
+
+**Limitations:**
+- Loops require explicit `invariant` annotations for the verifier to reason about them
+- Recursive functions need termination proofs (well-founded ordering)
+- Heap-allocated data (Vec, Map) requires a memory model — significant complexity
+- Z3 timeout per function (configurable, default 30s)
+
+**Effort:** 3-6 months for initial Z3 integration. Ongoing for covering more theories. The `axiom-verify` crate already generates SMT-LIB — this extends it to compile-time integration.
+
+#### 3.0B Abstract Interpretation
+
+**Goal:** Prove invariants for array bounds, integer ranges, and numerical properties WITHOUT full SMT solving.
+
+**Architecture:**
+```
+AST → Abstract Domain (intervals, octagons, polyhedra) → Fixpoint computation → Verified invariants
+```
+
+**Best for:**
+- Array/Vec bounds checking: `arr[i]` requires `0 <= i < arr.len()`
+- Integer overflow detection: `a + b` doesn't overflow
+- Simple numerical invariants: `x > 0`, `i <= n`
+
+**Effort:** 2-3 months. Simpler than Z3, covers 80% of common contracts.
+
+#### 3.0C Contract Composition Analysis
+
+**Goal:** Automatically verify that function A's `ensures` satisfy function B's `requires` when A calls B.
+
+**Example:**
+```xiom
+fn transfer(from: &mut Account, to: &mut Account, amount: Float64)
+  requires: from.balance >= amount
+  ensures:  from.balance == from.balance@pre - amount
+  ensures:  to.balance == to.balance@pre + amount
+{
+  from.withdraw(amount);   // withdraw requires: balance >= amount
+  to.deposit(amount);      // deposit requires: amount > 0
+}
+```
+
+**Verifier checks:**
+1. At `from.withdraw(amount)`: does `from.balance >= amount` (the `requires` of `transfer`) imply `balance >= amount` (the `requires` of `withdraw`)? → YES
+2. At `to.deposit(amount)`: does `amount > 0` hold? → Not guaranteed by `transfer`'s contracts → WARNING: missing `requires: amount > 0` on `transfer`
+
+**Effort:** 1-2 months. Builds on Z3 integration. Walks the call graph.
+
+#### 3.0D Symbolic Execution Engine
+
+**Goal:** Explore all execution paths symbolically, generate test cases automatically from contracts.
+
+**How it works:**
+1. For each function, create symbolic inputs (variables instead of concrete values)
+2. Execute the function symbolically, collecting path constraints
+3. For each path, Z3 generates a concrete input that satisfies the path constraints
+4. These become test cases: `fn test_divide_generated_01() { assert_eq!(divide(10.0, 2.0), 5.0); }`
+
+**Output:** Auto-generated test suite with 100% path coverage.
+
+**Effort:** 2-3 months. Requires Z3 integration first.
+
+#### 3.0E AI-Assisted Proof
+
+**Goal:** Use LLMs to suggest loop invariants, termination measures, and proof steps for complex contracts.
+
+**How it works:**
+1. When the verifier cannot prove a contract (e.g., because a loop invariant is missing), it generates a prompt for an LLM
+2. The prompt includes: the function signature, contracts, body, and the specific verification failure
+3. The LLM suggests an invariant annotation
+4. The verifier retries with the suggested invariant
+5. If it passes, the invariant is added to the source code
+
+**Example prompt:**
+```
+The following function's `ensures` cannot be proven because the loop
+in `sum_range` has no invariant. Suggest an invariant annotation:
+
+fn sum_range(lo: Int, hi: Int) -> Int
+  requires: lo <= hi
+  ensures:  result == (lo + hi) * (hi - lo + 1) / 2
+{
+  var total = 0;
+  var i = lo;
+  while i <= hi {
+    total = total + i;
+    i = i + 1;
+  }
+  return total;
+}
+```
+
+**LLM-suggested invariant:** `invariant: total == (lo + i - 1) * (i - lo) / 2`
+
+**Effort:** 1-2 months for prototype. Requires Z3 integration + LLM API.
+
+#### 3.0F Modular Verification
+
+**Goal:** Verify one module at a time, using only the contracts of imported modules. Changes to module A do not require re-verification of module B.
+
+**Architecture:**
+1. Each module exports a verification interface: its public function signatures + contracts
+2. The verifier treats imported functions as uninterpreted with their contracts as axioms
+3. A change to module A triggers re-verification of A only — B is re-verified only if A's verification interface changed
+
+**Effort:** 2-3 months. Requires contract composition analysis (3.0C) as a foundation.
+
+#### Verification Modes Summary
+
+| Mode | Phase | Overhead | Use Case |
+|------|-------|----------|----------|
+| Runtime guards | 1 (now) | ~5-10 IR instructions per contract | Development, testing |
+| Abstract interpretation | 3 | None (compile-time) | Array bounds, integer ranges |
+| Z3 static proof | 3 | None (compile-time) | Full function contracts |
+| Symbolic execution | 3 | None (compile-time) | Auto-generated tests |
+| Contract composition | 3 | None (compile-time) | Call chain verification |
+| AI-assisted proof | 3 | None (compile-time) | Complex contracts needing invariants |
+| Modular verification | 3 | None (compile-time) | Large multi-module projects |
+| `--no-contracts` | 1 (now) | None (stripped) | Production, benchmarks |
+
 ### 3.1 Debugger (DAP-based)
 
 **Architecture:** The debugger is a separate process that speaks the Debug Adapter Protocol (DAP) to VS Code / JetBrains / etc. It controls the target process via platform debug APIs.
@@ -321,19 +478,19 @@ Source Change → File Watcher → Recompile Module → Generate .dll/.so → Lo
 - "Explain the violation" mode: renders the contract in natural language with highlighted failing sub-expression.
 
 **Ownership visualization:**
-- Compiler emits DWARF debug info with custom `DW_TAG_axiom_ownership` entries.
+- Compiler emits DWARF debug info with custom `DW_TAG_xiom_ownership` entries.
 - Debugger renders: variable lifetime bars (color-coded: green=alive, yellow=borrowed, red=moved), borrow graph arrows, moved-from markers.
 
 **Effort:** 2-3 months. Requires DWARF emission in codegen + DAP server implementation.
 
 ### 3.2 Visual Benchmark Tool
 
-**Goal:** Compare AXIOM against Rust, Zig, C++, Go — with beautiful visualizations.
+**Goal:** Compare XIOM against Rust, Zig, C++, Go — with beautiful visualizations.
 
 **Architecture:**
-1. `axiom bench` compiles each benchmark, runs it N times, collects metrics.
+1. `xiom bench` compiles each benchmark, runs it N times, collects metrics.
 2. Results stored as JSON with schema: `{bench_name, language, metrics: {time_ns, mem_bytes, binary_size, contract_count}}`.
-3. A static HTML dashboard (built with AXIOM → WASM) renders comparisons.
+3. A static HTML dashboard (built with XIOM → WASM) renders comparisons.
 4. CI integration: every commit runs benchmarks and updates the dashboard.
 
 **Effort:** 1-2 weeks for MVP (benchmark runner + JSON output + basic HTML).
@@ -352,29 +509,160 @@ Source Change → File Watcher → Recompile Module → Generate .dll/.so → Lo
 
 ### 3.4 CLI & Project Management
 
-See the XIOM CLI specification. Key commands:
+**Command:** `xiomc` (the official XIOM compiler and toolchain)
+
+#### Core Philosophy
+- Simple, intuitive, powerful
+- Excellent defaults — `xiom build` works without configuration
+- Rich feedback and helpful error messages (Phase 5.6)
+- First-class support for AI agents (`--ai`, `--diagnostics=json`, `--dump-contracts`)
+
+#### Main Commands
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `xiom build` | Build project or file | `xiom build` |
+| `xiom run` | Build + run | `xiom run main.xi` |
+| `xiom check` | Type check only (fast, no codegen) | `xiom check` |
+| `xiom test` | Run tests | `xiom test` |
+| `xiom fmt` | Canonical formatter | `xiom fmt` |
+| `xiom lint` | Lint + style check | `xiom lint` |
+| `xiom debug` | Build with debug info + launch debugger | `xiom debug` |
+| `xiom bench` | Run benchmarks | `xiom bench` |
+| `xiom doc` | Generate documentation | `xiom doc` |
+| `xiom new` | Create new project | `xiom new myapp` |
+| `xiom init` | Initialize in current folder | `xiom init` |
+| `xiom install` | Install package from registry | `xiom install http-server` |
+| `xiom publish` | Publish package to registry | `xiom publish` |
+| `xiom clean` | Remove build artifacts | `xiom clean` |
+| `xiom version` | Print version + platform info | `xiom --version` |
+
+#### Build Options
+
+| Flag | Description |
+|------|-------------|
+| `--target native/wasm/arm/riscv` | Target platform |
+| `--release` | Optimized build (O3 + strip contracts) |
+| `--debug` | Debug symbols (DWARF/PDB) |
+| `--shared` | Build as `.dll` / `.so` |
+| `--static` | Build static library |
+| `--no-contracts` | Disable contract checks |
+| `--emit ir` | Output XIOM IR |
+| `--emit llvm` | Output LLVM IR |
+| `--emit obj` | Output object file |
+| `-o <file>` | Output filename |
+| `--diagnostics=json` | Structured output for AI/tools |
+| `--dump-contracts` | Export contract index |
+
+#### Developer Experience
+
+| Flag | Description |
+|------|-------------|
+| `--watch` | Watch mode (recompile on change) |
+| `--hot-reload` | Enable hot reloading (for games, Phase 2.1) |
+| `--ai` | AI-friendly mode (verbose explanations, fix suggestions) |
+| `--incremental` | Incremental compilation (Phase 1.3) |
+
+#### Project Management
 
 ```
-axiom build          # compile project
-axiom run            # build + run
-axiom check          # type check only (fast, no codegen)
-axiom test           # run test suite
-axiom fmt            # canonical formatter
-axiom bench          # run benchmarks
-axiom debug          # build + launch debugger
-axiom new <name>     # scaffold project
-axiom install <pkg>  # install dependency
+xiom new mygame --template game    # creates project with game template
+xiom init                          # initialize in current folder
+xiom package                       # manage package.xi manifest
 ```
 
-**`--hot-reload`**: For game engines, the CLI watches source files and Live-reloads changed modules into the running process. See Phase 2.1.
+#### Project Scaffold (`xiom new hello`)
 
-**`--ai`**: Verbose error messages designed for AI consumption — includes fix suggestions, contract implications, and structured JSON output.
+```
+hello/
+├── package.xi           ← project manifest (see Section 11 of distribution spec)
+├── src/
+│   └── main.xi          ← entry point
+├── tests/
+│   └── test_main.xi     ← tests
+├── examples/
+│   └── demo.xi          ← example usage
+├── benches/
+│   └── bench_main.xi    ← benchmarks
+└── xiom.lock            ← lockfile (committed to VCS)
+```
+
+### 3.5 Contract Coverage Analyzer
+
+**Goal:** Unique metric no other language has — what percentage of contracts are exercised by tests.
+
+**How it works:**
+1. During codegen, every contract guard is instrumented: `@xiom_contract_hit_count_N`
+2. `xiom test --coverage` runs the test suite and reads counters
+3. Outputs a report: which contracts were hit, which were never triggered
+
+```
+Contract Coverage: 87% (234/268 contracts exercised)
+  ✓ divide.requires:b!=0       hit 142 times
+  ✓ divide.ensures:result*b==a  hit 142 times
+  ✗ sqrt_newton.ensures:...     NEVER triggered — add a test
+```
+
+**Compiler changes needed:** Instrumentation pass in codegen, `--coverage` flag, report generation.
+**Effort:** 1-2 weeks. Primarily codegen instrumentation + test runner.
+
+### 3.6 WASM Compiler Playground
+
+**Goal:** XIOM compiler compiles to WASM — instant try-before-install at `play.xiom-lang.org`. No backend. No account.
+
+**Compiler changes needed:**
+- `xiomc` compiles to WASM with virtual filesystem (catalog uses in-memory FS)
+- `--target wasm-playground` flag skips clang, returns IR as string for browser display
+- Contract visualization in browser: highlighted pass/fail on contract clauses
+
+**Effort:** 1-2 weeks for MVP. Mostly making compiler WASM-compatible + static HTML UI.
+
+### 3.7 Formal Verification Dashboard
+
+**Goal:** Show which contracts are statically proven vs runtime-guarded. Trust signal for safety-critical users.
+
+**Compiler changes needed:**
+- `xiom build --verify` emits verification metadata JSON (which contracts proven, which timed out)
+- Static HTML dashboard reads JSON and renders proven/runtime/unverified breakdown
+
+**Effort:** 1-2 weeks. Builds on Z3 integration (3.0A). Primarily metadata emission + HTML.
+
+### 3.8 FFI Binding Generator
+
+**Goal:** Mechanical generation of XIOM FFI wrappers from C headers, with auto-inferred contracts.
+
+**How it works:**
+1. `xiom bind --header math.h` parses the C header
+2. Generates `extern "C" { ... }` block with correct types
+3. Wraps each function in a safe XIOM function with inferred contracts:
+   - `int* foo(int* p)` → `requires: p != null` (non-null pointer)
+   - `size_t strlen(const char* s)` → `ensures: result >= 0`
+
+**Effort:** 3-4 weeks for MVP. Requires C header parser + inference rules.
+
+### 3.9 Code Translator (`xiom translate`)
+
+**Goal:** Translate existing C, Zig, and Rust code to XIOM. Massive adoption lever — "Bring your existing code to XIOM."
+
+**Phase 1 — `xiom translate-c`:**
+- Parse C headers and source files
+- Map C types to XIOM types: `int` → `Int`, `float` → `Float32`, `double` → `Float64`, `char*` → `Str`, `void*` → `*UInt8`
+- Generate `extern "C" { ... }` blocks
+- Auto-infer contracts on generated wrappers (non-null pointers → `requires: ptr != null`)
+
+**Phase 2 — Expand to Zig and Rust:**
+- Zig: similar semantics, straightforward translation
+- Rust: via C ABI export layer
+
+**Effort:** 4-6 weeks per language. C is the biggest win — start there.
+
+**Why this matters:** Zig's `translate-c` is one of its most praised features. A XIOM equivalent with auto-inferred contracts would be strictly better.
 
 ---
 
 ## Phase 4 — Self-Hosting (P4: After Stability)
 
-Self-hosting means the AXIOM compiler is written in AXIOM, compiled by the previous version of itself. This is the ultimate correctness test.
+Self-hosting means the XIOM compiler is written in XIOM, compiled by the previous version of itself. This is the ultimate correctness test.
 
 **Prerequisites:**
 - All Phase 0-1 bugs fixed
@@ -384,12 +672,41 @@ Self-hosting means the AXIOM compiler is written in AXIOM, compiled by the previ
 - The Rust compiler is kept as the PERMANENT bootstrap fallback — never deleted
 
 **Bootstrapping sequence:**
-1. Write `axiom-lexer.ax`, `axiom-parser.ax`, `axiom-check.ax`, `axiom-codegen.ax` in AXIOM.
-2. Compile Phase 4 AXIOM compiler with Phase 3 Rust compiler.
-3. Compile Phase 4 AXIOM compiler with Phase 4 AXIOM compiler (self-compile).
+1. Write `xiom-lexer.xi`, `xiom-parser.xi`, `xiom-check.xi`, `xiom-codegen.xi` in XIOM.
+2. Compile Phase 4 XIOM compiler with Phase 3 Rust compiler.
+3. Compile Phase 4 XIOM compiler with Phase 4 XIOM compiler (self-compile).
 4. Diff the output binaries — byte-for-byte identical → bootstrap complete.
 
 **Do NOT start this until Phase 3 is rock-solid.** Every self-hosting attempt on an unstable compiler wastes weeks debugging the compiler AND the compiler-being-compiled simultaneously.
+
+### Why a Self-Hosted Compiler Outperforms the Rust Bootstrap
+
+A XIOM compiler written in XIOM can be MORE performant and MORE secure than the current Rust bootstrap. This is not speculation — it follows from the language's own features applied to its own implementation:
+
+| Advantage | How | Impact |
+|-----------|-----|--------|
+| **Contracts on compiler internals** | `requires`/`ensures`/`invariant` on the lexer, parser, checker, codegen | Catches bugs in the compiler BEFORE they produce wrong output. Every optimization pass is contract-verified. |
+| **Deeper comptime** | `comptime` can precompute parse tables, keyword sets, precedence maps at compile time | Faster compiler startup, smaller binary |
+| **Zero-cost ownership in the compiler** | The compiler's own memory management benefits from borrow checking — no GC pauses during compilation | Deterministic latency, no allocation spikes |
+| **Specialized optimizations for XIOM patterns** | The compiler can optimize for contracts, ownership, structural interfaces — things Rust's compiler doesn't know about | Better codegen for XIOM-specific patterns |
+| **Custom allocators** | The compiler can use arena allocators for AST nodes, bump allocators for IR emission | 2-3× less memory, fewer malloc/free calls |
+| **Verifiable correctness** | Z3 static verification on the compiler's own critical paths (Phase 3) | Provably correct type checker, borrow checker |
+
+**When to self-host:**
+1. Phase 3 is complete (Z3, debugger, LSP, CLI, benchmarks)
+2. Language is stable — no breaking syntax changes for 6+ months
+3. Standard library is mature — string handling, file I/O, collections, FFI
+4. 500+ tests pass, including full benchmark suite
+5. The Rust compiler is kept as PERMANENT bootstrap fallback
+
+**The bootstrap sequence:**
+1. Write `xiom-lexer.xi`, `xiom-parser.xi`, `xiom-check.xi`, `xiom-codegen.xi` in XIOM
+2. Compile with Rust `xiomc` → produces `xiomc-v1` (native binary)
+3. `xiomc-v1` compiles itself → produces `xiomc-v2`
+4. Diff `xiomc-v1` and `xiomc-v2` output on the full test suite → byte-for-byte identical
+5. `xiomc-v2` replaces Rust `xiomc` as the primary compiler
+
+**Target timeline:** 18-24 months from now. The self-hosted compiler is the CAPSTONE, not the foundation.
 
 ---
 
@@ -413,7 +730,7 @@ Self-hosting means the AXIOM compiler is written in AXIOM, compiled by the previ
 | Debugger (DAP) | FUTURE | Contract-aware, ownership visualization |
 | Visual benchmark tool | FUTURE | Marketing + trust |
 | Enhanced LSP | FUTURE | Developer productivity |
-| CLI toolchain | FUTURE | `axiom build/run/test/fmt/bench` |
+| CLI toolchain | FUTURE | `xiom build/run/test/fmt/bench` |
 | Self-hosting | LAST | After everything above is stable |
 
 ---
@@ -426,7 +743,7 @@ Self-hosting means the AXIOM compiler is written in AXIOM, compiled by the previ
 
 **Will it be fast?** The IR will be large (50K-100K extra instructions). `opt -O1` (Phase 1.4) helps but doesn't eliminate the overhead. Contracts are fundamentally a binary-size vs safety tradeoff.
 
-**The real solution:** Z3 static verification (Phase 3 of the AXIOM roadmap). Prove contracts at compile time → eliminate runtime guards for statically-proven contracts → 0 overhead. This requires: translating the full type system to SMT theories, modeling heap state, loop invariants. This is a 3-6 month effort for a dedicated team — not a quick fix.
+**The real solution:** Z3 static verification (Phase 3 of the XIOM roadmap). Prove contracts at compile time → eliminate runtime guards for statically-proven contracts → 0 overhead. This requires: translating the full type system to SMT theories, modeling heap state, loop invariants. This is a 3-6 month effort for a dedicated team — not a quick fix.
 
 **Until Z3:** Accept that contracts have runtime cost, and make `--no-contracts` the production flag. Development uses contracts for catching bugs; release builds strip them.
 
@@ -440,7 +757,7 @@ Self-hosting means the AXIOM compiler is written in AXIOM, compiled by the previ
 
 ### 1000+ Module Files
 
-**Will it compile?** Yes, but the first `axiomc` invocation will spend seconds scanning for modules.
+**Will it compile?** Yes, but the first `xiomc` invocation will spend seconds scanning for modules.
 
 **Will it be fast?** Indexed catalog (Phase 1.1) makes cold-start resolution O(N) for initial scan + O(1) per lookup. After that, sub-second resolution.
 
@@ -498,7 +815,7 @@ The improvement plan covers compiler internals. But a compiler alone is not a la
 | **Compression** | gzip, zlib, deflate (via FFI) | P2 |
 | **FFI** | Full `extern "C"` with struct layout, callback support, `unsafe` blocks | P0 |
 
-**Every module function should have contracts.** AXIOM's killer feature — contracts — must be demonstrated in the stdlib itself. `fn read_file(path: Str) -> Result[Vec[UInt8], IOError] requires: path.len() > 0 ensures: result.is_ok() => result.unwrap().len() > 0`.
+**Every module function should have contracts.** XIOM's killer feature — contracts — must be demonstrated in the stdlib itself. `fn read_file(path: Str) -> Result[Vec[UInt8], IOError] requires: path.len() > 0 ensures: result.is_ok() => result.unwrap().len() > 0`.
 
 **Effort:** 3-6 months. Largest single body of work after the compiler itself. Can be incremental — ship modules as they stabilize.
 
@@ -532,13 +849,13 @@ xiom install http-server
 
 ### 5.3 Build System
 
-**Current state:** `axiomc` accepts files via CLI. No build configuration. No profiles. No build scripts.
+**Current state:** `xiomc` accepts files via CLI. No build configuration. No profiles. No build scripts.
 
 **What production needs:**
 
 1. **`xiom build`** — reads `package.xi`, resolves deps, compiles all source files, links binary
 2. **Profiles:** `dev` (fast compile, no optimize), `release` (optimize + strip contracts), `bench` (optimize + instrumentation)
-3. **Build scripts** (`build.xi`) — AXIOM code that runs at build time for code generation, FFI binding generation, asset processing
+3. **Build scripts** (`build.xi`) — XIOM code that runs at build time for code generation, FFI binding generation, asset processing
 4. **`--features`** — conditional compilation via feature flags
 5. **`xiom check`** — type-check only, no codegen (fast feedback loop)
 6. **`xiom clean`** — remove build artifacts
@@ -550,7 +867,7 @@ xiom install http-server
 
 ### 5.4 Testing Framework
 
-**Current state:** Rust `cargo test` runs compiler unit tests. No AXIOM-native test framework.
+**Current state:** Rust `cargo test` runs compiler unit tests. No XIOM-native test framework.
 
 **What production needs:**
 
@@ -561,12 +878,12 @@ xiom install http-server
 5. **Coverage:** `xiom test --coverage` — contract coverage (which contracts are exercised by tests)
 6. **Property-based testing:** `xiom test --fuzz` — random input generation with contract validation
 
-**Contract coverage is AXIOM's unique testing feature:**
+**Contract coverage is XIOM's unique testing feature:**
 ```
 Contract coverage: 87%
-  ✓ bench_math.ax:add              requires: a + b doesn't overflow
-  ✓ bench_math.ax:divide           requires: b != 0.0
-  ✗ bench_math.ax:sqrt_newton      ensures: result * result ≈ x
+  ✓ bench_math.xi:add              requires: a + b doesn't overflow
+  ✓ bench_math.xi:divide           requires: b != 0.0
+  ✗ bench_math.xi:sqrt_newton      ensures: result * result ≈ x
   ↑ This ensure was never triggered by any test
 ```
 
@@ -593,14 +910,14 @@ Contract coverage: 87%
 
 **Current state:** `error[T001]: 76:3: cannot call 'len' on this expression`
 
-**What production needs (AXIOM's 4-point error philosophy from the spec):**
+**What production needs (XIOM's 4-point error philosophy from the spec):**
 
 | Component | Current | Target |
 |-----------|---------|--------|
 | **LOCATION** | Line:col ✓ | Point to EXACT token |
-| **CAUSE** | "cannot call 'len' on this expression" — vague | "`Str` has no method `len`. Use `axiom::string::str_len(s: Str) -> Int` instead." |
+| **CAUSE** | "cannot call 'len' on this expression" — vague | "`Str` has no method `len`. Use `xiom::string::str_len(s: Str) -> Int` instead." |
 | **IMPLICATION** | None | "Without this, the compiler cannot verify the return type." |
-| **SUGGESTION** | None | "help: add `use axiom.string;` and call `string.str_len(name)`" |
+| **SUGGESTION** | None | "help: add `use xiom.string;` and call `string.str_len(name)`" |
 
 **Examples from production compilers to match:**
 
@@ -612,7 +929,7 @@ error[E0599]: no method named `len` found for type `Str`
 76 |   name.len()
    |       ^^^ method not found in `Str`
    |
-   = help: `Str` is a UTF-8 slice. Use `axiom::string::str_len(s: Str) -> Int`.
+   = help: `Str` is a UTF-8 slice. Use `xiom::string::str_len(s: Str) -> Int`.
    = note: `Str` is not `Vec`. `.len()` on Vec returns element count, but Str needs
      UTF-8 length computation.
 ```
@@ -677,13 +994,17 @@ jobs:
 | **Stdlib core** (I/O, collections, string) | NEXT | Required for any real program |
 | **Error messages** | ONGOING | Developer experience |
 | **Cross-platform CI** | THIS WEEK | 1-2 day setup, immediate trust signal |
-| **Build system** (`xiom build`) | SOON | Needed before any external user tries AXIOM |
+| **Build system** (`xiom build`) | SOON | Needed before any external user tries XIOM |
 | **Package manager** (`xiom install`) | SOON | Needed for ecosystem |
 | **Testing framework** (`xiom test`) | SOON | Needed for reliability |
 | **Documentation** (`xiom doc`) | SOON | Needed for adoption |
 | **Compiler P2** (hot reload, multithreaded) | LATER | Advanced features |
 | **LLVM API (inkwell)** | LATER | Performance optimization |
 | **Compiler P3** (debugger, LSP, Z3) | FUTURE | Toolchain maturity |
+| **Contract coverage analyzer** | FUTURE | Unique metric — no other language has this |
+| **WASM playground** | FUTURE | Instant try-before-install |
+| **Verification dashboard** | FUTURE | Trust signal for safety-critical |
+| **FFI binding generator** | FUTURE | Mechanical C→XIOM wrappers with contracts |
 | **Stdlib full** (net, crypto, compression) | FUTURE | Ecosystem growth |
 | **Self-hosting** | LAST | Final validation |
 
@@ -707,4 +1028,4 @@ jobs:
 | Has reproducible builds | ✗ | Lockfile + CI |
 | Has security response process | ✗ | SECURITY.md |
 
-**When all 13 items are ✓, AXIOM is production-ready.** The compiler internals are ~40% of the work. The remaining 60% is everything around the compiler.
+**When all 13 items are ✓, XIOM is production-ready.** The compiler internals are ~40% of the work. The remaining 60% is everything around the compiler.

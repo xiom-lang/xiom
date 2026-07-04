@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# AXIOM Dependency Auto-Installer — macOS & Linux
+# XIOM Dependency Auto-Installer — macOS & Linux
 # ============================================================================
 # Detects OS/distro, checks for required build/runtime dependencies,
 # and auto-installs any that are missing.
@@ -29,7 +29,7 @@ installed=0; skipped=0; failed=0
 # ── Banner ──────────────────────────────────────────────────────────────
 clear 2>/dev/null || true
 echo ""
-echo -e "  ${MAGENTA}AXIOM Dependency Installer (macOS / Linux)${NC}"
+echo -e "  ${MAGENTA}XIOM Dependency Installer (macOS / Linux)${NC}"
 echo -e "  ${MAGENTA}------------------------------------------${NC}"
 echo ""
 
@@ -252,7 +252,7 @@ else
         fail "Could not install LLVM/clang."
         info "  Manual install: https://github.com/llvm/llvm-project/releases"
         info "  NOTE: Without clang, the compiler emits .ll IR files but cannot link native binaries."
-        info "  The compiler itself (axiomc) does not require clang to compile AXIOM source to IR."
+        info "  The compiler itself (xiomc) does not require clang to compile XIOM source to IR."
         ((failed++))
     fi
 fi
@@ -266,7 +266,7 @@ if command -v git >/dev/null 2>&1; then
     ok "already installed — $(git --version 2>/dev/null)"
     ((skipped++))
 else
-    info "Git not found — optional, only needed for 'axiom pkg install'"
+    info "Git not found — optional, only needed for 'xiom pkg install'"
     install_pkg "git" && ((installed++)) || {
         warn "Could not auto-install Git (non-critical)."
     }
@@ -293,7 +293,7 @@ if [ "$installed" -gt 0 ]; then
     echo -e "  ${YELLOW}Restart your terminal or run 'source ~/.bashrc' for PATH changes.${NC}"
     echo -e "  ${YELLOW}Then run: ./install.sh${NC}"
 elif [ "$failed" -eq 0 ]; then
-    echo -e "  ${GREEN}All dependencies present. Ready to install AXIOM:${NC}"
+    echo -e "  ${GREEN}All dependencies present. Ready to install XIOM:${NC}"
     echo -e "  ${CYAN}Run: ./install.sh${NC}"
 else
     echo -e "  ${RED}Some dependencies could not be installed automatically.${NC}"

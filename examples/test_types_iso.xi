@@ -1,0 +1,358 @@
+// --- Shared Benchmark Result Type ---
+pub type BenchResult = {
+  name: Str;
+  score: Int;
+  max_score: Int;
+  passed: Bool;
+  elapsed_ms: Int;
+} derive[Clone]
+
+module types {
+
+
+  // ============================================================
+  // SECTION 1: Simple Structs & Field Access
+  // ============================================================
+
+  pub type Point2D = {
+    x: Float64;
+    y: Float64;
+  } derive[Eq, Clone]
+
+  pub type Point3D = {
+    x: Float64;
+    y: Float64;
+    z: Float64;
+  } derive[Eq, Clone]
+
+  pub type Color = {
+    r: Int;
+    g: Int;
+    b: Int;
+    a: Int;
+  } derive[Eq, Clone]
+
+  pub type Size = {
+    w: Int;
+    h: Int;
+  } derive[Eq, Clone]
+
+  pub type Rect = {
+    x: Int;
+    y: Int;
+    w: Int;
+    h: Int;
+  } derive[Eq, Clone]
+
+  pub fn Point2D.new(x: Float64, y: Float64) -> Point2D {
+    return Point2D{ x: x, y: y };
+  }
+
+  pub fn Point2D.dist_sq(other: &Point2D) -> Float64 {
+    var dx = x - other.x;
+    var dy = y - other.y;
+    return dx * dx + dy * dy;
+  }
+
+  pub fn Point3D.new(x: Float64, y: Float64, z: Float64) -> Point3D {
+    return Point3D{ x: x, y: y, z: z };
+  }
+
+  pub fn Point3D.dist_sq(other: &Point3D) -> Float64 {
+    var dx = x - other.x;
+    var dy = y - other.y;
+    var dz = z - other.z;
+    return dx * dx + dy * dy + dz * dz;
+  }
+
+  fn test_basic_structs() -> Int {
+    var score = 0;
+    var p1 = Point2D.new(0.0, 0.0);
+    var p2 = Point2D.new(3.0, 4.0);
+
+    if p1.x == 0.0 { score = score + 1; }
+    if p1.y == 0.0 { score = score + 1; }
+    if p2.x == 3.0 { score = score + 1; }
+    if p2.y == 4.0 { score = score + 1; }
+    if p1.dist_sq(&p2) == 25.0 { score = score + 1; }
+
+    var p3 = Point3D.new(1.0, 2.0, 3.0);
+    if p3.x == 1.0 { score = score + 1; }
+    if p3.y == 2.0 { score = score + 1; }
+    if p3.z == 3.0 { score = score + 1; }
+
+    var p3b = Point3D.new(4.0, 6.0, 8.0);
+    var dsq = p3.dist_sq(&p3b);
+    if dsq == 50.0 { score = score + 1; }
+
+    var c = Color{ r: 255, g: 128, b: 64, a: 255 };
+    if c.r == 255 { score = score + 1; }
+    if c.g == 128 { score = score + 1; }
+    if c.b == 64 { score = score + 1; }
+    if c.a == 255 { score = score + 1; }
+
+    var s = Size{ w: 800, h: 600 };
+    if s.w == 800 { score = score + 1; }
+    if s.h == 600 { score = score + 1; }
+
+    var r = Rect{ x: 10, y: 20, w: 100, h: 50 };
+    if r.x == 10 { score = score + 1; }
+    if r.y == 20 { score = score + 1; }
+    if r.w == 100 { score = score + 1; }
+    if r.h == 50 { score = score + 1; }
+
+    return score;
+  }
+
+  // ============================================================
+  // SECTION 2: Nested Structs
+  // ============================================================
+
+  pub type Address = {
+    street: Str;
+    city: Str;
+    zip: Int;
+  } derive[Clone]
+
+  pub type Person = {
+    name: Str;
+    age: Int;
+    address: Address;
+  } derive[Clone]
+
+  pub type Company = {
+    name: Str;
+    employees: Int;
+    hq: Address;
+  } derive[Clone]
+
+  pub type Transform = {
+    pos: Point3D;
+    rot: Point3D;
+    scale: Point3D;
+  } derive[Clone]
+
+  fn test_nested_structs() -> Int {
+    var score = 0;
+    var addr = Address{ street: "Main", city: "NYC", zip: 10001 };
+    if addr.zip == 10001 { score = score + 1; }
+
+    var person = Person{ name: "Alice", age: 30, address: addr };
+    if person.name == "Alice" { score = score + 1; }
+    if person.age == 30 { score = score + 1; }
+    if person.address.zip == 10001 { score = score + 1; }
+
+    var company = Company{
+      name: "ACME",
+      employees: 500,
+      hq: addr,
+    };
+    if company.name == "ACME" { score = score + 1; }
+    if company.employees == 500 { score = score + 1; }
+    if company.hq.city == "NYC" { score = score + 1; }
+
+    var t = Transform{
+      pos: Point3D.new(0.0, 0.0, 0.0),
+      rot: Point3D.new(1.0, 0.0, 0.0),
+      scale: Point3D.new(2.0, 2.0, 2.0),
+    };
+    if t.pos.x == 0.0 { score = score + 1; }
+    if t.rot.x == 1.0 { score = score + 1; }
+    if t.scale.x == 2.0 { score = score + 1; }
+
+    return score;
+  }
+
+  // ============================================================
+  // SECTION 3: Large Struct (50 Fields)
+  // ============================================================
+
+  pub type BigStruct = {
+    f00: Int; f01: Int; f02: Int; f03: Int; f04: Int;
+    f05: Int; f06: Int; f07: Int; f08: Int; f09: Int;
+    f10: Int; f11: Int; f12: Int; f13: Int; f14: Int;
+    f15: Int; f16: Int; f17: Int; f18: Int; f19: Int;
+    f20: Int; f21: Int; f22: Int; f23: Int; f24: Int;
+    f25: Int; f26: Int; f27: Int; f28: Int; f29: Int;
+    f30: Int; f31: Int; f32: Int; f33: Int; f34: Int;
+    f35: Int; f36: Int; f37: Int; f38: Int; f39: Int;
+    f40: Int; f41: Int; f42: Int; f43: Int; f44: Int;
+    f45: Int; f46: Int; f47: Int; f48: Int; f49: Int;
+  } derive[Clone]
+
+  pub fn BigStruct.new(val: Int) -> BigStruct {
+    return BigStruct{
+      f00: val, f01: val + 1, f02: val + 2, f03: val + 3, f04: val + 4,
+      f05: val + 5, f06: val + 6, f07: val + 7, f08: val + 8, f09: val + 9,
+      f10: val + 10, f11: val + 11, f12: val + 12, f13: val + 13, f14: val + 14,
+      f15: val + 15, f16: val + 16, f17: val + 17, f18: val + 18, f19: val + 19,
+      f20: val + 20, f21: val + 21, f22: val + 22, f23: val + 23, f24: val + 24,
+      f25: val + 25, f26: val + 26, f27: val + 27, f28: val + 28, f29: val + 29,
+      f30: val + 30, f31: val + 31, f32: val + 32, f33: val + 33, f34: val + 34,
+      f35: val + 35, f36: val + 36, f37: val + 37, f38: val + 38, f39: val + 39,
+      f40: val + 40, f41: val + 41, f42: val + 42, f43: val + 43, f44: val + 44,
+      f45: val + 45, f46: val + 46, f47: val + 47, f48: val + 48, f49: val + 49,
+    };
+  }
+
+  pub fn BigStruct.sum() -> Int {
+    return f00 + f01 + f02 + f03 + f04 + f05 + f06 + f07 + f08 + f09
+      + f10 + f11 + f12 + f13 + f14 + f15 + f16 + f17 + f18 + f19
+      + f20 + f21 + f22 + f23 + f24 + f25 + f26 + f27 + f28 + f29
+      + f30 + f31 + f32 + f33 + f34 + f35 + f36 + f37 + f38 + f39
+      + f40 + f41 + f42 + f43 + f44 + f45 + f46 + f47 + f48 + f49;
+  }
+
+  fn test_big_struct() -> Int {
+    var score = 0;
+    var bs = BigStruct.new(100);
+    if bs.f00 == 100 { score = score + 1; }
+    if bs.f25 == 125 { score = score + 1; }
+    if bs.f49 == 149 { score = score + 1; }
+    if bs.sum() == 6225 { score = score + 1; }
+    return score;
+  }
+
+  // ============================================================
+  // SECTION 4: Type Aliases & Composition
+  // ============================================================
+
+  pub type Vec2 = Point2D;
+  pub type Vec3 = Point3D;
+
+  pub type Matrix2x2 = {
+    a11: Float64; a12: Float64;
+    a21: Float64; a22: Float64;
+  } derive[Clone]
+
+  pub type Matrix3x3 = {
+    m11: Float64; m12: Float64; m13: Float64;
+    m21: Float64; m22: Float64; m23: Float64;
+    m31: Float64; m32: Float64; m33: Float64;
+  } derive[Clone]
+
+  pub fn Matrix2x2.new(a11: Float64, a12: Float64, a21: Float64, a22: Float64) -> Matrix2x2 {
+    return Matrix2x2{ a11: a11, a12: a12, a21: a21, a22: a22 };
+  }
+
+  pub fn Matrix2x2.determinant() -> Float64 {
+    return a11 * a22 - a12 * a21;
+  }
+
+  pub fn Matrix3x3.new(m11: Float64, m12: Float64, m13: Float64, m21: Float64, m22: Float64, m23: Float64, m31: Float64, m32: Float64, m33: Float64) -> Matrix3x3 {
+    return Matrix3x3{
+      m11: m11, m12: m12, m13: m13,
+      m21: m21, m22: m22, m23: m23,
+      m31: m31, m32: m32, m33: m33,
+    };
+  }
+
+  pub fn Matrix3x3.determinant() -> Float64 {
+    var a = m11 * (m22 * m33 - m23 * m32);
+    var b = m12 * (m21 * m33 - m23 * m31);
+    var c = m13 * (m21 * m32 - m22 * m31);
+    return a - b + c;
+  }
+
+  fn test_matrices() -> Int {
+    var score = 0;
+    var m2 = Matrix2x2.new(1.0, 2.0, 3.0, 4.0);
+    if m2.determinant() == -2.0 { score = score + 1; }
+    var m2b = Matrix2x2.new(5.0, 0.0, 0.0, 5.0);
+    if m2b.determinant() == 25.0 { score = score + 1; }
+    var m3 = Matrix3x3.new(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
+    if m3.determinant() == 1.0 { score = score + 1; }
+    var m3b = Matrix3x3.new(2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0);
+    if m3b.determinant() == 8.0 { score = score + 1; }
+    return score;
+  }
+
+  // ============================================================
+  // SECTION 5: Relationship Types
+  // ============================================================
+
+  pub type Date = { day: Int; month: Int; year: Int; } derive[Eq, Clone]
+  pub type TimeOfDay = { hour: Int; minute: Int; second: Int; } derive[Clone]
+  pub type DateTime = { date: Date; time: TimeOfDay; } derive[Clone]
+  pub type Range[T] = { min: T; max: T; } derive[Clone]
+  pub type Pair[A, B] = { first: A; second: B; } derive[Clone]
+
+  fn test_relationship_types() -> Int {
+    var score = 0;
+    var d1 = Date{ day: 1, month: 1, year: 2024 };
+    var d2 = Date{ day: 1, month: 1, year: 2024 };
+    if d1 == d2 { score = score + 1; }
+    if d1.year == 2024 { score = score + 1; }
+    var t = TimeOfDay{ hour: 14, minute: 30, second: 0 };
+    if t.hour == 14 { score = score + 1; }
+    if t.minute == 30 { score = score + 1; }
+    var dt = DateTime{ date: d1, time: t };
+    if dt.date.day == 1 { score = score + 1; }
+    if dt.time.hour == 14 { score = score + 1; }
+    var int_range = Range[Int]{ min: 0, max: 100 };
+    if int_range.min == 0 { score = score + 1; }
+    if int_range.max == 100 { score = score + 1; }
+    var float_range = Range[Float64]{ min: -1.0, max: 1.0 };
+    if float_range.min == -1.0 { score = score + 1; }
+    if float_range.max == 1.0 { score = score + 1; }
+    var p = Pair[Int, Str]{ first: 42, second: "hello" };
+    if p.first == 42 { score = score + 1; }
+    return score;
+  }
+
+  // ============================================================
+  // SECTION 6: Type with Many Methods
+  // ============================================================
+
+  pub type Counter = { value: Int; step: Int; } derive[Clone]
+  pub fn Counter.new(start: Int, step: Int) -> Counter { return Counter{ value: start, step: step }; }
+  pub fn Counter.inc() -> Counter { return Counter{ value: value + step, step: step }; }
+  pub fn Counter.dec() -> Counter { return Counter{ value: value - step, step: step }; }
+  pub fn Counter.reset() -> Counter { return Counter{ value: 0, step: step }; }
+  pub fn Counter.set(new_val: Int) -> Counter { return Counter{ value: new_val, step: step }; }
+  pub fn Counter.is_positive() -> Bool { return value > 0; }
+  pub fn Counter.is_zero() -> Bool { return value == 0; }
+
+  fn test_counter() -> Int {
+    var score = 0;
+    var c = Counter.new(0, 1);
+    if c.value == 0 { score = score + 1; }
+    if c.step == 1 { score = score + 1; }
+    var c2 = c.inc();
+    if c2.value == 1 { score = score + 1; }
+    var c3 = c2.inc().inc().inc();
+    if c3.value == 4 { score = score + 1; }
+    var c4 = c3.dec();
+    if c4.value == 3 { score = score + 1; }
+    var c5 = c4.set(100);
+    if c5.value == 100 { score = score + 1; }
+    var c6 = c5.reset();
+    if c6.value == 0 { score = score + 1; }
+    if c.is_zero() { score = score + 1; }
+    if c2.is_positive() { score = score + 1; }
+    return score;
+  }
+
+  // ============================================================
+  // SECTION 7: Aggregate Runner
+  // ============================================================
+
+  pub fn run_all() -> BenchResult {
+    var total = 0;
+    var max_score = 0;
+    var s1 = test_basic_structs(); total = total + s1; max_score = max_score + 19;
+    var s2 = test_nested_structs(); total = total + s2; max_score = max_score + 11;
+    var s3 = test_big_struct(); total = total + s3; max_score = max_score + 4;
+    var s4 = test_matrices(); total = total + s4; max_score = max_score + 5;
+    var s5 = test_relationship_types(); total = total + s5; max_score = max_score + 12;
+    var s6 = test_counter(); total = total + s6; max_score = max_score + 9;
+    return BenchResult{ name: "types", score: total, max_score: max_score, passed: total == max_score, elapsed_ms: 0 };
+  }
+}
+
+use types.run_all;
+
+fn main() -> Int {
+  var r = run_all();
+  return r.score;
+}

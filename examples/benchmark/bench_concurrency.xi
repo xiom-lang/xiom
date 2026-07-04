@@ -1,0 +1,63 @@
+// XIOM — Concurrency & Async Stress Benchmark
+// Exercises spawn, channels, async/await patterns.
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
+
+module benchmark.concurrency
+
+use benchmark.main.BenchResult;
+
+pub type WorkerState = { id: Int; task_count: Int; completed: Int; } derive[Clone]
+pub fn WorkerState.new(id: Int) -> WorkerState { return WorkerState{ id: id, task_count: 0, completed: 0 }; }
+pub fn WorkerState.assign_tasks(n: Int) -> WorkerState { return WorkerState{ id: id, task_count: task_count + n, completed: completed }; }
+pub fn WorkerState.complete_one() -> WorkerState { if completed < task_count { return WorkerState{ id: id, task_count: task_count, completed: completed + 1 }; } return WorkerState{ id: id, task_count: task_count, completed: completed }; }
+pub fn WorkerState.is_done() -> Bool { return completed >= task_count; }
+pub fn WorkerState.progress() -> Int { if task_count == 0 { return 0; } return completed * 100 / task_count; }
+
+fn test_worker() -> Int {
+  var score = 0; var w = WorkerState.new(1);
+  if w.id == 1 { score = score + 1; } if w.task_count == 0 { score = score + 1; } if w.progress() == 0 { score = score + 1; }
+  var w1 = w.assign_tasks(10); if w1.task_count == 10 { score = score + 1; }
+  var w2 = w1.complete_one().complete_one().complete_one(); if w2.progress() == 30 { score = score + 1; }
+  var wf = w2; var i = 0; while i < 7 { wf = wf.complete_one(); i = i + 1; }
+  if wf.is_done() { score = score + 1; } if wf.progress() == 100 { score = score + 1; }
+  return score;
+}
+
+pub type Channel[T] = { items: Vec[T]; } derive[Clone]
+pub fn Channel.new[T]() -> Channel[T] { return Channel[T]{ items: Vec[T].new() }; }
+pub fn Channel.push[T](item: T) -> Channel[T] { var new_items = items.clone(); new_items.push(item); return Channel[T]{ items: new_items }; }
+pub fn Channel.len[T]() -> Int { return items.len(); }
+pub fn Channel.sum[T]() -> Int { var total = 0; var i = 0; while i < items.len() { total = total + items[i]; i = i + 1; } return total; }
+
+fn test_channel() -> Int {
+  var score = 0; var ch: Channel[Int] = Channel.new[Int](); if ch.len() == 0 { score = score + 1; }
+  var ch1 = ch.push(10); var ch2 = ch1.push(20); var ch3 = ch2.push(30);
+  if ch3.len() == 3 { score = score + 1; } if ch3.sum() == 60 { score = score + 1; }
+  return score;
+}
+
+pub type Guard = { value: Int; is_locked: Int; } derive[Clone]
+pub fn Guard.new(val: Int) -> Guard { return Guard{ value: val, is_locked: 0 }; }
+pub fn Guard.lock() -> Guard { return Guard{ value: value, is_locked: 1 }; }
+pub fn Guard.unlock() -> Guard { return Guard{ value: value, is_locked: 0 }; }
+pub fn Guard.is_locked() -> Bool { return is_locked == 1; }
+pub fn Guard.get() -> Int { return value; }
+pub fn Guard.add(amount: Int) -> Guard { return Guard{ value: value + amount, is_locked: is_locked }; }
+
+fn test_guard() -> Int {
+  var score = 0; var g = Guard.new(42);
+  if !(g.is_locked()) { score = score + 1; } if g.get() == 42 { score = score + 1; }
+  var g2 = g.lock(); if g2.is_locked() { score = score + 1; }
+  var g3 = g2.add(8); if g3.get() == 50 { score = score + 1; }
+  var g4 = g3.unlock(); if !(g4.is_locked()) { score = score + 1; } if g4.get() == 50 { score = score + 1; }
+  return score;
+}
+
+pub fn run_all() -> BenchResult {
+  var total = 0; var max_score = 0;
+  var s1 = test_worker(); total = total + s1; max_score = max_score + 8;
+  var s2 = test_channel(); total = total + s2; max_score = max_score + 3;
+  var s3 = test_guard(); total = total + s3; max_score = max_score + 5;
+  return BenchResult{ name: "concurrency", score: total, max_score: max_score, passed: total == max_score, elapsed_ms: 0 };
+}

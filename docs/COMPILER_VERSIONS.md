@@ -1,4 +1,4 @@
-# AXIOM Compiler — Version History & Roadmap
+# XIOM Compiler — Version History & Roadmap
 
 > Living document tracking all compiler releases and planned milestones.
 > Last updated: 2026-07-02
@@ -7,7 +7,7 @@
 
 ## Versioning Policy
 
-AXIOM Compiler uses **semantic versioning** (`MAJOR.MINOR.PATCH`):
+XIOM Compiler uses **semantic versioning** (`MAJOR.MINOR.PATCH`):
 
 | Component | Meaning |
 |-----------|---------|
@@ -30,7 +30,7 @@ Each version carries a **codename** reflecting the phase theme:
 
 **Status: Released.** Working compiler pipeline from source text to binary.
 
-The first working AXIOM compiler. Establishes the end-to-end pipeline: lexer → parser → type checker → LLVM IR → clang → native `.exe` / `.wasm`. No borrow checking, no contracts, no generics — parses everything, enforces nothing.
+The first working XIOM compiler. Establishes the end-to-end pipeline: lexer → parser → type checker → LLVM IR → clang → native `.exe` / `.wasm`. No borrow checking, no contracts, no generics — parses everything, enforces nothing.
 
 ### Features
 
@@ -53,10 +53,10 @@ The first working AXIOM compiler. Establishes the end-to-end pipeline: lexer →
 
 ```
 36 tests passed (0 failures)
-├── axiom-lexer:   11 tests
-├── axiom-parser:  15 tests
-├── axiom-check:   10 tests
-└── axiom-codegen:  0 tests (manual IR verification)
+├── xiom-lexer:   11 tests
+├── xiom-parser:  15 tests
+├── xiom-check:   10 tests
+└── xiom-codegen:  0 tests (manual IR verification)
 ```
 
 ### Codebase Size
@@ -64,19 +64,19 @@ The first working AXIOM compiler. Establishes the end-to-end pipeline: lexer →
 | Component | Lines |
 |-----------|-------|
 | Rust source (6 crates) | ~3,800 |
-| AXIOM source (examples) | 1 file |
+| XIOM source (examples) | 1 file |
 | Spec docs | 3 files |
 
 ### Crate Structure
 
 | Crate | Path | Purpose |
 |-------|------|---------|
-| `axiom-ast` | `crates/axiom-ast/` | AST node definitions (full EBNF coverage) |
-| `axiom-lexer` | `crates/axiom-lexer/` | Tokenizer (40+ token kinds) |
-| `axiom-parser` | `crates/axiom-parser/` | Recursive descent LL(1) parser |
-| `axiom-check` | `crates/axiom-check/` | Basic type checker (primitives, structs, functions) |
-| `axiom-codegen` | `crates/axiom-codegen/` | Text LLVM IR emitter |
-| `axiomc` | `crates/axiomc/` | CLI binary (lex → parse → check → emit → compile) |
+| `xiom-ast` | `crates/xiom-ast/` | AST node definitions (full EBNF coverage) |
+| `xiom-lexer` | `crates/xiom-lexer/` | Tokenizer (40+ token kinds) |
+| `xiom-parser` | `crates/xiom-parser/` | Recursive descent LL(1) parser |
+| `xiom-check` | `crates/xiom-check/` | Basic type checker (primitives, structs, functions) |
+| `xiom-codegen` | `crates/xiom-codegen/` | Text LLVM IR emitter |
+| `xiomc` | `crates/xiomc/` | CLI binary (lex → parse → check → emit → compile) |
 
 ### Architecture Decisions
 
@@ -116,10 +116,10 @@ The Phase 1 compiler. Builds on the Phase 0 pipeline with enforcement passes and
 
 ```
 87 tests passed (0 failures)
-├── axiom-lexer:   11 tests
-├── axiom-parser:  15 tests
-├── axiom-check:   44 tests  (+29 borrow, contracts, modules, generics)
-├── axiom-codegen: 17 tests
+├── xiom-lexer:   11 tests
+├── xiom-parser:  15 tests
+├── xiom-check:   44 tests  (+29 borrow, contracts, modules, generics)
+├── xiom-codegen: 17 tests
 └── integration:   0
 ```
 
@@ -128,7 +128,7 @@ The Phase 1 compiler. Builds on the Phase 0 pipeline with enforcement passes and
 | Component | Lines |
 |-----------|-------|
 | Rust source (6 crates) | ~5,200 |
-| AXIOM source (examples + stdlib) | ~300 |
+| XIOM source (examples + stdlib) | ~300 |
 | Spec docs | 6 files |
 
 ---
@@ -142,7 +142,7 @@ Thirteen bugs fixed across the compiler pipeline. New capabilities added: interf
 ### Compiler Version String
 
 ```
-AXIOM Compiler v0.2.5 "Hardened" — Phase 1.5
+XIOM Compiler v0.2.5 "Hardened" — Phase 1.5
 ```
 
 ### Bug Fixes (13)
@@ -173,10 +173,10 @@ AXIOM Compiler v0.2.5 "Hardened" — Phase 1.5
 
 ```
 109 tests passed (0 failures)
-├── axiom-lexer:   11 tests
-├── axiom-parser:  24 tests  (+9: match, enum trailing comma, generics, async, contracts)
-├── axiom-check:   44 tests
-├── axiom-codegen: 30 tests  (+13: derive remaining, malloc, interface, enum extraction)
+├── xiom-lexer:   11 tests
+├── xiom-parser:  24 tests  (+9: match, enum trailing comma, generics, async, contracts)
+├── xiom-check:   44 tests
+├── xiom-codegen: 30 tests  (+13: derive remaining, malloc, interface, enum extraction)
 └── integration:   0
 ```
 
@@ -185,16 +185,16 @@ AXIOM Compiler v0.2.5 "Hardened" — Phase 1.5
 | Component | Lines |
 |-----------|-------|
 | Rust source (6 crates) | 6,924 |
-| AXIOM source (examples + stdlib) | 741 |
+| XIOM source (examples + stdlib) | 741 |
 | Spec docs | 7 files |
 
 ### Verified Binaries
 
 | Binary | Source | Exit Code | Status |
 |--------|--------|-----------|--------|
-| `phase1_ownership.ax` | examples/ | 0 | Verified |
-| `phase1_contracts.ax` | examples/ | 0 | Verified |
-| `phase1_full.ax` | examples/ | 0 | Verified |
+| `phase1_ownership.xi` | examples/ | 0 | Verified |
+| `phase1_contracts.xi` | examples/ | 0 | Verified |
+| `phase1_full.xi` | examples/ | 0 | Verified |
 
 ### Example Programs (16)
 
@@ -204,26 +204,26 @@ demo_float, phase1_ownership, phase1_generics, phase1_contracts, phase1_derive, 
 
 ## v0.3.0 "Phoenix" — Phase 2A (2026-06-30)
 
-**Status: Released.** First self-hosting stubs — the compiler begins rewriting itself in AXIOM.
+**Status: Released.** First self-hosting stubs — the compiler begins rewriting itself in XIOM.
 
-Phase 2A establishes the self-hosting foundation. Skeleton compiler modules written in AXIOM live in `selfhost/`. All 109 Rust tests continue to pass. Three selfhost files compile to native binaries via the Phase 1 compiler — the first AXIOM-compiled AXIOM compiler code.
+Phase 2A establishes the self-hosting foundation. Skeleton compiler modules written in XIOM live in `selfhost/`. All 109 Rust tests continue to pass. Three selfhost files compile to native binaries via the Phase 1 compiler — the first XIOM-compiled XIOM compiler code.
 
 ### Selfhost Files
 
 | File | LOC | Status |
 |------|-----|--------|
-| `selfhost/axiom-lexer.ax` | Skeleton | Compiles natively |
-| `selfhost/axiom-parser.ax` | Skeleton | Compiles natively |
-| `selfhost/axiomc.ax` | Skeleton | Compiles natively |
+| `selfhost/xiom-lexer.xi` | Skeleton | Compiles natively |
+| `selfhost/xiom-parser.xi` | Skeleton | Compiles natively |
+| `selfhost/xiomc.xi` | Skeleton | Compiles natively |
 
 ### Test Suite
 
 ```
 109 Rust tests passed (unchanged)
-├── axiom-lexer:   11
-├── axiom-parser:  24
-├── axiom-check:   44
-├── axiom-codegen: 30
+├── xiom-lexer:   11
+├── xiom-parser:  24
+├── xiom-check:   44
+├── xiom-codegen: 30
 └── integration:   0
 ```
 
@@ -232,24 +232,24 @@ Phase 2A establishes the self-hosting foundation. Skeleton compiler modules writ
 | Component | Lines |
 |-----------|-------|
 | Rust source (6 crates) | 6,924 |
-| AXIOM source (selfhost + examples) | ~1,000 |
+| XIOM source (selfhost + examples) | ~1,000 |
 | Spec docs | 7 files |
 
 ---
 
 ## v0.3.1 "Phoenix+" — Phase 2B (2026-06-30)
 
-**Status: Released.** Real tokenizer and parser in AXIOM with ownership-safe position tracking.
+**Status: Released.** Real tokenizer and parser in XIOM with ownership-safe position tracking.
 
-Implements a working tokenizer and recursive descent parser in AXIOM. The tokenizer handles keyword matching, identifier scanning, number scanning (Int, Float64), and operator dispatch. The parser handles `fn` declarations and `return` statements. Introduces the **encoded return pattern** — a tagged union technique for ownership-safe error propagation without affecting the borrow checker.
+Implements a working tokenizer and recursive descent parser in XIOM. The tokenizer handles keyword matching, identifier scanning, number scanning (Int, Float64), and operator dispatch. The parser handles `fn` declarations and `return` statements. Introduces the **encoded return pattern** — a tagged union technique for ownership-safe error propagation without affecting the borrow checker.
 
 ### Selfhost Files
 
 | File | LOC | Verified Binary |
 |------|-----|-----------------|
-| `selfhost/axiom-lexer.ax` | 475 | exits 0 |
-| `selfhost/axiom-parser.ax` | 361 | exits 0 |
-| `selfhost/axiomc.ax` | 441 | exits 2 |
+| `selfhost/xiom-lexer.xi` | 475 | exits 0 |
+| `selfhost/xiom-parser.xi` | 361 | exits 0 |
+| `selfhost/xiomc.xi` | 441 | exits 2 |
 
 ### Test Suite
 
@@ -262,7 +262,7 @@ Implements a working tokenizer and recursive descent parser in AXIOM. The tokeni
 | Component | Lines |
 |-----------|-------|
 | Rust source (6 crates) | 6,924 |
-| AXIOM source (selfhost + examples) | ~1,200 |
+| XIOM source (selfhost + examples) | ~1,200 |
 
 ---
 
@@ -270,7 +270,7 @@ Implements a working tokenizer and recursive descent parser in AXIOM. The tokeni
 
 **Status: Released.** Extended parser with `let`, `var`, `if`/`else` statements and additional operators.
 
-Extends the AXIOM parser to handle variable bindings (`let`, `var`) and conditional statements (`if`/`else`). The lexer gains `&&`, `||`, `!=`, `<=` operators. The parser processes a 33-token test stream and exits 0.
+Extends the XIOM parser to handle variable bindings (`let`, `var`) and conditional statements (`if`/`else`). The lexer gains `&&`, `||`, `!=`, `<=` operators. The parser processes a 33-token test stream and exits 0.
 
 ### Key Metrics
 
@@ -288,15 +288,15 @@ Extends the AXIOM parser to handle variable bindings (`let`, `var`) and conditio
 
 ## v0.3.3 "Phoenix+++" — Phase 2B (2026-06-30)
 
-**Status: Released.** Type checker in AXIOM.
+**Status: Released.** Type checker in XIOM.
 
-Implements the type checking pass in AXIOM: `CheckedType` variants, type compatibility rules, binary operation type validation, and return type checking. Runs 7 self-tests and exits 0.
+Implements the type checking pass in XIOM: `CheckedType` variants, type compatibility rules, binary operation type validation, and return type checking. Runs 7 self-tests and exits 0.
 
 ### Selfhost Files
 
 | File | LOC | Verified Binary |
 |------|-----|-----------------|
-| `selfhost/axiom-check.ax` | 171 | exits 0 |
+| `selfhost/xiom-check.xi` | 171 | exits 0 |
 
 ### Self-Tests
 
@@ -314,15 +314,15 @@ Implements the type checking pass in AXIOM: `CheckedType` variants, type compati
 
 ## v0.3.4 "PhoenixIV" — Phase 2B (2026-06-30)
 
-**Status: Released.** Codegen pass in AXIOM.
+**Status: Released.** Codegen pass in XIOM.
 
-Implements the LLVM code generation pass in AXIOM: LLVM type mapping (Int → i64, Float64 → double, Bool → i1, Str → ptr), instruction counting, and basic IR emission scaffolding. Runs 2 self-tests and exits 0.
+Implements the LLVM code generation pass in XIOM: LLVM type mapping (Int → i64, Float64 → double, Bool → i1, Str → ptr), instruction counting, and basic IR emission scaffolding. Runs 2 self-tests and exits 0.
 
 ### Selfhost Files
 
 | File | LOC | Verified Binary |
 |------|-----|-----------------|
-| `selfhost/axiom-codegen.ax` | 37 | exits 0 |
+| `selfhost/xiom-codegen.xi` | 37 | exits 0 |
 
 ### Self-Tests
 
@@ -334,10 +334,10 @@ Implements the LLVM code generation pass in AXIOM: LLVM type mapping (Int → i6
 
 | Binary | Exit Code | Status |
 |--------|-----------|--------|
-| `selfhost/axiom-lexer.ax` | 0 | Verified |
-| `selfhost/axiom-parser.ax` | 0 | Verified |
-| `selfhost/axiom-check.ax` | 0 | Verified |
-| `selfhost/axiom-codegen.ax` | 0 | Verified |
+| `selfhost/xiom-lexer.xi` | 0 | Verified |
+| `selfhost/xiom-parser.xi` | 0 | Verified |
+| `selfhost/xiom-check.xi` | 0 | Verified |
+| `selfhost/xiom-codegen.xi` | 0 | Verified |
 
 ### Test Suite
 
@@ -350,9 +350,9 @@ Implements the LLVM code generation pass in AXIOM: LLVM type mapping (Int → i6
 | Component | Lines |
 |-----------|-------|
 | Rust source (6 crates) | 6,937 |
-| AXIOM source (selfhost) | 1,485 |
-| AXIOM source (examples) | 572 |
-| **Total AXIOM** | **2,057** |
+| XIOM source (selfhost) | 1,485 |
+| XIOM source (examples) | 572 |
+| **Total XIOM** | **2,057** |
 
 ---
 
@@ -360,7 +360,7 @@ Implements the LLVM code generation pass in AXIOM: LLVM type mapping (Int → i6
 
 **Status: Released.** Differential correctness infrastructure and selfhost codegen emits real LLVM IR.
 
-Establishes the differential correctness framework: 4 dedicated tests verify that the AXIOM selfhost compiler and the Rust compiler produce matching IR for the same test program. The selfhost codegen pass (`selfhost/axiom-codegen.ax`) now emits real LLVM IR via `println()` instead of just scaffolding — the output matches the Rust compiler's IR for `diff_test.ax`.
+Establishes the differential correctness framework: 4 dedicated tests verify that the XIOM selfhost compiler and the Rust compiler produce matching IR for the same test program. The selfhost codegen pass (`selfhost/xiom-codegen.xi`) now emits real LLVM IR via `println()` instead of just scaffolding — the output matches the Rust compiler's IR for `diff_test.xi`.
 
 ### Differential Correctness
 
@@ -373,17 +373,17 @@ Establishes the differential correctness framework: 4 dedicated tests verify tha
 
 ### Selfhost Compiler
 
-The AXIOM-compiled compiler (`diff_selfhost.exe`) exits 0 and its emitted IR matches the Rust compiler's output for `examples/diff_test.ax`.
+The XIOM-compiled compiler (`diff_selfhost.exe`) exits 0 and its emitted IR matches the Rust compiler's output for `examples/diff_test.xi`.
 
 ### Test Suite
 
 ```
 113 Rust tests passed (0 failures)
-├── axiom-check:    44
-├── axiom-codegen:  30
+├── xiom-check:    44
+├── xiom-codegen:  30
 ├── diff_tests:      4 (new — differential correctness)
-├── axiom-lexer:    11
-├── axiom-parser:   24
+├── xiom-lexer:    11
+├── xiom-parser:   24
 └── integration:     0
 ```
 
@@ -392,15 +392,15 @@ The AXIOM-compiled compiler (`diff_selfhost.exe`) exits 0 and its emitted IR mat
 | Component | Lines |
 |-----------|-------|
 | Rust source (6 crates) | 7,020 |
-| AXIOM source (selfhost) | ~1,200 |
+| XIOM source (selfhost) | ~1,200 |
 
 ---
 
 ## v0.3.6 "PhoenixVI" — Expanded Differential Correctness (2026-06-30)
 
-**Status:** Selfhost compiler handles demo_float.ax — 3 functions, float arithmetic, function calls.
+**Status:** Selfhost compiler handles demo_float.xi — 3 functions, float arithmetic, function calls.
 
-- **Lexer** embeds full demo_float.ax source (161 chars, positions 0-160)
+- **Lexer** embeds full demo_float.xi source (161 chars, positions 0-160)
 - **Codegen** emits 3 matching functions: @add (i64 add), @sq (double fmul), @main (call @sq + call @add)
 - **Differential test** verifies all 3 functions and key IR instructions (fmul double, call double @sq, call i64 @add)
 - **114 tests passing** (113 existing + 1 new demo_float diff test)
@@ -411,7 +411,7 @@ The AXIOM-compiled compiler (`diff_selfhost.exe`) exits 0 and its emitted IR mat
 
 **Status:** Selfhost compiler covers ownership/borrowing + derive codegen examples.
 
-- **Lexer** embeds phase1_ownership.ax source (165 chars)
+- **Lexer** embeds phase1_ownership.xi source (165 chars)
 - **Codegen** emits 10 functions across 2 programs: ownership (3 fns: take_ownership, read_borrow, main) + derive (7 fns: Point.eq/clone/to_str, Color.eq/clone/hash/compare, main)
 - **Derive IR** covers: struct types (%struct.Point {double,double}), GEP field access, fcmp/icmp comparison, zext + and, clone via GEP/store, DJB2 hash, lexicographic Ord with branch dispatch
 - **2 new diff tests** verify ownership patterns (function calls, add i64) and derive patterns (getelementptr, fcmp oeq, icmp eq)
@@ -423,7 +423,7 @@ The AXIOM-compiled compiler (`diff_selfhost.exe`) exits 0 and its emitted IR mat
 
 **Status: Released.** 124 tests. Selfhost compiler achieves differential IR correctness across 12 example programs.
 
-The AXIOM-written compiler (`selfhost/axiomc.ax`, ~700 lines) emits LLVM IR matching the Rust compiler for 12 of 17 example programs. 15 differential tests verify byte-level IR equivalence across all major Phase 1 features: struct derive, contracts with @llvm.trap, match dispatch, Result error handling, generics monomorphisation, interface constraints, ownership/borrowing, module system, and float arithmetic.
+The XIOM-written compiler (`selfhost/xiomc.xi`, ~700 lines) emits LLVM IR matching the Rust compiler for 12 of 17 example programs. 15 differential tests verify byte-level IR equivalence across all major Phase 1 features: struct derive, contracts with @llvm.trap, match dispatch, Result error handling, generics monomorphisation, interface constraints, ownership/borrowing, module system, and float arithmetic.
 
 **15 Differential Tests** covering: ret i64, fmul/call double, ownership calls, struct GEP/fcmp/zext/and/hash/ord, contract ok/fail/trap/unreachable, module function calls, Result 3-field GEP/bitcast/ptrtoint, generics @wrap_Int, match_check/arm/merge dispatch, enum derive zext, interface icmp sgt, async worker mul.
 
@@ -442,34 +442,34 @@ The AXIOM-written compiler (`selfhost/axiomc.ax`, ~700 lines) emits LLVM IR matc
 
 ### v0.9.5 "Self" — True Self-Hosting (2026-06-30)
 
-**Status: Released.** 206 tests. The AXIOM compiler compiles itself.
+**Status: Released.** 206 tests. The XIOM compiler compiles itself.
 
-The selfhost compiler (`axiomc_v095.ax`) reads its own source file, tokenizes every character, counts structural elements, and emits LLVM IR representing its own structural analysis. The Rust compiler compiles this selfhost source, producing a binary that runs and emits LLVM IR containing `define i64 @main() { ret i64 311008 }` — a hash of its own structure (31 functions × 10000 + 1008 tokens).
+The selfhost compiler (`xiomc_v095.xi`) reads its own source file, tokenizes every character, counts structural elements, and emits LLVM IR representing its own structural analysis. The Rust compiler compiles this selfhost source, producing a binary that runs and emits LLVM IR containing `define i64 @main() { ret i64 311008 }` — a hash of its own structure (31 functions × 10000 + 1008 tokens).
 
 **Self-Compilation Proof:**
-- `axiomc_v095.ax` reads `selfhost\axiomc_v095.ax` (itself) from disk
-- Lexer tokenizes 1008 tokens via `axiom_char_at` (general, not hardcoded)
+- `xiomc_v095.xi` reads `selfhost\xiomc_v095.xi` (itself) from disk
+- Lexer tokenizes 1008 tokens via `xiom_char_at` (general, not hardcoded)
 - Parser counts 31 function declarations via `fn` keyword scanning
 - Codegen emits structural hash IR via C runtime functions
 - Native binary compiles and runs (exit 0)
 
-**C Runtime Bridge:** Full extern function support with 20+ C helpers for file I/O, string indexing, and IR emission. AXIOM compiler works with pure Int IDs; all string operations delegated to C.
+**C Runtime Bridge:** Full extern function support with 20+ C helpers for file I/O, string indexing, and IR emission. XIOM compiler works with pure Int IDs; all string operations delegated to C.
 
 **Previous Milestones (v0.9.3–v0.9.4):**
-- v0.9.3: First compiler reading real .ax files via extern C runtime
-- v0.9.4: Per-function IR emission — reads demo_float.ax, emits individual IR for add/sq/main matching Rust compiler
+- v0.9.3: First compiler reading real .xi files via extern C runtime
+- v0.9.4: Per-function IR emission — reads demo_float.xi, emits individual IR for add/sq/main matching Rust compiler
 
 ---
 
 ### v0.10.0 "Sovereign" — Production Self-Hosting (2026-06-30)
 
-**Status: Released.** 208 tests. The AXIOM compiler fully compiles itself from source to native binary.
+**Status: Released.** 208 tests. The XIOM compiler fully compiles itself from source to native binary.
 
-The selfhost compiler (`axiomc_v10.ax`) reads its own source file, tokenizes it via a general character-by-character lexer, parses complete function signatures (name, parameters, return type, body bounds), stores parsed information in the C runtime function table, and emits per-function LLVM IR with correct signatures and differentiated return values. The Rust compiler compiles this selfhost source, producing a binary that runs and emits IR for all 18 functions found in its own source.
+The selfhost compiler (`xiomc_v10.xi`) reads its own source file, tokenizes it via a general character-by-character lexer, parses complete function signatures (name, parameters, return type, body bounds), stores parsed information in the C runtime function table, and emits per-function LLVM IR with correct signatures and differentiated return values. The Rust compiler compiles this selfhost source, producing a binary that runs and emits IR for all 18 functions found in its own source.
 
-**Pipeline:** `axiomc_v10.ax` → Rust axiomc → `axiomc_v10.exe` → runs → reads `selfhost\axiomc_v10.ax` → tokenizes → parses 18 functions → emits per-function IR
+**Pipeline:** `xiomc_v10.xi` → Rust xiomc → `xiomc_v10.exe` → runs → reads `selfhost\xiomc_v10.xi` → tokenizes → parses 18 functions → emits per-function IR
 
-**C Runtime:** 40+ functions providing file I/O, string interning (Int IDs), character access, IR emission, and function table management. The AXIOM compiler works with pure Int IDs; all string operations delegated to C.
+**C Runtime:** 40+ functions providing file I/O, string interning (Int IDs), character access, IR emission, and function table management. The XIOM compiler works with pure Int IDs; all string operations delegated to C.
 
 **208 tests** (206 existing + 2 self-compilation verification tests).
 
@@ -477,11 +477,11 @@ The selfhost compiler (`axiomc_v10.ax`) reads its own source file, tokenizes it 
 
 ### v0.11.0 "Self-Hosted" — Full Self-Hosting with C Runtime Body Parser (2026-07-01)
 
-**Status: Released.** 213 tests. The AXIOM compiler fully self-hosts — the selfhost compiler (`axiomc_v11_test.ax`) produces real LLVM IR matching the Rust compiler's output for function definitions, arithmetic, and function calls.
+**Status: Released.** 213 tests. The XIOM compiler fully self-hosts — the selfhost compiler (`xiomc_v11_test.xi`) produces real LLVM IR matching the Rust compiler's output for function definitions, arithmetic, and function calls.
 
-**Pipeline:** `axiomc_v11_test.ax` → Rust axiomc → `verify_selfhost.exe` → runs → emits real IR: `define i64 @add(...)` with `add i64` instructions and `call i64 @add(...)`.
+**Pipeline:** `xiomc_v11_test.xi` → Rust xiomc → `verify_selfhost.exe` → runs → emits real IR: `define i64 @add(...)` with `add i64` instructions and `call i64 @add(...)`.
 
-**C Runtime Body Parser:** Full extern C function support for file I/O, string indexing, IR emission, and function table management. AXIOM compiler works with pure Int IDs; all string operations delegated to C.
+**C Runtime Body Parser:** Full extern C function support for file I/O, string indexing, IR emission, and function table management. XIOM compiler works with pure Int IDs; all string operations delegated to C.
 
 ---
 
@@ -498,16 +498,16 @@ This release fixes the memory safety and crash bugs identified in the [Benchmark
 | Fix | Severity | What Changed |
 |-----|----------|-------------|
 | **Vec.push reallocation** | CRITICAL | Added capacity check + `@realloc` doubling strategy. Previously allocated 128 bytes fixed (16 elements), wrote past buffer on push #17. Now auto-grows. |
-| **Recursion depth limit** | CRITICAL | Added `@axiom_recursion_counter` global with configurable max depth (default 500). Traps on overflow. Decrements on return. `IrEmitter::set_max_recursion_depth()` public API. |
+| **Recursion depth limit** | CRITICAL | Added `@xiom_recursion_counter` global with configurable max depth (default 500). Traps on overflow. Decrements on return. `IrEmitter::set_max_recursion_depth()` public API. |
 | **Division by zero guards** | HIGH | Added `icmp eq {r}, 0` + `@llvm.trap()` before all integer `sdiv`/`srem` instructions. Previously SIGFPE on x86-64. |
 
 ### Multi-File Module Resolution
 
 - **File-level module syntax:** Parser now handles `module a.b.c` declarations (without braces) for multi-file projects
-- **Filesystem resolution:** Checker `load_external_module()` reads `.ax` files from disk when inline modules not found
-- **Package manifest parsing:** CLI reads `package.ax` to discover module list
+- **Filesystem resolution:** Checker `load_external_module()` reads `.xi` files from disk when inline modules not found
+- **Package manifest parsing:** CLI reads `package.xi` to discover module list
 - **Multi-file merge:** `merge_programs()` + `merge_duplicate_modules()` combine parsed ASTs from multiple source files
-- **CLI:** Accepts directories (`axiomc --run examples/benchmark/`), multiple files, or `--package <dir>`
+- **CLI:** Accepts directories (`xiomc --run examples/benchmark/`), multiple files, or `--package <dir>`
 - **Backward compatible:** All single-file programs and inline `module name { ... }` blocks unchanged
 
 ### Cross-Platform Dependency Auto-Installers
@@ -518,22 +518,22 @@ New scripts that detect the OS/distro and auto-install missing build dependencie
 |--------|-----------|-----------------|
 | `install_deps.ps1` | Windows | winget, chocolatey, direct download (rustup, LLVM installer) |
 | `install_deps.sh` | macOS, Linux | brew, apt, dnf, pacman, apk, direct LLVM download |
-| `install.sh` | macOS, Linux | Full AXIOM install (calls deps first, then builds) |
+| `install.sh` | macOS, Linux | Full XIOM install (calls deps first, then builds) |
 
 Dependencies auto-detected: Rust (rustc/cargo), LLVM (clang), C build tools (gcc/Xcode CLT/link.exe), Git.
 
 ### Windows Icon & File Association
 
-- **EXE icon embedding:** `crates/axiomc/build.rs` embeds `axiom-icon.ico` via `winres` crate
+- **EXE icon embedding:** `crates/xiomc/build.rs` embeds `xiom-icon.ico` via `winres` crate
 - **Installer copies icon:** `install.ps1` copies icon to bin directory
 - **Release packages include icon:** `package.ps1` includes icon in release ZIP
-- **`.ax` file association:** Installer registers `.ax` extension with AXIOM icon (optional, Windows only)
-- **Desktop shortcut:** Links to `axiom.bat` with icon from embedded EXE resource
+- **`.xi` file association:** Installer registers `.xi` extension with XIOM icon (optional, Windows only)
+- **Desktop shortcut:** Links to `xiom.bat` with icon from embedded EXE resource
 
 ### Playground Improvements
 
-- **Robust stdlib resolution:** Replaced fragile regex with multi-pattern matching (`use axiom.X;`, `use axiom.X as Y;`, `use axiom.X.*;`)
-- **Single merged block:** All stdlib modules injected into one `module axiom { ... }` block (no conflicts)
+- **Robust stdlib resolution:** Replaced fragile regex with multi-pattern matching (`use xiom.X;`, `use xiom.X as Y;`, `use xiom.X.*;`)
+- **Single merged block:** All stdlib modules injected into one `module xiom { ... }` block (no conflicts)
 - **Transitive dependency resolution:** Recursively resolves `use` within stdlib modules (depth 3)
 - **Autocomplete expanded:** From 8 to all 39 stdlib modules + common functions
 - **Line offset comments:** Added to help with error line number mapping
@@ -562,24 +562,24 @@ Dependencies auto-detected: Rust (rustc/cargo), LLVM (clang), C build tools (gcc
 
 | File | Change |
 |------|--------|
-| `crates/axiom-codegen/src/lib.rs` | Vec realloc + div-zero guards + recursion depth + Expr::Tuple/As/If |
-| `crates/axiomc/src/main.rs` | Multi-file per-file parsing + merge, package.ax loading |
-| `crates/axiomc/Cargo.toml` | Added `winres` build-dependency |
-| `crates/axiomc/build.rs` | **NEW** — Embeds axiom-icon.ico |
-| `crates/axiom-ast/src/lib.rs` | ModuleDecl + Program extended, Expr::Tuple/As/If, Type::Fn, Stmt::Destructure, MatchArm.guard |
-| `crates/axiom-parser/src/lib.rs` | 15+ new syntax constructs, file-level module parsing |
-| `crates/axiom-check/src/lib.rs` | Filesystem module resolution, CheckedType::Fn, Expr variants |
-| `crates/axiom-check/Cargo.toml` | Moved lexer/parser to production deps |
-| `crates/axiom-fmt/src/lib.rs` | Format support for all new Expr/Stmt/Type variants |
-| `crates/axiom-codegen/src/lib.rs` | Codegen for new Expr variants |
-| `install.ps1` | Calls `install_deps.ps1`, interactive path/PATH, icon + .ax registration |
+| `crates/xiom-codegen/src/lib.rs` | Vec realloc + div-zero guards + recursion depth + Expr::Tuple/As/If |
+| `crates/xiomc/src/main.rs` | Multi-file per-file parsing + merge, package.xi loading |
+| `crates/xiomc/Cargo.toml` | Added `winres` build-dependency |
+| `crates/xiomc/build.rs` | **NEW** — Embeds xiom-icon.ico |
+| `crates/xiom-ast/src/lib.rs` | ModuleDecl + Program extended, Expr::Tuple/As/If, Type::Fn, Stmt::Destructure, MatchArm.guard |
+| `crates/xiom-parser/src/lib.rs` | 15+ new syntax constructs, file-level module parsing |
+| `crates/xiom-check/src/lib.rs` | Filesystem module resolution, CheckedType::Fn, Expr variants |
+| `crates/xiom-check/Cargo.toml` | Moved lexer/parser to production deps |
+| `crates/xiom-fmt/src/lib.rs` | Format support for all new Expr/Stmt/Type variants |
+| `crates/xiom-codegen/src/lib.rs` | Codegen for new Expr variants |
+| `install.ps1` | Calls `install_deps.ps1`, interactive path/PATH, icon + .xi registration |
 | `install_deps.ps1` | **NEW** — Windows dependency auto-installer (winget/choco/direct) |
 | `install.sh` | **NEW** — macOS/Linux full installer |
 | `install_deps.sh` | **NEW** — Unix dependency auto-installer (brew/apt/dnf/pacman) |
 | `package.ps1` | Release packaging with icon, docs, portable install.bat |
 | `website/playground/server.py` | Robust stdlib injection with transitive resolution |
 | `website/playground/index.html` | 39-module autocomplete, server badge fix |
-| `stdlib/runtime/axiom_runtime.c` | Fixed selfhost IR emission (load-inside-call bug) |
+| `stdlib/runtime/xiom_runtime.c` | Fixed selfhost IR emission (load-inside-call bug) |
 
 ### Verified
 
@@ -589,7 +589,7 @@ Dependencies auto-detected: Rust (rustc/cargo), LLVM (clang), C build tools (gcc
 - **32 e2e IR tests** — all pass (IR emission, flags, target triples)
 - **29 e2e native tests** — require `clang` on PATH (auto-installed by `install_deps.ps1`)
 - **Benchmark suite** — 30 files, 0 parse errors (all P001 fixed), parses into 10,000+ line merged program
-- **`benchmark_stress.ax`** — 8,577 lines, 28 inline modules, parses correctly
+- **`benchmark_stress.xi`** — 8,577 lines, 28 inline modules, parses correctly
 
 ### Build & Test
 
@@ -598,10 +598,10 @@ Dependencies auto-detected: Rust (rustc/cargo), LLVM (clang), C build tools (gcc
 cargo build
 
 # Run tests
-cargo test -p axiom-codegen          # 25 diff + 32 e2e IR tests
+cargo test -p xiom-codegen          # 25 diff + 32 e2e IR tests
 
 # Compile multi-file project (NEW)
-cargo run -p axiomc -- --run examples/benchmark/
+cargo run -p xiomc -- --run examples/benchmark/
 
 # Auto-install deps on fresh machine
 .\install_deps.ps1                    # Windows
@@ -614,15 +614,15 @@ cargo run -p axiomc -- --run examples/benchmark/
 
 **Status: Released.** 185+ tests, zero warnings, zero failures. ModuleCatalog with lazy multi-file resolution, struct-return + tuple-return codegen fixes, module-qualified naming for collision-free multi-file merges, 5 new hardened benchmark files (ownership chains, borrow torture, contract stress, generics stress, monomorphisation stress), 30-module benchmark suite compiles cleanly.
 
-This release completes the multi-file module system that v0.21.0 claimed but didn't actually ship. The `ModuleCatalog` and `CachedModule` structs are now implemented in `axiom-check` with path-based + scan-based fallback file loading, `collect_external_decls` injects full pub type/function AST bodies (not just stubs) from lazily-loaded external modules, and the axiomc injection gate deduplicates before codegen. All 10 pre-existing compiler warnings are resolved. The v10 selfhost e2e tests no longer race on shared output files.
+This release completes the multi-file module system that v0.21.0 claimed but didn't actually ship. The `ModuleCatalog` and `CachedModule` structs are now implemented in `xiom-check` with path-based + scan-based fallback file loading, `collect_external_decls` injects full pub type/function AST bodies (not just stubs) from lazily-loaded external modules, and the xiomc injection gate deduplicates before codegen. All 10 pre-existing compiler warnings are resolved. The v10 selfhost e2e tests no longer race on shared output files.
 
 ### ModuleCatalog — Actually Built This Time
 
-- **`ModuleCatalog`** struct in `axiom-check`: lazy-loading cache keyed by dotted module path
+- **`ModuleCatalog`** struct in `xiom-check`: lazy-loading cache keyed by dotted module path
 - **`CachedModule`**: stores parsed AST Program with full function bodies for injection
-- **Path-based lookup**: `<source_dir>/<p0>/<p1>/.../<pn>.ax` with dot-name fallback
+- **Path-based lookup**: `<source_dir>/<p0>/<p1>/.../<pn>.xi` with dot-name fallback
 - **Scan-based fallback**: walks source_dirs recursively, matching declared module headers via lightweight parse
-- **Last-segment fallback**: tries `{source_dir}/{leaf}.ax` with header validation (ensures test_mod/main.ax doesn't collide with benchmark/main.ax)
+- **Last-segment fallback**: tries `{source_dir}/{leaf}.xi` with header validation (ensures test_mod/main.xi doesn't collide with benchmark/main.xi)
 - **`find_owned()`**: returns owned CachedModule clone to avoid borrow conflicts with Checker
 - **`add_source_dir()`**: propagates to both legacy source_dirs and catalog
 
@@ -631,7 +631,7 @@ This release completes the multi-file module system that v0.21.0 claimed but did
 - **`CheckedType::to_ast_type()`**: converts back to AST Type for codegen consumption
 - **`collect_external_decls()`**: walks cached program items recursively, clones full Type/Enum/Fn decls (with bodies!) for pub items not in the current AST. Filters primitives. Deduplicates by name.
 - **`register_external_module()`**: registers external types/fns/enums into checker tables, merges module maps without overwriting existing entries
-- **Injection gate** (`axiomc/main.rs`): deduplicated external decls injected into `program.items` before codegen, with name-based filtering
+- **Injection gate** (`xiomc/main.rs`): deduplicated external decls injected into `program.items` before codegen, with name-based filtering
 - **`flatten_submodules_inner`**: uses `entry().or_insert()` to preserve merged module maps
 - **`build_module_map_inner`**: FnSig AST fallback for external functions not yet in `self.functions`
 
@@ -639,9 +639,9 @@ This release completes the multi-file module system that v0.21.0 claimed but did
 
 | Example | Status |
 |---------|--------|
-| `test_mod/math.ax` | IR compiles, `@make_result` defined, `%struct.BenchResult` emitted |
-| `benchmark/bench_math.ax` | IR compiles, cross-file types resolved |
-| `benchmark/main.ax` | 24 modules loaded via catalog, IR compiles |
+| `test_mod/math.xi` | IR compiles, `@make_result` defined, `%struct.BenchResult` emitted |
+| `benchmark/bench_math.xi` | IR compiles, cross-file types resolved |
+| `benchmark/main.xi` | 24 modules loaded via catalog, IR compiles |
 
 ### Other Fixes
 
@@ -650,34 +650,34 @@ This release completes the multi-file module system that v0.21.0 claimed but did
 | **v10 selfhost flake** | Unique output filenames (`e2e_v10_self_compile.exe` vs `e2e_v10_self_bootstrap_src.exe`) |
 | **Windows clang linker** | `/SUBSYSTEM:CONSOLE` flag for multi-file native target |
 | **10 compiler warnings** | Unused vars (`_fields`, `_name`, `_cond`, `_elifs`), unreachable `_ => return` arms removed, dead `load_external_module_path` deleted, useless-comparison `#![allow]` |
-| **Catalog wrong-file loading** | Last-segment fallback prevents `benchmark/main.ax` from shadowing `test_mod/main.ax` |
+| **Catalog wrong-file loading** | Last-segment fallback prevents `benchmark/main.xi` from shadowing `test_mod/main.xi` |
 
 ### Test Suite
 
 ```
 185+ tests passed (0 failures)
-├── axiom-check:    44 tests (type checker)
-├── axiom-codegen: 141 tests (25 diff + 63 e2e incl. 2 new multi-file + 23 full_diff + 30 integration)
-└── benchmarks:     benchmark_stress.ax (pre-existing tuple-return issue)
+├── xiom-check:    44 tests (type checker)
+├── xiom-codegen: 141 tests (25 diff + 63 e2e incl. 2 new multi-file + 23 full_diff + 30 integration)
+└── benchmarks:     benchmark_stress.xi (pre-existing tuple-return issue)
 ```
 
 ### Files Changed
 
 | File | Change |
 |------|--------|
-| `crates/axiom-check/src/lib.rs` | +320 ModuleCatalog + CachedModule + collect_external_decls + to_ast_type + resolve_imports rewrite + file-loading fixes |
-| `crates/axiomc/src/main.rs` | +55 injection gate + add_source_dir + examples root + subsystem fix |
-| `crates/axiom-codegen/src/lib.rs` | Warnings: _fields, _cond, _elifs |
-| `crates/axiom-codegen/tests/e2e_tests.rs` | v10 flake fix + 3 multi-file regression tests |
-| `crates/axiom-codegen/tests/full_diff_tests.rs` | Warnings: #![allow(unused_comparisons)] |
+| `crates/xiom-check/src/lib.rs` | +320 ModuleCatalog + CachedModule + collect_external_decls + to_ast_type + resolve_imports rewrite + file-loading fixes |
+| `crates/xiomc/src/main.rs` | +55 injection gate + add_source_dir + examples root + subsystem fix |
+| `crates/xiom-codegen/src/lib.rs` | Warnings: _fields, _cond, _elifs |
+| `crates/xiom-codegen/tests/e2e_tests.rs` | v10 flake fix + 3 multi-file regression tests |
+| `crates/xiom-codegen/tests/full_diff_tests.rs` | Warnings: #![allow(unused_comparisons)] |
 | `docs/requirements/multi-file-catalog.md` | **NEW** |
 | `docs/checklists/multi-file-catalog.md` | **NEW** |
 
 ### Known Limitations
 
-- **benchmark_stress.ax**: tuple-return in `partition()` not yet supported by codegen
-- **benchmark/main.ax**: 24-module full linking deferred (IR compiles successfully via catalog)
-- **Struct-return codegen**: `ret %struct.BenchResult %tmp6` where tmp6 is i64 — type mismatch in codegen<br>  (e.g., `run_all()` in math.ax returning struct via i64 register)
+- **benchmark_stress.xi**: tuple-return in `partition()` not yet supported by codegen
+- **benchmark/main.xi**: 24-module full linking deferred (IR compiles successfully via catalog)
+- **Struct-return codegen**: `ret %struct.BenchResult %tmp6` where tmp6 is i64 — type mismatch in codegen<br>  (e.g., `run_all()` in math.xi returning struct via i64 register)
 - **Borrow checker**: 146 non-fatal `use of moved value` warnings remain
 
 ---
@@ -699,10 +699,10 @@ All versions below are **Released**. All phases 0–3 are complete. V1.0.0 is th
 - Z3 static contract verification (gated on contract semantics audit)
 
 - Static contract verification via Z3 SMT integration
-- Package registry (`axiom packages`)
+- Package registry (`xiom packages`)
 - Language server (LSP) with `tower-lsp`
-- Canonical formatter (`axiom fmt`)
-- Documentation generator (`axiom doc`)
+- Canonical formatter (`xiom fmt`)
+- Documentation generator (`xiom doc`)
 - Additional targets (ARM, RISC-V)
 - WASM compiler distribution (playground)
 - Mechanical FFI binding generation with contract inference from C headers
@@ -712,7 +712,7 @@ All versions below are **Released**. All phases 0–3 are complete. V1.0.0 is th
 
 ## Version Summary
 
-| Version | Codename | Phase | Date | Status | Rust Tests | Rust LOC | AXIOM LOC |
+| Version | Codename | Phase | Date | Status | Rust Tests | Rust LOC | XIOM LOC |
 |---------|----------|-------|------|--------|-----------|----------|-----------|
 | **v0.1.0** | Pipeline | 0 | 2026-06-30 | **Released** | 36 | ~3,800 | 0 |
 | **v0.2.0** | Guardian | 1 | 2026-06-30 | **Released** | 87 | ~5,200 | ~300 |
@@ -771,7 +771,7 @@ All versions below are **Released**. All phases 0–3 are complete. V1.0.0 is th
 | **v0.22.1** | **Hardened** | **Eco** | **2026-07-03** | **In Progress** | **185+** | **~11,700** | **~12,200** |
 | v1.0.0 | Sovereign | 3 | TBD | Planned | — | — | — |
 
-> AXIOM LOC totals include selfhost compiler modules (`selfhost/`) and example programs (`examples/`).
+> XIOM LOC totals include selfhost compiler modules (`selfhost/`) and example programs (`examples/`).
 
 ---
 
@@ -787,40 +787,40 @@ cargo build
 cargo test
 
 # Run specific crate tests
-cargo test -p axiom-lexer       # 11 tests
-cargo test -p axiom-parser      # 27 tests
-cargo test -p axiom-check       # 44 tests
-cargo test -p axiom-codegen     # 141 tests (25 diff + 63 e2e + 23 full_diff + 30 integration)
+cargo test -p xiom-lexer       # 11 tests
+cargo test -p xiom-parser      # 27 tests
+cargo test -p xiom-check       # 44 tests
+cargo test -p xiom-codegen     # 141 tests (25 diff + 63 e2e + 23 full_diff + 30 integration)
 ```
 
-### Compile AXIOM Programs
+### Compile XIOM Programs
 
 ```powershell
 # Compile and run (prints exit code)
-cargo run -p axiomc -- --run examples\phase1_full.ax
+cargo run -p xiomc -- --run examples\phase1_full.xi
 
 # Compile to native binary
-cargo run -p axiomc -- -o output.exe examples\phase1_full.ax
+cargo run -p xiomc -- -o output.exe examples\phase1_full.xi
 
 # Compile to WASM
-cargo run -p axiomc -- --target wasm -o demo.wasm examples\demo_float.ax
+cargo run -p xiomc -- --target wasm -o demo.wasm examples\demo_float.xi
 
 # Print LLVM IR to stdout
-cargo run -p axiomc -- --emit-ir examples\demo_float.ax
+cargo run -p xiomc -- --emit-ir examples\demo_float.xi
 
 # Disable contract checks
-cargo run -p axiomc -- --no-contracts examples\phase1_contracts.ax
+cargo run -p xiomc -- --no-contracts examples\phase1_contracts.xi
 ```
 
-### Compile Selfhost (AXIOM-compiled) Programs
+### Compile Selfhost (XIOM-compiled) Programs
 
 ```powershell
 # Compile selfhost programs using the Rust compiler
-cargo run -p axiomc -- --run selfhost\axiom-lexer.ax
-cargo run -p axiomc -- --run selfhost\axiom-parser.ax
-cargo run -p axiomc -- --run selfhost\axiom-check.ax
-cargo run -p axiomc -- --run selfhost\axiom-codegen.ax
-cargo run -p axiomc -- --run selfhost\axiomc.ax
+cargo run -p xiomc -- --run selfhost\xiom-lexer.xi
+cargo run -p xiomc -- --run selfhost\xiom-parser.xi
+cargo run -p xiomc -- --run selfhost\xiom-check.xi
+cargo run -p xiomc -- --run selfhost\xiom-codegen.xi
+cargo run -p xiomc -- --run selfhost\xiomc.xi
 ```
 
 ### CLI Flags
@@ -837,10 +837,10 @@ cargo run -p axiomc -- --run selfhost\axiomc.ax
 ### Version String
 
 ```
-AXIOM Compiler v0.21.0 "Catalog" -- Multi-File Module System
+XIOM Compiler v0.21.0 "Catalog" -- Multi-File Module System
 ```
 
-Current release tag displayed in the CLI. The version string is maintained in `crates/axiomc/src/main.rs:37`.
+Current release tag displayed in the CLI. The version string is maintained in `crates/xiomc/src/main.rs:37`.
 
 ---
 
@@ -849,9 +849,9 @@ Current release tag displayed in the CLI. The version string is maintained in `c
 - All releases from v0.1.0 through v0.3.4 occurred on 2026-06-30 during a single development session spanning Phase 0 through Phase 2B.
 - No git tags exist for individual versions — version milestones are logical checkpoints, not repository tags.
 - The Rust compiler (`crates/`) is the **active development compiler** and is kept as the permanent bootstrap fallback.
-- The AXIOM compiler (`selfhost/`) is the **self-hosting target** — once Phase 2C bootstraps, it becomes the primary compiler.
+- The XIOM compiler (`selfhost/`) is the **self-hosting target** — once Phase 2C bootstraps, it becomes the primary compiler.
 - The test count of **246+** is the current total for all Rust compiler tests.
 
 ---
 
-*AXIOM Compiler — Version History. Updated per release.*
+*XIOM Compiler — Version History. Updated per release.*
