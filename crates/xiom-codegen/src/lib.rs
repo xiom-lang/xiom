@@ -285,6 +285,29 @@ impl IrEmitter {
         }
     }
 
+    /// Resolve type name to LLVM type, with suffix-search fallback for module-qualified types.
+    /// Use this when the exact type registration is uncertain (e.g., type aliases from other modules).
+    fn llvm_type_for_fallback(&self, type_name: &str) -> String {
+        match self.llvm_type_for(type_name) {
+            Ok(t) => t,
+            Err(_) => {
+                // Try suffix search across type_meta
+                let search = format!(".{}", type_name);
+                for key in self.type_meta.keys() {
+                    if key.ends_with(&search) {
+                        return format!("%struct.{key}");
+                    }
+                }
+                for key in self.types.keys() {
+                    if key.ends_with(&search) {
+                        return format!("%struct.{key}");
+                    }
+                }
+                "i64".to_string()
+            }
+        }
+    }
+
     fn field_llvm_type(&self, struct_name: &str, field_idx: usize) -> String {
         let meta = self.type_meta.get(struct_name)
             .or_else(|| {
@@ -855,7 +878,7 @@ impl IrEmitter {
         }
         // Then allocate explicit parameters
         for (i, param) in fd.params.iter().enumerate() {
-            let llvm_ty = self.llvm_type_for(&Self::type_from_ast(&param.ty))?;
+            let llvm_ty = self.llvm_type_for_fallback(&Self::type_from_ast(&param.ty));
             let alloca = self.fresh_tmp();
             let param_idx = i + self_offset;
             self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
@@ -864,7 +887,7 @@ impl IrEmitter {
             // Track function pointer return types for function pointer parameters
             if let Type::Fn(_, ret) = &param.ty {
                 let ret_ty_name = Self::type_from_ast(ret);
-                let ret_llvm = self.llvm_type_for(&ret_ty_name)?;
+                let ret_llvm = self.llvm_type_for_fallback(&ret_ty_name);
                 self.fn_ptr_return_types.insert(param.name.name.clone(), ret_llvm);
             }
         }
@@ -1564,7 +1587,7 @@ impl IrEmitter {
     /// instantiations (generic chains), which are processed in subsequent passes.
     fn compile_generic_monomorphisations(&mut self) -> Result<(), String> {
         let mut iteration: u32 = 0;
-        const MAX_GENERIC_ITERATIONS: u32 = 256;
+        const MAX_GENERIC_ITERATIONS: u32 = 65536;
         loop {
             iteration += 1;
             if iteration > MAX_GENERIC_ITERATIONS {
@@ -3575,7 +3598,7 @@ impl IrEmitter {
                 let struct_ty = if let Some(ref ek) = parent_enum {
                     self.llvm_type_for(ek)?
                 } else {
-                    self.llvm_type_for(&name.name)?
+                    self.llvm_type_for_fallback(&name.name)
                 };
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
@@ -3660,14 +3683,14 @@ impl IrEmitter {
                 if inner_llvm_ty == "i64" {
                     if let Expr::Ident(id) = inner.as_ref() {
                         if let Some(concrete) = self.param_concrete_types.get(&id.name) {
-                            let cty = self.llvm_type_for(concrete)?;
+                            let cty = self.llvm_type_for_fallback(concrete);
                             if cty == "double" {
                                 inner_llvm_ty = "double".to_string();
                             }
                         }
                     }
                 }
-                let target_llvm_ty = self.llvm_type_for(&Self::type_from_ast(ty))?;
+                let target_llvm_ty = self.llvm_type_for_fallback(&Self::type_from_ast(ty));
                 let tmp = self.fresh_tmp();
                 match (inner_llvm_ty.as_str(), target_llvm_ty.as_str()) {
                     ("i64", "double") => {
