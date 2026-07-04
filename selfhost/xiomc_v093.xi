@@ -3,15 +3,15 @@
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
 // Extern C runtime declarations
-fn axiom_read_file(path: Str) -> Int;
-fn axiom_str_len(src: Int) -> Int;
-fn axiom_char_at(src: Int, pos: Int) -> Int;
-fn axiom_free(ptr: Int);
-fn axiom_ir_open(path: Int) -> Int;
-fn axiom_ir_header();
-fn axiom_ir_emit_program(val: Int);
-fn axiom_ir_close();
-fn axiom_ir_raw(text: Str);
+fn xiom_read_file(path: Str) -> Int;
+fn xiom_str_len(src: Int) -> Int;
+fn xiom_char_at(src: Int, pos: Int) -> Int;
+fn xiom_free(ptr: Int);
+fn xiom_ir_open(path: Int) -> Int;
+fn xiom_ir_header();
+fn xiom_ir_emit_program(val: Int);
+fn xiom_ir_close();
+fn xiom_ir_raw(text: Str);
 
 module lexer {
   pub fn is_alpha(c: Int) -> Bool {
@@ -25,19 +25,19 @@ module lexer {
   }
 
   pub fn tokenize(src: &Int) -> Int {
-    var len = axiom_str_len(src);
+    var len = xiom_str_len(src);
     if len < 0 { return 0; }
     var pos = 0;
     var count = 0;
     var kw_count = 0;
 
     while pos < len {
-      var c = axiom_char_at(&src, &pos);
+      var c = xiom_char_at(&src, &pos);
       if c == 32 || c == 9 || c == 10 || c == 13 {
         pos = pos + 1;
       } elif is_alpha(&c) || c == 95 {
         var next_pos = pos + 1;
-        var c1 = axiom_char_at(&src, &next_pos);
+        var c1 = xiom_char_at(&src, &next_pos);
         if c == 102 && c1 == 110 { kw_count = kw_count + 1; }
         if c == 114 && c1 == 101 { kw_count = kw_count + 1; }
         if c == 108 && c1 == 101 { kw_count = kw_count + 1; }
@@ -50,9 +50,9 @@ module lexer {
         var done = 1 == 0;
         while !(done) {
           if (pos >= len) { done = true; }
-          elif !(is_alpha(axiom_char_at(&src, &pos))) {
-            if !(is_digit(axiom_char_at(&src, &pos))) {
-              if axiom_char_at(&src, &pos) != 95 { done = true; }
+          elif !(is_alpha(xiom_char_at(&src, &pos))) {
+            if !(is_digit(xiom_char_at(&src, &pos))) {
+              if xiom_char_at(&src, &pos) != 95 { done = true; }
             }
           }
           if !(done) { pos = pos + 1; }
@@ -63,7 +63,7 @@ module lexer {
         var done2 = 1 == 0;
         while !(done2) {
           if (pos >= len) { done2 = true; }
-          elif !(is_digit(axiom_char_at(&src, &pos))) { done2 = true; }
+          elif !(is_digit(xiom_char_at(&src, &pos))) { done2 = true; }
           if !(done2) { pos = pos + 1; }
         }
         count = count + 1;
@@ -83,23 +83,23 @@ module lexer {
 use lexer.tokenize;
 
 fn main() -> Int {
-  var src = axiom_read_file("selfhost\\xiomc_v093.xi");
+  var src = xiom_read_file("selfhost\\xiomc_v093.xi");
   if src == 0 { return 1; }
 
   var tok_res = lexer.tokenize(&src);
 
-  axiom_free(src);
+  xiom_free(src);
 
-  axiom_ir_open(0);
-  axiom_ir_header();
+  xiom_ir_open(0);
+  xiom_ir_header();
 
   var token_count = tok_res - (tok_res / 1000) * 1000;
-  axiom_ir_raw("declare i32 @printf(i8*, ...)");
-  axiom_ir_raw("declare i32 @puts(i8*)");
-  axiom_ir_raw("");
-  axiom_ir_emit_program(token_count);
+  xiom_ir_raw("declare i32 @printf(i8*, ...)");
+  xiom_ir_raw("declare i32 @puts(i8*)");
+  xiom_ir_raw("");
+  xiom_ir_emit_program(token_count);
 
-  axiom_ir_close();
+  xiom_ir_close();
 
   0;
   return 0;

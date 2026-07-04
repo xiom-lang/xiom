@@ -489,12 +489,12 @@ fn e2e_selfhost_v094_contains_extern_decls() {
         .output()
         .expect("failed");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("@axiom_ir_define_s"), "v094 IR should declare xiom_ir_define_s");
-    assert!(stdout.contains("@axiom_ir_call_fn"), "v094 IR should declare xiom_ir_call_fn");
-    assert!(stdout.contains("@axiom_ir_call_arg_lit"), "v094 IR should declare xiom_ir_call_arg_lit");
-    assert!(stdout.contains("@axiom_ir_param_int"), "v094 IR should declare xiom_ir_param_int");
-    assert!(stdout.contains("@axiom_ir_param_double"), "v094 IR should declare xiom_ir_param_double");
-    assert!(stdout.contains("@axiom_ir_fmul"), "v094 IR should declare xiom_ir_fmul");
+    assert!(stdout.contains("@xiom_ir_define_s"), "v094 IR should declare xiom_ir_define_s");
+    assert!(stdout.contains("@xiom_ir_call_fn"), "v094 IR should declare xiom_ir_call_fn");
+    assert!(stdout.contains("@xiom_ir_call_arg_lit"), "v094 IR should declare xiom_ir_call_arg_lit");
+    assert!(stdout.contains("@xiom_ir_param_int"), "v094 IR should declare xiom_ir_param_int");
+    assert!(stdout.contains("@xiom_ir_param_double"), "v094 IR should declare xiom_ir_param_double");
+    assert!(stdout.contains("@xiom_ir_fmul"), "v094 IR should declare xiom_ir_fmul");
 }
 
 #[test]

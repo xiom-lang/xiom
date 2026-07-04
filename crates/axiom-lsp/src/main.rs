@@ -1,4 +1,4 @@
-// AXIOM — Language Server
+// XIOM — Language Server
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -8,9 +8,9 @@ use std::io::{self, BufRead, Read, Write};
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use axiom_check::CheckError;
-use axiom_lexer::Lexer;
-use axiom_parser::{ParseError, Parser};
+use xiom_check::CheckError;
+use xiom_lexer::Lexer;
+use xiom_parser::{ParseError, Parser};
 
 // ============================================================================
 // LSP Backend
@@ -44,10 +44,10 @@ impl Backend {
 
         let lex_errors: Vec<_> = tokens
             .iter()
-            .filter(|t| matches!(t.kind, axiom_lexer::TokenKind::Error(_)))
+            .filter(|t| matches!(t.kind, xiom_lexer::TokenKind::Error(_)))
             .collect();
         for tok in &lex_errors {
-            if let axiom_lexer::TokenKind::Error(msg) = &tok.kind {
+            if let xiom_lexer::TokenKind::Error(msg) = &tok.kind {
                 let line = if tok.span.line > 0 { tok.span.line - 1 } else { 0 };
                 let col = if tok.span.col > 0 { tok.span.col - 1 } else { 0 };
                 diagnostics.push(serde_json::json!({
@@ -68,7 +68,7 @@ impl Backend {
         let mut parser = Parser::new(tokens);
         match parser.parse_program() {
             Ok(program) => {
-                let mut checker = axiom_check::Checker::new();
+                let mut checker = xiom_check::Checker::new();
                 if let Err(errors) = checker.check_program(&program) {
                     for err in &errors {
                         diagnostics.push(diagnostic_from_check_error(err));
@@ -88,7 +88,7 @@ impl Backend {
 // Diagnostics helpers
 // ============================================================================
 
-fn make_range(span: &axiom_ast::Span) -> serde_json::Value {
+fn make_range(span: &xiom_ast::Span) -> serde_json::Value {
     let line = if span.line > 0 { span.line - 1 } else { 0 };
     let col = if span.col > 0 { span.col - 1 } else { 0 };
     serde_json::json!({
@@ -221,9 +221,9 @@ fn extract_obj_expr(line: &str, dot_pos: usize) -> String {
 // Symbol collection for completion
 // ============================================================================
 
-fn collect_symbols(item: &axiom_ast::TopDecl, items: &mut Vec<serde_json::Value>, prefix: &str) {
+fn collect_symbols(item: &xiom_ast::TopDecl, items: &mut Vec<serde_json::Value>, prefix: &str) {
     match item {
-        axiom_ast::TopDecl::Fn(f) => {
+        xiom_ast::TopDecl::Fn(f) => {
             let name = &f.name.name;
             if name.starts_with(prefix) || prefix.is_empty() {
                 items.push(serde_json::json!({
@@ -234,7 +234,7 @@ fn collect_symbols(item: &axiom_ast::TopDecl, items: &mut Vec<serde_json::Value>
                 }));
             }
         }
-        axiom_ast::TopDecl::Type(td) => {
+        xiom_ast::TopDecl::Type(td) => {
             let name = &td.name.name;
             if name.starts_with(prefix) || prefix.is_empty() {
                 items.push(serde_json::json!({
@@ -245,7 +245,7 @@ fn collect_symbols(item: &axiom_ast::TopDecl, items: &mut Vec<serde_json::Value>
                 }));
             }
         }
-        axiom_ast::TopDecl::Enum(ed) => {
+        xiom_ast::TopDecl::Enum(ed) => {
             let name = &ed.name.name;
             if name.starts_with(prefix) || prefix.is_empty() {
                 items.push(serde_json::json!({
@@ -256,7 +256,7 @@ fn collect_symbols(item: &axiom_ast::TopDecl, items: &mut Vec<serde_json::Value>
                 }));
             }
         }
-        axiom_ast::TopDecl::Interface(id) => {
+        xiom_ast::TopDecl::Interface(id) => {
             let name = &id.name.name;
             if name.starts_with(prefix) || prefix.is_empty() {
                 items.push(serde_json::json!({
@@ -267,12 +267,12 @@ fn collect_symbols(item: &axiom_ast::TopDecl, items: &mut Vec<serde_json::Value>
                 }));
             }
         }
-        axiom_ast::TopDecl::Module(m) => {
+        xiom_ast::TopDecl::Module(m) => {
             for inner in &m.items {
                 collect_symbols(inner, items, prefix);
             }
         }
-        axiom_ast::TopDecl::Const(cd) => {
+        xiom_ast::TopDecl::Const(cd) => {
             let name = &cd.name.name;
             if name.starts_with(prefix) || prefix.is_empty() {
                 items.push(serde_json::json!({
@@ -288,11 +288,11 @@ fn collect_symbols(item: &axiom_ast::TopDecl, items: &mut Vec<serde_json::Value>
 }
 
 fn collect_document_symbols(
-    item: &axiom_ast::TopDecl,
+    item: &xiom_ast::TopDecl,
     symbols: &mut Vec<serde_json::Value>,
 ) {
     match item {
-        axiom_ast::TopDecl::Fn(f) => {
+        xiom_ast::TopDecl::Fn(f) => {
             let line = if f.name.span.line > 0 { f.name.span.line as u64 - 1 } else { 0 };
             let col = if f.name.span.col > 0 { f.name.span.col as u64 - 1 } else { 0 };
             let sig = format_fn_signature(f);
@@ -310,7 +310,7 @@ fn collect_document_symbols(
                 }
             }));
         }
-        axiom_ast::TopDecl::Type(td) => {
+        xiom_ast::TopDecl::Type(td) => {
             let line = if td.name.span.line > 0 { td.name.span.line as u64 - 1 } else { 0 };
             let col = if td.name.span.col > 0 { td.name.span.col as u64 - 1 } else { 0 };
             let mut children = Vec::new();
@@ -346,7 +346,7 @@ fn collect_document_symbols(
                 "children": children
             }));
         }
-        axiom_ast::TopDecl::Enum(ed) => {
+        xiom_ast::TopDecl::Enum(ed) => {
             let line = if ed.name.span.line > 0 { ed.name.span.line as u64 - 1 } else { 0 };
             let col = if ed.name.span.col > 0 { ed.name.span.col as u64 - 1 } else { 0 };
             let mut children = Vec::new();
@@ -381,13 +381,13 @@ fn collect_document_symbols(
                 "children": children
             }));
         }
-        axiom_ast::TopDecl::Interface(id) => {
+        xiom_ast::TopDecl::Interface(id) => {
             let line = if id.name.span.line > 0 { id.name.span.line as u64 - 1 } else { 0 };
             let col = if id.name.span.col > 0 { id.name.span.col as u64 - 1 } else { 0 };
             let mut children = Vec::new();
             for member in &id.members {
                 match member {
-                    axiom_ast::InterfaceMember::Field(fd) => {
+                    xiom_ast::InterfaceMember::Field(fd) => {
                         let fline = if fd.name.span.line > 0 { fd.name.span.line as u64 - 1 } else { 0 };
                         let fcol = if fd.name.span.col > 0 { fd.name.span.col as u64 - 1 } else { 0 };
                         children.push(serde_json::json!({
@@ -404,7 +404,7 @@ fn collect_document_symbols(
                             }
                         }));
                     }
-                    axiom_ast::InterfaceMember::FnSignature(fs) => {
+                    xiom_ast::InterfaceMember::FnSignature(fs) => {
                         let fline = if fs.name.span.line > 0 { fs.name.span.line as u64 - 1 } else { 0 };
                         let fcol = if fs.name.span.col > 0 { fs.name.span.col as u64 - 1 } else { 0 };
                         let sig = format_fn_signature(fs);
@@ -439,7 +439,7 @@ fn collect_document_symbols(
                 "children": children
             }));
         }
-        axiom_ast::TopDecl::Module(m) => {
+        xiom_ast::TopDecl::Module(m) => {
             let line = if m.name.span.line > 0 { m.name.span.line as u64 - 1 } else { 0 };
             let col = if m.name.span.col > 0 { m.name.span.col as u64 - 1 } else { 0 };
             let mut children = Vec::new();
@@ -461,7 +461,7 @@ fn collect_document_symbols(
                 "children": children
             }));
         }
-        axiom_ast::TopDecl::Const(cd) => {
+        xiom_ast::TopDecl::Const(cd) => {
             let line = if cd.name.span.line > 0 { cd.name.span.line as u64 - 1 } else { 0 };
             let col = if cd.name.span.col > 0 { cd.name.span.col as u64 - 1 } else { 0 };
             symbols.push(serde_json::json!({
@@ -482,7 +482,7 @@ fn collect_document_symbols(
     }
 }
 
-fn find_definition(program: &axiom_ast::Program, name: &str) -> Option<(u64, u64)> {
+fn find_definition(program: &xiom_ast::Program, name: &str) -> Option<(u64, u64)> {
     for item in &program.items {
         if let Some(pos) = find_def_in_item(item, name) {
             return Some(pos);
@@ -491,29 +491,29 @@ fn find_definition(program: &axiom_ast::Program, name: &str) -> Option<(u64, u64
     None
 }
 
-fn find_def_in_item(item: &axiom_ast::TopDecl, name: &str) -> Option<(u64, u64)> {
+fn find_def_in_item(item: &xiom_ast::TopDecl, name: &str) -> Option<(u64, u64)> {
     match item {
-        axiom_ast::TopDecl::Fn(f) if f.name.name == name => {
+        xiom_ast::TopDecl::Fn(f) if f.name.name == name => {
             let line = if f.name.span.line > 0 { f.name.span.line as u64 - 1 } else { 0 };
             let col = if f.name.span.col > 0 { f.name.span.col as u64 - 1 } else { 0 };
             Some((line, col))
         }
-        axiom_ast::TopDecl::Type(td) if td.name.name == name => {
+        xiom_ast::TopDecl::Type(td) if td.name.name == name => {
             let line = if td.name.span.line > 0 { td.name.span.line as u64 - 1 } else { 0 };
             let col = if td.name.span.col > 0 { td.name.span.col as u64 - 1 } else { 0 };
             Some((line, col))
         }
-        axiom_ast::TopDecl::Enum(ed) if ed.name.name == name => {
+        xiom_ast::TopDecl::Enum(ed) if ed.name.name == name => {
             let line = if ed.name.span.line > 0 { ed.name.span.line as u64 - 1 } else { 0 };
             let col = if ed.name.span.col > 0 { ed.name.span.col as u64 - 1 } else { 0 };
             Some((line, col))
         }
-        axiom_ast::TopDecl::Interface(id) if id.name.name == name => {
+        xiom_ast::TopDecl::Interface(id) if id.name.name == name => {
             let line = if id.name.span.line > 0 { id.name.span.line as u64 - 1 } else { 0 };
             let col = if id.name.span.col > 0 { id.name.span.col as u64 - 1 } else { 0 };
             Some((line, col))
         }
-        axiom_ast::TopDecl::Module(m) => {
+        xiom_ast::TopDecl::Module(m) => {
             if m.name.name == name {
                 let line = if m.name.span.line > 0 { m.name.span.line as u64 - 1 } else { 0 };
                 let col = if m.name.span.col > 0 { m.name.span.col as u64 - 1 } else { 0 };
@@ -526,7 +526,7 @@ fn find_def_in_item(item: &axiom_ast::TopDecl, name: &str) -> Option<(u64, u64)>
             }
             None
         }
-        axiom_ast::TopDecl::Const(cd) if cd.name.name == name => {
+        xiom_ast::TopDecl::Const(cd) if cd.name.name == name => {
             let line = if cd.name.span.line > 0 { cd.name.span.line as u64 - 1 } else { 0 };
             let col = if cd.name.span.col > 0 { cd.name.span.col as u64 - 1 } else { 0 };
             Some((line, col))
@@ -539,9 +539,9 @@ fn find_def_in_item(item: &axiom_ast::TopDecl, name: &str) -> Option<(u64, u64)>
 // Type helpers for hover / completion / signature help
 // ============================================================================
 
-fn type_to_string(ty: &axiom_ast::Type) -> String {
+fn type_to_string(ty: &xiom_ast::Type) -> String {
     match ty {
-        axiom_ast::Type::Named(ident, args) => {
+        xiom_ast::Type::Named(ident, args) => {
             if args.is_empty() {
                 ident.name.clone()
             } else {
@@ -549,40 +549,40 @@ fn type_to_string(ty: &axiom_ast::Type) -> String {
                 format!("{}[{}]", ident.name, args_str.join(", "))
             }
         }
-        axiom_ast::Type::Ref(t) => format!("&{}", type_to_string(t)),
-        axiom_ast::Type::MutRef(t) => format!("&mut {}", type_to_string(t)),
-        axiom_ast::Type::Option(t) => format!("Option[{}]", type_to_string(t)),
-        axiom_ast::Type::Result(t, e) => format!("Result[{}, {}]", type_to_string(t), type_to_string(e)),
-        axiom_ast::Type::Vec(t) => format!("Vec[{}]", type_to_string(t)),
-        axiom_ast::Type::Slice(t) => format!("Slice[{}]", type_to_string(t)),
-        axiom_ast::Type::Map(k, v) => format!("Map[{}, {}]", type_to_string(k), type_to_string(v)),
-        axiom_ast::Type::Set(t) => format!("Set[{}]", type_to_string(t)),
-        axiom_ast::Type::Tuple(types) => {
+        xiom_ast::Type::Ref(t) => format!("&{}", type_to_string(t)),
+        xiom_ast::Type::MutRef(t) => format!("&mut {}", type_to_string(t)),
+        xiom_ast::Type::Option(t) => format!("Option[{}]", type_to_string(t)),
+        xiom_ast::Type::Result(t, e) => format!("Result[{}, {}]", type_to_string(t), type_to_string(e)),
+        xiom_ast::Type::Vec(t) => format!("Vec[{}]", type_to_string(t)),
+        xiom_ast::Type::Slice(t) => format!("Slice[{}]", type_to_string(t)),
+        xiom_ast::Type::Map(k, v) => format!("Map[{}, {}]", type_to_string(k), type_to_string(v)),
+        xiom_ast::Type::Set(t) => format!("Set[{}]", type_to_string(t)),
+        xiom_ast::Type::Tuple(types) => {
             let items: Vec<String> = types.iter().map(type_to_string).collect();
             format!("({})", items.join(", "))
         }
-        axiom_ast::Type::Ptr(t) => format!("*{}", type_to_string(t)),
-        axiom_ast::Type::Array(_, _) => "Array".to_string(),
-        axiom_ast::Type::Fn(params, ret) => {
+        xiom_ast::Type::Ptr(t) => format!("*{}", type_to_string(t)),
+        xiom_ast::Type::Array(_, _) => "Array".to_string(),
+        xiom_ast::Type::Fn(params, ret) => {
             let params_str: Vec<String> = params.iter().map(type_to_string).collect();
             format!("fn({}) -> {}", params_str.join(", "), type_to_string(ret))
         }
     }
 }
 
-fn infer_type_from_expr(expr: &axiom_ast::Expr) -> Option<String> {
+fn infer_type_from_expr(expr: &xiom_ast::Expr) -> Option<String> {
     match expr {
-        axiom_ast::Expr::Struct(ident, _, _) => Some(ident.name.clone()),
-        axiom_ast::Expr::Some(_, _) => Some("Option".to_string()),
-        axiom_ast::Expr::None(_) => Some("Option".to_string()),
-        axiom_ast::Expr::Ok(_, _) => Some("Result".to_string()),
-        axiom_ast::Expr::Err(_, _) => Some("Result".to_string()),
-        axiom_ast::Expr::Int(_, _) => Some("Int".to_string()),
-        axiom_ast::Expr::Float(_, _) => Some("Float64".to_string()),
-        axiom_ast::Expr::Str(_, _) => Some("Str".to_string()),
-        axiom_ast::Expr::Bool(_, _) => Some("Bool".to_string()),
-        axiom_ast::Expr::Char(_, _) => Some("Char".to_string()),
-        axiom_ast::Expr::Ident(ident) => {
+        xiom_ast::Expr::Struct(ident, _, _) => Some(ident.name.clone()),
+        xiom_ast::Expr::Some(_, _) => Some("Option".to_string()),
+        xiom_ast::Expr::None(_) => Some("Option".to_string()),
+        xiom_ast::Expr::Ok(_, _) => Some("Result".to_string()),
+        xiom_ast::Expr::Err(_, _) => Some("Result".to_string()),
+        xiom_ast::Expr::Int(_, _) => Some("Int".to_string()),
+        xiom_ast::Expr::Float(_, _) => Some("Float64".to_string()),
+        xiom_ast::Expr::Str(_, _) => Some("Str".to_string()),
+        xiom_ast::Expr::Bool(_, _) => Some("Bool".to_string()),
+        xiom_ast::Expr::Char(_, _) => Some("Char".to_string()),
+        xiom_ast::Expr::Ident(ident) => {
             // For simple ident references, we return the name itself
             // This is used for inference from binding patterns like let x = some_var;
             Some(ident.name.clone())
@@ -595,7 +595,7 @@ fn infer_type_from_expr(expr: &axiom_ast::Expr) -> Option<String> {
 // Recursive variable type lookup (traverses nested blocks)
 // ============================================================================
 
-fn find_variable_type_in_program(program: &axiom_ast::Program, var_name: &str) -> Option<String> {
+fn find_variable_type_in_program(program: &xiom_ast::Program, var_name: &str) -> Option<String> {
     for item in &program.items {
         if let Some(ty) = find_variable_type_in_item(item, var_name) {
             return Some(ty);
@@ -604,9 +604,9 @@ fn find_variable_type_in_program(program: &axiom_ast::Program, var_name: &str) -
     None
 }
 
-fn find_variable_type_in_item(item: &axiom_ast::TopDecl, var_name: &str) -> Option<String> {
+fn find_variable_type_in_item(item: &xiom_ast::TopDecl, var_name: &str) -> Option<String> {
     match item {
-        axiom_ast::TopDecl::Fn(f) => {
+        xiom_ast::TopDecl::Fn(f) => {
             for param in &f.params {
                 if param.name.name == var_name {
                     return Some(type_to_string(&param.ty));
@@ -617,7 +617,7 @@ fn find_variable_type_in_item(item: &axiom_ast::TopDecl, var_name: &str) -> Opti
             }
             None
         }
-        axiom_ast::TopDecl::Module(m) => {
+        xiom_ast::TopDecl::Module(m) => {
             for inner in &m.items {
                 if let Some(ty) = find_variable_type_in_item(inner, var_name) {
                     return Some(ty);
@@ -629,10 +629,10 @@ fn find_variable_type_in_item(item: &axiom_ast::TopDecl, var_name: &str) -> Opti
     }
 }
 
-fn find_variable_type_in_block(block: &axiom_ast::Block, var_name: &str) -> Option<String> {
+fn find_variable_type_in_block(block: &xiom_ast::Block, var_name: &str) -> Option<String> {
     for soe in &block.stmts {
         match soe {
-            axiom_ast::StmtOrExpr::Stmt(stmt) => {
+            xiom_ast::StmtOrExpr::Stmt(stmt) => {
                 if let Some(ty) = find_variable_type_in_stmt(stmt, var_name) {
                     return Some(ty);
                 }
@@ -643,10 +643,10 @@ fn find_variable_type_in_block(block: &axiom_ast::Block, var_name: &str) -> Opti
     None
 }
 
-fn find_variable_type_in_stmt(stmt: &axiom_ast::Stmt, var_name: &str) -> Option<String> {
+fn find_variable_type_in_stmt(stmt: &xiom_ast::Stmt, var_name: &str) -> Option<String> {
     match stmt {
-        axiom_ast::Stmt::Let(ident, ty, expr, _)
-        | axiom_ast::Stmt::Var(ident, ty, expr, _) => {
+        xiom_ast::Stmt::Let(ident, ty, expr, _)
+        | xiom_ast::Stmt::Var(ident, ty, expr, _) => {
             if ident.name == var_name {
                 if let Some(t) = ty {
                     return Some(type_to_string(t));
@@ -654,7 +654,7 @@ fn find_variable_type_in_stmt(stmt: &axiom_ast::Stmt, var_name: &str) -> Option<
                 return infer_type_from_expr(expr);
             }
         }
-        axiom_ast::Stmt::If(_, then_block, elifs, else_block, _) => {
+        xiom_ast::Stmt::If(_, then_block, elifs, else_block, _) => {
             if let Some(ty) = find_variable_type_in_block(then_block, var_name) {
                 return Some(ty);
             }
@@ -669,15 +669,15 @@ fn find_variable_type_in_stmt(stmt: &axiom_ast::Stmt, var_name: &str) -> Option<
                 }
             }
         }
-        axiom_ast::Stmt::While(_, body, _) => {
+        xiom_ast::Stmt::While(_, body, _) => {
             if let Some(ty) = find_variable_type_in_block(body, var_name) {
                 return Some(ty);
             }
         }
-        axiom_ast::Stmt::Match(_, arms, _) => {
+        xiom_ast::Stmt::Match(_, arms, _) => {
             for arm in arms {
                 match &arm.body {
-                    axiom_ast::MatchBody::Block(b) => {
+                    xiom_ast::MatchBody::Block(b) => {
                         if let Some(ty) = find_variable_type_in_block(b, var_name) {
                             return Some(ty);
                         }
@@ -686,12 +686,12 @@ fn find_variable_type_in_stmt(stmt: &axiom_ast::Stmt, var_name: &str) -> Option<
                 }
             }
         }
-        axiom_ast::Stmt::For(_, _, body, _) => {
+        xiom_ast::Stmt::For(_, _, body, _) => {
             if let Some(ty) = find_variable_type_in_block(body, var_name) {
                 return Some(ty);
             }
         }
-        axiom_ast::Stmt::Spawn(body, _) => {
+        xiom_ast::Stmt::Spawn(body, _) => {
             if let Some(ty) = find_variable_type_in_block(body, var_name) {
                 return Some(ty);
             }
@@ -705,7 +705,7 @@ fn find_variable_type_in_stmt(stmt: &axiom_ast::Stmt, var_name: &str) -> Option<
 // Struct / method / enum / interface / module lookup helpers
 // ============================================================================
 
-fn find_struct_fields_in_program(program: &axiom_ast::Program, type_name: &str) -> Vec<(String, String)> {
+fn find_struct_fields_in_program(program: &xiom_ast::Program, type_name: &str) -> Vec<(String, String)> {
     let mut fields = Vec::new();
     for item in &program.items {
         recurse_find_struct_fields(item, type_name, &mut fields);
@@ -713,16 +713,16 @@ fn find_struct_fields_in_program(program: &axiom_ast::Program, type_name: &str) 
     fields
 }
 
-fn recurse_find_struct_fields(item: &axiom_ast::TopDecl, type_name: &str, fields: &mut Vec<(String, String)>) {
+fn recurse_find_struct_fields(item: &xiom_ast::TopDecl, type_name: &str, fields: &mut Vec<(String, String)>) {
     match item {
-        axiom_ast::TopDecl::Type(td) => {
+        xiom_ast::TopDecl::Type(td) => {
             if td.name.name == type_name {
                 for field in &td.fields {
                     fields.push((field.name.name.clone(), type_to_string(&field.ty)));
                 }
             }
         }
-        axiom_ast::TopDecl::Module(m) => {
+        xiom_ast::TopDecl::Module(m) => {
             for inner in &m.items {
                 recurse_find_struct_fields(inner, type_name, fields);
             }
@@ -731,10 +731,10 @@ fn recurse_find_struct_fields(item: &axiom_ast::TopDecl, type_name: &str, fields
     }
 }
 
-fn find_methods_in_program(program: &axiom_ast::Program, type_name: &str) -> Vec<(String, String)> {
+fn find_methods_in_program(program: &xiom_ast::Program, type_name: &str) -> Vec<(String, String)> {
     let mut methods = Vec::new();
     for item in &program.items {
-        if let axiom_ast::TopDecl::Fn(f) = item {
+        if let xiom_ast::TopDecl::Fn(f) = item {
             if let Some(receiver) = &f.receiver {
                 if receiver.name == type_name {
                     methods.push((f.name.name.clone(), format_fn_signature(f)));
@@ -745,10 +745,10 @@ fn find_methods_in_program(program: &axiom_ast::Program, type_name: &str) -> Vec
     methods
 }
 
-fn find_interface_methods_for_type(program: &axiom_ast::Program, type_name: &str) -> Vec<(String, String)> {
+fn find_interface_methods_for_type(program: &xiom_ast::Program, type_name: &str) -> Vec<(String, String)> {
     let mut methods = Vec::new();
     for item in &program.items {
-        if let axiom_ast::TopDecl::Fn(f) = item {
+        if let xiom_ast::TopDecl::Fn(f) = item {
             if let Some(receiver) = &f.receiver {
                 if receiver.name == type_name {
                     methods.push((f.name.name.clone(), format_fn_signature(f)));
@@ -759,9 +759,9 @@ fn find_interface_methods_for_type(program: &axiom_ast::Program, type_name: &str
     // Also check interfaces that this type might implement
     // (simplified: just include interface methods if the interface name matches)
     for item in &program.items {
-        if let axiom_ast::TopDecl::Interface(id) = item {
+        if let xiom_ast::TopDecl::Interface(id) = item {
             for member in &id.members {
-                if let axiom_ast::InterfaceMember::FnSignature(fs) = member {
+                if let xiom_ast::InterfaceMember::FnSignature(fs) = member {
                     methods.push((format!("{}.{}", id.name.name, fs.name.name), format_fn_signature(fs)));
                 }
             }
@@ -770,7 +770,7 @@ fn find_interface_methods_for_type(program: &axiom_ast::Program, type_name: &str
     methods
 }
 
-fn format_fn_signature(f: &axiom_ast::FnDecl) -> String {
+fn format_fn_signature(f: &xiom_ast::FnDecl) -> String {
     let mut sig = String::new();
     if f.is_pub { sig.push_str("pub "); }
     if f.is_async { sig.push_str("async "); }
@@ -804,9 +804,9 @@ fn format_fn_signature(f: &axiom_ast::FnDecl) -> String {
     sig
 }
 
-fn find_function_signature(program: &axiom_ast::Program, fn_name: &str) -> Option<String> {
+fn find_function_signature(program: &xiom_ast::Program, fn_name: &str) -> Option<String> {
     for item in &program.items {
-        if let axiom_ast::TopDecl::Fn(f) = item {
+        if let xiom_ast::TopDecl::Fn(f) = item {
             if f.name.name == fn_name {
                 return Some(format_fn_signature(f));
             }
@@ -815,10 +815,10 @@ fn find_function_signature(program: &axiom_ast::Program, fn_name: &str) -> Optio
     None
 }
 
-fn collect_enum_variants_for_type(program: &axiom_ast::Program, type_name: &str) -> Vec<(String, String)> {
+fn collect_enum_variants_for_type(program: &xiom_ast::Program, type_name: &str) -> Vec<(String, String)> {
     let mut variants = Vec::new();
     for item in &program.items {
-        if let axiom_ast::TopDecl::Enum(ed) = item {
+        if let xiom_ast::TopDecl::Enum(ed) = item {
             if ed.name.name == type_name {
                 for variant in &ed.variants {
                     if variant.fields.is_empty() {
@@ -840,13 +840,13 @@ fn collect_enum_variants_for_type(program: &axiom_ast::Program, type_name: &str)
 }
 
 fn collect_module_members(
-    program: &axiom_ast::Program,
+    program: &xiom_ast::Program,
     module_name: &str,
     prefix: &str,
     items: &mut Vec<serde_json::Value>,
 ) {
     for item in &program.items {
-        if let axiom_ast::TopDecl::Module(m) = item {
+        if let xiom_ast::TopDecl::Module(m) = item {
             if m.name.name == module_name {
                 collect_module_item_completions(&m.items, prefix, items);
                 return;
@@ -856,13 +856,13 @@ fn collect_module_members(
 }
 
 fn collect_module_item_completions(
-    items: &[axiom_ast::TopDecl],
+    items: &[xiom_ast::TopDecl],
     prefix: &str,
     out: &mut Vec<serde_json::Value>,
 ) {
     for item in items {
         match item {
-            axiom_ast::TopDecl::Fn(f) => {
+            xiom_ast::TopDecl::Fn(f) => {
                 let name = &f.name.name;
                 if prefix.is_empty() || name.starts_with(prefix) {
                     out.push(serde_json::json!({
@@ -873,7 +873,7 @@ fn collect_module_item_completions(
                     }));
                 }
             }
-            axiom_ast::TopDecl::Type(td) => {
+            xiom_ast::TopDecl::Type(td) => {
                 let name = &td.name.name;
                 if prefix.is_empty() || name.starts_with(prefix) {
                     out.push(serde_json::json!({
@@ -884,7 +884,7 @@ fn collect_module_item_completions(
                     }));
                 }
             }
-            axiom_ast::TopDecl::Enum(ed) => {
+            xiom_ast::TopDecl::Enum(ed) => {
                 let name = &ed.name.name;
                 if prefix.is_empty() || name.starts_with(prefix) {
                     out.push(serde_json::json!({
@@ -895,7 +895,7 @@ fn collect_module_item_completions(
                     }));
                 }
             }
-            axiom_ast::TopDecl::Interface(id) => {
+            xiom_ast::TopDecl::Interface(id) => {
                 let name = &id.name.name;
                 if prefix.is_empty() || name.starts_with(prefix) {
                     out.push(serde_json::json!({
@@ -906,7 +906,7 @@ fn collect_module_item_completions(
                     }));
                 }
             }
-            axiom_ast::TopDecl::Module(m) => {
+            xiom_ast::TopDecl::Module(m) => {
                 let name = &m.name.name;
                 if prefix.is_empty() || name.starts_with(prefix) {
                     out.push(serde_json::json!({
@@ -917,7 +917,7 @@ fn collect_module_item_completions(
                     }));
                 }
             }
-            axiom_ast::TopDecl::Const(cd) => {
+            xiom_ast::TopDecl::Const(cd) => {
                 let name = &cd.name.name;
                 if prefix.is_empty() || name.starts_with(prefix) {
                     out.push(serde_json::json!({
@@ -933,7 +933,7 @@ fn collect_module_item_completions(
     }
 }
 
-fn resolve_obj_type_text(program: &axiom_ast::Program, obj_expr: &str) -> Option<String> {
+fn resolve_obj_type_text(program: &xiom_ast::Program, obj_expr: &str) -> Option<String> {
     let parts: Vec<&str> = obj_expr.split('.').collect();
     if parts.is_empty() {
         return None;
@@ -965,10 +965,10 @@ fn resolve_obj_type_text(program: &axiom_ast::Program, obj_expr: &str) -> Option
     if parts.len() == 1 {
         for item in &program.items {
             match item {
-                axiom_ast::TopDecl::Type(td) if td.name.name == first => {
+                xiom_ast::TopDecl::Type(td) if td.name.name == first => {
                     return Some(first.to_string());
                 }
-                axiom_ast::TopDecl::Enum(ed) if ed.name.name == first => {
+                xiom_ast::TopDecl::Enum(ed) if ed.name.name == first => {
                     return Some(first.to_string());
                 }
                 _ => {}
@@ -984,13 +984,13 @@ fn resolve_obj_type_text(program: &axiom_ast::Program, obj_expr: &str) -> Option
     None
 }
 
-fn resolve_module_qualified_type(program: &axiom_ast::Program, parts: &[&str]) -> Option<String> {
+fn resolve_module_qualified_type(program: &xiom_ast::Program, parts: &[&str]) -> Option<String> {
     if parts.len() < 2 {
         return None;
     }
     let module_name = parts[0];
     for item in &program.items {
-        if let axiom_ast::TopDecl::Module(m) = item {
+        if let xiom_ast::TopDecl::Module(m) = item {
             if m.name.name == module_name {
                 // Try to walk through the module hierarchy
                 let mut current_items = &m.items;
@@ -998,7 +998,7 @@ fn resolve_module_qualified_type(program: &axiom_ast::Program, parts: &[&str]) -
                     let segment = parts[i];
                     let mut found = false;
                     for inner in current_items.iter() {
-                        if let axiom_ast::TopDecl::Module(sub) = inner {
+                        if let xiom_ast::TopDecl::Module(sub) = inner {
                             if sub.name.name == segment {
                                 current_items = &sub.items;
                                 found = true;
@@ -1015,10 +1015,10 @@ fn resolve_module_qualified_type(program: &axiom_ast::Program, parts: &[&str]) -
                 let last = parts[parts.len() - 1];
                 for inner in current_items.iter() {
                     match inner {
-                        axiom_ast::TopDecl::Type(td) if td.name.name == last => {
+                        xiom_ast::TopDecl::Type(td) if td.name.name == last => {
                             return Some(last.to_string());
                         }
-                        axiom_ast::TopDecl::Enum(ed) if ed.name.name == last => {
+                        xiom_ast::TopDecl::Enum(ed) if ed.name.name == last => {
                             return Some(last.to_string());
                         }
                         _ => {}
@@ -1030,9 +1030,9 @@ fn resolve_module_qualified_type(program: &axiom_ast::Program, parts: &[&str]) -
     None
 }
 
-fn find_enum_variant_info(program: &axiom_ast::Program, variant_name: &str) -> Option<(String, String)> {
+fn find_enum_variant_info(program: &xiom_ast::Program, variant_name: &str) -> Option<(String, String)> {
     for item in &program.items {
-        if let axiom_ast::TopDecl::Enum(ed) = item {
+        if let xiom_ast::TopDecl::Enum(ed) = item {
             for variant in &ed.variants {
                 if variant.name.name == variant_name {
                     let mut detail = String::new();
@@ -1150,7 +1150,7 @@ fn main() {
                     "method": "window/logMessage",
                     "params": {
                         "type": 3,
-                        "message": "AXIOM Language Server v0.6.6"
+                        "message": "XIOM Language Server v0.6.6"
                     }
                 }));
             }
@@ -1262,7 +1262,7 @@ fn main() {
                                         return Some(serde_json::json!({
                                             "contents": {
                                                 "kind": "markdown",
-                                                "value": format!("**field** `{}`\n```axiom\n{}: {}\n```", fname, fname, ftype)
+                                                "value": format!("**field** `{}`\n```xiom\n{}: {}\n```", fname, fname, ftype)
                                             }
                                         }));
                                     }
@@ -1274,7 +1274,7 @@ fn main() {
                                         return Some(serde_json::json!({
                                             "contents": {
                                                 "kind": "markdown",
-                                                "value": format!("**method**\n```axiom\n{}\n```", sig)
+                                                "value": format!("**method**\n```xiom\n{}\n```", sig)
                                             }
                                         }));
                                     }
@@ -1286,7 +1286,7 @@ fn main() {
                                         return Some(serde_json::json!({
                                             "contents": {
                                                 "kind": "markdown",
-                                                "value": format!("**method**\n```axiom\n{}\n```", sig)
+                                                "value": format!("**method**\n```xiom\n{}\n```", sig)
                                             }
                                         }));
                                     }
@@ -1311,7 +1311,7 @@ fn main() {
                                 return Some(serde_json::json!({
                                     "contents": {
                                         "kind": "markdown",
-                                        "value": format!("**function**\n```axiom\n{}\n```", sig)
+                                        "value": format!("**function**\n```xiom\n{}\n```", sig)
                                     }
                                 }));
                             }
@@ -1320,13 +1320,13 @@ fn main() {
                                 return Some(serde_json::json!({
                                     "contents": {
                                         "kind": "markdown",
-                                        "value": format!("**variable** `{}`\n```axiom\n{}: {}\n```", word, word, ty)
+                                        "value": format!("**variable** `{}`\n```xiom\n{}: {}\n```", word, word, ty)
                                     }
                                 }));
                             }
                             // Check type declarations
                             for item in &program.items {
-                                if let axiom_ast::TopDecl::Type(t) = item {
+                                if let xiom_ast::TopDecl::Type(t) = item {
                                     if t.name.name == word {
                                         let fields: Vec<String> = t.fields.iter()
                                             .map(|f| format!("{}: {}", f.name.name, type_to_string(&f.ty)))
@@ -1339,12 +1339,12 @@ fn main() {
                                         return Some(serde_json::json!({
                                             "contents": {
                                                 "kind": "markdown",
-                                                "value": format!("**type**\n```axiom\n{}\n```", detail)
+                                                "value": format!("**type**\n```xiom\n{}\n```", detail)
                                             }
                                         }));
                                     }
                                 }
-                                if let axiom_ast::TopDecl::Enum(e) = item {
+                                if let xiom_ast::TopDecl::Enum(e) = item {
                                     if e.name.name == word {
                                         let variants: Vec<String> = e.variants.iter()
                                             .map(|v| {
@@ -1361,7 +1361,7 @@ fn main() {
                                         return Some(serde_json::json!({
                                             "contents": {
                                                 "kind": "markdown",
-                                                "value": format!("**enum** `{}`\n```axiom\nenum {} {{\n  {}\n}}\n```", word, word, variants.join("\n  "))
+                                                "value": format!("**enum** `{}`\n```xiom\nenum {} {{\n  {}\n}}\n```", word, word, variants.join("\n  "))
                                             }
                                         }));
                                     }
@@ -1381,7 +1381,7 @@ fn main() {
                         Some(serde_json::json!({
                             "contents": {
                                 "kind": "markdown",
-                                "value": format!("AXIOM identifier: `{}`", word)
+                                "value": format!("XIOM identifier: `{}`", word)
                             }
                         }))
                     }
@@ -1500,7 +1500,7 @@ fn main() {
 
                     // Add standard library module names
                     let std_modules = vec![
-                        "axiom", "io", "math", "string", "collections",
+                        "xiom", "io", "math", "string", "collections",
                         "fs", "net", "time", "json", "test",
                     ];
                     let alias_modules = std_modules.iter().map(|m| {
@@ -1524,9 +1524,9 @@ fn main() {
                 if let Some(ref u) = uri {
                     let docs = backend.documents.lock().unwrap();
                     if let Some(text) = docs.get(u) {
-                        let mut lexer = axiom_lexer::Lexer::new(text);
+                        let mut lexer = xiom_lexer::Lexer::new(text);
                         let tokens = lexer.tokenize();
-                        let mut parser = axiom_parser::Parser::new(tokens);
+                        let mut parser = xiom_parser::Parser::new(tokens);
                         if let Ok(program) = parser.parse_program() {
                             // Non-dot: add all program symbols
                             if !is_dot_completion {
@@ -1536,7 +1536,7 @@ fn main() {
 
                                 // Add enum variants as standalone completions
                                 for item in &program.items {
-                                    if let axiom_ast::TopDecl::Enum(ed) = item {
+                                    if let xiom_ast::TopDecl::Enum(ed) = item {
                                         for variant in &ed.variants {
                                             let label = format!("{}::{}", ed.name.name, variant.name.name);
                                             if word_prefix.is_empty() || label.starts_with(&word_prefix) {
@@ -1652,9 +1652,9 @@ fn main() {
                     if !word.is_empty() {
                         let docs = backend.documents.lock().unwrap();
                         if let Some(text) = docs.get(u) {
-                            let mut lexer = axiom_lexer::Lexer::new(text);
+                            let mut lexer = xiom_lexer::Lexer::new(text);
                             let tokens = lexer.tokenize();
-                            let mut parser = axiom_parser::Parser::new(tokens);
+                            let mut parser = xiom_parser::Parser::new(tokens);
                             if let Ok(program) = parser.parse_program() {
                                 if let Some(pos) = find_definition(&program, &word) {
                                     location = Some(serde_json::json!({
@@ -1698,9 +1698,9 @@ fn main() {
                             .unwrap_or("")
                             .trim();
                         if !fn_name.is_empty() {
-                            let mut lexer = axiom_lexer::Lexer::new(text);
+                            let mut lexer = xiom_lexer::Lexer::new(text);
                             let tokens = lexer.tokenize();
-                            let mut parser = axiom_parser::Parser::new(tokens);
+                            let mut parser = xiom_parser::Parser::new(tokens);
                             if let Ok(program) = parser.parse_program() {
                                 if let Some(sig) = find_function_signature(&program, fn_name) {
                                     signatures.push(serde_json::json!({
@@ -1768,9 +1768,9 @@ fn main() {
                 if let Some(ref u) = uri {
                     let docs = backend.documents.lock().unwrap();
                     if let Some(text) = docs.get(u) {
-                        let mut lexer = axiom_lexer::Lexer::new(text);
+                        let mut lexer = xiom_lexer::Lexer::new(text);
                         let tokens = lexer.tokenize();
-                        let mut parser = axiom_parser::Parser::new(tokens);
+                        let mut parser = xiom_parser::Parser::new(tokens);
                         if let Ok(program) = parser.parse_program() {
                             for item in &program.items {
                                 collect_document_symbols(item, &mut symbols);
@@ -1805,13 +1805,13 @@ fn publish_diagnostics(backend: &Backend, uri: &str) {
 }
 
 fn print_usage() {
-    eprintln!("AXIOM Language Server v0.10.1");
+    eprintln!("XIOM Language Server v0.10.1");
     eprintln!();
     eprintln!("USAGE:");
-    eprintln!("  axiom lsp");
+    eprintln!("  xiom lsp");
     eprintln!();
-    eprintln!("The AXIOM Language Server provides diagnostics, hover, completion,");
-    eprintln!("and go-to-definition for .ax files. Launch from editor configuration.");
+    eprintln!("The XIOM Language Server provides diagnostics, hover, completion,");
+    eprintln!("and go-to-definition for .xi files. Launch from editor configuration.");
     eprintln!();
     eprintln!("VS Code: editors/vscode/package.json");
 }

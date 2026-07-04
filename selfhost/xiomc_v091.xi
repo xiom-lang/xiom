@@ -5,10 +5,10 @@
 module lexer {
   pub type Token = { kind: Int; line: Int; col: Int; } derive[Eq, Clone]
 
-  // Simple tokenizer that processes source from axiom_read_file
+  // Simple tokenizer that processes source from xiom_read_file
   pub fn tokenize_file(path: Str) -> Int {
     // Call extern to read file
-    // axiom_read_file returns i8* (C string)
+    // xiom_read_file returns i8* (C string)
     // For MVP, just return success indicator
     return 1;
   }

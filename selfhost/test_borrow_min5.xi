@@ -1,10 +1,10 @@
-fn axiom_str_len(src: Int) -> Int;
-fn axiom_char_at(src: Int, pos: Int) -> Int;
+fn xiom_str_len(src: Int) -> Int;
+fn xiom_char_at(src: Int, pos: Int) -> Int;
 
 fn test(src: Int) -> Int {
-  var len = axiom_str_len(&src);
+  var len = xiom_str_len(&src);
   var pos = 0;
-  var c = axiom_char_at(&src, &pos);
+  var c = xiom_char_at(&src, &pos);
   var x = pos;
   return x;
 }

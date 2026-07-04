@@ -1,8 +1,8 @@
 # XIOM — Session Handoff: v0.22.1 "Hardened"
 
-**Date:** 2026-07-03  
-**Branch:** `feat/ecosystem`  
-**Status:** Ready to merge to main. All 186 tests green. 30-module benchmark suite compiles. Architecture and improvement plan documented.
+**Date:** 2026-07-04  
+**Branch:** `feat/rebrand`  
+**Status:** **Rebranding complete.** All 186 tests green. AXIOM → XIOM across all ~250+ files.
 
 ---
 
@@ -96,9 +96,63 @@ The Rust compiler is the PERMANENT bootstrap fallback — never deleted.
 
 See `docs/COMPILER_IMPROVEMENT_PLAN.md` for the detailed roadmap, `docs/XIOM_DISTRIBUTION_SPEC.md` for the distribution + installer specification, and `specs/XIOM_Build_Strategy.md` for the decision log.
 
----
+## Rebranding Complete (2026-07-04)
 
-## What Was Accomplished This Session
+AXIOM → XIOM across the entire project. Summary:
+
+### Renamed
+
+| Old | New | Count |
+|-----|-----|-------|
+| Crate dirs `axiom-*` | `xiom-*` | 12 crates + `xiomc` |
+| Source files `.ax` | `.xi` | ~207 files |
+| Bytecode `.axbc` | `.xibc` | references in codegen |
+| Compiler `axiomc` | `xiomc` | binary + all references |
+| FFI bindings `.axiom-bind` | `.xiom-bind` | 15 ecosystem files |
+| Runtime `axiom_runtime.c` | `xiom_runtime.c` | 200+ function renames |
+| Grammar `axiom.tmLanguage` | `xiom.tmLanguage` | 2 files |
+| Specs `AXIOM_*.md` | `XIOM_*.md` | 9 files |
+| Images `axiom-*` | `xiom-*` | 4 files (logo, icon) |
+
+### Updated
+
+| Layer | Files | What changed |
+|-------|-------|-------------|
+| **Cargo.toml** | 13 | Workspace members, crate names, dependencies |
+| **Rust source** | 19 | `use xiom_*`, strings, comments, LLVM runtime refs |
+| **Docs** | ~80 | In-place AXIOM→XIOM, .ax→.xi, axiom-→xiom- |
+| **Website HTML** | 68 | All branding, code samples, package names, URLs |
+| **VS Code extension** | 5 | Language ID `xiom`, `.xi` extension, grammar |
+| **Install scripts** | 8 | Binary names, PATH, dirs (`xiomc`, `xiom\bin`) |
+| **Selfhost .xi** | 23 | Runtime function renames (`xiom_read_file` etc.) |
+
+### Test Results (186/186 ✅)
+
+| Package | Tests | Result |
+|---------|-------|--------|
+| `xiom-check` | 44 | ✅ |
+| `xiom-codegen` (diff) | 25 | ✅ |
+| `xiom-codegen` (e2e) | 64 | ✅ |
+| `xiom-codegen` (full_diff) | 23 | ✅ |
+| `xiom-codegen` (integration) | 30 | ✅ |
+
+### Cleanup Needed
+
+- Delete old `crates/axiom-*/` directories (duplicate of `xiom-*/`)
+- Delete old `stdlib/axiom/` (duplicate of `stdlib/xiom/`)
+- Delete old `ecosystem/axiom-*/` directories
+- Delete old `release/axiom/` and `release/axiom-v0.20.0/`
+- Delete helper scripts: `_finish_rebrand.ps1`, `_rename_*.ps1`, `transform_codegen.ps1`, `convert_ax_to_xi.ps1`, `copy_lib_rs.py`
+
+### Distribution Notes
+
+- `install.ps1`/`install.sh` reference `xiomc.exe`, `xiom\bin`, XIOM branding
+- `package.ps1` is clean for XIOM packaging
+- `xiom.bat` is the toolchain dispatcher (old `axiom.bat` orphaned)
+- `xiom-lsp.exe` builds and links correctly
+- VS Code extension uses `.xi` extension with `source.xiom` grammar
+
+---
 
 ### Branch 1: Multi-File Module Catalog (`xiom-check` + `xiomc`)
 
