@@ -247,38 +247,42 @@ impl IrEmitter {
         }
     }
 
-    fn llvm_type_for(&self, type_name: &str) -> String {
+    fn llvm_type_for(&self, type_name: &str) -> Result<String, String> {
         // Try current module's qualified name first (e.g., "types.Person")
         if let Some(ref module) = self.current_module {
             let qualified = format!("{}.{}", module, type_name);
             if self.types.contains_key(&qualified) || self.type_meta.contains_key(&qualified) {
-                return format!("%struct.{qualified}");
+                return Ok(format!("%struct.{qualified}"));
             }
         }
         // Try exact match
         if self.types.contains_key(type_name) || self.type_meta.contains_key(type_name) {
-            return format!("%struct.{type_name}");
+            return Ok(format!("%struct.{type_name}"));
         }
         // Search for any module-qualified variant ending with .type_name
         for (key, _) in &self.type_meta {
             if key.ends_with(&format!(".{type_name}")) {
-                return format!("%struct.{key}");
+                return Ok(format!("%struct.{key}"));
             }
         }
         // Check builtin types first (match known Axiom type names, NOT the default i64 fallback)
         let builtin = Self::xiom_to_llvm_type(type_name);
         match type_name {
             "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
-            | "Bool" | "Float32" | "Float64" | "Str" | "Char" | "()" => return builtin.to_string(),
+            | "Bool" | "Float32" | "Float64" | "Str" | "Char" | "()" => return Ok(builtin.to_string()),
             _ => {}
         }
         // If type_name is an enum variant (e.g., "Image"), find its parent enum type
         for (enum_key, variants) in &self.enum_variants {
             if variants.iter().any(|(v, _)| v == type_name) {
-                return format!("%struct.{enum_key}");
+                return Ok(format!("%struct.{enum_key}"));
             }
         }
-        builtin.to_string()
+        match type_name {
+            "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
+            | "Bool" | "Float32" | "Float64" | "Str" | "Char" | "()" => Ok(builtin.to_string()),
+            _ => Err(format!("unknown type '{}' — not a registered struct, enum, or builtin", type_name)),
+        }
     }
 
     fn field_llvm_type(&self, struct_name: &str, field_idx: usize) -> String {
@@ -300,7 +304,7 @@ impl IrEmitter {
             });
         if let Some(meta) = meta {
             if let Some((_, ty_name)) = meta.fields.get(field_idx) {
-                return self.llvm_type_for(ty_name);
+                return self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
             }
         }
         "i64".to_string()
@@ -368,7 +372,7 @@ impl IrEmitter {
             let struct_ref = format!("%struct.{name}");
             let field_types: Vec<String> = meta.fields.iter()
                 .map(|(_, ty_name)| {
-                    let t = self.llvm_type_for(ty_name);
+                    let t = self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
                     if t == struct_ref { format!("{t}*") } else { t }
                 })
                 .collect();
@@ -633,14 +637,14 @@ impl IrEmitter {
             let mut param_types: Vec<String> = Vec::new();
             // For methods, self is the first parameter
             if let Some(recv) = fd.receiver.as_ref() {
-                param_types.push(self.llvm_type_for(&recv.name));
+                param_types.push(self.llvm_type_for(&recv.name).unwrap_or_else(|_| "i64".to_string()));
             }
             let explicit_params: Vec<String> = fd.params.iter()
-                .map(|p| self.llvm_type_for(&Self::type_from_ast(&p.ty)))
+                .map(|p| self.llvm_type_for(&Self::type_from_ast(&p.ty)).unwrap_or_else(|_| "i64".to_string()))
                 .collect();
             param_types.extend(explicit_params);
             let ret_type = fd.return_type.as_ref()
-                .map(|t| self.llvm_type_for(&Self::type_from_ast(t)))
+                .map(|t| self.llvm_type_for(&Self::type_from_ast(t)).unwrap_or_else(|_| "i64".to_string()))
                 .unwrap_or_else(|| "void".to_string());
             let key = self.fn_key(fd);
             self.functions.insert(key, (param_types, ret_type));
@@ -771,11 +775,11 @@ impl IrEmitter {
         self.fn_ptr_return_types.clear();
 
         let ret_llvm = fd.return_type.as_ref()
-            .map(|t| self.llvm_type_for(&Self::type_from_ast(t)))
+            .map(|t| self.llvm_type_for(&Self::type_from_ast(t)).unwrap_or_else(|_| "i64".to_string()))
             .unwrap_or_else(|| "void".to_string());
         self.current_return_type = ret_llvm.clone();
         self.current_param_llvm_types = fd.params.iter()
-            .map(|p| self.llvm_type_for(&Self::type_from_ast(&p.ty)))
+            .map(|p| self.llvm_type_for(&Self::type_from_ast(&p.ty)).unwrap_or_else(|_| "i64".to_string()))
             .collect();
 
         // Store ensures clauses for return point checking
@@ -793,7 +797,7 @@ impl IrEmitter {
 
         // For methods, prepend the self struct parameter
         let self_llvm_ty = fd.receiver.as_ref().map(|r| {
-            self.llvm_type_for(&r.name)
+            self.llvm_type_for(&r.name).unwrap_or_else(|_| "i64".to_string())
         });
         let self_offset: usize = if self_llvm_ty.is_some() { 1 } else { 0 };
 
@@ -804,7 +808,7 @@ impl IrEmitter {
         let explicit_params: Vec<String> = fd.params.iter()
             .enumerate()
             .map(|(i, p)| {
-                let llvm_ty = self.llvm_type_for(&Self::type_from_ast(&p.ty));
+                let llvm_ty = self.llvm_type_for(&Self::type_from_ast(&p.ty)).unwrap_or_else(|_| "i64".to_string());
                 format!("{llvm_ty} %param{}", i + self_offset)
             })
             .collect();
@@ -851,7 +855,7 @@ impl IrEmitter {
         }
         // Then allocate explicit parameters
         for (i, param) in fd.params.iter().enumerate() {
-            let llvm_ty = self.llvm_type_for(&Self::type_from_ast(&param.ty));
+            let llvm_ty = self.llvm_type_for(&Self::type_from_ast(&param.ty))?;
             let alloca = self.fresh_tmp();
             let param_idx = i + self_offset;
             self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
@@ -860,7 +864,7 @@ impl IrEmitter {
             // Track function pointer return types for function pointer parameters
             if let Type::Fn(_, ret) = &param.ty {
                 let ret_ty_name = Self::type_from_ast(ret);
-                let ret_llvm = self.llvm_type_for(&ret_ty_name);
+                let ret_llvm = self.llvm_type_for(&ret_ty_name)?;
                 self.fn_ptr_return_types.insert(param.name.name.clone(), ret_llvm);
             }
         }
@@ -1204,7 +1208,7 @@ impl IrEmitter {
                     bare_name.clone()
                 };
                 let field_names: Vec<String> = td.fields.iter().map(|f| f.name.name.clone()).collect();
-                let struct_ty = self.llvm_type_for(&type_name);
+                let struct_ty = self.llvm_type_for(&type_name)?;
 
                 for derive in &td.derives {
                     match derive {
@@ -1240,7 +1244,7 @@ impl IrEmitter {
                         invariants: Vec::new(),
                     });
                 }
-                let struct_ty = self.llvm_type_for(&type_name);
+                let struct_ty = self.llvm_type_for(&type_name)?;
                 let field_names: Vec<String> = vec!["discriminant".to_string()];
 
                 for derive in &ed.derives {
@@ -1555,7 +1559,16 @@ impl IrEmitter {
     /// Uses a worklist pattern: monomorphising one function may trigger new
     /// instantiations (generic chains), which are processed in subsequent passes.
     fn compile_generic_monomorphisations(&mut self) -> Result<(), String> {
+        let mut iteration: u32 = 0;
+        const MAX_GENERIC_ITERATIONS: u32 = 256;
         loop {
+            iteration += 1;
+            if iteration > MAX_GENERIC_ITERATIONS {
+                return Err(format!(
+                    "generic monomorphisation exceeded {} iterations — possible infinite recursion in generic definitions",
+                    MAX_GENERIC_ITERATIONS
+                ));
+            }
             let instantiations = std::mem::take(&mut self.generic_instantiations);
             if instantiations.is_empty() {
                 break;
@@ -1635,7 +1648,11 @@ impl IrEmitter {
                 .unwrap_or_else(|| "void".to_string());
             let mut specialized_param_types: Vec<String> = Vec::new();
             // Include self/receiver parameter for methods
-            let self_llvm_ty = fd.receiver.as_ref().map(|r| self.llvm_type_for(&r.name));
+            let self_llvm_ty = if let Some(ref r) = fd.receiver {
+                Some(self.llvm_type_for(&r.name)?)
+            } else {
+                None
+            };
             if let Some(ref st) = self_llvm_ty {
                 specialized_param_types.push(st.clone());
             }
@@ -2450,7 +2467,7 @@ impl IrEmitter {
                 {
                     if let Some(vars) = self.enum_variants.get(enum_key) {
                         if let Some(var_idx) = vars.iter().position(|(v, _)| v == &ident.name) {
-                            let struct_ty = self.llvm_type_for(enum_key);
+                            let struct_ty = self.llvm_type_for(enum_key)?;
                             let alloca = self.fresh_tmp();
                             self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
                             let disc_gep = self.fresh_tmp();
@@ -2976,6 +2993,16 @@ impl IrEmitter {
                         self.emitln(&format!("\n{grow_block}:"));
                         let new_cap = self.fresh_tmp();
                         self.emitln(&format!("  {new_cap} = mul i64 {cap_val}, 2"));
+                        // Capacity guard: trap if exceeding max (2^20 elements ≈ 8MB)
+                        let cap_ok_check = self.fresh_tmp();
+                        let cap_ok_cont = self.fresh_block("vec_cap_ok");
+                        let cap_trap_block = self.fresh_block("vec_cap_trap");
+                        self.emitln(&format!("  {cap_ok_check} = icmp ule i64 {new_cap}, 1048576"));
+                        self.emitln(&format!("  br i1 {cap_ok_check}, label %{cap_ok_cont}, label %{cap_trap_block}"));
+                        self.emitln(&format!("\n{cap_trap_block}:"));
+                        self.emitln("  call void @llvm.trap()");
+                        self.emitln("  unreachable");
+                        self.emitln(&format!("\n{cap_ok_cont}:"));
                         let new_size = self.fresh_tmp();
                         self.emitln(&format!("  {new_size} = mul i64 {new_cap}, 8"));
                         let grow_data_gep = self.fresh_tmp();
@@ -3528,12 +3555,12 @@ impl IrEmitter {
                 Ok(loaded)
             }
             Expr::Struct(name, fields, _) => {
-                let struct_ty = self.llvm_type_for(&name.name);
+                let struct_ty = self.llvm_type_for(&name.name)?;
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
                 // Check if this is an enum variant constructor (e.g., Image(url:, width:, height:))
                 let parent_enum = self.enum_variants.iter()
-                    .find(|(ek, vars)| vars.iter().any(|(v, _)| v == &name.name) && self.llvm_type_for(ek) == struct_ty)
+                    .find(|(ek, vars)| vars.iter().any(|(v, _)| v == &name.name) && self.llvm_type_for(ek).unwrap_or_else(|_| "i64".to_string()) == struct_ty)
                     .map(|(ek, _)| ek.clone());
                 if let Some(ref enum_key) = parent_enum {
                     // Set discriminant (field 0) to the variant index
@@ -3616,14 +3643,14 @@ impl IrEmitter {
                 if inner_llvm_ty == "i64" {
                     if let Expr::Ident(id) = inner.as_ref() {
                         if let Some(concrete) = self.param_concrete_types.get(&id.name) {
-                            let cty = self.llvm_type_for(concrete);
+                            let cty = self.llvm_type_for(concrete)?;
                             if cty == "double" {
                                 inner_llvm_ty = "double".to_string();
                             }
                         }
                     }
                 }
-                let target_llvm_ty = self.llvm_type_for(&Self::type_from_ast(ty));
+                let target_llvm_ty = self.llvm_type_for(&Self::type_from_ast(ty))?;
                 let tmp = self.fresh_tmp();
                 match (inner_llvm_ty.as_str(), target_llvm_ty.as_str()) {
                     ("i64", "double") => {
@@ -3744,7 +3771,7 @@ impl IrEmitter {
                             let type_name = &llvm_ty[8..];
                             if let Some(meta) = self.type_meta.get(type_name) {
                                 if let Some((_, ty_name)) = meta.fields.iter().find(|(name, _)| name == &field.name) {
-                                    return self.llvm_type_for(ty_name);
+                                    return self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
                                 }
                             }
                         }
@@ -3819,7 +3846,7 @@ impl IrEmitter {
             Expr::Ok(..) | Expr::Err(..) => {
                 if self.types.contains_key("Result") { "%struct.Result".to_string() } else { "i64".to_string() }
             }
-            Expr::Struct(ident, _, _) => self.llvm_type_for(&ident.name),
+            Expr::Struct(ident, _, _) => self.llvm_type_for(&ident.name).unwrap_or_else(|_| "i64".to_string()),
             Expr::Paren(inner, _) => self.infer_llvm_type(inner),
             Expr::Tuple(items, _) => {
                 if items.is_empty() { "void".to_string() } else {
@@ -3852,7 +3879,7 @@ impl IrEmitter {
                 }
             }
             Expr::Ref(inner, _) | Expr::MutRef(inner, _) => self.infer_llvm_type(inner),
-            Expr::As(_, ty, _) => self.llvm_type_for(&Self::type_from_ast(ty)),
+            Expr::As(_, ty, _) => self.llvm_type_for(&Self::type_from_ast(ty)).unwrap_or_else(|_| "i64".to_string()),
             Expr::If(_cond, then_block, _elifs, else_block, _) => {
                 // if-expressions return the type of the last expression in each branch
                 let then_ty = then_block.stmts.last()
