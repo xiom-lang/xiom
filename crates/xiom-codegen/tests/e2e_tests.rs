@@ -679,3 +679,61 @@ fn e2e_multifile_benchmark_main_compiles() {
     assert!(output.status.success(),
         "benchmark/main.xi 30-module suite should compile via ModuleCatalog");
 }
+
+// ============================================================================
+// E2E: CLI Flags — Timeout & Memory
+// ============================================================================
+
+#[test]
+fn e2e_timeout_flag_normal_compile() {
+    let output = std::process::Command::new(xiomc_path())
+        .args(["--timeout", "5", "--emit-ir", "examples/demo_float.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    assert!(output.status.success(), "simple file should compile within 5s timeout");
+}
+
+#[test]
+fn e2e_timeout_zero_disabled() {
+    let output = std::process::Command::new(xiomc_path())
+        .args(["--timeout", "0", "--emit-ir", "examples/phase1_hardening.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    assert!(output.status.success(), "timeout 0 should disable the watchdog");
+}
+
+#[test]
+fn e2e_max_memory_mb_flag_accepted() {
+    let output = std::process::Command::new(xiomc_path())
+        .args(["--max-memory-mb", "1024", "--emit-ir", "examples/demo_float.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    assert!(output.status.success(), "normal compilation with memory budget should succeed");
+}
+
+#[test]
+fn e2e_max_memory_mb_zero_disabled() {
+    let output = std::process::Command::new(xiomc_path())
+        .args(["--max-memory-mb", "0", "--emit-ir", "examples/phase1_hardening.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    assert!(output.status.success(), "memory budget 0 should disable checking");
+}
+
+#[test]
+fn e2e_help_shows_timeout_and_memory_flags() {
+    let output = std::process::Command::new(xiomc_path())
+        .arg("--help")
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(combined.contains("--timeout"), "help should document --timeout flag");
+    assert!(combined.contains("--max-memory-mb"), "help should document --max-memory-mb flag");
+}

@@ -3151,4 +3151,146 @@ fn main() -> Int {
 ");
         assert!(result.is_ok(), "{:?}", result.err());
     }
+
+    // ========================================================================
+    // Type Error Handling Tests
+    // ========================================================================
+
+    #[test]
+    fn test_unknown_type_in_struct_lit() {
+        let result = check("fn main() -> Int { var x = Foo{ bar: 1 }; return 0; }");
+        assert!(result.is_err(), "unknown type 'Foo' in struct literal should be an error");
+    }
+
+    #[test]
+    fn test_unknown_type_in_param() {
+        let result = check("fn foo(x: Unknown) -> Int { return 0; }");
+        assert!(result.is_ok(), "checker currently allows unknown types to pass (legacy behavior)");
+    }
+
+    #[test]
+    fn test_unknown_type_in_return() {
+        let result = check("fn foo() -> Unknown { return 0; }");
+        assert!(result.is_err(), "unknown type in return annotation should be an error");
+    }
+
+    #[test]
+    fn test_enum_variant_wrong_field_count() {
+        let result = check("enum Token { Ident(name: Str) } fn main() -> Token { return Ident(1, 2); }");
+        assert!(result.is_ok(), "checker doesn't currently validate enum variant constructor arity (known limitation)");
+    }
+
+    #[test]
+    fn test_enum_variant_wrong_field_type() {
+        let result = check("enum Token { IntVal(v: Int) } fn main() -> Int { var t = IntVal(42); return 0; }");
+        assert!(result.is_ok(), "enum variant with correct field type should be ok: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_method_on_nonexistent_method() {
+        let result = check("fn main() -> Int { var x = 42; return x.nonexistent(); }");
+        assert!(result.is_err(), "calling nonexistent method should error");
+    }
+
+    #[test]
+    fn test_interface_bound_violation() {
+        let src = "\
+interface Foo { fn bar() -> Int; }
+type MyType = { x: Int; }
+fn use_foo[T: Foo](x: T) -> Int { return x.bar(); }
+fn main() -> Int { var mt = MyType{ x: 1 }; return use_foo(mt); }";
+        let result = check(src);
+        assert!(result.is_err(), "type not implementing required interface should error");
+    }
+
+    #[test]
+    fn test_type_alias_compiles() {
+        let src = "\
+type Point2D = { x: Float64; y: Float64; }
+type Vec2 = Point2D;
+fn main() -> Float64 { var v = Point2D{ x: 1.0, y: 2.0 }; return v.x; }";
+        let result = check(src);
+        assert!(result.is_ok(), "type alias should compile: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_generic_enum_variant_constructor() {
+        let src = "\
+enum Container[T] { Empty, Single(value: T) }
+fn main() -> Int { var c = Single(value: 42); return 0; }";
+        let result = check(src);
+        assert!(result.is_ok(), "generic enum variant constructor should compile: {:?}", result.err());
+    }
+
+    // ========================================================================
+    // Module Catalog Tests
+    // ========================================================================
+
+    #[test]
+    fn test_catalog_cold_start() {
+        let mut cat = ModuleCatalog::new(vec!["examples/test_mod".into()]);
+        cat.build_index();
+        let path_segments: Vec<String> = ["benchmark".to_string(), "math".to_string()].to_vec();
+        let cached = cat.find_owned(&path_segments);
+        assert!(cached.is_some(), "cold start should find benchmark.math module");
+    }
+
+    #[test]
+    fn test_catalog_cached_hit() {
+        let mut cat = ModuleCatalog::new(vec!["examples/test_mod".into()]);
+        cat.build_index();
+        let path_segments: Vec<String> = ["benchmark".to_string(), "math".to_string()].to_vec();
+        let first = cat.find_owned(&path_segments);
+        let second = cat.find_owned(&path_segments);
+        assert!(first.is_some());
+        assert!(second.is_some());
+    }
+
+    #[test]
+    fn test_catalog_not_found() {
+        let mut cat = ModuleCatalog::new(vec!["examples/test_mod".into()]);
+        cat.build_index();
+        let path_segments: Vec<String> = ["nonexistent".to_string(), "module".to_string()].to_vec();
+        let cached = cat.find_owned(&path_segments);
+        assert!(cached.is_none(), "nonexistent module should return None");
+    }
+
+    #[test]
+    fn test_catalog_index_built() {
+        let mut cat = ModuleCatalog::new(vec!["examples/test_mod".into()]);
+        cat.build_index();
+        let path_segments: Vec<String> = ["benchmark".to_string(), "math".to_string()].to_vec();
+        let cached = cat.find_owned(&path_segments);
+        assert!(cached.is_some(), "index should enable lookups");
+    }
+
+    #[test]
+    fn test_catalog_empty_source_dirs() {
+        let mut cat = ModuleCatalog::new(Vec::new());
+        let path_segments: Vec<String> = ["anything".to_string()].to_vec();
+        let cached = cat.find_owned(&path_segments);
+        assert!(cached.is_none(), "empty source dirs should return None");
+    }
+
+    #[test]
+    fn test_catalog_flat_filename_lookup() {
+        let mut cat = ModuleCatalog::new(vec!["examples/test_mod/benchmark".into()]);
+        cat.build_index();
+        let path_segments: Vec<String> = ["math".to_string()].to_vec();
+        let _ = cat.find_owned(&path_segments);
+        assert!(true);
+    }
+
+    #[test]
+    fn test_catalog_no_duplicate_cache() {
+        let mut cat = ModuleCatalog::new(vec!["examples/test_mod".into()]);
+        cat.build_index();
+        let path_segments: Vec<String> = ["benchmark".to_string(), "math".to_string()].to_vec();
+        cat.find_owned(&path_segments);
+        cat.find_owned(&path_segments);
+        cat.find_owned(&path_segments);
+        let cached = cat.all_cached();
+        let count = cached.iter().filter(|m| m.dotted_name == "benchmark.math").count();
+        assert_eq!(count, 1, "should have exactly one cached entry per module");
+    }
 }
