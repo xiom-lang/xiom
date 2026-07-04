@@ -199,17 +199,56 @@ pub struct CachedModule {
 pub struct ModuleCatalog {
     pub source_dirs: Vec<String>,
     cache: HashMap<String, CachedModule>,
+    module_index: HashMap<String, String>,
 }
 
 impl ModuleCatalog {
     pub fn new(source_dirs: Vec<String>) -> Self {
-        Self { source_dirs, cache: HashMap::new() }
+        Self { source_dirs, cache: HashMap::new(), module_index: HashMap::new() }
     }
 
     pub fn add_source_dir(&mut self, dir: String) {
         if !self.source_dirs.contains(&dir) {
             self.source_dirs.push(dir);
         }
+    }
+
+    /// Pre-build a module_path → file_path index so all lookups are O(1).
+    pub fn build_index(&mut self) {
+        self.module_index.clear();
+        for dir in &self.source_dirs.clone() {
+            self.index_dir(Path::new(&dir));
+        }
+    }
+
+    fn index_dir(&mut self, dir: &Path) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    self.index_dir(&path);
+                } else if path.extension().map_or(false, |e| e == "xi") {
+                    if let Some(dotted) = self.read_module_header(&path) {
+                        self.module_index.insert(dotted, path.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    fn index_lookup(&self, path_segments: &[String]) -> Option<CachedModule> {
+        let dotted = path_segments.join(".");
+        if let Some(file_path) = self.module_index.get(&dotted) {
+            return self.parse_file(file_path, path_segments);
+        }
+        if let Some(last) = path_segments.last() {
+            for (mod_path, file_path) in &self.module_index {
+                if mod_path.ends_with(&format!(".{}", last)) || mod_path == last.as_str() {
+                    return self.parse_file(file_path, path_segments);
+                }
+            }
+        }
+        None
     }
 
     /// Look up a module by its dotted path segments (e.g., ["benchmark", "main"]).
@@ -270,6 +309,11 @@ impl ModuleCatalog {
                     }
                 }
             }
+        }
+
+        // Index lookup: O(1) via pre-built module_index (fallback if not built: returns None)
+        if let Some(cached) = self.index_lookup(path_segments) {
+            return Some(cached);
         }
 
         // Strategy b: scan-based — walk source_dirs for any .xi file whose declared
@@ -550,6 +594,11 @@ impl Checker {
             self.source_dirs.push(dir.clone());
         }
         self.catalog.add_source_dir(dir);
+    }
+
+    /// Build the catalog's module_path → file_path index for O(1) lookups.
+    pub fn build_catalog_index(&mut self) {
+        self.catalog.build_index();
     }
 
     /// Register an externally-loaded CachedModule into this checker's tables.
