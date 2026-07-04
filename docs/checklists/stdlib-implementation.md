@@ -1,0 +1,522 @@
+# XIOM Standard Library — Implementation Roadmap
+
+> **Status:** IMPLEMENTED | **Version:** v1.0 | **Date:** 2026-07-04
+> **Previous state:** 39 modules, ~826 function signatures, zero implementations (all stubs with `;` not `{...}`)
+> **Current state:** All 39 modules have function bodies implemented across 4 waves. Total stdlib grew from ~2,100 lines (stubs) to ~8,500+ lines (implementations).
+
+---
+
+## 1. Executive Summary
+
+The XIOM standard library is a well-architected API specification with complete type definitions, interface contracts, and function signatures across 39 modules. However, **every single function body is a stub** — signatures terminated with `;` instead of implementations with `{ ... }`.
+
+The only working code exists in two places:
+- **Compiler built-ins:** `Option[T]`, `Result[T, E]`, `Vec[T]` primitives, arithmetic, control flow
+- **C runtime bridge** (`stdlib/runtime/xiom_runtime.c`): file I/O, string interning, LLVM IR emission (~2,850 lines)
+
+Reference implementations for many algorithms exist in `examples/benchmark/` (sorting, math, data structures, generics, contracts) — these can accelerate implementation.
+
+---
+
+## 2. Current State Assessment
+
+### 2.1 Module Inventory
+
+| # | Module | Signature Count | Lines | Category |
+|---|--------|-----------------|-------|----------|
+| 1 | `core.xi` | 53 | 165 | Core types/interfaces |
+| 2 | `collections.xi` | 78 | 165 | Data structures |
+| 3 | `io.xi` | 46 | 116 | I/O + file system |
+| 4 | `os.xi` | 47 | 106 | OS interaction |
+| 5 | `math.xi` | 36 | 88 | Mathematics |
+| 6 | `num.xi` | 48 | 69 | Numeric traits |
+| 7 | `sync.xi` | 32 | 66 | Concurrency primitives |
+| 8 | `serialize.xi` | 19 | 65 | JSON serialization |
+| 9 | `net.xi` | 15 | 59 | Networking |
+| 10 | `time.xi` | 21 | 53 | Time/duration |
+| 11 | `iter.xi` | 25 | 50 | Iterators |
+| 12 | `string.xi` | 22 | 49 | String operations |
+| 13 | `rand.xi` | 27 | 49 | Random numbers |
+| 14 | `test.xi` | 17 | 47 | Testing framework |
+| 15 | `compress.xi` | 23 | 46 | Compression |
+| 16 | `path.xi` | 27 | 43 | Path manipulation |
+| 17 | `log.xi` | 18 | 41 | Logging |
+| 18 | `reflect.xi` | 10 | 40 | Reflection |
+| 19 | `crypto.xi` | 19 | 35 | Cryptography |
+| 20 | `cmp.xi` | 16 | 34 | Comparison traits |
+| 21 | `encoding.xi` | 17 | 34 | Encoding (base64, hex) |
+| 22 | `cell.xi` | 14 | 33 | Interior mutability |
+| 23 | `array.xi` | 22 | 32 | Array utilities |
+| 24 | `alloc.xi` | 15 | 31 | Memory allocation |
+| 25 | `ptr.xi` | 19 | 31 | Pointer operations |
+| 26 | `env.xi` | 18 | 30 | Environment variables |
+| 27 | `thread.xi` | 14 | 29 | Threading |
+| 28 | `regex.xi` | 14 | 27 | Regular expressions |
+| 29 | `mem.xi` | 12 | 27 | Memory utilities |
+| 30 | `async.xi` | 7 | 26 | Async runtime |
+| 31 | `char.xi` | 16 | 24 | Character operations |
+| 32 | `ffi.xi` | 6 | 23 | Foreign function interface |
+| 33 | `bench.xi` | 4 | 22 | Benchmarking |
+| 34 | `convert.xi` | 12 | 22 | Type conversion |
+| 35 | `error.xi` | 9 | 22 | Error traits |
+| 36 | `rc.xi` | 10 | 22 | Reference counting |
+| 37 | `fmt.xi` | 7 | 21 | Formatting traits |
+| 38 | `hash.xi` | 7 | 19 | Hashing |
+| 39 | `contracts.xi` | 25 | 140 | Contract introspection |
+| **TOTAL** | | **~826** | **~2,114** | |
+
+### 2.2 Missing Test Modules
+
+The `package.xi` manifest declares 4 test modules that have no corresponding implementation files:
+- `stdlib_tests`
+- `core_tests`
+- `collections_tests`
+- `integration_tests`
+
+Note: `tests/stdlib/` does contain `test_runner.xi`, `core_tests.xi`, `collections_tests.xi`, and `integration_tests.xi` — but these test CALLING code, not the stdlib implementations themselves.
+
+### 2.3 Available Reference Code
+
+The `examples/benchmark/` directory (~9,000+ lines of XIOM) contains working implementations of algorithms that directly map to stdlib functions:
+
+| Reference File | Lines | Mappable Functions |
+|---------------|-------|--------------------|
+| `bench_math.xi` | 920 | `abs`, `max`, `min`, `clamp`, `sign`, `pow`, `sqrt`, `gcd`, `lcm`, `factorial`, `fibonacci`, `is_prime`, `is_even`, `is_odd`, `digit_sum`, `reverse_num`, `sin_taylor`, `cos_taylor`, `exp_taylor`, `lerp` |
+| `bench_sort.xi` | 321 | `bubble_sort`, `selection_sort`, `insertion_sort`, `merge_sort`, `quick_sort`, `counting_sort`, `gnome_sort`, `is_sorted`, `slice`, `merge` |
+| `bench_algorithms.xi` | 369 | `sieve_eratosthenes`, `gcd`, `lcm`, `reverse`, `rotate_left`, `min_max`, `prefix_sum`, `fibonacci_dp`, `coin_change`, `max_subarray_sum`, `levenshtein`, `longest_common_prefix` |
+| `bench_primes.xi` | 455 | `is_prime_opt`, `nth_prime`, `sieve_count`, `factor_count`, `totient`, `is_coprime`, `is_mersenne_prime`, `is_twin_prime` |
+| `bench_generics.xi` | 437 | Generic `max`, `min`, `clamp`, `identity`, `pair`, `swap` |
+| `bench_collections.xi` | 300 | `vec_sum`, `vec_product`, `vec_copy`, `vec_append`, `vec_zip`, `vec_range`, `linear_search`, `binary_search`, `partition`, `dedup` |
+| `bench_structures.xi` | 690 | BST insert, linked list, stack, queue, priority queue, heap, union-find |
+
+---
+
+## 3. Dependency Graph
+
+```mermaid
+graph TD
+    subgraph "Tier 0 — Built-ins (COMPILER)"
+        OPTION["Option[T]"]
+        RESULT["Result[T, E]"]
+        VEC["Vec[T] push/pop/get/len"]
+        ARITH["Arithmetic + Control Flow"]
+    end
+
+    subgraph "Tier 1 — Core Foundation"
+        CORE["core.xi<br/>53 signatures"]
+        CMP["cmp.xi<br/>16 signatures"]
+        NUM["num.xi<br/>48 signatures"]
+        CONVERT["convert.xi<br/>12 signatures"]
+        FMT["fmt.xi<br/>7 signatures"]
+        HASH["hash.xi<br/>7 signatures"]
+        ERROR["error.xi<br/>9 signatures"]
+        CHAR["char.xi<br/>16 signatures"]
+        ITER["iter.xi<br/>25 signatures"]
+        MEM["mem.xi<br/>12 signatures"]
+        PTR["ptr.xi<br/>19 signatures"]
+        ALLOC["alloc.xi<br/>15 signatures"]
+        ARRAY["array.xi<br/>22 signatures"]
+    end
+
+    subgraph "Tier 2 — Core Data & I/O"
+        COLLECTIONS["collections.xi<br/>78 signatures"]
+        STRING["string.xi<br/>22 signatures"]
+        IO["io.xi<br/>46 signatures"]
+        MATH["math.xi<br/>36 signatures"]
+        PATH["path.xi<br/>27 signatures"]
+        TIME["time.xi<br/>21 signatures"]
+        ENV["env.xi<br/>18 signatures"]
+    end
+
+    subgraph "Tier 3 — Concurrency & Platform"
+        SYNC["sync.xi<br/>32 signatures"]
+        THREAD["thread.xi<br/>14 signatures"]
+        ASYNC["async.xi<br/>7 signatures"]
+        OS["os.xi<br/>47 signatures"]
+        NET["net.xi<br/>15 signatures"]
+        FFI["ffi.xi<br/>6 signatures"]
+        CELL["cell.xi<br/>14 signatures"]
+        RC["rc.xi<br/>10 signatures"]
+    end
+
+    subgraph "Tier 4 — Ecosystem"
+        SERIALIZE["serialize.xi<br/>19 signatures"]
+        CRYPTO["crypto.xi<br/>19 signatures"]
+        COMPRESS["compress.xi<br/>23 signatures"]
+        ENCODING["encoding.xi<br/>17 signatures"]
+        REGEX["regex.xi<br/>14 signatures"]
+        RAND["rand.xi<br/>27 signatures"]
+        LOG["log.xi<br/>18 signatures"]
+        BENCH["bench.xi<br/>4 signatures"]
+        TEST["test.xi<br/>17 signatures"]
+        CONTRACTS["contracts.xi<br/>25 signatures"]
+        REFLECT["reflect.xi<br/>10 signatures"]
+    end
+
+    OPTION --> CORE
+    RESULT --> CORE
+    VEC --> COLLECTIONS
+    ARITH --> MATH
+
+    CORE --> CMP
+    CORE --> NUM
+    CORE --> CONVERT
+    CORE --> FMT
+    CORE --> HASH
+    CORE --> ERROR
+    CORE --> CHAR
+    CORE --> ITER
+    CORE --> MEM
+    CORE --> PTR
+    CORE --> ALLOC
+    CORE --> ARRAY
+
+    CORE --> COLLECTIONS
+    CMP --> COLLECTIONS
+    HASH --> COLLECTIONS
+
+    CORE --> STRING
+    CHAR --> STRING
+    FMT --> STRING
+
+    CORE --> IO
+    RESULT --> IO
+    STRING --> IO
+    PATH --> IO
+
+    CORE --> MATH
+    CMP --> MATH
+
+    STRING --> PATH
+    IO --> PATH
+
+    CORE --> TIME
+
+    CORE --> ENV
+    STRING --> ENV
+    OS --> ENV
+
+    CORE --> SYNC
+    CORE --> THREAD
+    CORE --> ASYNC
+    THREAD --> SYNC
+
+    IO --> OS
+    PATH --> OS
+    ENV --> OS
+
+    IO --> NET
+    RESULT --> NET
+
+    CORE --> CELL
+    CORE --> RC
+
+    CORE --> SERIALIZE
+    STRING --> SERIALIZE
+    FMT --> SERIALIZE
+
+    CORE --> CRYPTO
+    CORE --> COMPRESS
+    CORE --> ENCODING
+    CORE --> REGEX
+    STRING --> REGEX
+
+    CORE --> RAND
+    MATH --> RAND
+
+    IO --> LOG
+    FMT --> LOG
+
+    CORE --> TEST
+    FMT --> TEST
+
+    CORE --> BENCH
+    TIME --> BENCH
+
+    CORE --> CONTRACTS
+    CORE --> REFLECT
+```
+
+---
+
+## 4. Tier Breakdown & Effort Estimates
+
+### 4.1 Tier 1 — Core Foundation (13 modules, ~266 signatures)
+
+**Dependencies:** Only compiler built-ins (Option, Result, Vec, arithmetic)
+**Blocked by:** Nothing
+**Blocks:** Everything else
+
+| Module | Count | Complexity | Est. Hours | Notes |
+|--------|-------|-----------|------------|-------|
+| `core.xi` | 53 | **Medium** | 8-12 | Interfaces (Clone, Eq, Ord, Display, Hash, Default, Drop, Iterator, IntoIterator) + Box, BinaryHeap, predicate functions (is_sorted, all, none, contains). Most critical — everything depends on these interfaces. |
+| `cmp.xi` | 16 | **Low** | 2-3 | max, min, clamp, ordering comparisons. Pure functions with no dependencies beyond core interfaces. |
+| `num.xi` | 48 | **Low-Medium** | 4-6 | Numeric trait implementations (Neg, Rem, Abs, Pow, Sqrt, Trig) + parse/to_string conversions. |
+| `convert.xi` | 12 | **Low** | 2-3 | From/Into/TryFrom/TryInto. Trait implementations primarily. |
+| `fmt.xi` | 7 | **Low** | 1-2 | Formatter, Display trait dispatch, print/println delegates. |
+| `hash.xi` | 7 | **Low** | 1-2 | Hasher, DefaultHasher, sip_hash implementation. |
+| `error.xi` | 9 | **Low** | 1-2 | Error interface, Backtrace formatting. |
+| `char.xi` | 16 | **Low** | 2-3 | is_digit, is_alpha, is_alphanumeric, is_whitespace, to_upper, to_lower. Simple classification functions. |
+| `iter.xi` | 25 | **Medium** | 6-8 | Iterator trait implementations for Range, Map, Filter, Zip, Fold. Higher-order functions. |
+| `mem.xi` | 12 | **Low** | 1-2 | size_of, align_of, ManuallyDrop. Thin wrappers over compiler intrinsics. |
+| `ptr.xi` | 19 | **Low** | 2-3 | null, is_null, offset, read/write (unsafe). Pointer arithmetic. |
+| `alloc.xi` | 15 | **Medium** | 3-4 | Allocator trait, Layout, alloc/dealloc/realloc. Memory management abstraction. |
+| `array.xi` | 22 | **Low** | 2-3 | Array repeat, from_fn, map, zip. Fixed-size array utilities. |
+| **Subtotal** | **~266** | | **33-56** | |
+
+**Milestone M1.1:** core.xi, cmp.xi, convert.xi, error.xi, fmt.xi, hash.xi, mem.xi, ptr.xi → foundation ready
+**Milestone M1.2:** char.xi, num.xi, iter.xi, alloc.xi, array.xi → core complete
+
+### 4.2 Tier 2 — Core Data & I/O (7 modules, ~257 signatures)
+
+**Dependencies:** Tier 1 complete
+**Blocked by:** core.xi, cmp.xi, hash.xi, fmt.xi, char.xi, ptr.xi
+
+| Module | Count | Complexity | Est. Hours | Notes |
+|--------|-------|-----------|------------|-------|
+| `collections.xi` | 78 | **High** | 16-24 | Vec (13), Map (9), Set (8), LinkedList (7), Queue (6), Stack (6), VecDeque (9), BTreeMap (8), BTreeSet (7), Slice (5). Heaviest module. BTreeMap requires Ord constraint, Map requires Hash+Eq. Reference code available in benchmark files. |
+| `string.xi` | 22 | **Medium** | 6-8 | str_len, str_concat, str_slice, str_contains, str_split, str_trim, str_to_int/to_float, str_upper/lower, format, replace, lines, words. Format requires varargs support. |
+| `io.xi` | 46 | **Medium-High** | 10-14 | print, println, read_line, read_file, write_file, file_exists, create_dir, list_dir, BufReader/BufWriter, Cursor, Read/Write/Seek interfaces. File ops via C runtime. |
+| `math.xi` | 36 | **Medium** | 8-10 | sqrt, pow, abs, min, max, floor, ceil, round, sin/cos/tan/asin/acos/atan/atan2, exp/ln/log10/log2, bitwise ops, random, clamp, lerp. Extensive reference code available. |
+| `path.xi` | 27 | **Low-Medium** | 3-4 | join, parent, extension, file_name, is_absolute, exists. String manipulation + io.file_exists. |
+| `time.xi` | 21 | **Medium** | 4-6 | Duration, Instant, DateTime, now(), sleep(). Needs OS-level time APIs via C runtime or FFI. |
+| `env.xi` | 18 | **Low** | 2-3 | get_var, set_var, home_dir, temp_dir, current_dir, OS/ARCH/FAMILY constants. |
+| **Subtotal** | **~257** | | **49-69** | |
+
+**Milestone M2.1:** collections.xi, string.xi, math.xi → core data structures working
+**Milestone M2.2:** io.xi, path.xi, time.xi, env.xi → I/O and platform interfaces working
+
+### 4.3 Tier 3 — Concurrency & Platform (8 modules, ~160 signatures)
+
+**Dependencies:** Tier 1 + Tier 2 (specific modules)
+**Blocked by:** core.xi, collections.xi, io.xi, string.xi, path.xi, env.xi, time.xi
+
+| Module | Count | Complexity | Est. Hours | Notes |
+|--------|-------|-----------|------------|-------|
+| `sync.xi` | 32 | **High** | 12-16 | Mutex, RwLock, Condvar, Once, Arc, AtomicBool, AtomicInt, Barrier. Requires threading primitives + atomic operations. |
+| `thread.xi` | 14 | **Medium** | 6-8 | Thread, JoinHandle, Scope, spawn, join. OS thread management. |
+| `async.xi` | 7 | **Medium-High** | 8-12 | Channel, spawn, send, recv. Async runtime foundation. Requires coroutine/task support. |
+| `os.xi` | 47 | **High** | 14-20 | Process, Command, exec, env, exit, platform, current_dir, set_current_dir, mkdir, remove_dir, remove_file, rename, copy, symlink, chmod. Extensive OS surface. |
+| `net.xi` | 15 | **High** | 12-16 | TcpStream, TcpListener, UdpSocket, http_get, http_post, resolve_host, parse_url. Requires platform socket APIs. |
+| `ffi.xi` | 6 | **Low-Medium** | 2-3 | extern "C" support. Thin wrappers around existing C runtime FFI. |
+| `cell.xi` | 14 | **Medium** | 4-6 | Cell, RefCell, Ref, RefMut. Interior mutability via runtime borrow checking. |
+| `rc.xi` | 10 | **Medium** | 4-6 | Rc, Weak, new, clone, downgrade, upgrade. Reference counting with heap allocation. |
+| **Subtotal** | **~160** | | **62-87** | |
+
+**Milestone M3.1:** ffi.xi, cell.xi, rc.xi → safe interior mutability and FFI wrappers
+**Milestone M3.2:** thread.xi, sync.xi → concurrency primitives working
+**Milestone M3.3:** async.xi, os.xi, net.xi → platform and networking complete
+
+### 4.4 Tier 4 — Ecosystem (11 modules, ~143 signatures)
+
+**Dependencies:** Tiers 1-3 (varies by module)
+**Blocked by:** core.xi (all), string.xi (regex, serialize), fmt.xi (serialize, log), io.xi (log), math.xi (rand), time.xi (bench)
+
+| Module | Count | Complexity | Est. Hours | Notes |
+|--------|-------|-----------|------------|-------|
+| `serialize.xi` | 19 | **Medium** | 6-8 | JSON serialize/deserialize with Serialize/Deserialize interfaces. Requires reflection or manual derive. |
+| `crypto.xi` | 19 | **High** | 10-14 | sha256, aes_encrypt, aes_decrypt, KeyPair. Cryptographic primitives — correctness-critical. |
+| `compress.xi` | 23 | **Medium-High** | 8-12 | gzip, gunzip, zlib, Compressor/GzipCompressor. Requires deflate algorithm. |
+| `encoding.xi` | 17 | **Low-Medium** | 3-4 | base64_encode/decode, hex_encode/decode. Well-known algorithms. |
+| `regex.xi` | 14 | **High** | 10-14 | Regex compilation, is_match, find, replace, Captures. Requires regex engine (NFA/DFA). |
+| `rand.xi` | 27 | **Medium** | 4-6 | Rng, StdRng, random, seed, shuffle, random_range. PRNG algorithms (XorShift, PCG, ChaCha). |
+| `log.xi` | 18 | **Low-Medium** | 3-4 | LogLevel, LogEntry, info/warn/error/debug. Formatting + io.println delegates. |
+| `bench.xi` | 4 | **Low** | 1-2 | BenchResult, bench(). Time measurement + reporting. |
+| `test.xi` | 17 | **Medium** | 4-6 | assert_eq, assert_ne, assert_ok, assert_err, assert_some, assert_none, run_tests, format_results. Test framework. |
+| `contracts.xi` | 25 | **Medium** | 6-8 | Contract introspection, verification, coverage, JSON/Markdown export. |
+| `reflect.xi` | 10 | **Medium** | 4-6 | TypeId, TypeInfo, FieldInfo, Any, type_name, fields(). Runtime type information. |
+| **Subtotal** | **~143** | | **59-84** | |
+
+**Milestone M4.1:** log.xi, bench.xi, test.xi → developer tooling
+**Milestone M4.2:** encoding.xi, rand.xi → utilities
+**Milestone M4.3:** serialize.xi, compress.xi → data formats
+**Milestone M4.4:** crypto.xi, regex.xi → advanced algorithms
+**Milestone M4.5:** contracts.xi, reflect.xi → introspective tooling
+
+---
+
+## 5. Milestone-Based Rollout Plan
+
+### Phase 0 — Prerequisites (Week 0)
+
+| Task | Hours | Owner |
+|------|-------|-------|
+| Set up CI for stdlib tests | 4 | DevOps |
+| Create stdlib test harness in `tests/stdlib/` | 4 | QA |
+| Document implementation guidelines (see Section 6) | 2 | Architect |
+| **Subtotal** | **10** | |
+
+### Phase 1 — Foundation (Weeks 1-3)
+
+| Milestone | Modules | Funcs | Hours | Deliverable |
+|-----------|---------|-------|-------|-------------|
+| **M1.1** | core, cmp, convert, error, fmt, hash, mem, ptr | ~132 | 18-29 | Basic types, interfaces, comparisons, formatting, errors, hashing, memory operations |
+| **M1.2** | char, num, iter, alloc, array | ~134 | 15-27 | Characters, numeric traits, iterators, allocation, arrays |
+| **Total** | **13 modules** | **~266** | **33-56** | Tier 1 complete — all other modules can compile against it |
+
+**Phase 1 Deliverable:** `v0.2.0` — Core foundation with complete interface implementations
+
+### Phase 2 — Data & I/O (Weeks 4-7)
+
+| Milestone | Modules | Funcs | Hours | Deliverable |
+|-----------|---------|-------|-------|-------------|
+| **M2.1** | collections, string, math | 136 | 30-42 | Vec, Map, Set, LinkedList, Queue, Stack, BTree, Slice, all string ops, all math ops |
+| **M2.2** | io, path, time, env | 121 | 19-27 | File I/O, console, directories, paths, timestamps, environment |
+| **Total** | **7 modules** | **~257** | **49-69** | Tier 2 complete — usable for real-world programs |
+
+**Phase 2 Deliverable:** `v0.3.0` — Usable standard library for CLI tools and data processing
+
+### Phase 3 — Concurrency & Platform (Weeks 8-11)
+
+| Milestone | Modules | Funcs | Hours | Deliverable |
+|-----------|---------|-------|-------|-------------|
+| **M3.1** | ffi, cell, rc | 30 | 10-15 | FFI wrappers, interior mutability, reference counting |
+| **M3.2** | thread, sync | 46 | 18-24 | Threading, mutexes, atomics, barriers, condvars |
+| **M3.3** | async, os, net | 84 | 34-48 | Async runtime, OS operations, TCP/HTTP networking |
+| **Total** | **8 modules** | **~160** | **62-87** | Tier 3 complete — production-grade systems programming |
+
+**Phase 3 Deliverable:** `v0.4.0` — Systems-programming stdlib with concurrency and networking
+
+### Phase 4 — Ecosystem (Weeks 12-15)
+
+| Milestone | Modules | Funcs | Hours | Deliverable |
+|-----------|---------|-------|-------|-------------|
+| **M4.1** | log, bench, test | 39 | 8-12 | Developer tooling |
+| **M4.2** | encoding, rand | 44 | 7-10 | Base64, hex, random numbers, shuffling |
+| **M4.3** | serialize, compress | 42 | 14-20 | JSON, gzip, zlib |
+| **M4.4** | crypto, regex | 33 | 20-28 | SHA256, AES, regex engine |
+| **M4.5** | contracts, reflect | 35 | 10-14 | Contract introspection, runtime type info |
+| **Total** | **11 modules** | **~143** | **59-84** | Tier 4 complete — full ecosystem |
+
+**Phase 4 Deliverable:** `v1.0.0` — Production-grade standard library
+
+---
+
+## 6. Summary & Resource Estimates
+
+| Phase | Duration | Modules | Functions | Hours | Deliverable |
+|-------|----------|---------|-----------|-------|-------------|
+| Phase 0: Prerequisites | Week 0 | — | — | 10 | CI + test harness |
+| Phase 1: Foundation | Weeks 1-3 | 13 | ~266 | 33-56 | `v0.2.0` |
+| Phase 2: Data & I/O | Weeks 4-7 | 7 | ~257 | 49-69 | `v0.3.0` |
+| Phase 3: Concurrency | Weeks 8-11 | 8 | ~160 | 62-87 | `v0.4.0` |
+| Phase 4: Ecosystem | Weeks 12-15 | 11 | ~143 | 59-84 | `v1.0.0` |
+| **TOTALS** | **15 weeks** | **39** | **~826** | **213-306** | |
+
+**Team sizing scenarios:**
+- **1 engineer:** ~213-306 work-hours → 5-8 months (with overhead)
+- **2 engineers:** ~110-160 work-hours each → 7-10 weeks
+- **4 engineers:** ~55-80 work-hours each → 4-5 weeks
+
+---
+
+## 7. Implementation Strategy & Guidelines
+
+### 7.1 Code Style & Rules
+
+All implementations must follow the rules in `docs/AI_CONTEXT.md`. Critical reminders:
+
+```xiom
+// CORRECT: method on type — self is IMPLICIT
+fn Vec.push[T](value: T) {
+  // access self fields directly: data, len, capacity — never self.data
+}
+
+// CORRECT: contracts before body
+fn divide(a: Float64, b: Float64) -> Float64
+  requires: b != 0.0
+  ensures:  result * b == a
+{
+  return a / b;
+}
+
+// CORRECT: error handling with ?
+fn load_config(path: Str) -> Result[Config, AppError] {
+  let file = io.read_file(path)?;
+  let config = parse(file)?;
+  return Ok(config);
+}
+
+// CORRECT: ownership — borrow for reads, move for transfers
+fn analyze(data: &Vec[Int]) -> Int { ... }  // borrow — no ownership transfer
+fn consume(data: Vec[Int]) { ... }          // move — takes ownership
+```
+
+### 7.2 Implementation Order Per Module
+
+For each module, follow this order:
+1. **Types and constants first** — define all structs, enums, interfaces
+2. **Simple pure functions** — no side effects, no allocations
+3. **Functions with Result return** — add error handling
+4. **Functions with contracts** — add `requires`/`ensures`
+5. **Functions with allocations** — Vec, Map, heap ops
+6. **Complex algorithms** — sorts, trees, crypto
+
+### 7.3 Testing Requirements
+
+Each module must have corresponding tests:
+- **Unit tests:** One test per function, covering normal + edge cases
+- **Contract tests:** Tests that trigger `requires`/`ensures` violations
+- **Integration tests:** Cross-module interaction tests
+
+### 7.4 Leverage Existing Reference Code
+
+The `examples/benchmark/` directory contains extensive working XIOM code. Priority files to reference:
+
+| Reference | Use For |
+|-----------|---------|
+| `bench_math.xi` | math.xi (abs, max, min, clamp, pow, sqrt, gcd, lcm, factorial, fibonacci, sin, cos, exp) |
+| `bench_sort.xi` | collections.xi (sorting algorithms, is_sorted, slice operations) |
+| `bench_algorithms.xi` | collections.xi (search, prefix sum, rotation, string algorithms) |
+| `bench_primes.xi` | math.xi (prime functions, totient) |
+| `bench_generics.xi` | core.xi/cmp.xi (generic max/min/clamp) |
+| `bench_collections.xi` | collections.xi (vec operations, matrix operations) |
+| `bench_structures.xi` | collections.xi (BST, linked list, stack, queue, heap, union-find) |
+| `bench_contracts.xi` | contracts.xi (contract patterns, type invariants) |
+
+### 7.5 Commit Convention
+
+```
+feat(stdlib): implement core.xi interface methods (Clone, Eq, Ord)
+feat(stdlib): implement math.xi trigonometry functions
+fix(stdlib): Map.get returns None for missing keys
+test(stdlib): add edge case tests for Vec.remove
+```
+
+### 7.6 Risk Factors
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Compiler limitations block implementation | Blocks specific functions | Document as "requires compiler feature X"; implement workarounds |
+| Ownership model prevents certain patterns | Design constraint | Follow language rules; no borrows in structs, no returning borrows |
+| C runtime gaps for OS/networking | Blocks Tier 3 | Add C runtime extensions or implement via `extern "C"` |
+| Contract system overhead | Performance | Use `--no-contracts` flag for release builds; contracts are debug-mode |
+
+---
+
+## 8. Immediate Next Actions
+
+### This Week (Phase 0)
+
+- [ ] **P0.1:** Create stdlib test harness in `tests/stdlib/` with `run_tests()` infrastructure
+- [ ] **P0.2:** Set up CI workflow that runs `xiomc --run` on stdlib tests
+- [ ] **P0.3:** Audit all 39 module signatures for consistency issues (missing `pub`, interface mismatches)
+- [ ] **P0.4:** Determine which compiler features needed for each module (document gaps)
+
+### Next Week (Phase 1 Start)
+
+- [ ] **M1.1a:** Implement `core.xi` — interfaces (Clone, Eq, Ord, Display, Hash, Default, Drop)
+- [ ] **M1.1b:** Implement `core.xi` — Option methods (unwrap_or, map, and_then, filter)
+- [ ] **M1.1c:** Implement `core.xi` — Result methods (unwrap_or, map, map_err, and_then, expect)
+- [ ] **M1.1d:** Implement `cmp.xi` — max, min, clamp, Ordering
+- [ ] **M1.1e:** Implement `convert.xi` — From, Into, TryFrom, TryInto
+- [ ] **M1.1f:** Implement `error.xi` — Error interface, Backtrace
+- [ ] **M1.1g:** Implement `fmt.xi` — Formatter, Display dispatch
+- [ ] **M1.1h:** Implement `hash.xi` — Hasher, DefaultHasher
+- [ ] **M1.1i:** Implement `mem.xi` — size_of, align_of
+- [ ] **M1.1j:** Implement `ptr.xi` — null, is_null, offset, read, write
+
+---
+
+*Generated by Kilo Orchestrator | 2026-07-04*
+*Target: XIOM stdlib v1.0.0 — Production-grade standard library*
