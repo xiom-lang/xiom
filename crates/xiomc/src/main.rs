@@ -686,40 +686,37 @@ fn find_runtime_c() -> Option<String> {
 fn get_process_memory_bytes() -> Option<u64> {
     #[cfg(target_os = "windows")]
     {
-        use std::mem;
-        #[repr(C)]
-        #[allow(non_snake_case)]
-        struct PROCESS_MEMORY_COUNTERS {
-            cb: u32,
-            page_fault_count: u32,
-            peak_working_set_size: usize,
-            working_set_size: usize,
-            quota_peak_paged_pool_usage: usize,
-            quota_paged_pool_usage: usize,
-            quota_peak_non_paged_pool_usage: usize,
-            quota_non_paged_pool_usage: usize,
-            pagefile_usage: usize,
-            peak_pagefile_usage: usize,
-        }
-        extern "system" {
-            fn GetCurrentProcess() -> *mut std::ffi::c_void;
-            fn GetProcessMemoryInfo(
-                process: *mut std::ffi::c_void,
-                counters: *mut PROCESS_MEMORY_COUNTERS,
-                cb: u32,
-            ) -> i32;
-        }
-        unsafe {
-            let mut pmc: PROCESS_MEMORY_COUNTERS = mem::zeroed();
-            pmc.cb = mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
-            if GetProcessMemoryInfo(GetCurrentProcess(), &mut pmc, pmc.cb) != 0 {
-                return Some(pmc.working_set_size as u64);
+        // Use PowerShell to query working set (avoids FFI linking issues)
+        let pid = std::process::id();
+        if let Ok(output) = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", &format!("(Get-Process -Id {pid}).WorkingSet64")])
+            .output()
+        {
+            if output.status.success() {
+                if let Ok(s) = String::from_utf8(output.stdout) {
+                    if let Ok(bytes) = s.trim().parse::<u64>() {
+                        return Some(bytes);
+                    }
+                }
             }
         }
         None
     }
     #[cfg(not(target_os = "windows"))]
     {
+        // Linux/macOS: read /proc/self/status for VmRSS
+        if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+            for line in status.lines() {
+                if line.starts_with("VmRSS:") {
+                    let kb: u64 = line
+                        .split_whitespace()
+                        .nth(1)
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(0);
+                    return Some(kb * 1024);
+                }
+            }
+        }
         None
     }
 }

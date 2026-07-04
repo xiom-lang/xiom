@@ -386,7 +386,7 @@
     /// instantiations (generic chains), which are processed in subsequent passes.
     fn compile_generic_monomorphisations(&mut self) -> Result<(), String> {
         let mut iteration: u32 = 0;
-        const MAX_GENERIC_ITERATIONS: u32 = 256;
+        const MAX_GENERIC_ITERATIONS: u32 = 65536;
         loop {
             iteration += 1;
             if iteration > MAX_GENERIC_ITERATIONS {
