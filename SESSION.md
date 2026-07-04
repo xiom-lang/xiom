@@ -1,257 +1,131 @@
 # XIOM — Session Handoff: v0.22.1 "Hardened"
 
-**Date:** 2026-07-04  
-**Branch:** `feat/rebrand`  
-**Status:** **Rebranding complete.** All 186 tests green. AXIOM → XIOM across all ~250+ files.
+**Date:** 2026-07-04
+**Branch:** `feat/guardian` (Phase 2 — compiler hardening)
+**Status:** 186 tests, zero warnings, zero failures. Rebranding complete. Ready for Phase 2 work.
+**Companion session:** `SESSION_ECOSYSTEM.md` — AI-driven ecosystem build (other machine)
 
 ---
 
-## Next Session: Rebranding XIOM → XIOM
-
-### Why
-
-XIOM is a trademarked name and `.xi` is used by other tools. Full rebranding is needed before public release.
-
-### Target Names
-
-| Old | New |
-|-----|-----|
-| Language: **XIOM** | **XIOM** |
-| Source files: `.xi` | `.xi` |
-| Bytecode: `.xibc` | `.xibc` |
-| Compiler: `xiomc` | `xiomc` |
-| Crate prefix: `xiom-*` | `xiom-*` |
-| Config: `kilo.jsonc` → unchanged | Project name doesn't need renaming |
-
-### Rebranding Difficulty Assessment (Updated — Full Scope)
-
-**Scale:** ~250 files across the entire project. Mechanical but extensive.
-
-| Layer | Files | Effort | Risk |
-|-------|-------|--------|------|
-| **Source files** (.xi → .xi) | ~35 example/benchmark/spec files | Low — batch rename | Low |
-| **Module declarations** (in .xi files) | `module a.b.c` stays the same — only file extension changes | None | None |
-| **Crate names** (Cargo.toml) | 7 `Cargo.toml` files | Low — string replace | Medium |
-| **Rust source** (`xiom_*` → `xiom_*`) | ~15 .rs files | Medium — crate refs, use statements, strings | Medium |
-| **Docs** (COMPILER_VERSIONS.md, etc.) | ~15 .md files | Low — find/replace | Low |
-| **Specs** (XIOM_*.md → XIOM_*.md) | 9 files | Low — rename + content | Low |
-| **Website** (all HTML/CSS/JS) | **12 HTML + 1 CSS + images + playground** | Medium — every page has XIOM in title, nav, headers, code samples, footer | Medium |
-| **Grammar** (xiom.tmLanguage.json → xiom.tmLanguage.json) | 1 file + scopeName | Low | Low |
-| **C runtime** (xiom_runtime.c) | 1 file | Low | Low |
-| **Build/install scripts** | 5 scripts (install.ps1, install.sh, install_deps.ps1, install_deps.sh, install.bat) | Low — PATH references, binary names | Low |
-| **Website content** | index.html, xiom-landing.html, spec.html, docs.html, download.html, ecosystem.html, versions.html, AI_CONTEXT.html, style.css, playground/ | Medium — ~150 "XIOM" references across all pages | Low |
-| **VS Code extension** | grammar, snippets, config | Low | Low |
-| **kilo.jsonc** | No changes needed | None | None |
-| **Total** | **~250 files** | **3-4 hour session** | **Low-Medium** |
-
-### Website Files to Update
-
-| File | XIOM Refs | What Changes |
-|------|-----------|--------------|
-| `index.html` | 25+ | Title, logo text, nav, hero, pillars, code samples, footer |
-| `xiom-landing.html` | 30+ | Title, nav, hero, proof panel filename, pillars, footer |
-| `spec.html` | 40+ | Title, nav, type names in code samples, comparison table |
-| `docs.html` | 5+ | Redirect, title, nav |
-| `download.html` | 20+ | Title, nav, CLI commands, binary names, paths |
-| `ecosystem.html` | 35+ | Title, nav, package names (xiom-http → xiom-http, etc.) |
-| `versions.html` | 15+ | Title, nav, version rows |
-| `AI_CONTEXT.html` | 50+ | Every code sample, type reference, keyword |
-| `style.css` | 2 | Title in CSS comment |
-| `playground/` | ~10 | Server config, HTML templates |
-| `docs/` subdirectory | ~15 .md files | Internal references |
-
-### Distribution / Installer Scope
-
-| File | What Changes |
-|------|-------------|
-| `install.ps1` | Binary name `xiomc.exe` → `xiomc.exe`, PATH additions, icon references |
-| `install.sh` | Same — Unix paths, binary names |
-| `install_deps.ps1` | Tool references (likely unchanged — installs Rust/LLVM) |
-| `install_deps.sh` | Same |
-| `release/xiom-v0.20.0/install.bat` | Binary name, PATH |
-| `package.ps1` | Archive names, binary references |
-| `Cargo.toml` (root) | Workspace member names |
-| `.vscode/` | Extension config, task names |
-
-### Recommended Approach
-
-1. **Atomic commits** — one commit per layer (source files, then crates, then docs, then tests)
-2. **Compile after each commit** — `cargo build` to catch missed references immediately
-3. **Keep `feat/ecosystem` branch** — do rebranding on `feat/rebrand` branch, merge to main
-4. **Run full test suite** after rebranding — 186 tests must stay green
-5. **Update SESSION.md with rebranded names** after the session
-
-### Phase Reordering
-
-**Decision: Self-hosting comes after Phase 3 (Z3, toolchain, debugger), not before.**
-
-The v0.9.x–v0.11.x self-hosting MVP worked — concept proven. But pursuing self-hosting while the Rust compiler was unstable caused benchmark breakage. The revised order:
-
-1. **Phase 2 (now):** Harden Rust compiler — performance, warnings, benchmarks, multi-file, hot reload
-2. **Phase 3 (next):** Z3 static verification, debugger (DAP), LSP, CLI toolchain, visual benchmarks
-3. **Phase 4 (final):** Self-hosting — bootstrap XIOM compiler in XIOM, byte-for-byte verified
-4. **Ecosystem (after):** Showcase projects (AxiomDB, AxiomVDB), package registry
-
-The Rust compiler is the PERMANENT bootstrap fallback — never deleted.
-
-See `docs/COMPILER_IMPROVEMENT_PLAN.md` for the detailed roadmap, `docs/XIOM_DISTRIBUTION_SPEC.md` for the distribution + installer specification, and `specs/XIOM_Build_Strategy.md` for the decision log.
-
-## Rebranding Complete (2026-07-04)
-
-AXIOM → XIOM across the entire project. Summary:
-
-### Renamed
-
-| Old | New | Count |
-|-----|-----|-------|
-| Crate dirs `axiom-*` | `xiom-*` | 12 crates + `xiomc` |
-| Source files `.ax` | `.xi` | ~207 files |
-| Bytecode `.axbc` | `.xibc` | references in codegen |
-| Compiler `axiomc` | `xiomc` | binary + all references |
-| FFI bindings `.axiom-bind` | `.xiom-bind` | 15 ecosystem files |
-| Runtime `axiom_runtime.c` | `xiom_runtime.c` | 200+ function renames |
-| Grammar `axiom.tmLanguage` | `xiom.tmLanguage` | 2 files |
-| Specs `AXIOM_*.md` | `XIOM_*.md` | 9 files |
-| Images `axiom-*` | `xiom-*` | 4 files (logo, icon) |
-
-### Updated
-
-| Layer | Files | What changed |
-|-------|-------|-------------|
-| **Cargo.toml** | 13 | Workspace members, crate names, dependencies |
-| **Rust source** | 19 | `use xiom_*`, strings, comments, LLVM runtime refs |
-| **Docs** | ~80 | In-place AXIOM→XIOM, .ax→.xi, axiom-→xiom- |
-| **Website HTML** | 68 | All branding, code samples, package names, URLs |
-| **VS Code extension** | 5 | Language ID `xiom`, `.xi` extension, grammar |
-| **Install scripts** | 8 | Binary names, PATH, dirs (`xiomc`, `xiom\bin`) |
-| **Selfhost .xi** | 23 | Runtime function renames (`xiom_read_file` etc.) |
-
-### Test Results (186/186 ✅)
-
-| Package | Tests | Result |
-|---------|-------|--------|
-| `xiom-check` | 44 | ✅ |
-| `xiom-codegen` (diff) | 25 | ✅ |
-| `xiom-codegen` (e2e) | 64 | ✅ |
-| `xiom-codegen` (full_diff) | 23 | ✅ |
-| `xiom-codegen` (integration) | 30 | ✅ |
-
-### Cleanup Needed
-
-- Delete old `crates/axiom-*/` directories (duplicate of `xiom-*/`)
-- Delete old `stdlib/axiom/` (duplicate of `stdlib/xiom/`)
-- Delete old `ecosystem/axiom-*/` directories
-- Delete old `release/axiom/` and `release/axiom-v0.20.0/`
-- Delete helper scripts: `_finish_rebrand.ps1`, `_rename_*.ps1`, `transform_codegen.ps1`, `convert_ax_to_xi.ps1`, `copy_lib_rs.py`
-
-### Distribution Notes
-
-- `install.ps1`/`install.sh` reference `xiomc.exe`, `xiom\bin`, XIOM branding
-- `package.ps1` is clean for XIOM packaging
-- `xiom.bat` is the toolchain dispatcher (old `axiom.bat` orphaned)
-- `xiom-lsp.exe` builds and links correctly
-- VS Code extension uses `.xi` extension with `source.xiom` grammar
-
----
-
-### Branch 1: Multi-File Module Catalog (`xiom-check` + `xiomc`)
-
-- **`ModuleCatalog`** struct: lazy-loading cache of `.xi` files from `source_dirs`. Files are parsed + cached on first reference (no eager scanning).
-- **`CachedModule`**: stores parsed AST, type registry, function registry, export map, enum variants, variant fields.
-- **`find_by_module_name()` / `find_submodule()`**: filesystem-aware lookups with auto-load.
-- **`register_all_types_into()`**: bulk-registers catalog entries into a Checker.
-- **`collect_external_decls()`**: iterates checker's `self.types` + `self.functions`, creates `TopDecl::Type` stubs for types/functions missing from current AST. Filters primitives (Bool, Int-64, UInt-64, Float32/64, Str, Char, Slice, Vec, Option, Result, Map, Set, fn).
-- **`CheckedType::to_ast_type()`**: converts internal `CheckedType` back to AST `Type` for codegen consumption.
-- **Injection gate** (`main.rs`): deduplicated type-only injection before codegen. Functions filtered out (bodies handled by codegen's own `register_functions`).
-- **Resolve flow**: `resolve_imports` → `process_use` → catalog → lazy-load → register types/fns → inject AST stubs → codegen.
-
-### Branch 2: Codegen Hardening (~20 fixes in `xiom-codegen`)
-
-**Structural fixes:**
-| # | Fix | Error resolved |
-|---|------|----------------|
-| 1 | Mixed-type binary op coercion (`sitofp i64→double`) | `sin_taylor` fmul type mismatch |
-| 2 | Module-qualified receiver calls (skip i64 0 for type/module names) | `TrafficLight.new()` spurious receiver arg |
-| 3 | Pointer type comparisons (`i8*` icmp + `inttoptr` null) | String comparison `i64 vs ptr` |
-| 4 | Module-scoped type registry + `current_module` tracking | `types.Person` vs `derive.Person` collision |
-| 5 | Derived methods registered in `self.functions` | `eq`/`clone` return type inference |
-| 6 | `infer_llvm_type` for `Expr::Field`/`Ref`/`MutRef` | Struct field types defaulting to `i64` |
-| 7 | Return type coercion (`sitofp` in return stmt) | `ret double %i64_val` mismatch |
-| 8 | Struct equality via `.eq()` with `emitted_fns` check | `@Option.eq` / `@Vec.eq` undefined |
-| 9 | Generic field type fallback (use value's `infer_llvm_type`) | `Range[Float64]` fields as `i64` |
-| 10 | Deterministic `infer_struct_type_name` (`current_module` first) | Module cross-reference non-determinism |
-| 11 | Generic call receiver handling (self param + monomorphised fn sig) | `Counter.set_Int` receiver arg missing/doubled |
-| 12 | `zeroinitializer` for struct-type stores (Let/Var/Assign/Destructure/match) | `store %struct.X 0` invalid LLVM |
-| 13 | `compile_eq_impl` nested struct eq guard (`emitted_fns` check) | Derived eq calling non-existent `Vec.eq` |
-| 14 | Builtin `%struct.Vec` emitted before user struct types | `%struct.Stack { %struct.Vec }` ordering |
-| 15 | `fn_key` module-scoped for receiver types | `describe_error` param type resolution |
-| 16 | `Pattern::Ident` as enum variant in match checks | `List.sum()` Nil arm stores struct as `i64` |
-| 17 | `compile_generic_monomorphisations` field locals | `Stack.push()` bare-name field access (`items`) |
-| 18 | `llvm_type_for` resolves variant → parent enum | `Image(...)` / `DivByZero` type as `i64` |
-| 19 | `Expr::Struct` variant field index mapping (lookup by name) | `Add(left:, right:)` field offsets wrong |
-| 20 | `infer_llvm_type` variant → enum struct type | `describe_error(DivByZero)` arg type |
-| 21 | Function pointer return type inference (`current_return_type`) | `predicate(v[i])` returns Bool |
-| 22 | Vec builtins guarded — no inline for non-Vec types | `Stack.push()` triggering Vec GEP on Stack struct |
-
-### Current State
+## Current Compiler State
 
 | Metric | Value |
 |--------|-------|
-| **Axiom-check tests** | **44/44 pass** |
-| **Axiom-codegen tests** | **139/139 pass** (diff + e2e + full_diff + integration) |
-| **benchmark_safe.xi** | Compiles + runs, exit 34 |
-| **benchmark_stress.xi** | Compiles via `--emit-llvm`; `--run` has 1 pre-existing issue (tuple return in `partition()`) |
-| **bench_math.xi** (multi-file) | Resolves `use benchmark.main.BenchResult` via ModuleCatalog; IR has correct `BenchResult` type |
-| **test_mod/math.xi** (multi-file) | Compiles + runs, exit 34 |
-| **Multi-file resolution** | ModuleCatalog works for lazy file loading and `collect_external_decls` injection |
+| **xiom-check tests** | 44/44 |
+| **xiom-codegen diff** | 25/25 |
+| **xiom-codegen e2e** | 64/64 |
+| **xiom-codegen full_diff** | 23/23 |
+| **xiom-codegen integration** | 30/30 |
+| **Total** | **186/186 — 0 failures, 0 warnings** |
+| **Compiler warnings** | 0 |
+| **Version** | v0.22.1 "Hardened" |
+| **Binary** | `xiomc` installed and working via `install.ps1` |
 
-### Remaining: 1 Pre-Existing Codegen Issue
+### What Works
 
-```
-partition() returns (Vec[Int], Vec[Int]) — tuple return type
-not yet supported by the codegen.
-```
-
-Tuples are parsed and type-checked but codegen lacks tuple struct type emission and destructuring.
+- Full language surface: ownership, contracts, generics, modules, derive, enums, closures, async, FFI
+- ModuleCatalog: lazy multi-file resolution (path-based + scan-fallback + last-segment)
+- Struct return + tuple return codegen
+- Module-qualified naming (fn_symbol) for collision-free multi-file merges
+- 30-module benchmark suite compiles
+- `benchmark_safe.xi` — run, exit 34
+- `benchmark_stress.xi` — compiles (tuple return works)
+- `test_mod/math.xi` — catalog multi-file, exit 34
+- v10 selfhost flake fixed, clang subsystem fixed, 12 warnings eliminated
 
 ---
 
-## Testing Commands
+## Phase 2 — Guardian Roadmap (This Branch)
+
+### P0 — Critical Fixes (DO FIRST)
+
+| # | Fix | File | Effort | Unlocks |
+|---|-----|------|--------|---------|
+| 0.1 | **Vec Push Reallocation** | `crates/xiom-codegen/src/lib.rs` — Vec.push handler | 2-3 hours | All Vec-heavy code stops crashing at 17+ elements |
+| 0.2 | **C Runtime Limits** | `stdlib/runtime/xiom_runtime.c` — dynamic arrays | 1-2 days | Structs >16 fields, locals >64 |
+| 0.3 | **Unknown Type → Error** | `crates/xiom-codegen/src/lib.rs` — llvm_type_for | 3-4 hours | No silent wrong IR |
+| 0.4 | **Mono Loop Guard** | `crates/xiom-codegen/src/lib.rs` — compile_generic_monomorphisations | 1-2 hours | No infinite compiles |
+| 0.5 | **Div-Zero in Compiler** | Audit all `sdiv`/`srem` in Rust code | 2-3 hours | Compiler never crashes from div-by-zero |
+
+### P1 — Performance Foundations
+
+| # | Item | Effort | Impact |
+|---|------|--------|--------|
+| 1.1 | Indexed Module Catalog | 1 day | O(1) module lookup for 1000+ file projects |
+| 1.2 | Parallel Monomorphisation | 2-3 days | 100 generics in ~2s instead of ~20s |
+| 1.3 | Incremental Compilation | 3-5 days | Rebuild only changed files |
+| 1.4 | IR Optimization (`opt -O1`) | 30 min | 30-50% smaller IR |
+
+### P2 — Advanced (Later)
+
+- Hot reload / DLL compilation (game engines, robotics)
+- Multithreaded compilation
+- Memory budget tracking
+- Timeout guards
+
+### Beyond This Branch (Future Sessions)
+
+- Phase 3: Z3 static verification, debugger (DAP), LSP, CLI toolchain, visual benchmarks
+- Phase 4: Self-hosting (after Phase 3 is stable)
+- Ecosystem: Package manager, registry, showcase projects
+
+---
+
+## Branch Release Strategy
+
+```bash
+# On feat/guardian — tag as you make progress:
+git tag v0.23.0-guardian.1    # after P0 fixes
+git tag v0.23.0-guardian.2    # after P1 performance
+git tag v0.23.0-guardian.3    # after P2 advanced
+
+# When merged to main:
+git checkout main
+git merge feat/guardian
+git tag v0.23.0               # stable release
+```
+
+---
+
+## Key Documents
+
+| Document | Purpose |
+|----------|---------|
+| `docs/COMPILER_ARCHITECTURE.md` | Source of truth — what the compiler IS |
+| `docs/COMPILER_IMPROVEMENT_PLAN.md` | Full roadmap with 5 phases and production targets |
+| `docs/COMPILER_VERSIONS.md` | Version history and branch release strategy |
+| `docs/XIOM_TOOLING_SPEC.md` | Debugger, benchmarks, LSP, hot reload |
+| `docs/XIOM_DISTRIBUTION_SPEC.md` | Installers, xiomup, CI/CD, package.xi manifest |
+| `docs/XIOM_ECOSYSTEM_ROADMAP.md` | Packages, showcase projects, FFI strategy |
+| `docs/XIOM_BUILD_ORDER.md` | Two-track build strategy with AI prompts |
+
+---
+
+## Verification Commands
 
 ```powershell
-cd E:\Projects\XIOM
+cd E:\Projects\AXIOM
 
-# Full test suite
-cargo test -p xiom-check          # 44 tests
-cargo test -p xiom-codegen        # 139 tests
-cargo test                          # all tests
+# Full test suite (must stay green after every fix)
+cargo test -p xiom-check
+cargo test -p xiom-codegen
 
-# Safe benchmark (always works)
+# Safe benchmark
 cargo run -p xiomc -- --run examples\benchmark_safe.xi
-# Expected: compiled: a.exe, exit code: 34
 
-# Stress benchmark (1 remaining pre-existing tuple return issue)
-cargo run -p xiomc -- --emit-llvm examples\benchmark_stress.xi 2>$null | Out-String | Set-Content a.exe.ll -NoNewline
-& "C:\Program Files\LLVM\bin\clang.exe" -o a.exe a.exe.ll 2>&1
-# If OK: .\a.exe ; echo "EXIT: $LASTEXITCODE"
+# Stress benchmark
+cargo run -p xiomc -- --emit-ir examples\benchmark_stress.xi
 
 # Multi-file test
 cargo run -p xiomc -- --run examples\test_mod\math.xi
 
-# Individual benchmark with multi-file resolution
-cargo run -p xiomc -- --run examples\benchmark\bench_math.xi
-```
+# 30-module benchmark
+cargo run -p xiomc -- --emit-ir examples\benchmark\main.xi
 
----
+# Build release binary
+cargo build -p xiomc --release
 
-## Architecture: Module Resolution Flow
-
-```
-File B: `use fileA.Type`
-  → process_use → catalog.find_by_module_name("fileA")
-  → lazy-load + parse + cache fileA.xi
-  → register types/functions into checker
-  → collect_external_decls → create AST stubs
-  → inject into program.items before codegen
-  → codegen sees all types → valid LLVM IR
+# Install
+.\install.ps1
+xiomc --version
 ```
