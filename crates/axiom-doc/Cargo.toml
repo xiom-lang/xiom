@@ -1,9 +1,0 @@
-[package]
-name = "axiom-doc"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-axiom-ast = { path = "../axiom-ast" }
-axiom-lexer = { path = "../axiom-lexer" }
-axiom-parser = { path = "../axiom-parser" }
