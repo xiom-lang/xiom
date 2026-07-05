@@ -273,6 +273,20 @@ else
 fi
 
 # ========================================================================
+# 5. NASM (optional — hardware-accelerated stdlib functions)
+# ========================================================================
+header "5. NASM (optional — crypto/memcpy/simd assembly acceleration)"
+
+if command -v nasm >/dev/null 2>&1; then
+    ok "already installed — $(nasm --version 2>/dev/null | head -1)"
+    ((skipped++))
+else
+    info "NASM not found — optional, enables AES-NI, fast memcpy, context switching"
+    info "  Install: brew install nasm (macOS) / apt install nasm (Linux)"
+    info "  Without NASM: stdlib falls back to C software implementations."
+fi
+
+# ========================================================================
 # Summary
 # ========================================================================
 echo ""
