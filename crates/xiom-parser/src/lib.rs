@@ -377,7 +377,8 @@ impl Parser {
                 let pname = self.parse_ident()?;
                 self.expect_kind(TokenKind::Colon, "':'")?;
                 let pty = self.parse_type()?;
-                params.push(xiom_ast::Param { name: pname, ty: pty, span: pname.span });
+                let pspan = pname.span;
+                params.push(xiom_ast::Param { name: pname, ty: pty, span: pspan });
                 if !self.peek_is(TokenKind::RParen) {
                     self.expect_kind(TokenKind::Comma, "','")?;
                 }
@@ -868,4 +869,44 @@ mod tests {
     #[test] fn test_fn_type_in_param() { let src = "fn trapezoidal(f: fn(Float64) -> Float64, a: Float64, b: Float64) -> Float64 { return 0.0; }"; let result = parse(src); assert!(result.is_ok(), "{:?}", result.err()); }
     #[test] fn test_closure_with_return_type() { let src = "fn foo() { var d = fn(x: Int) -> Int { return x * 2; }; }"; let result = parse(src); assert!(result.is_ok(), "{:?}", result.err()); }
     #[test] fn test_full_stack_example() { let src = r#"module stack { use io; type Stack = { items: Int; capacity: Int; } fn new(capacity: Int) -> Stack { return Stack{ items: 0, capacity: capacity, }; } fn push(s: Stack, value: Int) -> Stack { return Stack{ items: s.items + value, capacity: s.capacity, }; } fn main() -> Int { var s = new(3); s = push(s, 10); return s.items; } }"#; let prog = parse(src).unwrap(); assert!(prog.items.len() >= 1); }
+
+    // extern "C" blocks
+    #[test] fn test_parse_extern_block_with_functions() { let src = "module test\nextern \"C\" {\n  fn malloc(size: Int) -> *UInt8;\n  fn free(ptr: *UInt8);\n}"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Extern(_)))); }
+    #[test] fn test_parse_extern_block_with_variadic() { let src = "module test\nextern \"C\" {\n  fn printf(format: *UInt8, ...) -> Int32;\n}"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Extern(_)))); }
+    #[test] fn test_parse_extern_block_multiple_functions() { let src = "module test\nextern \"C\" {\n  fn malloc(size: Int) -> *UInt8;\n  fn free(ptr: *UInt8);\n  fn strlen(s: *UInt8) -> Int;\n}"; let prog = parse(src).unwrap(); if let Some(TopDecl::Extern(eb)) = prog.items.iter().find(|i| matches!(i, TopDecl::Extern(_))) { assert_eq!(eb.functions.len(), 3); } else { panic!("expected Extern block"); } }
+
+    // top-level var
+    #[test] fn test_parse_top_level_var() { let src = "module test\nvar PI: Float64 = 3.14159;"; let prog = parse(src).unwrap(); assert!(prog.items.len() >= 1); }
+    #[test] fn test_parse_top_level_var_no_type_annotation() { let src = "module test\nvar count = 0;"; let prog = parse(src).unwrap(); assert!(prog.items.len() >= 1); }
+
+    // dotted type paths
+    #[test] fn test_parse_dotted_type_path() { let src = "module test\nfn foo(x: xiom.io.Error) -> Int { return 0; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
+    #[test] fn test_parse_dotted_type_path_deep() { let src = "module test\nfn bar(x: xiom.collections.vec.Vec[Int]) -> Int { return 0; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
+
+    // pointer types
+    #[test] fn test_parse_ptr_type_in_param() { let src = "module test\nfn use_ptr(ptr: *UInt8) -> Int { return 0; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
+    #[test] fn test_parse_ptr_type_in_return() { let src = "module test\nfn alloc() -> *UInt8 { return null; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
+
+    // generic bounds
+    #[test] fn test_parse_generic_single_bound() { let src = "module test\nfn print[T: Display](x: T) { }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
+    #[test] fn test_parse_generic_multi_bound() { let src = "module test\nfn dedup[T: Eq + Hash](x: T) { }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
+    #[test] fn test_parse_generic_type_with_bound() { let src = "module test\ntype BTreeMap[K: Ord, V] = { root: *UInt8; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Type(_)))); }
+
+    // pub const
+    #[test] fn test_parse_pub_const() { let src = "module test\npub const MAX_SIZE: Int = 1024;"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Const(_)))); }
+
+    // array with identifier size
+    #[test] fn test_parse_array_with_const_size() { let src = "module test\nfn sum(arr: [N]Int) -> Int { return 0; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
+
+    // struct spread
+    #[test] fn test_parse_struct_spread_default() { let src = "module test\ntype Foo = { x: Int; y: Int; } fn main() -> Int { var f = Foo{ x: 1, ..default }; return 0; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
+    #[test] fn test_parse_struct_spread_other() { let src = "module test\ntype Foo = { x: Int; y: Int; } fn main() -> Int { var base = Foo{ x: 1, y: 2 }; var f = Foo{ ..base }; return 0; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
+
+    // method receiver
+    #[test] fn test_parse_method_with_self_param() { let src = "module test\ntype Counter = { val: Int; } fn Counter.inc(&self) -> Int { return val + 1; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
+    #[test] fn test_parse_method_with_mut_self_param() { let src = "module test\ntype Counter = { val: Int; } fn Counter.set(&mut self, v: Int) { val = v; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
+
+    // caret/tilde operators
+    #[test] fn test_parse_bitwise_xor() { let src = "module test\nfn xor(a: Int, b: Int) -> Int { return a ^ b; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
+    #[test] fn test_parse_bitwise_not() { let src = "module test\nfn not_val(a: Int) -> Int { return ~a; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
 }

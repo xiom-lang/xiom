@@ -610,3 +610,97 @@ fn main() -> Int { alloc_and_free(); return 0; }";
     let ir = compile(src).unwrap();
     assert!(ir.contains("define"), "raw pointer operations should compile");
 }
+
+// ============================================================================
+// Parser Feature E2E Tests — verify new syntax compiles to IR
+// ============================================================================
+
+#[test]
+fn test_parse_ptr_type_codegen() {
+    let src = "fn use_ptr(ptr: *UInt8) -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "pointer type should compile");
+}
+
+#[test]
+fn test_parse_generic_bound_codegen() {
+    let src = "\
+interface Display { fn show() -> Str; }
+fn print[T: Display](x: T) { }
+fn main() -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "generic bound should compile");
+}
+
+#[test]
+fn test_parse_dotted_type_codegen() {
+    let src = "\
+module test_mod
+type Error = { msg: Int; }
+fn handle(e: test_mod.Error) -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "dotted type should compile");
+}
+
+#[test]
+fn test_parse_array_const_size_codegen() {
+    let src = "fn sum(arr: [5]Int) -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "array type should compile");
+}
+
+#[test]
+fn test_parse_struct_spread_codegen() {
+    let src = "\
+type Point = { x: Int; y: Int; }
+fn main() -> Int { var p = Point{ x: 1, ..Point{ x: 0, y: 0 } }; return p.x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "struct spread should compile");
+}
+
+#[test]
+fn test_parse_caret_xor_codegen() {
+    let src = "fn xor(a: Int, b: Int) -> Int { return a ^ b; } fn main() -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "xor operator should compile");
+}
+
+#[test]
+fn test_parse_tilde_not_codegen() {
+    let src = "fn not_val(a: Int) -> Int { return ~a; } fn main() -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "tilde not should compile");
+}
+
+#[test]
+fn test_parse_pub_const_codegen() {
+    let src = "const MAX: Int = 100; fn main() -> Int { return MAX; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "const should compile");
+}
+
+#[test]
+fn test_parse_top_level_var_codegen() {
+    let src = "var counter: Int = 0; fn main() -> Int { return counter; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "top-level var should compile");
+}
+
+#[test]
+fn test_parse_extern_block_codegen() {
+    let src = "\
+extern \"C\" { fn malloc(size: Int) -> *UInt8; }
+fn main() -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "extern block should compile");
+}
+
+#[test]
+fn test_parse_method_receiver_codegen() {
+    let src = "\
+type Counter = { val: Int; }
+fn Counter.inc(&self) -> Int { return val + 1; }
+fn main() -> Int { var c = Counter{ val: 0 }; return c.inc(); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "method with self should compile");
+}
