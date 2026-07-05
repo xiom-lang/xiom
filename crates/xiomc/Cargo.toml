@@ -17,3 +17,7 @@ xiom-ast = { path = "../xiom-ast" }
 xiom-check = { path = "../xiom-check" }
 xiom-codegen = { path = "../xiom-codegen" }
 xiom-verify = { path = "../xiom-verify" }
+
+[features]
+default = []
+nasm = []  # Enable NASM assembly of .asm files for hardware acceleration
