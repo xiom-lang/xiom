@@ -1757,6 +1757,7 @@ impl Checker {
                     BinOp::Assign => right_ty,
                     BinOp::BitXor => left_ty, // bitwise xor preserves integer type
                     BinOp::BitAnd => left_ty, // bitwise and preserves integer type
+                    BinOp::BitOr => left_ty, // bitwise or preserves integer type
                 }
             }
             Expr::Try(inner, _span) => {
