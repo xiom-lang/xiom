@@ -327,12 +327,14 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
     // Disabled by default — .asm files may have version-specific syntax.
     // Enable by building with: cargo build --features nasm
     // Or manually assemble per stdlib/runtime/BUILD.md
-    let asm_objects: Vec<String> = Vec::new();
+    #[allow(unused_mut)]
+    let mut asm_objects: Vec<String> = Vec::new();
     #[cfg(feature = "nasm")]
     {
         let runtime_dir = find_runtime_c().and_then(|p| {
             std::path::Path::new(&p).parent().map(|d| d.to_path_buf())
         });
+        let build_dir = std::path::PathBuf::from("build");
         let nasm = find_nasm();
         if let (Some(nasm_path), Some(rt_dir)) = (&nasm, &runtime_dir) {
             let asm_files = ["crypto_x86_64.asm", "mem_x86_64.asm", "context_switch.asm"];
@@ -343,8 +345,13 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
             let nasm_path = nasm_path.clone();
             for asm_file in &asm_files {
                 let asm_path = rt_dir.join(asm_file);
-                if asm_path.exists() {
-                    let obj_path = rt_dir.join(format!("{}.{}", asm_file, obj_ext));
+                let obj_name = format!("{}.{}", asm_file, obj_ext);
+                let obj_path = rt_dir.join(&obj_name);
+                let build_obj = build_dir.join(&obj_name);
+                // Prefer pre-built objects in build/, fall back to assembling in runtime dir
+                if build_obj.exists() {
+                    asm_objects.push(build_obj.to_string_lossy().to_string());
+                } else if asm_path.exists() {
                     if !obj_path.exists() || is_newer(&asm_path, &obj_path) {
                         let status = Command::new(&nasm_path)
                             .args(["-f", nasm_fmt, &asm_path.to_string_lossy(), "-o", &obj_path.to_string_lossy()])
@@ -371,6 +378,8 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
             let mut cmd = Command::new(&clang_path);
             // Enable AES-NI intrinsics for crypto acceleration in xiom_runtime.c
             if target == Target::Native { cmd.arg("-maes"); }
+            // Use C software stubs when NASM assembly objects not linked
+            if asm_objects.is_empty() { cmd.arg("-DXIOM_NO_ASM"); }
             match target {
                 Target::Wasm => {
                     cmd.args(["--target=wasm32-unknown-unknown", "-nostdlib", "-Wl,--no-entry", "-Wl,--export-all"]);
@@ -393,8 +402,10 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
                 }
             }
             cmd.args(["-o", output, &ir_path]);
-            // Link assembled .obj/.o files for hardware acceleration
-            for obj in &asm_objects { cmd.arg(obj); }
+            // Link assembled .obj/.o files for hardware acceleration (native only)
+            if target == Target::Native {
+                for obj in &asm_objects { cmd.arg(obj); }
+            }
 
             let clang_output = cmd.output();
             match clang_output {
