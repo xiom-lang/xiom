@@ -187,6 +187,7 @@ pub enum UnaryOp {
     Not,
     Ref,
     MutRef,
+    BitNot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -195,6 +196,7 @@ pub enum BinOp {
     Eq, Neq, Lt, Gt, Le, Ge,
     And, Or,
     Assign,
+    BitXor,
 }
 
 impl fmt::Display for BinOp {
@@ -214,6 +216,7 @@ impl fmt::Display for BinOp {
             BinOp::And => "&&",
             BinOp::Or => "||",
             BinOp::Assign => "=",
+            BinOp::BitXor => "^",
         };
         write!(f, "{s}")
     }

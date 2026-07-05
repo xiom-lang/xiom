@@ -773,6 +773,7 @@ fn contract_expr_to_string(expr: &Expr) -> String {
                 UnaryOp::Not => "!",
                 UnaryOp::Ref => "&",
                 UnaryOp::MutRef => "&mut ",
+                UnaryOp::BitNot => "~",
             };
             format!("{}{}", op_str, contract_expr_to_string(inner))
         }
