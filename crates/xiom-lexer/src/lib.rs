@@ -173,6 +173,14 @@ impl Lexer {
 
             // --- Numbers ---
             c if c.is_ascii_digit() => {
+                // Hex literal: 0xABCD or 0XABCD
+                if c == '0' && matches!(self.peek_n(1), Some(next) if next == 'x' || next == 'X') {
+                    self.advance(); // consume '0'
+                    self.advance(); // consume 'x' or 'X'
+                    let hex = self.advance_while(|c| c.is_ascii_hexdigit() || c == '_');
+                    let num: u64 = u64::from_str_radix(&hex.replace('_', ""), 16).unwrap_or(0);
+                    return Token::new(TokenKind::Int(num), start, format!("0x{hex}"));
+                }
                 let int_part = self.advance_while(|c| c.is_ascii_digit() || c == '_');
                 if self.peek() == Some('.') && self.peek_n(1).map_or(false, |c| c.is_ascii_digit()) {
                     self.advance(); // skip '.'
