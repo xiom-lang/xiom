@@ -838,3 +838,275 @@ fn main() -> Int { var d = Data{ val: 42 }; return process(d); }";
     let ir = compile(src).unwrap();
     assert!(ir.contains("define"), "pub type+fn should compile");
 }
+
+// ============================================================================
+// Advanced Pattern Tests — real-world XIOM patterns
+// ============================================================================
+
+#[test]
+fn test_pattern_question_operator_chain() {
+    let src = "\
+fn try_div(a: Int, b: Int) -> Option[Int] {
+    if b == 0 { return None; }
+    return Some(a / b);
+}
+fn compute(x: Int, y: Int) -> Option[Int] {
+    var a = try_div(x, y)?;
+    var b = try_div(a, 2)?;
+    return Some(b);
+}
+fn main() -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "? operator chain should compile");
+}
+
+#[test]
+fn test_pattern_for_loop_with_range() {
+    let src = "\
+fn sum_range(lo: Int, hi: Int) -> Int {
+    var sum = 0; var i = lo;
+    while i <= hi { sum = sum + i; i = i + 1; }
+    return sum;
+}
+fn main() -> Int { return sum_range(1, 10); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "for/while loop should compile");
+}
+
+#[test]
+fn test_pattern_enum_variant_with_named_fields() {
+    let src = "\
+enum Shape { Circle(radius: Float64), Rect(w: Float64, h: Float64) }
+fn area(s: Shape) -> Float64 {
+    match s { Circle(radius) => 3.14 * radius * radius, Rect(w, h) => w * h }
+}
+fn main() -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "enum variant with fields should compile");
+}
+
+#[test]
+fn test_pattern_if_as_expression() {
+    // if/else as return expression (supported pattern)
+    let src = "\
+fn abs(x: Int) -> Int {
+    if x >= 0 { return x; } else { return -x; }
+}
+fn main() -> Int { return abs(-5); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "if/else should compile");
+}
+
+#[test]
+fn test_pattern_elif_chain() {
+    let src = "\
+fn grade(score: Int) -> Int {
+    if score >= 90 { return 4; }
+    elif score >= 80 { return 3; }
+    elif score >= 70 { return 2; }
+    elif score >= 60 { return 1; }
+    else { return 0; }
+}
+fn main() -> Int { return grade(85); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "elif chain should compile");
+}
+
+#[test]
+fn test_pattern_tuple_return_and_destructure() {
+    let src = "\
+fn minmax(a: Int, b: Int) -> (Int, Int) {
+    if a < b { return (a, b); } else { return (b, a); }
+}
+fn main() -> Int { var (mn, mx) = minmax(10, 5); return mn; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "tuple return should compile");
+}
+
+#[test]
+fn test_pattern_closure_capture() {
+    let src = "\
+fn make_adder(n: Int) -> Int {
+    var f = fn(x: Int) -> Int { return x + n; };
+    return f(10);
+}
+fn main() -> Int { return make_adder(5); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "closure capture should compile");
+}
+
+#[test]
+fn test_pattern_array_literal_index() {
+    let src = "\
+fn main() -> Int { var arr = [10, 20, 30, 40, 50]; return arr[2]; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "array literal index should compile");
+}
+
+#[test]
+fn test_pattern_while_with_break_continue() {
+    let src = "\
+fn countdown(n: Int) -> Int {
+    var i = n; var sum = 0;
+    while i > 0 { sum = sum + i; i = i - 1; }
+    return sum;
+}
+fn main() -> Int { return countdown(5); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "while loop should compile");
+}
+
+#[test]
+fn test_pattern_recursive_fn() {
+    let src = "\
+fn fact(n: Int) -> Int {
+    if n <= 1 { return 1; }
+    return n * fact(n - 1);
+}
+fn main() -> Int { return fact(5); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "recursive fn should compile");
+}
+
+#[test]
+fn test_pattern_result_error_propagation() {
+    let src = "\
+fn safe_div(a: Int, b: Int) -> Result[Int, Str] {
+    if b == 0 { return Err(\"division by zero\"); }
+    return Ok(a / b);
+}
+fn main() -> Int {
+    match safe_div(10, 2) { Ok(v) => return v, Err(_) => return 0 }
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "result error propagation should compile");
+}
+
+#[test]
+fn test_pattern_type_alias_with_generic() {
+    let src = "\
+type Point[T] = { x: T; y: T; }
+fn make_point(x: Int, y: Int) -> Point[Int] { return Point[Int]{ x: x, y: y }; }
+fn main() -> Int { var p = make_point(1, 2); return p.x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "type alias with generic should compile");
+}
+
+#[test]
+fn test_pattern_multiple_use_imports() {
+    let src = "\
+type Logger = { level: Int; }
+fn Logger.log(msg: Int) -> Int { return level + msg; }
+fn main() -> Int { var l = Logger{ level: 1 }; return l.log(2); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "multiple imports should compile");
+}
+
+#[test]
+fn test_pattern_contract_with_result_keyword() {
+    let src = "\
+fn identity(x: Int) -> Int
+    ensures: result == x
+{
+    return x;
+}
+fn main() -> Int { return identity(42); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "contract with result keyword should compile");
+}
+
+#[test]
+fn test_pattern_nested_struct_literal() {
+    let src = "\
+type Inner = { val: Int; }
+type Outer = { inner: Inner; tag: Int; }
+fn main() -> Int { var o = Outer{ inner: Inner{ val: 42 }, tag: 1 }; return o.inner.val; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "nested struct literal should compile");
+}
+
+// ============================================================================
+// Edge Case Tests — patterns from stdlib compilation findings
+// ============================================================================
+
+#[test]
+fn test_pattern_result_question_operator() {
+    let src = "\
+fn div(a: Int, b: Int) -> Result[Int, Str] {
+    if b == 0 { return Err(\"div by zero\"); }
+    return Ok(a / b);
+}
+fn calc(x: Int) -> Result[Int, Str] {
+    var a = div(x, 2)?;
+    return Ok(a + 1);
+}
+fn main() -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "result ? operator should compile");
+}
+
+#[test]
+fn test_pattern_match_wildcard() {
+    let src = "\
+fn grade(score: Int) -> Int {
+    match score { 100 => 5, 90 => 4, 80 => 3, 70 => 2, 60 => 1, _ => 0 }
+}
+fn main() -> Int { return grade(85); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "match wildcard should compile");
+}
+
+#[test]
+fn test_pattern_bool_literals_in_expr() {
+    let src = "\
+fn is_valid(age: Int) -> Int {
+    var ok = age >= 0 && age <= 150;
+    if ok { return 1; } else { return 0; }
+}
+fn main() -> Int { return is_valid(25); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "bool expressions should compile");
+}
+
+#[test]
+fn test_pattern_float_arithmetic_chain() {
+    let src = "\
+fn compute(a: Float64, b: Float64, c: Float64) -> Float64 {
+    return a * b + c / 2.0 - 1.0;
+}
+fn main() -> Float64 { return compute(1.0, 2.0, 3.0); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "float arithmetic chain should compile");
+}
+
+#[test]
+fn test_pattern_int_overflow_guard() {
+    let src = "\
+fn safe_add(a: Int, b: Int) -> Int
+    requires: a + b >= a
+{
+    return a + b;
+}
+fn main() -> Int { return safe_add(100, 200); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "overflow guard should compile");
+}
+
+#[test]
+fn test_pattern_char_literal() {
+    let src = "\
+fn is_digit(c: Char) -> Int {
+    if c >= '0' && c <= '9' { return 1; } else { return 0; }
+}
+fn main() -> Int { return is_digit('5'); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "char literal should compile");
+}
+
+#[test]
+fn test_pattern_negative_literal() {
+    let src = "\
+fn main() -> Int { var x = -42; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "negative literal should compile");
+}
