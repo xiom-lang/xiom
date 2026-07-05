@@ -787,7 +787,7 @@ impl IrEmitter {
                 self.current_module = saved_module;
                 Ok(())
             }
-            TopDecl::Interface(_) | TopDecl::Enum(_) | TopDecl::Const(_) | TopDecl::Type(_) | TopDecl::Use(_) => Ok(()),
+            TopDecl::Interface(_) | TopDecl::Enum(_) | TopDecl::Const(_) | TopDecl::Type(_) | TopDecl::Use(_) | TopDecl::Extern(_) => Ok(()),
         }
     }
 
@@ -1079,7 +1079,7 @@ impl IrEmitter {
     /// Infer the struct type name from an expression (if it produces a struct value).
     fn struct_type_from_expr(&self, expr: &Expr) -> Option<String> {
         match expr {
-            Expr::Struct(ident, _, _) => Some(ident.name.clone()),
+            Expr::Struct(ident, _, _, _) => Some(ident.name.clone()),
             Expr::Ident(ident) => {
                 if let Some((_, llvm_ty)) = self.lookup_local(&ident.name) {
                     if llvm_ty.starts_with("%struct.") {
@@ -3590,7 +3590,7 @@ impl IrEmitter {
                 self.emitln(&format!("  {loaded} = load {result_ty}, {result_ty}* {alloca}"));
                 Ok(loaded)
             }
-            Expr::Struct(name, fields, _) => {
+            Expr::Struct(name, fields, _spread, _span) => {
                 // If `name` is an enum variant (e.g., `Single`), resolve to parent enum type
                 let parent_enum = self.enum_variants.iter()
                     .find(|(_, vars)| vars.iter().any(|(v, _)| v == &name.name))
@@ -3706,6 +3706,12 @@ impl IrEmitter {
             }
             Expr::Await(inner, _) => self.compile_expr(inner),
             Expr::Comptime(inner, _) => self.compile_expr(inner),
+            Expr::Unsafe(block, _) => {
+                for stmt in &block.stmts {
+                    match stmt { xiom_ast::StmtOrExpr::Expr(e) => { self.compile_expr(e)?; } _ => {} }
+                }
+                Ok(String::new())
+            }
             Expr::If(cond, then_block, elifs, else_block, _) => {
                 self.compile_expr(cond)?;
                 for stmt in &then_block.stmts {
@@ -3753,7 +3759,7 @@ impl IrEmitter {
                 }
                 None
             }
-            Expr::Struct(ident, _, _) => {
+            Expr::Struct(ident, _, _, _) => {
                 // Try module-qualified name first, then bare name
                 if let Some(ref module) = self.current_module {
                     let qualified = format!("{}.{}", module, ident.name);
@@ -3886,7 +3892,7 @@ impl IrEmitter {
             Expr::Ok(..) | Expr::Err(..) => {
                 if self.types.contains_key("Result") { "%struct.Result".to_string() } else { "i64".to_string() }
             }
-            Expr::Struct(ident, _, _) => self.llvm_type_for(&ident.name).unwrap_or_else(|_| "i64".to_string()),
+            Expr::Struct(ident, _, _, _) => self.llvm_type_for(&ident.name).unwrap_or_else(|_| "i64".to_string()),
             Expr::Paren(inner, _) => self.infer_llvm_type(inner),
             Expr::Tuple(items, _) => {
                 if items.is_empty() { "void".to_string() } else {

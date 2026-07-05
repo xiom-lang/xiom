@@ -145,7 +145,7 @@ pub enum Expr {
     /// `Err(expr)`
     Err(Box<Expr>, Span),
     /// `Type{ field: val, ... }` — struct literal
-    Struct(Ident, Vec<(Ident, Expr)>, Span),
+    Struct(Ident, Vec<(Ident, Expr)>, Option<Box<Expr>>, Span),
     /// `[expr, ...]` — array literal
     Array(Vec<Expr>, Span),
     /// `fn(params) -> RetType { ... }` — closure
@@ -162,6 +162,8 @@ pub enum Expr {
     Tuple(Vec<Expr>, Span),
     /// `if cond { then } else { else }` — if-expression
     If(Box<Expr>, Block, Vec<(Expr, Block)>, Option<Block>, Span),
+    /// `unsafe { ... }` block
+    Unsafe(Block, Span),
 }
 
 impl Expr {
@@ -173,8 +175,8 @@ impl Expr {
             Expr::Imply(_, _, s) | Expr::Is(_, _, s) | Expr::Field(_, _, s) | Expr::Call(_, _, s) => *s,
             Expr::Index(_, _, s) | Expr::AtPre(_, s) | Expr::Ref(_, s) | Expr::MutRef(_, s) => *s,
             Expr::Some(_, s) | Expr::None(s) | Expr::Ok(_, s) | Expr::Err(_, s) => *s,
-            Expr::Struct(_, _, s) | Expr::Array(_, s) | Expr::Closure(_, _, _, s) | Expr::PipeClosure(_, _, s) => *s,
-            Expr::Await(_, s) | Expr::Comptime(_, s) | Expr::As(_, _, s) | Expr::Tuple(_, s) | Expr::If(_, _, _, _, s) => *s,
+            Expr::Struct(_, _, _, s) | Expr::Array(_, s) | Expr::Closure(_, _, _, s) | Expr::PipeClosure(_, _, s) => *s,
+            Expr::Await(_, s) | Expr::Comptime(_, s) | Expr::As(_, _, s) | Expr::Tuple(_, s) | Expr::If(_, _, _, _, s) | Expr::Unsafe(_, s) => *s,
         }
     }
 }
@@ -444,6 +446,14 @@ pub struct ConstDecl {
     pub span: Span,
 }
 
+/// `extern "C" { fn foo(...) -> ...; fn bar(...) -> ...; }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExternBlock {
+    pub linkage: String,
+    pub functions: Vec<FnDecl>,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct UseDecl {
     pub path: Vec<Ident>,
@@ -475,6 +485,7 @@ pub enum TopDecl {
     Interface(InterfaceDecl),
     Fn(FnDecl),
     Const(ConstDecl),
+    Extern(ExternBlock),
 }
 
 // ============================================================================

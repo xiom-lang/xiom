@@ -95,6 +95,7 @@
                 }
                 self.current_module = saved_module;
             }
+            TopDecl::Extern(_) => {}
             _ => {}
         }
         Ok(())

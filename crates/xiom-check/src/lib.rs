@@ -1045,6 +1045,7 @@ impl Checker {
                     }
                 }
             }
+            TopDecl::Extern(_) => {} // extern blocks have no type info to register
             _ => {}
         }
     }
@@ -2033,7 +2034,7 @@ impl Checker {
                 let _ = self.check_expr(inner);
                 CheckedType::Named("Result".into())
             }
-            Expr::Struct(name, fields, span) => {
+            Expr::Struct(name, fields, _spread, span) => {
                 let struct_fields = self.get_type(&name.name).cloned();
                 let variant_fields_map = if struct_fields.is_none() {
                     self.variant_fields.get(&name.name).or_else(|| {
@@ -2131,6 +2132,7 @@ impl Checker {
             }
             Expr::Await(inner, _) => self.check_expr(inner),
             Expr::Comptime(inner, _) => self.check_expr(inner),
+            Expr::Unsafe(block, _) => { self.check_block(block, None).unwrap_or(CheckedType::Unit) }
             Expr::If(cond, then_block, elifs, else_block, _) => {
                 self.check_expr(cond);
                 self.check_block(then_block, None);
@@ -2681,7 +2683,7 @@ impl BorrowChecker {
                 self.check_expr(inner);
                 ExprResult::Value
             }
-            Expr::Struct(_, fields, span) => {
+            Expr::Struct(_, fields, _spread, span) => {
                 for (_, val) in fields {
                     let result = self.check_expr(val);
                     if result == ExprResult::ReadRef || result == ExprResult::WriteRef {
@@ -2699,6 +2701,7 @@ impl BorrowChecker {
             Expr::Closure(_, _, _, _) | Expr::PipeClosure(_, _, _) => ExprResult::Value,
             Expr::Await(inner, _) => self.check_expr(inner),
             Expr::Comptime(inner, _) => self.check_expr(inner),
+            Expr::Unsafe(block, _) => { self.check_block(block); ExprResult::Value }
             Expr::As(inner, _, _) => {
                 self.check_expr(inner);
                 ExprResult::Value

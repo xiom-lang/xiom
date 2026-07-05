@@ -283,6 +283,7 @@ fn collect_symbols(item: &xiom_ast::TopDecl, items: &mut Vec<serde_json::Value>,
                 }));
             }
         }
+        xiom_ast::TopDecl::Extern(_) => {}
         _ => {}
     }
 }
@@ -478,6 +479,7 @@ fn collect_document_symbols(
                 }
             }));
         }
+        xiom_ast::TopDecl::Extern(_) => {}
         _ => {}
     }
 }
@@ -531,6 +533,7 @@ fn find_def_in_item(item: &xiom_ast::TopDecl, name: &str) -> Option<(u64, u64)> 
             let col = if cd.name.span.col > 0 { cd.name.span.col as u64 - 1 } else { 0 };
             Some((line, col))
         }
+        xiom_ast::TopDecl::Extern(_) => None,
         _ => None,
     }
 }
@@ -572,7 +575,7 @@ fn type_to_string(ty: &xiom_ast::Type) -> String {
 
 fn infer_type_from_expr(expr: &xiom_ast::Expr) -> Option<String> {
     match expr {
-        xiom_ast::Expr::Struct(ident, _, _) => Some(ident.name.clone()),
+        xiom_ast::Expr::Struct(ident, _, _, _) => Some(ident.name.clone()),
         xiom_ast::Expr::Some(_, _) => Some("Option".to_string()),
         xiom_ast::Expr::None(_) => Some("Option".to_string()),
         xiom_ast::Expr::Ok(_, _) => Some("Result".to_string()),
@@ -587,6 +590,7 @@ fn infer_type_from_expr(expr: &xiom_ast::Expr) -> Option<String> {
             // This is used for inference from binding patterns like let x = some_var;
             Some(ident.name.clone())
         }
+        xiom_ast::Expr::Unsafe(_, _) => None,
         _ => None,
     }
 }
@@ -625,6 +629,7 @@ fn find_variable_type_in_item(item: &xiom_ast::TopDecl, var_name: &str) -> Optio
             }
             None
         }
+        xiom_ast::TopDecl::Extern(_) => None,
         _ => None,
     }
 }
@@ -727,6 +732,7 @@ fn recurse_find_struct_fields(item: &xiom_ast::TopDecl, type_name: &str, fields:
                 recurse_find_struct_fields(inner, type_name, fields);
             }
         }
+        xiom_ast::TopDecl::Extern(_) => {}
         _ => {}
     }
 }
@@ -928,6 +934,7 @@ fn collect_module_item_completions(
                     }));
                 }
             }
+            xiom_ast::TopDecl::Extern(_) => {}
             _ => {}
         }
     }
@@ -971,6 +978,7 @@ fn resolve_obj_type_text(program: &xiom_ast::Program, obj_expr: &str) -> Option<
                 xiom_ast::TopDecl::Enum(ed) if ed.name.name == first => {
                     return Some(first.to_string());
                 }
+                xiom_ast::TopDecl::Extern(_) => {}
                 _ => {}
             }
         }

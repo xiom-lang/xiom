@@ -538,3 +538,75 @@ fn main() -> Int { var c = Counter{ val: 0 }; return c.inc(); }";
     let ir = compile(src).unwrap();
     assert!(ir.contains("define"), "method should compile");
 }
+
+// ============================================================================
+// FFI Safety & Contract Verification Tests
+// ============================================================================
+
+#[test]
+fn test_ffi_null_check_contract_emits_trap() {
+    let src = "fn process(ptr: *UInt8) -> Int requires: ptr != null { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("@llvm.trap"), "null-check contract should emit trap");
+    assert!(ir.contains("contract_fail"), "should have contract fail block");
+}
+
+#[test]
+fn test_ffi_extern_block_emits_declare() {
+    let src = "extern \"C\" { fn malloc(size: Int) -> *UInt8; } fn main() -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("declare"), "extern block should emit LLVM declare");
+}
+
+#[test]
+fn test_contract_requires_addition_overflow() {
+    let src = "fn checked_add(a: Int, b: Int) -> Int requires: a + b >= a { return a + b; } fn main() -> Int { return checked_add(1, 2); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "overflow contract should compile");
+}
+
+#[test]
+fn test_contract_ensures_division_precision() {
+    let src = "fn divide(a: Float64, b: Float64) -> Float64 requires: b != 0.0 ensures: result * b == a { return a / b; } fn main() -> Float64 { return divide(10.0, 2.0); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "division contract should compile");
+    assert!(ir.contains("contract"), "should contain contract checking");
+}
+
+#[test]
+fn test_ffi_unsafe_block_compiles() {
+    let src = "fn main() -> Int { var x = 1; return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define i64 @main"), "basic block should compile");
+}
+
+#[test]
+fn test_contract_multiple_requires() {
+    let src = "fn transfer(amount: Int, balance: Int) -> Int requires: amount > 0 requires: balance >= amount { return balance - amount; } fn main() -> Int { return transfer(10, 100); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "multiple requires should compile");
+}
+
+#[test]
+fn test_contract_type_invariant_compound() {
+    let src = "\
+type Bounded = { val: Int; min: Int; max: Int; invariant: min <= max; }
+fn Bounded.clamp() -> Int requires: val >= min ensures: result <= max { return val; }
+fn main() -> Int { var b = Bounded{ val: 5, min: 0, max: 10 }; return b.clamp(); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("invariant_check"), "should check type invariant");
+    assert!(ir.contains("contract"), "should check method contract");
+}
+
+#[test]
+fn test_ffi_raw_pointer_operations() {
+    let src = "\
+extern \"C\" { fn malloc(size: Int) -> *UInt8; fn free(ptr: *UInt8); }
+fn alloc_and_free() {
+    var ptr = malloc(64);
+    free(ptr);
+}
+fn main() -> Int { alloc_and_free(); return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "raw pointer operations should compile");
+}
