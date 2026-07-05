@@ -323,6 +323,36 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
         }
     }
 
+    // Phase 2.5: Assemble runtime .asm files with NASM (optional, for HW acceleration)
+    let runtime_dir = find_runtime_c().and_then(|p| {
+        std::path::Path::new(&p).parent().map(|d| d.to_path_buf())
+    });
+    let mut asm_objects: Vec<String> = Vec::new();
+    let nasm = find_nasm();
+    if let (Some(nasm_path), Some(ref rt_dir)) = (&nasm, &runtime_dir) {
+        let asm_files = ["crypto_x86_64.asm", "mem_x86_64.asm", "context_switch.asm"];
+        let obj_ext = if cfg!(target_os = "windows") { "obj" } else { "o" };
+        let nasm_fmt = if cfg!(target_os = "windows") { "win64" }
+                       else if cfg!(target_os = "macos") { "macho64" }
+                       else { "elf64" };
+        for asm_file in &asm_files {
+            let asm_path = rt_dir.join(asm_file);
+            if asm_path.exists() {
+                let obj_path = rt_dir.join(format!("{}.{}", asm_file, obj_ext));
+                if !obj_path.exists() || is_newer(&asm_path, &obj_path) {
+                    let status = Command::new(nasm_path)
+                        .args(["-f", nasm_fmt, &asm_path.to_string_lossy(), "-o", &obj_path.to_string_lossy()])
+                        .status();
+                    if status.map_or(false, |s| s.success()) {
+                        asm_objects.push(obj_path.to_string_lossy().to_string());
+                    }
+                } else {
+                    asm_objects.push(obj_path.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
     let clang = find_tool("clang", &[
         "C:\\Program Files\\LLVM\\bin\\clang.exe",
     ]);
@@ -330,6 +360,8 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
     match clang {
         Some(clang_path) => {
             let mut cmd = Command::new(&clang_path);
+            // Enable AES-NI intrinsics for crypto acceleration in xiom_runtime.c
+            if target == Target::Native { cmd.arg("-maes"); }
             match target {
                 Target::Wasm => {
                     cmd.args(["--target=wasm32-unknown-unknown", "-nostdlib", "-Wl,--no-entry", "-Wl,--export-all"]);
@@ -352,6 +384,8 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
                 }
             }
             cmd.args(["-o", output, &ir_path]);
+            // Link assembled .obj/.o files for hardware acceleration
+            for obj in &asm_objects { cmd.arg(obj); }
 
             let clang_output = cmd.output();
             match clang_output {
@@ -629,6 +663,11 @@ fn print_usage() {
     eprintln!("  --timeout <seconds>  Set compilation timeout (default: 60)");
     eprintln!("  --max-memory-mb <N>       Set max memory budget in MB (0 = disabled)");
     eprintln!();
+    eprintln!("DEPENDENCIES:");
+    eprintln!("  Required: clang (LLVM) — to compile IR to native binary");
+    eprintln!("  Optional: opt (LLVM) — IR optimization pass (-O1)");
+    eprintln!("  Optional: nasm — hardware-accelerated crypto/memcpy (stdlib)");
+    eprintln!();
     eprintln!("EXAMPLES:");
     eprintln!("  xiomc --run examples/demo_float.xi");
     eprintln!("  xiomc -o prog.exe source.xi");
@@ -731,6 +770,32 @@ fn find_tool(name: &str, extra_paths: &[&str]) -> Option<String> {
         return Some(name.to_string());
     }
     None
+}
+
+fn find_nasm() -> Option<String> {
+    // Check common install locations
+    let candidates: Vec<&str> = if cfg!(target_os = "windows") {
+        vec![
+            "C:\\Program Files\\NASM\\nasm.exe",
+            "C:\\Users\\lefte\\AppData\\Local\\bin\\NASM\\nasm.exe",
+        ]
+    } else {
+        vec![
+            "/usr/local/bin/nasm",
+            "/usr/bin/nasm",
+            "/opt/homebrew/bin/nasm",
+        ]
+    };
+    find_tool("nasm", &candidates)
+}
+
+fn is_newer(src: &std::path::Path, dst: &std::path::Path) -> bool {
+    if let (Ok(sm), Ok(dm)) = (src.metadata(), dst.metadata()) {
+        if let (Ok(st), Ok(dt)) = (sm.modified(), dm.modified()) {
+            return st > dt;
+        }
+    }
+    true // Rebuild if we can't determine timestamps
 }
 
 fn escape_json(s: &str) -> String {
