@@ -1721,6 +1721,7 @@ impl Checker {
                     }
                     UnaryOp::Ref | UnaryOp::MutRef => inner_ty, // reference keeps the type
                     UnaryOp::BitNot => inner_ty, // bitwise not preserves integer type
+                    UnaryOp::Deref => inner_ty, // deref preserves type
                 }
             }
             Expr::Binary(left, op, right, span) => {
@@ -1755,6 +1756,7 @@ impl Checker {
                     }
                     BinOp::Assign => right_ty,
                     BinOp::BitXor => left_ty, // bitwise xor preserves integer type
+                    BinOp::BitAnd => left_ty, // bitwise and preserves integer type
                 }
             }
             Expr::Try(inner, _span) => {

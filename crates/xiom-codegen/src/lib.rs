@@ -2596,6 +2596,10 @@ impl IrEmitter {
                     UnaryOp::BitNot => {
                         self.emitln(&format!("  {tmp} = xor i64 {val}, -1"));
                     }
+                    UnaryOp::Deref => {
+                        let ty = self.infer_llvm_type(inner);
+                        self.emitln(&format!("  {tmp} = load {ty}, {ty}* {val}"));
+                    }
                     UnaryOp::Ref | UnaryOp::MutRef => return Ok(val),
                 }
                 Ok(tmp)
@@ -2646,6 +2650,7 @@ impl IrEmitter {
                     BinOp::Div => (if is_float { "double" } else { "i64" }, if is_float { "fdiv" } else { "sdiv" }),
                     BinOp::Rem => (if is_float { "double" } else { "i64" }, if is_float { "frem" } else { "srem" }),
                     BinOp::BitXor => ("i64", "xor"),
+                    BinOp::BitAnd => ("i64", "and"),
                     BinOp::Eq => (if is_float { "double" } else { "i64" }, if is_float { "fcmp oeq" } else { "icmp eq" }),
                     BinOp::Neq => (if is_float { "double" } else { "i64" }, if is_float { "fcmp one" } else { "icmp ne" }),
                     BinOp::Lt => (if is_float { "double" } else { "i64" }, if is_float { "fcmp olt" } else { "icmp slt" }),
@@ -3915,13 +3920,13 @@ impl IrEmitter {
             Expr::Unary(op, inner, _) => {
                 match op {
                     UnaryOp::Not | UnaryOp::BitNot => "i64".to_string(),
-                    UnaryOp::Neg | UnaryOp::Ref | UnaryOp::MutRef => self.infer_llvm_type(inner),
+                    UnaryOp::Neg | UnaryOp::Ref | UnaryOp::MutRef | UnaryOp::Deref => self.infer_llvm_type(inner),
                 }
             }
             Expr::Binary(left, op, right, _) => {
                 match op {
                     BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => "i64".to_string(),
-                    BinOp::And | BinOp::Or | BinOp::BitXor => "i64".to_string(),
+                    BinOp::And | BinOp::Or | BinOp::BitXor | BinOp::BitAnd => "i64".to_string(),
                     BinOp::Assign => self.infer_llvm_type(right),
                     _ => {
                         if self.is_float_expr(left) || self.is_float_expr(right) { "double".to_string() } else { "i64".to_string() }
