@@ -697,7 +697,7 @@ impl Parser {
     fn parse_mul_expr(&mut self) -> Result<Expr, ParseError> {
         let mut left = self.parse_unary_expr()?;
         loop {
-            let op = match self.peek_kind() { TokenKind::Star => BinOp::Mul, TokenKind::Slash => BinOp::Div, TokenKind::Percent => BinOp::Rem, _ => break };
+            let op = match self.peek_kind() { TokenKind::Star => BinOp::Mul, TokenKind::Slash => BinOp::Div, TokenKind::Percent => BinOp::Rem, TokenKind::Caret => BinOp::BitXor, _ => break };
             self.advance(); let right = self.parse_unary_expr()?; let span = left.span(); left = Expr::Binary(Box::new(left), op, Box::new(right), span);
         }
         Ok(left)
@@ -708,6 +708,7 @@ impl Parser {
         match self.peek_kind() {
             TokenKind::Bang => { self.advance(); let inner = self.parse_unary_expr()?; Ok(Expr::Unary(UnaryOp::Not, Box::new(inner), span)) }
             TokenKind::Minus => { self.advance(); let inner = self.parse_unary_expr()?; Ok(Expr::Unary(UnaryOp::Neg, Box::new(inner), span)) }
+            TokenKind::Tilde => { self.advance(); let inner = self.parse_unary_expr()?; Ok(Expr::Unary(UnaryOp::BitNot, Box::new(inner), span)) }
             TokenKind::Ampersand => { self.advance(); let mutable = match self.peek_kind() { TokenKind::Ident(s) if s == "mut" => { self.advance(); true } _ => false }; let inner = self.parse_unary_expr()?; if mutable { Ok(Expr::MutRef(Box::new(inner), span)) } else { Ok(Expr::Ref(Box::new(inner), span)) } }
             _ => self.parse_postfix_expr(),
         }
@@ -907,6 +908,6 @@ mod tests {
     #[test] fn test_parse_method_with_mut_self_param() { let src = "module test\ntype Counter = { val: Int; } fn Counter.set(&mut self, v: Int) { val = v; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
 
     // caret/tilde operators
-    #[test] fn test_parse_bitwise_xor() { let src = "module test\nfn xor(a: Int, b: Int) -> Int { return a ^ b; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
-    #[test] fn test_parse_bitwise_not() { let src = "module test\nfn not_val(a: Int) -> Int { return ~a; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
+    #[test] fn test_parse_bitwise_xor() { let src = "fn xor(a: Int, b: Int) -> Int { return a ^ b; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
+    #[test] fn test_parse_bitwise_not() { let src = "fn not_val(a: Int) -> Int { return ~a; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
 }

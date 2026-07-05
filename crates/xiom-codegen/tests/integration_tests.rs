@@ -704,3 +704,137 @@ fn main() -> Int { var c = Counter{ val: 0 }; return c.inc(); }";
     let ir = compile(src).unwrap();
     assert!(ir.contains("define"), "method with self should compile");
 }
+
+// ============================================================================
+// Real-World Pattern Tests — stdlib-like code that exercises multiple features
+// ============================================================================
+
+#[test]
+fn test_pattern_extern_with_multiple_fns() {
+    let src = "\
+extern \"C\" {
+    fn malloc(size: Int) -> *UInt8;
+    fn free(ptr: *UInt8);
+    fn memcpy(dest: *UInt8, src: *UInt8, n: Int) -> *UInt8;
+}
+fn main() -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("declare"), "extern block should emit declares");
+}
+
+#[test]
+fn test_pattern_struct_with_generic_field() {
+    let src = "\
+type Pair[T] = { first: T; second: T; }
+fn main() -> Int { var p = Pair[Int]{ first: 1, second: 2 }; return p.first; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "generic struct should compile");
+}
+
+#[test]
+fn test_pattern_interface_with_impl() {
+    let src = "\
+interface Eq { fn eq(other: &Self) -> Int; }
+type Point = { x: Int; y: Int; }
+fn Point.eq(other: &Point) -> Int { return 1; }
+fn main() -> Int { var p = Point{ x: 1, y: 2 }; return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "interface with impl should compile");
+}
+
+#[test]
+fn test_pattern_type_with_derive_clone_eq() {
+    let src = "\
+type Pos = { x: Float64; y: Float64; } derive[Clone, Eq]
+fn main() -> Int { var p = Pos{ x: 1.0, y: 2.0 }; return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "type with derive should compile");
+}
+
+#[test]
+fn test_pattern_multiple_generic_fns_in_module() {
+    let src = "\
+fn id[T](x: T) -> T { return x; }
+fn swap[T](a: T, b: T) -> (T, T) { return (b, a); }
+fn main() -> Int { return id(42); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "multiple generic fns should compile");
+}
+
+#[test]
+fn test_pattern_match_on_option() {
+    let src = "\
+fn get_val(x: Option[Int]) -> Int {
+    match x { Some(v) => v, None => 0 }
+}
+fn main() -> Int { return get_val(Some(42)); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "match on Option should compile");
+}
+
+#[test]
+fn test_pattern_vec_push_pop_loop() {
+    let src = "\
+fn sum_vec(v: Vec[Int]) -> Int {
+    var sum = 0; var i = 0;
+    while i < v.len() { sum = sum + v[i]; i = i + 1; }
+    return sum;
+}
+fn main() -> Int { var v = Vec[Int].new(); v.push(1); v.push(2); return sum_vec(v); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "vec push+loop should compile");
+}
+
+#[test]
+fn test_pattern_contract_on_method() {
+    let src = "\
+type Account = { balance: Int; }
+fn Account.withdraw(amount: Int) -> Int
+    requires: amount > 0
+    requires: balance >= amount
+    ensures: result == balance
+{
+    balance = balance - amount;
+    return balance;
+}
+fn main() -> Int { var a = Account{ balance: 100 }; return a.withdraw(30); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "contract method should compile");
+}
+
+#[test]
+fn test_pattern_comptime_fold() {
+    let src = "\
+fn main() -> Int { return comptime 1 + 2 * 3; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "comptime expr should compile");
+}
+
+#[test]
+fn test_pattern_spawn_async_pattern() {
+    let src = "\
+async fn fetch() -> Int { return 42; }
+fn main() -> Int { spawn { var x = 1; } return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "spawn+async should compile");
+}
+
+#[test]
+fn test_pattern_const_used_in_fn() {
+    let src = "\
+const MAX: Int = 100;
+fn within_limit(x: Int) -> Int { if x > MAX { return MAX; } return x; }
+fn main() -> Int { return within_limit(50); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "const in fn should compile");
+}
+
+#[test]
+fn test_pattern_pub_type_and_fn() {
+    let src = "\
+pub type Data = { val: Int; }
+pub fn process(d: Data) -> Int { return d.val; }
+fn main() -> Int { var d = Data{ val: 42 }; return process(d); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "pub type+fn should compile");
+}
