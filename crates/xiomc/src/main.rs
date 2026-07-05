@@ -323,31 +323,40 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
         }
     }
 
-    // Phase 2.5: Assemble runtime .asm files with NASM (optional, for HW acceleration)
-    let runtime_dir = find_runtime_c().and_then(|p| {
-        std::path::Path::new(&p).parent().map(|d| d.to_path_buf())
-    });
-    let mut asm_objects: Vec<String> = Vec::new();
-    let nasm = find_nasm();
-    if let (Some(nasm_path), Some(ref rt_dir)) = (&nasm, &runtime_dir) {
-        let asm_files = ["crypto_x86_64.asm", "mem_x86_64.asm", "context_switch.asm"];
-        let obj_ext = if cfg!(target_os = "windows") { "obj" } else { "o" };
-        let nasm_fmt = if cfg!(target_os = "windows") { "win64" }
-                       else if cfg!(target_os = "macos") { "macho64" }
-                       else { "elf64" };
-        for asm_file in &asm_files {
-            let asm_path = rt_dir.join(asm_file);
-            if asm_path.exists() {
-                let obj_path = rt_dir.join(format!("{}.{}", asm_file, obj_ext));
-                if !obj_path.exists() || is_newer(&asm_path, &obj_path) {
-                    let status = Command::new(nasm_path)
-                        .args(["-f", nasm_fmt, &asm_path.to_string_lossy(), "-o", &obj_path.to_string_lossy()])
-                        .status();
-                    if status.map_or(false, |s| s.success()) {
+    // Phase 2.5: NASM assembly of runtime .asm files
+    // Disabled by default — .asm files may have version-specific syntax.
+    // Enable by building with: cargo build --features nasm
+    // Or manually assemble per stdlib/runtime/BUILD.md
+    let asm_objects: Vec<String> = Vec::new();
+    #[cfg(feature = "nasm")]
+    {
+        let runtime_dir = find_runtime_c().and_then(|p| {
+            std::path::Path::new(&p).parent().map(|d| d.to_path_buf())
+        });
+        let nasm = find_nasm();
+        if let (Some(nasm_path), Some(rt_dir)) = (&nasm, &runtime_dir) {
+            let asm_files = ["crypto_x86_64.asm", "mem_x86_64.asm", "context_switch.asm"];
+            let obj_ext = if cfg!(target_os = "windows") { "obj" } else { "o" };
+            let nasm_fmt = if cfg!(target_os = "windows") { "win64" }
+                           else if cfg!(target_os = "macos") { "macho64" }
+                           else { "elf64" };
+            let nasm_path = nasm_path.clone();
+            for asm_file in &asm_files {
+                let asm_path = rt_dir.join(asm_file);
+                if asm_path.exists() {
+                    let obj_path = rt_dir.join(format!("{}.{}", asm_file, obj_ext));
+                    if !obj_path.exists() || is_newer(&asm_path, &obj_path) {
+                        let status = Command::new(&nasm_path)
+                            .args(["-f", nasm_fmt, &asm_path.to_string_lossy(), "-o", &obj_path.to_string_lossy()])
+                            .status();
+                        if status.map_or(false, |s| s.success()) {
+                            asm_objects.push(obj_path.to_string_lossy().to_string());
+                        } else {
+                            let _ = std::fs::remove_file(&obj_path);
+                        }
+                    } else {
                         asm_objects.push(obj_path.to_string_lossy().to_string());
                     }
-                } else {
-                    asm_objects.push(obj_path.to_string_lossy().to_string());
                 }
             }
         }
@@ -772,6 +781,7 @@ fn find_tool(name: &str, extra_paths: &[&str]) -> Option<String> {
     None
 }
 
+#[allow(dead_code)]
 fn find_nasm() -> Option<String> {
     // Check common install locations
     let candidates: Vec<&str> = if cfg!(target_os = "windows") {
@@ -789,6 +799,7 @@ fn find_nasm() -> Option<String> {
     find_tool("nasm", &candidates)
 }
 
+#[allow(dead_code)]
 fn is_newer(src: &std::path::Path, dst: &std::path::Path) -> bool {
     if let (Ok(sm), Ok(dm)) = (src.metadata(), dst.metadata()) {
         if let (Ok(st), Ok(dt)) = (sm.modified(), dm.modified()) {

@@ -63,7 +63,7 @@ if (-not $BinaryPath) {
     if (Get-Command nasm -ErrorAction SilentlyContinue) {
         Write-Host "  ✓ nasm found — hardware-accelerated crypto/memcpy enabled" -ForegroundColor Green
     } else {
-        Write-Host "  - nasm not found (optional — install with: winget install NASM.NASM)" -ForegroundColor DarkGray
+        Write-Host "  - nasm not found (optional - install with: winget install NASM.NASM)" -ForegroundColor DarkGray
         Write-Host "    Without NASM, stdlib falls back to C software implementations." -ForegroundColor DarkGray
     }
 
