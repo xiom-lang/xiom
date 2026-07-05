@@ -43,6 +43,7 @@ impl Formatter {
             TopDecl::Module(module) => self.format_module(module),
             TopDecl::Use(use_decl) => self.format_use_decl(use_decl),
             TopDecl::Const(const_decl) => self.format_const_decl(const_decl),
+            TopDecl::Extern(_) => {} // skip formatting for now
         }
     }
 
@@ -392,7 +393,7 @@ impl Formatter {
                 self.format_expr(index);
                 self.buf.push(']');
             }
-            Expr::Struct(name, fields, _) => {
+            Expr::Struct(name, fields, _spread, _) => {
                 self.buf.push_str(&name.name);
                 self.buf.push_str("{ ");
                 for (i, (ident, val)) in fields.iter().enumerate() {
@@ -510,6 +511,10 @@ impl Formatter {
                     self.buf.push_str(" else ");
                     self.format_block(eblock);
                 }
+            }
+            Expr::Unsafe(block, _) => {
+                self.buf.push_str("unsafe ");
+                self.format_block(block);
             }
         }
     }

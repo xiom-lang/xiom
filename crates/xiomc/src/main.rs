@@ -808,7 +808,7 @@ fn contract_expr_to_string(expr: &Expr) -> String {
         Expr::Imply(left, right, _) => {
             format!("{} => {}", contract_expr_to_string(left), contract_expr_to_string(right))
         }
-        Expr::Struct(ident, fields, _) => {
+        Expr::Struct(ident, fields, _spread, _) => {
             let f: Vec<String> = fields.iter()
                 .map(|(k, v)| format!("{}: {}", k.name, contract_expr_to_string(v)))
                 .collect();
@@ -960,6 +960,7 @@ fn dump_contracts_json(program: &Program) -> String {
             TopDecl::Module(md) => {
                 items.extend(dump_module_contracts(md));
             }
+            TopDecl::Extern(_) => {}
             _ => {}
         }
     }
@@ -1018,6 +1019,7 @@ fn dump_module_contracts(md: &ModuleDecl) -> Vec<String> {
             TopDecl::Module(nested) => {
                 items.extend(dump_module_contracts(nested));
             }
+            TopDecl::Extern(_) => {}
             _ => {}
         }
     }
