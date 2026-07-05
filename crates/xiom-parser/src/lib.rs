@@ -735,7 +735,7 @@ impl Parser {
     fn parse_mul_expr(&mut self) -> Result<Expr, ParseError> {
         let mut left = self.parse_unary_expr()?;
         loop {
-            let op = match self.peek_kind() { TokenKind::Star => BinOp::Mul, TokenKind::Slash => BinOp::Div, TokenKind::Percent => BinOp::Rem, TokenKind::Caret => BinOp::BitXor, TokenKind::Ampersand => BinOp::BitAnd, _ => break };
+            let op = match self.peek_kind() { TokenKind::Star => BinOp::Mul, TokenKind::Slash => BinOp::Div, TokenKind::Percent => BinOp::Rem, TokenKind::Caret => BinOp::BitXor, TokenKind::Ampersand => BinOp::BitAnd, TokenKind::Pipe => BinOp::BitOr, _ => break };
             self.advance(); let right = self.parse_unary_expr()?; let span = left.span(); left = Expr::Binary(Box::new(left), op, Box::new(right), span);
         }
         Ok(left)

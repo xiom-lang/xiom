@@ -2651,6 +2651,7 @@ impl IrEmitter {
                     BinOp::Rem => (if is_float { "double" } else { "i64" }, if is_float { "frem" } else { "srem" }),
                     BinOp::BitXor => ("i64", "xor"),
                     BinOp::BitAnd => ("i64", "and"),
+                    BinOp::BitOr => ("i64", "or"),
                     BinOp::Eq => (if is_float { "double" } else { "i64" }, if is_float { "fcmp oeq" } else { "icmp eq" }),
                     BinOp::Neq => (if is_float { "double" } else { "i64" }, if is_float { "fcmp one" } else { "icmp ne" }),
                     BinOp::Lt => (if is_float { "double" } else { "i64" }, if is_float { "fcmp olt" } else { "icmp slt" }),
@@ -3926,7 +3927,7 @@ impl IrEmitter {
             Expr::Binary(left, op, right, _) => {
                 match op {
                     BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => "i64".to_string(),
-                    BinOp::And | BinOp::Or | BinOp::BitXor | BinOp::BitAnd => "i64".to_string(),
+                    BinOp::And | BinOp::Or | BinOp::BitXor | BinOp::BitAnd | BinOp::BitOr => "i64".to_string(),
                     BinOp::Assign => self.infer_llvm_type(right),
                     _ => {
                         if self.is_float_expr(left) || self.is_float_expr(right) { "double".to_string() } else { "i64".to_string() }

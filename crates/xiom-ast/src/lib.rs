@@ -199,6 +199,7 @@ pub enum BinOp {
     Assign,
     BitXor,
     BitAnd,
+    BitOr,
 }
 
 impl fmt::Display for BinOp {
@@ -220,6 +221,7 @@ impl fmt::Display for BinOp {
             BinOp::Assign => "=",
             BinOp::BitXor => "^",
             BinOp::BitAnd => "&",
+            BinOp::BitOr => "|",
         };
         write!(f, "{s}")
     }
