@@ -185,9 +185,32 @@ impl Lexer {
                 if self.peek() == Some('.') && self.peek_n(1).map_or(false, |c| c.is_ascii_digit()) {
                     self.advance(); // skip '.'
                     let frac = self.advance_while(|c| c.is_ascii_digit());
-                    let num: f64 = format!("{int_part}.{frac}").parse().unwrap_or(0.0);
-                    Token::new(TokenKind::Float(num), start, format!("{int_part}.{frac}"))
+                    // Handle scientific notation exponent: e308, e-308, E+10
+                    let mut exp = String::new();
+                    if matches!(self.peek(), Some('e' | 'E')) {
+                        exp.push(self.advance().unwrap()); // 'e' or 'E'
+                        if matches!(self.peek(), Some('+' | '-')) {
+                            exp.push(self.advance().unwrap());
+                        }
+                        let exp_digits = self.advance_while(|c| c.is_ascii_digit());
+                        exp.push_str(&exp_digits);
+                    }
+                    let full = format!("{int_part}.{frac}{exp}");
+                    let num: f64 = full.parse().unwrap_or(0.0);
+                    Token::new(TokenKind::Float(num), start, full)
                 } else {
+                    // Also handle integer scientific notation: 1e10
+                    if matches!(self.peek(), Some('e' | 'E')) {
+                        let mut exp = String::from(&int_part);
+                        exp.push(self.advance().unwrap()); // 'e' or 'E'
+                        if matches!(self.peek(), Some('+' | '-')) {
+                            exp.push(self.advance().unwrap());
+                        }
+                        let exp_digits = self.advance_while(|c| c.is_ascii_digit());
+                        exp.push_str(&exp_digits);
+                        let num: f64 = exp.parse().unwrap_or(0.0);
+                        return Token::new(TokenKind::Float(num), start, exp);
+                    }
                     let num: u64 = int_part.replace('_', "").parse().unwrap_or(0);
                     Token::new(TokenKind::Int(num), start, int_part)
                 }

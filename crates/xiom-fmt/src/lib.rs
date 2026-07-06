@@ -310,6 +310,12 @@ impl Formatter {
                 self.format_pattern(inner);
                 self.buf.push(')');
             }
+            Pattern::Or(alts, _) => {
+                for (i, alt) in alts.iter().enumerate() {
+                    if i > 0 { self.buf.push_str(" | "); }
+                    self.format_pattern(alt);
+                }
+            }
         }
     }
 

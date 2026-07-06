@@ -233,6 +233,7 @@ fn pattern_to_string(pat: &Pattern) -> String {
         Pattern::None(_) => "None".to_string(),
         Pattern::Ok(inner, _) => format!("Ok({})", pattern_to_string(inner)),
         Pattern::Err(inner, _) => format!("Err({})", pattern_to_string(inner)),
+        Pattern::Or(alts, _) => alts.iter().map(pattern_to_string).collect::<Vec<_>>().join(" | "),
     }
 }
 

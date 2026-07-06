@@ -195,6 +195,7 @@ pub enum UnaryOp {
 pub enum BinOp {
     Add, Sub, Mul, Div, Rem,
     Eq, Neq, Lt, Gt, Le, Ge,
+    Shl, Shr,
     And, Or,
     Assign,
     BitXor,
@@ -216,6 +217,8 @@ impl fmt::Display for BinOp {
             BinOp::Gt => ">",
             BinOp::Le => "<=",
             BinOp::Ge => ">=",
+            BinOp::Shl => "<<",
+            BinOp::Shr => ">>",
             BinOp::And => "&&",
             BinOp::Or => "||",
             BinOp::Assign => "=",
@@ -249,6 +252,8 @@ pub enum Pattern {
     Ok(Box<Pattern>, Span),
     /// `Err(pattern)`
     Err(Box<Pattern>, Span),
+    /// `A | B | C` — or-pattern (matches if any alternative matches)
+    Or(Vec<Pattern>, Span),
 }
 
 // ============================================================================
@@ -338,6 +343,8 @@ pub enum ContractClause {
 pub struct GenericParam {
     pub name: Ident,
     pub bounds: Vec<Ident>, // interface names
+    pub is_const: bool,
+    pub const_ty: Option<Type>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
