@@ -98,6 +98,8 @@ pub struct IrEmitter {
     fn_ptr_return_types: HashMap<String, String>,
     /// Stack of active loop labels: (continue_label, break_label)
     loop_stack: Vec<(String, String)>,
+    /// Set of function names already declared via `declare` (to avoid duplicates)
+    already_declared: HashSet<String>,
 }
 
 impl IrEmitter {
@@ -138,6 +140,7 @@ impl IrEmitter {
             current_module: None,
             fn_ptr_return_types: HashMap::new(),
             loop_stack: Vec::new(),
+            already_declared: HashSet::new(),
         }
     }
 
@@ -223,6 +226,24 @@ impl IrEmitter {
             "Str" => "i8*",
             "()" => "void",
             _ => "i64", // Default: treat unknown types as i64
+        }
+    }
+
+    /// Map an AST Type to its LLVM type string, handling pointer types (`*T` -> `<T>*`),
+    /// ref types (`&T` -> `<T>*`), and named/builtin types.
+    fn extern_type_to_llvm(&self, ty: &Type) -> String {
+        match ty {
+            Type::Ptr(inner) | Type::Ref(inner) | Type::MutRef(inner) => {
+                let inner_llvm = self.extern_type_to_llvm(inner);
+                format!("{}*", inner_llvm)
+            }
+            Type::Named(id, _) => {
+                self.llvm_type_for(&id.name).unwrap_or_else(|_| {
+                    Self::xiom_to_llvm_type(&id.name).to_string()
+                })
+            }
+            Type::Tuple(_) => "i64".to_string(),
+            _ => "i64".to_string(),
         }
     }
 
@@ -486,6 +507,10 @@ impl IrEmitter {
             self.emitln("");
         }
 
+        // Pre-seed already_declared with all hardcoded names so user extern
+        // blocks cannot duplicate them.
+        self.already_declared = Self::hardcoded_declare_names();
+
         // Declare external C functions + LLVM intrinsics
         self.emitln("declare i32 @printf(i8*, ...)");
         self.emitln("declare i32 @puts(i8*)");
@@ -550,8 +575,12 @@ impl IrEmitter {
         self.emitln("declare i64 @xiom_fn_param_count(i64)");
         self.emitln("declare i64 @xiom_fn_body_start(i64)");
         self.emitln("declare i64 @xiom_fn_body_end(i64)");
-        self.emitln("declare void @xiom_fn_emit_all()");
+        self.emitln("declare i64 @xiom_fn_emit_all()");
         self.emitln("");
+
+        // Emit declares for user-defined extern "C" functions
+        // (skips names already in self.already_declared, e.g. malloc)
+        self.emit_extern_declares(&program.items);
 
         // Additive metadata emission: RTTI for the `reflect` stdlib module and a
         // contract table for the `contracts` stdlib module. This is a NEW,
@@ -587,6 +616,118 @@ impl IrEmitter {
         }
 
         Ok(self.output.clone())
+    }
+
+    /// Collect the set of all hardcoded `declare` names so user extern blocks
+    /// never duplicate them. This set is pre-seeded before emitting user extern
+    /// function declares.
+    fn hardcoded_declare_names() -> HashSet<String> {
+        let mut s = HashSet::new();
+        s.insert("printf".to_string());
+        s.insert("puts".to_string());
+        s.insert("llvm.trap".to_string());
+        s.insert("malloc".to_string());
+        s.insert("realloc".to_string());
+        s.insert("free".to_string());
+        s.insert("llvm.memcpy.p0i8.p0i8.i64".to_string());
+        s.insert("xiom_is_sorted".to_string());
+        s.insert("xiom_all".to_string());
+        s.insert("xiom_none".to_string());
+        s.insert("xiom_contains".to_string());
+        s.insert("xiom_read_file".to_string());
+        s.insert("xiom_file_size".to_string());
+        s.insert("xiom_free".to_string());
+        s.insert("xiom_char_at".to_string());
+        s.insert("xiom_str_len".to_string());
+        s.insert("xiom_intern".to_string());
+        s.insert("xiom_lookup".to_string());
+        s.insert("xiom_ir_open".to_string());
+        s.insert("xiom_ir_close".to_string());
+        s.insert("xiom_ir_header".to_string());
+        s.insert("xiom_ir_define".to_string());
+        s.insert("xiom_ir_param".to_string());
+        s.insert("xiom_ir_entry".to_string());
+        s.insert("xiom_ir_alloca".to_string());
+        s.insert("xiom_ir_store".to_string());
+        s.insert("xiom_ir_load".to_string());
+        s.insert("xiom_ir_binop".to_string());
+        s.insert("xiom_ir_call".to_string());
+        s.insert("xiom_ir_call_arg".to_string());
+        s.insert("xiom_ir_call_lit".to_string());
+        s.insert("xiom_ir_call_end".to_string());
+        s.insert("xiom_ir_ret".to_string());
+        s.insert("xiom_ir_ret_void".to_string());
+        s.insert("xiom_ir_endfn".to_string());
+        s.insert("xiom_ir_raw".to_string());
+        s.insert("xiom_ir_emit_program".to_string());
+        s.insert("xiom_ir_define_s".to_string());
+        s.insert("xiom_ir_param_int".to_string());
+        s.insert("xiom_ir_param_double".to_string());
+        s.insert("xiom_ir_alloca_s".to_string());
+        s.insert("xiom_ir_store_param".to_string());
+        s.insert("xiom_ir_load_s".to_string());
+        s.insert("xiom_ir_add".to_string());
+        s.insert("xiom_ir_fmul".to_string());
+        s.insert("xiom_ir_call_fn".to_string());
+        s.insert("xiom_ir_call_arg_lit".to_string());
+        s.insert("xiom_ir_ret_reg".to_string());
+        s.insert("xiom_ir_ret_lit".to_string());
+        s.insert("xiom_fn_table_init".to_string());
+        s.insert("xiom_set_source".to_string());
+        s.insert("xiom_fn_table_add".to_string());
+        s.insert("xiom_fn_table_count".to_string());
+        s.insert("xiom_fn_name_id".to_string());
+        s.insert("xiom_fn_ret_type_id".to_string());
+        s.insert("xiom_fn_param_count".to_string());
+        s.insert("xiom_fn_body_start".to_string());
+        s.insert("xiom_fn_body_end".to_string());
+        s.insert("xiom_fn_emit_all".to_string());
+        // strcmp is declared in emit_metadata_tables (conditional)
+        s.insert("strcmp".to_string());
+        s
+    }
+
+    /// Walk all top-level declarations (recursing into modules) and emit
+    /// `declare` statements for every `extern "C"` function whose name is not
+    /// already present in `self.already_declared`. Skips functions whose names
+    /// are already in the hardcoded set or already declared by another extern block.
+    fn emit_extern_declares(&mut self, items: &[TopDecl]) {
+        for item in items {
+            match item {
+                TopDecl::Extern(eb) => {
+                    for fd in &eb.functions {
+                        let name = &fd.name.name;
+                        if self.already_declared.contains(name) {
+                            continue;
+                        }
+                        self.already_declared.insert(name.clone());
+                        // Map return type
+                        let ret_llvm = fd.return_type.as_ref()
+                            .map(|t| self.extern_type_to_llvm(t))
+                            .unwrap_or_else(|| "void".to_string());
+                        // Map param types
+                        let param_llvm: Vec<String> = fd.params.iter()
+                            .map(|p| self.extern_type_to_llvm(&p.ty))
+                            .collect();
+                        // NOTE: Variadic extern functions (with `...` in the source)
+                        // are parsed but the variadic marker is not stored in FnDecl.
+                        // Therefore we cannot detect variadics from the AST alone.
+                        // All extern declares are emitted without `...`.
+                        // If you add variadic detection, change the last arg to `...`.
+                        let params_str = if param_llvm.is_empty() {
+                            "".to_string()
+                        } else {
+                            param_llvm.join(", ")
+                        };
+                        self.emitln(&format!("declare {ret_llvm} @{name}({params_str})"));
+                    }
+                }
+                TopDecl::Module(md) => {
+                    self.emit_extern_declares(&md.items);
+                }
+                _ => {}
+            }
+        }
     }
 
     // ========================================================================
@@ -1123,6 +1264,19 @@ impl IrEmitter {
                 }
             }
             self.interfaces.insert(id.name.name.clone(), methods);
+        }
+        if let TopDecl::Extern(eb) = item {
+            // Register extern "C" functions so calls to them use correct LLVM types.
+            // These functions have no receiver and are not module-qualified (C linkage).
+            for fd in &eb.functions {
+                let param_types: Vec<String> = fd.params.iter()
+                    .map(|p| self.extern_type_to_llvm(&p.ty))
+                    .collect();
+                let ret_type = fd.return_type.as_ref()
+                    .map(|t| self.extern_type_to_llvm(t))
+                    .unwrap_or_else(|| "void".to_string());
+                self.functions.insert(fd.name.name.clone(), (param_types, ret_type));
+            }
         }
         if let TopDecl::Module(md) = item {
             let saved_module = self.current_module.clone();
@@ -3988,10 +4142,24 @@ impl IrEmitter {
                                 .join(", ")
                         }
                     } else {
-                        args.iter().zip(compiled_args.iter())
-                            .map(|(arg_expr, arg_val)| format!("{} {}", self.infer_llvm_type(arg_expr), arg_val))
-                            .collect::<Vec<_>>()
-                            .join(", ")
+                        // Use registered param types when available (correct for extern
+                        // functions with non-default types like Int32→i32, Float32→float).
+                        // Fall back to inferred expression types otherwise.
+                        let use_registered = self.functions.get(&resolved_fn_key)
+                            .map(|(pts, _)| pts.len() == compiled_args.len())
+                            .unwrap_or(false);
+                        if use_registered {
+                            let pts = &self.functions[&resolved_fn_key].0;
+                            pts.iter().zip(compiled_args.iter())
+                                .map(|(ty, arg)| format!("{ty} {arg}"))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        } else {
+                            args.iter().zip(compiled_args.iter())
+                                .map(|(arg_expr, arg_val)| format!("{} {}", self.infer_llvm_type(arg_expr), arg_val))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        }
                     };
                     let tmp = self.fresh_tmp();
                     let ret_ty = if let Some((_, rt)) = self.functions.get(&resolved_fn_key) {
