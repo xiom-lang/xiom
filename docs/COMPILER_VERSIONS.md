@@ -102,7 +102,7 @@ The first working XIOM compiler. Establishes the end-to-end pipeline: lexer → 
 ### Codegen Fixes
 - Struct return types: `ret %struct.BenchResult %val` (was i64 mismatch)
 - Tuple return types: `(Vec[Int], Vec[Int])` → anonymous tuple struct
-- `Str.len()` → `@axiom_str_len`
+- `Str.len()` → `@xiom_str_len`
 - Module-qualified naming: `fn_symbol` + `resolve_module_call` for cross-module calls
 - Destructure: alloca+store before GEP extraction
 - Match: guard for empty check_labels array

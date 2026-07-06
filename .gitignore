@@ -1,5 +1,5 @@
 # ============================================================
-# AXIOM Project .gitignore
+# XIOM Project .gitignore
 # ============================================================
 
 # --- Rust (Phase 0 compiler implementation) ---
@@ -39,7 +39,7 @@ Thumbs.db
 /out/
 
 # --- Package manager ---
-/axiom-packages/
+/xiom-packages/
 
 # --- Test artifacts ---
 *.snap.new
@@ -51,8 +51,8 @@ selfhost_*.exe
 diff_*.exe
 output.exe
 demo.wasm
-axiomc.wasm
-!new_axiomc.exe
+xiomc.wasm
+!new_xiomc.exe
 
 # --- Environment / Config ---
 .env

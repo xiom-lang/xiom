@@ -1,4 +1,4 @@
-# Batch test selfhost against ALL 21 AXIOM examples
+# Batch test selfhost against ALL 21 XIOM examples
 param([switch]$Quick)
 
 $examples = @(
@@ -34,15 +34,15 @@ foreach ($ex in $examples) {
     Write-Host "Testing: $ex " -ForegroundColor Cyan -NoNewline
 
     # Create a temp selfhost variant targeting this example
-    $selfhostSrc = Get-Content "selfhost\axiomc_v10.ax" -Raw
-    $selfhostSrc = $selfhostSrc -replace 'selfhost\\\\axiomc_v10\.ax', "examples\\\\$ex"
+    $selfhostSrc = Get-Content "selfhost\xiomc_v10.ax" -Raw
+    $selfhostSrc = $selfhostSrc -replace 'selfhost\\\\xiomc_v10\.ax', "examples\\\\$ex"
     $stem = $ex.Replace('.ax', '')
     $tempFile = "selfhost\test_temp_$stem.ax"
     Set-Content -Path $tempFile -Value $selfhostSrc
 
     Write-Host "." -NoNewline
     # Compile the test variant
-    $compile = cargo run -p axiomc -- -o "test_temp_$stem.exe" $tempFile 2>&1
+    $compile = cargo run -p xiomc -- -o "test_temp_$stem.exe" $tempFile 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host " FAIL (compile)" -ForegroundColor Red
         $fail++
