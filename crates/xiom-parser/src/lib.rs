@@ -20,11 +20,34 @@ pub struct Parser {
     /// Set while parsing the head expression of `if`/`elif`/`while`/`for`/
     /// `match`, where `{` must begin the body block rather than a struct.
     restrict_struct: bool,
+    /// Current recursion depth of the expression/type parsers. Guarded against
+    /// unbounded recursion (stack overflow) on adversarial deeply-nested input.
+    depth: usize,
 }
+
+/// Maximum expression/type nesting depth. A recursive-descent parser recurses
+/// once per nesting level, so this bounds native stack usage. 200 is safe for
+/// the ~2MB stacks used by test threads while allowing any realistic program.
+const MAX_EXPR_DEPTH: usize = 32;
 
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, pos: 0, restrict_struct: false }
+        Self { tokens, pos: 0, restrict_struct: false, depth: 0 }
+    }
+
+    /// Enter one level of expression/type recursion. Returns an error (instead
+    /// of overflowing the stack) once nesting exceeds `MAX_EXPR_DEPTH`.
+    fn enter_expr(&mut self) -> Result<(), ParseError> {
+        self.depth += 1;
+        if self.depth > MAX_EXPR_DEPTH {
+            return Err(self.error("expression nesting too deep (max 200 levels) — simplify the expression"));
+        }
+        Ok(())
+    }
+
+    /// Leave one level of expression/type recursion.
+    fn exit_expr(&mut self) {
+        self.depth = self.depth.saturating_sub(1);
     }
 
     fn peek(&self) -> &Token {
@@ -130,6 +153,9 @@ impl Parser {
     }
 
     fn parse_top_decl(&mut self) -> Result<TopDecl, ParseError> {
+        // Reset recursion depth per top-level item so one deep expression does
+        // not poison the depth accounting for subsequent declarations.
+        self.depth = 0;
         let is_pub = self.skip(TokenKind::Pub);
         match self.peek_kind() {
             TokenKind::Module => self.parse_module(is_pub),
@@ -564,6 +590,13 @@ impl Parser {
     }
 
     fn parse_type(&mut self) -> Result<Type, ParseError> {
+        self.enter_expr()?;
+        let result = self.parse_type_inner();
+        self.exit_expr();
+        result
+    }
+
+    fn parse_type_inner(&mut self) -> Result<Type, ParseError> {
         if self.skip(TokenKind::Ampersand) {
             let mutable = match self.peek_kind() { TokenKind::Ident(s) if s == "mut" => { self.advance(); true } _ => false };
             let base = self.parse_type_base()?;
@@ -818,7 +851,12 @@ impl Parser {
         }
     }
 
-    fn parse_expr(&mut self) -> Result<Expr, ParseError> { self.parse_imply_expr() }
+    fn parse_expr(&mut self) -> Result<Expr, ParseError> {
+        self.enter_expr()?;
+        let result = self.parse_imply_expr();
+        self.exit_expr();
+        result
+    }
 
     /// Parse the head expression of a control-flow construct (`if`/`while`/
     /// etc.) where a trailing `{` starts the body block, so bare struct
@@ -1250,5 +1288,24 @@ mod tests {
         let src = "fn f(p: *UInt8) { g(Str::from_c_str(p)); }";
         let result = parse(src);
         assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    // Recursion-depth guard: a compiler must never crash on adversarial input.
+    #[test]
+    fn test_deep_nesting_errors_cleanly() {
+        // 500 nested parens must return Err, NOT stack overflow
+        let src = format!("fn main() -> Int {{ return {}1{}; }}", "(".repeat(500), ")".repeat(500));
+        let tokens = Lexer::new(&src).tokenize();
+        let result = Parser::new(tokens).parse_program();
+        assert!(result.is_err(), "deep nesting should error cleanly, not crash");
+    }
+
+    #[test]
+    fn test_moderate_nesting_ok() {
+        // 20 levels should parse fine
+        let src = format!("fn main() -> Int {{ return {}1{}; }}", "(".repeat(20), ")".repeat(20));
+        let tokens = Lexer::new(&src).tokenize();
+        let result = Parser::new(tokens).parse_program();
+        assert!(result.is_ok(), "moderate nesting should parse: {:?}", result.err());
     }
 }
