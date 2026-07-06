@@ -649,11 +649,13 @@ impl Parser {
                 Ok(StmtOrExpr::Stmt(Stmt::Let(name, ty, value, span)))
             }
             TokenKind::Return => { let stmt = self.parse_return_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
+            TokenKind::Break => { let span = self.advance().span; self.skip(TokenKind::Semicolon); Ok(StmtOrExpr::Stmt(Stmt::Break(span))) }
+            TokenKind::Continue => { let span = self.advance().span; self.skip(TokenKind::Semicolon); Ok(StmtOrExpr::Stmt(Stmt::Continue(span))) }
             TokenKind::If => { let stmt = self.parse_if_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::Match => { let stmt = self.parse_match_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::While => { let stmt = self.parse_while_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::For => { let stmt = self.parse_for_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
-            TokenKind::Spawn => { let stmt = self.parse_spawn_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
+            TokenKind::Spawn if self.peek_ahead(1) == Some(&TokenKind::LBrace) => { let stmt = self.parse_spawn_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::Ident(s) if s == "loop" && self.peek_ahead(1) == Some(&TokenKind::LBrace) => {
                 let span = self.advance().span; // consume 'loop'
                 let body = self.parse_block()?;
@@ -703,8 +705,14 @@ impl Parser {
 
     fn parse_return_stmt(&mut self) -> Result<Stmt, ParseError> {
         let span = self.advance().span;
-        let expr = if self.check(|k| matches!(k, TokenKind::Semicolon)) { None } else { Some(self.parse_expr()?) };
-        self.expect_kind(TokenKind::Semicolon, "';'")?;
+        let expr = if self.check(|k| matches!(k, TokenKind::Semicolon | TokenKind::RBrace)) { None } else { Some(self.parse_expr()?) };
+        // The trailing `;` is optional when the return is the final statement of a
+        // block (i.e. immediately followed by `}`), mirroring tail-expression rules.
+        if self.check(|k| matches!(k, TokenKind::RBrace)) {
+            self.skip(TokenKind::Semicolon);
+        } else {
+            self.expect_kind(TokenKind::Semicolon, "';'")?;
+        }
         Ok(Stmt::Return(expr, span))
     }
 
@@ -788,7 +796,13 @@ impl Parser {
                 Ok(inner)
             }
             _ => {
-                let name = self.parse_ident()?;
+                let mut name = self.parse_ident()?;
+                // Qualified enum-variant pattern, e.g. `LogLevel.Trace` or
+                // `JsonValue.String(k)`. Fold the dotted path into a single name.
+                while self.skip(TokenKind::Dot) {
+                    let variant = self.parse_ident()?;
+                    name = Ident::new(format!("{}.{}", name.name, variant.name), name.span);
+                }
                 if self.skip(TokenKind::LParen) {
                     let span = name.span; let mut fields = Vec::new();
                     loop {
@@ -919,7 +933,7 @@ impl Parser {
                     self.advance();
                     if self.check(|k| matches!(k, TokenKind::RParen)) { self.advance(); let span = expr.span(); expr = Expr::Call(Box::new(expr), Vec::new(), span); }
                     else {
-                        let use_named = if let TokenKind::Ident(_) = self.peek_kind() { let saved = self.pos; self.advance(); let is_named = self.peek_kind() == &TokenKind::Colon; self.pos = saved; is_named } else { false };
+                        let use_named = if let TokenKind::Ident(_) = self.peek_kind() { let saved = self.pos; self.advance(); let is_named = self.peek_kind() == &TokenKind::Colon && self.peek_ahead(1) != Some(&TokenKind::Colon); self.pos = saved; is_named } else { false };
                         if use_named {
                             let mut fields = Vec::new();
                             loop { let fname = self.parse_ident()?; self.expect_kind(TokenKind::Colon, "':'")?; let fval = self.parse_expr_open()?; fields.push((fname, fval)); if !self.skip(TokenKind::Comma) && !self.skip(TokenKind::Semicolon) { break; } }
@@ -1000,6 +1014,30 @@ impl Parser {
                     let span = expr.span();
                     expr = Expr::Field(Box::new(expr), method, span);
                 }
+                TokenKind::Lt if matches!(&expr, Expr::Ident(n) if n.name.chars().next().map_or(false, |c| c.is_uppercase())) => {
+                    // Speculative generic type args in expression position, e.g.
+                    // `Vec<FieldInfo>.new()`. Commit only if the matching `>` is
+                    // immediately followed by `.` or `(`; otherwise restore the
+                    // position and let `<` be handled as a comparison operator.
+                    let saved = self.pos;
+                    self.advance(); // consume `<`
+                    let mut depth = 1;
+                    let mut aborted = false;
+                    while depth > 0 {
+                        match self.peek_kind() {
+                            TokenKind::Lt => { depth += 1; self.advance(); }
+                            TokenKind::Gt => { depth -= 1; self.advance(); }
+                            TokenKind::Ident(_) | TokenKind::Comma | TokenKind::Star
+                            | TokenKind::Ampersand | TokenKind::LBracket | TokenKind::RBracket => { self.advance(); }
+                            _ => { aborted = true; break; }
+                        }
+                    }
+                    if !aborted && matches!(self.peek_kind(), TokenKind::Dot | TokenKind::LParen) {
+                        continue; // generic type args discarded; postfix continues
+                    }
+                    self.pos = saved;
+                    break;
+                }
                 _ => break,
             }
         }
@@ -1024,10 +1062,27 @@ impl Parser {
             TokenKind::Comptime => { self.advance(); if matches!(self.peek_kind(), TokenKind::Dot | TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace) { Ok(Expr::Ident(Ident::new("comptime".to_string(), span))) } else { let inner = self.parse_expr()?; Ok(Expr::Comptime(Box::new(inner), span)) } }
             TokenKind::Unsafe => { self.advance(); let block = self.parse_block()?; Ok(Expr::Unsafe(block, span)) }
             TokenKind::If => { self.advance(); let cond = self.parse_cond()?; let then_block = self.parse_block()?; let mut elifs = Vec::new(); while self.skip(TokenKind::Elif) { let econd = self.parse_cond()?; let eblock = self.parse_block()?; elifs.push((econd, eblock)); } let else_block = if self.skip(TokenKind::Else) { Some(self.parse_block()?) } else { None }; Ok(Expr::If(Box::new(cond), then_block, elifs, else_block, span)) }
+            TokenKind::Match => {
+                // `match scrutinee { arms }` in expression position (e.g. `let x = match ...`).
+                // Statement-position `match` is routed to `parse_match_stmt` by
+                // `parse_stmt_or_expr` before reaching here, so both forms coexist.
+                self.advance();
+                let scrutinee = self.parse_cond()?;
+                self.expect_kind(TokenKind::LBrace, "'{'")?;
+                let mut arms = Vec::new();
+                while !self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Eof)) {
+                    arms.push(self.parse_match_arm()?);
+                }
+                self.expect_kind(TokenKind::RBrace, "'}'")?;
+                Ok(Expr::Match(Box::new(scrutinee), arms, span))
+            }
             TokenKind::Fn => { self.advance(); self.expect_kind(TokenKind::LParen, "'('")?; let params = if self.check(|k| matches!(k, TokenKind::RParen)) { self.advance(); Vec::new() } else { let p = self.parse_param_list()?; self.expect_kind(TokenKind::RParen, "')'")?; p }; let ret_ty = if self.skip(TokenKind::Arrow) { Some(Box::new(self.parse_type()?)) } else { None }; let body = self.parse_block()?; Ok(Expr::Closure(params, ret_ty, body, span)) }
             TokenKind::Pipe => { self.advance(); let mut params = Vec::new(); loop { params.push(self.parse_ident()?); if self.skip(TokenKind::Comma) { continue; } if self.skip(TokenKind::Pipe) { break; } return Err(self.error("expected ',' or '|' in closure parameters")); } let body = self.parse_expr()?; Ok(Expr::PipeClosure(params, Box::new(body), span)) }
             TokenKind::LBracket => { self.advance(); if self.check(|k| matches!(k, TokenKind::RBracket)) { self.advance(); return Ok(Expr::Array(Vec::new(), span)); } let first = self.parse_expr_open()?; if self.skip(TokenKind::Comma) { let mut items = vec![first]; if !self.check(|k| matches!(k, TokenKind::RBracket)) { items.push(self.parse_expr_open()?); } while self.skip(TokenKind::Comma) { if self.check(|k| matches!(k, TokenKind::RBracket)) { break; } items.push(self.parse_expr_open()?); } self.expect_kind(TokenKind::RBracket, "']'")?; Ok(Expr::Array(items, span)) } else { self.expect_kind(TokenKind::RBracket, "']'")?; Ok(Expr::Array(vec![first], span)) } }
             TokenKind::Self_ => { let span = self.advance().span; Ok(Expr::Ident(Ident::new("self", span))) }
+            // `spawn` used as a value/callee (e.g. `spawn[T](f)`), not the
+            // `spawn { ... }` statement (which is handled in parse_stmt_or_expr).
+            TokenKind::Spawn => { self.advance(); Ok(Expr::Ident(Ident::new("spawn".to_string(), span))) }
             TokenKind::At => { 
                 let at_span = self.advance().span;
                 let fn_name = self.parse_ident()?;
@@ -1157,4 +1212,43 @@ mod tests {
     // caret/tilde operators
     #[test] fn test_parse_bitwise_xor() { let src = "fn xor(a: Int, b: Int) -> Int { return a ^ b; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
     #[test] fn test_parse_bitwise_not() { let src = "fn not_val(a: Int) -> Int { return ~a; }"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(_)))); }
+
+    // Feature 1: `match` as an expression (e.g. `let x = match ...`)
+    #[test] fn test_match_as_expression() {
+        let src = "fn f(x: Int) -> Int { let y = match x { 1 => 10, _ => 0, }; return y; }";
+        let prog = parse(src).unwrap();
+        match &prog.items[0] {
+            TopDecl::Fn(f) => {
+                let body = f.body.as_ref().unwrap();
+                if let StmtOrExpr::Stmt(Stmt::Let(_, _, Expr::Match(_, arms, _), _)) = &body.stmts[0] {
+                    assert_eq!(arms.len(), 2);
+                } else { panic!("expected let binding a match-expression, got {:?}", body.stmts[0]); }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // Statement-position match must still parse as a statement (no regression).
+    #[test] fn test_match_statement_still_stmt() {
+        let src = "fn f(x: Int) { match x { 1 => print(x), _ => print(0), } }";
+        let prog = parse(src).unwrap();
+        match &prog.items[0] {
+            TopDecl::Fn(f) => { assert!(matches!(&f.body.as_ref().unwrap().stmts[0], StmtOrExpr::Stmt(Stmt::Match(..)))); }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // Feature 2: `return expr` without a trailing `;` immediately before `}`
+    #[test] fn test_return_without_trailing_semicolon() {
+        let src = "type P = { x: Int; } fn f() -> P { return P{ x: 1 } }";
+        let result = parse(src);
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    // Feature 3: `::` scope resolution as a call argument (was misread as a named arg)
+    #[test] fn test_scope_resolution_in_call_arg() {
+        let src = "fn f(p: *UInt8) { g(Str::from_c_str(p)); }";
+        let result = parse(src);
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
 }

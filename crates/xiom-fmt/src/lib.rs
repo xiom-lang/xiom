@@ -271,6 +271,14 @@ impl Formatter {
                 self.format_expr(val);
                 self.buf.push_str(";\n");
             }
+            Stmt::Break(_) => {
+                self.push_indent();
+                self.buf.push_str("break;\n");
+            }
+            Stmt::Continue(_) => {
+                self.push_indent();
+                self.buf.push_str("continue;\n");
+            }
         }
     }
 
@@ -521,6 +529,34 @@ impl Formatter {
             Expr::Unsafe(block, _) => {
                 self.buf.push_str("unsafe ");
                 self.format_block(block);
+            }
+            Expr::Match(scrutinee, arms, _) => {
+                self.buf.push_str("match ");
+                self.format_expr(scrutinee);
+                self.buf.push_str(" {\n");
+                self.indent += 1;
+                for arm in arms {
+                    self.push_indent();
+                    self.format_pattern(&arm.pattern);
+                    self.buf.push_str(" => ");
+                    match &arm.body {
+                        MatchBody::Block(block) => {
+                            self.buf.push_str("{\n");
+                            self.indent += 1;
+                            self.format_block(block);
+                            self.indent -= 1;
+                            self.push_indent();
+                            self.buf.push_str("},\n");
+                        }
+                        MatchBody::Expr(e) => {
+                            self.format_expr(e);
+                            self.buf.push_str(",\n");
+                        }
+                    }
+                }
+                self.indent -= 1;
+                self.push_indent();
+                self.buf.push('}');
             }
         }
     }

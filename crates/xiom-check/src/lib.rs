@@ -1573,12 +1573,22 @@ impl Checker {
                 let val_ty = self.check_expr(value);
                 if let Some(annot) = ty_annot {
                     let annot_ty = CheckedType::from_ast_type(annot);
+                    // An uninitialized let/var defaults to the placeholder `Int(0)`.
+                    // When a type annotation is present the var is zero-initialized to that
+                    // type, so trust the annotation instead of erroring on the placeholder.
+                    let is_placeholder = matches!(value, Expr::Int(0, _));
+                    if is_placeholder {
+                        self.add_local(&name.name, annot_ty);
+                        return;
+                    }
                     if !self.types_compatible(&val_ty, &annot_ty) && val_ty != CheckedType::Error {
                         self.error(
                             format!("type mismatch in let: annotated {}, found {}", annot_ty.name(), val_ty.name()),
                             *span,
                         );
                     }
+                    self.add_local(&name.name, annot_ty);
+                    return;
                 }
                 self.add_local(&name.name, val_ty);
             }
@@ -1586,12 +1596,22 @@ impl Checker {
                 let val_ty = self.check_expr(value);
                 if let Some(annot) = ty_annot {
                     let annot_ty = CheckedType::from_ast_type(annot);
+                    // An uninitialized let/var defaults to the placeholder `Int(0)`.
+                    // When a type annotation is present the var is zero-initialized to that
+                    // type, so trust the annotation instead of erroring on the placeholder.
+                    let is_placeholder = matches!(value, Expr::Int(0, _));
+                    if is_placeholder {
+                        self.add_local(&name.name, annot_ty);
+                        return;
+                    }
                     if !self.types_compatible(&val_ty, &annot_ty) && val_ty != CheckedType::Error {
                         self.error(
                             format!("type mismatch in var: annotated {}, found {}", annot_ty.name(), val_ty.name()),
                             *span,
                         );
                     }
+                    self.add_local(&name.name, annot_ty);
+                    return;
                 }
                 self.add_local(&name.name, val_ty);
             }
@@ -1675,6 +1695,8 @@ impl Checker {
             Stmt::Spawn(body, _) => {
                 self.check_block(body, None);
             }
+            Stmt::Break(_) => {}
+            Stmt::Continue(_) => {}
         }
     }
 
@@ -1882,6 +1904,25 @@ impl Checker {
                                 }
                             }
                             return sig.return_type.unwrap_or(CheckedType::Unit);
+                        }
+                    }
+                    // Primitive types implicitly support the builtin interface methods
+                    // (Ord.compare, Eq.eq/ne, Hash.hash, Clone.clone, comparison ops).
+                    let prim_ty = match &obj_ty {
+                        CheckedType::Named(n) => CheckedType::from_str(n),
+                        other => other.clone(),
+                    };
+                    let is_primitive = prim_ty.is_numeric()
+                        || matches!(prim_ty, CheckedType::Bool | CheckedType::Char | CheckedType::Str);
+                    if is_primitive {
+                        for arg in args {
+                            let _ = self.check_expr(arg);
+                        }
+                        match method.name.as_str() {
+                            "compare" | "hash" => return CheckedType::Int,
+                            "eq" | "ne" | "lt" | "gt" | "le" | "ge" => return CheckedType::Bool,
+                            "clone" => return prim_ty,
+                            _ => {}
                         }
                     }
                     // Fallback: unknown call target
@@ -2153,6 +2194,9 @@ impl Checker {
                     _ if inner_ty == target_ty => target_ty,
                     _ if inner_ty == CheckedType::Error => CheckedType::Error,
                     _ if inner_ty.is_numeric() && target_ty.is_numeric() => target_ty,
+                    // Char is a codepoint: convertible to/from any integer type
+                    _ if inner_ty == CheckedType::Char && target_ty.is_integer() => target_ty,
+                    _ if inner_ty.is_integer() && target_ty == CheckedType::Char => target_ty,
                     _ => self.error(format!("unsupported type cast: {} to {}", inner_ty.name(), target_ty.name()), *span),
                 }
             }
@@ -2168,6 +2212,24 @@ impl Checker {
                 }
                 if let Some(eb) = else_block { self.check_block(eb, None); }
                 CheckedType::Named("_".into())
+            }
+            Expr::Match(scrutinee, arms, _) => {
+                self.check_expr(scrutinee);
+                // The value of a match-expression is the type of its arm bodies.
+                // Return the first arm's body type (or Unit for an empty match).
+                let mut result_ty = CheckedType::Unit;
+                let mut first = true;
+                for arm in arms {
+                    self.push_scope();
+                    self.add_pattern_bindings(&arm.pattern);
+                    let arm_ty = match &arm.body {
+                        MatchBody::Block(b) => self.check_block(b, None).unwrap_or(CheckedType::Unit),
+                        MatchBody::Expr(e) => self.check_expr(e),
+                    };
+                    self.pop_scope();
+                    if first { result_ty = arm_ty; first = false; }
+                }
+                result_ty
             }
         }
     }
@@ -2627,6 +2689,8 @@ impl BorrowChecker {
                 self.check_block(body);
                 self.pop_scope();
             }
+            Stmt::Break(_) => {}
+            Stmt::Continue(_) => {}
         }
     }
 
@@ -2747,6 +2811,22 @@ impl BorrowChecker {
                 self.check_expr(cond);
                 for (econd, _eblock) in elifs {
                     self.check_expr(econd);
+                }
+                ExprResult::Value
+            }
+            Expr::Match(scrutinee, arms, _) => {
+                self.check_expr(scrutinee);
+                for arm in arms {
+                    match &arm.body {
+                        MatchBody::Block(b) => {
+                            self.push_scope();
+                            self.check_block(b);
+                            self.pop_scope();
+                        }
+                        MatchBody::Expr(e) => {
+                            self.check_expr(e);
+                        }
+                    }
                 }
                 ExprResult::Value
             }
