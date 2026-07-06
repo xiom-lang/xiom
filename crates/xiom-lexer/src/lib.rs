@@ -15,6 +15,7 @@ use xiom_ast::Span;
 pub enum TokenKind {
     // --- Keywords ---
     Let, Var, Const, Fn, Return,
+    Break, Continue,
     If, Elif, Else, Match, While, For, In,
     Spawn, Async, Await, Comptime,
     Module, Use, Pub, As,
@@ -381,6 +382,8 @@ impl Lexer {
             "const"     => TokenKind::Const,
             "fn"        => TokenKind::Fn,
             "return"    => TokenKind::Return,
+            "break"     => TokenKind::Break,
+            "continue"  => TokenKind::Continue,
             "if"        => TokenKind::If,
             "elif"      => TokenKind::Elif,
             "else"      => TokenKind::Else,

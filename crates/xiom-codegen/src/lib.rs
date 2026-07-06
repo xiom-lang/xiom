@@ -70,6 +70,9 @@ pub struct IrEmitter {
     result_ptr: Option<String>,
     /// Alloca for match result in expression position
     match_result_ptr: Option<String>,
+    /// LLVM type used when storing an arm body into `match_result_ptr`.
+    /// When `None`, falls back to `current_return_type` (tail-position match).
+    match_result_ty: Option<String>,
     /// Interface registry: interface name → vec of (method_name, param_type_names)
     interfaces: HashMap<String, Vec<(String, Vec<String>)>>,
     /// Enum variants registry: enum name → vec of (variant_name, field_names)
@@ -93,6 +96,8 @@ pub struct IrEmitter {
     current_module: Option<String>,
     /// Maps function pointer parameter names to their LLVM return types
     fn_ptr_return_types: HashMap<String, String>,
+    /// Stack of active loop labels: (continue_label, break_label)
+    loop_stack: Vec<(String, String)>,
 }
 
 impl IrEmitter {
@@ -121,6 +126,7 @@ impl IrEmitter {
             current_ensures: Vec::new(),
             result_ptr: None,
             match_result_ptr: None,
+            match_result_ty: None,
             interfaces: HashMap::new(),
             enum_variants: HashMap::new(),
             scrutinee_info: None,
@@ -131,6 +137,7 @@ impl IrEmitter {
             emitted_fns: HashSet::new(),
             current_module: None,
             fn_ptr_return_types: HashMap::new(),
+            loop_stack: Vec::new(),
         }
     }
 
@@ -193,6 +200,15 @@ impl IrEmitter {
         } else {
             val.to_string()
         }
+    }
+
+    fn is_primitive_type_name(type_name: &str) -> bool {
+        matches!(
+            type_name,
+            "Bool" | "Int" | "Int8" | "Int16" | "Int32" | "Int64"
+                | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
+                | "Float32" | "Float64" | "Char" | "Str"
+        )
     }
 
     fn xiom_to_llvm_type(xiom_ty: &str) -> &'static str {
@@ -1612,6 +1628,17 @@ impl IrEmitter {
                     if let Some(methods) = self.interfaces.get(&bound.name) {
                         for (method_name, _) in methods {
                             let method_key = format!("{}.{}", concrete_type, method_name);
+                            // Primitive types implicitly implement the builtin interface
+                            // methods (Ord.compare, Eq.eq/ne, Hash.hash, Clone.clone,
+                            // comparison ops) via inline codegen — see the primitive
+                            // fast-path in compile_expr's method dispatch.
+                            let is_builtin_method = matches!(
+                                method_name.as_str(),
+                                "compare" | "eq" | "ne" | "lt" | "gt" | "le" | "ge" | "hash" | "clone"
+                            );
+                            if is_builtin_method && Self::is_primitive_type_name(concrete_type) {
+                                continue;
+                            }
                             if !self.functions.contains_key(&method_key) {
                                 return Err(format!(
                                     "type '{}' does not implement '{}': missing method '{}'",
@@ -1962,8 +1989,8 @@ impl IrEmitter {
                 }
                 StmtOrExpr::Expr(expr) => {
                     let result = self.compile_expr(expr)?;
-                    if let Some(ref ptr) = self.match_result_ptr {
-                        let ret_ty = self.current_return_type.clone();
+                    if let Some(ptr) = self.match_result_ptr.clone() {
+                        let ret_ty = self.match_result_ty.clone().unwrap_or_else(|| self.current_return_type.clone());
                         let store_val = self.zero_val_for(&result, &ret_ty);
                         self.emitln(&format!("  store {ret_ty} {store_val}, {ret_ty}* {ptr}"));
                     }
@@ -2413,8 +2440,8 @@ impl IrEmitter {
                         MatchBody::Block(b) => { self.compile_block(b, false)?; }
                         MatchBody::Expr(e) => {
                             let arm_val = self.compile_expr(e)?;
-                            if let Some(ref ptr) = self.match_result_ptr {
-                                let ret_ty = self.current_return_type.clone();
+                            if let Some(ptr) = self.match_result_ptr.clone() {
+                                let ret_ty = self.match_result_ty.clone().unwrap_or_else(|| self.current_return_type.clone());
                                 let store_val = self.zero_val_for(&arm_val, &ret_ty);
                                 self.emitln(&format!("  store {ret_ty} {store_val}, {ret_ty}* {ptr}"));
                             }
@@ -2447,7 +2474,9 @@ impl IrEmitter {
                 };
                 self.emitln(&format!("  br i1 {cond_val}, label %{loop_body}, label %{loop_exit}"));
                 self.emitln(&format!("\n{loop_body}:"));
+                self.loop_stack.push((loop_cond.clone(), loop_exit.clone()));
                 self.compile_block(body, false)?;
+                self.loop_stack.pop();
                 self.emitln(&format!("  br label %{loop_cond}"));
                 self.emitln(&format!("\n{loop_exit}:"));
             }
@@ -2487,6 +2516,20 @@ impl IrEmitter {
             }
             Stmt::Spawn(body, _) => {
                 self.compile_block(body, false)?;
+            }
+            Stmt::Break(_) => {
+                if let Some((_, break_label)) = self.loop_stack.last().cloned() {
+                    self.emitln(&format!("  br label %{break_label}"));
+                    let dead = self.fresh_block("after_break");
+                    self.emitln(&format!("\n{dead}:"));
+                }
+            }
+            Stmt::Continue(_) => {
+                if let Some((cont_label, _)) = self.loop_stack.last().cloned() {
+                    self.emitln(&format!("  br label %{cont_label}"));
+                    let dead = self.fresh_block("after_continue");
+                    self.emitln(&format!("\n{dead}:"));
+                }
             }
         }
         Ok(())
@@ -2957,6 +3000,91 @@ impl IrEmitter {
                             _ => unreachable!(),
                         }
                         return Ok(tmp);
+                    }
+                }
+                // Primitive interface methods (Ord.compare, Eq.eq/ne, comparison ops,
+                // Hash.hash, Clone.clone) are emitted inline for scalar receivers, so
+                // primitives satisfy Ord/Eq/Hash/Clone bounds without a user method.
+                let is_builtin_iface_method = matches!(
+                    fn_name.as_str(),
+                    "compare" | "eq" | "ne" | "lt" | "gt" | "le" | "ge" | "hash" | "clone"
+                );
+                if is_builtin_iface_method {
+                    if let Some(receiver) = receiver_expr {
+                        // Skip static/type-name receivers (e.g. Int.compare(a, b)).
+                        let receiver_is_type_name = matches!(&**receiver, Expr::Ident(id)
+                            if Self::is_primitive_type_name(&id.name)
+                                || self.types.contains_key(&id.name)
+                                || self.type_meta.contains_key(&id.name));
+                        let recv_llvm_ty = self.infer_llvm_type(receiver);
+                        // Only scalar (integer/float) receivers get inline handling;
+                        // structs use derived/user impls, pointers (Str) fall through.
+                        let is_scalar = !receiver_is_type_name
+                            && !recv_llvm_ty.starts_with("%struct.")
+                            && recv_llvm_ty != "i8*"
+                            && recv_llvm_ty != "void";
+                        if is_scalar {
+                            let recv_val = self.compile_expr(receiver)?;
+                            let is_float = recv_llvm_ty == "double" || recv_llvm_ty == "float";
+                            match fn_name.as_str() {
+                                "clone" => return Ok(recv_val),
+                                "hash" => {
+                                    if is_float {
+                                        let bits = if recv_llvm_ty == "double" { "i64" } else { "i32" };
+                                        let cast = self.fresh_tmp();
+                                        self.emitln(&format!("  {cast} = bitcast {recv_llvm_ty} {recv_val} to {bits}"));
+                                        if bits == "i64" {
+                                            return Ok(cast);
+                                        }
+                                        let ext = self.fresh_tmp();
+                                        self.emitln(&format!("  {ext} = sext i32 {cast} to i64"));
+                                        return Ok(ext);
+                                    }
+                                    if recv_llvm_ty == "i64" {
+                                        return Ok(recv_val);
+                                    }
+                                    let ext = self.fresh_tmp();
+                                    self.emitln(&format!("  {ext} = sext {recv_llvm_ty} {recv_val} to i64"));
+                                    return Ok(ext);
+                                }
+                                _ => {}
+                            }
+                            let arg_val = if let Some(a) = args.first() {
+                                self.compile_expr(a)?
+                            } else {
+                                "0".to_string()
+                            };
+                            if fn_name == "compare" {
+                                let (lt_op, gt_op) = if is_float {
+                                    ("fcmp olt", "fcmp ogt")
+                                } else {
+                                    ("icmp slt", "icmp sgt")
+                                };
+                                let lt = self.fresh_tmp();
+                                let gt = self.fresh_tmp();
+                                self.emitln(&format!("  {lt} = {lt_op} {recv_llvm_ty} {recv_val}, {arg_val}"));
+                                self.emitln(&format!("  {gt} = {gt_op} {recv_llvm_ty} {recv_val}, {arg_val}"));
+                                let s1 = self.fresh_tmp();
+                                let res = self.fresh_tmp();
+                                self.emitln(&format!("  {s1} = select i1 {gt}, i64 1, i64 0"));
+                                self.emitln(&format!("  {res} = select i1 {lt}, i64 -1, i64 {s1}"));
+                                return Ok(res);
+                            }
+                            let op = match (fn_name.as_str(), is_float) {
+                                ("eq", false) => "icmp eq",  ("eq", true) => "fcmp oeq",
+                                ("ne", false) => "icmp ne",  ("ne", true) => "fcmp one",
+                                ("lt", false) => "icmp slt", ("lt", true) => "fcmp olt",
+                                ("gt", false) => "icmp sgt", ("gt", true) => "fcmp ogt",
+                                ("le", false) => "icmp sle", ("le", true) => "fcmp ole",
+                                ("ge", false) => "icmp sge", ("ge", true) => "fcmp oge",
+                                _ => unreachable!(),
+                            };
+                            let cmp = self.fresh_tmp();
+                            self.emitln(&format!("  {cmp} = {op} {recv_llvm_ty} {recv_val}, {arg_val}"));
+                            let res = self.fresh_tmp();
+                            self.emitln(&format!("  {res} = zext i1 {cmp} to i64"));
+                            return Ok(res);
+                        }
                     }
                 }
                 // Check for memory allocation/free builtins
@@ -3707,6 +3835,17 @@ impl IrEmitter {
                 }
                 let target_llvm_ty = self.llvm_type_for_fallback(&Self::type_from_ast(ty));
                 let tmp = self.fresh_tmp();
+                // Bit width of an LLVM integer type name, or None if not an integer type.
+                let int_width = |t: &str| -> Option<u32> {
+                    match t {
+                        "i1" => Some(1),
+                        "i8" => Some(8),
+                        "i16" => Some(16),
+                        "i32" => Some(32),
+                        "i64" => Some(64),
+                        _ => None,
+                    }
+                };
                 match (inner_llvm_ty.as_str(), target_llvm_ty.as_str()) {
                     ("i64", "double") => {
                         self.emitln(&format!("  {tmp} = sitofp i64 {val} to double"));
@@ -3715,6 +3854,20 @@ impl IrEmitter {
                     ("double", "i64") => {
                         self.emitln(&format!("  {tmp} = fptosi double {val} to i64"));
                         Ok(tmp)
+                    }
+                    (a, b) if a == b => Ok(val),
+                    // Integer <-> integer width conversions (e.g. Int<->Char, Int<->Int8/16/32).
+                    // Char is i8 and Int is i64, so Int->Char truncs and Char->Int sign-extends.
+                    (a, b) if int_width(a).is_some() && int_width(b).is_some() => {
+                        let aw = int_width(a).unwrap();
+                        let bw = int_width(b).unwrap();
+                        if bw < aw {
+                            self.emitln(&format!("  {tmp} = trunc {a} {val} to {b}"));
+                            Ok(tmp)
+                        } else {
+                            self.emitln(&format!("  {tmp} = sext {a} {val} to {b}"));
+                            Ok(tmp)
+                        }
                     }
                     _ => Ok(val),
                 }
@@ -3744,7 +3897,45 @@ impl IrEmitter {
                 }
                 Ok(String::new())
             }
+            Expr::Match(scrutinee, arms, span) => {
+                // Compile a match-expression by allocating a result slot, running the
+                // statement-form match (whose arm bodies store their value into
+                // `match_result_ptr`), then loading the slot as this expression's value.
+                // TODO(match-expr-typing): the result LLVM type is inferred from the
+                // first arm's tail expression. Arms whose value depends on
+                // pattern-bound variables (e.g. enum payloads) may infer an
+                // imprecise type; heterogeneous arm types are not yet unified.
+                let result_ty = self.infer_match_llvm_type(arms);
+                let result_alloca = self.fresh_tmp();
+                self.emitln(&format!("  {result_alloca} = alloca {result_ty}"));
+                let saved_ptr = self.match_result_ptr.take();
+                let saved_ty = self.match_result_ty.take();
+                self.match_result_ptr = Some(result_alloca.clone());
+                self.match_result_ty = Some(result_ty.clone());
+                let stmt = Stmt::Match((**scrutinee).clone(), arms.clone(), *span);
+                self.compile_stmt(&stmt)?;
+                self.match_result_ptr = saved_ptr;
+                self.match_result_ty = saved_ty;
+                let loaded = self.fresh_tmp();
+                self.emitln(&format!("  {loaded} = load {result_ty}, {result_ty}* {result_alloca}"));
+                Ok(loaded)
+            }
         }
+    }
+
+    /// Infer the LLVM result type of a match-expression from its arm bodies.
+    /// Uses the first arm that yields a tail expression; defaults to `i64`.
+    fn infer_match_llvm_type(&self, arms: &[MatchArm]) -> String {
+        for arm in arms {
+            let ty = match &arm.body {
+                MatchBody::Expr(e) => self.infer_llvm_type(e),
+                MatchBody::Block(b) => b.stmts.last().and_then(|s| {
+                    if let StmtOrExpr::Expr(e) = s { Some(self.infer_llvm_type(e)) } else { None }
+                }).unwrap_or_default(),
+            };
+            if !ty.is_empty() { return ty; }
+        }
+        "i64".to_string()
     }
 
     fn infer_struct_type_name(&self, expr: &Expr) -> Option<String> {
@@ -3951,6 +4142,7 @@ impl IrEmitter {
                     .unwrap_or_else(|| "i64".to_string());
                 if then_ty == "double" || else_ty == "double" { "double".to_string() } else { "i64".to_string() }
             }
+            Expr::Match(_scrutinee, arms, _) => self.infer_match_llvm_type(arms),
             _ => "i64".to_string(),
         }
     }

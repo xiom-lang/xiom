@@ -162,6 +162,8 @@ pub enum Expr {
     Tuple(Vec<Expr>, Span),
     /// `if cond { then } else { else }` — if-expression
     If(Box<Expr>, Block, Vec<(Expr, Block)>, Option<Block>, Span),
+    /// `match expr { arms }` as an expression
+    Match(Box<Expr>, Vec<MatchArm>, Span),
     /// `unsafe { ... }` block
     Unsafe(Block, Span),
 }
@@ -177,6 +179,7 @@ impl Expr {
             Expr::Some(_, s) | Expr::None(s) | Expr::Ok(_, s) | Expr::Err(_, s) => *s,
             Expr::Struct(_, _, _, s) | Expr::Array(_, s) | Expr::Closure(_, _, _, s) | Expr::PipeClosure(_, _, s) => *s,
             Expr::Await(_, s) | Expr::Comptime(_, s) | Expr::As(_, _, s) | Expr::Tuple(_, s) | Expr::If(_, _, _, _, s) | Expr::Unsafe(_, s) => *s,
+            Expr::Match(_, _, s) => *s,
         }
     }
 }
@@ -284,6 +287,10 @@ pub enum Stmt {
     Spawn(Block, Span),
     /// `var (a, b) = expr;` / `let (a, b) = expr;`
     Destructure(Vec<Ident>, Expr, Span),
+    /// `break;`
+    Break(Span),
+    /// `continue;`
+    Continue(Span),
 }
 
 #[derive(Debug, Clone, PartialEq)]
