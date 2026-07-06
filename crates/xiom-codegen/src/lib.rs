@@ -553,6 +553,17 @@ impl IrEmitter {
         self.emitln("declare void @xiom_fn_emit_all()");
         self.emitln("");
 
+        // Additive metadata emission: RTTI for the `reflect` stdlib module and a
+        // contract table for the `contracts` stdlib module. This is a NEW,
+        // self-contained step appended alongside the runtime `declare`s above.
+        // It NEVER alters any existing lowering path — it only reads
+        // already-registered type metadata (`self.type_meta` / `self.enum_variants`)
+        // and the program AST (function contract clauses), then emits new globals
+        // and `@xiom_*` function definitions. Emission is gated on the presence of
+        // the matching `extern "C"` declarations (added only in reflect.xi /
+        // contracts.xi), so every other program is byte-for-byte unaffected.
+        self.emit_metadata_tables(program);
+
         // Emit derive implementations for types with derive clauses
         self.compile_derive_impls(&program.items)?;
 
@@ -576,6 +587,351 @@ impl IrEmitter {
         }
 
         Ok(self.output.clone())
+    }
+
+    // ========================================================================
+    // Additive metadata tables (RTTI + contracts)
+    //
+    // Everything below is a NEW emission surface for the `reflect` and
+    // `contracts` stdlib modules. It is strictly ADDITIVE:
+    //   * it only READS already-registered state (`type_meta`, `enum_variants`)
+    //     and the program AST,
+    //   * it only WRITES new globals, new `@xiom_*` function definitions, and
+    //     new entries into `self.functions` (never overwriting existing keys),
+    //   * it is gated so it emits nothing unless the program actually declares
+    //     the corresponding `extern "C"` accessors (only reflect.xi /
+    //     contracts.xi do), keeping all other programs identical.
+    // ========================================================================
+
+    /// Returns true if any `extern "C"` block in `items` (recursively through
+    /// modules) declares a function named `name`.
+    fn program_declares_extern(items: &[TopDecl], name: &str) -> bool {
+        for item in items {
+            match item {
+                TopDecl::Extern(eb) => {
+                    if eb.functions.iter().any(|f| f.name.name == name) {
+                        return true;
+                    }
+                }
+                TopDecl::Module(md) => {
+                    if Self::program_declares_extern(&md.items, name) {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// Recursively collect `(name, requires_count, ensures_count)` for every
+    /// function that carries at least one pre/postcondition, in source order.
+    fn collect_contract_fns(items: &[TopDecl], out: &mut Vec<(String, usize, usize)>) {
+        for item in items {
+            match item {
+                TopDecl::Fn(fd) => {
+                    if !fd.contracts.is_empty() {
+                        let mut pre = 0usize;
+                        let mut post = 0usize;
+                        for c in &fd.contracts {
+                            match c {
+                                ContractClause::Requires(_, _) => pre += 1,
+                                ContractClause::Ensures(_, _) => post += 1,
+                            }
+                        }
+                        let name = if let Some(recv) = &fd.receiver {
+                            format!("{}.{}", recv.name, fd.name.name)
+                        } else {
+                            fd.name.name.clone()
+                        };
+                        out.push((name, pre, post));
+                    }
+                }
+                TopDecl::Module(md) => {
+                    Self::collect_contract_fns(&md.items, out);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Escape a Rust string for embedding in an LLVM `c"..."` byte string,
+    /// matching the convention already used for contract/display strings.
+    fn escape_ir_string(s: &str) -> String {
+        s.replace('\\', "\\\\").replace('"', "\\22")
+    }
+
+    /// Emit the additive RTTI + contract metadata tables and their fixed-ABI
+    /// accessor functions. See the section header above for the additivity
+    /// guarantees. Does nothing unless the program declares the accessors.
+    fn emit_metadata_tables(&mut self, program: &Program) {
+        let want_reflect = Self::program_declares_extern(&program.items, "xiom_type_count");
+        let want_contracts = Self::program_declares_extern(&program.items, "xiom_contract_fn_count");
+        if !want_reflect && !want_contracts {
+            return;
+        }
+        self.emitln("; ---- XIOM additive metadata (RTTI / contracts) ----");
+        // Shared C-runtime dependency for name lookups (identical duplicate
+        // declares are legal in LLVM; this is only emitted in gated programs).
+        self.emitln("declare i32 @strcmp(i8*, i8*)");
+        if want_reflect {
+            self.emit_rtti_table();
+        }
+        if want_contracts {
+            self.emit_contract_table(program);
+        }
+        self.emitln("");
+    }
+
+    /// PART A — read-only RTTI table + accessors for `reflect`.
+    fn emit_rtti_table(&mut self) {
+        // Collect user types in a deterministic (sorted) order, excluding the
+        // compiler's builtin/synthetic types. The type id is the index here.
+        let mut names: Vec<String> = self
+            .type_meta
+            .keys()
+            .filter(|n| {
+                let n = n.as_str();
+                n != "Option" && n != "Result" && n != "Vec" && n != "Tuple" && !n.starts_with("Tuple_")
+            })
+            .cloned()
+            .collect();
+        names.sort();
+        let n = names.len();
+        // Field counts: 0 for enums, otherwise the number of fields.
+        let field_counts: Vec<usize> = names
+            .iter()
+            .map(|name| {
+                if self.enum_variants.contains_key(name) {
+                    0
+                } else {
+                    self.type_meta.get(name).map(|m| m.fields.len()).unwrap_or(0)
+                }
+            })
+            .collect();
+
+        // Per-type name string constants.
+        for (i, name) in names.iter().enumerate() {
+            let escaped = Self::escape_ir_string(name);
+            self.emitln(&format!(
+                "@.xiom_rtti_name_{i} = private unnamed_addr constant [{len} x i8] c\"{escaped}\\00\"",
+                len = name.len() + 1
+            ));
+        }
+        // Fallback name for out-of-range ids.
+        self.emitln("@.xiom_rtti_unknown = private unnamed_addr constant [8 x i8] c\"unknown\\00\"");
+
+        // Parallel arrays of name pointers and field counts.
+        if n == 0 {
+            self.emitln("@.xiom_rtti_names = private unnamed_addr constant [0 x i8*] zeroinitializer");
+            self.emitln("@.xiom_rtti_field_counts = private unnamed_addr constant [0 x i64] zeroinitializer");
+        } else {
+            let name_elems: Vec<String> = names
+                .iter()
+                .enumerate()
+                .map(|(i, name)| {
+                    format!(
+                        "i8* getelementptr inbounds ([{len} x i8], [{len} x i8]* @.xiom_rtti_name_{i}, i64 0, i64 0)",
+                        len = name.len() + 1
+                    )
+                })
+                .collect();
+            self.emitln(&format!(
+                "@.xiom_rtti_names = private unnamed_addr constant [{n} x i8*] [{}]",
+                name_elems.join(", ")
+            ));
+            let fc_elems: Vec<String> = field_counts.iter().map(|c| format!("i64 {c}")).collect();
+            self.emitln(&format!(
+                "@.xiom_rtti_field_counts = private unnamed_addr constant [{n} x i64] [{}]",
+                fc_elems.join(", ")
+            ));
+        }
+
+        // i64 @xiom_type_count()
+        self.functions.insert("xiom_type_count".to_string(), (vec![], "i64".to_string()));
+        self.emitln("define i64 @xiom_type_count() {");
+        self.emitln("entry:");
+        self.emitln(&format!("  ret i64 {n}"));
+        self.emitln("}\n");
+
+        // i8* @xiom_type_name(i64 %id) — name or "unknown" if out of range.
+        self.functions
+            .insert("xiom_type_name".to_string(), (vec!["i64".to_string()], "i8*".to_string()));
+        self.emitln("define i8* @xiom_type_name(i64 %id) {");
+        self.emitln("entry:");
+        self.emitln("  %lo = icmp slt i64 %id, 0");
+        self.emitln(&format!("  %hi = icmp sge i64 %id, {n}"));
+        self.emitln("  %oob = or i1 %lo, %hi");
+        self.emitln("  br i1 %oob, label %oob_bb, label %ok_bb");
+        self.emitln("oob_bb:");
+        self.emitln("  %u = getelementptr [8 x i8], [8 x i8]* @.xiom_rtti_unknown, i64 0, i64 0");
+        self.emitln("  ret i8* %u");
+        self.emitln("ok_bb:");
+        self.emitln(&format!(
+            "  %p = getelementptr [{n} x i8*], [{n} x i8*]* @.xiom_rtti_names, i64 0, i64 %id"
+        ));
+        self.emitln("  %v = load i8*, i8** %p");
+        self.emitln("  ret i8* %v");
+        self.emitln("}\n");
+
+        // i64 @xiom_type_field_count(i64 %id) — 0 if out of range.
+        self.functions
+            .insert("xiom_type_field_count".to_string(), (vec!["i64".to_string()], "i64".to_string()));
+        self.emitln("define i64 @xiom_type_field_count(i64 %id) {");
+        self.emitln("entry:");
+        self.emitln("  %lo = icmp slt i64 %id, 0");
+        self.emitln(&format!("  %hi = icmp sge i64 %id, {n}"));
+        self.emitln("  %oob = or i1 %lo, %hi");
+        self.emitln("  br i1 %oob, label %oob_bb, label %ok_bb");
+        self.emitln("oob_bb:");
+        self.emitln("  ret i64 0");
+        self.emitln("ok_bb:");
+        self.emitln(&format!(
+            "  %p = getelementptr [{n} x i64], [{n} x i64]* @.xiom_rtti_field_counts, i64 0, i64 %id"
+        ));
+        self.emitln("  %v = load i64, i64* %p");
+        self.emitln("  ret i64 %v");
+        self.emitln("}\n");
+
+        // i64 @xiom_type_id_by_name(i8* %name) — linear search, -1 if absent.
+        self.functions
+            .insert("xiom_type_id_by_name".to_string(), (vec!["i8*".to_string()], "i64".to_string()));
+        self.emitln("define i64 @xiom_type_id_by_name(i8* %name) {");
+        self.emitln("entry:");
+        self.emitln("  br label %loop");
+        self.emitln("loop:");
+        self.emitln("  %i = phi i64 [ 0, %entry ], [ %inext, %cont ]");
+        self.emitln(&format!("  %done = icmp sge i64 %i, {n}"));
+        self.emitln("  br i1 %done, label %notfound, label %body");
+        self.emitln("body:");
+        self.emitln(&format!(
+            "  %np = getelementptr [{n} x i8*], [{n} x i8*]* @.xiom_rtti_names, i64 0, i64 %i"
+        ));
+        self.emitln("  %ns = load i8*, i8** %np");
+        self.emitln("  %c = call i32 @strcmp(i8* %name, i8* %ns)");
+        self.emitln("  %eq = icmp eq i32 %c, 0");
+        self.emitln("  br i1 %eq, label %found, label %cont");
+        self.emitln("cont:");
+        self.emitln("  %inext = add i64 %i, 1");
+        self.emitln("  br label %loop");
+        self.emitln("found:");
+        self.emitln("  ret i64 %i");
+        self.emitln("notfound:");
+        self.emitln("  ret i64 -1");
+        self.emitln("}\n");
+    }
+
+    /// PART B — read-only contract metadata table + accessors for `contracts`.
+    fn emit_contract_table(&mut self, program: &Program) {
+        let mut entries: Vec<(String, usize, usize)> = Vec::new();
+        Self::collect_contract_fns(&program.items, &mut entries);
+        let m = entries.len();
+
+        for (i, (name, _, _)) in entries.iter().enumerate() {
+            let escaped = Self::escape_ir_string(name);
+            self.emitln(&format!(
+                "@.xiom_contract_name_{i} = private unnamed_addr constant [{len} x i8] c\"{escaped}\\00\"",
+                len = name.len() + 1
+            ));
+        }
+        self.emitln("@.xiom_contract_unknown = private unnamed_addr constant [8 x i8] c\"unknown\\00\"");
+
+        if m == 0 {
+            self.emitln("@.xiom_contract_names = private unnamed_addr constant [0 x i8*] zeroinitializer");
+            self.emitln("@.xiom_contract_pre = private unnamed_addr constant [0 x i64] zeroinitializer");
+            self.emitln("@.xiom_contract_post = private unnamed_addr constant [0 x i64] zeroinitializer");
+        } else {
+            let name_elems: Vec<String> = entries
+                .iter()
+                .enumerate()
+                .map(|(i, (name, _, _))| {
+                    format!(
+                        "i8* getelementptr inbounds ([{len} x i8], [{len} x i8]* @.xiom_contract_name_{i}, i64 0, i64 0)",
+                        len = name.len() + 1
+                    )
+                })
+                .collect();
+            self.emitln(&format!(
+                "@.xiom_contract_names = private unnamed_addr constant [{m} x i8*] [{}]",
+                name_elems.join(", ")
+            ));
+            let pre_elems: Vec<String> = entries.iter().map(|(_, pre, _)| format!("i64 {pre}")).collect();
+            self.emitln(&format!(
+                "@.xiom_contract_pre = private unnamed_addr constant [{m} x i64] [{}]",
+                pre_elems.join(", ")
+            ));
+            let post_elems: Vec<String> = entries.iter().map(|(_, _, post)| format!("i64 {post}")).collect();
+            self.emitln(&format!(
+                "@.xiom_contract_post = private unnamed_addr constant [{m} x i64] [{}]",
+                post_elems.join(", ")
+            ));
+        }
+
+        // i64 @xiom_contract_fn_count()
+        self.functions
+            .insert("xiom_contract_fn_count".to_string(), (vec![], "i64".to_string()));
+        self.emitln("define i64 @xiom_contract_fn_count() {");
+        self.emitln("entry:");
+        self.emitln(&format!("  ret i64 {m}"));
+        self.emitln("}\n");
+
+        // i8* @xiom_contract_fn_name(i64 %idx)
+        self.functions
+            .insert("xiom_contract_fn_name".to_string(), (vec!["i64".to_string()], "i8*".to_string()));
+        self.emitln("define i8* @xiom_contract_fn_name(i64 %idx) {");
+        self.emitln("entry:");
+        self.emitln("  %lo = icmp slt i64 %idx, 0");
+        self.emitln(&format!("  %hi = icmp sge i64 %idx, {m}"));
+        self.emitln("  %oob = or i1 %lo, %hi");
+        self.emitln("  br i1 %oob, label %oob_bb, label %ok_bb");
+        self.emitln("oob_bb:");
+        self.emitln("  %u = getelementptr [8 x i8], [8 x i8]* @.xiom_contract_unknown, i64 0, i64 0");
+        self.emitln("  ret i8* %u");
+        self.emitln("ok_bb:");
+        self.emitln(&format!(
+            "  %p = getelementptr [{m} x i8*], [{m} x i8*]* @.xiom_contract_names, i64 0, i64 %idx"
+        ));
+        self.emitln("  %v = load i8*, i8** %p");
+        self.emitln("  ret i8* %v");
+        self.emitln("}\n");
+
+        // i64 @xiom_contract_pre_count(i64 %idx)
+        self.functions
+            .insert("xiom_contract_pre_count".to_string(), (vec!["i64".to_string()], "i64".to_string()));
+        self.emitln("define i64 @xiom_contract_pre_count(i64 %idx) {");
+        self.emitln("entry:");
+        self.emitln("  %lo = icmp slt i64 %idx, 0");
+        self.emitln(&format!("  %hi = icmp sge i64 %idx, {m}"));
+        self.emitln("  %oob = or i1 %lo, %hi");
+        self.emitln("  br i1 %oob, label %oob_bb, label %ok_bb");
+        self.emitln("oob_bb:");
+        self.emitln("  ret i64 0");
+        self.emitln("ok_bb:");
+        self.emitln(&format!(
+            "  %p = getelementptr [{m} x i64], [{m} x i64]* @.xiom_contract_pre, i64 0, i64 %idx"
+        ));
+        self.emitln("  %v = load i64, i64* %p");
+        self.emitln("  ret i64 %v");
+        self.emitln("}\n");
+
+        // i64 @xiom_contract_post_count(i64 %idx)
+        self.functions
+            .insert("xiom_contract_post_count".to_string(), (vec!["i64".to_string()], "i64".to_string()));
+        self.emitln("define i64 @xiom_contract_post_count(i64 %idx) {");
+        self.emitln("entry:");
+        self.emitln("  %lo = icmp slt i64 %idx, 0");
+        self.emitln(&format!("  %hi = icmp sge i64 %idx, {m}"));
+        self.emitln("  %oob = or i1 %lo, %hi");
+        self.emitln("  br i1 %oob, label %oob_bb, label %ok_bb");
+        self.emitln("oob_bb:");
+        self.emitln("  ret i64 0");
+        self.emitln("ok_bb:");
+        self.emitln(&format!(
+            "  %p = getelementptr [{m} x i64], [{m} x i64]* @.xiom_contract_post, i64 0, i64 %idx"
+        ));
+        self.emitln("  %v = load i64, i64* %p");
+        self.emitln("  ret i64 %v");
+        self.emitln("}\n");
     }
 
      fn register_type_layout(&mut self, item: &TopDecl) {

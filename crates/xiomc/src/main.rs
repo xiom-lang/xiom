@@ -176,6 +176,14 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
     if examples_root.is_dir() {
         checker.add_source_dir(examples_root.to_string_lossy().to_string());
     }
+    // Register the standard library search path so `use xiom.*` resolves for ANY
+    // compiled program, regardless of where it lives. These dirs are APPENDED
+    // after the file-relative and examples dirs (add_source_dir dedupes), so they
+    // never shadow the program's own modules — the checker searches source_dirs
+    // in order, so local modules still win.
+    for stdlib_dir in find_stdlib_dirs() {
+        checker.add_source_dir(stdlib_dir);
+    }
     checker.build_catalog_index();
     let is_multi_file = source_paths.len() > 1 || checker.source_dirs.len() > 0;
     if let Err(errors) = checker.check_program(&program) {
@@ -397,8 +405,19 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
                 }
             }
             if target != Target::Wasm {
-                if let Some(rt) = find_runtime_c() {
-                    cmd.arg(&rt);
+                // Link EVERY C runtime source in stdlib/runtime/ (xiom_runtime.c,
+                // simd_runtime.c, and any future runtime C file). This ensures stdlib
+                // modules that reference xiom_simd_* / xiom_alloc resolve at link time.
+                let runtime_c_files = find_runtime_c_files();
+                if runtime_c_files.is_empty() {
+                    // Fallback to the single-file lookup for unusual layouts.
+                    if let Some(rt) = find_runtime_c() {
+                        cmd.arg(&rt);
+                    }
+                } else {
+                    for rt in &runtime_c_files {
+                        cmd.arg(rt);
+                    }
                 }
             }
             cmd.args(["-o", output, &ir_path]);
@@ -740,6 +759,126 @@ fn find_runtime_c() -> Option<String> {
         }
     }
     None
+}
+
+/// Locate the `stdlib/runtime` directory and return EVERY `*.c` file inside it,
+/// sorted for a deterministic link order. Reuses the same search roots as
+/// `find_runtime_c` (CWD-relative `stdlib/runtime`, and exe-relative layouts) so
+/// behavior stays consistent. Only files directly inside `stdlib/runtime/` are
+/// returned — nothing outside that directory is ever linked (so ecosystem C files
+/// such as ffi_bridge.c are excluded).
+fn find_runtime_c_files() -> Vec<String> {
+    // Candidate directories that may hold the runtime C sources.
+    let mut dir_candidates: Vec<String> = vec![
+        "stdlib\\runtime".to_string(),
+        "stdlib/runtime".to_string(),
+    ];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            if let Some(parent) = exe_dir.parent() {
+                dir_candidates.push(format!("{}/runtime", parent.display()));
+                dir_candidates.push(format!("{}\\runtime", parent.display()));
+            }
+        }
+    }
+
+    for dir in &dir_candidates {
+        let dir_path = std::path::Path::new(dir);
+        if !dir_path.is_dir() {
+            continue;
+        }
+        let mut c_files: Vec<String> = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(dir_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file()
+                    && path.extension().and_then(|e| e.to_str()) == Some("c")
+                {
+                    c_files.push(path.to_string_lossy().to_string());
+                }
+            }
+        }
+        if !c_files.is_empty() {
+            c_files.sort();
+            return c_files;
+        }
+    }
+    Vec::new()
+}
+
+/// Discover the XIOM standard library search paths so `use xiom.*` resolves for
+/// ANY compiled program (not just programs physically located inside stdlib/).
+/// Resolution order for the stdlib root:
+///   (a) env var `XIOM_STDLIB` (if set and it exists),
+///   (b) relative to the compiler exe — walk up from `current_exe()` to a `stdlib` dir,
+///   (c) `stdlib` relative to the current working directory,
+///   (d) `../../stdlib` relative to this crate's `CARGO_MANIFEST_DIR` (repo root).
+/// For each existing root, BOTH the root and its `xiom/` subdir are returned (the
+/// catalog indexes module headers, so exposing the parent of `xiom/` lets
+/// `use xiom.io` resolve). Fully robust: returns an empty vec if nothing exists,
+/// never panics and never spams stderr.
+fn find_stdlib_dirs() -> Vec<String> {
+    // Collect candidate stdlib ROOT directories in priority order.
+    let mut roots: Vec<std::path::PathBuf> = Vec::new();
+
+    // (a) Explicit override via environment variable.
+    if let Ok(env_dir) = std::env::var("XIOM_STDLIB") {
+        if !env_dir.trim().is_empty() {
+            roots.push(std::path::PathBuf::from(env_dir));
+        }
+    }
+
+    // (b) Relative to the compiler executable: walk up from the exe dir looking
+    //     for a `stdlib` directory (handles installed layouts + target/debug).
+    if let Ok(exe) = std::env::current_exe() {
+        let mut cur = exe.parent();
+        let mut hops = 0;
+        while let Some(dir) = cur {
+            let candidate = dir.join("stdlib");
+            if candidate.is_dir() {
+                roots.push(candidate);
+                break;
+            }
+            hops += 1;
+            if hops > 8 {
+                break;
+            }
+            cur = dir.parent();
+        }
+    }
+
+    // (c) Relative to the current working directory.
+    roots.push(std::path::PathBuf::from("stdlib"));
+
+    // (d) Relative to this crate's manifest dir (repo-root/stdlib).
+    if let Some(repo_stdlib) = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|repo| repo.join("stdlib"))
+    {
+        roots.push(repo_stdlib);
+    }
+
+    // Build the deduped list of existing source dirs: each stdlib root plus its
+    // `xiom/` subdir when present.
+    let mut dirs: Vec<String> = Vec::new();
+    for root in roots {
+        if !root.is_dir() {
+            continue;
+        }
+        let root_str = root.to_string_lossy().to_string();
+        if !dirs.contains(&root_str) {
+            dirs.push(root_str);
+        }
+        let xiom_sub = root.join("xiom");
+        if xiom_sub.is_dir() {
+            let sub_str = xiom_sub.to_string_lossy().to_string();
+            if !dirs.contains(&sub_str) {
+                dirs.push(sub_str);
+            }
+        }
+    }
+    dirs
 }
 
 fn get_process_memory_bytes() -> Option<u64> {
