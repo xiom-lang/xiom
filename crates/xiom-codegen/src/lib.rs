@@ -503,7 +503,7 @@ impl IrEmitter {
 
     fn register_type_layout_impl(&mut self, item: &TopDecl, prefix: &str) {
         if let TopDecl::Type(td) = item {
-            if td.fields.is_empty() { return; }
+            if td.fields.is_empty() && td.alias.is_some() { return; }
             let fields: Vec<String> = td.fields.iter()
                 .map(|f| f.name.name.clone())
                 .collect();
@@ -2241,6 +2241,9 @@ impl IrEmitter {
                             wildcard_idx = Some(i);
                         }
                         Pattern::Wildcard(_) => { wildcard_idx = Some(i); }
+                        // TODO(or-patterns): compile each alternative of `Pattern::Or`.
+                        // Currently treated as a non-branching arm (same as the
+                        // existing handling for Some/Ok/Err/None patterns here).
                         _ => {}
                     }
                 }
@@ -2652,6 +2655,8 @@ impl IrEmitter {
                     BinOp::BitXor => ("i64", "xor"),
                     BinOp::BitAnd => ("i64", "and"),
                     BinOp::BitOr => ("i64", "or"),
+                    BinOp::Shl => ("i64", "shl"),
+                    BinOp::Shr => ("i64", "ashr"),
                     BinOp::Eq => (if is_float { "double" } else { "i64" }, if is_float { "fcmp oeq" } else { "icmp eq" }),
                     BinOp::Neq => (if is_float { "double" } else { "i64" }, if is_float { "fcmp one" } else { "icmp ne" }),
                     BinOp::Lt => (if is_float { "double" } else { "i64" }, if is_float { "fcmp olt" } else { "icmp slt" }),
@@ -3927,7 +3932,7 @@ impl IrEmitter {
             Expr::Binary(left, op, right, _) => {
                 match op {
                     BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => "i64".to_string(),
-                    BinOp::And | BinOp::Or | BinOp::BitXor | BinOp::BitAnd | BinOp::BitOr => "i64".to_string(),
+                    BinOp::And | BinOp::Or | BinOp::Shl | BinOp::Shr | BinOp::BitXor | BinOp::BitAnd | BinOp::BitOr => "i64".to_string(),
                     BinOp::Assign => self.infer_llvm_type(right),
                     _ => {
                         if self.is_float_expr(left) || self.is_float_expr(right) { "double".to_string() } else { "i64".to_string() }

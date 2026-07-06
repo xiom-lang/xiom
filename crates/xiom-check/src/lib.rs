@@ -651,14 +651,14 @@ impl Checker {
         }
         // Option with known fields
         let mut opt = HashMap::new();
-        opt.insert("is_some".to_string(), CheckedType::Named("Bool".into()));
-        opt.insert("is_none".to_string(), CheckedType::Named("Bool".into()));
+        opt.insert("is_some".to_string(), CheckedType::Bool);
+        opt.insert("is_none".to_string(), CheckedType::Bool);
         opt.insert("value".to_string(), CheckedType::Int);
         self.types.insert("Option".to_string(), opt);
         // Result with known fields
         let mut res = HashMap::new();
-        res.insert("is_ok".to_string(), CheckedType::Named("Bool".into()));
-        res.insert("is_err".to_string(), CheckedType::Named("Bool".into()));
+        res.insert("is_ok".to_string(), CheckedType::Bool);
+        res.insert("is_err".to_string(), CheckedType::Bool);
         res.insert("value".to_string(), CheckedType::Int);
         res.insert("error".to_string(), CheckedType::Int);
         self.types.insert("Result".to_string(), res);
@@ -770,6 +770,11 @@ impl Checker {
             }
             Pattern::Some(inner, _) => {
                 self.add_pattern_bindings(inner);
+            }
+            Pattern::Or(alts, _) => {
+                for alt in alts {
+                    self.add_pattern_bindings(alt);
+                }
             }
             Pattern::Wildcard(_) | Pattern::None(_) | Pattern::Lit(_) => {}
         }
@@ -1012,6 +1017,18 @@ impl Checker {
                 let new_path = if module_path.is_empty() { md.name.name.clone() } else { format!("{}.{}", module_path, md.name.name) };
                 for item in &md.items {
                     self.register_fn_signature_inner(item, &new_path);
+                }
+            }
+            TopDecl::Extern(eb) => {
+                for func in &eb.functions {
+                    let params: Vec<_> = func.params.iter()
+                        .map(|p| (p.name.name.clone(), CheckedType::from_ast_type(&p.ty)))
+                        .collect();
+                    let return_type = func.return_type.as_ref().map(|t| CheckedType::from_ast_type(t));
+                    let generics = func.generics.iter().map(|g| g.name.name.clone()).collect();
+                    let sig = FnSig { params, return_type, generics };
+                    self.functions.insert(func.name.name.clone(), sig);
+                    self.visibility.insert(func.name.name.clone(), func.is_pub);
                 }
             }
             _ => {}
@@ -1670,6 +1687,8 @@ impl Checker {
             Expr::Ident(ident) => {
                 if ident.name == "_" {
                     CheckedType::Int // wildcard placeholder type
+                } else if ident.name == "null" {
+                    CheckedType::Named("Ptr".to_string())
                 } else if let Some(ty) = self.lookup_local(&ident.name) {
                     ty.clone()
                 } else if self.functions.contains_key(&ident.name) {
@@ -1755,6 +1774,7 @@ impl Checker {
                         CheckedType::Bool
                     }
                     BinOp::Assign => right_ty,
+                    BinOp::Shl | BinOp::Shr => left_ty,
                     BinOp::BitXor => left_ty, // bitwise xor preserves integer type
                     BinOp::BitAnd => left_ty, // bitwise and preserves integer type
                     BinOp::BitOr => left_ty, // bitwise or preserves integer type
@@ -2132,6 +2152,7 @@ impl Checker {
                     (CheckedType::Float64, CheckedType::Int) => target_ty,
                     _ if inner_ty == target_ty => target_ty,
                     _ if inner_ty == CheckedType::Error => CheckedType::Error,
+                    _ if inner_ty.is_numeric() && target_ty.is_numeric() => target_ty,
                     _ => self.error(format!("unsupported type cast: {} to {}", inner_ty.name(), target_ty.name()), *span),
                 }
             }
@@ -2152,6 +2173,17 @@ impl Checker {
     }
 
     fn types_compatible(&self, found: &CheckedType, expected: &CheckedType) -> bool {
+        // Normalize Named("Bool") <-> Bool, Named("Int") <-> Int, etc.
+        let norm = |t: &CheckedType| -> CheckedType {
+            match t {
+                CheckedType::Named(n) => CheckedType::from_str(n),
+                other => other.clone(),
+            }
+        };
+        let found_norm = norm(found);
+        let expected_norm = norm(expected);
+        let found = &found_norm;
+        let expected = &expected_norm;
         if found == &CheckedType::Error || expected == &CheckedType::Error {
             return true; // Don't cascade errors
         }
