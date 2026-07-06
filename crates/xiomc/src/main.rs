@@ -52,6 +52,11 @@ fn main() {
 
     let output_file = parse_flag_value(&args, "-o");
 
+    // Collect repeatable FFI/link flags
+    let link_libs = parse_all_flag_values(&args, "--link");
+    let link_paths = parse_all_flag_values(&args, "--link-path");
+    let c_sources = parse_all_flag_values(&args, "--c-source");
+
     let timeout_secs: u64 = parse_flag_value(&args, "--timeout")
         .and_then(|v| v.parse().ok())
         .unwrap_or(60);
@@ -419,11 +424,24 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
                         cmd.arg(rt);
                     }
                 }
+                // Extra C sources / object files from --c-source
+                for cs in &c_sources {
+                    cmd.arg(cs);
+                }
             }
             cmd.args(["-o", output, &ir_path]);
             // Link assembled .obj/.o files for hardware acceleration (native only)
             if target == Target::Native {
                 for obj in &asm_objects { cmd.arg(obj); }
+            }
+            // FFI link flags: -L<dir> before -l<name>
+            if target != Target::Wasm {
+                for lp in &link_paths {
+                    cmd.arg(&format!("-L{lp}"));
+                }
+                for lib in &link_libs {
+                    cmd.arg(&format!("-l{lib}"));
+                }
             }
 
             let clang_output = cmd.output();
@@ -504,7 +522,7 @@ fn resolve_source_files(args: &[String]) -> Vec<String> {
             skip_next = false;
             continue;
         }
-        if matches!(arg.as_str(), "-o" | "--target" | "--verify-output") {
+        if matches!(arg.as_str(), "-o" | "--target" | "--verify-output" | "--link" | "--link-path" | "--c-source") {
             skip_next = true;
             continue;
         }
@@ -701,6 +719,9 @@ fn print_usage() {
     eprintln!("  --verify-output <f> Write SMT-LIB to file");
     eprintln!("  --timeout <seconds>  Set compilation timeout (default: 60)");
     eprintln!("  --max-memory-mb <N>       Set max memory budget in MB (0 = disabled)");
+    eprintln!("  --link <name>             Link a native library (repeatable, e.g. vulkan-1)");
+    eprintln!("  --link-path <dir>         Add a library search path (repeatable, -L<dir>)");
+    eprintln!("  --c-source <file>         Link an extra C/object file (repeatable)");
     eprintln!();
     eprintln!("DEPENDENCIES:");
     eprintln!("  Required: clang (LLVM) — to compile IR to native binary");
@@ -735,6 +756,25 @@ fn parse_target(args: &[String]) -> Target {
 fn parse_flag_value(args: &[String], flag: &str) -> Option<String> {
     let pos = args.iter().position(|a| a == flag)?;
     args.get(pos + 1).cloned()
+}
+
+/// Parse ALL values for a repeatable flag (e.g., `--link vulkan-1 --link glfw3`).
+/// Returns an empty vec if the flag never appears. Prints an error and exits
+/// non-zero if a flag appears without a following value.
+fn parse_all_flag_values(args: &[String], flag: &str) -> Vec<String> {
+    let mut values = Vec::new();
+    for (i, arg) in args.iter().enumerate() {
+        if arg == flag {
+            match args.get(i + 1) {
+                Some(val) if !val.starts_with('-') => values.push(val.clone()),
+                _ => {
+                    eprintln!("error: '{flag}' requires a value");
+                    process::exit(1);
+                }
+            }
+        }
+    }
+    values
 }
 
 fn find_runtime_c() -> Option<String> {

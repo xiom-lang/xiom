@@ -1111,6 +1111,109 @@ fn main() -> Int { var x = -42; return x; }";
     assert!(ir.contains("define"), "negative literal should compile");
 }
 
+// ============================================================================
+// FFI Extern Declare Tests
+// ============================================================================
+
+#[test]
+fn test_extern_declare_user_defined() {
+    let src = r#"
+extern "C" {
+    fn vkFooBar(x: Int32, p: *UInt8) -> Int;
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("declare i64 @vkFooBar(i32, i8*)"),
+        "user-defined extern function should emit correct declare with i32 and i8*");
+}
+
+#[test]
+fn test_extern_declare_hardcoded_not_duplicated() {
+    let src = r#"
+extern "C" {
+    fn malloc(size: Int) -> *UInt8;
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    // Count occurrences: there should be exactly ONE declare for malloc
+    let count = ir.matches("declare i8* @malloc(i64)").count();
+    assert_eq!(count, 1, "malloc must not be declared twice when user extern block declares it");
+}
+
+#[test]
+fn test_extern_declare_multiple_blocks() {
+    let src = r#"
+extern "C" {
+    fn vkFoo(x: Int32) -> Int;
+    fn vkBar(x: Float32) -> Int;
+}
+extern "C" {
+    fn vkBaz(x: Int32) -> Int;
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("declare i64 @vkFoo(i32)"), "vkFoo should be declared");
+    assert!(ir.contains("declare i64 @vkBar(float)"), "vkBar should be declared");
+    assert!(ir.contains("declare i64 @vkBaz(i32)"), "vkBaz should be declared");
+    // Only one declare per name even if it appears in multiple blocks
+    assert!(ir.match_indices("declare i64 @vkBaz(i32)").count() == 1,
+        "vkBaz must not be declared twice");
+}
+
+#[test]
+fn test_extern_declare_void_return() {
+    let src = r#"
+extern "C" {
+    fn vkDestroy(value: Int32);
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("declare void @vkDestroy(i32)"),
+        "void extern should emit declare void");
+}
+
+#[test]
+fn test_extern_declare_in_module() {
+    let src = r#"
+module vulkan {
+    extern "C" {
+        fn vkCreateInstance(p: *UInt8) -> Int;
+    }
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("declare i64 @vkCreateInstance(i8*)"),
+        "extern inside module should still emit global declare (C linkage)");
+}
+
+#[test]
+fn test_extern_call_with_correct_types() {
+    // Verify that calls to extern functions use the declared param types rather
+    // than inferred expression types (e.g., Int32 arg should produce 'i32' not 'i64').
+    let src = r#"
+extern "C" {
+    fn vkFoo(x: Int32, y: Float32) -> Int;
+}
+fn main(x: Int32, y: Float32) -> Int {
+    return vkFoo(x, y);
+}
+"#;
+    let ir = compile(src).unwrap();
+    // The declare should use correct types
+    assert!(ir.contains("declare i64 @vkFoo(i32, float)"),
+        "extern declare should have i32 and float");
+    // The call should also use correct types
+    assert!(ir.contains("call i64 @vkFoo(i32 %"),
+        "call to vkFoo should pass i32 arg, not i64");
+}
+
+// ============================================================================
+
 #[test]
 fn test_match_many_arms_no_panic() {
     let src = "\
