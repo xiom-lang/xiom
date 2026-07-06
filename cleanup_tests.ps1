@@ -1,6 +1,6 @@
 # XIOM Test Artifact Cleanup
 # Cleans up e2e test artifacts from project root
-# Run from: E:\Projects\AXIOM
+## Run from: E:\Projects\AXIOM
 # Usage: .\cleanup_tests.ps1
 
 Write-Host "========================================" -ForegroundColor Cyan

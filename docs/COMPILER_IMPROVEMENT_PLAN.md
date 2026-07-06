@@ -356,7 +356,7 @@ fn divide(a: Float64, b: Float64) -> Float64
 - Heap-allocated data (Vec, Map) requires a memory model — significant complexity
 - Z3 timeout per function (configurable, default 30s)
 
-**Effort:** 3-6 months for initial Z3 integration. Ongoing for covering more theories. The `axiom-verify` crate already generates SMT-LIB — this extends it to compile-time integration.
+**Effort:** 3-6 months for initial Z3 integration. Ongoing for covering more theories. The `xiom-verify` crate already generates SMT-LIB — this extends it to compile-time integration.
 
 #### 3.0B Abstract Interpretation
 
@@ -450,7 +450,7 @@ fn sum_range(lo: Int, hi: Int) -> Int
 
 **Architecture:**
 1. Each module exports a verification interface: its public function signatures + contracts
-2. The verifier treats imported functions as uninterpreted with their contracts as axioms
+2. The verifier treats imported functions as uninterpreted with their contracts as xioms
 3. A change to module A triggers re-verification of A only — B is re-verified only if A's verification interface changed
 
 **Effort:** 2-3 months. Requires contract composition analysis (3.0C) as a foundation.
