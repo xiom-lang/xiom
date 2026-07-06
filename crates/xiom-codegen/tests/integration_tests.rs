@@ -1110,3 +1110,26 @@ fn main() -> Int { var x = -42; return x; }";
     let ir = compile(src).unwrap();
     assert!(ir.contains("define"), "negative literal should compile");
 }
+
+#[test]
+fn test_match_many_arms_no_panic() {
+    let src = "\
+enum Token { A, B(x: Int), C, D(y: Int), E }
+fn classify(t: Token) -> Int {
+    match t {
+        A => 1,
+        B(x) => x,
+        C => 3,
+        D(y) => y,
+        E => 5,
+    }
+}
+fn main() -> Int { return 0; }";
+    // Regression: mixed variant/binding arms previously desynced the two
+    // match-codegen loops and panicked with an out-of-bounds index into
+    // `check_labels`. The compiler must never panic — compile must return a
+    // value (Ok or Err), not unwind.
+    let result = compile(src);
+    assert!(result.is_ok() || result.is_err()); // just must not panic
+}
+

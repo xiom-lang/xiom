@@ -349,6 +349,71 @@ impl IrEmitter {
         "i64".to_string()
     }
 
+    /// Returns `true` if `name` is the name of a variant of the enum currently
+    /// being matched on. Used to decide whether a bare `Pattern::Ident` should
+    /// be compiled as a runtime discriminant check (rather than a variable
+    /// binding / wildcard).
+    fn ident_is_enum_variant(&self, scrutinee_type: &Option<String>, name: &str) -> bool {
+        if let Some(type_name) = scrutinee_type {
+            if let Some(variants) = self.enum_variants.get(type_name) {
+                return variants.iter().any(|(v, _)| v.as_str() == name);
+            }
+        }
+        false
+    }
+
+    /// Single source of truth for "does this match arm need a runtime check
+    /// block?". Both the check-label build loop and the check-block emit loop
+    /// in `Stmt::Match` codegen call this, so they can never disagree about
+    /// which arms consume a `check_labels` slot. A previous inconsistency
+    /// between those loops desynchronized `check_idx` from `check_labels.len()`
+    /// and caused an out-of-bounds panic.
+    fn pattern_needs_check(&self, pattern: &Pattern, scrutinee_type: &Option<String>) -> bool {
+        match pattern {
+            Pattern::Lit(Literal::Int(..)) | Pattern::Lit(Literal::Bool(..)) => true,
+            Pattern::Variant(..) => true,
+            Pattern::Ident(ident) => self.ident_is_enum_variant(scrutinee_type, &ident.name),
+            _ => false,
+        }
+    }
+
+    /// Emits a discriminant comparison for an enum-variant match arm.
+    ///
+    /// Loads field 0 (the discriminant) of the scrutinee struct and branches to
+    /// `arm_label` when it equals the variant's index, otherwise to `next`.
+    /// Falls back to a literal comparison on the raw scrutinee value when no
+    /// struct/alloca information is available. Always emits a terminator so the
+    /// block is well-formed.
+    fn emit_variant_discriminant_check(
+        &mut self,
+        variant_name: &str,
+        scrutinee_alloca_info: &Option<(String, String, String)>,
+        val: &str,
+        arm_label: &str,
+        next: &str,
+    ) {
+        if let Some((alloca, type_name, struct_ty)) = scrutinee_alloca_info {
+            let variant_idx = self
+                .enum_variants
+                .get(type_name)
+                .and_then(|variants| variants.iter().position(|(vn, _)| vn.as_str() == variant_name))
+                .unwrap_or(0);
+            let disc_gep = self.fresh_tmp();
+            let disc_val = self.fresh_tmp();
+            self.emitln(&format!("  {disc_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
+            self.emitln(&format!("  {disc_val} = load i64, i64* {disc_gep}"));
+            let check = self.fresh_tmp();
+            self.emitln(&format!("  {check} = icmp eq i64 {disc_val}, {variant_idx}"));
+            self.emitln(&format!("  br i1 {check}, label %{arm_label}, label %{next}"));
+        } else {
+            // No struct type info: fall back to a literal comparison on `val`.
+            let variant_idx = 0;
+            let check = self.fresh_tmp();
+            self.emitln(&format!("  {check} = icmp eq i64 {val}, {variant_idx}"));
+            self.emitln(&format!("  br i1 {check}, label %{arm_label}, label %{next}"));
+        }
+    }
+
     // ========================================================================
     // Program compilation
     // ========================================================================
@@ -2240,155 +2305,146 @@ impl IrEmitter {
                     scrutinee_alloca_info = Some((alloca, type_name.clone(), struct_ty));
                 }
 
-                // Build check block labels and arm labels
+                // Build check block labels and arm labels.
+                //
+                // The set of arms that receive a runtime check block here MUST
+                // stay in lockstep with the emit loop further below. We record
+                // that decision exactly once per arm in `arm_is_checked` (using
+                // the shared `pattern_needs_check` predicate) so the build and
+                // emit loops can never desynchronize. A prior desync between the
+                // two loops advanced `check_idx` past `check_labels.len()` and
+                // caused an out-of-bounds panic.
                 let mut check_labels: Vec<String> = Vec::new();
                 let mut arm_labels: Vec<String> = Vec::new();
+                let mut arm_is_checked: Vec<bool> = Vec::new();
                 let mut wildcard_idx: Option<usize> = None;
 
                 for (i, arm) in arms.iter().enumerate() {
                     let arm_label = self.fresh_block("match_arm");
                     arm_labels.push(arm_label);
-                    match &arm.pattern {
-                        Pattern::Lit(Literal::Int(..)) | Pattern::Lit(Literal::Bool(..)) => {
-                            check_labels.push(self.fresh_block("match_check"));
-                        }
-                        Pattern::Variant(..) => {
-                            check_labels.push(self.fresh_block("match_check"));
-                        }
-                        Pattern::Ident(ident) => {
-                            // If this ident matches an enum variant name, treat it as a variant check
-                            if let Some(ref type_name) = scrutinee_type {
-                                if let Some(variants) = self.enum_variants.get(type_name) {
-                                    if variants.iter().any(|(v, _)| v == &ident.name) {
-                                        check_labels.push(self.fresh_block("match_check"));
-                                        continue;
-                                    }
-                                }
-                            }
-                            wildcard_idx = Some(i);
-                        }
-                        Pattern::Wildcard(_) => { wildcard_idx = Some(i); }
-                        // TODO(or-patterns): compile each alternative of `Pattern::Or`.
-                        // Currently treated as a non-branching arm (same as the
-                        // existing handling for Some/Ok/Err/None patterns here).
-                        _ => {}
+                    let checked = self.pattern_needs_check(&arm.pattern, &scrutinee_type);
+                    arm_is_checked.push(checked);
+                    if checked {
+                        check_labels.push(self.fresh_block("match_check"));
+                    } else if matches!(&arm.pattern, Pattern::Wildcard(_) | Pattern::Ident(_)) {
+                        // Wildcard-like binding arm: acts as the default target.
+                        // (Some/None/Ok/Err/Or and non-Int/Bool literal patterns
+                        // are intentionally non-checking AND non-default here,
+                        // matching the emit loop below.)
+                        //
+                        // TODO(or-patterns): compile each alternative of
+                        // `Pattern::Or` as its own check.
+                        wildcard_idx = Some(i);
                     }
                 }
 
-                // Branch to first check block
-                if check_labels.is_empty() && wildcard_idx.is_some() {
-                    self.emitln(&format!("  br label %{}", arm_labels[wildcard_idx.unwrap()]));
-                } else if !check_labels.is_empty() {
-                    self.emitln(&format!("  br label %{}", check_labels[0]));
+                // Branch to the first check block (or straight to the default
+                // arm / merge block when there are no checks). All indexing is
+                // bounds-guarded.
+                if let Some(first_check) = check_labels.first() {
+                    self.emitln(&format!("  br label %{first_check}"));
+                } else if let Some(wi) = wildcard_idx {
+                    let target = arm_labels.get(wi).cloned().unwrap_or_else(|| merge_label.clone());
+                    self.emitln(&format!("  br label %{target}"));
                 } else {
                     self.emitln(&format!("  br label %{merge_label}"));
                 }
 
-                // Emit check blocks
-                let mut check_idx = 0;
+                // Emit check blocks.
+                //
+                // `check_idx` walks `check_labels` in lockstep with the build
+                // loop above: it advances by exactly one for every arm whose
+                // `arm_is_checked[i]` is `true`, so it can never outrun
+                // `check_labels`. Every index into `check_labels`/`arm_labels`
+                // is additionally bounds-guarded so that even a future codegen
+                // bug degrades to a branch-to-merge instead of a panic — a
+                // compiler must never crash.
+                let mut check_idx: usize = 0;
                 for (i, arm) in arms.iter().enumerate() {
+                    let checked = arm_is_checked.get(i).copied().unwrap_or(false);
+                    if !checked {
+                        // Wildcard-like / non-checking arm: no check block.
+                        continue;
+                    }
+
+                    // Label for this arm's own check block (bounds-guarded).
+                    let this_label = if check_idx < check_labels.len() {
+                        check_labels[check_idx].clone()
+                    } else {
+                        // Safety fallback — unreachable once the build/emit
+                        // loops are symmetric. Emit a diagnostic comment and
+                        // skip this (impossible) arm rather than panicking.
+                        self.emitln(&format!(
+                            "  ; codegen: check_idx {} out of range (len {}); skipping",
+                            check_idx,
+                            check_labels.len()
+                        ));
+                        check_idx += 1;
+                        continue;
+                    };
+
+                    // Label to fall through to when this arm's check fails: the
+                    // next check block, else the default (wildcard) arm, else
+                    // the merge block.
+                    let next = if check_idx + 1 < check_labels.len() {
+                        check_labels[check_idx + 1].clone()
+                    } else if let Some(wi) = wildcard_idx {
+                        arm_labels.get(wi).cloned().unwrap_or_else(|| merge_label.clone())
+                    } else {
+                        merge_label.clone()
+                    };
+
+                    // Target block when this arm's check succeeds.
+                    let arm_label = arm_labels.get(i).cloned().unwrap_or_else(|| merge_label.clone());
+
+                    self.emitln(&format!("\n{this_label}:"));
+
                     match &arm.pattern {
                         Pattern::Lit(Literal::Int(n, _)) => {
-                            self.emitln(&format!("\n{}:", check_labels[check_idx]));
                             let check = self.fresh_tmp();
                             self.emitln(&format!("  {check} = icmp eq i64 {val}, {n}"));
-                            let next = if check_idx + 1 < check_labels.len() {
-                                check_labels[check_idx + 1].clone()
-                            } else if let Some(wi) = wildcard_idx {
-                                arm_labels[wi].clone()
-                            } else {
-                                merge_label.clone()
-                            };
-                            self.emitln(&format!("  br i1 {check}, label %{}, label %{next}", arm_labels[i]));
-                            check_idx += 1;
+                            self.emitln(&format!("  br i1 {check}, label %{arm_label}, label %{next}"));
                         }
                         Pattern::Lit(Literal::Bool(b, _)) => {
-                            self.emitln(&format!("\n{}:", check_labels[check_idx]));
                             let check = self.fresh_tmp();
                             let bval = if *b { "1" } else { "0" };
                             self.emitln(&format!("  {check} = icmp eq i64 {val}, {bval}"));
-                            let next = if check_idx + 1 < check_labels.len() {
-                                check_labels[check_idx + 1].clone()
-                            } else if let Some(wi) = wildcard_idx {
-                                arm_labels[wi].clone()
-                            } else {
-                                merge_label.clone()
-                            };
-                            self.emitln(&format!("  br i1 {check}, label %{}, label %{next}", arm_labels[i]));
-                            check_idx += 1;
+                            self.emitln(&format!("  br i1 {check}, label %{arm_label}, label %{next}"));
                         }
                         Pattern::Variant(variant_name, _, _) => {
-                            self.emitln(&format!("\n{}:", check_labels[check_idx]));
-                            // Load discriminant (field 0) from the scrutinee struct
-                            if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
-                                // Find the variant index in the enum
-                                let variant_idx = self.enum_variants.get(type_name)
-                                    .and_then(|variants| variants.iter().position(|(vn, _)| vn == &variant_name.name))
-                                    .unwrap_or(0);
-                                let disc_gep = self.fresh_tmp();
-                                let disc_val = self.fresh_tmp();
-                                self.emitln(&format!("  {disc_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
-                                self.emitln(&format!("  {disc_val} = load i64, i64* {disc_gep}"));
-                                let check = self.fresh_tmp();
-                                self.emitln(&format!("  {check} = icmp eq i64 {disc_val}, {variant_idx}"));
-                                let next = if check_idx + 1 < check_labels.len() {
-                                    check_labels[check_idx + 1].clone()
-                                } else if let Some(wi) = wildcard_idx {
-                                    arm_labels[wi].clone()
-                                } else {
-                                    merge_label.clone()
-                                };
-                                self.emitln(&format!("  br i1 {check}, label %{}, label %{next}", arm_labels[i]));
-                            } else {
-                                // If no struct type info, fall back to literal comparison on val
-                                let variant_idx = 0;
-                                let check = self.fresh_tmp();
-                                self.emitln(&format!("  {check} = icmp eq i64 {val}, {variant_idx}"));
-                                let next = if check_idx + 1 < check_labels.len() {
-                                    check_labels[check_idx + 1].clone()
-                                } else if let Some(wi) = wildcard_idx {
-                                    arm_labels[wi].clone()
-                                } else {
-                                    merge_label.clone()
-                                };
-                                self.emitln(&format!("  br i1 {check}, label %{}, label %{next}", arm_labels[i]));
-                            }
-                            check_idx += 1;
+                            self.emit_variant_discriminant_check(
+                                &variant_name.name,
+                                &scrutinee_alloca_info,
+                                &val,
+                                &arm_label,
+                                &next,
+                            );
                         }
                         Pattern::Ident(ident) => {
-                            // Handle ident that is actually an enum variant name (no parens like `Nil`)
-                            if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
-                                if check_idx < check_labels.len() {
-                                    self.emitln(&format!("\n{}:", check_labels[check_idx]));
-                                }
-                                let variant_idx = self.enum_variants.get(type_name)
-                                    .and_then(|variants| variants.iter().position(|(vn, _)| vn == &ident.name))
-                                    .unwrap_or(0);
-                                let disc_gep = self.fresh_tmp();
-                                let disc_val = self.fresh_tmp();
-                                self.emitln(&format!("  {disc_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
-                                self.emitln(&format!("  {disc_val} = load i64, i64* {disc_gep}"));
-                                let check = self.fresh_tmp();
-                                self.emitln(&format!("  {check} = icmp eq i64 {disc_val}, {variant_idx}"));
-                                let next = if check_idx + 1 < check_labels.len() {
-                                    check_labels[check_idx + 1].clone()
-                                } else if let Some(wi) = wildcard_idx {
-                                    arm_labels[wi].clone()
-                                } else {
-                                    merge_label.clone()
-                                };
-                                self.emitln(&format!("  br i1 {check}, label %{}, label %{next}", arm_labels[i]));
-                            }
-                            check_idx += 1;
+                            // Only reachable when this ident names an enum
+                            // variant (see `pattern_needs_check`).
+                            self.emit_variant_discriminant_check(
+                                &ident.name,
+                                &scrutinee_alloca_info,
+                                &val,
+                                &arm_label,
+                                &next,
+                            );
                         }
-                        Pattern::Wildcard(_) => {}
-                        _ => {}
+                        _ => {
+                            // `arm_is_checked` is never true for other patterns;
+                            // branch unconditionally so the block stays valid.
+                            self.emitln(&format!("  br label %{arm_label}"));
+                        }
                     }
+
+                    check_idx += 1;
                 }
 
                 // Emit arm bodies
                 for (i, arm) in arms.iter().enumerate() {
-                    self.emitln(&format!("\n{}:", arm_labels[i]));
+                    let arm_label = arm_labels.get(i).cloned().unwrap_or_else(|| merge_label.clone());
+                    self.emitln(&format!("\n{arm_label}:"));
                     // For variant patterns, extract fields before compiling arm body
                     if let Pattern::Variant(variant_ident, fields, _) = &arm.pattern {
                         if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
