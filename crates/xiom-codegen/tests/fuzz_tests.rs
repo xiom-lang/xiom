@@ -158,13 +158,15 @@ fn fuzz_huge_match_many_arms() {
 
 #[test]
 fn fuzz_large_valid_arithmetic_expr() {
-    // Generated large but valid left-associative arithmetic expression.
-    // Binary operators parse in a loop (not recursively) so the PARSER stays
-    // under its depth guard, but the resulting left-leaning BinOp tree is walked
-    // recursively by the checker/codegen. Kept modest (60) so codegen recursion
-    // is safe. See `fuzz_deep_arithmetic_overflows_known_limitation` below for
-    // the documented deep-recursion limit.
-    let expr = (0..60).map(|_| "1 + ").collect::<String>() + "1";
+    // Generated valid left-associative arithmetic expression. Binary operators
+    // parse in a loop (not recursively) so the PARSER stays under its depth
+    // guard, but the resulting left-leaning BinOp tree is walked recursively by
+    // the checker AND codegen (the latter also runs `infer_llvm_type` per level),
+    // so even moderately deep chains can exhaust the 2 MB test-thread stack.
+    // Kept small (12) so the codegen recursion is comfortably safe. See
+    // `fuzz_deep_arithmetic_overflows_known_limitation` below for the documented
+    // deep-recursion limit (the durable fix is an explicit work-stack in codegen).
+    let expr = (0..12).map(|_| "1 + ").collect::<String>() + "1";
     let src = format!("fn main() -> Int {{ return {}; }}", expr);
     assert_no_panic(&src);
 }

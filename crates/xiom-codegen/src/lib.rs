@@ -58,6 +58,11 @@ pub struct IrEmitter {
     generic_fn_decls: Vec<FnDecl>,
     /// Tracked generic instantiations: (fn_original_name, vec![concrete_type_names])
     generic_instantiations: Vec<(String, Vec<String>)>,
+    /// Specialized monomorphised function names already emitted, so a
+    /// self-referential generic (a cycle in generic definitions) is emitted once
+    /// instead of being re-queued every worklist pass (which would hit the
+    /// 65536-iteration guard / hang).
+    mono_emitted: std::collections::HashSet<String>,
     /// Whether @llvm.trap has been declared
     #[allow(dead_code)]
     has_llvm_trap_decl: bool,
@@ -123,6 +128,7 @@ impl IrEmitter {
             // Remaining fields use defaults
             generic_fn_decls: Vec::new(),
             generic_instantiations: Vec::new(),
+            mono_emitted: std::collections::HashSet::new(),
             has_llvm_trap_decl: false,
             self_pre_value: None,
             current_ensures: Vec::new(),
@@ -370,7 +376,12 @@ impl IrEmitter {
         match ty {
             Type::Ptr(inner) | Type::Ref(inner) | Type::MutRef(inner) => {
                 let inner_llvm = self.extern_type_to_llvm(inner);
-                format!("{}*", inner_llvm)
+                // LLVM has no `void*`; a pointer to unit/void is represented as i8*.
+                if inner_llvm == "void" {
+                    "i8*".to_string()
+                } else {
+                    format!("{}*", inner_llvm)
+                }
             }
             Type::Named(id, _) => {
                 self.llvm_type_for(&id.name).unwrap_or_else(|_| {
@@ -2368,6 +2379,15 @@ impl IrEmitter {
                 Some(f) => f.clone(),
                 None => continue,
             };
+            // Emit each unique specialization at most once. Without this, a
+            // generic that (transitively) instantiates itself re-queues the same
+            // specialization on every worklist pass, never draining the queue —
+            // producing the "exceeded 65536 iterations" error (or a hang).
+            // `insert` returns false when the key is already present.
+            let mono_key = self.monomorphised_fn_name(base_name, concrete_types);
+            if !self.mono_emitted.insert(mono_key) {
+                continue;
+            }
             // Check interface bounds for each generic parameter
             for (gp, concrete_type) in fd.generics.iter().zip(concrete_types.iter()) {
                 for bound in &gp.bounds {
