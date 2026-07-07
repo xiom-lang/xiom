@@ -2764,7 +2764,12 @@ impl IrEmitter {
                     let result = self.compile_expr(expr)?;
                     if let Some(ptr) = self.match_result_ptr.clone() {
                         let ret_ty = self.match_result_ty.clone().unwrap_or_else(|| self.current_return_type.clone());
-                        let store_val = self.zero_val_for(&result, &ret_ty);
+                        // Coerce the arm's value to the match result type. An arm
+                        // whose body is (e.g.) a bare enum-variant identifier can
+                        // compile to a raw i64 discriminant; wrap it into the
+                        // result struct so `store %struct.X i64` is never emitted.
+                        let from_ty = self.infer_llvm_type(expr);
+                        let store_val = self.coerce_value(&result, &from_ty, &ret_ty);
                         self.emitln(&format!("  store {ret_ty} {store_val}, {ret_ty}* {ptr}"));
                     }
                     if is_last && is_expression {
