@@ -248,6 +248,27 @@ impl IrEmitter {
         }
     }
 
+    /// Widen a narrow integer value (`i1`/`i8`/`i16`/`i32`) to `i64` so it can
+    /// participate in the emitter's i64 integer arithmetic/comparison model.
+    /// `i8`/`i1` (Char/UInt8/Bool) widen unsigned (`zext`); `i16`/`i32` (signed
+    /// Int16/Int32) widen `sext`. Anything already `i64`, a pointer, a float, or a
+    /// struct is returned unchanged.
+    fn widen_to_i64(&mut self, val: &str, ty: &str) -> String {
+        match ty {
+            "i1" | "i8" => {
+                let ext = self.fresh_tmp();
+                self.emitln(&format!("  {ext} = zext {ty} {val} to i64"));
+                ext
+            }
+            "i16" | "i32" => {
+                let ext = self.fresh_tmp();
+                self.emitln(&format!("  {ext} = sext {ty} {val} to i64"));
+                ext
+            }
+            _ => val.to_string(),
+        }
+    }
+
     fn is_primitive_type_name(type_name: &str) -> bool {
         matches!(
             type_name,
@@ -3381,6 +3402,16 @@ impl IrEmitter {
                         r = conv;
                     }
                 }
+                // A1: widen narrow integer operands (Char/UInt8 = i8, Bool = i1,
+                // Int16 = i16, Int32 = i32) to i64 so they match the i64 integer
+                // operation type. Skips float ops and pointer comparisons (string
+                // `==`), whose `ty` was resolved to `double`/`i8*` above.
+                if !is_float && ty == "i64" {
+                    let lt = self.infer_llvm_type(left);
+                    let rt = self.infer_llvm_type(right);
+                    l = self.widen_to_i64(&l, &lt);
+                    r = self.widen_to_i64(&r, &rt);
+                }
                 let div_cont = if !is_float && matches!(op, BinOp::Div | BinOp::Rem) {
                     let zero_check = self.fresh_tmp();
                     self.emitln(&format!("  {zero_check} = icmp eq i64 {r}, 0"));
@@ -4679,7 +4710,8 @@ impl IrEmitter {
         match expr {
             Expr::Int(_, _) | Expr::Bool(_, _) => "i64".to_string(),
             Expr::Float(_, _) => "double".to_string(),
-            Expr::Str(_, _) | Expr::Char(_, _) => "i8*".to_string(),
+            Expr::Str(_, _) => "i8*".to_string(),
+            Expr::Char(_, _) => "i8".to_string(),
             Expr::Ident(ident) => {
                 if let Some((_, llvm_ty)) = self.lookup_local(&ident.name) {
                     if llvm_ty == "double" { return "double".to_string(); }
