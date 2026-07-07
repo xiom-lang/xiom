@@ -1122,6 +1122,43 @@ impl Checker {
             }
         }
 
+        // Prelude: the stdlib exposes a handful of implicit helpers used
+        // unqualified across modules — `to_string`/`to_int`/`to_float`/`to_char`
+        // (core), `str_concat`/`str_len`/`char_at` (string), `fabs`/trig (math),
+        // `gcd`/`lcm` (num), plus core `cmp`/`char` helpers. These are neither
+        // `pub`-imported nor `use`d, so they were never loaded into the catalog —
+        // leaving them undefined at link time and untyped at call sites
+        // (`call i64` default → ptr/int IR mismatches). When a program uses ANY
+        // `xiom.*` module, force-load the prelude modules so the checker resolves
+        // them and codegen injects+registers their real signatures.
+        //
+        // Gated strictly on real stdlib usage: no non-stdlib program (and none of
+        // the exact-IR diff/e2e examples, which never `use xiom.*`) is affected.
+        let uses_xiom_stdlib = import_snapshot
+            .iter()
+            .any(|ud| ud.path.first().map(|i| i.name == "xiom").unwrap_or(false));
+        if uses_xiom_stdlib {
+            const PRELUDE: &[&[&str]] = &[
+                &["xiom", "core"],
+                &["xiom", "string"],
+                &["xiom", "math"],
+                &["xiom", "num"],
+                &["xiom", "char"],
+                &["xiom", "cmp"],
+            ];
+            for segs in PRELUDE {
+                let prefix: Vec<String> = segs.iter().map(|s| s.to_string()).collect();
+                let dotted = prefix.join(".");
+                if self.cached_loaded.contains(&dotted) {
+                    continue;
+                }
+                if let Some(cached) = self.catalog.find_owned(&prefix) {
+                    self.cached_loaded.insert(dotted);
+                    self.register_external_module(&cached);
+                }
+            }
+        }
+
         // Now process each use declaration — self.modules is fully populated.
         for ud in &import_snapshot {
             self.process_use(ud);

@@ -198,6 +198,12 @@ impl IrEmitter {
 
     /// Convert literal "0" to "zeroinitializer" for aggregate (struct) types
     fn zero_val_for(&self, val: &str, llvm_ty: &str) -> String {
+        if val.is_empty() {
+            // A2 guard: an empty operand is never valid LLVM IR. Substitute a
+            // typed default so `store`/`ret` sites stay well-formed even if some
+            // upstream expression produced no SSA value.
+            return Self::default_const_for(llvm_ty);
+        }
         if val == "0" && llvm_ty.starts_with("%struct.") {
             "zeroinitializer".to_string()
         } else {
@@ -2629,18 +2635,24 @@ impl IrEmitter {
                         self.emitln(&format!("  store {ret_ty} {store_val}, {ret_ty}* {ptr}"));
                     }
                     if is_last && is_expression {
-                        // Store result in the result alloca for ensures checks
-                        if let Some(res_ptr) = self.result_ptr.as_ref() {
+                        if self.current_block_terminated() {
+                            // The tail expression already emitted a terminator
+                            // (e.g. `unsafe { return X() }`, or a tail if/match that
+                            // returns on every path). Do NOT emit a second ret.
+                        } else {
                             let ret_ty = self.current_return_type.clone();
-                            let store_val = self.zero_val_for(&result, &ret_ty);
-                            self.emitln(&format!("  store {ret_ty} {store_val}, {ret_ty}* {res_ptr}"));
+                            // A2 guard: never emit an empty return operand.
+                            let ret_val = self.zero_val_for(&result, &ret_ty);
+                            // Store result in the result alloca for ensures checks
+                            if let Some(res_ptr) = self.result_ptr.as_ref() {
+                                self.emitln(&format!("  store {ret_ty} {ret_val}, {ret_ty}* {res_ptr}"));
+                            }
+                            // Check ensures before returning
+                            if !self.current_ensures.is_empty() {
+                                self.compile_ensures_checks();
+                            }
+                            self.emitln(&format!("  ret {ret_ty} {ret_val}"));
                         }
-                        // Check ensures before returning
-                        if !self.current_ensures.is_empty() {
-                            self.compile_ensures_checks();
-                        }
-                        let ret_ty = &self.current_return_type.clone();
-                        self.emitln(&format!("  ret {ret_ty} {result}"));
                     }
                     last_result = Some(result);
                 }
@@ -4514,10 +4526,38 @@ impl IrEmitter {
             Expr::Await(inner, _) => self.compile_expr(inner),
             Expr::Comptime(inner, _) => self.compile_expr(inner),
             Expr::Unsafe(block, _) => {
-                for stmt in &block.stmts {
-                    match stmt { xiom_ast::StmtOrExpr::Expr(e) => { self.compile_expr(e)?; } _ => {} }
+                // An `unsafe { ... }` block is an expression whose value is its
+                // tail. Compile every statement (Let/Var/Assign/Return/…) and
+                // return the value of the final expression, so
+                // `let x = unsafe { ffi_call() }` and
+                // `fn f() -> T { unsafe { ffi_call() } }` yield a real SSA value
+                // instead of an empty operand (previously returned String::new(),
+                // producing invalid `store T ,` / `ret T ` IR).
+                let mut last = String::new();
+                let n = block.stmts.len();
+                for (i, item) in block.stmts.iter().enumerate() {
+                    let is_last = i + 1 == n;
+                    match item {
+                        xiom_ast::StmtOrExpr::Expr(e) => {
+                            let v = self.compile_expr(e)?;
+                            if is_last {
+                                last = v;
+                            }
+                        }
+                        xiom_ast::StmtOrExpr::Stmt(s) => {
+                            if is_last {
+                                if let Stmt::Expr(e, ..) = s {
+                                    last = self.compile_expr(e)?;
+                                } else {
+                                    self.compile_stmt(s)?;
+                                }
+                            } else {
+                                self.compile_stmt(s)?;
+                            }
+                        }
+                    }
                 }
-                Ok(String::new())
+                Ok(last)
             }
             Expr::If(cond, then_block, elifs, else_block, _) => {
                 self.compile_expr(cond)?;
