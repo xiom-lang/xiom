@@ -450,6 +450,27 @@ impl IrEmitter {
                 return Ok(format!("%struct.{enum_key}"));
             }
         }
+        // If type_name is itself an enum TYPE name (e.g. "Ordering"), it is lowered
+        // to a struct `%struct.Name = { i64, ... }`. Enums are registered in
+        // `enum_variants` (keyed by enum name) but not in `types`/`type_meta`, so
+        // without this an enum-typed function return/param would resolve to the
+        // `i64` fallback while `infer_llvm_type` resolves it to `%struct.Name`,
+        // producing store/return/arg type mismatches. Match exact, module-qualified,
+        // then suffix — mirroring the struct lookup above.
+        if self.enum_variants.contains_key(type_name) {
+            return Ok(format!("%struct.{type_name}"));
+        }
+        if let Some(ref module) = self.current_module {
+            let qualified = format!("{}.{}", module, type_name);
+            if self.enum_variants.contains_key(&qualified) {
+                return Ok(format!("%struct.{qualified}"));
+            }
+        }
+        for enum_key in self.enum_variants.keys() {
+            if enum_key.ends_with(&format!(".{type_name}")) {
+                return Ok(format!("%struct.{enum_key}"));
+            }
+        }
         match type_name {
             "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
             | "Bool" | "Float32" | "Float64" | "Str" | "Char" | "()" => Ok(builtin.to_string()),
