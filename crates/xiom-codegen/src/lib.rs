@@ -269,6 +269,77 @@ impl IrEmitter {
         }
     }
 
+    /// Coerce `val` (whose current LLVM type is `from`) to the LLVM type `to`,
+    /// emitting the appropriate cast, and return the resulting SSA value. Used at
+    /// the value "sink" points — call arguments, returns, and stores — so a value
+    /// always matches the type its context requires (LLVM is strongly typed).
+    ///
+    /// Handles integer width (zext/sext/trunc), int<->pointer (inttoptr/ptrtoint),
+    /// pointer<->pointer (bitcast), int<->double (sitofp/fptosi), and int->struct
+    /// (via `val_to_struct`, e.g. a single-field enum like Ordering). No-ops when
+    /// the types already match, when `val` is empty/a null literal, or when no
+    /// meaningful cast applies.
+    fn coerce_value(&mut self, val: &str, from: &str, to: &str) -> String {
+        if from == to || val.is_empty() || to == "void" {
+            return val.to_string();
+        }
+        let int_width = |t: &str| -> Option<u32> {
+            match t {
+                "i1" => Some(1),
+                "i8" => Some(8),
+                "i16" => Some(16),
+                "i32" => Some(32),
+                "i64" => Some(64),
+                _ => None,
+            }
+        };
+        // Integer <-> integer width conversions.
+        if let (Some(a), Some(b)) = (int_width(from), int_width(to)) {
+            let t = self.fresh_tmp();
+            if b > a {
+                let op = if from == "i1" || from == "i8" { "zext" } else { "sext" };
+                self.emitln(&format!("  {t} = {op} {from} {val} to {to}"));
+            } else {
+                self.emitln(&format!("  {t} = trunc {from} {val} to {to}"));
+            }
+            return t;
+        }
+        // Integer <-> pointer.
+        if to.ends_with('*') && from == "i64" {
+            let t = self.fresh_tmp();
+            self.emitln(&format!("  {t} = inttoptr i64 {val} to {to}"));
+            return t;
+        }
+        if from.ends_with('*') && to == "i64" {
+            let t = self.fresh_tmp();
+            self.emitln(&format!("  {t} = ptrtoint {from} {val} to i64"));
+            return t;
+        }
+        // Pointer <-> pointer.
+        if from.ends_with('*') && to.ends_with('*') {
+            let t = self.fresh_tmp();
+            self.emitln(&format!("  {t} = bitcast {from} {val} to {to}"));
+            return t;
+        }
+        // Integer <-> double.
+        if from == "i64" && to == "double" {
+            let t = self.fresh_tmp();
+            self.emitln(&format!("  {t} = sitofp i64 {val} to double"));
+            return t;
+        }
+        if from == "double" && to == "i64" {
+            let t = self.fresh_tmp();
+            self.emitln(&format!("  {t} = fptosi double {val} to i64"));
+            return t;
+        }
+        // Non-struct scalar -> struct (e.g. i64 discriminant -> single-field enum).
+        if to.starts_with("%struct.") && !from.starts_with("%struct.") {
+            return self.val_to_struct(val, from, to);
+        }
+        // No known cast — return unchanged (best effort).
+        val.to_string()
+    }
+
     fn is_primitive_type_name(type_name: &str) -> bool {
         matches!(
             type_name,
@@ -2740,20 +2811,12 @@ impl IrEmitter {
             Stmt::Return(expr, _) => {
                 if let Some(e) = expr {
                     let mut val = self.compile_expr(e)?;
-                    let mut val_ty = self.infer_llvm_type(e);
+                    let val_ty = self.infer_llvm_type(e);
                     let ret_ty = self.current_return_type.clone();
-                    // Convert value to return type if needed (e.g., i64 to double)
-                    if ret_ty == "double" && val_ty == "i64" {
-                        let conv = self.fresh_tmp();
-                        self.emitln(&format!("  {conv} = sitofp i64 {val} to double"));
-                        val = conv;
-                        val_ty = "double".to_string();
-                    }
-                    // Coerce i64 value to struct return type via alloca+load
-                    if ret_ty.starts_with("%struct.") && !val_ty.starts_with("%struct.") {
-                        let coerced = self.val_to_struct(&val, &val_ty, &ret_ty);
-                        val = coerced;
-                    }
+                    // Coerce the returned value to the function's declared return
+                    // type (int widths, int<->pointer, int<->double, int->struct)
+                    // so the `ret` instruction is well-typed.
+                    val = self.coerce_value(&val, &val_ty, &ret_ty);
                     // Store result for ensures checks
                     if let Some(res_ptr) = self.result_ptr.as_ref() {
                         let ret_ty = self.current_return_type.clone();
@@ -4251,11 +4314,22 @@ impl IrEmitter {
                             .map(|(pts, _)| pts.len() == compiled_args.len())
                             .unwrap_or(false);
                         if use_registered {
-                            let pts = &self.functions[&resolved_fn_key].0;
-                            pts.iter().zip(compiled_args.iter())
-                                .map(|(ty, arg)| format!("{ty} {arg}"))
-                                .collect::<Vec<_>>()
-                                .join(", ")
+                            let pts = self.functions[&resolved_fn_key].0.clone();
+                            let mut parts: Vec<String> = Vec::new();
+                            for (i, arg) in compiled_args.iter().enumerate() {
+                                let pty = pts[i].clone();
+                                // Coerce the argument to the callee's declared param
+                                // type (e.g. an i64 char value passed to a Char=i8
+                                // parameter needs a trunc) so the call is well-typed.
+                                let from = if i < args.len() {
+                                    self.infer_llvm_type(&args[i])
+                                } else {
+                                    pty.clone()
+                                };
+                                let coerced = self.coerce_value(arg, &from, &pty);
+                                parts.push(format!("{pty} {coerced}"));
+                            }
+                            parts.join(", ")
                         } else {
                             args.iter().zip(compiled_args.iter())
                                 .map(|(arg_expr, arg_val)| format!("{} {}", self.infer_llvm_type(arg_expr), arg_val))
