@@ -202,6 +202,43 @@ impl IrEmitter {
         }
     }
 
+    /// True if the most recently emitted line in the current function body is a
+    /// basic-block terminator. Used to decide whether a fallback terminator must
+    /// be appended so every block is terminated and the IR stays valid.
+    ///
+    /// Returns `false` when the last meaningful line is a bare label (a freshly
+    /// opened, still-empty block) or a non-terminator instruction.
+    fn current_block_terminated(&self) -> bool {
+        for line in self.output.lines().rev() {
+            let t = line.trim();
+            if t.is_empty() || t.starts_with(';') {
+                continue;
+            }
+            // A bare label line ("entry:", "endif7:") opens a fresh block that has
+            // no terminator yet.
+            if t.ends_with(':') && !t.contains(' ') {
+                return false;
+            }
+            return t == "unreachable"
+                || t == "ret void"
+                || t.starts_with("ret ")
+                || t.starts_with("br ")
+                || t.starts_with("switch ");
+        }
+        false
+    }
+
+    /// A valid default constant of `llvm_ty`, used only for fallback terminators
+    /// on control-flow paths that fall off the end of a value-returning function.
+    fn default_const_for(llvm_ty: &str) -> String {
+        match llvm_ty {
+            "i1" | "i8" | "i16" | "i32" | "i64" => "0".to_string(),
+            "float" | "double" => "0.0".to_string(),
+            _ if llvm_ty.ends_with('*') => "null".to_string(),
+            _ => "zeroinitializer".to_string(), // aggregates / structs
+        }
+    }
+
     fn is_primitive_type_name(type_name: &str) -> bool {
         matches!(
             type_name,
@@ -281,7 +318,7 @@ impl IrEmitter {
                 return Ok(format!("%struct.{key}"));
             }
         }
-        // Check builtin types first (match known Axiom type names, NOT the default i64 fallback)
+        // Check builtin types first (match known xiom type names, NOT the default i64 fallback)
         let builtin = Self::xiom_to_llvm_type(type_name);
         match type_name {
             "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
@@ -1379,6 +1416,21 @@ impl IrEmitter {
             self.emitln(&format!("  {new_depth_dec} = sub i64 {depth_dec}, 1"));
             self.emitln(&format!("  store i64 {new_depth_dec}, i64* @xiom_recursion_counter"));
             self.emitln("  ret void");
+        } else if !self.current_block_terminated() {
+            // A4 fix: the function declares a return type but control reached the
+            // end of the body without a terminator — the body ends in a loop, an
+            // `if` without `else`, or a trailing statement, so no tail `ret` was
+            // emitted. Append a safe fallback return so the trailing block is
+            // terminated and the module is valid LLVM IR. (Functions that already
+            // end in a tail expression / explicit return report `terminated`, so
+            // their IR is unchanged and no double terminator is produced.)
+            let depth_dec = self.fresh_tmp();
+            self.emitln(&format!("  {depth_dec} = load i64, i64* @xiom_recursion_counter"));
+            let new_depth_dec = self.fresh_tmp();
+            self.emitln(&format!("  {new_depth_dec} = sub i64 {depth_dec}, 1"));
+            self.emitln(&format!("  store i64 {new_depth_dec}, i64* @xiom_recursion_counter"));
+            let zero = Self::default_const_for(&ret_llvm);
+            self.emitln(&format!("  ret {ret_llvm} {zero}"));
         }
 
         self.emitln("}\n");
@@ -2245,6 +2297,13 @@ impl IrEmitter {
             self.param_concrete_types.clear();
             if fd.return_type.is_none() {
                 self.emitln("  ret void");
+            } else if !self.current_block_terminated() {
+                // A4 fix (generic monomorphisation path): a value-returning body
+                // fell through without a terminator (ends in a loop / if-without-
+                // else / statement). Append a safe fallback return so the block is
+                // terminated. Terminated bodies are unchanged (no double return).
+                let zero = Self::default_const_for(&specialized_ret_type);
+                self.emitln(&format!("  ret {specialized_ret_type} {zero}"));
             }
                 self.emitln("}\n");
                 self.pop_scope();
