@@ -1636,6 +1636,16 @@ impl IrEmitter {
         }
         // Then allocate explicit parameters
         for (i, param) in fd.params.iter().enumerate() {
+            // A `self`-receiver method records `self` in BOTH fd.receiver and
+            // fd.params (the parser does this). The receiver block above already
+            // bound the `self` local to the receiver struct; skip the duplicate
+            // here so `self` is not re-bound to the phantom scalar param, which
+            // would shadow the real struct `self` and break `match self`. The
+            // phantom param stays in the emitted signature (unused), so call and
+            // registration arity are unchanged.
+            if self_offset == 1 && param.name.name == "self" {
+                continue;
+            }
             let llvm_ty = self.llvm_type_for_fallback(&Self::type_from_ast(&param.ty));
             let alloca = self.fresh_tmp();
             let param_idx = i + self_offset;
@@ -2562,6 +2572,12 @@ impl IrEmitter {
                 }
             }
             for (i, param) in fd.params.iter().enumerate() {
+                // Skip the duplicate `self` param (see the note in compile_fn):
+                // the receiver already bound the struct `self`; re-binding it to
+                // the phantom scalar param would shadow it and break `match self`.
+                if self_offset == 1 && param.name.name == "self" {
+                    continue;
+                }
                 let llvm_ty = subst_type(&param.ty);
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
