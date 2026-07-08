@@ -710,3 +710,17 @@ fn e2e_help_shows_timeout_and_memory_flags() {
     assert!(combined.contains("--timeout"), "help should document --timeout flag");
     assert!(combined.contains("--max-memory-mb"), "help should document --max-memory-mb flag");
 }
+
+// ============================================================================
+// E2E: Regression — method `match self` on enum receiver
+// ============================================================================
+/// Regression: a method that pattern-matches `self` on an enum receiver must
+/// treat self as the typed struct, NOT a phantom `i64` duplicate param.
+/// Without the fix, variant patterns become variable bindings and arms return
+/// raw i64 discriminants → `store %struct.X i64` (invalid IR).
+/// Returns exit code 0 when the fix is present.
+#[test]
+fn e2e_method_match_self_enum() {
+    let exit = compile_and_run("examples\\e2e\\method_match_self_enum.xi");
+    assert_eq!(exit, Some(0), "match self on enum receiver should compile, link, run, and exit 0");
+}

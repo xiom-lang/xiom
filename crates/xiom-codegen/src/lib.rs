@@ -256,9 +256,6 @@ impl IrEmitter {
 
     /// Widen a narrow integer value (`i1`/`i8`/`i16`/`i32`) to `i64` so it can
     /// participate in the emitter's i64 integer arithmetic/comparison model.
-    /// `i8`/`i1` (Char/UInt8/Bool) widen unsigned (`zext`); `i16`/`i32` (signed
-    /// Int16/Int32) widen `sext`. Anything already `i64`, a pointer, a float, or a
-    /// struct is returned unchanged.
     fn widen_to_i64(&mut self, val: &str, ty: &str) -> String {
         match ty {
             "i1" | "i8" => {
@@ -344,6 +341,25 @@ impl IrEmitter {
         }
         // No known cast — return unchanged (best effort).
         val.to_string()
+    }
+
+    /// Extract field 0 (the leading scalar — e.g. an enum discriminant or an
+    /// Option/Result's first slot) from a by-value struct `val` of type
+    /// `struct_ty`, returning the loaded `i64` scalar register. Used when a
+    /// single-scalar-backed struct value appears in an integer context (e.g.
+    /// `opt >= 0`). Returns `val` unchanged when `struct_ty` isn't a struct.
+    fn extract_scalar_field0(&mut self, val: &str, struct_ty: &str) -> String {
+        if !struct_ty.starts_with("%struct.") {
+            return val.to_string();
+        }
+        let slot = self.fresh_tmp();
+        self.emitln(&format!("  {slot} = alloca {struct_ty}"));
+        self.emitln(&format!("  store {struct_ty} {val}, {struct_ty}* {slot}"));
+        let gep = self.fresh_tmp();
+        self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {slot}, i32 0, i32 0"));
+        let loaded = self.fresh_tmp();
+        self.emitln(&format!("  {loaded} = load i64, i64* {gep}"));
+        loaded
     }
 
     fn is_primitive_type_name(type_name: &str) -> bool {
@@ -1742,14 +1758,14 @@ impl IrEmitter {
     /// Emit a runtime check for a single boolean contract expression.
     /// If the expression evaluates to false (i64 0), emit a panic and trap.
     fn compile_contract_check(&mut self, expr: &Expr, clause_type: &str) {
-        let cond_val = match self.compile_expr(expr) {
+        let (cond_val, expr_ty) = match self.compile_expr(expr) {
             Ok(v) => v,
             Err(_) => return,
         };
         let ok_label = self.fresh_block("contract_ok");
         let fail_label = self.fresh_block("contract_fail");
-        // Ensure we have an i1 for the branch — some expressions (or/and) return i64
-        let expr_ty = self.infer_llvm_type(expr);
+        // Ensure we have an i1 for the branch — some expressions (or/and) return i64.
+        // `expr_ty` is the value's real LLVM type as returned by compile_expr.
         let cond_i1 = if expr_ty == "i1" {
             cond_val
         } else if expr_ty == "i64" {
@@ -2777,14 +2793,15 @@ impl IrEmitter {
                     }
                 }
                 StmtOrExpr::Expr(expr) => {
-                    let result = self.compile_expr(expr)?;
+                    let (result, result_ty) = self.compile_expr(expr)?;
                     if let Some(ptr) = self.match_result_ptr.clone() {
                         let ret_ty = self.match_result_ty.clone().unwrap_or_else(|| self.current_return_type.clone());
                         // Coerce the arm's value to the match result type. An arm
                         // whose body is (e.g.) a bare enum-variant identifier can
                         // compile to a raw i64 discriminant; wrap it into the
                         // result struct so `store %struct.X i64` is never emitted.
-                        let from_ty = self.infer_llvm_type(expr);
+                        // `result_ty` is the value's real LLVM type from compile_expr.
+                        let from_ty = result_ty.clone();
                         let store_val = self.coerce_value(&result, &from_ty, &ret_ty);
                         self.emitln(&format!("  store {ret_ty} {store_val}, {ret_ty}* {ptr}"));
                     }
@@ -2795,8 +2812,16 @@ impl IrEmitter {
                             // returns on every path). Do NOT emit a second ret.
                         } else {
                             let ret_ty = self.current_return_type.clone();
-                            // A2 guard: never emit an empty return operand.
-                            let ret_val = self.zero_val_for(&result, &ret_ty);
+                            // Coerce the tail value to the function's declared
+                            // return type using its REAL type (`result_ty`), so a
+                            // tail expression whose value type differs from the
+                            // return type (e.g. i8 char, Option struct, enum) is
+                            // converted rather than mis-stored.
+                            let ret_val = if result.is_empty() {
+                                Self::default_const_for(&ret_ty)
+                            } else {
+                                self.coerce_value(&result, &result_ty, &ret_ty)
+                            };
                             // Store result in the result alloca for ensures checks
                             if let Some(res_ptr) = self.result_ptr.as_ref() {
                                 self.emitln(&format!("  store {ret_ty} {ret_val}, {ret_ty}* {res_ptr}"));
@@ -2818,8 +2843,8 @@ impl IrEmitter {
     fn compile_stmt(&mut self, stmt: &Stmt) -> Result<(), String> {
         match stmt {
             Stmt::Let(name, _ty, value, _) => {
-                let val = self.compile_expr(value)?;
-                let llvm_ty = self.infer_llvm_type(value);
+                // Value sink: use the value's real LLVM type from compile_expr.
+                let (val, llvm_ty) = self.compile_expr(value)?;
                 let store_val = self.zero_val_for(&val, &llvm_ty);
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
@@ -2831,8 +2856,8 @@ impl IrEmitter {
                 }
             }
             Stmt::Var(name, _ty, value, _) => {
-                let val = self.compile_expr(value)?;
-                let llvm_ty = self.infer_llvm_type(value);
+                // Value sink: use the value's real LLVM type from compile_expr.
+                let (val, llvm_ty) = self.compile_expr(value)?;
                 let store_val = self.zero_val_for(&val, &llvm_ty);
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
@@ -2844,7 +2869,7 @@ impl IrEmitter {
                 }
             }
             Stmt::Assign(place, value, _) => {
-                let val = self.compile_expr(value)?;
+                let (val, _val_ty) = self.compile_expr(value)?;
                 if let Expr::Ident(ident) = place {
                     if let Some((ptr, llvm_ty)) = self.lookup_local(&ident.name).cloned() {
                         let store_val = self.zero_val_for(&val, &llvm_ty);
@@ -2872,8 +2897,8 @@ impl IrEmitter {
             }
             Stmt::Return(expr, _) => {
                 if let Some(e) = expr {
-                    let mut val = self.compile_expr(e)?;
-                    let val_ty = self.infer_llvm_type(e);
+                    // Value sink: use the value's real LLVM type from compile_expr.
+                    let (mut val, val_ty) = self.compile_expr(e)?;
                     let ret_ty = self.current_return_type.clone();
                     // Coerce the returned value to the function's declared return
                     // type (int widths, int<->pointer, int<->double, int->struct)
@@ -2913,8 +2938,7 @@ impl IrEmitter {
                 self.compile_expr(expr)?;
             }
             Stmt::If(cond, then_block, elifs, else_block, _) => {
-                let cond_raw = self.compile_expr(cond)?;
-                let cond_ty = self.infer_llvm_type(cond);
+                let (cond_raw, cond_ty) = self.compile_expr(cond)?;
                 let cond_val = if cond_ty == "i1" {
                     cond_raw
                 } else if cond_ty == "i64" {
@@ -2958,8 +2982,7 @@ impl IrEmitter {
 
                 for (i, (econd, eblock)) in elifs.iter().enumerate() {
                     self.emitln(&format!("\n{prev_label}:"));
-                    let econd_raw = self.compile_expr(econd)?;
-                    let econd_ty = self.infer_llvm_type(econd);
+                    let (econd_raw, econd_ty) = self.compile_expr(econd)?;
                     let econd_val = if econd_ty == "i1" {
                         econd_raw
                     } else if econd_ty == "i64" {
@@ -3015,7 +3038,7 @@ impl IrEmitter {
                 }
             }
             Stmt::Match(expr_match, arms, _) => {
-                let val = self.compile_expr(expr_match)?;
+                let (val, _val_ty) = self.compile_expr(expr_match)?;
                 let merge_label = self.fresh_block("match_merge");
 
                 // Determine scrutinee type for variant pattern matching
@@ -3222,7 +3245,7 @@ impl IrEmitter {
                     match &arm.body {
                         MatchBody::Block(b) => { self.compile_block(b, false)?; }
                         MatchBody::Expr(e) => {
-                            let arm_val = self.compile_expr(e)?;
+                            let (arm_val, _arm_val_ty) = self.compile_expr(e)?;
                             if let Some(ptr) = self.match_result_ptr.clone() {
                                 let ret_ty = self.match_result_ty.clone().unwrap_or_else(|| self.current_return_type.clone());
                                 let store_val = self.zero_val_for(&arm_val, &ret_ty);
@@ -3242,8 +3265,7 @@ impl IrEmitter {
 
                 self.emitln(&format!("  br label %{loop_cond}"));
                 self.emitln(&format!("\n{loop_cond}:"));
-                let cond_raw = self.compile_expr(cond)?;
-                let cond_ty = self.infer_llvm_type(cond);
+                let (cond_raw, cond_ty) = self.compile_expr(cond)?;
                 let cond_val = if cond_ty == "i1" {
                     cond_raw
                 } else if cond_ty == "i64" {
@@ -3268,8 +3290,8 @@ impl IrEmitter {
                 self.compile_block(body, false)?;
             }
             Stmt::Destructure(names, value, _) => {
-                let val = self.compile_expr(value)?;
-                let llvm_ty = self.infer_llvm_type(value);
+                // Value sink: use the value's real LLVM type from compile_expr.
+                let (val, llvm_ty) = self.compile_expr(value)?;
                 if llvm_ty.starts_with("%struct.") && names.len() > 0 {
                     // Alloca + store the struct value, then GEP to extract each field
                     let alloca_struct = self.fresh_tmp();
@@ -3318,13 +3340,13 @@ impl IrEmitter {
         Ok(())
     }
 
-    fn compile_expr(&mut self, expr: &Expr) -> Result<String, String> {
+    fn compile_expr(&mut self, expr: &Expr) -> Result<(String, String), String> {
         match expr {
             Expr::Ident(ident) => {
                 if let Some((ptr, llvm_ty)) = self.lookup_local(&ident.name).cloned() {
                     let tmp = self.fresh_tmp();
                     self.emitln(&format!("  {tmp} = load {llvm_ty}, {llvm_ty}* {ptr}"));
-                    Ok(tmp)
+                    Ok((tmp, llvm_ty))
                 } else if let Some(enum_key) = self.enum_variants.iter()
                     .find(|(_, vars)| vars.iter().any(|(v, _)| v == &ident.name))
                     .map(|(ek, _)| ek)
@@ -3340,25 +3362,25 @@ impl IrEmitter {
                             self.emitln(&format!("  store i64 {var_idx}, i64* {disc_gep}"));
                             let loaded = self.fresh_tmp();
                             self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
-                            Ok(loaded)
+                            Ok((loaded, struct_ty))
                         } else {
-                            Ok("0".to_string())
+                            Ok(("0".to_string(), "i64".to_string()))
                         }
                     } else {
-                        Ok("0".to_string())
+                        Ok(("0".to_string(), "i64".to_string()))
                     }
                 } else {
-                    Ok("0".to_string())
+                    Ok(("0".to_string(), "i64".to_string()))
                 }
             }
             Expr::Int(n, _) => {
-                Ok(format!("{n}"))
+                Ok((format!("{n}"), "i64".to_string()))
             }
             Expr::Float(f, _) => {
-                Ok(format!("{f:.6}"))
+                Ok((format!("{f:.6}"), "double".to_string()))
             }
             Expr::Bool(b, _) => {
-                Ok(if *b { "1".to_string() } else { "0".to_string() })
+                Ok((if *b { "1".to_string() } else { "0".to_string() }, "i64".to_string()))
             }
             Expr::Str(s, _) => {
                 let str_id = self.str_counter;
@@ -3372,47 +3394,48 @@ impl IrEmitter {
                 ));
                 let tmp = self.fresh_tmp();
                 self.emitln(&format!("  {tmp} = getelementptr [{} x i8], [{} x i8]* {label}, i64 0, i64 0", s.len() + 1, s.len() + 1));
-                Ok(tmp)
+                Ok((tmp, "i8*".to_string()))
             }
             Expr::Char(c, _) => {
-                Ok(format!("{}", *c as u32))
+                Ok((format!("{}", *c as u32), "i8".to_string()))
             }
             Expr::Paren(inner, _) => self.compile_expr(inner),
             Expr::Tuple(items, _) => {
                 if items.is_empty() {
-                    Ok("0".to_string())
+                    Ok(("0".to_string(), "void".to_string()))
                 } else {
                     let struct_ty = self.infer_llvm_type(expr);
                     if !struct_ty.starts_with("%struct.") {
-                        return Ok("0".to_string());
+                        return Ok(("0".to_string(), "i64".to_string()));
                     }
                     let alloca = self.fresh_tmp();
                     self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
                     for (i, item) in items.iter().enumerate() {
-                        let item_val = self.compile_expr(item)?;
+                        let (item_val, item_ty) = self.compile_expr(item)?;
                         let gep = self.fresh_tmp();
                         self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {i}"));
-                        let item_ty = self.infer_llvm_type(item);
                         self.emitln(&format!("  store {item_ty} {item_val}, {item_ty}* {gep}"));
                     }
                     let loaded = self.fresh_tmp();
                     self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
-                    Ok(loaded)
+                    Ok((loaded, struct_ty))
                 }
             }
             Expr::Unary(op, inner, _) => {
-                let val = self.compile_expr(inner)?;
+                let (val, inner_ty) = self.compile_expr(inner)?;
                 let tmp = self.fresh_tmp();
                 match op {
                     UnaryOp::Neg => {
-                        if self.infer_llvm_type(inner) == "double" {
+                        if inner_ty == "double" {
                             self.emitln(&format!("  {tmp} = fneg double {val}"));
+                            return Ok((tmp, "double".to_string()));
                         } else {
                             self.emitln(&format!("  {tmp} = sub i64 0, {val}"));
+                            return Ok((tmp, "i64".to_string()));
                         }
                     }
                     UnaryOp::Not => {
-                        let val_ty = self.infer_llvm_type(inner);
+                        let val_ty = inner_ty.clone();
                         let xor_val = if val_ty == "i1" || val_ty == "i8" {
                             let ext = self.fresh_tmp();
                             self.emitln(&format!("  {ext} = zext {val_ty} {val} to i64"));
@@ -3421,21 +3444,23 @@ impl IrEmitter {
                             val
                         };
                         self.emitln(&format!("  {tmp} = xor i64 {xor_val}, 1"));
+                        return Ok((tmp, "i64".to_string()));
                     }
                     UnaryOp::BitNot => {
                         self.emitln(&format!("  {tmp} = xor i64 {val}, -1"));
+                        return Ok((tmp, "i64".to_string()));
                     }
                     UnaryOp::Deref => {
-                        let ty = self.infer_llvm_type(inner);
+                        let ty = inner_ty.clone();
                         self.emitln(&format!("  {tmp} = load {ty}, {ty}* {val}"));
+                        return Ok((tmp, ty));
                     }
-                    UnaryOp::Ref | UnaryOp::MutRef => return Ok(val),
+                    UnaryOp::Ref | UnaryOp::MutRef => return Ok((val, inner_ty)),
                 }
-                Ok(tmp)
             }
             Expr::Binary(left, op, right, _) => {
-                let mut l = self.compile_expr(left)?;
-                let mut r = self.compile_expr(right)?;
+                let (mut l, lt) = self.compile_expr(left)?;
+                let (mut r, rt) = self.compile_expr(right)?;
                 let tmp = self.fresh_tmp();
                 let is_float = self.is_float_expr(left) || self.is_float_expr(right);
                 if matches!(op, BinOp::And | BinOp::Or) {
@@ -3447,29 +3472,26 @@ impl IrEmitter {
                             ext
                         }
                     };
-                    let lt = self.infer_llvm_type(left);
-                    let rt = self.infer_llvm_type(right);
                     let lw = widen(self, &l, &lt);
                     let rw = widen(self, &r, &rt);
                     let op_name = if is_or { "or" } else { "and" };
                     let result = self.fresh_tmp();
                     self.emitln(&format!("  {result} = {op_name} i64 {lw}, {rw}"));
-                    return Ok(result);
+                    return Ok((result, "i64".to_string()));
                 }
                 // For struct-typed equality/inequality, call derived eq() instead of icmp
                 if matches!(op, BinOp::Eq | BinOp::Neq) {
-                    let lt = self.infer_llvm_type(left);
-                    if lt.starts_with("%struct.") || self.infer_llvm_type(right).starts_with("%struct.") {
-                        let struct_name = if lt.starts_with("%struct.") { &lt[8..] } else { &self.infer_llvm_type(right)[8..] };
+                    if lt.starts_with("%struct.") || rt.starts_with("%struct.") {
+                        let struct_name = if lt.starts_with("%struct.") { &lt[8..] } else { &rt[8..] };
                         let eq_fn = format!("{}.eq", struct_name);
                         let eq_result = self.fresh_tmp();
-                        self.emitln(&format!("  {eq_result} = call i64 @{eq_fn}({lt} {l}, {} {r})", self.infer_llvm_type(right)));
+                        self.emitln(&format!("  {eq_result} = call i64 @{eq_fn}({lt} {l}, {rt} {r})"));
                         if matches!(op, BinOp::Neq) {
                             let negated = self.fresh_tmp();
                             self.emitln(&format!("  {negated} = xor i64 {eq_result}, 1"));
-                            return Ok(negated);
+                            return Ok((negated, "i64".to_string()));
                         }
-                        return Ok(eq_result);
+                        return Ok((eq_result, "i64".to_string()));
                     }
                 }
                 let (ty, inst) = match op {
@@ -3489,26 +3511,24 @@ impl IrEmitter {
                     BinOp::Gt => (if is_float { "double" } else { "i64" }, if is_float { "fcmp ogt" } else { "icmp sgt" }),
                     BinOp::Le => (if is_float { "double" } else { "i64" }, if is_float { "fcmp ole" } else { "icmp sle" }),
                     BinOp::Ge => (if is_float { "double" } else { "i64" }, if is_float { "fcmp oge" } else { "icmp sge" }),
-                    BinOp::Assign => return Ok(r),
+                    BinOp::Assign => return Ok((r, rt)),
                     _ => unreachable!(),
                 };
                 // For non-float comparisons, use the actual operand LLVM type
                 // (handles pointer types like i8* for string comparisons)
                 let ty = if !is_float && inst.starts_with("icmp") {
-                    let lt = self.infer_llvm_type(left);
-                    let rt = self.infer_llvm_type(right);
-                    if lt.contains('*') { lt } else if rt.contains('*') { rt } else { ty.to_string() }
+                    if lt.contains('*') { lt.clone() } else if rt.contains('*') { rt.clone() } else { ty.to_string() }
                 } else {
                     ty.to_string()
                 };
                 // Convert literal 0 to null pointer when comparing with pointer types
                 if ty.contains('*') {
-                    if l == "0" && self.infer_llvm_type(left) == "i64" {
+                    if l == "0" && lt == "i64" {
                         let null_tmp = self.fresh_tmp();
                         self.emitln(&format!("  {null_tmp} = inttoptr i64 0 to {ty}"));
                         l = null_tmp;
                     }
-                    if r == "0" && self.infer_llvm_type(right) == "i64" {
+                    if r == "0" && rt == "i64" {
                         let null_tmp = self.fresh_tmp();
                         self.emitln(&format!("  {null_tmp} = inttoptr i64 0 to {ty}"));
                         r = null_tmp;
@@ -3516,12 +3536,12 @@ impl IrEmitter {
                 }
                 // Coerce i64 operands to double when in float context (mixed-type expressions)
                 if is_float {
-                    if self.infer_llvm_type(left) == "i64" {
+                    if lt == "i64" {
                         let conv = self.fresh_tmp();
                         self.emitln(&format!("  {conv} = sitofp i64 {l} to double"));
                         l = conv;
                     }
-                    if self.infer_llvm_type(right) == "i64" {
+                    if rt == "i64" {
                         let conv = self.fresh_tmp();
                         self.emitln(&format!("  {conv} = sitofp i64 {r} to double"));
                         r = conv;
@@ -3532,8 +3552,18 @@ impl IrEmitter {
                 // operation type. Skips float ops and pointer comparisons (string
                 // `==`), whose `ty` was resolved to `double`/`i8*` above.
                 if !is_float && ty == "i64" {
-                    let lt = self.infer_llvm_type(left);
-                    let rt = self.infer_llvm_type(right);
+                    // If one operand is a single-scalar-backed struct (e.g. an
+                    // Option/Ordering whose first field is the i64 discriminant)
+                    // and the other side is a plain integer, extract field 0 so the
+                    // integer op is well-typed. This handles stdlib idioms like
+                    // `opt >= 0` / `find(...) < n` where the struct's leading i64
+                    // carries the comparable value.
+                    if lt.starts_with("%struct.") && !rt.starts_with("%struct.") {
+                        l = self.extract_scalar_field0(&l, &lt);
+                    }
+                    if rt.starts_with("%struct.") && !lt.starts_with("%struct.") {
+                        r = self.extract_scalar_field0(&r, &rt);
+                    }
                     l = self.widen_to_i64(&l, &lt);
                     r = self.widen_to_i64(&r, &rt);
                 }
@@ -3553,21 +3583,21 @@ impl IrEmitter {
                     None
                 };
                 self.emitln(&format!("  {tmp} = {inst} {ty} {l}, {r}"));
-                let result = if inst.starts_with("icmp") || inst.starts_with("fcmp") {
+                let (result, result_ty) = if inst.starts_with("icmp") || inst.starts_with("fcmp") {
                     let ext = self.fresh_tmp();
                     self.emitln(&format!("  {ext} = zext i1 {tmp} to i64"));
-                    ext
+                    (ext, "i64".to_string())
                 } else {
-                    tmp
+                    (tmp, ty.clone())
                 };
                 if let Some(cont_block) = div_cont {
                     self.emitln(&format!("  br label %{cont_block}"));
                     self.emitln(&format!("\n{cont_block}:"));
                 }
-                Ok(result)
+                Ok((result, result_ty))
             }
             Expr::Try(inner, _span) => {
-                let val = self.compile_expr(inner)?;
+                let (val, _inner_ty) = self.compile_expr(inner)?;
                 // Determine if this is Option (2 fields) or Result (3 fields)
                 let is_option = match &**inner {
                     Expr::Some(..) | Expr::None(..) => {
@@ -3641,7 +3671,7 @@ impl IrEmitter {
                     let some_val = self.fresh_tmp();
                     self.emitln(&format!("  {val_gep} = getelementptr {opt_ty}, {opt_ty}* {opt_alloca}, i32 0, i32 1"));
                     self.emitln(&format!("  {some_val} = load i64, i64* {val_gep}"));
-                    Ok(some_val)
+                    Ok((some_val, "i64".to_string()))
                 } else {
                     let result_ty = "%struct.Result";
                     let result_alloca = self.fresh_tmp();
@@ -3666,19 +3696,19 @@ impl IrEmitter {
                     let ok_val = self.fresh_tmp();
                     self.emitln(&format!("  {val_gep} = getelementptr {result_ty}, {result_ty}* {result_alloca}, i32 0, i32 1"));
                     self.emitln(&format!("  {ok_val} = load i64, i64* {val_gep}"));
-                    Ok(ok_val)
+                    Ok((ok_val, "i64".to_string()))
                 }
             }
             Expr::Imply(left, right, _) => {
-                let l = self.compile_expr(left)?;
-                let r = self.compile_expr(right)?;
+                let (l, _lt) = self.compile_expr(left)?;
+                let (r, _rt) = self.compile_expr(right)?;
                 let tmp1 = self.fresh_tmp();
                 let tmp2 = self.fresh_tmp();
                 self.emitln(&format!("  {tmp1} = xor i64 {l}, 1"));
                 self.emitln(&format!("  {tmp2} = or i64 {tmp1}, {r}"));
-                Ok(tmp2)
+                Ok((tmp2, "i64".to_string()))
             }
-            Expr::Is(_, _, _) => Ok("1".to_string()),
+            Expr::Is(_, _, _) => Ok(("1".to_string(), "i64".to_string())),
             Expr::Field(obj, field, _) => {
                 // Simplified field access: if the object is an ident in locals, load the field via GEP
                 if let Expr::Ident(obj_ident) = obj.as_ref() {
@@ -3699,13 +3729,13 @@ impl IrEmitter {
                                     let loaded = self.fresh_tmp();
                                     self.emitln(&format!("  {gep} = getelementptr {llvm_ty}, {llvm_ty}* {struct_alloca}, i32 0, i32 {field_idx}"));
                                     self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
-                                    return Ok(loaded);
+                                    return Ok((loaded, field_llvm_ty));
                                 }
                             }
                         }
                     }
                 }
-                Ok("0".to_string())
+                Ok(("0".to_string(), "i64".to_string()))
             }
             Expr::Call(func, args, _) => {
                 // Determine function name and receiver for both direct and method call forms
@@ -3716,7 +3746,7 @@ impl IrEmitter {
                 };
                 let fn_name = match fn_name_opt {
                     Some(ref n) => n.clone(),
-                    None => return Ok("0".to_string()),
+                    None => return Ok(("0".to_string(), "i64".to_string())),
                 };
                 // Check for contract collection methods
                 let is_contract_method = matches!(fn_name.as_str(), "is_sorted" | "all" | "none" | "contains");
@@ -3724,15 +3754,14 @@ impl IrEmitter {
                     let tmp = self.fresh_tmp();
                     if let Some(receiver) = receiver_expr {
                         // Method form: receiver.method(args)
-                        let recv_val = self.compile_expr(receiver)?;
-                        let recv_llvm_ty = self.infer_llvm_type(receiver);
+                        let (recv_val, recv_llvm_ty) = self.compile_expr(receiver)?;
                         let recv_alloca = self.fresh_tmp();
                         self.emitln(&format!("  {recv_alloca} = alloca {recv_llvm_ty}"));
                         self.emitln(&format!("  store {recv_llvm_ty} {recv_val}, {recv_llvm_ty}* {recv_alloca}"));
                         let ptr = self.fresh_tmp();
                         self.emitln(&format!("  {ptr} = bitcast {recv_llvm_ty}* {recv_alloca} to i8*"));
                         let extra_args: Vec<String> = args.iter()
-                            .map(|a| self.compile_expr(a))
+                            .map(|a| self.compile_expr(a).map(|(v, _)| v))
                             .collect::<Result<Vec<_>, _>>()?;
                         match fn_name.as_str() {
                             "is_sorted" => {
@@ -3752,11 +3781,11 @@ impl IrEmitter {
                             }
                             _ => unreachable!(),
                         }
-                        return Ok(tmp);
+                        return Ok((tmp, "i64".to_string()));
                     } else {
                         // Direct form: method(args) — compile all args
                         let compiled_args: Vec<String> = args.iter()
-                            .map(|a| self.compile_expr(a))
+                            .map(|a| self.compile_expr(a).map(|(v, _)| v))
                             .collect::<Result<Vec<_>, _>>()?;
                         // Convert first argument to i8* pointer via alloca+bitcast
                         let ptr_val = compiled_args.first().cloned().unwrap_or_else(|| "0".to_string());
@@ -3792,7 +3821,7 @@ impl IrEmitter {
                             }
                             _ => unreachable!(),
                         }
-                        return Ok(tmp);
+                        return Ok((tmp, "i64".to_string()));
                     }
                 }
                 // Primitive interface methods (Ord.compare, Eq.eq/ne, comparison ops,
@@ -3817,33 +3846,33 @@ impl IrEmitter {
                             && recv_llvm_ty != "i8*"
                             && recv_llvm_ty != "void";
                         if is_scalar {
-                            let recv_val = self.compile_expr(receiver)?;
+                            let (recv_val, _recv_val_ty) = self.compile_expr(receiver)?;
                             let is_float = recv_llvm_ty == "double" || recv_llvm_ty == "float";
                             match fn_name.as_str() {
-                                "clone" => return Ok(recv_val),
+                                "clone" => return Ok((recv_val, recv_llvm_ty.clone())),
                                 "hash" => {
                                     if is_float {
                                         let bits = if recv_llvm_ty == "double" { "i64" } else { "i32" };
                                         let cast = self.fresh_tmp();
                                         self.emitln(&format!("  {cast} = bitcast {recv_llvm_ty} {recv_val} to {bits}"));
                                         if bits == "i64" {
-                                            return Ok(cast);
+                                            return Ok((cast, "i64".to_string()));
                                         }
                                         let ext = self.fresh_tmp();
                                         self.emitln(&format!("  {ext} = sext i32 {cast} to i64"));
-                                        return Ok(ext);
+                                        return Ok((ext, "i64".to_string()));
                                     }
                                     if recv_llvm_ty == "i64" {
-                                        return Ok(recv_val);
+                                        return Ok((recv_val, "i64".to_string()));
                                     }
                                     let ext = self.fresh_tmp();
                                     self.emitln(&format!("  {ext} = sext {recv_llvm_ty} {recv_val} to i64"));
-                                    return Ok(ext);
+                                    return Ok((ext, "i64".to_string()));
                                 }
                                 _ => {}
                             }
                             let arg_val = if let Some(a) = args.first() {
-                                self.compile_expr(a)?
+                                self.compile_expr(a)?.0
                             } else {
                                 "0".to_string()
                             };
@@ -3861,7 +3890,7 @@ impl IrEmitter {
                                 let res = self.fresh_tmp();
                                 self.emitln(&format!("  {s1} = select i1 {gt}, i64 1, i64 0"));
                                 self.emitln(&format!("  {res} = select i1 {lt}, i64 -1, i64 {s1}"));
-                                return Ok(res);
+                                return Ok((res, "i64".to_string()));
                             }
                             let op = match (fn_name.as_str(), is_float) {
                                 ("eq", false) => "icmp eq",  ("eq", true) => "fcmp oeq",
@@ -3876,7 +3905,7 @@ impl IrEmitter {
                             self.emitln(&format!("  {cmp} = {op} {recv_llvm_ty} {recv_val}, {arg_val}"));
                             let res = self.fresh_tmp();
                             self.emitln(&format!("  {res} = zext i1 {cmp} to i64"));
-                            return Ok(res);
+                            return Ok((res, "i64".to_string()));
                         }
                     }
                 }
@@ -3884,26 +3913,26 @@ impl IrEmitter {
                 if fn_name == "alloc" {
                     let tmp = self.fresh_tmp();
                     if let Some(size_arg) = args.first() {
-                        let size_val = self.compile_expr(size_arg)?;
+                        let (size_val, _) = self.compile_expr(size_arg)?;
                         self.emitln(&format!("  {tmp} = call i8* @malloc(i64 {size_val})"));
                     } else {
                         self.emitln(&format!("  {tmp} = call i8* @malloc(i64 0)"));
                     }
-                    return Ok(tmp);
+                    return Ok((tmp, "i8*".to_string()));
                 }
                 if fn_name == "free" {
                     if let Some(ptr_arg) = args.first() {
-                        let ptr_val = self.compile_expr(ptr_arg)?;
+                        let (ptr_val, _) = self.compile_expr(ptr_arg)?;
                         self.emitln(&format!("  call void @free(i8* {ptr_val})"));
                     }
-                    return Ok("0".to_string());
+                    return Ok(("0".to_string(), "void".to_string()));
                 }
                 if fn_name == "memcpy" && args.len() >= 3 {
-                    let dest_val = self.compile_expr(&args[0])?;
-                    let src_val = self.compile_expr(&args[1])?;
-                    let size_val = self.compile_expr(&args[2])?;
+                    let (dest_val, _) = self.compile_expr(&args[0])?;
+                    let (src_val, _) = self.compile_expr(&args[1])?;
+                    let (size_val, _) = self.compile_expr(&args[2])?;
                     self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {dest_val}, i8* {src_val}, i64 {size_val}, i1 false)"));
-                    return Ok("0".to_string());
+                    return Ok(("0".to_string(), "void".to_string()));
                 }
                 // Vec.new() — static method on Vec type
                 if let Some(receiver) = receiver_expr {
@@ -3934,7 +3963,7 @@ impl IrEmitter {
                             self.emitln(&format!("  store i64 16, i64* {cap_gep}"));
                             let loaded = self.fresh_tmp();
                             self.emitln(&format!("  {loaded} = load %struct.Vec, %struct.Vec* {struct_alloca}"));
-                            return Ok(loaded);
+                            return Ok((loaded, "%struct.Vec".to_string()));
                         }
                     }
                 }
@@ -3944,8 +3973,8 @@ impl IrEmitter {
                         if self.infer_llvm_type(receiver) != "%struct.Vec" || self.infer_llvm_type(&args[0]) != "i64" {
                             // Not a Vec receiver or non-i64 element type — fall through to general method dispatch
                         } else {
-                        let recv_val = self.compile_expr(receiver)?;
-                        let val = self.compile_expr(&args[0])?;
+                        let (recv_val, _) = self.compile_expr(receiver)?;
+                        let (val, _) = self.compile_expr(&args[0])?;
                         let vec_alloca = self.fresh_tmp();
                         self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
                         self.emitln(&format!("  store %struct.Vec {recv_val}, %struct.Vec* {vec_alloca}"));
@@ -4013,7 +4042,7 @@ impl IrEmitter {
                         self.emitln(&format!("  store i64 {new_len}, i64* {len_gep}"));
                         let loaded = self.fresh_tmp();
                         self.emitln(&format!("  {loaded} = load %struct.Vec, %struct.Vec* {vec_alloca}"));
-                        return Ok(loaded);
+                        return Ok((loaded, "%struct.Vec".to_string()));
                         }
                     }
                 }
@@ -4023,7 +4052,7 @@ impl IrEmitter {
                         if self.infer_llvm_type(receiver) != "%struct.Vec" {
                             // Not a Vec receiver — fall through to general method dispatch
                         } else {
-                        let recv_val = self.compile_expr(receiver)?;
+                        let (recv_val, _) = self.compile_expr(receiver)?;
                         let vec_alloca = self.fresh_tmp();
                         self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
                         self.emitln(&format!("  store %struct.Vec {recv_val}, %struct.Vec* {vec_alloca}"));
@@ -4031,7 +4060,7 @@ impl IrEmitter {
                         let len_val = self.fresh_tmp();
                         self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 1"));
                         self.emitln(&format!("  {len_val} = load i64, i64* {len_gep}"));
-                        return Ok(len_val);
+                        return Ok((len_val, "i64".to_string()));
                         }
                     }
                 }
@@ -4040,145 +4069,142 @@ impl IrEmitter {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
                         if recv_ty == "i8*" || recv_ty == "ptr" {
-                            let recv_val = self.compile_expr(receiver)?;
+                            let (recv_val, _) = self.compile_expr(receiver)?;
                             let tmp = self.fresh_tmp();
                             self.emitln(&format!("  {tmp} = call i64 @xiom_str_len(i8* {recv_val})"));
-                            return Ok(tmp);
+                            return Ok((tmp, "i64".to_string()));
                         }
                     }
                 }
                 let compiled_args: Vec<String> = args.iter()
-                    .map(|a| self.compile_expr(a))
+                    .map(|a| self.compile_expr(a).map(|(v, _)| v))
                     .collect::<Result<Vec<_>, _>>()?;
                 if fn_name == "io" {
                     if let Some(arg) = compiled_args.first() {
                         let tmp = self.fresh_tmp();
                         self.emitln(&format!("  {tmp} = call i32 @puts(i8* {arg})"));
-                        return Ok(tmp);
+                        return Ok((tmp, "i32".to_string()));
                     }
-                    return Ok("0".to_string());
+                    return Ok(("0".to_string(), "i64".to_string()));
                 }
                 // Extern runtime functions for file I/O
                 if fn_name == "xiom_read_file" {
                     let tmp = self.fresh_tmp();
                     if let Some(path_arg) = args.first() {
-                        let path_ptr = self.compile_expr(path_arg)?;
+                        let (path_ptr, _) = self.compile_expr(path_arg)?;
                         self.emitln(&format!("  {tmp} = call i8* @xiom_read_file(i8* {path_ptr})"));
                     } else {
                         self.emitln(&format!("  {tmp} = call i8* @xiom_read_file(i8* null)"));
                     }
                     let tmp_int = self.fresh_tmp();
                     self.emitln(&format!("  {tmp_int} = ptrtoint i8* {tmp} to i64"));
-                    return Ok(tmp_int);
+                    return Ok((tmp_int, "i64".to_string()));
                 }
                 if fn_name == "xiom_file_size" {
                     let tmp = self.fresh_tmp();
                     if let Some(path_arg) = args.first() {
-                        let path_ptr = self.compile_expr(path_arg)?;
+                        let (path_ptr, _) = self.compile_expr(path_arg)?;
                         self.emitln(&format!("  {tmp} = call i64 @xiom_file_size(i8* {path_ptr})"));
                     } else {
                         self.emitln(&format!("  {tmp} = call i64 @xiom_file_size(i8* null)"));
                     }
-                    return Ok(tmp);
+                    return Ok((tmp, "i64".to_string()));
                 }
                 if fn_name == "xiom_free" {
                     if let Some(ptr_arg) = args.first() {
-                        let ptr_val = self.compile_expr(ptr_arg)?;
-                        let ptr_ty = self.infer_llvm_type(ptr_arg);
+                        let (ptr_val, ptr_ty) = self.compile_expr(ptr_arg)?;
                         let ptr_ptr = self.val_to_i8ptr(&ptr_val, &ptr_ty);
                         self.emitln(&format!("  call void @xiom_free(i8* {ptr_ptr})"));
                     }
-                    return Ok("0".to_string());
+                    return Ok(("0".to_string(), "void".to_string()));
                 }
                 if fn_name == "xiom_char_at" && args.len() >= 2 {
-                    let src = self.compile_expr(&args[0])?;
-                    let src_ty = self.infer_llvm_type(&args[0]);
-                    let pos = self.compile_expr(&args[1])?;
+                    let (src, src_ty) = self.compile_expr(&args[0])?;
+                    let (pos, _) = self.compile_expr(&args[1])?;
                     let tmp = self.fresh_tmp();
                     let tmp_ext = self.fresh_tmp();
                     let src_ptr = self.val_to_i8ptr(&src, &src_ty);
                     self.emitln(&format!("  {tmp} = call i8 @xiom_char_at(i8* {src_ptr}, i64 {pos})"));
                     self.emitln(&format!("  {tmp_ext} = zext i8 {tmp} to i64"));
-                    return Ok(tmp_ext);
+                    return Ok((tmp_ext, "i64".to_string()));
                 }
                 if fn_name == "xiom_str_len" && args.len() >= 1 {
-                    let src = self.compile_expr(&args[0])?;
-                    let src_ty = self.infer_llvm_type(&args[0]);
+                    let (src, src_ty) = self.compile_expr(&args[0])?;
                     let tmp = self.fresh_tmp();
                     let src_ptr = self.val_to_i8ptr(&src, &src_ty);
                     self.emitln(&format!("  {tmp} = call i64 @xiom_str_len(i8* {src_ptr})"));
-                    return Ok(tmp);
+                    return Ok((tmp, "i64".to_string()));
                 }
                 // v0.9.4 string-based IR emission externs
                 if fn_name == "xiom_ir_define_s" && args.len() >= 2 {
-                    let name = self.compile_expr(&args[0])?;
-                    let ret_type = self.compile_expr(&args[1])?;
+                    let (name, _) = self.compile_expr(&args[0])?;
+                    let (ret_type, _) = self.compile_expr(&args[1])?;
                     self.emitln(&format!("  call void @xiom_ir_define_s(i8* {name}, i8* {ret_type})"));
-                    return Ok("0".to_string());
+                    return Ok(("0".to_string(), "void".to_string()));
                 }
                 if fn_name == "xiom_ir_param_int" && args.len() >= 1 {
-                    let index = self.compile_expr(&args[0])?;
+                    let (index, _) = self.compile_expr(&args[0])?;
                     self.emitln(&format!("  call void @xiom_ir_param_int(i64 {index})"));
-                    return Ok("0".to_string());
+                    return Ok(("0".to_string(), "void".to_string()));
                 }
                 if fn_name == "xiom_ir_param_double" && args.len() >= 1 {
-                    let index = self.compile_expr(&args[0])?;
+                    let (index, _) = self.compile_expr(&args[0])?;
                     self.emitln(&format!("  call void @xiom_ir_param_double(i64 {index})"));
-                    return Ok("0".to_string());
+                    return Ok(("0".to_string(), "void".to_string()));
                 }
                 if fn_name == "xiom_ir_alloca_s" && args.len() >= 1 {
-                    let reg = self.compile_expr(&args[0])?;
+                    let (reg, _) = self.compile_expr(&args[0])?;
                     self.emitln(&format!("  call void @xiom_ir_alloca_s(i64 {reg})"));
-                    return Ok("0".to_string());
+                    return Ok(("0".to_string(), "void".to_string()));
                 }
                 if fn_name == "xiom_ir_store_param" && args.len() >= 2 {
-                    let reg = self.compile_expr(&args[0])?;
-                    let param = self.compile_expr(&args[1])?;
+                    let (reg, _) = self.compile_expr(&args[0])?;
+                    let (param, _) = self.compile_expr(&args[1])?;
                     self.emitln(&format!("  call void @xiom_ir_store_param(i64 {reg}, i64 {param})"));
-                    return Ok("0".to_string());
+                    return Ok(("0".to_string(), "void".to_string()));
                 }
                 if fn_name == "xiom_ir_load_s" && args.len() >= 2 {
-                    let reg = self.compile_expr(&args[0])?;
-                    let from_reg = self.compile_expr(&args[1])?;
+                    let (reg, _) = self.compile_expr(&args[0])?;
+                    let (from_reg, _) = self.compile_expr(&args[1])?;
                     self.emitln(&format!("  call void @xiom_ir_load_s(i64 {reg}, i64 {from_reg})"));
-                    return Ok("0".to_string());
+                    return Ok(("0".to_string(), "void".to_string()));
                 }
                 if fn_name == "xiom_ir_add" && args.len() >= 3 {
-                    let dst = self.compile_expr(&args[0])?;
-                    let left = self.compile_expr(&args[1])?;
-                    let right = self.compile_expr(&args[2])?;
+                    let (dst, _) = self.compile_expr(&args[0])?;
+                    let (left, _) = self.compile_expr(&args[1])?;
+                    let (right, _) = self.compile_expr(&args[2])?;
                     self.emitln(&format!("  call void @xiom_ir_add(i64 {dst}, i64 {left}, i64 {right})"));
-                    return Ok("0".to_string());
+                    return Ok(("0".to_string(), "void".to_string()));
                 }
                 if fn_name == "xiom_ir_fmul" && args.len() >= 3 {
-                    let dst = self.compile_expr(&args[0])?;
-                    let left = self.compile_expr(&args[1])?;
-                    let right = self.compile_expr(&args[2])?;
+                    let (dst, _) = self.compile_expr(&args[0])?;
+                    let (left, _) = self.compile_expr(&args[1])?;
+                    let (right, _) = self.compile_expr(&args[2])?;
                     self.emitln(&format!("  call void @xiom_ir_fmul(i64 {dst}, i64 {left}, i64 {right})"));
-                    return Ok("0".to_string());
+                    return Ok(("0".to_string(), "void".to_string()));
                 }
                 if fn_name == "xiom_ir_call_fn" && args.len() >= 3 {
-                    let dst = self.compile_expr(&args[0])?;
-                    let fn_name_str = self.compile_expr(&args[1])?;
-                    let ret_type = self.compile_expr(&args[2])?;
+                    let (dst, _) = self.compile_expr(&args[0])?;
+                    let (fn_name_str, _) = self.compile_expr(&args[1])?;
+                    let (ret_type, _) = self.compile_expr(&args[2])?;
                     self.emitln(&format!("  call void @xiom_ir_call_fn(i64 {dst}, i8* {fn_name_str}, i8* {ret_type})"));
-                    return Ok("0".to_string());
+                    return Ok(("0".to_string(), "void".to_string()));
                 }
                 if fn_name == "xiom_ir_call_arg_lit" && args.len() >= 2 {
-                    let ty = self.compile_expr(&args[0])?;
-                    let val = self.compile_expr(&args[1])?;
+                    let (ty, _) = self.compile_expr(&args[0])?;
+                    let (val, _) = self.compile_expr(&args[1])?;
                     self.emitln(&format!("  call void @xiom_ir_call_arg_lit(i8* {ty}, i8* {val})"));
-                    return Ok("0".to_string());
+                    return Ok(("0".to_string(), "void".to_string()));
                 }
                 if fn_name == "xiom_ir_ret_reg" && args.len() >= 1 {
-                    let reg = self.compile_expr(&args[0])?;
+                    let (reg, _) = self.compile_expr(&args[0])?;
                     self.emitln(&format!("  call void @xiom_ir_ret_reg(i64 {reg})"));
-                    return Ok("0".to_string());
+                    return Ok(("0".to_string(), "void".to_string()));
                 }
                 if fn_name == "xiom_ir_ret_lit" && args.len() >= 1 {
-                    let val = self.compile_expr(&args[0])?;
+                    let (val, _) = self.compile_expr(&args[0])?;
                     self.emitln(&format!("  call void @xiom_ir_ret_lit(i64 {val})"));
-                    return Ok("0".to_string());
+                    return Ok(("0".to_string(), "void".to_string()));
                 }
                 // Check if this is a call to a generic function and track instantiation
                 let fn_key = if let Some(receiver) = receiver_expr {
@@ -4286,8 +4312,7 @@ impl IrEmitter {
                             // Check if param_types already includes a receiver (from monomorphised registration)
                             let has_receiver_in_params = !all_param_types.is_empty() && all_param_types.len() > all_args.len();
                             if is_instance {
-                                let recv_val = self.compile_expr(receiver)?;
-                                let recv_llvm_ty = self.infer_llvm_type(receiver);
+                                let (recv_val, recv_llvm_ty) = self.compile_expr(receiver)?;
                                 if has_receiver_in_params {
                                     // Receiver type already in param_types, just need the value
                                     all_args.insert(0, recv_val);
@@ -4307,13 +4332,13 @@ impl IrEmitter {
                         let tmp = self.fresh_tmp();
                         if ret_ty == "void" {
                             self.emitln(&format!("  call void @{specialized_name}({args_str})"));
-                            Ok(tmp)
+                            Ok((tmp, "void".to_string()))
                         } else {
                             self.emitln(&format!("  {tmp} = call {ret_ty} @{specialized_name}({args_str})"));
-                            Ok(tmp)
+                            Ok((tmp, ret_ty.clone()))
                         }
                     } else {
-                        Ok("0".to_string())
+                        Ok(("0".to_string(), "i64".to_string()))
                     }
                 } else {
                     // For method calls, resolve the fully qualified function name
@@ -4351,8 +4376,9 @@ impl IrEmitter {
                             _ => true, // complex receiver expressions (e.g. chained calls) are instances
                         };
                         if is_instance {
-                            let recv_val = self.compile_expr(receiver)?;
-                            let recv_llvm_ty = self.infer_llvm_type(receiver);
+                            // Value sink: use the receiver's real compiled LLVM type
+                            // (from compile_expr) rather than a re-inference.
+                            let (recv_val, recv_llvm_ty) = self.compile_expr(receiver)?;
                             let rest_str: Vec<String> = args.iter().zip(compiled_args.iter())
                                 .map(|(arg_expr, arg_val)| format!("{} {}", self.infer_llvm_type(arg_expr), arg_val))
                                 .collect();
@@ -4449,17 +4475,17 @@ impl IrEmitter {
                         } else {
                             self.emitln(&format!("  {tmp} = call {actual_ret_ty} {fn_ptr}({args_str})"));
                         }
-                        Ok(tmp)
+                        Ok((tmp, actual_ret_ty))
                     } else if ret_ty == "void" {
                         self.emitln(&format!("  call void @{resolved_fn_key}({args_str})"));
-                        Ok(tmp)
+                        Ok((tmp, "void".to_string()))
                     } else {
                         self.emitln(&format!("  {tmp} = call {ret_ty} @{resolved_fn_key}({args_str})"));
-                        Ok(tmp)
+                        Ok((tmp, ret_ty.clone()))
                     }
                 }
             }
-            Expr::Index(_, _, _) => Ok("0".to_string()),
+            Expr::Index(_, _, _) => Ok(("0".to_string(), "i64".to_string())),
             Expr::AtPre(inner, _) => {
                 // If inner is `self`, resolve to __self_pre (the pre-state snapshot)
                 if let Expr::Ident(id) = inner.as_ref() {
@@ -4467,7 +4493,7 @@ impl IrEmitter {
                         if let Some((ptr, llvm_ty)) = self.lookup_local("__self_pre").cloned() {
                             let tmp = self.fresh_tmp();
                             self.emitln(&format!("  {tmp} = load {llvm_ty}, {llvm_ty}* {ptr}"));
-                            return Ok(tmp);
+                            return Ok((tmp, llvm_ty));
                         }
                     }
                     // For other @pre expressions e.g. self.field@pre, compile as field access
@@ -4478,8 +4504,7 @@ impl IrEmitter {
             Expr::Ref(inner, _) | Expr::MutRef(inner, _) => self.compile_expr(inner),
             Expr::Some(inner, _) => {
                 self.used_builtins.insert("Option".to_string());
-                let val = self.compile_expr(inner)?;
-                let inner_ty = self.infer_llvm_type(inner);
+                let (val, inner_ty) = self.compile_expr(inner)?;
                 let store_val = self.val_to_i64(&val, &inner_ty);
                 let opt_ty = "%struct.Option";
                 let alloca = self.fresh_tmp();
@@ -4492,7 +4517,7 @@ impl IrEmitter {
                 self.emitln(&format!("  store i64 {store_val}, i64* {gep1}"));
                 let loaded = self.fresh_tmp();
                 self.emitln(&format!("  {loaded} = load {opt_ty}, {opt_ty}* {alloca}"));
-                Ok(loaded)
+                Ok((loaded, opt_ty.to_string()))
             }
             Expr::None(_) => {
                 self.used_builtins.insert("Option".to_string());
@@ -4507,12 +4532,11 @@ impl IrEmitter {
                 self.emitln(&format!("  store i64 0, i64* {gep1}"));
                 let loaded = self.fresh_tmp();
                 self.emitln(&format!("  {loaded} = load {opt_ty}, {opt_ty}* {alloca}"));
-                Ok(loaded)
+                Ok((loaded, opt_ty.to_string()))
             }
             Expr::Ok(inner, _) => {
                 self.used_builtins.insert("Result".to_string());
-                let val = self.compile_expr(inner)?;
-                let inner_ty = self.infer_llvm_type(inner);
+                let (val, inner_ty) = self.compile_expr(inner)?;
                 let store_val = self.val_to_i64(&val, &inner_ty);
                 let result_ty = "%struct.Result";
                 let alloca = self.fresh_tmp();
@@ -4528,12 +4552,11 @@ impl IrEmitter {
                 self.emitln(&format!("  store i64 0, i64* {gep2}"));
                 let loaded = self.fresh_tmp();
                 self.emitln(&format!("  {loaded} = load {result_ty}, {result_ty}* {alloca}"));
-                Ok(loaded)
+                Ok((loaded, result_ty.to_string()))
             }
             Expr::Err(inner, _) => {
                 self.used_builtins.insert("Result".to_string());
-                let val = self.compile_expr(inner)?;
-                let inner_ty = self.infer_llvm_type(inner);
+                let (val, inner_ty) = self.compile_expr(inner)?;
                 let store_val = self.val_to_i64(&val, &inner_ty);
                 let result_ty = "%struct.Result";
                 let alloca = self.fresh_tmp();
@@ -4549,7 +4572,7 @@ impl IrEmitter {
                 self.emitln(&format!("  store i64 {store_val}, i64* {gep2}"));
                 let loaded = self.fresh_tmp();
                 self.emitln(&format!("  {loaded} = load {result_ty}, {result_ty}* {alloca}"));
-                Ok(loaded)
+                Ok((loaded, result_ty.to_string()))
             }
             Expr::Struct(name, fields, _spread, _span) => {
                 // If `name` is an enum variant (e.g., `Single`), resolve to parent enum type
@@ -4580,7 +4603,7 @@ impl IrEmitter {
                         .map(|(_, vf)| vf.clone())
                         .unwrap_or_default();
                     for (i, (_, val)) in fields.iter().enumerate() {
-                        let field_val = self.compile_expr(val)?;
+                        let (field_val, _field_val_ty) = self.compile_expr(val)?;
                         // Find the actual parent field index for this variant field
                         let field_name = variant_fields.get(i).cloned().unwrap_or_default();
                         let parent_field_idx = parent_field_names.iter()
@@ -4600,14 +4623,13 @@ impl IrEmitter {
                     }
                 } else {
                     for (i, (_, val)) in fields.iter().enumerate() {
-                        let field_val = self.compile_expr(val)?;
+                        let (field_val, field_val_ty) = self.compile_expr(val)?;
                         let mut field_llvm_ty = self.field_llvm_type(&name.name, i);
                         // For generic types, field_llvm_type may return "i64" for unresolved type params (like T).
-                        // Fall back to the field value expression's inferred LLVM type.
+                        // Fall back to the field value's actual compiled LLVM type.
                         if field_llvm_ty == "i64" {
-                            let val_ty = self.infer_llvm_type(val);
-                            if val_ty != "i64" {
-                                field_llvm_ty = val_ty;
+                            if field_val_ty != "i64" {
+                                field_llvm_ty = field_val_ty;
                             }
                         }
                         let store_val = if field_val == "0" && (field_llvm_ty.ends_with('*') || field_llvm_ty.starts_with('\"')) {
@@ -4634,12 +4656,15 @@ impl IrEmitter {
                         }
                     }
                 }
-                Ok(loaded)
+                Ok((loaded, struct_ty))
             }
-            Expr::Array(_, _) => Ok("0".to_string()),
-            Expr::Closure(_, _, _, _) | Expr::PipeClosure(_, _, _) => Ok("0".to_string()),
+            Expr::Array(_, _) => Ok(("0".to_string(), "i64".to_string())),
+            Expr::Closure(_, _, _, _) | Expr::PipeClosure(_, _, _) => Ok(("0".to_string(), "i64".to_string())),
             Expr::As(inner, ty, _) => {
-                let val = self.compile_expr(inner)?;
+                // `inner_llvm_ty` selects the cast code-path; keep the infer-based
+                // query (it applies a generic-param double override that the
+                // compiled value's declared type would already reflect).
+                let (val, _val_ty) = self.compile_expr(inner)?;
                 let mut inner_llvm_ty = self.infer_llvm_type(inner);
                 if inner_llvm_ty == "i64" {
                     if let Expr::Ident(id) = inner.as_ref() {
@@ -4667,13 +4692,13 @@ impl IrEmitter {
                 match (inner_llvm_ty.as_str(), target_llvm_ty.as_str()) {
                     ("i64", "double") => {
                         self.emitln(&format!("  {tmp} = sitofp i64 {val} to double"));
-                        Ok(tmp)
+                        Ok((tmp, "double".to_string()))
                     }
                     ("double", "i64") => {
                         self.emitln(&format!("  {tmp} = fptosi double {val} to i64"));
-                        Ok(tmp)
+                        Ok((tmp, "i64".to_string()))
                     }
-                    (a, b) if a == b => Ok(val),
+                    (a, b) if a == b => Ok((val, target_llvm_ty.clone())),
                     // Integer <-> integer width conversions (e.g. Int<->Char, Int<->Int8/16/32).
                     // Char is i8 and Int is i64, so Int->Char truncs and Char->Int sign-extends.
                     (a, b) if int_width(a).is_some() && int_width(b).is_some() => {
@@ -4681,13 +4706,13 @@ impl IrEmitter {
                         let bw = int_width(b).unwrap();
                         if bw < aw {
                             self.emitln(&format!("  {tmp} = trunc {a} {val} to {b}"));
-                            Ok(tmp)
+                            Ok((tmp, target_llvm_ty.clone()))
                         } else {
                             self.emitln(&format!("  {tmp} = sext {a} {val} to {b}"));
-                            Ok(tmp)
+                            Ok((tmp, target_llvm_ty.clone()))
                         }
                     }
-                    _ => Ok(val),
+                    _ => Ok((val, inner_llvm_ty.clone())),
                 }
             }
             Expr::Await(inner, _) => self.compile_expr(inner),
@@ -4701,20 +4726,24 @@ impl IrEmitter {
                 // instead of an empty operand (previously returned String::new(),
                 // producing invalid `store T ,` / `ret T ` IR).
                 let mut last = String::new();
+                let mut last_ty = String::new();
                 let n = block.stmts.len();
                 for (i, item) in block.stmts.iter().enumerate() {
                     let is_last = i + 1 == n;
                     match item {
                         xiom_ast::StmtOrExpr::Expr(e) => {
-                            let v = self.compile_expr(e)?;
+                            let (v, vt) = self.compile_expr(e)?;
                             if is_last {
                                 last = v;
+                                last_ty = vt;
                             }
                         }
                         xiom_ast::StmtOrExpr::Stmt(s) => {
                             if is_last {
                                 if let Stmt::Expr(e, ..) = s {
-                                    last = self.compile_expr(e)?;
+                                    let (v, vt) = self.compile_expr(e)?;
+                                    last = v;
+                                    last_ty = vt;
                                 } else {
                                     self.compile_stmt(s)?;
                                 }
@@ -4724,7 +4753,12 @@ impl IrEmitter {
                         }
                     }
                 }
-                Ok(last)
+                if last.is_empty() {
+                    // No value-producing tail expression.
+                    Ok(("0".to_string(), "void".to_string()))
+                } else {
+                    Ok((last, last_ty))
+                }
             }
             Expr::If(cond, then_block, elifs, else_block, _) => {
                 self.compile_expr(cond)?;
@@ -4741,7 +4775,8 @@ impl IrEmitter {
                         match stmt { xiom_ast::StmtOrExpr::Expr(e) => { self.compile_expr(e)?; } _ => {} }
                     }
                 }
-                Ok(String::new())
+                // If-as-expression is compile-only here (not value-producing).
+                Ok(("0".to_string(), "void".to_string()))
             }
             Expr::Match(scrutinee, arms, span) => {
                 // Compile a match-expression by allocating a result slot, running the
@@ -4764,7 +4799,7 @@ impl IrEmitter {
                 self.match_result_ty = saved_ty;
                 let loaded = self.fresh_tmp();
                 self.emitln(&format!("  {loaded} = load {result_ty}, {result_ty}* {result_alloca}"));
-                Ok(loaded)
+                Ok((loaded, result_ty))
             }
         }
     }
