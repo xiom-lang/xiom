@@ -1968,6 +1968,16 @@ impl IrEmitter {
             let bc = self.fresh_tmp();
             self.emitln(&format!("  {bc} = ptrtoint {ty} {val} to i64"));
             bc
+        } else if ty == "i1" || ty == "i8" {
+            // Narrow unsigned integer (Bool/Char/UInt8) -> i64: zero-extend.
+            let ext = self.fresh_tmp();
+            self.emitln(&format!("  {ext} = zext {ty} {val} to i64"));
+            ext
+        } else if ty == "i16" || ty == "i32" {
+            // Narrow signed integer (Int16/Int32) -> i64: sign-extend.
+            let ext = self.fresh_tmp();
+            self.emitln(&format!("  {ext} = sext {ty} {val} to i64"));
+            ext
         } else if ty.starts_with('%') {
             let ptr = self.fresh_tmp();
             let bc = self.fresh_tmp();
