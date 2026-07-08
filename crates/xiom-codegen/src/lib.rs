@@ -4980,8 +4980,10 @@ impl IrEmitter {
             }
             // Calls / indexing / parens evaluate to values.
             Expr::Call(..) | Expr::Index(..) | Expr::Paren(..) => true,
-            // Anything else: instance only if it has a concrete struct type.
-            _ => self.infer_struct_type_name(receiver).is_some(),
+            // Any other receiver form evaluates to a value — preserve the prior
+            // "complex receiver is an instance" behavior (only the Ident type-name
+            // and Field module-path shapes above are treated as non-instances).
+            _ => true,
         }
     }
 
