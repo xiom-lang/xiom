@@ -4713,11 +4713,17 @@ impl IrEmitter {
             Expr::Array(_, _) => Ok(("0".to_string(), "i64".to_string())),
             Expr::Closure(_, _, _, _) | Expr::PipeClosure(_, _, _) => Ok(("0".to_string(), "i64".to_string())),
             Expr::As(inner, ty, _) => {
-                // `inner_llvm_ty` selects the cast code-path; keep the infer-based
-                // query (it applies a generic-param double override that the
-                // compiled value's declared type would already reflect).
-                let (val, _val_ty) = self.compile_expr(inner)?;
-                let mut inner_llvm_ty = self.infer_llvm_type(inner);
+                // Use the compiled value's REAL LLVM type as the source of the
+                // cast (from the refactor), falling back to infer only when the
+                // real type is unknown. This ensures e.g. `c as Int` where `c` is
+                // a Char (i8) actually sign-extends i8->i64 rather than emitting an
+                // untyped/mis-typed value.
+                let (val, val_ty) = self.compile_expr(inner)?;
+                let mut inner_llvm_ty = if !val_ty.is_empty() && val_ty != "void" {
+                    val_ty.clone()
+                } else {
+                    self.infer_llvm_type(inner)
+                };
                 if inner_llvm_ty == "i64" {
                     if let Expr::Ident(id) = inner.as_ref() {
                         if let Some(concrete) = self.param_concrete_types.get(&id.name) {
@@ -4764,7 +4770,12 @@ impl IrEmitter {
                             Ok((tmp, target_llvm_ty.clone()))
                         }
                     }
-                    _ => Ok((val, inner_llvm_ty.clone())),
+                    // Fallback: coerce the value to the declared target type so the
+                    // As expression's reported type always matches the value.
+                    _ => {
+                        let coerced = self.coerce_value(&val, &inner_llvm_ty, &target_llvm_ty);
+                        Ok((coerced, target_llvm_ty.clone()))
+                    }
                 }
             }
             Expr::Await(inner, _) => self.compile_expr(inner),
