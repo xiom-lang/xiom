@@ -1520,10 +1520,13 @@ impl IrEmitter {
         let bare = self.fn_key(fd);
         // Keep `main` as bare entry point regardless of module
         if bare == "main" { return bare; }
-        // If the bare name collides with a hardcoded runtime declare (e.g. a user
-        // `pub fn free` vs the libc `declare void @free(i8*)`), qualify it so the
-        // user wrapper gets its own symbol and never redefines the runtime one.
-        if Self::hardcoded_declare_names().contains(&bare) {
+        // If the bare name collides with a libc runtime symbol that we hardcode a
+        // `declare` for with a FIXED signature (e.g. a user `pub fn free` vs the
+        // libc `declare void @free(i8*)`), qualify it so the user wrapper gets its
+        // own symbol and never redefines the runtime one. Restricted to the libc
+        // set — the `xiom_*` runtime family is intentionally DEFINED by the
+        // selfhost compiler, so those must keep their bare names.
+        if matches!(bare.as_str(), "free" | "malloc" | "realloc" | "printf" | "puts") {
             if let Some(ref module) = self.current_module {
                 return format!("{}.{}", module, bare);
             }
