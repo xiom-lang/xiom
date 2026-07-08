@@ -2841,6 +2841,16 @@ impl IrEmitter {
             Stmt::Let(name, _ty, value, _) => {
                 // Value sink: use the value's real LLVM type from compile_expr.
                 let (val, llvm_ty) = self.compile_expr(value)?;
+                if llvm_ty == "void" || val.is_empty() {
+                    // Binding a void-valued expression (e.g. `let _ = void_call()`).
+                    // No slot to allocate; register a dummy i64 so any later
+                    // reference degrades to a defined zero rather than crashing.
+                    let alloca = self.fresh_tmp();
+                    self.emitln(&format!("  {alloca} = alloca i64"));
+                    self.emitln(&format!("  store i64 0, i64* {alloca}"));
+                    self.add_local(&name.name, alloca, "i64");
+                    return Ok(());
+                }
                 let store_val = self.zero_val_for(&val, &llvm_ty);
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
@@ -2854,6 +2864,13 @@ impl IrEmitter {
             Stmt::Var(name, _ty, value, _) => {
                 // Value sink: use the value's real LLVM type from compile_expr.
                 let (val, llvm_ty) = self.compile_expr(value)?;
+                if llvm_ty == "void" || val.is_empty() {
+                    let alloca = self.fresh_tmp();
+                    self.emitln(&format!("  {alloca} = alloca i64"));
+                    self.emitln(&format!("  store i64 0, i64* {alloca}"));
+                    self.add_local(&name.name, alloca, "i64");
+                    return Ok(());
+                }
                 let store_val = self.zero_val_for(&val, &llvm_ty);
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
@@ -4456,13 +4473,17 @@ impl IrEmitter {
                         self.emitln(&format!("  {fn_ptr} = inttoptr {local_llvm_ty} {fn_ptr_loaded} to {fn_ptr_ty}"));
                         if actual_ret_ty == "void" {
                             self.emitln(&format!("  call {fn_ptr_ty} {fn_ptr}({args_str})"));
+                            Ok((String::new(), "void".to_string()))
                         } else {
                             self.emitln(&format!("  {tmp} = call {actual_ret_ty} {fn_ptr}({args_str})"));
+                            Ok((tmp, actual_ret_ty))
                         }
-                        Ok((tmp, actual_ret_ty))
                     } else if ret_ty == "void" {
                         self.emitln(&format!("  call void @{resolved_fn_key}({args_str})"));
-                        Ok((tmp, "void".to_string()))
+                        // A void call produces no SSA value; return an empty
+                        // register (never emitted `{tmp} = ...`). Consumers must
+                        // check for `ty == "void"` / empty value before using it.
+                        Ok((String::new(), "void".to_string()))
                     } else {
                         self.emitln(&format!("  {tmp} = call {ret_ty} @{resolved_fn_key}({args_str})"));
                         Ok((tmp, ret_ty.clone()))
