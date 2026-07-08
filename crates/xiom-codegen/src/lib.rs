@@ -1533,9 +1533,8 @@ impl IrEmitter {
         // Exclude the `xiom_*` runtime family, which the selfhost compiler
         // intentionally DEFINES under its bare name.
         if self.already_declared.contains(&bare) && !bare.starts_with("xiom_") {
-            if let Some(ref module) = self.current_module {
-                return format!("{}.{}", module, bare);
-            }
+            let module = self.current_module.clone().unwrap_or_else(|| "xiomusr".to_string());
+            return format!("{}.{}", module, bare);
         }
         // If bare name already emitted (collision from multi-file merge), qualify it
         if self.emitted_fns.contains(&bare) {
