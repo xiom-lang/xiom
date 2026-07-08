@@ -3564,7 +3564,19 @@ impl IrEmitter {
                         let struct_name = if lt.starts_with("%struct.") { &lt[8..] } else { &rt[8..] };
                         let eq_fn = format!("{}.eq", struct_name);
                         let eq_result = self.fresh_tmp();
-                        self.emitln(&format!("  {eq_result} = call i64 @{eq_fn}({lt} {l}, {rt} {r})"));
+                        if self.functions.contains_key(&eq_fn) {
+                            self.emitln(&format!("  {eq_result} = call i64 @{eq_fn}({lt} {l}, {rt} {r})"));
+                        } else {
+                            // No derived `.eq` (e.g. builtin Ordering/Option enums):
+                            // compare field 0 (the discriminant / leading scalar) of
+                            // each operand directly. Extract to i64 then icmp.
+                            let struct_ty = if lt.starts_with("%struct.") { lt.clone() } else { rt.clone() };
+                            let l_i = self.extract_scalar_field0(&l, &struct_ty);
+                            let r_i = self.extract_scalar_field0(&r, &struct_ty);
+                            let eqb = self.fresh_tmp();
+                            self.emitln(&format!("  {eqb} = icmp eq i64 {l_i}, {r_i}"));
+                            self.emitln(&format!("  {eq_result} = zext i1 {eqb} to i64"));
+                        }
                         if matches!(op, BinOp::Neq) {
                             let negated = self.fresh_tmp();
                             self.emitln(&format!("  {negated} = xor i64 {eq_result}, 1"));
