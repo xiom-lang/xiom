@@ -4196,7 +4196,7 @@ impl IrEmitter {
                         }
                     }
                 }
-                // Str.len(s) — method call on Str
+                // Str.len(s) / Vec.len / Slice.len — method call
                 if fn_name == "len" && args.is_empty() {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
@@ -4205,6 +4205,21 @@ impl IrEmitter {
                             let tmp = self.fresh_tmp();
                             self.emitln(&format!("  {tmp} = call i64 @xiom_str_len(i8* {recv_val})"));
                             return Ok((tmp, "i64".to_string()));
+                        }
+                        // Vec/Slice: length is field 1 of the {ptr, len, cap} struct.
+                        if recv_ty == "%struct.Vec" || recv_ty.ends_with(".Vec")
+                            || recv_ty == "%struct.Slice" || recv_ty.ends_with(".Slice")
+                            || recv_ty.contains("struct.Vec") || recv_ty.contains("struct.Slice")
+                        {
+                            let (recv_val, rty) = self.compile_expr(receiver)?;
+                            let slot = self.fresh_tmp();
+                            self.emitln(&format!("  {slot} = alloca {rty}"));
+                            self.emitln(&format!("  store {rty} {recv_val}, {rty}* {slot}"));
+                            let gep = self.fresh_tmp();
+                            self.emitln(&format!("  {gep} = getelementptr {rty}, {rty}* {slot}, i32 0, i32 1"));
+                            let lenv = self.fresh_tmp();
+                            self.emitln(&format!("  {lenv} = load i64, i64* {gep}"));
+                            return Ok((lenv, "i64".to_string()));
                         }
                     }
                 }
