@@ -1524,18 +1524,6 @@ impl IrEmitter {
         let bare = self.fn_key(fd);
         // Keep `main` as bare entry point regardless of module
         if bare == "main" { return bare; }
-        // If the bare name collides with a C symbol we `declare` (a libc/libm
-        // runtime function OR any function declared in an `extern "C"` block, e.g.
-        // math.xi declares `sqrt`/`floor` AND defines `pub fn sqrt`/`floor`
-        // wrappers), qualify the user definition so it gets its own symbol and
-        // never redefines the `declare`d one. `already_declared` is fully populated
-        // by emit_extern_declares before any fn body is compiled.
-        // Exclude the `xiom_*` runtime family, which the selfhost compiler
-        // intentionally DEFINES under its bare name.
-        if self.already_declared.contains(&bare) && !bare.starts_with("xiom_") {
-            let module = self.current_module.clone().unwrap_or_else(|| "xiomusr".to_string());
-            return format!("{}.{}", module, bare);
-        }
         // If bare name already emitted (collision from multi-file merge), qualify it
         if self.emitted_fns.contains(&bare) {
             if let Some(ref module) = self.current_module {
@@ -1606,6 +1594,22 @@ impl IrEmitter {
     }
 
     fn compile_fn(&mut self, fd: &FnDecl) -> Result<(), String> {
+        // Skip emitting a body for a function whose bare name collides with a C
+        // symbol we already `declare` (libc/libm like `free`/`sqrt`/`floor`, or any
+        // `extern "C"` fn). Such stdlib "wrappers" (e.g. `pub fn sqrt(x) { sqrt(x) }`)
+        // both redeclare and infinitely self-recurse; the `declare` + direct calls
+        // to the C function are what's actually used. The `xiom_*` runtime family is
+        // intentionally defined by the selfhost compiler, so it is exempt.
+        {
+            let bare = self.fn_key(fd);
+            if bare != "main"
+                && fd.receiver.is_none()
+                && !bare.starts_with("xiom_")
+                && self.already_declared.contains(&bare)
+            {
+                return Ok(());
+            }
+        }
         self.push_scope();
         self.block_counter = 0;
         self.tmp_counter = 0;
