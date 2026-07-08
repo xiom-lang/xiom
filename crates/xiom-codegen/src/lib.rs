@@ -4608,7 +4608,7 @@ impl IrEmitter {
                         .map(|(_, vf)| vf.clone())
                         .unwrap_or_default();
                     for (i, (_, val)) in fields.iter().enumerate() {
-                        let (field_val, _field_val_ty) = self.compile_expr(val)?;
+                        let (field_val, field_val_ty) = self.compile_expr(val)?;
                         // Find the actual parent field index for this variant field
                         let field_name = variant_fields.get(i).cloned().unwrap_or_default();
                         let parent_field_idx = parent_field_names.iter()
@@ -4621,7 +4621,11 @@ impl IrEmitter {
                             let ptr_tmp = self.fresh_tmp();
                             self.emitln(&format!("  {ptr_tmp} = inttoptr i64 {field_val} to {field_llvm_ty}"));
                             ptr_tmp
-                        } else { field_val };
+                        } else {
+                            // Coerce the field value to the field slot's declared
+                            // type (e.g. an i8 char value into an i64 field).
+                            self.coerce_value(&field_val, &field_val_ty, &field_llvm_ty)
+                        };
                         let gep = self.fresh_tmp();
                         self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {parent_field_idx}"));
                         self.emitln(&format!("  store {field_llvm_ty} {store_val}, {field_llvm_ty}* {gep}"));
@@ -4634,7 +4638,7 @@ impl IrEmitter {
                         // Fall back to the field value's actual compiled LLVM type.
                         if field_llvm_ty == "i64" {
                             if field_val_ty != "i64" {
-                                field_llvm_ty = field_val_ty;
+                                field_llvm_ty = field_val_ty.clone();
                             }
                         }
                         let store_val = if field_val == "0" && (field_llvm_ty.ends_with('*') || field_llvm_ty.starts_with('\"')) {
@@ -4644,7 +4648,9 @@ impl IrEmitter {
                             self.emitln(&format!("  {ptr_tmp} = inttoptr i64 {field_val} to {field_llvm_ty}"));
                             ptr_tmp
                         } else {
-                            field_val
+                            // Coerce the field value to the field slot's declared
+                            // type (e.g. an i8 char value into an i64 field).
+                            self.coerce_value(&field_val, &field_val_ty, &field_llvm_ty)
                         };
                         let gep = self.fresh_tmp();
                         self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {i}"));
