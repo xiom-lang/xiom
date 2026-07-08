@@ -1267,6 +1267,14 @@ impl Checker {
                         TopDecl::Module(md) => {
                             collect_pub_decls(&md.items, existing, primitives, out);
                         }
+                        TopDecl::Extern(eb) => {
+                            // Inject external modules' `extern "C"` blocks so their
+                            // `declare`s (e.g. `fabs`, `sin`, socket FFI) are emitted
+                            // in the merged program. Codegen's emit_extern_declares
+                            // dedups by name, so injecting is safe even if some names
+                            // overlap the hardcoded runtime declares.
+                            out.push(TopDecl::Extern(eb.clone()));
+                        }
                         _ => {}
                     }
                 }

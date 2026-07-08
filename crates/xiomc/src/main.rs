@@ -266,6 +266,9 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
                 xiom_ast::TopDecl::Type(td) => td.name.name.clone(),
                 xiom_ast::TopDecl::Enum(ed) => ed.name.name.clone(),
                 xiom_ast::TopDecl::Fn(fd) => fd.name.name.clone(),
+                // Extern blocks carry no single name; always inject them (codegen
+                // dedups declares by function name via already_declared).
+                xiom_ast::TopDecl::Extern(_) => { program.items.push(decl); continue; }
                 _ => continue,
             };
             if !existing_names.contains(&name) {
