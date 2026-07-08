@@ -1524,13 +1524,15 @@ impl IrEmitter {
         let bare = self.fn_key(fd);
         // Keep `main` as bare entry point regardless of module
         if bare == "main" { return bare; }
-        // If the bare name collides with a libc runtime symbol that we hardcode a
-        // `declare` for with a FIXED signature (e.g. a user `pub fn free` vs the
-        // libc `declare void @free(i8*)`), qualify it so the user wrapper gets its
-        // own symbol and never redefines the runtime one. Restricted to the libc
-        // set — the `xiom_*` runtime family is intentionally DEFINED by the
-        // selfhost compiler, so those must keep their bare names.
-        if matches!(bare.as_str(), "free" | "malloc" | "realloc" | "printf" | "puts") {
+        // If the bare name collides with a C symbol we `declare` (a libc/libm
+        // runtime function OR any function declared in an `extern "C"` block, e.g.
+        // math.xi declares `sqrt`/`floor` AND defines `pub fn sqrt`/`floor`
+        // wrappers), qualify the user definition so it gets its own symbol and
+        // never redefines the `declare`d one. `already_declared` is fully populated
+        // by emit_extern_declares before any fn body is compiled.
+        // Exclude the `xiom_*` runtime family, which the selfhost compiler
+        // intentionally DEFINES under its bare name.
+        if self.already_declared.contains(&bare) && !bare.starts_with("xiom_") {
             if let Some(ref module) = self.current_module {
                 return format!("{}.{}", module, bare);
             }
