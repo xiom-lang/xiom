@@ -1444,10 +1444,14 @@ impl IrEmitter {
             }
             let mut param_types: Vec<String> = Vec::new();
             // For methods, self is the first parameter
+            let has_recv = fd.receiver.is_some();
             if let Some(recv) = fd.receiver.as_ref() {
                 param_types.push(self.llvm_type_for(&recv.name).unwrap_or_else(|_| "i64".to_string()));
             }
             let explicit_params: Vec<String> = fd.params.iter()
+                // Skip the duplicate `self` the parser also puts in params (it is
+                // already counted as the receiver above and omitted from the sig).
+                .filter(|p| !(has_recv && p.name.name == "self"))
                 .map(|p| self.llvm_type_for(&Self::type_from_ast(&p.ty)).unwrap_or_else(|_| "i64".to_string()))
                 .collect();
             param_types.extend(explicit_params);
@@ -1638,6 +1642,7 @@ impl IrEmitter {
             params_str.push(format!("{st} %param_self"));
         }
         let explicit_params: Vec<String> = fd.params.iter()
+            .filter(|p| !(self_offset == 1 && p.name.name == "self"))
             .enumerate()
             .map(|(i, p)| {
                 let llvm_ty = self.llvm_type_for(&Self::type_from_ast(&p.ty)).unwrap_or_else(|_| "i64".to_string());
@@ -1685,21 +1690,24 @@ impl IrEmitter {
                 }
             }
         }
-        // Then allocate explicit parameters
-        for (i, param) in fd.params.iter().enumerate() {
+        // Then allocate explicit parameters. Number them by their position in the
+        // EMITTED signature (which skips the duplicate `self` in fd.params), using
+        // a counter that only advances for emitted params — keeping %paramN indices
+        // in lock-step with the signature above.
+        let mut emitted_param_idx = self_offset;
+        for param in fd.params.iter() {
             // A `self`-receiver method records `self` in BOTH fd.receiver and
             // fd.params (the parser does this). The receiver block above already
             // bound the `self` local to the receiver struct; skip the duplicate
-            // here so `self` is not re-bound to the phantom scalar param, which
-            // would shadow the real struct `self` and break `match self`. The
-            // phantom param stays in the emitted signature (unused), so call and
-            // registration arity are unchanged.
+            // here (it is also filtered from the signature), so `self` refers to
+            // the real struct receiver and `match self` works.
             if self_offset == 1 && param.name.name == "self" {
                 continue;
             }
             let llvm_ty = self.llvm_type_for_fallback(&Self::type_from_ast(&param.ty));
             let alloca = self.fresh_tmp();
-            let param_idx = i + self_offset;
+            let param_idx = emitted_param_idx;
+            emitted_param_idx += 1;
             self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
             self.emitln(&format!("  store {llvm_ty} %param{param_idx}, {llvm_ty}* {alloca}"));
             self.add_local(&param.name.name, alloca, &llvm_ty);
@@ -2567,6 +2575,7 @@ impl IrEmitter {
                 specialized_param_types.push(st.clone());
             }
             let explicit_param_types: Vec<String> = fd.params.iter()
+                .filter(|p| !(self_llvm_ty.is_some() && p.name.name == "self"))
                 .map(|p| subst_type(&p.ty))
                 .collect();
             specialized_param_types.extend(explicit_param_types);
@@ -2587,6 +2596,7 @@ impl IrEmitter {
                 params_str.push(format!("{st} %param_self"));
             }
             let explicit_params_str: Vec<String> = fd.params.iter()
+                .filter(|p| !(self_offset == 1 && p.name.name == "self"))
                 .enumerate()
                 .map(|(i, p)| {
                     let llvm_ty = subst_type(&p.ty);
@@ -2642,17 +2652,19 @@ impl IrEmitter {
                     }
                 }
             }
-            for (i, param) in fd.params.iter().enumerate() {
+            let mut emitted_param_idx = self_offset;
+            for param in fd.params.iter() {
                 // Skip the duplicate `self` param (see the note in compile_fn):
-                // the receiver already bound the struct `self`; re-binding it to
-                // the phantom scalar param would shadow it and break `match self`.
+                // the receiver already bound the struct `self`; it is also filtered
+                // from the signature, so `match self` uses the real struct receiver.
                 if self_offset == 1 && param.name.name == "self" {
                     continue;
                 }
                 let llvm_ty = subst_type(&param.ty);
                 let alloca = self.fresh_tmp();
+                let param_idx = emitted_param_idx;
+                emitted_param_idx += 1;
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
-                let param_idx = i + self_offset;
                 self.emitln(&format!("  store {llvm_ty} %param{param_idx}, {llvm_ty}* {alloca}"));
                 self.add_local(&param.name.name, alloca, &llvm_ty);
                 // Track params whose original type is a generic parameter being monomorphised
