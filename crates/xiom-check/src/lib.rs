@@ -1275,6 +1275,15 @@ impl Checker {
                             // overlap the hardcoded runtime declares.
                             out.push(TopDecl::Extern(eb.clone()));
                         }
+                        TopDecl::Const(cd) => {
+                            // Inject external modules' `const` declarations so codegen
+                            // can substitute constant references (e.g. `SIMD_SSE`) with
+                            // their literal values. Deduplicated by name.
+                            if !existing.contains(&cd.name.name) {
+                                existing.insert(cd.name.name.clone());
+                                out.push(TopDecl::Const(cd.clone()));
+                            }
+                        }
                         _ => {}
                     }
                 }
