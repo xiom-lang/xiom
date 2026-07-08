@@ -4087,11 +4087,21 @@ impl IrEmitter {
                 // Vec.push(vec, val) — method call on Vec
                 if fn_name == "push" && args.len() >= 1 {
                     if let Some(receiver) = receiver_expr {
-                        if self.infer_llvm_type(receiver) != "%struct.Vec" || self.infer_llvm_type(&args[0]) != "i64" {
-                            // Not a Vec receiver or non-i64 element type — fall through to general method dispatch
+                        let recv_ty = self.infer_llvm_type(receiver);
+                        // Accept any Vec-typed receiver (Vec[Int], Vec[UInt8], a
+                        // module-qualified `%struct.xiom.collections.Vec`, etc.).
+                        let is_vec = recv_ty == "%struct.Vec" || recv_ty.ends_with(".Vec") || recv_ty.contains("struct.Vec");
+                        if !is_vec {
+                            // Not a Vec receiver — fall through to general method dispatch
                         } else {
-                        let (recv_val, _) = self.compile_expr(receiver)?;
-                        let (val, _) = self.compile_expr(&args[0])?;
+                        let (recv_val, recv_actual_ty) = self.compile_expr(receiver)?;
+                        // The Vec value is stored as %struct.Vec; if the receiver's
+                        // real type is a qualified alias, use "%struct.Vec".
+                        let _ = recv_actual_ty;
+                        let (val_raw, val_ty) = self.compile_expr(&args[0])?;
+                        // Vec slots are i64-wide; coerce the element (Char=i8,
+                        // UInt8=i8, pointer, struct discriminant, …) to i64.
+                        let val = self.val_to_i64(&val_raw, &val_ty);
                         let vec_alloca = self.fresh_tmp();
                         self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
                         self.emitln(&format!("  store %struct.Vec {recv_val}, %struct.Vec* {vec_alloca}"));
