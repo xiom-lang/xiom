@@ -1520,6 +1520,14 @@ impl IrEmitter {
         let bare = self.fn_key(fd);
         // Keep `main` as bare entry point regardless of module
         if bare == "main" { return bare; }
+        // If the bare name collides with a hardcoded runtime declare (e.g. a user
+        // `pub fn free` vs the libc `declare void @free(i8*)`), qualify it so the
+        // user wrapper gets its own symbol and never redefines the runtime one.
+        if Self::hardcoded_declare_names().contains(&bare) {
+            if let Some(ref module) = self.current_module {
+                return format!("{}.{}", module, bare);
+            }
+        }
         // If bare name already emitted (collision from multi-file merge), qualify it
         if self.emitted_fns.contains(&bare) {
             if let Some(ref module) = self.current_module {
@@ -2323,9 +2331,12 @@ impl IrEmitter {
             let field_llvm_ty = self.field_llvm_type(type_name, i);
             self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {self_alloca}, i32 0, i32 {i}"));
             self.emitln(&format!("  {val} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+            // Coerce the field value to i64 before mixing into the hash accumulator
+            // (a Str field is i8*, a Char field is i8, etc.) — avoids `add i64, i8*`.
+            let val_i64 = self.val_to_i64(&val, &field_llvm_ty);
             self.emitln(&format!("  {loaded_hash} = load i64, i64* %hash"));
             self.emitln(&format!("  {mul_tmp} = mul i64 {loaded_hash}, 33"));
-            self.emitln(&format!("  {add_tmp} = add i64 {mul_tmp}, {val}"));
+            self.emitln(&format!("  {add_tmp} = add i64 {mul_tmp}, {val_i64}"));
             self.emitln(&format!("  store i64 {add_tmp}, i64* %hash"));
         }
         let final_hash = self.fresh_tmp();
@@ -2385,11 +2396,18 @@ impl IrEmitter {
                 self.emitln(&format!("  {result} = select i1 {fcmp}, i64 -1, i64 1"));
                 self.emitln(&format!("  ret i64 {result}"));
             } else {
-                self.emitln(&format!("  {cmp_eq} = icmp eq {field_llvm_ty} {self_val}, {other_val}"));
+                // Integer/pointer field comparison. Coerce both operands to i64
+                // (a Str field is i8* → ptrtoint; a Char field is i8 → zext) so the
+                // icmp is well-typed. Note: comparing Str by pointer identity is a
+                // derive limitation, but it is at least valid IR.
+                let cmp_ty = "i64";
+                let self_i = self.val_to_i64(&self_val, &field_llvm_ty);
+                let other_i = self.val_to_i64(&other_val, &field_llvm_ty);
+                self.emitln(&format!("  {cmp_eq} = icmp eq {cmp_ty} {self_i}, {other_i}"));
                 self.emitln(&format!("  br i1 {cmp_eq}, label %{next_field}, label %{ret_block}"));
                 self.emitln(&format!("\n{ret_block}:"));
                 let cmp_lt = self.fresh_tmp();
-                self.emitln(&format!("  {cmp_lt} = icmp slt {field_llvm_ty} {self_val}, {other_val}"));
+                self.emitln(&format!("  {cmp_lt} = icmp slt {cmp_ty} {self_i}, {other_i}"));
                 let result = self.fresh_tmp();
                 self.emitln(&format!("  {result} = select i1 {cmp_lt}, i64 -1, i64 1"));
                 self.emitln(&format!("  ret i64 {result}"));
@@ -3787,6 +3805,26 @@ impl IrEmitter {
                         }
                     }
                 }
+                // Qualified enum-variant path, e.g. `xiom.log.LogLevel.Warn` or
+                // `LogLevel.Warn`: the field name is a variant and the parent
+                // resolves to the enum type. Emit the discriminant struct (mirrors
+                // the bare-Ident enum-variant construction above).
+                if let Some(enum_key) = self.resolve_enum_for_variant(obj, &field.name) {
+                    if let Some(vars) = self.enum_variants.get(&enum_key) {
+                        if let Some(var_idx) = vars.iter().position(|(v, _)| v == &field.name) {
+                            if let Ok(struct_ty) = self.llvm_type_for(&enum_key) {
+                                let alloca = self.fresh_tmp();
+                                self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
+                                let disc_gep = self.fresh_tmp();
+                                self.emitln(&format!("  {disc_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
+                                self.emitln(&format!("  store i64 {var_idx}, i64* {disc_gep}"));
+                                let loaded = self.fresh_tmp();
+                                self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
+                                return Ok((loaded, struct_ty));
+                            }
+                        }
+                    }
+                }
                 Ok(("0".to_string(), "i64".to_string()))
             }
             Expr::Call(func, args, _) => {
@@ -4357,10 +4395,7 @@ impl IrEmitter {
                         let mut all_args = compiled_args.clone();
                         let mut all_param_types = param_types.clone();
                         if let Some(receiver) = receiver_expr {
-                            let is_instance = match receiver.as_ref() {
-                                Expr::Ident(ident) => self.lookup_local(&ident.name).is_some(),
-                                _ => true,
-                            };
+                            let is_instance = self.receiver_is_instance(receiver);
                             // Check if param_types already includes a receiver (from monomorphised registration)
                             let has_receiver_in_params = !all_param_types.is_empty() && all_param_types.len() > all_args.len();
                             if is_instance {
@@ -4384,7 +4419,7 @@ impl IrEmitter {
                         let tmp = self.fresh_tmp();
                         if ret_ty == "void" {
                             self.emitln(&format!("  call void @{specialized_name}({args_str})"));
-                            Ok((tmp, "void".to_string()))
+                            Ok((String::new(), "void".to_string()))
                         } else {
                             self.emitln(&format!("  {tmp} = call {ret_ty} @{specialized_name}({args_str})"));
                             Ok((tmp, ret_ty.clone()))
@@ -4422,11 +4457,10 @@ impl IrEmitter {
                     };
                     let args_str = if let Some(receiver) = receiver_expr {
                         // Check if receiver is a real struct instance (local variable)
-                        // vs a type name (TrafficLight.xxx()) or module name (pipeline.xxx())
-                        let is_instance = match receiver.as_ref() {
-                            Expr::Ident(ident) => self.lookup_local(&ident.name).is_some(),
-                            _ => true, // complex receiver expressions (e.g. chained calls) are instances
-                        };
+                        // vs a type name (TrafficLight.xxx()) or module name (pipeline.xxx()).
+                        // A module path like `xiom.char` (nested Field rooted in a
+                        // non-local) is NOT an instance → no phantom receiver arg.
+                        let is_instance = self.receiver_is_instance(receiver);
                         if is_instance {
                             // Value sink: use the receiver's real compiled LLVM type
                             // (from compile_expr) rather than a re-inference.
@@ -4890,6 +4924,62 @@ impl IrEmitter {
             if !ty.is_empty() { return ty; }
         }
         "i64".to_string()
+    }
+
+    /// Given a parent expression `obj` (e.g. `LogLevel`, `xiom.log.LogLevel`) and a
+    /// candidate `variant` name, return the registered enum key if `obj` names an
+    /// enum type that has that variant. Used to compile qualified enum-variant
+    /// paths like `xiom.log.LogLevel.Warn`.
+    fn resolve_enum_for_variant(&self, obj: &Expr, variant: &str) -> Option<String> {
+        // Extract the trailing type-name segment of `obj` (the last Field/Ident).
+        let type_seg = match obj {
+            Expr::Ident(id) => Some(id.name.clone()),
+            Expr::Field(_, f, _) => Some(f.name.clone()),
+            _ => None,
+        }?;
+        // Exact enum key.
+        if let Some(vars) = self.enum_variants.get(&type_seg) {
+            if vars.iter().any(|(v, _)| v == variant) {
+                return Some(type_seg);
+            }
+        }
+        // Module-qualified enum key ending in `.type_seg` (e.g. `xiom.log.LogLevel`).
+        for (enum_key, vars) in &self.enum_variants {
+            if enum_key.ends_with(&format!(".{type_seg}"))
+                && vars.iter().any(|(v, _)| v == variant)
+            {
+                return Some(enum_key.clone());
+            }
+        }
+        None
+    }
+
+    /// Returns true if `receiver` in `receiver.method(args)` is a real VALUE
+    /// instance (so its value must be passed as the `self` argument), vs a module
+    /// path (`xiom.char`) or bare type name (`LogLevel`) used only for name
+    /// qualification (no receiver argument).
+    ///
+    /// Module paths and type names are NOT instances: `xiom` is not a local, and
+    /// `xiom.char` does not resolve to a struct type. This prevents miscompiling
+    /// `xiom.char.to_uppercase(x)` as a method call with a phantom receiver arg.
+    fn receiver_is_instance(&self, receiver: &Expr) -> bool {
+        match receiver {
+            // A bare identifier is an instance only if it's a bound local/param
+            // (a value). Bare type names (`LogLevel`) and module roots (`xiom`)
+            // are not locals → not instances.
+            Expr::Ident(ident) => self.lookup_local(&ident.name).is_some(),
+            // `a.b`: instance iff its base chain is rooted in a value (local/self),
+            // e.g. `obj.field`. A module path like `xiom.char` is rooted in `xiom`
+            // (not a local) → NOT an instance. Also an instance if the whole
+            // expression has a concrete struct type.
+            Expr::Field(base, _, _) => {
+                self.receiver_is_instance(base) || self.infer_struct_type_name(receiver).is_some()
+            }
+            // Calls / indexing / parens evaluate to values.
+            Expr::Call(..) | Expr::Index(..) | Expr::Paren(..) => true,
+            // Anything else: instance only if it has a concrete struct type.
+            _ => self.infer_struct_type_name(receiver).is_some(),
+        }
     }
 
     fn infer_struct_type_name(&self, expr: &Expr) -> Option<String> {
