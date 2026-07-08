@@ -15,7 +15,7 @@
 module e2e_method_match_self_enum
 
 // Define a simple 3-variant enum (mirrors Ordering shape without stdlib deps)
-pub enum TrafficLight = enum { Red, Yellow, Green }
+pub type TrafficLight = enum { Red, Yellow, Green }
 
 pub fn TrafficLight.reverse(self) -> TrafficLight {
   match self {

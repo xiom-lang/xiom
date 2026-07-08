@@ -339,6 +339,12 @@ impl IrEmitter {
         if to.starts_with("%struct.") && !from.starts_with("%struct.") {
             return self.val_to_struct(val, from, to);
         }
+        // Struct -> non-struct scalar: extract the leading i64 field, then coerce
+        // it further to the target (e.g. Option -> i8 arg becomes field0 i64 -> i8).
+        if from.starts_with("%struct.") && !to.starts_with("%struct.") {
+            let scalar = self.extract_scalar_field0(val, from);
+            return self.coerce_value(&scalar, "i64", to);
+        }
         // No known cast — return unchanged (best effort).
         val.to_string()
     }
@@ -2869,10 +2875,12 @@ impl IrEmitter {
                 }
             }
             Stmt::Assign(place, value, _) => {
-                let (val, _val_ty) = self.compile_expr(value)?;
+                let (val, val_ty) = self.compile_expr(value)?;
                 if let Expr::Ident(ident) = place {
                     if let Some((ptr, llvm_ty)) = self.lookup_local(&ident.name).cloned() {
-                        let store_val = self.zero_val_for(&val, &llvm_ty);
+                        // Coerce the value to the slot's declared type using the
+                        // value's REAL type (e.g. an i8 char widened to an i64 slot).
+                        let store_val = self.coerce_value(&val, &val_ty, &llvm_ty);
                         self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {ptr}"));
                     }
                 }
@@ -3536,12 +3544,21 @@ impl IrEmitter {
                 }
                 // Coerce i64 operands to double when in float context (mixed-type expressions)
                 if is_float {
-                    if lt == "i64" {
+                    // A single-scalar-backed struct operand (Option/Ordering etc.)
+                    // in a float context: extract its leading i64 field first, then
+                    // the i64->double conversion below handles it.
+                    if lt.starts_with("%struct.") {
+                        l = self.extract_scalar_field0(&l, &lt);
+                    }
+                    if rt.starts_with("%struct.") {
+                        r = self.extract_scalar_field0(&r, &rt);
+                    }
+                    if lt == "i64" || lt.starts_with("%struct.") {
                         let conv = self.fresh_tmp();
                         self.emitln(&format!("  {conv} = sitofp i64 {l} to double"));
                         l = conv;
                     }
-                    if rt == "i64" {
+                    if rt == "i64" || rt.starts_with("%struct.") {
                         let conv = self.fresh_tmp();
                         self.emitln(&format!("  {conv} = sitofp i64 {r} to double"));
                         r = conv;
