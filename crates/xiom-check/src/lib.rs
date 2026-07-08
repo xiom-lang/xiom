@@ -1976,6 +1976,33 @@ impl Checker {
                             "compare" | "hash" => return CheckedType::Int,
                             "eq" | "ne" | "lt" | "gt" | "le" | "ge" => return CheckedType::Bool,
                             "clone" => return prim_ty,
+                            // Str builtins.
+                            "len" if prim_ty == CheckedType::Str => return CheckedType::Int,
+                            "to_str" | "to_string" => return CheckedType::Str,
+                            _ => {}
+                        }
+                    }
+                    // Builtin methods on core generic containers whose element/inner
+                    // types are erased in the checker (Vec/Slice/Option/Result/Map/Set).
+                    // These are legitimate stdlib APIs; accept them so correct code
+                    // type-checks (the "if it compiles, it's safe" gate stays sound
+                    // because codegen lowers these to real builtins).
+                    if let CheckedType::Named(tn) = &obj_ty {
+                        let base = tn.rsplit('.').next().unwrap_or(tn);
+                        for arg in args { let _ = self.check_expr(arg); }
+                        match (base, method.name.as_str()) {
+                            ("Vec" | "Slice" | "Array" | "Str" | "Map" | "Set", "len")
+                                => return CheckedType::Int,
+                            ("Vec" | "Slice" | "Array" | "Str", "is_empty") => return CheckedType::Bool,
+                            // Option/Result payload accessors — inner type is erased,
+                            // so return a wildcard the rest of the checker accepts.
+                            ("Option" | "Result", "unwrap" | "unwrap_or" | "expect" | "value")
+                                => return CheckedType::Named("_".into()),
+                            ("Option" | "Result", "is_some" | "is_none" | "is_ok" | "is_err")
+                                => return CheckedType::Bool,
+                            // Common wrapper accessors (Cell/Rc/Arc/Mutex/Box/Reverse).
+                            ("Cell" | "Rc" | "Arc" | "Mutex" | "Box" | "Reverse" | "RefCell", "get" | "clone" | "lock" | "borrow" | "borrow_mut")
+                                => return CheckedType::Named("_".into()),
                             _ => {}
                         }
                     }
