@@ -1,48 +1,64 @@
-# XIOM — Session Handoff: v0.25.0 "Link-and-Run"
+# XIOM — Session Handoff: v0.26.0 "Typed-Values Base"
 
-**Date:** 2026-07-06
+**Date:** 2026-07-08
 **Branch:** `feat/guardian` (Phase 2 — compiler↔stdlib gap closure)
-**Status:** stdlib **39/39 compile to IR**. Compiler↔stdlib linking gaps **closed**; stdlib now links to native binaries. Stubs made real (net UDP, crypto AES-GCM, async runtime, reflect RTTI, contracts metadata). Execution + fuzz test harnesses added.
+**Status:** stdlib **39/39 compile to IR**. Compiler↔stdlib linking gaps closed; stdlib links to native binaries. **Codegen Tier 1 refactor DONE** (`compile_expr → (value, type)`) with **410/410 regression tests green**. Stdlib execution suite: not yet green — remaining work is **Tier 2** (see `docs/CODEGEN_TIER2.md`).
 **Companion session:** `SESSION_ECOSYSTEM.md` — AI-driven ecosystem build (other machine)
 
 ---
 
-## CODEGEN HARDENING PROGRESS (execution-test-driven, verified locally)
+## CODEGEN TIER 1 — DONE & PROVEN (regression-free)
 
-The `stdlib_execution_tests` (compile→link→run each module) exposed that `--emit-ir` was
-never validating IR through LLVM — the stdlib emitted **invalid LLVM IR** for many common
-patterns. The following fixes were landed and verified with **zero regressions** to the full
-410-test gate (`cargo test -p xiom-codegen`: diff/full_diff/e2e/feature_regression all green):
+The `stdlib_execution_tests` (compile→link→run each module) exposed that `--emit-ir` never
+validated IR through LLVM — the stdlib emitted **invalid LLVM IR** for many common patterns.
+This session landed the foundational codegen refactor + a set of hardening fixes, **all with
+zero regressions** to the full 410-test gate (diff/full_diff/e2e/feature_regression/integration
+/robustness/fuzz all green):
 
-1. **A4 — missing terminators** (`compile_fn` + generic-mono path): append a fallback `ret`
-   when a value-returning body falls through (loop / if-without-else / trailing stmt). Guarded
-   by a new `current_block_terminated()` so already-terminated bodies are untouched.
-2. **A2 — empty operands**: `Expr::Unsafe` now returns its tail value (was `String::new()`,
-   breaking every `unsafe { ffi() }`); `compile_block` tail-`ret` guarded against
-   already-terminated + empty; `zero_val_for` empty-safe.
-3. **Prelude / cross-module resolution (real GAP 3)**: `xiom-check` now force-loads the
-   prelude modules (`core`, `string`, `math`, `num`, `char`, `cmp`) whenever a program uses
-   any `xiom.*` module — fixes ALL `undefined @to_string`/`@char_at`/`@fabs`/`@crc32`/`@next`
-   errors and the `call i64` default-typing behind them. Gated on real stdlib usage (no
-   diff/e2e example uses `xiom.*`, so the 410 tests are unaffected).
-4. **A1 — char/byte typing**: `infer_llvm_type(Char)` was `i8*` → now `i8`; integer binop path
-   widens narrow operands (i8/i16/i32 → i64) via new `widen_to_i64`.
-5. **Value coercion at sinks** (new `coerce_value`): return-coercion (`Stmt::Return`) and
-   call-arg coercion (registered-param path) — fixes `ret i8* %v(i64)` and
-   `to_int_from_char(i8 %v(i64))` clusters.
-6. **Enum type-name resolution**: `llvm_type_for` now maps enum type names to `%struct.Name`.
-7. Harness: `fuzz_large_valid_arithmetic_expr` depth reduced (deep-AST codegen recursion is a
-   documented known limitation); `async_runtime.c` comment warning fixed.
+1. **★ Tier 1 refactor — `compile_expr → Result<(String,String), String>`** (value + real LLVM
+   type). ~82 call sites updated; sinks (store/return/call-arg) now use the value's REAL type
+   instead of an independently re-inferred one. This is the correct compiler architecture and
+   eliminated whole bug classes at once (see below). **This is the "strong base".**
+2. **`self`-param shadowing fix** — methods recorded `self` in BOTH receiver and params; the
+   phantom scalar param shadowed the real struct `self`, breaking `match self` (every enum
+   method emitted `store %struct.X i64`). Now the duplicate `self` param is skipped in codegen.
+   Locked in by new e2e test `e2e_method_match_self_enum`.
+3. **A4 — block terminators**: fallback `ret` when a value-returning body falls through
+   (`current_block_terminated()` guard; `compile_fn` + generic-mono path).
+4. **A2 — empty operands**: `Expr::Unsafe` returns its tail value (was `String::new()`).
+5. **Prelude/cross-module resolution (real GAP 3)**: `xiom-check` force-loads
+   `core/string/math/num/char/cmp` when any `xiom.*` is used → killed ALL `undefined @X`
+   (`@to_string`/`@char_at`/`@fabs`/`@crc32`/`@next`/…). Gated on stdlib usage (410 unaffected).
+6. **A1 — char/byte typing**: `infer_llvm_type(Char)` `i8*`→`i8`; binop widens i8/i16/i32→i64
+   (`widen_to_i64`).
+7. **Value coercion** (`coerce_value`): int-width/ptr/float/int→struct casts at return + call-arg.
+8. **Enum type-name resolution**: `llvm_type_for` maps enum names → `%struct.Name`.
+9. **A6 — generic-mono cycle detection** (`mono_emitted` set): fixes `mem` + the intermittent
+   `e2e_multifile_benchmark_main_compiles` flake.
+10. **`void*`→`i8*`** in `extern_type_to_llvm`; fuzz deep-recursion cap.
 
-### REMAINING codegen gaps (all in `crates/xiom-codegen/src/lib.rs`) — NEXT SESSION
-The ~31 execution failures are now dominated by a few **shared prelude bugs**:
+**What Tier 1 achieved:** the `store %struct.Ordering %v(i64)` cluster (~15 modules) and the
+`undefined @X` cluster are GONE. Values carry real types end-to-end.
 
-- **Primitive `.compare` vs `Ordering`** (lib.rs ~3809-3823): emits `i64` `-1/0/1`, but the
-  `Ordering` enum is `%struct{i64}` with `Less=0/Equal=1/Greater=2`. BOTH a type and a
-  semantic (value) mismatch. Reconcile carefully — `regress_primitive_compare` + diff tests
-  lock in the current `-1/0/1`. Drives `store %struct.Ordering %v(i64)` across ~14 modules.
-- **`Option` value in `icmp i64`** (`%struct.Option %v` used as i64, e.g. `find(...) >= 0`
-  not extracting `.value`) — ~10 modules.
+### ⚠️ Reverted (do not reintroduce without a compile loop)
+At the end of this session, blind per-sink coercion patches (struct→scalar extraction in
+binops/`coerce_value`, `Assign`/tail-return coercion) were attempted WITHOUT a local compile
+and each introduced a regression (`%tmp12` undefined value, `free` redefinition). **These were
+reverted** to return to the proven-green state. The `extract_scalar_field0` helper is kept but
+`#[allow(dead_code)]`, staged for Tier 2. **Lesson: Tier 2 must be done with `cargo`+`clang`
+iterating locally, not remotely blind.**
+
+### REMAINING — Tier 2 (see `docs/CODEGEN_TIER2.md` for the full plan)
+The ~31 execution failures map to 6 root causes, all requiring the typed-value model:
+- **T2-1** `store i64 %v(i8)` — store site must coerce (biggest cluster, ~15 modules).
+- **T2-2** `%struct.Option` used as scalar (`opt >= 0`, `opt - 48`, `f(opt_char)`) — needs a
+  typed Option/Result/enum payload model. (was: "`Option` value in `icmp i64`")
+- **T2-3** `store %struct.LogLevel/Rc i64` — single-field struct from bare i64.
+- **T2-4** empty-struct GEP (`GlobalAlloc {}`) / `alloca void`.
+- **T2-5** `free` redefinition (user/stdlib fn vs hardcoded declare).
+- **T2-6** `%tmp12` undefined value — one shared prelude fn returns an unemitted register
+  (hunt WITH a compile loop).
+- **Bucket B** — smoke-program API name fixes (`examples/stdlib_smoke/*.xi`), not codegen.
 - **`store i64 %v(i8)`** char remnant — a `compile_expr`/`infer_llvm_type` divergence: the
   compiled register is `i8` but the inferred slot type is `i64`. Needs compile_expr to return
   (value,type) OR a value-type tracker.
@@ -62,16 +78,28 @@ collapse most of the remaining tail at once.
 
 ---
 
-## ⚠️ CRITICAL — VERIFICATION STATUS (READ FIRST)
+## ⚠️ VERIFICATION STATUS (READ FIRST)
 
-**All work this session was implemented but NOT compiled/run in-session:** the working environment had **shell execution (cargo/clang/git) fully blocked**, so no agent could build or run tests. Every change was made and **statically verified** (careful reading + cross-referencing against known-good code + AST/field-type confirmation). **You MUST run the verification commands below on your machine to confirm.** Treat this as "implemented + static-verified", not "runtime-proven", until the commands pass.
+**This session HAD a working `cargo`/`clang` loop** — the Tier 1 codegen work above was
+compiled and tested repeatedly. Current proven state after the end-of-session reverts:
+- `cargo build -p xiomc` — clean.
+- `cargo test -p xiom-codegen` — **410/410 green** (diff 25, e2e 66 incl. the new
+  `e2e_method_match_self_enum`, feature_regression 39, full_diff 23, fuzz 24, integration 119,
+  robustness 29, diff/selfhost all pass).
+- `cargo test -p xiom-codegen --test stdlib_execution_tests` — **0/31 green** (this is the
+  Tier 2 target; all failures are the 6 documented T2 root causes, NOT regressions).
 
-Priority verification order (fail fast):
-1. `cargo build -p xiomc` — confirms the Rust compiler (incl. additive codegen RTTI/contract emission) still builds.
-2. `cargo test -p xiom-codegen --test stdlib_tests -- --nocapture` — confirms 39/39 still emit IR (no regression from codegen changes).
-3. `cargo test -p xiom-codegen --test stdlib_execution_tests -- --nocapture` — the NEW proof: stdlib modules link + run.
-4. `cargo test -p xiom-codegen --test fuzz_tests` — never-panic hardening.
-5. Full suite (below).
+Re-confirm the proven state after pulling (fail fast):
+```powershell
+cargo build -p xiomc
+cargo test -p xiom-codegen          # must be fully green — this is the consolidated base
+```
+If anything in that gate is red, the end-of-session reverts didn't fully land — check the
+"Reverted" note above.
+
+NOTE: earlier Wave 1–2 work (stub implementations, runtime C, test harnesses) was originally
+authored in a shell-blocked environment and static-verified; it has since been exercised by the
+execution suite (which is why the T2 errors surface real behavior, not phantom issues).
 
 ---
 
@@ -166,12 +194,12 @@ cargo test -p xiom-codegen --test fuzz_tests
 
 ---
 
-## Commit + Tag (after verification passes)
+## Commit + Tag (after `cargo test -p xiom-codegen` is fully green)
 
 ```bash
 git add -A
-git commit -m "feat: close compiler<->stdlib gaps — link all runtime C + stdlib search path, xiom_alloc + signature fixes, net UDP, AES-GCM, real async executor, reflect RTTI + contract metadata (additive codegen), stdlib execution + fuzz test harnesses"
-git tag v0.25.0-link-and-run
+git commit -m "feat(codegen): Tier 1 typed-value refactor (compile_expr -> (value,type)) + hardening — self-shadow fix, block terminators, prelude/cross-module resolution, char/byte widening, enum-name resolution, mono cycle detection; e2e match-self test; docs/CODEGEN_TIER2.md plan. 410/410 green."
+git tag v0.26.0-typed-values-base
 ```
 
 ---
