@@ -283,7 +283,16 @@ impl IrEmitter {
     /// the types already match, when `val` is empty/a null literal, or when no
     /// meaningful cast applies.
     fn coerce_value(&mut self, val: &str, from: &str, to: &str) -> String {
-        if from == to || val.is_empty() || to == "void" {
+        if val.is_empty() {
+            // A missing/void value can't be stored; substitute a typed default so
+            // the sink (store/return/arg) stays well-formed. Void targets keep the
+            // empty value (their sink omits the operand entirely).
+            if to == "void" {
+                return val.to_string();
+            }
+            return Self::default_const_for(to);
+        }
+        if from == to || to == "void" {
             return val.to_string();
         }
         let int_width = |t: &str| -> Option<u32> {
@@ -355,14 +364,17 @@ impl IrEmitter {
     /// Option/Result's first slot) from a by-value struct `val` of type
     /// `struct_ty`, returning the loaded `i64` scalar register. Used when a
     /// single-scalar-backed struct value appears in an integer context (e.g.
-    /// `opt >= 0`). Returns `val` unchanged when `struct_ty` isn't a struct.
-    ///
-    /// STAGED FOR TIER 2 (typed Option/Result/enum value model). Currently unused
-    /// pending the proper payload-extraction subsystem — see docs/CODEGEN_TIER2.md.
-    #[allow(dead_code)]
+    /// `opt >= 0`). Returns `val` unchanged when `struct_ty` isn't a struct, and
+    /// a `0` constant for empty (zero-field) structs which have no field 0.
     fn extract_scalar_field0(&mut self, val: &str, struct_ty: &str) -> String {
         if !struct_ty.starts_with("%struct.") {
             return val.to_string();
+        }
+        // Empty (zero-sized) structs have no field 0 — GEP would be invalid.
+        let type_name = &struct_ty[8..];
+        let is_empty = self.type_meta.get(type_name).map(|m| m.fields.is_empty()).unwrap_or(false);
+        if is_empty {
+            return "0".to_string();
         }
         let slot = self.fresh_tmp();
         self.emitln(&format!("  {slot} = alloca {struct_ty}"));
