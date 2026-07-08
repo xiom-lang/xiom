@@ -4208,6 +4208,18 @@ impl IrEmitter {
                         }
                     }
                 }
+                // Str.from_cstring(ptr) / from_c_str / from_utf8 — reinterpret a
+                // C string / byte buffer as a Str. A Str is `i8*` at the ABI and a
+                // C string is already a NUL-terminated i8*, so this is an identity
+                // on the pointer (coerced to i8*). Emitted inline since there is no
+                // runtime function.
+                if matches!(fn_name.as_str(), "from_cstring" | "from_c_str" | "from_utf8" | "from_bytes")
+                    && !args.is_empty()
+                {
+                    let (arg_val, arg_ty) = self.compile_expr(&args[0])?;
+                    let as_ptr = self.coerce_value(&arg_val, &arg_ty, "i8*");
+                    return Ok((as_ptr, "i8*".to_string()));
+                }
                 let compiled_args: Vec<(String, String)> = args.iter()
                     .map(|a| self.compile_expr(a))
                     .collect::<Result<Vec<_>, _>>()?;
