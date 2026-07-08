@@ -427,7 +427,12 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
                     }
                 } else {
                     for rt in &runtime_c_files {
-                        cmd.arg(rt);
+                        let abs_rt = if std::path::Path::new(rt).is_absolute() {
+                            rt.clone()
+                        } else {
+                            std::env::current_dir().unwrap_or_default().join(rt).to_string_lossy().to_string()
+                        };
+                        cmd.arg(abs_rt);
                     }
                 }
                 // Extra C sources / object files from --c-source
@@ -435,7 +440,13 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
                     cmd.arg(cs);
                 }
             }
-            cmd.args(["-o", output, &ir_path]);
+            // Absolute paths for output + IR so the unique CWD (set below) does
+            // not break resolution. Other inputs (runtime .c, asm objs, -L paths)
+            // are already absolute.
+            let cwd0 = std::env::current_dir().unwrap_or_default();
+            let abs_output = if std::path::Path::new(output).is_absolute() { output.to_string() } else { cwd0.join(output).to_string_lossy().to_string() };
+            let abs_ir = if std::path::Path::new(&ir_path).is_absolute() { ir_path.clone() } else { cwd0.join(&ir_path).to_string_lossy().to_string() };
+            cmd.args(["-o", &abs_output, &abs_ir]);
             // Link assembled .obj/.o files for hardware acceleration (native only)
             if target == Target::Native {
                 for obj in &asm_objects { cmd.arg(obj); }
@@ -450,7 +461,22 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
                 }
             }
 
+            // Give clang a UNIQUE working directory for its intermediate object
+            // files. clang emits per-source objects (e.g. xiom_runtime.obj,
+            // simd_runtime.obj) into the CWD; when multiple compiles run
+            // concurrently (e.g. the stdlib execution test suite) they clobber
+            // each other's objects, causing spurious link failures. A per-process,
+            // per-output temp CWD isolates them. Inputs/outputs are passed as
+            // absolute paths so the changed CWD doesn't break resolution.
+            let unique_tmp = std::env::temp_dir().join(format!(
+                "xiomc_link_{}_{}",
+                std::process::id(),
+                output.replace(['\\', '/', ':', '.'], "_")
+            ));
+            let _ = std::fs::create_dir_all(&unique_tmp);
+            cmd.current_dir(&unique_tmp);
             let clang_output = cmd.output();
+            let _ = std::fs::remove_dir_all(&unique_tmp);
             match clang_output {
                 Ok(out) if out.status.success() => {
                     let _ = fs::remove_file(&ir_path);
