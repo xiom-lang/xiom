@@ -339,12 +339,6 @@ impl IrEmitter {
         if to.starts_with("%struct.") && !from.starts_with("%struct.") {
             return self.val_to_struct(val, from, to);
         }
-        // Struct -> non-struct scalar: extract the leading i64 field, then coerce
-        // it further to the target (e.g. Option -> i8 arg becomes field0 i64 -> i8).
-        if from.starts_with("%struct.") && !to.starts_with("%struct.") {
-            let scalar = self.extract_scalar_field0(val, from);
-            return self.coerce_value(&scalar, "i64", to);
-        }
         // No known cast — return unchanged (best effort).
         val.to_string()
     }
@@ -354,6 +348,10 @@ impl IrEmitter {
     /// `struct_ty`, returning the loaded `i64` scalar register. Used when a
     /// single-scalar-backed struct value appears in an integer context (e.g.
     /// `opt >= 0`). Returns `val` unchanged when `struct_ty` isn't a struct.
+    ///
+    /// STAGED FOR TIER 2 (typed Option/Result/enum value model). Currently unused
+    /// pending the proper payload-extraction subsystem — see docs/CODEGEN_TIER2.md.
+    #[allow(dead_code)]
     fn extract_scalar_field0(&mut self, val: &str, struct_ty: &str) -> String {
         if !struct_ty.starts_with("%struct.") {
             return val.to_string();
@@ -2818,16 +2816,8 @@ impl IrEmitter {
                             // returns on every path). Do NOT emit a second ret.
                         } else {
                             let ret_ty = self.current_return_type.clone();
-                            // Coerce the tail value to the function's declared
-                            // return type using its REAL type (`result_ty`), so a
-                            // tail expression whose value type differs from the
-                            // return type (e.g. i8 char, Option struct, enum) is
-                            // converted rather than mis-stored.
-                            let ret_val = if result.is_empty() {
-                                Self::default_const_for(&ret_ty)
-                            } else {
-                                self.coerce_value(&result, &result_ty, &ret_ty)
-                            };
+                            // A2 guard: never emit an empty return operand.
+                            let ret_val = self.zero_val_for(&result, &ret_ty);
                             // Store result in the result alloca for ensures checks
                             if let Some(res_ptr) = self.result_ptr.as_ref() {
                                 self.emitln(&format!("  store {ret_ty} {ret_val}, {ret_ty}* {res_ptr}"));
@@ -2875,12 +2865,10 @@ impl IrEmitter {
                 }
             }
             Stmt::Assign(place, value, _) => {
-                let (val, val_ty) = self.compile_expr(value)?;
+                let (val, _val_ty) = self.compile_expr(value)?;
                 if let Expr::Ident(ident) = place {
                     if let Some((ptr, llvm_ty)) = self.lookup_local(&ident.name).cloned() {
-                        // Coerce the value to the slot's declared type using the
-                        // value's REAL type (e.g. an i8 char widened to an i64 slot).
-                        let store_val = self.coerce_value(&val, &val_ty, &llvm_ty);
+                        let store_val = self.zero_val_for(&val, &llvm_ty);
                         self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {ptr}"));
                     }
                 }
@@ -3544,21 +3532,12 @@ impl IrEmitter {
                 }
                 // Coerce i64 operands to double when in float context (mixed-type expressions)
                 if is_float {
-                    // A single-scalar-backed struct operand (Option/Ordering etc.)
-                    // in a float context: extract its leading i64 field first, then
-                    // the i64->double conversion below handles it.
-                    if lt.starts_with("%struct.") {
-                        l = self.extract_scalar_field0(&l, &lt);
-                    }
-                    if rt.starts_with("%struct.") {
-                        r = self.extract_scalar_field0(&r, &rt);
-                    }
-                    if lt == "i64" || lt.starts_with("%struct.") {
+                    if lt == "i64" {
                         let conv = self.fresh_tmp();
                         self.emitln(&format!("  {conv} = sitofp i64 {l} to double"));
                         l = conv;
                     }
-                    if rt == "i64" || rt.starts_with("%struct.") {
+                    if rt == "i64" {
                         let conv = self.fresh_tmp();
                         self.emitln(&format!("  {conv} = sitofp i64 {r} to double"));
                         r = conv;
@@ -3569,18 +3548,6 @@ impl IrEmitter {
                 // operation type. Skips float ops and pointer comparisons (string
                 // `==`), whose `ty` was resolved to `double`/`i8*` above.
                 if !is_float && ty == "i64" {
-                    // If one operand is a single-scalar-backed struct (e.g. an
-                    // Option/Ordering whose first field is the i64 discriminant)
-                    // and the other side is a plain integer, extract field 0 so the
-                    // integer op is well-typed. This handles stdlib idioms like
-                    // `opt >= 0` / `find(...) < n` where the struct's leading i64
-                    // carries the comparable value.
-                    if lt.starts_with("%struct.") && !rt.starts_with("%struct.") {
-                        l = self.extract_scalar_field0(&l, &lt);
-                    }
-                    if rt.starts_with("%struct.") && !lt.starts_with("%struct.") {
-                        r = self.extract_scalar_field0(&r, &rt);
-                    }
                     l = self.widen_to_i64(&l, &lt);
                     r = self.widen_to_i64(&r, &rt);
                 }
