@@ -4181,11 +4181,11 @@ impl IrEmitter {
                         }
                     }
                 }
-                let compiled_args: Vec<String> = args.iter()
-                    .map(|a| self.compile_expr(a).map(|(v, _)| v))
+                let compiled_args: Vec<(String, String)> = args.iter()
+                    .map(|a| self.compile_expr(a))
                     .collect::<Result<Vec<_>, _>>()?;
                 if fn_name == "io" {
-                    if let Some(arg) = compiled_args.first() {
+                    if let Some((arg, _)) = compiled_args.first() {
                         let tmp = self.fresh_tmp();
                         self.emitln(&format!("  {tmp} = call i32 @puts(i8* {arg})"));
                         return Ok((tmp, "i32".to_string()));
@@ -4407,7 +4407,8 @@ impl IrEmitter {
                         };
                         // Include receiver argument only if it's an actual struct instance
                         // AND it's not already in the registered param_types
-                        let mut all_args = compiled_args.clone();
+                        let mut all_args: Vec<String> = compiled_args.iter().map(|(v, _)| v.clone()).collect();
+                        let mut all_arg_types: Vec<String> = compiled_args.iter().map(|(_, t)| t.clone()).collect();
                         let mut all_param_types = param_types.clone();
                         if let Some(receiver) = receiver_expr {
                             let is_instance = self.receiver_is_instance(receiver);
@@ -4418,17 +4419,28 @@ impl IrEmitter {
                                 if has_receiver_in_params {
                                     // Receiver type already in param_types, just need the value
                                     all_args.insert(0, recv_val);
+                                    all_arg_types.insert(0, all_param_types.first().cloned().unwrap_or_else(|| "i64".to_string()));
                                 } else {
-                                    all_param_types.insert(0, recv_llvm_ty);
+                                    all_param_types.insert(0, recv_llvm_ty.clone());
                                     all_args.insert(0, recv_val);
+                                    all_arg_types.insert(0, recv_llvm_ty);
                                 }
                             } else if has_receiver_in_params {
                                 // Type name or module name receiver — remove extra param type
                                 all_param_types.remove(0);
                             }
                         }
-                        let args_str = all_param_types.iter().zip(all_args.iter())
-                            .map(|(ty, arg)| format!("{ty} {arg}"))
+                        // Coerce each arg to the callee's declared param type (its real
+                        // compiled type may differ, e.g. an enum-variant arg compiled to
+                        // a struct while the callee expects that struct).
+                        let args_str = all_args.iter().enumerate()
+                            .map(|(i, arg)| {
+                                let pty = all_param_types.get(i).cloned()
+                                    .unwrap_or_else(|| all_arg_types.get(i).cloned().unwrap_or_else(|| "i64".to_string()));
+                                let from = all_arg_types.get(i).cloned().unwrap_or_else(|| pty.clone());
+                                let coerced = self.coerce_value(arg, &from, &pty);
+                                format!("{pty} {coerced}")
+                            })
                             .collect::<Vec<_>>()
                             .join(", ");
                         let tmp = self.fresh_tmp();
@@ -4476,12 +4488,23 @@ impl IrEmitter {
                         // A module path like `xiom.char` (nested Field rooted in a
                         // non-local) is NOT an instance → no phantom receiver arg.
                         let is_instance = self.receiver_is_instance(receiver);
+                        // Registered callee param types (used to coerce args to the
+                        // exact types the callee declares).
+                        let callee_pts = self.functions.get(&resolved_fn_key).map(|(p, _)| p.clone());
                         if is_instance {
                             // Value sink: use the receiver's real compiled LLVM type
                             // (from compile_expr) rather than a re-inference.
                             let (recv_val, recv_llvm_ty) = self.compile_expr(receiver)?;
-                            let rest_str: Vec<String> = args.iter().zip(compiled_args.iter())
-                                .map(|(arg_expr, arg_val)| format!("{} {}", self.infer_llvm_type(arg_expr), arg_val))
+                            // When registered, param types include the receiver at [0];
+                            // explicit args map to [1..].
+                            let rest_str: Vec<String> = compiled_args.iter().enumerate()
+                                .map(|(i, (arg_val, arg_ty))| {
+                                    let pty = callee_pts.as_ref()
+                                        .and_then(|p| p.get(i + 1).cloned())
+                                        .unwrap_or_else(|| arg_ty.clone());
+                                    let coerced = self.coerce_value(arg_val, arg_ty, &pty);
+                                    format!("{pty} {coerced}")
+                                })
                                 .collect();
                             if rest_str.is_empty() {
                                 format!("{recv_llvm_ty} {recv_val}")
@@ -4489,9 +4512,18 @@ impl IrEmitter {
                                 format!("{recv_llvm_ty} {recv_val}, {}", rest_str.join(", "))
                             }
                         } else {
-                            // Type name or module name — no receiver argument
-                            args.iter().zip(compiled_args.iter())
-                                .map(|(arg_expr, arg_val)| format!("{} {}", self.infer_llvm_type(arg_expr), arg_val))
+                            // Type name or module name — no receiver argument. Coerce
+                            // each arg to the callee's declared param type (its real
+                            // compiled type may differ, e.g. an enum-variant arg
+                            // compiled to a struct while the callee expects it).
+                            compiled_args.iter().enumerate()
+                                .map(|(i, (arg_val, arg_ty))| {
+                                    let pty = callee_pts.as_ref()
+                                        .and_then(|p| p.get(i).cloned())
+                                        .unwrap_or_else(|| arg_ty.clone());
+                                    let coerced = self.coerce_value(arg_val, arg_ty, &pty);
+                                    format!("{pty} {coerced}")
+                                })
                                 .collect::<Vec<_>>()
                                 .join(", ")
                         }
@@ -4505,23 +4537,17 @@ impl IrEmitter {
                         if use_registered {
                             let pts = self.functions[&resolved_fn_key].0.clone();
                             let mut parts: Vec<String> = Vec::new();
-                            for (i, arg) in compiled_args.iter().enumerate() {
+                            for (i, (arg_val, arg_ty)) in compiled_args.iter().enumerate() {
                                 let pty = pts[i].clone();
                                 // Coerce the argument to the callee's declared param
-                                // type (e.g. an i64 char value passed to a Char=i8
-                                // parameter needs a trunc) so the call is well-typed.
-                                let from = if i < args.len() {
-                                    self.infer_llvm_type(&args[i])
-                                } else {
-                                    pty.clone()
-                                };
-                                let coerced = self.coerce_value(arg, &from, &pty);
+                                // type using the arg's REAL compiled type.
+                                let coerced = self.coerce_value(arg_val, arg_ty, &pty);
                                 parts.push(format!("{pty} {coerced}"));
                             }
                             parts.join(", ")
                         } else {
-                            args.iter().zip(compiled_args.iter())
-                                .map(|(arg_expr, arg_val)| format!("{} {}", self.infer_llvm_type(arg_expr), arg_val))
+                            compiled_args.iter()
+                                .map(|(arg_val, arg_ty)| format!("{arg_ty} {arg_val}"))
                                 .collect::<Vec<_>>()
                                 .join(", ")
                         }
