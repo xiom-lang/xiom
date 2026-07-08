@@ -269,6 +269,9 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
                 // Extern blocks carry no single name; always inject them (codegen
                 // dedups declares by function name via already_declared).
                 xiom_ast::TopDecl::Extern(_) => { program.items.push(decl); continue; }
+                // Const declarations from external modules (e.g. SIMD_SSE): inject
+                // so codegen can substitute their literal values. Dedup by name.
+                xiom_ast::TopDecl::Const(cd) => cd.name.name.clone(),
                 _ => continue,
             };
             if !existing_names.contains(&name) {
