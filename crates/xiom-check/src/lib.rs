@@ -1290,6 +1290,28 @@ impl Checker {
             collect_generic_types(&cached.program.items, &mut generic_type_names);
         }
 
+        // Set of PUB generic type names. Methods on a generic type are only safe to
+        // inject when their receiver type decl is ALSO injected (pub) — codegen
+        // recognizes the receiver as generic (via that injected type decl) and then
+        // monomorphises the method on demand instead of emitting a malformed
+        // un-monomorphised concrete body. A method on a NON-pub generic type (e.g.
+        // core's `BinaryHeap[T].new`) has no injected type decl, so codegen would
+        // treat it as concrete and emit broken IR — those stay skipped.
+        let mut pub_generic_type_names: HashSet<String> = HashSet::new();
+        fn collect_pub_generic_types(items: &[TopDecl], out: &mut HashSet<String>) {
+            for item in items {
+                match item {
+                    TopDecl::Type(td) if td.is_pub && !td.generics.is_empty() => { out.insert(td.name.name.clone()); }
+                    TopDecl::Enum(ed) if ed.is_pub && !ed.generics.is_empty() => { out.insert(ed.name.name.clone()); }
+                    TopDecl::Module(md) => collect_pub_generic_types(&md.items, out),
+                    _ => {}
+                }
+            }
+        }
+        for cached in self.catalog.all_cached() {
+            collect_pub_generic_types(&cached.program.items, &mut pub_generic_type_names);
+        }
+
         for cached in self.catalog.all_cached() {
             // Walk the cached program items recursively and inject pub type/enum/fn decls
             // with full bodies (not stubs), deduplicated against existing names.
@@ -1298,6 +1320,7 @@ impl Checker {
                 existing: &mut HashSet<String>,
                 primitives: &[&str],
                 generic_types: &HashSet<String>,
+                pub_generic_types: &HashSet<String>,
                 out: &mut Vec<TopDecl>,
             ) {
                 for item in items {
@@ -1320,11 +1343,26 @@ impl Checker {
                             // Note: fd.is_pub may be unreliable for file-level module
                             // parsing; since we only load modules explicitly imported
                             // via `use`, inject all candidate functions unconditionally.
-                            // Skip methods on generic types (e.g. `BinaryHeap[T].push`):
-                            // their bodies can only be lowered when monomorphised, and
-                            // injecting the raw body yields malformed concrete IR.
-                            let recv_is_generic = fd.receiver.as_ref()
-                                .map(|r| generic_types.contains(&r.name))
+                            // Methods on a PUB generic type (e.g. `Cell[T].get`) ARE
+                            // injected: their receiver type decl is also injected, so
+                            // codegen recognizes the receiver as generic (via
+                            // `generic_type_names`), skips concrete direct-emission (the
+                            // `recv_is_generic` guard in compile_top_decl), and
+                            // monomorphises them on demand at each concrete call site.
+                            // Without injecting them, no AST reaches codegen's
+                            // `generic_fn_decls`, so the call falls back to an undefined
+                            // bare `@get`/`@set` stub.
+                            //
+                            // Methods on a NON-pub generic type (e.g. core's
+                            // `BinaryHeap[T].new`) stay SKIPPED: their type decl is not
+                            // injected, so codegen would treat the receiver as concrete
+                            // and emit a malformed un-monomorphised body. Note the
+                            // parser drops receiver generics for static constructors
+                            // (`fd.generics` is empty for `BinaryHeap[T].new`), so this
+                            // receiver-type check is the only guard that catches them.
+                            let recv_is_nonpub_generic = fd.receiver.as_ref()
+                                .map(|r| generic_types.contains(&r.name)
+                                    && !pub_generic_types.contains(&r.name))
                                 .unwrap_or(false);
                             // Deduplicate by the QUALIFIED key (`Receiver.method` for
                             // methods, bare name for free functions). Deduping by the
@@ -1337,7 +1375,7 @@ impl Checker {
                             } else {
                                 fd.name.name.clone()
                             };
-                            if !recv_is_generic
+                            if !recv_is_nonpub_generic
                                 && !existing.contains(&dedup_key)
                                 && !primitives.contains(&fd.name.name.as_str()) {
                                 existing.insert(dedup_key);
@@ -1346,7 +1384,7 @@ impl Checker {
                             }
                         }
                         TopDecl::Module(md) => {
-                            collect_pub_decls(&md.items, existing, primitives, generic_types, out);
+                            collect_pub_decls(&md.items, existing, primitives, generic_types, pub_generic_types, out);
                         }
                         TopDecl::Extern(eb) => {
                             // Inject external modules' `extern "C"` blocks so their
@@ -1369,7 +1407,7 @@ impl Checker {
                     }
                 }
             }
-            collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &mut decls);
+            collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &pub_generic_type_names, &mut decls);
         }
 
         // Reachability filter: only inject FUNCTIONS whose (leaf) name is actually
@@ -1511,7 +1549,14 @@ impl Checker {
             let mut added = false;
             let mut i = 0;
             while i < fn_candidates.len() {
-                let is_reachable = referenced.contains(&fn_candidates[i].name.name);
+                let leaf_reachable = referenced.contains(&fn_candidates[i].name.name);
+                let key = if fn_candidates[i].is_method() {
+                    format!("{}.{}", fn_candidates[i].receiver.as_ref().unwrap().name, fn_candidates[i].name.name)
+                } else {
+                    fn_candidates[i].name.name.clone()
+                };
+                let qualified_reachable = referenced.contains(&key);
+                let is_reachable = leaf_reachable || qualified_reachable;
                 if is_reachable {
                     let fd = fn_candidates.remove(i);
                     let key = if fd.is_method() {
