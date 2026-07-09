@@ -432,7 +432,7 @@ impl Parser {
         self.expect_kind(TokenKind::Eq, "'='")?;
         let value = self.parse_expr()?;
         self.expect_kind(TokenKind::Semicolon, "';'")?;
-        Ok(TopDecl::Const(ConstDecl { name, ty, value, span: start }))
+        Ok(TopDecl::Const(ConstDecl { name, ty, value, is_mut: false, span: start }))
     }
 
     fn parse_module_var(&mut self) -> Result<TopDecl, ParseError> {
@@ -451,6 +451,7 @@ impl Parser {
             name,
             ty: ty.unwrap_or(Type::Named(Ident::new("_", span), vec![])),
             value,
+            is_mut: true,
             span,
         }))
     }
