@@ -465,6 +465,10 @@ pub struct ConstDecl {
     pub name: Ident,
     pub ty: Type,
     pub value: Expr,
+    /// `true` for a mutable module-level `var` (emitted as a real LLVM global
+    /// read via `load` / written via `store`); `false` for an immutable `const`
+    /// (compile-time value substituted at each read site).
+    pub is_mut: bool,
     pub span: Span,
 }
 

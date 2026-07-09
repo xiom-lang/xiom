@@ -119,6 +119,18 @@ pub struct IrEmitter {
     /// Module/global `const` values, keyed by bare name (last definition wins),
     /// used to substitute a constant reference with its literal value.
     constants: HashMap<String, Expr>,
+    /// Mutable module-level `var` globals: maps a variable name (BOTH the bare
+    /// name and, when inside a module, the module-qualified name) to its emitted
+    /// LLVM symbol name and LLVM type. A reference to such a name is compiled as
+    /// a real `load` from the `@<symbol>` global; an assignment becomes a
+    /// `store`. Unlike `constants`, these are NOT substituted — writes persist
+    /// across calls.
+    module_globals: HashMap<String, (String, String)>,
+    /// Ordered list of module-global definitions to emit at the top of the
+    /// module: (llvm symbol name, llvm type, constant initializer). Deduped by
+    /// symbol name so the defining module and an injected external copy do not
+    /// emit the same global twice.
+    module_global_defs: Vec<(String, String, String)>,
 }
 
 impl IrEmitter {
@@ -165,6 +177,8 @@ impl IrEmitter {
             loop_stack: Vec::new(),
             already_declared: HashSet::new(),
             constants: HashMap::new(),
+            module_globals: HashMap::new(),
+            module_global_defs: Vec::new(),
         }
     }
 
@@ -269,6 +283,64 @@ impl IrEmitter {
             "float" | "double" => "0.0".to_string(),
             _ if llvm_ty.ends_with('*') => "null".to_string(),
             _ => "zeroinitializer".to_string(), // aggregates / structs
+        }
+    }
+
+    /// Produce a valid LLVM *constant* initializer for a module-level `var`
+    /// global of type `llvm_ty` from its initializer expression. Only simple
+    /// scalar literals (int/bool/float/char, with optional unary negation) are
+    /// materialized to their real value — these are the initializers that
+    /// currently-passing modules depend on (e.g. `_global_state = 12345`).
+    /// Anything more complex (enum variants, struct/aggregate values,
+    /// constructor calls like `Vec[T]::new()`) is zero-initialized: a valid,
+    /// safe default. Such globals are always assigned before first meaningful
+    /// read in practice.
+    fn global_const_init(value: &Expr, llvm_ty: &str) -> String {
+        match value {
+            Expr::Int(n, _) => {
+                if llvm_ty == "double" || llvm_ty == "float" {
+                    format!("{n}.0")
+                } else if llvm_ty.starts_with("%struct.") || llvm_ty.ends_with('*') {
+                    Self::default_const_for(llvm_ty)
+                } else {
+                    format!("{n}")
+                }
+            }
+            Expr::Bool(b, _) => {
+                if llvm_ty.starts_with('i') {
+                    (if *b { "1" } else { "0" }).to_string()
+                } else {
+                    Self::default_const_for(llvm_ty)
+                }
+            }
+            Expr::Float(f, _) => {
+                if llvm_ty == "double" || llvm_ty == "float" {
+                    format!("{f:.6}")
+                } else {
+                    Self::default_const_for(llvm_ty)
+                }
+            }
+            Expr::Char(c, _) => {
+                if llvm_ty.starts_with('i') {
+                    format!("{}", *c as u32)
+                } else {
+                    Self::default_const_for(llvm_ty)
+                }
+            }
+            Expr::Unary(UnaryOp::Neg, inner, _) => {
+                if let Expr::Int(n, _) = inner.as_ref() {
+                    if llvm_ty == "double" || llvm_ty == "float" {
+                        format!("-{n}.0")
+                    } else if llvm_ty.starts_with('i') {
+                        format!("-{n}")
+                    } else {
+                        Self::default_const_for(llvm_ty)
+                    }
+                } else {
+                    Self::default_const_for(llvm_ty)
+                }
+            }
+            _ => Self::default_const_for(llvm_ty),
         }
     }
 
@@ -751,6 +823,17 @@ impl IrEmitter {
             self.emitln(&format!("%struct.{name} = type {{ {} }}", field_types.join(", ")));
         }
         if !self.types.is_empty() {
+            self.emitln("");
+        }
+
+        // Emit mutable module-level `var` globals (real LLVM globals read via
+        // `load` and written via `store`). Registered during register_functions;
+        // deduped by symbol so the defining module and an injected external copy
+        // never emit the same global twice.
+        if !self.module_global_defs.is_empty() {
+            for (symbol, llvm_ty, init) in &self.module_global_defs.clone() {
+                self.emitln(&format!("@{symbol} = internal global {llvm_ty} {init}"));
+            }
             self.emitln("");
         }
 
@@ -1609,10 +1692,40 @@ impl IrEmitter {
 
     fn register_functions(&mut self, item: &TopDecl) {
         if let TopDecl::Const(cd) = item {
-            // Record module/global constants so a bare reference can be substituted
-            // with its literal value (constants are not emitted as globals). Last
-            // definition wins; both bare and module-qualified names are keyed.
-            self.constants.insert(cd.name.name.clone(), cd.value.clone());
+            if cd.is_mut {
+                // Mutable module-level `var`: emit as a REAL LLVM global and route
+                // reads/writes to load/store (see compile_expr / Stmt::Assign).
+                // Only do this when the declared type resolves to a concrete LLVM
+                // type; otherwise (e.g. `Map[K,V]`, whose LLVM lowering isn't a
+                // simple global slot) fall back to constant substitution so the
+                // existing behavior — and the green test gate — is preserved.
+                let ty_name = Self::type_from_ast(&cd.ty);
+                if let Ok(llvm_ty) = self.llvm_type_for(&ty_name) {
+                    let symbol = if let Some(ref m) = self.current_module {
+                        format!("{}.{}", m, cd.name.name)
+                    } else {
+                        cd.name.name.clone()
+                    };
+                    // Register lookups under BOTH the bare and qualified names so a
+                    // reference resolves whether the module is compiled directly or
+                    // its decls are injected flattened at top level.
+                    self.module_globals.insert(cd.name.name.clone(), (symbol.clone(), llvm_ty.clone()));
+                    self.module_globals.insert(symbol.clone(), (symbol.clone(), llvm_ty.clone()));
+                    // Dedup the emitted definition by symbol name.
+                    if !self.module_global_defs.iter().any(|(s, _, _)| s == &symbol) {
+                        let init = Self::global_const_init(&cd.value, &llvm_ty);
+                        self.module_global_defs.push((symbol, llvm_ty, init));
+                    }
+                } else {
+                    // Type doesn't lower to a simple global: keep old behavior.
+                    self.constants.insert(cd.name.name.clone(), cd.value.clone());
+                }
+            } else {
+                // Record module/global constants so a bare reference can be substituted
+                // with its literal value (constants are not emitted as globals). Last
+                // definition wins; both bare and module-qualified names are keyed.
+                self.constants.insert(cd.name.name.clone(), cd.value.clone());
+            }
         }
         if let TopDecl::Fn(fd) = item {
             // Register tuple types used in function signature before resolving LLVM types
@@ -3233,6 +3346,13 @@ impl IrEmitter {
                         // value assigned into an i64 slot).
                         let store_val = self.coerce_value(&val, &val_ty, &llvm_ty);
                         self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {ptr}"));
+                    } else if let Some((symbol, llvm_ty)) = self.module_globals.get(&ident.name).cloned() {
+                        // Assignment to a mutable module-level `var`: store into the
+                        // real global so the write persists across calls. Checked
+                        // BEFORE the unknown-target path so it is never silently
+                        // dropped.
+                        let store_val = self.coerce_value(&val, &val_ty, &llvm_ty);
+                        self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* @{symbol}"));
                     }
                 }
                 // Indexed assignment: `container[idx] = value` into a Vec (builtin
@@ -3770,6 +3890,13 @@ impl IrEmitter {
                 if let Some((ptr, llvm_ty)) = self.lookup_local(&ident.name).cloned() {
                     let tmp = self.fresh_tmp();
                     self.emitln(&format!("  {tmp} = load {llvm_ty}, {llvm_ty}* {ptr}"));
+                    Ok((tmp, llvm_ty))
+                } else if let Some((symbol, llvm_ty)) = self.module_globals.get(&ident.name).cloned() {
+                    // Mutable module-level `var`: load the current value from the
+                    // real global. Checked BEFORE enum-variant / constant fallbacks
+                    // so a live global is never mistaken for a compile-time literal.
+                    let tmp = self.fresh_tmp();
+                    self.emitln(&format!("  {tmp} = load {llvm_ty}, {llvm_ty}* @{symbol}"));
                     Ok((tmp, llvm_ty))
                 } else if let Some(enum_key) = self.enum_variants.iter()
                     .find(|(_, vars)| vars.iter().any(|(v, _)| v == &ident.name))

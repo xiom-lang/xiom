@@ -841,7 +841,7 @@ impl Formatter {
     }
 
     fn format_const_decl(&mut self, c: &ConstDecl) {
-        self.buf.push_str("const ");
+        self.buf.push_str(if c.is_mut { "var " } else { "const " });
         self.buf.push_str(&c.name.name);
         self.buf.push_str(": ");
         self.format_type(&c.ty);
