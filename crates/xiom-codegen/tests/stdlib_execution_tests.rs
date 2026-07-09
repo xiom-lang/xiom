@@ -257,9 +257,8 @@ fn stdlib_exec_async_runs() {
 }
 
 #[test]
-#[ignore]
 fn stdlib_exec_net_runs() {
-    assert!(compile_and_run("examples\\stdlib_smoke\\smoke_net.xi").is_some(), "net smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_net.xi"), Some(0), "net smoke failed to run/return 0");
 }
 
 #[test]
