@@ -189,6 +189,8 @@ fn expr_to_string(expr: &Expr) -> String {
             format!("{}{}", match op {
                 UnaryOp::Not => "!",
                 UnaryOp::Neg => "-",
+                UnaryOp::BitNot => "~",
+                UnaryOp::Deref => "*",
                 UnaryOp::Ref => "&",
                 UnaryOp::MutRef => "&mut ",
             }, expr_to_string(inner))
@@ -243,6 +245,8 @@ fn op_to_str(op: &BinOp) -> &str {
         BinOp::Eq => "==", BinOp::Neq => "!=", BinOp::Lt => "<", BinOp::Gt => ">",
         BinOp::Le => "<=", BinOp::Ge => ">=", BinOp::And => "&&", BinOp::Or => "||",
         BinOp::Assign => "=",
+        BinOp::BitAnd => "&", BinOp::BitOr => "|", BinOp::BitXor => "^",
+        BinOp::Shl => "<<", BinOp::Shr => ">>",
     }
 }
 
