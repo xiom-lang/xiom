@@ -4701,9 +4701,9 @@ impl IrEmitter {
                 // instantiation whose type arg the parser preserved as an index;
                 // unwrap to the underlying callee `base` so `ptr.null[Int]()` and
                 // `foo[T]()` resolve to the function, not a bogus index expression.
-                let func_unwrapped: &Expr = match &**func {
-                    Expr::Index(base, _, _) => base.as_ref(),
-                    other => other,
+                let (func_unwrapped, type_arg): (&Expr, Option<&Expr>) = match &**func {
+                    Expr::Index(base, idx, _) => (base.as_ref(), Some(idx.as_ref())),
+                    other => (other, None),
                 };
                 let (fn_name_opt, receiver_expr) = match func_unwrapped {
                     Expr::Ident(name) => (Some(name.name.clone()), None),
@@ -5509,6 +5509,80 @@ impl IrEmitter {
                         let tmp = self.fresh_tmp();
                         self.emitln(&format!("  {tmp} = load {pointee}, {ptr_ty} {ptr_val}"));
                         return Ok((tmp, pointee));
+                    }
+                }
+                // Builtin size_of[T](): return the LLVM size in bytes of type T.
+                // The type arg is parsed as `Expr::Index` and captured in type_arg.
+                if fn_name == "size_of" || fn_name == "align_of" {
+                    if let Some(ta) = type_arg {
+                        let xiom_ty = match ta {
+                            Expr::Ident(id) => id.name.clone(),
+                            Expr::Field(_, f, _) => f.name.clone(),
+                            _ => String::new(),
+                        };
+                        if !xiom_ty.is_empty() {
+                            let llvm_ty = self.llvm_type_for(&xiom_ty)
+                                .unwrap_or_else(|_| Self::xiom_to_llvm_type(&xiom_ty).to_string());
+                            let size = if llvm_ty.starts_with("%struct.") {
+                                let type_name = &llvm_ty[8..];
+                                self.types.get(type_name).map(|fs| fs.len() as i64 * 8).unwrap_or(8)
+                            } else {
+                                match llvm_ty.as_str() {
+                                    "i8" => 1,
+                                    "i16" => 2,
+                                    "i32" => 4,
+                                    "i64" | "double" | "i8*" | "ptr" => 8,
+                                    _ => 8,
+                                }
+                            };
+                            if fn_name == "align_of" {
+                                let align = if llvm_ty.starts_with("%struct.") { 8 } else { size };
+                                return Ok((align.to_string(), "i64".to_string()));
+                            }
+                            return Ok((size.to_string(), "i64".to_string()));
+                        }
+                    }
+                    return Ok(("8".to_string(), "i64".to_string()));
+                }
+                // Enum variant constructor: `TypeName.Variant(args)`.
+                // Detects when the call is constructing an enum variant and emits
+                // the proper discriminant + payload struct.
+                if let Some(receiver) = receiver_expr {
+                    if let Expr::Ident(type_id) = &**receiver {
+                        let enum_key = self.enum_variants.keys()
+                            .find(|k| **k == type_id.name || k.ends_with(&format!(".{}", type_id.name)))
+                            .cloned();
+                        if let Some(ek) = enum_key {
+                            if let Some(variants) = self.enum_variants.get(&ek) {
+                                if let Some((var_idx, (_, _payload_fields))) = variants.iter().enumerate()
+                                    .find(|(_, (v, _))| v == &fn_name)
+                                {
+                                    if let Ok(struct_ty) = self.llvm_type_for(&ek) {
+                                        let alloca = self.fresh_tmp();
+                                        self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
+                                        // Set discriminant to variant index
+                                        let disc_gep = self.fresh_tmp();
+                                        self.emitln(&format!("  {disc_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
+                                        self.emitln(&format!("  store i64 {var_idx}, i64* {disc_gep}"));
+                                        // Set payload fields from call args
+                                        let compiled: Vec<(String, String)> = args.iter()
+                                            .map(|a| self.compile_expr(a))
+                                            .collect::<Result<Vec<_>, _>>()?;
+                                        for (pi, (val, val_ty)) in compiled.iter().enumerate() {
+                                            let field_idx = pi + 1; // field 0 is discriminant
+                                            let gep = self.fresh_tmp();
+                                            let fty = self.field_llvm_type(&ek, field_idx);
+                                            self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {field_idx}"));
+                                            let sv = self.coerce_value(val, val_ty, &fty);
+                                            self.emitln(&format!("  store {fty} {sv}, {fty}* {gep}"));
+                                        }
+                                        let loaded = self.fresh_tmp();
+                                        self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
+                                        return Ok((loaded, struct_ty));
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 // Check if this is a call to a generic function and track instantiation

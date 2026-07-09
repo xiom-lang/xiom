@@ -208,7 +208,13 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
         if !is_multi_file {
             process::exit(1);
         }
-        eprintln!("note: {} type errors (continuing to codegen for multi-file compile)", errors.len());
+        // ALL type errors are fatal — the "compiles ⇒ safe" guarantee means
+        // we must never emit IR that contains a type-mismatched operation.
+        // Multi-file compiles must also abort; the old bypass was needed
+        // when the stdlib had unresolved checker gaps (T001 false positives
+        // on builtin method tables). Those are now fixed (v0.29.0).
+        eprintln!("note: {} type errors — aborting codegen", errors.len());
+        process::exit(1);
     }
 
     if dump_contracts {
