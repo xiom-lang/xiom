@@ -3556,11 +3556,54 @@ impl IrEmitter {
                     }
                 }
                 // Emit invariant check if the assigned place is a struct with invariants
-                if let Expr::Field(obj, _, _) = place {
+                if let Expr::Field(obj, field, _) = place {
+                    // --- Deref-field write: `(*ptr).field = value` ---
+                    // Handle through-pointer field stores (e.g. `(*raw).value = v`
+                    // in Cell.set). Matches `(*p).f` and `(*(p)).f` nesting.
+                    {
+                        let deref_inner: Option<&Expr> = match obj.as_ref() {
+                            Expr::Unary(UnaryOp::Deref, inner, _) => Some(inner.as_ref()),
+                            Expr::Paren(p, _) => match p.as_ref() {
+                                Expr::Unary(UnaryOp::Deref, inner, _) => Some(inner.as_ref()),
+                                _ => None,
+                            },
+                            _ => None,
+                        };
+                        if let Some(inner) = deref_inner {
+                            let (ptr_val, ptr_ty) = self.compile_expr(inner)?;
+                            if ptr_ty.ends_with('*') {
+                                let pointee = ptr_ty.trim_end_matches('*').to_string();
+                                if pointee.starts_with("%struct.") {
+                                    let type_name = &pointee[8..];
+                                    if let Some(field_names) = self.types.get(type_name).cloned() {
+                                        if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
+                                            let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
+                                            let gep = self.fresh_tmp();
+                                            let store_val = self.coerce_value(&val, &val_ty, &field_llvm_ty);
+                                            self.emitln(&format!("  {gep} = getelementptr {pointee}, {ptr_ty} {ptr_val}, i32 0, i32 {field_idx}"));
+                                            self.emitln(&format!("  store {field_llvm_ty} {store_val}, {field_llvm_ty}* {gep}"));
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // --- Regular field assignment: `obj.field = value` ---
                     if let Expr::Ident(obj_ident) = obj.as_ref() {
                         if let Some((obj_ptr, obj_ty)) = self.lookup_local(&obj_ident.name).cloned() {
                             if obj_ty.starts_with("%struct.") {
                                 let type_name = obj_ty[8..].to_string();
+                                // GEP to field and store
+                                if let Some(field_names) = self.types.get(&type_name).cloned() {
+                                    if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
+                                        let field_llvm_ty = self.field_llvm_type(&type_name, field_idx);
+                                        let gep = self.fresh_tmp();
+                                        let store_val = self.coerce_value(&val, &val_ty, &field_llvm_ty);
+                                        self.emitln(&format!("  {gep} = getelementptr {obj_ty}, {obj_ty}* {obj_ptr}, i32 0, i32 {field_idx}"));
+                                        self.emitln(&format!("  store {field_llvm_ty} {store_val}, {field_llvm_ty}* {gep}"));
+                                    }
+                                }
                                 let has_invariants = self.type_meta.get(&type_name)
                                     .map(|m| !m.invariants.is_empty())
                                     .unwrap_or(false);
@@ -4756,11 +4799,18 @@ impl IrEmitter {
                 );
                 if is_builtin_iface_method {
                     if let Some(receiver) = receiver_expr {
+                        let is_value_instance = self.receiver_is_instance(receiver);
                         // Skip static/type-name receivers (e.g. Int.compare(a, b)).
                         let receiver_is_type_name = matches!(&**receiver, Expr::Ident(id)
                             if Self::is_primitive_type_name(&id.name)
                                 || self.types.contains_key(&id.name)
                                 || self.type_meta.contains_key(&id.name));
+                        // Builtin interface methods only apply to value instances (e.g.
+                        // `x.hash()` or `42.hash()`) — module-qualified calls like
+                        // `hash.hash(42)` must fall through to generic dispatch.
+                        if !is_value_instance {
+                            // module-qualified call — fall through to generic dispatch
+                        } else {
                         let recv_llvm_ty = self.infer_llvm_type(receiver);
                         // Only scalar (integer/float) receivers get inline handling;
                         // structs use derived/user impls, pointers (Str) fall through.
@@ -4773,7 +4823,7 @@ impl IrEmitter {
                             let is_float = recv_llvm_ty == "double" || recv_llvm_ty == "float";
                             match fn_name.as_str() {
                                 "clone" => return Ok((recv_val, recv_llvm_ty.clone())),
-                                "hash" => {
+                                "hash" if args.is_empty() => {
                                     if is_float {
                                         let bits = if recv_llvm_ty == "double" { "i64" } else { "i32" };
                                         let cast = self.fresh_tmp();
@@ -4792,8 +4842,18 @@ impl IrEmitter {
                                     self.emitln(&format!("  {ext} = sext {recv_llvm_ty} {recv_val} to i64"));
                                     return Ok((ext, "i64".to_string()));
                                 }
+                                // "hash" with args (Hash interface method call like
+                                // `value.hash(hasher)` inside a generic body) — exit
+                                // builtin path entirely so regular method dispatch
+                                // resolves to the concrete `Type.hash` function below.
+                                "hash" => {}
                                 _ => {}
                             }
+                            // Skip comparison-op compilation when we handled `hash`
+                            // with args via the empty fallthrough above.
+                            if fn_name == "hash" {
+                                // Exit is_scalar to fall through to regular dispatch
+                            } else {
                             let arg_val = if let Some(a) = args.first() {
                                 self.compile_expr(a)?.0
                             } else {
@@ -4829,7 +4889,9 @@ impl IrEmitter {
                             let res = self.fresh_tmp();
                             self.emitln(&format!("  {res} = zext i1 {cmp} to i64"));
                             return Ok((res, "i64".to_string()));
+                            } // end else (fn_name != "hash")
                         }
+                        } // end else (is_value_instance)
                     }
                 }
                 // Check for memory allocation/free builtins
@@ -5411,10 +5473,43 @@ impl IrEmitter {
                     self.emitln(&format!("  call void @xiom_ir_ret_lit(i64 {val})"));
                     return Ok(("0".to_string(), "void".to_string()));
                 }
+                // Builtin len on array (i8*) buffer: read count from slot 0.
+                // Array literals are compiled as `[i64 count, i64 elem...]`
+                // cast to i8*. This avoids the const-generic N propagation issue.
+                if fn_name == "len" && args.len() >= 1 {
+                    let (arg_val, arg_ty) = self.compile_expr(&args[0])?;
+                    if arg_ty == "i8*" {
+                        let buf = self.fresh_tmp();
+                        self.emitln(&format!("  {buf} = bitcast i8* {arg_val} to i64*"));
+                        let len_val = self.fresh_tmp();
+                        self.emitln(&format!("  {len_val} = load i64, i64* {buf}"));
+                        return Ok((len_val, "i64".to_string()));
+                    }
+                }
                 // Check if this is a call to a generic function and track instantiation
                 let fn_key = if let Some(receiver) = receiver_expr {
                     if let Some(recv_type) = self.infer_struct_type_name(receiver) {
                         format!("{}.{}", recv_type, fn_name)
+                    } else if self.receiver_is_instance(receiver) {
+                        // Scalar value instance receiver (e.g. `value.hash(hasher)`
+                        // inside a generic monomorphised body). Resolve via
+                        // param_concrete_types to get `Int.hash` not bare `hash`.
+                        let obj_var_name = match &**receiver {
+                            Expr::Ident(id) => id.name.clone(),
+                            _ => String::new(),
+                        };
+                        if !obj_var_name.is_empty() {
+                            if let Some(concrete) = self.param_concrete_types.get(&obj_var_name) {
+                                format!("{}.{}", concrete, fn_name)
+                            } else if let Some((_, llvm_ty)) = self.lookup_local(&obj_var_name) {
+                                let ty_name = Self::xiom_type_name_from_llvm(llvm_ty);
+                                format!("{}.{}", ty_name, fn_name)
+                            } else {
+                                self.resolve_module_call(receiver, &fn_name)
+                            }
+                        } else {
+                            self.resolve_module_call(receiver, &fn_name)
+                        }
                     } else {
                         // Receiver is a module name (not a struct type) — resolve
                         // to module-qualified function name if registered.
@@ -5571,6 +5666,11 @@ impl IrEmitter {
                             Ok((String::new(), "void".to_string()))
                         } else {
                             self.emitln(&format!("  {tmp} = call {ret_ty} @{specialized_name}({args_str})"));
+                            if let Some(receiver) = receiver_expr {
+                                if ret_ty.starts_with("%struct.") {
+                                    self.store_back_to_receiver(receiver, &tmp, &ret_ty);
+                                }
+                            }
                             Ok((tmp, ret_ty.clone()))
                         }
                     } else {
@@ -5739,12 +5839,17 @@ impl IrEmitter {
                         }
                     } else if ret_ty == "void" {
                         self.emitln(&format!("  call void @{resolved_fn_key}({args_str})"));
-                        // A void call produces no SSA value; return an empty
-                        // register (never emitted `{tmp} = ...`). Consumers must
-                        // check for `ty == "void"` / empty value before using it.
                         Ok((String::new(), "void".to_string()))
                     } else {
                         self.emitln(&format!("  {tmp} = call {ret_ty} @{resolved_fn_key}({args_str})"));
+                        // Store result back to receiver variable for mutating methods
+                        // (by-value semantics: callee receives a copy; store the
+                        // returned struct so caller sees the mutation).
+                        if let Some(receiver) = receiver_expr {
+                            if ret_ty.starts_with("%struct.") {
+                                self.store_back_to_receiver(receiver, &tmp, &ret_ty);
+                            }
+                        }
                         Ok((tmp, ret_ty.clone()))
                     }
                 }
@@ -6301,14 +6406,22 @@ impl IrEmitter {
             }
             Expr::Call(func, _, _) => {
                 // Infer type from the return type of a method/function call
-                if let Expr::Field(obj, field, _) = func.as_ref() {
+                let fn_key = if let Expr::Field(obj, field, _) = func.as_ref() {
+                    // Try module-qualified resolution first (e.g. iter.range → xiom.iter.range)
                     if let Some(recv_type) = self.infer_struct_type_name(obj.as_ref()) {
-                        let fn_key = format!("{}.{}", recv_type, field.name);
-                        if let Some((_, ret_ty)) = self.functions.get(&fn_key) {
-                            if ret_ty.starts_with("%struct.") {
-                                return Some(ret_ty[8..].to_string());
-                            }
-                        }
+                        format!("{}.{}", recv_type, field.name)
+                    } else {
+                        let resolved = self.resolve_module_call(obj.as_ref(), &field.name);
+                        if resolved != field.name { resolved } else { field.name.clone() }
+                    }
+                } else if let Expr::Ident(id) = func.as_ref() {
+                    id.name.clone()
+                } else {
+                    return None;
+                };
+                if let Some((_, ret_ty)) = self.functions.get(&fn_key) {
+                    if ret_ty.starts_with("%struct.") {
+                        return Some(ret_ty[8..].to_string());
                     }
                 }
                 None

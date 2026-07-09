@@ -799,3 +799,31 @@ fn e2e_ptr_deref() {
     assert_eq!(compile_and_run("examples\\e2e\\ptr_deref.xi"), Some(0),
         "raw pointer deref read/write round-trip should mutate the source local");
 }
+
+// ============================================================================
+// E2E: Regression — field assignment + store-back (Clusters 1-3 fixes)
+// ============================================================================
+
+/// Struct field assignment (`self.field = expr`) emits a store instruction
+/// through GEP into the struct alloca.
+#[test]
+fn e2e_field_assign() {
+    assert_eq!(compile_and_run("examples\\e2e\\field_assign.xi"), Some(0),
+        "struct field assignment should store through GEP");
+}
+
+/// Struct method returning modified self stores back to the caller's variable
+/// so mutation persists across the call.
+#[test]
+fn e2e_method_store_back() {
+    assert_eq!(compile_and_run("examples\\e2e\\method_store_back.xi"), Some(0),
+        "mutating struct method should store result back to receiver var");
+}
+
+/// Chained calls like `make_pair(10,25).sum()` resolve the method on the
+/// return type of the call expression.
+#[test]
+fn e2e_call_receiver_type() {
+    assert_eq!(compile_and_run("examples\\e2e\\call_receiver_type.xi"), Some(0),
+        "chained call receiver type inference should resolve method");
+}
