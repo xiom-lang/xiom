@@ -263,15 +263,13 @@ fn stdlib_exec_net_runs() {
 }
 
 #[test]
-#[ignore]
 fn stdlib_exec_os_runs() {
-    assert!(compile_and_run("examples\\stdlib_smoke\\smoke_os.xi").is_some(), "os smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_os.xi"), Some(0), "os smoke failed to run/return 0");
 }
 
 #[test]
-#[ignore]
 fn stdlib_exec_time_runs() {
-    assert!(compile_and_run("examples\\stdlib_smoke\\smoke_time.xi").is_some(), "time smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_time.xi"), Some(0), "time smoke failed to run/return 0");
 }
 
 #[test]
@@ -281,21 +279,18 @@ fn stdlib_exec_test_runs() {
 }
 
 #[test]
-#[ignore]
 fn stdlib_exec_bench_runs() {
-    assert!(compile_and_run("examples\\stdlib_smoke\\smoke_bench.xi").is_some(), "bench smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_bench.xi"), Some(0), "bench smoke failed to run/return 0");
 }
 
 #[test]
-#[ignore]
 fn stdlib_exec_rand_runs() {
-    assert!(compile_and_run("examples\\stdlib_smoke\\smoke_rand.xi").is_some(), "rand smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_rand.xi"), Some(0), "rand smoke failed to run/return 0");
 }
 
 #[test]
-#[ignore]
 fn stdlib_exec_env_runs() {
-    assert!(compile_and_run("examples\\stdlib_smoke\\smoke_env.xi").is_some(), "env smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_env.xi"), Some(0), "env smoke failed to run/return 0");
 }
 
 // ============================================================================
