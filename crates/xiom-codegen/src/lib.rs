@@ -4168,8 +4168,8 @@ impl IrEmitter {
                 }
             }
             Expr::Binary(left, op, right, _) => {
-                let (mut l, lt) = self.compile_expr(left)?;
-                let (mut r, rt) = self.compile_expr(right)?;
+                let (mut l, mut lt) = self.compile_expr(left)?;
+                let (mut r, mut rt) = self.compile_expr(right)?;
                 let tmp = self.fresh_tmp();
                 // Str + Str: concatenate at runtime, not `add i64` on pointers.
                 // A Str is `i8*` at the ABI; `add` on two pointers is invalid IR
@@ -4201,10 +4201,14 @@ impl IrEmitter {
                     self.emitln(&format!("  {result} = {op_name} i64 {lw}, {rw}"));
                     return Ok((result, "i64".to_string()));
                 }
-                // For struct-typed equality/inequality, call derived eq() instead of icmp
+                // For struct-typed equality/inequality, call derived eq() instead of icmp.
+                // Exclude pointer-to-struct types (e.g. `%struct.ArcInner*`) which end
+                // with `*`; those compare pointer identity, not struct contents.
                 if matches!(op, BinOp::Eq | BinOp::Neq) {
-                    if lt.starts_with("%struct.") || rt.starts_with("%struct.") {
-                        let struct_name = if lt.starts_with("%struct.") { &lt[8..] } else { &rt[8..] };
+                    let lt_is_struct = lt.starts_with("%struct.") && !lt.ends_with('*');
+                    let rt_is_struct = rt.starts_with("%struct.") && !rt.ends_with('*');
+                    if lt_is_struct || rt_is_struct {
+                        let struct_name = if lt_is_struct { &lt[8..] } else { &rt[8..] };
                         let eq_fn = format!("{}.eq", struct_name);
                         let eq_result = self.fresh_tmp();
                         if self.functions.contains_key(&eq_fn) {
@@ -4216,12 +4220,12 @@ impl IrEmitter {
                             // one side may be a bare scalar (e.g. `char_at(s,i) == '"'`
                             // where the RHS is a Char, not an Option), which must not
                             // be treated as a struct (that emitted `store %struct.X N`).
-                            let l_i = if lt.starts_with("%struct.") {
+                            let l_i = if lt_is_struct {
                                 self.extract_scalar_field0(&l, &lt)
                             } else {
                                 self.val_to_i64(&l, &lt)
                             };
-                            let r_i = if rt.starts_with("%struct.") {
+                            let r_i = if rt_is_struct {
                                 self.extract_scalar_field0(&r, &rt)
                             } else {
                                 self.val_to_i64(&r, &rt)
@@ -4257,6 +4261,26 @@ impl IrEmitter {
                         let ext = self.fresh_tmp();
                         self.emitln(&format!("  {ext} = zext i1 {is_eq} to i64"));
                         return Ok((ext, "i64".to_string()));
+                    }
+                }
+                // Auto-deref pointer operands for relational comparisons (Lt/Gt/Le/Ge).
+                // A field like `count: *Int` loaded from the struct is a pointer (e.g.
+                // `i64*`); when compared to an integer, load through the pointer so the
+                // comparison is on the pointed-to scalar, not the pointer address.
+                if matches!(op, BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge) {
+                    if lt.ends_with('*') {
+                        let inner = lt.trim_end_matches('*');
+                        let deref_l = self.fresh_tmp();
+                        self.emitln(&format!("  {deref_l} = load {inner}, {lt} {l}"));
+                        l = deref_l;
+                        lt = inner.to_string();
+                    }
+                    if rt.ends_with('*') {
+                        let inner = rt.trim_end_matches('*');
+                        let deref_r = self.fresh_tmp();
+                        self.emitln(&format!("  {deref_r} = load {inner}, {rt} {r}"));
+                        r = deref_r;
+                        rt = inner.to_string();
                     }
                 }
                 let (ty, inst) = match op {
