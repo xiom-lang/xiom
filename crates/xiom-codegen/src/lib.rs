@@ -5486,6 +5486,31 @@ impl IrEmitter {
                         return Ok((len_val, "i64".to_string()));
                     }
                 }
+                // Builtin write(ptr, value): store value through raw pointer.
+                // ptr.write is generic but type inference fails for *T types,
+                // so it ends up as a zero-arg stub. This inline handler
+                // emits the store directly, bypassing monomorphization.
+                if fn_name == "write" && args.len() >= 2 {
+                    let (ptr_val, ptr_ty) = self.compile_expr(&args[0])?;
+                    if ptr_ty.ends_with('*') {
+                        let pointee = ptr_ty.trim_end_matches('*').to_string();
+                        let (val, val_ty) = self.compile_expr(&args[1])?;
+                        let store_val = self.coerce_value(&val, &val_ty, &pointee);
+                        self.emitln(&format!("  store {pointee} {store_val}, {ptr_ty} {ptr_val}"));
+                        return Ok((String::new(), "void".to_string()));
+                    }
+                }
+                // Builtin read(ptr): load value through raw pointer.
+                // ptr.read is generic with the same *T inference issue as write.
+                if fn_name == "read" && args.len() >= 1 {
+                    let (ptr_val, ptr_ty) = self.compile_expr(&args[0])?;
+                    if ptr_ty.ends_with('*') {
+                        let pointee = ptr_ty.trim_end_matches('*').to_string();
+                        let tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {tmp} = load {pointee}, {ptr_ty} {ptr_val}"));
+                        return Ok((tmp, pointee));
+                    }
+                }
                 // Check if this is a call to a generic function and track instantiation
                 let fn_key = if let Some(receiver) = receiver_expr {
                     if let Some(recv_type) = self.infer_struct_type_name(receiver) {
@@ -6612,7 +6637,19 @@ impl IrEmitter {
                     }
                 }
             }
-            Expr::Ref(inner, _) | Expr::MutRef(inner, _) => self.infer_llvm_type(inner),
+            Expr::Ref(inner, _) | Expr::MutRef(inner, _) => {
+                let inner_ty = self.infer_llvm_type(inner);
+                // `&scalar` / `&mut scalar` is a real pointer — return the pointer
+                // type so generic call-site arg inference has correct types for
+                // coercion (e.g. &mut Int → i64* not i64).
+                if inner_ty == "i64" || inner_ty == "i8" || inner_ty == "i32" || inner_ty == "i16"
+                    || inner_ty == "double" || inner_ty == "float"
+                {
+                    format!("{inner_ty}*")
+                } else {
+                    inner_ty
+                }
+            }
             Expr::As(_, ty, _) => self.llvm_type_for(&Self::type_from_ast(ty)).unwrap_or_else(|_| "i64".to_string()),
             Expr::If(_cond, then_block, _elifs, else_block, _) => {
                 // if-expressions return the type of the last expression in each branch
