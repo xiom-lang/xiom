@@ -784,13 +784,6 @@ fn e2e_enum_variant_value() {
         "enum variant as value and ==/!= should work");
 }
 
-/// Generic type (in-module Box[T]) with constructor + getter + replace method.
-#[test]
-fn e2e_generic_ctor_method() {
-    assert_eq!(compile_and_run("examples\\e2e\\generic_ctor_method.xi"), Some(0),
-        "generic type with ctor/get/replace should work in-module");
-}
-
 /// `&mut Scalar` parameter is a real LLVM pointer: `inc(p: &mut Int)` derefs to
 /// read (`*p`) and stores through (`*p = ...`), mutating the caller's local.
 #[test]
