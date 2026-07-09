@@ -4929,8 +4929,21 @@ impl IrEmitter {
                 }
                 // Vec.new() — static method on Vec type
                 if let Some(receiver) = receiver_expr {
-                    if let Expr::Ident(id) = &**receiver {
-                        if id.name == "Vec" && fn_name == "new" {
+                    // Accept both `Vec.new()` (Ident receiver) and `Vec[T].new()`
+                    // (Index receiver — the parser wraps the explicit type arg as an
+                    // index expression `Vec[T]`). Without unwrapping the Index, the
+                    // latter fell through to the fragile general `.new` resolution,
+                    // which could bind to an unrelated injected `X.new` (e.g. a
+                    // pub-generic `Reverse.new`) returning the wrong struct type.
+                    let recv_ident: Option<&str> = match &**receiver {
+                        Expr::Ident(id) => Some(id.name.as_str()),
+                        Expr::Index(base, _, _) => match base.as_ref() {
+                            Expr::Ident(id) => Some(id.name.as_str()),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    if recv_ident == Some("Vec") && fn_name == "new" {
                             let struct_alloca = self.fresh_tmp();
                             self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
                             let data_ptr = self.fresh_tmp();
@@ -4957,7 +4970,6 @@ impl IrEmitter {
                             let loaded = self.fresh_tmp();
                             self.emitln(&format!("  {loaded} = load %struct.Vec, %struct.Vec* {struct_alloca}"));
                             return Ok((loaded, "%struct.Vec".to_string()));
-                        }
                     }
                 }
                 // Vec.push(vec, val) — method call on Vec
@@ -5442,6 +5454,19 @@ impl IrEmitter {
                                         _ => "Int".to_string(),
                                     };
                                     concrete_types.push(concrete_ty);
+                                } else if receiver_expr
+                                    .map(|r| self.infer_struct_type_name(r).is_some())
+                                    .unwrap_or(false)
+                                {
+                                    // Receiver-bound generic with NO explicit args
+                                    // (e.g. `Cell[T].get(self) -> T`, `Rc[T].get(self)`).
+                                    // T lives only on the receiver type; the concrete
+                                    // instance already collapsed to a single struct
+                                    // layout whose fields lower to i64-width slots at
+                                    // the ABI, so default T to `Int` (its i64 lowering).
+                                    // This lets get/count-style accessors monomorphise
+                                    // instead of falling back to a constant-0 stub.
+                                    concrete_types.push("Int".to_string());
                                 }
                             }
                         }
