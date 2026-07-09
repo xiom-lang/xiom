@@ -58,8 +58,9 @@ pub struct IrEmitter {
     current_param_llvm_types: Vec<String>,
     /// Whether to emit contract runtime checks
     check_contracts: bool,
-    /// Generic function ASTs stored for later monomorphisation
-    generic_fn_decls: Vec<FnDecl>,
+    /// Generic function ASTs stored for later monomorphisation,
+    /// with pre-computed fn_key to avoid recomputation in the wrong module context.
+    generic_fn_decls: Vec<(String, FnDecl)>,
     /// Locals whose declared XIOM type is `Bool` (they lower to i64/i1 like Int, so
     /// `.to_str()` needs this to emit "true"/"false" rather than a number).
     bool_locals: std::collections::HashSet<String>,
@@ -643,6 +644,14 @@ impl IrEmitter {
             Type::Tuple(types) => {
                 let parts: Vec<String> = types.iter().map(Self::type_from_ast).collect();
                 format!("Tuple_{}", parts.join("_"))
+            }
+            Type::Array(size_expr, elem) => {
+                let elem_name = Self::type_from_ast(elem);
+                match size_expr.as_ref() {
+                    Expr::Int(n, _) => format!("[{n} x {elem_name}]"),
+                    Expr::Ident(id) => format!("[{}]", id.name),
+                    _ => elem_name,
+                }
             }
             _ => "Int".to_string(),
         }
@@ -1858,9 +1867,9 @@ impl IrEmitter {
                 .map(|t| self.llvm_type_for(&Self::type_from_ast(t)).unwrap_or_else(|_| "i64".to_string()))
                 .unwrap_or_else(|| "void".to_string());
             let key = self.fn_key(fd);
-            self.functions.insert(key, (param_types, ret_type));
+            self.functions.insert(key.clone(), (param_types, ret_type));
             if !fd.generics.is_empty() {
-                self.generic_fn_decls.push(fd.clone());
+                self.generic_fn_decls.push((key, fd.clone()));
             }
         }
         if let TopDecl::Interface(id) = item {
@@ -2908,8 +2917,8 @@ impl IrEmitter {
             }
             for (base_name, concrete_types) in &instantiations {
             // Find the generic function decl
-            let fd = match self.generic_fn_decls.iter().find(|f| self.fn_key(f) == *base_name) {
-                Some(f) => f.clone(),
+            let fd = match self.generic_fn_decls.iter().find(|(k, _)| k == base_name) {
+                Some((_, f)) => f.clone(),
                 None => continue,
             };
             // Emit each unique specialization at most once. Without this, a
@@ -4626,6 +4635,40 @@ impl IrEmitter {
                                 }
                             }
                         }
+                        // Handle .is_ok / .is_some / .is_err / .is_none pseudo-fields
+                        // on Result/Option enum types. These check the discriminant
+                        // (field 0) against the success variant index.
+                        if llvm_ty.starts_with("%struct.") && !llvm_ty.ends_with('*') {
+                            let type_name = &llvm_ty[8..];
+                            let is_result = type_name.ends_with("Result") || type_name.contains(".Result");
+                            let is_option = type_name.ends_with("Option") || type_name.contains(".Option");
+                            let field_name = &field.name;
+                            if (is_result && (field_name == "is_ok" || field_name == "is_err"))
+                                || (is_option && (field_name == "is_some" || field_name == "is_none"))
+                            {
+                                // is_ok/is_some: discriminant == 1 (the success variant)
+                                // is_err/is_none: discriminant == 0
+                                let success_variant = matches!(field_name.as_str(), "is_ok" | "is_some");
+                                let struct_val = self.fresh_tmp();
+                                self.emitln(&format!("  {struct_val} = load {llvm_ty}, {llvm_ty}* {ptr}"));
+                                let alloca_tmp = self.fresh_tmp();
+                                self.emitln(&format!("  {alloca_tmp} = alloca {llvm_ty}"));
+                                self.emitln(&format!("  store {llvm_ty} {struct_val}, {llvm_ty}* {alloca_tmp}"));
+                                let disc_gep = self.fresh_tmp();
+                                self.emitln(&format!("  {disc_gep} = getelementptr {llvm_ty}, {llvm_ty}* {alloca_tmp}, i32 0, i32 0"));
+                                let disc_val = self.fresh_tmp();
+                                self.emitln(&format!("  {disc_val} = load i64, i64* {disc_gep}"));
+                                let cmp = self.fresh_tmp();
+                                if success_variant {
+                                    self.emitln(&format!("  {cmp} = icmp eq i64 {disc_val}, 1"));
+                                } else {
+                                    self.emitln(&format!("  {cmp} = icmp eq i64 {disc_val}, 0"));
+                                }
+                                let result = self.fresh_tmp();
+                                self.emitln(&format!("  {result} = zext i1 {cmp} to i64"));
+                                return Ok((result, "i64".to_string()));
+                            }
+                        }
                         // Check if it's a (by-value) struct type. Exclude pointer
                         // types (handled above) so `%struct.X*` never takes this path.
                         if llvm_ty.starts_with("%struct.") && !llvm_ty.ends_with('*') {
@@ -5617,12 +5660,13 @@ impl IrEmitter {
                 } else {
                     fn_name.clone()
                 };
-                let is_generic = self.generic_fn_decls.iter().any(|f| self.fn_key(f) == fn_key);
+                let is_generic = self.generic_fn_decls.iter().any(|(k, _)| k == &fn_key);
                 if is_generic {
                     // Infer concrete types from argument types
                     let mut concrete_types: Vec<String> = Vec::new();
                     // Find the generic function declaration
-                    if let Some(fd) = self.generic_fn_decls.iter().find(|f| self.fn_key(f) == fn_key) {
+                    if let Some((_, fd)) = self.generic_fn_decls.iter().find(|(k, _)| k == &fn_key) {
+                        let fd = fd.clone();
                         for gp in &fd.generics {
                             // Find a function parameter whose type directly uses this generic (not wrapped)
                             let mut inferred = false;
