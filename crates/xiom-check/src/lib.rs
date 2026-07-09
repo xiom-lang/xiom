@@ -977,15 +977,12 @@ impl Checker {
         match item {
             TopDecl::Fn(fd) => {
                 let mut params: Vec<_> = Vec::new();
-                // Add implicit self for methods that don't have an explicit self param
-                if let Some(recv) = fd.receiver.as_ref() {
-                    let has_explicit_self = fd.params.first()
-                        .map(|p| CheckedType::from_ast_type(&p.ty).name() == recv.name)
-                        .unwrap_or(false);
-                    if !has_explicit_self {
-                        params.push(("self".to_string(), CheckedType::Named(recv.name.clone())));
-                    }
-                }
+                // A `self` parameter is identified by NAME (the parser stores it as a
+                // param named "self" with type `Self`), NOT by its type matching the
+                // receiver. A receiver-qualified fn WITHOUT a `self` param is a static
+                // constructor (e.g. `Cell.new[T](value)`) and must NOT get a synthetic
+                // self — otherwise its first real argument aligns to the phantom self
+                // and every call mis-reports "expected Self".
                 for p in &fd.params {
                     params.push((p.name.name.clone(), CheckedType::from_ast_type(&p.ty)));
                 }
@@ -1209,7 +1206,16 @@ impl Checker {
                 match item {
                     TopDecl::Type(td) => { existing.insert(td.name.name.clone()); }
                     TopDecl::Enum(ed) => { existing.insert(ed.name.name.clone()); }
-                    TopDecl::Fn(fd) => { existing.insert(fd.name.name.clone()); }
+                    TopDecl::Fn(fd) => {
+                        // Key methods by their qualified name so distinct methods
+                        // sharing a leaf (e.g. `Layout.new`, `Vec.new`) don't collide.
+                        let key = if fd.is_method() {
+                            format!("{}.{}", fd.receiver.as_ref().unwrap().name, fd.name.name)
+                        } else {
+                            fd.name.name.clone()
+                        };
+                        existing.insert(key);
+                    }
                     TopDecl::Module(md) => { collect_names(&md.items, existing); }
                     _ => {}
                 }
@@ -1228,6 +1234,26 @@ impl Checker {
 
         let mut decls: Vec<TopDecl> = Vec::new();
 
+        // Collect the names of ALL generic types (pub or not) across cached modules.
+        // Methods on generic types must be monomorphised from the defining module;
+        // injecting their un-monomorphised bodies produces malformed concrete IR
+        // (the generic `self` is erased to i64 while the body does struct access).
+        let mut generic_type_names: HashSet<String> = HashSet::new();
+        fn collect_generic_types(items: &[TopDecl], out: &mut HashSet<String>) {
+            for item in items {
+                match item {
+                    TopDecl::Type(td) if !td.generics.is_empty() => { out.insert(td.name.name.clone()); }
+                    TopDecl::Enum(ed) if !ed.generics.is_empty() => { out.insert(ed.name.name.clone()); }
+                    TopDecl::Module(md) => collect_generic_types(&md.items, out),
+                    _ => {}
+                }
+            }
+        }
+        collect_generic_types(&program.items, &mut generic_type_names);
+        for cached in self.catalog.all_cached() {
+            collect_generic_types(&cached.program.items, &mut generic_type_names);
+        }
+
         for cached in self.catalog.all_cached() {
             // Walk the cached program items recursively and inject pub type/enum/fn decls
             // with full bodies (not stubs), deduplicated against existing names.
@@ -1235,6 +1261,7 @@ impl Checker {
                 items: &[TopDecl],
                 existing: &mut HashSet<String>,
                 primitives: &[&str],
+                generic_types: &HashSet<String>,
                 out: &mut Vec<TopDecl>,
             ) {
                 for item in items {
@@ -1257,15 +1284,33 @@ impl Checker {
                             // Note: fd.is_pub may be unreliable for file-level module
                             // parsing; since we only load modules explicitly imported
                             // via `use`, inject all candidate functions unconditionally.
-                            if !existing.contains(&fd.name.name)
+                            // Skip methods on generic types (e.g. `BinaryHeap[T].push`):
+                            // their bodies can only be lowered when monomorphised, and
+                            // injecting the raw body yields malformed concrete IR.
+                            let recv_is_generic = fd.receiver.as_ref()
+                                .map(|r| generic_types.contains(&r.name))
+                                .unwrap_or(false);
+                            // Deduplicate by the QUALIFIED key (`Receiver.method` for
+                            // methods, bare name for free functions). Deduping by the
+                            // bare name alone would drop distinct methods that share a
+                            // leaf name (e.g. `Layout.new`, `Vec.new`, `Rc.new`) —
+                            // and since catalog iteration order is nondeterministic,
+                            // which `new` survived would flip between builds.
+                            let dedup_key = if fd.is_method() {
+                                format!("{}.{}", fd.receiver.as_ref().unwrap().name, fd.name.name)
+                            } else {
+                                fd.name.name.clone()
+                            };
+                            if !recv_is_generic
+                                && !existing.contains(&dedup_key)
                                 && !primitives.contains(&fd.name.name.as_str()) {
-                                existing.insert(fd.name.name.clone());
+                                existing.insert(dedup_key);
                                 // Inject with full body so codegen emits define, not declare.
                                 out.push(TopDecl::Fn(fd.clone()));
                             }
                         }
                         TopDecl::Module(md) => {
-                            collect_pub_decls(&md.items, existing, primitives, out);
+                            collect_pub_decls(&md.items, existing, primitives, generic_types, out);
                         }
                         TopDecl::Extern(eb) => {
                             // Inject external modules' `extern "C"` blocks so their
@@ -1288,10 +1333,181 @@ impl Checker {
                     }
                 }
             }
-            collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &mut decls);
+            collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &mut decls);
         }
 
-        decls
+        // Reachability filter: only inject FUNCTIONS whose (leaf) name is actually
+        // referenced, transitively, from the program. Uncalled stdlib functions are
+        // dead code; injecting their bodies as concrete `define`s risks emitting
+        // malformed IR (latent codegen bugs in never-exercised helpers) that breaks
+        // linking for the whole program. Types, enums, externs, and consts are always
+        // kept (they are cheap and needed for signature/const resolution).
+        //
+        // Names are matched by LEAF identifier (method/function name), which is a
+        // conservative over-approximation: a function is kept if any referenced name
+        // matches its leaf. This never drops a genuinely-called function, so it is
+        // safe for the regression gate; it only prunes provably-unreferenced bodies.
+        fn collect_referenced_names(items: &[TopDecl], out: &mut HashSet<String>) {
+            for item in items {
+                match item {
+                    TopDecl::Fn(fd) => {
+                        if let Some(body) = &fd.body {
+                            collect_block_names(body, out);
+                        }
+                        for c in &fd.contracts {
+                            match c {
+                                ContractClause::Requires(e, _)
+                                | ContractClause::Ensures(e, _) => collect_expr_names(e, out),
+                            }
+                        }
+                    }
+                    TopDecl::Module(md) => collect_referenced_names(&md.items, out),
+                    _ => {}
+                }
+            }
+        }
+        fn collect_block_names(block: &Block, out: &mut HashSet<String>) {
+            for se in &block.stmts {
+                match se {
+                    StmtOrExpr::Stmt(s) => collect_stmt_names(s, out),
+                    StmtOrExpr::Expr(e) => collect_expr_names(e, out),
+                }
+            }
+        }
+        fn collect_stmt_names(stmt: &Stmt, out: &mut HashSet<String>) {
+            match stmt {
+                Stmt::Let(_, _, e, _) | Stmt::Var(_, _, e, _) => collect_expr_names(e, out),
+                Stmt::Assign(a, b, _) => { collect_expr_names(a, out); collect_expr_names(b, out); }
+                Stmt::Return(Some(e), _) => collect_expr_names(e, out),
+                Stmt::Return(None, _) => {}
+                Stmt::Expr(e, _) => collect_expr_names(e, out),
+                Stmt::If(c, t, elifs, els, _) => {
+                    collect_expr_names(c, out);
+                    collect_block_names(t, out);
+                    for (ec, eb) in elifs { collect_expr_names(ec, out); collect_block_names(eb, out); }
+                    if let Some(eb) = els { collect_block_names(eb, out); }
+                }
+                Stmt::Match(e, arms, _) => {
+                    collect_expr_names(e, out);
+                    for arm in arms {
+                        if let Some(g) = &arm.guard { collect_expr_names(g, out); }
+                        match &arm.body {
+                            MatchBody::Block(b) => collect_block_names(b, out),
+                            MatchBody::Expr(e) => collect_expr_names(e, out),
+                        }
+                    }
+                }
+                Stmt::While(c, b, _) => { collect_expr_names(c, out); collect_block_names(b, out); }
+                Stmt::For(_, e, b, _) => { collect_expr_names(e, out); collect_block_names(b, out); }
+                Stmt::Spawn(b, _) => collect_block_names(b, out),
+                Stmt::Destructure(_, e, _) => collect_expr_names(e, out),
+                Stmt::Break(_) | Stmt::Continue(_) => {}
+            }
+        }
+        fn collect_expr_names(expr: &Expr, out: &mut HashSet<String>) {
+            match expr {
+                Expr::Ident(id) => { out.insert(id.name.clone()); }
+                Expr::Field(b, f, _) => { collect_expr_names(b, out); out.insert(f.name.clone()); }
+                Expr::Call(f, args, _) => {
+                    collect_expr_names(f, out);
+                    for a in args { collect_expr_names(a, out); }
+                }
+                Expr::Index(a, b, _) => { collect_expr_names(a, out); collect_expr_names(b, out); }
+                Expr::Paren(e, _) | Expr::Unary(_, e, _) | Expr::Try(e, _) | Expr::AtPre(e, _)
+                | Expr::Ref(e, _) | Expr::MutRef(e, _) | Expr::Some(e, _) | Expr::Ok(e, _)
+                | Expr::Err(e, _) | Expr::Await(e, _) | Expr::Comptime(e, _) | Expr::As(e, _, _) => {
+                    collect_expr_names(e, out);
+                }
+                Expr::Binary(a, _, b, _) | Expr::Imply(a, b, _) => {
+                    collect_expr_names(a, out); collect_expr_names(b, out);
+                }
+                Expr::Is(e, _, _) => collect_expr_names(e, out),
+                Expr::Struct(id, fields, base, _) => {
+                    out.insert(id.name.clone());
+                    for (_, v) in fields { collect_expr_names(v, out); }
+                    if let Some(b) = base { collect_expr_names(b, out); }
+                }
+                Expr::Array(elems, _) | Expr::Tuple(elems, _) => {
+                    for e in elems { collect_expr_names(e, out); }
+                }
+                Expr::Closure(_, _, b, _) => collect_block_names(b, out),
+                Expr::PipeClosure(_, e, _) => collect_expr_names(e, out),
+                Expr::If(c, t, elifs, els, _) => {
+                    collect_expr_names(c, out);
+                    collect_block_names(t, out);
+                    for (ec, eb) in elifs { collect_expr_names(ec, out); collect_block_names(eb, out); }
+                    if let Some(eb) = els { collect_block_names(eb, out); }
+                }
+                Expr::Match(e, arms, _) => {
+                    collect_expr_names(e, out);
+                    for arm in arms {
+                        if let Some(g) = &arm.guard { collect_expr_names(g, out); }
+                        match &arm.body {
+                            MatchBody::Block(b) => collect_block_names(b, out),
+                            MatchBody::Expr(e) => collect_expr_names(e, out),
+                        }
+                    }
+                }
+                Expr::Unsafe(b, _) => collect_block_names(b, out),
+                _ => {}
+            }
+        }
+
+        // Seed with names referenced by the program itself.
+        let mut referenced: HashSet<String> = HashSet::new();
+        collect_referenced_names(&program.items, &mut referenced);
+
+        // Split candidate function decls from always-kept decls.
+        let mut fn_candidates: Vec<FnDecl> = Vec::new();
+        let mut kept: Vec<TopDecl> = Vec::new();
+        for d in decls {
+            match d {
+                TopDecl::Fn(fd) => fn_candidates.push(fd),
+                other => kept.push(other),
+            }
+        }
+
+        // Transitive fixpoint: a function is reachable if its leaf name is referenced.
+        // Once included, names referenced in its body/contracts become reachable too.
+        let mut chosen: Vec<FnDecl> = Vec::new();
+        let mut chosen_keys: HashSet<String> = HashSet::new();
+        loop {
+            let mut added = false;
+            let mut i = 0;
+            while i < fn_candidates.len() {
+                let is_reachable = referenced.contains(&fn_candidates[i].name.name);
+                if is_reachable {
+                    let fd = fn_candidates.remove(i);
+                    let key = if fd.is_method() {
+                        format!("{}.{}", fd.receiver.as_ref().unwrap().name, fd.name.name)
+                    } else {
+                        fd.name.name.clone()
+                    };
+                    if chosen_keys.insert(key) {
+                        if let Some(body) = &fd.body {
+                            collect_block_names(body, &mut referenced);
+                        }
+                        for c in &fd.contracts {
+                            match c {
+                                ContractClause::Requires(e, _)
+                                | ContractClause::Ensures(e, _) => collect_expr_names(e, &mut referenced),
+                            }
+                        }
+                        chosen.push(fd);
+                        added = true;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            if !added { break; }
+        }
+
+        let mut result = kept;
+        for fd in chosen {
+            result.push(TopDecl::Fn(fd));
+        }
+        result
     }
 
     fn build_module_map(&self, items: &[TopDecl]) -> HashMap<String, ModuleExport> {
