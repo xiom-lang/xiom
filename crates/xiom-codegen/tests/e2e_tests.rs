@@ -761,3 +761,18 @@ fn e2e_cross_module_math() {
     assert_eq!(compile_and_run("examples\\e2e\\cross_math.xi"), Some(0),
         "cross-module stdlib call with C externs should link and run");
 }
+
+/// Module-level mutable `var` global: write persists across function calls.
+/// Locks in the mutable-module-global feature (ConstDecl.is_mut).
+#[test]
+fn e2e_module_global_var() {
+    assert_eq!(compile_and_run("examples\\e2e\\module_global.xi"), Some(0),
+        "module-level mutable var global should persist writes across calls");
+}
+
+/// `pub const` referenced across functions (GAP-3): const resolves at use sites.
+#[test]
+fn e2e_pub_const_use() {
+    assert_eq!(compile_and_run("examples\\e2e\\const_use.xi"), Some(0),
+        "pub const should resolve and be usable across functions");
+}
