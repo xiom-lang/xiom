@@ -1,9 +1,10 @@
-# XIOM — Session Handoff: v0.29.0 "All-Stdlib-Passing"
+# XIOM — Session Handoff: v0.30.0 "Phase-1-Hardened"
 
 **Date:** 2026-07-09
-**Branch:** `feat/guardian` (Phase 2 — compiler↔stdlib gap closure)
-**Status:** stdlib execution **37/37 strict + 4 ignored**. ALL CLUSTERS CLOSED. All gates green.
-**Tag:** `v0.29.0-all-stdlib-passing`
+**Branch:** `feat/guardian` (Phase 2 — compiler↔stdlib gap closure → production hardening)
+**Status:** stdlib execution **37/37 strict + 4 ignored**. Phase 1 COMPLETE. All gates green.
+**Tag:** `v0.30.0-phase-1-hardened`
+**Production plan:** `docs/CODEGEN_PRODUCTION_PLAN.md`
 **Companion session:** `SESSION_ECOSYSTEM.md` — AI-driven ecosystem build (other machine)
 
 ---
