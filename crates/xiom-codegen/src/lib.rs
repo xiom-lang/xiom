@@ -929,7 +929,7 @@ impl IrEmitter {
         self.emitln("declare i8* @realloc(i8*, i64)");
         self.emitln("declare void @free(i8*)");
         self.emitln("declare void @llvm.memcpy.p0i8.p0i8.i64(i8*, i8*, i64, i1)");
-        self.emitln("declare i64 @xiom_is_sorted(i8*, i64)");
+        self.emitln("declare i64 @xiom_is_sorted(i8*)");
         self.emitln("declare i64 @xiom_all(i8*, i64, i8*)");
         self.emitln("declare i64 @xiom_none(i8*, i64, i8*)");
         self.emitln("declare i64 @xiom_contains(i8*, i64)");
@@ -4651,77 +4651,77 @@ impl IrEmitter {
                 let is_contract_method = matches!(fn_name.as_str(), "is_sorted" | "all" | "none" | "contains");
                 if is_contract_method {
                     let tmp = self.fresh_tmp();
-                    if let Some(receiver) = receiver_expr {
-                        // Method form: receiver.method(args)
-                        let (recv_val, recv_llvm_ty) = self.compile_expr(receiver)?;
-                        let recv_alloca = self.fresh_tmp();
-                        self.emitln(&format!("  {recv_alloca} = alloca {recv_llvm_ty}"));
-                        self.emitln(&format!("  store {recv_llvm_ty} {recv_val}, {recv_llvm_ty}* {recv_alloca}"));
-                        let ptr = self.fresh_tmp();
-                        self.emitln(&format!("  {ptr} = bitcast {recv_llvm_ty}* {recv_alloca} to i8*"));
-                        let extra_args: Vec<String> = args.iter()
-                            .map(|a| self.compile_expr(a).map(|(v, _)| v))
-                            .collect::<Result<Vec<_>, _>>()?;
-                        match fn_name.as_str() {
-                            "is_sorted" => {
-                                self.emitln(&format!("  {tmp} = call i64 @xiom_is_sorted(i8* {ptr}, i64 0)"));
+                    if let Some(receiver) = &receiver_expr {
+                        if self.receiver_is_instance(receiver) {
+                            // Method form: receiver.method(args)
+                            let (recv_val, recv_llvm_ty) = self.compile_expr(receiver)?;
+                            let recv_alloca = self.fresh_tmp();
+                            self.emitln(&format!("  {recv_alloca} = alloca {recv_llvm_ty}"));
+                            self.emitln(&format!("  store {recv_llvm_ty} {recv_val}, {recv_llvm_ty}* {recv_alloca}"));
+                            let ptr = self.fresh_tmp();
+                            self.emitln(&format!("  {ptr} = bitcast {recv_llvm_ty}* {recv_alloca} to i8*"));
+                            let extra_args: Vec<String> = args.iter()
+                                .map(|a| self.compile_expr(a).map(|(v, _)| v))
+                                .collect::<Result<Vec<_>, _>>()?;
+                            match fn_name.as_str() {
+                                "is_sorted" => {
+                                    self.emitln(&format!("  {tmp} = call i64 @xiom_is_sorted(i8* {ptr})"));
+                                }
+                                "all" => {
+                                    let pred = extra_args.first().cloned().unwrap_or_else(|| "0".to_string());
+                                    self.emitln(&format!("  {tmp} = call i64 @xiom_all(i8* {ptr}, i64 0, i8* {pred})"));
+                                }
+                                "none" => {
+                                    let pred = extra_args.first().cloned().unwrap_or_else(|| "0".to_string());
+                                    self.emitln(&format!("  {tmp} = call i64 @xiom_none(i8* {ptr}, i64 0, i8* {pred})"));
+                                }
+                                "contains" => {
+                                    let val = extra_args.first().cloned().unwrap_or_else(|| "0".to_string());
+                                    self.emitln(&format!("  {tmp} = call i64 @xiom_contains(i8* {ptr}, i64 {val})"));
+                                }
+                                _ => unreachable!(),
                             }
-                            "all" => {
-                                let pred = extra_args.first().cloned().unwrap_or_else(|| "0".to_string());
-                                self.emitln(&format!("  {tmp} = call i64 @xiom_all(i8* {ptr}, i64 0, i8* {pred})"));
-                            }
-                            "none" => {
-                                let pred = extra_args.first().cloned().unwrap_or_else(|| "0".to_string());
-                                self.emitln(&format!("  {tmp} = call i64 @xiom_none(i8* {ptr}, i64 0, i8* {pred})"));
-                            }
-                            "contains" => {
-                                let val = extra_args.first().cloned().unwrap_or_else(|| "0".to_string());
-                                self.emitln(&format!("  {tmp} = call i64 @xiom_contains(i8* {ptr}, i64 {val})"));
-                            }
-                            _ => unreachable!(),
+                            return Ok((tmp, "i64".to_string()));
                         }
-                        return Ok((tmp, "i64".to_string()));
-                    } else {
-                        // Direct form: method(args) — compile all args
-                        let compiled_args: Vec<String> = args.iter()
-                            .map(|a| self.compile_expr(a).map(|(v, _)| v))
-                            .collect::<Result<Vec<_>, _>>()?;
-                        // Convert first argument to i8* pointer via alloca+bitcast
-                        let ptr_val = compiled_args.first().cloned().unwrap_or_else(|| "0".to_string());
-                        let ptr_ty = if let Some(arg) = args.first() { self.infer_llvm_type(arg) } else { "i64".to_string() };
-                        let ptr = if ptr_ty == "i8*" {
-                            ptr_val
-                        } else {
-                            let arg_alloca = self.fresh_tmp();
-                            self.emitln(&format!("  {arg_alloca} = alloca {ptr_ty}"));
-                            self.emitln(&format!("  store {ptr_ty} {ptr_val}, {ptr_ty}* {arg_alloca}"));
-                            let arg_ptr = self.fresh_tmp();
-                            self.emitln(&format!("  {arg_ptr} = bitcast {ptr_ty}* {arg_alloca} to i8*"));
-                            arg_ptr
-                        };
-                        match fn_name.as_str() {
-                            "is_sorted" => {
-                                let len = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
-                                self.emitln(&format!("  {tmp} = call i64 @xiom_is_sorted(i8* {ptr}, i64 {len})"));
-                            }
-                            "all" => {
-                                let len = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
-                                let pred = compiled_args.get(2).cloned().unwrap_or_else(|| "0".to_string());
-                                self.emitln(&format!("  {tmp} = call i64 @xiom_all(i8* {ptr}, i64 {len}, i8* {pred})"));
-                            }
-                            "none" => {
-                                let len = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
-                                let pred = compiled_args.get(2).cloned().unwrap_or_else(|| "0".to_string());
-                                self.emitln(&format!("  {tmp} = call i64 @xiom_none(i8* {ptr}, i64 {len}, i8* {pred})"));
-                            }
-                            "contains" => {
-                                let val = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
-                                self.emitln(&format!("  {tmp} = call i64 @xiom_contains(i8* {ptr}, i64 {val})"));
-                            }
-                            _ => unreachable!(),
-                        }
-                        return Ok((tmp, "i64".to_string()));
                     }
+                    // Direct form: method(args) — compile all args
+                    let compiled_args: Vec<String> = args.iter()
+                        .map(|a| self.compile_expr(a).map(|(v, _)| v))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    // Convert first argument to i8* pointer via alloca+bitcast
+                    let ptr_val = compiled_args.first().cloned().unwrap_or_else(|| "0".to_string());
+                    let ptr_ty = if let Some(arg) = args.first() { self.infer_llvm_type(arg) } else { "i64".to_string() };
+                    let ptr = if ptr_ty == "i8*" {
+                        ptr_val
+                    } else {
+                        let arg_alloca = self.fresh_tmp();
+                        self.emitln(&format!("  {arg_alloca} = alloca {ptr_ty}"));
+                        self.emitln(&format!("  store {ptr_ty} {ptr_val}, {ptr_ty}* {arg_alloca}"));
+                        let arg_ptr = self.fresh_tmp();
+                        self.emitln(&format!("  {arg_ptr} = bitcast {ptr_ty}* {arg_alloca} to i8*"));
+                        arg_ptr
+                    };
+                    match fn_name.as_str() {
+                        "is_sorted" => {
+                            self.emitln(&format!("  {tmp} = call i64 @xiom_is_sorted(i8* {ptr})"));
+                        }
+                        "all" => {
+                            let len = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
+                            let pred = compiled_args.get(2).cloned().unwrap_or_else(|| "0".to_string());
+                            self.emitln(&format!("  {tmp} = call i64 @xiom_all(i8* {ptr}, i64 {len}, i8* {pred})"));
+                        }
+                        "none" => {
+                            let len = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
+                            let pred = compiled_args.get(2).cloned().unwrap_or_else(|| "0".to_string());
+                            self.emitln(&format!("  {tmp} = call i64 @xiom_none(i8* {ptr}, i64 {len}, i8* {pred})"));
+                        }
+                        "contains" => {
+                            let val = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
+                            self.emitln(&format!("  {tmp} = call i64 @xiom_contains(i8* {ptr}, i64 {val})"));
+                        }
+                        _ => unreachable!(),
+                    }
+                    return Ok((tmp, "i64".to_string()));
                 }
                 // Primitive interface methods (Ord.compare, Eq.eq/ne, comparison ops,
                 // Hash.hash, Clone.clone) are emitted inline for scalar receivers, so
@@ -5958,7 +5958,32 @@ impl IrEmitter {
                 }
                 Ok((loaded, struct_ty))
             }
-            Expr::Array(_, _) => Ok(("0".to_string(), "i64".to_string())),
+            Expr::Array(elems, _) => {
+                // Materialize a fixed `[N]T` array literal into an alloca holding N
+                // i64-widened elements stored contiguously, then return the i8*
+                // pointer to the buffer so the caller (e.g. `is_sorted` / `contains`)
+                // receives real data instead of a stub `("0","i64")`.
+                let n = elems.len() as i64;
+                let buf = self.fresh_tmp();
+                let alloc_count = n + 1;
+                self.emitln(&format!("  {buf} = alloca i64, i64 {alloc_count}"));
+                let gep0 = self.fresh_tmp();
+                self.emitln(&format!("  {gep0} = getelementptr i64, i64* {buf}, i64 0"));
+                self.emitln(&format!("  store i64 {n}, i64* {gep0}"));
+                for (i, e) in elems.iter().enumerate() {
+                    let (v, _) = self.compile_expr(e)?;
+                    let gep = self.fresh_tmp();
+                    let idx = (i + 1) as i64;
+                    self.emitln(&format!("  {gep} = getelementptr i64, i64* {buf}, i64 {idx}"));
+                    // Coerce the element to i64 for uniform storage (the runtime
+                    // intrinsics compare i64 values).
+                    let store_val = self.val_to_i64(&v, &self.infer_llvm_type(e));
+                    self.emitln(&format!("  store i64 {store_val}, i64* {gep}"));
+                }
+                let ptr = self.fresh_tmp();
+                self.emitln(&format!("  {ptr} = bitcast i64* {buf} to i8*"));
+                Ok((ptr, "i8*".to_string()))
+            }
             Expr::Closure(_, _, _, _) | Expr::PipeClosure(_, _, _) => Ok(("0".to_string(), "i64".to_string())),
             Expr::As(inner, ty, _) => {
                 // Use the compiled value's REAL LLVM type as the source of the
