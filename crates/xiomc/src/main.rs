@@ -255,17 +255,27 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
     // Stage 4.5: Inject external module declarations
     let external_decls = checker.collect_external_decls(&program);
     if !external_decls.is_empty() {
+        // Key functions by their qualified name (`Receiver.method`) so distinct
+        // methods sharing a leaf name (e.g. `Layout.new`, `Vec.new`, `Rc.new`)
+        // are not collapsed together during dedup.
+        fn fn_dedup_key(fd: &xiom_ast::FnDecl) -> String {
+            if fd.is_method() {
+                format!("{}.{}", fd.receiver.as_ref().unwrap().name, fd.name.name)
+            } else {
+                fd.name.name.clone()
+            }
+        }
         let existing_names: std::collections::HashSet<String> = program.items.iter().filter_map(|i| match i {
             xiom_ast::TopDecl::Type(td) => Some(td.name.name.clone()),
             xiom_ast::TopDecl::Enum(ed) => Some(ed.name.name.clone()),
-            xiom_ast::TopDecl::Fn(fd) => Some(fd.name.name.clone()),
+            xiom_ast::TopDecl::Fn(fd) => Some(fn_dedup_key(fd)),
             _ => None,
         }).collect();
         for decl in external_decls {
             let name = match &decl {
                 xiom_ast::TopDecl::Type(td) => td.name.name.clone(),
                 xiom_ast::TopDecl::Enum(ed) => ed.name.name.clone(),
-                xiom_ast::TopDecl::Fn(fd) => fd.name.name.clone(),
+                xiom_ast::TopDecl::Fn(fd) => fn_dedup_key(fd),
                 // Extern blocks carry no single name; always inject them (codegen
                 // dedups declares by function name via already_declared).
                 xiom_ast::TopDecl::Extern(_) => { program.items.push(decl); continue; }
