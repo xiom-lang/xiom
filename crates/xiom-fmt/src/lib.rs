@@ -360,6 +360,8 @@ impl Formatter {
                 match op {
                     UnaryOp::Neg => self.buf.push('-'),
                     UnaryOp::Not => self.buf.push('!'),
+                    UnaryOp::BitNot => self.buf.push('~'),
+                    UnaryOp::Deref => self.buf.push('*'),
                     UnaryOp::Ref => self.buf.push('&'),
                     UnaryOp::MutRef => self.buf.push_str("&mut "),
                 }
@@ -383,6 +385,11 @@ impl Formatter {
                     BinOp::And => "&&",
                     BinOp::Or => "||",
                     BinOp::Assign => "=",
+                    BinOp::BitAnd => "&",
+                    BinOp::BitOr => "|",
+                    BinOp::BitXor => "^",
+                    BinOp::Shl => "<<",
+                    BinOp::Shr => ">>",
                 });
                 self.buf.push(' ');
                 self.format_expr(right);
