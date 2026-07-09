@@ -533,6 +533,9 @@ pub struct Checker {
     imported_items: HashMap<String, ModuleExport>,
     /// Enum variant name → parent enum type name
     enum_variants: HashMap<String, String>,
+    /// Module-level `const`/`var` global names → declared type (so references to
+    /// them inside functions resolve instead of erroring "undefined variable").
+    global_consts: HashMap<String, CheckedType>,
     /// Enum variant name → field name → field type (for variant constructors)
     variant_fields: HashMap<String, Vec<(String, CheckedType)>>,
     /// Directories to search for external module files
@@ -577,6 +580,7 @@ impl Checker {
             visibility: HashMap::new(),
             imported_items: HashMap::new(),
             enum_variants: HashMap::new(),
+            global_consts: HashMap::new(),
             variant_fields: HashMap::new(),
             source_dirs: Vec::new(),
             catalog: ModuleCatalog::new(Vec::new()),
@@ -886,6 +890,12 @@ impl Checker {
             self.register_fn_signature(item);
         }
 
+        // Pre-register module-level const/var globals so references resolve
+        // regardless of source order (a fn may use a const declared later).
+        for item in &program.items {
+            self.register_global_const(item);
+        }
+
         // Resolve module system (imports and module hierarchy)
         self.resolve_imports(program);
 
@@ -903,6 +913,30 @@ impl Checker {
 
     fn register_type_decl(&mut self, item: &TopDecl) {
         self.register_type_decl_inner(item, "");
+    }
+
+    /// Pre-register module-level `const`/`var` globals (name → declared type) so
+    /// references to them inside function bodies resolve regardless of source
+    /// order. Recurses into nested modules.
+    fn register_global_const(&mut self, item: &TopDecl) {
+        match item {
+            TopDecl::Const(cd) => {
+                let decl_ty = CheckedType::from_ast_type(&cd.ty);
+                let ty = if decl_ty != CheckedType::Error && decl_ty != CheckedType::Named("_".into()) {
+                    decl_ty
+                } else {
+                    // Unknown/elided annotation — infer from the initializer.
+                    self.check_expr(&cd.value)
+                };
+                self.global_consts.insert(cd.name.name.clone(), ty);
+            }
+            TopDecl::Module(md) => {
+                for sub in &md.items {
+                    self.register_global_const(sub);
+                }
+            }
+            _ => {}
+        }
     }
 
     fn register_type_decl_inner(&mut self, item: &TopDecl, module_path: &str) {
@@ -1058,6 +1092,8 @@ impl Checker {
                         );
                     }
                 }
+                // (Registration into global_consts happens in the pre-pass
+                // `register_global_const` so references resolve regardless of order.)
             }
             TopDecl::Extern(_) => {} // extern blocks have no type info to register
             _ => {}
@@ -1982,6 +2018,8 @@ impl Checker {
                 } else if ident.name == "null" {
                     CheckedType::Named("Ptr".to_string())
                 } else if let Some(ty) = self.lookup_local(&ident.name) {
+                    ty.clone()
+                } else if let Some(ty) = self.global_consts.get(&ident.name) {
                     ty.clone()
                 } else if self.functions.contains_key(&ident.name) {
                     CheckedType::Named("fn".into())
@@ -3233,6 +3271,22 @@ mod tests {
     fn test_return_type_mismatch() {
         let result = check("fn bad() -> Int { return true; }");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_gap3_pub_const_resolves_at_use_site() {
+        // COMPILER_GAPS GAP-3: a module-level `pub const` must be a resolvable
+        // name inside functions (was: "undefined variable 'MAX'").
+        let result = check("pub const MAX: Int = 10; fn f() -> Int { return MAX; }");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_gap3_const_forward_reference() {
+        // A function may reference a const declared LATER in the file (pre-pass
+        // registration makes const resolution order-independent).
+        let result = check("fn f() -> Int { return LIMIT; } const LIMIT: Int = 42;");
+        assert!(result.is_ok(), "{:?}", result.err());
     }
 
     #[test]

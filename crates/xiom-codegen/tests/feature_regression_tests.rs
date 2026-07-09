@@ -269,3 +269,66 @@ fn regress_primitive_eq() {
     let ir = compile("fn f(a: Int, b: Int) -> Bool { return a.eq(b); } fn main() -> Int { return 0; }").unwrap();
     assert!(ir.contains("define"));
 }
+
+// =====================================================================
+// Ecosystem compiler gaps (COMPILER_GAPS.md) — lock in that each spec-valid
+// pattern the production ecosystem uses parses + emits IR. Every one of these
+// was a reported gap in xiomc v0.11.0; these tests prevent regression.
+// =====================================================================
+
+#[test]
+fn regress_gap1_qualified_enum_pattern_in_match() {
+    // `Type.Variant` patterns in match arms.
+    let ir = compile("enum E { A, B(x: Int) } fn f(e: E) -> Int { match e { E.A => 0, E.B(v) => v, } } fn main() -> Int { return f(E.A); }").unwrap();
+    assert!(ir.contains("define"));
+}
+
+#[test]
+fn regress_gap2_extern_c_block() {
+    let ir = compile("extern \"C\" { fn puts(s: *UInt8) -> Int; } fn main() -> Int { return 0; }").unwrap();
+    assert!(ir.contains("declare") && ir.contains("@puts"));
+}
+
+#[test]
+fn regress_gap6_wildcard_in_user_enum_payload() {
+    // `B(_)` on a user enum variant with a payload.
+    let ir = compile("enum E { A, B(x: Int) } fn f(e: E) -> Int { match e { A => 0, B(_) => 1, } } fn main() -> Int { return f(A); }").unwrap();
+    assert!(ir.contains("define"));
+}
+
+#[test]
+fn regress_gap9_type_alias_enum() {
+    let ir = compile("pub type E = enum { A, B(x: Int) } fn main() -> Int { return 0; }").unwrap();
+    assert!(ir.contains("define"));
+}
+
+#[test]
+fn regress_gap10_trailing_semicolon_after_control_block() {
+    let ir = compile("fn main() -> Int { if 1 > 0 { return 1; }; return 0; }").unwrap();
+    assert!(ir.contains("define"));
+}
+
+#[test]
+fn regress_gap11_tail_expression_implicit_return() {
+    let ir = compile("fn g() -> Int { return 5; } fn f() -> Int { g() } fn main() -> Int { return f(); }").unwrap();
+    assert!(ir.contains("define"));
+}
+
+#[test]
+fn regress_gap8_bitwise_shift_operators() {
+    let ir = compile("fn f(a: Int, b: Int) -> Int { return (a >> 8) & 0xFF ^ (b << 2) | 1; } fn main() -> Int { return f(256, 3); }").unwrap();
+    assert!(ir.contains("define"));
+}
+
+#[test]
+fn regress_gap5_string_escapes() {
+    // \0 \b and \u{XX} brace-form unicode escapes.
+    let ir = compile("fn main() -> Int { let s = \"\\0\"; let t = \"\\u{41}\"; return 0; }").unwrap();
+    assert!(ir.contains("define"));
+}
+
+#[test]
+fn regress_gap12_unit_result_ok() {
+    let ir = compile("fn f() -> Result[Int, Int] { return Ok(1); } fn main() -> Int { return 0; }").unwrap();
+    assert!(ir.contains("define"));
+}
