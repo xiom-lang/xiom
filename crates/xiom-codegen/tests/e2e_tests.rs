@@ -724,3 +724,40 @@ fn e2e_method_match_self_enum() {
     let exit = compile_and_run("examples\\e2e\\method_match_self_enum.xi");
     assert_eq!(exit, Some(0), "match self on enum receiver should compile, link, run, and exit 0");
 }
+
+// ============================================================================
+// E2E: Regression suite for Tier 2 codegen fixes (hermetic — no stdlib needed
+// except where noted). Each program returns 0 on success, nonzero on failure.
+// These lock in fixes that were hard-won during the stdlib execution work.
+// ============================================================================
+
+/// Enum `==`/`!=` via the builtin `.eq` fallback (compare discriminant inline),
+/// plus enum-variant construction as values from match arms.
+#[test]
+fn e2e_enum_eq_and_variants() {
+    assert_eq!(compile_and_run("examples\\e2e\\enum_eq.xi"), Some(0),
+        "enum ==/!= and variant construction should work");
+}
+
+/// Vec builtins: new/push/len/index-read/pop returning Option, with element
+/// coercion. Locks in inline Vec method dispatch + Option payload extraction.
+#[test]
+fn e2e_vec_ops() {
+    assert_eq!(compile_and_run("examples\\e2e\\vec_ops.xi"), Some(0),
+        "Vec new/push/len/index/pop should work");
+}
+
+/// Char (i8) <-> Int (i64) casts + i8 widening in arithmetic (sext/trunc).
+#[test]
+fn e2e_char_cast() {
+    assert_eq!(compile_and_run("examples\\e2e\\char_cast.xi"), Some(0),
+        "Char<->Int casts and widening should work");
+}
+
+/// Cross-module use of a stdlib module whose functions call C externs
+/// (math). Locks in cross-module extern-declare injection + libc/libm handling.
+#[test]
+fn e2e_cross_module_math() {
+    assert_eq!(compile_and_run("examples\\e2e\\cross_math.xi"), Some(0),
+        "cross-module stdlib call with C externs should link and run");
+}
