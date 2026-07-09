@@ -776,3 +776,19 @@ fn e2e_pub_const_use() {
     assert_eq!(compile_and_run("examples\\e2e\\const_use.xi"), Some(0),
         "pub const should resolve and be usable across functions");
 }
+
+/// `&mut Scalar` parameter is a real LLVM pointer: `inc(p: &mut Int)` derefs to
+/// read (`*p`) and stores through (`*p = ...`), mutating the caller's local.
+#[test]
+fn e2e_ref_mut_param() {
+    assert_eq!(compile_and_run("examples\\e2e\\ref_mut_param.xi"), Some(0),
+        "&mut Int param should deref-read and store-through, mutating the caller");
+}
+
+/// Raw pointer deref round-trip: `&mut x` reaches a `*T` param, which reads/writes
+/// through the real pointer so the mutation is visible in the caller's binding.
+#[test]
+fn e2e_ptr_deref() {
+    assert_eq!(compile_and_run("examples\\e2e\\ptr_deref.xi"), Some(0),
+        "raw pointer deref read/write round-trip should mutate the source local");
+}

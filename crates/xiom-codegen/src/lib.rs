@@ -358,6 +358,14 @@ impl IrEmitter {
                 self.emitln(&format!("  {ext} = sext {ty} {val} to i64"));
                 ext
             }
+            // A real pointer used in integer arithmetic (e.g. a `&mut Int` param
+            // used as a bare Int: `pos + 1`): take its integer address so the
+            // `add`/`sub`/... is well-typed. Semantics match address arithmetic.
+            t if t.ends_with('*') => {
+                let iv = self.fresh_tmp();
+                self.emitln(&format!("  {iv} = ptrtoint {t} {val} to i64"));
+                iv
+            }
             _ => val.to_string(),
         }
     }
@@ -372,6 +380,38 @@ impl IrEmitter {
     /// (via `val_to_struct`, e.g. a single-field enum like Ordering). No-ops when
     /// the types already match, when `val` is empty/a null literal, or when no
     /// meaningful cast applies.
+    /// Produce the final SSA value for a call argument, honoring real-pointer
+    /// parameters. When the callee's param LLVM type is a pointer (e.g. `i64*` for a
+    /// `*Int` / `&mut Scalar` param) and the argument is an address-of a scalar
+    /// lvalue (`&x` / `&mut x`), pass the local's ALLOCA address rather than an
+    /// `inttoptr` of its loaded value (which would fabricate a bogus pointer and
+    /// crash). A local that already holds a pointer is forwarded as-is. All other
+    /// cases fall back to the ordinary `coerce_value` on the precompiled value.
+    fn coerce_arg_for_param(&mut self, arg_expr: &Expr, pre_val: &str, pre_ty: &str, param_ty: &str) -> String {
+        if param_ty.ends_with('*') {
+            let lvalue: Option<&Expr> = match arg_expr {
+                Expr::Ref(i, _) | Expr::MutRef(i, _) => Some(i.as_ref()),
+                Expr::Unary(UnaryOp::Ref, i, _) | Expr::Unary(UnaryOp::MutRef, i, _) => Some(i.as_ref()),
+                _ => None,
+            };
+            if let Some(Expr::Ident(id)) = lvalue {
+                if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
+                    if slot_ty.ends_with('*') {
+                        // Local already holds a pointer value: load and forward it.
+                        if let Ok((v, t)) = self.compile_expr(arg_expr) {
+                            return self.coerce_value(&v, &t, param_ty);
+                        }
+                    } else {
+                        // Pass the address of the local's slot.
+                        let addr_ty = format!("{slot_ty}*");
+                        return self.coerce_value(&slot, &addr_ty, param_ty);
+                    }
+                }
+            }
+        }
+        self.coerce_value(pre_val, pre_ty, param_ty)
+    }
+
     fn coerce_value(&mut self, val: &str, from: &str, to: &str) -> String {
         if val.is_empty() {
             // A missing/void value can't be stored; substitute a typed default so
@@ -564,11 +604,37 @@ impl IrEmitter {
         }
     }
 
+    /// True for scalar types that lower to a single LLVM register value and thus
+    /// have a meaningful real-pointer form (`*Int` -> `i64*`). Structs/Vec/Str/etc.
+    /// are kept by-value for `&mut`, matching the existing ABI.
+    fn is_scalar_ptr_inner(name: &str) -> bool {
+        matches!(
+            name,
+            "Int" | "Int8" | "Int16" | "Int32" | "Int64"
+                | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
+                | "Bool" | "Char" | "Float32" | "Float64"
+        )
+    }
+
     fn type_from_ast(ty: &Type) -> String {
         match ty {
             Type::Named(ident, _) => ident.name.clone(),
+            // `&T` is always passed by-value at the ABI (unchanged).
             Type::Ref(inner) => Self::type_from_ast(inner),
-            Type::MutRef(inner) => Self::type_from_ast(inner),
+            // `&mut Scalar` is a real pointer (`*Scalar`); `&mut Struct`/`&mut Vec`
+            // stay by-value. This lets deref/store-through work for scalar out-params
+            // (e.g. serialize's `pos: &mut Int`) without changing struct passing.
+            Type::MutRef(inner) => {
+                let inner_name = Self::type_from_ast(inner);
+                if Self::is_scalar_ptr_inner(&inner_name) {
+                    format!("*{inner_name}")
+                } else {
+                    inner_name
+                }
+            }
+            // `*T` raw pointer: encode with a leading `*` so `llvm_type_for` lowers
+            // it to a real LLVM pointer (`*Int` -> `i64*`, `*UInt8` -> `i8*`).
+            Type::Ptr(inner) => format!("*{}", Self::type_from_ast(inner)),
             Type::Option(_) => "Option".to_string(),
             Type::Result(_, _) => "Result".to_string(),
             Type::Vec(_) => "Vec".to_string(),
@@ -583,6 +649,19 @@ impl IrEmitter {
     }
 
     fn llvm_type_for(&self, type_name: &str) -> Result<String, String> {
+        // Real-pointer encoding: a leading `*` (from `type_from_ast` for `*T` /
+        // `&mut Scalar`) lowers to an LLVM pointer to the inner type. `*Int`->`i64*`,
+        // `*Float32`->`float*`, `*UInt8`->`i8*`, `*Str`->`i8**`. A pointer to a
+        // void/unit inner is represented as `i8*` (LLVM has no `void*`).
+        if let Some(inner) = type_name.strip_prefix('*') {
+            let inner_llvm = self
+                .llvm_type_for(inner)
+                .unwrap_or_else(|_| Self::xiom_to_llvm_type(inner).to_string());
+            if inner_llvm == "void" {
+                return Ok("i8*".to_string());
+            }
+            return Ok(format!("{inner_llvm}*"));
+        }
         // Try current module's qualified name first (e.g., "types.Person")
         if let Some(ref module) = self.current_module {
             let qualified = format!("{}.{}", module, type_name);
@@ -1647,6 +1726,30 @@ impl IrEmitter {
                 format!("Tuple_{}", parts.join("_"))
             }
             _ => Self::type_from_ast(ty),
+        }
+    }
+
+    /// Rebuild a pointer/ref `Type` with its inner generic name substituted by the
+    /// concrete type from `type_map`, preserving the `Ptr`/`MutRef`/`Ref` wrapper so
+    /// `type_from_ast` still produces a `*Inner` name. `outer` is the wrapper node
+    /// and `inner` its boxed inner type. Only the inner Named leaf is remapped.
+    fn substitute_type(outer: &Type, inner: &Type, type_map: &HashMap<String, String>) -> Type {
+        let new_inner: Type = match inner {
+            Type::Named(id, args) => {
+                if let Some(ct) = type_map.get(&id.name) {
+                    Type::Named(Ident::new(ct, id.span), args.clone())
+                } else {
+                    inner.clone()
+                }
+            }
+            Type::Ptr(i2) | Type::MutRef(i2) | Type::Ref(i2) => Self::substitute_type(inner, i2, type_map),
+            _ => inner.clone(),
+        };
+        match outer {
+            Type::Ptr(_) => Type::Ptr(Box::new(new_inner)),
+            Type::MutRef(_) => Type::MutRef(Box::new(new_inner)),
+            Type::Ref(_) => Type::Ref(Box::new(new_inner)),
+            _ => new_inner,
         }
     }
 
@@ -2874,6 +2977,36 @@ impl IrEmitter {
                             Self::xiom_to_llvm_type(&raw).to_string()
                         }
                     }
+                    // Pointer / mutable-scalar-ref types: substitute the inner
+                    // generic, then lower to a REAL pointer (e.g. `mem.swap[Int]`'s
+                    // `&mut T` -> `i64*`). Uses the captured `struct_types` set for
+                    // struct detection so the closure stays `self`-free. Without this,
+                    // such params defaulted to `i64` and `from_mut(x)` fed an `i64*`
+                    // address into an `i64` slot → miscompiled swap.
+                    Type::Ptr(inner) | Type::MutRef(inner) => {
+                        let subst = Self::substitute_type(t, inner, &type_map);
+                        let name = Self::type_from_ast(&subst);
+                        // `name` is `*Inner`; resolve the inner to an LLVM type.
+                        if let Some(inner_name) = name.strip_prefix('*') {
+                            let inner_llvm = if struct_types.contains(inner_name) {
+                                format!("%struct.{inner_name}")
+                            } else {
+                                Self::xiom_to_llvm_type(inner_name).to_string()
+                            };
+                            if inner_llvm == "void" {
+                                "i8*".to_string()
+                            } else {
+                                format!("{inner_llvm}*")
+                            }
+                        } else {
+                            // MutRef over a non-scalar stays by-value (no `*` prefix).
+                            if struct_types.contains(&name) {
+                                format!("%struct.{name}")
+                            } else {
+                                Self::xiom_to_llvm_type(&name).to_string()
+                            }
+                        }
+                    }
                     Type::Tuple(elems) => {
                         let parts: Vec<String> = elems.iter().map(|e| {
                             // Resolve element types: substitute generics, then resolve to LLVM name
@@ -3338,6 +3471,22 @@ impl IrEmitter {
                 }
             }
             Stmt::Assign(place, value, _) => {
+                // Deref write: `*p = v` (Unary Deref) or `*p = v` via a `&mut`-wrapped
+                // place. Compile the pointer, then store the value through it. Handled
+                // BEFORE the value is compiled for the plain-ident path so the store
+                // uses the pointee type. Only fires for real pointer operands.
+                if let Expr::Unary(UnaryOp::Deref, inner, _) = place {
+                    let (ptr_val, ptr_ty) = self.compile_expr(inner)?;
+                    if ptr_ty.ends_with('*') {
+                        let pointee = ptr_ty.trim_end_matches('*').to_string();
+                        let (val, val_ty) = self.compile_expr(value)?;
+                        let store_val = self.coerce_value(&val, &val_ty, &pointee);
+                        self.emitln(&format!("  store {pointee} {store_val}, {ptr_ty} {ptr_val}"));
+                        return Ok(());
+                    }
+                    // Not a real pointer (legacy erased-to-i64 path): fall through so
+                    // the value is still evaluated for side effects; nothing stored.
+                }
                 let (val, val_ty) = self.compile_expr(value)?;
                 if let Expr::Ident(ident) = place {
                     if let Some((ptr, llvm_ty)) = self.lookup_local(&ident.name).cloned() {
@@ -4004,9 +4153,16 @@ impl IrEmitter {
                         return Ok((tmp, "i64".to_string()));
                     }
                     UnaryOp::Deref => {
-                        let ty = inner_ty.clone();
-                        self.emitln(&format!("  {tmp} = load {ty}, {ty}* {val}"));
-                        return Ok((tmp, ty));
+                        // `*p`: load through a real pointer. `inner_ty` is e.g. `i64*`
+                        // (from a `*T` value). Load the pointee type. If the operand is
+                        // not a pointer (legacy path where a `*T` erased to i64), return
+                        // it unchanged so no invalid `load` is emitted.
+                        if !inner_ty.ends_with('*') {
+                            return Ok((val, inner_ty));
+                        }
+                        let pointee = inner_ty.trim_end_matches('*').to_string();
+                        self.emitln(&format!("  {tmp} = load {pointee}, {inner_ty} {val}"));
+                        return Ok((tmp, pointee));
                     }
                     UnaryOp::Ref | UnaryOp::MutRef => return Ok((val, inner_ty)),
                 }
@@ -4348,11 +4504,64 @@ impl IrEmitter {
                         return self.compile_expr(&cval);
                     }
                 }
+                // `(*p).field` on a raw pointer to a struct: GEP directly into the
+                // pointee (`%struct.X*`) rather than loading a by-value struct first.
+                // Enables Arc's `(*ptr).value` / `(*ptr).count` deref-field reads.
+                {
+                    let deref_inner: Option<&Expr> = match obj.as_ref() {
+                        Expr::Unary(UnaryOp::Deref, inner, _) => Some(inner.as_ref()),
+                        Expr::Paren(p, _) => match p.as_ref() {
+                            Expr::Unary(UnaryOp::Deref, inner, _) => Some(inner.as_ref()),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    if let Some(inner) = deref_inner {
+                        let (ptr_val, ptr_ty) = self.compile_expr(inner)?;
+                        if ptr_ty.ends_with('*') {
+                            let pointee = ptr_ty.trim_end_matches('*').to_string();
+                            if pointee.starts_with("%struct.") {
+                                let type_name = &pointee[8..];
+                                if let Some(field_names) = self.types.get(type_name).cloned() {
+                                    if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
+                                        let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
+                                        let gep = self.fresh_tmp();
+                                        let loaded = self.fresh_tmp();
+                                        self.emitln(&format!("  {gep} = getelementptr {pointee}, {ptr_ty} {ptr_val}, i32 0, i32 {field_idx}"));
+                                        self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+                                        return Ok((loaded, field_llvm_ty));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 // Simplified field access: if the object is an ident in locals, load the field via GEP
                 if let Expr::Ident(obj_ident) = obj.as_ref() {
                     if let Some((ptr, llvm_ty)) = self.lookup_local(&obj_ident.name).cloned() {
-                        // Check if it's a struct type
-                        if llvm_ty.starts_with("%struct.") {
+                        // Auto-deref a pointer-to-struct local (`p: *Struct`): load the
+                        // pointer from its slot, then GEP into the pointee. Fires for
+                        // struct fields whose type is a real `*Struct` (e.g. Arc's
+                        // `ptr: *ArcInner`), where `ptr.count` means `(*ptr).count`.
+                        if llvm_ty.ends_with('*') && llvm_ty.starts_with("%struct.") {
+                            let pointee = llvm_ty.trim_end_matches('*').to_string();
+                            let type_name = &pointee[8..];
+                            if let Some(field_names) = self.types.get(type_name).cloned() {
+                                if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
+                                    let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
+                                    let ptr_val = self.fresh_tmp();
+                                    self.emitln(&format!("  {ptr_val} = load {llvm_ty}, {llvm_ty}* {ptr}"));
+                                    let gep = self.fresh_tmp();
+                                    let loaded = self.fresh_tmp();
+                                    self.emitln(&format!("  {gep} = getelementptr {pointee}, {llvm_ty} {ptr_val}, i32 0, i32 {field_idx}"));
+                                    self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+                                    return Ok((loaded, field_llvm_ty));
+                                }
+                            }
+                        }
+                        // Check if it's a (by-value) struct type. Exclude pointer
+                        // types (handled above) so `%struct.X*` never takes this path.
+                        if llvm_ty.starts_with("%struct.") && !llvm_ty.ends_with('*') {
                             // Find field index
                             let type_name = &llvm_ty[8..];
                             if let Some(field_names) = self.types.get(type_name) {
@@ -4662,17 +4871,44 @@ impl IrEmitter {
                         }
                     }
                 }
-                // ptr.from_ref(x) / ptr.from_mut(x) — take a reference/value and
-                // return a raw pointer. At the ABI a reference is already a pointer;
-                // return the argument coerced to i8*. Inlined like from_cstring.
-                // TAIL-TODO: `&mut T` params are passed by VALUE in this codegen, so
-                // `mem.swap(&mut a, &mut b)` calls `from_mut` on the value (e.g. 10),
-                // producing a pointer to address 10 → segfault. Real by-reference
-                // parameter passing is needed for mem.swap/replace to work.
+                // ptr.from_ref(x) / ptr.from_mut(x) — take a reference to an lvalue
+                // and return its ADDRESS as a real pointer. For a plain local/param
+                // `x`, return its alloca (the address of the slot). If `x` is itself a
+                // pointer local (a `*T`/`&mut Scalar` param, already an address),
+                // return that pointer value as-is. Falls back to stashing an rvalue in
+                // a fresh alloca and returning its address.
                 if matches!(fn_name.as_str(), "from_ref" | "from_mut") && args.len() == 1 {
-                    let (arg_val, arg_ty) = self.compile_expr(&args[0])?;
-                    let as_ptr = self.val_to_i8ptr(&arg_val, &arg_ty);
-                    return Ok((as_ptr, "i8*".to_string()));
+                    let arg_expr = &args[0];
+                    // Unwrap a `&x` / `&mut x` wrapper so `from_mut(&mut a)` still
+                    // reaches the underlying lvalue.
+                    let inner_expr: &Expr = match arg_expr {
+                        Expr::Ref(i, _) | Expr::MutRef(i, _) => i.as_ref(),
+                        Expr::Unary(UnaryOp::Ref, i, _) | Expr::Unary(UnaryOp::MutRef, i, _) => i.as_ref(),
+                        other => other,
+                    };
+                    if let Expr::Ident(id) = inner_expr {
+                        if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
+                            if slot_ty.ends_with('*') {
+                                // The local already holds a pointer value (a `*T`
+                                // param) — load and return it (identity address).
+                                let (val, vty) = self.compile_expr(inner_expr)?;
+                                return Ok((val, vty));
+                            } else {
+                                // Return the address of the local's slot.
+                                return Ok((slot, format!("{slot_ty}*")));
+                            }
+                        }
+                    }
+                    // Fallback: compile the value, stash it in a fresh alloca, and
+                    // return that address so callees receive a valid pointer.
+                    let (val, ty) = self.compile_expr(inner_expr)?;
+                    if ty == "void" || val.is_empty() {
+                        return Ok(("null".to_string(), "i8*".to_string()));
+                    }
+                    let slot = self.fresh_tmp();
+                    self.emitln(&format!("  {slot} = alloca {ty}"));
+                    self.emitln(&format!("  store {ty} {val}, {ty}* {slot}"));
+                    return Ok((slot, format!("{ty}*")));
                 }
                 if fn_name == "free" {
                     if let Some(ptr_arg) = args.first() {
@@ -5260,13 +5496,22 @@ impl IrEmitter {
                         }
                         // Coerce each arg to the callee's declared param type (its real
                         // compiled type may differ, e.g. an enum-variant arg compiled to
-                        // a struct while the callee expects that struct).
+                        // a struct while the callee expects that struct). A pointer
+                        // param fed `&x`/`&mut x` receives the scalar's slot address.
+                        let arg_offset = all_args.len().saturating_sub(args.len());
                         let args_str = all_args.iter().enumerate()
                             .map(|(i, arg)| {
                                 let pty = all_param_types.get(i).cloned()
                                     .unwrap_or_else(|| all_arg_types.get(i).cloned().unwrap_or_else(|| "i64".to_string()));
                                 let from = all_arg_types.get(i).cloned().unwrap_or_else(|| pty.clone());
-                                let coerced = self.coerce_value(arg, &from, &pty);
+                                let coerced = if i >= arg_offset {
+                                    match args.get(i - arg_offset) {
+                                        Some(ae) => self.coerce_arg_for_param(ae, arg, &from, &pty),
+                                        None => self.coerce_value(arg, &from, &pty),
+                                    }
+                                } else {
+                                    self.coerce_value(arg, &from, &pty)
+                                };
                                 format!("{pty} {coerced}")
                             })
                             .collect::<Vec<_>>()
@@ -5330,7 +5575,10 @@ impl IrEmitter {
                                     let pty = callee_pts.as_ref()
                                         .and_then(|p| p.get(i + 1).cloned())
                                         .unwrap_or_else(|| arg_ty.clone());
-                                    let coerced = self.coerce_value(arg_val, arg_ty, &pty);
+                                    let coerced = match args.get(i) {
+                                        Some(ae) => self.coerce_arg_for_param(ae, arg_val, arg_ty, &pty),
+                                        None => self.coerce_value(arg_val, arg_ty, &pty),
+                                    };
                                     format!("{pty} {coerced}")
                                 })
                                 .collect();
@@ -5349,7 +5597,10 @@ impl IrEmitter {
                                     let pty = callee_pts.as_ref()
                                         .and_then(|p| p.get(i).cloned())
                                         .unwrap_or_else(|| arg_ty.clone());
-                                    let coerced = self.coerce_value(arg_val, arg_ty, &pty);
+                                    let coerced = match args.get(i) {
+                                        Some(ae) => self.coerce_arg_for_param(ae, arg_val, arg_ty, &pty),
+                                        None => self.coerce_value(arg_val, arg_ty, &pty),
+                                    };
                                     format!("{pty} {coerced}")
                                 })
                                 .collect::<Vec<_>>()
@@ -5368,8 +5619,13 @@ impl IrEmitter {
                             for (i, (arg_val, arg_ty)) in compiled_args.iter().enumerate() {
                                 let pty = pts[i].clone();
                                 // Coerce the argument to the callee's declared param
-                                // type using the arg's REAL compiled type.
-                                let coerced = self.coerce_value(arg_val, arg_ty, &pty);
+                                // type using the arg's REAL compiled type. Address-of
+                                // a scalar lvalue passed to a pointer param yields the
+                                // slot address (see coerce_arg_for_param).
+                                let coerced = match args.get(i) {
+                                    Some(ae) => self.coerce_arg_for_param(ae, arg_val, arg_ty, &pty),
+                                    None => self.coerce_value(arg_val, arg_ty, &pty),
+                                };
                                 parts.push(format!("{pty} {coerced}"));
                             }
                             parts.join(", ")
