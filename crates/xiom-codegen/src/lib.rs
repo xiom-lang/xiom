@@ -605,18 +605,6 @@ impl IrEmitter {
         }
     }
 
-    /// True for scalar types that lower to a single LLVM register value and thus
-    /// have a meaningful real-pointer form (`*Int` -> `i64*`). Structs/Vec/Str/etc.
-    /// are kept by-value for `&mut`, matching the existing ABI.
-    fn is_scalar_ptr_inner(name: &str) -> bool {
-        matches!(
-            name,
-            "Int" | "Int8" | "Int16" | "Int32" | "Int64"
-                | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
-                | "Bool" | "Char" | "Float32" | "Float64"
-        )
-    }
-
     fn type_from_ast(ty: &Type) -> String {
         match ty {
             Type::Named(ident, _) => ident.name.clone(),

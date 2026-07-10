@@ -851,3 +851,11 @@ fn e2e_mut_struct() {
     assert_eq!(compile_and_run("examples\\e2e\\mut_struct.xi"), Some(0),
         "struct mutation via store_back should propagate to caller");
 }
+
+/// DJB2 hash monomorphized through the Hash interface.
+/// Same input → same hash; different inputs → different hashes.
+#[test]
+fn e2e_djb2_hash() {
+    assert_eq!(compile_and_run("examples\\e2e\\djb2_hash.xi"), Some(0),
+        "DJB2 hash via Hash[T] interface should produce deterministic non-zero values");
+}
