@@ -827,3 +827,10 @@ fn e2e_call_receiver_type() {
     assert_eq!(compile_and_run("examples\\e2e\\call_receiver_type.xi"), Some(0),
         "chained call receiver type inference should resolve method");
 }
+
+/// Or-patterns like `1 | 2 | 3 =>` in match arms compile and match correctly.
+#[test]
+fn e2e_or_pattern() {
+    assert_eq!(compile_and_run("examples\\e2e\\or_pattern.xi"), Some(0),
+        "or-patterns in match should compile and match correctly");
+}

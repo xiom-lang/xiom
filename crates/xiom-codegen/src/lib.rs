@@ -795,6 +795,7 @@ impl IrEmitter {
             Pattern::Lit(Literal::Int(..)) | Pattern::Lit(Literal::Bool(..)) => true,
             Pattern::Variant(..) => true,
             Pattern::Ident(ident) => self.ident_is_enum_variant(scrutinee_type, &ident.name),
+            Pattern::Or(alternatives, _) => alternatives.iter().any(|a| self.pattern_needs_check(a, scrutinee_type)),
             _ => false,
         }
     }
@@ -3876,6 +3877,40 @@ impl IrEmitter {
                     self.emitln(&format!("\n{this_label}:"));
 
                     match &arm.pattern {
+                        Pattern::Or(alternatives, _) => {
+                            for (ai, alt) in alternatives.iter().enumerate() {
+                                let is_last = ai == alternatives.len() - 1;
+                                let fail_block = if is_last {
+                                    next.clone()
+                                } else {
+                                    let fl = format!("match_or_fail_{i}_{ai}");
+                                    self.fresh_block(&fl)
+                                };
+                                match alt {
+                                    Pattern::Lit(Literal::Int(n, _)) => {
+                                        let c = self.fresh_tmp();
+                                        self.emitln(&format!("  {c} = icmp eq i64 {val}, {n}"));
+                                        self.emitln(&format!("  br i1 {c}, label %{arm_label}, label %{fail_block}"));
+                                    }
+                                    Pattern::Lit(Literal::Bool(b, _)) => {
+                                        let c = self.fresh_tmp();
+                                        let bv = if *b { "1" } else { "0" };
+                                        self.emitln(&format!("  {c} = icmp eq i64 {val}, {bv}"));
+                                        self.emitln(&format!("  br i1 {c}, label %{arm_label}, label %{fail_block}"));
+                                    }
+                                    Pattern::Ident(id) => {
+                                        self.emit_variant_discriminant_check(&id.name, &scrutinee_alloca_info, &val, &arm_label, &fail_block);
+                                    }
+                                    Pattern::Variant(vn, _, _) => {
+                                        self.emit_variant_discriminant_check(&vn.name, &scrutinee_alloca_info, &val, &arm_label, &fail_block);
+                                    }
+                                    _ => { self.emitln(&format!("  br label %{fail_block}")); }
+                                }
+                                if !is_last {
+                                    self.emitln(&format!("\n{fail_block}:"));
+                                }
+                            }
+                        }
                         Pattern::Lit(Literal::Int(n, _)) => {
                             let check = self.fresh_tmp();
                             self.emitln(&format!("  {check} = icmp eq i64 {val}, {n}"));
