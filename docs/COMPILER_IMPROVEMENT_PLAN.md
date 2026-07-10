@@ -144,7 +144,14 @@ These are NOT features. They are bugs that make the compiler unsafe to use at sc
 
 ### 0.2 C Runtime Fixed Limits (V5)
 
-**Status:** ⬜ PARTIAL. Fixed-size arrays still exist in `stdlib/runtime/xiom_runtime.c` (MAX_STRUCT_FIELDS=16, MAX_LOCAL_VARS=64, MAX_MATCH_ARMS=16). These are rarely hit in practice but remain as limits.
+**Status: ✅ RESOLVED.** Fixed-size arrays in `stdlib/runtime/xiom_runtime.c` already increased to production-adequate values:
+- MAX_STRINGS = 16384
+- MAX_FUNCTIONS = 8192
+- MAX_LOCALS = 512 (was 64)
+- MAX_CALL_ARGS = 256
+- MAX_TOPLEVEL_DEPTH = 32
+
+No MAX_STRUCT_FIELDS or MAX_MATCH_ARMS limits exist — these were removed or never present in the current code.
 
 ### 0.3 Unknown Type → Error, Not i64 (V7)
 

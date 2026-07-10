@@ -834,3 +834,20 @@ fn e2e_or_pattern() {
     assert_eq!(compile_and_run("examples\\e2e\\or_pattern.xi"), Some(0),
         "or-patterns in match should compile and match correctly");
 }
+
+/// Brace-form modules (`module x { ... }`) compile and run correctly.
+/// GAP-13: previously marked as won't-fix but the parser already handles
+/// block-form module parsing. This test locks in the behavior.
+#[test]
+fn e2e_brace_module() {
+    assert_eq!(compile_and_run("examples\\e2e\\brace_module.xi"), Some(0),
+        "brace-form modules should compile and run");
+}
+
+/// Struct method returning modified self stores back to caller's variable
+/// so mutation persists across the call (store-back mechanism).
+#[test]
+fn e2e_mut_struct() {
+    assert_eq!(compile_and_run("examples\\e2e\\mut_struct.xi"), Some(0),
+        "struct mutation via store_back should propagate to caller");
+}
