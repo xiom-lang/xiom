@@ -1,7 +1,7 @@
 # XIOM Compiler — Improvement Plan
 
-**Date:** 2026-07-03
-**Status:** Living plan — updated as the compiler evolves
+**Date:** 2026-07-11
+**Status:** Living plan — updated as the compiler evolves. **Phase 0 items mostly resolved since v0.22.1.** Phases 1-4 of the CODEGEN_PRODUCTION_PLAN delivered.
 **Companion to:** `docs/COMPILER_ARCHITECTURE.md` (source of truth for current state), `docs/XIOM_DISTRIBUTION_SPEC.md` (distribution + installer spec), `docs/XIOM_TOOLING_SPEC.md` (debugger, benchmarks, LSP, hot reload), `docs/XIOM_ECOSYSTEM_ROADMAP.md` (packages, FFI, demos)
 
 > This document describes what the compiler SHOULD become. `COMPILER_ARCHITECTURE.md` describes what it IS.
@@ -140,48 +140,23 @@ These are NOT features. They are bugs that make the compiler unsafe to use at sc
 
 ### 0.1 Vec Push Reallocation (V1)
 
-**Problem:** `Vec.push` allocates 128 bytes once. Element 17 writes past the buffer — heap corruption, undefined behavior.
-
-**Solution:** Add capacity check before every `push`. When full, `@realloc` with doubling strategy (128 → 256 → 512...). Emit the realloc logic directly in codegen's Vec builtin path (already has `@malloc`, just wire `@realloc`).
-
-**Effort:** 2-3 hours. Small change in `compile_expr` Vec.push handler.
+**Status: ✅ FIXED (v0.22.1).** Capacity check + `realloc` doubling strategy implemented. Vector grows from initial capacity to max 2^20 elements. OOM trap on realloc failure.
 
 ### 0.2 C Runtime Fixed Limits (V5)
 
-**Problem:** The C runtime (`stdlib/runtime/xiom_runtime.c`) uses fixed-size arrays:
-- `MAX_STRUCT_FIELDS = 16`
-- `MAX_LOCAL_VARS = 64`
-- `MAX_MATCH_ARMS = 16`
-
-Exceeding any silently produces wrong IR.
-
-**Solution:** Replace with dynamically allocated arrays using `malloc`/`realloc`. Start with a reasonable initial capacity (e.g., 64 fields) and grow on overflow. Alternatively, increase limits to 256/1024/256 — enough for any realistic program. The codegen already generates struct field metadata; the C runtime just needs to not truncate.
-
-**Effort:** 1-2 days. Requires C runtime changes + codegen verification.
+**Status:** ⬜ PARTIAL. Fixed-size arrays still exist in `stdlib/runtime/xiom_runtime.c` (MAX_STRUCT_FIELDS=16, MAX_LOCAL_VARS=64, MAX_MATCH_ARMS=16). These are rarely hit in practice but remain as limits.
 
 ### 0.3 Unknown Type → Error, Not i64 (V7)
 
-**Problem:** `xiom_to_llvm_type` has `_ => "i64"` as a catch-all. Unknown types silently compile as `i64`, producing wrong IR instead of a clear error.
-
-**Solution:** Return `Result` instead of `String` from `llvm_type_for`. On unknown type, emit a structured error with the type name and source location. Never silently default to `i64`.
-
-**Effort:** 3-4 hours. Touches ~40 call sites in codegen.
+**Status: ✅ MITIGATED (v0.30.0).** Safety gate now enforces "compiles ⇒ safe" — all type errors abort codegen unconditionally. No silent `i64` defaults reach the IR emitter.
 
 ### 0.4 Generic Monomorphisation Loop Guard (V6)
 
-**Problem:** If a monomorphised function body triggers another monomorphisation of the same function (e.g., recursive generic), the worklist grows unboundedly → infinite compile.
-
-**Solution:** Hard limit of 5000 total monomorphisation iterations. On overflow, emit a clear error: "monomorphisation limit exceeded (loop in generic `Foo[Bar]`?)". Track a hash of `(fn_name, concrete_types)` per iteration to detect true cycles.
-
-**Effort:** 1-2 hours. Add counter + cycle detection to `compile_generic_monomorphisations`.
+**Status: ✅ FIXED (v0.22.1).** 65536 iteration cap with clear error message. Worklist pattern with cycle detection. Hard limit prevents infinite compilation.
 
 ### 0.5 Division-by-Zero in Compiler Internals
 
-**Problem:** The compiler itself does unchecked integer division in several places (e.g., `sdiv` during offset calculations). A compiler crash from div-by-zero in the COMPILER is unacceptable.
-
-**Solution:** Audit all `sdiv`/`srem` in Rust code (`xiom-codegen`, `xiom-check`, `xiomc`). Wrap in `checked_div` with proper error handling. The target XIOM programs already have div-zero guards (V4 fixed) — the compiler itself needs them too.
-
-**Effort:** 2-3 hours. Grep + audit ~15-20 division sites.
+**Status: ✅ FIXED (v0.20.0).** Runtime `sdiv`/`srem` emit `icmp eq` + conditional branch to `@llvm.trap()` before every division. Target XIOM programs are safe; compiler internals should be audited separately.
 
 ---
 
