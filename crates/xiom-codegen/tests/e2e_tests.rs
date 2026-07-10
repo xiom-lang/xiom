@@ -859,3 +859,11 @@ fn e2e_djb2_hash() {
     assert_eq!(compile_and_run("examples\\e2e\\djb2_hash.xi"), Some(0),
         "DJB2 hash via Hash[T] interface should produce deterministic non-zero values");
 }
+
+/// Generic swap via `&mut T` references: verifies scalar &mut pointers
+/// work inside generic monomorphized functions (ARC A + ARC B).
+#[test]
+fn e2e_mut_ref_swap() {
+    assert_eq!(compile_and_run("examples\\e2e\\mut_ref_swap.xi"), Some(0),
+        "generic &mut T swap should exchange values correctly");
+}
