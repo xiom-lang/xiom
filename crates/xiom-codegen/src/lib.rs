@@ -622,16 +622,10 @@ impl IrEmitter {
             Type::Named(ident, _) => ident.name.clone(),
             // `&T` is always passed by-value at the ABI (unchanged).
             Type::Ref(inner) => Self::type_from_ast(inner),
-            // `&mut Scalar` is a real pointer (`*Scalar`); `&mut Struct`/`&mut Vec`
-            // stay by-value. This lets deref/store-through work for scalar out-params
-            // (e.g. serialize's `pos: &mut Int`) without changing struct passing.
+            // `&mut` is always a real pointer (`*Inner`) so mutations propagate
+            // to the caller. Scalars and structs both get pointer types.
             Type::MutRef(inner) => {
-                let inner_name = Self::type_from_ast(inner);
-                if Self::is_scalar_ptr_inner(&inner_name) {
-                    format!("*{inner_name}")
-                } else {
-                    inner_name
-                }
+                format!("*{}", Self::type_from_ast(inner))
             }
             // `*T` raw pointer: encode with a leading `*` so `llvm_type_for` lowers
             // it to a real LLVM pointer (`*Int` -> `i64*`, `*UInt8` -> `i8*`).
@@ -3097,6 +3091,7 @@ impl IrEmitter {
             // Allocate parameters as locals
             // Allocate self parameter first (for methods)
             if let (Some(st), Some(recv)) = (&self_llvm_ty, &fd.receiver) {
+                let _is_ptr = st.ends_with('*');
                 let self_alloca = self.fresh_tmp();
                 self.emitln(&format!("  {self_alloca} = alloca {st}"));
                 self.emitln(&format!("  store {st} %param_self, {st}* {self_alloca}"));
@@ -5767,6 +5762,19 @@ impl IrEmitter {
                             let has_receiver_in_params = !all_param_types.is_empty() && all_param_types.len() > all_args.len();
                             if is_instance {
                                 let (recv_val, recv_llvm_ty) = self.compile_expr(receiver)?;
+                                // If callee expects a pointer self (&mut Struct),
+                                // pass the receiver's alloca address instead.
+                                let (recv_val, recv_llvm_ty) = if has_receiver_in_params {
+                                    if let Some(p0) = all_param_types.first() {
+                                        if p0.ends_with('*') && !recv_llvm_ty.ends_with('*') {
+                                            if let Expr::Ident(id) = &**receiver {
+                                                if let Some((slot, _slot_ty)) = self.lookup_local(&id.name).cloned() {
+                                                    (slot, format!("{recv_llvm_ty}*"))
+                                                } else { (recv_val, recv_llvm_ty) }
+                                            } else { (recv_val, recv_llvm_ty) }
+                                        } else { (recv_val, recv_llvm_ty) }
+                                    } else { (recv_val, recv_llvm_ty) }
+                                } else { (recv_val, recv_llvm_ty) };
                                 if has_receiver_in_params {
                                     // Receiver type already in param_types, just need the value
                                     all_args.insert(0, recv_val);
@@ -5860,6 +5868,26 @@ impl IrEmitter {
                             // Value sink: use the receiver's real compiled LLVM type
                             // (from compile_expr) rather than a re-inference.
                             let (recv_val, recv_llvm_ty) = self.compile_expr(receiver)?;
+                            // If the callee expects a pointer self param (&mut Struct),
+                            // pass the receiver's alloca ADDRESS instead of the
+                            // loaded value so mutations propagate to the caller.
+                            let (recv_val, recv_llvm_ty) = if let Some(p0) = callee_pts.as_ref().and_then(|p| p.first()) {
+                                if p0.ends_with('*') && !recv_llvm_ty.ends_with('*') {
+                                    if let Expr::Ident(id) = &**receiver {
+                                        if let Some((slot, _slot_ty)) = self.lookup_local(&id.name).cloned() {
+                                            (slot, format!("{recv_llvm_ty}*"))
+                                        } else {
+                                            (recv_val, recv_llvm_ty)
+                                        }
+                                    } else {
+                                        (recv_val, recv_llvm_ty)
+                                    }
+                                } else {
+                                    (recv_val, recv_llvm_ty)
+                                }
+                            } else {
+                                (recv_val, recv_llvm_ty)
+                            };
                             // When registered, param types include the receiver at [0];
                             // explicit args map to [1..].
                             let rest_str: Vec<String> = compiled_args.iter().enumerate()
@@ -6757,16 +6785,7 @@ impl IrEmitter {
             }
             Expr::Ref(inner, _) | Expr::MutRef(inner, _) => {
                 let inner_ty = self.infer_llvm_type(inner);
-                // `&scalar` / `&mut scalar` is a real pointer — return the pointer
-                // type so generic call-site arg inference has correct types for
-                // coercion (e.g. &mut Int → i64* not i64).
-                if inner_ty == "i64" || inner_ty == "i8" || inner_ty == "i32" || inner_ty == "i16"
-                    || inner_ty == "double" || inner_ty == "float"
-                {
-                    format!("{inner_ty}*")
-                } else {
-                    inner_ty
-                }
+                format!("{inner_ty}*")
             }
             Expr::As(_, ty, _) => self.llvm_type_for(&Self::type_from_ast(ty)).unwrap_or_else(|_| "i64".to_string()),
             Expr::If(_cond, then_block, _elifs, else_block, _) => {
