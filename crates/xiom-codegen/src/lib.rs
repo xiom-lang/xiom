@@ -5714,6 +5714,28 @@ impl IrEmitter {
                                 }
                             }
                             if !inferred {
+                                // Use explicit type args from the call syntax
+                                // (e.g. `Map[Str, JsonValue].new()` → type_arg = Tuple([Str, JsonValue])).
+                                if let Some(ta) = type_arg {
+                                    let type_names: Vec<String> = match ta {
+                                        Expr::Ident(id) => vec![id.name.clone()],
+                                        Expr::Tuple(elems, _) => elems.iter()
+                                            .map(|e| match e {
+                                                Expr::Ident(id) => id.name.clone(),
+                                                _ => "Int".to_string(),
+                                            })
+                                            .collect(),
+                                        _ => vec!["Int".to_string()],
+                                    };
+                                    // Map each generic param to the corresponding type name
+                                    let gp_idx = fd.generics.iter().position(|g| g.name.name == gp.name.name);
+                                    if let Some(idx) = gp_idx {
+                                        if idx < type_names.len() {
+                                            concrete_types.push(type_names[idx].clone());
+                                            continue;
+                                        }
+                                    }
+                                }
                                 // Fallback: use the first argument's outer type
                                 if let Some(arg_expr) = args.first() {
                                     let concrete_ty = match arg_expr {
