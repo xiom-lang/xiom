@@ -1026,6 +1026,20 @@ impl Parser {
                             let mut type_args = vec![self.parse_type()?];
                             while self.skip(TokenKind::Comma) { type_args.push(self.parse_type()?); }
                             self.expect_kind(TokenKind::RBracket, "']'")?;
+                            // Convert type args to idents for the Index expression
+                            // so codegen's type_arg capture can infer concrete types.
+                            let type_exprs: Vec<Expr> = type_args.iter().map(|t| {
+                                match t {
+                                    Type::Named(id, _) => Expr::Ident(id.clone()),
+                                    _ => Expr::Ident(Ident::new("Int", self.peek().span)),
+                                }
+                            }).collect();
+                            let args_expr = if type_exprs.len() == 1 {
+                                type_exprs.into_iter().next().unwrap()
+                            } else {
+                                Expr::Tuple(type_exprs, self.peek().span)
+                            };
+                            expr = Expr::Index(Box::new(expr.clone()), Box::new(args_expr), self.peek().span);
                             if !self.restrict_struct && self.peek_kind() == &TokenKind::LBrace {
                                 let span = expr.span(); self.advance();
                                 let mut fields = Vec::new();
@@ -1037,7 +1051,7 @@ impl Parser {
                                 }
                                 let spread = if self.skip(TokenKind::Dot) { self.expect_kind(TokenKind::Dot, "'.' for spread")?; let s = self.parse_expr()?; Some(Box::new(s)) } else { None };
                                 self.expect_kind(TokenKind::RBrace, "'}'")?;
-                                let struct_name = match &expr { Expr::Ident(name) => name.clone(), _ => Ident::new("__struct", span) };
+                                let struct_name = match &expr { Expr::Ident(name) => name.clone(), Expr::Index(base, _, _) => match base.as_ref() { Expr::Ident(name) => name.clone(), _ => Ident::new("__struct", span) }, _ => Ident::new("__struct", span) };
                                 expr = Expr::Struct(struct_name, fields, spread, span);
                             }
                         } else { let inner = self.parse_expr_open()?; self.expect_kind(TokenKind::RBracket, "']'")?; let span = expr.span(); expr = Expr::Index(Box::new(expr), Box::new(inner), span); }
