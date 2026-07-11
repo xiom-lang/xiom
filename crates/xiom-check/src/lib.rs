@@ -650,8 +650,9 @@ impl Checker {
                        "Float32", "Float64", "Char", "Str"] {
             self.types.insert(prim.to_string(), HashMap::new());
         }
-        // Compound builtin types (empty fields = permissive field access)
-        for comp in &["Vec", "Map", "Set", "Stack", "Slice"] {
+          // Compound builtin types (empty fields = permissive field access).
+          // Map is NOT a builtin — it's defined in collections.xi.
+          for comp in &["Vec", "Set", "Stack", "Slice"] {
             self.types.insert(comp.to_string(), HashMap::new());
         }
         // Option with known fields
