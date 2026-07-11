@@ -717,7 +717,7 @@ impl IrEmitter {
         match self.llvm_type_for(type_name) {
             Ok(t) => t,
             Err(_) => {
-                // Try suffix search across type_meta
+                // Try suffix search across type_meta and types
                 let search = format!(".{}", type_name);
                 for key in self.type_meta.keys() {
                     if key.ends_with(&search) {
@@ -726,6 +726,17 @@ impl IrEmitter {
                 }
                 for key in self.types.keys() {
                     if key.ends_with(&search) {
+                        return format!("%struct.{key}");
+                    }
+                }
+                // Also check generic_type_names — generic types may not
+                // be in type_meta/types with bare names but ARE registered
+                // as structs (e.g. Cell[T], Map[K,V]).
+                for key in self.generic_type_names.iter() {
+                    if key.ends_with(&search) || key == type_name {
+                        if let Ok(t) = self.llvm_type_for(key) {
+                            return t;
+                        }
                         return format!("%struct.{key}");
                     }
                 }
@@ -4762,7 +4773,7 @@ impl IrEmitter {
                 // instantiation whose type arg the parser preserved as an index;
                 // unwrap to the underlying callee `base` so `ptr.null[Int]()` and
                 // `foo[T]()` resolve to the function, not a bogus index expression.
-                let (func_unwrapped, type_arg): (&Expr, Option<&Expr>) = match &**func {
+                let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                     Expr::Index(base, idx, _) => (base.as_ref(), Some(idx.as_ref())),
                     other => (other, None),
                 };
@@ -4771,6 +4782,14 @@ impl IrEmitter {
                     Expr::Field(obj, field, _) => (Some(field.name.clone()), Some(obj)),
                     _ => (None, None),
                 };
+                // Capture type args from receiver_expr for `Map[Str,JsonValue].new()`.
+                if type_arg.is_none() {
+                    if let Some(ref r) = receiver_expr {
+                        if let Expr::Index(_, idx, _) = r.as_ref() {
+                            type_arg = Some(idx.as_ref());
+                        }
+                    }
+                }
                 let fn_name = match fn_name_opt {
                     Some(ref n) => n.clone(),
                     None => return Ok(("0".to_string(), "i64".to_string())),
@@ -6641,6 +6660,11 @@ impl IrEmitter {
                     }
                 }
                 None
+            }
+            Expr::Index(base, _, _) => {
+                // Strip Index wrapper for type-arg annotations like
+                // `Map[Str, JsonValue].new()`. The base is the actual type name.
+                self.infer_struct_type_name(base.as_ref())
             }
             _ => None,
         }
