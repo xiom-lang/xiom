@@ -1,11 +1,53 @@
-# XIOM — Session Handoff: v0.30.0 "Phase-1-Hardened"
+# XIOM — Session Handoff: v0.36.0 "All-Phases-Delivered"
 
-**Date:** 2026-07-09
-**Branch:** `feat/guardian` (Phase 2 — compiler↔stdlib gap closure → production hardening)
-**Status:** stdlib execution **37/37 strict + 4 ignored**. Phase 1 COMPLETE. All gates green.
-**Tag:** `v0.30.0-phase-1-hardened`
+**Date:** 2026-07-11
+**Branch:** `feat/guardian` (Phases 1-7 complete)
+**Status:** stdlib execution **37/37 strict + 4 ignored**. All regression gates green.
+**Tag:** `v0.36.0-phase-7-tests`
 **Production plan:** `docs/CODEGEN_PRODUCTION_PLAN.md`
-**Companion session:** `SESSION_ECOSYSTEM.md` — AI-driven ecosystem build (other machine)
+**Compiler gaps:** 14/14 CLOSED (`ecosystem/COMPILER_GAPS.md`)
+**E2E tests:** **83** (was 75 at start)
+
+---
+
+## HEADLINE ACHIEVEMENT — 37/37 stdlib modules pass, 14/14 gaps closed, 7 phases delivered
+
+### Phase summary
+| Phase | Tag | Key Feature |
+|-------|-----|-------------|
+| 1 | v0.30.0 | Safety gate enforcement, size_of intrinsics, enum variant constructors |
+| 2 | v0.31.0 | Generic fn_key pre-computation, is_ok/is_some pseudo-fields, Array type |
+| 3 | v0.32.0 | **&mut Struct** real pointer passing (ARC C) |
+| 4 | v0.33.0 | **Pattern::Or** in match expressions |
+| 5 | v0.34.0 | GAP-13 closed (brace modules), all docs synced |
+| 6 | v0.35.0 | **DJB2 hash** via Hash interface, serialize import fix, dead code removal |
+| 7 | v0.36.0 | **Generic &mut T swap** e2e test, smoke annotations |
+
+### Regression gate (ALL GREEN)
+| Suite | Count |
+|---|---|
+| diff_tests | 25 ✅ |
+| e2e_tests | **83** ✅ (was 75) |
+| feature_regression | 48 ✅ |
+| full_diff | 23 ✅ |
+| fuzz | 23 + 1 ignored ✅ |
+| integration | 119 ✅ |
+| robustness | 29 ✅ |
+| check | 74 ✅ |
+| parser | 47 ✅ |
+| stdlib_execution | 37 strict + 4 ignored ✅ |
+
+### Remaining for production
+| Area | Status |
+|------|--------|
+| parse_json | Crash traced to json_parse internals (SIGILL, zero stubs) |
+| regex runtime | SIGILL — needs dedicated debugging |
+| crypto SHA-256 | Depends on extern C runtime FFI functions |
+| path to_string | Checker gap — to_string not recognized on Path type |
+| Thread/async/IO | 4 ignored modules — need OS runtime implementation |
+| Const-generics | N value propagation needed |
+| Interface dispatch | Hasher trait monomorphization incomplete |
+| Derive macros | Parser accepts, codegen doesn't generate |
 
 ---
 
