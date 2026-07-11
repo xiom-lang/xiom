@@ -260,14 +260,6 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
 
     // Stage 4.5: Inject external module declarations
     let external_decls = checker.collect_external_decls(&program);
-    eprintln!("DIAG-FINAL: {} external decls, program has {} items", external_decls.len(), program.items.len());
-    for item in &program.items {
-        if let xiom_ast::TopDecl::Type(td) = item {
-            if td.name.name.contains("Map") {
-                eprintln!("DIAG-FINAL: Map IS in program.items, fields={:?}", td.fields.iter().map(|f| &f.name.name).collect::<Vec<_>>());
-            }
-        }
-    }
     if !external_decls.is_empty() {
         // Key functions by their qualified name (`Receiver.method`) so distinct
         // methods sharing a leaf name (e.g. `Layout.new`, `Vec.new`, `Rc.new`)
