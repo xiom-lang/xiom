@@ -867,3 +867,11 @@ fn e2e_mut_ref_swap() {
     assert_eq!(compile_and_run("examples\\e2e\\mut_ref_swap.xi"), Some(0),
         "generic &mut T swap should exchange values correctly");
 }
+
+/// Combined features: store_back, hash determinism, generic monomorphization.
+/// Verifies multiple codegen features work together in one program.
+#[test]
+fn e2e_combined_patterns() {
+    assert_eq!(compile_and_run("examples\\e2e\\combined_patterns.xi"), Some(0),
+        "combined store_back + hash + generics should work together");
+}
