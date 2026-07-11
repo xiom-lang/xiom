@@ -639,8 +639,9 @@ impl Checker {
                     .or_insert(exports);
             }
         }
-        self.flatten_submodules(&cached.program.items);
-    }
+            self.flatten_submodules(&cached.program.items);
+            self.flatten_submodules(&cached.program.items);
+        }
 
     fn register_builtins(&mut self) {
         // All primitive types are known
