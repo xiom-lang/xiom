@@ -298,7 +298,7 @@ impl IrEmitter {
             Expr::Int(n, _) => {
                 if llvm_ty == "double" || llvm_ty == "float" {
                     format!("{n}.0")
-                } else if llvm_ty.starts_with("%struct.") || llvm_ty.ends_with('*') {
+                } else if llvm_ty.starts_with("%struct.") || llvm_ty.ends_with('*') || llvm_ty.starts_with('[') {
                     Self::default_const_for(llvm_ty)
                 } else {
                     format!("{n}")
