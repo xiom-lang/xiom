@@ -6169,6 +6169,32 @@ impl IrEmitter {
                 } else {
                     fn_name.clone()
                 };
+                // Interface dispatch fallback: when the receiver type is a known
+                // interface (e.g. `Error.description`), search all registered
+                // concrete functions for one that matches `*.method_name` (static
+                // dispatch — the first matching implementation wins).
+                let fn_key = if !self.functions.contains_key(&fn_key)
+                    && !self.generic_fn_decls.iter().any(|(k, _)| k == &fn_key)
+                {
+                    // Extract interface name and method from fn_key ("Error.description").
+                    if let Some(dot_pos) = fn_key.find('.') {
+                        let iface_name = &fn_key[..dot_pos];
+                        let method_name = &fn_key[dot_pos + 1..];
+                        if self.interfaces.contains_key(iface_name) {
+                            let suffix = format!(".{}", method_name);
+                            self.functions.keys()
+                                .find(|k| k.ends_with(&suffix) && !k.starts_with(iface_name))
+                                .cloned()
+                                .unwrap_or(fn_key)
+                        } else {
+                            fn_key
+                        }
+                    } else {
+                        fn_key
+                    }
+                } else {
+                    fn_key
+                };
                 let is_generic = self.generic_fn_decls.iter().any(|(k, _)| k == &fn_key);
                 if is_generic {
                     // Infer concrete types from argument types
