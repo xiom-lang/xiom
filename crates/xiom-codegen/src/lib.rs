@@ -240,11 +240,15 @@ impl IrEmitter {
         if val.is_empty() {
             return Self::default_const_for(llvm_ty);
         }
-        if val == "0" && (llvm_ty.starts_with("%struct.") || llvm_ty.starts_with('[')) {
-            "zeroinitializer".to_string()
-        } else {
-            val.to_string()
+        if val == "0" {
+            if llvm_ty.ends_with('*') {
+                return "null".to_string();
+            }
+            if llvm_ty.starts_with("%struct.") || llvm_ty.starts_with('[') {
+                return "zeroinitializer".to_string();
+            }
         }
+        val.to_string()
     }
 
     /// True if the most recently emitted line in the current function body is a
