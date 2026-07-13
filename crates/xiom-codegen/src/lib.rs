@@ -6624,13 +6624,26 @@ impl IrEmitter {
             }
             Expr::Index(container, index, _) => {
                 // Index into a Vec (builtin {i8*, i64, i64}) or a Str (i8*).
-                // TAIL-TODO: fixed-size stack arrays (`[N]T` / array literals) are
-                // not yet materialized (Expr::Array is still a stub), so
-                // `arr[i]` on a literal array falls through to the default. This
-                // blocks the `array`/`core`/`convert.to_string` (digit buffer) paths.
+                // Fixed-size arrays [N x T] (from Expr::Array literals or stack
+                // arrays) are handled by the `[N x T]` GEP path below.
                 let (cont_val, cont_ty) = self.compile_expr(container)?;
                 let (idx_raw, idx_ty) = self.compile_expr(index)?;
                 let idx = self.val_to_i64(&idx_raw, &idx_ty);
+                // Index into an Expr::Array literal buffer (i8* with length at [0]).
+                // The buffer layout is: [length: i64][elem0: i64][elem1: i64]...
+                // Skip past the leading length slot and read the element at index+1.
+                if cont_ty == "i8*" && matches!(container.as_ref(), Expr::Array(..)) {
+                    let base_ptr = self.fresh_tmp();
+                    self.emitln(&format!("  {base_ptr} = bitcast i8* {cont_val} to i64*"));
+                    // Element is at position index+1 (slot 0 is the length).
+                    let offset = self.fresh_tmp();
+                    self.emitln(&format!("  {offset} = add i64 {idx}, 1"));
+                    let elem_ptr = self.fresh_tmp();
+                    self.emitln(&format!("  {elem_ptr} = getelementptr i64, i64* {base_ptr}, i64 {offset}"));
+                    let elem = self.fresh_tmp();
+                    self.emitln(&format!("  {elem} = load i64, i64* {elem_ptr}"));
+                    return Ok((elem, "i64".to_string()));
+                }
                 // Raw `*T` pointer held in an i64 (a pointer param): inttoptr and read
                 // one byte. Checked before the Str path since these lower to i64.
                 if cont_ty == "i64" && self.is_ptr_local_expr(container) {
@@ -6888,10 +6901,11 @@ impl IrEmitter {
                 Ok((loaded, struct_ty))
             }
             Expr::Array(elems, _) => {
-                // Materialize a fixed `[N]T` array literal into an alloca holding N
-                // i64-widened elements stored contiguously, then return the i8*
-                // pointer to the buffer so the caller (e.g. `is_sorted` / `contains`)
-                // receives real data instead of a stub `("0","i64")`.
+                // Materialize a fixed-size `[N]T` array literal into an i8* buffer
+                // with the length stored at position [0] (for runtime intrinsics like
+                // `is_sorted`/`contains`) and elements at [1..N].  Array-indexing
+                // (`arr[i]`) on literal arrays is handled in the Expr::Index path,
+                // which recognises this layout and skips the leading length slot.
                 let n = elems.len() as i64;
                 let buf = self.fresh_tmp();
                 let alloc_count = n + 1;
@@ -6904,8 +6918,6 @@ impl IrEmitter {
                     let gep = self.fresh_tmp();
                     let idx = (i + 1) as i64;
                     self.emitln(&format!("  {gep} = getelementptr i64, i64* {buf}, i64 {idx}"));
-                    // Coerce the element to i64 for uniform storage (the runtime
-                    // intrinsics compare i64 values).
                     let store_val = self.val_to_i64(&v, &self.infer_llvm_type(e));
                     self.emitln(&format!("  store i64 {store_val}, i64* {gep}"));
                 }
