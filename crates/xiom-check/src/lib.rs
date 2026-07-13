@@ -1156,6 +1156,31 @@ impl Checker {
                 }
             }
         }
+        // Build parent-module entries for dotted names so that process_use
+        // can walk `self.modules.get("xiom") → async → ...`.
+        // Example: registered "xiom.async" → ensure "xiom" contains "async".
+        let module_keys: Vec<String> = self.modules.keys().cloned().collect();
+        let mut parents: HashMap<String, HashMap<String, ModuleExport>> = HashMap::new();
+        for full_key in &module_keys {
+            if let Some(dot_pos) = full_key.find('.') {
+                let parent = &full_key[..dot_pos];
+                let child = &full_key[dot_pos + 1..];
+                if let Some(child_exports) = self.modules.get(full_key).cloned() {
+                    parents.entry(parent.to_string())
+                        .or_insert_with(HashMap::new)
+                        .insert(child.to_string(), ModuleExport::SubModule(child_exports));
+                }
+            }
+        }
+        for (parent, children) in parents {
+            self.modules.entry(parent)
+                .and_modify(|existing| {
+                    for (k, v) in &children {
+                        existing.entry(k.clone()).or_insert(v.clone());
+                    }
+                })
+                .or_insert(children);
+        }
 
         // Prelude: the stdlib exposes a handful of implicit helpers used
         // unqualified across modules — `to_string`/`to_int`/`to_float`/`to_char`
@@ -1653,7 +1678,24 @@ impl Checker {
         // Clone the exports map to avoid borrow conflicts with self.modules.insert below
         let exports = match self.modules.get(module_name).cloned() {
             Some(e) => e,
-            None => return,
+            None => {
+                // First segment not in modules (e.g. "xiom" from `use xiom.async`
+                // when no standalone xiom.xi exists). Load the full path from catalog
+                // and build a parent module entry containing the submodule.
+                let full_path: Vec<String> = ud.path.iter().map(|p| p.name.clone()).collect();
+                let dotted = full_path.join(".");
+                if let Some(cached) = self.catalog.find_owned(&full_path) {
+                    let sub_exports = self.build_module_map(&cached.program.items);
+                    let mut parent = HashMap::new();
+                    // Extract the short submodule name from the last path segment
+                    let short = ud.path.last().map(|p| p.name.clone()).unwrap_or_default();
+                    parent.insert(short, ModuleExport::SubModule(sub_exports));
+                    self.modules.insert(module_name.clone(), parent.clone());
+                    parent
+                } else {
+                    return;
+                }
+            }
         };
 
         // Walk through intermediate path segments (submodules)
