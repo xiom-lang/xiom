@@ -6657,10 +6657,10 @@ impl IrEmitter {
                     let data_ptr = self.fresh_tmp();
                     self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
                     let byte_off = self.fresh_tmp();
-                    self.emitln(&format!("  {byte_off} = mul i64 {idx}, 8"));
+                    self.emitln(&format!("  {byte_off} = mul i64 {idx}, {esz_val}"));
                     let elem_ptr = self.fresh_tmp();
-                            self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
-                            let elem = self.emit_elem_load(&elem_ptr, &esz_val);
+                    self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
+                    let elem = self.emit_elem_load(&elem_ptr, &esz_val);
                     return Ok((elem, "i64".to_string()));
                 }
                 // Fixed-size stack array [N x T]: use the existing alloca for
