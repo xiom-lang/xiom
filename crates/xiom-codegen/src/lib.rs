@@ -3599,17 +3599,34 @@ impl IrEmitter {
                     } else if cont_ty.starts_with('[') && cont_ty.contains(" x ") {
                         let (idx_raw, idx_ty) = self.compile_expr(index)?;
                         let idx = self.val_to_i64(&idx_raw, &idx_ty);
-                        let arr_slot = self.fresh_tmp();
-                        self.emitln(&format!("  {arr_slot} = alloca {cont_ty}"));
-                        self.emitln(&format!("  store {cont_ty} {cont_val}, {cont_ty}* {arr_slot}"));
+                        // Use the existing local alloca when the container is an
+                        // Ident — avoids fresh alloca/load/store on every write.
+                        let mut is_ident = false;
+                        let mut arr_ptr = String::new();
+                        let mut arr_ptr_ty = String::new();
+                        if let Expr::Ident(id) = &**container {
+                            if let Some((slot, _slot_ty)) = self.lookup_local(&id.name).cloned() {
+                                (arr_ptr, arr_ptr_ty) = (slot, format!("{cont_ty}*"));
+                                is_ident = true;
+                            }
+                        }
+                        if !is_ident {
+                            arr_ptr = self.fresh_tmp();
+                            arr_ptr_ty = format!("{cont_ty}*");
+                            self.emitln(&format!("  {arr_ptr} = alloca {cont_ty}"));
+                            self.emitln(&format!("  store {cont_ty} {cont_val}, {cont_ty}* {arr_ptr}"));
+                        }
                         let elem_ptr = self.fresh_tmp();
-                        self.emitln(&format!("  {elem_ptr} = getelementptr {cont_ty}, {cont_ty}* {arr_slot}, i64 0, i64 {idx}"));
+                        self.emitln(&format!("  {elem_ptr} = getelementptr {cont_ty}, {arr_ptr_ty} {arr_ptr}, i64 0, i64 {idx}"));
                         let inner_ty = Self::extract_array_elem_ty(&cont_ty);
                         let store_val = self.coerce_value(&val, &val_ty, &inner_ty);
                         self.emitln(&format!("  store {inner_ty} {store_val}, {inner_ty}* {elem_ptr}"));
-                        let loaded_arr = self.fresh_tmp();
-                        self.emitln(&format!("  {loaded_arr} = load {cont_ty}, {cont_ty}* {arr_slot}"));
-                        self.store_back_to_receiver(container, &loaded_arr, &cont_ty);
+                        if !is_ident {
+                            // Only need load+store_back when using a fresh alloca
+                            let loaded_arr = self.fresh_tmp();
+                            self.emitln(&format!("  {loaded_arr} = load {cont_ty}, {cont_ty}* {arr_ptr}"));
+                            self.store_back_to_receiver(container, &loaded_arr, &cont_ty);
+                        }
                     } else if cont_ty == "i8*" {
                         // Raw byte-buffer store: `buf[i] = v` where `buf: *UInt8`.
                         // The element is one byte; truncate the value to i8. Without
@@ -6352,13 +6369,29 @@ impl IrEmitter {
                     self.emitln(&format!("  {elem} = load i64, i64* {elem_i64_ptr}"));
                     return Ok((elem, "i64".to_string()));
                 }
-                // Fixed-size stack array [N x T]: stash into an alloca and GEP.
+                // Fixed-size stack array [N x T]: use the existing alloca for
+                // Ident containers (no fresh alloca per access) or stash into an
+                // alloca and GEP for non-local array values.
                 if cont_ty.starts_with('[') && cont_ty.contains(" x ") {
-                    let arr_slot = self.fresh_tmp();
-                    self.emitln(&format!("  {arr_slot} = alloca {cont_ty}"));
-                    self.emitln(&format!("  store {cont_ty} {cont_val}, {cont_ty}* {arr_slot}"));
+                    let (arr_ptr, arr_ptr_ty) = if let Expr::Ident(id) = &**container {
+                        if let Some((slot, _slot_ty)) = self.lookup_local(&id.name) {
+                            // Use the existing alloca pointer directly — avoids
+                            // creating a fresh alloca on every loop iteration.
+                            (slot.clone(), format!("{cont_ty}*"))
+                        } else {
+                            let arr_slot = self.fresh_tmp();
+                            self.emitln(&format!("  {arr_slot} = alloca {cont_ty}"));
+                            self.emitln(&format!("  store {cont_ty} {cont_val}, {cont_ty}* {arr_slot}"));
+                            (arr_slot, format!("{cont_ty}*"))
+                        }
+                    } else {
+                        let arr_slot = self.fresh_tmp();
+                        self.emitln(&format!("  {arr_slot} = alloca {cont_ty}"));
+                        self.emitln(&format!("  store {cont_ty} {cont_val}, {cont_ty}* {arr_slot}"));
+                        (arr_slot, format!("{cont_ty}*"))
+                    };
                     let elem_ptr = self.fresh_tmp();
-                    self.emitln(&format!("  {elem_ptr} = getelementptr {cont_ty}, {cont_ty}* {arr_slot}, i64 0, i64 {idx}"));
+                    self.emitln(&format!("  {elem_ptr} = getelementptr {cont_ty}, {arr_ptr_ty} {arr_ptr}, i64 0, i64 {idx}"));
                     let inner_ty = Self::extract_array_elem_ty(&cont_ty);
                     let elem = self.fresh_tmp();
                     self.emitln(&format!("  {elem} = load {inner_ty}, {inner_ty}* {elem_ptr}"));
