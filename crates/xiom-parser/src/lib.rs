@@ -170,6 +170,11 @@ impl Parser {
             }
             TokenKind::Var => self.parse_module_var(),
             TokenKind::Extern => self.parse_extern_block(),
+            // `async` is a contextual keyword: when followed by `fn`, it
+            // triggers async-fn parsing (delegated to parse_fn_decl).
+            TokenKind::Ident(s) if s == "async" && self.peek_ahead(1) == Some(&TokenKind::Fn) => {
+                self.parse_fn_decl(is_pub, Some(true))
+            }
             _ => Err(self.error(format!("expected declaration, found '{}'", self.peek().lexeme))),
         }
     }
@@ -1018,8 +1023,37 @@ impl Parser {
                         },
                         _ => false,
                     };
-                    let is_type_like = is_type_name && matches!(self.peek_kind(), TokenKind::Ident(_));
+                    // `fn`, `*`, `&`, `[`, `(` can start types inside brackets.
+                    let peek_is_type_start = matches!(
+                        self.peek_kind(),
+                        TokenKind::Ident(_) | TokenKind::Fn | TokenKind::Star
+                            | TokenKind::Ampersand | TokenKind::LBracket | TokenKind::LParen
+                    );
+                    let is_type_like = is_type_name && peek_is_type_start;
                     if is_type_like {
+                        // When the first token inside brackets is `fn`, it is
+                        // unequivocally a function type (e.g. `Vec[fn()]`).  Parse
+                        // it as a type argument directly — no heuristic needed.
+                        if matches!(self.peek_kind(), TokenKind::Fn | TokenKind::Star
+                            | TokenKind::Ampersand | TokenKind::LBracket | TokenKind::LParen)
+                        {
+                            let mut type_args = vec![self.parse_type()?];
+                            while self.skip(TokenKind::Comma) { type_args.push(self.parse_type()?); }
+                            self.expect_kind(TokenKind::RBracket, "']'")?;
+                            let type_exprs: Vec<Expr> = type_args.iter().map(|t| {
+                                match t {
+                                    Type::Named(id, _) => Expr::Ident(id.clone()),
+                                    _ => Expr::Ident(Ident::new("_", self.peek().span)),
+                                }
+                            }).collect();
+                            let args_expr = if type_exprs.len() == 1 {
+                                type_exprs.into_iter().next().unwrap()
+                            } else {
+                                Expr::Tuple(type_exprs, self.peek().span)
+                            };
+                            expr = Expr::Index(Box::new(expr.clone()), Box::new(args_expr), self.peek().span);
+                            continue;
+                        }
                         let after_first = self.peek_ahead(1);
                         let looks_like_type_args = matches!(after_first, Some(TokenKind::Colon) | Some(TokenKind::Comma) | Some(TokenKind::LBrace) | Some(TokenKind::LBracket) | Some(TokenKind::RBracket));
                         if looks_like_type_args {

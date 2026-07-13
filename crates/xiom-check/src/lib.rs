@@ -1707,7 +1707,6 @@ impl Checker {
                 // when no standalone xiom.xi exists). Load the full path from catalog
                 // and build a parent module entry containing the submodule.
                 let full_path: Vec<String> = ud.path.iter().map(|p| p.name.clone()).collect();
-                let dotted = full_path.join(".");
                 if let Some(cached) = self.catalog.find_owned(&full_path) {
                     let sub_exports = self.build_module_map(&cached.program.items);
                     let mut parent = HashMap::new();
