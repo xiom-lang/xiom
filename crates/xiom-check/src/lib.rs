@@ -1772,7 +1772,15 @@ impl Checker {
     /// Returns None if the path doesn't resolve to a pub function.
     fn resolve_module_function(&self, path: &[String]) -> Option<&FnSig> {
         let module_name = &path[0];
-        let exports = self.modules.get(module_name)?;
+        // Try modules first, then imported_items (short names from `use`)
+        let exports = self.modules.get(module_name).or_else(|| {
+            self.imported_items.get(module_name).and_then(|export| {
+                match export {
+                    ModuleExport::SubModule(exports) => Some(exports),
+                    _ => None,
+                }
+            })
+        })?;
         let mut current_exports = exports;
         for i in 1..path.len() - 1 {
             let seg = &path[i];
@@ -1818,7 +1826,18 @@ impl Checker {
         }
 
         let module_name = &path[0];
-        let exports = self.modules.get(module_name)?;
+        // First try `modules` (full module paths), then fall back to
+        // `imported_items` (short names from `use` declarations).
+        // `use xiom.async` inserts "async" → SubModule(exports) into
+        // imported_items but not into modules.
+        let exports = self.modules.get(module_name).or_else(|| {
+            self.imported_items.get(module_name).and_then(|export| {
+                match export {
+                    ModuleExport::SubModule(exports) => Some(exports),
+                    _ => None,
+                }
+            })
+        })?;
         let mut current_exports = exports;
         for i in 1..path.len() - 1 {
             let seg = &path[i];
