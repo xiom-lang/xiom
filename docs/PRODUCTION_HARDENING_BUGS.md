@@ -6,15 +6,22 @@ State: 37/37 deterministic smoke, 84/84 e2e, all regression gates green
 
 ---
 
-## BUG-001: SHA-256 produces wrong hashes (ALGORITHM)
+## BUG-001: SHA-256 produces wrong hashes (CODEGEN — Long While-Loop)
 
 **Severity:** HIGH (correctness — cryptographic hash wrong)
-**Status:** OPEN — root cause not found after extensive debugging
+**Status:** OPEN — root cause narrowed to codegen issue with long while-loops
 
 ### Symptoms
 - `sha256_hex("")` produces hex string that does NOT match `e3b0c4...`
 - `sha256_hex("abc")` does NOT match `ba7816bf...`
 - Determinism test passes: `sha256(data) == sha256(data)` (consistent, just wrong)
+
+### Critical Finding (2026-07-13 round 2)
+**Round 0-9 verified PERFECT against Python reference.** After round ~10-19, the state diverges:
+- Round 9 (10 iterations): `a=0xefe8bf51, e=0x53072289` ✓
+- Round 19 (20 iterations): should be `a=0x0a480908, e=0x900d27ac` but XIOM produces DIFFERENT values ✗
+
+**This is a CODEGEN BUG in how XIOM compiles long-running while-loops.** The exact same arithmetic in a 10-iteration loop produces correct results; the same arithmetic in a 64-iteration loop does not. The loop body is identical — only the iteration count differs.
 
 ### Verified Correct
 - [x] `_SHA256_INIT` constants match RFC 6234
@@ -24,30 +31,32 @@ State: 37/37 deterministic smoke, 84/84 e2e, all regression gates green
 - [x] `_u32_rotr` tested in isolation — rotate right correct
 - [x] `_u32_shr` tested — unsigned right shift via division correct
 - [x] `_u32_shl` tested — left shift via multiplication correct
-- [x] `_sha256_sigma0/1` formulas match RFC
-- [x] `_sha256_eps0/1` formulas match RFC
-- [x] `_sha256_ch` formula matches RFC
-- [x] `_sha256_maj` formula matches RFC
-- [x] Main round loop matches RFC step-by-step
+- [x] All round operations verified for rounds 0-9 against Python reference
 - [x] Byte assembly (big-endian) matches RFC
 - [x] Hex encoding (`sha256_hex`) produces correct hex for known byte values
+- [x] Large loop body (same as SHA-256 round) with 64 iterations using simple values — correct
+- [x] All function calls inlined — no change (rules out function-call aliasing)
+- [x] Loop split into 4×16 chunks — no change
+- [x] Array-based `s[8]` vs separate `a-h` variables — no change
+- [x] Word expansion w[0..63] verified correct
+- [x] `i64` multiplication never overflows (max shift verified)
 
-### Hypothesis
-The bug is likely in XIOM codegen behavior affecting 32-bit arithmetic across 64 composed rounds. Individual operations test correctly, but the full composition produces wrong state updates. Possible causes:
+### Root Cause Hypothesis
+The 64-round while loop triggers a codegen optimization that incorrectly aliases temporary alloca slots. With 64 iterations, the compiler reuses stack slots for temporaries, and somewhere around iteration 10-19, two temporaries that should be DISTINCT end up sharing the same alloca, causing one value to overwrite another.
 
-1. **Variable aliasing in while loop**: `a`, `b`, `c`, `d`, `e`, `f`, `g`, `h` are reassigned each iteration. If the codegen aliases the alloca incorrectly, later assignments might shadow earlier values.
-2. **Array writes via `_u32_add`**: `state[0] = _u32_add(state[0], a)` — the `_u32_add` call evaluates `state[0]` as an argument. If `state[0]` is mutated by the function call itself (side effect from temp variable collision), the addition would use wrong values.
-3. **i64 sign extension in ~ operator**: `~x` on 32-bit positive values produces 64-bit NOT. Masking with `_u32_mask` at end should handle this, but intermediate values might exceed i64 range.
+### Attempted Fixes (all failed)
+1. **C runtime integration**: Replaced no-op `xiom_shani_sha256_compress` with software SHA-256 → crashed (ACCESS_VIOLATION). Pointer/linking issue.
+2. **Function call inlining**: All helper functions inlined in loop body → no change
+3. **Loop chunking**: 64→4×16 → no change
+4. **Separate temporaries**: `s0old..s7old` read before writes → no change
+5. **Vec[Int] for w**: Replaced fixed-size array → no change
 
-### Attempted Fixes
-1. **C runtime integration**: Replaced no-op `xiom_shani_sha256_compress` with software SHA-256 → crashed (ACCESS_VIOLATION 0xC0000005). Likely pointer/linking issue between XIOM malloc'd buffers and C function.
-2. **Vec[elem_size] change**: Made Vec[UInt8] store bytes compactly (1 byte each) → correct behavior, no crash, but still wrong hashes (algorithm unaffected by storage layout).
-
-### Next Steps
-1. Add intermediate-value logging to C runtime SHA-256 (compiled separately)
-2. Test with known intermediate values (after round 0, round 1, etc.)
-3. Investigate variable aliasing in while-loop bodies (codegen temp allocation)
-4. Try implementing SHA-256 in a separate XIOM module to isolate from crypto.xi
+### Next Steps (in priority order)
+1. **Disable LLVM optimizations** for `_sha256_block` function — test with `-O0`
+2. **Check IR for alloca reuse**: Compare IR of 10-round vs 64-round version
+3. **Add `volatile`-like barriers**: Force all variables to stack after each round
+4. **Manual unrolling**: Write 64 rounds as 64 sequential blocks (no loop)
+5. **C FFI bridge**: Write SHA-256 compression in C, link as separate object file
 
 ### Test File
 `examples/stdlib_smoke/smoke_crypto_known_vectors.xi` — known-vector tests, expected to fail
