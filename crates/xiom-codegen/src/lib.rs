@@ -6835,6 +6835,14 @@ impl IrEmitter {
                         return Some(key.clone());
                     }
                 }
+                // Fallback: search generic_type_names — generic types may not
+                // be in type_meta (injection chain can block Type while allowing
+                // its methods), but they ARE registered as structs (e.g. Map[K,V]).
+                for key in self.generic_type_names.iter() {
+                    if key.ends_with(&format!(".{}", ident.name)) || key == &ident.name {
+                        return Some(key.clone());
+                    }
+                }
                 None
             }
             Expr::Struct(ident, _, _, _) => {
@@ -6857,6 +6865,13 @@ impl IrEmitter {
                     }
                     for key in self.type_meta.keys() {
                         if key.ends_with(&format!(".{}", field.name)) {
+                            return Some(key.clone());
+                        }
+                    }
+                    // Fallback: search generic_type_names for generic types
+                    // whose Type declaration may not be in type_meta
+                    for key in self.generic_type_names.iter() {
+                        if key.ends_with(&format!(".{}", field.name)) || key == &field.name {
                             return Some(key.clone());
                         }
                     }

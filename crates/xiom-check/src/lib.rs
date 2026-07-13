@@ -1266,7 +1266,7 @@ impl Checker {
             "Bool", "Int", "Int8", "Int16", "Int32", "Int64",
             "UInt", "UInt8", "UInt16", "UInt32", "UInt64",
             "Float32", "Float64", "Char", "Str", "()", "!",
-            "Option", "Result", "Vec", "Slice", "Map", "Set",
+            "Option", "Result", "Vec", "Slice", "Set",
             "Ptr", "Array", "Tuple", "fn", "Tuple2",
         ];
 
