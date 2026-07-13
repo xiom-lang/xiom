@@ -495,7 +495,16 @@ impl IrEmitter {
             return t;
         }
         // Non-struct scalar -> struct (e.g. i64 discriminant -> single-field enum).
+        // If the scalar is i64, assume it's a pointer to a heap-allocated struct
+        // (e.g. from Result::unwrap returning an enum value) and load it.
         if to.starts_with("%struct.") && !from.starts_with("%struct.") {
+            if from == "i64" {
+                let typed_ptr = self.fresh_tmp();
+                let loaded = self.fresh_tmp();
+                self.emitln(&format!("  {typed_ptr} = inttoptr i64 {val} to {to}*"));
+                self.emitln(&format!("  {loaded} = load {to}, {to}* {typed_ptr}"));
+                return loaded;
+            }
             return self.val_to_struct(val, from, to);
         }
         // Struct -> non-struct scalar: extract the leading i64 field (an enum
@@ -6210,11 +6219,17 @@ impl IrEmitter {
                             // Check if the generic function declaration has a self param.
                             // Methods like Map.insert(key, value) have receiver type
                             // but no self param — don't pass the receiver instance.
+                            // For generic functions in generic_fn_decls, check if the
+                            // declaration has a self param. For non-generic methods
+                            // (not in generic_fn_decls), default to true — the
+                            // has_receiver_in_params check above handles the rest.
                             let generic_has_self = self.generic_fn_decls.iter()
                                 .find(|(k, _)| k == &fn_key)
                                 .map(|(_, fd)| fd.params.iter().any(|p| p.name.name == "self"))
-                                .unwrap_or(false);
-                            if is_instance && generic_has_self {
+                                .unwrap_or(true);
+                            // Pass the receiver if it's an instance AND either the
+                            // signature includes a self param or the generic decl does.
+                            if is_instance && (has_receiver_in_params || generic_has_self) {
                                 let (recv_val, recv_llvm_ty) = self.compile_expr(receiver)?;
                                 // If callee expects a pointer self (&mut Struct),
                                 // pass the receiver's alloca address instead.
@@ -6313,15 +6328,18 @@ impl IrEmitter {
                     // Fallback: when the resolved key is not a known function (e.g.
                     // "is_match" from an i64-typed receiver), search for any registered
                     // function whose name ends with ".method_name" (e.g. "Regex.is_match").
-                    // IMPORTANT: for bare function calls (no "." in key), only match bare
-                    // function names — do NOT match instance methods (Receiver.method).
+                    // IMPORTANT: for bare function calls (no "." in key AND no receiver),
+                    // only match bare function names — do NOT match instance methods.
+                    // Method calls (receiver_expr is Some) may resolve through this path
+                    // when the receiver type is i64 (not a named struct), so the bare-call
+                    // skip must NOT apply.
                     if !self.functions.contains_key(&resolved_fn_key) {
                         let suffix = format!(".{fn_name}");
                         let mut found = String::new();
-                        let is_bare_call = !resolved_fn_key.contains('.');
+                        let is_bare_call = !resolved_fn_key.contains('.') && receiver_expr.is_none();
                         for key in self.functions.keys() {
                             if key.ends_with(&suffix) {
-                                // Skip method names when resolving bare calls
+                                // Skip method names when resolving truly bare calls
                                 if is_bare_call && key.contains('.') {
                                     continue;
                                 }
