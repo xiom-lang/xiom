@@ -379,30 +379,54 @@ impl ModuleCatalog {
         let source = std::fs::read_to_string(file_path).ok()?;
         let mut chars = source.chars().peekable();
 
-        // Skip any initial whitespace / comments
+        // Skip any initial whitespace / comments, and also skip file-level
+        // `use` / `extern` / `const` preamble statements that may appear
+        // before the `module` declaration (e.g. async.xi has use before module).
         let mut buf = String::new();
         loop {
-            match chars.peek() {
-                None => return None,
-                Some(&c) if c.is_whitespace() => { chars.next(); }
-                Some(&'/') => {
+            // Skip whitespace
+            while chars.peek().map_or(false, |c| c.is_whitespace()) { chars.next(); }
+            // Skip line comments
+            if chars.peek() == Some(&'/') {
+                chars.next();
+                if chars.peek() == Some(&'/') {
+                    while let Some(&c) = chars.peek() { chars.next(); if c == '\n' { break; } }
+                    continue;
+                } else if chars.peek() == Some(&'*') {
                     chars.next();
-                    if chars.peek() == Some(&'/') {
-                        while let Some(&c) = chars.peek() { chars.next(); if c == '\n' { break; } }
-                    } else if chars.peek() == Some(&'*') {
-                        chars.next(); // skip *
-                        loop {
-                            match chars.next() {
-                                None => return None,
-                                Some('*') if chars.peek() == Some(&'/') => { chars.next(); break; }
-                                _ => {}
-                            }
+                    loop {
+                        match chars.next() {
+                            None => return None,
+                            Some('*') if chars.peek() == Some(&'/') => { chars.next(); break; }
+                            _ => {}
                         }
-                    } else {
-                        return None;
                     }
+                    continue;
+                } else {
+                    return None;
                 }
-                _ => break,
+            }
+            // Skip preamble statements before the module keyword
+            match chars.peek() {
+                Some(&'u') => {
+                    // skip `use ...;`
+                    while let Some(c) = chars.next() { if c == ';' { break; } }
+                }
+                Some(&'e') => {
+                    // skip `extern ...}`
+                    while let Some(c) = chars.next() { if c == '}' { break; } }
+                }
+                Some(&'c') => {
+                    // skip `const ...;`
+                    while let Some(c) = chars.next() { if c == ';' { break; } }
+                }
+                Some(&'p') => {
+                    // skip `pub ...;`  (pub use, pub const, etc.)
+                    while let Some(c) = chars.next() { if c == ';' { break; } }
+                }
+                Some(&'m') => break, // found `module`
+                None => return None,
+                _ => return None, // unexpected token before module
             }
         }
 
@@ -1753,11 +1777,34 @@ impl Checker {
             let item_name = &ud.path.last().unwrap().name;
             let export = match current.get(item_name) {
                 Some(e) => e.clone(),
-                None => return,
+                None => {
+                    // Not found in current module — try loading the full dotted
+                    // path from catalog (e.g. "xiom.async" when the parent module
+                    // "xiom" is incomplete or the submodule wasn't pre-indexed).
+                    let full_path: Vec<String> = ud.path.iter().map(|p| p.name.clone()).collect();
+                    if let Some(cached) = self.catalog.find_owned(&full_path) {
+                        let module_exports = self.build_module_map(&cached.program.items);
+                        let local_name = ud.alias.as_ref()
+                            .map(|a| a.name.clone())
+                            .unwrap_or_else(|| item_name.clone());
+                        let export = ModuleExport::SubModule(module_exports);
+                        self.modules.entry(local_name.clone()).or_insert_with(|| {
+                            if let ModuleExport::SubModule(ref s) = export { s.clone() } else { HashMap::new() }
+                        });
+                        self.imported_items.insert(local_name, export);
+                        return; // Already fully handled
+                    }
+                    return;
+                }
             };
             let local_name = ud.alias.as_ref()
                 .map(|a| a.name.clone())
                 .unwrap_or_else(|| item_name.clone());
+            // Register SubModules in both imported_items (for type paths)
+            // and modules (for expression paths like `async.Executor.new()`)
+            if let ModuleExport::SubModule(sub_exports) = &export {
+                self.modules.entry(local_name.clone()).or_insert_with(|| sub_exports.clone());
+            }
             self.imported_items.insert(local_name, export);
         }
     }
