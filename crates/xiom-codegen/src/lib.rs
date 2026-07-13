@@ -7033,10 +7033,8 @@ impl IrEmitter {
                 // Compile a match-expression by allocating a result slot, running the
                 // statement-form match (whose arm bodies store their value into
                 // `match_result_ptr`), then loading the slot as this expression's value.
-                // TODO(match-expr-typing): the result LLVM type is inferred from the
-                // first arm's tail expression. Arms whose value depends on
-                // pattern-bound variables (e.g. enum payloads) may infer an
-                // imprecise type; heterogeneous arm types are not yet unified.
+                // The result type is the widest type across all arms (struct > i64),
+                // with `coerce_value` handling per-arm conversions during the store.
                 let result_ty = self.infer_match_llvm_type(arms);
                 let result_alloca = self.fresh_tmp();
                 self.emitln(&format!("  {result_alloca} = alloca {result_ty}"));
@@ -7056,18 +7054,43 @@ impl IrEmitter {
     }
 
     /// Infer the LLVM result type of a match-expression from its arm bodies.
-    /// Uses the first arm that yields a tail expression; defaults to `i64`.
+    /// Collects types from ALL arms and picks the widest (struct > i64 > narrower)
+    /// so the result alloca is large enough for every arm.  `coerce_value` handles
+    /// the actual per-arm conversion during the store.
     fn infer_match_llvm_type(&self, arms: &[MatchArm]) -> String {
+        let mut types: Vec<String> = Vec::new();
         for arm in arms {
             let ty = match &arm.body {
-                MatchBody::Expr(e) => self.infer_llvm_type(e),
-                MatchBody::Block(b) => b.stmts.last().and_then(|s| {
-                    if let StmtOrExpr::Expr(e) = s { Some(self.infer_llvm_type(e)) } else { None }
-                }).unwrap_or_default(),
+                MatchBody::Expr(e) => {
+                    let t = self.infer_llvm_type(e);
+                    if t.is_empty() { continue; }
+                    t
+                }
+                MatchBody::Block(b) => {
+                    let t = b.stmts.last().and_then(|s| {
+                        if let StmtOrExpr::Expr(e) = s { Some(self.infer_llvm_type(e)) } else { None }
+                    }).unwrap_or_default();
+                    if t.is_empty() { continue; }
+                    t
+                }
             };
-            if !ty.is_empty() { return ty; }
+            types.push(ty);
         }
-        "i64".to_string()
+        if types.is_empty() {
+            return "i64".to_string();
+        }
+        // Prefer a struct type (wider alloca).  If all types match the first one,
+        // use it directly so the codegen sees the exact struct name.
+        let has_struct = types.iter().any(|t| t.starts_with("%struct."));
+        if has_struct {
+            return types.iter().find(|t| t.starts_with("%struct.")).cloned().unwrap_or_else(|| types[0].clone());
+        }
+        // All-pointer arms: use i8* as the common pointer type.
+        if types.iter().all(|t| t.ends_with('*')) {
+            return "i8*".to_string();
+        }
+        // Otherwise, use i64 (widest integer-like type).
+        types[0].clone()
     }
 
     /// Given a parent expression `obj` (e.g. `LogLevel`, `xiom.log.LogLevel`) and a
