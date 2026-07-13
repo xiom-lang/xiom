@@ -66,7 +66,7 @@ The 64-round while loop triggers a codegen optimization that incorrectly aliases
 ## BUG-002: async module inaccessible from bare modules (LANGUAGE)
 
 **Severity:** MEDIUM (env-dependent module)
-**Status:** OPEN — language feature needed
+**Status:** **RESOLVED** (commit `94d148f`) — parser now handles fn() type args + async contextual keyword
 
 ### Root Cause
 `async` is a reserved keyword (`TokenKind::Async` in lexer, line 20 of `crates/xiom-lexer/src/lib.rs`). The parser uses `TokenKind::Async` in function declaration parsing (lines 167, 385 of `crates/xiom-parser/src/lib.rs`). Module paths containing `async` (e.g., `xiom.async.Executor`) cannot be lexed as identifiers.
@@ -88,10 +88,17 @@ The 64-round while loop triggers a codegen optimization that incorrectly aliases
 - Parser checks for `Ident("async")` followed by `TokenKind::Fn` to trigger async-fn
 - Result: `use xiom.async` imports work; `async.Executor` as type path works
 
-### Remaining (BUG-002a)
-- Expression resolution in checker treats module paths differently from type paths
-- `async.Executor.new()` fails with "undefined variable 'async'"
-- Needs checker fix to resolve module-qualified expression paths
+### Remaining (BUG-002a) — RESOLVED (commit `94d148f`)
+- Expression resolution now works.
+- **Root cause:** Parser couldn't handle `fn()` as a type argument inside `[T]` brackets.
+  The LBracket handler in `parse_postfix_expr` only accepted `TokenKind::Ident` as valid
+  type-starts. `Vec[fn()].new()` inside the async module triggered a parse error,
+  preventing the module from loading via the catalog cascade.
+- **Fix:** Extended `is_type_like` to accept `Fn`, `Star`, `Ampersand`, `LBracket`,
+  `LParen` as valid type-starting tokens inside brackets. Also fixed `parse_top_decl`
+  to route `Ident("async")` to `parse_fn_decl`.
+- **Result:** `stdlib/xiom/async.xi` loads, `process_use` registers "async" in
+  `modules` and `imported_items`, and `async.Executor.new()` compiles + executes.
 
 ---
 
