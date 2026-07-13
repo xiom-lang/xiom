@@ -921,9 +921,34 @@ impl IrEmitter {
                 ("Ok".to_string(), vec!["value".to_string()]),
             ]);
         }
-        // Register Vec type for runtime operations
-        if !self.types.contains_key("Vec") {
-            self.types.insert("Vec".to_string(), vec!["data".to_string(), "len".to_string(), "cap".to_string()]);
+        // Register Vec type for runtime operations — ensure 4 fields
+        // (data, len, cap, elem_size). The elem_size field tracks the
+        // element byte width so narrow types (UInt8→1, Int16→2, etc.)
+        // work correctly in push/pop/get/index operations.
+        // Vec may be registered under "Vec" or "xiom.collections.Vec"
+        // or may not be in type_meta at all (generic type skipped).
+        {
+            let fields = vec!["data".to_string(), "len".to_string(), "cap".to_string(), "elem_size".to_string()];
+            let full_fields: Vec<(String, String)> = vec![
+                ("data".to_string(), "*UInt8".to_string()),
+                ("len".to_string(), "Int".to_string()),
+                ("cap".to_string(), "Int".to_string()),
+                ("elem_size".to_string(), "Int".to_string()),
+            ];
+            self.types.insert("Vec".to_string(), fields);
+            // Ensure type_meta has a Vec entry so the struct is emitted
+            self.type_meta.entry("Vec".to_string()).or_insert_with(|| TypeMeta {
+                fields: full_fields.clone(),
+                derives: Vec::new(),
+                invariants: Vec::new(),
+            });
+            for key in &["xiom.collections.Vec".to_string()] {
+                if let Some(meta) = self.type_meta.get_mut(key) {
+                    if meta.fields.len() < 4 {
+                        meta.fields.push(("elem_size".to_string(), "Int".to_string()));
+                    }
+                }
+            }
         }
 
         // Register type structures
@@ -942,8 +967,9 @@ impl IrEmitter {
         self.emitln(&format!("target triple = \"{}\"", self.target_triple));
         self.emitln("");
 
-        // Emit builtin struct types FIRST so user types can reference them
-        self.emitln("%struct.Vec = type { i8*, i64, i64 }");
+        // Emit builtin struct types FIRST so user types can reference them.
+        // Vec is emitted from type_meta (with elem_size if registered via
+        // the code below) — NOT hardcoded so narrow-type Vecs get correct layout.
         self.emitln("");
 
         // Emit struct type definitions using actual field types from type_meta
@@ -3611,17 +3637,20 @@ impl IrEmitter {
                         let vslot = self.fresh_tmp();
                         self.emitln(&format!("  {vslot} = alloca %struct.Vec"));
                         self.emitln(&format!("  store %struct.Vec {vec_val}, %struct.Vec* {vslot}"));
+                        // Load elem_size from field 3
+                        let esz_gep = self.fresh_tmp();
+                        let esz_val = self.fresh_tmp();
+                        self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {vslot}, i32 0, i32 3"));
+                        self.emitln(&format!("  {esz_val} = load i64, i64* {esz_gep}"));
                         let data_gep = self.fresh_tmp();
                         self.emitln(&format!("  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {vslot}, i32 0, i32 0"));
                         let data_ptr = self.fresh_tmp();
                         self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
                         let byte_off = self.fresh_tmp();
-                        self.emitln(&format!("  {byte_off} = mul i64 {idx}, 8"));
+                        self.emitln(&format!("  {byte_off} = mul i64 {idx}, {esz_val}"));
                         let elem_ptr = self.fresh_tmp();
                         self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
-                        let elem_i64_ptr = self.fresh_tmp();
-                        self.emitln(&format!("  {elem_i64_ptr} = bitcast i8* {elem_ptr} to i64*"));
-                        self.emitln(&format!("  store i64 {store_i64}, i64* {elem_i64_ptr}"));
+                        self.emit_elem_store(&store_i64, &elem_ptr, &esz_val);
                     } else if cont_ty.starts_with('[') && cont_ty.contains(" x ") {
                         let (idx_raw, idx_ty) = self.compile_expr(index)?;
                         let idx = self.val_to_i64(&idx_raw, &idx_ty);
@@ -5445,10 +5474,29 @@ impl IrEmitter {
                         _ => None,
                     };
                     if recv_ident == Some("Vec") && fn_name == "new" {
+                            // Determine element size from the type argument.
+                            // Vec[UInt8] → 1, Vec[Int16] → 2, Vec[Int32] → 4, default → 8.
+                            let elem_size: i64 = if let Some(type_arg) = type_arg {
+                                let type_name = match type_arg {
+                                    Expr::Ident(id) => id.name.clone(),
+                                    Expr::Tuple(elems, _) => elems.first()
+                                        .map(|e| match e { Expr::Ident(id) => id.name.clone(), _ => "Int".to_string() })
+                                        .unwrap_or_else(|| "Int".to_string()),
+                                    _ => "Int".to_string(),
+                                };
+                                match type_name.as_str() {
+                                    "UInt8" | "Int8" | "Char" | "Bool" => 1,
+                                    "Int16" | "UInt16" => 2,
+                                    "Int32" | "UInt32" | "Float32" => 4,
+                                    _ => 8,
+                                }
+                            } else { 8 };
+                            let initial_cap: i64 = 16;
+                            let alloc_size = initial_cap * elem_size;
                             let struct_alloca = self.fresh_tmp();
                             self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
                             let data_ptr = self.fresh_tmp();
-                            self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 128)"));
+                            self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 {alloc_size})"));
                             // Null check on malloc — trap on OOM
                             let null_check = self.fresh_tmp();
                             let ok_block = self.fresh_block("vec_new_malloc_ok");
@@ -5467,7 +5515,10 @@ impl IrEmitter {
                             self.emitln(&format!("  store i64 0, i64* {len_gep}"));
                             let cap_gep = self.fresh_tmp();
                             self.emitln(&format!("  {cap_gep} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 2"));
-                            self.emitln(&format!("  store i64 16, i64* {cap_gep}"));
+                            self.emitln(&format!("  store i64 {initial_cap}, i64* {cap_gep}"));
+                            let esz_gep = self.fresh_tmp();
+                            self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 3"));
+                            self.emitln(&format!("  store i64 {elem_size}, i64* {esz_gep}"));
                             let loaded = self.fresh_tmp();
                             self.emitln(&format!("  {loaded} = load %struct.Vec, %struct.Vec* {struct_alloca}"));
                             return Ok((loaded, "%struct.Vec".to_string()));
@@ -5498,6 +5549,11 @@ impl IrEmitter {
                         let cap_val = self.fresh_tmp();
                         self.emitln(&format!("  {cap_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 2"));
                         self.emitln(&format!("  {cap_val} = load i64, i64* {cap_gep}"));
+                        // Load elem_size from field 3 — used for byte-offset calculations
+                        let esz_gep = self.fresh_tmp();
+                        let esz_val = self.fresh_tmp();
+                        self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 3"));
+                        self.emitln(&format!("  {esz_val} = load i64, i64* {esz_gep}"));
                         let cap_check = self.fresh_tmp();
                         self.emitln(&format!("  {cap_check} = icmp ult i64 {len_val}, {cap_val}"));
                         let grow_block = self.fresh_block("vec_grow");
@@ -5517,7 +5573,7 @@ impl IrEmitter {
                         self.emitln("  unreachable");
                         self.emitln(&format!("\n{cap_ok_cont}:"));
                         let new_size = self.fresh_tmp();
-                        self.emitln(&format!("  {new_size} = mul i64 {new_cap}, 8"));
+                        self.emitln(&format!("  {new_size} = mul i64 {new_cap}, {esz_val}"));
                         let grow_data_gep = self.fresh_tmp();
                         let grow_data_ptr = self.fresh_tmp();
                         self.emitln(&format!("  {grow_data_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 0"));
@@ -5545,10 +5601,12 @@ impl IrEmitter {
                         self.emitln(&format!("  {store_data_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 0"));
                         self.emitln(&format!("  {store_data_ptr} = load i8*, i8** {store_data_gep}"));
                         let offset = self.fresh_tmp();
-                        self.emitln(&format!("  {offset} = mul i64 {len_val}, 8"));
+                        self.emitln(&format!("  {offset} = mul i64 {len_val}, {esz_val}"));
                         let dest = self.fresh_tmp();
                         self.emitln(&format!("  {dest} = getelementptr i8, i8* {store_data_ptr}, i64 {offset}"));
-                        self.emitln(&format!("  store i64 {val}, i64* {dest}"));
+                        // Store with the correct element width: narrow types (UInt8/Char)
+                        // use truncated stores to avoid overwriting adjacent elements.
+                        self.emit_elem_store(&val, &dest, &esz_val);
                         let new_len = self.fresh_tmp();
                         self.emitln(&format!("  {new_len} = add i64 {len_val}, 1"));
                         self.emitln(&format!("  store i64 {new_len}, i64* {len_gep}"));
@@ -5604,18 +5662,20 @@ impl IrEmitter {
                             let new_len = self.fresh_tmp();
                             self.emitln(&format!("  {new_len} = sub i64 {len_val}, 1"));
                             self.emitln(&format!("  store i64 {new_len}, i64* {len_gep}"));
+                            // Load elem_size for byte-offset
+                            let esz_gep = self.fresh_tmp();
+                            let esz_val = self.fresh_tmp();
+                            self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 3"));
+                            self.emitln(&format!("  {esz_val} = load i64, i64* {esz_gep}"));
                             let data_gep = self.fresh_tmp();
                             self.emitln(&format!("  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 0"));
                             let data_ptr = self.fresh_tmp();
                             self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
                             let byte_off = self.fresh_tmp();
-                            self.emitln(&format!("  {byte_off} = mul i64 {new_len}, 8"));
+                            self.emitln(&format!("  {byte_off} = mul i64 {new_len}, {esz_val}"));
                             let elem_ptr = self.fresh_tmp();
                             self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
-                            let elem_i64_ptr = self.fresh_tmp();
-                            self.emitln(&format!("  {elem_i64_ptr} = bitcast i8* {elem_ptr} to i64*"));
-                            let elem = self.fresh_tmp();
-                            self.emitln(&format!("  {elem} = load i64, i64* {elem_i64_ptr}"));
+                            let elem = self.emit_elem_load(&elem_ptr, &esz_val);
                             let some_disc = self.fresh_tmp();
                             self.emitln(&format!("  {some_disc} = getelementptr %struct.Option, %struct.Option* {opt_alloca}, i32 0, i32 0"));
                             self.emitln(&format!("  store i64 1, i64* {some_disc}"));
@@ -5673,18 +5733,20 @@ impl IrEmitter {
                             self.emitln(&format!("  store i64 0, i64* {none_val}"));
                             self.emitln(&format!("  br label %{done_block}"));
                             self.emitln(&format!("\n{some_block}:"));
+                            // Load elem_size for byte-offset
+                            let esz_gep = self.fresh_tmp();
+                            let esz_val = self.fresh_tmp();
+                            self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 3"));
+                            self.emitln(&format!("  {esz_val} = load i64, i64* {esz_gep}"));
                             let data_gep = self.fresh_tmp();
                             self.emitln(&format!("  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 0"));
                             let data_ptr = self.fresh_tmp();
                             self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
                             let byte_off = self.fresh_tmp();
-                            self.emitln(&format!("  {byte_off} = mul i64 {idx}, 8"));
+                            self.emitln(&format!("  {byte_off} = mul i64 {idx}, {esz_val}"));
                             let elem_ptr = self.fresh_tmp();
                             self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
-                            let elem_i64_ptr = self.fresh_tmp();
-                            self.emitln(&format!("  {elem_i64_ptr} = bitcast i8* {elem_ptr} to i64*"));
-                            let elem = self.fresh_tmp();
-                            self.emitln(&format!("  {elem} = load i64, i64* {elem_i64_ptr}"));
+                            let elem = self.emit_elem_load(&elem_ptr, &esz_val);
                             let some_disc = self.fresh_tmp();
                             self.emitln(&format!("  {some_disc} = getelementptr %struct.Option, %struct.Option* {opt_alloca}, i32 0, i32 0"));
                             self.emitln(&format!("  store i64 1, i64* {some_disc}"));
@@ -6585,6 +6647,11 @@ impl IrEmitter {
                     let vslot = self.fresh_tmp();
                     self.emitln(&format!("  {vslot} = alloca %struct.Vec"));
                     self.emitln(&format!("  store %struct.Vec {vec_val}, %struct.Vec* {vslot}"));
+                    // Load elem_size from field 3
+                    let esz_gep = self.fresh_tmp();
+                    let esz_val = self.fresh_tmp();
+                    self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {vslot}, i32 0, i32 3"));
+                    self.emitln(&format!("  {esz_val} = load i64, i64* {esz_gep}"));
                     let data_gep = self.fresh_tmp();
                     self.emitln(&format!("  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {vslot}, i32 0, i32 0"));
                     let data_ptr = self.fresh_tmp();
@@ -6592,11 +6659,8 @@ impl IrEmitter {
                     let byte_off = self.fresh_tmp();
                     self.emitln(&format!("  {byte_off} = mul i64 {idx}, 8"));
                     let elem_ptr = self.fresh_tmp();
-                    self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
-                    let elem_i64_ptr = self.fresh_tmp();
-                    self.emitln(&format!("  {elem_i64_ptr} = bitcast i8* {elem_ptr} to i64*"));
-                    let elem = self.fresh_tmp();
-                    self.emitln(&format!("  {elem} = load i64, i64* {elem_i64_ptr}"));
+                            self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
+                            let elem = self.emit_elem_load(&elem_ptr, &esz_val);
                     return Ok((elem, "i64".to_string()));
                 }
                 // Fixed-size stack array [N x T]: use the existing alloca for
@@ -7211,6 +7275,66 @@ impl IrEmitter {
             return (loaded, inner_ty.to_string());
         }
         (val.to_string(), ty.to_string())
+    }
+
+    /// Emit a store of an i64 value at `dest` (i8*) using the element width from
+    /// `esz_val` (loaded from Vec field 3). For elem_size == 8 (default Int/ptr),
+    /// stores as i64. For elem_size < 8, truncates to the matching integer width
+    /// to avoid overwriting adjacent elements.
+    fn emit_elem_store(&mut self, val: &str, dest: &str, esz_val: &str) {
+        let is8 = self.fresh_tmp();
+        self.emitln(&format!("  {is8} = icmp eq i64 {esz_val}, 8"));
+        let store8 = self.fresh_block("elem_store8");
+        let store_narrow = self.fresh_block("elem_store_narrow");
+        let done = self.fresh_block("elem_store_done");
+        self.emitln(&format!("  br i1 {is8}, label %{store8}, label %{store_narrow}"));
+        // 8-byte path: store as i64 (common case)
+        self.emitln(&format!("\n{store8}:"));
+        let dest64 = self.fresh_tmp();
+        self.emitln(&format!("  {dest64} = bitcast i8* {dest} to i64*"));
+        self.emitln(&format!("  store i64 {val}, i64* {dest64}"));
+        self.emitln(&format!("  br label %{done}"));
+        // Narrow path: truncate to i8 and store (covers 1/2/4-byte types)
+        self.emitln(&format!("\n{store_narrow}:"));
+        let truncated = self.fresh_tmp();
+        self.emitln(&format!("  {truncated} = trunc i64 {val} to i8"));
+        self.emitln(&format!("  store i8 {truncated}, i8* {dest}"));
+        self.emitln(&format!("  br label %{done}"));
+        self.emitln(&format!("\n{done}:"));
+    }
+
+    /// Emit a load of an element from `src` (i8*) using the element width from
+    /// `esz_val`. Returns the register holding the loaded-and-extended i64 value.
+    fn emit_elem_load(&mut self, src: &str, esz_val: &str) -> String {
+        let result_slot = self.fresh_tmp();
+        self.emitln(&format!("  {result_slot} = alloca i64"));  // in entry block
+        let is8 = self.fresh_tmp();
+        self.emitln(&format!("  {is8} = icmp eq i64 {esz_val}, 8"));
+        let load8 = self.fresh_block("elem_load8");
+        let load_narrow = self.fresh_block("elem_load_narrow");
+        let done = self.fresh_block("elem_load_done");
+        self.emitln(&format!("  br i1 {is8}, label %{load8}, label %{load_narrow}"));
+        // 8-byte path
+        self.emitln(&format!("\n{load8}:"));
+        let src64 = self.fresh_tmp();
+        self.emitln(&format!("  {src64} = bitcast i8* {src} to i64*"));
+        let load64 = self.fresh_tmp();
+        self.emitln(&format!("  {load64} = load i64, i64* {src64}"));
+        self.emitln(&format!("  store i64 {load64}, i64* {result_slot}"));
+        self.emitln(&format!("  br label %{done}"));
+        // Narrow path
+        self.emitln(&format!("\n{load_narrow}:"));
+        let loaded_i8 = self.fresh_tmp();
+        self.emitln(&format!("  {loaded_i8} = load i8, i8* {src}"));
+        let zext = self.fresh_tmp();
+        self.emitln(&format!("  {zext} = zext i8 {loaded_i8} to i64"));
+        self.emitln(&format!("  store i64 {zext}, i64* {result_slot}"));
+        self.emitln(&format!("  br label %{done}"));
+        // Done
+        self.emitln(&format!("\n{done}:"));
+        let loaded = self.fresh_tmp();
+        self.emitln(&format!("  {loaded} = load i64, i64* {result_slot}"));
+        loaded
     }
 
     /// Extract the element type from an LLVM array type like `[64 x i64]` → `i64`.
