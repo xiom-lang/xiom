@@ -164,7 +164,6 @@ impl Parser {
             TokenKind::Enum => self.parse_enum_decl(is_pub),
             TokenKind::Interface => self.parse_interface_decl(is_pub),
             TokenKind::Fn => self.parse_fn_decl(is_pub, None),
-            TokenKind::Async => self.parse_fn_decl(is_pub, Some(true)),
             TokenKind::Const => {
                 let _ = is_pub;
                 self.parse_const_decl()
@@ -382,7 +381,12 @@ impl Parser {
     }
 
     fn parse_fn_decl(&mut self, is_pub: bool, is_async: Option<bool>) -> Result<TopDecl, ParseError> {
-        let has_async = self.skip(TokenKind::Async);
+        // `async` is a contextual keyword: only triggers async-fn when the
+        // identifier "async" is immediately followed by the `fn` keyword.
+        let has_async = match self.peek_kind() {
+            TokenKind::Ident(s) => s == "async" && self.peek_ahead(1) == Some(&TokenKind::Fn),
+            _ => false,
+        } && { self.advance(); true };
         let async_flag = is_async.unwrap_or(false) || has_async;
         let start = self.peek().span;
         if !self.check(|k| matches!(k, TokenKind::Fn)) { return Err(self.error("expected 'fn'")); }
