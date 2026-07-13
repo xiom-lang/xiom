@@ -5855,6 +5855,59 @@ impl IrEmitter {
                         }
                     }
                 }
+                // Inline Option.unwrap() / Result.unwrap() / Result.unwrap_err()
+                // when called as a method on a known Option/Result value.
+                // Avoids relying on the hardcoded @Option.unwrap stub which may
+                // not be emitted if used_builtins wasn't set via ?/is_some/is_none.
+                if (fn_name == "unwrap" || fn_name == "unwrap_err") && args.is_empty() {
+                    if let Some(receiver) = receiver_expr {
+                        let recv_ty = self.infer_llvm_type(receiver);
+                        let is_option = recv_ty == "%struct.Option"
+                            || recv_ty.ends_with(".Option");
+                        let is_result = recv_ty == "%struct.Result"
+                            || recv_ty.ends_with(".Result");
+                        if is_option || is_result {
+                            if is_option { self.used_builtins.insert("Option".to_string()); }
+                            else { self.used_builtins.insert("Result".to_string()); }
+                            let (recv_val, _) = self.compile_expr(receiver)?;
+                            let struct_ty = if is_option { "%struct.Option" } else { "%struct.Result" };
+                            let alloca = self.fresh_tmp();
+                            self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
+                            self.emitln(&format!("  store {struct_ty} {recv_val}, {struct_ty}* {alloca}"));
+                            // Read discriminant
+                            let disc_gep = self.fresh_tmp();
+                            self.emitln(&format!("  {disc_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
+                            let disc = self.fresh_tmp();
+                            self.emitln(&format!("  {disc} = load i64, i64* {disc_gep}"));
+                            if fn_name == "unwrap_err" || is_option {
+                                // unwrap: expect disc != 0 (Some/Ok); unwrap_err: expect disc == 0 (Err)
+                                let ok_cond = if fn_name == "unwrap_err" { "eq" } else { "ne" };
+                                let ok = self.fresh_tmp();
+                                self.emitln(&format!("  {ok} = icmp {ok_cond} i64 {disc}, 0"));
+                                let ok_block = self.fresh_block("unwrap_ok");
+                                let fail_block = self.fresh_block("unwrap_fail");
+                                self.emitln(&format!("  br i1 {ok}, label %{ok_block}, label %{fail_block}"));
+                                self.emitln(&format!("\n{fail_block}:"));
+                                self.emitln("  call void @llvm.trap()");
+                                self.emitln("  unreachable");
+                                self.emitln(&format!("\n{ok_block}:"));
+                            }
+                            // Read the value payload (field 1 for Option, field 1 for Result.ok, field 2 for Result.err)
+                            let val_field = if fn_name == "unwrap_err" { 2 } else { 1 };
+                            // Determine the actual LLVM type of the payload field from type_meta
+                            let type_name = if is_option { "Option" } else { "Result" };
+                            let field_ty = self.field_llvm_type(type_name, val_field);
+                            let val_gep = self.fresh_tmp();
+                            self.emitln(&format!("  {val_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {val_field}"));
+                            let val = self.fresh_tmp();
+                            self.emitln(&format!("  {val} = load {field_ty}, {field_ty}* {val_gep}"));
+                            // For non-scalar payloads (structs, pointers stored as i64),
+                            // return as i64 for ABI compatibility; caller will coerce.
+                            let result = self.val_to_i64(&val, &field_ty);
+                            return Ok((result, "i64".to_string()));
+                        }
+                    }
+                }
                 // Check if this is a call to a generic function and track instantiation
                 let fn_key = if let Some(receiver) = receiver_expr {
                     if let Some(recv_type) = self.infer_struct_type_name(receiver) {
@@ -6112,11 +6165,18 @@ impl IrEmitter {
                     // Fallback: when the resolved key is not a known function (e.g.
                     // "is_match" from an i64-typed receiver), search for any registered
                     // function whose name ends with ".method_name" (e.g. "Regex.is_match").
+                    // IMPORTANT: for bare function calls (no "." in key), only match bare
+                    // function names — do NOT match instance methods (Receiver.method).
                     if !self.functions.contains_key(&resolved_fn_key) {
                         let suffix = format!(".{fn_name}");
                         let mut found = String::new();
+                        let is_bare_call = !resolved_fn_key.contains('.');
                         for key in self.functions.keys() {
                             if key.ends_with(&suffix) {
+                                // Skip method names when resolving bare calls
+                                if is_bare_call && key.contains('.') {
+                                    continue;
+                                }
                                 if found.is_empty() {
                                     found = key.clone();
                                 } else if found != *key {
