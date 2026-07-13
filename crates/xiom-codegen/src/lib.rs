@@ -3077,7 +3077,14 @@ impl IrEmitter {
                         }).collect();
                         format!("%struct.Tuple_{}", parts.join("_"))
                     }
-                    _ => Self::xiom_to_llvm_type(&Self::type_from_ast(t)).to_string(),
+                    _ => {
+                        let base_name = Self::type_from_ast(t);
+                        if struct_types.contains(&base_name) {
+                            format!("%struct.{base_name}")
+                        } else {
+                            Self::xiom_to_llvm_type(&base_name).to_string()
+                        }
+                    },
                 }
             };
             let specialized_ret_type = fd.return_type.as_ref()
@@ -6067,7 +6074,14 @@ impl IrEmitter {
                             let is_instance = self.receiver_is_instance(receiver);
                             // Check if param_types already includes a receiver (from monomorphised registration)
                             let has_receiver_in_params = !all_param_types.is_empty() && all_param_types.len() > all_args.len();
-                            if is_instance {
+                            // Check if the generic function declaration has a self param.
+                            // Methods like Map.insert(key, value) have receiver type
+                            // but no self param — don't pass the receiver instance.
+                            let generic_has_self = self.generic_fn_decls.iter()
+                                .find(|(k, _)| k == &fn_key)
+                                .map(|(_, fd)| fd.params.iter().any(|p| p.name.name == "self"))
+                                .unwrap_or(false);
+                            if is_instance && generic_has_self {
                                 let (recv_val, recv_llvm_ty) = self.compile_expr(receiver)?;
                                 // If callee expects a pointer self (&mut Struct),
                                 // pass the receiver's alloca address instead.
@@ -6091,10 +6105,11 @@ impl IrEmitter {
                                     all_args.insert(0, recv_val);
                                     all_arg_types.insert(0, recv_llvm_ty);
                                 }
-                            } else if has_receiver_in_params {
+                            } else if !is_instance && has_receiver_in_params {
                                 // Type name or module name receiver — remove extra param type
                                 all_param_types.remove(0);
                             }
+                            // else: is_instance && !generic_has_self → no self param to pass
                         }
                         // Coerce each arg to the callee's declared param type (its real
                         // compiled type may differ, e.g. an enum-variant arg compiled to
