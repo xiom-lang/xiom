@@ -670,7 +670,7 @@ impl IrEmitter {
                 let elem_name = Self::type_from_ast(elem);
                 match size_expr.as_ref() {
                     Expr::Int(n, _) => format!("[{n} x {elem_name}]"),
-                    Expr::Ident(id) => format!("[{}]", id.name),
+                    Expr::Ident(id) => format!("[{} x {elem_name}]", id.name),
                     _ => elem_name,
                 }
             }
@@ -683,12 +683,26 @@ impl IrEmitter {
         if type_name.starts_with('[') {
             if let Some(rest) = type_name.strip_prefix('[') {
                 if let Some(x_pos) = rest.find(" x ") {
-                    if let Ok(n) = rest[..x_pos].trim().parse::<u64>() {
-                        let elem_name = rest[x_pos + 3..].trim();
-                        let elem_llvm = self.llvm_type_for(elem_name)
-                            .unwrap_or_else(|_| Self::xiom_to_llvm_type(elem_name).to_string());
+                    let n_str = rest[..x_pos].trim();
+                    let elem_name = rest[x_pos + 3..].trim();
+                    let elem_llvm = self.llvm_type_for(elem_name)
+                        .unwrap_or_else(|_| Self::xiom_to_llvm_type(elem_name).to_string());
+                    // Literal integer size (e.g. [4 x i64]).
+                    if let Ok(n) = n_str.parse::<u64>() {
                         return Ok(format!("[{n} x {elem_llvm}]"));
                     }
+                    // Const-ident size: resolve from `self.constants` (module-level
+                    // `const N: Int = 32;` declared before the type is used).
+                    if let Some(cval) = self.constants.get(n_str) {
+                        if let Expr::Int(n, _) = cval {
+                            let n = *n as u64;
+                            return Ok(format!("[{n} x {elem_llvm}]"));
+                        }
+                    }
+                    // If the size is an ident we can't resolve (e.g. a const-generic
+                    // param N), fall through and let the rest of llvm_type_for attempt
+                    // to resolve it as a struct name or builtin — the caller will get
+                    // an error if the type is genuinely unresolvable.
                 }
             }
         }
