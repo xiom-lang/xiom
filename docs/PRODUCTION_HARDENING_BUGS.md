@@ -6,10 +6,10 @@ State: 37/37 deterministic smoke, 84/84 e2e, all regression gates green
 
 ---
 
-## BUG-001: SHA-256 produces wrong hashes (CODEGEN — Long While-Loop)
+## BUG-001: SHA-256 produces wrong hashes (RESOLVED via C FFI)
 
 **Severity:** HIGH (correctness — cryptographic hash wrong)
-**Status:** OPEN — root cause narrowed to codegen issue with long while-loops
+**Status:** **RESOLVED** (commit `95f2834`) — C reference implementation via FFI
 
 ### Symptoms
 - `sha256_hex("")` produces hex string that does NOT match `e3b0c4...`
