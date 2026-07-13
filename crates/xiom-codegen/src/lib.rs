@@ -2469,13 +2469,18 @@ impl IrEmitter {
             self.emitln(&format!("  {ext} = sext {ty} {val} to i64"));
             ext
         } else if ty.starts_with('%') {
-            let type_name = &ty[8..];
-            let field_count = self.types.get(type_name).map(|fs| fs.len()).unwrap_or(1);
-            let size_bytes = field_count as i64 * 8;
+            // Compute the actual size of the struct type using GEP trick:
+            // `getelementptr %T, %T* null, i32 1` gives the byte offset
+            // of element 1, which equals sizeof(T). This is correct even
+            // when fields are larger than i64 (e.g. Vec = 24, Map = 48).
+            let size_i64 = self.fresh_tmp();
+            let null_ptr = self.fresh_tmp();
+            self.emitln(&format!("  {null_ptr} = getelementptr {ty}, {ty}* null, i32 1"));
+            self.emitln(&format!("  {size_i64} = ptrtoint {ty}* {null_ptr} to i64"));
             let malloc_ptr = self.fresh_tmp();
             let typed_ptr = self.fresh_tmp();
             let bc = self.fresh_tmp();
-            self.emitln(&format!("  {malloc_ptr} = call i8* @malloc(i64 {size_bytes})"));
+            self.emitln(&format!("  {malloc_ptr} = call i8* @malloc(i64 {size_i64})"));
             self.emitln(&format!("  {typed_ptr} = bitcast i8* {malloc_ptr} to {ty}*"));
             self.emitln(&format!("  store {ty} {val}, {ty}* {typed_ptr}"));
             self.emitln(&format!("  {bc} = ptrtoint {ty}* {typed_ptr} to i64"));
@@ -4190,6 +4195,23 @@ impl IrEmitter {
                             self.emitln(&format!("  {match_alloca} = alloca {bind_ty}"));
                             self.emitln(&format!("  store {bind_ty} {store_val}, {bind_ty}* {match_alloca}"));
                             self.add_local(&ident.name, match_alloca, &bind_ty);
+                        }
+                    }
+                    // Handle Some(inner) / Ok(inner) payload extraction:
+                    // extract field 1 (the payload) and bind to the inner pattern.
+                    if let Pattern::Some(inner, _) | Pattern::Ok(inner, _) = &arm.pattern {
+                        if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
+                            let val_gep = self.fresh_tmp();
+                            self.emitln(&format!("  {val_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 1"));
+                            let field_ty = self.field_llvm_type(type_name, 1);
+                            let loaded = self.fresh_tmp();
+                            self.emitln(&format!("  {loaded} = load {field_ty}, {field_ty}* {val_gep}"));
+                            if let Pattern::Ident(ident) = inner.as_ref() {
+                                let field_alloca = self.fresh_tmp();
+                                self.emitln(&format!("  {field_alloca} = alloca {field_ty}"));
+                                self.emitln(&format!("  store {field_ty} {loaded}, {field_ty}* {field_alloca}"));
+                                self.add_local(&ident.name, field_alloca, &field_ty);
+                            }
                         }
                     }
                     match &arm.body {
