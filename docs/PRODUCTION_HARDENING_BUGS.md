@@ -67,12 +67,22 @@ The bug is likely in XIOM codegen behavior affecting 32-bit arithmetic across 64
 - `xiom.async.Executor` works as a type annotation (type checker resolves it)
 - Call expressions fail because the parser lexes `async` as a keyword token
 
-### Workaround
+### Workaround (after partial fix)
+- `async.Executor` works as a **type annotation** after the contextual keyword fix
+- Expression paths (`async.Executor.new()`) still fail — checker resolves module paths differently in expression vs type context
 - `Executor.new()` works inside the `xiom.async` module itself
-- External code cannot call methods on types from `xiom.async`
+- External code cannot call methods on types from `xiom.async` via expression paths
 
-### Fix Required
-Add raw-identifier support (`r#async`) to lexer/parser, or change `async` from reserved keyword to contextual keyword (like Rust's approach).
+### Fix Applied (commit `03bacd7`)
+- Removed `TokenKind::Async` from lexer
+- `async` is now lexed as `Ident("async")` in all contexts
+- Parser checks for `Ident("async")` followed by `TokenKind::Fn` to trigger async-fn
+- Result: `use xiom.async` imports work; `async.Executor` as type path works
+
+### Remaining (BUG-002a)
+- Expression resolution in checker treats module paths differently from type paths
+- `async.Executor.new()` fails with "undefined variable 'async'"
+- Needs checker fix to resolve module-qualified expression paths
 
 ---
 
