@@ -69,6 +69,13 @@ fn main() {
     let new_name: Option<String> = args.iter().position(|a| a == "new")
         .and_then(|i| args.get(i + 1).cloned())
         .filter(|n| !n.starts_with('-'));
+    let registry_cmd = args.iter().any(|a| a == "registry"); // Phase 5d: registry mgmt
+
+    // Phase 5d: xiom registry — manage local package registry
+    if registry_cmd {
+        handle_registry(&args);
+        return;
+    }
 
     // Phase 5d: xiom init / xiom new — project scaffolding
     if init_mode {
@@ -1759,8 +1766,26 @@ struct RegistryPackage {
     license: String,
 }
 
-/// Fetch the registry index using curl/wget and return a name→package map.
+/// Fetch the registry index: local cache first, then network fallback.
 fn fetch_registry_index(url: &str) -> Result<HashMap<String, RegistryPackage>, String> {
+    // Try local registry first (~/.xiom/registry.json)
+    let home = dirs_next().unwrap_or_else(|| ".".into());
+    let local_path = format!("{}/.xiom/registry.json", home);
+    if let Ok(content) = std::fs::read_to_string(&local_path) {
+        if let Ok(root) = serde_json::from_str::<serde_json::Value>(&content) {
+            let mut map = HashMap::new();
+            if let Some(obj) = root["packages"].as_object() {
+                for (name, val) in obj {
+                    if let Ok(pkg) = serde_json::from_value::<RegistryPackage>(val.clone()) {
+                        map.insert(name.clone(), pkg);
+                    }
+                }
+            }
+            if !map.is_empty() {
+                return Ok(map);
+            }
+        }
+    }
     // Try curl first, then wget, then PowerShell
     let body = if let Ok(out) = std::process::Command::new("curl")
         .args(["-sSfL", "--connect-timeout", "10", url])
@@ -1865,6 +1890,92 @@ fn dirs_next() -> Option<String> {
 }
 
 use std::collections::HashMap;
+
+// ── Phase 5d: Local Registry Management ────────────────────────────────
+
+/// Phase 5d: Manage the local package registry.
+/// `xiom registry add <name> <repo>` — add a package to local registry.
+/// `xiom registry list` — list local packages.
+/// `xiom registry init` — create a new registry index.
+fn handle_registry(args: &[String]) {
+    let home = dirs_next().unwrap_or_else(|| ".".into());
+    let reg_path = format!("{}/.xiom/registry.json", home);
+
+    let sub_cmd = args.iter()
+        .position(|a| a == "registry")
+        .and_then(|i| args.get(i + 1).cloned())
+        .unwrap_or_else(|| "list".to_string());
+
+    match sub_cmd.as_str() {
+        "init" => {
+            let initial = serde_json::json!({ "packages": {} });
+            if let Ok(json) = serde_json::to_string_pretty(&initial) {
+                std::fs::create_dir_all(format!("{}/.xiom", home)).ok();
+                if std::fs::write(&reg_path, &json).is_ok() {
+                    eprintln!("  Created local registry: {}", reg_path);
+                }
+            }
+        }
+        "add" => {
+            let pkg_name = args.iter()
+                .position(|a| a == "add")
+                .and_then(|i| args.get(i + 1).cloned())
+                .or_else(|| args.iter()
+                    .position(|a| a == "registry")
+                    .and_then(|i| args.get(i + 2).cloned()));
+            let repo_url = args.iter()
+                .position(|a| a == "add")
+                .and_then(|i| args.get(i + 2).cloned())
+                .or_else(|| args.iter()
+                    .position(|a| a == "registry")
+                    .and_then(|i| args.get(i + 3).cloned()));
+
+            match (pkg_name, repo_url) {
+                (Some(name), Some(url)) => {
+                    let mut registry: serde_json::Value = if let Ok(content) = std::fs::read_to_string(&reg_path) {
+                        serde_json::from_str(&content).unwrap_or(serde_json::json!({ "packages": {} }))
+                    } else {
+                        serde_json::json!({ "packages": {} })
+                    };
+                    if let Some(pkgs) = registry.get_mut("packages").and_then(|p| p.as_object_mut()) {
+                        let entry = serde_json::json!({
+                            "repo": url,
+                            "description": "",
+                            "license": "MIT"
+                        });
+                        pkgs.insert(name.clone(), entry);
+                        if let Ok(json) = serde_json::to_string_pretty(&registry) {
+                            std::fs::create_dir_all(format!("{}/.xiom", home)).ok();
+                            std::fs::write(&reg_path, &json).ok();
+                            eprintln!("  Added '{}' to local registry -> {}", name, url);
+                        }
+                    }
+                }
+                _ => {
+                    eprintln!("  Usage: xiom registry add <name> <repo-url>");
+                }
+            }
+        }
+        "list" | _ => {
+            if let Ok(content) = std::fs::read_to_string(&reg_path) {
+                if let Ok(registry) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(pkgs) = registry["packages"].as_object() {
+                        eprintln!("  Local registry ({} packages):", pkgs.len());
+                        for (name, pkg) in pkgs {
+                            let repo = pkg["repo"].as_str().unwrap_or("-");
+                            let desc = pkg["description"].as_str().unwrap_or("");
+                            eprintln!("    {name:<20} {repo:<50} {desc}");
+                        }
+                    } else {
+                        eprintln!("  No packages in local registry. Use 'xiom registry add <name> <url>'");
+                    }
+                }
+            } else {
+                eprintln!("  No local registry found. Create one with 'xiom registry init'");
+            }
+        }
+    }
+}
 
 // ── Phase 5d: Benchmark Runner ─────────────────────────────────────────
 
