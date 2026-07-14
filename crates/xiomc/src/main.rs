@@ -60,6 +60,22 @@ fn main() {
         .filter(|p| !p.starts_with('-'));  // package name (not a flag)
     let publish_mode = args.iter().any(|a| a == "publish");  // Phase 5d: package publish
     let update_mode = args.iter().any(|a| a == "update");    // Phase 5d: update deps
+    let init_mode = args.iter().any(|a| a == "init");        // Phase 5d: project scaffold
+    let new_mode = args.iter().any(|a| a == "new");          // Phase 5d: new project
+    let new_name: Option<String> = args.iter().position(|a| a == "new")
+        .and_then(|i| args.get(i + 1).cloned())
+        .filter(|n| !n.starts_with('-'));
+
+    // Phase 5d: xiom init / xiom new — project scaffolding
+    if init_mode {
+        scaffold_project(".", None);
+        return;
+    }
+    if new_mode {
+        let name = new_name.as_deref().unwrap_or("xiom-project");
+        scaffold_project(name, Some(name));
+        return;
+    }
 
     // Phase 5c: --clean removes common build artifacts and exits
     if clean_mode {
@@ -1801,3 +1817,99 @@ fn dirs_next() -> Option<String> {
 }
 
 use std::collections::HashMap;
+
+// ── Phase 5d: Project Scaffolding ─────────────────────────────────────
+
+/// Phase 5d: Create a new XIOM project scaffold.
+/// `dir` is the target directory (created if it doesn't exist).
+/// `pkg_name` is the package name (defaults to directory name).
+fn scaffold_project(dir: &str, pkg_name: Option<&str>) {
+    let name = pkg_name.unwrap_or_else(|| {
+        std::path::Path::new(dir).file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("xiom-project")
+    });
+
+    // Create directory structure
+    let src_dir = format!("{dir}/src");
+    let tests_dir = format!("{dir}/tests");
+    for d in &[dir, &src_dir, &tests_dir] {
+        if let Err(e) = std::fs::create_dir_all(d) {
+            if !std::path::Path::new(d).exists() {
+                eprintln!("  Cannot create {}: {}", d, e);
+                return;
+            }
+        }
+    }
+
+    // Write package.xi
+    let manifest = format!(r#"// XIOM package manifest
+name: "{name}"
+version: "0.1.0"
+authors: ["Your Name"]
+license: "MIT"
+description: "A new XIOM project"
+
+dependencies: []
+
+sources: [
+    "src/main.xi",
+]
+
+tests: [
+    "tests/test_main.xi",
+]
+"#);
+    let manifest_path = format!("{dir}/package.xi");
+    if !std::path::Path::new(&manifest_path).exists() {
+        std::fs::write(&manifest_path, &manifest).ok();
+    }
+
+    // Write src/main.xi
+    let main_xi = format!(r#"// {name} — entry point
+module {name}
+
+fn main() -> Int {{
+    return 0;
+}}
+"#);
+    let main_path = format!("{dir}/src/main.xi");
+    if !std::path::Path::new(&main_path).exists() {
+        std::fs::write(&main_path, &main_xi).ok();
+    }
+
+    // Write tests/test_main.xi
+    let test_xi = format!(r#"// {name} — tests
+module {name}_test
+
+fn test_hello() -> Int {{
+    return 0;
+}}
+"#);
+    let test_path = format!("{dir}/tests/test_main.xi");
+    if !std::path::Path::new(&test_path).exists() {
+        std::fs::write(&test_path, &test_xi).ok();
+    }
+
+    // Write .gitignore
+    let gitignore = "*.exe\n*.ll\n*.obj\n*.o\n*.out\n*.wasm\n*.pdb\n*.ilk\n*.exp\n*.lib\nxiom.lock\n";
+    let gitignore_path = format!("{dir}/.gitignore");
+    if !std::path::Path::new(&gitignore_path).exists() {
+        std::fs::write(&gitignore_path, gitignore).ok();
+    }
+
+    eprintln!("  Created project '{name}' in {dir}/");
+    eprintln!("  ");
+    eprintln!("  {dir}/");
+    eprintln!("  ├── package.xi       ← project manifest");
+    eprintln!("  ├── src/main.xi      ← entry point");
+    eprintln!("  ├── tests/");
+    eprintln!("  │   └── test_main.xi ← tests");
+    eprintln!("  └── .gitignore");
+    eprintln!("  ");
+    eprintln!("  Next steps:");
+    eprintln!("    cd {dir}");
+    eprintln!("    xiom check         ← type-check your project");
+    eprintln!("    xiomc src/main.xi --run   ← compile and run");
+    eprintln!("    xiom test          ← run test suite");
+}
