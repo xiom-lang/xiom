@@ -2092,7 +2092,10 @@ impl Checker {
                         self.add_local(&name.name, annot_ty);
                         return;
                     }
-                    if !self.types_compatible(&val_ty, &annot_ty) && val_ty != CheckedType::Error {
+                    if !self.types_compatible(&val_ty, &annot_ty)
+                        && val_ty != CheckedType::Error
+                        && !matches!(&val_ty, CheckedType::Named(n) if n == "_")
+                    {
                         self.error(
                             format!("type mismatch in let: annotated {}, found {}", annot_ty.name(), val_ty.name()),
                             *span,
@@ -2115,7 +2118,10 @@ impl Checker {
                         self.add_local(&name.name, annot_ty);
                         return;
                     }
-                    if !self.types_compatible(&val_ty, &annot_ty) && val_ty != CheckedType::Error {
+                    if !self.types_compatible(&val_ty, &annot_ty)
+                        && val_ty != CheckedType::Error
+                        && !matches!(&val_ty, CheckedType::Named(n) if n == "_")
+                    {
                         self.error(
                             format!("type mismatch in var: annotated {}, found {}", annot_ty.name(), val_ty.name()),
                             *span,

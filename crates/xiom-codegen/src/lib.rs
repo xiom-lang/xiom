@@ -469,6 +469,15 @@ impl IrEmitter {
             self.emitln(&format!("  {t} = ptrtoint {from} {val} to i64"));
             return t;
         }
+        // i64 (heap pointer from val_to_i64) → struct: inttoptr + load.
+        // Handles Option/Result unwrap round-trip for struct payloads.
+        if from == "i64" && to.starts_with('%') {
+            let ptr = self.fresh_tmp();
+            self.emitln(&format!("  {ptr} = inttoptr i64 {val} to {to}*"));
+            let loaded = self.fresh_tmp();
+            self.emitln(&format!("  {loaded} = load {to}, {to}* {ptr}"));
+            return loaded;
+        }
         // Pointer <-> pointer.
         if from.ends_with('*') && to.ends_with('*') {
             let t = self.fresh_tmp();
@@ -2291,6 +2300,10 @@ impl IrEmitter {
             .collect();
         params_str.extend(explicit_params);
 
+        // Flush deferred concrete struct types (Option__Point etc.) BEFORE
+        // the function header so they appear at LLVM top level.
+        self.flush_deferred_types();
+
         self.emitln(&format!("define {ret_llvm} @{name}({}) {{", params_str.join(", ")));
 
         // Recursion depth check
@@ -3359,6 +3372,7 @@ impl IrEmitter {
                 .collect();
             params_str.extend(explicit_params_str);
 
+            self.flush_deferred_types();
             self.emitln(&format!("define {specialized_ret_type} @{specialized_name}({}) {{", params_str.join(", ")));
             let entry_block = self.fresh_block("entry");
             self.emitln(&format!("{entry_block}:"));
@@ -3729,24 +3743,35 @@ impl IrEmitter {
                 if matches!(value, Expr::Array(..)) {
                     self.array_locals.insert(name.name.clone());
                 }
-                let (val, llvm_ty) = self.compile_expr(value)?;
-                // Track Bool-typed locals (declared `: Bool` or a bool literal) so
-                // `.to_str()` can emit "true"/"false" — Bool lowers to i64 like Int.
+                let (val, val_llvm_ty) = self.compile_expr(value)?;
+                let declared_llvm_ty: Option<String> = _ty.as_ref().map(|t| {
+                    let name = Self::type_from_ast(t);
+                    self.llvm_type_for(&name).unwrap_or_else(|_| "i64".to_string())
+                });
+                // Use declared struct type when available (handles Option.unwrap
+                // round-trip where the value is a heap pointer i64 but the declared
+                // type is a struct).
+                let llvm_ty = if declared_llvm_ty.as_ref().map_or(false, |d| d.starts_with('%')) {
+                    declared_llvm_ty.clone().unwrap()
+                } else if val_llvm_ty == "void" || val.is_empty() {
+                    declared_llvm_ty.clone().unwrap_or_else(|| "i64".to_string())
+                } else {
+                    val_llvm_ty.clone()
+                };
+                // Track Bool-typed locals
                 let is_bool = matches!(_ty.as_deref(), Some(Type::Named(id, _)) if id.name == "Bool")
                     || matches!(value, Expr::Bool(..))
                     || self.expr_is_bool(value);
                 if is_bool { self.bool_locals.insert(name.name.clone()); } else { self.bool_locals.remove(&name.name); }
                 if llvm_ty == "void" || val.is_empty() {
-                    // Binding a void-valued expression (e.g. `let _ = void_call()`).
-                    // No slot to allocate; register a dummy i64 so any later
-                    // reference degrades to a defined zero rather than crashing.
                     let alloca = self.fresh_tmp();
                     self.emitln(&format!("  {alloca} = alloca i64"));
                     self.emitln(&format!("  store i64 0, i64* {alloca}"));
                     self.add_local(&name.name, alloca, "i64");
                     return Ok(());
                 }
-                let store_val = self.zero_val_for(&val, &llvm_ty);
+                let store_val = self.coerce_value(&val, &val_llvm_ty, &llvm_ty);
+                let store_val = self.zero_val_for(&store_val, &llvm_ty);
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
                 self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}"));
@@ -3770,6 +3795,11 @@ impl IrEmitter {
                     declared_llvm_ty.clone().unwrap_or(val_llvm_ty)
                 } else if val_llvm_ty == "void" || val.is_empty() {
                     declared_llvm_ty.clone().unwrap_or_else(|| "i64".to_string())
+                } else if declared_llvm_ty.as_ref().map_or(false, |d| d.starts_with('%')) {
+                    // Declared type is a struct — prefer it over the value's
+                    // raw i64 type (handles Option.unwrap() round-trip where
+                    // the heap pointer needs inttoptr+load coercion).
+                    declared_llvm_ty.clone().unwrap()
                 } else {
                     val_llvm_ty
                 };
@@ -6309,14 +6339,16 @@ impl IrEmitter {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
                         let is_option = recv_ty == "%struct.Option"
-                            || recv_ty.ends_with(".Option");
+                            || recv_ty.ends_with(".Option")
+                            || recv_ty.contains("Option__"); // concrete Option__Point etc.
                         let is_result = recv_ty == "%struct.Result"
-                            || recv_ty.ends_with(".Result");
+                            || recv_ty.ends_with(".Result")
+                            || recv_ty.contains("Result__"); // concrete Result__X__Y etc.
                         if is_option || is_result {
                             if is_option { self.used_builtins.insert("Option".to_string()); }
                             else { self.used_builtins.insert("Result".to_string()); }
-                            let (recv_val, _) = self.compile_expr(receiver)?;
-                            let struct_ty = if is_option { "%struct.Option" } else { "%struct.Result" };
+                            let (recv_val, recv_ty) = self.compile_expr(receiver)?;
+                            let struct_ty = recv_ty.clone(); // Use the actual concrete type
                             let alloca = self.fresh_tmp();
                             self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
                             self.emitln(&format!("  store {struct_ty} {recv_val}, {struct_ty}* {alloca}"));
@@ -6340,7 +6372,7 @@ impl IrEmitter {
                             }
                             // Read the value payload (field 1 for Option, field 1 for Result.ok, field 2 for Result.err)
                             let val_field = if fn_name == "unwrap_err" { 2 } else { 1 };
-                            let type_name = if is_option { "Option" } else { "Result" };
+                            let type_name = struct_ty.trim_start_matches("%struct.");
                             let field_ty = self.field_llvm_type(type_name, val_field);
                             let val_gep = self.fresh_tmp();
                             self.emitln(&format!("  {val_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {val_field}"));
