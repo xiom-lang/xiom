@@ -237,6 +237,13 @@ impl Lexer {
                             Some('0') => s.push('\0'),
                             Some('b') => s.push('\x08'),
                             Some('f') => s.push('\x0C'),
+                            Some('x') => {
+                                let h1 = self.advance().unwrap_or('0');
+                                let h2 = self.advance().unwrap_or('0');
+                                let d1 = h1.to_digit(16).unwrap_or(0) as u8;
+                                let d2 = h2.to_digit(16).unwrap_or(0) as u8;
+                                s.push(((d1 << 4) | d2) as char);
+                            }
                             Some('u') => {
                                 if self.advance() != Some('{') {
                                     return self.error("expected '{' after \\u");
@@ -271,6 +278,14 @@ impl Lexer {
                         Some('0') => '\0',
                         Some('b') => '\x08',
                         Some('f') => '\x0C',
+                        Some('x') => {
+                            // Hex escape: \xNN (2 hex digits)
+                            let h1 = self.advance().unwrap_or('\0');
+                            let h2 = self.advance().unwrap_or('\0');
+                            let d1 = h1.to_digit(16).unwrap_or(0) as u8;
+                            let d2 = h2.to_digit(16).unwrap_or(0) as u8;
+                            ((d1 << 4) | d2) as char
+                        }
                         _ => return self.error("invalid escape in char literal"),
                     },
                     Some(c) if c != '\'' => c,
