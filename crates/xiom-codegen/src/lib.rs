@@ -120,6 +120,8 @@ pub struct IrEmitter {
     /// Struct type definitions created during compilation (e.g. concrete
     /// Option__Point) that need to be emitted before the next function.
     deferred_struct_types: Vec<(String, String)>,  // (name, body)
+    /// Locals bound from Expr::Array literals (for indexing dispatch)
+    array_locals: HashSet<String>,
     /// Set of function names already declared via `declare` (to avoid duplicates)
     already_declared: HashSet<String>,
     /// Module/global `const` values, keyed by bare name (last definition wins),
@@ -183,6 +185,7 @@ impl IrEmitter {
             fn_ptr_return_types: HashMap::new(),
             loop_stack: Vec::new(),
             deferred_struct_types: Vec::new(),
+            array_locals: HashSet::new(),
             already_declared: HashSet::new(),
             constants: HashMap::new(),
             module_globals: HashMap::new(),
@@ -3673,7 +3676,10 @@ impl IrEmitter {
     fn compile_stmt(&mut self, stmt: &Stmt) -> Result<(), String> {
         match stmt {
             Stmt::Let(name, _ty, value, _) => {
-                // Value sink: use the value's real LLVM type from compile_expr.
+                // Track array-literal bindings for Expr::Index dispatch
+                if matches!(value, Expr::Array(..)) {
+                    self.array_locals.insert(name.name.clone());
+                }
                 let (val, llvm_ty) = self.compile_expr(value)?;
                 // Track Bool-typed locals (declared `: Bool` or a bool literal) so
                 // `.to_str()` can emit "true"/"false" — Bool lowers to i64 like Int.
@@ -3702,6 +3708,10 @@ impl IrEmitter {
                 }
             }
             Stmt::Var(name, _ty, value, _) => {
+                // Track array-literal bindings for Expr::Index dispatch
+                if matches!(value, Expr::Array(..)) {
+                    self.array_locals.insert(name.name.clone());
+                }
                 let declared_llvm_ty: Option<String> = _ty.as_ref().map(|t| {
                     let name = Self::type_from_ast(t);
                     self.llvm_type_for(&name).unwrap_or_else(|_| "i64".to_string())
@@ -6884,7 +6894,14 @@ impl IrEmitter {
                 // Index into an Expr::Array literal buffer (i8* with length at [0]).
                 // The buffer layout is: [length: i64][elem0: i64][elem1: i64]...
                 // Skip past the leading length slot and read the element at index+1.
-                if cont_ty == "i8*" && matches!(container.as_ref(), Expr::Array(..)) {
+                // Also handles local variables bound from array literals (let arr = [...];
+                // arr[i]) — detected by cont_ty == i8* and the ident resolves to a
+                // buffer that wasn't interned as a C string.
+                let is_array_buf = cont_ty == "i8*" && (
+                    matches!(container.as_ref(), Expr::Array(..))
+                    || (if let Expr::Ident(ident) = container.as_ref() { self.array_locals.contains(&ident.name) } else { false })
+                );
+                if is_array_buf {
                     let base_ptr = self.fresh_tmp();
                     self.emitln(&format!("  {base_ptr} = bitcast i8* {cont_val} to i64*"));
                     // Element is at position index+1 (slot 0 is the length).
