@@ -81,31 +81,28 @@
 | LLVM IR verification (`opt -verify`) | ✅ |
 | `#[safety_audit]` attribute (AST + parser + enforcement) | ✅ |
 
-### 5c.2 Safety Features (P1) — 3/4 DONE
+### 5c.2 Safety Features (P1) — ALL DONE ✅
 
 | Item | Status |
 |------|--------|
 | Error recovery (100 errors, sync points) | ✅ |
 | Contract `@pre` snapshot (all @pre-referenced variables) | ✅ |
 | `#[safety_audit]` enforcement in `--strict` mode | ✅ |
-| **`--diagnostics=json` enhancements** | In progress |
+| **`--diagnostics=json` with suggestion field** | ✅ |
 
-### 5c.3 CLI Commands (from COMPILER_IMPROVEMENT_PLAN §3.4)
+### 5c.3 CLI Commands
 
-| Command | Status | Priority |
-|---------|--------|----------|
-| `xiomc <file> -o <out>` (compile) | ✅ Exists | — |
-| `xiomc --run` | ✅ Exists | — |
-| `xiomc --emit-ir` | ✅ Exists | — |
-| `xiomc --verify` (SMT) | ✅ Exists | — |
-| `xiomc --dump-contracts` | ✅ Exists | — |
-| `xiomc --no-contracts` | ✅ Exists | — |
-| `xiom check` (type-check only, fast) | TODO | P0 |
-| `xiom fmt` (canonical formatter) | ✅ Exists (`xiom-fmt` crate) | — |
-| `xiom build` (project build from package.xi) | TODO | P0 |
-| `xiom test` (test runner) | TODO | P1 |
-| `xiom doc` (documentation generator) | ✅ Exists (`xiom-doc` crate) | — |
-| `xiom clean` (remove artifacts) | TODO | P1 |
+| Command | Status |
+|---------|--------|
+| `xiom --check` (type-check only, fast feedback) | ✅ DONE |
+| `xiom --release` (O3 + strip contracts) | ✅ DONE |
+| `xiom --debug` / `-g` (DWARF symbols) | ✅ DONE |
+| `xiom --clean` (remove build artifacts) | TODO |
+| `xiom --emit-ir` | ✅ Exists |
+| `xiom --run` | ✅ Exists |
+| `xiom --verify` (SMT) | ✅ Exists |
+| `xiom fmt` (formatter) | ✅ Exists (`xiom-fmt` crate) |
+| `xiom build` (project build from package.xi) | TODO |
 
 ### 5c.4 Build Flags
 
