@@ -239,19 +239,16 @@ fn stdlib_exec_simd_runs() {
 // ============================================================================
 
 #[test]
-#[ignore]
 fn stdlib_exec_io_runs() {
     assert!(compile_and_run("examples\\stdlib_smoke\\smoke_io.xi").is_some(), "io smoke failed to run/return 0");
 }
 
 #[test]
-#[ignore]
 fn stdlib_exec_thread_runs() {
     assert!(compile_and_run("examples\\stdlib_smoke\\smoke_thread.xi").is_some(), "thread smoke failed to run/return 0");
 }
 
 #[test]
-#[ignore]
 fn stdlib_exec_async_runs() {
     assert!(compile_and_run("examples\\stdlib_smoke\\smoke_async.xi").is_some(), "async smoke failed to run/return 0");
 }
@@ -272,7 +269,6 @@ fn stdlib_exec_time_runs() {
 }
 
 #[test]
-#[ignore]
 fn stdlib_exec_test_runs() {
     assert!(compile_and_run("examples\\stdlib_smoke\\smoke_test.xi").is_some(), "test smoke failed to run/return 0");
 }

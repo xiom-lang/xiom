@@ -24,15 +24,15 @@
 |-----|--------|-----|
 | **BUG-001** SHA-256 wrong hash | ✅ RESOLVED | C reference implementation via FFI (`sha256_sw.c`) |
 | **BUG-002** async expression paths | ✅ RESOLVED | Parser: `fn()` as type arg in `[T]` brackets + contextual `async` routing |
+| **BUG-003** sync AtomicBool bad IR | ✅ RESOLVED | `Expr::If` emits conditional branches with result alloca |
+| **BUG-005** mem replace stack overflow | ✅ RESOLVED | Leaf-module key registration for generic monomorphisation |
 
 ### Active Bugs
 
 | Bug | Severity | Symptom |
 |-----|----------|---------|
-| **BUG-003** sync AtomicBool bad IR | HIGH | `icmp eq i64* %tmp14, 2` — pointer-compared-to-int LLVM IR error |
-| **BUG-004** path canonicalize crash | HIGH | Access violation 0xC0000005 at runtime |
-| **BUG-005** mem swap/replace crash | ✅ RESOLVED | Monomorphisation naming collision — leaf-module key registration |
-| **BUG-006** Option[Struct].unwrap() | MEDIUM | Heap-allocated struct payload round-trip; needs per-type Option layout |
+| **BUG-006** Option[Struct].unwrap() crash | HIGH | `Some(Point{...}).unwrap().x` returns wrong value or crashes. Root cause: `Some` heap-allocates struct payloads via `val_to_i64`, but `unwrap` doesn't dereference the heap pointer. |
+| **BUG-007** Interface vtable dispatch | MEDIUM | Multiple types implementing same interface — first-match static dispatch works, no vtable for polymorphic calls |
 
 ---
 
