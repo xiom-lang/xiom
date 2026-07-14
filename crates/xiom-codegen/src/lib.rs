@@ -70,6 +70,8 @@ pub struct IrEmitter {
     ptr_locals: std::collections::HashSet<String>,
     /// Tracked generic instantiations: (fn_original_name, vec![concrete_type_names])
     generic_instantiations: Vec<(String, Vec<String>)>,
+    /// Const-generic value map: monomorphised_fn_name -> {const_param_name -> value}
+    const_value_map: HashMap<String, HashMap<String, i64>>,
     /// Specialized monomorphised function names already emitted, so a
     /// self-referential generic (a cycle in generic definitions) is emitted once
     /// instead of being re-queued every worklist pass (which would hit the
@@ -158,6 +160,7 @@ impl IrEmitter {
             bool_locals: std::collections::HashSet::new(),
             ptr_locals: std::collections::HashSet::new(),
             generic_instantiations: Vec::new(),
+            const_value_map: HashMap::new(),
             mono_emitted: std::collections::HashSet::new(),
             has_llvm_trap_decl: false,
             self_pre_value: None,
@@ -3064,7 +3067,9 @@ impl IrEmitter {
             let specialized_name = self.monomorphised_fn_name(base_name, concrete_types);
             // Build type substitution map: generic param name -> concrete type name
             let mut type_map: HashMap<String, String> = HashMap::new();
+            let mut const_map: HashMap<String, i64> = self.const_value_map.get(&specialized_name).cloned().unwrap_or_default();
             for (gp, ct) in fd.generics.iter().zip(concrete_types.iter()) {
+                if gp.is_const { continue; } // const params use const_map, not type_map
                 type_map.insert(gp.name.name.clone(), ct.clone());
             }
             // Register concrete tuple types for this monomorphisation
@@ -3135,6 +3140,22 @@ impl IrEmitter {
                             }
                         }).collect();
                         format!("%struct.Tuple_{}", parts.join("_"))
+                    }
+                    Type::Array(size_expr, elem) => {
+                        // Substitute generic params in element type; resolve const size.
+                        let subst_elem = Self::substitute_type(t, elem, &type_map);
+                        let elem_name = Self::type_from_ast(&subst_elem);
+                        let elem_llvm = if struct_types.contains(&elem_name) {
+                            format!("%struct.{elem_name}")
+                        } else {
+                            Self::xiom_to_llvm_type(&elem_name).to_string()
+                        };
+                        let size_val: u64 = match size_expr.as_ref() {
+                            Expr::Int(n, _) => *n as u64,
+                            Expr::Ident(id) => const_map.get(&id.name).copied().unwrap_or(0) as u64,
+                            _ => 0,
+                        };
+                        if size_val == 0 { elem_llvm } else { format!("[{size_val} x {elem_llvm}]") }
                     }
                     _ => {
                         let base_name = Self::type_from_ast(t);
@@ -6199,10 +6220,35 @@ impl IrEmitter {
                 if is_generic {
                     // Infer concrete types from argument types
                     let mut concrete_types: Vec<String> = Vec::new();
+                    let mut const_values: HashMap<String, i64> = HashMap::new();
                     // Find the generic function declaration
                     if let Some((_, fd)) = self.generic_fn_decls.iter().find(|(k, _)| k == &fn_key) {
                         let fd = fd.clone();
                         for gp in &fd.generics {
+                            // Const-generic params: extract the integer value from the
+                            // explicit type arg (e.g. `len[Int, 5](arr)`).
+                            if gp.is_const {
+                                if let Some(ta) = type_arg {
+                                    // type_arg may be an Int literal for a single const,
+                                    // or a Tuple for multiple. Match on the position.
+                                    let const_expr: Option<Expr> = match ta {
+                                        Expr::Int(n, _) => Some(Expr::Int(*n, Span::new(0, 0))),
+                                        Expr::Tuple(elems, _) => {
+                                            // Find the first Int literal — this is the const value.
+                                            // For multiple const params, this is a simplification.
+                                            elems.iter().find(|e| matches!(e, Expr::Int(..))).cloned()
+                                        }
+                                        _ => None,
+                                    };
+                                    if let Some(Expr::Int(n, _)) = const_expr {
+                                        const_values.insert(gp.name.name.clone(), n as i64);
+                                    }
+                                }
+                                // Add a placeholder so the zip aligns — const params
+                                // don't contribute to concrete_types.
+                                concrete_types.push("Int".to_string());
+                                continue;
+                            }
                             // Find a function parameter whose type directly uses this generic (not wrapped)
                             let mut inferred = false;
                             for (param, arg_expr) in fd.params.iter().zip(args.iter()) {
@@ -6297,6 +6343,11 @@ impl IrEmitter {
                             .any(|(f, cts)| f == &fn_key && cts == &concrete_types);
                         if !already_tracked {
                             self.generic_instantiations.push((fn_key.clone(), concrete_types.clone()));
+                            if !const_values.is_empty() {
+                                self.const_value_map.insert(specialized_name.clone(), const_values.clone());
+                            }
+                            // Also insert even without const values to avoid repeated lookups
+                            self.const_value_map.entry(specialized_name.clone()).or_insert_with(|| const_values.clone());
                         }
                         // Call the specialized version
                         let (ret_ty, param_types) = if let Some((pts, rt)) = self.functions.get(&specialized_name) {
