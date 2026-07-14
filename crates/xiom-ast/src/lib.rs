@@ -330,6 +330,8 @@ pub struct Param {
     pub name: Ident,
     pub ty: Type,
     pub span: Span,
+    /// `true` when this param was declared as `&mut self` (mutable receiver).
+    pub is_mut_self: bool,
 }
 
 // ============================================================================
