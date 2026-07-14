@@ -877,9 +877,70 @@ fn e2e_mut_ref_swap() {
 }
 
 /// Combined features: store_back, hash determinism, generic monomorphization.
-/// Verifies multiple codegen features work together in one program.
 #[test]
 fn e2e_combined_patterns() {
     assert_eq!(compile_and_run("examples\\e2e\\combined_patterns.xi"), Some(0),
         "combined store_back + hash + generics should work together");
+}
+
+// ── Ecosystem Hardening Tests ──────────────────────────────────────────
+
+#[test]
+fn eco_algo_89_tests() {
+    assert_eq!(compile_and_run("tests\\ecosystem\\test_algo.xi"), Some(0),
+        "ecosystem: all 89 algorithm tests (binary search, quicksort, merge sort, gcd, fib, sieve, etc.)");
+}
+
+#[test]
+fn eco_crypto_23_tests() {
+    assert_eq!(compile_and_run("tests\\ecosystem\\test_crypto.xi"), Some(0),
+        "ecosystem: all 23 crypto tests (SHA-256, Base64, Hex, FNV-1a)");
+}
+
+#[test]
+fn eco_db_18_tests() {
+    assert_eq!(compile_and_run("tests\\ecosystem\\test_db.xi"), Some(0),
+        "ecosystem: all 18 database tests (B-Tree, WAL)");
+}
+
+#[test]
+fn eco_full_30_tests() {
+    assert_eq!(compile_and_run("tests\\ecosystem\\test_full.xi"), Some(0),
+        "ecosystem: all 30 full-feature tests (state machines, enums, contracts, Result, Option)");
+}
+
+#[test]
+fn eco_http_18_tests() {
+    assert_eq!(compile_and_run("tests\\ecosystem\\test_http.xi"), Some(0),
+        "ecosystem: all 18 HTTP tests (methods, headers, request/response)");
+}
+
+#[test]
+fn eco_json_29_tests() {
+    assert_eq!(compile_and_run("tests\\ecosystem\\test_json.xi"), Some(0),
+        "ecosystem: all 29 JSON tests (types, parse, stringify, nested)");
+}
+
+#[test]
+fn eco_net_22_tests() {
+    assert_eq!(compile_and_run("tests\\ecosystem\\test_net.xi"), Some(0),
+        "ecosystem: all 22 networking tests (IPv4/IPv6, sockets)");
+}
+
+#[test]
+fn eco_sqlite_23_tests() {
+    assert_eq!(compile_and_run("tests\\ecosystem\\test_sqlite.xi"), Some(0),
+        "ecosystem: all 23 SQLite tests (types, rows, CREATE TABLE SQL)");
+}
+
+#[test]
+fn eco_test_20_tests() {
+    assert_eq!(compile_and_run("tests\\ecosystem\\test_test.xi"), Some(0),
+        "ecosystem: all 20 test-framework tests (asserts, suites, results)");
+}
+
+#[test]
+fn eco_vector_32_tests() {
+    assert_eq!(compile_and_run("tests\\ecosystem\\test_vector.xi"), Some(0),
+        "ecosystem: all 32 vector database tests (math, KNN, distance metrics)");
 }

@@ -2866,6 +2866,7 @@ impl Checker {
             (CheckedType::Int, CheckedType::Float64) => true,
             (CheckedType::Float64, CheckedType::Int) => true,
             (CheckedType::Float32, CheckedType::Float64) => true,
+            (CheckedType::Float64, CheckedType::Float32) => true,
             // Unit compatibility
             (_, CheckedType::Unit) => true,
             _ => false,

@@ -163,6 +163,21 @@ P2: ✅ Plain-text error suggestions, C runtime limits, --max-depth, --timeout
 
 **Phase 5c is production-complete. 9/9 CLI commands, 7/7 build flags, 100% bugs resolved.**
 
+### 5c.7 Ecosystem Test Gaps (Discovered 2026-07-14)
+
+The `tests/ecosystem/` suite (304 tests across 10 files) exercises production workloads. Compiler gaps discovered:
+
+| Gap | Severity | Tests Affected | Root Cause |
+|-----|----------|---------------|------------|
+| **Float32 type compatibility** | HIGH | vector (32), crypto | All float literals treated as Float64; Float32 not lowered to `float` |
+| **Enum variant constructors** | HIGH | json (29), sqlite (23), net (22), db (18), full (30), http (18) | `SqliteValue.Integer(42)` not parsed as variant constructor |
+| **Contract syntax in parser** | HIGH | algo (89), full (30) | `requires: a>0` / `ensures: result>=1` not recognized |
+| **`\x00` hex char escape** | MEDIUM | crypto (23) | Lexer doesn't support hex escape in char literals |
+| **Method dispatch with `this`** | LOW | net (22) | `this` not recognized as `self` alias |
+| **Return type: () vs Bool** | MEDIUM | db (18) | `return` without value in non-void functions |
+
+**Fix priority:** P0: Float32 + Enum constructors + Contract parsing. P1: hex escape + return type.
+
 ---
 
 ## 6. PHASE 5d — ECOSYSTEM & TOOLING (In Progress)
