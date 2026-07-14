@@ -199,7 +199,7 @@ fn main() {
         if !lex_errors.is_empty() {
             for tok in &lex_errors {
                 if let xiom_lexer::TokenKind::Error(msg) = &tok.kind {
-                    eprintln!("error[L001]: {msg} at {l}:{c}", l = tok.span.line, c = tok.span.col);
+                    render_error("L001", &tok.span, msg, Some(&source), None, None);
                 }
             }
             process::exit(1);
@@ -209,7 +209,8 @@ fn main() {
         match parser.parse_program() {
             Ok(p) => all_programs.push(p),
             Err(e) => {
-                eprintln!("error[P001]: {l}:{c}: {m}", l = e.span.line, c = e.span.col, m = e.message);
+                let (help, note) = diagnostic_for(&e.message);
+                render_error("P001", &e.span, &e.message, Some(&source), help.as_deref(), note.as_deref());
                 process::exit(1);
             }
         }
@@ -1462,6 +1463,34 @@ fn dump_module_contracts(md: &ModuleDecl) -> Vec<String> {
 
     items
 }
+
+/// Phase 5d: Render an error with source code context.
+fn render_error(code: &str, span: &xiom_ast::Span, message: &str, source_text: Option<&str>, help: Option<&str>, note: Option<&str>) {
+    eprintln!("error[{code}]: {l}:{c}: {m}", l = span.line, c = span.col, m = message);
+    // Source context
+    if let Some(text) = source_text {
+        let lines: Vec<&str> = text.lines().collect();
+        let line_idx = span.line.saturating_sub(1) as usize;
+        if line_idx < lines.len() {
+            let source_line = lines[line_idx];
+            eprintln!("  |");
+            eprintln!("{ln:>3} | {source_line}", ln = span.line);
+            if span.col > 0 {
+                let padding = span.col.saturating_sub(1) as usize;
+                let caret = " ".repeat(padding.min(100));
+                eprintln!("  | {caret}^");
+            }
+        }
+    }
+    if let Some(n) = note {
+        eprintln!("  = note: {n}");
+    }
+    if let Some(h) = help {
+        eprintln!("  = help: {h}");
+    }
+}
+
+/// Phase 5d: Error rendering with source context (using source text map).
 
 /// Phase 5c: Discover and run XIOM tests.
 /// Looks for .xi files in tests/ or specified directory, compiles
