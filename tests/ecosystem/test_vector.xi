@@ -3,6 +3,7 @@
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
 module tests.ecosystem.test_vector
+use xiom.collections;
 
 pub type Vector = {
   data: Vec[Float32];

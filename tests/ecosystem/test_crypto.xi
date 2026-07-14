@@ -8,6 +8,7 @@
 // Result/Option types.
 
 module tests.ecosystem.test_crypto
+use xiom.collections;
 
 // ============================================================================
 // SHA-256: Initial hash values H[0..7]
