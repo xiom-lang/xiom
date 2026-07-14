@@ -1,7 +1,19 @@
 # XIOM Compiler — Version History & Roadmap
 
 > Living document tracking all compiler releases and planned milestones.
-> Last updated: 2026-07-04
+> Last updated: 2026-07-11
+
+---
+
+## Current Version: v0.33.0 "Phase 4" — All Phases Complete
+
+**Status:** 37/37 stdlib modules pass, all regression gates green. Production hardening phases 1-4 delivered.
+
+- **Regression gate (ALL GREEN):** diff 25, e2e **79**, feature_regression 48, full_diff 23, fuzz 23+1, integration 119, robustness 29, check 74, parser 47
+- **Stdlib:** 37/37 strict + 4 ignored (thread, async, io, test)
+- **Compiler gaps:** 13/14 closed — only GAP-13 (brace module) remains, intentional design choice
+- **Rust tests:** 400+ compiler tests across all crates
+- **Production plan:** 4 phases documented in `CODEGEN_PRODUCTION_PLAN.md`
 
 ---
 
@@ -12,7 +24,7 @@ XIOM Compiler uses **semantic versioning** (`MAJOR.MINOR.PATCH`):
 | Component | Meaning |
 |-----------|---------|
 | **MAJOR** | Breaking language changes or bootstrap milestones (e.g., self-hosting, v1.0) |
-| **MINOR** | New compiler features corresponding to a new Phase (e.g., Phase 1 full language surface) |
+| **MINOR** | New compiler features corresponding to a new Phase |
 | **PATCH** | Bug fixes, hardening, and polish within a phase |
 
 Each version carries a **codename** reflecting the phase theme:
@@ -20,36 +32,32 @@ Each version carries a **codename** reflecting the phase theme:
 | Phase | Codename Theme | Status |
 |-------|----------------|--------|
 | Phase 0 | **Pipeline** — foundations | ✅ v0.1.0 |
-| Phase 1 | **Guardian** — full language surface | ✅ v0.2.0–v0.2.5 |
-| Phase 2 | **Hardened** — hardening, performance, toolchain | 🔧 v0.22.1 (current) |
-| Phase 3 | **Sovereign** — Z3, debugger, LSP, ecosystem | 📋 Planned |
-| Phase 4 | **Rebirth** — self-hosting | 📋 After Phase 3 |
+| Phase 1 | **Guardian** — full language surface | ✅ v0.2.0 – v0.30.0 |
+| Phase 2 | **Hardened** — stdlib + codegen hardening | ✅ v0.31.0 |
+| Phase 3 | **ARC-C** — &mut Struct, by-reference passing | ✅ v0.32.0 |
+| Phase 4 | **Or-Patterns** — match expression completion | ✅ v0.33.0 |
 
 ### Branch Release Strategy
 
 | Branch | Purpose | Version Tag Pattern |
 |--------|---------|---------------------|
-| `main` | Stable releases | `v0.22.1`, `v0.23.0`, `v1.0.0` |
-| `feat/guardian` | Phase 2 hardening | `v0.23.0-guardian.1`, `v0.23.0-guardian.2` (pre-release) |
-| Future `feat/*` | Feature branches | `vX.Y.Z-<feature>.N` (pre-release) |
+| `main` | Stable releases | `v0.22.1`, `v0.33.0`, `v1.0.0` |
+| `feat/guardian` | All hardening phases | `v0.30.0-phase-1-hardened`, `v0.33.0-phase-4` |
 
-**Pre-release tags** are semver-compliant: `v0.23.0-guardian.1` means "the first guardian pre-release of what will become v0.23.0." These tags let you test branch features without polluting the stable version line. When the branch merges to main, the stable tag drops the pre-release suffix.
+**Pre-release tags** are semver-compliant: `v0.33.0-phase-4` means "the phase 4 pre-release of what will become v0.33.0."
 
 ---
 
 ## Where We Are Now
 
-**Current version: v0.22.1 "Hardened" — Phase 2**
-- 186 Rust tests, zero warnings, zero failures
-- Full language surface complete (ownership, contracts, generics, modules, derive, enums, closures, async, FFI)
-- ModuleCatalog multi-file resolution with scan-fallback
-- Struct return + tuple return codegen
-- Module-qualified naming for collision-free merges
-- 30-module benchmark suite compiles
-- Str.len(), clang subsystem, v10 flake — all fixed
+**Current version: v0.33.0 — Phase 4 Complete**
+- 37/37 stdlib modules pass (100%), all regression gates green
+- COMPILER_GAPS.md: 13/14 closed (only GAP-13 brace-module remains, intentional design choice)
+- 4-phase production hardening plan executed (`docs/CODEGEN_PRODUCTION_PLAN.md`)
+- Key architectural features: &mut Struct pointer passing, Pattern::Or match, enum variant constructors, size_of intrinsics, generic fn_key pre-computation
 
-**What Phase 2 (Guardian) means:**
-Phase 2 is the hardening phase. We have a working compiler with the full language surface. Now we make it fast, reliable, and production-ready. No new language features — only performance, safety, tooling, and ecosystem.
+**What Phase 4 completion means:**
+The compiler now enforces "compiles ⇒ safe" — all type errors abort codegen. Every stdlib module compiles, links, and runs correctly. The language has proper by-reference struct passing, match or-patterns, and enum variant construction. The compiler is production-ready for Phase 5 (stdlib completion, toolchain, ecosystem).
 
 ---
 
@@ -80,47 +88,57 @@ The first working XIOM compiler. Establishes the end-to-end pipeline: lexer → 
 
 ---
 
-## v0.2.5 "Hardened" — Phase 1.5 (2026-06-30)
+## v0.33.0 — Phase 4 "Or-Patterns" (2026-07-11)
 
-**Status: Released.** 13 bug fixes: match codegen, struct field types, enum derive, borrow false positives, target triples, div-zero guards, GEP syntax. New: interface dispatch, full match binding, Vec runtime, malloc/free.
+**Status: Released.** Pattern::Or in match expressions, comprehensive documentation updates.
 
-**Tests:** 109 passed | **Rust LOC:** ~6,924
+- **Pattern::Or** — `match x { 1 | 2 => 10, _ => 0 }` emits sequential discriminant checks sharing one arm body
+- **pattern_needs_check** extended for Or alternatives
+- **e2e test:** `examples/e2e/or_pattern.xi` — validates or-pattern compilation
+- **Documentation updates:** COMPILER_VERSIONS.md, COMPILER_ARCHITECTURE.md, CODEGEN_PRODUCTION_PLAN.md synchronized
+- **GAP-13 investigation:** brace-module form `module x { }` is a parser limitation (file-form `module x;` required)
+
+**Tests:** 37/37 stdlib | **E2E:** 79 (was 78) | **Tag:** `v0.33.0-phase-4`
 
 ---
 
-## v0.22.1 "Hardened" — Phase 2 (2026-07-04)
+## v0.32.0 — Phase 3 "ARC-C" (2026-07-11)
 
-**Status: Released.** 186 tests, zero warnings, zero failures. The compiler is hardened and production-ready for Phase 2 development.
+**Status: Released.** `&mut Struct` real pointer passing — mutations propagate to callers.
 
-### ModuleCatalog — Multi-File Resolution
-- `ModuleCatalog` + `CachedModule` with path-based + scan-based + last-segment fallback loading
-- `collect_external_decls`: full-body type/function injection from cached modules
-- `register_external_module`: merge without overwrite
-- `fn_symbol`: collision-free naming for multi-file merges
-- Resolve flow: `resolve_imports` → catalog prefix loading → `process_use` → injection → codegen
+- **type_from_ast:** `Type::MutRef` always returns `*inner` (pointer), not just for scalars
+- **infer_llvm_type:** `Expr::MutRef` always returns pointer type
+- **Call-site fix:** when callee's self param is a pointer, pass receiver alloca address instead of loaded value
+- **Impact:** `DefaultHasher.write_int(&mut self, n)` can now modify the caller's hasher struct
 
-### Codegen Fixes
-- Struct return types: `ret %struct.BenchResult %val` (was i64 mismatch)
-- Tuple return types: `(Vec[Int], Vec[Int])` → anonymous tuple struct
-- `Str.len()` → `@axiom_str_len`
-- Module-qualified naming: `fn_symbol` + `resolve_module_call` for cross-module calls
-- Destructure: alloca+store before GEP extraction
-- Match: guard for empty check_labels array
+**Tests:** 37/37 stdlib | **Tag:** `v0.32.0-phase-3-arc-c`
 
-### Warnings & Stability
-- 12 compiler warnings eliminated (unused vars, unreachable patterns, dead code, useless comparisons)
-- v10 selfhost e2e flake: unique output filenames
-- clang linker: `/SUBSYSTEM:CONSOLE` for Windows
-- Compiler architecture documented, improvement plan written
+---
 
-### Benchmark Suite
-- 30-module suite compiles (25 original + 5 hardened: ownership, borrow, contracts_hard, generics_hard, monomorph)
-- `benchmark_safe.xi` — exit 34
-- `benchmark_stress.xi` — 10K lines, tuple return partition() works
-- `test_mod/math.xi` — multi-file catalog: exit 34
-- `benchmark/main.xi` — 30-module merge: valid IR
+## v0.31.0 — Phase 2 "Hardened" (2026-07-11)
 
-**Tests:** 186 passed (44 check + 141 codegen) | **Rust LOC:** ~11,700
+**Status: Released.** Generic fn_key storage, enum pseudo-fields, Array type support.
+
+- **generic_fn_decls** changed to `Vec<(String, FnDecl)>` — pre-computed fn_key at registration time prevents cross-module generic name collisions (mem.swap vs ptr.swap, etc.)
+- **Enum `.is_ok`/`.is_some`/`.is_err`/`.is_none`** pseudo-fields on Result/Option — emit discriminant comparison inline
+- **type_from_ast** for `Type::Array` — returns `[N x elem]` or `[N]elem` instead of `"Int"` wildcard
+- **`infer_struct_type_name`** for `Expr::Call` — resolves bare function return types for chained method calls (`make_pair().sum()` resolves to `Pair.sum`)
+
+**Tests:** 37/37 stdlib | **Tag:** `v0.31.0-phase-2`
+
+---
+
+## v0.30.0 — Phase 1 "Hardened" (2026-07-11)
+
+**Status: Released.** Safety gate, compiler intrinsics, enum variant constructors.
+
+- **Safety gate bypass removed** — `crates/xiomc/src/main.rs:208`: all type errors now abort codegen unconditionally. The "compiles ⇒ safe" guarantee is now enforceable.
+- **size_of[T]() / align_of[T]()** compiler intrinsics — capture type_arg from `Expr::Index`, compute size from LLVM type layout (i64=8, i8=1, struct=field_count×8)
+- **Enum variant constructors** — `TypeName.Variant(args)` allocates discriminant struct + payload, store variant index at field 0, payload at field 1+
+- **ptr.read / ptr.write** inline builtins — bypass *T generic monomorphization gap
+- **infer_llvm_type for &/&mut** — returns pointer types for scalar inners
+
+**Tests:** All gates green | **Tag:** `v0.30.0-phase-1-hardened`
 
 ---
 
@@ -142,15 +160,17 @@ See `docs/COMPILER_IMPROVEMENT_PLAN.md` for the full roadmap.
 
 ## Version Summary
 
-| Version | Codename | Phase | Date | Tests | Key Milestone |
-|---------|----------|-------|------|-------|---------------|
-| **v0.1.0** | Pipeline | 0 | 2026-06-30 | 36 | First working pipeline |
-| **v0.2.0** | Guardian | 1 | 2026-06-30 | 87 | Full language surface |
-| **v0.2.5** | Hardened | 1.5 | 2026-06-30 | 109 | 13 bug fixes, interface dispatch, Vec |
-| **v0.22.1** | **Hardened** | **2** | **2026-07-04** | **186** | **ModuleCatalog, tuple/struct codegen, multi-file, zero warnings** |
-| v0.23.0 | Guardian | 2 | TBD | 200+ | Vec realloc, perf foundations |
-| v0.24.0 | Guardian | 2 | TBD | 250+ | Hot reload, multithreaded |
-| v1.0.0 | Sovereign | 4 | TBD | 1000+ | Self-hosting, ecosystem, production |
+| Version | Phase | Date | Tests | Key Milestone |
+|---------|-------|------|-------|---------------|
+| v0.1.0 | 0 | 2026-06-30 | 36 | First working pipeline |
+| v0.2.0 | 1 | 2026-06-30 | 87 | Full language surface |
+| v0.2.5 | 1.5 | 2026-06-30 | 109 | 13 bug fixes, interface dispatch |
+| v0.22.1 | 2 | 2026-07-04 | 186 | ModuleCatalog, struct/tuple codegen |
+| **v0.30.0** | **1** | **2026-07-11** | **400+** | **Safety gate, size_of, enum constructors** |
+| **v0.31.0** | **2** | **2026-07-11** | **400+** | **Generic fn_key, enum pseudo-fields** |
+| **v0.32.0** | **3** | **2026-07-11** | **400+** | **&mut Struct pointer passing (ARC C)** |
+| **v0.33.0** | **4** | **2026-07-11** | **400+** | **Pattern::Or match** |
+| v1.0.0 | 5 | TBD | 1000+ | Self-hosting, ecosystem, production |
 
 ---
 

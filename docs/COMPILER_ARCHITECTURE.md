@@ -1,7 +1,7 @@
 # XIOM Compiler Architecture
 
-**Version:** v0.20.0 "Hardened"
-**Date:** 2026-07-03
+**Version:** v0.33.0 "Phase 4"
+**Date:** 2026-07-11
 **Status:** Living document — updated as the compiler evolves
 
 This document is the authoritative reference for understanding how the XIOM Rust compiler is structured, its data flow, current limitations, and what would need to change to support extreme-scale benchmarks (10K contracts, deep generics, 1000+ file projects). Every section is grounded in the three pillars defined in `specs/XIOM_Purpose.md`.
@@ -260,7 +260,7 @@ pub struct IrEmitter {
     functions: HashMap<String, (Vec<String>, String)>,    // name → (param_types, ret_type)
     types: HashMap<String, Vec<String>>,                  // struct → field names
     type_meta: HashMap<String, TypeMeta>,                 // struct → (field_name, field_type)
-    generic_fn_decls: Vec<FnDecl>,                        // stored for monomorphisation
+    generic_fn_decls: Vec<(String, FnDecl)>,              // stored for monomorphisation (pre-computed key)
     generic_instantiations: Vec<(String, Vec<String>)>,   // tracked instantiations
     interfaces: HashMap<String, Vec<(String, Vec<String>)>>,
     enum_variants: HashMap<String, Vec<(String, Vec<String>)>>,
@@ -321,19 +321,19 @@ entry:
 ; Builtin runtime implementations
 ```
 
-**Size:** 3910 lines. The second-largest crate. Complex but well-factored.
+**Size:** ~6,900 lines. Complex but well-factored.
 
 **Known Limitations (from `docs/audits/benchmark_crash_audit.md`):**
 
 | Issue | Severity | Status |
 |-------|----------|--------|
-| **Vec.push heap buffer overflow** — fixed 128-byte allocation, no realloc (V1) | CRITICAL | Open |
-| **No recursion depth limit** — recursive calls can overflow stack (V2) | CRITICAL | Fixed (v0.20.0 — depth counter with `max_recursion_depth: 500`) |
+| **Vec.push heap buffer overflow** — fixed 128-byte allocation, no realloc (V1) | CRITICAL | **Fixed** (v0.22.1 — capacity check + realloc doubling strategy) |
+| **No recursion depth limit** — recursive calls can overflow stack (V2) | CRITICAL | **Fixed** (v0.20.0 — depth counter with `max_recursion_depth: 500`) |
 | **Weak local variable hashing** — name collisions in C runtime (V3) | HIGH | Open |
-| **Division by zero** — raw `sdiv`/`srem` with no guard (V4) | HIGH | Fixed (v0.20.0 — trap before div) |
+| **Division by zero** — raw `sdiv`/`srem` with no guard (V4) | HIGH | **Fixed** (v0.20.0 — trap before div) |
 | **Fixed-size C runtime arrays** — 16 fields, 64 locals, 16 match arms (V5) | HIGH | Open |
-| **Generic monomorphisation infinite loop** — worklist with no iteration limit (V6) | MEDIUM | Open |
-| **Unknown types → i64 silently** — `xiom_to_llvm_type` default case (V7) | MEDIUM | Open |
+| **Generic monomorphisation infinite loop** — worklist with no iteration limit (V6) | MEDIUM | **Fixed** (v0.22.1 — 65536 iteration cap + error message) |
+| **Unknown types → i64 silently** — `xiom_to_llvm_type` default case (V7) | MEDIUM | **Mitigated** (v0.30.0 — safety gate now aborts on type errors; no silent wrong code) |
 | **Text IR only** — no LLVM optimization passes applied | INFO | By design (Phase 0) |
 
 ---

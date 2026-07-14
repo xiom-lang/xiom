@@ -15,8 +15,9 @@ use xiom_ast::Span;
 pub enum TokenKind {
     // --- Keywords ---
     Let, Var, Const, Fn, Return,
+    Break, Continue,
     If, Elif, Else, Match, While, For, In,
-    Spawn, Async, Await, Comptime,
+    Spawn, Await, Comptime,
     Module, Use, Pub, As,
     Type, Enum, Interface, Derive,
     Requires, Ensures, Invariant,
@@ -35,7 +36,7 @@ pub enum TokenKind {
     Dot, Comma, Semicolon, Colon,
     LParen, RParen, LBrace, RBrace, LBracket, RBracket,
     At, Arrow, FatArrow, Question,
-    Plus, Minus, Star, Slash, Percent,
+    Plus, Minus, Star, Slash, Percent, Caret, Tilde,
     Bang, Amp, Pipe, Ampersand,
     Eq, EqEq, Neq, Lt, Gt, Le, Ge,
     AndAnd, OrOr,
@@ -173,13 +174,44 @@ impl Lexer {
 
             // --- Numbers ---
             c if c.is_ascii_digit() => {
+                // Hex literal: 0xABCD or 0XABCD
+                if c == '0' && matches!(self.peek_n(1), Some(next) if next == 'x' || next == 'X') {
+                    self.advance(); // consume '0'
+                    self.advance(); // consume 'x' or 'X'
+                    let hex = self.advance_while(|c| c.is_ascii_hexdigit() || c == '_');
+                    let num: u64 = u64::from_str_radix(&hex.replace('_', ""), 16).unwrap_or(0);
+                    return Token::new(TokenKind::Int(num), start, format!("0x{hex}"));
+                }
                 let int_part = self.advance_while(|c| c.is_ascii_digit() || c == '_');
                 if self.peek() == Some('.') && self.peek_n(1).map_or(false, |c| c.is_ascii_digit()) {
                     self.advance(); // skip '.'
                     let frac = self.advance_while(|c| c.is_ascii_digit());
-                    let num: f64 = format!("{int_part}.{frac}").parse().unwrap_or(0.0);
-                    Token::new(TokenKind::Float(num), start, format!("{int_part}.{frac}"))
+                    // Handle scientific notation exponent: e308, e-308, E+10
+                    let mut exp = String::new();
+                    if matches!(self.peek(), Some('e' | 'E')) {
+                        exp.push(self.advance().unwrap()); // 'e' or 'E'
+                        if matches!(self.peek(), Some('+' | '-')) {
+                            exp.push(self.advance().unwrap());
+                        }
+                        let exp_digits = self.advance_while(|c| c.is_ascii_digit());
+                        exp.push_str(&exp_digits);
+                    }
+                    let full = format!("{int_part}.{frac}{exp}");
+                    let num: f64 = full.parse().unwrap_or(0.0);
+                    Token::new(TokenKind::Float(num), start, full)
                 } else {
+                    // Also handle integer scientific notation: 1e10
+                    if matches!(self.peek(), Some('e' | 'E')) {
+                        let mut exp = String::from(&int_part);
+                        exp.push(self.advance().unwrap()); // 'e' or 'E'
+                        if matches!(self.peek(), Some('+' | '-')) {
+                            exp.push(self.advance().unwrap());
+                        }
+                        let exp_digits = self.advance_while(|c| c.is_ascii_digit());
+                        exp.push_str(&exp_digits);
+                        let num: f64 = exp.parse().unwrap_or(0.0);
+                        return Token::new(TokenKind::Float(num), start, exp);
+                    }
                     let num: u64 = int_part.replace('_', "").parse().unwrap_or(0);
                     Token::new(TokenKind::Int(num), start, int_part)
                 }
@@ -193,28 +225,32 @@ impl Lexer {
                     match self.peek() {
                         None => return self.error_at(start, "unterminated string literal"),
                         Some('"') => { self.advance(); break; }
-                        Some('\\') => {
-                            self.advance();
-                            match self.advance() {
-                                Some('n') => s.push('\n'),
-                                Some('t') => s.push('\t'),
-                                Some('r') => s.push('\r'),
-                                Some('\\') => s.push('\\'),
-                                Some('"') => s.push('"'),
-                                Some('u') => {
-                                    if self.advance() != Some('{') {
-                                        return self.error("expected '{' after \\u");
-                                    }
-                                    let hex = self.advance_while(|c| c.is_ascii_hexdigit());
-                                    if self.advance() != Some('}') {
-                                        return self.error("expected '}' after \\u hex digits");
-                                    }
-                                    let codepoint = u32::from_str_radix(&hex, 16).unwrap_or(0xFFFD);
-                                    s.push(char::from_u32(codepoint).unwrap_or('\u{FFFD}'));
+                    Some('\\') => {
+                        self.advance();
+                        match self.advance() {
+                            Some('n') => s.push('\n'),
+                            Some('t') => s.push('\t'),
+                            Some('r') => s.push('\r'),
+                            Some('\\') => s.push('\\'),
+                            Some('"') => s.push('"'),
+                            Some('\'') => s.push('\''),
+                            Some('0') => s.push('\0'),
+                            Some('b') => s.push('\x08'),
+                            Some('f') => s.push('\x0C'),
+                            Some('u') => {
+                                if self.advance() != Some('{') {
+                                    return self.error("expected '{' after \\u");
                                 }
-                                _ => return self.error("invalid escape sequence"),
+                                let hex = self.advance_while(|c| c.is_ascii_hexdigit());
+                                if self.advance() != Some('}') {
+                                    return self.error("expected '}' after \\u hex digits");
+                                }
+                                let codepoint = u32::from_str_radix(&hex, 16).unwrap_or(0xFFFD);
+                                s.push(char::from_u32(codepoint).unwrap_or('\u{FFFD}'));
                             }
+                            _ => return self.error("invalid escape sequence"),
                         }
+                    }
                         Some(c) => { self.advance(); s.push(c); }
                     }
                 }
@@ -232,6 +268,9 @@ impl Lexer {
                         Some('\\') => '\\',
                         Some('\'') => '\'',
                         Some('"') => '"',
+                        Some('0') => '\0',
+                        Some('b') => '\x08',
+                        Some('f') => '\x0C',
                         _ => return self.error("invalid escape in char literal"),
                     },
                     Some(c) if c != '\'' => c,
@@ -269,6 +308,8 @@ impl Lexer {
             '*' => { self.advance(); Token::new(TokenKind::Star, start, "*") }
             '/' => { self.advance(); Token::new(TokenKind::Slash, start, "/") }
             '%' => { self.advance(); Token::new(TokenKind::Percent, start, "%") }
+            '^' => { self.advance(); Token::new(TokenKind::Caret, start, "^") }
+            '~' => { self.advance(); Token::new(TokenKind::Tilde, start, "~") }
             '!' => {
                 self.advance();
                 if self.peek() == Some('=') {
@@ -341,6 +382,8 @@ impl Lexer {
             "const"     => TokenKind::Const,
             "fn"        => TokenKind::Fn,
             "return"    => TokenKind::Return,
+            "break"     => TokenKind::Break,
+            "continue"  => TokenKind::Continue,
             "if"        => TokenKind::If,
             "elif"      => TokenKind::Elif,
             "else"      => TokenKind::Else,
@@ -349,7 +392,6 @@ impl Lexer {
             "for"       => TokenKind::For,
             "in"        => TokenKind::In,
             "spawn"     => TokenKind::Spawn,
-            "async"     => TokenKind::Async,
             "await"     => TokenKind::Await,
             "comptime"  => TokenKind::Comptime,
             "module"    => TokenKind::Module,
@@ -499,5 +541,45 @@ mod tests {
         let has_clone = tokens.iter().any(|t| matches!(t, TokenKind::Ident(s) if s == "Clone"));
         assert!(has_eq);
         assert!(has_clone);
+    }
+
+    #[test]
+    fn test_caret_token() {
+        let tokens = lex("a ^ b");
+        assert!(tokens.iter().any(|t| matches!(t, TokenKind::Caret)));
+    }
+
+    #[test]
+    fn test_tilde_token() {
+        let tokens = lex("~a");
+        assert!(tokens.iter().any(|t| matches!(t, TokenKind::Tilde)));
+    }
+
+    #[test]
+    fn test_char_escapes() {
+        let tokens = lex("'\\n' '\\t' '\\r' '\\\\' '\\'' '\\\"' '\\0' '\\b' '\\f'");
+        assert_eq!(tokens[0], TokenKind::Char('\n'));
+        assert_eq!(tokens[1], TokenKind::Char('\t'));
+        assert_eq!(tokens[2], TokenKind::Char('\r'));
+        assert_eq!(tokens[3], TokenKind::Char('\\'));
+        assert_eq!(tokens[4], TokenKind::Char('\''));
+        assert_eq!(tokens[5], TokenKind::Char('"'));
+        assert_eq!(tokens[6], TokenKind::Char('\0'));
+        assert_eq!(tokens[7], TokenKind::Char('\x08'));
+        assert_eq!(tokens[8], TokenKind::Char('\x0C'));
+    }
+
+    #[test]
+    fn test_string_escapes() {
+        let tokens = lex("\"\\n\" \"\\t\" \"\\r\" \"\\\\\" \"\\\"\" \"\\'\" \"\\0\" \"\\b\" \"\\f\"");
+        assert_eq!(tokens[0], TokenKind::Str("\n".into()));
+        assert_eq!(tokens[1], TokenKind::Str("\t".into()));
+        assert_eq!(tokens[2], TokenKind::Str("\r".into()));
+        assert_eq!(tokens[3], TokenKind::Str("\\".into()));
+        assert_eq!(tokens[4], TokenKind::Str("\"".into()));
+        assert_eq!(tokens[5], TokenKind::Str("'".into()));
+        assert_eq!(tokens[6], TokenKind::Str("\0".into()));
+        assert_eq!(tokens[7], TokenKind::Str("\x08".into()));
+        assert_eq!(tokens[8], TokenKind::Str("\x0C".into()));
     }
 }

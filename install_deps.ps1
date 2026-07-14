@@ -322,6 +322,21 @@ if (Test-Command "git") {
 }
 
 # ============================================================================
+# 5. NASM (optional — hardware-accelerated stdlib functions)
+# ============================================================================
+Write-Header "5. NASM (optional - crypto/memcpy/simd assembly acceleration)"
+
+if (Test-Command "nasm") {
+    $ver = (nasm --version 2>$null | Select-Object -First 1)
+    Write-Ok "already installed -- $ver"
+    $script:skippedCount++
+} else {
+    Write-Info "NASM not found - optional, enables AES-NI, fast memcpy, context switching"
+    Write-Info "  Install: winget install NASM.NASM"
+    Write-Info "  Without NASM: stdlib falls back to C software implementations."
+}
+
+# ============================================================================
 # Summary
 # ============================================================================
 Write-Host ""

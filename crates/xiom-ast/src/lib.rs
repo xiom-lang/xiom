@@ -145,7 +145,7 @@ pub enum Expr {
     /// `Err(expr)`
     Err(Box<Expr>, Span),
     /// `Type{ field: val, ... }` — struct literal
-    Struct(Ident, Vec<(Ident, Expr)>, Span),
+    Struct(Ident, Vec<(Ident, Expr)>, Option<Box<Expr>>, Span),
     /// `[expr, ...]` — array literal
     Array(Vec<Expr>, Span),
     /// `fn(params) -> RetType { ... }` — closure
@@ -162,6 +162,10 @@ pub enum Expr {
     Tuple(Vec<Expr>, Span),
     /// `if cond { then } else { else }` — if-expression
     If(Box<Expr>, Block, Vec<(Expr, Block)>, Option<Block>, Span),
+    /// `match expr { arms }` as an expression
+    Match(Box<Expr>, Vec<MatchArm>, Span),
+    /// `unsafe { ... }` block
+    Unsafe(Block, Span),
 }
 
 impl Expr {
@@ -173,8 +177,9 @@ impl Expr {
             Expr::Imply(_, _, s) | Expr::Is(_, _, s) | Expr::Field(_, _, s) | Expr::Call(_, _, s) => *s,
             Expr::Index(_, _, s) | Expr::AtPre(_, s) | Expr::Ref(_, s) | Expr::MutRef(_, s) => *s,
             Expr::Some(_, s) | Expr::None(s) | Expr::Ok(_, s) | Expr::Err(_, s) => *s,
-            Expr::Struct(_, _, s) | Expr::Array(_, s) | Expr::Closure(_, _, _, s) | Expr::PipeClosure(_, _, s) => *s,
-            Expr::Await(_, s) | Expr::Comptime(_, s) | Expr::As(_, _, s) | Expr::Tuple(_, s) | Expr::If(_, _, _, _, s) => *s,
+            Expr::Struct(_, _, _, s) | Expr::Array(_, s) | Expr::Closure(_, _, _, s) | Expr::PipeClosure(_, _, s) => *s,
+            Expr::Await(_, s) | Expr::Comptime(_, s) | Expr::As(_, _, s) | Expr::Tuple(_, s) | Expr::If(_, _, _, _, s) | Expr::Unsafe(_, s) => *s,
+            Expr::Match(_, _, s) => *s,
         }
     }
 }
@@ -185,14 +190,20 @@ pub enum UnaryOp {
     Not,
     Ref,
     MutRef,
+    BitNot,
+    Deref,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinOp {
     Add, Sub, Mul, Div, Rem,
     Eq, Neq, Lt, Gt, Le, Ge,
+    Shl, Shr,
     And, Or,
     Assign,
+    BitXor,
+    BitAnd,
+    BitOr,
 }
 
 impl fmt::Display for BinOp {
@@ -209,9 +220,14 @@ impl fmt::Display for BinOp {
             BinOp::Gt => ">",
             BinOp::Le => "<=",
             BinOp::Ge => ">=",
+            BinOp::Shl => "<<",
+            BinOp::Shr => ">>",
             BinOp::And => "&&",
             BinOp::Or => "||",
             BinOp::Assign => "=",
+            BinOp::BitXor => "^",
+            BinOp::BitAnd => "&",
+            BinOp::BitOr => "|",
         };
         write!(f, "{s}")
     }
@@ -239,6 +255,8 @@ pub enum Pattern {
     Ok(Box<Pattern>, Span),
     /// `Err(pattern)`
     Err(Box<Pattern>, Span),
+    /// `A | B | C` — or-pattern (matches if any alternative matches)
+    Or(Vec<Pattern>, Span),
 }
 
 // ============================================================================
@@ -269,6 +287,10 @@ pub enum Stmt {
     Spawn(Block, Span),
     /// `var (a, b) = expr;` / `let (a, b) = expr;`
     Destructure(Vec<Ident>, Expr, Span),
+    /// `break;`
+    Break(Span),
+    /// `continue;`
+    Continue(Span),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -308,6 +330,8 @@ pub struct Param {
     pub name: Ident,
     pub ty: Type,
     pub span: Span,
+    /// `true` when this param was declared as `&mut self` (mutable receiver).
+    pub is_mut_self: bool,
 }
 
 // ============================================================================
@@ -328,6 +352,8 @@ pub enum ContractClause {
 pub struct GenericParam {
     pub name: Ident,
     pub bounds: Vec<Ident>, // interface names
+    pub is_const: bool,
+    pub const_ty: Option<Type>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -441,6 +467,18 @@ pub struct ConstDecl {
     pub name: Ident,
     pub ty: Type,
     pub value: Expr,
+    /// `true` for a mutable module-level `var` (emitted as a real LLVM global
+    /// read via `load` / written via `store`); `false` for an immutable `const`
+    /// (compile-time value substituted at each read site).
+    pub is_mut: bool,
+    pub span: Span,
+}
+
+/// `extern "C" { fn foo(...) -> ...; fn bar(...) -> ...; }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExternBlock {
+    pub linkage: String,
+    pub functions: Vec<FnDecl>,
     pub span: Span,
 }
 
@@ -475,6 +513,7 @@ pub enum TopDecl {
     Interface(InterfaceDecl),
     Fn(FnDecl),
     Const(ConstDecl),
+    Extern(ExternBlock),
 }
 
 // ============================================================================

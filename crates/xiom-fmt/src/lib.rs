@@ -43,6 +43,7 @@ impl Formatter {
             TopDecl::Module(module) => self.format_module(module),
             TopDecl::Use(use_decl) => self.format_use_decl(use_decl),
             TopDecl::Const(const_decl) => self.format_const_decl(const_decl),
+            TopDecl::Extern(_) => {} // skip formatting for now
         }
     }
 
@@ -270,6 +271,14 @@ impl Formatter {
                 self.format_expr(val);
                 self.buf.push_str(";\n");
             }
+            Stmt::Break(_) => {
+                self.push_indent();
+                self.buf.push_str("break;\n");
+            }
+            Stmt::Continue(_) => {
+                self.push_indent();
+                self.buf.push_str("continue;\n");
+            }
         }
     }
 
@@ -309,6 +318,12 @@ impl Formatter {
                 self.format_pattern(inner);
                 self.buf.push(')');
             }
+            Pattern::Or(alts, _) => {
+                for (i, alt) in alts.iter().enumerate() {
+                    if i > 0 { self.buf.push_str(" | "); }
+                    self.format_pattern(alt);
+                }
+            }
         }
     }
 
@@ -345,6 +360,8 @@ impl Formatter {
                 match op {
                     UnaryOp::Neg => self.buf.push('-'),
                     UnaryOp::Not => self.buf.push('!'),
+                    UnaryOp::BitNot => self.buf.push('~'),
+                    UnaryOp::Deref => self.buf.push('*'),
                     UnaryOp::Ref => self.buf.push('&'),
                     UnaryOp::MutRef => self.buf.push_str("&mut "),
                 }
@@ -368,6 +385,11 @@ impl Formatter {
                     BinOp::And => "&&",
                     BinOp::Or => "||",
                     BinOp::Assign => "=",
+                    BinOp::BitAnd => "&",
+                    BinOp::BitOr => "|",
+                    BinOp::BitXor => "^",
+                    BinOp::Shl => "<<",
+                    BinOp::Shr => ">>",
                 });
                 self.buf.push(' ');
                 self.format_expr(right);
@@ -392,7 +414,7 @@ impl Formatter {
                 self.format_expr(index);
                 self.buf.push(']');
             }
-            Expr::Struct(name, fields, _) => {
+            Expr::Struct(name, fields, _spread, _) => {
                 self.buf.push_str(&name.name);
                 self.buf.push_str("{ ");
                 for (i, (ident, val)) in fields.iter().enumerate() {
@@ -510,6 +532,38 @@ impl Formatter {
                     self.buf.push_str(" else ");
                     self.format_block(eblock);
                 }
+            }
+            Expr::Unsafe(block, _) => {
+                self.buf.push_str("unsafe ");
+                self.format_block(block);
+            }
+            Expr::Match(scrutinee, arms, _) => {
+                self.buf.push_str("match ");
+                self.format_expr(scrutinee);
+                self.buf.push_str(" {\n");
+                self.indent += 1;
+                for arm in arms {
+                    self.push_indent();
+                    self.format_pattern(&arm.pattern);
+                    self.buf.push_str(" => ");
+                    match &arm.body {
+                        MatchBody::Block(block) => {
+                            self.buf.push_str("{\n");
+                            self.indent += 1;
+                            self.format_block(block);
+                            self.indent -= 1;
+                            self.push_indent();
+                            self.buf.push_str("},\n");
+                        }
+                        MatchBody::Expr(e) => {
+                            self.format_expr(e);
+                            self.buf.push_str(",\n");
+                        }
+                    }
+                }
+                self.indent -= 1;
+                self.push_indent();
+                self.buf.push('}');
             }
         }
     }
@@ -794,7 +848,7 @@ impl Formatter {
     }
 
     fn format_const_decl(&mut self, c: &ConstDecl) {
-        self.buf.push_str("const ");
+        self.buf.push_str(if c.is_mut { "var " } else { "const " });
         self.buf.push_str(&c.name.name);
         self.buf.push_str(": ");
         self.format_type(&c.ty);
