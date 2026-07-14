@@ -784,6 +784,14 @@ fn e2e_enum_variant_value() {
         "enum variant as value and ==/!= should work");
 }
 
+/// Const-generics and array indexing: let-bound arrays index correctly (5a.7),
+/// const-declared sizes work in while loops (5a.5).
+#[test]
+fn e2e_const_generic_array() {
+    assert_eq!(compile_and_run("examples\\e2e\\const_generic_array.xi"), Some(0),
+        "const-generics: array indexing and const-declared loop sizes");
+}
+
 /// `&mut Scalar` parameter is a real LLVM pointer: `inc(p: &mut Int)` derefs to
 /// read (`*p`) and stores through (`*p = ...`), mutating the caller's local.
 #[test]
