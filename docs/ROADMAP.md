@@ -163,17 +163,20 @@ P2: ✅ Plain-text error suggestions, C runtime limits, --max-depth, --timeout
 
 **Phase 5c is production-complete. 9/9 CLI commands, 7/7 build flags, 100% bugs resolved.**
 
-### 5c.7 Ecosystem Test Gaps (Progress 4/6 fixed)
+### 5c.7 Ecosystem Test Gaps (6/10 PASS — 213 tests, 7 fixes delivered)
 
 | Gap | Severity | Status | Tests Fixed |
 |-----|----------|--------|-------------|
-| **Float32 type compatibility** | HIGH | ✅ FIXED | vector (32→1), crypto (23→2) |
-| **Enum variant constructors** | HIGH | ✅ FIXED | json (29→1), sqlite (23→12), net (22→0 PASS) |
-| **`\x00` hex char escape** | MEDIUM | ✅ FIXED | crypto (lex errors gone) |
-| **`this` keyword** | LOW | ✅ FIXED | net (22→0 PASS) |
-| **Contract syntax in parser** | HIGH | TODO | algo (89), full (30) — `requires:`/`ensures:` parsing |
-| **Vec.insert method dispatch** | MEDIUM | TODO | vector, crypto, db — needs `use xiom.collections` |
-| **Return type: () vs Bool** | MEDIUM | TODO | db (18→1) — bare `return` in non-void functions |
+| **Float32 type compatibility** | HIGH | ✅ FIXED | vector: 32→0 PASS |
+| **Enum variant constructors** | HIGH | ✅ FIXED | json: 29→0 PASS, net: 22→0 PASS |
+| **Comma-separated contracts** | HIGH | ✅ FIXED | algo: 89→0 PASS |
+| **`\x00` hex char escape** | MEDIUM | ✅ FIXED | crypto: LEX errors gone |
+| **`this` keyword** | LOW | ✅ FIXED | net: 22→0 PASS |
+| **Int ↔ Char compatibility** | MEDIUM | ✅ FIXED | crypto: 23→0 PASS |
+| **External fn registration** | HIGH | ✅ FIXED | db: 18→0 PASS, vector: Vec.insert resolved |
+| **Pattern-binding type inference** | MEDIUM | TODO | full: 2 remaining (enum variant payload types) |
+| **`?` operator** | LOW | N/A | Not a XIOM feature — replaced with explicit match |
+| **Deep method chains** | MEDIUM | TODO | http (42), sqlite (12), test (58) — advanced patterns |
 
 ---
 
