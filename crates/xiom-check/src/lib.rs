@@ -2224,11 +2224,13 @@ impl Checker {
     fn check_expr(&mut self, expr: &Expr) -> CheckedType {
         match expr {
             Expr::Ident(ident) => {
-                if ident.name == "_" {
+                // `this` is an alias for `self` in method bodies
+                let lookup_name: &str = if ident.name == "this" { "self" } else { &ident.name };
+                if lookup_name == "_" {
                     CheckedType::Int // wildcard placeholder type
                 } else if ident.name == "null" {
                     CheckedType::Named("Ptr".to_string())
-                } else if let Some(ty) = self.lookup_local(&ident.name) {
+                } else if let Some(ty) = self.lookup_local(lookup_name) {
                     ty.clone()
                 } else if let Some(ty) = self.global_consts.get(&ident.name) {
                     ty.clone()
