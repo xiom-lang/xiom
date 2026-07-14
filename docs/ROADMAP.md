@@ -31,8 +31,11 @@
 
 | Bug | Severity | Symptom |
 |-----|----------|---------|
-| **BUG-006** Option[Struct].unwrap() crash | HIGH | `Some(Point{...}).unwrap().x` returns wrong value or crashes. Root cause: `Some` heap-allocates struct payloads via `val_to_i64`, but `unwrap` doesn't dereference the heap pointer. |
+| **BUG-006** Option[Struct].unwrap() crash | HIGH | `Some(Point{...}).unwrap().x` returns wrong value. Root cause: `Some` heap-allocates struct payloads via `val_to_i64`, `unwrap` doesn't dereference. Needs per-concrete-type Option struct layout. |
 | **BUG-007** Interface vtable dispatch | MEDIUM | Multiple types implementing same interface — first-match static dispatch works, no vtable for polymorphic calls |
+| **BUG-008** IO string-to-extern-c coercion | HIGH | `io.write_file`/`read_file`/`println` crash with `i64 vs i8*` mismatch when passing string args to extern C functions. |
+| **BUG-009** TestResult.passed field wrong value | MEDIUM | `test.assert(true).passed` returns false. Related to BUG-006 struct payload round-trip. |
+| **BUG-010** Channel send/try_recv broken | MEDIUM | `Channel.unbounded().send(42); try_recv()` returns None — value not queued. |
 
 ---
 
