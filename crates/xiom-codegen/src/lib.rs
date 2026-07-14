@@ -5959,6 +5959,26 @@ impl IrEmitter {
                         }
                     }
                 }
+                // Str.c_str() — identity on the string pointer (Str is already i8*).
+                // Str.len() / Str.byte_len() — return the string length.
+                if (fn_name == "c_str" || fn_name == "byte_len" || fn_name == "len") && args.is_empty() {
+                    if let Some(receiver) = receiver_expr {
+                        let recv_ty = self.infer_llvm_type(receiver);
+                        let is_str = recv_ty == "i8*" || recv_ty.contains(".Str");
+                        if fn_name == "c_str" {
+                            let (recv_val, recv_ty) = self.compile_expr(receiver)?;
+                            let ptr = self.coerce_value(&recv_val, &recv_ty, "i8*");
+                            return Ok((ptr, "i8*".to_string()));
+                        } else if is_str {
+                            // .len() / .byte_len(): only for Str receivers
+                            let (recv_val, recv_ty) = self.compile_expr(receiver)?;
+                            let ptr = self.coerce_value(&recv_val, &recv_ty, "i8*");
+                            let len_tmp = self.fresh_tmp();
+                            self.emitln(&format!("  {len_tmp} = call i64 @strlen(i8* {ptr})"));
+                            return Ok((len_tmp, "i64".to_string()));
+                        }
+                    }
+                }
                 // Str.from_cstring(ptr) / from_c_str / from_utf8 — reinterpret a
                 // C string / byte buffer as a Str. A Str is `i8*` at the ABI and a
                 // C string is already a NUL-terminated i8*, so this is an identity
