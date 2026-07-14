@@ -2626,6 +2626,9 @@ impl IrEmitter {
     /// Emit a runtime check for a single boolean contract expression.
     /// If the expression evaluates to false (i64 0), emit a panic and trap.
     fn compile_contract_check(&mut self, expr: &Expr, clause_type: &str) {
+        // Phase 5d: Emit contract expression as IR comment for debuggers
+        let expr_str = format!("{:?}", expr).chars().take(80).collect::<String>();
+        self.emitln(&format!("; contract: {clause_type}: {expr_str}"));
         let (cond_val, expr_ty) = match self.compile_expr(expr) {
             Ok(v) => v,
             Err(_) => return,
