@@ -513,7 +513,7 @@ impl ModuleCatalog {
                     }
                     let return_type = fd.return_type.as_ref().map(|t| CheckedType::from_ast_type(t));
                     let generics: Vec<String> = fd.generics.iter().map(|g| g.name.name.clone()).collect();
-                    let sig = FnSig { params, return_type, generics };
+                    let sig = FnSig { params, return_type, generics, uses_implicit_this: false };
                     let bare_key = fd.name.name.clone();
                     let key = if prefix.is_empty() { bare_key.clone() } else { format!("{}.{}", prefix, bare_key) };
                     functions.insert(bare_key, sig.clone());
@@ -578,6 +578,9 @@ pub struct FnSig {
     pub params: Vec<(String, CheckedType)>,
     pub return_type: Option<CheckedType>,
     pub generics: Vec<String>,
+    /// True when the function body references `this` (implicit receiver),
+    /// meaning the first arg in a static call is the explicit receiver.
+    pub uses_implicit_this: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -705,6 +708,7 @@ impl Checker {
             params: vec![],
             return_type: Some(CheckedType::Named("Vec".into())),
             generics: vec![],
+            uses_implicit_this: false,
         });
         self.functions.insert("Vec.push".to_string(), FnSig {
             params: vec![
@@ -713,6 +717,7 @@ impl Checker {
             ],
             return_type: Some(CheckedType::Unit),
             generics: vec!["T".to_string()],
+            uses_implicit_this: false,
         });
         self.functions.insert("Vec.len".to_string(), FnSig {
             params: vec![
@@ -720,6 +725,7 @@ impl Checker {
             ],
             return_type: Some(CheckedType::Int),
             generics: vec![],
+            uses_implicit_this: false,
         });
         self.functions.insert("Vec.pop".to_string(), FnSig {
             params: vec![
@@ -727,6 +733,7 @@ impl Checker {
             ],
             return_type: Some(CheckedType::Named("Option".into())),
             generics: vec![],
+            uses_implicit_this: false,
         });
     }
 
@@ -874,6 +881,7 @@ impl Checker {
             params: vec![], // no explicit params, self is implicit
             return_type: Some(ret_type),
             generics: vec![],
+            uses_implicit_this: false,
         };
         let bare_key = format!("{}.{}", type_name, method_name);
         let key = if module_path.is_empty() { bare_key.clone() } else { format!("{}.{}", module_path, bare_key) };
@@ -917,6 +925,12 @@ impl Checker {
                         // for pattern-binding type resolution.
                         if enum_variant_key != variant_key {
                             self.variant_fields.insert(enum_variant_key.clone(), vfields.clone());
+                        }
+                        // Also register bare EnumType.Variant (e.g. "AgentState.Done")
+                        // so pattern bindings with dotted variant names resolve.
+                        let enum_bare = format!("{}.{}", ed.name.name, variant.name.name);
+                        if enum_bare != variant_key && enum_bare != enum_variant_key && enum_bare != variant.name.name {
+                            self.variant_fields.insert(enum_bare, vfields.clone());
                         }
                         if variant_key != variant.name.name {
                             self.variant_fields.insert(variant.name.name.clone(), vfields);
@@ -1052,14 +1066,24 @@ impl Checker {
                     self.enum_variants.entry(variant_key.clone()).or_insert(parent.clone());
                     // Also register bare variant name (first registration wins)
                     if variant_key != variant.name.name {
-                        self.enum_variants.entry(variant.name.name.clone()).or_insert(parent);
+                        self.enum_variants.entry(variant.name.name.clone()).or_insert(parent.clone());
                     }
+                    // Register EnumType.Variant key (e.g. "AgentState.Done")
+                    // for dotted variant name resolution in pattern bindings.
+                    let enum_bare = format!("{}.{}", parent, variant.name.name);
+                    self.enum_variants.entry(enum_bare).or_insert(parent);
                     // Store variant fields for constructor field validation
                     let mut vfields: Vec<(String, CheckedType)> = Vec::new();
                     for field in &variant.fields {
                         vfields.push((field.name.name.clone(), CheckedType::from_ast_type(&field.ty)));
                     }
                     self.variant_fields.entry(variant_key.clone()).or_insert(vfields.clone());
+                    // Register EnumType.Variant key for pattern-binding lookups
+                    // in variant_fields too (same key as enum_variants above).
+                    let enum_bare_vf = format!("{}.{}", ed.name.name, variant.name.name);
+                    if enum_bare_vf != variant_key && enum_bare_vf != variant.name.name {
+                        self.variant_fields.entry(enum_bare_vf).or_insert(vfields.clone());
+                    }
                     if variant_key != variant.name.name {
                         self.variant_fields.entry(variant.name.name.clone()).or_insert(vfields);
                     }
@@ -1112,6 +1136,92 @@ impl Checker {
         }
     }
 
+    /// Return true when any expression in the tree references the implicit
+    /// receiver keyword `this`.  Used to distinguish `this`-based methods from
+    /// plain constructors during signature registration.
+    fn expr_uses_this(expr: &xiom_ast::Expr) -> bool {
+        match expr {
+            xiom_ast::Expr::Ident(id) => id.name == "this",
+            xiom_ast::Expr::Paren(e, _)
+            | xiom_ast::Expr::Unary(_, e, _)
+            | xiom_ast::Expr::Try(e, _)
+            | xiom_ast::Expr::AtPre(e, _)
+            | xiom_ast::Expr::Ref(e, _)
+            | xiom_ast::Expr::MutRef(e, _)
+            | xiom_ast::Expr::Some(e, _)
+            | xiom_ast::Expr::Ok(e, _)
+            | xiom_ast::Expr::Err(e, _)
+            | xiom_ast::Expr::Await(e, _)
+            | xiom_ast::Expr::Comptime(e, _)
+            | xiom_ast::Expr::As(e, _, _) => Self::expr_uses_this(e),
+            xiom_ast::Expr::Binary(a, _, b, _)
+            | xiom_ast::Expr::Imply(a, b, _) => Self::expr_uses_this(a) || Self::expr_uses_this(b),
+            xiom_ast::Expr::Field(obj, _, _) => Self::expr_uses_this(obj),
+            xiom_ast::Expr::Call(func, args, _) => {
+                Self::expr_uses_this(func) || args.iter().any(Self::expr_uses_this)
+            }
+            xiom_ast::Expr::Index(arr, idx, _) => Self::expr_uses_this(arr) || Self::expr_uses_this(idx),
+            xiom_ast::Expr::Struct(_, fields, base, _) => {
+                fields.iter().any(|(_, v)| Self::expr_uses_this(v))
+                    || base.as_ref().map_or(false, |b| Self::expr_uses_this(b))
+            }
+            xiom_ast::Expr::Array(elems, _) | xiom_ast::Expr::Tuple(elems, _) => {
+                elems.iter().any(Self::expr_uses_this)
+            }
+            xiom_ast::Expr::Closure(_, _, body, _) => Self::block_uses_this(body),
+            xiom_ast::Expr::PipeClosure(_, body, _) => Self::expr_uses_this(body),
+            xiom_ast::Expr::If(cond, then_b, elifs, else_b, _) => {
+                Self::expr_uses_this(cond)
+                    || Self::block_uses_this(then_b)
+                    || elifs.iter().any(|(c, b)| Self::expr_uses_this(c) || Self::block_uses_this(b))
+                    || else_b.as_ref().map_or(false, |b| Self::block_uses_this(b))
+            }
+            xiom_ast::Expr::Match(scrut, arms, _) => {
+                Self::expr_uses_this(scrut)
+                    || arms.iter().any(|arm| match &arm.body {
+                        xiom_ast::MatchBody::Block(b) => Self::block_uses_this(b),
+                        xiom_ast::MatchBody::Expr(e) => Self::expr_uses_this(e),
+                    })
+            }
+            xiom_ast::Expr::Unsafe(b, _) => Self::block_uses_this(b),
+            _ => false,
+        }
+    }
+
+    fn stmt_uses_this(stmt: &xiom_ast::Stmt) -> bool {
+        match stmt {
+            xiom_ast::Stmt::Expr(e, _) | xiom_ast::Stmt::Return(Some(e), _) => Self::expr_uses_this(e),
+            xiom_ast::Stmt::Return(None, _) => false,
+            xiom_ast::Stmt::Let(_, _, init, _) | xiom_ast::Stmt::Var(_, _, init, _) => Self::expr_uses_this(init),
+            xiom_ast::Stmt::Assign(_, rhs, _) => Self::expr_uses_this(rhs),
+            xiom_ast::Stmt::If(cond, then_b, elifs, else_b, _) => {
+                Self::expr_uses_this(cond)
+                    || Self::block_uses_this(then_b)
+                    || elifs.iter().any(|(c, b)| Self::expr_uses_this(c) || Self::block_uses_this(b))
+                    || else_b.as_ref().map_or(false, |b| Self::block_uses_this(b))
+            }
+            xiom_ast::Stmt::While(cond, body, _) | xiom_ast::Stmt::For(_, cond, body, _) => {
+                Self::expr_uses_this(cond) || Self::block_uses_this(body)
+            }
+            xiom_ast::Stmt::Match(scrut, arms, _) => {
+                Self::expr_uses_this(scrut)
+                    || arms.iter().any(|arm| match &arm.body {
+                        xiom_ast::MatchBody::Block(b) => Self::block_uses_this(b),
+                        xiom_ast::MatchBody::Expr(e) => Self::expr_uses_this(e),
+                    })
+            }
+            xiom_ast::Stmt::Spawn(b, _) => Self::block_uses_this(b),
+            _ => false,
+        }
+    }
+
+    fn block_uses_this(block: &xiom_ast::Block) -> bool {
+        block.stmts.iter().any(|s| match s {
+            xiom_ast::StmtOrExpr::Stmt(stmt) => Self::stmt_uses_this(stmt),
+            xiom_ast::StmtOrExpr::Expr(expr) => Self::expr_uses_this(expr),
+        })
+    }
+
     fn register_fn_signature(&mut self, item: &TopDecl) {
         self.register_fn_signature_inner(item, "");
     }
@@ -1137,7 +1247,15 @@ impl Checker {
                 };
                 let key = if module_path.is_empty() { bare_key.clone() } else { format!("{}.{}", module_path, bare_key) };
                 let generics = fd.generics.iter().map(|g| g.name.name.clone()).collect();
-                let sig = FnSig { params, return_type, generics };
+                // Detect implicit `this` usage: receiver exists, no explicit self
+                // param, and the body references `this`.
+                let uses_this = fd.receiver.is_some()
+                    && !fd.params.iter().any(|p| p.name.name == "self")
+                    && !fd.params.first().map_or(false, |p| {
+                        CheckedType::from_ast_type(&p.ty).name() == fd.receiver.as_ref().unwrap().name
+                    })
+                    && fd.body.as_ref().map_or(false, |b| Self::block_uses_this(b));
+                let sig = FnSig { params, return_type, generics, uses_implicit_this: uses_this };
                 self.functions.insert(key.clone(), sig.clone());
                 // Also register with bare key as fallback (don't overwrite existing)
                 if key != bare_key {
@@ -1166,7 +1284,7 @@ impl Checker {
                         .collect();
                     let return_type = func.return_type.as_ref().map(|t| CheckedType::from_ast_type(t));
                     let generics = func.generics.iter().map(|g| g.name.name.clone()).collect();
-                    let sig = FnSig { params, return_type, generics };
+                    let sig = FnSig { params, return_type, generics, uses_implicit_this: false };
                     self.functions.insert(func.name.name.clone(), sig);
                     self.visibility.insert(func.name.name.clone(), func.is_pub);
                 }
@@ -1761,7 +1879,7 @@ impl Checker {
                             }).collect();
                             let return_type = fd.return_type.as_ref().map(|t| CheckedType::from_ast_type(t));
                             let generics = fd.generics.iter().map(|g| g.name.name.clone()).collect();
-                            FnSig { params, return_type, generics }
+                            FnSig { params, return_type, generics, uses_implicit_this: false }
                         });
                     map.insert(fd.name.name.clone(), ModuleExport::Function { sig, is_pub });
                 }
@@ -2476,9 +2594,38 @@ impl Checker {
                                 .cloned()
                         });
                         if let Some(sig) = sig {
+                            // Detect static call (TypeName.method) vs instance method:
+                            // if obj is a simple Ident that resolves to a known type,
+                            // the call is TypeName.method(args) rather than instance.method(args).
+                            let is_static_call = match obj.as_ref() {
+                                Expr::Ident(id) => self.types.contains_key(&id.name),
+                                _ => false,
+                            };
+                            // Determine the self-kind of this method:
+                            //   explicit self: first param type matches receiver (e.g. fn T.method(h: &T, ...))
+                            //     OR param named `self` with type `Self`
+                            //   implicit this: uses `this` keyword, no self in params (e.g. fn T.method(idx: Int))
+                            //   constructor:   no self at all (e.g. fn T.new(method: X, path: Y))
+                            let has_explicit_self = sig.params.first().map_or(false, |(_, pty)| {
+                                matches!(pty, CheckedType::Named(n) if n.as_str() == type_name.as_str()
+                                    || n == "Self")
+                            });
+                            // param_offset table:
+                            //   explicit self  + instance call → skip self (offset=1)
+                            //   explicit self  + static call   → self is first arg (offset=0)
+                            //   implicit this  + instance call → args map directly (offset=0)
+                            //   implicit this  + static call   → first arg is receiver, skip it (offset=1)
+                            //   constructor    + any call       → args map directly, no self (offset=0)
+                            let param_offset: usize = if has_explicit_self {
+                                if is_static_call { 0 } else { 1 }
+                            } else if sig.uses_implicit_this {
+                                if is_static_call { 1 } else { 0 }
+                            } else {
+                                0 // constructor — no self at all
+                            };
                             for (i, arg) in args.iter().enumerate() {
                                 let arg_ty = self.check_expr(arg);
-                                let param_idx = i + 1; // skip receiver
+                                let param_idx = i + param_offset;
                                 if param_idx < sig.params.len() {
                                     let expected = &sig.params[param_idx].1;
                                     let is_generic = sig.generics.iter().any(|g| g == &expected.name());
