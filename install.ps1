@@ -60,6 +60,12 @@ if (-not $BinaryPath) {
         Write-Host "    The compiler can emit .ll IR files without clang." -ForegroundColor DarkGray
         # NOT a hard failure — compiler can emit IR without clang
     }
+    if (Get-Command nasm -ErrorAction SilentlyContinue) {
+        Write-Host "  ✓ nasm found — hardware-accelerated crypto/memcpy enabled" -ForegroundColor Green
+    } else {
+        Write-Host "  - nasm not found (optional - install with: winget install NASM.NASM)" -ForegroundColor DarkGray
+        Write-Host "    Without NASM, stdlib falls back to C software implementations." -ForegroundColor DarkGray
+    }
 
     if (-not $depsOk) {
         Write-Host ""

@@ -19,6 +19,7 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::process::{self, Command};
+use std::time::Duration;
 
 use xiom_ast::*;
 use xiom_lexer::Lexer;
@@ -50,6 +51,50 @@ fn main() {
     let verify_output = parse_flag_value(&args, "--verify-output");
 
     let output_file = parse_flag_value(&args, "-o");
+
+    // Collect repeatable FFI/link flags
+    let link_libs = parse_all_flag_values(&args, "--link");
+    let link_paths = parse_all_flag_values(&args, "--link-path");
+    let c_sources = parse_all_flag_values(&args, "--c-source");
+
+    let timeout_secs: u64 = parse_flag_value(&args, "--timeout")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(60);
+
+    // Phase 2.4: Background timeout watchdog
+    if timeout_secs > 0 {
+        let duration = Duration::from_secs(timeout_secs);
+        std::thread::spawn(move || {
+            std::thread::sleep(duration);
+            eprintln!("error: compilation timed out after {} seconds", timeout_secs);
+            std::process::exit(1);
+        });
+    }
+
+    let max_memory_mb: u64 = parse_flag_value(&args, "--max-memory-mb")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+
+    // Phase 2.3: Memory budget watchdog
+    if max_memory_mb > 0 {
+        let max_bytes = max_memory_mb * 1024 * 1024;
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_secs(2));
+                if let Some(used_bytes) = get_process_memory_bytes() {
+                    if used_bytes > max_bytes {
+                        eprintln!(
+                            "error: memory budget exceeded ({} MB used of {} MB limit). \
+                             Try --max-memory-mb with a higher value or simplify the input.",
+                            used_bytes / 1024 / 1024,
+                            max_memory_mb
+                        );
+                        std::process::exit(1);
+                    }
+                }
+            }
+        });
+    }
 
     // Stage 0: Resolve source files
     let source_paths = resolve_source_files(&args);
@@ -136,6 +181,15 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
     if examples_root.is_dir() {
         checker.add_source_dir(examples_root.to_string_lossy().to_string());
     }
+    // Register the standard library search path so `use xiom.*` resolves for ANY
+    // compiled program, regardless of where it lives. These dirs are APPENDED
+    // after the file-relative and examples dirs (add_source_dir dedupes), so they
+    // never shadow the program's own modules — the checker searches source_dirs
+    // in order, so local modules still win.
+    for stdlib_dir in find_stdlib_dirs() {
+        checker.add_source_dir(stdlib_dir);
+    }
+    checker.build_catalog_index();
     let is_multi_file = source_paths.len() > 1 || checker.source_dirs.len() > 0;
     if let Err(errors) = checker.check_program(&program) {
         if diagnostics_json {
@@ -154,7 +208,13 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
         if !is_multi_file {
             process::exit(1);
         }
-        eprintln!("note: {} type errors (continuing to codegen for multi-file compile)", errors.len());
+        // ALL type errors are fatal — the "compiles ⇒ safe" guarantee means
+        // we must never emit IR that contains a type-mismatched operation.
+        // Multi-file compiles must also abort; the old bypass was needed
+        // when the stdlib had unresolved checker gaps (T001 false positives
+        // on builtin method tables). Those are now fixed (v0.29.0).
+        eprintln!("note: {} type errors — aborting codegen", errors.len());
+        process::exit(1);
     }
 
     if dump_contracts {
@@ -201,17 +261,33 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
     // Stage 4.5: Inject external module declarations
     let external_decls = checker.collect_external_decls(&program);
     if !external_decls.is_empty() {
+        // Key functions by their qualified name (`Receiver.method`) so distinct
+        // methods sharing a leaf name (e.g. `Layout.new`, `Vec.new`, `Rc.new`)
+        // are not collapsed together during dedup.
+        fn fn_dedup_key(fd: &xiom_ast::FnDecl) -> String {
+            if fd.is_method() {
+                format!("{}.{}", fd.receiver.as_ref().unwrap().name, fd.name.name)
+            } else {
+                fd.name.name.clone()
+            }
+        }
         let existing_names: std::collections::HashSet<String> = program.items.iter().filter_map(|i| match i {
             xiom_ast::TopDecl::Type(td) => Some(td.name.name.clone()),
             xiom_ast::TopDecl::Enum(ed) => Some(ed.name.name.clone()),
-            xiom_ast::TopDecl::Fn(fd) => Some(fd.name.name.clone()),
+            xiom_ast::TopDecl::Fn(fd) => Some(fn_dedup_key(fd)),
             _ => None,
         }).collect();
         for decl in external_decls {
             let name = match &decl {
                 xiom_ast::TopDecl::Type(td) => td.name.name.clone(),
                 xiom_ast::TopDecl::Enum(ed) => ed.name.name.clone(),
-                xiom_ast::TopDecl::Fn(fd) => fd.name.name.clone(),
+                xiom_ast::TopDecl::Fn(fd) => fn_dedup_key(fd),
+                // Extern blocks carry no single name; always inject them (codegen
+                // dedups declares by function name via already_declared).
+                xiom_ast::TopDecl::Extern(_) => { program.items.push(decl); continue; }
+                // Const declarations from external modules (e.g. SIMD_SSE): inject
+                // so codegen can substitute their literal values. Dedup by name.
+                xiom_ast::TopDecl::Const(cd) => cd.name.name.clone(),
                 _ => continue,
             };
             if !existing_names.contains(&name) {
@@ -266,6 +342,68 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
         process::exit(1);
     }
 
+    // Phase 1.4: Run LLVM opt -O1 to optimize IR before clang
+    let opt = find_tool("opt", &[
+        "C:\\Program Files\\LLVM\\bin\\opt.exe",
+    ]);
+    if let Some(opt_path) = &opt {
+        let opt_status = Command::new(opt_path)
+            .args(["-O1", "-S", "-o", &ir_path, &ir_path])
+            .status();
+        if let Ok(s) = opt_status {
+            if !s.success() {
+                eprintln!("  warning: opt -O1 failed, proceeding with unoptimized IR");
+                let _ = fs::write(&ir_path, &llvm_ir);
+            }
+        }
+    }
+
+    // Phase 2.5: NASM assembly of runtime .asm files
+    // Disabled by default — .asm files may have version-specific syntax.
+    // Enable by building with: cargo build --features nasm
+    // Or manually assemble per stdlib/runtime/BUILD.md
+    #[allow(unused_mut)]
+    let mut asm_objects: Vec<String> = Vec::new();
+    #[cfg(feature = "nasm")]
+    {
+        let runtime_dir = find_runtime_c().and_then(|p| {
+            std::path::Path::new(&p).parent().map(|d| d.to_path_buf())
+        });
+        let build_dir = std::path::PathBuf::from("build");
+        let nasm = find_nasm();
+        if let (Some(nasm_path), Some(rt_dir)) = (&nasm, &runtime_dir) {
+            let asm_files = ["crypto_x86_64.asm", "mem_x86_64.asm", "context_switch.asm"];
+            let obj_ext = if cfg!(target_os = "windows") { "obj" } else { "o" };
+            let nasm_fmt = if cfg!(target_os = "windows") { "win64" }
+                           else if cfg!(target_os = "macos") { "macho64" }
+                           else { "elf64" };
+            let nasm_path = nasm_path.clone();
+            for asm_file in &asm_files {
+                let asm_path = rt_dir.join(asm_file);
+                let obj_name = format!("{}.{}", asm_file, obj_ext);
+                let obj_path = rt_dir.join(&obj_name);
+                let build_obj = build_dir.join(&obj_name);
+                // Prefer pre-built objects in build/, fall back to assembling in runtime dir
+                if build_obj.exists() {
+                    asm_objects.push(build_obj.to_string_lossy().to_string());
+                } else if asm_path.exists() {
+                    if !obj_path.exists() || is_newer(&asm_path, &obj_path) {
+                        let status = Command::new(&nasm_path)
+                            .args(["-f", nasm_fmt, &asm_path.to_string_lossy(), "-o", &obj_path.to_string_lossy()])
+                            .status();
+                        if status.map_or(false, |s| s.success()) {
+                            asm_objects.push(obj_path.to_string_lossy().to_string());
+                        } else {
+                            let _ = std::fs::remove_file(&obj_path);
+                        }
+                    } else {
+                        asm_objects.push(obj_path.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+    }
+
     let clang = find_tool("clang", &[
         "C:\\Program Files\\LLVM\\bin\\clang.exe",
     ]);
@@ -273,6 +411,10 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
     match clang {
         Some(clang_path) => {
             let mut cmd = Command::new(&clang_path);
+            // Enable AES-NI intrinsics for crypto acceleration in xiom_runtime.c
+            if target == Target::Native { cmd.arg("-maes"); }
+            // Use C software stubs when NASM assembly objects not linked
+            if asm_objects.is_empty() { cmd.arg("-DXIOM_NO_ASM"); }
             match target {
                 Target::Wasm => {
                     cmd.args(["--target=wasm32-unknown-unknown", "-nostdlib", "-Wl,--no-entry", "-Wl,--export-all"]);
@@ -290,13 +432,67 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
                 }
             }
             if target != Target::Wasm {
-                if let Some(rt) = find_runtime_c() {
-                    cmd.arg(&rt);
+                // Link EVERY C runtime source in stdlib/runtime/ (xiom_runtime.c,
+                // simd_runtime.c, and any future runtime C file). This ensures stdlib
+                // modules that reference xiom_simd_* / xiom_alloc resolve at link time.
+                let runtime_c_files = find_runtime_c_files();
+                if runtime_c_files.is_empty() {
+                    // Fallback to the single-file lookup for unusual layouts.
+                    if let Some(rt) = find_runtime_c() {
+                        cmd.arg(&rt);
+                    }
+                } else {
+                    for rt in &runtime_c_files {
+                        let abs_rt = if std::path::Path::new(rt).is_absolute() {
+                            rt.clone()
+                        } else {
+                            std::env::current_dir().unwrap_or_default().join(rt).to_string_lossy().to_string()
+                        };
+                        cmd.arg(abs_rt);
+                    }
+                }
+                // Extra C sources / object files from --c-source
+                for cs in &c_sources {
+                    cmd.arg(cs);
                 }
             }
-            cmd.args(["-o", output, &ir_path]);
+            // Absolute paths for output + IR so the unique CWD (set below) does
+            // not break resolution. Other inputs (runtime .c, asm objs, -L paths)
+            // are already absolute.
+            let cwd0 = std::env::current_dir().unwrap_or_default();
+            let abs_output = if std::path::Path::new(output).is_absolute() { output.to_string() } else { cwd0.join(output).to_string_lossy().to_string() };
+            let abs_ir = if std::path::Path::new(&ir_path).is_absolute() { ir_path.clone() } else { cwd0.join(&ir_path).to_string_lossy().to_string() };
+            cmd.args(["-o", &abs_output, &abs_ir]);
+            // Link assembled .obj/.o files for hardware acceleration (native only)
+            if target == Target::Native {
+                for obj in &asm_objects { cmd.arg(obj); }
+            }
+            // FFI link flags: -L<dir> before -l<name>
+            if target != Target::Wasm {
+                for lp in &link_paths {
+                    cmd.arg(&format!("-L{lp}"));
+                }
+                for lib in &link_libs {
+                    cmd.arg(&format!("-l{lib}"));
+                }
+            }
 
+            // Give clang a UNIQUE working directory for its intermediate object
+            // files. clang emits per-source objects (e.g. xiom_runtime.obj,
+            // simd_runtime.obj) into the CWD; when multiple compiles run
+            // concurrently (e.g. the stdlib execution test suite) they clobber
+            // each other's objects, causing spurious link failures. A per-process,
+            // per-output temp CWD isolates them. Inputs/outputs are passed as
+            // absolute paths so the changed CWD doesn't break resolution.
+            let unique_tmp = std::env::temp_dir().join(format!(
+                "xiomc_link_{}_{}",
+                std::process::id(),
+                output.replace(['\\', '/', ':', '.'], "_")
+            ));
+            let _ = std::fs::create_dir_all(&unique_tmp);
+            cmd.current_dir(&unique_tmp);
             let clang_output = cmd.output();
+            let _ = std::fs::remove_dir_all(&unique_tmp);
             match clang_output {
                 Ok(out) if out.status.success() => {
                     let _ = fs::remove_file(&ir_path);
@@ -374,7 +570,7 @@ fn resolve_source_files(args: &[String]) -> Vec<String> {
             skip_next = false;
             continue;
         }
-        if matches!(arg.as_str(), "-o" | "--target" | "--verify-output") {
+        if matches!(arg.as_str(), "-o" | "--target" | "--verify-output" | "--link" | "--link-path" | "--c-source") {
             skip_next = true;
             continue;
         }
@@ -569,6 +765,16 @@ fn print_usage() {
     eprintln!("  --dump-contracts    Print contract index as JSON");
     eprintln!("  --verify            Generate SMT-LIB contract verification output");
     eprintln!("  --verify-output <f> Write SMT-LIB to file");
+    eprintln!("  --timeout <seconds>  Set compilation timeout (default: 60)");
+    eprintln!("  --max-memory-mb <N>       Set max memory budget in MB (0 = disabled)");
+    eprintln!("  --link <name>             Link a native library (repeatable, e.g. vulkan-1)");
+    eprintln!("  --link-path <dir>         Add a library search path (repeatable, -L<dir>)");
+    eprintln!("  --c-source <file>         Link an extra C/object file (repeatable)");
+    eprintln!();
+    eprintln!("DEPENDENCIES:");
+    eprintln!("  Required: clang (LLVM) — to compile IR to native binary");
+    eprintln!("  Optional: opt (LLVM) — IR optimization pass (-O1)");
+    eprintln!("  Optional: nasm — hardware-accelerated crypto/memcpy (stdlib)");
     eprintln!();
     eprintln!("EXAMPLES:");
     eprintln!("  xiomc --run examples/demo_float.xi");
@@ -600,6 +806,25 @@ fn parse_flag_value(args: &[String], flag: &str) -> Option<String> {
     args.get(pos + 1).cloned()
 }
 
+/// Parse ALL values for a repeatable flag (e.g., `--link vulkan-1 --link glfw3`).
+/// Returns an empty vec if the flag never appears. Prints an error and exits
+/// non-zero if a flag appears without a following value.
+fn parse_all_flag_values(args: &[String], flag: &str) -> Vec<String> {
+    let mut values = Vec::new();
+    for (i, arg) in args.iter().enumerate() {
+        if arg == flag {
+            match args.get(i + 1) {
+                Some(val) if !val.starts_with('-') => values.push(val.clone()),
+                _ => {
+                    eprintln!("error: '{flag}' requires a value");
+                    process::exit(1);
+                }
+            }
+        }
+    }
+    values
+}
+
 fn find_runtime_c() -> Option<String> {
     let candidates: Vec<String> = {
         let mut paths = vec![
@@ -624,6 +849,164 @@ fn find_runtime_c() -> Option<String> {
     None
 }
 
+/// Locate the `stdlib/runtime` directory and return EVERY `*.c` file inside it,
+/// sorted for a deterministic link order. Reuses the same search roots as
+/// `find_runtime_c` (CWD-relative `stdlib/runtime`, and exe-relative layouts) so
+/// behavior stays consistent. Only files directly inside `stdlib/runtime/` are
+/// returned — nothing outside that directory is ever linked (so ecosystem C files
+/// such as ffi_bridge.c are excluded).
+fn find_runtime_c_files() -> Vec<String> {
+    // Candidate directories that may hold the runtime C sources.
+    let mut dir_candidates: Vec<String> = vec![
+        "stdlib\\runtime".to_string(),
+        "stdlib/runtime".to_string(),
+    ];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            if let Some(parent) = exe_dir.parent() {
+                dir_candidates.push(format!("{}/runtime", parent.display()));
+                dir_candidates.push(format!("{}\\runtime", parent.display()));
+            }
+        }
+    }
+
+    for dir in &dir_candidates {
+        let dir_path = std::path::Path::new(dir);
+        if !dir_path.is_dir() {
+            continue;
+        }
+        let mut c_files: Vec<String> = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(dir_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file()
+                    && path.extension().and_then(|e| e.to_str()) == Some("c")
+                {
+                    c_files.push(path.to_string_lossy().to_string());
+                }
+            }
+        }
+        if !c_files.is_empty() {
+            c_files.sort();
+            return c_files;
+        }
+    }
+    Vec::new()
+}
+
+/// Discover the XIOM standard library search paths so `use xiom.*` resolves for
+/// ANY compiled program (not just programs physically located inside stdlib/).
+/// Resolution order for the stdlib root:
+///   (a) env var `XIOM_STDLIB` (if set and it exists),
+///   (b) relative to the compiler exe — walk up from `current_exe()` to a `stdlib` dir,
+///   (c) `stdlib` relative to the current working directory,
+///   (d) `../../stdlib` relative to this crate's `CARGO_MANIFEST_DIR` (repo root).
+/// For each existing root, BOTH the root and its `xiom/` subdir are returned (the
+/// catalog indexes module headers, so exposing the parent of `xiom/` lets
+/// `use xiom.io` resolve). Fully robust: returns an empty vec if nothing exists,
+/// never panics and never spams stderr.
+fn find_stdlib_dirs() -> Vec<String> {
+    // Collect candidate stdlib ROOT directories in priority order.
+    let mut roots: Vec<std::path::PathBuf> = Vec::new();
+
+    // (a) Explicit override via environment variable.
+    if let Ok(env_dir) = std::env::var("XIOM_STDLIB") {
+        if !env_dir.trim().is_empty() {
+            roots.push(std::path::PathBuf::from(env_dir));
+        }
+    }
+
+    // (b) Relative to the compiler executable: walk up from the exe dir looking
+    //     for a `stdlib` directory (handles installed layouts + target/debug).
+    if let Ok(exe) = std::env::current_exe() {
+        let mut cur = exe.parent();
+        let mut hops = 0;
+        while let Some(dir) = cur {
+            let candidate = dir.join("stdlib");
+            if candidate.is_dir() {
+                roots.push(candidate);
+                break;
+            }
+            hops += 1;
+            if hops > 8 {
+                break;
+            }
+            cur = dir.parent();
+        }
+    }
+
+    // (c) Relative to the current working directory.
+    roots.push(std::path::PathBuf::from("stdlib"));
+
+    // (d) Relative to this crate's manifest dir (repo-root/stdlib).
+    if let Some(repo_stdlib) = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|repo| repo.join("stdlib"))
+    {
+        roots.push(repo_stdlib);
+    }
+
+    // Build the deduped list of existing source dirs: each stdlib root plus its
+    // `xiom/` subdir when present.
+    let mut dirs: Vec<String> = Vec::new();
+    for root in roots {
+        if !root.is_dir() {
+            continue;
+        }
+        let root_str = root.to_string_lossy().to_string();
+        if !dirs.contains(&root_str) {
+            dirs.push(root_str);
+        }
+        let xiom_sub = root.join("xiom");
+        if xiom_sub.is_dir() {
+            let sub_str = xiom_sub.to_string_lossy().to_string();
+            if !dirs.contains(&sub_str) {
+                dirs.push(sub_str);
+            }
+        }
+    }
+    dirs
+}
+
+fn get_process_memory_bytes() -> Option<u64> {
+    #[cfg(target_os = "windows")]
+    {
+        // Use PowerShell to query working set (avoids FFI linking issues)
+        let pid = std::process::id();
+        if let Ok(output) = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", &format!("(Get-Process -Id {pid}).WorkingSet64")])
+            .output()
+        {
+            if output.status.success() {
+                if let Ok(s) = String::from_utf8(output.stdout) {
+                    if let Ok(bytes) = s.trim().parse::<u64>() {
+                        return Some(bytes);
+                    }
+                }
+            }
+        }
+        None
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Linux/macOS: read /proc/self/status for VmRSS
+        if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+            for line in status.lines() {
+                if line.starts_with("VmRSS:") {
+                    let kb: u64 = line
+                        .split_whitespace()
+                        .nth(1)
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(0);
+                    return Some(kb * 1024);
+                }
+            }
+        }
+        None
+    }
+}
+
 fn find_tool(name: &str, extra_paths: &[&str]) -> Option<String> {
     for path in extra_paths {
         if std::path::Path::new(path).exists() {
@@ -634,6 +1017,34 @@ fn find_tool(name: &str, extra_paths: &[&str]) -> Option<String> {
         return Some(name.to_string());
     }
     None
+}
+
+#[allow(dead_code)]
+fn find_nasm() -> Option<String> {
+    // Check common install locations
+    let candidates: Vec<&str> = if cfg!(target_os = "windows") {
+        vec![
+            "C:\\Program Files\\NASM\\nasm.exe",
+            "C:\\Users\\lefte\\AppData\\Local\\bin\\NASM\\nasm.exe",
+        ]
+    } else {
+        vec![
+            "/usr/local/bin/nasm",
+            "/usr/bin/nasm",
+            "/opt/homebrew/bin/nasm",
+        ]
+    };
+    find_tool("nasm", &candidates)
+}
+
+#[allow(dead_code)]
+fn is_newer(src: &std::path::Path, dst: &std::path::Path) -> bool {
+    if let (Ok(sm), Ok(dm)) = (src.metadata(), dst.metadata()) {
+        if let (Ok(st), Ok(dt)) = (sm.modified(), dm.modified()) {
+            return st > dt;
+        }
+    }
+    true // Rebuild if we can't determine timestamps
 }
 
 fn escape_json(s: &str) -> String {
@@ -676,6 +1087,8 @@ fn contract_expr_to_string(expr: &Expr) -> String {
                 UnaryOp::Not => "!",
                 UnaryOp::Ref => "&",
                 UnaryOp::MutRef => "&mut ",
+                UnaryOp::BitNot => "~",
+                UnaryOp::Deref => "*",
             };
             format!("{}{}", op_str, contract_expr_to_string(inner))
         }
@@ -711,7 +1124,7 @@ fn contract_expr_to_string(expr: &Expr) -> String {
         Expr::Imply(left, right, _) => {
             format!("{} => {}", contract_expr_to_string(left), contract_expr_to_string(right))
         }
-        Expr::Struct(ident, fields, _) => {
+        Expr::Struct(ident, fields, _spread, _) => {
             let f: Vec<String> = fields.iter()
                 .map(|(k, v)| format!("{}: {}", k.name, contract_expr_to_string(v)))
                 .collect();
@@ -863,6 +1276,7 @@ fn dump_contracts_json(program: &Program) -> String {
             TopDecl::Module(md) => {
                 items.extend(dump_module_contracts(md));
             }
+            TopDecl::Extern(_) => {}
             _ => {}
         }
     }
@@ -921,6 +1335,7 @@ fn dump_module_contracts(md: &ModuleDecl) -> Vec<String> {
             TopDecl::Module(nested) => {
                 items.extend(dump_module_contracts(nested));
             }
+            TopDecl::Extern(_) => {}
             _ => {}
         }
     }

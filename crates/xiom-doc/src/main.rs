@@ -189,6 +189,8 @@ fn expr_to_string(expr: &Expr) -> String {
             format!("{}{}", match op {
                 UnaryOp::Not => "!",
                 UnaryOp::Neg => "-",
+                UnaryOp::BitNot => "~",
+                UnaryOp::Deref => "*",
                 UnaryOp::Ref => "&",
                 UnaryOp::MutRef => "&mut ",
             }, expr_to_string(inner))
@@ -233,6 +235,7 @@ fn pattern_to_string(pat: &Pattern) -> String {
         Pattern::None(_) => "None".to_string(),
         Pattern::Ok(inner, _) => format!("Ok({})", pattern_to_string(inner)),
         Pattern::Err(inner, _) => format!("Err({})", pattern_to_string(inner)),
+        Pattern::Or(alts, _) => alts.iter().map(pattern_to_string).collect::<Vec<_>>().join(" | "),
     }
 }
 
@@ -242,6 +245,8 @@ fn op_to_str(op: &BinOp) -> &str {
         BinOp::Eq => "==", BinOp::Neq => "!=", BinOp::Lt => "<", BinOp::Gt => ">",
         BinOp::Le => "<=", BinOp::Ge => ">=", BinOp::And => "&&", BinOp::Or => "||",
         BinOp::Assign => "=",
+        BinOp::BitAnd => "&", BinOp::BitOr => "|", BinOp::BitXor => "^",
+        BinOp::Shl => "<<", BinOp::Shr => ">>",
     }
 }
 

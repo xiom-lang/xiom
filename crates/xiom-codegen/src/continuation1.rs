@@ -34,7 +34,7 @@
                     bare_name.clone()
                 };
                 let field_names: Vec<String> = td.fields.iter().map(|f| f.name.name.clone()).collect();
-                let struct_ty = self.llvm_type_for(&type_name);
+                let struct_ty = self.llvm_type_for(&type_name)?;
 
                 for derive in &td.derives {
                     match derive {
@@ -70,7 +70,7 @@
                         invariants: Vec::new(),
                     });
                 }
-                let struct_ty = self.llvm_type_for(&type_name);
+                let struct_ty = self.llvm_type_for(&type_name)?;
                 let field_names: Vec<String> = vec!["discriminant".to_string()];
 
                 for derive in &ed.derives {
@@ -95,6 +95,7 @@
                 }
                 self.current_module = saved_module;
             }
+            TopDecl::Extern(_) => {}
             _ => {}
         }
         Ok(())
@@ -385,7 +386,16 @@
     /// Uses a worklist pattern: monomorphising one function may trigger new
     /// instantiations (generic chains), which are processed in subsequent passes.
     fn compile_generic_monomorphisations(&mut self) -> Result<(), String> {
+        let mut iteration: u32 = 0;
+        const MAX_GENERIC_ITERATIONS: u32 = 65536;
         loop {
+            iteration += 1;
+            if iteration > MAX_GENERIC_ITERATIONS {
+                return Err(format!(
+                    "generic monomorphisation exceeded {} iterations — possible infinite recursion in generic definitions",
+                    MAX_GENERIC_ITERATIONS
+                ));
+            }
             let instantiations = std::mem::take(&mut self.generic_instantiations);
             if instantiations.is_empty() {
                 break;
@@ -465,7 +475,20 @@
                 .unwrap_or_else(|| "void".to_string());
             let mut specialized_param_types: Vec<String> = Vec::new();
             // Include self/receiver parameter for methods
-            let self_llvm_ty = fd.receiver.as_ref().map(|r| self.llvm_type_for(&r.name));
+            let self_llvm_ty = if let Some(ref r) = fd.receiver {
+                Some(self.llvm_type_for(&r.name).unwrap_or_else(|_| {
+                    // Fallback: try via suffix search across all registered type_meta keys
+                    let search = format!(".{}", r.name);
+                    for key in self.type_meta.keys() {
+                        if key.ends_with(&search) {
+                            return format!("%struct.{key}");
+                        }
+                    }
+                    "i64".to_string()
+                }))
+            } else {
+                None
+            };
             if let Some(ref st) = self_llvm_ty {
                 specialized_param_types.push(st.clone());
             }
