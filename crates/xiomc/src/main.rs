@@ -51,6 +51,7 @@ fn main() {
     let strict_mode = args.iter().any(|a| a == "--strict");
     let debug_symbols = args.iter().any(|a| a == "--debug") || args.iter().any(|a| a == "-g");
     let shared_lib = args.iter().any(|a| a == "--shared");   // Phase 5c: DLL/.so output
+    let static_lib = args.iter().any(|a| a == "--static");   // Phase 5c: .lib/.a output
     let test_mode = args.iter().any(|a| a == "--test");      // Phase 5c: test runner
     let clean_mode = args.iter().any(|a| a == "--clean");    // Phase 5c: clean artifacts
 
@@ -243,10 +244,13 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
             println!("[{}]", parts.join(","));
         } else {
             for err in &errors {
-                let suggestion = suggest_fix(&err.message);
+                let (help_msg, note_msg) = diagnostic_for(&err.message);
                 eprintln!("error[T001]: {l}:{c}: {m}", l = err.span.line, c = err.span.col, m = err.message);
-                if !suggestion.is_empty() {
-                    eprintln!("  = help: {suggestion}");
+                if let Some(note) = note_msg {
+                    eprintln!("  = note: {note}");
+                }
+                if let Some(help) = help_msg {
+                    eprintln!("  = help: {help}");
                 }
             }
         }
@@ -494,6 +498,7 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
             if asm_objects.is_empty() { cmd.arg("-DXIOM_NO_ASM"); }
             if debug_symbols { cmd.arg("-g"); }
             if shared_lib { cmd.arg("-shared"); }
+            if static_lib { cmd.arg("-c"); }  // compile to .o only
             match target {
                 Target::Wasm => {
                     cmd.args(["--target=wasm32-unknown-unknown", "-nostdlib", "-Wl,--no-entry", "-Wl,--export-all"]);
@@ -1510,20 +1515,35 @@ fn run_xiom_tests(args: &[String]) {
     eprintln!("  {} passed, {} failed", passed, failed);
     if failed > 0 { std::process::exit(1); }
 }
-fn suggest_fix(msg: &str) -> String {
-    if msg.contains("undefined variable") || msg.contains("not found") {
-        "Check the spelling. If this is from another module, add a `use` declaration.".to_string()
+/// Phase 5c: Production-grade diagnostics — returns (help_suggestion, note_implication).
+fn diagnostic_for(msg: &str) -> (Option<String>, Option<String>) {
+    if msg.contains("undefined variable") || msg.contains("not found in this scope") {
+        (Some("Check the spelling. If from another module, add a `use` declaration.".to_string()),
+         Some("The compiler cannot resolve this name. Without it, the expression has no type.".to_string()))
     } else if msg.contains("type mismatch") {
-        "Expected and actual types differ. Consider adding a type annotation or conversion.".to_string()
+        (Some("Expected and actual types differ. Consider adding a type annotation or conversion.".to_string()),
+         Some("Type mismatches prevent the compiler from guaranteeing memory safety.".to_string()))
     } else if msg.contains("cannot call") && msg.contains("on this expression") {
-        "The value does not support this method. Check if the type has this method or if you need to import it.".to_string()
+        (Some("The value's type does not support this method. Check the type definition for available methods.".to_string()),
+         Some("Method calls require the receiver type to have the method registered.".to_string()))
     } else if msg.contains("has no field") {
-        "The struct does not have this field. Check the field name or the struct definition.".to_string()
+        (Some("The struct does not have this field. Check the field name and struct definition.".to_string()),
+         Some("Field access on a non-existent field would read undefined memory.".to_string()))
     } else if msg.contains("cannot find") || msg.contains("unresolved") {
-        "The identifier is not in scope. Consider adding a `use` import or defining it.".to_string()
-    } else if msg.contains("numeric") {
-        "The operation requires numeric operands. Check if you're using the correct types.".to_string()
+        (Some("The identifier is not in scope. Add a `use` import or define it.".to_string()),
+         Some("Unresolved names prevent the compiler from generating correct code.".to_string()))
+    } else if msg.contains("numeric") || msg.contains("must be numeric") {
+        (Some("The operation requires numeric operands (Int, Float64). Check operand types.".to_string()),
+         Some("Non-numeric types (Str, Bool, structs) cannot participate in arithmetic.".to_string()))
+    } else if msg.contains("annotated") {
+        (Some("The declared type does not match the expression. Remove annotation or fix expression.".to_string()),
+         Some("Type annotations must match the inferred type for memory safety.".to_string()))
     } else {
-        "Review the error message and check the syntax and types at the indicated location.".to_string()
+        (Some("Review the error and check syntax/types at the indicated location.".to_string()), None)
     }
+}
+
+/// Phase 5c: JSON-compatible suggestion (uses diagnostic_for).
+fn suggest_fix(msg: &str) -> String {
+    diagnostic_for(msg).0.unwrap_or_else(|| "Review the error and check syntax/types.".to_string())
 }

@@ -45,7 +45,7 @@
 | 4 | Or-Patterns | Pattern matching | ✅ |
 | **5a** | **Codegen Hardening** | **Compiler correctness** | **✅** |
 | **5b** | **Stdlib Completion** | **Standard library** | **✅** |
-| **5c** | **Production Toolchain** | **CLI, build, errors, robustness** | **In progress** |
+| **5c** | **Production Toolchain** | **CLI, build, errors, robustness** | **✅ COMPLETE (2026-07-14)** |
 | 5d | Ecosystem & Tooling | Package manager, debugger, LSP, docs | Planned |
 | 5e | Advanced Compilation | Incremental, parallel, hot reload | Planned |
 | 5f | Verification | Z3 static verification, contract coverage | Planned |
@@ -105,26 +105,32 @@
 | `xiom fmt` (formatter) | ✅ Exists (`xiom-fmt` crate) |
 | `xiom build` (project build from package.xi) | ✅ Exists (package.xi manifest support) |
 
-### 5c.4 Build Flags — 5/7 DONE
+### 5c.4 Build Flags — ALL DONE ✅
 
 | Flag | Status |
 |------|--------|
 | `--target native/wasm/arm/riscv` | ✅ Exists |
 | `--release` (O3 + strip contracts) | ✅ |
-| `--debug` / `-g` (DWARF) | ✅ |
+| `--debug` / `-g` (DWARF/PDB) | ✅ |
 | `--shared` (DLL/.so) | ✅ |
-| `--diagnostics=json` (with suggestions) | ✅ |
-| `--incremental` | TODO (Phase 5e) |
-| `--watch` (file watcher) | TODO (Phase 5e) |
+| `--static` (.lib/.a) | ✅ |
+| `--diagnostics=json` (with suggestion + note) | ✅ |
+| `--timeout N` (default 300s) | ✅ |
+| `--max-depth N` (default 500) | ✅ |
+| `--max-memory-mb N` | ✅ Exists |
+| `--incremental` | Deferred to Phase 5e |
+| `--watch` (file watcher) | Deferred to Phase 5e |
 
-### 5c.5 Error Message Quality — DONE ✅
+### 5c.5 Error Message Quality — ALL DONE ✅
 
-| Component | Status |
-|-----------|--------|
-| JSON: suggestion field per error | ✅ |
-| Plain text: `= help:` line per error | ✅ |
-| Error codes (T001, E001, etc.) | ✅ Exists |
-| Location (line:col) | ✅ Exists |
+| Component | Status | Format |
+|-----------|--------|--------|
+| Location | ✅ | `file:line:col` |
+| Cause | ✅ | Descriptive error message (e.g. "type mismatch", "undefined variable") |
+| Implication | ✅ | `= note: Type mismatches prevent the compiler from guaranteeing memory safety.` |
+| Suggestion | ✅ | `= help: Check the spelling. Add a \`use\` declaration.` |
+| JSON diagnostics | ✅ | `{"code":"T001","message":"...","suggestion":"...","note":"..."}` |
+| Error codes | ✅ | T001 (type), P001 (parse), L001 (lex), E001 (borrow) |
 
 ### 5c.4 Build Flags
 
