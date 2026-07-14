@@ -60,6 +60,10 @@ fn main() {
         .filter(|p| !p.starts_with('-'));  // package name (not a flag)
     let publish_mode = args.iter().any(|a| a == "publish");  // Phase 5d: package publish
     let update_mode = args.iter().any(|a| a == "update");    // Phase 5d: update deps
+    let bench_mode = args.iter().any(|a| a == "bench");      // Phase 5d: benchmark runner
+    let bench_count: u32 = parse_flag_value(&args, "--count")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);  // default 10 iterations
     let init_mode = args.iter().any(|a| a == "init");        // Phase 5d: project scaffold
     let new_mode = args.iter().any(|a| a == "new");          // Phase 5d: new project
     let new_name: Option<String> = args.iter().position(|a| a == "new")
@@ -102,6 +106,12 @@ fn main() {
         let registry_url = parse_flag_value(&args, "--registry")
             .unwrap_or_else(|| "https://registry.xiom-lang.org/packages.json".to_string());
         handle_install(&args, install_pkg.as_deref(), &registry_url, update_mode);
+        return;
+    }
+
+    // Phase 5d: xiom bench — compile and run benchmarks
+    if bench_mode {
+        run_benchmarks(&args, bench_count);
         return;
     }
 
@@ -1855,6 +1865,84 @@ fn dirs_next() -> Option<String> {
 }
 
 use std::collections::HashMap;
+
+// ── Phase 5d: Benchmark Runner ─────────────────────────────────────────
+
+/// Phase 5d: Run benchmarks. Finds files in bench/ or specified directory,
+/// compiles each, runs N iterations, reports min/mean/max timing.
+fn run_benchmarks(args: &[String], iterations: u32) {
+    let bench_dir = parse_flag_value(args, "bench")
+        .unwrap_or_else(|| "benches".to_string());
+
+    let bench_file = parse_flag_value(args, "--bench-file")
+        .or_else(|| args.iter().find(|a| a.ends_with(".xi")).cloned());
+
+    let mut bench_files: Vec<String> = Vec::new();
+    if let Some(file) = bench_file {
+        bench_files.push(file);
+    } else {
+        // Scan bench_dir for .xi files
+        if let Ok(entries) = std::fs::read_dir(&bench_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("xi") {
+                    bench_files.push(path.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
+    if bench_files.is_empty() {
+        eprintln!("  No benchmark files found. Create a benches/ directory with .xi files.");
+        eprintln!("  Or specify a file: xiom bench my_bench.xi");
+        return;
+    }
+
+    eprintln!("  Running {} benchmark(s) x {} iterations...", bench_files.len(), iterations);
+
+    for bench_file in &bench_files {
+        let exe_path = format!("{}.bench.exe", bench_file);
+        let xiomc_path = std::env::current_exe().unwrap_or_else(|_| "xiomc".into());
+
+        // Compile in release mode for accurate benchmarking
+        let compile = std::process::Command::new(&xiomc_path)
+            .args(["-o", &exe_path, "--release", bench_file])
+            .output();
+
+        match compile {
+            Ok(out) if out.status.success() => {
+                let mut times: Vec<f64> = Vec::new();
+                for _ in 0..iterations {
+                    use std::time::Instant;
+                    let start = Instant::now();
+                    let _ = std::process::Command::new(&exe_path).output();
+                    let elapsed = start.elapsed().as_secs_f64();
+                    times.push(elapsed);
+                }
+
+                times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                let min = times.first().copied().unwrap_or(0.0);
+                let max = times.last().copied().unwrap_or(0.0);
+                let mean = times.iter().sum::<f64>() / times.len() as f64;
+                let median = times[times.len() / 2];
+
+                let name = std::path::Path::new(bench_file)
+                    .file_stem().and_then(|n| n.to_str()).unwrap_or(bench_file);
+                eprintln!("  {name:<30} {min:>8.4}s  {mean:>8.4}s  {median:>8.4}s  {max:>8.4}s");
+
+                let _ = std::fs::remove_file(&exe_path);
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                eprintln!("  FAIL  {} (compilation failed: {})", bench_file, stderr.lines().next().unwrap_or(""));
+            }
+            Err(e) => {
+                eprintln!("  FAIL  {} (cannot compile: {})", bench_file, e);
+            }
+        }
+    }
+    eprintln!("  Benchmark complete.");
+}
 
 // ── Phase 5d: Project Scaffolding ─────────────────────────────────────
 
