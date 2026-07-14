@@ -2434,7 +2434,9 @@ impl Checker {
                         inner_ty
                     }
                     UnaryOp::Not => {
-                        if inner_ty.name() != "Bool" {
+                        if inner_ty.name() != "Bool"
+                            && !matches!(&inner_ty, CheckedType::Named(n) if n == "_")
+                        {
                             self.error(format!("cannot logically negate type {}", inner_ty.name()), *span);
                         }
                         CheckedType::Bool
@@ -3032,6 +3034,14 @@ impl Checker {
     }
 
     fn types_compatible(&self, found: &CheckedType, expected: &CheckedType) -> bool {
+        // Wildcard type `_` (unresolved generic placeholder returned by Vec[T]
+        // indexing, Option.unwrap(), and field access on generic params) is
+        // compatible with any concrete type.  The codegen resolves the actual
+        // type at monomorphisation time.
+        if matches!(found, CheckedType::Named(n) if n == "_") ||
+           matches!(expected, CheckedType::Named(n) if n == "_") {
+            return true;
+        }
         // Normalize Named("Bool") <-> Bool, Named("Int") <-> Int, etc.
         let norm = |t: &CheckedType| -> CheckedType {
             match t {

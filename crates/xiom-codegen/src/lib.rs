@@ -7910,7 +7910,9 @@ impl IrEmitter {
             Expr::Ident(ident) => {
                 if let Some((_, llvm_ty)) = self.lookup_local(&ident.name) {
                     if llvm_ty.starts_with("%struct.") {
-                        return Some(llvm_ty[8..].to_string());
+                        let raw = &llvm_ty[8..]; // strip "%struct."
+                        let clean = raw.trim_end_matches('*'); // strip pointer suffix
+                        return Some(clean.to_string());
                     }
                 }
                 // Check if it's a type name (for static method calls like Rect.new(...))
@@ -7970,6 +7972,40 @@ impl IrEmitter {
                             return Some(key.clone());
                         }
                     }
+                }
+                // Instance field access (e.g. `row.values.push(..)`):
+                // resolve the base struct, then look up the field type so the
+                // method receiver resolves to `Vec` rather than `SqliteRow`.
+                if let Some(base_struct) = self.infer_struct_type_name(obj.as_ref()) {
+                    // Try module-qualified type lookup first
+                    for key in self.type_meta.keys() {
+                        if key.ends_with(&base_struct) || key == &base_struct {
+                            if let Some(meta) = self.type_meta.get(key) {
+                                for (fname, ftype) in &meta.fields {
+                                    if fname == &field.name {
+                                        // Strip leading `*` from pointer types (e.g. `*SqliteRow`).
+                                        let clean = ftype.trim_start_matches('*');
+                                        if self.type_meta.contains_key(clean)
+                                            || self.types.contains_key(clean)
+                                            || clean == "Vec" || clean == "Option"
+                                            || clean == "Result" || clean == "Map"
+                                            || clean == "Set" || clean == "Str" {
+                                            return Some(clean.to_string());
+                                        }
+                                        // Try suffix-match for module-qualified types
+                                        for mk in self.type_meta.keys() {
+                                            if mk.ends_with(&format!(".{}", clean)) {
+                                                return Some(mk.clone());
+                                            }
+                                        }
+                                        return None; // field type is not a known struct
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    return Some(base_struct.clone());
                 }
                 self.infer_struct_type_name(obj.as_ref())
             }
