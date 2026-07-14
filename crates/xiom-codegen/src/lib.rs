@@ -1957,9 +1957,35 @@ impl IrEmitter {
                 .map(|t| self.llvm_type_for(&Self::type_from_ast(t)).unwrap_or_else(|_| "i64".to_string()))
                 .unwrap_or_else(|| "void".to_string());
             let key = self.fn_key(fd);
-            self.functions.insert(key.clone(), (param_types, ret_type));
+            self.functions.insert(key.clone(), (param_types.clone(), ret_type.clone()));
+            // Register leaf-module key (e.g. "mem.replace", "ptr.replace") so
+            // call sites like `mem.replace(...)` / `ptr.replace(...)` resolve
+            // to module-disambiguated names.  This prevents monomorphisation
+            // naming collisions between same-named generic functions from
+            // different modules (BUG-005).
+            if fd.receiver.is_none() {
+                if let Some(ref module) = self.current_module {
+                    if let Some(leaf) = module.rsplit('.').next() {
+                        let leaf_key = format!("{}.{}", leaf, key);
+                        if leaf_key != key {
+                            self.functions.insert(leaf_key.clone(), (param_types.clone(), ret_type.clone()));
+                        }
+                    }
+                }
+            }
             if !fd.generics.is_empty() {
-                self.generic_fn_decls.push((key, fd.clone()));
+                self.generic_fn_decls.push((key.clone(), fd.clone()));
+                // Also register with leaf-module key for generic resolution
+                if fd.receiver.is_none() {
+                    if let Some(ref module) = self.current_module {
+                        if let Some(leaf) = module.rsplit('.').next() {
+                            let leaf_key = format!("{}.{}", leaf, key);
+                            if leaf_key != key {
+                                self.generic_fn_decls.push((leaf_key, fd.clone()));
+                            }
+                        }
+                    }
+                }
             }
         }
         if let TopDecl::Interface(id) = item {
