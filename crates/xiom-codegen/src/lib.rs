@@ -923,6 +923,40 @@ impl IrEmitter {
         }
     }
 
+    pub fn block_contains_unsafe(block: &Block) -> bool {
+        // Walk the block looking for Expr::Unsafe
+        for stmt in &block.stmts {
+            if Self::stmt_or_expr_contains_unsafe(stmt) { return true; }
+        }
+        false
+    }
+
+    fn stmt_or_expr_contains_unsafe(item: &xiom_ast::StmtOrExpr) -> bool {
+        match item {
+            xiom_ast::StmtOrExpr::Expr(e) => Self::expr_contains_unsafe(e),
+            xiom_ast::StmtOrExpr::Stmt(s) => Self::stmt_contains_unsafe(s),
+        }
+    }
+
+    fn expr_contains_unsafe(expr: &Expr) -> bool {
+        matches!(expr, Expr::Unsafe(..))
+    }
+
+    fn stmt_contains_unsafe(stmt: &Stmt) -> bool {
+        use xiom_ast::Stmt as S;
+        match stmt {
+            S::Let(_, _, e, _) | S::Var(_, _, e, _) | S::Return(Some(e), _)
+            | S::Expr(e, _) | S::Assign(_, e, _) => Self::expr_contains_unsafe(e),
+            S::If(c, t, _, _, _) => Self::expr_contains_unsafe(c) || Self::block_contains_unsafe(t),
+            S::While(c, b, _) => Self::expr_contains_unsafe(c) || Self::block_contains_unsafe(b),
+            S::Match(e, arms, _) => Self::expr_contains_unsafe(e) || arms.iter().any(|a| match &a.body {
+                xiom_ast::MatchBody::Block(b) => Self::block_contains_unsafe(b),
+                xiom_ast::MatchBody::Expr(e) => Self::expr_contains_unsafe(e),
+            }),
+            _ => false,
+        }
+    }
+
     fn field_llvm_type(&self, struct_name: &str, field_idx: usize) -> String {
         let meta = self.type_meta.get(struct_name)
             .or_else(|| {
@@ -2301,6 +2335,17 @@ impl IrEmitter {
                 && self.already_declared.contains(&bare)
             {
                 return Ok(());
+            }
+        }
+        // --strict mode: enforce #[safety_audit] on functions with unsafe blocks
+        if self.strict_mode && fd.body.as_ref().map_or(false, |b| {
+            Self::block_contains_unsafe(b)
+        }) {
+            let has_audit = fd.attributes.iter().any(|a| a.name.name == "safety_audit");
+            if !has_audit {
+                let fn_name = self.fn_key(fd);
+                eprintln!("  warning: --strict: function '{}' contains unsafe block(s) without #[safety_audit] attribute", fn_name);
+                eprintln!("    --> add #[safety_audit(justification: \"...\")] to document the safety invariant");
             }
         }
         self.push_scope();
