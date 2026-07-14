@@ -50,7 +50,28 @@ fn main() {
     let diagnostics_json = args.iter().any(|a| a == "--diagnostics=json");
     let strict_mode = args.iter().any(|a| a == "--strict");
     let debug_symbols = args.iter().any(|a| a == "--debug") || args.iter().any(|a| a == "-g");
-    let clean_mode = args.iter().any(|a| a == "--clean");  // Phase 5c: clean artifacts
+    let shared_lib = args.iter().any(|a| a == "--shared");   // Phase 5c: DLL/.so output
+    let clean_mode = args.iter().any(|a| a == "--clean");    // Phase 5c: clean artifacts
+
+    // Phase 5c: --clean removes common build artifacts and exits
+    if clean_mode {
+        let extensions = ["exe", "ll", "obj", "o", "out", "wasm", "pdb", "ilk", "exp", "lib"];
+        let mut cleaned = 0usize;
+        if let Ok(entries) = std::fs::read_dir(".") {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if extensions.contains(&ext) {
+                        if std::fs::remove_file(&path).is_ok() {
+                            cleaned += 1;
+                        }
+                    }
+                }
+            }
+        }
+        eprintln!("  Cleaned {} build artifact(s)", cleaned);
+        return;
+    }
     let dump_contracts = args.iter().any(|a| a == "--dump-contracts");
     let verify = args.iter().any(|a| a == "--verify") || args.iter().any(|a| a == "--verify-output");
     let verify_output = parse_flag_value(&args, "--verify-output");
@@ -215,7 +236,11 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
             println!("[{}]", parts.join(","));
         } else {
             for err in &errors {
+                let suggestion = suggest_fix(&err.message);
                 eprintln!("error[T001]: {l}:{c}: {m}", l = err.span.line, c = err.span.col, m = err.message);
+                if !suggestion.is_empty() {
+                    eprintln!("  = help: {suggestion}");
+                }
             }
         }
         if !is_multi_file {
@@ -461,6 +486,7 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
             // Use C software stubs when NASM assembly objects not linked
             if asm_objects.is_empty() { cmd.arg("-DXIOM_NO_ASM"); }
             if debug_symbols { cmd.arg("-g"); }
+            if shared_lib { cmd.arg("-shared"); }
             match target {
                 Target::Wasm => {
                     cmd.args(["--target=wasm32-unknown-unknown", "-nostdlib", "-Wl,--no-entry", "-Wl,--export-all"]);
