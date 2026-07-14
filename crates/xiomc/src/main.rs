@@ -51,6 +51,7 @@ fn main() {
     let strict_mode = args.iter().any(|a| a == "--strict");
     let debug_symbols = args.iter().any(|a| a == "--debug") || args.iter().any(|a| a == "-g");
     let shared_lib = args.iter().any(|a| a == "--shared");   // Phase 5c: DLL/.so output
+    let test_mode = args.iter().any(|a| a == "--test");      // Phase 5c: test runner
     let clean_mode = args.iter().any(|a| a == "--clean");    // Phase 5c: clean artifacts
 
     // Phase 5c: --clean removes common build artifacts and exits
@@ -130,9 +131,15 @@ fn main() {
 
     // Stage 0: Resolve source files
     let source_paths = resolve_source_files(&args);
-    if source_paths.is_empty() {
+    if source_paths.is_empty() && !test_mode {
         eprintln!("error: no source file(s) provided");
         process::exit(1);
+    }
+
+    // Phase 5c: --test mode — discover and run tests
+    if test_mode {
+        run_xiom_tests(&args);
+        return;
     }
 
     // Stage 1: Lex & Parse
@@ -1415,7 +1422,94 @@ fn dump_module_contracts(md: &ModuleDecl) -> Vec<String> {
     items
 }
 
-/// Phase 5c: Generate a helpful suggestion for common error messages.
+/// Phase 5c: Discover and run XIOM tests.
+/// Looks for .xi files in tests/ or specified directory, compiles
+/// each with --run, and reports pass/fail based on exit code (0 = pass).
+fn run_xiom_tests(args: &[String]) {
+    use std::process::Command as Cmd;
+
+    let test_dir = parse_flag_value(args, "--test")
+        .or_else(|| parse_flag_value(args, "--test-dir"))
+        .unwrap_or_else(|| "examples".to_string());
+
+    let mut test_files: Vec<String> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&test_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("xi") {
+                test_files.push(path.to_string_lossy().to_string());
+            }
+        }
+    }
+    // Also scan subdirectories
+    if let Ok(entries) = std::fs::read_dir(&test_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Ok(sub) = std::fs::read_dir(&path) {
+                    for e in sub.flatten() {
+                        let p = e.path();
+                        if p.extension().and_then(|ext| ext.to_str()) == Some("xi") {
+                            test_files.push(p.to_string_lossy().to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if test_files.is_empty() {
+        eprintln!("  No .xi test files found in {}", test_dir);
+        std::process::exit(1);
+    }
+
+    eprintln!("  Running {} test(s)...", test_files.len());
+    let mut passed = 0usize;
+    let mut failed = 0usize;
+
+    for test_file in &test_files {
+        let exe_path = format!("{}.test.exe", test_file);
+        let xiomc_path = std::env::current_exe().unwrap_or_else(|_| "xiomc".into());
+        let compile = Cmd::new(&xiomc_path)
+            .args(["-o", &exe_path, test_file])
+            .output();
+
+        match compile {
+            Ok(out) if out.status.success() => {
+                match Cmd::new(&exe_path).output() {
+                    Ok(run_out) => {
+                        if run_out.status.success() {
+                            passed += 1;
+                            eprintln!("    PASS  {}", test_file);
+                        } else {
+                            failed += 1;
+                            eprintln!("    FAIL  {} (exit code {})", test_file, run_out.status.code().unwrap_or(-1));
+                            if !run_out.stderr.is_empty() {
+                                eprintln!("      {}", String::from_utf8_lossy(&run_out.stderr).trim());
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        failed += 1;
+                        eprintln!("    FAIL  {} (cannot run: {})", test_file, e);
+                    }
+                }
+                let _ = std::fs::remove_file(&exe_path);
+            }
+            Ok(_) => {
+                failed += 1;
+                eprintln!("    FAIL  {} (compilation failed)", test_file);
+            }
+            Err(e) => {
+                failed += 1;
+                eprintln!("    FAIL  {} (cannot compile: {})", test_file, e);
+            }
+        }
+    }
+
+    eprintln!("  {} passed, {} failed", passed, failed);
+    if failed > 0 { std::process::exit(1); }
+}
 fn suggest_fix(msg: &str) -> String {
     if msg.contains("undefined variable") || msg.contains("not found") {
         "Check the spelling. If this is from another module, add a `use` declaration.".to_string()

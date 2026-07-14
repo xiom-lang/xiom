@@ -90,19 +90,41 @@
 | `#[safety_audit]` enforcement in `--strict` mode | ✅ |
 | **`--diagnostics=json` with suggestion field** | ✅ |
 
-### 5c.3 CLI Commands
+### 5c.3 CLI Commands — 6/9 DONE
 
 | Command | Status |
 |---------|--------|
-| `xiom --check` (type-check only, fast feedback) | ✅ DONE |
-| `xiom --release` (O3 + strip contracts) | ✅ DONE |
-| `xiom --debug` / `-g` (DWARF symbols) | ✅ DONE |
-| `xiom --clean` (remove build artifacts) | TODO |
+| `xiom --check` (type-check only) | ✅ |
+| `xiom --release` (O3 + strip contracts) | ✅ |
+| `xiom --debug` / `-g` (DWARF) | ✅ |
+| `xiom --clean` (remove build artifacts) | ✅ |
+| `xiom --shared` (DLL/.so output) | ✅ |
 | `xiom --emit-ir` | ✅ Exists |
 | `xiom --run` | ✅ Exists |
-| `xiom --verify` (SMT) | ✅ Exists |
-| `xiom fmt` (formatter) | ✅ Exists (`xiom-fmt` crate) |
+| `xiom fmt` (formatter) | ✅ Exists |
 | `xiom build` (project build from package.xi) | TODO |
+| `xiom test` (test runner) | TODO |
+
+### 5c.4 Build Flags — 5/7 DONE
+
+| Flag | Status |
+|------|--------|
+| `--target native/wasm/arm/riscv` | ✅ Exists |
+| `--release` (O3 + strip contracts) | ✅ |
+| `--debug` / `-g` (DWARF) | ✅ |
+| `--shared` (DLL/.so) | ✅ |
+| `--diagnostics=json` (with suggestions) | ✅ |
+| `--incremental` | TODO (Phase 5e) |
+| `--watch` (file watcher) | TODO (Phase 5e) |
+
+### 5c.5 Error Message Quality — DONE ✅
+
+| Component | Status |
+|-----------|--------|
+| JSON: suggestion field per error | ✅ |
+| Plain text: `= help:` line per error | ✅ |
+| Error codes (T001, E001, etc.) | ✅ Exists |
+| Location (line:col) | ✅ Exists |
 
 ### 5c.4 Build Flags
 
