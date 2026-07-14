@@ -1759,6 +1759,14 @@ impl Checker {
                 // and build a parent module entry containing the submodule.
                 let full_path: Vec<String> = ud.path.iter().map(|p| p.name.clone()).collect();
                 if let Some(cached) = self.catalog.find_owned(&full_path) {
+                    // Register function signatures from the loaded module so
+                    // method resolution works (e.g. Vec.insert, Map.contains).
+                    // build_module_map creates export maps but doesn't register
+                    // functions in self.functions — without this, method calls
+                    // on stdlib types fail with "cannot call on this expression".
+                    for item in &cached.program.items {
+                        self.register_fn_signature(item);
+                    }
                     let sub_exports = self.build_module_map(&cached.program.items);
                     let mut parent = HashMap::new();
                     // Extract the short submodule name from the last path segment
@@ -2396,6 +2404,19 @@ impl Checker {
                     }
                     // Try method call: receiver.method(args)
                     let obj_ty = self.check_expr(obj);
+                    // Enum variant constructor: TypeName.Variant(args)
+                    // e.g. `JsonValue.Integer(42)` or `SqliteValue.Text("hello")`
+                    if let CheckedType::Named(type_name) = &obj_ty {
+                        let variant_key = format!("{}.{}", type_name, method.name);
+                        if self.enum_variants.contains_key(&variant_key)
+                            || self.resolve_enum_variant(&variant_key).is_some()
+                            || self.resolve_enum_variant(&method.name).is_some()
+                        {
+                            // Validate args against variant fields
+                            for arg in args { let _ = self.check_expr(arg); }
+                            return CheckedType::Named(type_name.clone());
+                        }
+                    }
                     if let CheckedType::Named(type_name) = &obj_ty {
                         let method_key = format!("{}.{}", type_name, method.name);
                         // Try module-prefixed key first, then bare key as fallback

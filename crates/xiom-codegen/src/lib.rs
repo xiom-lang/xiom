@@ -976,6 +976,48 @@ impl IrEmitter {
         }
     }
 
+    /// Compile an enum variant constructor like `JsonValue.Integer(42)`.
+    /// Generates the struct literal with discriminant set to the variant index
+    /// and payload fields populated from the constructor arguments.
+    fn compile_enum_constructor(&mut self, enum_name: &str, variant_name: &str, args: &[Expr]) -> Result<(String, String), String> {
+        let struct_ty = format!("%struct.{enum_name}");
+        let alloca = self.fresh_tmp();
+        self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
+
+        // Set discriminant (field 0) to variant index
+        let var_idx = self.enum_variants.get(enum_name)
+            .and_then(|vars| vars.iter().position(|(v, _)| v == variant_name))
+            .unwrap_or(0) as i64;
+        let disc_gep = self.fresh_tmp();
+        self.emitln(&format!("  {disc_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
+        self.emitln(&format!("  store i64 {var_idx}, i64* {disc_gep}"));
+
+        // Get the variant's field names and the parent enum's field list
+        let parent_fields = self.types.get(enum_name).cloned().unwrap_or_default();
+        let variant_fields = self.enum_variants.get(enum_name)
+            .and_then(|vars| vars.iter().find(|(v, _)| v == variant_name))
+            .map(|(_, vf)| vf.clone())
+            .unwrap_or_default();
+
+        // Store constructor args into the corresponding enum fields
+        let arg_count = std::cmp::min(args.len(), variant_fields.len());
+        for i in 0..arg_count {
+            let (val, val_ty) = self.compile_expr(&args[i])?;
+            let field_name = &variant_fields[i];
+            // Find the field index in the parent enum's field list
+            let field_idx = parent_fields.iter().position(|f| f == field_name).unwrap_or(i + 1);
+            let field_llvm_ty = self.field_llvm_type(enum_name, field_idx);
+            let store_val = self.coerce_value(&val, &val_ty, &field_llvm_ty);
+            let gep = self.fresh_tmp();
+            self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {field_idx}"));
+            self.emitln(&format!("  store {field_llvm_ty} {store_val}, {field_llvm_ty}* {gep}"));
+        }
+
+        let loaded = self.fresh_tmp();
+        self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
+        Ok((loaded, struct_ty))
+    }
+
     fn field_llvm_type(&self, struct_name: &str, field_idx: usize) -> String {
         let meta = self.type_meta.get(struct_name)
             .or_else(|| {
@@ -5564,6 +5606,20 @@ impl IrEmitter {
                     Some(ref n) => n.clone(),
                     None => return Ok(("0".to_string(), "i64".to_string())),
                 };
+                // Enum variant constructor: TypeName.Variant(args)
+                // e.g. `JsonValue.Integer(42)` or `SqliteValue.Text("hello")`
+                if let Some(recv) = receiver_expr {
+                    let recv_ty = self.infer_struct_type_name(recv);
+                    if let Some(recv_name) = recv_ty {
+                        let variant_key = format!("{}.{}", recv_name, &fn_name);
+                        if self.enum_variants.contains_key(&variant_key)
+                            || self.enum_variants.get(&recv_name)
+                                .map_or(false, |vars| vars.iter().any(|(v, _)| v == &fn_name))
+                        {
+                            return self.compile_enum_constructor(&recv_name, &fn_name, args);
+                        }
+                    }
+                }
                 // Check for contract collection methods
                 let is_contract_method = matches!(fn_name.as_str(), "is_sorted" | "all" | "none" | "contains");
                 if is_contract_method {
