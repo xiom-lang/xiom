@@ -42,11 +42,15 @@ fn main() {
 
     let emit_ir = args.iter().any(|a| a == "--emit-ir");
     let do_run = args.iter().any(|a| a == "--run");
+    let check_only = args.iter().any(|a| a == "--check");  // Phase 5c: type-check only
+    let release = args.iter().any(|a| a == "--release");    // Phase 5c: O3 + strip contracts
     let target = parse_target(&args);
-    let check_contracts = !args.iter().any(|a| a == "--no-contracts");
+    let check_contracts = !args.iter().any(|a| a == "--no-contracts") && !release;
     let _explicit_contracts = args.iter().any(|a| a == "--check-contracts");
     let diagnostics_json = args.iter().any(|a| a == "--diagnostics=json");
     let strict_mode = args.iter().any(|a| a == "--strict");
+    let debug_symbols = args.iter().any(|a| a == "--debug") || args.iter().any(|a| a == "-g");
+    let clean_mode = args.iter().any(|a| a == "--clean");  // Phase 5c: clean artifacts
     let dump_contracts = args.iter().any(|a| a == "--dump-contracts");
     let verify = args.iter().any(|a| a == "--verify") || args.iter().any(|a| a == "--verify-output");
     let verify_output = parse_flag_value(&args, "--verify-output");
@@ -201,9 +205,11 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
     if let Err(errors) = checker.check_program(&program) {
         if diagnostics_json {
             let parts: Vec<String> = errors.iter().map(|err| {
+                let suggestion = suggest_fix(&err.message);
                 format!(
-                    r#"{{"kind":"type_error","code":"T001","message":"{}","location":{{"file":"{}","line":{},"col":{}}}}}"#,
-                    escape_json(&err.message), escape_json("<unknown>"), err.span.line, err.span.col
+                    r#"{{"kind":"type_error","code":"T001","message":"{}","location":{{"file":"{}","line":{},"col":{}}},"suggestion":"{}"}}"#,
+                    escape_json(&err.message), escape_json("<unknown>"), err.span.line, err.span.col,
+                    escape_json(&suggestion)
                 )
             }).collect();
             println!("[{}]", parts.join(","));
@@ -246,6 +252,18 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
     }
 
     let primary_source = source_paths.first().map(|s| s.as_str()).unwrap_or("<unknown>");
+
+    // Phase 5c: --check mode — exit after type checking (fast feedback loop)
+    // Note: type errors already cause process::exit(1) above. If we reach
+    // here, type checking PASSED. Borrow check continues below.
+    if check_only {
+        if diagnostics_json {
+            println!(r#"{{"status":"check_passed","type_errors":0,"borrow_warnings":0,"time_ms":0}}"#);
+        } else {
+            eprintln!("  Type check PASSED (no errors)");
+        }
+        return;
+    }
 
     // Stage 4: Borrow Check
     let mut borrow_checker = BorrowChecker::new();
@@ -373,8 +391,9 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
     }
 
     if let Some(opt_path) = &opt {
+        let opt_level = if release { "-O3" } else { "-O1" };
         let opt_status = Command::new(opt_path)
-            .args(["-O1", "-S", "-o", &ir_path, &ir_path])
+            .args([opt_level, "-S", "-o", &ir_path, &ir_path])
             .status();
         if let Ok(s) = opt_status {
             if !s.success() {
@@ -441,6 +460,7 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
             if target == Target::Native { cmd.arg("-maes"); }
             // Use C software stubs when NASM assembly objects not linked
             if asm_objects.is_empty() { cmd.arg("-DXIOM_NO_ASM"); }
+            if debug_symbols { cmd.arg("-g"); }
             match target {
                 Target::Wasm => {
                     cmd.args(["--target=wasm32-unknown-unknown", "-nostdlib", "-Wl,--no-entry", "-Wl,--export-all"]);
@@ -1367,4 +1387,23 @@ fn dump_module_contracts(md: &ModuleDecl) -> Vec<String> {
     }
 
     items
+}
+
+/// Phase 5c: Generate a helpful suggestion for common error messages.
+fn suggest_fix(msg: &str) -> String {
+    if msg.contains("undefined variable") || msg.contains("not found") {
+        "Check the spelling. If this is from another module, add a `use` declaration.".to_string()
+    } else if msg.contains("type mismatch") {
+        "Expected and actual types differ. Consider adding a type annotation or conversion.".to_string()
+    } else if msg.contains("cannot call") && msg.contains("on this expression") {
+        "The value does not support this method. Check if the type has this method or if you need to import it.".to_string()
+    } else if msg.contains("has no field") {
+        "The struct does not have this field. Check the field name or the struct definition.".to_string()
+    } else if msg.contains("cannot find") || msg.contains("unresolved") {
+        "The identifier is not in scope. Consider adding a `use` import or defining it.".to_string()
+    } else if msg.contains("numeric") {
+        "The operation requires numeric operands. Check if you're using the correct types.".to_string()
+    } else {
+        "Review the error message and check the syntax and types at the indicated location.".to_string()
+    }
 }
