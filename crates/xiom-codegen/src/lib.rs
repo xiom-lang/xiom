@@ -94,6 +94,8 @@ pub struct IrEmitter {
     match_result_ty: Option<String>,
     /// Interface registry: interface name → vec of (method_name, param_type_names)
     interfaces: HashMap<String, Vec<(String, Vec<String>)>>,
+    /// Concrete types that implement each interface: interface_name → set of concrete_type_names
+    interface_impls: HashMap<String, HashSet<String>>,
     /// Enum variants registry: enum name → vec of (variant_name, field_names)
     enum_variants: HashMap<String, Vec<(String, Vec<String>)>>,
     /// Scrutinee info for match arm field extraction: (alloca_name, type_name)
@@ -174,6 +176,7 @@ impl IrEmitter {
             match_result_ptr: None,
             match_result_ty: None,
             interfaces: HashMap::new(),
+            interface_impls: HashMap::new(),
             enum_variants: HashMap::new(),
             scrutinee_info: None,
             used_builtins: HashSet::new(),
@@ -1076,6 +1079,10 @@ impl IrEmitter {
         for item in &program.items {
             self.register_functions(item);
         }
+
+        // Scan interface implementations: for each interface, find all concrete
+        // types that implement all its methods (BUG-007 interface dispatch).
+        self.scan_interface_impls();
 
         // Emit module header
         self.emitln("; XIOM Phase 1 — LLVM IR");
@@ -2057,6 +2064,22 @@ impl IrEmitter {
                 .unwrap_or_else(|| "void".to_string());
             let key = self.fn_key(fd);
             self.functions.insert(key.clone(), (param_types.clone(), ret_type.clone()));
+            // Detect interface-typed params: store these functions so call sites
+            // can monomorphise them for each concrete implementor (BUG-007).
+            let has_iface_param = fd.params.iter().any(|p| {
+                let name = Self::type_from_ast(&p.ty);
+                self.interfaces.contains_key(&name)
+            }) || fd.return_type.as_ref().map_or(false, |t| {
+                let name = Self::type_from_ast(t);
+                self.interfaces.contains_key(&name)
+            });
+            if has_iface_param {
+                // Add to generic_fn_decls as a pseudo-generic so the
+                // monomorphisation loop picks it up.
+                if !self.generic_fn_decls.iter().any(|(k, _)| k == &key) {
+                    self.generic_fn_decls.push((key.clone(), fd.clone()));
+                }
+            }
             // Register leaf-module key (e.g. "mem.replace", "ptr.replace") so
             // call sites like `mem.replace(...)` / `ptr.replace(...)` resolve
             // to module-disambiguated names.  This prevents monomorphisation
@@ -2123,6 +2146,38 @@ impl IrEmitter {
                 self.register_functions(sub);
             }
             self.current_module = saved_module;
+        }
+    }
+
+    /// Scan all registered interfaces and concrete types to determine which
+    /// types implement which interfaces (BUG-007). A type implements an
+    /// interface if, for every method in the interface, there is a function
+    /// registered as `TypeName.methodName` in self.functions.
+    fn scan_interface_impls(&mut self) {
+        for (iface_name, methods) in self.interfaces.clone().iter() {
+            for type_name in self.types.keys().cloned().collect::<Vec<_>>().iter() {
+                // Skip builtin types (Option, Result, Vec, etc.)
+                if ["Option", "Result", "Vec", "Slice", "Map", "Set"].contains(&type_name.as_str()) { continue; }
+                let mut all_implemented = true;
+                for (method_name, _) in methods {
+                    let fn_key = format!("{}.{}", type_name, method_name);
+                    let leaf_parts: Vec<&str> = type_name.rsplitn(2, '.').collect();
+                    let leaf_key = if leaf_parts.len() > 1 {
+                        format!("{}.{}", leaf_parts[1], method_name)
+                    } else { fn_key.clone() };
+                    if !self.functions.contains_key(&fn_key) && !self.functions.contains_key(&leaf_key) {
+                        if !self.generic_fn_decls.iter().any(|(k, _)| k == &fn_key || k == &leaf_key) {
+                            all_implemented = false;
+                            break;
+                        }
+                    }
+                }
+                if all_implemented {
+                    self.interface_impls.entry(iface_name.clone())
+                        .or_insert_with(HashSet::new)
+                        .insert(type_name.clone());
+                }
+            }
         }
     }
 
@@ -3222,6 +3277,21 @@ impl IrEmitter {
             for (gp, ct) in fd.generics.iter().zip(concrete_types.iter()) {
                 if gp.is_const { continue; } // const params use const_map, not type_map
                 type_map.insert(gp.name.name.clone(), ct.clone());
+            }
+            // Interface-typed params: map interface names to concrete types.
+            // For `fn f(r: Reporter)` called with `GoodReporter`, map
+            // "Reporter" → "GoodReporter" so subst_type can resolve params.
+            if fd.generics.is_empty() && !concrete_types.is_empty() {
+                let mut ct_idx = 0;
+                for param in &fd.params {
+                    let param_name = Self::type_from_ast(&param.ty);
+                    if self.interfaces.contains_key(&param_name) {
+                        if ct_idx < concrete_types.len() {
+                            type_map.insert(param_name.clone(), concrete_types[ct_idx].clone());
+                            ct_idx += 1;
+                        }
+                    }
+                }
             }
             // Register concrete tuple types for this monomorphisation
             if let Some(ref ret_ty) = fd.return_type {
@@ -6598,6 +6668,27 @@ impl IrEmitter {
                                     // This lets get/count-style accessors monomorphise
                                     // instead of falling back to a constant-0 stub.
                                     concrete_types.push("Int".to_string());
+                                }
+                            }
+                        }
+                        // Interface-typed function: no explicit generics but has
+                        // interface-typed params. Infer concrete struct types from the
+                        // actual arguments (BUG-007 interface dispatch).
+                        if concrete_types.is_empty() && fd.generics.is_empty() {
+                            for (param, arg_expr) in fd.params.iter().zip(args.iter()) {
+                                let param_name = Self::type_from_ast(&param.ty);
+                                if self.interfaces.contains_key(&param_name) {
+                                    let concrete_ty = match arg_expr {
+                                        Expr::Ident(id) => {
+                                            if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
+                                                Self::xiom_type_name_from_llvm(llvm_ty)
+                                            } else { String::new() }
+                                        }
+                                        _ => String::new(),
+                                    };
+                                    if !concrete_ty.is_empty() {
+                                        concrete_types.push(concrete_ty);
+                                    }
                                 }
                             }
                         }
