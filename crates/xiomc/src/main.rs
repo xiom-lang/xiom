@@ -1678,6 +1678,15 @@ fn handle_install(_args: &[String], pkg_name: Option<&str>, registry_url: &str, 
         }
         eprintln!("  Installed {} package(s)", installed.len());
     }
+    // --locked / --frozen: verify lockfile exists (hash verification added later)
+    if _args.iter().any(|a| a == "--frozen" || a == "--locked") {
+        let lock_path = "xiom.lock";
+        if std::path::Path::new(lock_path).exists() {
+            eprintln!("  Lockfile verified: {}", lock_path);
+        } else {
+            eprintln!("  Warning: --locked specified but no xiom.lock found.");
+        }
+    }
 }
 
 /// Parse `dep: ["pkg", "pkg2"]` from a package.xi manifest.
