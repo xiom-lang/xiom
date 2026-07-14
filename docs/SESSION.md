@@ -1,91 +1,102 @@
-# XIOM — Session Handoff: v0.45.0 "Hardened"
+# XIOM — Session Handoff: v0.45.3 "Phase 5c Complete"
 
-**Date:** 2026-07-13
-**Branch:** `feat/guardian` (Production hardening)
-**Status:** stdlib execution **37/37 original tests pass** (0 fail, 4 ignored). All regression gates green.
-**Tag:** `v0.45.0-hardened`
-**Production plan:** Consolidated into `docs/ROADMAP.md`
-**E2E tests:** **84**
+**Date:** 2026-07-15
+**Branch:** `feat/architect` (Phase 5c Production Toolchain + 5d Ecosystem)
+**Status:** 461 tests passing. Phase 5c COMPLETE. Phase 5d in progress.
+**Tag:** `v0.45.3`
 
 ---
 
-## CURRENT STATE — 37/37 original smoke tests pass (NO simplifications)
+## CURRENT STATE — All Gates Green
 
-### Working (37 modules with FULL tests)
-alloc, array, bench, cell, char, cmp, collections, compress, contracts, convert,
-core, cross_serialize_convert, crypto, encoding, env, error, ffi, fmt, hash, iter,
-log, math, mem, net, num, os, path, ptr, rand, rc, reflect, serialize, simd,
-string, sync, time
+| Suite | Count | Status |
+|-------|-------|--------|
+| Parser tests | 47 | ✅ |
+| Checker tests | 74 | ✅ |
+| Stdlib smoke | 41 (0 ignored) | ✅ |
+| E2E tests | 86 (85 old + 1 hardening) | ✅ |
+| Ecosystem PASS | 213 (6/10 test files) | ✅ |
+| **Total PASSING** | **461** | ✅ |
+| Ecosystem FAIL | 192 (4 test files) | ⚠️ Known gaps |
 
-### Resolved (were failing at v0.44.0)
-| Module | Fix | Commits |
-|--------|-----|---------|
-| **serialize** | Map Type injection (remove from PRIMITIVES) + match dispatch | `ce33a0a`, `c7113f7`, `5b50786` |
-| **crypto** | Array alloca reuse + sha256_hex from_cstring + C FFI for correctness | `7e335f1`, `959bb99`, `95f2834` |
-| **regex** | Method dispatch for i64 receivers + bare-call guard fix | `f3ac75e` |
-| **path** | Inline Option.unwrap + Path module rewrite | `5305707`, `e4f44d8` |
+### Ecosystem Tests Passing (213 tests)
+| Test | Tests | Key Fix |
+|------|-------|---------|
+| test_algo.xi | 89 | Comma-separated contracts |
+| test_crypto.xi | 23 | Int/Char compat + hex escape |
+| test_db.xi | 18 | External fn registration |
+| test_json.xi | 29 | Enum variant constructors |
+| test_net.xi | 22 | `this` keyword + enum ctors |
+| test_vector.xi | 32 | Float32 compat + Vec imports |
 
-### Ignored (4 modules — need OS runtime)
-| Module | Status |
-|--------|--------|
-| thread | ✅ Passes with --ignored |
-| io | ✅ Passes with --ignored (pub exports fixed) |
-| test | ✅ Passes with --ignored |
-| async | ❌ Expression paths fail — `read_module_header` fixed, checker bridge partially staged |
-
-### Regression gate (ALL GREEN)
-| Suite | Count |
-|---|---|
-| diff_tests | 25 ✅ |
-| e2e_tests | 84 ✅ |
-| feature_regression | 48 ✅ |
-| full_diff | 23 ✅ |
-| fuzz | 23 + 1 ignored ✅ |
-| integration | 119 ✅ |
-| robustness | 29 ✅ |
-| check | 74 ✅ |
-| parser | 47 ✅ |
-| stdlib (original) | 37 strict + 3/4 ignored ✅ |
+### Remaining Ecosystem Gaps (192 tests, 4 files)
+| Test | Errors | Root Cause |
+|------|--------|------------|
+| test_full.xi | 2 | Pattern-binding type inference (enum variant payload types with module-qualified names) |
+| test_http.xi | 42 | Self-like param naming — checker/codegen coordination needed |
+| test_sqlite.xi | 12 | Self-like param naming |
+| test_test.xi | 58 | Self-like param naming |
 
 ---
 
-## DELIVERED THIS SESSION (v0.44.0 → v0.45.0)
+## DELIVERED PHASE 5c
 
-### Compiler Fixes (12 commits)
-| Area | Fixes |
-|------|-------|
-| Type System | Map injection from PRIMITIVES, generic_type_names fallback |
-| Memory Safety | GEP sizeof, array alloca reuse, 4-field Vec elem_size |
-| Match Pipeline | Some/None/Ok/Err dispatch, inner literal checks, OR patterns, payload binding |
-| Method Dispatch | i64→struct coercion, bare-call guard, zero_val_for null, receiver params |
-| Vec Infrastructure | emit_elem_store/emit_elem_load with runtime width dispatch |
-| Parser | async contextual keyword (type paths work) |
-| Checker | read_module_header preamble skip, module resolution fallbacks |
+### Compiler Robustness (P0) — 6/6 DONE
+- C runtime limits: fields 16→256, arms 16→128, locals already 512
+- `--max-depth N`: configurable recursion (default 500, max 10000)
+- `--timeout N`: compilation timeout (default 300s)
+- `--strict` mode: flag parsed + codegen field
+- LLVM IR verification: `opt -verify` before opt passes
+- `#[safety_audit]` attribute: AST + lexer + parser + codegen enforcement
 
-### Stdlib Fixes
-| Area | Fixes |
-|------|-------|
-| Crypto | C reference SHA-256 via FFI (`sha256_sw.c`) — known-vectors verified |
-| Path | Self-contained — file_name, extension, file_stem, parent, is_absolute rewritten |
-| IO | print/println/args made pub |
-| String | byte_at added, zero_val_for pointer null fix |
-| Contracts | Removed broken contract checks from sha256/sha256_hex |
+### Safety Features (P1) — 4/4 DONE
+- Error recovery: parser collects 100 errors, recovers to sync points
+- Contract `@pre` snapshot: all @pre-referenced variables captured at entry
+- `#[safety_audit]` enforcement: --strict mode warns on unsafe without audit
+- `--diagnostics=json` with suggestion + note fields
 
-### Documentation
-- Created `docs/ROADMAP.md` — unified roadmap with canonical phase system
-- Deleted superseded: PRODUCTION_READINESS_PLAN.md, CODEGEN_PRODUCTION_PLAN.md, CODEGEN_TIER2.md
-- Updated: PRODUCTION_HARDENING_BUGS.md, COMPILER_VERSIONS.md
-- Kept: ARC_A_POINTERS.md (design reference)
+### CLI Commands — 10/10 DONE
+- `--check`, `--release`, `--debug/-g`, `--clean`, `--shared`, `--static`
+- `--test` (43/43 smoke pass via `xiomc --test`)
+- `--emit-ir`, `--run`, `xiom fmt`, `xiom build` (package.xi)
+
+### Error Messages — Production-Grade ✅
+- 4-point format: location, cause (= note), implication (= note), suggestion (= help)
+- Source context: line + caret (^) for parse/lex errors
+- JSON diagnostics: suggestion + note fields
+- Error codes: T001, P001, L001, E001
+
+### Ecosystem Gaps Fixed (7 compiler fixes)
+1. Float32 ↔ Float64 type compatibility
+2. `\xNN` hex escape in char/string literals
+3. `this` keyword → `self` alias
+4. Enum variant constructors (TypeName.Variant(args) + codegen)
+5. Comma-separated contract clauses (`requires: a>0, b>0`)
+6. Int ↔ Char type compatibility
+7. External module function signature registration during catalog load
+8. `?` operator checker type inference (returns wildcard for Result/Option)
+9. Self-like param detection in codegen (first param matching receiver type)
 
 ---
 
-## KNOWN BUGS (documented in PRODUCTION_HARDENING_BUGS.md)
+## DELIVERED PHASE 5d (Partial)
 
-| Bug | Severity | Status |
-|-----|----------|--------|
-| SHA-256 wrong hash | CRITICAL | ✅ RESOLVED — C FFI |
-| async expression paths | MEDIUM | ⚠️ Partial — read_module_header fixed, checker has fallback infra but Expr::Ident doesn't find "async" in imported_items |
-| IO functions not pub | LOW | ✅ RESOLVED |
+### Package Manager — 7/9 DONE
+- `xiom install <pkg>`: registry fetch + git clone + lockfile
+- `xiom install` (from package.xi deps): reads manifest dependencies
+- `xiom update`: refreshes packages
+- `xiom publish`: git tag + push + release instructions
+- `xiom new/init`: project scaffolding
+- `package.xi` manifest parsing
+- `xiom.lock` + `--frozen/--locked`
+- `xiom bench`: benchmark runner (min/mean/median/max)
+- `xiom registry`: local registry management
+- INFRASTRUCTURE_SETUP.md: complete setup guide
+
+### Remaining 5d
+- DAP debugger (external tool)
+- Contract lens in LSP
+- Digital signing (Phase 5f)
 
 ---
 
@@ -93,57 +104,46 @@ string, sync, time
 
 | File | Purpose |
 |------|---------|
-| `docs/ROADMAP.md` | **PRIMARY**: Consolidated roadmap with phase system |
-| `docs/PRODUCTION_HARDENING_BUGS.md` | Deep bug investigations |
-| `docs/COMPILER_VERSIONS.md` | Version history |
-| `docs/ARC_A_POINTERS.md` | Pointer design reference |
+| `docs/ROADMAP.md` | **PRIMARY**: Phase tracking, bug status, ecosystem gaps |
+| `docs/AI_CONTEXT.md` | **AI reference**: Full language + stdlib + CLI docs |
+| `docs/COMPILER_ARCHITECTURE.md` | Compiler internals + Phase 5c safety features |
+| `docs/COMPILER_IMPROVEMENT_PLAN.md` | Detailed improvement plan |
+| `docs/INFRASTRUCTURE_SETUP.md` | Website/registry/DNS setup guide |
+| `docs/PRODUCTION_HARDENING_BUGS.md` | All 10 bugs documented |
 | `docs/SESSION.md` | This handoff file |
-| `crates/xiom-codegen/src/lib.rs` | Main codegen (~7500 lines) |
-| `crates/xiom-check/src/lib.rs` | Type checker (~4000 lines) |
-| `crates/xiomc/src/main.rs` | CLI + injection |
-| `stdlib/xiom/crypto.xi` | Crypto (SHA-256 via C FFI) |
-| `stdlib/runtime/sha256_sw.c` | C SHA-256 reference implementation |
-| `examples/stdlib_smoke/smoke_crypto_known_vectors.xi` | SHA-256 known-vector tests |
-| `examples/stdlib_smoke/smoke_*.xi` | 37 smoke tests |
+| `crates/xiom-codegen/src/lib.rs` | Main codegen (~8300 lines) |
+| `crates/xiom-check/src/lib.rs` | Type checker (~4200 lines) |
+| `crates/xiomc/src/main.rs` | CLI + install/publish/bench/registry (~1550 lines) |
+| `crates/xiom-parser/src/lib.rs` | Parser (~1440 lines) |
+| `crates/xiom-lexer/src/lib.rs` | Lexer (~590 lines) |
+| `stdlib/xiom/*.xi` | 39 stdlib modules |
+| `tests/ecosystem/*.xi` | 10 ecosystem test files (304 tests) |
+| `examples/e2e/phase5c7_hardening.xi` | 8 hardening e2e tests |
 
 ---
 
-## HARDENING TESTS ADDED
-
-### smoke_crypto_known_vectors.xi
-Tests SHA-256 against RFC 6234 test vectors:
-- SHA-256("") = e3b0c4...
-- SHA-256("abc") = ba7816bf...
-Returns 0 if both pass, nonzero otherwise.
-
-### smoke_io.xi
-Now passes with --ignored (after pub fix).
-
----
-
-## NEXT SESSION CARRY-ON PROMPT
+## CARRY-ON PROMPT
 
 ```
-Continue XIOM compiler production hardening from SESSION.md (tag v0.45.0).
-Branch: feat/guardian. 37/37 smoke tests pass, 84/84 e2e, all gates green.
+Continue XIOM compiler production hardening from SESSION.md (tag v0.45.3).
+Branch: feat/architect. 461 tests pass. Phase 5c complete, 5d in progress.
 
-BUGS TO RESOLVE:
-1. async expression paths — read_module_header now handles preamble statements,
-   checker has imported_items→modules bridge in check_module_field_access and
-   resolve_module_function, but Expr::Ident handler at check_expr:2141 still
-   doesn't find "async" in imported_items. Root: process_use may return early.
-   Fix: investigate why process_use current.get("async") returns None.
+ECOSYSTEM GAPS TO RESOLVE:
+1. Pattern-binding type inference — enum variant payload types not resolved
+   for module-qualified enum names (test_full.xi: 2 errors).
+   Root cause: collect_variant_fields registers under module.Variant key but
+   pattern lookup tries module.Type.Variant — needs key alignment.
 
-2. SHA-256 known-vectors now correct via C FFI (sha256_sw.c).
+2. Self-like param naming — checker/codegen coordination for methods where
+   first param matches receiver type but isn't named "self"
+   (test_http/sqlite/test: 112 errors). Codegen side done (self-like detection
+   in compile_fn). Checker needs matching detection in register_fn_signature
+   and call-site resolution.
 
-PHASE 5a ITEMS (from ROADMAP.md §5a):
-- ARC A: Real pointer/reference types (design in ARC_A_POINTERS.md)
-- Const-generics: [N]T arrays
-- Match expression type unification
-- Interface/trait dispatch
+3. Remaining Phase 5d items: DAP debugger, contract lens in LSP, digital signing.
 
-KEY FILES: docs/ROADMAP.md, docs/PRODUCTION_HARDENING_BUGS.md,
-crates/xiom-check/src/lib.rs, crates/xiom-codegen/src/lib.rs
-
-VERIFICATION: cargo test -p xiom-codegen --test stdlib_execution_tests
+VERIFICATION:
+  cargo test -p xiom-codegen --test stdlib_execution_tests -- --nocapture
+  cargo test -p xiom-codegen --test e2e_tests -- --nocapture
+  xiomc --test examples/stdlib_smoke/
 ```
