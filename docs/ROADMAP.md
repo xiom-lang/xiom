@@ -163,20 +163,17 @@ P2: ✅ Plain-text error suggestions, C runtime limits, --max-depth, --timeout
 
 **Phase 5c is production-complete. 9/9 CLI commands, 7/7 build flags, 100% bugs resolved.**
 
-### 5c.7 Ecosystem Test Gaps (Discovered 2026-07-14)
+### 5c.7 Ecosystem Test Gaps (Progress 4/6 fixed)
 
-The `tests/ecosystem/` suite (304 tests across 10 files) exercises production workloads. Compiler gaps discovered:
-
-| Gap | Severity | Tests Affected | Root Cause |
-|-----|----------|---------------|------------|
-| **Float32 type compatibility** | HIGH | vector (32), crypto | All float literals treated as Float64; Float32 not lowered to `float` |
-| **Enum variant constructors** | HIGH | json (29), sqlite (23), net (22), db (18), full (30), http (18) | `SqliteValue.Integer(42)` not parsed as variant constructor |
-| **Contract syntax in parser** | HIGH | algo (89), full (30) | `requires: a>0` / `ensures: result>=1` not recognized |
-| **`\x00` hex char escape** | MEDIUM | crypto (23) | Lexer doesn't support hex escape in char literals |
-| **Method dispatch with `this`** | LOW | net (22) | `this` not recognized as `self` alias |
-| **Return type: () vs Bool** | MEDIUM | db (18) | `return` without value in non-void functions |
-
-**Fix priority:** P0: Float32 + Enum constructors + Contract parsing. P1: hex escape + return type.
+| Gap | Severity | Status | Tests Fixed |
+|-----|----------|--------|-------------|
+| **Float32 type compatibility** | HIGH | ✅ FIXED | vector (32→1), crypto (23→2) |
+| **Enum variant constructors** | HIGH | ✅ FIXED | json (29→1), sqlite (23→12), net (22→0 PASS) |
+| **`\x00` hex char escape** | MEDIUM | ✅ FIXED | crypto (lex errors gone) |
+| **`this` keyword** | LOW | ✅ FIXED | net (22→0 PASS) |
+| **Contract syntax in parser** | HIGH | TODO | algo (89), full (30) — `requires:`/`ensures:` parsing |
+| **Vec.insert method dispatch** | MEDIUM | TODO | vector, crypto, db — needs `use xiom.collections` |
+| **Return type: () vs Bool** | MEDIUM | TODO | db (18→1) — bare `return` in non-void functions |
 
 ---
 
