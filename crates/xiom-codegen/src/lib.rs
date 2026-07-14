@@ -6151,8 +6151,11 @@ impl IrEmitter {
                             self.emitln(&format!("  {val_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {val_field}"));
                             let val = self.fresh_tmp();
                             self.emitln(&format!("  {val} = load {field_ty}, {field_ty}* {val_gep}"));
-                            // For non-scalar payloads (structs, pointers stored as i64),
-                            // return as i64 for ABI compatibility; caller will coerce.
+                            // If the payload is a struct type, return it directly so the caller
+                            // can access its fields. Scalar payloads go through val_to_i64.
+                            if field_ty.starts_with('%') {
+                                return Ok((val, field_ty));
+                            }
                             let result = self.val_to_i64(&val, &field_ty);
                             return Ok((result, "i64".to_string()));
                         }
