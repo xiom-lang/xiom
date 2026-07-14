@@ -165,19 +165,22 @@ P2: ✅ Plain-text error suggestions, C runtime limits, --max-depth, --timeout
 
 ---
 
-## 6. PHASE 5d — ECOSYSTEM & TOOLING (Planned)
+## 6. PHASE 5d — ECOSYSTEM & TOOLING (In Progress)
 
 ### 6.1 Package Manager + Registry (IMPROVEMENT_PLAN §5.2)
 
-| Feature | Priority |
-|---------|----------|
-| `xiom install <package>` (download + resolve deps) | P0 |
-| `xiom publish` (upload to registry) | P1 |
-| `xiom new <project>` / `xiom init` (scaffold) | P0 |
-| `package.xi` manifest (name, version, deps, authors) | P0 |
-| Lockfile (`xiom.lock`) for reproducible builds | P1 |
-| Registry: Git repo with `packages.json` index | P1 |
-| Digital signing for official packages | P1 |
+| Feature | Priority | Status |
+|---------|----------|--------|
+| `xiom install <package>` (fetch registry + clone) | P0 | ✅ DONE |
+| `xiom install` (from package.xi deps) | P0 | ✅ DONE |
+| `xiom update` (refresh packages) | P1 | ✅ DONE |
+| `xiom publish` (tag + release) | P1 | ✅ DONE |
+| `xiom new <project>` / `xiom init` (scaffold) | P0 | TODO |
+| `package.xi` manifest (name, version, deps, authors) | P0 | ✅ DONE |
+| Lockfile (`xiom.lock`) for reproducible builds | P1 | ✅ DONE |
+| Registry: Git repo with `packages.json` index | P1 | ✅ Designed (INFRASTRUCTURE_SETUP.md) |
+| Digital signing for official packages | P1 | TODO (Phase 5f) |
+| Infrastructure setup guide | P0 | ✅ DONE (INFRASTRUCTURE_SETUP.md) |
 
 ### 6.2 Debugger (IMPROVEMENT_PLAN §3.1)
 
