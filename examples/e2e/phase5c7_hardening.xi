@@ -70,6 +70,17 @@ fn test_int_char_compat() -> Bool {
   return i == 65 && c == 'A';
 }
 
+// === 7. ? operator on Result ===
+fn safe_div(a: Int, b: Int) -> Result[Int, Str] {
+  if b == 0 { return Err("div zero"); }
+  return Ok(a / b);
+}
+
+fn test_try_operator() -> Bool {
+  let x = safe_div(10, 2)?;
+  return x == 5;
+}
+
 // === 7. Enum variant pattern match ===
 fn test_enum_pattern_match() -> Bool {
   var s = Shape.Circle(42);
@@ -87,6 +98,7 @@ fn main() -> Int {
   if !test_enum_variant_constructor() { return 4; }
   if !test_comma_contracts() { return 5; }
   if !test_int_char_compat() { return 6; }
-  if !test_enum_pattern_match() { return 7; }
+  if !test_try_operator() { return 7; }
+  if !test_enum_pattern_match() { return 8; }
   return 0;
 }
