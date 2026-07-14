@@ -647,6 +647,20 @@ impl IrEmitter {
         }
     }
 
+    /// Extract the name of each type argument from a Type AST node.
+    /// For `Option[T]` returns `["T"]`, for `Map[K, V]` returns `["K", "V"]`.
+    fn extract_type_arg_names(ty: &Type) -> Vec<String> {
+        match ty {
+            Type::Named(_, args) => args.iter().map(|a| Self::type_from_ast(a)).collect(),
+            Type::Option(inner) => vec![Self::type_from_ast(inner)],
+            Type::Result(ok, err) => vec![Self::type_from_ast(ok), Self::type_from_ast(err)],
+            Type::Vec(inner) => vec![Self::type_from_ast(inner)],
+            Type::Map(k, v) => vec![Self::type_from_ast(k), Self::type_from_ast(v)],
+            Type::Set(inner) => vec![Self::type_from_ast(inner)],
+            _ => vec![],
+        }
+    }
+
     fn type_from_ast(ty: &Type) -> String {
         match ty {
             Type::Named(ident, _) => ident.name.clone(),
@@ -6170,17 +6184,44 @@ impl IrEmitter {
                             }
                             // Read the value payload (field 1 for Option, field 1 for Result.ok, field 2 for Result.err)
                             let val_field = if fn_name == "unwrap_err" { 2 } else { 1 };
-                            // Determine the actual LLVM type of the payload field from type_meta
                             let type_name = if is_option { "Option" } else { "Result" };
                             let field_ty = self.field_llvm_type(type_name, val_field);
                             let val_gep = self.fresh_tmp();
                             self.emitln(&format!("  {val_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {val_field}"));
                             let val = self.fresh_tmp();
                             self.emitln(&format!("  {val} = load {field_ty}, {field_ty}* {val_gep}"));
-                            // If the payload is a struct type, return it directly so the caller
-                            // can access its fields. Scalar payloads go through val_to_i64.
+                            // If the payload is already a struct type, return it directly.
                             if field_ty.starts_with('%') {
                                 return Ok((val, field_ty));
+                            }
+                            // When field_ty is i64, the payload may be a heap pointer
+                            // from val_to_i64 for struct payloads.  Determine the actual
+                            // struct type by resolving the generic return type of the
+                            // concrete instantiation (e.g. `Option.unwrap[Point] → Point`).
+                            let struct_type_hint: Option<String> = {
+                                let fn_key = if is_option { "Option.unwrap" } else { "Result.unwrap" };
+                                self.generic_fn_decls.iter().find(|(k, _)| k == fn_key || k.ends_with(&format!(".{}", fn_name)))
+                                    .and_then(|(_, fd)| fd.return_type.as_ref().map(|t| Self::type_from_ast(t)))
+                            };
+                            if let Some(ref hint) = struct_type_hint {
+                                // hint is the XIOM type name (e.g. "Point" for T=Point).
+                                // Convert to LLVM struct type.
+                                let struct_llvm = if self.types.contains_key(hint) || self.type_meta.contains_key(hint) {
+                                    format!("%struct.{hint}")
+                                } else {
+                                    // Check if it resolves via type_meta
+                                    let full_key = self.type_meta.keys().find(|k| k.ends_with(&format!(".{hint}"))).cloned();
+                                    match full_key {
+                                        Some(k) => format!("%struct.{k}"),
+                                        None => return Ok((self.val_to_i64(&val, &field_ty), "i64".to_string())),
+                                    }
+                                };
+                                // The val is a heap pointer (i64). Inttoptr to the struct type, load.
+                                let ptr = self.fresh_tmp();
+                                self.emitln(&format!("  {ptr} = inttoptr i64 {val} to {struct_llvm}*"));
+                                let loaded = self.fresh_tmp();
+                                self.emitln(&format!("  {loaded} = load {struct_llvm}, {struct_llvm}* {ptr}"));
+                                return Ok((loaded, struct_llvm));
                             }
                             let result = self.val_to_i64(&val, &field_ty);
                             return Ok((result, "i64".to_string()));
@@ -6300,6 +6341,14 @@ impl IrEmitter {
                                         }
                                         _ => "Int".to_string(),
                                     };
+                                    concrete_types.push(concrete_ty);
+                                    inferred = true;
+                                    break;
+                                }
+                                // Nested generic: e.g. `Option[T]` → extract T from type args
+                                let arg_names = Self::extract_type_arg_names(&param.ty);
+                                if let Some(pos) = arg_names.iter().position(|a| a == &gp.name.name) {
+                                    let concrete_ty = "Int".to_string();
                                     concrete_types.push(concrete_ty);
                                     inferred = true;
                                     break;
