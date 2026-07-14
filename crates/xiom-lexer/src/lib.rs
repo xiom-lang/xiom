@@ -40,7 +40,7 @@ pub enum TokenKind {
     Bang, Amp, Pipe, Ampersand,
     Eq, EqEq, Neq, Lt, Gt, Le, Ge,
     AndAnd, OrOr,
-    Underscore,
+    Underscore, Hash,
 
     // --- Special ---
     Eof,
@@ -294,6 +294,7 @@ impl Lexer {
             '[' => { self.advance(); Token::new(TokenKind::LBracket, start, "[") }
             ']' => { self.advance(); Token::new(TokenKind::RBracket, start, "]") }
             '@' => { self.advance(); Token::new(TokenKind::At, start, "@") }
+            '#' => { self.advance(); Token::new(TokenKind::Hash, start, "#") }
             '?' => { self.advance(); Token::new(TokenKind::Question, start, "?") }
             '+' => { self.advance(); Token::new(TokenKind::Plus, start, "+") }
             '-' => {

@@ -385,7 +385,39 @@ impl Parser {
         Ok(TopDecl::Interface(InterfaceDecl { is_pub, name, generics, members, span: start }))
     }
 
+    /// Parse compiler attributes: #[safety_audit(justification: "...")]
+    fn parse_attributes(&mut self) -> Result<Vec<xiom_ast::Attribute>, ParseError> {
+        let mut attrs = Vec::new();
+        while self.skip(TokenKind::Hash) {
+            self.expect_kind(TokenKind::LBracket, "'['")?;
+            let name = self.parse_ident()?;
+            let mut args = Vec::new();
+            if self.skip(TokenKind::LParen) {
+                loop {
+                    let key = self.parse_ident()?;
+                    if self.skip(TokenKind::Colon) {
+                        let val = self.parse_expr()?;  // string literal or other value
+                        let val_str = match &val {
+                            xiom_ast::Expr::Str(s, _) => s.clone(),
+                            xiom_ast::Expr::Int(n, _) => n.to_string(),
+                            xiom_ast::Expr::Bool(b, _) => b.to_string(),
+                            _ => format!("{:?}", val),
+                        };
+                        args.push((key.name.clone(), val_str));
+                    }
+                    if !self.skip(TokenKind::Comma) { break; }
+                }
+                self.expect_kind(TokenKind::RParen, "')'")?;
+            }
+            self.expect_kind(TokenKind::RBracket, "']'")?;
+            attrs.push(xiom_ast::Attribute { name, args, span: self.peek().span });
+        }
+        Ok(attrs)
+    }
+
     fn parse_fn_decl(&mut self, is_pub: bool, is_async: Option<bool>) -> Result<TopDecl, ParseError> {
+        // Parse attributes: #[safety_audit(justification: "...")]
+        let attrs = self.parse_attributes()?;
         // `async` is a contextual keyword: only triggers async-fn when the
         // identifier "async" is immediately followed by the `fn` keyword.
         let has_async = match self.peek_kind() {
@@ -429,7 +461,7 @@ impl Parser {
             contracts.push(if is_req { ContractClause::Requires(expr, start) } else { ContractClause::Ensures(expr, start) });
         }
         let body = if self.skip(TokenKind::Semicolon) { None } else if self.check(|k| matches!(k, TokenKind::LBrace)) { Some(self.parse_block()?) } else { None };
-        Ok(TopDecl::Fn(FnDecl { is_async: async_flag, is_pub, receiver, name, generics, params, return_type, contracts, body, span: start }))
+        Ok(TopDecl::Fn(FnDecl { attributes: attrs, is_async: async_flag, is_pub, receiver, name, generics, params, return_type, contracts, body, span: start }))
     }
 
     fn parse_const_decl(&mut self) -> Result<TopDecl, ParseError> {
@@ -505,6 +537,7 @@ impl Parser {
             };
             self.expect_kind(TokenKind::Semicolon, "';'")?;
             functions.push(FnDecl {
+                attributes: vec![],
                 is_async: false,
                 is_pub: false,
                 receiver: None,

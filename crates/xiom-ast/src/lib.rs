@@ -345,6 +345,20 @@ pub enum ContractClause {
 }
 
 // ============================================================================
+// Attributes
+// ============================================================================
+
+/// A compiler-recognized attribute attached to declarations.
+/// e.g. `#[safety_audit(justification: "required for FFI")]`
+#[derive(Debug, Clone, PartialEq)]
+pub struct Attribute {
+    pub name: Ident,
+    /// Key-value arguments: `[(justification, "required for FFI")]`
+    pub args: Vec<(String, String)>,
+    pub span: Span,
+}
+
+// ============================================================================
 // Functions
 // ============================================================================
 
@@ -358,6 +372,7 @@ pub struct GenericParam {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FnDecl {
+    pub attributes: Vec<Attribute>,
     pub is_async: bool,
     pub is_pub: bool,
     pub receiver: Option<Ident>, // TypeName for methods
