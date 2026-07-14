@@ -251,7 +251,7 @@ P2: ✅ Plain-text error suggestions, C runtime limits, --max-depth, --timeout
 |------|----------|
 | FFI binding generator (`xiom bind --header math.h`) | P1 |
 | Visual benchmark tool (`xiom bench --compare`) | P1 |
-| WASM compiler playground (`play.xiom-lang.org`) | P2 |
+| WASM compiler playground (`playground.xiom-lang.org`) | P2 |
 
 ---
 
