@@ -2144,20 +2144,29 @@ impl IrEmitter {
                 self.ensure_tuple_type_registered(&p.ty);
             }
             let mut param_types: Vec<String> = Vec::new();
-            // For methods, self is the first parameter. A receiver-qualified fn
-            // with NO `self` param (e.g. `Foo.make(v)`) is a STATIC constructor:
-            // it keeps the `Foo.make` name but takes no receiver argument.
-            let has_self_param = fd.params.iter().any(|p| p.name.name == "self");
+            // Detect self param: either named "self" OR first param whose type
+            // matches the receiver type (ecosystem pattern: `fn T.method(h: &mut T, ...)`).
+            let is_first_param_self = fd.receiver.is_some() && fd.params.first().map_or(false, |p| {
+                let pt = Self::type_from_ast(&p.ty);
+                fd.receiver.as_ref().map_or(false, |r| pt == r.name)
+            });
+            let has_self_param = fd.params.iter().any(|p| p.name.name == "self")
+                || is_first_param_self;
             let has_recv = fd.receiver.is_some() && has_self_param;
-            if has_recv {
+            // If first param IS the self (type matches receiver), don't add
+            // receiver type — the first param already covers it.
+            if has_recv && !is_first_param_self {
                 if let Some(recv) = fd.receiver.as_ref() {
                     param_types.push(self.llvm_type_for(&recv.name).unwrap_or_else(|_| "i64".to_string()));
                 }
             }
+            let self_param_name: Option<String> = if is_first_param_self {
+                fd.params.first().map(|p| p.name.name.clone())
+            } else if has_recv {
+                Some("self".to_string())
+            } else { None };
             let explicit_params: Vec<String> = fd.params.iter()
-                // Skip the duplicate `self` the parser also puts in params (it is
-                // already counted as the receiver above and omitted from the sig).
-                .filter(|p| !(has_recv && p.name.name == "self"))
+                .filter(|p| !(has_recv && !is_first_param_self && p.name.name == "self"))
                 .map(|p| self.llvm_type_for(&Self::type_from_ast(&p.ty)).unwrap_or_else(|_| "i64".to_string()))
                 .collect();
             param_types.extend(explicit_params);
