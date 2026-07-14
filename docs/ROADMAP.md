@@ -31,7 +31,8 @@
 |-----|----------|---------|
 | **BUG-003** sync AtomicBool bad IR | HIGH | `icmp eq i64* %tmp14, 2` — pointer-compared-to-int LLVM IR error |
 | **BUG-004** path canonicalize crash | HIGH | Access violation 0xC0000005 at runtime |
-| **BUG-005** mem swap/replace crash | HIGH | Access violation with `[T]` type args in expression context |
+| **BUG-005** mem swap/replace crash | ✅ RESOLVED | Monomorphisation naming collision — leaf-module key registration |
+| **BUG-006** Option[Struct].unwrap() | MEDIUM | Heap-allocated struct payload round-trip; needs per-type Option layout |
 
 ---
 
@@ -44,8 +45,8 @@
 | 2 | Hardened | v0.31.0 | ✅ |
 | 3 | ARC-C | v0.32.0 | ✅ |
 | 4 | Or-Patterns | v0.33.0 | ✅ |
-| 5a | Codegen Hardening | v0.45.x | ✅ Complete |
-| 5b | Stdlib Completion | current | In progress |
+| 5a | Codegen Hardening | v0.45.x | ✅ Complete (2026-07-14) |
+| 5b | Stdlib Completion | v0.45.x | ✅ Substantially Complete |
 | 5c | Architectural Features | next | Planned |
 | 5d | Production Toolchain | later | Planned |
 | 5e | Self-Hosting | v1.0.0 | Planned |
