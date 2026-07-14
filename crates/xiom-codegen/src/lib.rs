@@ -111,6 +111,8 @@ pub struct IrEmitter {
     target_triple: String,
     /// Maximum allowed recursion depth (emitted into LLVM IR as constant)
     max_recursion_depth: u32,
+    /// Strict mode: error on unknown types defaulting to i64
+    strict_mode: bool,
     /// Tracks emitted function names to avoid duplicate definitions
     emitted_fns: HashSet<String>,
     /// Current module prefix for scoped type resolution (e.g., "types" or "derive")
@@ -161,6 +163,7 @@ impl IrEmitter {
             current_param_llvm_types: Vec::new(),
             check_contracts: true,
             max_recursion_depth: 500,
+            strict_mode: false,
 
             // Remaining fields use defaults
             generic_fn_decls: Vec::new(),
@@ -206,6 +209,10 @@ impl IrEmitter {
 
     pub fn set_max_recursion_depth(&mut self, depth: u32) {
         self.max_recursion_depth = depth;
+    }
+
+    pub fn set_strict_mode(&mut self, strict: bool) {
+        self.strict_mode = strict;
     }
 
     fn fresh_tmp(&mut self) -> String {

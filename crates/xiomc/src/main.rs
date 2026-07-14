@@ -46,6 +46,7 @@ fn main() {
     let check_contracts = !args.iter().any(|a| a == "--no-contracts");
     let _explicit_contracts = args.iter().any(|a| a == "--check-contracts");
     let diagnostics_json = args.iter().any(|a| a == "--diagnostics=json");
+    let strict_mode = args.iter().any(|a| a == "--strict");
     let dump_contracts = args.iter().any(|a| a == "--dump-contracts");
     let verify = args.iter().any(|a| a == "--verify") || args.iter().any(|a| a == "--verify-output");
     let verify_output = parse_flag_value(&args, "--verify-output");
@@ -59,7 +60,13 @@ fn main() {
 
     let timeout_secs: u64 = parse_flag_value(&args, "--timeout")
         .and_then(|v| v.parse().ok())
-        .unwrap_or(60);
+        .unwrap_or(300);  // default 5 minutes
+
+    // Phase 5c: Configurable recursion depth limit
+    let max_recursion_depth: u32 = parse_flag_value(&args, "--max-depth")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(500);
+    let max_recursion_depth = std::cmp::min(max_recursion_depth, 10000u32);  // cap at 10000
 
     // Phase 2.4: Background timeout watchdog
     if timeout_secs > 0 {
@@ -299,6 +306,8 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
     // Stage 5: Codegen
     let mut emitter = IrEmitter::new();
     emitter.set_check_contracts(check_contracts);
+    emitter.set_max_recursion_depth(max_recursion_depth);
+    emitter.set_strict_mode(strict_mode);
     emitter.set_target_triple(match target {
         Target::Wasm => "wasm32-unknown-unknown",
         Target::Arm => "aarch64-unknown-linux-gnu",
@@ -346,6 +355,23 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
     let opt = find_tool("opt", &[
         "C:\\Program Files\\LLVM\\bin\\opt.exe",
     ]);
+
+    // Phase 5c: Run LLVM opt -verify to catch malformed IR
+    if let Some(opt_path) = &opt {
+        let verify_status = Command::new(opt_path)
+            .args(["-verify", &ir_path])
+            .output();
+        match verify_status {
+            Ok(out) if out.status.success() => {}
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                eprintln!("  warning: LLVM IR verification failed: {}", stderr.lines().next().unwrap_or("unknown error"));
+                eprintln!("  note: proceeding with compilation; check the generated IR at {}", ir_path);
+            }
+            Err(_) => {}
+        }
+    }
+
     if let Some(opt_path) = &opt {
         let opt_status = Command::new(opt_path)
             .args(["-O1", "-S", "-o", &ir_path, &ir_path])
