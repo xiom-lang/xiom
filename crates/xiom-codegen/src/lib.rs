@@ -2266,7 +2266,11 @@ impl IrEmitter {
         let has_self_param = fd.params.iter().any(|p| p.name.name == "self");
         let self_llvm_ty = if has_self_param {
             fd.receiver.as_ref().map(|r| {
-                self.llvm_type_for(&r.name).unwrap_or_else(|_| "i64".to_string())
+                let base = self.llvm_type_for(&r.name).unwrap_or_else(|_| "i64".to_string());
+                // `&mut self` receivers pass by pointer so mutations propagate.
+                // Regular `self` and `&self` pass by value.
+                let is_mut = fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self);
+                if is_mut && base.starts_with('%') { format!("{base}*") } else { base }
             })
         } else {
             None
@@ -2311,18 +2315,36 @@ impl IrEmitter {
         // For methods, first allocate the self struct
         if let (Some(recv), Some(st)) = (fd.receiver.as_ref(), self_llvm_ty.as_ref()) {
             let self_alloca = self.fresh_tmp();
+            let is_ptr_receiver = st.ends_with('*');
             self.emitln(&format!("  {self_alloca} = alloca {st}"));
             self.emitln(&format!("  store {st} %param_self, {st}* {self_alloca}"));
-            self.add_local("self", self_alloca.clone(), st);
-            // Also add struct fields as locals for direct access
-            let fields_clone = self.types.get(&recv.name).cloned();
-            if let Some(fields) = fields_clone {
-                let alloca_ref = self_alloca;
-                for (idx, field_name) in fields.iter().enumerate() {
-                    let field_llvm_ty = self.field_llvm_type(&recv.name, idx);
-                    let gep = self.fresh_tmp();
-                    self.emitln(&format!("  {gep} = getelementptr {st}, {st}* {alloca_ref}, i32 0, i32 {idx}"));
-                    self.add_local(field_name, gep, &field_llvm_ty);
+            if is_ptr_receiver {
+                // Load the struct pointer from the alloca, then register
+                // the loaded pointer as the base for field access.
+                let loaded_ptr = self.fresh_tmp();
+                let struct_ty = st.trim_end_matches('*');
+                self.emitln(&format!("  {loaded_ptr} = load {st}, {st}* {self_alloca}"));
+                self.add_local("self", loaded_ptr.clone(), struct_ty);
+                // Add struct fields via GEP on the loaded pointer
+                if let Some(fields) = self.types.get(&recv.name).cloned() {
+                    for (idx, field_name) in fields.iter().enumerate() {
+                        let field_llvm_ty = self.field_llvm_type(&recv.name, idx);
+                        let gep = self.fresh_tmp();
+                        self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {loaded_ptr}, i32 0, i32 {idx}"));
+                        self.add_local(field_name, gep, &field_llvm_ty);
+                    }
+                }
+            } else {
+                self.add_local("self", self_alloca.clone(), st);
+                // Also add struct fields as locals for direct access
+                if let Some(fields) = self.types.get(&recv.name).cloned() {
+                    let alloca_ref = self_alloca;
+                    for (idx, field_name) in fields.iter().enumerate() {
+                        let field_llvm_ty = self.field_llvm_type(&recv.name, idx);
+                        let gep = self.fresh_tmp();
+                        self.emitln(&format!("  {gep} = getelementptr {st}, {st}* {alloca_ref}, i32 0, i32 {idx}"));
+                        self.add_local(field_name, gep, &field_llvm_ty);
+                    }
                 }
             }
         }
@@ -3290,17 +3312,16 @@ impl IrEmitter {
             // Include self/receiver parameter for methods. A receiver-qualified fn
             // with NO `self` param is a static constructor — no receiver argument.
             let has_self_param = fd.params.iter().any(|p| p.name.name == "self");
+            let is_mut_self = fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self);
             let self_llvm_ty = if let (true, Some(r)) = (has_self_param, fd.receiver.as_ref()) {
-                Some(self.llvm_type_for(&r.name).unwrap_or_else(|_| {
-                    // Fallback: try via suffix search across all registered type_meta keys
+                let base = self.llvm_type_for(&r.name).unwrap_or_else(|_| {
                     let search = format!(".{}", r.name);
                     for key in self.type_meta.keys() {
-                        if key.ends_with(&search) {
-                            return format!("%struct.{key}");
-                        }
+                        if key.ends_with(&search) { return format!("%struct.{key}"); }
                     }
                     "i64".to_string()
-                }))
+                });
+                Some(if is_mut_self && base.starts_with('%') { format!("{base}*") } else { base })
             } else {
                 None
             };
@@ -3345,44 +3366,72 @@ impl IrEmitter {
             // Allocate parameters as locals
             // Allocate self parameter first (for methods)
             if let (Some(st), Some(recv)) = (&self_llvm_ty, &fd.receiver) {
-                let _is_ptr = st.ends_with('*');
+                let is_ptr = st.ends_with('*');
                 let self_alloca = self.fresh_tmp();
                 self.emitln(&format!("  {self_alloca} = alloca {st}"));
                 self.emitln(&format!("  store {st} %param_self, {st}* {self_alloca}"));
-                self.add_local("self", self_alloca.clone(), st);
-                // Register each struct field as a local (bare name access like `items`)
-                let recv_type_name = &recv.name;
-                let names_opt = self.types.get(recv_type_name).cloned()
-                    .or_else(|| {
-                        // Try module-qualified variant
-                        if let Some(ref module) = self.current_module {
-                            let qualified = format!("{}.{}", module, recv_type_name);
-                            self.types.get(&qualified).cloned()
-                        } else {
-                            // Search all keys
-                            self.types.iter()
-                                .find(|(k, _)| k.ends_with(&format!(".{recv_type_name}")))
-                                .map(|(_, v)| v.clone())
-                        }
-                    });
-                if let Some(names) = names_opt {
-                    // Use the found type key for field_llvm_type lookups
-                    let type_key = self.types.get(recv_type_name).map(|_| recv_type_name.clone())
+                if is_ptr {
+                    let loaded_ptr = self.fresh_tmp();
+                    let struct_ty = st.trim_end_matches('*');
+                    self.emitln(&format!("  {loaded_ptr} = load {st}, {st}* {self_alloca}"));
+                    self.add_local("self", loaded_ptr.clone(), struct_ty);
+                    // Register fields via GEP on the loaded pointer
+                    let recv_type_name = &recv.name;
+                    let names_opt = self.types.get(recv_type_name).cloned()
                         .or_else(|| {
                             if let Some(ref module) = self.current_module {
-                                let q = format!("{}.{}", module, recv_type_name);
-                                if self.types.contains_key(&q) { Some(q) } else { None }
-                            } else { None }
-                        })
+                                let qualified = format!("{}.{}", module, recv_type_name);
+                                self.types.get(&qualified).cloned()
+                            } else {
+                                self.types.keys().find(|k| k.ends_with(&format!(".{recv_type_name}"))).and_then(|k| self.types.get(k).cloned())
+                            }
+                        });
+                    if let Some(names) = names_opt {
+                        let type_key = self.types.get(recv_type_name).map(|_| recv_type_name.clone())
+                            .or_else(|| {
+                                if let Some(ref module) = self.current_module {
+                                    let q = format!("{}.{}", module, recv_type_name);
+                                    if self.types.contains_key(&q) { Some(q) } else { None }
+                                } else { None }
+                            })
+                            .or_else(|| self.types.keys().find(|k| k.ends_with(&format!(".{recv_type_name}"))).cloned())
+                            .unwrap_or_else(|| recv_type_name.clone());
+                        for (idx, field_name) in names.iter().enumerate() {
+                            let field_llvm_ty = self.field_llvm_type(&type_key, idx);
+                            let gep = self.fresh_tmp();
+                            self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {loaded_ptr}, i32 0, i32 {idx}"));
+                            self.add_local(field_name, gep, &field_llvm_ty);
+                        }
+                    }
+                } else {
+                    self.add_local("self", self_alloca.clone(), st);
+                    // Register each struct field as a local (bare name access like `items`)
+                    let recv_type_name = &recv.name;
+                    let names_opt = self.types.get(recv_type_name).cloned()
                         .or_else(|| {
-                            self.types.keys().find(|k| k.ends_with(&format!(".{recv_type_name}"))).cloned()
-                        })
-                        .unwrap_or_else(|| recv_type_name.clone());
-                    for (idx, field_name) in names.iter().enumerate() {
-                        let field_llvm_ty = self.field_llvm_type(&type_key, idx);
-                        let gep = self.fresh_tmp();
-                        self.emitln(&format!("  {gep} = getelementptr {st}, {st}* {self_alloca}, i32 0, i32 {idx}"));
-                        self.add_local(field_name, gep, &field_llvm_ty);
+                            if let Some(ref module) = self.current_module {
+                                let qualified = format!("{}.{}", module, recv_type_name);
+                                self.types.get(&qualified).cloned()
+                            } else {
+                                self.types.iter().find(|(k, _)| k.ends_with(&format!(".{recv_type_name}"))).map(|(_, v)| v.clone())
+                            }
+                        });
+                    if let Some(names) = names_opt {
+                        let type_key = self.types.get(recv_type_name).map(|_| recv_type_name.clone())
+                            .or_else(|| {
+                                if let Some(ref module) = self.current_module {
+                                    let q = format!("{}.{}", module, recv_type_name);
+                                    if self.types.contains_key(&q) { Some(q) } else { None }
+                                } else { None }
+                            })
+                            .or_else(|| self.types.keys().find(|k| k.ends_with(&format!(".{recv_type_name}"))).cloned())
+                            .unwrap_or_else(|| recv_type_name.clone());
+                        for (idx, field_name) in names.iter().enumerate() {
+                            let field_llvm_ty = self.field_llvm_type(&type_key, idx);
+                            let gep = self.fresh_tmp();
+                            self.emitln(&format!("  {gep} = getelementptr {st}, {st}* {self_alloca}, i32 0, i32 {idx}"));
+                            self.add_local(field_name, gep, &field_llvm_ty);
+                        }
                     }
                 }
             }
@@ -6539,11 +6588,29 @@ impl IrEmitter {
                             (rt.clone(), pts.clone())
                         } else {
                             // Not yet registered - use the generic signature with
-                            // argument-inferred param types (generic placeholder i64
-                            // may be wrong for types like Str → i8*)
-                            let inferred_types: Vec<String> = args.iter()
+                            // argument-inferred param types, prepending the receiver
+                            // type if the generic decl has a self parameter.
+                            let mut inferred_types: Vec<String> = args.iter()
                                 .map(|a| self.infer_llvm_type(a))
                                 .collect();
+                            // Check if the generic decl has a self param (receiver)
+                            let has_self = self.generic_fn_decls.iter()
+                                .find(|(k, _)| k == &fn_key)
+                                .map(|(_, fd)| fd.receiver.is_some()
+                                    && fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self))
+                                .unwrap_or(false);
+                            if has_self {
+                                // Prepend the receiver's pointer type
+                                if let Some(recv_name) = self.generic_fn_decls.iter()
+                                    .find(|(k, _)| k == &fn_key)
+                                    .and_then(|(_, fd)| fd.receiver.as_ref())
+                                {
+                                    let recv_ty = self.llvm_type_for(&recv_name.name)
+                                        .unwrap_or_else(|_| "i64".to_string());
+                                    let recv_ptr = if recv_ty.starts_with('%') { format!("{recv_ty}*") } else { recv_ty };
+                                    inferred_types.insert(0, recv_ptr);
+                                }
+                            }
                             let generic_ret = self.functions.get(&fn_key)
                                 .map(|(_, rt)| rt.clone())
                                 .unwrap_or_else(|| "i64".to_string());
