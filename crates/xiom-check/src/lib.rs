@@ -903,11 +903,21 @@ impl Checker {
                         } else {
                             format!("{}.{}", module_path, variant.name.name)
                         };
+                        let enum_variant_key = if module_path.is_empty() {
+                            format!("{}.{}", ed.name.name, variant.name.name)
+                        } else {
+                            format!("{}.{}.{}", module_path, ed.name.name, variant.name.name)
+                        };
                         let mut vfields: Vec<(String, CheckedType)> = Vec::new();
                         for field in &variant.fields {
                             vfields.push((field.name.name.clone(), CheckedType::from_ast_type(&field.ty)));
                         }
                         self.variant_fields.insert(variant_key.clone(), vfields.clone());
+                        // Register under EnumType.Variant key (e.g. AgentState.Done)
+                        // for pattern-binding type resolution.
+                        if enum_variant_key != variant_key {
+                            self.variant_fields.insert(enum_variant_key.clone(), vfields.clone());
+                        }
                         if variant_key != variant.name.name {
                             self.variant_fields.insert(variant.name.name.clone(), vfields);
                         }
