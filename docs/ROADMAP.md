@@ -183,20 +183,22 @@ P2: ✅ Plain-text error suggestions, C runtime limits, --max-depth, --timeout
 
 ### 6.2 Debugger (IMPROVEMENT_PLAN §3.1)
 
-| Feature | Priority |
-|---------|----------|
-| DAP-based debugger (VS Code / JetBrains) | P1 |
-| Contract-aware debugging (trap → which contract failed) | P2 |
-| Ownership visualization (lifetime bars, borrow arrows) | P2 |
+| Feature | Priority | Status |
+|---------|----------|--------|
+| Contract IR comments (`; contract: requires: ...`) | P0 | ✅ DONE |
+| Source context in errors (line + caret) | P0 | ✅ DONE |
+| `--debug` / `-g` flag (DWARF via clang) | P0 | ✅ DONE (Phase 5c) |
+| DAP-based debugger (VS Code / JetBrains) | P1 | TODO (external tool) |
+| Contract-aware debugging (trap → contract name) | P2 | TODO |
 
 ### 6.3 LSP Enhancements (IMPROVEMENT_PLAN §3.3)
 
-| Feature | Priority |
-|---------|----------|
-| Contract lens (inline requires/ensures display) | P1 |
-| Ownership overlay (color-coded variable underlines) | P2 |
-| Code actions: `@fix-borrow`, `@add-contract` | P2 |
-| Refactoring: extract function with auto-contracts | P2 |
+| Feature | Priority | Status |
+|---------|----------|--------|
+| `--diagnostics=json` (structured output) | P0 | ✅ DONE (Phase 5c) |
+| `--dump-contracts` (contract index) | P0 | ✅ DONE |
+| Contract lens (inline display) | P1 | TODO (xiom-lsp crate) |
+| Ownership overlay (borrow visualization) | P2 | TODO |
 
 ### 6.4 Documentation Generator (IMPROVEMENT_PLAN §5.5)
 
