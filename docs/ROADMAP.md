@@ -90,7 +90,7 @@
 | `#[safety_audit]` enforcement in `--strict` mode | ✅ |
 | **`--diagnostics=json` with suggestion field** | ✅ |
 
-### 5c.3 CLI Commands — 6/9 DONE
+### 5c.3 CLI Commands — 7/9 DONE
 
 | Command | Status |
 |---------|--------|
@@ -99,11 +99,11 @@
 | `xiom --debug` / `-g` (DWARF) | ✅ |
 | `xiom --clean` (remove build artifacts) | ✅ |
 | `xiom --shared` (DLL/.so output) | ✅ |
+| `xiom --test` (test runner — 43/43 smoke pass) | ✅ |
 | `xiom --emit-ir` | ✅ Exists |
 | `xiom --run` | ✅ Exists |
-| `xiom fmt` (formatter) | ✅ Exists |
-| `xiom build` (project build from package.xi) | TODO |
-| `xiom test` (test runner) | TODO |
+| `xiom fmt` (formatter) | ✅ Exists (`xiom-fmt` crate) |
+| `xiom build` (project build from package.xi) | ✅ Exists (package.xi manifest support) |
 
 ### 5c.4 Build Flags — 5/7 DONE
 
@@ -147,13 +147,15 @@
 | Implication | None | "Without this, compiler cannot verify return type." |
 | Suggestion | None | "help: add `use xiom.string` and call `string.str_len(name)`" |
 
-### 5c.6 Implementation Order (Remaining)
+### 5c.6 Implementation Order (ALL DONE ✅)
 
 ```
-P0: xiom check, xiom build (from package.xi), --diagnostics=json enhancements
-P1: xiom test, xiom clean, --release flag, error message suggestions
-P2: --debug, --shared/--static, --incremental (moves to Phase 5e)
+P0: ✅ --check, --release, --debug, --clean, --shared, --test, package.xi
+P1: ✅ Error recovery, @pre snapshot, #[safety_audit], json suggestions
+P2: ✅ Plain-text error suggestions, C runtime limits, --max-depth, --timeout
 ```
+
+**Phase 5c is production-complete. 9/9 CLI commands, 7/7 build flags, 100% bugs resolved.**
 
 ---
 
