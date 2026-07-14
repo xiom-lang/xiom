@@ -503,8 +503,16 @@ impl Parser {
             let is_req = matches!(self.peek_kind(), TokenKind::Requires);
             self.advance();
             self.expect_kind(TokenKind::Colon, "':'")?;
+            // Parse first expression
             let expr = self.parse_expr()?;
             contracts.push(if is_req { ContractClause::Requires(expr, start) } else { ContractClause::Ensures(expr, start) });
+            // Comma-separated shorthand: `requires: a>0, b>0`
+            while self.skip(TokenKind::Comma) {
+                let extra = self.parse_expr()?;
+                contracts.push(if is_req { ContractClause::Requires(extra, start) } else { ContractClause::Ensures(extra, start) });
+            }
+            // Optional semicolon terminator
+            self.skip(TokenKind::Semicolon);
         }
         let body = if self.skip(TokenKind::Semicolon) { None } else if self.check(|k| matches!(k, TokenKind::LBrace)) { Some(self.parse_block()?) } else { None };
         Ok(TopDecl::Fn(FnDecl { attributes: attrs, is_async: async_flag, is_pub, receiver, name, generics, params, return_type, contracts, body, span: start }))

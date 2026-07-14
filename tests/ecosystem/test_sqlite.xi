@@ -6,6 +6,7 @@
 // with data, string generation from schema definitions, and Vec ops.
 
 module tests.ecosystem.test_sqlite
+use xiom.collections;
 
 pub enum SqliteValue {
   Null,

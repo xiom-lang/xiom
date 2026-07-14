@@ -6,6 +6,7 @@
 // nested structs, Vec of structs, and method dispatch patterns.
 
 module tests.ecosystem.test_http
+use xiom.collections;
 
 pub enum HttpMethod {
   GET,

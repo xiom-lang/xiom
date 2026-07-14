@@ -8,6 +8,7 @@
 // contracts (requires/ensures), and Vec push/pop.
 
 module tests.ecosystem.test_full
+use xiom.collections;
 
 // ============================================================================
 // Types

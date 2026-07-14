@@ -6,6 +6,7 @@
 // Vec manipulation, method dispatch, and Bool logic.
 
 module tests.ecosystem.test_test
+use xiom.collections;
 
 pub type TestCase = {
   name: Str;
