@@ -876,6 +876,14 @@ fn e2e_mut_ref_swap() {
         "generic &mut T swap should exchange values correctly");
 }
 
+/// Phase 5c.7 hardening: Float32 compat, hex escapes, enum constructors,
+/// comma-separated contracts, Int/Char compat, enum pattern matching.
+#[test]
+fn e2e_phase5c7_hardening() {
+    assert_eq!(compile_and_run("examples\\e2e\\phase5c7_hardening.xi"), Some(0),
+        "phase 5c.7 hardening: all 7 compiler fixes pass");
+}
+
 /// Combined features: store_back, hash determinism, generic monomorphization.
 #[test]
 fn e2e_combined_patterns() {
