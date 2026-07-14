@@ -683,18 +683,21 @@ impl Checker {
           for comp in &["Vec", "Set", "Stack", "Slice"] {
             self.types.insert(comp.to_string(), HashMap::new());
         }
-        // Option with known fields
+        // Option with known pseudo-fields (accessors that work as field reads).
+        // `.value` returns a wildcard so interface dispatch can resolve method
+        // chains like `opt.value.description()` — the codegen handles the
+        // concrete type at monomorphisation time.
         let mut opt = HashMap::new();
         opt.insert("is_some".to_string(), CheckedType::Bool);
         opt.insert("is_none".to_string(), CheckedType::Bool);
-        opt.insert("value".to_string(), CheckedType::Int);
+        opt.insert("value".to_string(), CheckedType::Named("_".into()));
         self.types.insert("Option".to_string(), opt);
-        // Result with known fields
+        // Result with known pseudo-fields
         let mut res = HashMap::new();
         res.insert("is_ok".to_string(), CheckedType::Bool);
         res.insert("is_err".to_string(), CheckedType::Bool);
-        res.insert("value".to_string(), CheckedType::Int);
-        res.insert("error".to_string(), CheckedType::Int);
+        res.insert("value".to_string(), CheckedType::Named("_".into()));
+        res.insert("error".to_string(), CheckedType::Named("_".into()));
         self.types.insert("Result".to_string(), res);
 
         // Vec builtin methods
@@ -779,7 +782,8 @@ impl Checker {
                 if self.enum_variants.contains_key(&name.name) || self.resolve_enum_variant(&name.name).is_some() {
                     return;
                 }
-                // Use Error type to suppress cascade errors (actual type resolved later)
+                // Use Error type to suppress cascade errors — interface dispatch
+                // in the Call handler resolves the actual type on demand.
                 self.add_local(&name.name, CheckedType::Error);
             }
             Pattern::Variant(name, fields, _) => {
@@ -2466,9 +2470,9 @@ impl Checker {
                         }
                     }
                     // Interface dispatch: accept method calls on interface-typed
-                    // receivers, generic params with interface bounds, and wildcard
-                    // types from Option/Result accessors. Codegen resolves the
-                    // concrete implementation at monomorphisation time.
+                    // receivers, generic params, wildcard types, and cascade-error
+                    // pattern bindings. Codegen resolves the concrete implementation
+                    // at monomorphisation time.
                     let allow_interface_dispatch = match &obj_ty {
                         CheckedType::Named(tn) => {
                             // Direct interface-typed receiver (e.g. self: Error)
@@ -2479,6 +2483,12 @@ impl Checker {
                                 tn.len() == 1 && tn.chars().next().map_or(false, |c| c.is_uppercase())
                                 && self.interfaces.values().any(|m| m.iter().any(|(mn, _, _)| mn == &method.name))
                             )
+                        }
+                        // Pattern-bound variables from match arms (e.g. `e` in
+                        // `Err(e) => ...`) have cascade Error type.  If the method
+                        // is declared in any interface, accept it.
+                        CheckedType::Error => {
+                            self.interfaces.values().any(|m| m.iter().any(|(mn, _, _)| mn == &method.name))
                         }
                         _ => false,
                     };
