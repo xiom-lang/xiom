@@ -31,12 +31,11 @@
 
 | Bug | Severity | Symptom |
 |-----|----------|---------|
-| **BUG-006** Option[Struct].unwrap() crash | HIGH | `Some(Point{...}).unwrap().x` returns wrong value. Root cause: `Some` heap-allocates struct payloads via `val_to_i64`, `unwrap` doesn't dereference. Needs per-concrete-type Option struct layout. |
-| **BUG-007** Interface vtable dispatch | MEDIUM | Multiple types implementing same interface — first-match static dispatch works, no vtable for polymorphic calls |
+| **BUG-006** Option[Struct].unwrap() crash | ✅ RESOLVED | `i64 → struct` coercion in coerce_value + Stmt::Let declared-type handling |
+| **BUG-009** TestResult.passed wrong value | ✅ RESOLVED | Same fix as BUG-006 |
+| **BUG-007** Interface vtable dispatch | MEDIUM | Multiple types implementing same interface — needs vtable or exhaustive monomorphisation |
 | **BUG-008** IO string-to-extern-c coercion | ✅ RESOLVED | `Str.c_str()` + `Str.len()` builtins |
 | **BUG-010** Channel send/recv broken | ✅ RESOLVED | `&mut self` struct receiver — pointer passing for mutation |
-| **BUG-009** TestResult.passed field wrong value | MEDIUM | `test.assert(true).passed` returns false. Related to BUG-006 struct payload round-trip. |
-| **BUG-010** Channel send/try_recv broken | MEDIUM | `Channel.unbounded().send(42); try_recv()` returns None — value not queued. |
 
 ---
 
