@@ -787,11 +787,33 @@ impl Checker {
                 self.add_local(&name.name, CheckedType::Error);
             }
             Pattern::Variant(name, fields, _) => {
-                // Look up variant field types for correct binding types
-                let field_types = self.variant_fields.get(&name.name)
-                    .or_else(|| self.variant_fields.get(&name.name))
-                    .cloned()
-                    .unwrap_or_default();
+                // Look up variant field types for correct binding types.
+                // Tries full keys (module.Type.Variant, Type.Variant, module.Variant) then bare.
+                let mut field_types: Vec<(String, CheckedType)> = Vec::new();
+                let bare = &name.name;
+                if let Some(parent) = self.resolve_enum_variant(bare) {
+                    let keys: Vec<String> = if let Some(ref m) = self.current_module {
+                        vec![
+                            format!("{}.{}.{}", m, parent, bare),
+                            format!("{}.{}", parent, bare),
+                            format!("{}.{}", m, bare),
+                            bare.clone(),
+                        ]
+                    } else {
+                        vec![format!("{}.{}", parent, bare), bare.clone()]
+                    };
+                    for key in &keys {
+                        if let Some(ft) = self.variant_fields.get(key) {
+                            field_types = ft.clone();
+                            break;
+                        }
+                    }
+                }
+                if field_types.is_empty() {
+                    field_types = self.variant_fields.get(bare).cloned().unwrap_or_default();
+                }
+                // Fallback: use Int type (assignment checker catches mismatches)
+                let fallback_ty = CheckedType::Int;
                 for (i, field) in fields.iter().enumerate() {
                     if field.name == "_" { continue; } // skip wildcard placeholders
                     let field_ty = field_types.get(i)
