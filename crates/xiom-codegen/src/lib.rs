@@ -911,6 +911,25 @@ impl IrEmitter {
         format!("%struct.{concrete_name}")
     }
 
+    /// Collect all variable names referenced through `@pre` in an expression.
+    fn collect_atpre_vars(expr: &Expr, vars: &mut HashSet<String>) {
+        match expr {
+            Expr::AtPre(inner, _) => {
+                if let Expr::Ident(id) = inner.as_ref() {
+                    vars.insert(id.name.clone());
+                } else {
+                    Self::collect_atpre_vars(inner, vars);
+                }
+            }
+            Expr::Binary(l, _, r, _) => { Self::collect_atpre_vars(l, vars); Self::collect_atpre_vars(r, vars); }
+            Expr::Unary(_, e, _) => Self::collect_atpre_vars(e, vars),
+            Expr::Call(f, args, _) => { Self::collect_atpre_vars(f, vars); for a in args { Self::collect_atpre_vars(a, vars); } }
+            Expr::Field(e, _, _) | Expr::Index(e, _, _) => Self::collect_atpre_vars(e, vars),
+            Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _) => Self::collect_atpre_vars(e, vars),
+            _ => {}
+        }
+    }
+
     /// Emit any deferred struct type definitions (concrete Option__Point,
     /// Result__X__Y, etc.) before the next function body.
     fn flush_deferred_types(&mut self) {
@@ -2506,14 +2525,35 @@ impl IrEmitter {
 
         // Capture self@pre for ensures (method functions with self@pre references)
         if self.check_contracts && !self.current_ensures.is_empty() {
-            if let Some(recv) = fd.receiver.as_ref() {
-                if let Some((ptr, llvm_ty)) = self.lookup_local(&recv.name).cloned() {
+            // Phase 5c @pre snapshot: for every variable referenced in an
+            // `ensures` clause with `@pre`, store its entry-point value so the
+            // ensures check uses the pre-state value, not the current one.
+            let mut pre_vars: HashSet<String> = HashSet::new();
+            for expr in &self.current_ensures {
+                Self::collect_atpre_vars(expr, &mut pre_vars);
+            }
+            for var_name in &pre_vars {
+                if let Some((ptr, llvm_ty)) = self.lookup_local(var_name).cloned() {
                     let pre_alloca = self.fresh_tmp();
                     self.emitln(&format!("  {pre_alloca} = alloca {llvm_ty}"));
                     let loaded = self.fresh_tmp();
                     self.emitln(&format!("  {loaded} = load {llvm_ty}, {llvm_ty}* {ptr}"));
                     self.emitln(&format!("  store {llvm_ty} {loaded}, {llvm_ty}* {pre_alloca}"));
-                    self.add_local("__self_pre", pre_alloca, &llvm_ty);
+                    let pre_name = format!("__{}_pre", var_name);
+                    self.add_local(&pre_name, pre_alloca, &llvm_ty);
+                }
+            }
+            // Also snapshot self receiver (backward compat)
+            if let Some(recv) = fd.receiver.as_ref() {
+                if let Some((ptr, llvm_ty)) = self.lookup_local(&recv.name).cloned() {
+                    if !pre_vars.contains(&recv.name) {
+                        let pre_alloca = self.fresh_tmp();
+                        self.emitln(&format!("  {pre_alloca} = alloca {llvm_ty}"));
+                        let loaded = self.fresh_tmp();
+                        self.emitln(&format!("  {loaded} = load {llvm_ty}, {llvm_ty}* {ptr}"));
+                        self.emitln(&format!("  store {llvm_ty} {loaded}, {llvm_ty}* {pre_alloca}"));
+                        self.add_local("__self_pre", pre_alloca, &llvm_ty);
+                    }
                 }
             }
         }
@@ -7234,17 +7274,19 @@ impl IrEmitter {
                 Ok(("0".to_string(), "i64".to_string()))
             }
             Expr::AtPre(inner, _) => {
-                // If inner is `self`, resolve to __self_pre (the pre-state snapshot)
+                // If inner is `self` or any variable, resolve to its pre-state snapshot
                 if let Expr::Ident(id) = inner.as_ref() {
-                    if id.name == "self" {
-                        if let Some((ptr, llvm_ty)) = self.lookup_local("__self_pre").cloned() {
-                            let tmp = self.fresh_tmp();
-                            self.emitln(&format!("  {tmp} = load {llvm_ty}, {llvm_ty}* {ptr}"));
-                            return Ok((tmp, llvm_ty));
-                        }
+                    let pre_name = if id.name == "self" {
+                        "__self_pre".to_string()
+                    } else {
+                        format!("__{}_pre", id.name)
+                    };
+                    if let Some((ptr, llvm_ty)) = self.lookup_local(&pre_name).cloned() {
+                        let tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {tmp} = load {llvm_ty}, {llvm_ty}* {ptr}"));
+                        return Ok((tmp, llvm_ty));
                     }
-                    // For other @pre expressions e.g. self.field@pre, compile as field access
-                    // from self@pre (handled recursively via the self case above)
+                    // Fallback: if no pre snapshot, use current value
                 }
                 self.compile_expr(inner)
             }
