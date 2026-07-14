@@ -17,12 +17,11 @@ pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
     /// When true, a bare `Ident { ... }` is NOT parsed as a struct literal.
-    /// Set while parsing the head expression of `if`/`elif`/`while`/`for`/
-    /// `match`, where `{` must begin the body block rather than a struct.
     restrict_struct: bool,
-    /// Current recursion depth of the expression/type parsers. Guarded against
-    /// unbounded recursion (stack overflow) on adversarial deeply-nested input.
+    /// Current recursion depth of the expression/type parsers.
     depth: usize,
+    /// Accumulated parse errors for error recovery (Phase 5c).
+    errors: Vec<ParseError>,
 }
 
 /// Maximum expression/type nesting depth. A recursive-descent parser recurses
@@ -32,7 +31,39 @@ const MAX_EXPR_DEPTH: usize = 32;
 
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, pos: 0, restrict_struct: false, depth: 0 }
+        Self { tokens, pos: 0, restrict_struct: false, depth: 0, errors: Vec::new() }
+    }
+
+    /// Maximum number of parse errors before aborting (Phase 5c error recovery).
+    const MAX_PARSE_ERRORS: usize = 100;
+
+    /// Record an error without aborting. After MAX_PARSE_ERRORS, returns Err.
+    fn recoverable_error(&mut self, msg: String, span: Span) -> Result<(), ParseError> {
+        let err = ParseError { message: msg, span };
+        self.errors.push(err);
+        if self.errors.len() >= Self::MAX_PARSE_ERRORS {
+            Err(ParseError { message: "too many parse errors — aborting".to_string(), span })
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Skip tokens until a synchronisation point (top-level keyword or `}`).
+    fn recover_to_sync(&mut self) {
+        while !self.peek().is_eof() {
+            match self.peek_kind() {
+                TokenKind::Fn | TokenKind::Type | TokenKind::Enum | TokenKind::Interface
+                | TokenKind::Module | TokenKind::Pub | TokenKind::Const | TokenKind::Use
+                | TokenKind::Extern | TokenKind::RBrace => break,
+                TokenKind::Semicolon => { self.advance(); break; }
+                _ => { self.advance(); }
+            }
+        }
+    }
+
+    /// Return accumulated errors if any.
+    pub fn take_errors(&mut self) -> Vec<ParseError> {
+        std::mem::take(&mut self.errors)
     }
 
     /// Enter one level of expression/type recursion. Returns an error (instead
@@ -112,7 +143,22 @@ impl Parser {
         let start = self.peek().span;
         let file_module_path = self.parse_file_module_header()?;
         while !self.peek().is_eof() {
-            items.push(self.parse_top_decl()?);
+            match self.parse_top_decl() {
+                Ok(item) => items.push(item),
+                Err(e) => {
+                    // Phase 5c error recovery: record, skip to sync point, continue
+                    let span = e.span;
+                    let _ = self.recoverable_error(e.message, span);
+                    if self.errors.len() >= Self::MAX_PARSE_ERRORS {
+                        return Err(ParseError { message: "too many parse errors — aborting".to_string(), span });
+                    }
+                    self.recover_to_sync();
+                }
+            }
+        }
+        // If we have recovered items AND errors, return what we have
+        if !self.errors.is_empty() && !items.is_empty() {
+            // Return partial program — caller can still type-check recovered AST
         }
         if let Some(path) = file_module_path {
             let wrapped = Self::build_file_module_result(path, items, start);
