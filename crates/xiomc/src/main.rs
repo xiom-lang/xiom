@@ -54,6 +54,12 @@ fn main() {
     let static_lib = args.iter().any(|a| a == "--static");   // Phase 5c: .lib/.a output
     let test_mode = args.iter().any(|a| a == "--test");      // Phase 5c: test runner
     let clean_mode = args.iter().any(|a| a == "--clean");    // Phase 5c: clean artifacts
+    let install_mode = args.iter().any(|a| a == "install");  // Phase 5d: package install
+    let install_pkg = args.iter().position(|a| a == "install")
+        .and_then(|i| args.get(i + 1).cloned())
+        .filter(|p| !p.starts_with('-'));  // package name (not a flag)
+    let publish_mode = args.iter().any(|a| a == "publish");  // Phase 5d: package publish
+    let update_mode = args.iter().any(|a| a == "update");    // Phase 5d: update deps
 
     // Phase 5c: --clean removes common build artifacts and exits
     if clean_mode {
@@ -72,6 +78,20 @@ fn main() {
             }
         }
         eprintln!("  Cleaned {} build artifact(s)", cleaned);
+        return;
+    }
+
+    // Phase 5d: xiom install — resolve and fetch packages from registry
+    if install_mode || update_mode {
+        let registry_url = parse_flag_value(&args, "--registry")
+            .unwrap_or_else(|| "https://registry.xiom-lang.org/packages.json".to_string());
+        handle_install(&args, install_pkg.as_deref(), &registry_url, update_mode);
+        return;
+    }
+
+    // Phase 5d: xiom publish — tag, release, submit to registry
+    if publish_mode {
+        handle_publish(&args);
         return;
     }
     let dump_contracts = args.iter().any(|a| a == "--dump-contracts");
@@ -1547,3 +1567,237 @@ fn diagnostic_for(msg: &str) -> (Option<String>, Option<String>) {
 fn suggest_fix(msg: &str) -> String {
     diagnostic_for(msg).0.unwrap_or_else(|| "Review the error and check syntax/types.".to_string())
 }
+
+// ── Phase 5d: Package Manager ──────────────────────────────────────────
+
+/// Phase 5d: Install packages from the registry.
+/// Resolves deps from package.xi (or command-line arg), fetches registry
+/// index, clones repos to ~/.xiom/packages/, generates xiom.lock.
+fn handle_install(_args: &[String], pkg_name: Option<&str>, registry_url: &str, _update: bool) {
+    let home = dirs_next().unwrap_or_else(|| ".".into());
+    let pkgs_dir = format!("{}/.xiom/packages", home);
+    std::fs::create_dir_all(&pkgs_dir).ok();
+
+    // 1. Read dependencies from package.xi or command line
+    let deps: Vec<String> = if let Some(name) = pkg_name {
+        vec![name.to_string()]
+    } else {
+        parse_deps_from_manifest("package.xi").unwrap_or_default()
+    };
+
+    if deps.is_empty() {
+        eprintln!("  No dependencies to install. Add packages to package.xi or specify a package name.");
+        eprintln!("  Usage: xiom install <package>");
+        eprintln!("     or: add dependencies to package.xi and run 'xiom install'");
+        return;
+    }
+
+    // 2. Fetch registry index
+    eprintln!("  Fetching registry index from {}...", registry_url);
+    let index = fetch_registry_index(registry_url);
+    match &index {
+        Ok(idx) => eprintln!("  Registry: {} packages available", idx.len()),
+        Err(e) => {
+            eprintln!("  Warning: cannot fetch registry ({}). Using local cache only.", e);
+            eprintln!("  Make sure {} is accessible or use --registry <url>", registry_url);
+        }
+    }
+
+    // 3. Resolve dependencies
+    eprintln!("  Resolving {} package(s)...", deps.len());
+    let mut installed: Vec<String> = Vec::new();
+    for dep in &deps {
+        let parts: Vec<&str> = dep.splitn(2, ':').collect();
+        let name = parts[0].trim();
+        let version_req = parts.get(1).map(|s| s.trim()).unwrap_or("*");
+
+        // Look up in registry index
+        let repo_url = if let Ok(ref idx) = index {
+            idx.get(name).map(|pkg| pkg.repo.clone())
+        } else {
+            None
+        };
+
+        match repo_url {
+            Some(url) => {
+                let pkg_dir = format!("{}/{}", pkgs_dir, name);
+                if std::path::Path::new(&pkg_dir).exists() {
+                    eprintln!("    {} already installed (use 'xiom update' to refresh)", name);
+                } else {
+                    eprintln!("    Installing {} from {}...", name, url);
+                    // Clone the repo
+                    let status = std::process::Command::new("git")
+                        .args(["clone", "--depth", "1", &url, &pkg_dir])
+                        .status();
+                    match status {
+                        Ok(s) if s.success() => {
+                            eprintln!("      installed {} to {}", name, pkg_dir);
+                            installed.push(name.to_string());
+                        }
+                        Ok(s) => eprintln!("      git clone failed with exit code {}", s.code().unwrap_or(-1)),
+                        Err(e) => eprintln!("      git not found: {}. Install git to clone packages.", e),
+                    }
+                }
+            }
+            None => {
+                eprintln!("    Package '{}' not found in registry", name);
+                eprintln!("    Check that the registry at {} has this package.", registry_url);
+            }
+        }
+    }
+
+    // 4. Write lockfile
+    if !installed.is_empty() {
+        let lock_path = "xiom.lock";
+        let lock_content = serde_json::json!({
+            "version": 1,
+            "packages": installed.iter().map(|p| {
+                serde_json::json!({ "name": p, "version": "*", "source": "registry" })
+            }).collect::<Vec<_>>()
+        });
+        if let Ok(json) = serde_json::to_string_pretty(&lock_content) {
+            if std::fs::write(lock_path, &json).is_ok() {
+                eprintln!("  Wrote lockfile: {}", lock_path);
+            }
+        }
+        eprintln!("  Installed {} package(s)", installed.len());
+    }
+}
+
+/// Parse `dep: ["pkg", "pkg2"]` from a package.xi manifest.
+fn parse_deps_from_manifest(path: &str) -> Result<Vec<String>, String> {
+    let content = std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    let mut deps = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("dependencies:") || trimmed.starts_with("\"dependencies\":") {
+            if let Some(start) = trimmed.find('[') {
+                let inner = &trimmed[start..];
+                for part in inner.trim_matches(|c| c == '[' || c == ']').split(',') {
+                    let cleaned = part.trim().trim_matches('"').trim();
+                    if !cleaned.is_empty() {
+                        deps.push(cleaned.to_string());
+                    }
+                }
+            }
+        }
+    }
+    Ok(deps)
+}
+
+/// Registry package entry (matches packages.json schema).
+#[derive(Debug, Clone, serde::Deserialize)]
+struct RegistryPackage {
+    repo: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    license: String,
+}
+
+/// Fetch the registry index using curl/wget and return a name→package map.
+fn fetch_registry_index(url: &str) -> Result<HashMap<String, RegistryPackage>, String> {
+    // Try curl first, then wget, then PowerShell
+    let body = if let Ok(out) = std::process::Command::new("curl")
+        .args(["-sSfL", "--connect-timeout", "10", url])
+        .output()
+    {
+        if out.status.success() { String::from_utf8_lossy(&out.stdout).to_string() }
+        else { return Err(format!("curl failed: {}", String::from_utf8_lossy(&out.stderr))); }
+    } else if let Ok(out) = std::process::Command::new("wget")
+        .args(["-qO-", "--timeout=10", url])
+        .output()
+    {
+        if out.status.success() { String::from_utf8_lossy(&out.stdout).to_string() }
+        else { return Err(format!("wget failed: {}", String::from_utf8_lossy(&out.stderr))); }
+    } else if let Ok(out) = std::process::Command::new("powershell")
+        .args(["-Command", &format!("(Invoke-WebRequest -Uri '{url}' -TimeoutSec 10).Content")])
+        .output()
+    {
+        if out.status.success() { String::from_utf8_lossy(&out.stdout).to_string() }
+        else { return Err("cannot fetch registry (no curl/wget/powershell available)".to_string()); }
+    } else {
+        return Err("cannot fetch registry (no HTTP client available)".to_string());
+    };
+    let root: serde_json::Value = serde_json::from_str(&body).map_err(|e| format!("invalid JSON: {e}"))?;
+    let pkgs = root.get("packages").ok_or("missing 'packages' key in registry")?;
+    let mut map = HashMap::new();
+    if let Some(obj) = pkgs.as_object() {
+        for (name, val) in obj {
+            if let Ok(pkg) = serde_json::from_value::<RegistryPackage>(val.clone()) {
+                map.insert(name.clone(), pkg);
+            }
+        }
+    }
+    Ok(map)
+}
+
+/// Phase 5d: Publish the current package to the registry.
+fn handle_publish(_args: &[String]) {
+    let manifest_path = "package.xi";
+    if !std::path::Path::new(manifest_path).exists() {
+        eprintln!("  No package.xi found. Create one with 'xiom init' first.");
+        eprintln!("  See docs/PACKAGE_MANAGER.md for manifest format.");
+        return;
+    }
+
+    // Read package name and version
+    let content = match std::fs::read_to_string(manifest_path) {
+        Ok(c) => c,
+        Err(e) => { eprintln!("  Cannot read package.xi: {e}"); return; }
+    };
+
+    let mut name = String::new();
+    let mut version = String::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("name:") {
+            name = trimmed.trim_start_matches("name:").trim().trim_matches('"').to_string();
+        }
+        if trimmed.starts_with("version:") {
+            version = trimmed.trim_start_matches("version:").trim().trim_matches('"').to_string();
+        }
+    }
+
+    if name.is_empty() || version.is_empty() {
+        eprintln!("  package.xi must have 'name' and 'version' fields.");
+        eprintln!("  Example:  name: \"my-package\"");
+        eprintln!("           version: \"1.0.0\"");
+        return;
+    }
+
+    eprintln!("  Publishing {name} v{version}...");
+    eprintln!("  Tagging v{version}...");
+    let tag = format!("v{version}");
+    let tag_status = std::process::Command::new("git")
+        .args(["tag", "-a", &tag, "-m", &format!("Release {tag}")])
+        .status();
+    match tag_status {
+        Ok(s) if s.success() => eprintln!("    created tag {tag}"),
+        Ok(s) => eprintln!("    git tag failed (exit {}). Tag may already exist.", s.code().unwrap_or(-1)),
+        Err(e) => eprintln!("    git not found: {e}"),
+    }
+
+    eprintln!("  Push to remote...");
+    let push_status = std::process::Command::new("git")
+        .args(["push", "origin", &tag])
+        .status();
+    match push_status {
+        Ok(s) if s.success() => eprintln!("    pushed tag {tag}"),
+        _ => eprintln!("    manual push required: git push origin {tag}"),
+    }
+
+    eprintln!("  Next steps:");
+    eprintln!("    1. Create a release on your Git host (Gitea/GitHub)");
+    eprintln!("    2. Submit a PR to the registry repo to add your package");
+    eprintln!("    3. Your package will be available via 'xiom install {name}'");
+}
+
+/// Helper: get user home directory.
+fn dirs_next() -> Option<String> {
+    std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .ok()
+}
+
+use std::collections::HashMap;
