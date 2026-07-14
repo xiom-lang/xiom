@@ -284,6 +284,7 @@ fn test_btree_with_wal_ops() -> Bool {
     }
     None => { return false; }
   }
+  return false;
 }
 
 fn test_btree_many_inserts_ascending() -> Bool {
