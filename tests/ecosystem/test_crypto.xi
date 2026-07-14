@@ -356,7 +356,7 @@ fn char_at_str(s: Str, idx: Int) -> Str {
   return char_to_str(char_at(s, idx));
 }
 
-fn char_at(s: Str, idx: Int) -> Char {
+fn char_at(s: Str, idx: Int) -> Int {
   var i = 0;
   while i < s.len() {
     if i == idx {
@@ -364,7 +364,7 @@ fn char_at(s: Str, idx: Int) -> Char {
     }
     i = i + 1;
   }
-  return '\x00';
+  return 0;
 }
 
 fn str_slice(s: Str, start: Int, end: Int) -> Str {
@@ -377,7 +377,7 @@ fn str_slice(s: Str, start: Int, end: Int) -> Str {
   return result;
 }
 
-fn char_to_str(c: Char) -> Str {
+fn char_to_str(c: Int) -> Str {
   if c == 'A' { return "A"; }
   elif c == 'B' { return "B"; }
   elif c == 'C' { return "C"; }
