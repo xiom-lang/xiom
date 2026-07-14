@@ -2369,9 +2369,19 @@ impl Checker {
             }
             Expr::Try(inner, _span) => {
                 let inner_ty = self.check_expr(inner);
-                // ? unwraps Result or Option — return the inner type
-                // Phase 0 simplified: just pass through
-                inner_ty
+                // ? unwraps Result[T,E] → T or Option[T] → T.
+                // Return wildcard (_) since the checker erases generic type args
+                // (Result[T,E] is just "Result"). The codegen handles the actual
+                // value extraction and early-return on error propagation.
+                match &inner_ty {
+                    CheckedType::Named(n) if n == "Result" || n == "Option" => {
+                        CheckedType::Named("_".into())
+                    }
+                    _ => self.error(
+                        format!("'?' operator requires a Result or Option type, found {}", inner_ty.name()),
+                        *_span,
+                    ),
+                }
             }
             Expr::Imply(_, _, _) => CheckedType::Bool,
             Expr::Is(_, _, _) => CheckedType::Bool,

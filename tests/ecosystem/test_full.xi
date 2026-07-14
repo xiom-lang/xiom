@@ -321,22 +321,15 @@ fn isqrt(x: Int) -> Result[Int, Str]
 // ============================================================================
 
 fn chained_divide() -> Result[Int, Str] {
-  let a_res = safe_divide(100, 5);
-  if a_res.is_err() { return Err("chain fail"); }
-  var a = a_res.unwrap();
-  let b_res = safe_divide(a, 2);
-  if b_res.is_err() { return Err("chain fail"); }
-  var b = b_res.unwrap();
-  let c_res = safe_divide(b, 2);
-  if c_res.is_err() { return Err("chain fail"); }
-  var c = c_res.unwrap();
+  let a = safe_divide(100, 5)?;
+  let b = safe_divide(a, 2)?;
+  let c = safe_divide(b, 2)?;
   return Ok(c);
 }
 
 fn propagate_zero_div() -> Result[Int, Str] {
-  let r = safe_divide(10, 0);
-  if r.is_ok() { return r; }
-  return r;
+  let x = safe_divide(10, 0)?;
+  return Ok(x);
 }
 
 fn option_chain(val: Option[Int]) -> Option[Int] {
