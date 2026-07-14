@@ -7115,22 +7115,95 @@ impl IrEmitter {
                 }
             }
             Expr::If(cond, then_block, elifs, else_block, _) => {
-                self.compile_expr(cond)?;
-                for stmt in &then_block.stmts {
-                    match stmt { xiom_ast::StmtOrExpr::Expr(e) => { self.compile_expr(e)?; } _ => {} }
+                // Value-producing if-expression (e.g. `let x = if c { 1 } else { 0 }`).
+                // Emit conditional branches à la Stmt::If, but have each arm store its
+                // tail expression into a result alloca.  At the merge point, load the
+                // result and return it.
+                
+                // Compute condition value
+                let (cond_raw, cond_ty) = self.compile_expr(cond)?;
+                let cond_val = if cond_ty == "i1" {
+                    cond_raw
+                } else {
+                    let tmp = self.fresh_tmp();
+                    self.emitln(&format!("  {tmp} = icmp ne {cond_ty} {cond_raw}, 0"));
+                    tmp
+                };
+
+                let result_ty = "i64".to_string();
+                let result_alloca = self.fresh_tmp();
+                self.emitln(&format!("  {result_alloca} = alloca {result_ty}"));
+
+                let then_label = self.fresh_block("if_then");
+                let else_label = if !elifs.is_empty() || else_block.is_some() {
+                    self.fresh_block("if_else")
+                } else {
+                    self.fresh_block("if_merge")
+                };
+                let merge_label = self.fresh_block("if_merge");
+
+                let block_ends_with_ret = |b: &Block| -> bool {
+                    b.stmts.last().map_or(false, |s| matches!(s, StmtOrExpr::Stmt(Stmt::Return(..))))
+                };
+                let mut merge_reachable = false;
+
+                self.emitln(&format!("  br i1 {cond_val}, label %{then_label}, label %{else_label}"));
+                self.emitln(&format!("\n{then_label}:"));
+                self.compile_if_arm_value(then_block, &result_alloca, &result_ty)?;
+                if !block_ends_with_ret(then_block) {
+                    self.emitln(&format!("  br label %{merge_label}"));
+                    merge_reachable = true;
                 }
-                for (_econd, eblock) in elifs {
-                    for stmt in &eblock.stmts {
-                        match stmt { xiom_ast::StmtOrExpr::Expr(e) => { self.compile_expr(e)?; } _ => {} }
+
+                // Elif chain
+                let mut prev_label = else_label.clone();
+                for (i, (econd, eblock)) in elifs.iter().enumerate() {
+                    self.emitln(&format!("\n{prev_label}:"));
+                    let (ec_raw, ec_ty) = self.compile_expr(econd)?;
+                    let ec_val = if ec_ty == "i1" { ec_raw } else {
+                        let tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {tmp} = icmp ne {ec_ty} {ec_raw}, 0"));
+                        tmp
+                    };
+                    let elif_then = self.fresh_block("elif_then");
+                    let elif_next = if i + 1 < elifs.len() || else_block.is_some() {
+                        self.fresh_block("elif_next")
+                    } else {
+                        merge_label.clone()
+                    };
+                    self.emitln(&format!("  br i1 {ec_val}, label %{elif_then}, label %{elif_next}"));
+                    self.emitln(&format!("\n{elif_then}:"));
+                    self.compile_if_arm_value(eblock, &result_alloca, &result_ty)?;
+                    if !block_ends_with_ret(eblock) {
+                        self.emitln(&format!("  br label %{merge_label}"));
+                        merge_reachable = true;
                     }
+                    prev_label = elif_next;
                 }
+
+                // Else block
                 if let Some(eb) = else_block {
-                    for stmt in &eb.stmts {
-                        match stmt { xiom_ast::StmtOrExpr::Expr(e) => { self.compile_expr(e)?; } _ => {} }
+                    self.emitln(&format!("\n{prev_label}:"));
+                    self.compile_if_arm_value(eb, &result_alloca, &result_ty)?;
+                    if !block_ends_with_ret(eb) {
+                        self.emitln(&format!("  br label %{merge_label}"));
+                        merge_reachable = true;
                     }
+                } else if elifs.is_empty() {
+                    // No elifs, no else — the original else_label IS the merge_label
+                } else if prev_label != merge_label {
+                    self.emitln(&format!("\n{prev_label}:"));
+                    self.emitln(&format!("  br label %{merge_label}"));
+                    merge_reachable = true;
                 }
-                // If-as-expression is compile-only here (not value-producing).
-                Ok(("0".to_string(), "void".to_string()))
+
+                self.emitln(&format!("\n{merge_label}:"));
+                if !merge_reachable {
+                    self.emitln("  unreachable");
+                }
+                let loaded = self.fresh_tmp();
+                self.emitln(&format!("  {loaded} = load {result_ty}, {result_ty}* {result_alloca}"));
+                Ok((loaded, result_ty))
             }
             Expr::Match(scrutinee, arms, span) => {
                 // Compile a match-expression by allocating a result slot, running the
@@ -7156,7 +7229,32 @@ impl IrEmitter {
         }
     }
 
-    /// Infer the LLVM result type of a match-expression from its arm bodies.
+    /// Compile the statements in an if-expression arm block, taking the last
+    /// expression and storing it into `result_alloca`.
+    fn compile_if_arm_value(&mut self, block: &Block, result_alloca: &str, result_ty: &str) -> Result<(), String> {
+        let n = block.stmts.len();
+        for (i, stmt) in block.stmts.iter().enumerate() {
+            let is_last = i + 1 == n;
+            match stmt {
+                StmtOrExpr::Stmt(s) => {
+                    self.compile_stmt(s)?;
+                    if matches!(s, Stmt::Return(..)) { break; }
+                }
+                StmtOrExpr::Expr(e) => {
+                    if is_last {
+                        let (val, val_ty) = self.compile_expr(e)?;
+                        let store_val = self.coerce_value(&val, &val_ty, result_ty);
+                        self.emitln(&format!("  store {result_ty} {store_val}, {result_ty}* {result_alloca}"));
+                    } else {
+                        self.compile_expr(e)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Compile a statement that does not produce a value (emit-only).
     /// Collects types from ALL arms and picks the widest (struct > i64 > narrower)
     /// so the result alloca is large enough for every arm.  `coerce_value` handles
     /// the actual per-arm conversion during the store.
