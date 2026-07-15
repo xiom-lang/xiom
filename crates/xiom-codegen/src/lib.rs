@@ -2800,6 +2800,37 @@ impl IrEmitter {
     /// Infer the struct type name from an expression (if it produces a struct value).
     fn struct_type_from_expr(&self, expr: &Expr) -> Option<String> {
         match expr {
+            Expr::Field(obj, field, _) => {
+                // Field access: resolve the base struct, then look up
+                // the field's declared type for accurate match dispatch.
+                // e.g. `match a.state { ... }` where `a: &Agent` and
+                // `state: AgentState` should use `AgentState` as the
+                // scrutinee type, not `Agent`.
+                if let Some(base_type) = self.infer_struct_type_name(obj.as_ref()) {
+                    for key in self.type_meta.keys() {
+                        if key.ends_with(&base_type) || key == &base_type {
+                            if let Some(meta) = self.type_meta.get(key) {
+                                for (fname, ftype) in &meta.fields {
+                                    if fname == &field.name {
+                                        let clean = ftype.trim_start_matches('*');
+                                        if self.type_meta.contains_key(clean) {
+                                            return Some(clean.to_string());
+                                        }
+                                        for mk in self.type_meta.keys() {
+                                            if mk.ends_with(&format!(".{}", clean)) {
+                                                return Some(mk.clone());
+                                            }
+                                        }
+                                        return Some(clean.to_string());
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+                None
+            }
             Expr::Struct(ident, _, _, _) => Some(ident.name.clone()),
             Expr::Ident(ident) => {
                 if let Some((_, llvm_ty)) = self.lookup_local(&ident.name) {
@@ -4997,7 +5028,12 @@ impl IrEmitter {
                     self.emitln(&format!("  {res} = call i8* @xiom_str_concat(i8* {lp}, i8* {rp})"));
                     return Ok((res, "i8*".to_string()));
                 }
-                let is_float = self.is_float_expr(left) || self.is_float_expr(right);
+                let is_float = self.is_float_expr(left) || self.is_float_expr(right)
+                    || lt == "float" || lt == "double" || rt == "float" || rt == "double";
+                // Determine the actual float type from the operands.
+                // If either operand is `float` (Float32), use `float` for the
+                // comparison; otherwise default to `double` (Float64).
+                let float_ty = if lt == "float" || rt == "float" { "float" } else { "double" };
                 if matches!(op, BinOp::And | BinOp::Or) {
                     let is_or = matches!(op, BinOp::Or);
                     let widen = |s: &mut Self, val: &str, ty: &str| -> String {
@@ -5106,22 +5142,22 @@ impl IrEmitter {
                     }
                 }
                 let (ty, inst) = match op {
-                    BinOp::Add => (if is_float { "double" } else { "i64" }, if is_float { "fadd" } else { "add" }),
-                    BinOp::Sub => (if is_float { "double" } else { "i64" }, if is_float { "fsub" } else { "sub" }),
-                    BinOp::Mul => (if is_float { "double" } else { "i64" }, if is_float { "fmul" } else { "mul" }),
-                    BinOp::Div => (if is_float { "double" } else { "i64" }, if is_float { "fdiv" } else { "sdiv" }),
-                    BinOp::Rem => (if is_float { "double" } else { "i64" }, if is_float { "frem" } else { "srem" }),
+                    BinOp::Add => (if is_float { float_ty } else { "i64" }, if is_float { "fadd" } else { "add" }),
+                    BinOp::Sub => (if is_float { float_ty } else { "i64" }, if is_float { "fsub" } else { "sub" }),
+                    BinOp::Mul => (if is_float { float_ty } else { "i64" }, if is_float { "fmul" } else { "mul" }),
+                    BinOp::Div => (if is_float { float_ty } else { "i64" }, if is_float { "fdiv" } else { "sdiv" }),
+                    BinOp::Rem => (if is_float { float_ty } else { "i64" }, if is_float { "frem" } else { "srem" }),
                     BinOp::BitXor => ("i64", "xor"),
                     BinOp::BitAnd => ("i64", "and"),
                     BinOp::BitOr => ("i64", "or"),
                     BinOp::Shl => ("i64", "shl"),
                     BinOp::Shr => ("i64", "ashr"),
-                    BinOp::Eq => (if is_float { "double" } else { "i64" }, if is_float { "fcmp oeq" } else { "icmp eq" }),
-                    BinOp::Neq => (if is_float { "double" } else { "i64" }, if is_float { "fcmp one" } else { "icmp ne" }),
-                    BinOp::Lt => (if is_float { "double" } else { "i64" }, if is_float { "fcmp olt" } else { "icmp slt" }),
-                    BinOp::Gt => (if is_float { "double" } else { "i64" }, if is_float { "fcmp ogt" } else { "icmp sgt" }),
-                    BinOp::Le => (if is_float { "double" } else { "i64" }, if is_float { "fcmp ole" } else { "icmp sle" }),
-                    BinOp::Ge => (if is_float { "double" } else { "i64" }, if is_float { "fcmp oge" } else { "icmp sge" }),
+                    BinOp::Eq => (if is_float { float_ty } else { "i64" }, if is_float { "fcmp oeq" } else { "icmp eq" }),
+                    BinOp::Neq => (if is_float { float_ty } else { "i64" }, if is_float { "fcmp one" } else { "icmp ne" }),
+                    BinOp::Lt => (if is_float { float_ty } else { "i64" }, if is_float { "fcmp olt" } else { "icmp slt" }),
+                    BinOp::Gt => (if is_float { float_ty } else { "i64" }, if is_float { "fcmp ogt" } else { "icmp sgt" }),
+                    BinOp::Le => (if is_float { float_ty } else { "i64" }, if is_float { "fcmp ole" } else { "icmp sle" }),
+                    BinOp::Ge => (if is_float { float_ty } else { "i64" }, if is_float { "fcmp oge" } else { "icmp sge" }),
                     BinOp::Assign => return Ok((r, rt)),
                     _ => unreachable!(),
                 };
@@ -5629,9 +5665,19 @@ impl IrEmitter {
                         }
                     }
                 }
-                // Check for contract collection methods
+                // Check for contract collection methods — only intercept when
+                // there is no user-defined function with the same name; otherwise
+                // a regular `fn is_sorted(arr: &Vec[Int]) -> Bool` gets hijacked
+                // and replaced with a `call @xiom_is_sorted` builtin.
                 let is_contract_method = matches!(fn_name.as_str(), "is_sorted" | "all" | "none" | "contains");
                 if is_contract_method {
+                    // Skip contract builtin if a user function with this name exists
+                    // in the current module or has already been emitted.
+                    let has_user_fn = self.emitted_fns.contains(fn_name.as_str())
+                        || self.functions.contains_key(fn_name.as_str())
+                        || self.emitted_fns.iter().any(|k| k.ends_with(&format!(".{}", fn_name)))
+                        || self.functions.keys().any(|k| k.ends_with(&format!(".{}", fn_name)));
+                    if !has_user_fn {
                     let tmp = self.fresh_tmp();
                     if let Some(receiver) = &receiver_expr {
                         if self.receiver_is_instance(receiver) {
@@ -5705,6 +5751,7 @@ impl IrEmitter {
                     }
                     return Ok((tmp, "i64".to_string()));
                 }
+                } // if !has_user_fn — contract builtin guard
                 // Primitive interface methods (Ord.compare, Eq.eq/ne, comparison ops,
                 // Hash.hash, Clone.clone) are emitted inline for scalar receivers, so
                 // primitives satisfy Ord/Eq/Hash/Clone bounds without a user method.
@@ -8361,7 +8408,10 @@ impl IrEmitter {
                 false
             }
             Expr::As(_, ty, _) => Self::type_from_ast(ty) == "Float64" || Self::type_from_ast(ty) == "Float32",
-            Expr::Call(_, _, _) | Expr::If(..) => self.infer_llvm_type(expr) == "double",
+            Expr::Call(_, _, _) | Expr::If(..) => {
+                let ty = self.infer_llvm_type(expr);
+                ty == "double" || ty == "float"
+            },
             _ => false,
         }
     }
