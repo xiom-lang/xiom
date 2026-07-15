@@ -2987,20 +2987,42 @@ impl IrEmitter {
         let type_name = &struct_ty[8..]; // strip "%struct."
         let is_vec = type_name == "Vec" || type_name.ends_with(".Vec");
         if is_vec && val_ty == "i8*" {
-            // Read length from buffer[0].
+            // Read length from array buffer[0].
             let len_slot = self.fresh_tmp();
             self.emitln(&format!("  {len_slot} = bitcast i8* {val} to i64*"));
             let len_val = self.fresh_tmp();
             self.emitln(&format!("  {len_val} = load i64, i64* {len_slot}"));
 
-            // Compute data pointer past the length slot (8 bytes = sizeof i64).
-            let data_ptr = self.fresh_tmp();
-            self.emitln(&format!("  {data_ptr} = getelementptr i8, i8* {val}, i64 8"));
+            // Compute element byte count: (len * 8) for i64-stored elements.
+            let byte_count = self.fresh_tmp();
+            self.emitln(&format!("  {byte_count} = mul i64 {len_val}, 8"));
+
+            // Allocate a heap copy of the data portion (skip the 8-byte
+            // length slot). This ensures Vec operations (push, pop, free)
+            // work on heap-backed memory rather than corrupting the stack.
+            let heap_copy = self.fresh_tmp();
+            self.emitln(&format!("  {heap_copy} = call i8* @malloc(i64 {byte_count})"));
+            let malloc_ok = self.fresh_block("vec_from_array_malloc_ok");
+            let malloc_fail = self.fresh_block("vec_from_array_malloc_fail");
+            let malloc_check = self.fresh_tmp();
+            self.emitln(&format!("  {malloc_check} = icmp eq i8* {heap_copy}, null"));
+            self.emitln(&format!("  br i1 {malloc_check}, label %{malloc_fail}, label %{malloc_ok}"));
+
+            // malloc failed: trap.
+            self.emitln(&format!("\n{malloc_fail}:"));
+            self.emitln("  call void @llvm.trap()");
+            self.emitln("  unreachable");
+
+            // memcpy the elements past the length slot into the heap buffer.
+            self.emitln(&format!("\n{malloc_ok}:"));
+            let src_ptr = self.fresh_tmp();
+            self.emitln(&format!("  {src_ptr} = getelementptr i8, i8* {val}, i64 8"));
+            self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {heap_copy}, i8* {src_ptr}, i64 {byte_count}, i1 false)"));
 
             // Store data, len, cap, elem_size into the Vec struct fields.
             let gep0 = self.fresh_tmp();
             self.emitln(&format!("  {gep0} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
-            self.emitln(&format!("  store i8* {data_ptr}, i8** {gep0}"));
+            self.emitln(&format!("  store i8* {heap_copy}, i8** {gep0}"));
 
             let gep1 = self.fresh_tmp();
             self.emitln(&format!("  {gep1} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 1"));
