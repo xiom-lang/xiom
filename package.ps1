@@ -14,7 +14,7 @@
     ./package.ps1 -Version 0.20.0
 #>
 
-param([string]$Version = "0.20.0")
+param([string]$Version = "0.45.3")
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
