@@ -2650,7 +2650,11 @@ impl Checker {
                             //   explicit self  + instance call → skip self (offset=1)
                             //   explicit self  + static call   → self is first arg (offset=0)
                             //   implicit this  + instance call → args map directly (offset=0)
-                            //   implicit this  + static call   → first arg is receiver, skip it (offset=1)
+                            //   implicit this  + static call   → first arg is receiver, skip (offset=1)
+                            //     NOTE: codegen adds a %param_self pointer to the LLVM signature
+                            //     for this-based methods; this offset only controls checker-level
+                            //     param matching. The codegen's self_offset handles the actual
+                            //     argument layout independently.
                             //   constructor    + any call       → args map directly, no self (offset=0)
                             let param_offset: usize = if has_explicit_self {
                                 if is_static_call { 0 } else { 1 }

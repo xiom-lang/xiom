@@ -2556,8 +2556,17 @@ impl IrEmitter {
                 let struct_ty = st.trim_end_matches('*');
                 self.emitln(&format!("  {loaded_ptr} = load {st}, {st}* {self_alloca}"));
                 self.add_local("self", loaded_ptr.clone(), struct_ty);
-                // Add struct fields via GEP on the loaded pointer
-                if let Some(fields) = self.types.get(&recv.name).cloned() {
+                // Add struct fields via GEP on the loaded pointer.
+                // Try bare name first, then module-qualified if not found.
+                let fields = self.types.get(&recv.name)
+                    .or_else(|| {
+                        // Try module-qualified name (e.g. "tests.ecosystem.test_net.IpAddr")
+                        let suffix = format!(".{}", recv.name);
+                        self.types.keys().find(|k| k.ends_with(&suffix))
+                            .and_then(|k| self.types.get(k))
+                    })
+                    .cloned();
+                if let Some(fields) = fields {
                     for (idx, field_name) in fields.iter().enumerate() {
                         let field_llvm_ty = self.field_llvm_type(&recv.name, idx);
                         let gep = self.fresh_tmp();
@@ -2568,7 +2577,13 @@ impl IrEmitter {
             } else {
                 self.add_local("self", self_alloca.clone(), st);
                 // Also add struct fields as locals for direct access
-                if let Some(fields) = self.types.get(&recv.name).cloned() {
+                let fields = self.types.get(&recv.name)
+                    .or_else(|| {
+                        let suffix = format!(".{}", recv.name);
+                        self.types.keys().find(|k| k.ends_with(&suffix)).and_then(|k| self.types.get(k))
+                    })
+                    .cloned();
+                if let Some(fields) = fields {
                     let alloca_ref = self_alloca;
                     for (idx, field_name) in fields.iter().enumerate() {
                         let field_llvm_ty = self.field_llvm_type(&recv.name, idx);
@@ -7668,6 +7683,18 @@ impl IrEmitter {
                     let loaded = self.fresh_tmp();
                     self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {vec_alloca}"));
                     return Ok((loaded, struct_ty.to_string()));
+                }
+                // Compile the inner expression and return a pointer to the value.
+                // For struct-typed idents, use the alloca pointer directly so
+                // this-based methods receive a proper pointer receiver.
+                // coerce_value handles both directions (struct↔pointer) for safety.
+                if let Expr::Ident(id) = inner.as_ref() {
+                    if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
+                        if slot_ty.starts_with("%struct.") {
+                            // Return the alloca pointer — the caller coerces as needed.
+                            return Ok((slot, format!("{slot_ty}*")));
+                        }
+                    }
                 }
                 self.compile_expr(inner)
             }
