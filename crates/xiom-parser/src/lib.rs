@@ -211,8 +211,7 @@ impl Parser {
             TokenKind::Interface => self.parse_interface_decl(is_pub),
             TokenKind::Fn => self.parse_fn_decl(is_pub, None),
             TokenKind::Const => {
-                let _ = is_pub;
-                self.parse_const_decl()
+                self.parse_const_decl(is_pub)
             }
             TokenKind::Var => self.parse_module_var(),
             TokenKind::Extern => self.parse_extern_block(),
@@ -518,7 +517,7 @@ impl Parser {
         Ok(TopDecl::Fn(FnDecl { attributes: attrs, is_async: async_flag, is_pub, receiver, name, generics, params, return_type, contracts, body, span: start }))
     }
 
-    fn parse_const_decl(&mut self) -> Result<TopDecl, ParseError> {
+    fn parse_const_decl(&mut self, is_pub: bool) -> Result<TopDecl, ParseError> {
         self.advance();
         let start = self.peek().span;
         let name = self.parse_ident()?;
@@ -527,7 +526,7 @@ impl Parser {
         self.expect_kind(TokenKind::Eq, "'='")?;
         let value = self.parse_expr()?;
         self.expect_kind(TokenKind::Semicolon, "';'")?;
-        Ok(TopDecl::Const(ConstDecl { name, ty, value, is_mut: false, span: start }))
+        Ok(TopDecl::Const(ConstDecl { name, ty, value, is_mut: false, is_pub, span: start }))
     }
 
     fn parse_module_var(&mut self) -> Result<TopDecl, ParseError> {
@@ -547,6 +546,7 @@ impl Parser {
             ty: ty.unwrap_or(Type::Named(Ident::new("_", span), vec![])),
             value,
             is_mut: true,
+            is_pub: false,
             span,
         }))
     }
@@ -723,6 +723,11 @@ impl Parser {
             return Ok(Type::Ptr(Box::new(base)));
         }
         if self.skip(TokenKind::LParen) {
+            // `()` — empty parens = unit type (for `Result[(), E]` and similar).
+            if self.check(|k| matches!(k, TokenKind::RParen)) {
+                self.advance(); // consume ')'
+                return Ok(Type::Named(Ident::new("()", self.peek().span), vec![]));
+            }
             let first = self.parse_type()?;
             if self.skip(TokenKind::Comma) { let mut types = vec![first, self.parse_type()?]; while self.skip(TokenKind::Comma) { types.push(self.parse_type()?); } self.expect_kind(TokenKind::RParen, "')'")?; return Ok(Type::Tuple(types)); }
             self.expect_kind(TokenKind::RParen, "')'")?;
