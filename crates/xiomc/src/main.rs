@@ -36,7 +36,7 @@ fn main() {
     }
 
     if args.iter().any(|a| a == "--version") {
-        println!("XIOM Compiler v0.20.0 \"Hardened\" -- Multi-File + Safety Fixes");
+        println!("XIOM Compiler v0.45.3 \"Production\" — 86/96 e2e, 40 stdlib modules");
         return;
     }
 
