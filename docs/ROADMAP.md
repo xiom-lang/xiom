@@ -290,8 +290,8 @@ Compiler gaps discovered while generating production-grade Vulkan FFI bindings f
 | eco_crypto_23_tests | Runtime trap | 0x80000003 (unwrap/arr-to-vec trap) |
 | eco_db_18_tests | Assertion failure | Exit 1 (wrong result) |
 | eco_full_30_tests | Runtime crash | 0xC0000005 (counter pattern + this-based) |
-| eco_http_18_tests | Compilation failure | LLVM type mismatch (pre-existing) |
-| eco_json_29_tests | Compilation failure | LLVM type mismatch (pre-existing) |
+| eco_http_18_tests | Runtime crash | 0xC0000005 (Vec-of-struct field access) |
+| eco_json_29_tests | Assertion failure | Exit 1 (was ACCESS_VIOLATION, improved via 5c.19+5c.20) |
 | eco_net_22_tests | Assertion failure | Exit 1 (was ACCESS_VIOLATION, improved via 5c.18) |
 | eco_sqlite_23_tests | Runtime crash | 0xC0000005 (this-based field access) |
 | eco_test_20_tests | Runtime crash | 0xC0000005 (this-based method dispatch) |
@@ -330,8 +330,24 @@ producing invalid LLVM IR.
 |-----|--------|
 | `this` → `self` remapping in `struct_type_from_expr::Expr::Ident` | JSON + HTTP: compilation fixed |
 
-JSON and HTTP now compile and reach runtime (was: LLVM IR compilation failure).
-Runtime behavior is unchanged (both still ACCESS_VIOLATION due to other gaps).
+JSON compiles (5c.19) and now returns exit 1 (wrong results) instead of ACCESS_VIOLATION
+(5c.20 instance method call fix). HTTP compiles (5c.19) but still crashes (Vec-of-struct
+field access — see troubleshooting notes on Vec[HttpHeader] element storage).
+
+**5c.20 Instance Method Call Receiver Fix — DONE (2026-07-15)**
+`this`-based methods called via instance syntax (`v.is_null()`) pass the receiver
+differently from type-qualified calls (`Type.method(&v)`). The call-site receiver
+handling checks `callee_pts.first()` to decide pointer-vs-value passing, but
+`this`-based methods had empty param_types (no explicit self param). This caused
+the loaded struct value to be passed instead of a pointer.
+
+| Fix | Impact |
+|-----|--------|
+| Register pointer receiver in param_types for this-based methods | JSON: ACCESS_VIOLATION → exit 1 |
+| `block_uses_this`/`stmt_uses_this`/`expr_uses_this` scanners distinguish from constructors | Only methods using `this` keyword get pointer param |
+
+Instance method calls like `v.is_null()` now correctly pass the receiver pointer.
+Type-qualified calls like `JsonValue.is_null(&v)` already worked via coerce_arg_for_param.
 
 **5c.16 This-based Method Dispatch — COMPLETE (2026-07-15)**
 5 fixes applied for methods using `this` keyword:
@@ -347,6 +363,19 @@ Verified: `IpAddr.is_v4/is_v6` field access now correctly loads and compares str
 - ✅ Parser: `ref`/`ref mut` keywords, optional semicolons for const/var
 - ✅ Checker: wildcard `_` type compatibility, Int→Int32 promotions, logical AND/OR leniency
 - ✅ Codegen: struct↔pointer coercion, match scrutinee pointer deref, array-to-Vec heap copy, Float32 precision, contract guards
+- ✅ 5c.18: `Expr::Ref` preserves GEP pointer for `&this.field` (NET crash resolved)
+- ✅ 5c.19: `struct_type_from_expr` handles `this`→`self` (JSON/HTTP compilation fixed)
+- ✅ 5c.20: Instance method receiver via pointer in param_types (JSON crash resolved)
+
+**Troubleshooting Notes:**
+- **HTTP crash (Vec-of-struct):** `val_to_i64` heap-allocates multi-field structs and returns
+  pointers. Vec stores these as i64. `emit_elem_load` returns the i64 pointer, but downstream
+  field access (`h.entries[i].name`) gets i64 type and doesn't inttoptr to the struct. Fix
+  needs either: (a) elem_size>8 with memcpy-based store/load, or (b) i64-inttoptr detection
+  in `Expr::Field` general path.
+- **Counter pattern (FULL/TEST):** Multiple test functions modifying mutable vars trigger
+  ACCESS_VIOLATION. Simple repros with struct+this methods pass — specific to enum patterns
+  or &mut references.
 
 **Ecosystem:** 10/10 compile and run — 213 ecosystem tests type-check with 0 errors.
 **Gates:** 47/47 parser, 74/74 checker, 88/98 e2e.
