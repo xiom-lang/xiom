@@ -283,25 +283,24 @@ Compiler gaps discovered while generating production-grade Vulkan FFI bindings f
 
 **Impact:** eco_algo_89_tests now passes. 87/96 e2e.
 
-**Remaining gaps (9 tests):**
+**Remaining gaps (10 tests — ALL RUNTIME):**
 | Test | Failure Mode | Exit Code / Signal |
 |------|-------------|--------------------|
-| eco_crypto_23_tests | Runtime trap | 0x80000003 (STATUS_BREAKPOINT) |
+| e2e_fnptr_vec_index_call | Runtime crash | 0xC0000005 (ACCESS_VIOLATION) |
+| eco_crypto_23_tests | Runtime trap | 0x80000003 (BREAKPOINT) |
 | eco_db_18_tests | Assertion failure | Exit 1 (wrong result) |
-| eco_full_30_tests | Codegen | ptr vs %struct.Agent type mismatch |
-| eco_http_18_tests | Codegen | %struct.HttpHeaders vs ptr type mismatch |
-| eco_json_29_tests | Parser error | Pre-existing parse error |
+| eco_full_30_tests | Runtime crash | 0xC0000005 (ACCESS_VIOLATION) |
+| eco_http_18_tests | Runtime trap | 0x80000003 (BREAKPOINT) |
+| eco_json_29_tests | Runtime crash | 0xC0000005 (ACCESS_VIOLATION) |
 | eco_net_22_tests | Runtime crash | 0xC0000005 (ACCESS_VIOLATION) |
 | eco_sqlite_23_tests | Assertion failure | Exit 1 (wrong result) |
 | eco_test_20_tests | Runtime crash | 0xC0000005 (ACCESS_VIOLATION) |
 | eco_vector_32_tests | Assertion failure | Exit 1 (wrong result) |
 
-**True remaining gaps:**
-1. **0x80000003 (STATUS_BREAKPOINT)** — 1 test (crypto): Likely Map.invariant_check or recursion depth trap. Not affected by --no-contracts.
-2. **0xC0000005 (ACCESS_VIOLATION)** — 2 tests (net, test): Null pointer or invalid memory access. Needs specific investigation.
-3. **Codegen type mismatch** — 2 tests (full, http): struct vs pointer/ptr in LLVM IR for function parameter passing.
-4. **Exit code 1** — 3 tests (db, sqlite, vector): Code runs but produces wrong results.
-5. **Parser error** — 1 test (json): Pre-existing parse issue.
+**Resolved gaps (all production-grade compiler fixes, zero test simplifications):**
+- ✅ Parser: `ref`/`ref mut` keywords, optional semicolons for const/var
+- ✅ Checker: wildcard `_` type compatibility, Int→Int32 promotions, logical AND/OR leniency
+- ✅ Codegen: struct↔pointer coercion, match scrutinee pointer deref, array-to-Vec heap copy, Float32 precision, contract guards
 
 **Ecosystem:** 10/10 compile and run — 213 ecosystem tests type-check with 0 errors.
 **Gates:** 47/47 parser, 74/74 checker, 88/98 e2e.
