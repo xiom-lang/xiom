@@ -234,7 +234,20 @@ All fixes are compiler-level — **zero test files modified.** Every fix hardens
 
 **Note:** The 5 Vulkan demos (demo_2d, demo_3d, demo_cubes, demo_particles, demo_shapes) compile and link successfully. The rendering issues (empty window, particle freeze) are **C bridge bugs** (Vulkan pipeline/shaders), NOT compiler issues. Only the test target (`--Target test`) hits the codegen gap.
 
-### 5c.12 Array-to-Vec Codegen Fix — DONE (2026-07-15)
+### 5c.12 FFI Binding Generator Gaps — OPEN (2026-07-15)
+
+Compiler gaps discovered while generating production-grade Vulkan FFI bindings for `ecosystem/xiom-vulkan`:
+
+| Gap | Code | Detail | Workaround |
+|-----|------|--------|------------|
+| **pub const module limit** | P001 | ~99 `pub const` declarations per module triggers "too many parse errors" abort; hex literals (`0x00000001`) fail at lower counts than decimal. | Split constants into ≤90 per file, use decimal values |
+| **Cross-module extern resolution** | T001 | `extern "C"` functions declared in module A resolve to `()` (not their return type) when called from module B via `use`. The type checker sees them as undefined variables. | Place `extern "C"` blocks and their callers in the same module file |
+| **`()` in Result generic** | T001 | `Result[(), VulkanError]` — unit type in generic position likely unsupported. | Use `Result[Int, VulkanError]` with `Ok(0)` sentinel |
+| **pub const same-module resolution** | T001 | `pub const` values defined in the same module file cannot be referenced by functions in that file — "undefined variable" errors. | Use numeric literals directly (e.g., `if res != 0` instead of `if res != VK_SUCCESS`) |
+
+**Note:** All 5 Vulkan demos still compile; these gaps affect new code (vk* FFI bindings) only.
+
+### 5c.13 Array-to-Vec Codegen Fix — DONE (2026-07-15)
 
 | Fix | Status | Impact |
 |-----|--------|--------|
