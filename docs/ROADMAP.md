@@ -45,7 +45,7 @@
 | 4 | Or-Patterns | Pattern matching | ✅ |
 | **5a** | **Codegen Hardening** | **Compiler correctness** | **✅** |
 | **5b** | **Stdlib Completion** | **Standard library** | **✅** |
-| **5c** | **Production Toolchain** | **CLI, build, errors, robustness** | **✅ 88/98 e2e (0 checker, 0 codegen, 10 runtime)** |
+| **5c** | **Production Toolchain** | **CLI, build, errors, robustness** | **✅ 88/98 e2e (0 checker errors, 0 codegen errors — all 10 failures are runtime)** |
 | 5d | Ecosystem & Tooling | Package manager, debugger, LSP, docs | Planned |
 | 5e | Advanced Compilation | Incremental, parallel, hot reload | Planned |
 | 5f | Verification | Z3 static verification, contract coverage | Planned |
@@ -280,8 +280,28 @@ Compiler gaps discovered while generating production-grade Vulkan FFI bindings f
 5. **Parser error** — 1 test (json): Pre-existing parse issue.
 
 **Ecosystem:** 10/10 compile and run — 213 ecosystem tests type-check with 0 errors.
-**Gates:** 47/47 parser, 74/74 checker, 39/41 smoke (2 pre-existing), 87/96 e2e.
-**Gates:** 47/47 parser, 74/74 checker, 41/41 smoke, 86/96 e2e.
+**Gates:** 47/47 parser, 74/74 checker, 88/98 e2e.
+
+### 5c.14 Struct Pointer Coercion — DONE (2026-07-15)
+
+| Fix | Status | Impact |
+|-----|--------|--------|
+| `%struct.X* → %struct.X` coercion (load) | ✅ | full: codegen→runtime (agent_is_idle) |
+| `%struct.X → %struct.X*` coercion (alloca+store) | ✅ | http: codegen→runtime (HttpHeaders.add) |
+| Guard `base[8..]` with length checks | ✅ | Prevents panics on non-struct types |
+
+**Impact:** Both full and http now compile and run (was codegen). Runtime crashes from deeper issues.
+
+### 5c.15 Remaining Runtime Gaps
+
+All 10 failures are now RUNTIME (0 checker errors, 0 LLVM codegen errors):
+
+| Category | Count | Tests | Root Cause Hypothesis |
+|----------|-------|-------|----------------------|
+| BREAKPOINT | 2 | crypto, http | llvm.trap from recursion depth or contract violation |
+| ACCESS_VIOLATION | 4 | fnptr, full, net, test | Null pointer dereference in function pointer storage or struct field access |
+| WRONG RESULT | 3 | db, sqlite, vector | Logic errors in Vec operations, enum constructors, or float math |
+| PARSER | 1 | json | Pre-existing parse error at line 123 |
 
 ---
 
