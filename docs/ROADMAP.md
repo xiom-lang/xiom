@@ -66,6 +66,55 @@
 
 ---
 
+## 5. PHASE 5c — ARCHITECTURAL FEATURES (Planned)
+
+| Item | Priority | Notes |
+|------|----------|-------|
+| Const-generic monomorphisation e2e verification | HIGH | Infra in place (`const_value_map`, `Type::Array` sub), needs test harness |
+| Derive macro codegen (`derive[Clone/Eq/Ord/Hash/Display]`) | HIGH | Partial: clone/eq/hash work for simple types |
+| Borrow checker struct-field borrows | MEDIUM | Currently whole-struct borrows only |
+| Enhanced smoke tests (rating 3-5/5 for all modules) | MEDIUM | Most at 1-2/5; path/crypto/sync/thread have good coverage |
+| `stdlib_tests.rs` (all_modules_compile_to_ir) | LOW | 37/39 failing — pre-existing type checker strictness, not regression |
+| `&mut self` support for non-generic call sites | LOW | Generic path works; non-generic needs call-site receiver injection |
+
+### 5c.14 — xiom-vma Compiler Gaps (2026-07-15)
+
+Documented during production-grade binding of Vulkan Memory Allocator v3.3.0 (`ecosystem/xiom-vma/`). 72 extern C functions + 5 struct-based resource wrappers with design-by-contract. All 4 gaps below are pre-existing in v0.45.3 and were discovered during earlier xiom-vulkan FFI work — reproduced and confirmed during xiom-vma build.
+
+#### Gap A: Cross-module extern resolution failure (T001)
+**Symptom:** `extern "C"` functions declared in module A resolve to `()` return type (void) and trigger "undefined variable" errors when called from module B via `use` import. The compiler fails to propagate extern symbol metadata across module boundaries.
+**Workaround:** Place `extern "C"` blocks and all callers in the **same module file**. Secondary modules that need the same FFI bindings must duplicate the entire `extern "C"` block inline. This results in ~80 lines of duplicate extern declarations in `src/vma_safe.xi` (module `xiom.vma.safe`) that mirror `vma.xi` (module `xiom.vma`).
+**Impact:** Every safe-wrapper module must carry its own extern block. Code duplication across modules; no DRY FFI layering. Affects all ecosystem packages using C FFI (xiom-vulkan, xiom-vma, xiom-glfw).
+**Proposed fix:** Extend the linker/checker to resolve extern symbol names across `use` boundaries, treating them as global (non-mangled) symbols.
+
+#### Gap B: Int→Int32 coercion gap (T001)
+**Symptom:** Integer literals (`1`, `0`) default to `Int` and do **not** auto-coerce to `Int32` in function arguments or `let` bindings with explicit `Int32` annotation. `let x: Int32 = 0;` fails with "type mismatch in let: annotated Int32, found Int". Similarly, `some_extern_fn(0)` fails when the parameter is `Int32`.
+**Workaround:** Use explicit `as Int32` casts on all values passed to `Int32`-typed parameters (e.g., `count as Int32`, `1 as Int32`). For struct field initialization where the field is `Int32`, cast the literal: `VulkanError{ code: e_one as Int32 }`.
+**Impact:** Verbose casts on every extern function call with `uint32_t`/`VkResult` parameters. Clutters safe-wrapper code. Affects all Vulkan/VMA FFI. Consistent pattern across ~40 call sites in xiom-vma.
+**Proposed fix:** Allow implicit `Int → Int32` coercion for literal values at function-call boundaries, or allow `Int32`-annotated `let` bindings to accept `Int` literals.
+
+#### Gap C: Out-parameter move semantics (E001 — non-fatal)
+**Symptom:** Passing a local variable to an extern function that takes it as an out-parameter (pointer) triggers "use of moved value" borrow errors. The compiler treats the value as consumed (ownership transferred) rather than borrowed through a pointer. E001 is non-fatal — compilation succeeds — but the warnings are noisy.
+**Example:** `let alloc: Int = 0; let res = unsafe { vmaCreateAllocator(create_info, alloc) };` — `alloc` is flagged as "moved" despite being an out-parameter written by the C function.
+**Impact:** 12 E001 warnings in `vma.xi`, 17 in `vma_safe.xi`. Same pattern in reference `vulkan_safe.xi` (15+ E001 warnings). Runtime correctness depends on compiler codegen treating extern pointer params correctly — empirically verified correct for v0.45.3.
+**Proposed fix:** Mark extern function pointer parameters as borrows (not moves) in the borrow checker. Requires extern-ABI-aware semantics in `xiom-check`.
+
+#### Gap D: Hex literal parse failures
+**Symptom:** Integer literals with `0x` prefix (e.g., `0x00000001`) cause parse errors at lower counts than decimal equivalents. The parser appears to handle hex tokens differently from decimal in const-only modules.
+**Workaround:** Use decimal literals exclusively for all numeric values, including Vulkan flags that are canonically expressed in hex. Constants must be declared as decimal integers (`1`, `2`, `4`, `8`, ...).
+**Impact:** All VMA/Vulkan flag constants must be documented in decimal. No loss of correctness, but reduced readability for bitmask values.
+**Proposed fix:** Normalize hex literal parsing to match decimal literal behavior. Tracked in §5c.12 (pub const module limit — hex exacerbates the issue at lower counts).
+
+#### Compile Verification (2026-07-15)
+All three xiom-vma source files compile with `xiomc --diagnostics=json` producing `{"status":"ok"}` (0 T001/L001/P001 errors):
+- `vma.xi` (347 lines): 12 E001 borrow warnings
+- `src/vma_safe.xi` (411 lines): 17 E001 borrow warnings
+- `examples/demo_vma.xi` (82 lines): 0 errors, 0 warnings
+- Combined 3-file compilation: 29 E001 borrow warnings, `{"status":"ok"}`
+
+---
+
+## 6. PHASE 5d — PRODUCTION TOOLCHAIN
 ## 5. PHASE 5c — PRODUCTION TOOLCHAIN (In Progress)
 
 **Branch:** `feat/architect`
