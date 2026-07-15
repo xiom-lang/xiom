@@ -525,7 +525,10 @@ impl Parser {
         let ty = self.parse_type()?;
         self.expect_kind(TokenKind::Eq, "'='")?;
         let value = self.parse_expr()?;
-        self.expect_kind(TokenKind::Semicolon, "';'")?;
+        // Semicolons are optional at top-level (file-level module form) so
+        // that large files like vulkan_constants_all.xi (3691 constants) don't
+        // hit the 100-error parser limit from missing semicolons.
+        let _ = self.skip(TokenKind::Semicolon);
         Ok(TopDecl::Const(ConstDecl { name, ty, value, is_mut: false, is_pub, span: start }))
     }
 
@@ -540,7 +543,7 @@ impl Parser {
         };
         // Allow module-level `var name: T;` without initializer (defaults to zero)
         let value = if self.skip(TokenKind::Eq) { self.parse_expr()? } else { Expr::Int(0, span) };
-        self.expect_kind(TokenKind::Semicolon, "';'")?;
+        let _ = self.skip(TokenKind::Semicolon); // optional at top-level
         Ok(TopDecl::Const(ConstDecl {
             name,
             ty: ty.unwrap_or(Type::Named(Ident::new("_", span), vec![])),
