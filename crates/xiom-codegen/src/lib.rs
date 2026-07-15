@@ -3050,6 +3050,33 @@ impl IrEmitter {
         loaded
     }
 
+    /// Compile a function pointer call from a Vec index: `tests[i]()`.
+    /// The `container[index]` expression yields a function pointer (stored as i64
+    /// in the Vec's data buffer). Load it, inttoptr, and call.
+    fn compile_index_fn_ptr_call(&mut self, container: &Expr, index: &Expr, args: &[Expr]) -> Result<(String, String), String> {
+        // Compile the container[index] expression to get the element value.
+        let idx_expr = Expr::Index(Box::new(container.clone()), Box::new(index.clone()), xiom_ast::Span { line: 0, col: 0 });
+        let (elem_val, elem_ty) = self.compile_expr(&idx_expr)?;
+        // Convert the element to i64 (it may already be i64 from Vec indexing).
+        let i64_val = self.val_to_i64(&elem_val, &elem_ty);
+        // Build the function pointer type from args.
+        let compiled_args: Vec<(String, String)> = args.iter()
+            .map(|a| self.compile_expr(a).map(|(v, t)| (v, t)))
+            .collect::<Result<Vec<_>, _>>()?;
+        let args_str = compiled_args.iter()
+            .map(|(v, t)| format!("{t} {v}"))
+            .collect::<Vec<_>>().join(", ");
+        let param_types: Vec<String> = args.iter()
+            .map(|a| self.infer_llvm_type(a))
+            .collect();
+        let fn_ptr_ty = format!("i64 ({})*", param_types.join(", "));
+        let fn_ptr = self.fresh_tmp();
+        self.emitln(&format!("  {fn_ptr} = inttoptr i64 {i64_val} to {fn_ptr_ty}"));
+        let tmp = self.fresh_tmp();
+        self.emitln(&format!("  {tmp} = call i64 {fn_ptr}({args_str})"));
+        Ok((tmp, "i64".to_string()))
+    }
+
     fn compile_invariant_call(&mut self, type_name: &str, struct_val_reg: &str) {
         let meta = match self.type_meta.get(type_name) {
             Some(m) => m,
@@ -5711,8 +5738,22 @@ impl IrEmitter {
                 // instantiation whose type arg the parser preserved as an index;
                 // unwrap to the underlying callee `base` so `ptr.null[Int]()` and
                 // `foo[T]()` resolve to the function, not a bogus index expression.
+                // Only unwrap when the index is a TYPE expression (known type name
+                // or generic param), not a VALUE expression like `tests[i]()` where
+                // `i` is a loop variable.
+                let idx_is_type = |idx: &Expr| -> bool {
+                    match idx {
+                        Expr::Ident(id) => {
+                            self.types.contains_key(&id.name)
+                                || self.type_meta.contains_key(&id.name)
+                                || (id.name.len() == 1 && id.name.chars().next().map_or(false, |c| c.is_ascii_uppercase()))
+                        }
+                        Expr::Field(_, _, _) => true, // module.Type — always a type path
+                        _ => false, // integer literal, binary expr, etc. — always a value index
+                    }
+                };
                 let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
-                    Expr::Index(base, idx, _) => (base.as_ref(), Some(idx.as_ref())),
+                    Expr::Index(base, idx, _) if idx_is_type(idx) => (base.as_ref(), Some(idx.as_ref())),
                     other => (other, None),
                 };
                 let (fn_name_opt, receiver_expr) = match func_unwrapped {
@@ -5730,7 +5771,36 @@ impl IrEmitter {
                 }
                 let fn_name = match fn_name_opt {
                     Some(ref n) => n.clone(),
-                    None => return Ok(("0".to_string(), "i64".to_string())),
+                    None => {
+                        // The callee is not a simple Ident or Field — it may be an
+                        // Expr::Index (e.g. `tests[i]()`) that produces a function pointer
+                        // value. Compile the expression and call the result.
+                        if let Expr::Index(ref container, ref index, _) = **func {
+                            return self.compile_index_fn_ptr_call(container, index, args);
+                        }
+                        // For other complex callee expressions (e.g. chained calls
+                        // like `get_fn()()`), compile the callee and inttoptr.
+                        let (callee_val, callee_ty) = self.compile_expr(func_unwrapped)?;
+                        if callee_ty == "i64" || callee_ty == "i8*" || callee_ty.ends_with('*') {
+                            let compiled_args: Vec<(String, String)> = args.iter()
+                                .map(|a| self.compile_expr(a).map(|(v, t)| (v, t)))
+                                .collect::<Result<Vec<_>, _>>()?;
+                            let args_str = compiled_args.iter()
+                                .map(|(v, t)| format!("{t} {v}"))
+                                .collect::<Vec<_>>().join(", ");
+                            let param_types: Vec<String> = args.iter()
+                                .map(|a| self.infer_llvm_type(a))
+                                .collect();
+                            let fn_ptr_ty = format!("i64 ({})*", param_types.join(", "));
+                            let fn_ptr = self.fresh_tmp();
+                            let val_i64 = self.val_to_i64(&callee_val, &callee_ty);
+                            self.emitln(&format!("  {fn_ptr} = inttoptr i64 {val_i64} to {fn_ptr_ty}"));
+                            let tmp = self.fresh_tmp();
+                            self.emitln(&format!("  {tmp} = call i64 {fn_ptr}({args_str})"));
+                            return Ok((tmp, "i64".to_string()));
+                        }
+                        return Ok(("0".to_string(), "i64".to_string()));
+                    }
                 };
                 // Enum variant constructor: TypeName.Variant(args)
                 // e.g. `JsonValue.Integer(42)` or `SqliteValue.Text("hello")`
