@@ -457,6 +457,58 @@ All 10 failures are now RUNTIME (0 checker errors, 0 LLVM codegen errors):
 
 Consolidated from all 37 `ecosystem/*/AUDIT.md` files. **28 unique gaps, 51 total module occurrences.** All are production-grade findings — no workarounds applied, only documented.
 
+5c.16 Ecosystem Audit — Compiler Gaps (37 modules scanned, 2026-07-15)
+Consolidated from all 37 ecosystem/*/AUDIT.md files. 28 unique gaps, 51 total module occurrences. All are production-grade findings — no workarounds applied, only documented.
+
+P001 — Parse Errors (3 gaps, 7 modules)
+#	Gap	Modules	Symptom
+G-01	Hex literals not parsed (0x00000001)	lzfse, math, meshopt, vma, sdl3	P001 parse error on 0x numeric syntax
+G-02	let _ = value underscore binding	kafka	P001: _ not recognized as discard binding
+G-03	pub const module limit (~99)	vulkan	P001 abort at ~99 file-level const declarations
+T001 — Type Errors (11 gaps, 18 modules)
+#	Gap	Modules	Symptom
+G-04	Unsigned/signed cast failures	db	UInt8 as UInt32, UInt64 as Int, Int as UInt64 — "unsupported type cast"
+G-05	.to_owned() not available on Str	grpc, protobuf	Method not registered; use .clone()
+G-06	Vec[T]::with_capacity(n) not available	grpc, protobuf	Method not registered; use new() + manual push
+G-07	Vec[UInt8] cross-module method dispatch	grpc	Vec[UInt8] methods fail when type crosses module boundary
+G-08	Result.unwrap_err() not callable	grpc	Method not exposed on Result type
+G-09	match Ok(bytes) pattern fails .len() on FFI return	grpc	Type narrowing broken across FFI boundary
+G-10	Same-type method call via implicit self	json, ui	advance() from within method body reports "undefined variable"; must use free functions
+G-11	[N]T array element type not inferred	math	LHS of array assignment defaults to Int regardless of element type
+G-12	Struct field access through &T + Vec indexing in loops	vector (HNSW)	15 T001 errors: &layer.nodes[i].field fails
+G-13	derive[Clone] on enums with Vec/Str fields	sqlite	Derive macro incomplete for heap-allocated fields
+G-14	Unit not recognized as type name	opencv, torch, ui, kafka	() works as value literal but not as generic type parameter
+CODEGEN / LLVM / FFI ABI (10 gaps, 19 modules)
+#	Gap	Modules	Symptom
+G-15	C struct returned by value from extern "C"	meshopt, miniaudio, sdl3	Cannot call _init()/config factory functions — FFI ABI limits to scalar returns only
+G-16	XIOM fn → C function pointer lowering	meshopt, miniaudio, sdl3	Cannot pass callbacks to C; must pass 0 (NULL)
+G-17	No struct field access for extern "C" memory	miniaudio, sdl3	Cannot read/write C struct members from XIOM; no offsetof
+G-18	No sizeof() for opaque C types	miniaudio	Cannot determine size of ma_device etc. at compile time
+G-19	No malloc/free from XIOM user code	lzfse, meshopt, sdl3	No heap allocation bridge; buffers must be pre-allocated in C
+G-20	Cross-module same-type arg order swapped	math	lerp(a, b, t) — a and b swapped when resolved across module boundary
+G-21	No wildcard/glob method import	math	All 69 methods must be individually use-imported
+G-22	+ string concatenation not supported	http	Must use string.str_concat(a, b) instead of a + b
+G-23	Int.to_string() availability	lzfse	Method may not be registered depending on stdlib build
+G-24	Float32 ↔ C float ABI unverified	sdl3, meshopt	Parameter passing may be incorrect on ARM calling conventions
+RUNTIME ERRORS (2 gaps, 3 modules)
+#	Gap	Modules	Symptom
+G-25	No Copy trait for primitives	json, db	i = i + 1 emits "use of moved value" — Int/Float64/Bool/Char not trivially copyable
+G-26	Branch-dependent move analysis false positive	json	Variable marked moved when consumed in one branch but not both, even with return
+E001 — NON-FATAL BORROW WARNINGS (2 gaps, 4 modules)
+#	Gap	Modules	Symptom
+G-27	False positive "moved" on loop counters	db, vector	var i = 0; while ... { i = i + 1; } — 34 instances across modules
+G-28	Extern out-param treated as move	vulkan, vma	Pointer-pass to extern function triggers "use of moved value"; ~41 instances
+Priority Order for Fixing
+Priority	Gaps	Reason
+P0	G-01 (hex literals), G-03 (const limit)	Blocks FFI constant generation for 5+ modules
+P0	G-15 (C struct-by-value return)	Blocks 3 modules (meshopt, miniaudio, sdl3) completely
+P0	G-07 (cross-module Vec dispatch)	Blocks modular FFI design
+P1	G-04 (unsigned casts), G-11 (array inference), G-12 (Vec indexing)	Type checker gaps affecting core functionality
+P1	G-16 (C fn pointers), G-17 (struct field access), G-19 (malloc)	Blocks callback-based APIs and dynamic memory
+P1	G-10 (same-type method call), G-22 (string concat)	Language expressiveness gaps
+P2	G-25 (Copy trait), G-26 (branch move analysis)	Causes verbose code patterns
+P2	G-27, G-28 (E001 false positives)	Non-fatal warnings; compilation succeeds
+
 #### P001 — Parse Errors (3 gaps, 7 modules)
 
 | # | Gap | Modules | Symptom |
