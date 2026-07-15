@@ -963,6 +963,25 @@ fn e2e_fnptr_vec_index_call() {
 }
 
 #[test]
+fn e2e_this_field_ref() {
+    // Regression: &this.field passed to this-based methods.
+    // SocketAddr.to_str calling IpAddr.to_str(&this.ip) was loading
+    // the IpAddr struct by value instead of passing the GEP pointer,
+    // causing ACCESS_VIOLATION (0xC0000005).
+    assert_eq!(compile_and_run("tests\\ecosystem\\test_this_field_ref.xi"), Some(0),
+        "ecosystem: nested this-based method dispatch via &this.field");
+}
+
+#[test]
+fn e2e_enum_this_match() {
+    // Regression: match on this in this-based methods for enums.
+    // struct_type_from_expr didn't remap `this` to `self`, causing
+    // LLVM IR errors when matching enum discriminants.
+    assert_eq!(compile_and_run("tests\\ecosystem\\test_enum_this_match.xi"), Some(0),
+        "ecosystem: enum variant matching in this-based methods");
+}
+
+#[test]
 fn eco_ffi_binding_gaps() {
     // Regression: () in Result generic, pub const cross-module, extern cross-module
     assert_eq!(compile_and_run("tests\\ecosystem\\test_ffi.xi"), Some(0),
