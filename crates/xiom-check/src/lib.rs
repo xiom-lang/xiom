@@ -2506,10 +2506,10 @@ impl Checker {
                         CheckedType::Bool
                     }
                     BinOp::And | BinOp::Or => {
-                        if left_ty.name() != "Bool" {
+                        if left_ty.name() != "Bool" && !matches!(&left_ty, CheckedType::Named(n) if n == "_") {
                             self.error(format!("left operand of logical op must be Bool, found {}", left_ty.name()), *span);
                         }
-                        if right_ty.name() != "Bool" {
+                        if right_ty.name() != "Bool" && !matches!(&right_ty, CheckedType::Named(n) if n == "_") {
                             self.error(format!("right operand of logical op must be Bool, found {}", right_ty.name()), *span);
                         }
                         CheckedType::Bool

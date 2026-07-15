@@ -932,6 +932,21 @@ impl Parser {
                 Ok(inner)
             }
             _ => {
+                // `ref` / `ref mut` in patterns are binding modifiers.
+                // In XIOM's value semantics, they're syntactic sugar — the
+                // compiler treats them as regular bindings. Parse and discard
+                // them silently so patterns like `Array(ref mut items)` work.
+                let mut is_ref = false;
+                let mut _is_mut_ref = false;
+                if let TokenKind::Ident(s) = self.peek_kind() {
+                    if s == "ref" {
+                        is_ref = true;
+                        self.advance();
+                        if let TokenKind::Ident(s2) = self.peek_kind() {
+                            if s2 == "mut" { _is_mut_ref = true; self.advance(); }
+                        }
+                    }
+                }
                 let mut name = self.parse_ident()?;
                 // Qualified enum-variant pattern, e.g. `LogLevel.Trace` or
                 // `JsonValue.String(k)`. Fold the dotted path into a single name.
@@ -942,6 +957,13 @@ impl Parser {
                 if self.skip(TokenKind::LParen) {
                     let span = name.span; let mut fields = Vec::new();
                     loop {
+                        // Skip `ref` / `ref mut` in variant constructor patterns
+                        // (e.g. `JsonValue.Array(ref mut items)`). XIOM uses value
+                        // semantics — these are syntactic sugar accepted for
+                        // compatibility but treated as regular bindings.
+                        if let TokenKind::Ident(s) = self.peek_kind() {
+                            if s == "ref" { self.advance(); if let TokenKind::Ident(s2) = self.peek_kind() { if s2 == "mut" { self.advance(); } } }
+                        }
                         let field = self.parse_ident()?;
                         if self.skip(TokenKind::Colon) { let sub = self.parse_pattern()?; match &sub { Pattern::Ident(binding) => fields.push(binding.clone()), _ => fields.push(Ident::new("_", field.span)) } }
                         else { fields.push(field); }
