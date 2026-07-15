@@ -542,6 +542,14 @@ impl IrEmitter {
                 self.emitln(&format!("  {loaded} = load {to}, {to}* {typed_ptr}"));
                 return loaded;
             }
+            // pointer or pointer-like (ptr, T*) -> struct: load the value.
+            // Exclude i8* -> Vec because that path requires val_to_struct's
+            // array-buffer-to-Vec construction with proper field initialization.
+            if (from == "ptr" || from.ends_with('*')) && !(from == "i8*" && (to == "%struct.Vec" || to.ends_with(".Vec"))) {
+                let loaded = self.fresh_tmp();
+                self.emitln(&format!("  {loaded} = load {to}, {from} {val}"));
+                return loaded;
+            }
             return self.val_to_struct(val, from, to);
         }
         // Struct -> non-struct scalar: extract the leading i64 field (an enum
