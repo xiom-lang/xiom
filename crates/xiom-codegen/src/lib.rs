@@ -5035,7 +5035,9 @@ impl IrEmitter {
         self.flush_deferred_types();
         match expr {
             Expr::Ident(ident) => {
-                if let Some((ptr, llvm_ty)) = self.lookup_local(&ident.name).cloned() {
+                // `this` keyword in method bodies maps to the receiver `self`.
+                let lookup_name: &str = if ident.name == "this" { "self" } else { &ident.name };
+                if let Some((ptr, llvm_ty)) = self.lookup_local(lookup_name).cloned() {
                     let tmp = self.fresh_tmp();
                     self.emitln(&format!("  {tmp} = load {llvm_ty}, {llvm_ty}* {ptr}"));
                     // Propagate array-value tracking through let-bound locals:
@@ -5634,7 +5636,13 @@ impl IrEmitter {
                             let pointee = ptr_ty.trim_end_matches('*').to_string();
                             if pointee.starts_with("%struct.") {
                                 let type_name = &pointee[8..];
-                                if let Some(field_names) = self.types.get(type_name).cloned() {
+                                if let Some(field_names) = self.types.get(type_name)
+                                    .or_else(|| {
+                                        let suffix = format!(".{type_name}");
+                                        self.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                            .and_then(|k| self.types.get(k))
+                                    })
+                                    .cloned() {
                                     if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
                                         let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
                                         let gep = self.fresh_tmp();
@@ -5658,7 +5666,13 @@ impl IrEmitter {
                         if llvm_ty.ends_with('*') && llvm_ty.starts_with("%struct.") {
                             let pointee = llvm_ty.trim_end_matches('*').to_string();
                             let type_name = &pointee[8..];
-                            if let Some(field_names) = self.types.get(type_name).cloned() {
+                            if let Some(field_names) = self.types.get(type_name)
+                                .or_else(|| {
+                                    let suffix = format!(".{type_name}");
+                                    self.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                        .and_then(|k| self.types.get(k))
+                                })
+                                .cloned() {
                                 if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
                                     let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
                                     let ptr_val = self.fresh_tmp();
@@ -5710,7 +5724,14 @@ impl IrEmitter {
                         if llvm_ty.starts_with("%struct.") && !llvm_ty.ends_with('*') {
                             // Find field index
                             let type_name = &llvm_ty[8..];
-                            if let Some(field_names) = self.types.get(type_name) {
+                            if let Some(field_names) = self.types.get(type_name)
+                                .or_else(|| {
+                                    let suffix = format!(".{type_name}");
+                                    self.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                        .and_then(|k| self.types.get(k))
+                                })
+                            {
+                                eprintln!("[FIELD-STRUCT] FOUND fields={field_names:?}");
                                 if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
                                     let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
                                     let struct_val = self.fresh_tmp();
@@ -5783,7 +5804,14 @@ impl IrEmitter {
                             self.emitln(&format!("  {result} = zext i1 {cmp} to i64"));
                             return Ok((result, "i64".to_string()));
                         }
-                        if let Some(field_names) = self.types.get(type_name).cloned() {
+                        if let Some(field_names) = self.types.get(type_name)
+                            .or_else(|| {
+                                let suffix = format!(".{type_name}");
+                                self.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                    .and_then(|k| self.types.get(k))
+                            })
+                            .cloned()
+                        {
                             if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
                                 let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
                                 let struct_alloca = self.fresh_tmp();
