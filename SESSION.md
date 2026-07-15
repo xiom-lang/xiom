@@ -2,8 +2,8 @@
 
 **Date:** 2026-07-15
 **Branch:** `feat/architect`
-**Status:** 47/47 parser, 74/74 checker, 39/41 smoke, **88/98 e2e** (0 checker errors, 0 codegen errors)
-**Ecosystem:** 10/10 compile and run — 213 ecosystem tests type-check with 0 errors
+**Status:** 47/47 parser, 74/74 checker, 32/41 smoke, **88/98 e2e** (0 checker errors, 0 LLVM codegen errors)
+**Ecosystem:** 8/10 compile (2 pre-existing LLVM failures: json, http). NET improved: ACCESS_VIOLATION → exit 1.
 
 ---
 
@@ -89,6 +89,33 @@ never received the receiver, causing ACCESS_VIOLATION crashes.
 | 5 | `this` → `self` remapping in `Expr::Ident` compiler | `crates/xiom-codegen/src/lib.rs` |
 
 **Verified**: `IpAddr.is_v4/is_v6` field access now correctly loads and compares struct fields.
+
+### 5c.18 Nested Field Ref for This-based Methods — DONE (2026-07-15)
+
+When a `this`-based method passes `&this.field` to another `this`-based method
+(e.g. `SocketAddr.to_str` calling `IpAddr.to_str(&this.ip)`), `Expr::Ref` now
+returns the pre-registered GEP pointer instead of loading the field value.
+
+| Fix | Impact |
+|-----|--------|
+| `Expr::Ref(Expr::Field(this, field))` → GEP pointer with `*` type | NET: 0xC0000005 → exit 1 |
+
+**Investigation:** Bisected NET 22 sub-tests. Individual tests 15-22 pass alone.
+Test 16 (`SocketAddr.to_str(&addr16)`) was the first to exercise `&this.ip` in
+a method body. LLVM IR showed `%tmp10 = load %struct.IpAddr ...` followed by
+`call ... @IpAddr.to_str(%struct.IpAddr %tmp10)` — by-value struct where the
+callee expects a pointer. The fix intercepts this in `Expr::Ref` by returning
+the GEP pointer local (registered during the function prologue) with a pointer
+type annotation, so the call site receives a proper `%struct.IpAddr*`.
+
+**Status:** NET improved from ACCESS_VIOLATION to exit 1 (wrong results).
+Remaining NET failures are assertion-level, not crashes.
+
+**Baseline corrections:**
+- Stdlib smoke tests: 32/41 (not 39/41 as previously stated). 9 pre-existing
+  LLVM compilation failures: fmt, array, alloc, core, time, mem, path, regex, ptr.
+- JSON and HTTP ecosystem tests have pre-existing LLVM compilation failures
+  (not runtime ACCESS_VIOLATION as previously stated).
 
 ### 5c.17 Release Packaging
 
