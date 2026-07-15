@@ -62,7 +62,7 @@
 
 ## 4. PHASE 5b — STDLIB COMPLETION (100% COMPLETE) ✅
 
-[DETAILS UNCHANGED — 39/39 modules verified]
+[DETAILS UNCHANGED — 40/40 modules verified]
 
 ---
 
@@ -373,7 +373,23 @@ These features require more R&D before production readiness.
 
 ---
 
-## 11. VERIFICATION PROTOCOL
+## 11. RELEASE PACKAGING
+
+**v0.45.3 Release** — built 2026-07-15 via `package.ps1 -Version 0.45.3`.
+
+| Artifact | Contents |
+|----------|----------|
+| `release/xiom-v0.45.3/bin/` | 6 compiled tools: xiomc, xiom-fmt, xiom-doc, xiom-ffigen, xiom-pkg, xiom-lsp |
+| `release/xiom-v0.45.3/lib/xiom/` | 40 stdlib `.xi` modules + `package.xi` + `libc.xiom-bind` |
+| `release/xiom-v0.45.3/runtime/` | C runtime (`xiom_runtime.c`) |
+| `release/xiom-v0.45.3/install.bat` | Portable CLI installer |
+| `release/xiom-v0.45.3-windows-x64.zip` | ~2.5 MB ZIP archive |
+
+Stdlib resolution: `xiomc` finds stdlib via `XIOM_STDLIB` env var, `%LOCALAPPDATA%\xiom\stdlib\`, or relative to the exe parent (up to 8 hops). No embedding — stdlib `.xi` source files must be present on disk.
+
+---
+
+## 12. VERIFICATION PROTOCOL
 
 ```bash
 cargo build -p xiomc
