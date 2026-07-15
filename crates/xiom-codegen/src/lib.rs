@@ -531,6 +531,30 @@ impl IrEmitter {
             self.emitln(&format!("  {t} = fptrunc double {val} to float"));
             return t;
         }
+        // Typed struct value -> struct pointer: allocate a slot, store the value,
+        // return the slot pointer.  e.g. `%struct.HttpHeaders → %struct.HttpHeaders*`
+        // when a method expects `&mut T` (pointer) but the caller has a T value.
+        if to.ends_with('*') && from.starts_with("%struct.") {
+            let base = to.trim_end_matches('*');
+            if base.starts_with("%struct.") && (base == from || (base.len() > 8 && from.ends_with(&base[8..]))) {
+                let slot = self.fresh_tmp();
+                self.emitln(&format!("  {slot} = alloca {from}"));
+                self.emitln(&format!("  store {from} {val}, {from}* {slot}"));
+                return slot;
+            }
+        }
+        // Typed struct pointer -> same struct value: load through the pointer.
+        // e.g. `%struct.Agent* → %struct.Agent` when calling agent_is_idle(a)
+        // where the caller has `a: &mut Agent` (pointer) but the callee expects
+        // `a: &Agent` (compiled as Agent value).
+        if to.starts_with("%struct.") && from.ends_with('*') {
+            let base = from.trim_end_matches('*'); // "%struct.Agent*" -> "%struct.Agent"
+            if base.starts_with("%struct.") && (base == to || (base.len() > 8 && to.ends_with(&base[8..]))) {
+                let loaded = self.fresh_tmp();
+                self.emitln(&format!("  {loaded} = load {to}, {from} {val}"));
+                return loaded;
+            }
+        }
         // Non-struct scalar -> struct (e.g. i64 discriminant -> single-field enum).
         // If the scalar is i64, assume it's a pointer to a heap-allocated struct
         // (e.g. from Result::unwrap returning an enum value) and load it.
