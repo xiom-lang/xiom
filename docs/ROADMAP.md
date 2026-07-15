@@ -290,12 +290,33 @@ Compiler gaps discovered while generating production-grade Vulkan FFI bindings f
 | eco_crypto_23_tests | Runtime trap | 0x80000003 (unwrap/arr-to-vec trap) |
 | eco_db_18_tests | Assertion failure | Exit 1 (wrong result) |
 | eco_full_30_tests | Runtime crash | 0xC0000005 (counter pattern + this-based) |
-| eco_http_18_tests | Runtime trap | 0x80000003 (this-based method dispatch) |
-| eco_json_29_tests | Runtime crash | 0xC0000005 (this-based method dispatch) |
-| eco_net_22_tests | Runtime crash | 0xC0000005 (remaining sub-functions) |
-| eco_sqlite_23_tests | Assertion failure | Exit 1 (wrong result) |
+| eco_http_18_tests | Compilation failure | LLVM type mismatch (pre-existing) |
+| eco_json_29_tests | Compilation failure | LLVM type mismatch (pre-existing) |
+| eco_net_22_tests | Assertion failure | Exit 1 (was ACCESS_VIOLATION, improved via 5c.18) |
+| eco_sqlite_23_tests | Runtime crash | 0xC0000005 (this-based field access) |
 | eco_test_20_tests | Runtime crash | 0xC0000005 (this-based method dispatch) |
 | eco_vector_32_tests | Assertion failure | Exit 1 (Float32 math) |
+
+**5c.18 This-based Nested Field Ref Fix — DONE (2026-07-15)**
+When a `this`-based method passes `&this.field` to another `this`-based method
+(e.g. `SocketAddr.to_str` passing `&this.ip` to `IpAddr.to_str`), the `Expr::Ref`
+handler now returns the pre-registered GEP pointer from the function prologue instead
+of compiling the inner field expression (which loaded the struct by value).
+
+| Fix | Impact |
+|-----|--------|
+| `Expr::Ref(Expr::Field(this, field))` returns GEP pointer with `*` type | NET: ACCESS_VIOLATION → exit 1 (crash resolved) |
+
+This eliminated the ACCESS_VIOLATION crash in NET ecosystem tests. Remaining NET
+failures are assertion-level (wrong results from string comparisons), not crashes.
+
+**Baseline corrections (2026-07-15):**
+- Stdlib execution tests are at 32/41 (not 39/41 as previously documented).
+  9 pre-existing compilation failures in stdlib smoke tests (fmt, array, alloc,
+  core, time, mem, path, regex, ptr) — these are LLVM type mismatches in the
+  stdlib modules, not in the compiler itself.
+- JSON and HTTP ecosystem tests have pre-existing LLVM compilation failures
+  (not runtime crashes as previously documented).
 
 **5c.16 This-based Method Dispatch — COMPLETE (2026-07-15)**
 5 fixes applied for methods using `this` keyword:
