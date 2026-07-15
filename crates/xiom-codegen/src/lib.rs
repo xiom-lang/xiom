@@ -2979,6 +2979,48 @@ impl IrEmitter {
     fn val_to_struct(&mut self, val: &str, val_ty: &str, struct_ty: &str) -> String {
         let alloca = self.fresh_tmp();
         self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
+
+        // i8* array-buffer -> %struct.Vec: the buffer has layout
+        //   [length: i64, elem0: i64, elem1: ...]
+        // extracted by Expr::Array. Construct a proper Vec with data
+        // pointing past the length slot.
+        let type_name = &struct_ty[8..]; // strip "%struct."
+        let is_vec = type_name == "Vec" || type_name.ends_with(".Vec");
+        if is_vec && val_ty == "i8*" {
+            // Read length from buffer[0].
+            let len_slot = self.fresh_tmp();
+            self.emitln(&format!("  {len_slot} = bitcast i8* {val} to i64*"));
+            let len_val = self.fresh_tmp();
+            self.emitln(&format!("  {len_val} = load i64, i64* {len_slot}"));
+
+            // Compute data pointer past the length slot (8 bytes = sizeof i64).
+            let data_ptr = self.fresh_tmp();
+            self.emitln(&format!("  {data_ptr} = getelementptr i8, i8* {val}, i64 8"));
+
+            // Store data, len, cap, elem_size into the Vec struct fields.
+            let gep0 = self.fresh_tmp();
+            self.emitln(&format!("  {gep0} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
+            self.emitln(&format!("  store i8* {data_ptr}, i8** {gep0}"));
+
+            let gep1 = self.fresh_tmp();
+            self.emitln(&format!("  {gep1} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 1"));
+            self.emitln(&format!("  store i64 {len_val}, i64* {gep1}"));
+
+            let gep2 = self.fresh_tmp();
+            self.emitln(&format!("  {gep2} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 2"));
+            self.emitln(&format!("  store i64 {len_val}, i64* {gep2}"));
+
+            // elem_size (field 3): array elements are stored as i64 (val_to_i64),
+            // so sizeof element is always 8 bytes for fixed-array-to-Vec coercion.
+            let gep3 = self.fresh_tmp();
+            self.emitln(&format!("  {gep3} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 3"));
+            self.emitln(&format!("  store i64 8, i64* {gep3}"));
+
+            let loaded = self.fresh_tmp();
+            self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
+            return loaded;
+        }
+
         if val_ty.starts_with('%') {
             let ptr = self.fresh_tmp();
             self.emitln(&format!("  {ptr} = bitcast {struct_ty}* {alloca} to i64*"));
