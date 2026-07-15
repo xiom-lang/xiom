@@ -234,7 +234,7 @@ All fixes are compiler-level — **zero test files modified.** Every fix hardens
 
 **Note:** The 5 Vulkan demos (demo_2d, demo_3d, demo_cubes, demo_particles, demo_shapes) compile and link successfully. The rendering issues (empty window, particle freeze) are **C bridge bugs** (Vulkan pipeline/shaders), NOT compiler issues. Only the test target (`--Target test`) hits the codegen gap.
 
-### 5c.11 Array-to-Vec Codegen Fix — DONE (2026-07-15)
+### 5c.12 Array-to-Vec Codegen Fix — DONE (2026-07-15)
 
 | Fix | Status | Impact |
 |-----|--------|--------|
