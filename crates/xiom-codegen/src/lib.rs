@@ -7653,6 +7653,31 @@ impl IrEmitter {
                 self.compile_expr(inner)
             }
             Expr::Ref(inner, _) | Expr::MutRef(inner, _) => {
+                // When `&this.field` (or `&self.field`) appears inside a method body,
+                // the field was registered as a GEP pointer during the prologue.
+                // Return that pointer directly instead of compiling the inner
+                // expression (which loads the field value), so that this-based
+                // methods receive a proper pointer receiver.
+                // GEP always produces a pointer; if the registered field type is
+                // a plain struct, append `*` so the pointer propagates correctly
+                // through coerce_value and call-site receiver handling.
+                if let Expr::Field(base, field_name_expr, _) = inner.as_ref() {
+                    if let Expr::Ident(base_ident) = base.as_ref() {
+                        let base_name = if base_ident.name == "this" { "self" } else { base_ident.name.as_str() };
+                        // The prologue registered field GEP pointers under their bare names.
+                        if let Some((gep_ptr, gep_ty)) = self.lookup_local(&field_name_expr.name).cloned() {
+                            // Verify the base actually resolves (it's a this-method body).
+                            if self.lookup_local(base_name).is_some() {
+                                let ptr_ty = if gep_ty.starts_with("%struct.") && !gep_ty.ends_with('*') {
+                                    format!("{gep_ty}*")
+                                } else {
+                                    gep_ty
+                                };
+                                return Ok((gep_ptr, ptr_ty));
+                            }
+                        }
+                    }
+                }
                 // When a fixed array literal (e.g. [1,2,3]) is used with & in
                 // a Vec context, materialise a proper %struct.Vec from the
                 // array buffer instead of forwarding the raw i8* pointer.
