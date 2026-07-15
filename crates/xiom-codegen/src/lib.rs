@@ -2489,10 +2489,15 @@ impl IrEmitter {
         let self_llvm_ty = if has_self_param {
             fd.receiver.as_ref().map(|r| {
                 let base = self.llvm_type_for(&r.name).unwrap_or_else(|_| "i64".to_string());
-                // `&mut self` receivers pass by pointer so mutations propagate.
-                // Regular `self` and `&self` pass by value.
                 let is_mut = fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self);
                 if is_mut && base.starts_with('%') { format!("{base}*") } else { base }
+            })
+        } else if fd.receiver.is_some() {
+            // `this`-based methods: allocate a pointer-typed self slot so
+            // the body can access receiver fields through `this`/`self`.
+            fd.receiver.as_ref().map(|r| {
+                let base = self.llvm_type_for(&r.name).unwrap_or_else(|_| "i64".to_string());
+                if base.starts_with('%') { format!("{base}*") } else { base }
             })
         } else {
             None
