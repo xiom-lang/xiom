@@ -315,8 +315,23 @@ failures are assertion-level (wrong results from string comparisons), not crashe
   9 pre-existing compilation failures in stdlib smoke tests (fmt, array, alloc,
   core, time, mem, path, regex, ptr) — these are LLVM type mismatches in the
   stdlib modules, not in the compiler itself.
-- JSON and HTTP ecosystem tests have pre-existing LLVM compilation failures
-  (not runtime crashes as previously documented).
+- JSON and HTTP ecosystem tests now compile (fixed via 5c.19 struct_type_from_expr
+  this->self remapping). Both crash at runtime (ACCESS_VIOLATION) — pre-existing.
+
+**5c.19 Struct Type Resolution for Match Dispatch — DONE (2026-07-15)**
+`struct_type_from_expr` resolves the scrutinee type for enum discriminant checks
+in match blocks. It was looking up the ident name directly in locals without
+remapping `this` → `self`, so matches inside `this`-based methods (e.g.
+`JsonValue.is_null()`, `HttpResponse.is_ok()`) could not determine the enum type.
+This caused a fallback to raw `i64` comparison (`icmp eq i64 %struct_val, 0`),
+producing invalid LLVM IR.
+
+| Fix | Impact |
+|-----|--------|
+| `this` → `self` remapping in `struct_type_from_expr::Expr::Ident` | JSON + HTTP: compilation fixed |
+
+JSON and HTTP now compile and reach runtime (was: LLVM IR compilation failure).
+Runtime behavior is unchanged (both still ACCESS_VIOLATION due to other gaps).
 
 **5c.16 This-based Method Dispatch — COMPLETE (2026-07-15)**
 5 fixes applied for methods using `this` keyword:
