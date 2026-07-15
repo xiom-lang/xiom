@@ -413,6 +413,70 @@ impl IrEmitter {
     /// `inttoptr` of its loaded value (which would fabricate a bogus pointer and
     /// crash). A local that already holds a pointer is forwarded as-is. All other
     /// cases fall back to the ordinary `coerce_value` on the precompiled value.
+
+    /// Quick scan: returns true if the expression tree contains any `this` ident.
+    fn expr_uses_this(expr: &Expr) -> bool {
+        match expr {
+            Expr::Ident(id) => id.name == "this",
+            Expr::Paren(e, _) | Expr::Unary(_, e, _) | Expr::Try(e, _)
+            | Expr::Ref(e, _) | Expr::MutRef(e, _)
+            | Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _)
+            | Expr::As(e, _, _) => Self::expr_uses_this(e),
+            Expr::Binary(a, _, b, _) => Self::expr_uses_this(a) || Self::expr_uses_this(b),
+            Expr::Field(obj, _, _) => Self::expr_uses_this(obj),
+            Expr::Call(func, args, _) => Self::expr_uses_this(func) || args.iter().any(|a| Self::expr_uses_this(a)),
+            Expr::Index(arr, idx, _) => Self::expr_uses_this(arr) || Self::expr_uses_this(idx),
+            Expr::If(cond, then_b, elifs, else_b, _) => {
+                Self::expr_uses_this(cond)
+                    || Self::block_uses_this(then_b)
+                    || elifs.iter().any(|(c, b)| Self::expr_uses_this(c) || Self::block_uses_this(b))
+                    || else_b.as_ref().map_or(false, |b| Self::block_uses_this(b))
+            }
+            Expr::Match(scrut, arms, _) => {
+                Self::expr_uses_this(scrut)
+                    || arms.iter().any(|arm| match &arm.body {
+                        MatchBody::Block(b) => Self::block_uses_this(b),
+                        MatchBody::Expr(e) => Self::expr_uses_this(e),
+                    })
+            }
+            Expr::Array(elems, _) | Expr::Tuple(elems, _) => elems.iter().any(|e| Self::expr_uses_this(e)),
+            Expr::Struct(_, fields, base, _) => {
+                fields.iter().any(|(_, v)| Self::expr_uses_this(v))
+                    || base.as_ref().map_or(false, |b| Self::expr_uses_this(b))
+            }
+            _ => false,
+        }
+    }
+
+    fn stmt_uses_this(stmt: &Stmt) -> bool {
+        match stmt {
+            Stmt::Expr(e, _) | Stmt::Return(Some(e), _) => Self::expr_uses_this(e),
+            Stmt::Let(_, _, init, _) | Stmt::Var(_, _, init, _) => Self::expr_uses_this(init),
+            Stmt::Assign(_, rhs, _) => Self::expr_uses_this(rhs),
+            Stmt::If(cond, then_b, elifs, else_b, _) => {
+                Self::expr_uses_this(cond) || Self::block_uses_this(then_b)
+                    || elifs.iter().any(|(c, b)| Self::expr_uses_this(c) || Self::block_uses_this(b))
+                    || else_b.as_ref().map_or(false, |b| Self::block_uses_this(b))
+            }
+            Stmt::While(cond, body, _) => Self::expr_uses_this(cond) || Self::block_uses_this(body),
+            Stmt::Match(scrut, arms, _) => {
+                Self::expr_uses_this(scrut)
+                    || arms.iter().any(|arm| match &arm.body {
+                        MatchBody::Block(b) => Self::block_uses_this(b),
+                        MatchBody::Expr(e) => Self::expr_uses_this(e),
+                    })
+            }
+            _ => false,
+        }
+    }
+
+    fn block_uses_this(block: &Block) -> bool {
+        block.stmts.iter().any(|s| match s {
+            StmtOrExpr::Stmt(stmt) => Self::stmt_uses_this(stmt),
+            StmtOrExpr::Expr(expr) => Self::expr_uses_this(expr),
+        })
+    }
+
     fn coerce_arg_for_param(&mut self, arg_expr: &Expr, pre_val: &str, pre_ty: &str, param_ty: &str) -> String {
         if param_ty.ends_with('*') {
             let lvalue: Option<&Expr> = match arg_expr {
@@ -2189,11 +2253,27 @@ impl IrEmitter {
             let has_self_param = fd.params.iter().any(|p| p.name.name == "self")
                 || is_first_param_self;
             let has_recv = fd.receiver.is_some() && has_self_param;
+            // For `this`-based methods (receiver exists but no explicit `self`
+            // param, AND body uses `this`), register the receiver as a pointer
+            // type so call-site receiver handling can detect the need for a
+            // pointer and coerce instance method calls (v.method()) correctly.
+            let is_this_based = fd.receiver.is_some() && !has_self_param
+                && fd.body.as_ref().map_or(false, |b| Self::block_uses_this(b));
             // If first param IS the self (type matches receiver), don't add
             // receiver type — the first param already covers it.
             if has_recv && !is_first_param_self {
                 if let Some(recv) = fd.receiver.as_ref() {
                     param_types.push(self.llvm_type_for(&recv.name).unwrap_or_else(|_| "i64".to_string()));
+                }
+            }
+            if is_this_based {
+                if let Some(recv) = fd.receiver.as_ref() {
+                    let recv_ty = self.llvm_type_for(&recv.name).unwrap_or_else(|_| "i64".to_string());
+                    if recv_ty.starts_with('%') && !recv_ty.ends_with('*') {
+                        param_types.push(format!("{recv_ty}*"));
+                    } else {
+                        param_types.push(recv_ty);
+                    }
                 }
             }
             let self_param_name: Option<String> = if is_first_param_self {
