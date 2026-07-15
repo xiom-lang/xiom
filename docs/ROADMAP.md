@@ -369,13 +369,16 @@ Verified: `IpAddr.is_v4/is_v6` field access now correctly loads and compares str
 
 **Troubleshooting Notes:**
 - **HTTP crash (Vec-of-struct):** `val_to_i64` heap-allocates multi-field structs and returns
-  pointers. Vec stores these as i64. `emit_elem_load` returns the i64 pointer, but downstream
-  field access (`h.entries[i].name`) gets i64 type and doesn't inttoptr to the struct. Fix
-  needs either: (a) elem_size>8 with memcpy-based store/load, or (b) i64-inttoptr detection
-  in `Expr::Field` general path.
+  pointers (i64). Vec stores these as i64. When loaded back via `emit_elem_load`, the i64
+  pointer isn't recognized — downstream field access gets `i64` type. Two approaches explored:
+  (a) elem_size computed from struct field count with memcpy store/load — complex because
+  push calls val_to_i64 first; (b) i64-inttoptr in field access via struct type lookup in
+  type_meta — fragile due to ambiguous field names across structs. The `type_from_ast_with_args`
+  helper was added to preserve Vec element types in type_meta for future use. A complete fix
+  requires changes to push, emit_elem_store/load, val_to_struct, and Index handler paths.
 - **Counter pattern (FULL/TEST):** Multiple test functions modifying mutable vars trigger
-  ACCESS_VIOLATION. Simple repros with struct+this methods pass — specific to enum patterns
-  or &mut references.
+  ACCESS_VIOLATION. Minimal repros with struct+this methods pass — issue is specific to
+  enum patterns, &mut references, or contract-heavy workflows. Needs focused bisect.
 
 **Ecosystem:** 10/10 compile and run — 213 ecosystem tests type-check with 0 errors.
 **Gates:** 47/47 parser, 74/74 checker, 88/98 e2e.
