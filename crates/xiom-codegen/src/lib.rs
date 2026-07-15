@@ -2889,7 +2889,9 @@ impl IrEmitter {
             }
             Expr::Struct(ident, _, _, _) => Some(ident.name.clone()),
             Expr::Ident(ident) => {
-                if let Some((_, llvm_ty)) = self.lookup_local(&ident.name) {
+                // `this` keyword remaps to `self` in method bodies (same as compile_expr).
+                let lookup_name = if ident.name == "this" { "self" } else { ident.name.as_str() };
+                if let Some((_, llvm_ty)) = self.lookup_local(lookup_name) {
                     if llvm_ty.starts_with("%struct.") {
                         let raw = &llvm_ty[8..]; // strip "%struct."
                         let clean = raw.trim_end_matches('*'); // strip pointer suffix
