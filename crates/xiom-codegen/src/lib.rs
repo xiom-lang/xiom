@@ -126,6 +126,9 @@ pub struct IrEmitter {
     deferred_struct_types: Vec<(String, String)>,  // (name, body)
     /// Locals bound from Expr::Array literals (for indexing dispatch)
     array_locals: HashSet<String>,
+    /// Temporary register values that originated from Expr::Array literals.
+    /// Used by val_to_struct to distinguish array-buffer i8* from generic i8*.
+    array_value_regs: HashSet<String>,
     /// Set of function names already declared via `declare` (to avoid duplicates)
     already_declared: HashSet<String>,
     /// Module/global `const` values, keyed by bare name (last definition wins),
@@ -192,6 +195,7 @@ impl IrEmitter {
             loop_stack: Vec::new(),
             deferred_struct_types: Vec::new(),
             array_locals: HashSet::new(),
+            array_value_regs: HashSet::new(),
             already_declared: HashSet::new(),
             constants: HashMap::new(),
             module_globals: HashMap::new(),
@@ -2979,70 +2983,6 @@ impl IrEmitter {
     fn val_to_struct(&mut self, val: &str, val_ty: &str, struct_ty: &str) -> String {
         let alloca = self.fresh_tmp();
         self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
-
-        // i8* array-buffer -> %struct.Vec: the buffer has layout
-        //   [length: i64, elem0: i64, elem1: ...]
-        // extracted by Expr::Array. Construct a proper Vec with data
-        // pointing past the length slot.
-        let type_name = &struct_ty[8..]; // strip "%struct."
-        let is_vec = type_name == "Vec" || type_name.ends_with(".Vec");
-        if is_vec && val_ty == "i8*" {
-            // Read length from array buffer[0].
-            let len_slot = self.fresh_tmp();
-            self.emitln(&format!("  {len_slot} = bitcast i8* {val} to i64*"));
-            let len_val = self.fresh_tmp();
-            self.emitln(&format!("  {len_val} = load i64, i64* {len_slot}"));
-
-            // Compute element byte count: (len * 8) for i64-stored elements.
-            let byte_count = self.fresh_tmp();
-            self.emitln(&format!("  {byte_count} = mul i64 {len_val}, 8"));
-
-            // Allocate a heap copy of the data portion (skip the 8-byte
-            // length slot). This ensures Vec operations (push, pop, free)
-            // work on heap-backed memory rather than corrupting the stack.
-            let heap_copy = self.fresh_tmp();
-            self.emitln(&format!("  {heap_copy} = call i8* @malloc(i64 {byte_count})"));
-            let malloc_ok = self.fresh_block("vec_from_array_malloc_ok");
-            let malloc_fail = self.fresh_block("vec_from_array_malloc_fail");
-            let malloc_check = self.fresh_tmp();
-            self.emitln(&format!("  {malloc_check} = icmp eq i8* {heap_copy}, null"));
-            self.emitln(&format!("  br i1 {malloc_check}, label %{malloc_fail}, label %{malloc_ok}"));
-
-            // malloc failed: trap.
-            self.emitln(&format!("\n{malloc_fail}:"));
-            self.emitln("  call void @llvm.trap()");
-            self.emitln("  unreachable");
-
-            // memcpy the elements past the length slot into the heap buffer.
-            self.emitln(&format!("\n{malloc_ok}:"));
-            let src_ptr = self.fresh_tmp();
-            self.emitln(&format!("  {src_ptr} = getelementptr i8, i8* {val}, i64 8"));
-            self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {heap_copy}, i8* {src_ptr}, i64 {byte_count}, i1 false)"));
-
-            // Store data, len, cap, elem_size into the Vec struct fields.
-            let gep0 = self.fresh_tmp();
-            self.emitln(&format!("  {gep0} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
-            self.emitln(&format!("  store i8* {heap_copy}, i8** {gep0}"));
-
-            let gep1 = self.fresh_tmp();
-            self.emitln(&format!("  {gep1} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 1"));
-            self.emitln(&format!("  store i64 {len_val}, i64* {gep1}"));
-
-            let gep2 = self.fresh_tmp();
-            self.emitln(&format!("  {gep2} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 2"));
-            self.emitln(&format!("  store i64 {len_val}, i64* {gep2}"));
-
-            // elem_size (field 3): array elements are stored as i64 (val_to_i64),
-            // so sizeof element is always 8 bytes for fixed-array-to-Vec coercion.
-            let gep3 = self.fresh_tmp();
-            self.emitln(&format!("  {gep3} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 3"));
-            self.emitln(&format!("  store i64 8, i64* {gep3}"));
-
-            let loaded = self.fresh_tmp();
-            self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
-            return loaded;
-        }
-
         if val_ty.starts_with('%') {
             let ptr = self.fresh_tmp();
             self.emitln(&format!("  {ptr} = bitcast {struct_ty}* {alloca} to i64*"));
@@ -7491,7 +7431,75 @@ impl IrEmitter {
                 }
                 self.compile_expr(inner)
             }
-            Expr::Ref(inner, _) | Expr::MutRef(inner, _) => self.compile_expr(inner),
+            Expr::Ref(inner, _) | Expr::MutRef(inner, _) => {
+                // When a fixed array literal (e.g. [1,2,3]) is used with & in
+                // a Vec context, materialise a proper %struct.Vec from the
+                // array buffer instead of forwarding the raw i8* pointer.
+                // This ensures the Vec owns a heap copy, preventing stack
+                // corruption when the Vec is modified.
+                if let Expr::Array(elems, _) = inner.as_ref() {
+                    let n = elems.len() as i64;
+                    let alloc_count = n + 1;
+                    let buf = self.fresh_tmp();
+                    self.emitln(&format!("  {buf} = alloca i64, i64 {alloc_count}"));
+                    let gep0 = self.fresh_tmp();
+                    self.emitln(&format!("  {gep0} = getelementptr i64, i64* {buf}, i64 0"));
+                    self.emitln(&format!("  store i64 {n}, i64* {gep0}"));
+                    for (i, e) in elems.iter().enumerate() {
+                        let (v, _) = self.compile_expr(e)?;
+                        let gep = self.fresh_tmp();
+                        let idx = (i + 1) as i64;
+                        self.emitln(&format!("  {gep} = getelementptr i64, i64* {buf}, i64 {idx}"));
+                        let store_val = self.val_to_i64(&v, &self.infer_llvm_type(e));
+                        self.emitln(&format!("  store i64 {store_val}, i64* {gep}"));
+                    }
+                    let ptr = self.fresh_tmp();
+                    self.emitln(&format!("  {ptr} = bitcast i64* {buf} to i8*"));
+                    // Now build a proper Vec from the array buffer
+                    let vec_alloca = self.fresh_tmp();
+                    let struct_ty = "%struct.Vec";
+                    self.emitln(&format!("  {vec_alloca} = alloca {struct_ty}"));
+                    // len from buffer[0]
+                    let len_slot = self.fresh_tmp();
+                    self.emitln(&format!("  {len_slot} = bitcast i8* {ptr} to i64*"));
+                    let len_val = self.fresh_tmp();
+                    self.emitln(&format!("  {len_val} = load i64, i64* {len_slot}"));
+                    // heap copy of elements
+                    let byte_count = self.fresh_tmp();
+                    self.emitln(&format!("  {byte_count} = mul i64 {len_val}, 8"));
+                    let heap_copy = self.fresh_tmp();
+                    self.emitln(&format!("  {heap_copy} = call i8* @malloc(i64 {byte_count})"));
+                    let malloc_ok = self.fresh_block("ref_arr_malloc_ok");
+                    let malloc_fail = self.fresh_block("ref_arr_malloc_fail");
+                    let malloc_check = self.fresh_tmp();
+                    self.emitln(&format!("  {malloc_check} = icmp eq i8* {heap_copy}, null"));
+                    self.emitln(&format!("  br i1 {malloc_check}, label %{malloc_fail}, label %{malloc_ok}"));
+                    self.emitln(&format!("\n{malloc_fail}:"));
+                    self.emitln("  call void @llvm.trap()");
+                    self.emitln("  unreachable");
+                    self.emitln(&format!("\n{malloc_ok}:"));
+                    let src_ptr = self.fresh_tmp();
+                    self.emitln(&format!("  {src_ptr} = getelementptr i8, i8* {ptr}, i64 8"));
+                    self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {heap_copy}, i8* {src_ptr}, i64 {byte_count}, i1 false)"));
+                    // store Vec fields
+                    let g0 = self.fresh_tmp();
+                    self.emitln(&format!("  {g0} = getelementptr {struct_ty}, {struct_ty}* {vec_alloca}, i32 0, i32 0"));
+                    self.emitln(&format!("  store i8* {heap_copy}, i8** {g0}"));
+                    let g1 = self.fresh_tmp();
+                    self.emitln(&format!("  {g1} = getelementptr {struct_ty}, {struct_ty}* {vec_alloca}, i32 0, i32 1"));
+                    self.emitln(&format!("  store i64 {len_val}, i64* {g1}"));
+                    let g2 = self.fresh_tmp();
+                    self.emitln(&format!("  {g2} = getelementptr {struct_ty}, {struct_ty}* {vec_alloca}, i32 0, i32 2"));
+                    self.emitln(&format!("  store i64 {len_val}, i64* {g2}"));
+                    let g3 = self.fresh_tmp();
+                    self.emitln(&format!("  {g3} = getelementptr {struct_ty}, {struct_ty}* {vec_alloca}, i32 0, i32 3"));
+                    self.emitln(&format!("  store i64 8, i64* {g3}"));
+                    let loaded = self.fresh_tmp();
+                    self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {vec_alloca}"));
+                    return Ok((loaded, struct_ty.to_string()));
+                }
+                self.compile_expr(inner)
+            }
             Expr::Some(inner, _) => {
                 self.used_builtins.insert("Option".to_string());
                 let (val, inner_ty) = self.compile_expr(inner)?;
@@ -7677,6 +7685,9 @@ impl IrEmitter {
                 }
                 let ptr = self.fresh_tmp();
                 self.emitln(&format!("  {ptr} = bitcast i64* {buf} to i8*"));
+                // Track this register as originating from an array literal
+                // so val_to_struct can distinguish array-buffer i8* from generic i8*.
+                self.array_value_regs.insert(ptr.clone());
                 Ok((ptr, "i8*".to_string()))
             }
             Expr::Closure(_, _, _, _) | Expr::PipeClosure(_, _, _) => Ok(("0".to_string(), "i64".to_string())),
