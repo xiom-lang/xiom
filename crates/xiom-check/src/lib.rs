@@ -3125,6 +3125,23 @@ impl Checker {
             (CheckedType::Float64, CheckedType::Float32) => true,
             (CheckedType::Int, CheckedType::Char) => true,
             (CheckedType::Char, CheckedType::Int) => true,
+            // Integer width promotions: Int (default i64) coerces to narrower
+            // integer types (Int32/Int16/Int8) for FFI compatibility.
+            // All signed integer types are mutually compatible.
+            (CheckedType::Int, CheckedType::Int32) | (CheckedType::Int32, CheckedType::Int) => true,
+            (CheckedType::Int, CheckedType::Int16) | (CheckedType::Int16, CheckedType::Int) => true,
+            (CheckedType::Int, CheckedType::Int8)  | (CheckedType::Int8,  CheckedType::Int) => true,
+            (CheckedType::Int32, CheckedType::Int16) | (CheckedType::Int16, CheckedType::Int32) => true,
+            (CheckedType::Int32, CheckedType::Int8)  | (CheckedType::Int8,  CheckedType::Int32) => true,
+            (CheckedType::Int16, CheckedType::Int8)  | (CheckedType::Int8,  CheckedType::Int16) => true,
+            // Unsigned integer compatibility
+            (CheckedType::UInt, CheckedType::UInt32) | (CheckedType::UInt32, CheckedType::UInt) => true,
+            (CheckedType::UInt, CheckedType::UInt16) | (CheckedType::UInt16, CheckedType::UInt) => true,
+            (CheckedType::UInt, CheckedType::UInt8)  | (CheckedType::UInt8,  CheckedType::UInt) => true,
+            // Signed↔unsigned integer compatibility (FFI Common)
+            (CheckedType::Int,    CheckedType::UInt32) | (CheckedType::UInt32, CheckedType::Int) => true,
+            (CheckedType::Int32,  CheckedType::UInt32) | (CheckedType::UInt32, CheckedType::Int32) => true,
+            (CheckedType::Int,    CheckedType::UInt)   | (CheckedType::UInt,   CheckedType::Int) => true,
             // Unit compatibility
             (_, CheckedType::Unit) => true,
             _ => false,
