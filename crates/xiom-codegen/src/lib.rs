@@ -2835,7 +2835,9 @@ impl IrEmitter {
             Expr::Ident(ident) => {
                 if let Some((_, llvm_ty)) = self.lookup_local(&ident.name) {
                     if llvm_ty.starts_with("%struct.") {
-                        return Some(llvm_ty[8..].to_string());
+                        let raw = &llvm_ty[8..]; // strip "%struct."
+                        let clean = raw.trim_end_matches('*'); // strip pointer suffix
+                        return Some(clean.to_string());
                     }
                 }
                 None
@@ -2893,6 +2895,12 @@ impl IrEmitter {
             let bc = self.fresh_tmp();
             self.emitln(&format!("  {bc} = bitcast double {val} to i64"));
             bc
+        } else if ty == "float" {
+            let bc = self.fresh_tmp();
+            self.emitln(&format!("  {bc} = bitcast float {val} to i32"));
+            let ext = self.fresh_tmp();
+            self.emitln(&format!("  {ext} = zext i32 {bc} to i64"));
+            ext
         } else if ty == "i8*" || ty.contains('*') {
             let bc = self.fresh_tmp();
             self.emitln(&format!("  {bc} = ptrtoint {ty} {val} to i64"));
@@ -4972,9 +4980,9 @@ impl IrEmitter {
                 let tmp = self.fresh_tmp();
                 match op {
                     UnaryOp::Neg => {
-                        if inner_ty == "double" {
-                            self.emitln(&format!("  {tmp} = fneg double {val}"));
-                            return Ok((tmp, "double".to_string()));
+                        if inner_ty == "double" || inner_ty == "float" {
+                            self.emitln(&format!("  {tmp} = fneg {inner_ty} {val}"));
+                            return Ok((tmp, inner_ty.clone()));
                         } else {
                             self.emitln(&format!("  {tmp} = sub i64 0, {val}"));
                             return Ok((tmp, "i64".to_string()));
@@ -5193,13 +5201,27 @@ impl IrEmitter {
                     }
                     if lt == "i64" || lt.starts_with("%struct.") {
                         let conv = self.fresh_tmp();
-                        self.emitln(&format!("  {conv} = sitofp i64 {l} to double"));
+                        self.emitln(&format!("  {conv} = sitofp i64 {l} to {float_ty}"));
                         l = conv;
                     }
                     if rt == "i64" || rt.starts_with("%struct.") {
                         let conv = self.fresh_tmp();
-                        self.emitln(&format!("  {conv} = sitofp i64 {r} to double"));
+                        self.emitln(&format!("  {conv} = sitofp i64 {r} to {float_ty}"));
                         r = conv;
+                    }
+                    // Narrow double → float when the operation uses float
+                    // (Float32) but an operand is double (Float64 literal).
+                    if is_float && float_ty == "float" {
+                        if lt == "double" {
+                            let conv = self.fresh_tmp();
+                            self.emitln(&format!("  {conv} = fptrunc double {l} to float"));
+                            l = conv;
+                        }
+                        if rt == "double" {
+                            let conv = self.fresh_tmp();
+                            self.emitln(&format!("  {conv} = fptrunc double {r} to float"));
+                            r = conv;
+                        }
                     }
                 }
                 // A1: widen narrow integer operands (Char/UInt8 = i8, Bool = i1,
