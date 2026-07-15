@@ -952,3 +952,12 @@ fn eco_vector_32_tests() {
     assert_eq!(compile_and_run("tests\\ecosystem\\test_vector.xi"), Some(0),
         "ecosystem: all 32 vector database tests (math, KNN, distance metrics)");
 }
+
+#[test]
+fn e2e_fnptr_vec_index_call() {
+    // Regression: Vec[fn()->Int] element call via index.
+    // `tests[i]()` was emitting `inttoptr %struct.Vec to i64 ()*`
+    // instead of loading the i64 function pointer from the Vec data.
+    assert_eq!(compile_and_run("tests\\ecosystem\\test_fnptr.xi"), Some(0),
+        "ecosystem: function pointer call from Vec index (tests[i]())");
+}
