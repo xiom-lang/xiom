@@ -4526,7 +4526,16 @@ impl IrEmitter {
                 if let Some(ref type_name) = scrutinee_type {
                     let struct_ty = format!("%struct.{type_name}");
                     let alloca = self.fresh_tmp();
-                    let store_val = self.zero_val_for(&val, &struct_ty);
+                    // If the scrutinee is a pointer to the struct (e.g. JsonValue*)
+                    // rather than the struct value itself, load the struct through
+                    // the pointer before storing in the match alloca.
+                    let store_val = if scrutinee_llvm_ty.ends_with('*') && struct_ty == scrutinee_llvm_ty.trim_end_matches('*') {
+                        let loaded = self.fresh_tmp();
+                        self.emitln(&format!("  {loaded} = load {struct_ty}, {scrutinee_llvm_ty} {val}"));
+                        loaded
+                    } else {
+                        self.zero_val_for(&val, &struct_ty)
+                    };
                     self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
                     self.emitln(&format!("  store {struct_ty} {store_val}, {struct_ty}* {alloca}"));
                     scrutinee_alloca_info = Some((alloca, type_name.clone(), struct_ty));
