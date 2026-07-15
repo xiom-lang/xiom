@@ -4350,7 +4350,14 @@ impl IrEmitter {
                                 let pointee = ptr_ty.trim_end_matches('*').to_string();
                                 if pointee.starts_with("%struct.") {
                                     let type_name = &pointee[8..];
-                                    if let Some(field_names) = self.types.get(type_name).cloned() {
+                        if let Some(field_names) = self.types.get(type_name)
+                            .or_else(|| {
+                                let suffix = format!(".{type_name}");
+                                self.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                    .and_then(|k| self.types.get(k))
+                            })
+                            .cloned()
+                        {
                                         if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
                                             let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
                                             let gep = self.fresh_tmp();
