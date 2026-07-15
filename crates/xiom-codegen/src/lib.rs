@@ -2983,6 +2983,54 @@ impl IrEmitter {
     fn val_to_struct(&mut self, val: &str, val_ty: &str, struct_ty: &str) -> String {
         let alloca = self.fresh_tmp();
         self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
+
+        // i8* array-buffer -> %struct.Vec: only when val originates from an
+        // Expr::Array (tracked in array_value_regs). The buffer has layout
+        // [length:i64, elem0, elem1, ...]. Construct a proper Vec with a
+        // heap copy so the Vec can be safely modified/passed.
+        let type_name = &struct_ty[8..];
+        let is_vec = type_name == "Vec" || type_name.ends_with(".Vec");
+        if is_vec && val_ty == "i8*" && self.array_value_regs.contains(val) {
+            // Read length from buffer[0]
+            let len_slot = self.fresh_tmp();
+            self.emitln(&format!("  {len_slot} = bitcast i8* {val} to i64*"));
+            let len_val = self.fresh_tmp();
+            self.emitln(&format!("  {len_val} = load i64, i64* {len_slot}"));
+            // Heap copy of elements (len * 8 bytes for i64-stored elements)
+            let byte_count = self.fresh_tmp();
+            self.emitln(&format!("  {byte_count} = mul i64 {len_val}, 8"));
+            let heap_copy = self.fresh_tmp();
+            self.emitln(&format!("  {heap_copy} = call i8* @malloc(i64 {byte_count})"));
+            let ok = self.fresh_block("arr_to_vec_ok");
+            let fail = self.fresh_block("arr_to_vec_fail");
+            let chk = self.fresh_tmp();
+            self.emitln(&format!("  {chk} = icmp eq i8* {heap_copy}, null"));
+            self.emitln(&format!("  br i1 {chk}, label %{fail}, label %{ok}"));
+            self.emitln(&format!("\n{fail}:"));
+            self.emitln("  call void @llvm.trap()");
+            self.emitln("  unreachable");
+            self.emitln(&format!("\n{ok}:"));
+            let src = self.fresh_tmp();
+            self.emitln(&format!("  {src} = getelementptr i8, i8* {val}, i64 8"));
+            self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {heap_copy}, i8* {src}, i64 {byte_count}, i1 false)"));
+            // Store Vec fields
+            let g0 = self.fresh_tmp();
+            self.emitln(&format!("  {g0} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
+            self.emitln(&format!("  store i8* {heap_copy}, i8** {g0}"));
+            let g1 = self.fresh_tmp();
+            self.emitln(&format!("  {g1} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 1"));
+            self.emitln(&format!("  store i64 {len_val}, i64* {g1}"));
+            let g2 = self.fresh_tmp();
+            self.emitln(&format!("  {g2} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 2"));
+            self.emitln(&format!("  store i64 {len_val}, i64* {g2}"));
+            let g3 = self.fresh_tmp();
+            self.emitln(&format!("  {g3} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 3"));
+            self.emitln(&format!("  store i64 8, i64* {g3}"));
+            let loaded = self.fresh_tmp();
+            self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
+            return loaded;
+        }
+
         if val_ty.starts_with('%') {
             let ptr = self.fresh_tmp();
             self.emitln(&format!("  {ptr} = bitcast {struct_ty}* {alloca} to i64*"));
@@ -4895,6 +4943,13 @@ impl IrEmitter {
                 if let Some((ptr, llvm_ty)) = self.lookup_local(&ident.name).cloned() {
                     let tmp = self.fresh_tmp();
                     self.emitln(&format!("  {tmp} = load {llvm_ty}, {llvm_ty}* {ptr}"));
+                    // Propagate array-value tracking through let-bound locals:
+                    // if `ident` was bound from an Expr::Array, the loaded value
+                    // also originates from an array buffer so val_to_struct can
+                    // construct a proper Vec from it.
+                    if self.array_locals.contains(&ident.name) {
+                        self.array_value_regs.insert(tmp.clone());
+                    }
                     Ok((tmp, llvm_ty))
                 } else if let Some((symbol, llvm_ty)) = self.module_globals.get(&ident.name).cloned() {
                     // Mutable module-level `var`: load the current value from the
