@@ -173,6 +173,7 @@ impl CheckedType {
 pub enum ModuleExport {
     Type { fields: HashMap<String, CheckedType>, is_pub: bool },
     Function { sig: FnSig, is_pub: bool },
+    Const { ty: CheckedType, value: Expr, is_pub: bool },
     SubModule(HashMap<String, ModuleExport>),
 }
 
@@ -1888,6 +1889,34 @@ impl Checker {
                     let sub = self.build_module_map_inner(&md.items, &new_prefix);
                     map.insert(md.name.name.clone(), ModuleExport::SubModule(sub));
                 }
+                TopDecl::Const(cd) if cd.is_pub => {
+                    let ty = CheckedType::from_ast_type(&cd.ty);
+                    let sig = FnSig {
+                        params: vec![],
+                        return_type: Some(ty.clone()),
+                        generics: vec![],
+                        uses_implicit_this: false,
+                    };
+                    map.insert(cd.name.name.clone(), ModuleExport::Const {
+                        ty,
+                        value: cd.value.clone(),
+                        is_pub: true,
+                    });
+                }
+                TopDecl::Extern(eb) => {
+                    // Register each extern function in the export map so cross-module
+                    // `use` can resolve them with their declared return types.
+                    for fd in &eb.functions {
+                        let params: Vec<(String, CheckedType)> = fd.params.iter()
+                            .map(|p| (p.name.name.clone(), CheckedType::from_ast_type(&p.ty)))
+                            .collect();
+                        let return_type = fd.return_type.as_ref()
+                            .map(|t| CheckedType::from_ast_type(t));
+                        let generics = fd.generics.iter().map(|g| g.name.name.clone()).collect();
+                        let sig = FnSig { params, return_type, generics, uses_implicit_this: false };
+                        map.insert(fd.name.name.clone(), ModuleExport::Function { sig, is_pub: true });
+                    }
+                }
                 _ => {}
             }
         }
@@ -1974,6 +2003,7 @@ impl Checker {
                 let is_pub = match export {
                     ModuleExport::Type { is_pub, .. } => is_pub,
                     ModuleExport::Function { is_pub, .. } => is_pub,
+                    ModuleExport::Const { is_pub, .. } => is_pub,
                     _ => false,
                 };
                 if is_pub {
@@ -2153,6 +2183,9 @@ impl Checker {
             }
             ModuleExport::Type { is_pub, .. } => {
                 if *is_pub { CheckedType::Named(field.name.clone()) } else { return None; }
+            }
+            ModuleExport::Const { ty, is_pub, .. } => {
+                if *is_pub { ty.clone() } else { return None; }
             }
             ModuleExport::SubModule(_) => CheckedType::Named("module".into()),
         })
@@ -2405,6 +2438,7 @@ impl Checker {
                     match export {
                         ModuleExport::Function { .. } => CheckedType::Named("fn".into()),
                         ModuleExport::Type { .. } => CheckedType::Named(ident.name.clone()),
+                        ModuleExport::Const { ty, .. } => ty.clone(),
                         ModuleExport::SubModule(_) => CheckedType::Named("module".into()),
                     }
                 } else {

@@ -961,3 +961,10 @@ fn e2e_fnptr_vec_index_call() {
     assert_eq!(compile_and_run("tests\\ecosystem\\test_fnptr.xi"), Some(0),
         "ecosystem: function pointer call from Vec index (tests[i]())");
 }
+
+#[test]
+fn eco_ffi_binding_gaps() {
+    // Regression: () in Result generic, pub const cross-module, extern cross-module
+    assert_eq!(compile_and_run("tests\\ecosystem\\test_ffi.xi"), Some(0),
+        "ecosystem: FFI binding gaps (unit in Result, pub const, extern)");
+}

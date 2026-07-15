@@ -486,6 +486,8 @@ pub struct ConstDecl {
     /// read via `load` / written via `store`); `false` for an immutable `const`
     /// (compile-time value substituted at each read site).
     pub is_mut: bool,
+    /// `true` when declared as `pub const` — enables cross-module visibility.
+    pub is_pub: bool,
     pub span: Span,
 }
 
