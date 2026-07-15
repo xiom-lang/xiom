@@ -240,13 +240,37 @@ Compiler gaps discovered while generating production-grade Vulkan FFI bindings f
 
 | Gap | Code | Detail | Status |
 |-----|------|--------|--------|
-| **pub const module limit** | P001 | ~99 `pub const` declarations per module triggers "too many parse errors" abort. | ⚠️ Deferred — edge case in parser error recovery |
-| **Cross-module extern resolution** | T001 | `extern "C"` functions declared in module A resolve to `()` when called from module B via `use`. | ✅ FIXED — externs registered in module export map |
-| **`()` in Result generic** | T001 | `Result[(), VulkanError]` — unit type in generic position unsupported. | ✅ FIXED — parser handles `()` as unit type |
-| **pub const cross-module resolution** | T001 | `pub const` values defined in one module invisible to others. | ✅ FIXED — is_pub on ConstDecl, Const variant in ModuleExport |
+| **pub const module limit** | P001 | ~99 `pub const` declarations per module triggers "too many parse errors" abort. | ⚠️ OPEN — `vulkan_constants.xi` (single-file, ~300 consts) left in repo as test case |
+| **Cross-module extern resolution** | T001 | `extern "C"` functions declared in module A resolve to `()` when called from module B via `use`. | ✅ FIXED |
+| **`()` in Result generic** | T001 | `Result[(), VulkanError]` — unit type in generic position unsupported. | ✅ FIXED |
+| **`Int`→`Int32` coercion** | T001 | Integer literals default to `Int`, no auto-coercion to `Int32` in extern call args or `let` bindings. Requires explicit `as Int32`. | ⚠️ OPEN — workaround: `count as Int32` casts |
+| **Out-param move semantics** | E001 | Passing a local variable to an extern out-parameter triggers "use of moved value". Compiler treats value as consumed, not borrowed. | ⚠️ OPEN — E001 warnings emitted; codegen correctness unverified |
+| **Codegen `inttoptr` Vec→fn-ptr** | LLVM | `extern "C"` functions returning `Int` used in `match`/`assert` produce `inttoptr %struct.Vec to i64 ()*` invalid LLVM IR. | ⚠️ OPEN — blocks `test_vulkan.xi` compilation (ROADMAP §5c.11) |
+| **Hex literal parser** | P001 | `0x00000001` hex syntax fails when preceded by >~100 `pub const` declarations. Decimal equivalents work. | ⚠️ Link to pub const limit above |
 
-**Note:** 3/4 gaps resolved. Parser limit (Gap 4) deferred. All fixes are compiler-level — zero test files simplified.
-**E2E test:** `tests/ecosystem/test_ffi.xi` covers all 3 resolved gaps.
+**Test case for pub const limit:** `ecosystem/xiom-vulkan/src/vulkan_constants_all.xi` — single file with 300+ constants, intentionally over limit. Compile with `xiomc --diagnostics=json vulkan_constants_all.xi` to reproduce.
+
+### 5c.13 Vulkan FFI Production-Grade Status (2026-07-15)
+
+| Layer | File | Status | Functions/Types |
+|-------|------|--------|-----------------|
+| C Bridge | `bridge/xiom_vk_bridge.c` | ⚠️ Rendering bugs | 22 xvk_* functions (GLFW+GLSL+pipelines) |
+| XIOM Bridge Wrappers | `vulkan.xi` | ✅ | 22 safe wrappers over xvk bridge |
+| Convenience Layer | `src/wrapper.xi` | ✅ | VulkanApp struct |
+| **Raw FFI** | `vulkan_extern.xi` | 🚧 In Progress | Target: 400+ vk* `extern "C"` decls |
+| **Constants** | `src/vulkan_constants_all.xi` | 🚧 In Progress | Target: 500+ enum/flag consts in ONE file |
+| **Safe Wrappers** | `src/vulkan_safe.xi` | 🚧 Expanding | Target: 15+ resource types with contracts |
+| **Examples** | `examples/demo_*.xi` | 🚧 Expanding | Target: viewport, UI, model loading, compute, etc. |
+
+**Target scope:** Full Vulkan 1.4 API surface sufficient to build a game engine (Godot-class). Coverage includes core functions + KHR swapchain/surface/ray_tracing + EXT debug utils + platform surface creation.
+
+**Non-Vulkan headers bundled in SDK:**
+- `SDL2/`, `SDL3/` — cross-platform windowing (NOT Vulkan, use GLFW or xvk bridge)
+- `glm/` — OpenGL Mathematics (C++ math library, NOT Vulkan)
+- `vma/` — Vulkan Memory Allocator (separate C library, NOT Vulkan headers)
+- `Volk/` — Vulkan meta-loader
+- `glslang/`, `shaderc/`, `slang/`, `dxc/` — shader compilers
+- `spirv*/` — SPIR-V tools
 
 ### 5c.13 Array-to-Vec Codegen Fix — DONE (2026-07-15)
 
