@@ -220,7 +220,25 @@ All fixes are compiler-level — **zero test files modified.** Every fix hardens
 | `struct_type_from_expr` `Expr::Ident` strips `*` from LLVM pointer types | codegen | sqlite: invalid GEP regression fixed |
 
 **Ecosystem checker status: 0 checker errors.** All ecosystem tests type-check.
-**Ecosystem codegen status: 0 LLVM errors.** All 10 ecosystem tests compile and run.
+**Ecosystem codegen status: 0 LLVM errors** (existing 10 tests). All 10 ecosystem tests compile and run.
+
+### 5c.11 Vulkan Bridge Codegen Gap — OPEN (2026-07-15)
+
+| Fix | Status | Impact |
+|-----|--------|--------|
+| LLVM `inttoptr` Vec→fn-ptr cast (offscreen test) | ❌ OPEN | `test_vulkan.xi` fails codegen with `invalid cast opcode for cast from '%struct.Vec' to 'ptr'` |
+
+**Minimal repro:** Compile `ecosystem/xiom-vulkan/tests/test_vulkan.xi` + `ecosystem/xiom-vulkan/vulkan.xi` → Parser + checker pass. Codegen emits `inttoptr %struct.Vec %tmp15 to i64 ()*` which clang rejects.
+
+**Affected functions:** `offscreen_hash(app) -> Int`, `offscreen_render_triangle(app, r, g, b) -> Int32`, `offscreen_create(width, height) -> Int`. All are `extern "C"` wrappers returning integer types used in XIOM expressions (match arms, `assert` calls). The compiler appears to mis-resolve the return type of these externs during codegen, attempting to treat a Vec result as a callable function pointer.
+
+**Note:** The 5 Vulkan demos (demo_2d, demo_3d, demo_cubes, demo_particles, demo_shapes) compile and link successfully. The rendering issues (empty window, particle freeze) are **C bridge bugs** (Vulkan pipeline/shaders), NOT compiler issues. Only the test target (`--Target test`) hits the codegen gap.
+
+**Repro command:**
+```powershell
+.\build.ps1 -Target test
+# Produces: inttoptr %struct.Vec %tmp15 to i64 ()*
+```
 
 **Remaining gaps (10 tests — ALL RUNTIME, 0 checker, 0 codegen):**
 | Test | Failure Mode | Exit Code / Signal |
