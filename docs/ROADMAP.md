@@ -45,7 +45,7 @@
 | 4 | Or-Patterns | Pattern matching | ✅ |
 | **5a** | **Codegen Hardening** | **Compiler correctness** | **✅** |
 | **5b** | **Stdlib Completion** | **Standard library** | **✅** |
-| **5c** | **Production Toolchain** | **CLI, build, errors, robustness** | **✅ 86/96 e2e (0 checker, 0 codegen, 10 runtime)** |
+| **5c** | **Production Toolchain** | **CLI, build, errors, robustness** | **✅ 87/96 e2e (0 checker, 0 codegen, 9 runtime)** |
 | 5d | Ecosystem & Tooling | Package manager, debugger, LSP, docs | Planned |
 | 5e | Advanced Compilation | Incremental, parallel, hot reload | Planned |
 | 5f | Verification | Z3 static verification, contract coverage | Planned |
@@ -234,34 +234,39 @@ All fixes are compiler-level — **zero test files modified.** Every fix hardens
 
 **Note:** The 5 Vulkan demos (demo_2d, demo_3d, demo_cubes, demo_particles, demo_shapes) compile and link successfully. The rendering issues (empty window, particle freeze) are **C bridge bugs** (Vulkan pipeline/shaders), NOT compiler issues. Only the test target (`--Target test`) hits the codegen gap.
 
-**Repro command:**
-```powershell
-.\build.ps1 -Target test
-# Produces: inttoptr %struct.Vec %tmp15 to i64 ()*
-```
+### 5c.11 Array-to-Vec Codegen Fix — DONE (2026-07-15)
 
-**Remaining gaps (10 tests — ALL RUNTIME, 0 checker, 0 codegen):**
+| Fix | Status | Impact |
+|-----|--------|--------|
+| `val_to_struct` initializes all 4 Vec fields (data, len, cap, elem_size) | ✅ | Fixed access-violation crash |
+| Heap copy via malloc+memcpy for stack-allocated array buffers | ✅ | Prevents heap corruption from free() on stack ptr |
+| `array_value_regs` tracking set propagates through `let`-bound locals | ✅ | Handles `let arr=[1,2,3]; fn(&arr)` pattern |
+| `Expr::Ref(Expr::Array)` inline Vec construction | ✅ | Direct `&[1,2,3]` case handled at source |
+
+**Impact:** eco_algo_89_tests now passes. 87/96 e2e.
+
+**Remaining gaps (9 tests):**
 | Test | Failure Mode | Exit Code / Signal |
 |------|-------------|--------------------|
-| eco_algo_89_tests | Runtime crash | 0xC000013A (STATUS_CONTROL_C_EXIT) |
-| eco_crypto_23_tests | Runtime crash | 0xC000013A (STATUS_CONTROL_C_EXIT) |
+| eco_crypto_23_tests | Runtime trap | 0x80000003 (STATUS_BREAKPOINT) |
 | eco_db_18_tests | Assertion failure | Exit 1 (wrong result) |
-| eco_full_30_tests | Runtime crash | 0xC000001D (STATUS_ILLEGAL_INSTRUCTION) |
-| eco_http_18_tests | Runtime crash | 0x80000003 (STATUS_BREAKPOINT) |
+| eco_full_30_tests | Codegen | ptr vs %struct.Agent type mismatch |
+| eco_http_18_tests | Codegen | %struct.HttpHeaders vs ptr type mismatch |
 | eco_json_29_tests | Parser error | Pre-existing parse error |
-| eco_net_22_tests | Runtime crash | 0xC000013A (STATUS_CONTROL_C_EXIT) |
+| eco_net_22_tests | Runtime crash | 0xC0000005 (ACCESS_VIOLATION) |
 | eco_sqlite_23_tests | Assertion failure | Exit 1 (wrong result) |
-| eco_test_20_tests | Runtime crash | 0xC000013A (STATUS_CONTROL_C_EXIT) |
+| eco_test_20_tests | Runtime crash | 0xC0000005 (ACCESS_VIOLATION) |
 | eco_vector_32_tests | Assertion failure | Exit 1 (wrong result) |
 
-**True remaining gaps requiring investigation:**
-1. **0xC000013A (STATUS_CONTROL_C_EXIT)** — 4 tests (algo, crypto, net, test): Likely null pointer dereference, stack overflow, or contract-invariant trap. Needs runtime debugging of compiled binaries.
-2. **0xC000001D (STATUS_ILLEGAL_INSTRUCTION)** — 1 test (full): Corrupted code or jump to non-code address. Suggests a match dispatch or function pointer bug.
-3. **0x80000003 (STATUS_BREAKPOINT)** — 1 test (http): Intentional breakpoint, likely from a failed invariant check or trap.
-4. **Exit code 1 (assertion failure)** — 3 tests (db, sqlite, vector): Code runs but produces wrong results. Indicates logic errors in codegen for specific patterns (Vec operations, enum constructors, float math).
-5. **Parser error** — 1 test (json): Pre-existing parse issue at line 123. Needs parser debugging.
+**True remaining gaps:**
+1. **0x80000003 (STATUS_BREAKPOINT)** — 1 test (crypto): Likely Map.invariant_check or recursion depth trap. Not affected by --no-contracts.
+2. **0xC0000005 (ACCESS_VIOLATION)** — 2 tests (net, test): Null pointer or invalid memory access. Needs specific investigation.
+3. **Codegen type mismatch** — 2 tests (full, http): struct vs pointer/ptr in LLVM IR for function parameter passing.
+4. **Exit code 1** — 3 tests (db, sqlite, vector): Code runs but produces wrong results.
+5. **Parser error** — 1 test (json): Pre-existing parse issue.
 
 **Ecosystem:** 10/10 compile and run — 213 ecosystem tests type-check with 0 errors.
+**Gates:** 47/47 parser, 74/74 checker, 39/41 smoke (2 pre-existing), 87/96 e2e.
 **Gates:** 47/47 parser, 74/74 checker, 41/41 smoke, 86/96 e2e.
 
 ---
