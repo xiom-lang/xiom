@@ -8430,17 +8430,55 @@ impl IrEmitter {
                 // through coerce_value and call-site receiver handling.
                 if let Expr::Field(base, field_name_expr, _) = inner.as_ref() {
                     if let Expr::Ident(base_ident) = base.as_ref() {
-                        let base_name = if base_ident.name == "this" { "self" } else { base_ident.name.as_str() };
-                        // The prologue registered field GEP pointers under their bare names.
-                        if let Some((gep_ptr, gep_ty)) = self.lookup_local(&field_name_expr.name).cloned() {
-                            // Verify the base actually resolves (it's a this-method body).
-                            if self.lookup_local(base_name).is_some() {
-                                let ptr_ty = if gep_ty.starts_with("%struct.") && !gep_ty.ends_with('*') {
-                                    format!("{gep_ty}*")
+                        let is_self_base = base_ident.name == "this" || base_ident.name == "self";
+                        if is_self_base {
+                            // The prologue registered SELF's field GEP pointers
+                            // under their bare names.
+                            if let Some((gep_ptr, gep_ty)) = self.lookup_local(&field_name_expr.name).cloned() {
+                                if self.lookup_local("self").is_some() {
+                                    let ptr_ty = if gep_ty.starts_with("%struct.") && !gep_ty.ends_with('*') {
+                                        format!("{gep_ty}*")
+                                    } else {
+                                        gep_ty
+                                    };
+                                    return Ok((gep_ptr, ptr_ty));
+                                }
+                            }
+                        } else if let Some((slot, slot_ty)) = self.lookup_local(&base_ident.name).cloned() {
+                            // 5c.30: `&local.field` — emit a REAL GEP into the
+                            // local's storage. Previously the bare field name was
+                            // looked up as a local, so `&addr3.ip` silently bound
+                            // to an unrelated variable named `ip` (TFR test 7).
+                            if slot_ty.starts_with("%struct.") {
+                                let type_name = slot_ty[8..].trim_end_matches('*').to_string();
+                                let base_ty = format!("%struct.{type_name}");
+                                let base_ptr = if slot_ty.ends_with('*') {
+                                    let p = self.fresh_tmp();
+                                    self.emitln(&format!("  {p} = load {slot_ty}, {slot_ty}* {slot}"));
+                                    p
                                 } else {
-                                    gep_ty
+                                    slot
                                 };
-                                return Ok((gep_ptr, ptr_ty));
+                                if let Some(field_names) = self.types.get(&type_name)
+                                    .or_else(|| {
+                                        let suffix = format!(".{type_name}");
+                                        self.types.keys().find(|k| k.ends_with(&suffix))
+                                            .and_then(|k| self.types.get(k))
+                                    })
+                                    .cloned()
+                                {
+                                    if let Some(fi) = field_names.iter().position(|f| f == &field_name_expr.name) {
+                                        let field_llvm_ty = self.field_llvm_type(&type_name, fi);
+                                        // Only take the GEP path for struct-typed
+                                        // fields; scalar/handle fields keep the
+                                        // by-value fallback below.
+                                        if field_llvm_ty.starts_with("%struct.") && !field_llvm_ty.ends_with('*') {
+                                            let gep = self.fresh_tmp();
+                                            self.emitln(&format!("  {gep} = getelementptr {base_ty}, {base_ty}* {base_ptr}, i32 0, i32 {fi}"));
+                                            return Ok((gep, format!("{field_llvm_ty}*")));
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
