@@ -126,6 +126,17 @@ pub struct IrEmitter {
     deferred_struct_types: Vec<(String, String)>,  // (name, body)
     /// Locals bound from Expr::Array literals (for indexing dispatch)
     array_locals: HashSet<String>,
+    /// 5c.30: local Vec bindings' declared element type name
+    /// (`var v = Vec[Point2D].new()` → "v" → "Point2D") so Index reads on
+    /// LOCAL Vec-of-struct / Vec-of-float use the right element layout.
+    local_vec_elem: HashMap<String, String>,
+    /// 5c.30: Option locals whose payload is a heap-boxed STRUCT pointer
+    /// (`let popped = points.pop()` on Vec[Point2D] → "popped" → "Point2D").
+    local_opt_payload: HashMap<String, String>,
+    /// 5c.30: i64 locals holding a heap-boxed struct pointer
+    /// (`let val = popped.unwrap()` → "val" → "Point2D") so field access
+    /// dereferences the box with the right type.
+    local_boxed_struct: HashMap<String, String>,
     /// Temporary register values that originated from Expr::Array literals.
     /// Used by val_to_struct to distinguish array-buffer i8* from generic i8*.
     array_value_regs: HashSet<String>,
@@ -195,6 +206,9 @@ impl IrEmitter {
             loop_stack: Vec::new(),
             deferred_struct_types: Vec::new(),
             array_locals: HashSet::new(),
+            local_vec_elem: HashMap::new(),
+            local_opt_payload: HashMap::new(),
+            local_boxed_struct: HashMap::new(),
             array_value_regs: HashSet::new(),
             already_declared: HashSet::new(),
             constants: HashMap::new(),
@@ -847,11 +861,78 @@ impl IrEmitter {
     /// Resolve a Vec field's element type from its container expression.
     /// For `h.entries[i].name`, the container `h.entries` has field type
     /// `Vec[HttpHeader]` in type_meta. This extracts `HttpHeader` (fully qualified).
+    /// 5c.30: Track boxed-struct payload flow for a `let`/`var` binding.
+    /// - `x.pop()` / `x.get(i)` on a Vec-of-struct container → the Option's
+    ///   payload is a boxed struct pointer (record in local_opt_payload).
+    /// - `opt.unwrap()` where opt is such an Option → the i64 local holds
+    ///   the boxed struct pointer (record in local_boxed_struct).
+    fn track_boxed_payload_binding(&mut self, name: &str, value: &Expr) {
+        self.local_opt_payload.remove(name);
+        self.local_boxed_struct.remove(name);
+        if let Expr::Call(func, _, _) = value {
+            if let Expr::Field(recv, method, _) = func.as_ref() {
+                match method.name.as_str() {
+                    // Only the INLINE builtins that box struct payloads.
+                    "pop" | "get" | "remove" => {
+                        if let Some(elem_ty) = self.resolve_vec_elem_type(recv) {
+                            self.local_opt_payload.insert(name.to_string(), elem_ty);
+                        }
+                    }
+                    "unwrap" | "unwrap_or" => {
+                        if let Expr::Ident(opt_id) = recv.as_ref() {
+                            if let Some(t) = self.local_opt_payload.get(&opt_id.name).cloned() {
+                                self.local_boxed_struct.insert(name.to_string(), t);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// 5c.30: If `expr` is a `Vec[T].new()` / `Vec[T].with_capacity(..)` call,
+    /// return the element type name `T` (from the explicit type argument).
+    fn vec_ctor_elem_type(expr: &Expr) -> Option<String> {
+        if let Expr::Call(func, _, _) = expr {
+            if let Expr::Field(obj, method, _) = func.as_ref() {
+                if matches!(method.name.as_str(), "new" | "with_capacity") {
+                    if let Expr::Index(base, idx, _) = obj.as_ref() {
+                        if let Expr::Ident(b) = base.as_ref() {
+                            if b.name == "Vec" {
+                                match idx.as_ref() {
+                                    Expr::Ident(t) => return Some(t.name.clone()),
+                                    Expr::Tuple(elems, _) => {
+                                        if let Some(Expr::Ident(t)) = elems.first() {
+                                            return Some(t.name.clone());
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// 5c.29: If `container` is a struct-field access whose declared type is a
     /// float container (Vec[Float32] / Vec[Float64]), return the float LLVM
     /// type. Float Vec elements are stored as RAW BITS (val_to_i64 bitcast),
     /// so Index loads must bit-reinterpret instead of numerically converting.
     fn vec_elem_float_type(&self, container: &Expr) -> Option<&'static str> {
+        // 5c.30: local Vec bindings (`var v = Vec[Float32].new()`).
+        if let Expr::Ident(id) = container {
+            if let Some(elem) = self.local_vec_elem.get(&id.name) {
+                return match elem.as_str() {
+                    "Float32" => Some("float"),
+                    "Float64" | "Float" => Some("double"),
+                    _ => None,
+                };
+            }
+        }
         if let Expr::Field(base, field_expr, _) = container {
             let base_ty = self.infer_struct_type_name(base)?;
             for key in self.type_meta.keys() {
@@ -875,6 +956,18 @@ impl IrEmitter {
     }
 
     fn resolve_vec_elem_type(&self, container: &Expr) -> Option<String> {
+        // 5c.30: local Vec bindings (`var v = Vec[Point2D].new()`): the elem
+        // type was recorded at the let/var binding. Only struct element types
+        // are returned (primitives use the scalar elem_load path).
+        if let Expr::Ident(id) = container {
+            let elem = self.local_vec_elem.get(&id.name)?;
+            if matches!(elem.as_str(), "Int" | "Bool" | "Str" | "Float64" | "Float32" | "UInt8" | "Int8" | "Int16" | "Int32" | "UInt16" | "UInt32" | "Char" | "Float") {
+                return None;
+            }
+            return self.types.keys()
+                .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
+                .cloned();
+        }
         if let Expr::Field(base, field_expr, _) = container {
             let base_ty = self.infer_struct_type_name(base)?;
             for key in self.type_meta.keys() {
@@ -2692,6 +2785,9 @@ impl IrEmitter {
         self.fn_ptr_return_types.clear();
         self.bool_locals.clear();
         self.ptr_locals.clear();
+        self.local_vec_elem.clear();
+        self.local_opt_payload.clear();
+        self.local_boxed_struct.clear();
 
         let ret_llvm = fd.return_type.as_ref()
             .map(|t| self.llvm_type_for(&Self::type_from_ast(t)).unwrap_or_else(|_| "i64".to_string()))
@@ -4485,6 +4581,13 @@ impl IrEmitter {
                 if matches!(value, Expr::Array(..)) {
                     self.array_locals.insert(name.name.clone());
                 }
+                // 5c.30: record Vec element type for local Vec bindings.
+                if let Some(elem) = Self::vec_ctor_elem_type(value) {
+                    self.local_vec_elem.insert(name.name.clone(), elem);
+                } else {
+                    self.local_vec_elem.remove(&name.name);
+                }
+                self.track_boxed_payload_binding(&name.name, value);
                 let (val, val_llvm_ty) = self.compile_expr(value)?;
                 let declared_llvm_ty: Option<String> = _ty.as_ref().map(|t| {
                     let name = Self::type_from_ast(t);
@@ -4528,6 +4631,13 @@ impl IrEmitter {
                 if matches!(value, Expr::Array(..)) {
                     self.array_locals.insert(name.name.clone());
                 }
+                // 5c.30: record Vec element type for local Vec bindings.
+                if let Some(elem) = Self::vec_ctor_elem_type(value) {
+                    self.local_vec_elem.insert(name.name.clone(), elem);
+                } else {
+                    self.local_vec_elem.remove(&name.name);
+                }
+                self.track_boxed_payload_binding(&name.name, value);
                 let declared_llvm_ty: Option<String> = _ty.as_ref().map(|t| {
                     let name = Self::type_from_ast(t);
                     self.llvm_type_for(&name).unwrap_or_else(|_| "i64".to_string())
@@ -6126,6 +6236,35 @@ impl IrEmitter {
                 // Simplified field access: if the object is an ident in locals, load the field via GEP
                 if let Expr::Ident(obj_ident) = obj.as_ref() {
                     if let Some((ptr, llvm_ty)) = self.lookup_local(&obj_ident.name).cloned() {
+                        // 5c.30: i64 local holding a BOXED struct pointer (from
+                        // `opt.unwrap()` of a Vec-of-struct pop/get): typed
+                        // inttoptr + GEP field access on the heap box.
+                        if llvm_ty == "i64" {
+                            if let Some(tn) = self.local_boxed_struct.get(&obj_ident.name).cloned() {
+                                if let Some(field_names) = self.types.get(&tn)
+                                    .or_else(|| {
+                                        let suffix = format!(".{tn}");
+                                        self.types.keys().find(|k| k.ends_with(&suffix))
+                                            .and_then(|k| self.types.get(k))
+                                    })
+                                    .cloned()
+                                {
+                                    if let Some(fi) = field_names.iter().position(|f| f == &field.name) {
+                                        let sty = format!("%struct.{tn}");
+                                        let field_llvm_ty = self.field_llvm_type(&tn, fi);
+                                        let hv = self.fresh_tmp();
+                                        self.emitln(&format!("  {hv} = load i64, i64* {ptr}"));
+                                        let sp = self.fresh_tmp();
+                                        self.emitln(&format!("  {sp} = inttoptr i64 {hv} to {sty}*"));
+                                        let gp = self.fresh_tmp();
+                                        let ld = self.fresh_tmp();
+                                        self.emitln(&format!("  {gp} = getelementptr {sty}, {sty}* {sp}, i32 0, i32 {fi}"));
+                                        self.emitln(&format!("  {ld} = load {field_llvm_ty}, {field_llvm_ty}* {gp}"));
+                                        return Ok((ld, field_llvm_ty));
+                                    }
+                                }
+                            }
+                        }
                         // Auto-deref a pointer-to-struct local (`p: *Struct`): load the
                         // pointer from its slot, then GEP into the pointee. Fires for
                         // struct fields whose type is a real `*Struct` (e.g. Arc's
@@ -6198,7 +6337,6 @@ impl IrEmitter {
                                         .and_then(|k| self.types.get(k))
                                 })
                             {
-                                eprintln!("[FIELD-STRUCT] FOUND fields={field_names:?}");
                                 if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
                                     let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
                                     let struct_val = self.fresh_tmp();
@@ -7069,7 +7207,7 @@ impl IrEmitter {
                                 self.emitln(&format!("  {at_off} = mul i64 {idx}, {esz}"));
                                 let at_ptr = self.fresh_tmp();
                                 self.emitln(&format!("  {at_ptr} = getelementptr i8, i8* {d_ptr}, i64 {at_off}"));
-                                let old_val = self.emit_elem_load(&at_ptr, &esz);
+                                let old_val = self.emit_elem_payload_load(receiver, &at_ptr, &esz);
                                 let next_off = self.fresh_tmp();
                                 self.emitln(&format!("  {next_off} = add i64 {at_off}, {esz}"));
                                 let next_ptr = self.fresh_tmp();
@@ -7155,7 +7293,7 @@ impl IrEmitter {
                             self.emitln(&format!("  {byte_off} = mul i64 {new_len}, {esz_val}"));
                             let elem_ptr = self.fresh_tmp();
                             self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
-                            let elem = self.emit_elem_load(&elem_ptr, &esz_val);
+                            let elem = self.emit_elem_payload_load(receiver, &elem_ptr, &esz_val);
                             let some_disc = self.fresh_tmp();
                             self.emitln(&format!("  {some_disc} = getelementptr %struct.Option, %struct.Option* {opt_alloca}, i32 0, i32 0"));
                             self.emitln(&format!("  store i64 1, i64* {some_disc}"));
@@ -7226,7 +7364,7 @@ impl IrEmitter {
                             self.emitln(&format!("  {byte_off} = mul i64 {idx}, {esz_val}"));
                             let elem_ptr = self.fresh_tmp();
                             self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
-                            let elem = self.emit_elem_load(&elem_ptr, &esz_val);
+                            let elem = self.emit_elem_payload_load(receiver, &elem_ptr, &esz_val);
                             let some_disc = self.fresh_tmp();
                             self.emitln(&format!("  {some_disc} = getelementptr %struct.Option, %struct.Option* {opt_alloca}, i32 0, i32 0"));
                             self.emitln(&format!("  store i64 1, i64* {some_disc}"));
@@ -9312,6 +9450,31 @@ impl IrEmitter {
         self.emitln(&format!("  {slot} = alloca %struct.Vec"));
         self.emit_vec_store_fields(&vec_val, &slot);
         Ok((slot, true))
+    }
+
+    /// 5c.30: Load a Vec element as an i64 Option payload. Scalars load
+    /// directly (1/2/4/8-byte widths); STRUCT elements are heap-copied and
+    /// the pointer stored as the payload — matching the val_to_i64 boxing
+    /// convention consumed by FIELD-I64 access (`popped.unwrap().x`).
+    fn emit_elem_payload_load(&mut self, container: &Expr, elem_ptr: &str, esz_val: &str) -> String {
+        if self.resolve_vec_elem_type(container).is_some() {
+            let raw = self.fresh_tmp();
+            self.emitln(&format!("  {raw} = call i8* @malloc(i64 {esz_val})"));
+            let ok = self.fresh_block("elem_box_ok");
+            let fail = self.fresh_block("elem_box_trap");
+            let chk = self.fresh_tmp();
+            self.emitln(&format!("  {chk} = icmp eq i8* {raw}, null"));
+            self.emitln(&format!("  br i1 {chk}, label %{fail}, label %{ok}"));
+            self.emitln(&format!("\n{fail}:"));
+            self.emitln("  call void @llvm.trap()");
+            self.emitln("  unreachable");
+            self.emitln(&format!("\n{ok}:"));
+            self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {raw}, i8* {elem_ptr}, i64 {esz_val}, i1 false)"));
+            let h = self.fresh_tmp();
+            self.emitln(&format!("  {h} = ptrtoint i8* {raw} to i64"));
+            return h;
+        }
+        self.emit_elem_load(elem_ptr, esz_val)
     }
 
     fn resolve_vec_value(&mut self, val: &str, ty: &str) -> (String, String) {
