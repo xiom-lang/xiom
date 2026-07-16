@@ -36,21 +36,22 @@
 
 ## 2. CANONICAL PHASE SYSTEM (Reorganized)
 
-| Phase | Codename | Focus | Status |
-|-------|----------|-------|--------|
-| 0 | Pipeline | Rust bootstrap compiler | ✅ |
-| 1 | Guardian | Core language features | ✅ |
-| 2 | Hardened | Stability + type system | ✅ |
-| 3 | ARC-C | Memory model + pointers | ✅ |
-| 4 | Or-Patterns | Pattern matching | ✅ |
-| **5a** | **Codegen Hardening** | **Compiler correctness** | **✅** |
-| **5b** | **Stdlib Completion** | **Standard library** | **✅** |
-| **5c** | **Production Toolchain** | **CLI, build, errors, robustness** | **✅ 88/98 e2e (0 checker errors, 0 codegen errors — all 10 failures are runtime)** |
-| 5d | Ecosystem & Tooling | Package manager, debugger, LSP, docs | Planned |
-| 5e | Advanced Compilation | Incremental, parallel, hot reload | Planned |
-| 5f | Verification | Z3 static verification, contract coverage | Planned |
-| 5g | Self-Hosting | XIOM compiler in XIOM | Planned (LAST) |
-| 5x | Experimental | AI-assisted features, code translator | Planned |
+| Phase | Codename | Focus | Status | Reference docs |
+|-------|----------|-------|--------|----------------|
+| 0 | Pipeline | Rust bootstrap compiler | ✅ | [COMPILER_ARCHITECTURE.md](./COMPILER_ARCHITECTURE.md) |
+| 1 | Guardian | Core language features | ✅ | — |
+| 2 | Hardened | Stability + type system | ✅ | — |
+| 3 | ARC-C | Memory model + pointers | ✅ | [ARC_A_POINTERS.md](./ARC_A_POINTERS.md) |
+| 4 | Or-Patterns | Pattern matching | ✅ | — |
+| **5a** | **Codegen Hardening** | **Compiler correctness** | **✅** | [COMPILER_ARCHITECTURE.md](./COMPILER_ARCHITECTURE.md) |
+| **5b** | **Stdlib Completion** | **Standard library** | **✅** | — |
+| **5c** | **Production Toolchain** | **CLI, build, errors, robustness** | **🚧 In progress — 90/101 e2e; 6 real bugs + e2e runner discrepancy + P0 gaps open (§5, §5c.16b)** | [PRODUCTION_HARDENING_BUGS.md](./PRODUCTION_HARDENING_BUGS.md), [COMPILER_ARCHITECTURE.md](./COMPILER_ARCHITECTURE.md) |
+| **5c-R** | **Architect-R** | **Compiler refactoring + rustc lesson adoption** | **Planned — starts after 5c stable tag (v0.46.0)** | [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md), [rust/03-borrow-checker.md](./rust/03-borrow-checker.md) |
+| 5d | Ecosystem & Tooling | Package manager, debugger, LSP, docs | Planned | [XIOM_TOOLING_SPEC.md](./XIOM_TOOLING_SPEC.md), [INFRASTRUCTURE_SETUP.md](./INFRASTRUCTURE_SETUP.md), [rust/05-diagnostics.md](./rust/05-diagnostics.md), [rust/07-stdlib.md](./rust/07-stdlib.md) |
+| 5e | Advanced Compilation | Incremental, parallel, hot reload | Planned | [rust/04-incremental-compilation.md](./rust/04-incremental-compilation.md), [rust/06-architecture.md](./rust/06-architecture.md) |
+| 5f | Verification | Z3 static verification, contract coverage | Planned | — |
+| 5g | Self-Hosting | XIOM compiler in XIOM | Planned (LAST) | [rust/RUST_COMPILER_LESSONS.md §4.5](./rust/RUST_COMPILER_LESSONS.md) |
+| 5x | Experimental | AI-assisted features, code translator | Planned | — |
 
 ---
 
@@ -66,13 +67,13 @@
 
 ---
 
-## 5. PHASE 5c — ARCHITECTURAL FEATURES (Planned)
+## 5. PHASE 5c — ARCHITECTURAL FEATURES & COMPILER GAPS (In Progress)
 
 | Item | Priority | Notes |
 |------|----------|-------|
 | Const-generic monomorphisation e2e verification | HIGH | Infra in place (`const_value_map`, `Type::Array` sub), needs test harness |
 | Derive macro codegen (`derive[Clone/Eq/Ord/Hash/Display]`) | HIGH | Partial: clone/eq/hash work for simple types |
-| Borrow checker struct-field borrows | MEDIUM | Currently whole-struct borrows only |
+| Borrow checker struct-field borrows | MEDIUM | → Moved to Phase 5c-R WS2 #1 — Place/projection model, see [rust/03-borrow-checker.md](./rust/03-borrow-checker.md) |
 | Enhanced smoke tests (rating 3-5/5 for all modules) | MEDIUM | Most at 1-2/5; path/crypto/sync/thread have good coverage |
 | `stdlib_tests.rs` (all_modules_compile_to_ir) | LOW | 37/39 failing — pre-existing type checker strictness, not regression |
 | `&mut self` support for non-generic call sites | LOW | Generic path works; non-generic needs call-site receiver injection |
@@ -114,8 +115,7 @@ All three xiom-vma source files compile with `xiomc --diagnostics=json` producin
 
 ---
 
-## 6. PHASE 5d — PRODUCTION TOOLCHAIN
-## 5. PHASE 5c — PRODUCTION TOOLCHAIN (In Progress)
+## 6. PHASE 5c — PRODUCTION TOOLCHAIN (In Progress)
 
 **Branch:** `feat/architect`
 
@@ -300,7 +300,7 @@ Compiler gaps discovered while generating production-grade Vulkan FFI bindings f
 - `glslang/`, `shaderc/`, `slang/`, `dxc/` — shader compilers
 - `spirv*/` — SPIR-V tools
 
-### 5c.13 Array-to-Vec Codegen Fix — DONE (2026-07-15)
+### 5c.13b Array-to-Vec Codegen Fix — DONE (2026-07-15)
 
 | Fix | Status | Impact |
 |-----|--------|--------|
@@ -433,7 +433,7 @@ Verified: `IpAddr.is_v4/is_v6` field access now correctly loads and compares str
 **Ecosystem:** 10/10 compile and run — 213 ecosystem tests type-check with 0 errors.
 **Gates:** 47/47 parser, 74/74 checker, 88/98 e2e.
 
-### 5c.14 Struct Pointer Coercion — DONE (2026-07-15)
+### 5c.14b Struct Pointer Coercion — DONE (2026-07-15)
 
 | Fix | Status | Impact |
 |-----|--------|--------|
@@ -454,7 +454,7 @@ All 10 failures are now RUNTIME (0 checker errors, 0 LLVM codegen errors):
 | WRONG RESULT | 3 | db, sqlite, vector | Logic errors in Vec operations, enum constructors, or float math |
 | PARSER | 1 | json | Pre-existing parse error at line 123 |
 
-### 5c.16 Ecosystem Audit — Compiler Gaps (37 modules scanned, 2026-07-15)
+### 5c.16b Ecosystem Audit — Compiler Gaps (37 modules scanned, 2026-07-15)
 
 Consolidated from all 37 `ecosystem/*/AUDIT.md` files. **28 unique gaps, 51 total module occurrences.** All are production-grade findings — no workarounds applied, only documented.
 
@@ -575,9 +575,51 @@ P2	G-27, G-28 (E001 false positives)	Non-fatal warnings; compilation succeeds
 
 ---
 
-## 6. PHASE 5d — ECOSYSTEM & TOOLING (In Progress)
+## 7. PHASE 5c-R — COMPILER REFACTORING & RUSTC ADOPTIONS (Planned)
 
-### 6.1 Package Manager + Registry (IMPROVEMENT_PLAN §5.2)
+**Codename:** Architect-R
+**Entry gate:** Phase 5c closed — 6 real bugs fixed, e2e runner discrepancy resolved, P0 gaps (G-01, G-03, G-07, G-15) done → tag **v0.46.0 stable baseline**.
+**Exit gate:** all gates green, IR golden diffs byte-identical after every refactor step, field-granular borrow tests passing.
+**Reference docs:** [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md) (synthesis), [rust/README.md](./rust/README.md) (report index).
+
+### 7.1 Workstream 1 — Mechanical Refactor (zero behavior change)
+
+Gate for every step: `diff_tests` + `full_diff_tests` byte-identical IR + full `cargo test`. One `refactor:` commit per extraction. File-size audit 2026-07-16.
+
+| Target | Current | Split into | Est. |
+|--------|---------|-----------|------|
+| `xiom-codegen/src/lib.rs` | 9,478 lines, one `impl IrEmitter` (~120 fns) | Multiple impl blocks across modules: `emitter.rs` (struct, counters, emit helpers), `types.rs` (TypeMeta, `llvm_type_for`, `type_from_ast*`), `expr.rs`, `stmt.rs`, `calls.rs` (receiver/this-self dispatch), `coerce.rs` (`val_to_i64`/`val_to_struct`/`coerce_value`), `vec_abi.rs` (elem store/load), `contracts.rs`, `derive.rs`, `mono.rs`, `builtins.rs`, `metadata.rs` (RTTI) | 3–5 d |
+| `xiom-codegen/src/continuation1.rs` | 574 lines DEAD CODE (no `mod`/`include!` reference in crate) | delete | 0.5 h |
+| `xiom-check/src/lib.rs` | 4,148 lines: ModuleCatalog + CheckedType + Checker + BorrowChecker + ~380 lines inline tests | `catalog.rs`, `types.rs`, `sigs.rs` (FnSig collection), `checker.rs` (bodies), `borrow/` (→ `place.rs`/`conflict.rs`/`moves.rs` in WS2), `errors.rs`; tests → `tests/` | 2–3 d |
+| `xiomc/src/main.rs` | 2,009 lines CLI + pipeline driver fused | lib/bin split — pipeline as library so LSP/fmt/doc/test-runner reuse it (rustc lesson: compiler is a library) | 1–2 d |
+| `xiom-lsp/src/main.rs` | 1,707 lines | defer until xiomc lib exists | — |
+
+### 7.2 Workstream 2 — rustc Lesson Adoption (P0/P1 from [RUST_COMPILER_LESSONS §4](./rust/RUST_COMPILER_LESSONS.md))
+
+| # | Item | Source report | Est. |
+|---|------|--------------|------|
+| 1 | Field-granular borrows via Place/projection model + `places_conflict` walk (absorbs 5c "struct-field borrows" item; structural fix for G-25/G-26/G-27/G-28 borrow false positives) | [rust/03-borrow-checker.md](./rust/03-borrow-checker.md) Stage A | 2–4 wk |
+| 2 | `ErrorGuaranteed` proof-of-emission + error-poisoned AST nodes (kills diagnostic cascades across checker/borrow/SMT) | [rust/05-diagnostics.md](./rust/05-diagnostics.md) | days |
+| 3 | Expected-token bitset → free "expected one of X, found Y" | [rust/01-lexer-parser.md](./rust/01-lexer-parser.md) | days |
+| 4 | Panic-mode statement recovery (emit → sync to stmt boundary → error node) | [rust/01-lexer-parser.md](./rust/01-lexer-parser.md) | days |
+| 5 | Collect/check split (all signatures before any body) + writeback certification ("every node concretely typed" before borrow check) | [rust/02-type-system.md](./rust/02-type-system.md) | 1–2 wk |
+| 6 | Type interning (`TypeId(u32)` + arena + `CONTAINS_PARAM` flag; O(1) equality, cheap mono keys) | [rust/02-type-system.md](./rust/02-type-system.md) | 1 wk |
+| 7 | `TypeCause` provenance (~8 reason codes incl. `ContractRequires`/`ContractEnsures`) | [rust/02-type-system.md](./rust/02-type-system.md) | 1 wk |
+
+### 7.3 Deferred Adoptions (land in later phases)
+
+| Item | Phase | Source |
+|------|-------|--------|
+| Error-code registry + `--explain`, JSON `rendered` field, `Applicability` enum | 5d | [rust/05-diagnostics.md](./rust/05-diagnostics.md) |
+| stdlib `sys` platform layer + naming-convention freeze (write conventions doc during 5c-R — cheap now, brutal to retrofit) | 5d | [rust/07-stdlib.md](./rust/07-stdlib.md) |
+| Level-0 per-module hash cache (prerequisite: deterministic output — clang `.ll` path embedding fix) | 5e | [rust/04-incremental-compilation.md](./rust/04-incremental-compilation.md) |
+| XIR mid-level IR (desugared+typed, shared by LLVM + SMT emission) | 5e/5f, before 5g | [rust/06-architecture.md](./rust/06-architecture.md) |
+
+---
+
+## 8. PHASE 5d — ECOSYSTEM & TOOLING (In Progress)
+
+### 8.1 Package Manager + Registry (IMPROVEMENT_PLAN §5.2)
 
 | Feature | Priority | Status |
 |---------|----------|--------|
@@ -591,7 +633,7 @@ P2	G-27, G-28 (E001 false positives)	Non-fatal warnings; compilation succeeds
 | Registry: Git repo with `packages.json` index | P1 | ✅ Designed (INFRASTRUCTURE_SETUP.md) |
 | Digital signing for official packages | P1 | TODO (Phase 5f) |
 
-### 6.2 Debugger (IMPROVEMENT_PLAN §3.1)
+### 8.2 Debugger (IMPROVEMENT_PLAN §3.1)
 
 | Feature | Priority | Status |
 |---------|----------|--------|
@@ -601,7 +643,7 @@ P2	G-27, G-28 (E001 false positives)	Non-fatal warnings; compilation succeeds
 | DAP-based debugger (VS Code / JetBrains) | P1 | TODO (external tool) |
 | Contract-aware debugging (trap → contract name) | P2 | TODO |
 
-### 6.3 LSP Enhancements (IMPROVEMENT_PLAN §3.3)
+### 8.3 LSP Enhancements (IMPROVEMENT_PLAN §3.3)
 
 | Feature | Priority | Status |
 |---------|----------|--------|
@@ -610,7 +652,7 @@ P2	G-27, G-28 (E001 false positives)	Non-fatal warnings; compilation succeeds
 | Contract lens (inline display) | P1 | TODO (xiom-lsp crate) |
 | Ownership overlay (borrow visualization) | P2 | TODO |
 
-### 6.4 Documentation Generator (IMPROVEMENT_PLAN §5.5)
+### 8.4 Documentation Generator (IMPROVEMENT_PLAN §5.5)
 
 | Feature | Priority |
 |---------|----------|
@@ -621,9 +663,11 @@ P2	G-27, G-28 (E001 false positives)	Non-fatal warnings; compilation succeeds
 
 ---
 
-## 7. PHASE 5e — ADVANCED COMPILATION (Planned)
+## 9. PHASE 5e — ADVANCED COMPILATION (Planned)
 
-### 7.1 Performance (IMPROVEMENT_PLAN §1)
+**Prerequisite (carried from 5c):** deterministic binaries — clang currently embeds the input `.ll` path in binary metadata (fix via `-ffile-prefix-map` or fixed temp `.ll` name, see §5c.13b notes). Required before any hash-based caching. Design reference: [rust/04-incremental-compilation.md](./rust/04-incremental-compilation.md) (Level 0/1/2 ladder — per-module content-hash cache first, NOT a query system).
+
+### 9.1 Performance (IMPROVEMENT_PLAN §1)
 
 | Item | Priority |
 |------|----------|
@@ -632,7 +676,7 @@ P2	G-27, G-28 (E001 false positives)	Non-fatal warnings; compilation succeeds
 | Incremental compilation (hash-based) | P1 |
 | `--watch` + `--hot-reload` (IMPROVEMENT_PLAN §2.1) | P2 |
 
-### 7.2 Compiler Resilience (IMPROVEMENT_PLAN §2)
+### 9.2 Compiler Resilience (IMPROVEMENT_PLAN §2)
 
 | Item | Priority |
 |------|----------|
@@ -642,9 +686,9 @@ P2	G-27, G-28 (E001 false positives)	Non-fatal warnings; compilation succeeds
 
 ---
 
-## 8. PHASE 5f — VERIFICATION (Planned)
+## 10. PHASE 5f — VERIFICATION (Planned)
 
-### 8.1 Contract Verification (IMPROVEMENT_PLAN §3.0)
+### 10.1 Contract Verification (IMPROVEMENT_PLAN §3.0)
 
 | Item | Priority |
 |------|----------|
@@ -655,7 +699,7 @@ P2	G-27, G-28 (E001 false positives)	Non-fatal warnings; compilation succeeds
 | Contract coverage analyzer (`xiom test --coverage`) | P1 |
 | Formal verification dashboard | P2 |
 
-### 8.2 Other Tooling
+### 10.2 Other Tooling
 
 | Item | Priority |
 |------|----------|
@@ -665,7 +709,7 @@ P2	G-27, G-28 (E001 false positives)	Non-fatal warnings; compilation succeeds
 
 ---
 
-## 9. PHASE 5g — SELF-HOSTING (Planned — LAST)
+## 11. PHASE 5g — SELF-HOSTING (Planned — LAST)
 
 **DO NOT START until Phases 5a-5f are rock-solid.**
 
@@ -685,7 +729,7 @@ P2	G-27, G-28 (E001 false positives)	Non-fatal warnings; compilation succeeds
 
 ---
 
-## 10. PHASE 5x — EXPERIMENTAL FEATURES (Planned)
+## 12. PHASE 5x — EXPERIMENTAL FEATURES (Planned)
 
 These features require more R&D before production readiness.
 
@@ -700,7 +744,7 @@ These features require more R&D before production readiness.
 
 ---
 
-## 11. RELEASE PACKAGING
+## 13. RELEASE PACKAGING
 
 **v0.45.3 Release** — built 2026-07-15 via `package.ps1 -Version 0.45.3`.
 
@@ -716,7 +760,7 @@ Stdlib resolution: `xiomc` finds stdlib via `XIOM_STDLIB` env var, `%LOCALAPPDAT
 
 ---
 
-## 12. VERIFICATION PROTOCOL
+## 14. VERIFICATION PROTOCOL
 
 ```bash
 cargo build -p xiomc
@@ -729,7 +773,7 @@ cargo test -p xiom-codegen  # all regression gates
 
 ---
 
-## 12. APPENDIX: Archival Documents
+## 15. APPENDIX: Reference Documents
 
 | Document | Status |
 |----------|--------|
@@ -738,3 +782,4 @@ cargo test -p xiom-codegen  # all regression gates
 | `docs/SESSION.md` | Session handoff |
 | `docs/ARC_A_POINTERS.md` | Pointer/reference design |
 | `docs/PRODUCTION_HARDENING_BUGS.md` | All 10 bugs documented |
+| [`docs/rust/`](./rust/README.md) (README + 8 reports) | rustc & stdlib analysis — basis for Phase 5c-R adoptions |
