@@ -145,6 +145,10 @@ pub struct IrEmitter {
     /// [field types])]). type_meta dedups payload fields by NAME, losing
     /// per-variant types (JsonValue's `val` is Bool|Float64|Str|Vec[...]).
     enum_variant_field_types: HashMap<String, Vec<(String, Vec<String>)>>,
+    /// 5c.30: declared XIOM return type per function key (with generic args,
+    /// e.g. "Result[Vec[Int], Str]") so Option/Result payload types survive
+    /// the LLVM type erasure for unwrap-binding classification.
+    fn_return_xiom: HashMap<String, String>,
     /// Temporary register values that originated from Expr::Array literals.
     /// Used by val_to_struct to distinguish array-buffer i8* from generic i8*.
     array_value_regs: HashSet<String>,
@@ -219,6 +223,7 @@ impl IrEmitter {
             local_boxed_struct: HashMap::new(),
             local_vec_handle: HashMap::new(),
             enum_variant_field_types: HashMap::new(),
+            fn_return_xiom: HashMap::new(),
             array_value_regs: HashSet::new(),
             already_declared: HashSet::new(),
             constants: HashMap::new(),
@@ -868,17 +873,82 @@ impl IrEmitter {
         }
     }
 
+    /// 5c.30: FULL type string including Option/Result payload args
+    /// ("Result[Vec[Int], Str]"). Used ONLY for fn_return_xiom — the field
+    /// registration keeps type_from_ast_with_args so Option/Result struct
+    /// fields keep their by-value layout.
+    fn type_string_full(ty: &Type) -> String {
+        match ty {
+            Type::Option(inner) => format!("Option[{}]", Self::type_string_full(inner)),
+            Type::Result(ok, err) => format!("Result[{}, {}]", Self::type_string_full(ok), Self::type_string_full(err)),
+            Type::Vec(inner) => format!("Vec[{}]", Self::type_string_full(inner)),
+            Type::Map(k, v) => format!("Map[{},{}]", Self::type_string_full(k), Self::type_string_full(v)),
+            Type::Set(inner) => format!("Set[{}]", Self::type_string_full(inner)),
+            other => Self::type_from_ast(other),
+        }
+    }
+
     /// Resolve a Vec field's element type from its container expression.
     /// For `h.entries[i].name`, the container `h.entries` has field type
     /// `Vec[HttpHeader]` in type_meta. This extracts `HttpHeader` (fully qualified).
+    /// 5c.30: For an Option[X]/Result[X, E] type string, return X (the
+    /// success payload), respecting nested brackets ("Result[Vec[Int], Str]"
+    /// → "Vec[Int]").
+    fn option_result_payload(s: &str) -> Option<String> {
+        let open = s.find('[')?;
+        let head = &s[..open];
+        if head != "Option" && head != "Result" {
+            return None;
+        }
+        let inner = &s[open + 1..s.rfind(']')?];
+        let mut depth = 0i32;
+        let mut end = inner.len();
+        for (i, c) in inner.char_indices() {
+            match c {
+                '[' => depth += 1,
+                ']' => depth -= 1,
+                ',' if depth == 0 => { end = i; break; }
+                _ => {}
+            }
+        }
+        Some(inner[..end].trim().to_string())
+    }
+
+    /// 5c.30: Resolve the declared XIOM return type of a call expression's
+    /// callee (exact key, then unique `.name` suffix match).
+    fn callee_return_xiom(&self, func: &Expr) -> Option<String> {
+        let leaf = match func {
+            Expr::Ident(id) => id.name.clone(),
+            Expr::Field(_, f, _) => f.name.clone(),
+            _ => return None,
+        };
+        if let Some(rt) = self.fn_return_xiom.get(&leaf) {
+            return Some(rt.clone());
+        }
+        let suffix = format!(".{leaf}");
+        let mut found: Option<&String> = None;
+        for (k, v) in self.fn_return_xiom.iter() {
+            if k.ends_with(&suffix) {
+                match found {
+                    None => found = Some(v),
+                    Some(prev) if prev == v => {}
+                    _ => return None, // ambiguous with different types
+                }
+            }
+        }
+        found.cloned()
+    }
+
     /// 5c.30: Track boxed-struct payload flow for a `let`/`var` binding.
     /// - `x.pop()` / `x.get(i)` on a Vec-of-struct container → the Option's
     ///   payload is a boxed struct pointer (record in local_opt_payload).
-    /// - `opt.unwrap()` where opt is such an Option → the i64 local holds
-    ///   the boxed struct pointer (record in local_boxed_struct).
+    /// - fn calls returning Option[X]/Result[X, E] → record X.
+    /// - `opt.unwrap()` where opt is such an Option → classify the binding:
+    ///   Vec[T] payloads are container HANDLES, struct payloads are boxes.
     fn track_boxed_payload_binding(&mut self, name: &str, value: &Expr) {
         self.local_opt_payload.remove(name);
         self.local_boxed_struct.remove(name);
+        self.local_vec_handle.remove(name);
         if let Expr::Call(func, _, _) = value {
             if let Expr::Field(recv, method, _) = func.as_ref() {
                 match method.name.as_str() {
@@ -886,16 +956,38 @@ impl IrEmitter {
                     "pop" | "get" | "remove" => {
                         if let Some(elem_ty) = self.resolve_vec_elem_type(recv) {
                             self.local_opt_payload.insert(name.to_string(), elem_ty);
+                            return;
                         }
                     }
                     "unwrap" | "unwrap_or" => {
                         if let Expr::Ident(opt_id) = recv.as_ref() {
                             if let Some(t) = self.local_opt_payload.get(&opt_id.name).cloned() {
-                                self.local_boxed_struct.insert(name.to_string(), t);
+                                if let Some(elem) = t.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
+                                    self.local_vec_handle.insert(name.to_string(), elem.to_string());
+                                } else {
+                                    self.local_boxed_struct.insert(name.to_string(), t);
+                                }
+                                return;
                             }
                         }
                     }
                     _ => {}
+                }
+            }
+            // General call returning Option[X]/Result[X, E]: record X so a
+            // later `.unwrap()` binding can be classified.
+            if let Some(ret) = self.callee_return_xiom(func) {
+                if let Some(payload) = Self::option_result_payload(&ret) {
+                    // Struct payload names are stored qualified when possible.
+                    let stored = if payload.contains('[') {
+                        payload
+                    } else {
+                        self.types.keys()
+                            .find(|k| k.ends_with(&format!(".{payload}")) || k.as_str() == payload)
+                            .cloned()
+                            .unwrap_or(payload)
+                    };
+                    self.local_opt_payload.insert(name.to_string(), stored);
                 }
             }
         }
@@ -2611,6 +2703,11 @@ impl IrEmitter {
                 .unwrap_or_else(|| "void".to_string());
             let key = self.fn_key(fd);
             self.functions.insert(key.clone(), (param_types.clone(), ret_type.clone()));
+            // 5c.30: keep the declared XIOM return type WITH generic args so
+            // Option/Result payload types survive LLVM erasure.
+            if let Some(rt) = fd.return_type.as_ref() {
+                self.fn_return_xiom.insert(key.clone(), Self::type_string_full(rt));
+            }
             // Detect interface-typed params: store these functions so call sites
             // can monomorphise them for each concrete implementor (BUG-007).
             let has_iface_param = fd.params.iter().any(|p| {

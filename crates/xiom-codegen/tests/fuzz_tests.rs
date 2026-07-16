@@ -20,10 +20,21 @@ use xiom_codegen::IrEmitter;
 
 /// Full in-process compile pipeline. Returns Ok(ir) or Err(msg). MUST NOT panic.
 fn compile(source: &str) -> Result<String, String> {
-    let tokens = Lexer::new(source).tokenize();
-    let program = Parser::new(tokens).parse_program().map_err(|e| e.to_string())?;
-    let mut emitter = IrEmitter::new();
-    emitter.compile_program(&program)
+    // Run on a dedicated big-stack thread: `compile_expr` has very large
+    // debug-build frames and Rust test threads default to a 2MB stack —
+    // nested expressions overflowed at trivial depth (5c.30).
+    let src = source.to_string();
+    std::thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(move || {
+            let tokens = Lexer::new(&src).tokenize();
+            let program = Parser::new(tokens).parse_program().map_err(|e| e.to_string())?;
+            let mut emitter = IrEmitter::new();
+            emitter.compile_program(&program)
+        })
+        .expect("spawn compile thread")
+        .join()
+        .expect("compile thread must not panic")
 }
 
 /// Run the pipeline inside `catch_unwind` and assert it did NOT panic.
