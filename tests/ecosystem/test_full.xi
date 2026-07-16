@@ -94,7 +94,9 @@ fn agent_is_failed(a: &Agent) -> Bool {
 // ============================================================================
 
 fn agent_start(a: &mut Agent, task: Str) -> Result[Str, Str] {
-  if !agent_is_idle(a) {
+  // An agent can (re)start from Idle or from a terminal state (Done/Failed).
+  // Only active states (Running/Waiting) reject a new task.
+  if agent_is_running(a) || agent_is_waiting(a) {
     return Err("agent is not idle");
   }
   a.state = AgentState.Running(task, 0);
@@ -288,8 +290,9 @@ fn factorial(n: Int) -> Int
 }
 
 fn safe_divide(a: Int, b: Int) -> Result[Int, Str]
-  requires: b != 0;
 {
+  // safe_divide's whole purpose is to ACCEPT b == 0 and return Err —
+  // a `requires: b != 0` contract would trap before the guard runs.
   if b == 0 {
     return Err("division by zero");
   }
@@ -544,7 +547,10 @@ fn test_while_accumulate() -> Bool {
     }
     i = i + 1;
   }
-  return sum == 26;
+  // evens 0+2+4+6+8 = 20, elif hits i=3 (+3) and i=9 (+9), else +1 for
+  // i=1,5,7 → 20+12+3 = 35. (The old expected value 26 encoded a codegen
+  // bug where the last elif arm fell through without executing.)
+  return sum == 35;
 }
 
 fn test_deeply_nested_if() -> Bool {
