@@ -2803,13 +2803,30 @@ impl IrEmitter {
             }
             for var_name in &pre_vars {
                 if let Some((ptr, llvm_ty)) = self.lookup_local(var_name).cloned() {
-                    let pre_alloca = self.fresh_tmp();
-                    self.emitln(&format!("  {pre_alloca} = alloca {llvm_ty}"));
-                    let loaded = self.fresh_tmp();
-                    self.emitln(&format!("  {loaded} = load {llvm_ty}, {llvm_ty}* {ptr}"));
-                    self.emitln(&format!("  store {llvm_ty} {loaded}, {llvm_ty}* {pre_alloca}"));
-                    let pre_name = format!("__{}_pre", var_name);
-                    self.add_local(&pre_name, pre_alloca, &llvm_ty);
+                    // For `&mut T` parameters (llvm_ty ends with `*`), the local
+                    // holds a pointer. We must snapshot the POINTED-TO VALUE, not
+                    // the pointer itself. Alloca the inner struct type, dereference
+                    // the pointer, and store the struct copy.
+                    if llvm_ty.ends_with('*') {
+                        let inner_ty = llvm_ty.trim_end_matches('*');
+                        let pre_alloca = self.fresh_tmp();
+                        self.emitln(&format!("  {pre_alloca} = alloca {inner_ty}"));
+                        let loaded_ptr = self.fresh_tmp();
+                        self.emitln(&format!("  {loaded_ptr} = load {llvm_ty}, {llvm_ty}* {ptr}"));
+                        let loaded_val = self.fresh_tmp();
+                        self.emitln(&format!("  {loaded_val} = load {inner_ty}, {inner_ty}* {loaded_ptr}"));
+                        self.emitln(&format!("  store {inner_ty} {loaded_val}, {inner_ty}* {pre_alloca}"));
+                        let pre_name = format!("__{}_pre", var_name);
+                        self.add_local(&pre_name, pre_alloca, inner_ty);
+                    } else {
+                        let pre_alloca = self.fresh_tmp();
+                        self.emitln(&format!("  {pre_alloca} = alloca {llvm_ty}"));
+                        let loaded = self.fresh_tmp();
+                        self.emitln(&format!("  {loaded} = load {llvm_ty}, {llvm_ty}* {ptr}"));
+                        self.emitln(&format!("  store {llvm_ty} {loaded}, {llvm_ty}* {pre_alloca}"));
+                        let pre_name = format!("__{}_pre", var_name);
+                        self.add_local(&pre_name, pre_alloca, &llvm_ty);
+                    }
                 }
             }
             // Also snapshot self receiver (backward compat)
