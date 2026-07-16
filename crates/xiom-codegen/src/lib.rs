@@ -4497,7 +4497,7 @@ impl IrEmitter {
                         let store_i64 = self.val_to_i64(&val, &val_ty);
                         let vslot = self.fresh_tmp();
                         self.emitln(&format!("  {vslot} = alloca %struct.Vec"));
-                        self.emitln(&format!("  store volatile %struct.Vec {vec_val}, %struct.Vec* {vslot}"));
+                        self.emit_vec_store_fields(&vec_val, &vslot);
                         // Load elem_size from field 3
                         let esz_gep = self.fresh_tmp();
                         let esz_val = self.fresh_tmp();
@@ -6712,7 +6712,7 @@ impl IrEmitter {
                             let (recv_vec, _) = self.resolve_vec_value(&recv_val, &recv_actual_ty);
                             let vec_alloca = self.fresh_tmp();
                             self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
-                            self.emitln(&format!("  store volatile %struct.Vec {recv_vec}, %struct.Vec* {vec_alloca}"));
+                            self.emit_vec_store_fields(&recv_vec, &vec_alloca);
                             let len_gep = self.fresh_tmp();
                             self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 1"));
                             let len_val = self.fresh_tmp();
@@ -6787,7 +6787,7 @@ impl IrEmitter {
                             let idx = self.val_to_i64(&idx_raw, &idx_ty);
                             let vec_alloca = self.fresh_tmp();
                             self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
-                            self.emitln(&format!("  store volatile %struct.Vec {recv_vec}, %struct.Vec* {vec_alloca}"));
+                            self.emit_vec_store_fields(&recv_vec, &vec_alloca);
                             let len_gep = self.fresh_tmp();
                             self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 1"));
                             let len_val = self.fresh_tmp();
@@ -6847,7 +6847,7 @@ impl IrEmitter {
                         let (recv_val, _) = self.compile_expr(receiver)?;
                         let vec_alloca = self.fresh_tmp();
                         self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
-                        self.emitln(&format!("  store volatile %struct.Vec {recv_val}, %struct.Vec* {vec_alloca}"));
+                        self.emit_vec_store_fields(&recv_val, &vec_alloca);
                         let len_gep = self.fresh_tmp();
                         let len_val = self.fresh_tmp();
                         self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 1"));
@@ -7903,7 +7903,7 @@ impl IrEmitter {
                     let vslot_i8 = self.fresh_tmp();
                     self.emitln(&format!("  {vslot_i8} = bitcast %struct.Vec* {vslot} to i8*"));
                     self.emitln(&format!("  call void @llvm.memset.p0i8.i64(i8* {vslot_i8}, i8 0, i64 32, i1 false)"));
-                    self.emitln(&format!("  store volatile %struct.Vec {vec_val}, %struct.Vec* {vslot}"));
+                    self.emit_vec_store_fields(&vec_val, &vslot);
                     // Load elem_size from field 3
                     let esz_gep = self.fresh_tmp();
                     let esz_val = self.fresh_tmp();
@@ -8814,6 +8814,19 @@ impl IrEmitter {
             return (loaded, inner_ty.to_string());
         }
         (val.to_string(), ty.to_string())
+    }
+
+    /// Emit per-field stores of a `%struct.Vec` SSA value into an alloca.
+    /// Uses extractvalue+GEP+store for each of the 4 fields to prevent LLVM
+    /// from decomposing the aggregate store and skipping "dead" fields (5c.28).
+    fn emit_vec_store_fields(&mut self, vec_val: &str, dest_alloca: &str) {
+        for (fi, ty) in [(0, "i8*"), (1, "i64"), (2, "i64"), (3, "i64")] {
+            let fval = self.fresh_tmp();
+            let gep = self.fresh_tmp();
+            self.emitln(&format!("  {fval} = extractvalue %struct.Vec {vec_val}, {fi}"));
+            self.emitln(&format!("  {gep} = getelementptr %struct.Vec, %struct.Vec* {dest_alloca}, i32 0, i32 {fi}"));
+            self.emitln(&format!("  store {ty} {fval}, {ty}* {gep}"));
+        }
     }
 
     /// Emit a store of an i64 value at `dest` (i8*) using the element width from
