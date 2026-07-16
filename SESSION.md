@@ -1,60 +1,96 @@
-# XIOM — Session Handoff: v0.45.3 "Phase 5c Production Hardening"
+# XIOM — Session Handoff: v0.45.4 "Phase 5c.29–5c.30 — 101/101 E2E"
 
-**Date:** 2026-07-16
+**Date:** 2026-07-17
 **Branch:** `feat/architect`
-**Status:** 47/47 parser, 74/74 checker, 32/41 smoke, **90/101 e2e**
-**Manual pass:** NET, DB, VECTOR, HTTP, SQLITE (5 tests pass manually, fail in e2e runner)
+**Status:** 47/47 parser, 74/74 checker, **101/101 e2e** (was 90/101), 36/41 stdlib-exec (was 30/41)
+**Deterministic builds:** same IR ⇒ byte-identical binary (verified by SHA256)
 
 ---
 
-## COMPLETED — 18 Production-Grade Fixes (5c.18–5c.28)
+## THE BIG PICTURE — What this session proved
 
-### 5c.18: `Expr::Ref` GEP for `&this.field` (NET: ACCESS_VIOLATION → exit 1)
-### 5c.19: `struct_type_from_expr` `this`→`self` remapping (JSON/HTTP compilation fixed)
-### 5c.20: Instance method receiver via pointer in param_types
-### 5c.21: Vec-of-struct size-aware storage (elem_size = field_count × 8, memcpy)
-### 5c.22: `field_llvm_type` generic-arg stripping → **REVERTED in 5c.28** (caused NET crash)
-### 5c.23: `resolve_vec_elem_type` primitive filter (prevents %struct.Int)
-### 5c.24: FIELD-I64 inttoptr for bare Vec index (scoped to Expr::Index on Ident)
-### 5c.25: @pre snapshot dereferences &mut pointers for by-value struct copy
-### 5c.26: fn-ptr as value resolves function name to pointer (FNPTR: ACCESS_VIOLATION → exit 1)
-### 5c.27: `store_back_to_receiver` handles Expr::Field receivers
-### 5c.28: Comprehensive counter pattern fix package:
-  - a) Fixed `[512 x i8]` entry-block buffer (replaces variable `alloca i8, i64`)
-  - b) `volatile` for ALL struct stores/loads (prevents LLVM SROA decomposition)
-  - c) `extractvalue` per-field Vec stores (`emit_vec_store_fields`)
-  - d) `insertvalue` per-field Vec loads (`emit_vec_load_fields`)
-  - e) Removed >8 memcpy path from `emit_elem_load`
-  - f) `select` size clamp (min(esz, 512)) for memcpy
-  - g) 2MB stack reserve (`/STACK:2097152,2097152`)
-  - h) **`field_llvm_type` returns `"i64"` for generic types** (Vec[Int] etc.) — the key fix
-  - i) `is_container_vec_field` + `inttoptr` i64→%struct.Vec in Index handler
+The "manual pass / e2e fail" discrepancy was NOT a runner bug. Clang embeds the
+input `.ll` path in the binary; different names shifted binary layout and a
+LATENT memory-corruption bug (container-handle convention had readers but no
+writers) manifested or hid depending on layout. Making builds deterministic
+(5c.29) turned the heisenbug into a stable, debuggable crash — then the real
+bug chain was fixed one root cause at a time.
 
 ---
 
-## E2E STATUS — 90/101 (11 failing)
+## 5c.29 — Deterministic builds + container-handle convention
 
-### Passing manually (exit 0), fail in e2e runner (filename-dependent):
-| Test | Manual | E2E | Root Cause |
-|------|--------|-----|------------|
-| NET (22 tests) | ✅ 0 | -1073741819 | Fixed by 5c.28h+5c.28i |
-| DB (18 tests) | ✅ 0 | -1073741819 | Fixed by 5c.28a (__chkstk) |
-| VECTOR (32 tests) | ✅ 0 | -1073741819 | Fixed by 5c.28a (__chkstk) |
-| HTTP (18 tests) | ✅ 0 | -1073741819 | Fixed by 5c.28i (inttoptr) |
-| SQLITE (23 tests) | ✅ 0 | -1073741819 | Fixed by 5c.28i (inttoptr) |
+1. **Driver (`crates/xiomc/src/main.rs`)**: stage post-opt IR into the unique
+   temp CWD under FIXED name `xiomc_input.ll`, pass RELATIVE path to clang,
+   add `/Brepro`. Same source + different `-o` names ⇒ equal SHA256.
+2. **Handle convention completed**: generic container fields (`Vec[T]`) are
+   i64 HANDLES (5c.28h). Readers existed (Index inttoptr, val_to_struct
+   memcpy) but NO writer ever produced a handle:
+   - struct literals / field assignment now heap-box the header
+     (`emit_box_struct_handle`) and store `ptrtoint`
+   - `store_back_to_receiver` writes updated headers THROUGH the handle
+   - all Vec builtin gates (push/pop/get/len/index/indexed-assign) accept
+     handle receivers via `resolve_vec_receiver`
+3. **Element widths**: `emit_elem_store/load` now use real 1/2/4/8-byte
+   accesses (all non-8 widths were collapsed to 1 byte — destroyed
+   Float32/Int32/Int16 elements). Float elements bit-reinterpret (raw-bits
+   convention), never sitofp.
+4. **Method ABI**: definitions no longer emit `%param_self` for ecosystem
+   style methods (`fn T.method(h: &T, ...)`) — registration, call sites and
+   definitions now agree (HTTP/SQLITE AV root cause: every arg was shifted).
+5. **Inline `Vec.insert` / `Vec.remove`** (llvm.memmove, element-size
+   agnostic) — generic stdlib dispatch misrouted container-field receivers
+   to argument-less stubs (`@Map.insert()` called with 3 args).
+6. **elif-without-else merge blocks**: stray `unreachable` before live code
+   (HTTP from_str trap; also the FULL `while_accumulate` bug encoding).
+7. Enum fixes: qualified variant patterns resolve discriminants
+   (`SqliteValue.Integer(v)`), float payloads stored as raw bits (fptosi
+   destroyed `Real(2.718)` → 2), match on unwrapped i64 enum payloads adopts
+   the unique candidate enum, user-defined `Type.to_str` no longer hijacked.
 
-### REAL BUGS (crash/fail in both manual and e2e):
-| Test | Manual | Type | Root Cause |
-|------|--------|------|------------|
-| **CRYPTO** (23 tests) | -2147483645 | BREAKPOINT (llvm.trap) | Pre-existing since c6e9804 |
-| **FULL** (30 tests) | -1073741819 | ACCESS_VIOLATION | strlen crash in xiom_str_concat (contracts) |
-| **TEST** (20 tests) | -1073741819 | ACCESS_VIOLATION | This-based method dispatch |
-| **JSON** (29 tests) | 1 | Exit 1 (wrong results) | Copy trait G-25/G-26 |
-| **VOS** (4 tests) | 1 | Exit 1 (assertion) | passed counter issue (all ops verified working) |
-| **TFR** (7 tests) | 1 | Exit 1 (assertion) | this_field_ref string comparisons |
+## 5c.30 — Type-erasure recovery + payload flow tracking
 
-### Already passing in e2e:
-- **FNPTR** — fixed in 5c.26 + assertion updated to Some(1)
+- `local_vec_elem`: `var v = Vec[Point2D].new()` elem types per local
+- `local_vec_handle`: match-arm container payload bindings
+  (`JsonValue.Array(ref mut items)` — mutations alias the original enum)
+- `local_boxed_struct` / `local_opt_payload`: pop/get/remove → unwrap flow
+- `fn_return_xiom` + `type_string_full`: declared `Result[Vec[Int], Str]`
+  return types survive erasure; unwrap bindings classified as handle or box
+- `enum_variant_field_types`: per-variant payload types (type_meta dedups by
+  name — JsonValue's `val` was Bool|Float64|Str|Vec[...])
+- `struct_byte_size`: real layout size incl. nested by-value structs
+  (JsonEntry = 24B, not fields×8 = 16B) at Vec.new/val_to_struct/boxing
+- pop/get/remove box STRUCT payloads (`emit_elem_payload_load`)
+- `&local.field` emits a real GEP (was: bare field name captured any local
+  with that name — TFR test 7 bound `&addr3.ip` to local `ip`)
+- this-based receivers from unwrap boxes: inttoptr directly to pointer
+  receiver (loading through it read the discriminant as an address)
+
+## Test-file corrections (encoded old miscompilations)
+
+- `test_full.xi`: `safe_divide` had `requires: b != 0` while its tests pass
+  b=0 expecting Err (contract trap fired first); `test_while_accumulate`
+  expected 26 — the value only produced by the old elif-fallthrough bug
+  (correct: 35); `agent_start` now restarts from Done/Failed (the run-cycle
+  test has no reset transition and only "passed" under miscompiled enums).
+- Fuzz/robustness harnesses compile on a 32MB stack thread (2MB test-thread
+  default overflows on compile_expr debug frames).
+
+---
+
+## GATE STATUS
+
+| Suite | Result | Notes |
+|-------|--------|-------|
+| e2e_tests | **101/101** ✅ | was 90/101 |
+| parser / checker | 47/47, 74/74 ✅ | |
+| stdlib_execution | 36/41 | 5 PRE-EXISTING: array, core, serialize, ptr, mem (checker: bare receiver-field refs) |
+| feature_regression | 48/48 ✅ | |
+| integration | 119/119 ✅ | |
+| fuzz / robustness | 23 + 29 ✅ | big-stack harness |
+| diff_tests | 24/25 | PRE-EXISTING: selfhost expects unqualified `call @compile_all` |
+| full_diff | 23/23 ✅ | |
+| stdlib_tests (module compile) | 2/39 | PRE-EXISTING checker gap (same errors on baseline f35a0cc) |
 
 ---
 
@@ -62,134 +98,46 @@
 
 | File | Purpose |
 |------|---------|
-| `crates/xiom-codegen/src/lib.rs` | Main codegen (9116 lines) — ALL fixes go here |
-| `crates/xiomc/src/main.rs` | CLI driver, clang invocation, temp dir handling |
-| `crates/xiom-parser/src/lib.rs` | Parser |
-| `crates/xiom-check/src/lib.rs` | Type checker |
-| `crates/xiom-codegen/tests/e2e_tests.rs` | E2E test runner (`compile_and_run`) |
-| `tests/ecosystem/test_*.xi` | Ecosystem test files |
-| `docs/ROADMAP.md` | Project roadmap and gap tracking |
-| `stdlib/runtime/xiom_runtime.c` | C runtime (malloc, free, str_concat, etc.) |
+| `crates/xiom-codegen/src/lib.rs` | Main codegen (~10.1k lines) — all 5c.29/5c.30 fixes |
+| `crates/xiomc/src/main.rs` | Deterministic staged-.ll clang invocation |
+| `crates/xiom-codegen/tests/e2e_tests.rs` | E2E runner |
+| `tests/ecosystem/test_*.xi` | Ecosystem tests |
+| `docs/ROADMAP.md` | Updated gate table + 5c.29/5c.30 summary |
 
----
+## DEBUGGER WORKFLOW (unchanged)
 
-## DEBUGGER WORKFLOW (cdbX64.exe)
-
-**Location:** `C:\Users\lefte\AppData\Local\Microsoft\WindowsApps\cdbX64.exe`
-
-### Compile with debug symbols:
-1. Edit `crates/xiomc/src/main.rs` — add `cmd.arg("-g");` after `let mut cmd = Command::new(&clang_path);`
-2. `cargo build -p xiomc`
-3. Compile test: `xiomc.exe -o test_dbg.exe tests/ecosystem/test_xxx.xi`
-
-### Run under cdb:
-```powershell
-# Script file (cdb_cmds.txt):
-g
-k 10
-q
-
-# Invoke:
-cdbX64.exe -cf cdb_cmds.txt -g test_dbg.exe
-```
-
-### Key cdb commands:
-- `g` — continue execution
-- `k 10` — show 10 frames of call stack
-- `r rcx, rdx, r8` — show register values (Windows x64 calling convention: rcx=arg1, rdx=arg2, r8=arg3)
-- `.exr -1` — show exception record
-- `bp <function>` — set breakpoint
-- `u .` — disassemble at current instruction
-- `q` — quit
-
-### What we traced:
-1. **NET STACK_OVERFLOW** → `__chkstk` in `test_ipv6_all_zeros` → variable `alloca i8, i64 {esz_val}` → fixed to `[512 x i8]`
-2. **NET ACCESS_VIOLATION** → `memcpy+0x17d` reading from `rdx` (dangling Vec data ptr `0x00001041_640c80a8`) → field_llvm_type returning %struct.Vec caused Win64 sret corruption
-3. **NET ACCESS_VIOLATION (after fix)** → `movzx ecx, [rcx]` (narrow path) — same dangling pointer, different path
-4. **FULL ACCESS_VIOLATION** → `strlen+0x10` ← `xiom_str_concat` ← `agent_wait` — string operation with invalid pointer
-
----
-
-## ROOT CAUSE — Win64 sret + field_llvm_type
-
-**The most impactful fix (5c.28h):** `field_llvm_type` returning `"%struct.Vec"` for `Vec[Int]` fields made the IpAddr struct 40 bytes. On Win64, structs >32 bytes are returned via **sret** (hidden pointer). The callee wrote 40 bytes but the caller's buffer was incorrectly sized, corrupting the Vec data pointer field.
-
-**Fix:** Return `"i64"` for ALL generic field types containing `[` (Vec[Int], Map[Str,Int], etc.). The correct Vec type is resolved later in the Index handler via `is_container_vec_field` + `inttoptr` conversion.
-
----
-
-## E2E RUNNER DISCREPANCY — Clang Embeds Input Path
-
-**Root cause:** Clang embeds the input `.ll` file path in the binary metadata. Different output names → different `.ll` paths → different binary hashes → different runtime behavior.
-
-**Verified:** Same IR content compiled with different `.ll` filenames produces different binaries (`False` on hash comparison). Same IR + same `.ll` filename = identical binaries.
-
-**Fix pending:** Use `-ffile-prefix-map=.` in clang flags, or use fixed temp `.ll` name.
+`C:\Users\lefte\AppData\Local\Microsoft\WindowsApps\cdbX64.exe`
+Compile with `--debug`, script: `g` / `k 10` / `r rcx,rdx,r8` / `.exr -1` / `q`.
+Diagnosis pattern used all session: per-test diagnostic mains that return the
+1-based index of the first failing test (binary-search-free isolation).
 
 ---
 
 ## NEXT SESSION PRIORITIES
 
-### P0 — Apply e2e runner fix (clang path embedding)
-- Add `-ffile-prefix-map=.` to clang flags in `crates/xiomc/src/main.rs`
-- Or: use fixed temp `.ll` name like `%TEMP%/xiomc_output.ll`
-- This should make DB/VECTOR/NET/HTTP/SQLITE pass in e2e runner → ~95/101
+### P1 — stdlib module compilation (5 modules)
+`array/core/serialize/ptr/mem` fail type-check: bare receiver-field
+references (`len`, `cap`, `data`) inside generic `Vec.x[T]` methods are not
+resolved by the checker. Fix in `xiom-check` (implicit-this field scope for
+receiver-qualified generic fns) → unlocks stdlib_tests + the 5 exec tests.
 
-### P1 — Fix remaining ACCESS_VIOLATION tests
-- **FULL:** strlen crash in contracts — trace with cdb to find which string is invalid
-- **TEST:** this-based method dispatch crash — trace with cdb
+### P2 — selfhost diff test
+Emission is `call @codegen.compile_all` (module-qualified); the test expects
+unqualified. Decide canonical policy (prefer qualified; update test).
 
-### P2 — Fix wrong results (exit 1)
-- **JSON:** Copy trait for Int/Bool/Float64 — checker change
-- **VOS:** passed counter assertion — individual ops verified working
-- **TFR:** string comparison assertions
+### P3 — hardening depth
+- untracked expression positions for local Vec[Float32] (payload typing map
+  covers bindings, not arbitrary temporaries)
+- enum-variant struct-literal path (`Expr::Struct` enum branch) does not
+  heap-box container payloads yet (constructor path does)
 
-### P3 — Fix CRYPTO BREAKPOINT
-- Pre-existing since c6e9804, llvm.trap() — likely runtime depth limit or assert
-
----
-
-## GIT LOG (recent)
+## GIT LOG (this session)
 ```
-6c5983a fix(codegen): 5c.28 i64->%struct.Vec inttoptr for generic field types
-0c504ee fix(codegen): 5c.28 return i64 for generic field types — stops Win64 sret corruption
-b5abe86 fix(codegen): 5c.28 volatile for ALL dynamic struct stores
-e244b4f fix(codegen): 5c.28 emit_vec_load_fields — per-field Vec loads via insertvalue
-4e8a121 fix(codegen): 5c.28 remove >8 path from emit_elem_load
-488ba68 fix(codegen): 5c.28 extractvalue+individual stores for Vec push path
-59a57ae fix(codegen): 5c.28 extractvalue for push + zero-init memset
-c430828 fix(codegen): 5c.28 volatile load+store for all struct operations
-651828b fix(codegen): 5c.28 null-guard + size-clamp for memcpy
-ba5639f fix(codegen): 5c.28 fixed buffer + clamp + 2MB stack
-3b8937b fix(codegen): 5c.27 store_back_to_receiver handles Expr::Field receivers
-17989b4 fix(codegen): 5c.28 replace alloca i8,i64 with [512 x i8] buffer
-17a7f03 fix(codegen): 5c.26 fn-ptr as value
-69f3e08 fix(codegen): 5c.25 @pre snapshot &mut deref
-```
-
----
-
-## NEXT SESSION PROMPT
-
-```
-Continue XIOM compiler production hardening from SESSION.md (v0.45.3).
-Branch: feat/architect. 90/101 e2e, 5 tests pass manually.
-
-KEY FIX TO APPLY FIRST: E2E runner discrepancy — clang embeds .ll path.
-Add -ffile-prefix-map=. to clang flags in crates/xiomc/src/main.rs,
-or use fixed temp .ll name. This should make NET/DB/VECTOR/HTTP/SQLITE
-pass in e2e runner (~95/101).
-
-Then continue with remaining bugs:
-- FULL: strlen crash in contracts (trace with cdb)
-- TEST: this-based dispatch crash
-- JSON: Copy trait (G-25/G-26)
-- VOS/TFR: assertion-level failures
-- CRYPTO: BREAKPOINT (pre-existing)
-
-KEY FILES: SESSION.md, docs/ROADMAP.md
-crates/xiom-codegen/src/lib.rs, crates/xiomc/src/main.rs
-tests/ecosystem/test_*.xi
-
-DEBUGGER: C:\Users\lefte\AppData\Local\Microsoft\WindowsApps\cdbX64.exe
+88badd4 fix(codegen): 5c.30 Option/Result payload type tracking - CRYPTO 23/23, e2e 101/101
+5494cd2 fix(tests): 5c.30 FULL - remove contradictory contract, correct elif expectation
+10570e9 fix(codegen): 5c.30 enum payload conventions - JSON 29/29
+ab3fcb0 fix(codegen): 5c.30 local Vec-of-struct element typing + boxed Option payloads (VOS)
+c603de6 fix(codegen): 5c.30 &local.field emits real GEP
+7cf7a5b fix(codegen): 5c.29 container-handle convention + 9 production fixes (90->96 e2e)
+ab588e2 fix(xiomc): 5c.29 deterministic builds - fixed staged .ll name + /Brepro
 ```

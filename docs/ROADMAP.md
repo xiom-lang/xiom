@@ -1,24 +1,45 @@
 # XIOM Compiler — Production Roadmap
 
-**Current:** v0.45.3 "Phase 5c" — 32/41 smoke, 90/101 e2e, 47/47 parser, 74/74 checker, all gates green
+**Current:** v0.45.4 "Phase 5c" — **101/101 e2e**, 36/41 stdlib-exec, 47/47 parser, 74/74 checker, deterministic builds
 **Branch:** `feat/architect` (Phase 5c)
 **Target:** v1.0.0 self-hosting compiler (AFTER ecosystem is complete)
 
 ---
 
-## 1. CURRENT STATE (2026-07-14)
+## 1. CURRENT STATE (2026-07-17)
 
 | Gate | Count | Status |
 |------|-------|--------|
 | Parser tests | 47/47 | ✅ |
 | Checker tests | 74/74 | ✅ |
-| Stdlib execution (smoke) | 41/41 (0 ignored) | ✅ |
-| E2E tests | 85/85 | ✅ |
+| **E2E tests** | **101/101** | ✅ **ALL GREEN (was 90/101)** |
+| Stdlib execution | 36/41 | 🚧 5 pre-existing module failures (array/core/serialize/ptr/mem) |
 | Feature regression | 48/48 | ✅ |
-| Integration regression | 119 | ✅ |
-| Other regression (diff, fulldiff, fuzz, robustness) | 100 combined | ✅ |
+| Integration regression | 119/119 | ✅ |
+| Fuzz / Robustness | 23+29 | ✅ (big-stack harness) |
+| Diff / FullDiff | 24/25 + 23/23 | 🚧 1 pre-existing selfhost assertion (qualified call emission) |
+| **Deterministic builds** | same IR ⇒ same SHA256 | ✅ 5c.29 (fixed .ll name + /Brepro) |
 
-### Bugs: ALL 10 RESOLVED
+### Phase 5c.29–5c.30: ALL 6 PRODUCTION BUGS RESOLVED (was: NET/DB/VECTOR/HTTP/SQLITE/CRYPTO/FULL/JSON/VOS/TFR/TEST failing or layout-lucky)
+
+| Bug | Root cause | Fix |
+|-----|-----------|-----|
+| E2E runner discrepancy | clang embeds input `.ll` path → layout-dependent latent bugs | fixed staged `.ll` name + `/Brepro` (5c.29) |
+| NET/VECTOR/HTTP/SQLITE AV | container-handle convention had readers but NO writers (32-byte header stored in 8-byte i64 slot) | heap-boxed handles at every writer + handle-aware receivers (5c.29) |
+| Float32/Int16/Int32 Vec elements | elem store/load collapsed all non-8 widths to 1 byte; sitofp on raw bits | real 1/2/4/8-byte widths + bit-reinterpret (5c.29) |
+| Method ABI mismatch | defs emitted `%param_self` that no call site passed (ecosystem `fn T.m(h: &T)` style) | def emission mirrors registration (5c.29) |
+| JSON | enum payload conventions: per-variant types lost, Vec payload stored as `Vec.data`, float payloads fptosi'd | enum_variant_field_types + boxed payloads + raw-bits floats (5c.30) |
+| VOS/CRYPTO | local Vec elem types + Option/Result payload types erased | local_vec_elem/local_vec_handle/fn_return_xiom tracking (5c.30) |
+| TFR | `&local.field` bound to unrelated LOCAL named like the field | real GEP for `&local.field` (5c.30) |
+| FULL | contradictory test contract + elif expectation encoding an old codegen bug | test corrections + elif merge-reachability fix (5c.29/5c.30) |
+
+### Remaining known gaps (pre-existing, tracked)
+
+- 5 stdlib modules fail `--emit-ir` under the checker (bare receiver-field refs in generic methods): array, core, serialize, ptr, mem
+- `test_selfhost_compiles_cleanly` expects unqualified `call @compile_all`; emission is module-qualified
+- Local `Vec[Float32]` bindings without tracked elem types still numeric-convert in some untracked expression positions
+
+### Bugs: ALL 10 LEGACY BUGS RESOLVED
 
 | Bug | Fix |
 |-----|-----|
@@ -45,7 +66,7 @@
 | 4 | Or-Patterns | Pattern matching | ✅ | — |
 | **5a** | **Codegen Hardening** | **Compiler correctness** | **✅** | [COMPILER_ARCHITECTURE.md](./COMPILER_ARCHITECTURE.md) |
 | **5b** | **Stdlib Completion** | **Standard library** | **✅** | — |
-| **5c** | **Production Toolchain** | **CLI, build, errors, robustness** | **🚧 In progress — 90/101 e2e; 6 real bugs + e2e runner discrepancy + P0 gaps open (§5, §5c.16b)** | [PRODUCTION_HARDENING_BUGS.md](./PRODUCTION_HARDENING_BUGS.md), [COMPILER_ARCHITECTURE.md](./COMPILER_ARCHITECTURE.md) |
+| **5c** | **Production Toolchain** | **CLI, build, errors, robustness** | **🚧 In progress — 101/101 e2e ✅; deterministic builds ✅; remaining: 5 stdlib-exec modules + P0 gaps (§5, §5c.16b)** | [PRODUCTION_HARDENING_BUGS.md](./PRODUCTION_HARDENING_BUGS.md), [COMPILER_ARCHITECTURE.md](./COMPILER_ARCHITECTURE.md) |
 | **5c-R** | **Architect-R** | **Compiler refactoring + rustc lesson adoption** | **Planned — starts after 5c stable tag (v0.46.0)** | [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md), [rust/03-borrow-checker.md](./rust/03-borrow-checker.md) |
 | 5d | Ecosystem & Tooling | Package manager, debugger, LSP, docs | Planned | [XIOM_TOOLING_SPEC.md](./XIOM_TOOLING_SPEC.md), [INFRASTRUCTURE_SETUP.md](./INFRASTRUCTURE_SETUP.md), [rust/05-diagnostics.md](./rust/05-diagnostics.md), [rust/07-stdlib.md](./rust/07-stdlib.md) |
 | 5e | Advanced Compilation | Incremental, parallel, hot reload | Planned | [rust/04-incremental-compilation.md](./rust/04-incremental-compilation.md), [rust/06-architecture.md](./rust/06-architecture.md) |
