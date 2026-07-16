@@ -821,6 +821,47 @@ impl IrEmitter {
         }
     }
 
+    /// Like `type_from_ast`, but preserves generic type arguments for Vec, Map, Set.
+    /// Used for type_meta field registration so we can resolve element types at
+    /// Vec index time (5c.21 Vec-of-struct fix).
+    fn type_from_ast_with_args(ty: &Type) -> String {
+        match ty {
+            Type::Vec(inner) => format!("Vec[{}]", Self::type_from_ast_with_args(inner)),
+            Type::Map(k, v) => format!("Map[{},{}]", Self::type_from_ast_with_args(k), Self::type_from_ast_with_args(v)),
+            Type::Set(inner) => format!("Set[{}]", Self::type_from_ast_with_args(inner)),
+            other => Self::type_from_ast(other),
+        }
+    }
+
+    /// Resolve a Vec field's element type from its container expression.
+    /// For `h.entries[i].name`, the container `h.entries` has field type
+    /// `Vec[HttpHeader]` in type_meta. This extracts `HttpHeader` (fully qualified).
+    fn resolve_vec_elem_type(&self, container: &Expr) -> Option<String> {
+        if let Expr::Field(base, field_expr, _) = container {
+            let base_ty = self.infer_struct_type_name(base)?;
+            for key in self.type_meta.keys() {
+                if key.ends_with(&base_ty) || key == &base_ty {
+                    if let Some(meta) = self.type_meta.get(key) {
+                        for (fname, ftype) in &meta.fields {
+                            if fname == &field_expr.name {
+                                if let Some(inner) = ftype.strip_prefix("Vec[") {
+                                    if let Some(bare_name) = inner.strip_suffix(']') {
+                                        return self.types.keys()
+                                            .find(|k| k.ends_with(&format!(".{}", bare_name)) || k.as_str() == bare_name)
+                                            .cloned()
+                                            .or_else(|| Some(bare_name.to_string()));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        None
+    }
+
     fn llvm_type_for(&self, type_name: &str) -> Result<String, String> {
         // Parse array types like [N x ElementType] — used for fixed-size stack arrays.
         if type_name.starts_with('[') {
@@ -2036,7 +2077,7 @@ impl IrEmitter {
                 self.generic_type_names.insert(type_name.clone());
             }
             let full_fields: Vec<(String, String)> = td.fields.iter()
-                .map(|f| (f.name.name.clone(), Self::type_from_ast(&f.ty)))
+                .map(|f| (f.name.name.clone(), Self::type_from_ast_with_args(&f.ty)))
                 .collect();
             self.types.insert(type_name.clone(), fields);
             self.type_meta.insert(type_name, TypeMeta {
@@ -3171,9 +3212,28 @@ impl IrEmitter {
             let i64_val = self.val_to_i64(val, val_ty);
             self.emitln(&format!("  store i64 {i64_val}, i64* {ptr}"));
         } else if val_ty == "i64" {
-            let ptr = self.fresh_tmp();
-            self.emitln(&format!("  {ptr} = bitcast {struct_ty}* {alloca} to i64*"));
-            self.emitln(&format!("  store {val_ty} {val}, {val_ty}* {ptr}"));
+            // For multi-field structs loaded from Vec (heap pointer from val_to_i64),
+            // memcpy the full struct from the heap instead of storing a single i64.
+            let num_fields = self.types.get(type_name)
+                .or_else(|| {
+                    let suffix = format!(".{}", type_name);
+                    self.types.keys().find(|k| k.ends_with(&suffix))
+                        .and_then(|k| self.types.get(k))
+                })
+                .map(|f| f.len())
+                .unwrap_or(1);
+            if num_fields > 1 {
+                let src = self.fresh_tmp();
+                self.emitln(&format!("  {src} = inttoptr i64 {val} to i8*"));
+                let dst = self.fresh_tmp();
+                self.emitln(&format!("  {dst} = bitcast {struct_ty}* {alloca} to i8*"));
+                let sz = num_fields as i64 * 8;
+                self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {dst}, i8* {src}, i64 {sz}, i1 false)"));
+            } else {
+                let ptr = self.fresh_tmp();
+                self.emitln(&format!("  {ptr} = bitcast {struct_ty}* {alloca} to i64*"));
+                self.emitln(&format!("  store {val_ty} {val}, {val_ty}* {ptr}"));
+            }
         } else {
             let ptr = self.fresh_tmp();
             self.emitln(&format!("  {ptr} = bitcast {struct_ty}* {alloca} to {val_ty}*"));
@@ -6335,7 +6395,19 @@ impl IrEmitter {
                                     "UInt8" | "Int8" | "Char" | "Bool" => 1,
                                     "Int16" | "UInt16" => 2,
                                     "Int32" | "UInt32" | "Float32" => 4,
-                                    _ => 8,
+                                    _ => {
+                                        // For struct types, compute actual size from
+                                        // field count × 8 (all XIOM struct fields are
+                                        // i64/double/pointer-sized → 8 bytes each).
+                                        self.types.get(&type_name)
+                                            .or_else(|| {
+                                                let suffix = format!(".{}", type_name);
+                                                self.types.keys().find(|k| k.ends_with(&suffix))
+                                                    .and_then(|k| self.types.get(k))
+                                            })
+                                            .map(|fields| (fields.len() as i64) * 8)
+                                            .unwrap_or(8)
+                                    }
                                 }
                             } else { 8 };
                             let initial_cap: i64 = 16;
@@ -6384,10 +6456,28 @@ impl IrEmitter {
                         let (recv_val, recv_actual_ty) = self.compile_expr(receiver)?;
                         let (recv_vec, _) = self.resolve_vec_value(&recv_val, &recv_actual_ty);
                         let (val_raw, val_ty) = self.compile_expr(&args[0])?;
-                        let val = self.val_to_i64(&val_raw, &val_ty);
                         let vec_alloca = self.fresh_tmp();
                         self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
                         self.emitln(&format!("  store %struct.Vec {recv_vec}, %struct.Vec* {vec_alloca}"));
+                        // Load elem_size early — needed to decide struct vs scalar path
+                        let esz_gep = self.fresh_tmp();
+                        let esz_val = self.fresh_tmp();
+                        self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 3"));
+                        self.emitln(&format!("  {esz_val} = load i64, i64* {esz_gep}"));
+                        // For struct elements >8 bytes, skip val_to_i64 (which would
+                        // heap-allocate) and use memcpy to store the struct inline.
+                        let is_struct_elem = val_ty.starts_with('%') && {
+                            let tn = val_ty.trim_start_matches("%struct.").trim_end_matches('*');
+                            self.types.contains_key(tn)
+                                || self.types.keys().any(|k| k.ends_with(&format!(".{tn}")))
+                        };
+                        let val = if !is_struct_elem {
+                            self.val_to_i64(&val_raw, &val_ty)
+                        } else {
+                            // For structs, the raw value is preserved for memcpy.
+                            // We emit a dummy i64; the store block will use val_raw directly.
+                            val_raw.clone() // not used as i64 — the store block checks is_struct_elem
+                        };
                         let len_gep = self.fresh_tmp();
                         let len_val = self.fresh_tmp();
                         self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 1"));
@@ -6396,11 +6486,6 @@ impl IrEmitter {
                         let cap_val = self.fresh_tmp();
                         self.emitln(&format!("  {cap_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 2"));
                         self.emitln(&format!("  {cap_val} = load i64, i64* {cap_gep}"));
-                        // Load elem_size from field 3 — used for byte-offset calculations
-                        let esz_gep = self.fresh_tmp();
-                        let esz_val = self.fresh_tmp();
-                        self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 3"));
-                        self.emitln(&format!("  {esz_val} = load i64, i64* {esz_gep}"));
                         let cap_check = self.fresh_tmp();
                         self.emitln(&format!("  {cap_check} = icmp ult i64 {len_val}, {cap_val}"));
                         let grow_block = self.fresh_block("vec_grow");
@@ -6453,7 +6538,19 @@ impl IrEmitter {
                         self.emitln(&format!("  {dest} = getelementptr i8, i8* {store_data_ptr}, i64 {offset}"));
                         // Store with the correct element width: narrow types (UInt8/Char)
                         // use truncated stores to avoid overwriting adjacent elements.
-                        self.emit_elem_store(&val, &dest, &esz_val);
+                        // For struct elements >8 bytes, memcpy the full struct from
+                        // a temporary alloca (val_raw is the struct value, val_ty is
+                        // its LLVM type like %struct.HttpHeader).
+                        if is_struct_elem {
+                            let tmp = self.fresh_tmp();
+                            self.emitln(&format!("  {tmp} = alloca {val_ty}"));
+                            self.emitln(&format!("  store {val_ty} {val_raw}, {val_ty}* {tmp}"));
+                            let tmp_i8 = self.fresh_tmp();
+                            self.emitln(&format!("  {tmp_i8} = bitcast {val_ty}* {tmp} to i8*"));
+                            self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {dest}, i8* {tmp_i8}, i64 {esz_val}, i1 false)"));
+                        } else {
+                            self.emit_elem_store(&val, &dest, &esz_val);
+                        }
                         let new_len = self.fresh_tmp();
                         self.emitln(&format!("  {new_len} = add i64 {len_val}, 1"));
                         self.emitln(&format!("  store i64 {new_len}, i64* {len_gep}"));
@@ -7683,6 +7780,14 @@ impl IrEmitter {
                     let elem_ptr = self.fresh_tmp();
                     self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
                     let elem = self.emit_elem_load(&elem_ptr, &esz_val);
+                    // For struct elements >8 bytes, the i64 from val_to_i64
+                    // is a heap pointer. Resolve the element struct type and
+                    // convert to a by-value struct for downstream field access.
+                    if let Some(elem_type_name) = self.resolve_vec_elem_type(container) {
+                        let struct_ty = format!("%struct.{elem_type_name}");
+                        let loaded = self.val_to_struct(&elem, "i64", &struct_ty);
+                        return Ok((loaded, struct_ty));
+                    }
                     return Ok((elem, "i64".to_string()));
                 }
                 // Fixed-size stack array [N x T]: use the existing alloca for
@@ -8599,9 +8704,12 @@ impl IrEmitter {
         let is8 = self.fresh_tmp();
         self.emitln(&format!("  {is8} = icmp eq i64 {esz_val}, 8"));
         let load8 = self.fresh_block("elem_load8");
+        let is_gt8 = self.fresh_tmp();
+        self.emitln(&format!("  {is_gt8} = icmp sgt i64 {esz_val}, 8"));
+        let load_gt8 = self.fresh_block("elem_load_gt8");
         let load_narrow = self.fresh_block("elem_load_narrow");
         let done = self.fresh_block("elem_load_done");
-        self.emitln(&format!("  br i1 {is8}, label %{load8}, label %{load_narrow}"));
+        self.emitln(&format!("  br i1 {is8}, label %{load8}, label %{done}_check"));
         // 8-byte path
         self.emitln(&format!("\n{load8}:"));
         let src64 = self.fresh_tmp();
@@ -8609,6 +8717,19 @@ impl IrEmitter {
         let load64 = self.fresh_tmp();
         self.emitln(&format!("  {load64} = load i64, i64* {src64}"));
         self.emitln(&format!("  store i64 {load64}, i64* {result_slot}"));
+        self.emitln(&format!("  br label %{done}"));
+        self.emitln(&format!("\n{done}_check:"));
+        self.emitln(&format!("  br i1 {is_gt8}, label %{load_gt8}, label %{load_narrow}"));
+        // >8-byte path (structs stored inline via memcpy in push): alloca a
+        // temp buffer, memcpy the full struct into it, then return a pointer
+        // to the buffer so the caller can convert it to a struct value.
+        self.emitln(&format!("\n{load_gt8}:"));
+        let buf = self.fresh_tmp();
+        self.emitln(&format!("  {buf} = alloca i8, i64 {esz_val}"));
+        self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {buf}, i8* {src}, i64 {esz_val}, i1 false)"));
+        let buf_i64 = self.fresh_tmp();
+        self.emitln(&format!("  {buf_i64} = ptrtoint i8* {buf} to i64"));
+        self.emitln(&format!("  store i64 {buf_i64}, i64* {result_slot}"));
         self.emitln(&format!("  br label %{done}"));
         // Narrow path
         self.emitln(&format!("\n{load_narrow}:"));
