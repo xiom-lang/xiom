@@ -7891,15 +7891,23 @@ impl IrEmitter {
                     self.emitln(&format!("  {byte_off} = mul i64 {idx}, {esz_val}"));
                     let elem_ptr = self.fresh_tmp();
                     self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
-                    let elem = self.emit_elem_load(&elem_ptr, &esz_val);
-                    // For struct elements >8 bytes, the i64 from val_to_i64
-                    // is a heap pointer. Resolve the element struct type and
-                    // convert to a by-value struct for downstream field access.
+                    // For struct elements with a known element type, load the
+                    // struct directly from Vec data via memcpy, bypassing the
+                    // ptrtoint/inttoptr chain of emit_elem_load+val_to_struct.
+                    // (5c.28 — counter pattern fix)
                     if let Some(elem_type_name) = self.resolve_vec_elem_type(container) {
                         let struct_ty = format!("%struct.{elem_type_name}");
-                        let loaded = self.val_to_struct(&elem, "i64", &struct_ty);
+                        let struct_alloca = self.fresh_tmp();
+                        self.emitln(&format!("  {struct_alloca} = alloca {struct_ty}"));
+                        let dst_i8 = self.fresh_tmp();
+                        self.emitln(&format!("  {dst_i8} = bitcast {struct_ty}* {struct_alloca} to i8*"));
+                        self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {dst_i8}, i8* {elem_ptr}, i64 {esz_val}, i1 false)"));
+                        let loaded = self.fresh_tmp();
+                        self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {struct_alloca}"));
                         return Ok((loaded, struct_ty));
                     }
+                    // Fallback: use emit_elem_load for unknown element types.
+                    let elem = self.emit_elem_load(&elem_ptr, &esz_val);
                     return Ok((elem, "i64".to_string()));
                 }
                 // Fixed-size stack array [N x T]: use the existing alloca for
