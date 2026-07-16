@@ -1178,7 +1178,13 @@ impl IrEmitter {
             });
         if let Some(meta) = meta {
             if let Some((_, ty_name)) = meta.fields.get(field_idx) {
-                return self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
+                // Strip generic type args: "Vec[HttpHeader]" → "Vec"
+                let base_ty = if let Some(bracket) = ty_name.find('[') {
+                    &ty_name[..bracket]
+                } else {
+                    ty_name.as_str()
+                };
+                return self.llvm_type_for(base_ty).unwrap_or_else(|_| "i64".to_string());
             }
         }
         "i64".to_string()
