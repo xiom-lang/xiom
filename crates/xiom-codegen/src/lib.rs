@@ -5290,6 +5290,22 @@ impl IrEmitter {
                     if let Some(cval) = self.constants.get(&ident.name).cloned() {
                         return self.compile_expr(&cval);
                     }
+                    // Function name used as value (e.g. v.push(add_one)):
+                    // resolve to a function pointer via ptrtoint of the IR symbol.
+                    // The functions map has both bare names and module-qualified names.
+                    let fn_full: Option<(String, String, Vec<String>)> = {
+                        let exact = self.functions.get(&ident.name).map(|(p, r)| (ident.name.clone(), r.clone(), p.clone()));
+                        exact.or_else(|| {
+                            self.functions.iter().find(|(k, _)| k.ends_with(&format!(".{}", ident.name)))
+                                .map(|(k, (p, r))| (k.clone(), r.clone(), p.clone()))
+                        })
+                    };
+                    if let Some((fn_name, ret_ty, param_tys)) = fn_full {
+                        let fpty = format!("{ret_ty} ({})*", param_tys.join(", "));
+                        let fp = self.fresh_tmp();
+                        self.emitln(&format!("  {fp} = ptrtoint {fpty} @{fn_name} to i64"));
+                        return Ok((fp, "i64".to_string()));
+                    }
                     Ok(("0".to_string(), "i64".to_string()))
                 }
             }
