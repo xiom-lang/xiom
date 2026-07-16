@@ -393,7 +393,8 @@ Verified: `IpAddr.is_v4/is_v6` field access now correctly loads and compares str
 - ✅ Codegen: struct↔pointer coercion, match scrutinee pointer deref, array-to-Vec heap copy, Float32 precision, contract guards
 - ✅ 5c.18: `Expr::Ref` preserves GEP pointer for `&this.field` (NET crash resolved)
 - ✅ 5c.19: `struct_type_from_expr` handles `this`→`self` (JSON/HTTP compilation fixed)
-- ✅ 5c.20: Instance method receiver via pointer in param_types (JSON crash resolved)
+- ✅ 5c.21: Vec-of-struct size-aware storage with memcpy (DB/HTTP/SQLITE element storage)
+- ✅ 5c.22: field_llvm_type generic-arg stripping for Vec/Map/Set field types
 
 **Troubleshooting Notes:**
 - **HTTP crash (Vec-of-struct):** `val_to_i64` heap-allocates multi-field structs and returns
