@@ -565,7 +565,10 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
                 }
                 Target::Native => {
                     if cfg!(target_os = "windows") {
-                        cmd.args(["-Xlinker", "/SUBSYSTEM:CONSOLE", "-Xlinker", "/STACK:2097152,2097152"]);
+                        // /Brepro: deterministic PE TimeDateStamp (content hash
+                        // instead of wall clock) — with the fixed staged .ll name
+                        // this makes identical IR produce byte-identical binaries.
+                        cmd.args(["-Xlinker", "/SUBSYSTEM:CONSOLE", "-Xlinker", "/STACK:2097152,2097152", "-Xlinker", "/Brepro"]);
                     }
                 }
             }
@@ -594,13 +597,31 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
                     cmd.arg(cs);
                 }
             }
-            // Absolute paths for output + IR so the unique CWD (set below) does
+            // Absolute path for output so the unique CWD (set below) does
             // not break resolution. Other inputs (runtime .c, asm objs, -L paths)
             // are already absolute.
             let cwd0 = std::env::current_dir().unwrap_or_default();
             let abs_output = if std::path::Path::new(output).is_absolute() { output.to_string() } else { cwd0.join(output).to_string_lossy().to_string() };
-            let abs_ir = if std::path::Path::new(&ir_path).is_absolute() { ir_path.clone() } else { cwd0.join(&ir_path).to_string_lossy().to_string() };
-            cmd.args(["-o", &abs_output, &abs_ir]);
+
+            // 5c.29: Deterministic builds — clang embeds the input .ll path in
+            // the produced binary, so VARIABLE .ll names (e.g. `e2e_test_net.exe.ll`
+            // vs `test_net.exe.ll`) yield byte-different binaries for IDENTICAL IR,
+            // which changed runtime behavior between the e2e runner and manual
+            // compiles. Stage the (post-opt) IR into the unique temp CWD under a
+            // FIXED name and pass it as a RELATIVE path so the embedded input
+            // path is constant for every compile.
+            let unique_tmp = std::env::temp_dir().join(format!(
+                "xiomc_link_{}_{}",
+                std::process::id(),
+                output.replace(['\\', '/', ':', '.'], "_")
+            ));
+            let _ = std::fs::create_dir_all(&unique_tmp);
+            const STAGED_IR_NAME: &str = "xiomc_input.ll";
+            if let Err(e) = fs::copy(&ir_path, unique_tmp.join(STAGED_IR_NAME)) {
+                eprintln!("error: cannot stage IR file into temp dir: {e}");
+                process::exit(1);
+            }
+            cmd.args(["-o", &abs_output, STAGED_IR_NAME]);
             // Link assembled .obj/.o files for hardware acceleration (native only)
             if target == Target::Native {
                 for obj in &asm_objects { cmd.arg(obj); }
@@ -615,19 +636,14 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
                 }
             }
 
-            // Give clang a UNIQUE working directory for its intermediate object
-            // files. clang emits per-source objects (e.g. xiom_runtime.obj,
+            // Clang runs with the UNIQUE temp working directory created above.
+            // clang emits per-source objects (e.g. xiom_runtime.obj,
             // simd_runtime.obj) into the CWD; when multiple compiles run
             // concurrently (e.g. the stdlib execution test suite) they clobber
             // each other's objects, causing spurious link failures. A per-process,
             // per-output temp CWD isolates them. Inputs/outputs are passed as
-            // absolute paths so the changed CWD doesn't break resolution.
-            let unique_tmp = std::env::temp_dir().join(format!(
-                "xiomc_link_{}_{}",
-                std::process::id(),
-                output.replace(['\\', '/', ':', '.'], "_")
-            ));
-            let _ = std::fs::create_dir_all(&unique_tmp);
+            // absolute paths (except the staged .ll, which is CWD-relative by
+            // design) so the changed CWD doesn't break resolution.
             cmd.current_dir(&unique_tmp);
             let clang_output = cmd.output();
             let _ = std::fs::remove_dir_all(&unique_tmp);
