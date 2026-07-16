@@ -1213,13 +1213,12 @@ impl IrEmitter {
             });
         if let Some(meta) = meta {
             if let Some((_, ty_name)) = meta.fields.get(field_idx) {
-                // Strip generic type args: "Vec[HttpHeader]" ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ "Vec"
-                let base_ty = if let Some(bracket) = ty_name.find('[') {
-                    &ty_name[..bracket]
-                } else {
-                    ty_name.as_str()
-                };
-                return self.llvm_type_for(base_ty).unwrap_or_else(|_| "i64".to_string());
+                // For generic types (Vec[Int], Map[Str,Int]), return i64
+                // to avoid Win64 sret corruption (5c.28 NET crash fix).
+                if ty_name.contains('[') {
+                    return "i64".to_string();
+                }
+                return self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
             }
         }
         "i64".to_string()
