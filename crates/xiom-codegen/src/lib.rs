@@ -135,8 +135,16 @@ pub struct IrEmitter {
     local_opt_payload: HashMap<String, String>,
     /// 5c.30: i64 locals holding a heap-boxed struct pointer
     /// (`let val = popped.unwrap()` → "val" → "Point2D") so field access
-    /// dereferences the box with the right type.
+    /// dereferences the box with the right struct type.
     local_boxed_struct: HashMap<String, String>,
+    /// 5c.30: locals holding an i64 CONTAINER HANDLE (pointer to a boxed Vec
+    /// header), e.g. match-arm payload bindings like
+    /// `JsonValue.Array(ref mut items)` → "items" → elem "JsonValue".
+    local_vec_handle: HashMap<String, String>,
+    /// 5c.30: per-variant payload field TYPE names (enum → [(variant,
+    /// [field types])]). type_meta dedups payload fields by NAME, losing
+    /// per-variant types (JsonValue's `val` is Bool|Float64|Str|Vec[...]).
+    enum_variant_field_types: HashMap<String, Vec<(String, Vec<String>)>>,
     /// Temporary register values that originated from Expr::Array literals.
     /// Used by val_to_struct to distinguish array-buffer i8* from generic i8*.
     array_value_regs: HashSet<String>,
@@ -209,6 +217,8 @@ impl IrEmitter {
             local_vec_elem: HashMap::new(),
             local_opt_payload: HashMap::new(),
             local_boxed_struct: HashMap::new(),
+            local_vec_handle: HashMap::new(),
+            enum_variant_field_types: HashMap::new(),
             array_value_regs: HashSet::new(),
             already_declared: HashSet::new(),
             constants: HashMap::new(),
@@ -923,9 +933,12 @@ impl IrEmitter {
     /// type. Float Vec elements are stored as RAW BITS (val_to_i64 bitcast),
     /// so Index loads must bit-reinterpret instead of numerically converting.
     fn vec_elem_float_type(&self, container: &Expr) -> Option<&'static str> {
-        // 5c.30: local Vec bindings (`var v = Vec[Float32].new()`).
+        // 5c.30: local Vec bindings (`var v = Vec[Float32].new()`) and
+        // container-handle bindings.
         if let Expr::Ident(id) = container {
-            if let Some(elem) = self.local_vec_elem.get(&id.name) {
+            if let Some(elem) = self.local_vec_elem.get(&id.name)
+                .or_else(|| self.local_vec_handle.get(&id.name))
+            {
                 return match elem.as_str() {
                     "Float32" => Some("float"),
                     "Float64" | "Float" => Some("double"),
@@ -960,7 +973,8 @@ impl IrEmitter {
         // type was recorded at the let/var binding. Only struct element types
         // are returned (primitives use the scalar elem_load path).
         if let Expr::Ident(id) = container {
-            let elem = self.local_vec_elem.get(&id.name)?;
+            let elem = self.local_vec_elem.get(&id.name)
+                .or_else(|| self.local_vec_handle.get(&id.name))?;
             if matches!(elem.as_str(), "Int" | "Bool" | "Str" | "Float64" | "Float32" | "UInt8" | "Int8" | "Int16" | "Int32" | "UInt16" | "UInt32" | "Char" | "Float") {
                 return None;
             }
@@ -1318,7 +1332,14 @@ impl IrEmitter {
             // (matching Some(x)/Vec-element conventions via val_to_i64) so
             // readers can bit-reinterpret. coerce_value would fptosi and
             // destroy the fraction (Real(2.718) became 2).
-            let store_val = if field_llvm_ty == "i64" && (val_ty == "double" || val_ty == "float") {
+            // 5c.30: by-value STRUCT payloads (Vec headers, nested structs)
+            // are heap-boxed via val_to_i64 (malloc+store+ptrtoint) so the
+            // i64 slot holds a stable handle — coerce_value extracted only
+            // the FIRST FIELD (JsonValue.Array held Vec.data, not a header).
+            let store_val = if field_llvm_ty == "i64"
+                && (val_ty == "double" || val_ty == "float"
+                    || (val_ty.starts_with("%struct.") && !val_ty.ends_with('*')))
+            {
                 self.val_to_i64(&val, &val_ty)
             } else {
                 self.coerce_value(&val, &val_ty, &field_llvm_ty)
@@ -1331,6 +1352,54 @@ impl IrEmitter {
         let loaded = self.fresh_tmp();
         self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
         Ok((loaded, struct_ty))
+    }
+
+    /// 5c.30: Byte size of a struct's LLVM layout. Nested BY-VALUE struct
+    /// fields contribute their own size — the old `field_count × 8` math
+    /// undercounted (JsonEntry { key: Str, value: JsonValue } is 24 bytes,
+    /// not 16), truncating Vec elements on push/index.
+    fn struct_byte_size(&self, type_name: &str) -> i64 {
+        self.struct_byte_size_depth(type_name, 0)
+    }
+
+    fn struct_byte_size_depth(&self, type_name: &str, depth: u32) -> i64 {
+        if depth > 8 {
+            return 8;
+        }
+        let meta = self.type_meta.get(type_name)
+            .or_else(|| {
+                self.type_meta.iter()
+                    .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
+                    .map(|(_, v)| v)
+            });
+        let Some(meta) = meta else { return 8 };
+        let mut total = 0i64;
+        for (_, fty) in meta.fields.iter() {
+            // Generic containers are i64 handles (5c.28h).
+            if fty.contains('[') && !fty.starts_with('[') {
+                total += 8;
+                continue;
+            }
+            // Fixed-size arrays `[N x T]`: N × 8.
+            if fty.starts_with('[') {
+                if let Some(x_pos) = fty.find(" x ") {
+                    if let Ok(n) = fty[1..x_pos].trim().parse::<i64>() {
+                        total += n * 8;
+                        continue;
+                    }
+                }
+                total += 8;
+                continue;
+            }
+            let llvm = self.llvm_type_for(fty).unwrap_or_else(|_| "i64".to_string());
+            if llvm.starts_with("%struct.") && !llvm.ends_with('*') {
+                let inner = llvm[8..].to_string();
+                total += self.struct_byte_size_depth(&inner, depth + 1);
+            } else {
+                total += 8;
+            }
+        }
+        if total == 0 { 8 } else { total }
     }
 
     fn field_llvm_type(&self, struct_name: &str, field_idx: usize) -> String {
@@ -2299,9 +2368,11 @@ impl IrEmitter {
             let mut all_fields = vec!["discriminant".to_string()];
             let mut all_meta = vec![("discriminant".to_string(), "Int".to_string())];
             let mut variants_info = Vec::new();
+            let mut variants_types = Vec::new();
             for variant in &ed.variants {
                 let vname = variant.name.name.clone();
                 let mut vfields = Vec::new();
+                let mut vftypes = Vec::new();
                 for field in &variant.fields {
                     let fname = field.name.name.clone();
                     if !all_fields.contains(&fname) {
@@ -2309,8 +2380,11 @@ impl IrEmitter {
                         all_meta.push((fname.clone(), Self::type_from_ast(&field.ty)));
                     }
                     vfields.push(fname);
+                    // Keep generic args (Vec[JsonValue]) — 5c.30 handle detection.
+                    vftypes.push(Self::type_from_ast_with_args(&field.ty));
                 }
-                variants_info.push((vname, vfields));
+                variants_info.push((vname.clone(), vfields));
+                variants_types.push((vname, vftypes));
             }
             self.types.insert(enum_name.clone(), all_fields);
             self.type_meta.insert(enum_name.clone(), TypeMeta {
@@ -2318,7 +2392,8 @@ impl IrEmitter {
                 derives: ed.derives.clone(),
                 invariants: Vec::new(),
             });
-            self.enum_variants.insert(enum_name, variants_info);
+            self.enum_variants.insert(enum_name.clone(), variants_info);
+            self.enum_variant_field_types.insert(enum_name, variants_types);
         }
         if let TopDecl::Module(md) = item {
             let new_prefix = if prefix.is_empty() { md.name.name.clone() } else { format!("{}.{}", prefix, md.name.name) };
@@ -2788,6 +2863,7 @@ impl IrEmitter {
         self.local_vec_elem.clear();
         self.local_opt_payload.clear();
         self.local_boxed_struct.clear();
+        self.local_vec_handle.clear();
 
         let ret_llvm = fd.return_type.as_ref()
             .map(|t| self.llvm_type_for(&Self::type_from_ast(t)).unwrap_or_else(|_| "i64".to_string()))
@@ -3404,6 +3480,20 @@ impl IrEmitter {
                         return;
                     }
                 }
+                // 5c.30: i64 container-handle local (match-arm payload binding):
+                // write the updated header THROUGH the boxed pointer so the
+                // mutation aliases the original enum/struct field.
+                if slot_ty == "i64"
+                    && ty.starts_with("%struct.")
+                    && self.local_vec_handle.contains_key(&id.name)
+                {
+                    let h = self.fresh_tmp();
+                    self.emitln(&format!("  {h} = load i64, i64* {slot}"));
+                    let boxp = self.fresh_tmp();
+                    self.emitln(&format!("  {boxp} = inttoptr i64 {h} to {ty}*"));
+                    self.emitln(&format!("  store {ty} {val}, {ty}* {boxp}"));
+                    return;
+                }
             }
         }
         // Case 2: struct field access ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â GEP into the base struct and store.
@@ -3537,7 +3627,8 @@ impl IrEmitter {
                 self.emitln(&format!("  {src} = inttoptr i64 {val} to i8*"));
                 let dst = self.fresh_tmp();
                 self.emitln(&format!("  {dst} = bitcast {struct_ty}* {alloca} to i8*"));
-                let sz = num_fields as i64 * 8;
+                // 5c.30: real layout size (nested by-value structs count fully).
+                let sz = self.struct_byte_size(type_name);
                 self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {dst}, i8* {src}, i64 {sz}, i1 false)"));
             } else {
                 let ptr = self.fresh_tmp();
@@ -5400,10 +5491,13 @@ impl IrEmitter {
                                 for (fi, field_ident) in fields.iter().enumerate() {
                                     // First try direct name match
                                     let field_idx_opt = field_names.iter().position(|f| f == &field_ident.name);
-                                    // Fallback: use variant field position to find canonical field name
+                                    // Fallback: use variant field position to find canonical field name.
+                                    // 5c.30: qualified variant patterns (`JsonValue.Array(x)`)
+                                    // must match on the LEAF variant name.
+                                    let leaf_variant = variant_ident.name.rsplit('.').next().unwrap_or(&variant_ident.name).to_string();
                                     let field_idx_opt = field_idx_opt.or_else(|| {
                                         variants_opt.as_ref().and_then(|variants| {
-                                            variants.iter().find(|(vn, _)| vn == &variant_ident.name)
+                                            variants.iter().find(|(vn, _)| vn == &leaf_variant || vn == &variant_ident.name)
                                                 .and_then(|(_, vfields)| vfields.get(fi))
                                                 .and_then(|canonical| field_names.iter().position(|f| f == canonical))
                                         })
@@ -5414,10 +5508,53 @@ impl IrEmitter {
                                         let loaded = self.fresh_tmp();
                                         let field_llvm_ty = self.field_llvm_type(&type_name_clone, field_idx);
                                         self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+                                        // 5c.30: resolve the VARIANT's declared payload
+                                        // type (type_meta dedups payload fields by name,
+                                        // losing per-variant types).
+                                        let payload_xiom_ty: Option<String> = self.enum_variant_field_types.get(&type_name_clone)
+                                            .or_else(|| {
+                                                self.enum_variant_field_types.iter()
+                                                    .find(|(k, _)| k.ends_with(&format!(".{type_name_clone}")))
+                                                    .map(|(_, v)| v)
+                                            })
+                                            .and_then(|vft| vft.iter().find(|(vn, _)| vn == &leaf_variant || vn == &variant_ident.name))
+                                            .and_then(|(_, ftypes)| ftypes.get(fi))
+                                            .cloned();
+                                        // Float payloads are RAW BITS in the i64 slot:
+                                        // bind them as real floats via bitcast so
+                                        // downstream math never sitofp's bit patterns
+                                        // (json_stringify(Number(7.0)) hung in a
+                                        // float_to_int loop over 4.6e18).
+                                        let (bind_val, bind_ty): (String, String) = match (field_llvm_ty.as_str(), payload_xiom_ty.as_deref()) {
+                                            ("i64", Some("Float64")) | ("i64", Some("Float")) => {
+                                                let d = self.fresh_tmp();
+                                                self.emitln(&format!("  {d} = bitcast i64 {loaded} to double"));
+                                                (d, "double".to_string())
+                                            }
+                                            ("i64", Some("Float32")) => {
+                                                let t32 = self.fresh_tmp();
+                                                self.emitln(&format!("  {t32} = trunc i64 {loaded} to i32"));
+                                                let f = self.fresh_tmp();
+                                                self.emitln(&format!("  {f} = bitcast i32 {t32} to float"));
+                                                (f, "float".to_string())
+                                            }
+                                            _ => (loaded.clone(), field_llvm_ty.clone()),
+                                        };
                                         let field_alloca = self.fresh_tmp();
-                                        self.emitln(&format!("  {field_alloca} = alloca {field_llvm_ty}"));
-                                        self.emitln(&format!("  store {field_llvm_ty} {loaded}, {field_llvm_ty}* {field_alloca}"));
-                                        self.add_local(&field_ident.name, field_alloca, &field_llvm_ty);
+                                        self.emitln(&format!("  {field_alloca} = alloca {bind_ty}"));
+                                        self.emitln(&format!("  store {bind_ty} {bind_val}, {bind_ty}* {field_alloca}"));
+                                        self.add_local(&field_ident.name, field_alloca, &bind_ty);
+                                        // 5c.30: a generic-container payload
+                                        // (Vec[T]) binds the i64 HANDLE — record
+                                        // it so `items.push(..)` / `items.len()`
+                                        // dereference the boxed header and
+                                        // mutations alias the original enum.
+                                        self.local_vec_handle.remove(&field_ident.name);
+                                        if let Some(fty) = payload_xiom_ty.as_deref() {
+                                            if let Some(inner) = fty.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
+                                                self.local_vec_handle.insert(field_ident.name.clone(), inner.to_string());
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -6869,17 +7006,11 @@ impl IrEmitter {
                                     "Int16" | "UInt16" => 2,
                                     "Int32" | "UInt32" | "Float32" => 4,
                                     _ => {
-                                        // For struct types, compute actual size from
-                                        // field count ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 8 (all XIOM struct fields are
-                                        // i64/double/pointer-sized ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ 8 bytes each).
-                                        self.types.get(&type_name)
-                                            .or_else(|| {
-                                                let suffix = format!(".{}", type_name);
-                                                self.types.keys().find(|k| k.ends_with(&suffix))
-                                                    .and_then(|k| self.types.get(k))
-                                            })
-                                            .map(|fields| (fields.len() as i64) * 8)
-                                            .unwrap_or(8)
+                                        // For struct types, compute the REAL layout
+                                        // size (nested by-value struct fields count
+                                        // fully — 5c.30, field_count×8 truncated
+                                        // JsonEntry-style elements).
+                                        self.struct_byte_size(&type_name)
                                     }
                                 }
                             } else { 8 };
@@ -7643,8 +7774,8 @@ impl IrEmitter {
                             let llvm_ty = self.llvm_type_for(&xiom_ty)
                                 .unwrap_or_else(|_| Self::xiom_to_llvm_type(&xiom_ty).to_string());
                             let size = if llvm_ty.starts_with("%struct.") {
-                                let type_name = &llvm_ty[8..];
-                                self.types.get(type_name).map(|fs| fs.len() as i64 * 8).unwrap_or(8)
+                                let type_name = llvm_ty[8..].to_string();
+                                self.struct_byte_size(&type_name)
                             } else {
                                 match llvm_ty.as_str() {
                                     "i8" => 1,
@@ -8238,11 +8369,23 @@ impl IrEmitter {
                             // dereference the heap-allocated struct.
                             let (recv_val, recv_llvm_ty) = if let Some(p0) = callee_pts.as_ref().and_then(|p| p.first().cloned()) {
                                 if p0.starts_with("%struct.") && recv_llvm_ty == "i64" {
-                                    let struct_ptr = self.fresh_tmp();
-                                    let struct_val = self.fresh_tmp();
-                                    self.emitln(&format!("  {struct_ptr} = inttoptr i64 {recv_val} to {p0}*"));
-                                    self.emitln(&format!("  {struct_val} = load {p0}, {p0}* {struct_ptr}"));
-                                    (struct_val, p0)
+                                    if p0.ends_with('*') {
+                                        // 5c.30: callee expects a POINTER receiver
+                                        // (this-based method): the i64 heap box IS
+                                        // the struct — inttoptr directly, never
+                                        // load through it as a pointer-to-pointer
+                                        // (that read the discriminant as an
+                                        // address: as_string AV at 0x3).
+                                        let struct_ptr = self.fresh_tmp();
+                                        self.emitln(&format!("  {struct_ptr} = inttoptr i64 {recv_val} to {p0}"));
+                                        (struct_ptr, p0)
+                                    } else {
+                                        let struct_ptr = self.fresh_tmp();
+                                        let struct_val = self.fresh_tmp();
+                                        self.emitln(&format!("  {struct_ptr} = inttoptr i64 {recv_val} to {p0}*"));
+                                        self.emitln(&format!("  {struct_val} = load {p0}, {p0}* {struct_ptr}"));
+                                        (struct_val, p0)
+                                    }
                                 } else {
                                     (recv_val, recv_llvm_ty)
                                 }
@@ -9534,6 +9677,11 @@ impl IrEmitter {
     /// Returns true if `container` is a field access on a struct and the
     /// field's type in type_meta is a generic container (Vec[..], Map[..], etc.)
     fn is_container_vec_field(&self, container: &Expr) -> bool {
+        // 5c.30: locals bound to an i64 container handle (match-arm payload
+        // bindings like `JsonValue.Array(ref mut items)`).
+        if let Expr::Ident(id) = container {
+            return self.local_vec_handle.contains_key(&id.name);
+        }
         if let Expr::Field(base, field_expr, _) = container {
             if let Some(base_ty) = self.infer_struct_type_name(base) {
                 for key in self.type_meta.keys() {
@@ -9580,15 +9728,7 @@ impl IrEmitter {
     /// SQLITE ACCESS_VIOLATION).
     fn emit_box_struct_handle(&mut self, val: &str, struct_ty: &str) -> String {
         let type_name = struct_ty.trim_start_matches("%struct.").trim_end_matches('*');
-        let size = self.types.get(type_name)
-            .or_else(|| {
-                let suffix = format!(".{type_name}");
-                self.types.keys().find(|k| k.ends_with(&suffix))
-                    .and_then(|k| self.types.get(k))
-            })
-            .map(|f| (f.len() as i64) * 8)
-            .unwrap_or(32)
-            .max(32);
+        let size = self.struct_byte_size(type_name).max(32);
         let raw = self.fresh_tmp();
         self.emitln(&format!("  {raw} = call i8* @malloc(i64 {size})"));
         let ok = self.fresh_block("box_malloc_ok");
