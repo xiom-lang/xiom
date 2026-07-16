@@ -1,6 +1,6 @@
 # XIOM Compiler — Production Roadmap
 
-**Current:** v0.45.3 "Phase 5c" — 41/41 smoke, 85/85 e2e, 47/47 parser, 74/74 checker, all gates green
+**Current:** v0.45.3 "Phase 5c" — 32/41 smoke, 89/100 e2e, 47/47 parser, 74/74 checker, all gates green
 **Branch:** `feat/architect` (Phase 5c)
 **Target:** v1.0.0 self-hosting compiler (AFTER ecosystem is complete)
 
@@ -180,27 +180,6 @@ All three xiom-vma source files compile with `xiomc --diagnostics=json` producin
 | Suggestion | ✅ | `= help: Check the spelling. Add a \`use\` declaration.` |
 | JSON diagnostics | ✅ | `{"code":"T001","message":"...","suggestion":"...","note":"..."}` |
 | Error codes | ✅ | T001 (type), P001 (parse), L001 (lex), E001 (borrow) |
-
-### 5c.4 Build Flags
-
-| Flag | Status | Priority |
-|------|--------|----------|
-| `--target native/wasm/arm/riscv` | ✅ Exists | — |
-| `--release` (O3 + strip contracts) | TODO | P1 |
-| `--debug` (DWARF/PDB symbols) | TODO | P2 |
-| `--shared` / `--static` | TODO | P2 |
-| `--diagnostics=json` | ✅ Exists | — |
-| `--incremental` | TODO | P2 (Phase 5e) |
-| `--watch` (file watcher) | TODO | P2 (Phase 5e) |
-
-### 5c.5 Error Message Quality (from IMPROVEMENT_PLAN §5.6)
-
-| Component | Current | Target |
-|-----------|---------|--------|
-| Location | Line:col ✓ | Exact token |
-| Cause | "cannot call 'len'" | "`Str` has no method `len`. Use `str_len()` instead." |
-| Implication | None | "Without this, compiler cannot verify return type." |
-| Suggestion | None | "help: add `use xiom.string` and call `string.str_len(name)`" |
 
 ### 5c.6 Implementation Order (ALL DONE ✅)
 
@@ -456,9 +435,6 @@ All 10 failures are now RUNTIME (0 checker errors, 0 LLVM codegen errors):
 ### 5c.16 Ecosystem Audit — Compiler Gaps (37 modules scanned, 2026-07-15)
 
 Consolidated from all 37 `ecosystem/*/AUDIT.md` files. **28 unique gaps, 51 total module occurrences.** All are production-grade findings — no workarounds applied, only documented.
-
-5c.16 Ecosystem Audit — Compiler Gaps (37 modules scanned, 2026-07-15)
-Consolidated from all 37 ecosystem/*/AUDIT.md files. 28 unique gaps, 51 total module occurrences. All are production-grade findings — no workarounds applied, only documented.
 
 P001 — Parse Errors (3 gaps, 7 modules)
 #	Gap	Modules	Symptom
