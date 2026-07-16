@@ -6025,14 +6025,12 @@ impl IrEmitter {
                             }
                         }
                     }
-                    // FIELD-I64: When ov_ty is i64 from a bare Vec index (v[i].field).
-                    if ov_ty == "i64" && !field.name.is_empty() {
-                        let is_bare = matches!(obj.as_ref(),
-                            Expr::Index(inner, _, _) if matches!(inner.as_ref(), Expr::Ident(..)));
-                        if is_bare {
-                            if let Some((v, t)) = self.try_i64_field_access(&obj_val, &field.name) {
-                                return Ok((v, t));
-                            }
+                    // FIELD-I64: bare Vec index field access.
+                    if ov_ty == "i64" && !field.name.is_empty()
+                        && matches!(obj.as_ref(), Expr::Index(inner, _, _) if matches!(inner.as_ref(), Expr::Ident(..)))
+                    {
+                        if let Some((v, t)) = self.try_i64_field_access(&obj_val, &field.name) {
+                            return Ok((v, t));
                         }
                     }
                 }
