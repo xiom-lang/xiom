@@ -8848,8 +8848,18 @@ impl IrEmitter {
         self.emitln(&format!("\n{done}_check:"));
         self.emitln(&format!("  br i1 {is_gt8}, label %{load_gt8}, label %{load_narrow}"));
         // >8-byte path: memcpy into the fixed entry-block buffer.
-        // Clamp copy size to 512 to prevent overflow from corrupted esz_val.
+        // Guard against dangling/corrupted data pointers from cumulative
+        // test calls (Vec data ptr may be invalid after prior test reallocs).
         self.emitln(&format!("\n{load_gt8}:"));
+        let src_null = self.fresh_tmp();
+        let ok_block = self.fresh_block("elem_gt8_ptr_ok");
+        let bad_block = self.fresh_block("elem_gt8_ptr_bad");
+        self.emitln(&format!("  {src_null} = icmp eq i8* {src}, null"));
+        self.emitln(&format!("  br i1 {src_null}, label %{bad_block}, label %{ok_block}"));
+        self.emitln(&format!("\n{bad_block}:"));
+        self.emitln("  call void @llvm.trap()");
+        self.emitln("  unreachable");
+        self.emitln(&format!("\n{ok_block}:"));
         let too_big = self.fresh_tmp();
         self.emitln(&format!("  {too_big} = icmp sgt i64 {esz_val}, 512"));
         let clamp_sz = self.fresh_tmp();
