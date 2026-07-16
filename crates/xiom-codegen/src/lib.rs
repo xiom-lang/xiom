@@ -846,10 +846,14 @@ impl IrEmitter {
                             if fname == &field_expr.name {
                                 if let Some(inner) = ftype.strip_prefix("Vec[") {
                                     if let Some(bare_name) = inner.strip_suffix(']') {
-                                        return self.types.keys()
+                                        // Only return if this is a known struct type
+                                        // (not a primitive like Int, Str, Bool, etc.)
+                                        if let Some(qualified) = self.types.keys()
                                             .find(|k| k.ends_with(&format!(".{}", bare_name)) || k.as_str() == bare_name)
                                             .cloned()
-                                            .or_else(|| Some(bare_name.to_string()));
+                                        {
+                                            return Some(qualified);
+                                        }
                                     }
                                 }
                             }
