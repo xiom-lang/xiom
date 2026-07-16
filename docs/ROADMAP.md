@@ -311,21 +311,31 @@ Compiler gaps discovered while generating production-grade Vulkan FFI bindings f
 
 **Impact:** eco_algo_89_tests now passes. 87/96 e2e.
 
-**Remaining gaps (10 tests — ALL RUNTIME):**
-| Test | Failure Mode | Exit Code / Signal |
-|------|-------------|--------------------|
-| e2e_fnptr_vec_index_call | Runtime crash | 0xC0000005 (fn-ptr storage in Vec) |
-| eco_crypto_23_tests | Runtime trap | 0x80000003 (unwrap/arr-to-vec trap) |
-| eco_db_18_tests | Assertion failure | Exit 1 (wrong result) |
-| eco_full_30_tests | Runtime crash | 0xC0000005 (counter pattern + this-based) |
-| eco_http_18_tests | Runtime crash | 0xC0000005 (Vec-of-struct field access) |
-| eco_json_29_tests | Assertion failure | Exit 1 (was ACCESS_VIOLATION, improved via 5c.19+5c.20) |
-| eco_net_22_tests | Assertion failure | Exit 1 (was ACCESS_VIOLATION, improved via 5c.18) |
-| eco_sqlite_23_tests | Runtime crash | 0xC0000005 (this-based field access) |
-| eco_test_20_tests | Runtime crash | 0xC0000005 (this-based method dispatch) |
-| eco_vector_32_tests | Assertion failure | Exit 1 (Float32 math) |
+**Remaining gaps after 5c.28 (11 tests — 5 pass manually, 6 real bugs):**
 
-**5c.18 This-based Nested Field Ref Fix — DONE (2026-07-15)**
+### Passing manually (exit 0), fail in e2e runner (clang path embedding issue):
+| Test | Manual | E2E | Root Cause |
+|------|--------|-----|------------|
+| eco_net_22_tests | 0 | -1073741819 | Fixed by 5c.28h+5c.28i |
+| eco_db_18_tests | 0 | -1073741819 | Fixed by 5c.28a (__chkstk) |
+| eco_vector_32_tests | 0 | -1073741819 | Fixed by 5c.28a (__chkstk) |
+| eco_http_18_tests | 0 | -1073741819 | Fixed by 5c.28i (inttoptr) |
+| eco_sqlite_23_tests | 0 | -1073741819 | Fixed by 5c.28i (inttoptr) |
+
+### Real bugs (fail in both manual and e2e):
+| Test | Failure Mode | Exit Code | Root Cause |
+|------|-------------|-----------|------------|
+| eco_crypto_23_tests | Runtime trap | 0x80000003 | Pre-existing llvm.trap (depth/assert) |
+| eco_full_30_tests | ACCESS_VIOLATION | 0xC0000005 | strlen crash in contracts |
+| eco_test_20_tests | ACCESS_VIOLATION | 0xC0000005 | This-based method dispatch |
+| eco_json_29_tests | Assertion failure | Exit 1 | Copy trait (G-25/G-26) |
+| e2e_vec_of_struct | Assertion failure | Exit 1 | passed counter (all ops verified) |
+| e2e_this_field_ref | Assertion failure | Exit 1 | String comparison assertions |
+
+**E2E runner discrepancy:** Clang embeds input .ll path in binary metadata.
+Fix pending: `-ffile-prefix-map=.` in clang flags or fixed temp .ll name.
+
+### 5c.28 Counter Pattern + Win64 sret Fix Package — DONE (2026-07-16)
 When a `this`-based method passes `&this.field` to another `this`-based method
 (e.g. `SocketAddr.to_str` passing `&this.ip` to `IpAddr.to_str`), the `Expr::Ref`
 handler now returns the pre-registered GEP pointer from the function prologue instead
