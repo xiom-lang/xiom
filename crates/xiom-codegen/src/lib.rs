@@ -866,6 +866,38 @@ impl IrEmitter {
         None
     }
 
+    /// When `obj_val` is an i64 that's actually a struct pointer (from Vec
+    /// index via emit_elem_load), search registered struct types for one
+    /// containing `field_name` and emit inttoptr+GEP+load. Returns None if
+    /// no unambiguous struct type match (multiple structs share the field name).
+    fn try_i64_field_access(&mut self, obj_val: &str, field_name: &str) -> Option<(String, String)> {
+        let ts: Vec<(String, Vec<String>)> = self.types.iter()
+            .map(|(k, v)| (k.clone(), v.clone())).collect();
+        let mut candidates: Vec<(&str, usize)> = Vec::new();
+        for (tn, fns) in &ts {
+            if tn == "Option" || tn.ends_with(".Option")
+                || tn == "Result" || tn.ends_with(".Result")
+                || tn.starts_with("Option__") || tn.starts_with("Result__")
+                || tn == "Vec" || tn == "Map" || tn == "Set"
+                || tn == "Slice" || tn == "Reverse"
+            { continue; }
+            if let Some(fi) = fns.iter().position(|f| f == field_name) {
+                candidates.push((tn, fi));
+            }
+        }
+        if candidates.len() != 1 { return None; }
+        let (tn, fi) = candidates[0];
+        let sty = format!("%struct.{tn}");
+        let sp = self.fresh_tmp();
+        self.emitln(&format!("  {sp} = inttoptr i64 {obj_val} to {sty}*"));
+        let flt = self.field_llvm_type(tn, fi);
+        let gp = self.fresh_tmp();
+        let ld = self.fresh_tmp();
+        self.emitln(&format!("  {gp} = getelementptr {sty}, {sty}* {sp}, i32 0, i32 {fi}"));
+        self.emitln(&format!("  {ld} = load {flt}, {flt}* {gp}"));
+        Some((ld, flt))
+    }
+
     fn llvm_type_for(&self, type_name: &str) -> Result<String, String> {
         // Parse array types like [N x ElementType] — used for fixed-size stack arrays.
         if type_name.starts_with('[') {
@@ -5975,6 +6007,13 @@ impl IrEmitter {
                                 self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
                                 return Ok((loaded, field_llvm_ty));
                             }
+                        }
+                    }
+                    // FIELD-I64: Vec-indexed structs return i64 pointers/heap-ptrs.
+                    // Try to resolve field access via inttoptr+GEP on known struct types.
+                    if ov_ty == "i64" && !field.name.is_empty() {
+                        if let Some((v, t)) = self.try_i64_field_access(&obj_val, &field.name) {
+                            return Ok((v, t));
                         }
                     }
                 }
