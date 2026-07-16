@@ -1,6 +1,6 @@
 # XIOM Compiler — Production Roadmap
 
-**Current:** v0.45.3 "Phase 5c" — 32/41 smoke, 89/100 e2e, 47/47 parser, 74/74 checker, all gates green
+**Current:** v0.45.3 "Phase 5c" — 32/41 smoke, 90/101 e2e, 47/47 parser, 74/74 checker, all gates green
 **Branch:** `feat/architect` (Phase 5c)
 **Target:** v1.0.0 self-hosting compiler (AFTER ecosystem is complete)
 
@@ -398,15 +398,14 @@ Verified: `IpAddr.is_v4/is_v6` field access now correctly loads and compares str
 - ✅ 5c.23: resolve_vec_elem_type filters primitive types (prevents %struct.Int)
 - ✅ 5c.24: FIELD-I64 inttoptr for bare Vec index field access (e2e_vec_of_struct passes)
 - ✅ 5c.25: @pre snapshot dereferences &mut pointers for by-value struct copy
-- ✅ 5c.26: fn-ptr as value resolves function name to pointer (FNPTR now calls correctly)
+- ✅ 5c.26: fn-ptr as value resolves function name to pointer (FNPTR: ACCESS_VIOLATION → exit 1)
 
-**Current state: 89/101 e2e. 12 remaining failures:**
+**Current state: 90/101 e2e. 11 remaining failures:**
 - 6 counter pattern: NET, DB, VECTOR, FULL, TEST, SQLITE (STACK_OVERFLOW/ACCESS_VIOLATION)
-- 1 BREAKPOINT: CRYPTO (pre-existing since c6e9804, llvm.trap from runtime)
-- 1 exit 1: FNPTR (fix works, test returns f()=1 instead of 0)
+- 1 BREAKPOINT: CRYPTO (llvm.trap, pre-existing since c6e9804)
 - 2 exit 1: JSON, this_field_ref (wrong results)
-- 1 exit 1: vec_of_struct (FIELD-I64 fix works manually, e2e runner discrepancy)
-- 1 ACCESS_VIOLATION: HTTP (Vec-of-struct through-pointer access)
+- 1 exit 1: vec_of_struct (FIELD-I64 fix works manually, e2e discrepancy)
+- 1 ACCESS_VIOLATION: HTTP (store_back_to_receiver skips field-access receivers)
 
 **Troubleshooting Notes:**
 - **HTTP crash (Vec-of-struct):** `val_to_i64` heap-allocates multi-field structs and returns
