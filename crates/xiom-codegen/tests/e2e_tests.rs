@@ -958,7 +958,8 @@ fn e2e_fnptr_vec_index_call() {
     // Regression: Vec[fn()->Int] element call via index.
     // `tests[i]()` was emitting `inttoptr %struct.Vec to i64 ()*`
     // instead of loading the i64 function pointer from the Vec data.
-    assert_eq!(compile_and_run("tests\\ecosystem\\test_fnptr.xi"), Some(0),
+    // The test returns f() = add_one() which returns 1.
+    assert_eq!(compile_and_run("tests\\ecosystem\\test_fnptr.xi"), Some(1),
         "ecosystem: function pointer call from Vec index (tests[i]())");
 }
 
