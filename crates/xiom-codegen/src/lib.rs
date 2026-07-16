@@ -3190,23 +3190,61 @@ impl IrEmitter {
         }
     }
 
-    /// Store a by-value struct `val` (LLVM type `ty`) back into the alloca of a
-    /// simple lvalue `receiver` (a bare local variable) so in-place mutation
-    /// methods (`Vec.push`/`Vec.pop`) persist their result. No-op when the
-    /// receiver is not a plain local whose slot type matches `ty` (e.g. a
-    /// temporary/rvalue), which keeps the change conservative and side-effect free
-    /// for all existing call shapes.
+    /// Store a by-value struct `val` (LLVM type `ty`) back into the storage of
+    /// `receiver` so in-place mutation (`Vec.push`/`Vec.pop`) persists the result.
+    /// Handles bare locals AND struct field access (e.g. `h.entries.push(...)`).
     fn store_back_to_receiver(&mut self, receiver: &Expr, val: &str, ty: &str) {
+        // Case 1: bare local variable — store to its alloca slot.
         if let Expr::Ident(id) = receiver {
             if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
                 if slot_ty == ty {
                     self.emitln(&format!("  store {ty} {val}, {ty}* {slot}"));
-                } else if slot_ty.ends_with('*') {
-                    let inner_ty = slot_ty.trim_end_matches('*');
-                    if inner_ty == ty {
+                    return;
+                }
+                if slot_ty.ends_with('*') {
+                    let inner = slot_ty.trim_end_matches('*');
+                    if inner == ty {
                         let ptr_val = self.fresh_tmp();
                         self.emitln(&format!("  {ptr_val} = load {slot_ty}, {slot_ty}* {slot}"));
                         self.emitln(&format!("  store {ty} {val}, {ty}* {ptr_val}"));
+                        return;
+                    }
+                }
+            }
+        }
+        // Case 2: struct field access — GEP into the base struct and store.
+        if let Expr::Field(base, field_expr, _) = receiver {
+            if let Expr::Ident(base_id) = &**base {
+                if let Some((slot, slot_ty)) = self.lookup_local(&base_id.name).cloned() {
+                    // Resolve the struct type name from the base's declared type.
+                    let sty = if slot_ty.starts_with("%struct.") {
+                        slot_ty.clone()
+                    } else {
+                        return; // cannot determine struct type
+                    };
+                    let clean_name = sty[8..].trim_end_matches('*').to_string();
+                    if let Some(field_names) = self.types.get(&clean_name)
+                        .or_else(|| self.types.keys()
+                            .find(|k| k.ends_with(&format!(".{clean_name}")))
+                            .and_then(|k| self.types.get(k)))
+                        .cloned()
+                    {
+                        if let Some(fi) = field_names.iter().position(|f| f == &field_expr.name) {
+                            let sty_clean = format!("%struct.{clean_name}");
+                            if slot_ty.ends_with('*') {
+                                // Base is a pointer (&mut T): load the pointer, GEP, store.
+                                let ptr = self.fresh_tmp();
+                                self.emitln(&format!("  {ptr} = load {slot_ty}, {slot_ty}* {slot}"));
+                                let gep = self.fresh_tmp();
+                                self.emitln(&format!("  {gep} = getelementptr {sty_clean}, {sty_clean}* {ptr}, i32 0, i32 {fi}"));
+                                self.emitln(&format!("  store {ty} {val}, {ty}* {gep}"));
+                            } else {
+                                // Base is by-value: GEP directly into the alloca.
+                                let gep = self.fresh_tmp();
+                                self.emitln(&format!("  {gep} = getelementptr {sty_clean}, {sty_clean}* {slot}, i32 0, i32 {fi}"));
+                                self.emitln(&format!("  store {ty} {val}, {ty}* {gep}"));
+                            }
+                        }
                     }
                 }
             }
