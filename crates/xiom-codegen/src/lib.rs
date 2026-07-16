@@ -6550,8 +6550,7 @@ impl IrEmitter {
                             let esz_gep = self.fresh_tmp();
                             self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 3"));
                             self.emitln(&format!("  store i64 {elem_size}, i64* {esz_gep}"));
-                            let loaded = self.fresh_tmp();
-                            self.emitln(&format!("  {loaded} = load volatile %struct.Vec, %struct.Vec* {struct_alloca}"));
+                            let loaded = self.emit_vec_load_fields(&struct_alloca);
                             return Ok((loaded, "%struct.Vec".to_string()));
                     }
                 }
@@ -6687,8 +6686,7 @@ impl IrEmitter {
                         let new_len = self.fresh_tmp();
                         self.emitln(&format!("  {new_len} = add i64 {len_val}, 1"));
                         self.emitln(&format!("  store i64 {new_len}, i64* {len_gep}"));
-                        let loaded = self.fresh_tmp();
-                        self.emitln(&format!("  {loaded} = load volatile %struct.Vec, %struct.Vec* {vec_alloca}"));
+                        let loaded = self.emit_vec_load_fields(&vec_alloca);
                         // Write the mutated Vec back to the receiver variable so the
                         // updated len/cap/data persist (value semantics: `v.push(x)`
                         // must be observable via `v` afterwards).
@@ -6763,8 +6761,7 @@ impl IrEmitter {
                             self.emitln(&format!("\n{done_block}:"));
                             // Persist the (possibly decremented) Vec back to the
                             // receiver variable so the pop is observable via `v`.
-                            let vec_back = self.fresh_tmp();
-                            self.emitln(&format!("  {vec_back} = load volatile %struct.Vec, %struct.Vec* {vec_alloca}"));
+                            let vec_back = self.emit_vec_load_fields(&vec_alloca);
                             self.store_back_to_receiver(receiver, &vec_back, "%struct.Vec");
                             let loaded = self.fresh_tmp();
                             self.emitln(&format!("  {loaded} = load %struct.Option, %struct.Option* {opt_alloca}"));
@@ -8809,8 +8806,7 @@ impl IrEmitter {
             || (ty.ends_with(".Vec*") || ty.ends_with(".Slice*"))
         {
             let inner_ty = ty.trim_end_matches('*');
-            let loaded = self.fresh_tmp();
-            self.emitln(&format!("  {loaded} = load {inner_ty}, {ty} {val}"));
+            let loaded = self.emit_vec_load_fields(val);
             return (loaded, inner_ty.to_string());
         }
         (val.to_string(), ty.to_string())
@@ -8819,6 +8815,27 @@ impl IrEmitter {
     /// Emit per-field stores of a `%struct.Vec` SSA value into an alloca.
     /// Uses extractvalue+GEP+store for each of the 4 fields to prevent LLVM
     /// from decomposing the aggregate store and skipping "dead" fields (5c.28).
+    /// Emit per-field loads of a `%struct.Vec` from an alloca, returning the
+    /// loaded SSA value. Prevents LLVM from decomposing the aggregate load
+    /// into partial field reads that skip "dead" fields (5c.28).
+    fn emit_vec_load_fields(&mut self, src_alloca: &str) -> String {
+        let fd = self.fresh_tmp();
+        let v0 = self.fresh_tmp();
+        self.emitln(&format!("  {fd} = load i8*, i8** {src_alloca}"));
+        self.emitln(&format!("  {v0} = insertvalue %struct.Vec undef, i8* {fd}, 0"));
+        let mut prev = v0;
+        for fi in 1..=3 {
+            let fp = self.fresh_tmp();
+            let gep = self.fresh_tmp();
+            let vi = self.fresh_tmp();
+            self.emitln(&format!("  {gep} = getelementptr %struct.Vec, %struct.Vec* {src_alloca}, i32 0, i32 {fi}"));
+            self.emitln(&format!("  {fp} = load i64, i64* {gep}"));
+            self.emitln(&format!("  {vi} = insertvalue %struct.Vec {prev}, i64 {fp}, {fi}"));
+            prev = vi;
+        }
+        prev
+    }
+
     fn emit_vec_store_fields(&mut self, vec_val: &str, dest_alloca: &str) {
         for (fi, ty) in [(0, "i8*"), (1, "i64"), (2, "i64"), (3, "i64")] {
             let fval = self.fresh_tmp();
