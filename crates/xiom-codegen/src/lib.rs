@@ -8821,6 +8821,13 @@ impl IrEmitter {
     fn emit_elem_load(&mut self, src: &str, esz_val: &str) -> String {
         let result_slot = self.fresh_tmp();
         self.emitln(&format!("  {result_slot} = alloca i64"));  // in entry block
+        // Fixed-size entry-block buffer for >8 struct loads. Uses a constant
+        // size (512 bytes) instead of variable `alloca i8, i64 {esz_val}` to
+        // prevent `__chkstk` stack probe failures (5c.28 counter pattern fix).
+        let gt8_buf = self.fresh_tmp();
+        self.emitln(&format!("  {gt8_buf} = alloca [512 x i8], align 1"));
+        let gt8_buf_ptr = self.fresh_tmp();
+        self.emitln(&format!("  {gt8_buf_ptr} = bitcast [512 x i8]* {gt8_buf} to i8*"));
         let is8 = self.fresh_tmp();
         self.emitln(&format!("  {is8} = icmp eq i64 {esz_val}, 8"));
         let load8 = self.fresh_block("elem_load8");
@@ -8840,15 +8847,11 @@ impl IrEmitter {
         self.emitln(&format!("  br label %{done}"));
         self.emitln(&format!("\n{done}_check:"));
         self.emitln(&format!("  br i1 {is_gt8}, label %{load_gt8}, label %{load_narrow}"));
-        // >8-byte path (structs stored inline via memcpy in push): alloca a
-        // temp buffer, memcpy the full struct into it, then return a pointer
-        // to the buffer so the caller can convert it to a struct value.
+        // >8-byte path: memcpy into the fixed entry-block buffer.
         self.emitln(&format!("\n{load_gt8}:"));
-        let buf = self.fresh_tmp();
-        self.emitln(&format!("  {buf} = alloca i8, i64 {esz_val}"));
-        self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {buf}, i8* {src}, i64 {esz_val}, i1 false)"));
+        self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {gt8_buf_ptr}, i8* {src}, i64 {esz_val}, i1 false)"));
         let buf_i64 = self.fresh_tmp();
-        self.emitln(&format!("  {buf_i64} = ptrtoint i8* {buf} to i64"));
+        self.emitln(&format!("  {buf_i64} = ptrtoint i8* {gt8_buf_ptr} to i64"));
         self.emitln(&format!("  store i64 {buf_i64}, i64* {result_slot}"));
         self.emitln(&format!("  br label %{done}"));
         // Narrow path
