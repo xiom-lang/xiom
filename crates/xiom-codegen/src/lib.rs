@@ -8857,25 +8857,17 @@ impl IrEmitter {
 
     /// Emit a load of an element from `src` (i8*) using the element width from
     /// `esz_val`. Returns the register holding the loaded-and-extended i64 value.
+    /// Only called for primitive element types (Int, UInt8, etc.) — struct
+    /// elements use the direct struct load path in the Index handler.
     fn emit_elem_load(&mut self, src: &str, esz_val: &str) -> String {
         let result_slot = self.fresh_tmp();
         self.emitln(&format!("  {result_slot} = alloca i64"));  // in entry block
-        // Fixed-size entry-block buffer for >8 struct loads. Uses a constant
-        // size (512 bytes) instead of variable `alloca i8, i64 {esz_val}` to
-        // prevent `__chkstk` stack probe failures (5c.28 counter pattern fix).
-        let gt8_buf = self.fresh_tmp();
-        self.emitln(&format!("  {gt8_buf} = alloca [512 x i8], align 1"));
-        let gt8_buf_ptr = self.fresh_tmp();
-        self.emitln(&format!("  {gt8_buf_ptr} = bitcast [512 x i8]* {gt8_buf} to i8*"));
         let is8 = self.fresh_tmp();
         self.emitln(&format!("  {is8} = icmp eq i64 {esz_val}, 8"));
         let load8 = self.fresh_block("elem_load8");
-        let is_gt8 = self.fresh_tmp();
-        self.emitln(&format!("  {is_gt8} = icmp sgt i64 {esz_val}, 8"));
-        let load_gt8 = self.fresh_block("elem_load_gt8");
         let load_narrow = self.fresh_block("elem_load_narrow");
         let done = self.fresh_block("elem_load_done");
-        self.emitln(&format!("  br i1 {is8}, label %{load8}, label %{done}_check"));
+        self.emitln(&format!("  br i1 {is8}, label %{load8}, label %{load_narrow}"));
         // 8-byte path
         self.emitln(&format!("\n{load8}:"));
         let src64 = self.fresh_tmp();
@@ -8884,31 +8876,7 @@ impl IrEmitter {
         self.emitln(&format!("  {load64} = load i64, i64* {src64}"));
         self.emitln(&format!("  store i64 {load64}, i64* {result_slot}"));
         self.emitln(&format!("  br label %{done}"));
-        self.emitln(&format!("\n{done}_check:"));
-        self.emitln(&format!("  br i1 {is_gt8}, label %{load_gt8}, label %{load_narrow}"));
-        // >8-byte path: memcpy into the fixed entry-block buffer.
-        // Guard against dangling/corrupted data pointers from cumulative
-        // test calls (Vec data ptr may be invalid after prior test reallocs).
-        self.emitln(&format!("\n{load_gt8}:"));
-        let src_null = self.fresh_tmp();
-        let ok_block = self.fresh_block("elem_gt8_ptr_ok");
-        let bad_block = self.fresh_block("elem_gt8_ptr_bad");
-        self.emitln(&format!("  {src_null} = icmp eq i8* {src}, null"));
-        self.emitln(&format!("  br i1 {src_null}, label %{bad_block}, label %{ok_block}"));
-        self.emitln(&format!("\n{bad_block}:"));
-        self.emitln("  call void @llvm.trap()");
-        self.emitln("  unreachable");
-        self.emitln(&format!("\n{ok_block}:"));
-        let too_big = self.fresh_tmp();
-        self.emitln(&format!("  {too_big} = icmp sgt i64 {esz_val}, 512"));
-        let clamp_sz = self.fresh_tmp();
-        self.emitln(&format!("  {clamp_sz} = select i1 {too_big}, i64 512, i64 {esz_val}"));
-        self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {gt8_buf_ptr}, i8* {src}, i64 {clamp_sz}, i1 false)"));
-        let buf_i64 = self.fresh_tmp();
-        self.emitln(&format!("  {buf_i64} = ptrtoint i8* {gt8_buf_ptr} to i64"));
-        self.emitln(&format!("  store i64 {buf_i64}, i64* {result_slot}"));
-        self.emitln(&format!("  br label %{done}"));
-        // Narrow path
+        // Narrow path (covers 1/2/4-byte types — corrupted esz_val also falls here)
         self.emitln(&format!("\n{load_narrow}:"));
         let loaded_i8 = self.fresh_tmp();
         self.emitln(&format!("  {loaded_i8} = load i8, i8* {src}"));
