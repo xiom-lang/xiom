@@ -7887,7 +7887,18 @@ impl IrEmitter {
                     return Ok((ext, "i64".to_string()));
                 }
                 // Vec/Slice: element is an i64-wide slot at data[index].
-                let (vec_val, vec_ty) = self.resolve_vec_value(&cont_val, &cont_ty);
+                let (mut vec_val, mut vec_ty) = self.resolve_vec_value(&cont_val, &cont_ty);
+                // If field_llvm_type returned i64 (generic type like Vec[Int]),
+                // the Vec was loaded as i64. Inttoptr to %struct.Vec* and
+                // reload as the proper struct type (5c.28).
+                if vec_ty == "i64" && self.is_container_vec_field(container) {
+                    let vp = self.fresh_tmp();
+                    self.emitln(&format!("  {vp} = inttoptr i64 {vec_val} to %struct.Vec*"));
+                    let vl = self.fresh_tmp();
+                    self.emitln(&format!("  {vl} = load volatile %struct.Vec, %struct.Vec* {vp}"));
+                    vec_val = vl;
+                    vec_ty = "%struct.Vec".to_string();
+                }
                 let is_vec = vec_ty == "%struct.Vec" || vec_ty.ends_with(".Vec")
                     || vec_ty.contains("struct.Vec")
                     || vec_ty == "%struct.Slice" || vec_ty.contains("struct.Slice");
@@ -8833,6 +8844,28 @@ impl IrEmitter {
             prev = vi;
         }
         prev
+    }
+
+    /// Returns true if `container` is a field access on a struct and the
+    /// field's type in type_meta is a generic container (Vec[..], Map[..], etc.)
+    fn is_container_vec_field(&self, container: &Expr) -> bool {
+        if let Expr::Field(base, field_expr, _) = container {
+            if let Some(base_ty) = self.infer_struct_type_name(base) {
+                for key in self.type_meta.keys() {
+                    if key.ends_with(&base_ty) || key == &base_ty {
+                        if let Some(meta) = self.type_meta.get(key) {
+                            for (fname, ftype) in &meta.fields {
+                                if fname == &field_expr.name {
+                                    return ftype.contains('[');
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        false
     }
 
     fn emit_vec_store_fields(&mut self, vec_val: &str, dest_alloca: &str) {
