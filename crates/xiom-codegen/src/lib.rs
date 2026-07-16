@@ -6570,7 +6570,28 @@ impl IrEmitter {
                         let (val_raw, val_ty) = self.compile_expr(&args[0])?;
                         let vec_alloca = self.fresh_tmp();
                         self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
-                        self.emitln(&format!("  store %struct.Vec {recv_vec}, %struct.Vec* {vec_alloca}"));
+                        // Store Vec via extractvalue+individual stores to prevent
+                        // LLVM SROA from decomposing the struct write (5c.28).
+                        let vec_data = self.fresh_tmp();
+                        let vec_len = self.fresh_tmp();
+                        let vec_cap = self.fresh_tmp();
+                        let vec_esz = self.fresh_tmp();
+                        self.emitln(&format!("  {vec_data} = extractvalue %struct.Vec {recv_vec}, 0"));
+                        self.emitln(&format!("  {vec_len} = extractvalue %struct.Vec {recv_vec}, 1"));
+                        self.emitln(&format!("  {vec_cap} = extractvalue %struct.Vec {recv_vec}, 2"));
+                        self.emitln(&format!("  {vec_esz} = extractvalue %struct.Vec {recv_vec}, 3"));
+                        let d_gep = self.fresh_tmp();
+                        let l_gep = self.fresh_tmp();
+                        let c_gep = self.fresh_tmp();
+                        let e_gep = self.fresh_tmp();
+                        self.emitln(&format!("  {d_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 0"));
+                        self.emitln(&format!("  store i8* {vec_data}, i8** {d_gep}"));
+                        self.emitln(&format!("  {l_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 1"));
+                        self.emitln(&format!("  store i64 {vec_len}, i64* {l_gep}"));
+                        self.emitln(&format!("  {c_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 2"));
+                        self.emitln(&format!("  store i64 {vec_cap}, i64* {c_gep}"));
+                        self.emitln(&format!("  {e_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 3"));
+                        self.emitln(&format!("  store i64 {vec_esz}, i64* {e_gep}"));
                         // Load elem_size early — needed to decide struct vs scalar path
                         let esz_gep = self.fresh_tmp();
                         let esz_val = self.fresh_tmp();
@@ -7877,6 +7898,11 @@ impl IrEmitter {
                 if is_vec {
                     let vslot = self.fresh_tmp();
                     self.emitln(&format!("  {vslot} = alloca %struct.Vec"));
+                    // Zero-init the Vec alloca to prevent stale stack data
+                    // from prior function calls when LLVM SROA skips stores.
+                    let vslot_i8 = self.fresh_tmp();
+                    self.emitln(&format!("  {vslot_i8} = bitcast %struct.Vec* {vslot} to i8*"));
+                    self.emitln(&format!("  call void @llvm.memset.p0i8.i64(i8* {vslot_i8}, i8 0, i64 32, i1 false)"));
                     self.emitln(&format!("  store %struct.Vec {vec_val}, %struct.Vec* {vslot}"));
                     // Load elem_size from field 3
                     let esz_gep = self.fresh_tmp();
