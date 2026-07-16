@@ -395,6 +395,18 @@ Verified: `IpAddr.is_v4/is_v6` field access now correctly loads and compares str
 - ✅ 5c.19: `struct_type_from_expr` handles `this`→`self` (JSON/HTTP compilation fixed)
 - ✅ 5c.21: Vec-of-struct size-aware storage with memcpy (DB/HTTP/SQLITE element storage)
 - ✅ 5c.22: field_llvm_type generic-arg stripping for Vec/Map/Set field types
+- ✅ 5c.23: resolve_vec_elem_type filters primitive types (prevents %struct.Int)
+- ✅ 5c.24: FIELD-I64 inttoptr for bare Vec index field access (e2e_vec_of_struct passes)
+- ✅ 5c.25: @pre snapshot dereferences &mut pointers for by-value struct copy
+- ✅ 5c.26: fn-ptr as value resolves function name to pointer (FNPTR now calls correctly)
+
+**Current state: 89/101 e2e. 12 remaining failures:**
+- 6 counter pattern: NET, DB, VECTOR, FULL, TEST, SQLITE (STACK_OVERFLOW/ACCESS_VIOLATION)
+- 1 BREAKPOINT: CRYPTO (pre-existing since c6e9804, llvm.trap from runtime)
+- 1 exit 1: FNPTR (fix works, test returns f()=1 instead of 0)
+- 2 exit 1: JSON, this_field_ref (wrong results)
+- 1 exit 1: vec_of_struct (FIELD-I64 fix works manually, e2e runner discrepancy)
+- 1 ACCESS_VIOLATION: HTTP (Vec-of-struct through-pointer access)
 
 **Troubleshooting Notes:**
 - **HTTP crash (Vec-of-struct):** `val_to_i64` heap-allocates multi-field structs and returns
