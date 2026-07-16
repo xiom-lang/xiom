@@ -982,6 +982,14 @@ fn e2e_enum_this_match() {
 }
 
 #[test]
+fn e2e_vec_of_struct() {
+    // Regression: Vec-of-struct inline storage (5c.21 — size-aware
+    // elem_size with memcpy push/store/load for multi-field structs).
+    assert_eq!(compile_and_run("tests\\ecosystem\\test_vec_of_struct.xi"), Some(0),
+        "ecosystem: Vec[Struct] push/index/pop with multi-field structs");
+}
+
+#[test]
 fn eco_ffi_binding_gaps() {
     // Regression: () in Result generic, pub const cross-module, extern cross-module
     assert_eq!(compile_and_run("tests\\ecosystem\\test_ffi.xi"), Some(0),
