@@ -565,7 +565,7 @@ fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
                 }
                 Target::Native => {
                     if cfg!(target_os = "windows") {
-                        cmd.args(["-Xlinker", "/SUBSYSTEM:CONSOLE"]);
+                        cmd.args(["-Xlinker", "/SUBSYSTEM:CONSOLE", "-Xlinker", "/STACK:2097152,2097152"]);
                     }
                 }
             }

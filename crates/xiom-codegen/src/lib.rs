@@ -8848,8 +8848,13 @@ impl IrEmitter {
         self.emitln(&format!("\n{done}_check:"));
         self.emitln(&format!("  br i1 {is_gt8}, label %{load_gt8}, label %{load_narrow}"));
         // >8-byte path: memcpy into the fixed entry-block buffer.
+        // Clamp copy size to 512 to prevent overflow from corrupted esz_val.
         self.emitln(&format!("\n{load_gt8}:"));
-        self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {gt8_buf_ptr}, i8* {src}, i64 {esz_val}, i1 false)"));
+        let too_big = self.fresh_tmp();
+        self.emitln(&format!("  {too_big} = icmp sgt i64 {esz_val}, 512"));
+        let clamp_sz = self.fresh_tmp();
+        self.emitln(&format!("  {clamp_sz} = select i1 {too_big}, i64 512, i64 {esz_val}"));
+        self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {gt8_buf_ptr}, i8* {src}, i64 {clamp_sz}, i1 false)"));
         let buf_i64 = self.fresh_tmp();
         self.emitln(&format!("  {buf_i64} = ptrtoint i8* {gt8_buf_ptr} to i64"));
         self.emitln(&format!("  store i64 {buf_i64}, i64* {result_slot}"));
