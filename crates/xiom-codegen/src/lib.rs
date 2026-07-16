@@ -6009,12 +6009,9 @@ impl IrEmitter {
                             }
                         }
                     }
-                    // FIELD-I64: Only trigger for i64 values that are likely
-                    // struct pointers from Vec index or val_to_i64. This avoids
-                    // infinite recursion from normal i64 field accesses.
-                    if ov_ty == "i64" && !field.name.is_empty()
-                        && (matches!(obj.as_ref(), Expr::Index(..)) || matches!(obj.as_ref(), Expr::Call(..)))
-                    {
+                    // FIELD-I64: Vec-indexed structs return i64 pointers/heap-ptrs.
+                    // Try to resolve field access via inttoptr+GEP on known struct types.
+                    if ov_ty == "i64" && !field.name.is_empty() {
                         if let Some((v, t)) = self.try_i64_field_access(&obj_val, &field.name) {
                             return Ok((v, t));
                         }
