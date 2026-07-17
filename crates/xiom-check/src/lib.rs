@@ -16,6 +16,7 @@ use crate::types::{TypeArena, TypeId};
 
 pub mod types;
 pub mod catalog;
+pub mod borrow;
 
 use types::{CheckedType, FnSig, CheckError};
 use catalog::{ModuleExport, CachedModule, ModuleCatalog};
