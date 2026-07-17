@@ -65,6 +65,45 @@ impl Parser {
         }
     }
 
+    /// Panic-mode statement recovery (rustc lesson: `recover_stmt_` in
+    /// `compiler/rustc_parse/src/parser/diagnostics.rs` ~60 lines).
+    /// Skip tokens to the next statement boundary (`;` or `}`) while tracking
+    /// brace depth — increment on `{`, decrement on `}`, stop when depth ≤ 0
+    /// and we hit `;` or `}`. This keeps recovery scoped to the current block
+    /// instead of leaking into enclosing scopes.
+    fn recover_stmt(&mut self) {
+        let mut depth: i32 = 0;
+        while !self.peek().is_eof() {
+            match self.peek_kind() {
+                TokenKind::LBrace => { depth += 1; self.advance(); }
+                TokenKind::RBrace => {
+                    if depth <= 0 {
+                        // Closing brace at our level: eat it and stop.
+                        self.advance();
+                        break;
+                    }
+                    depth -= 1;
+                    self.advance();
+                }
+                TokenKind::Semicolon => {
+                    if depth <= 0 {
+                        self.advance();
+                        break;
+                    }
+                    self.advance();
+                }
+                // Stop at fn/type/enum/etc. — likely start of next item
+                TokenKind::Fn | TokenKind::Type | TokenKind::Enum
+                | TokenKind::Interface | TokenKind::Module | TokenKind::Pub
+                | TokenKind::Const | TokenKind::Use | TokenKind::Extern => {
+                    if depth <= 0 { break; }
+                    self.advance();
+                }
+                _ => { self.advance(); }
+            }
+        }
+    }
+
     /// Return accumulated errors if any.
     pub fn take_errors(&mut self) -> Vec<ParseError> {
         std::mem::take(&mut self.errors)
@@ -255,7 +294,9 @@ impl Parser {
                     if self.errors.len() >= Self::MAX_PARSE_ERRORS {
                         return Err(ParseError { message: "too many parse errors — aborting".to_string(), span });
                     }
-                    self.recover_to_sync();
+                    // 5c-R: use brace-depth-aware statement recovery instead of
+                    // top-level-only sync (rustc lesson: panic-mode recovery)
+                    self.recover_stmt();
                 }
             }
         }
