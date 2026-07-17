@@ -4519,6 +4519,26 @@ impl IrEmitter {
                         Ok((tmp, "i64".to_string()))
                     }
                     (a, b) if a == b => Ok((val, target_llvm_ty.clone())),
+                    // 5c-E G2: &local as Int — emit ADDRESS not VALUE
+                    (a, b) if matches!(inner.as_ref(), Expr::Ref(_, _) | Expr::MutRef(_, _))
+                        && int_width(b).is_some()
+                        && int_width(a).is_some() =>
+                    {
+                        // Re-compile to get the ADDRESS pointer, not the value
+                        if let Expr::Ref(ri, _) | Expr::MutRef(ri, _) = inner.as_ref() {
+                            if let Expr::Ident(id) = ri.as_ref() {
+                                if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
+                                    let addr_val = format!("{}*", slot_ty);
+                                    let ptr_reg = self.fresh_tmp();
+                                    self.emitln(&format!("  {ptr_reg} = ptrtoint {addr_val} {slot} to {b}"));
+                                    return Ok((ptr_reg, target_llvm_ty.clone()));
+                                }
+                            }
+                        }
+                        // Fallback
+                        self.emitln(&format!("  {tmp} = sext {a} {val} to {b}"));
+                        Ok((tmp, target_llvm_ty.clone()))
+                    }
                     // Integer <-> integer width conversions (e.g. Int<->Char, Int<->Int8/16/32).
                     // Char is i8 and Int is i64, so Int->Char truncs and Char->Int sign-extends.
                     (a, b) if int_width(a).is_some() && int_width(b).is_some() => {
