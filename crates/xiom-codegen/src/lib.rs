@@ -149,6 +149,10 @@ pub struct IrEmitter {
     /// e.g. "Result[Vec[Int], Str]") so Option/Result payload types survive
     /// the LLVM type erasure for unwrap-binding classification.
     fn_return_xiom: HashMap<String, String>,
+    /// 5c.30: current method's receiver TYPE NAME (set during method
+    /// compilation) so bare-name calls like `init()` inside `fn Foo.init()`
+    /// resolve as implicit-self method calls (G-10).
+    current_receiver: Option<String>,
     /// Temporary register values that originated from Expr::Array literals.
     /// Used by val_to_struct to distinguish array-buffer i8* from generic i8*.
     array_value_regs: HashSet<String>,
@@ -224,6 +228,7 @@ impl IrEmitter {
             local_vec_handle: HashMap::new(),
             enum_variant_field_types: HashMap::new(),
             fn_return_xiom: HashMap::new(),
+            current_receiver: None,
             array_value_regs: HashSet::new(),
             already_declared: HashSet::new(),
             constants: HashMap::new(),
@@ -2660,7 +2665,8 @@ impl IrEmitter {
             // matches the receiver type (ecosystem pattern: `fn T.method(h: &mut T, ...)`).
             let is_first_param_self = fd.receiver.is_some() && fd.params.first().map_or(false, |p| {
                 let pt = Self::type_from_ast(&p.ty);
-                fd.receiver.as_ref().map_or(false, |r| pt == r.name)
+                let ptn = pt.trim_start_matches('*');
+                fd.receiver.as_ref().map_or(false, |r| ptn == r.name)
             });
             let has_self_param = fd.params.iter().any(|p| p.name.name == "self")
                 || is_first_param_self;
@@ -2982,6 +2988,8 @@ impl IrEmitter {
 
         let name = self.fn_key(fd);
         self.current_fn = Some(name.clone());
+        // 5c.30: track receiver type for implicit-self method calls (G-10)
+        self.current_receiver = fd.receiver.as_ref().map(|r| r.name.clone());
 
         // For methods, prepend the self struct parameter. A receiver-qualified fn
         // with NO `self` param is a static constructor (e.g. `Layout.new(size)`):
@@ -2996,21 +3004,29 @@ impl IrEmitter {
         let is_first_param_self = fd.receiver.is_some() && !has_self_param
             && fd.params.first().map_or(false, |p| {
                 let pt = Self::type_from_ast(&p.ty);
-                fd.receiver.as_ref().map_or(false, |r| pt == r.name)
+                // type_from_ast returns "*T" for &mut T — strip the pointer
+                // prefix to compare with the bare receiver name.
+                let ptn = pt.trim_start_matches('*');
+                fd.receiver.as_ref().map_or(false, |r| ptn == r.name)
             });
         // Match registration: implicit self only for explicit-`self` methods
         // and `this`-based methods (body actually references `this`).
+        // 5c.30: a method with a receiver but no explicit self/this
+        // (e.g. `fn Greeter.greet(greeting: Str)`) MUST still receive
+        // %param_self — the implicit-self call site injects the self arg.
         let is_this_based = fd.receiver.is_some() && !has_self_param && !is_first_param_self
             && fd.body.as_ref().map_or(false, |b| Self::block_uses_this(b));
+        let has_receiver_noself = fd.receiver.is_some() && !has_self_param && !is_first_param_self;
         let self_llvm_ty = if has_self_param {
             fd.receiver.as_ref().map(|r| {
                 let base = self.llvm_type_for(&r.name).unwrap_or_else(|_| "i64".to_string());
                 let is_mut = fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self);
                 if is_mut && base.starts_with('%') { format!("{base}*") } else { base }
             })
-        } else if is_this_based {
-            // `this`-based methods: allocate a pointer-typed self slot so
-            // the body can access receiver fields through `this`/`self`.
+        } else if is_this_based || has_receiver_noself {
+            // `this`-based methods AND any method with a receiver:
+            // allocate a pointer-typed self slot so the body can access
+            // struct fields and implicit-self call sites can inject self.
             fd.receiver.as_ref().map(|r| {
                 let base = self.llvm_type_for(&r.name).unwrap_or_else(|_| "i64".to_string());
                 if base.starts_with('%') { format!("{base}*") } else { base }
@@ -3254,6 +3270,7 @@ impl IrEmitter {
         self.emitln("}\n");
         self.pop_scope();
         self.current_fn = None;
+        self.current_receiver = None;
         self.current_ensures.clear();
         self.result_ptr = None;
         Ok(())
@@ -4523,6 +4540,7 @@ impl IrEmitter {
                 self.emitln("}\n");
                 self.pop_scope();
                 self.current_fn = None;
+                self.current_receiver = None;
             }
         }
         Ok(())
@@ -6696,6 +6714,8 @@ impl IrEmitter {
                     Expr::Field(obj, field, _) => (Some(field.name.clone()), Some(obj)),
                     _ => (None, None),
                 };
+                // 5c.30: G-10 implicit-self method calls (via receiver_expr
+                // handling below; resolution deferred to compile time)
                 // Capture type args from receiver_expr for `Map[Str,JsonValue].new()`.
                 if type_arg.is_none() {
                     if let Some(ref r) = receiver_expr {
@@ -8531,18 +8551,32 @@ impl IrEmitter {
                         // Use registered param types when available (correct for extern
                         // functions with non-default types like Int32ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢i32, Float32ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢float).
                         // Fall back to inferred expression types otherwise.
+                        let isk = if receiver_expr.is_none() {
+                            self.resolve_implicit_self_call(&fn_name)
+                        } else { None };
+                        let has_implicit = isk.is_some();
+                        if let Some(isk) = isk {
+                            resolved_fn_key = isk;
+                        }
                         let use_registered = self.functions.get(&resolved_fn_key)
                             .map(|(pts, _)| pts.len() == compiled_args.len())
                             .unwrap_or(false);
                         if use_registered {
                             let pts = self.functions[&resolved_fn_key].0.clone();
                             let mut parts: Vec<String> = Vec::new();
+                            // 5c.30: for implicit-self calls, inject self as arg[0]
+                            if has_implicit {
+                                let self_slot = self.lookup_local("self")
+                                    .map(|(s, _)| s.clone())
+                                    .unwrap_or_else(|| "null".to_string());
+                                let self_ty = self.current_receiver.as_ref()
+                                    .and_then(|r| self.llvm_type_for(r).ok().map(|t| format!("{t}*")))
+                                    .unwrap_or_else(|| "i64*".to_string());
+                                parts.push(format!("{self_ty} {self_slot}"));
+                            }
                             for (i, (arg_val, arg_ty)) in compiled_args.iter().enumerate() {
-                                let pty = pts[i].clone();
-                                // Coerce the argument to the callee's declared param
-                                // type using the arg's REAL compiled type. Address-of
-                                // a scalar lvalue passed to a pointer param yields the
-                                // slot address (see coerce_arg_for_param).
+                                let param_idx = if has_implicit { i + 1 } else { i };
+                                let pty = pts.get(param_idx).cloned().unwrap_or_else(|| arg_ty.clone());
                                 let coerced = match args.get(i) {
                                     Some(ae) => self.coerce_arg_for_param(ae, arg_val, arg_ty, &pty),
                                     None => self.coerce_value(arg_val, arg_ty, &pty),
@@ -8551,10 +8585,21 @@ impl IrEmitter {
                             }
                             parts.join(", ")
                         } else {
-                            compiled_args.iter()
-                                .map(|(arg_val, arg_ty)| format!("{arg_ty} {arg_val}"))
-                                .collect::<Vec<_>>()
-                                .join(", ")
+                            let mut parts: Vec<String> = Vec::new();
+                            // 5c.30: self arg for implicit calls
+                            if has_implicit {
+                                let self_slot = self.lookup_local("self")
+                                    .map(|(s, _)| s.clone())
+                                    .unwrap_or_else(|| "null".to_string());
+                                let self_ty = self.current_receiver.as_ref()
+                                    .and_then(|r| self.llvm_type_for(r).ok().map(|t| format!("{t}*")))
+                                    .unwrap_or_else(|| "i64*".to_string());
+                                parts.push(format!("{self_ty} {self_slot}"));
+                            }
+                            for (arg_val, arg_ty) in compiled_args.iter() {
+                                parts.push(format!("{arg_ty} {arg_val}"));
+                            }
+                            parts.join(", ")
                         }
                     };
                     let tmp = self.fresh_tmp();
@@ -9801,6 +9846,19 @@ impl IrEmitter {
     /// Returns the declared XIOM type name of field `field_idx` of `struct_name`
     /// from type_meta (e.g. "Vec[Int]"), using the same qualified-name fallbacks
     /// as `field_llvm_type`.
+    /// 5c.30: Check whether a bare-name call inside a method should be
+    /// resolved as an implicit-self method call (G-10). Called early in
+    /// the Expr::Call handler.
+    fn resolve_implicit_self_call(&self, fn_name: &str) -> Option<String> {
+        let recv = self.current_receiver.as_ref()?;
+        let key = format!("{recv}.{fn_name}");
+        if self.functions.contains_key(&key) { return Some(key); }
+        for k in self.functions.keys() {
+            if k.ends_with(&format!(".{key}")) { return Some(k.clone()); }
+        }
+        None
+    }
+
     fn field_xiom_type(&self, struct_name: &str, field_idx: usize) -> Option<String> {
         let meta = self.type_meta.get(struct_name)
             .or_else(|| {

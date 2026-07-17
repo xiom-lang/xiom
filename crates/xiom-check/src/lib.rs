@@ -572,6 +572,9 @@ pub struct Checker {
     catalog: ModuleCatalog,
     /// Set of dotted module paths that have been loaded into this checker
     cached_loaded: HashSet<String>,
+    /// 5c.30: When inside a method body, the RECEIVER type name so bare
+    /// calls like `init()` can be resolved as `self.init()` (G-10/G-25 fix).
+    current_receiver: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -617,6 +620,7 @@ impl Checker {
             source_dirs: Vec::new(),
             catalog: ModuleCatalog::new(Vec::new()),
             cached_loaded: HashSet::new(),
+            current_receiver: None,
         };
         // Register built-in types
         checker.register_builtins();
@@ -2207,6 +2211,9 @@ impl Checker {
         if let Some(recv) = fd.receiver.as_ref() {
             // Add self as a variable (for match self { ... } in enum methods)
             self.add_local("self", CheckedType::Named(recv.name.clone()));
+            // 5c.30: track the receiver type for implicit-self method call
+            // resolution (G-10: bare `init()` inside `fn GrpcClient.init()`).
+            self.current_receiver = Some(recv.name.clone());
             let fields_clone = self.get_type(&recv.name).cloned();
             if let Some(fields) = fields_clone {
                 for (field_name, field_ty) in fields {
@@ -2225,6 +2232,7 @@ impl Checker {
         }
 
         self.pop_scope();
+        self.current_receiver = None;
     }
 
     fn check_block(&mut self, block: &Block, expected_return: Option<CheckedType>) -> Option<CheckedType> {
@@ -2441,6 +2449,24 @@ impl Checker {
                         ModuleExport::Const { ty, .. } => ty.clone(),
                         ModuleExport::SubModule(_) => CheckedType::Named("module".into()),
                     }
+                // 5c.30: implicit-self method calls (G-10). When inside a
+                // method body, bare calls like `init()` resolve to
+                // `self.init()`. The identifier must name a method
+                // registered for the current receiver type.
+                } else if let Some(ref recv) = self.current_receiver {
+                    if let Some(ms) = self.methods.get(recv) {
+                        if ms.contains_key(&ident.name) {
+                            return CheckedType::Named("fn".into());
+                        }
+                    }
+                    // Also try module-qualified receiver
+                    let suffix = format!(".{recv}");
+                    for (key, ms) in &self.methods {
+                        if key.ends_with(&suffix) && ms.contains_key(&ident.name) {
+                            return CheckedType::Named("fn".into());
+                        }
+                    }
+                    self.error(format!("undefined variable '{}'", ident.name), ident.span)
                 } else {
                     self.error(format!("undefined variable '{}'", ident.name), ident.span)
                 }
@@ -2816,7 +2842,46 @@ impl Checker {
                         }
                         return ret_ty;
                     }
-                    // Also check imported items for function aliases
+                    // 5c.30: implicit-self method call (G-10).
+                    // When inside a method body, `init()` resolves to
+                    // `self.init()`. Look up the method in the current
+                    // receiver type's registry.
+                    if let Some(ref recv) = self.current_receiver {
+                        // Try the receiver's methods, qualified and bare
+                        let mut msig: Option<&FnSig> = None;
+                        if let Some(ms) = self.methods.get(recv) {
+                            msig = ms.get(&name.name);
+                        }
+                        if msig.is_none() {
+                            let suffix = format!(".{recv}");
+                            for (key, ms) in &self.methods {
+                                if key.ends_with(&suffix) {
+                                    msig = ms.get(&name.name);
+                                    if msig.is_some() { break; }
+                                }
+                            }
+                        }
+                        if let Some(sig) = msig.cloned() {
+                            // The implicit self argument is passed as the
+                            // FIRST param. Check remaining explicit args
+                            // against params[1..].
+                            for (i, arg) in args.iter().enumerate() {
+                                let arg_ty = self.check_expr(arg);
+                                if i + 1 < sig.params.len() {
+                                    let expected = &sig.params[i + 1].1;
+                                    let is_generic = sig.generics.iter().any(|g| g == &expected.name());
+                                    if !is_generic && !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
+                                        self.error(
+                                            format!("argument {} type mismatch: expected {}, found {}",
+                                                i + 1, expected.name(), arg_ty.name()),
+                                            *span,
+                                        );
+                                    }
+                                }
+                            }
+                            return sig.return_type.unwrap_or(CheckedType::Unit);
+                        }
+                    }
                     if let Some(export) = self.imported_items.get(&name.name).cloned() {
                         if let ModuleExport::Function { sig, .. } = export {
                             // Build generic substitution map from the call arguments
