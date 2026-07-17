@@ -36,7 +36,7 @@ fn main() {
     }
 
     if args.iter().any(|a| a == "--version") {
-        println!("XIOM Compiler v0.45.3 \"Production\" — 86/96 e2e, 40 stdlib modules");
+        println!("XIOM Compiler v0.46.0 \"Production\" — 101/101 e2e, deterministic builds");
         return;
     }
 
@@ -902,7 +902,7 @@ fn parse_package_manifest(path: &str) -> Result<Vec<String>, String> {
 }
 
 fn print_usage() {
-    eprintln!("XIOM Compiler v0.11.0 \"Self-Hosted\" -- Full Self-Hosting");
+        eprintln!("XIOM Compiler v0.46.0 \"Production\" -- Deterministic Builds, 101/101 E2E");
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("  xiomc [OPTIONS] <source.xi>");

@@ -332,3 +332,97 @@ fn regress_gap12_unit_result_ok() {
     let ir = compile("fn f() -> Result[Int, Int] { return Ok(1); } fn main() -> Int { return 0; }").unwrap();
     assert!(ir.contains("define"));
 }
+
+// ============================================================
+// 5c.29 / 5c.30 Production hardening regression tests
+// ============================================================
+
+#[test]
+fn regress_5c29_container_field_handle() {
+    // Struct with a Vec[Int] field: the field must be an i64 HANDLE,
+    // not a by-value 32-byte %struct.Vec stored in the 8-byte slot.
+    let ir = compile(r#"
+pub type Foo = { items: Vec[Int]; count: Int; }
+fn Foo.new() -> Foo { return Foo{ items: Vec[Int].new(), count: 0 }; }
+fn main() -> Int { let f = Foo.new(); return 0; }
+"#).unwrap();
+    // The struct literal must NOT store %struct.Vec by value into the i64 handle field.
+    assert!(ir.contains("ptrtoint"), "must box Vec header (ptrtoint) for handle field");
+}
+
+#[test]
+fn regress_5c29_vec_of_struct_elem() {
+    // Vec of struct with field access after indexing
+    let ir = compile(r#"
+pub type Point = { x: Int; y: Int; }
+fn main() -> Int {
+  var pts = Vec[Point].new();
+  var p = Point{ x: 10, y: 20 };
+  pts.push(p);
+  let v = pts[0];
+  return v.x - 10 + v.y - 20;
+}
+"#).unwrap();
+    assert!(ir.contains("define"), "Vec-of-struct index + field access must compile");
+}
+
+#[test]
+fn regress_5c29_float32_vec_elem() {
+    // Vec[Float32] elements round-trip raw bits (not sitofp)
+    let ir = compile(r#"
+fn main() -> Int {
+  var v = Vec[Float32].new();
+  v.push(1.5);
+  let x = v[0];
+  if x == 1.5 { return 0; }
+  return 1;
+}
+"#).unwrap();
+    assert!(ir.contains("define"), "Float32 Vec elements must bit-reinterpret");
+}
+
+#[test]
+fn regress_5c30_enum_payload_roundtrip() {
+    let ir = compile("pub enum Val { No; Yes(Int); } fn main() -> Int { let v = Val.Yes(42); match v { Yes(n) => n-42; _ => 1; } }").unwrap();
+    assert!(ir.contains("define"), "enum payload roundtrip");
+}
+
+#[test]
+fn regress_5c30_implicit_self_call() {
+    // Inside a method, bare `method(args)` resolves to self.method(args)
+    let ir = compile(r#"
+pub type Greeter = { name: Str; }
+fn Greeter.greet(greeting: Str) -> Str { return greeting; }
+fn Greeter.hello() -> Str { return greet("Hi"); }
+fn main() -> Int { return 0; }
+"#).unwrap();
+    assert!(ir.contains("define"), "implicit-self call must compile");
+}
+
+#[test]
+fn regress_5c30_local_field_ref() {
+    // &local.field must NOT bind an unrelated same-named local
+    let ir = compile(r#"
+pub type Addr = { ip: Str; port: Int; }
+fn main() -> Int {
+  var a = Addr{ ip: "127.0.0.1", port: 8080 };
+  var ip = "10.0.0.1";
+  let s = &a.ip;
+  return 0;
+}
+"#).unwrap();
+    assert!(ir.contains("getelementptr"), "&local.field must emit real GEP");
+}
+
+#[test]
+fn regress_5c29_string_concat() {
+    let ir = compile(r#"fn main() -> Int { let a = "hello" + " world"; return a.len() - 11; }"#).unwrap();
+    assert!(ir.contains("xiom_str_concat"), "Str + Str must call xiom_str_concat");
+}
+
+#[test]
+fn regress_5c30_uint_coercion() {
+    // Int literal → UInt8 coercion
+    let ir = compile(r#"fn main() -> Int { var x: UInt8 = 255; return 0; }"#).unwrap();
+    assert!(ir.contains("define"), "Int literal must coerce to UInt8");
+}
