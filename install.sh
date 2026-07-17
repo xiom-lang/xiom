@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-XIOM_VERSION="0.20.0"
+XIOM_VERSION="0.46.0"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BINARY_PATH="${1:-}"
 
