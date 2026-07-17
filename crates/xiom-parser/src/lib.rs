@@ -22,6 +22,10 @@ pub struct Parser {
     depth: usize,
     /// Accumulated parse errors for error recovery (Phase 5c).
     errors: Vec<ParseError>,
+    /// 5c-R: Expected-token bitset (rustc lesson: `TokenTypeSet` in `compiler/rustc_parse`).
+    /// Each failed `check()` inserts a bit; `bump()` clears it; the error path
+    /// formats the set as "expected one of X, Y, found Z".
+    expected: u128,
 }
 
 /// Maximum expression/type nesting depth. A recursive-descent parser recurses
@@ -31,7 +35,7 @@ const MAX_EXPR_DEPTH: usize = 32;
 
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, pos: 0, restrict_struct: false, depth: 0, errors: Vec::new() }
+        Self { tokens, pos: 0, restrict_struct: false, depth: 0, errors: Vec::new(), expected: 0 }
     }
 
     /// Maximum number of parse errors before aborting (Phase 5c error recovery).
@@ -102,6 +106,97 @@ impl Parser {
         kind(self.peek_kind())
     }
 
+    /// Map a `TokenKind` to its bit position in the `expected` bitset.
+    /// The bitset is u128 (128 bits); we have ~55 token kinds, so this fits.
+    fn token_bit(kind: &TokenKind) -> u128 {
+        match kind {
+            TokenKind::Int(_) | TokenKind::Float(_) => 1 << 0,
+            TokenKind::Str(_) => 1 << 1,
+            TokenKind::Char(_) => 1 << 2,
+            TokenKind::Ident(_) => 1 << 3,
+            TokenKind::Dot => 1 << 4,
+            TokenKind::Comma => 1 << 5,
+            TokenKind::Semicolon => 1 << 6,
+            TokenKind::Colon => 1 << 7,
+            TokenKind::LParen => 1 << 8,
+            TokenKind::RParen => 1 << 9,
+            TokenKind::LBrace => 1 << 10,
+            TokenKind::RBrace => 1 << 11,
+            TokenKind::LBracket => 1 << 12,
+            TokenKind::RBracket => 1 << 13,
+            TokenKind::At => 1 << 14,
+            TokenKind::Hash => 1 << 15,
+            TokenKind::Question => 1 << 16,
+            TokenKind::Plus => 1 << 17,
+            TokenKind::Minus => 1 << 18,
+            TokenKind::Star => 1 << 19,
+            TokenKind::Slash => 1 << 20,
+            TokenKind::Percent => 1 << 21,
+            TokenKind::Caret => 1 << 22,
+            TokenKind::Tilde => 1 << 23,
+            TokenKind::Eq => 1 << 24,
+            TokenKind::EqEq => 1 << 25,
+            TokenKind::Lt => 1 << 26,
+            TokenKind::Gt => 1 << 27,
+            TokenKind::Le => 1 << 28,
+            TokenKind::Ge => 1 << 29,
+            TokenKind::AndAnd => 1 << 30,
+            TokenKind::OrOr => 1 << 31,
+            TokenKind::Bang => 1 << 32,
+            TokenKind::Amp => 1 << 33,
+            TokenKind::Pipe => 1 << 34,
+            TokenKind::Ampersand => 1 << 35,
+            TokenKind::Arrow => 1 << 34,
+            TokenKind::Ampersand => 1 << 35,
+            TokenKind::Arrow => 1 << 36,
+            TokenKind::FatArrow => 1 << 37,
+            TokenKind::Fn => 1 << 38,
+            TokenKind::Type => 1 << 39,
+            TokenKind::Enum => 1 << 40,
+            TokenKind::Interface => 1 << 41,
+            TokenKind::Module => 1 << 42,
+            TokenKind::Pub => 1 << 43,
+            TokenKind::Const => 1 << 44,
+            TokenKind::Use => 1 << 45,
+            TokenKind::Extern => 1 << 46,
+            TokenKind::As => 1 << 47,
+            TokenKind::Eof => 1 << 48,
+            _ => 0,
+        }
+    }
+
+    /// Format the `expected` bitset as a human-readable "X, Y, Z" list.
+    fn expected_display(exp: u128) -> String {
+        let names: &[&str] = &[
+            "number", "string", "char literal", "identifier", ".", ",", ";", ":",
+            "(", ")", "{", "}", "[", "]", "@", "#", "?", "+", "-", "*", "/", "%",
+            "^", "~", "=", "==", "<", ">", "<=", ">=", "and", "or", "!",
+            "&", "|", "&", "->", "=>", "fn", "type", "enum", "interface", "module",
+            "pub", "const", "use", "extern", "as", "end of input",
+        ];
+        let parts: Vec<&str> = names.iter().enumerate()
+            .filter(|(i, _)| (exp >> i) & 1 != 0)
+            .map(|(_, n)| *n)
+            .collect();
+        if parts.is_empty() { "token".to_string() }
+        else if parts.len() == 1 { parts[0].to_string() }
+        else if parts.len() == 2 { format!("{} or {}", parts[0], parts[1]) }
+        else {
+            let last = parts.last().unwrap();
+            format!("{}, or {}", parts[..parts.len()-1].join(", "), last)
+        }
+    }
+
+    /// Record an expectation in the bitset (called when a `check()` fails).
+    fn record_expected(&mut self, kind: &TokenKind) {
+        self.expected |= Self::token_bit(kind);
+    }
+
+    /// Clear the expectation bitset (called after a successful token match).
+    fn clear_expected(&mut self) {
+        self.expected = 0;
+    }
+
     #[allow(dead_code)]
     fn expect(&mut self, expected: &str) -> Result<Token, ParseError> {
         if self.peek().is_eof() {
@@ -112,13 +207,21 @@ impl Parser {
     }
 
     fn expect_kind(&mut self, kind: TokenKind, expected: &str) -> Result<Token, ParseError> {
+        let exp_before = self.expected;
+        self.record_expected(&kind);
         if self.peek_kind() == &kind {
+            self.clear_expected();
             Ok(self.advance().clone())
         } else {
-            Err(self.error(format!(
-                "expected {expected}, found {}",
-                self.peek().lexeme
-            )))
+            // If other expectations were also recorded this parse attempt,
+            // include them in the error message (rustc lesson: free expected-list).
+            let msg = if exp_before != 0 && exp_before != Self::token_bit(&kind) {
+                let full = Self::expected_display(exp_before | Self::token_bit(&kind));
+                format!("expected one of {full}, found {}", self.peek().lexeme)
+            } else {
+                format!("expected {expected}, found {}", self.peek().lexeme)
+            };
+            Err(self.error(msg))
         }
     }
 
