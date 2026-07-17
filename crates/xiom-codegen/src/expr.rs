@@ -2410,7 +2410,9 @@ impl IrEmitter {
                             let struct_alloca = self.fresh_tmp();
                             self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
                             let data_ptr = self.fresh_tmp();
-                            self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 {elem_size} * {cap_i64})"));
+                            let alloc_size = self.fresh_tmp();
+                            self.emitln(&format!("  {alloc_size} = mul i64 {elem_size}, {cap_i64}"));
+                            self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 {alloc_size})"));
                             let null_check = self.fresh_tmp();
                             let ok_block = self.fresh_block("vec_wc_ok");
                             let trap_block = self.fresh_block("vec_wc_trap");
