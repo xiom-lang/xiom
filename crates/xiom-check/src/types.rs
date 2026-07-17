@@ -222,14 +222,49 @@ pub struct FnSig {
 // Check error
 // ============================================================================
 
+// ============================================================================
+// TypeCause — error provenance (5c-R: 8 reason codes, rustc ObligationCause)
+// ============================================================================
+
+/// Why a type error occurred. Threaded through every error() call so
+/// diagnostics can say "expected X because Y" instead of bare "type mismatch".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TypeCause {
+    ContractRequires,
+    ContractEnsures,
+    InvariantViolation,
+    TypeMismatch,
+    UndefinedVariable,
+    BadMethodCall,
+    BadFieldAccess,
+    Other,
+}
+
+impl fmt::Display for TypeCause {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TypeCause::ContractRequires => write!(f, "contract requires clause violated"),
+            TypeCause::ContractEnsures => write!(f, "contract ensures clause not proven"),
+            TypeCause::InvariantViolation => write!(f, "invariant broken"),
+            TypeCause::TypeMismatch => write!(f, "type mismatch"),
+            TypeCause::UndefinedVariable => write!(f, "undefined variable"),
+            TypeCause::BadMethodCall => write!(f, "method not found"),
+            TypeCause::BadFieldAccess => write!(f, "field not found"),
+            TypeCause::Other => write!(f, "type error"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CheckError {
     pub message: String,
     pub span: Span,
+    /// 5c-R: Why this error occurred (enables cause-aware diagnostics)
+    pub cause: TypeCause,
 }
 
 impl fmt::Display for CheckError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "type error at {}: {}", self.span, self.message)
+        write!(f, "{} at {}: {}", self.cause, self.span, self.message)
     }
 }

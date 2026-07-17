@@ -343,8 +343,13 @@ impl Checker {
     /// nodes silently — the diagnostic was already emitted (rustc lesson:
     /// one error per root cause, no cascading).
     fn error(&mut self, message: impl Into<String>, span: Span) -> CheckedType {
-        self.errors.push(CheckError { message: message.into(), span });
-        // Increment the error count (alternatively, pass the guarantee token).
+        self.error_with_cause(message, span, crate::types::TypeCause::Other)
+    }
+
+    /// Emit an error with a specific cause code (5c-R: TypeCause provenance).
+    /// Enables "expected X because contract requires Y" diagnostics.
+    fn error_with_cause(&mut self, message: impl Into<String>, span: Span, cause: crate::types::TypeCause) -> CheckedType {
+        self.errors.push(CheckError { message: message.into(), span, cause });
         self.error_count += 1;
         CheckedType::Error
     }
