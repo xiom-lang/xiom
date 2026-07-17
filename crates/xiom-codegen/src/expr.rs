@@ -4467,7 +4467,7 @@ impl IrEmitter {
                     self.emitln(&format!("  store {elem_llvm_ty} {store_val}, {elem_llvm_ty}* {gep}"));
                 }
                 let ptr = self.fresh_tmp();
-                self.emitln(&format!("  {ptr} = bitcast i64* {buf} to i8*"));
+                self.emitln(&format!("  {ptr} = bitcast {elem_llvm_ty}* {buf} to i8*"));
                 // Track this register as originating from an array literal
                 // so val_to_struct can distinguish array-buffer i8* from generic i8*.
                 self.array_value_regs.insert(ptr.clone());
