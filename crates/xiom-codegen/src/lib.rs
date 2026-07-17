@@ -1,10 +1,10 @@
-// XIOM ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â LLVM IR Codegen
+﻿// XIOM ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â LLVM IR Codegen
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
-//! XIOM Codegen ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Phase 0: AST ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ LLVM IR text.
+//! XIOM Codegen ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Phase 0: AST ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ LLVM IR text.
 //! Emits human-readable LLVM IR that can be compiled with `llc`.
-//! No external dependencies ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â pure string emission.
+//! No external dependencies ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â pure string emission.
 //! Handles: functions, arithmetic, control flow (if/else/while/match),
 //! let/var bindings, structs, function calls.
 
@@ -12,7 +12,9 @@ use xiom_ast::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+pub mod coerce;
 pub mod emitter;
+pub mod vec_abi;
 
 // ============================================================================
 // Metadata for user-defined types
@@ -38,13 +40,13 @@ pub struct IrEmitter {
     block_counter: u32,
     /// Counter for unique string constants
     str_counter: u32,
-    /// Local variables: name ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ (alloca_register, llvm_type)
+    /// Local variables: name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ (alloca_register, llvm_type)
     locals: Vec<HashMap<String, (String, String)>>,
-    /// Known function signatures: name ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ (param_llvm_types, return_llvm_type_or_empty)
+    /// Known function signatures: name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ (param_llvm_types, return_llvm_type_or_empty)
     functions: HashMap<String, (Vec<String>, String)>,
-    /// Known type structures: name ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ field names (for struct type definition)
+    /// Known type structures: name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ field names (for struct type definition)
     types: HashMap<String, Vec<String>>,
-    /// Full type metadata: name ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ TypeMeta
+    /// Full type metadata: name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ TypeMeta
     type_meta: HashMap<String, TypeMeta>,
     /// Names of types declared with generic params (e.g. `BinaryHeap[T]`). Methods
     /// on these cannot be lowered concretely from an un-monomorphised body, so they
@@ -56,7 +58,7 @@ pub struct IrEmitter {
     current_return_type: String,
     /// String constants to emit at the top
     strings: Vec<String>,
-    /// Current function's param LLVM types (index ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ type)
+    /// Current function's param LLVM types (index ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ type)
     current_param_llvm_types: Vec<String>,
     /// Whether to emit contract runtime checks
     check_contracts: bool,
@@ -94,18 +96,18 @@ pub struct IrEmitter {
     /// LLVM type used when storing an arm body into `match_result_ptr`.
     /// When `None`, falls back to `current_return_type` (tail-position match).
     match_result_ty: Option<String>,
-    /// Interface registry: interface name ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ vec of (method_name, param_type_names)
+    /// Interface registry: interface name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ vec of (method_name, param_type_names)
     interfaces: HashMap<String, Vec<(String, Vec<String>)>>,
-    /// Concrete types that implement each interface: interface_name ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ set of concrete_type_names
+    /// Concrete types that implement each interface: interface_name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ set of concrete_type_names
     interface_impls: HashMap<String, HashSet<String>>,
-    /// Enum variants registry: enum name ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ vec of (variant_name, field_names)
+    /// Enum variants registry: enum name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ vec of (variant_name, field_names)
     enum_variants: HashMap<String, Vec<(String, Vec<String>)>>,
     /// Scrutinee info for match arm field extraction: (alloca_name, type_name)
     #[allow(dead_code)]
     scrutinee_info: Option<(String, String)>,
     /// Builtin types whose impls have been referenced by the program
     used_builtins: HashSet<String>,
-    /// Current type substitution map for monomorphisation: generic_name ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ concrete_type
+    /// Current type substitution map for monomorphisation: generic_name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ concrete_type
     current_type_map: HashMap<String, String>,
     /// Maps variable name to concrete type for generic params in monomorphised functions
     param_concrete_types: HashMap<String, String>,
@@ -129,21 +131,21 @@ pub struct IrEmitter {
     /// Locals bound from Expr::Array literals (for indexing dispatch)
     array_locals: HashSet<String>,
     /// 5c.30: local Vec bindings' declared element type name
-    /// (`var v = Vec[Point2D].new()` → "v" → "Point2D") so Index reads on
+    /// (`var v = Vec[Point2D].new()` â†’ "v" â†’ "Point2D") so Index reads on
     /// LOCAL Vec-of-struct / Vec-of-float use the right element layout.
     local_vec_elem: HashMap<String, String>,
     /// 5c.30: Option locals whose payload is a heap-boxed STRUCT pointer
-    /// (`let popped = points.pop()` on Vec[Point2D] → "popped" → "Point2D").
+    /// (`let popped = points.pop()` on Vec[Point2D] â†’ "popped" â†’ "Point2D").
     local_opt_payload: HashMap<String, String>,
     /// 5c.30: i64 locals holding a heap-boxed struct pointer
-    /// (`let val = popped.unwrap()` → "val" → "Point2D") so field access
+    /// (`let val = popped.unwrap()` â†’ "val" â†’ "Point2D") so field access
     /// dereferences the box with the right struct type.
     local_boxed_struct: HashMap<String, String>,
     /// 5c.30: locals holding an i64 CONTAINER HANDLE (pointer to a boxed Vec
     /// header), e.g. match-arm payload bindings like
-    /// `JsonValue.Array(ref mut items)` → "items" → elem "JsonValue".
+    /// `JsonValue.Array(ref mut items)` â†’ "items" â†’ elem "JsonValue".
     local_vec_handle: HashMap<String, String>,
-    /// 5c.30: per-variant payload field TYPE names (enum → [(variant,
+    /// 5c.30: per-variant payload field TYPE names (enum â†’ [(variant,
     /// [field types])]). type_meta dedups payload fields by NAME, losing
     /// per-variant types (JsonValue's `val` is Bool|Float64|Str|Vec[...]).
     enum_variant_field_types: HashMap<String, Vec<(String, Vec<String>)>>,
@@ -167,7 +169,7 @@ pub struct IrEmitter {
     /// name and, when inside a module, the module-qualified name) to its emitted
     /// LLVM symbol name and LLVM type. A reference to such a name is compiled as
     /// a real `load` from the `@<symbol>` global; an assignment becomes a
-    /// `store`. Unlike `constants`, these are NOT substituted ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â writes persist
+    /// `store`. Unlike `constants`, these are NOT substituted ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â writes persist
     /// across calls.
     module_globals: HashMap<String, (String, String)>,
     /// Ordered list of module-global definitions to emit at the top of the
@@ -285,7 +287,7 @@ impl IrEmitter {
     /// Produce a valid LLVM *constant* initializer for a module-level `var`
     /// global of type `llvm_ty` from its initializer expression. Only simple
     /// scalar literals (int/bool/float/char, with optional unary negation) are
-    /// materialized to their real value ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â these are the initializers that
+    /// materialized to their real value ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â these are the initializers that
     /// currently-passing modules depend on (e.g. `_global_state = 12345`).
     /// Anything more complex (enum variants, struct/aggregate values,
     /// constructor calls like `Vec[T]::new()`) is zero-initialized: a valid,
@@ -368,7 +370,7 @@ impl IrEmitter {
 
     /// Coerce `val` (whose current LLVM type is `from`) to the LLVM type `to`,
     /// emitting the appropriate cast, and return the resulting SSA value. Used at
-    /// the value "sink" points ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â call arguments, returns, and stores ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â so a value
+    /// the value "sink" points ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â call arguments, returns, and stores ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â so a value
     /// always matches the type its context requires (LLVM is strongly typed).
     ///
     /// Handles integer width (zext/sext/trunc), int<->pointer (inttoptr/ptrtoint),
@@ -456,236 +458,6 @@ impl IrEmitter {
             StmtOrExpr::Stmt(stmt) => Self::stmt_uses_this(stmt),
             StmtOrExpr::Expr(expr) => Self::expr_uses_this(expr),
         })
-    }
-
-    fn coerce_arg_for_param(&mut self, arg_expr: &Expr, pre_val: &str, pre_ty: &str, param_ty: &str) -> String {
-        if param_ty.ends_with('*') {
-            let lvalue: Option<&Expr> = match arg_expr {
-                Expr::Ref(i, _) | Expr::MutRef(i, _) => Some(i.as_ref()),
-                Expr::Unary(UnaryOp::Ref, i, _) | Expr::Unary(UnaryOp::MutRef, i, _) => Some(i.as_ref()),
-                _ => None,
-            };
-            if let Some(Expr::Ident(id)) = lvalue {
-                if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
-                    if slot_ty.ends_with('*') {
-                        // Local already holds a pointer value: load and forward it.
-                        if let Ok((v, t)) = self.compile_expr(arg_expr) {
-                            return self.coerce_value(&v, &t, param_ty);
-                        }
-                    } else {
-                        // Pass the address of the local's slot.
-                        let addr_ty = format!("{slot_ty}*");
-                        return self.coerce_value(&slot, &addr_ty, param_ty);
-                    }
-                }
-            }
-        }
-        self.coerce_value(pre_val, pre_ty, param_ty)
-    }
-
-    fn coerce_value(&mut self, val: &str, from: &str, to: &str) -> String {
-        if val.is_empty() {
-            // A missing/void value can't be stored; substitute a typed default so
-            // the sink (store/return/arg) stays well-formed. Void targets keep the
-            // empty value (their sink omits the operand entirely).
-            if to == "void" {
-                return val.to_string();
-            }
-            return Self::default_const_for(to);
-        }
-        if from == to || to == "void" {
-            return val.to_string();
-        }
-        let int_width = |t: &str| -> Option<u32> {
-            match t {
-                "i1" => Some(1),
-                "i8" => Some(8),
-                "i16" => Some(16),
-                "i32" => Some(32),
-                "i64" => Some(64),
-                _ => None,
-            }
-        };
-        // Integer <-> integer width conversions.
-        if let (Some(a), Some(b)) = (int_width(from), int_width(to)) {
-            let t = self.fresh_tmp();
-            if b > a {
-                let op = if from == "i1" || from == "i8" { "zext" } else { "sext" };
-                self.emitln(&format!("  {t} = {op} {from} {val} to {to}"));
-            } else {
-                self.emitln(&format!("  {t} = trunc {from} {val} to {to}"));
-            }
-            return t;
-        }
-        // Integer <-> pointer.
-        if to.ends_with('*') && from == "i64" {
-            let t = self.fresh_tmp();
-            self.emitln(&format!("  {t} = inttoptr i64 {val} to {to}"));
-            return t;
-        }
-        if from.ends_with('*') && to == "i64" {
-            let t = self.fresh_tmp();
-            self.emitln(&format!("  {t} = ptrtoint {from} {val} to i64"));
-            return t;
-        }
-        // i64 (heap pointer from val_to_i64) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ struct: inttoptr + load.
-        // Handles Option/Result unwrap round-trip for struct payloads.
-        if from == "i64" && to.starts_with('%') {
-            let ptr = self.fresh_tmp();
-            self.emitln(&format!("  {ptr} = inttoptr i64 {val} to {to}*"));
-            let loaded = self.fresh_tmp();
-            self.emitln(&format!("  {loaded} = load {to}, {to}* {ptr}"));
-            return loaded;
-        }
-        // Pointer <-> pointer.
-        if from.ends_with('*') && to.ends_with('*') {
-            let t = self.fresh_tmp();
-            self.emitln(&format!("  {t} = bitcast {from} {val} to {to}"));
-            return t;
-        }
-        // Integer <-> double.
-        if from == "i64" && to == "double" {
-            let t = self.fresh_tmp();
-            self.emitln(&format!("  {t} = sitofp i64 {val} to double"));
-            return t;
-        }
-        if from == "double" && to == "i64" {
-            let t = self.fresh_tmp();
-            self.emitln(&format!("  {t} = fptosi double {val} to i64"));
-            return t;
-        }
-        // Integer <-> float (Float32).
-        if from == "i64" && to == "float" {
-            let t = self.fresh_tmp();
-            self.emitln(&format!("  {t} = sitofp i64 {val} to float"));
-            return t;
-        }
-        if from == "float" && to == "i64" {
-            let t = self.fresh_tmp();
-            self.emitln(&format!("  {t} = fptosi float {val} to i64"));
-            return t;
-        }
-        // float <-> double.
-        if from == "float" && to == "double" {
-            let t = self.fresh_tmp();
-            self.emitln(&format!("  {t} = fpext float {val} to double"));
-            return t;
-        }
-        if from == "double" && to == "float" {
-            let t = self.fresh_tmp();
-            self.emitln(&format!("  {t} = fptrunc double {val} to float"));
-            return t;
-        }
-        // Typed struct value -> struct pointer: allocate a slot, store the value,
-        // return the slot pointer.  e.g. `%struct.HttpHeaders ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ %struct.HttpHeaders*`
-        // when a method expects `&mut T` (pointer) but the caller has a T value.
-        if to.ends_with('*') && from.starts_with("%struct.") {
-            let base = to.trim_end_matches('*');
-            if base.starts_with("%struct.") && (base == from || (base.len() > 8 && from.ends_with(&base[8..]))) {
-                let slot = self.fresh_tmp();
-                self.emitln(&format!("  {slot} = alloca {from}"));
-                self.emitln(&format!("  store {from} {val}, {from}* {slot}"));
-                return slot;
-            }
-        }
-        // Typed struct pointer -> same struct value: load through the pointer.
-        // e.g. `%struct.Agent* ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ %struct.Agent` when calling agent_is_idle(a)
-        // where the caller has `a: &mut Agent` (pointer) but the callee expects
-        // `a: &Agent` (compiled as Agent value).
-        if to.starts_with("%struct.") && from.ends_with('*') {
-            let base = from.trim_end_matches('*'); // "%struct.Agent*" -> "%struct.Agent"
-            if base.starts_with("%struct.") && (base == to || (base.len() > 8 && to.ends_with(&base[8..]))) {
-                let loaded = self.fresh_tmp();
-                self.emitln(&format!("  {loaded} = load {to}, {from} {val}"));
-                return loaded;
-            }
-        }
-        // Non-struct scalar -> struct (e.g. i64 discriminant -> single-field enum).
-        // If the scalar is i64, assume it's a pointer to a heap-allocated struct
-        // (e.g. from Result::unwrap returning an enum value) and load it.
-        if to.starts_with("%struct.") && !from.starts_with("%struct.") {
-            if from == "i64" {
-                let typed_ptr = self.fresh_tmp();
-                let loaded = self.fresh_tmp();
-                self.emitln(&format!("  {typed_ptr} = inttoptr i64 {val} to {to}*"));
-                self.emitln(&format!("  {loaded} = load {to}, {to}* {typed_ptr}"));
-                return loaded;
-            }
-            // pointer or pointer-like (ptr, T*) -> struct: load the value.
-            // Exclude i8* -> Vec because that path requires val_to_struct's
-            // array-buffer-to-Vec construction with proper field initialization.
-            if (from == "ptr" || from.ends_with('*')) && !(from == "i8*" && (to == "%struct.Vec" || to.ends_with(".Vec"))) {
-                let loaded = self.fresh_tmp();
-                self.emitln(&format!("  {loaded} = load {to}, {from} {val}"));
-                return loaded;
-            }
-            return self.val_to_struct(val, from, to);
-        }
-        // Struct -> non-struct scalar: extract the leading i64 field (an enum
-        // discriminant or an Option/Result's first slot), then coerce that i64 to
-        // the target (e.g. Option -> i8 arg becomes field0 i64 -> i8). Handles
-        // stdlib idioms where a single-scalar-backed struct is used as a scalar.
-        // For Option/Result, extract field 1 (the value) not field 0 (discriminator).
-        if from.starts_with("%struct.") && !to.starts_with("%struct.") {
-            let type_name = &from[8..];
-            let is_option_or_result = type_name == "Option" || type_name.ends_with(".Option")
-                || type_name == "Result" || type_name.ends_with(".Result");
-            let scalar = if is_option_or_result {
-                self.extract_scalar_field1(val, from)
-            } else {
-                self.extract_scalar_field0(val, from)
-            };
-            return self.coerce_value(&scalar, "i64", to);
-        }
-        // No known cast ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â return unchanged (best effort).
-        val.to_string()
-    }
-
-    /// Extract field 0 (the leading scalar ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â e.g. an enum discriminant or an
-    /// Option/Result's first slot) from a by-value struct `val` of type
-    /// `struct_ty`, returning the loaded `i64` scalar register. Used when a
-    /// single-scalar-backed struct value appears in an integer context (e.g.
-    /// `opt >= 0`). Returns `val` unchanged when `struct_ty` isn't a struct, and
-    /// a `0` constant for empty (zero-field) structs which have no field 0.
-    fn extract_scalar_field0(&mut self, val: &str, struct_ty: &str) -> String {
-        if !struct_ty.starts_with("%struct.") {
-            return val.to_string();
-        }
-        // Empty (zero-sized) structs have no field 0 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â GEP would be invalid.
-        let type_name = &struct_ty[8..];
-        let is_empty = self.type_meta.get(type_name).map(|m| m.fields.is_empty()).unwrap_or(false);
-        if is_empty {
-            return "0".to_string();
-        }
-        let slot = self.fresh_tmp();
-        self.emitln(&format!("  {slot} = alloca {struct_ty}"));
-        self.emitln(&format!("  store {struct_ty} {val}, {struct_ty}* {slot}"));
-        let gep = self.fresh_tmp();
-        self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {slot}, i32 0, i32 0"));
-        let loaded = self.fresh_tmp();
-        self.emitln(&format!("  {loaded} = load i64, i64* {gep}"));
-        loaded
-    }
-
-    /// Same as extract_scalar_field0 but extracts field 1 (used for Option/Result
-    /// value comparisons like `char_at(s,i) == '.'`).
-    fn extract_scalar_field1(&mut self, val: &str, struct_ty: &str) -> String {
-        if !struct_ty.starts_with("%struct.") {
-            return val.to_string();
-        }
-        let type_name = &struct_ty[8..];
-        let is_empty = self.type_meta.get(type_name).map(|m| m.fields.is_empty()).unwrap_or(false);
-        if is_empty {
-            return "0".to_string();
-        }
-        let slot = self.fresh_tmp();
-        self.emitln(&format!("  {slot} = alloca {struct_ty}"));
-        self.emitln(&format!("  store {struct_ty} {val}, {struct_ty}* {slot}"));
-        let gep = self.fresh_tmp();
-        self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {slot}, i32 0, i32 1"));
-        let loaded = self.fresh_tmp();
-        self.emitln(&format!("  {loaded} = load i64, i64* {gep}"));
-        loaded
     }
 
     fn is_primitive_type_name(type_name: &str) -> bool {
@@ -815,7 +587,7 @@ impl IrEmitter {
     }
 
     /// 5c.30: FULL type string including Option/Result payload args
-    /// ("Result[Vec[Int], Str]"). Used ONLY for fn_return_xiom — the field
+    /// ("Result[Vec[Int], Str]"). Used ONLY for fn_return_xiom â€” the field
     /// registration keeps type_from_ast_with_args so Option/Result struct
     /// fields keep their by-value layout.
     fn type_string_full(ty: &Type) -> String {
@@ -834,7 +606,7 @@ impl IrEmitter {
     /// `Vec[HttpHeader]` in type_meta. This extracts `HttpHeader` (fully qualified).
     /// 5c.30: For an Option[X]/Result[X, E] type string, return X (the
     /// success payload), respecting nested brackets ("Result[Vec[Int], Str]"
-    /// → "Vec[Int]").
+    /// â†’ "Vec[Int]").
     fn option_result_payload(s: &str) -> Option<String> {
         let open = s.find('[')?;
         let head = &s[..open];
@@ -881,10 +653,10 @@ impl IrEmitter {
     }
 
     /// 5c.30: Track boxed-struct payload flow for a `let`/`var` binding.
-    /// - `x.pop()` / `x.get(i)` on a Vec-of-struct container → the Option's
+    /// - `x.pop()` / `x.get(i)` on a Vec-of-struct container â†’ the Option's
     ///   payload is a boxed struct pointer (record in local_opt_payload).
-    /// - fn calls returning Option[X]/Result[X, E] → record X.
-    /// - `opt.unwrap()` where opt is such an Option → classify the binding:
+    /// - fn calls returning Option[X]/Result[X, E] â†’ record X.
+    /// - `opt.unwrap()` where opt is such an Option â†’ classify the binding:
     ///   Vec[T] payloads are container HANDLES, struct payloads are boxes.
     fn track_boxed_payload_binding(&mut self, name: &str, value: &Expr) {
         self.local_opt_payload.remove(name);
@@ -1076,7 +848,7 @@ impl IrEmitter {
     }
 
     fn llvm_type_for(&self, type_name: &str) -> Result<String, String> {
-        // Parse array types like [N x ElementType] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â used for fixed-size stack arrays.
+        // Parse array types like [N x ElementType] ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â used for fixed-size stack arrays.
         if type_name.starts_with('[') {
             if let Some(rest) = type_name.strip_prefix('[') {
                 if let Some(x_pos) = rest.find(" x ") {
@@ -1098,7 +870,7 @@ impl IrEmitter {
                     }
                     // If the size is an ident we can't resolve (e.g. a const-generic
                     // param N), fall through and let the rest of llvm_type_for attempt
-                    // to resolve it as a struct name or builtin ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the caller will get
+                    // to resolve it as a struct name or builtin ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the caller will get
                     // an error if the type is genuinely unresolvable.
                 }
             }
@@ -1152,7 +924,7 @@ impl IrEmitter {
         // without this an enum-typed function return/param would resolve to the
         // `i64` fallback while `infer_llvm_type` resolves it to `%struct.Name`,
         // producing store/return/arg type mismatches. Match exact, module-qualified,
-        // then suffix ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â mirroring the struct lookup above.
+        // then suffix ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â mirroring the struct lookup above.
         if self.enum_variants.contains_key(type_name) {
             return Ok(format!("%struct.{type_name}"));
         }
@@ -1170,7 +942,7 @@ impl IrEmitter {
         match type_name {
             "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
             | "Bool" | "Float32" | "Float64" | "Str" | "Char" | "()" => Ok(builtin.to_string()),
-            _ => Err(format!("unknown type '{}' ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â not a registered struct, enum, or builtin", type_name)),
+            _ => Err(format!("unknown type '{}' ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â not a registered struct, enum, or builtin", type_name)),
         }
     }
 
@@ -1192,7 +964,7 @@ impl IrEmitter {
                         return format!("%struct.{key}");
                     }
                 }
-                // Also check generic_type_names ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â generic types may not
+                // Also check generic_type_names ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â generic types may not
                 // be in type_meta/types with bare names but ARE registered
                 // as structs (e.g. Cell[T], Map[K,V]).
                 for key in self.generic_type_names.iter() {
@@ -1367,7 +1139,7 @@ impl IrEmitter {
             // destroy the fraction (Real(2.718) became 2).
             // 5c.30: by-value STRUCT payloads (Vec headers, nested structs)
             // are heap-boxed via val_to_i64 (malloc+store+ptrtoint) so the
-            // i64 slot holds a stable handle — coerce_value extracted only
+            // i64 slot holds a stable handle â€” coerce_value extracted only
             // the FIRST FIELD (JsonValue.Array held Vec.data, not a header).
             let store_val = if field_llvm_ty == "i64"
                 && (val_ty == "double" || val_ty == "float"
@@ -1388,7 +1160,7 @@ impl IrEmitter {
     }
 
     /// 5c.30: Byte size of a struct's LLVM layout. Nested BY-VALUE struct
-    /// fields contribute their own size — the old `field_count × 8` math
+    /// fields contribute their own size â€” the old `field_count Ã— 8` math
     /// undercounted (JsonEntry { key: Str, value: JsonValue } is 24 bytes,
     /// not 16), truncating Vec elements on push/index.
     fn struct_byte_size(&self, type_name: &str) -> i64 {
@@ -1413,7 +1185,7 @@ impl IrEmitter {
                 total += 8;
                 continue;
             }
-            // Fixed-size arrays `[N x T]`: N × 8.
+            // Fixed-size arrays `[N x T]`: N Ã— 8.
             if fty.starts_with('[') {
                 if let Some(x_pos) = fty.find(" x ") {
                     if let Ok(n) = fty[1..x_pos].trim().parse::<i64>() {
@@ -1472,7 +1244,7 @@ impl IrEmitter {
     fn ident_is_enum_variant(&self, scrutinee_type: &Option<String>, name: &str) -> bool {
         if let Some(type_name) = scrutinee_type {
             // 5c.29: qualified variant idents (`SqliteValue.Null`) carry the
-            // enum qualifier — compare the LEAF segment. Also tolerate
+            // enum qualifier â€” compare the LEAF segment. Also tolerate
             // qualified/unqualified enum keys.
             let leaf = name.rsplit('.').next().unwrap_or(name);
             let variants = self.enum_variants.get(type_name)
@@ -1525,7 +1297,7 @@ impl IrEmitter {
     ) {
         if let Some((alloca, type_name, struct_ty)) = scrutinee_alloca_info {
             // 5c.29: qualified variant patterns (`SqliteValue.Integer(v)`)
-            // carry the enum qualifier in the name — compare against the LEAF
+            // carry the enum qualifier in the name â€” compare against the LEAF
             // segment. Also tolerate qualified/unqualified enum keys.
             let leaf = variant_name.rsplit('.').next().unwrap_or(variant_name);
             let variants = self.enum_variants.get(type_name)
@@ -1588,9 +1360,9 @@ impl IrEmitter {
                 ("Ok".to_string(), vec!["value".to_string()]),
             ]);
         }
-        // Register Vec type for runtime operations ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ensure 4 fields
+        // Register Vec type for runtime operations ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ensure 4 fields
         // (data, len, cap, elem_size). The elem_size field tracks the
-        // element byte width so narrow types (UInt8ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢1, Int16ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢2, etc.)
+        // element byte width so narrow types (UInt8ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢1, Int16ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢2, etc.)
         // work correctly in push/pop/get/index operations.
         // Vec may be registered under "Vec" or "xiom.collections.Vec"
         // or may not be in type_meta at all (generic type skipped).
@@ -1633,14 +1405,14 @@ impl IrEmitter {
         self.scan_interface_impls();
 
         // Emit module header
-        self.emitln("; XIOM Phase 1 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â LLVM IR");
+        self.emitln("; XIOM Phase 1 ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â LLVM IR");
         self.emitln("; Auto-generated by xiomc\n");
         self.emitln(&format!("target triple = \"{}\"", self.target_triple));
         self.emitln("");
 
         // Emit builtin struct types FIRST so user types can reference them.
         // Vec is emitted from type_meta (with elem_size if registered via
-        // the code below) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â NOT hardcoded so narrow-type Vecs get correct layout.
+        // the code below) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â NOT hardcoded so narrow-type Vecs get correct layout.
         self.emitln("");
 
         // Emit struct type definitions using actual field types from type_meta
@@ -1675,7 +1447,7 @@ impl IrEmitter {
         // (skips names already in self.already_declared, e.g. malloc)
         // Pre-seed the metadata-accessor names when their tables will be DEFINED
         // below (reflect/contracts), so the user extern block's `declare` for them
-        // is skipped ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â otherwise the same symbol is both declared and defined,
+        // is skipped ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â otherwise the same symbol is both declared and defined,
         // which clang rejects as an invalid redefinition.
         if Self::program_declares_extern(&program.items, "xiom_type_count") {
             for nm in ["xiom_type_count", "xiom_type_name", "xiom_type_field_count", "xiom_type_id_by_name"] {
@@ -1692,7 +1464,7 @@ impl IrEmitter {
         // Additive metadata emission: RTTI for the `reflect` stdlib module and a
         // contract table for the `contracts` stdlib module. This is a NEW,
         // self-contained step appended alongside the runtime `declare`s above.
-        // It NEVER alters any existing lowering path ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â it only reads
+        // It NEVER alters any existing lowering path ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â it only reads
         // already-registered type metadata (`self.type_meta` / `self.enum_variants`)
         // and the program AST (function contract clauses), then emits new globals
         // and `@xiom_*` function definitions. Emission is gated on the presence of
@@ -1729,7 +1501,7 @@ impl IrEmitter {
         // with "use of undefined value '@name'". On any well-formed program (all
         // callees resolved) this pass emits nothing, so it is a strict no-op on
         // the existing test gate. A stub returns a typed default, so it can never
-        // manufacture a *correct* live result ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â only unblock linking.
+        // manufacture a *correct* live result ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â only unblock linking.
         self.emit_undefined_symbol_stubs();
 
         Ok(self.output.clone())
@@ -1748,7 +1520,7 @@ impl IrEmitter {
             let bare_name = td.name.name.clone();
             let type_name = if prefix.is_empty() { bare_name.clone() } else { format!("{}.{}", prefix, bare_name) };
             // Record generic type names so their methods are skipped from direct
-            // (un-monomorphised) emission ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â such bodies produce malformed IR.
+            // (un-monomorphised) emission ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â such bodies produce malformed IR.
             if !td.generics.is_empty() {
                 self.generic_type_names.insert(bare_name.clone());
                 self.generic_type_names.insert(type_name.clone());
@@ -1784,7 +1556,7 @@ impl IrEmitter {
                         all_meta.push((fname.clone(), Self::type_from_ast(&field.ty)));
                     }
                     vfields.push(fname);
-                    // Keep generic args (Vec[JsonValue]) — 5c.30 handle detection.
+                    // Keep generic args (Vec[JsonValue]) â€” 5c.30 handle detection.
                     vftypes.push(Self::type_from_ast_with_args(&field.ty));
                 }
                 variants_info.push((vname.clone(), vfields));
@@ -1932,7 +1704,7 @@ impl IrEmitter {
                 // Only do this when the declared type resolves to a concrete LLVM
                 // type; otherwise (e.g. `Map[K,V]`, whose LLVM lowering isn't a
                 // simple global slot) fall back to constant substitution so the
-                // existing behavior ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â and the green test gate ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â is preserved.
+                // existing behavior ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â and the green test gate ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â is preserved.
                 let ty_name = Self::type_from_ast(&cd.ty);
                 if let Ok(llvm_ty) = self.llvm_type_for(&ty_name) {
                     let symbol = if let Some(ref m) = self.current_module {
@@ -1985,7 +1757,7 @@ impl IrEmitter {
             let is_this_based = fd.receiver.is_some() && !has_self_param
                 && fd.body.as_ref().map_or(false, |b| Self::block_uses_this(b));
             // If first param IS the self (type matches receiver), don't add
-            // receiver type ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the first param already covers it.
+            // receiver type ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the first param already covers it.
             if has_recv && !is_first_param_self {
                 if let Some(recv) = fd.receiver.as_ref() {
                     param_types.push(self.llvm_type_for(&recv.name).unwrap_or_else(|_| "i64".to_string()));
@@ -2201,7 +1973,7 @@ impl IrEmitter {
     fn compile_top_decl(&mut self, item: &TopDecl) -> Result<(), String> {
         match item {
             TopDecl::Fn(fd) => {
-                // Skip generic functions ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â they will be monomorphised later
+                // Skip generic functions ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â they will be monomorphised later
                 if fd.generics.is_empty() {
                     // Skip methods on generic types (e.g. `BinaryHeap[T].push`). The
                     // generic parameter lives on the RECEIVER type, not in fd.generics,
@@ -2302,23 +2074,23 @@ impl IrEmitter {
         // with NO `self` param is a static constructor (e.g. `Layout.new(size)`):
         // it keeps its qualified name but takes no receiver argument.
         let has_self_param = fd.params.iter().any(|p| p.name.name == "self");
-        // 5c.29: ecosystem pattern `fn T.method(h: &T, ...)` — the first
+        // 5c.29: ecosystem pattern `fn T.method(h: &T, ...)` â€” the first
         // explicit param IS the receiver. Signature registration and all call
         // sites never include an implicit self argument for these, so the
         // definition must not emit `%param_self` either (the extra leading
         // param shifted every argument and made the body read uninitialized
-        // registers — HTTP/SQLITE ACCESS_VIOLATION).
+        // registers â€” HTTP/SQLITE ACCESS_VIOLATION).
         let is_first_param_self = fd.receiver.is_some() && !has_self_param
             && fd.params.first().map_or(false, |p| {
                 let pt = Self::type_from_ast(&p.ty);
-                // type_from_ast returns "*T" for &mut T — strip the pointer
+                // type_from_ast returns "*T" for &mut T â€” strip the pointer
                 // prefix to compare with the bare receiver name.
                 let ptn = pt.trim_start_matches('*');
                 fd.receiver.as_ref().map_or(false, |r| ptn == r.name)
             });
         // Match registration: implicit self only for explicit-`self` methods
         // and `this`-based methods (body actually references `this`).
-        // 5c.30: G-10 implicit-self is a CHECKER-only feature — the codegen
+        // 5c.30: G-10 implicit-self is a CHECKER-only feature â€” the codegen
         // does NOT inject self arguments. Method bodies already have all
         // receiver fields as locals via the prologue, so read-only access to
         // fields works without param_self. Only `this`-based methods that
@@ -2435,7 +2207,7 @@ impl IrEmitter {
         }
         // Then allocate explicit parameters. Number them by their position in the
         // EMITTED signature (which skips the duplicate `self` in fd.params), using
-        // a counter that only advances for emitted params ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â keeping %paramN indices
+        // a counter that only advances for emitted params ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â keeping %paramN indices
         // in lock-step with the signature above.
         let mut emitted_param_idx = self_offset;
         for param in fd.params.iter() {
@@ -2559,7 +2331,7 @@ impl IrEmitter {
             self.emitln("  ret void");
         } else if !self.current_block_terminated() {
             // A4 fix: the function declares a return type but control reached the
-            // end of the body without a terminator ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the body ends in a loop, an
+            // end of the body without a terminator ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the body ends in a loop, an
             // `if` without `else`, or a trailing statement, so no tail `ret` was
             // emitted. Append a safe fallback return so the trailing block is
             // terminated and the module is valid LLVM IR. (Functions that already
@@ -2599,7 +2371,7 @@ impl IrEmitter {
         };
         let ok_label = self.fresh_block("contract_ok");
         let fail_label = self.fresh_block("contract_fail");
-        // Ensure we have an i1 for the branch ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â some expressions (or/and) return i64.
+        // Ensure we have an i1 for the branch ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â some expressions (or/and) return i64.
         // `expr_ty` is the value's real LLVM type as returned by compile_expr.
         let cond_i1 = if expr_ty == "i1" {
             cond_val
@@ -2804,7 +2576,7 @@ impl IrEmitter {
             }
             Expr::Tuple(_, _) => None,
             Expr::Some(_, _) => {
-                // Some(x) produces Option[T] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â not a struct with user invariants
+                // Some(x) produces Option[T] ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â not a struct with user invariants
                 None
             }
             Expr::Ok(_, _) | Expr::Err(_, _) => {
@@ -2814,78 +2586,11 @@ impl IrEmitter {
         }
     }
 
-    /// Convert a value to i64 via bitcast or ptrtoint if needed
-    fn val_to_i64(&mut self, val: &str, ty: &str) -> String {
-        if ty == "void" {
-            return "0".to_string();
-        }
-        if ty == "double" {
-            let bc = self.fresh_tmp();
-            self.emitln(&format!("  {bc} = bitcast double {val} to i64"));
-            bc
-        } else if ty == "float" {
-            let bc = self.fresh_tmp();
-            self.emitln(&format!("  {bc} = bitcast float {val} to i32"));
-            let ext = self.fresh_tmp();
-            self.emitln(&format!("  {ext} = zext i32 {bc} to i64"));
-            ext
-        } else if ty == "i8*" || ty.contains('*') {
-            let bc = self.fresh_tmp();
-            self.emitln(&format!("  {bc} = ptrtoint {ty} {val} to i64"));
-            bc
-        } else if ty == "i1" || ty == "i8" {
-            // Narrow unsigned integer (Bool/Char/UInt8) -> i64: zero-extend.
-            let ext = self.fresh_tmp();
-            self.emitln(&format!("  {ext} = zext {ty} {val} to i64"));
-            ext
-        } else if ty == "i16" || ty == "i32" {
-            // Narrow signed integer (Int16/Int32) -> i64: sign-extend.
-            let ext = self.fresh_tmp();
-            self.emitln(&format!("  {ext} = sext {ty} {val} to i64"));
-            ext
-        } else if ty.starts_with('%') {
-            // Compute the actual size of the struct type using GEP trick:
-            // `getelementptr %T, %T* null, i32 1` gives the byte offset
-            // of element 1, which equals sizeof(T). This is correct even
-            // when fields are larger than i64 (e.g. Vec = 24, Map = 48).
-            let size_i64 = self.fresh_tmp();
-            let null_ptr = self.fresh_tmp();
-            self.emitln(&format!("  {null_ptr} = getelementptr {ty}, {ty}* null, i32 1"));
-            self.emitln(&format!("  {size_i64} = ptrtoint {ty}* {null_ptr} to i64"));
-            let malloc_ptr = self.fresh_tmp();
-            let typed_ptr = self.fresh_tmp();
-            let bc = self.fresh_tmp();
-            self.emitln(&format!("  {malloc_ptr} = call i8* @malloc(i64 {size_i64})"));
-            self.emitln(&format!("  {typed_ptr} = bitcast i8* {malloc_ptr} to {ty}*"));
-            self.emitln(&format!("  store {ty} {val}, {ty}* {typed_ptr}"));
-            self.emitln(&format!("  {bc} = ptrtoint {ty}* {typed_ptr} to i64"));
-            bc
-        } else {
-            val.to_string()
-        }
-    }
-
-    /// Convert a value to i8* via bitcast (for pointers) or inttoptr (for ints)
-    fn val_to_i8ptr(&mut self, val: &str, ty: &str) -> String {
-        if ty == "i8*" {
-            val.to_string()
-        } else if ty.contains('*') {
-            let cast = self.fresh_tmp();
-            self.emitln(&format!("  {cast} = bitcast {ty} {val} to i8*"));
-            cast
-        } else {
-            let i64_val = self.val_to_i64(val, ty);
-            let cast = self.fresh_tmp();
-            self.emitln(&format!("  {cast} = inttoptr i64 {i64_val} to i8*"));
-            cast
-        }
-    }
-
     /// Store a by-value struct `val` (LLVM type `ty`) back into the storage of
     /// `receiver` so in-place mutation (`Vec.push`/`Vec.pop`) persists the result.
     /// Handles bare locals AND struct field access (e.g. `h.entries.push(...)`).
     fn store_back_to_receiver(&mut self, receiver: &Expr, val: &str, ty: &str) {
-        // Case 1: bare local variable ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â store to its alloca slot.
+        // Case 1: bare local variable ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â store to its alloca slot.
         if let Expr::Ident(id) = receiver {
             if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
                 if slot_ty == ty {
@@ -2917,7 +2622,7 @@ impl IrEmitter {
                 }
             }
         }
-        // Case 2: struct field access ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â GEP into the base struct and store.
+        // Case 2: struct field access ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â GEP into the base struct and store.
         if let Expr::Field(base, field_expr, _) = receiver {
             if let Expr::Ident(base_id) = &**base {
                 if let Some((slot, slot_ty)) = self.lookup_local(&base_id.name).cloned() {
@@ -2953,7 +2658,7 @@ impl IrEmitter {
                             // 5c.29: Generic container fields are i64 HANDLES
                             // (5c.28h): the slot holds a pointer to a heap-boxed
                             // header. Store the updated header THROUGH the handle
-                            // (in-place box update) — never the 32-byte header
+                            // (in-place box update) â€” never the 32-byte header
                             // by value into the 8-byte slot.
                             let is_handle_field = ty.starts_with("%struct.")
                                 && !ty.ends_with('*')
@@ -2974,96 +2679,6 @@ impl IrEmitter {
                 }
             }
         }
-    }
-
-    fn val_to_struct(&mut self, val: &str, val_ty: &str, struct_ty: &str) -> String {
-        let alloca = self.fresh_tmp();
-        self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
-
-        // i8* array-buffer -> %struct.Vec: only when val originates from an
-        // Expr::Array (tracked in array_value_regs). The buffer has layout
-        // [length:i64, elem0, elem1, ...]. Construct a proper Vec with a
-        // heap copy so the Vec can be safely modified/passed.
-        let type_name = &struct_ty[8..];
-        let is_vec = type_name == "Vec" || type_name.ends_with(".Vec");
-        if is_vec && val_ty == "i8*" && self.array_value_regs.contains(val) {
-            // Read length from buffer[0]
-            let len_slot = self.fresh_tmp();
-            self.emitln(&format!("  {len_slot} = bitcast i8* {val} to i64*"));
-            let len_val = self.fresh_tmp();
-            self.emitln(&format!("  {len_val} = load i64, i64* {len_slot}"));
-            // Heap copy of elements (len * 8 bytes for i64-stored elements)
-            let byte_count = self.fresh_tmp();
-            self.emitln(&format!("  {byte_count} = mul i64 {len_val}, 8"));
-            let heap_copy = self.fresh_tmp();
-            self.emitln(&format!("  {heap_copy} = call i8* @malloc(i64 {byte_count})"));
-            let ok = self.fresh_block("arr_to_vec_ok");
-            let fail = self.fresh_block("arr_to_vec_fail");
-            let chk = self.fresh_tmp();
-            self.emitln(&format!("  {chk} = icmp eq i8* {heap_copy}, null"));
-            self.emitln(&format!("  br i1 {chk}, label %{fail}, label %{ok}"));
-            self.emitln(&format!("\n{fail}:"));
-            self.emitln("  call void @llvm.trap()");
-            self.emitln("  unreachable");
-            self.emitln(&format!("\n{ok}:"));
-            let src = self.fresh_tmp();
-            self.emitln(&format!("  {src} = getelementptr i8, i8* {val}, i64 8"));
-            self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {heap_copy}, i8* {src}, i64 {byte_count}, i1 false)"));
-            // Store Vec fields
-            let g0 = self.fresh_tmp();
-            self.emitln(&format!("  {g0} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
-            self.emitln(&format!("  store i8* {heap_copy}, i8** {g0}"));
-            let g1 = self.fresh_tmp();
-            self.emitln(&format!("  {g1} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 1"));
-            self.emitln(&format!("  store i64 {len_val}, i64* {g1}"));
-            let g2 = self.fresh_tmp();
-            self.emitln(&format!("  {g2} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 2"));
-            self.emitln(&format!("  store i64 {len_val}, i64* {g2}"));
-            let g3 = self.fresh_tmp();
-            self.emitln(&format!("  {g3} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 3"));
-            self.emitln(&format!("  store i64 8, i64* {g3}"));
-            let loaded = self.fresh_tmp();
-            self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
-            return loaded;
-        }
-
-        if val_ty.starts_with('%') {
-            let ptr = self.fresh_tmp();
-            self.emitln(&format!("  {ptr} = bitcast {struct_ty}* {alloca} to i64*"));
-            let i64_val = self.val_to_i64(val, val_ty);
-            self.emitln(&format!("  store i64 {i64_val}, i64* {ptr}"));
-        } else if val_ty == "i64" {
-            // For multi-field structs loaded from Vec (heap pointer from val_to_i64),
-            // memcpy the full struct from the heap instead of storing a single i64.
-            let num_fields = self.types.get(type_name)
-                .or_else(|| {
-                    let suffix = format!(".{}", type_name);
-                    self.types.keys().find(|k| k.ends_with(&suffix))
-                        .and_then(|k| self.types.get(k))
-                })
-                .map(|f| f.len())
-                .unwrap_or(1);
-            if num_fields > 1 {
-                let src = self.fresh_tmp();
-                self.emitln(&format!("  {src} = inttoptr i64 {val} to i8*"));
-                let dst = self.fresh_tmp();
-                self.emitln(&format!("  {dst} = bitcast {struct_ty}* {alloca} to i8*"));
-                // 5c.30: real layout size (nested by-value structs count fully).
-                let sz = self.struct_byte_size(type_name);
-                self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {dst}, i8* {src}, i64 {sz}, i1 false)"));
-            } else {
-                let ptr = self.fresh_tmp();
-                self.emitln(&format!("  {ptr} = bitcast {struct_ty}* {alloca} to i64*"));
-                self.emitln(&format!("  store {val_ty} {val}, {val_ty}* {ptr}"));
-            }
-        } else {
-            let ptr = self.fresh_tmp();
-            self.emitln(&format!("  {ptr} = bitcast {struct_ty}* {alloca} to {val_ty}*"));
-            self.emitln(&format!("  store {val_ty} {val}, {val_ty}* {ptr}"));
-        }
-        let loaded = self.fresh_tmp();
-        self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
-        loaded
     }
 
     /// Compile a function pointer call from a Vec index: `tests[i]()`.
@@ -3120,7 +2735,7 @@ impl IrEmitter {
     fn compile_derive_for_item(&mut self, item: &TopDecl) -> Result<(), String> {
         match item {
             TopDecl::Type(td) => {
-                // Type aliases have no fields ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â nothing to derive or invariant-check
+                // Type aliases have no fields ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â nothing to derive or invariant-check
                 if td.fields.is_empty() && td.alias.is_some() {
                     return Ok(());
                 }
@@ -3389,7 +3004,7 @@ impl IrEmitter {
             self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {self_alloca}, i32 0, i32 {i}"));
             self.emitln(&format!("  {val} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
             // Coerce the field value to i64 before mixing into the hash accumulator
-            // (a Str field is i8*, a Char field is i8, etc.) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â avoids `add i64, i8*`.
+            // (a Str field is i8*, a Char field is i8, etc.) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â avoids `add i64, i8*`.
             let val_i64 = self.val_to_i64(&val, &field_llvm_ty);
             self.emitln(&format!("  {loaded_hash} = load i64, i64* %hash"));
             self.emitln(&format!("  {mul_tmp} = mul i64 {loaded_hash}, 33"));
@@ -3454,7 +3069,7 @@ impl IrEmitter {
                 self.emitln(&format!("  ret i64 {result}"));
             } else {
                 // Integer/pointer field comparison. Coerce both operands to i64
-                // (a Str field is i8* ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ ptrtoint; a Char field is i8 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ zext) so the
+                // (a Str field is i8* ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ ptrtoint; a Char field is i8 ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ zext) so the
                 // icmp is well-typed. Note: comparing Str by pointer identity is a
                 // derive limitation, but it is at least valid IR.
                 let cmp_ty = "i64";
@@ -3500,7 +3115,7 @@ impl IrEmitter {
             iteration += 1;
             if iteration > MAX_GENERIC_ITERATIONS {
                 return Err(format!(
-                    "generic monomorphisation exceeded {} iterations ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â possible infinite recursion in generic definitions",
+                    "generic monomorphisation exceeded {} iterations ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â possible infinite recursion in generic definitions",
                     MAX_GENERIC_ITERATIONS
                 ));
             }
@@ -3516,7 +3131,7 @@ impl IrEmitter {
             };
             // Emit each unique specialization at most once. Without this, a
             // generic that (transitively) instantiates itself re-queues the same
-            // specialization on every worklist pass, never draining the queue ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â
+            // specialization on every worklist pass, never draining the queue ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â
             // producing the "exceeded 65536 iterations" error (or a hang).
             // `insert` returns false when the key is already present.
             let mono_key = self.monomorphised_fn_name(base_name, concrete_types);
@@ -3531,7 +3146,7 @@ impl IrEmitter {
                             let method_key = format!("{}.{}", concrete_type, method_name);
                             // Primitive types implicitly implement the builtin interface
                             // methods (Ord.compare, Eq.eq/ne, Hash.hash, Clone.clone,
-                            // comparison ops) via inline codegen ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â see the primitive
+                            // comparison ops) via inline codegen ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â see the primitive
                             // fast-path in compile_expr's method dispatch.
                             let is_builtin_method = matches!(
                                 method_name.as_str(),
@@ -3560,7 +3175,7 @@ impl IrEmitter {
             }
             // Interface-typed params: map interface names to concrete types.
             // For `fn f(r: Reporter)` called with `GoodReporter`, map
-            // "Reporter" ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ "GoodReporter" so subst_type can resolve params.
+            // "Reporter" ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ "GoodReporter" so subst_type can resolve params.
             if fd.generics.is_empty() && !concrete_types.is_empty() {
                 let mut ct_idx = 0;
                 for param in &fd.params {
@@ -3601,7 +3216,7 @@ impl IrEmitter {
                     // `&mut T` -> `i64*`). Uses the captured `struct_types` set for
                     // struct detection so the closure stays `self`-free. Without this,
                     // such params defaulted to `i64` and `from_mut(x)` fed an `i64*`
-                    // address into an `i64` slot ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ miscompiled swap.
+                    // address into an `i64` slot ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ miscompiled swap.
                     Type::Ptr(inner) | Type::MutRef(inner) => {
                         let subst = Self::substitute_type(t, inner, &type_map);
                         let name = Self::type_from_ast(&subst);
@@ -3673,7 +3288,7 @@ impl IrEmitter {
                 .unwrap_or_else(|| "void".to_string());
             let mut specialized_param_types: Vec<String> = Vec::new();
             // Include self/receiver parameter for methods. A receiver-qualified fn
-            // with NO `self` param is a static constructor ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no receiver argument.
+            // with NO `self` param is a static constructor ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â no receiver argument.
             let has_self_param = fd.params.iter().any(|p| p.name.name == "self");
             let is_mut_self = fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self);
             let self_llvm_ty = if let (true, Some(r)) = (has_self_param, fd.receiver.as_ref()) {
@@ -4006,7 +3621,7 @@ impl IrEmitter {
                     } else if is_last && is_expression && matches!(stmt, Stmt::If(..)) {
                         // A tail `if`-expression used as the function's implicit
                         // return value: `fn f() -> T { if c { a } else { b } }`.
-                        // Reuse the proven tail-Match mechanism ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â allocate a result
+                        // Reuse the proven tail-Match mechanism ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â allocate a result
                         // slot, redirect each branch's tail expression to store into
                         // it (via `match_result_ptr`), then load + `ret`. Previously
                         // such a body fell through to the A4 fallback and returned
@@ -4161,7 +3776,7 @@ impl IrEmitter {
                 } else if val_llvm_ty == "void" || val.is_empty() {
                     declared_llvm_ty.clone().unwrap_or_else(|| "i64".to_string())
                 } else if declared_llvm_ty.as_ref().map_or(false, |d| d.starts_with('%')) {
-                    // Declared type is a struct ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â prefer it over the value's
+                    // Declared type is a struct ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â prefer it over the value's
                     // raw i64 type (handles Option.unwrap() round-trip where
                     // the heap pointer needs inttoptr+load coercion).
                     declared_llvm_ty.clone().unwrap()
@@ -4224,7 +3839,7 @@ impl IrEmitter {
                     }
                 }
                 // Indexed assignment: `container[idx] = value` into a Vec (builtin
-                // {i8*, i64, i64}) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â write an i64-wide slot at data[idx]. Str is
+                // {i8*, i64, i64}) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â write an i64-wide slot at data[idx]. Str is
                 // immutable at the ABI, so only Vec/Slice are handled.
                 if let Expr::Index(container, index, _) = place {
                     let (cont_val, cont_ty) = self.compile_expr(container)?;
@@ -4257,7 +3872,7 @@ impl IrEmitter {
                         let (idx_raw, idx_ty) = self.compile_expr(index)?;
                         let idx = self.val_to_i64(&idx_raw, &idx_ty);
                         // Use the existing local alloca when the container is an
-                        // Ident ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â avoids fresh alloca/load/store on every write.
+                        // Ident ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â avoids fresh alloca/load/store on every write.
                         let mut is_ident = false;
                         let mut arr_ptr = String::new();
                         let mut arr_ptr_ty = String::new();
@@ -4288,7 +3903,7 @@ impl IrEmitter {
                         // Raw byte-buffer store: `buf[i] = v` where `buf: *UInt8`.
                         // The element is one byte; truncate the value to i8. Without
                         // this, `buf[i] = ...` silently emitted nothing (the store was
-                        // dropped), leaving heap buffers uninitialized ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ crashes in
+                        // dropped), leaving heap buffers uninitialized ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ crashes in
                         // str_concat/str_upper/str_slice and other manual builders.
                         let (idx_raw, idx_ty) = self.compile_expr(index)?;
                         let idx = self.val_to_i64(&idx_raw, &idx_ty);
@@ -4534,12 +4149,12 @@ impl IrEmitter {
                         merge_reachable = true;
                     }
                 } else if elifs.is_empty() && prev_label != merge_label {
-                    // No else case for simple if ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the else block is just a merge jump
+                    // No else case for simple if ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the else block is just a merge jump
                     self.emitln(&format!("\n{prev_label}:"));
                     self.emitln(&format!("  br label %{merge_label}"));
                     merge_reachable = true;
                 } else if elifs.is_empty() {
-                    // prev_label == merge_label ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â skip redundant label emission
+                    // prev_label == merge_label ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ skip redundant label emission
                     merge_reachable = true;
                 } else if prev_label != merge_label {
                     self.emitln(&format!("\n{prev_label}:"));
@@ -4671,7 +4286,7 @@ impl IrEmitter {
                 // `arm_is_checked[i]` is `true`, so it can never outrun
                 // `check_labels`. Every index into `check_labels`/`arm_labels`
                 // is additionally bounds-guarded so that even a future codegen
-                // bug degrades to a branch-to-merge instead of a panic ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â a
+                // bug degrades to a branch-to-merge instead of a panic ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â a
                 // compiler must never crash.
                 let mut check_idx: usize = 0;
                 for (i, arm) in arms.iter().enumerate() {
@@ -4685,7 +4300,7 @@ impl IrEmitter {
                     let this_label = if check_idx < check_labels.len() {
                         check_labels[check_idx].clone()
                     } else {
-                        // Safety fallback ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â unreachable once the build/emit
+                        // Safety fallback ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â unreachable once the build/emit
                         // loops are symmetric. Emit a diagnostic comment and
                         // skip this (impossible) arm rather than panicking.
                         self.emitln(&format!(
@@ -4967,7 +4582,7 @@ impl IrEmitter {
                                         self.emitln(&format!("  store {bind_ty} {bind_val}, {bind_ty}* {field_alloca}"));
                                         self.add_local(&field_ident.name, field_alloca, &bind_ty);
                                         // 5c.30: a generic-container payload
-                                        // (Vec[T]) binds the i64 HANDLE — record
+                                        // (Vec[T]) binds the i64 HANDLE â€” record
                                         // it so `items.push(..)` / `items.len()`
                                         // dereference the boxed header and
                                         // mutations alias the original enum.
@@ -5071,7 +4686,7 @@ impl IrEmitter {
                 self.emitln(&format!("\n{loop_exit}:"));
             }
             Stmt::For(_, _, body, _) => {
-                // Phase 0: simplified for ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â just execute body once
+                // Phase 0: simplified for ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â just execute body once
                 self.compile_block(body, false)?;
             }
             Stmt::Destructure(names, value, _) => {
@@ -5471,7 +5086,7 @@ impl IrEmitter {
                     if lt == "i64" || lt.starts_with("%struct.") {
                         let conv = self.fresh_tmp();
                         // 5c.29: `opt.unwrap()` returns the float payload as RAW
-                        // BITS in an i64 (Some(x) stores via bitcast) — so the
+                        // BITS in an i64 (Some(x) stores via bitcast) â€” so the
                         // conversion must bit-reinterpret, never sitofp.
                         if lt == "i64" && Self::expr_is_unwrap_call(left) {
                             if float_ty == "double" {
@@ -5501,7 +5116,7 @@ impl IrEmitter {
                         }
                         r = conv;
                     }
-                    // Narrow double ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ float when the operation uses float
+                    // Narrow double ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ float when the operation uses float
                     // (Float32) but an operand is double (Float64 literal).
                     if is_float && float_ty == "float" {
                         if lt == "double" {
@@ -5598,7 +5213,7 @@ impl IrEmitter {
                             _ => None,
                         };
                         if let Some(name) = fn_name {
-                            // If function is defined and its return type is a struct with ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°Ãƒâ€šÃ‚Â¤2 fields
+                            // If function is defined and its return type is a struct with ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â°ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¤2 fields
                             if let Some(field_names) = self.types.get(&name) {
                                 let opt_like = field_names.len() <= 2;
                                 if opt_like { self.used_builtins.insert("Option".to_string()); }
@@ -5934,7 +5549,7 @@ impl IrEmitter {
                     }
                 }
                 // General struct field access on a computed value (e.g.
-                // `data.get(i).value` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â a Field over a Call result). The object
+                // `data.get(i).value` ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â a Field over a Call result). The object
                 // isn't a bound local, so compile it and GEP the field by index.
                 // Without this, such accesses fell through to the `0` default,
                 // silently discarding Option payloads passed as call arguments.
@@ -6008,8 +5623,8 @@ impl IrEmitter {
                                 || self.type_meta.contains_key(&id.name)
                                 || (id.name.len() == 1 && id.name.chars().next().map_or(false, |c| c.is_ascii_uppercase()))
                         }
-                        Expr::Field(_, _, _) => true, // module.Type ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â always a type path
-                        _ => false, // integer literal, binary expr, etc. ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â always a value index
+                        Expr::Field(_, _, _) => true, // module.Type ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â always a type path
+                        _ => false, // integer literal, binary expr, etc. ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â always a value index
                     }
                 };
                 let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
@@ -6034,7 +5649,7 @@ impl IrEmitter {
                 let fn_name = match fn_name_opt {
                     Some(ref n) => n.clone(),
                     None => {
-                        // The callee is not a simple Ident or Field ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â it may be an
+                        // The callee is not a simple Ident or Field ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â it may be an
                         // Expr::Index (e.g. `tests[i]()`) that produces a function pointer
                         // value. Compile the expression and call the result.
                         if let Expr::Index(ref container, ref index, _) = **func {
@@ -6078,7 +5693,7 @@ impl IrEmitter {
                         }
                     }
                 }
-                // Check for contract collection methods ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â only intercept when
+                // Check for contract collection methods ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â only intercept when
                 // there is no user-defined function with the same name; otherwise
                 // a regular `fn is_sorted(arr: &Vec[Int]) -> Bool` gets hijacked
                 // and replaced with a `call @xiom_is_sorted` builtin.
@@ -6125,7 +5740,7 @@ impl IrEmitter {
                             return Ok((tmp, "i64".to_string()));
                         }
                     }
-                    // Direct form: method(args) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â compile all args
+                    // Direct form: method(args) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â compile all args
                     let compiled_args: Vec<String> = args.iter()
                         .map(|a| self.compile_expr(a).map(|(v, _)| v))
                         .collect::<Result<Vec<_>, _>>()?;
@@ -6164,7 +5779,7 @@ impl IrEmitter {
                     }
                     return Ok((tmp, "i64".to_string()));
                 }
-                } // if !has_user_fn ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â contract builtin guard
+                } // if !has_user_fn ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â contract builtin guard
                 // Primitive interface methods (Ord.compare, Eq.eq/ne, comparison ops,
                 // Hash.hash, Clone.clone) are emitted inline for scalar receivers, so
                 // primitives satisfy Ord/Eq/Hash/Clone bounds without a user method.
@@ -6181,10 +5796,10 @@ impl IrEmitter {
                                 || self.types.contains_key(&id.name)
                                 || self.type_meta.contains_key(&id.name));
                         // Builtin interface methods only apply to value instances (e.g.
-                        // `x.hash()` or `42.hash()`) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â module-qualified calls like
+                        // `x.hash()` or `42.hash()`) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â module-qualified calls like
                         // `hash.hash(42)` must fall through to generic dispatch.
                         if !is_value_instance {
-                            // module-qualified call ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â fall through to generic dispatch
+                            // module-qualified call ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â fall through to generic dispatch
                         } else {
                         let recv_llvm_ty = self.infer_llvm_type(receiver);
                         // Only scalar (integer/float) receivers get inline handling;
@@ -6218,7 +5833,7 @@ impl IrEmitter {
                                     return Ok((ext, "i64".to_string()));
                                 }
                                 // "hash" with args (Hash interface method call like
-                                // `value.hash(hasher)` inside a generic body) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â exit
+                                // `value.hash(hasher)` inside a generic body) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â exit
                                 // builtin path entirely so regular method dispatch
                                 // resolves to the concrete `Type.hash` function below.
                                 "hash" => {}
@@ -6281,11 +5896,11 @@ impl IrEmitter {
                     }
                     return Ok((tmp, "i8*".to_string()));
                 }
-                // ptr.null[T]() / ptr.null_mut[T]() / ptr.dangling[T]() ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â generic
+                // ptr.null[T]() / ptr.null_mut[T]() / ptr.dangling[T]() ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â generic
                 // pointer constructors with NO value arguments. The parser discards
                 // explicit type args (`[T]`), so type inference can't specialise them
-                // and the generic path returns a bogus 0. Inline them: null ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ 0 (a
-                // null pointer), dangling ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ a non-null sentinel (1). Only fires for
+                // and the generic path returns a bogus 0. Inline them: null ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ 0 (a
+                // null pointer), dangling ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ a non-null sentinel (1). Only fires for
                 // the zero-arg module form (a module-qualified receiver, not a value
                 // instance), so it never shadows a user method on a struct value.
                 if args.is_empty()
@@ -6299,7 +5914,7 @@ impl IrEmitter {
                 // lower to the C runtime `xiom_int_to_string`. The pure-XIOM
                 // `to_string` uses fixed stack arrays the codegen can't materialize.
                 // 5c.29: never hijack a USER-DEFINED `Type.to_str`/`Type.to_string`
-                // (e.g. `HttpMethod.to_str(m)`) — fall through to normal dispatch.
+                // (e.g. `HttpMethod.to_str(m)`) â€” fall through to normal dispatch.
                 let user_defined_to_str = matches!(fn_name.as_str(), "to_string" | "to_str")
                     && receiver_expr
                         .and_then(|r| self.infer_struct_type_name(r))
@@ -6342,7 +5957,7 @@ impl IrEmitter {
                         }
                     }
                 }
-                // ptr.from_ref(x) / ptr.from_mut(x) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â take a reference to an lvalue
+                // ptr.from_ref(x) / ptr.from_mut(x) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â take a reference to an lvalue
                 // and return its ADDRESS as a real pointer. For a plain local/param
                 // `x`, return its alloca (the address of the slot). If `x` is itself a
                 // pointer local (a `*T`/`&mut Scalar` param, already an address),
@@ -6361,7 +5976,7 @@ impl IrEmitter {
                         if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
                             if slot_ty.ends_with('*') {
                                 // The local already holds a pointer value (a `*T`
-                                // param) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â load and return it (identity address).
+                                // param) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â load and return it (identity address).
                                 let (val, vty) = self.compile_expr(inner_expr)?;
                                 return Ok((val, vty));
                             } else {
@@ -6398,10 +6013,10 @@ impl IrEmitter {
                     self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {dest_val}, i8* {src_val}, i64 {size_val}, i1 false)"));
                     return Ok(("0".to_string(), "void".to_string()));
                 }
-                // Vec.new() ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â static method on Vec type
+                // Vec.new() ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â static method on Vec type
                 if let Some(receiver) = receiver_expr {
                     // Accept both `Vec.new()` (Ident receiver) and `Vec[T].new()`
-                    // (Index receiver ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the parser wraps the explicit type arg as an
+                    // (Index receiver ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the parser wraps the explicit type arg as an
                     // index expression `Vec[T]`). Without unwrapping the Index, the
                     // latter fell through to the fragile general `.new` resolution,
                     // which could bind to an unrelated injected `X.new` (e.g. a
@@ -6416,7 +6031,7 @@ impl IrEmitter {
                     };
                     if recv_ident == Some("Vec") && fn_name == "new" {
                             // Determine element size from the type argument.
-                            // Vec[UInt8] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ 1, Vec[Int16] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ 2, Vec[Int32] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ 4, default ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ 8.
+                            // Vec[UInt8] ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ 1, Vec[Int16] ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ 2, Vec[Int32] ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ 4, default ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ 8.
                             let elem_size: i64 = if let Some(type_arg) = type_arg {
                                 let type_name = match type_arg {
                                     Expr::Ident(id) => id.name.clone(),
@@ -6432,7 +6047,7 @@ impl IrEmitter {
                                     _ => {
                                         // For struct types, compute the REAL layout
                                         // size (nested by-value struct fields count
-                                        // fully — 5c.30, field_count×8 truncated
+                                        // fully â€” 5c.30, field_countÃ—8 truncated
                                         // JsonEntry-style elements).
                                         self.struct_byte_size(&type_name)
                                     }
@@ -6444,7 +6059,7 @@ impl IrEmitter {
                             self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
                             let data_ptr = self.fresh_tmp();
                             self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 {alloc_size})"));
-                            // Null check on malloc ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â trap on OOM
+                            // Null check on malloc ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â trap on OOM
                             let null_check = self.fresh_tmp();
                             let ok_block = self.fresh_block("vec_new_malloc_ok");
                             let trap_block = self.fresh_block("vec_new_malloc_trap");
@@ -6470,7 +6085,7 @@ impl IrEmitter {
                             return Ok((loaded, "%struct.Vec".to_string()));
                     }
                 }
-                // Vec.push(vec, val) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â method call on Vec
+                // Vec.push(vec, val) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â method call on Vec
                 if fn_name == "push" && args.len() >= 1 {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
@@ -6480,7 +6095,7 @@ impl IrEmitter {
                         let is_vec = recv_ty == "%struct.Vec" || recv_ty.ends_with(".Vec") || recv_ty.contains("struct.Vec")
                             || self.is_container_vec_field(receiver);
                         if !is_vec {
-                            // Not a Vec receiver ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â fall through to general method dispatch
+                            // Not a Vec receiver ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ fall through to general method dispatch
                         } else {
                         let (recv_val, recv_actual_ty) = self.compile_expr(receiver)?;
                         let (recv_vec, _) = self.resolve_vec_receiver(receiver, &recv_val, &recv_actual_ty);
@@ -6509,7 +6124,7 @@ impl IrEmitter {
                         self.emitln(&format!("  store i64 {vec_cap}, i64* {c_gep}"));
                         self.emitln(&format!("  {e_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 3"));
                         self.emitln(&format!("  store i64 {vec_esz}, i64* {e_gep}"));
-                        // Load elem_size early ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â needed to decide struct vs scalar path
+                        // Load elem_size early ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â needed to decide struct vs scalar path
                         let esz_gep = self.fresh_tmp();
                         let esz_val = self.fresh_tmp();
                         self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 3"));
@@ -6526,7 +6141,7 @@ impl IrEmitter {
                         } else {
                             // For structs, the raw value is preserved for memcpy.
                             // We emit a dummy i64; the store block will use val_raw directly.
-                            val_raw.clone() // not used as i64 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the store block checks is_struct_elem
+                            val_raw.clone() // not used as i64 ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the store block checks is_struct_elem
                         };
                         let len_gep = self.fresh_tmp();
                         let len_val = self.fresh_tmp();
@@ -6544,7 +6159,7 @@ impl IrEmitter {
                         self.emitln(&format!("\n{grow_block}:"));
                         let new_cap = self.fresh_tmp();
                         self.emitln(&format!("  {new_cap} = mul i64 {cap_val}, 2"));
-                        // Capacity guard: trap if exceeding max (2^20 elements ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°Ãƒâ€¹Ã¢â‚¬Â  8MB)
+                        // Capacity guard: trap if exceeding max (2^20 elements ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â°ÃƒÆ’Ã¢â‚¬Â¹ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â  8MB)
                         let cap_ok_check = self.fresh_tmp();
                         let cap_ok_cont = self.fresh_block("vec_cap_ok");
                         let cap_trap_block = self.fresh_block("vec_cap_trap");
@@ -6562,7 +6177,7 @@ impl IrEmitter {
                         self.emitln(&format!("  {grow_data_ptr} = load i8*, i8** {grow_data_gep}"));
                         let new_data = self.fresh_tmp();
                         self.emitln(&format!("  {new_data} = call i8* @realloc(i8* {grow_data_ptr}, i64 {new_size})"));
-                        // Null check on realloc ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â trap on OOM
+                        // Null check on realloc ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â trap on OOM
                         let grow_null_check = self.fresh_tmp();
                         let grow_ok_block = self.fresh_block("vec_realloc_ok");
                         let grow_trap_block = self.fresh_block("vec_realloc_trap");
@@ -6613,12 +6228,12 @@ impl IrEmitter {
                         }
                     }
                 }
-                // Vec.pop(vec) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â method call on Vec. Returns Option[T]: None when
+                // Vec.pop(vec) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â method call on Vec. Returns Option[T]: None when
                 // empty (discriminant 0), else Some(last element) (discriminant 1,
                 // value = element). A Vec is the builtin {i8*, i64, i64}; elements
                 // are i64-wide slots. The pop reads the last live element; the
                 // returned struct is a %struct.Option so `v.pop() == Some(x)` typechecks.
-                // Vec.insert(idx, val) / Vec.remove(idx) — inline builtins
+                // Vec.insert(idx, val) / Vec.remove(idx) â€” inline builtins
                 // (5c.29). The stdlib generic versions relied on general method
                 // dispatch, which cannot resolve container-field receivers
                 // (`tree.nodes[idx].keys.insert(...)` misdispatched to a stub).
@@ -6867,7 +6482,7 @@ impl IrEmitter {
                         }
                     }
                 }
-                // Vec.get(vec, idx) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â method call on Vec. Returns Option[T]: None
+                // Vec.get(vec, idx) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â method call on Vec. Returns Option[T]: None
                 // when idx is out of range (discriminant 0), else Some(data[idx])
                 // (discriminant 1, value = element). Mirrors the pop lowering.
                 if fn_name == "get" && args.len() == 1 {
@@ -6890,7 +6505,7 @@ impl IrEmitter {
                             self.emitln(&format!("  {len_val} = load i64, i64* {len_gep}"));
                             let opt_alloca = self.fresh_tmp();
                             self.emitln(&format!("  {opt_alloca} = alloca %struct.Option"));
-                            // in range iff (unsigned) idx < len ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â also rejects idx<0.
+                            // in range iff (unsigned) idx < len ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â also rejects idx<0.
                             let in_range = self.fresh_tmp();
                             self.emitln(&format!("  {in_range} = icmp ult i64 {idx}, {len_val}"));
                             let some_block = self.fresh_block("vec_get_some");
@@ -6934,14 +6549,14 @@ impl IrEmitter {
                         }
                     }
                 }
-                // Vec.len(vec) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â method call on Vec
-                // Vec.len(vec) — method call on Vec
+                // Vec.len(vec) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â method call on Vec
+                // Vec.len(vec) â€” method call on Vec
                 if fn_name == "len" && args.is_empty() {
                     if let Some(receiver) = receiver_expr {
                         if self.infer_llvm_type(receiver) != "%struct.Vec"
                             && !self.is_container_vec_field(receiver)
                         {
-                            // Not a Vec receiver — fall through to general method dispatch
+                            // Not a Vec receiver â€” fall through to general method dispatch
                         } else {
                         let (recv_raw, recv_raw_ty) = self.compile_expr(receiver)?;
                         let (recv_val, _) = self.resolve_vec_receiver(receiver, &recv_raw, &recv_raw_ty);
@@ -6956,7 +6571,7 @@ impl IrEmitter {
                         }
                     }
                 }
-                // Str.len(s) / Vec.len / Slice.len ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â method call
+                // Str.len(s) / Vec.len / Slice.len ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â method call
                 if fn_name == "len" && args.is_empty() {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
@@ -6985,8 +6600,8 @@ impl IrEmitter {
                         }
                     }
                 }
-                // Str.c_str() ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â identity on the string pointer (Str is already i8*).
-                // Str.len() / Str.byte_len() ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â return the string length.
+                // Str.c_str() ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â identity on the string pointer (Str is already i8*).
+                // Str.len() / Str.byte_len() ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â return the string length.
                 if (fn_name == "c_str" || fn_name == "byte_len" || fn_name == "len") && args.is_empty() {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
@@ -7005,7 +6620,7 @@ impl IrEmitter {
                         }
                     }
                 }
-                // Str.from_cstring(ptr) / from_c_str / from_utf8 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â reinterpret a
+                // Str.from_cstring(ptr) / from_c_str / from_utf8 ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â reinterpret a
                 // C string / byte buffer as a Str. A Str is `i8*` at the ABI and a
                 // C string is already a NUL-terminated i8*, so this is an identity
                 // on the pointer (coerced to i8*). Emitted inline since there is no
@@ -7322,7 +6937,7 @@ impl IrEmitter {
                             // When field_ty is i64, the payload may be a heap pointer
                             // from val_to_i64 for struct payloads.  Determine the actual
                             // struct type by resolving the generic return type of the
-                            // concrete instantiation (e.g. `Option.unwrap[Point] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ Point`).
+                            // concrete instantiation (e.g. `Option.unwrap[Point] ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ Point`).
                             let struct_type_hint: Option<String> = {
                                 let fn_key = if is_option { "Option.unwrap" } else { "Result.unwrap" };
                                 self.generic_fn_decls.iter().find(|(k, _)| k == fn_key || k.ends_with(&format!(".{}", fn_name)))
@@ -7378,7 +6993,7 @@ impl IrEmitter {
                             self.resolve_module_call(receiver, &fn_name)
                         }
                     } else {
-                        // Receiver is a module name (not a struct type) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â resolve
+                        // Receiver is a module name (not a struct type) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â resolve
                         // to module-qualified function name if registered.
                         self.resolve_module_call(receiver, &fn_name)
                     }
@@ -7388,7 +7003,7 @@ impl IrEmitter {
                 // Interface dispatch fallback: when the receiver type is a known
                 // interface (e.g. `Error.description`), search all registered
                 // concrete functions for one that matches `*.method_name` (static
-                // dispatch ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the first matching implementation wins).
+                // dispatch ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the first matching implementation wins).
                 let fn_key = if !self.functions.contains_key(&fn_key)
                     && !self.generic_fn_decls.iter().any(|(k, _)| k == &fn_key)
                 {
@@ -7429,7 +7044,7 @@ impl IrEmitter {
                                     let const_expr: Option<Expr> = match ta {
                                         Expr::Int(n, _) => Some(Expr::Int(*n, Span::new(0, 0))),
                                         Expr::Tuple(elems, _) => {
-                                            // Find the first Int literal ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â this is the const value.
+                                            // Find the first Int literal ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â this is the const value.
                                             // For multiple const params, this is a simplification.
                                             elems.iter().find(|e| matches!(e, Expr::Int(..))).cloned()
                                         }
@@ -7439,7 +7054,7 @@ impl IrEmitter {
                                         const_values.insert(gp.name.name.clone(), n as i64);
                                     }
                                 }
-                                // Add a placeholder so the zip aligns ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â const params
+                                // Add a placeholder so the zip aligns ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â const params
                                 // don't contribute to concrete_types.
                                 concrete_types.push("Int".to_string());
                                 continue;
@@ -7470,7 +7085,7 @@ impl IrEmitter {
                                     inferred = true;
                                     break;
                                 }
-                                // Nested generic: e.g. `Option[T]` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ extract T from type args
+                                // Nested generic: e.g. `Option[T]` ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ extract T from type args
                                 let arg_names = Self::extract_type_arg_names(&param.ty);
                                 if let Some(pos) = arg_names.iter().position(|a| a == &gp.name.name) {
                                     let concrete_ty = "Int".to_string();
@@ -7481,7 +7096,7 @@ impl IrEmitter {
                             }
                             if !inferred {
                                 // Use explicit type args from the call syntax
-                                // (e.g. `Map[Str, JsonValue].new()` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ type_arg = Tuple([Str, JsonValue])).
+                                // (e.g. `Map[Str, JsonValue].new()` ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ type_arg = Tuple([Str, JsonValue])).
                                 if let Some(ta) = type_arg {
                                     let type_names: Vec<String> = match ta {
                                         Expr::Ident(id) => vec![id.name.clone()],
@@ -7617,10 +7232,10 @@ impl IrEmitter {
                             let has_receiver_in_params = !all_param_types.is_empty() && all_param_types.len() > all_args.len();
                             // Check if the generic function declaration has a self param.
                             // Methods like Map.insert(key, value) have receiver type
-                            // but no self param ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â don't pass the receiver instance.
+                            // but no self param ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â don't pass the receiver instance.
                             // For generic functions in generic_fn_decls, check if the
                             // declaration has a self param. For non-generic methods
-                            // (not in generic_fn_decls), default to true ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the
+                            // (not in generic_fn_decls), default to true ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the
                             // has_receiver_in_params check above handles the rest.
                             let generic_has_self = self.generic_fn_decls.iter()
                                 .find(|(k, _)| k == &fn_key)
@@ -7653,10 +7268,10 @@ impl IrEmitter {
                                     all_arg_types.insert(0, recv_llvm_ty);
                                 }
                             } else if !is_instance && has_receiver_in_params {
-                                // Type name or module name receiver ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â remove extra param type
+                                // Type name or module name receiver ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â remove extra param type
                                 all_param_types.remove(0);
                             }
-                            // else: is_instance && !generic_has_self ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ no self param to pass
+                            // else: is_instance && !generic_has_self ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ no self param to pass
                         }
                         // Coerce each arg to the callee's declared param type (its real
                         // compiled type may differ, e.g. an enum-variant arg compiled to
@@ -7718,7 +7333,7 @@ impl IrEmitter {
                                 fn_key.clone()
                             }
                         } else {
-                            // Receiver is a module name ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â use module-qualified resolution
+                            // Receiver is a module name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â use module-qualified resolution
                             self.resolve_module_call(receiver, &fn_name)
                         }
                     } else {
@@ -7728,7 +7343,7 @@ impl IrEmitter {
                     // "is_match" from an i64-typed receiver), search for any registered
                     // function whose name ends with ".method_name" (e.g. "Regex.is_match").
                     // IMPORTANT: for bare function calls (no "." in key AND no receiver),
-                    // only match bare function names ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â do NOT match instance methods.
+                    // only match bare function names ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â do NOT match instance methods.
                     // Method calls (receiver_expr is Some) may resolve through this path
                     // when the receiver type is i64 (not a named struct), so the bare-call
                     // skip must NOT apply.
@@ -7758,7 +7373,7 @@ impl IrEmitter {
                         // Check if receiver is a real struct instance (local variable)
                         // vs a type name (TrafficLight.xxx()) or module name (pipeline.xxx()).
                         // A module path like `xiom.char` (nested Field rooted in a
-                        // non-local) is NOT an instance ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ no phantom receiver arg.
+                        // non-local) is NOT an instance ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ no phantom receiver arg.
                         let is_instance = self.receiver_is_instance(receiver);
                         // Registered callee param types (used to coerce args to the
                         // exact types the callee declares).
@@ -7796,7 +7411,7 @@ impl IrEmitter {
                                     if p0.ends_with('*') {
                                         // 5c.30: callee expects a POINTER receiver
                                         // (this-based method): the i64 heap box IS
-                                        // the struct — inttoptr directly, never
+                                        // the struct â€” inttoptr directly, never
                                         // load through it as a pointer-to-pointer
                                         // (that read the discriminant as an
                                         // address: as_string AV at 0x3).
@@ -7836,7 +7451,7 @@ impl IrEmitter {
                                 format!("{recv_llvm_ty} {recv_val}, {}", rest_str.join(", "))
                             }
                         } else {
-                            // Type name or module name ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no receiver argument. Coerce
+                            // Type name or module name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â no receiver argument. Coerce
                             // each arg to the callee's declared param type (its real
                             // compiled type may differ, e.g. an enum-variant arg
                             // compiled to a struct while the callee expects it).
@@ -7856,8 +7471,8 @@ impl IrEmitter {
                         }
                     } else {
                         // Use registered param types when available (correct for extern
-                        // functions with non-default types like Int32ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢i32, Float32ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢float).
-                        // 5c.30: G-10 implicit-self — override the fn key so
+                        // functions with non-default types like Int32ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢i32, Float32ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢float).
+                        // 5c.30: G-10 implicit-self â€” override the fn key so
                         // bare `greet("Hi")` resolves to `Greeter.greet`.
                         // No self injection: method bodies already have receiver
                         // fields as locals via the prologue.
@@ -7968,7 +7583,7 @@ impl IrEmitter {
                 // The buffer layout is: [length: i64][elem0: i64][elem1: i64]...
                 // Skip past the leading length slot and read the element at index+1.
                 // Also handles local variables bound from array literals (let arr = [...];
-                // arr[i]) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â detected by cont_ty == i8* and the ident resolves to a
+                // arr[i]) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â detected by cont_ty == i8* and the ident resolves to a
                 // buffer that wasn't interned as a C string.
                 let is_array_buf = cont_ty == "i8*" && (
                     matches!(container.as_ref(), Expr::Array(..))
@@ -8048,7 +7663,7 @@ impl IrEmitter {
                     // For struct elements with a known element type, load the
                     // struct directly from Vec data via memcpy, bypassing the
                     // ptrtoint/inttoptr chain of emit_elem_load+val_to_struct.
-                    // (5c.28 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â counter pattern fix)
+                    // (5c.28 ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â counter pattern fix)
                     if let Some(elem_type_name) = self.resolve_vec_elem_type(container) {
                         let struct_ty = format!("%struct.{elem_type_name}");
                         let struct_alloca = self.fresh_tmp();
@@ -8062,7 +7677,7 @@ impl IrEmitter {
                     }
                     // Fallback: use emit_elem_load for unknown element types.
                     let elem = self.emit_elem_load(&elem_ptr, &esz_val);
-                    // 5c.29: float elements round-trip as raw bits — reinterpret
+                    // 5c.29: float elements round-trip as raw bits â€” reinterpret
                     // them instead of letting callers sitofp the bit pattern.
                     if let Some(fty) = self.vec_elem_float_type(container) {
                         if fty == "float" {
@@ -8085,7 +7700,7 @@ impl IrEmitter {
                 if cont_ty.starts_with('[') && cont_ty.contains(" x ") {
                     let (arr_ptr, arr_ptr_ty) = if let Expr::Ident(id) = &**container {
                         if let Some((slot, _slot_ty)) = self.lookup_local(&id.name) {
-                            // Use the existing alloca pointer directly ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â avoids
+                            // Use the existing alloca pointer directly ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â avoids
                             // creating a fresh alloca on every loop iteration.
                             (slot.clone(), format!("{cont_ty}*"))
                         } else {
@@ -8108,7 +7723,7 @@ impl IrEmitter {
                     let result = self.val_to_i64(&elem, &inner_ty);
                     return Ok((result, "i64".to_string()));
                 }
-                // Unknown container ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â safe default.
+                // Unknown container ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â safe default.
                 Ok(("0".to_string(), "i64".to_string()))
             }
             Expr::AtPre(inner, _) => {
@@ -8154,7 +7769,7 @@ impl IrEmitter {
                                 }
                             }
                         } else if let Some((slot, slot_ty)) = self.lookup_local(&base_ident.name).cloned() {
-                            // 5c.30: `&local.field` — emit a REAL GEP into the
+                            // 5c.30: `&local.field` â€” emit a REAL GEP into the
                             // local's storage. Previously the bare field name was
                             // looked up as a local, so `&addr3.ip` silently bound
                             // to an unrelated variable named `ip` (TFR test 7).
@@ -8261,11 +7876,11 @@ impl IrEmitter {
                 // Compile the inner expression and return a pointer to the value.
                 // For struct-typed idents, use the alloca pointer directly so
                 // this-based methods receive a proper pointer receiver.
-                // coerce_value handles both directions (structÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã‚Âpointer) for safety.
+                // coerce_value handles both directions (structÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Âpointer) for safety.
                 if let Expr::Ident(id) = inner.as_ref() {
                     if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
                         if slot_ty.starts_with("%struct.") {
-                            // Return the alloca pointer ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the caller coerces as needed.
+                            // Return the alloca pointer ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the caller coerces as needed.
                             return Ok((slot, format!("{slot_ty}*")));
                         }
                     }
@@ -8548,7 +8163,7 @@ impl IrEmitter {
             Expr::Comptime(inner, _) => self.compile_expr(inner),
             Expr::Unsafe(block, _) => {
                 // An `unsafe { ... }` block is an expression whose value is its
-                // tail. Compile every statement (Let/Var/Assign/Return/ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦) and
+                // tail. Compile every statement (Let/Var/Assign/Return/ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦) and
                 // return the value of the final expression, so
                 // `let x = unsafe { ffi_call() }` and
                 // `fn f() -> T { unsafe { ffi_call() } }` yield a real SSA value
@@ -8591,7 +8206,7 @@ impl IrEmitter {
             }
             Expr::If(cond, then_block, elifs, else_block, _) => {
                 // Value-producing if-expression (e.g. `let x = if c { 1 } else { 0 }`).
-                // Emit conditional branches ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â  la Stmt::If, but have each arm store its
+                // Emit conditional branches ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  la Stmt::If, but have each arm store its
                 // tail expression into a result alloca.  At the merge point, load the
                 // result and return it.
                 
@@ -8665,7 +8280,7 @@ impl IrEmitter {
                         merge_reachable = true;
                     }
                 } else if elifs.is_empty() {
-                    // No elifs, no else ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the original else_label IS the merge_label
+                    // No elifs, no else ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the original else_label IS the merge_label
                 } else if prev_label != merge_label {
                     self.emitln(&format!("\n{prev_label}:"));
                     self.emitln(&format!("  br label %{merge_label}"));
@@ -8809,11 +8424,11 @@ impl IrEmitter {
         match receiver {
             // A bare identifier is an instance only if it's a bound local/param
             // (a value). Bare type names (`LogLevel`) and module roots (`xiom`)
-            // are not locals ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ not instances.
+            // are not locals ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ not instances.
             Expr::Ident(ident) => self.lookup_local(&ident.name).is_some(),
             // `a.b`: instance iff its base chain is rooted in a value (local/self),
             // e.g. `obj.field`. A module path like `xiom.char` is rooted in `xiom`
-            // (not a local) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ NOT an instance. Also an instance if the whole
+            // (not a local) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ NOT an instance. Also an instance if the whole
             // expression has a concrete struct type.
             Expr::Field(base, field, _) => {
                 // `module.Type` static path (e.g. `alloc.Layout`) is NOT an instance:
@@ -8829,7 +8444,7 @@ impl IrEmitter {
             }
             // Calls / indexing / parens evaluate to values.
             Expr::Call(..) | Expr::Index(..) | Expr::Paren(..) => true,
-            // Any other receiver form evaluates to a value ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â preserve the prior
+            // Any other receiver form evaluates to a value ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â preserve the prior
             // "complex receiver is an instance" behavior (only the Ident type-name
             // and Field module-path shapes above are treated as non-instances).
             _ => true,
@@ -8865,7 +8480,7 @@ impl IrEmitter {
                         return Some(key.clone());
                     }
                 }
-                // Fallback: search generic_type_names ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â generic types may not
+                // Fallback: search generic_type_names ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â generic types may not
                 // be in type_meta (injection chain can block Type while allowing
                 // its methods), but they ARE registered as structs (e.g. Map[K,V]).
                 for key in self.generic_type_names.iter() {
@@ -8949,7 +8564,7 @@ impl IrEmitter {
             Expr::Call(func, _, _) => {
                 // Infer type from the return type of a method/function call
                 let fn_key = if let Expr::Field(obj, field, _) = func.as_ref() {
-                    // Try module-qualified resolution first (e.g. iter.range ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ xiom.iter.range)
+                    // Try module-qualified resolution first (e.g. iter.range ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ xiom.iter.range)
                     if let Some(recv_type) = self.infer_struct_type_name(obj.as_ref()) {
                         format!("{}.{}", recv_type, field.name)
                     } else {
@@ -8999,152 +8614,6 @@ impl IrEmitter {
         tmp
     }
 
-    /// When a value's LLVM type is a pointer to a Vec (e.g. `%struct.Vec*` from
-    /// an `&mut Vec[T]` parameter), emit a load to get the actual Vec value.
-    /// Returns `(value_name, "%struct.Vec")`. If the type is already a Vec value,
-    /// returns the original value and type unchanged.
-    /// 5c.29: Resolve a Vec receiver to a %struct.Vec* header POINTER for
-    /// in-place mutation (insert/remove). For i64 container-field handles the
-    /// box pointer itself is returned (authoritative — no store-back needed,
-    /// second tuple element is false). Otherwise the header value is copied
-    /// into a fresh alloca and the caller must store the mutated header back
-    /// via `store_back_to_receiver` (second tuple element is true).
-    fn resolve_vec_receiver_ptr(&mut self, receiver: &Expr) -> Result<(String, bool), String> {
-        let (recv_val, recv_ty) = self.compile_expr(receiver)?;
-        if recv_ty == "i64" && self.is_container_vec_field(receiver) {
-            let boxp = self.fresh_tmp();
-            self.emitln(&format!("  {boxp} = inttoptr i64 {recv_val} to %struct.Vec*"));
-            return Ok((boxp, false));
-        }
-        let (vec_val, _) = self.resolve_vec_value(&recv_val, &recv_ty);
-        let slot = self.fresh_tmp();
-        self.emitln(&format!("  {slot} = alloca %struct.Vec"));
-        self.emit_vec_store_fields(&vec_val, &slot);
-        Ok((slot, true))
-    }
-
-    /// 5c.30: Load a Vec element as an i64 Option payload. Scalars load
-    /// directly (1/2/4/8-byte widths); STRUCT elements are heap-copied and
-    /// the pointer stored as the payload — matching the val_to_i64 boxing
-    /// convention consumed by FIELD-I64 access (`popped.unwrap().x`).
-    fn emit_elem_payload_load(&mut self, container: &Expr, elem_ptr: &str, esz_val: &str) -> String {
-        if self.resolve_vec_elem_type(container).is_some() {
-            let raw = self.fresh_tmp();
-            self.emitln(&format!("  {raw} = call i8* @malloc(i64 {esz_val})"));
-            let ok = self.fresh_block("elem_box_ok");
-            let fail = self.fresh_block("elem_box_trap");
-            let chk = self.fresh_tmp();
-            self.emitln(&format!("  {chk} = icmp eq i8* {raw}, null"));
-            self.emitln(&format!("  br i1 {chk}, label %{fail}, label %{ok}"));
-            self.emitln(&format!("\n{fail}:"));
-            self.emitln("  call void @llvm.trap()");
-            self.emitln("  unreachable");
-            self.emitln(&format!("\n{ok}:"));
-            self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {raw}, i8* {elem_ptr}, i64 {esz_val}, i1 false)"));
-            let h = self.fresh_tmp();
-            self.emitln(&format!("  {h} = ptrtoint i8* {raw} to i64"));
-            return h;
-        }
-        self.emit_elem_load(elem_ptr, esz_val)
-    }
-
-    fn resolve_vec_value(&mut self, val: &str, ty: &str) -> (String, String) {
-        if ty == "%struct.Vec" || ty.ends_with(".Vec") || ty.ends_with(".Slice") {
-            return (val.to_string(), ty.to_string());
-        }
-        if (ty.starts_with("%struct.") && (ty.ends_with("Vec*") || ty.ends_with("Slice*")))
-            || (ty.ends_with(".Vec*") || ty.ends_with(".Slice*"))
-        {
-            let inner_ty = ty.trim_end_matches('*');
-            let loaded = self.emit_vec_load_fields(val);
-            return (loaded, inner_ty.to_string());
-        }
-        (val.to_string(), ty.to_string())
-    }
-
-    /// 5c.29: Resolve a Vec receiver to a %struct.Vec SSA value, additionally
-    /// dereferencing i64 container-field HANDLES (5c.28h): a generic container
-    /// struct field (Vec[Int], ...) holds an i64 pointer to the heap-boxed
-    /// Vec header, so an i64 receiver value must be inttoptr'd and loaded.
-    fn resolve_vec_receiver(&mut self, receiver: &Expr, val: &str, ty: &str) -> (String, String) {
-        let (v, t) = self.resolve_vec_value(val, ty);
-        if t == "i64" && self.is_container_vec_field(receiver) {
-            let vp = self.fresh_tmp();
-            self.emitln(&format!("  {vp} = inttoptr i64 {v} to %struct.Vec*"));
-            let vl = self.fresh_tmp();
-            self.emitln(&format!("  {vl} = load volatile %struct.Vec, %struct.Vec* {vp}"));
-            return (vl, "%struct.Vec".to_string());
-        }
-        (v, t)
-    }
-
-    /// Emit per-field stores of a `%struct.Vec` SSA value into an alloca.
-    /// Uses extractvalue+GEP+store for each of the 4 fields to prevent LLVM
-    /// from decomposing the aggregate store and skipping "dead" fields (5c.28).
-    /// Emit per-field loads of a `%struct.Vec` from an alloca, returning the
-    /// loaded SSA value. Prevents LLVM from decomposing the aggregate load
-    /// into partial field reads that skip "dead" fields (5c.28).
-    fn emit_vec_load_fields(&mut self, src_alloca: &str) -> String {
-        let fd = self.fresh_tmp();
-        let v0 = self.fresh_tmp();
-        self.emitln(&format!("  {fd} = load i8*, i8** {src_alloca}"));
-        self.emitln(&format!("  {v0} = insertvalue %struct.Vec undef, i8* {fd}, 0"));
-        let mut prev = v0;
-        for fi in 1..=3 {
-            let fp = self.fresh_tmp();
-            let gep = self.fresh_tmp();
-            let vi = self.fresh_tmp();
-            self.emitln(&format!("  {gep} = getelementptr %struct.Vec, %struct.Vec* {src_alloca}, i32 0, i32 {fi}"));
-            self.emitln(&format!("  {fp} = load i64, i64* {gep}"));
-            self.emitln(&format!("  {vi} = insertvalue %struct.Vec {prev}, i64 {fp}, {fi}"));
-            prev = vi;
-        }
-        prev
-    }
-
-    /// Returns true if `container` is a field access on a struct and the
-    /// field's type in type_meta is a generic container (Vec[..], Map[..], etc.)
-    fn is_container_vec_field(&self, container: &Expr) -> bool {
-        // 5c.30: locals bound to an i64 container handle (match-arm payload
-        // bindings like `JsonValue.Array(ref mut items)`).
-        if let Expr::Ident(id) = container {
-            return self.local_vec_handle.contains_key(&id.name);
-        }
-        if let Expr::Field(base, field_expr, _) = container {
-            if let Some(base_ty) = self.infer_struct_type_name(base) {
-                for key in self.type_meta.keys() {
-                    if key.ends_with(&base_ty) || key == &base_ty {
-                        if let Some(meta) = self.type_meta.get(key) {
-                            for (fname, ftype) in &meta.fields {
-                                if fname == &field_expr.name {
-                                    return ftype.contains('[');
-                                }
-                            }
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-        false
-    }
-
-    /// Returns the declared XIOM type name of field `field_idx` of `struct_name`
-    /// from type_meta (e.g. "Vec[Int]"), using the same qualified-name fallbacks
-    /// as `field_llvm_type`.
-    /// 5c.30: Check whether a bare-name call inside a method should be
-    /// resolved as an implicit-self method call (G-10). Called early in
-    /// the Expr::Call handler.
-    fn resolve_implicit_self_call(&self, fn_name: &str) -> Option<String> {
-        let recv = self.current_receiver.as_ref()?;
-        let key = format!("{recv}.{fn_name}");
-        if self.functions.contains_key(&key) { return Some(key); }
-        for k in self.functions.keys() {
-            if k.ends_with(&format!(".{key}")) { return Some(k.clone()); }
-        }
-        None
-    }
-
     fn field_xiom_type(&self, struct_name: &str, field_idx: usize) -> Option<String> {
         let meta = self.type_meta.get(struct_name)
             .or_else(|| {
@@ -9159,155 +8628,8 @@ impl IrEmitter {
         meta.fields.get(field_idx).map(|(_, t)| t.clone())
     }
 
-    /// 5c.29: Box a by-value container header (e.g. %struct.Vec) on the heap and
-    /// return an i64 HANDLE (ptrtoint of the box). Generic container struct
-    /// fields are declared as i64 handles (5c.28h); every reader dereferences
-    /// the handle (Index handler inttoptr+load, val_to_struct memcpy), so
-    /// writers must store a pointer to a stable heap header — storing the
-    /// 32-byte header by value into the 8-byte slot corrupted the stack and
-    /// made readers interpret element data as a Vec header (NET/VECTOR/HTTP/
-    /// SQLITE ACCESS_VIOLATION).
-    fn emit_box_struct_handle(&mut self, val: &str, struct_ty: &str) -> String {
-        let type_name = struct_ty.trim_start_matches("%struct.").trim_end_matches('*');
-        let size = self.struct_byte_size(type_name).max(32);
-        let raw = self.fresh_tmp();
-        self.emitln(&format!("  {raw} = call i8* @malloc(i64 {size})"));
-        let ok = self.fresh_block("box_malloc_ok");
-        let fail = self.fresh_block("box_malloc_trap");
-        let chk = self.fresh_tmp();
-        self.emitln(&format!("  {chk} = icmp eq i8* {raw}, null"));
-        self.emitln(&format!("  br i1 {chk}, label %{fail}, label %{ok}"));
-        self.emitln(&format!("\n{fail}:"));
-        self.emitln("  call void @llvm.trap()");
-        self.emitln("  unreachable");
-        self.emitln(&format!("\n{ok}:"));
-        let typed = self.fresh_tmp();
-        self.emitln(&format!("  {typed} = bitcast i8* {raw} to {struct_ty}*"));
-        self.emitln(&format!("  store {struct_ty} {val}, {struct_ty}* {typed}"));
-        let handle = self.fresh_tmp();
-        self.emitln(&format!("  {handle} = ptrtoint {struct_ty}* {typed} to i64"));
-        handle
-    }
 
-    fn emit_vec_store_fields(&mut self, vec_val: &str, dest_alloca: &str) {
-        for (fi, ty) in [(0, "i8*"), (1, "i64"), (2, "i64"), (3, "i64")] {
-            let fval = self.fresh_tmp();
-            let gep = self.fresh_tmp();
-            self.emitln(&format!("  {fval} = extractvalue %struct.Vec {vec_val}, {fi}"));
-            self.emitln(&format!("  {gep} = getelementptr %struct.Vec, %struct.Vec* {dest_alloca}, i32 0, i32 {fi}"));
-            self.emitln(&format!("  store {ty} {fval}, {ty}* {gep}"));
-        }
-    }
-
-    /// Emit a store of an i64 value at `dest` (i8*) using the element width from
-    /// `esz_val` (loaded from Vec field 3). For elem_size == 8 (default Int/ptr),
-    /// stores as i64. For elem_size < 8, truncates to the matching integer width
-    /// to avoid overwriting adjacent elements.
-    fn emit_elem_store(&mut self, val: &str, dest: &str, esz_val: &str) {
-        // 5c.29: real 1/2/4/8-byte stores. The old code truncated EVERY
-        // non-8 width to i8, destroying 4-byte elements (Float32 raw bits,
-        // Int32/UInt32) and 2-byte elements (Int16/UInt16).
-        let s1 = self.fresh_block("elem_store1");
-        let s2 = self.fresh_block("elem_store2");
-        let s4 = self.fresh_block("elem_store4");
-        let s8 = self.fresh_block("elem_store8");
-        let done = self.fresh_block("elem_store_done");
-        self.emitln(&format!(
-            "  switch i64 {esz_val}, label %{s8} [ i64 1, label %{s1}\n    i64 2, label %{s2}\n    i64 4, label %{s4} ]"
-        ));
-        // 1-byte path (UInt8/Int8/Char/Bool)
-        self.emitln(&format!("\n{s1}:"));
-        let t1 = self.fresh_tmp();
-        self.emitln(&format!("  {t1} = trunc i64 {val} to i8"));
-        self.emitln(&format!("  store i8 {t1}, i8* {dest}"));
-        self.emitln(&format!("  br label %{done}"));
-        // 2-byte path (Int16/UInt16)
-        self.emitln(&format!("\n{s2}:"));
-        let t2 = self.fresh_tmp();
-        let p2 = self.fresh_tmp();
-        self.emitln(&format!("  {t2} = trunc i64 {val} to i16"));
-        self.emitln(&format!("  {p2} = bitcast i8* {dest} to i16*"));
-        self.emitln(&format!("  store i16 {t2}, i16* {p2}"));
-        self.emitln(&format!("  br label %{done}"));
-        // 4-byte path (Int32/UInt32/Float32 raw bits)
-        self.emitln(&format!("\n{s4}:"));
-        let t4 = self.fresh_tmp();
-        let p4 = self.fresh_tmp();
-        self.emitln(&format!("  {t4} = trunc i64 {val} to i32"));
-        self.emitln(&format!("  {p4} = bitcast i8* {dest} to i32*"));
-        self.emitln(&format!("  store i32 {t4}, i32* {p4}"));
-        self.emitln(&format!("  br label %{done}"));
-        // 8-byte path (default: Int/ptr/double)
-        self.emitln(&format!("\n{s8}:"));
-        let dest64 = self.fresh_tmp();
-        self.emitln(&format!("  {dest64} = bitcast i8* {dest} to i64*"));
-        self.emitln(&format!("  store i64 {val}, i64* {dest64}"));
-        self.emitln(&format!("  br label %{done}"));
-        self.emitln(&format!("\n{done}:"));
-    }
-
-    /// Emit a load of an element from `src` (i8*) using the element width from
-    /// `esz_val`. Returns the register holding the loaded-and-extended i64 value.
-    /// Only called for primitive element types (Int, UInt8, etc.) Ã¢â‚¬â€ struct
-    /// elements use the direct struct load path in the Index handler.
-    fn emit_elem_load(&mut self, src: &str, esz_val: &str) -> String {
-        let result_slot = self.fresh_tmp();
-        self.emitln(&format!("  {result_slot} = alloca i64"));  // in entry block
-        // 5c.29: real 1/2/4/8-byte loads (the old code read EVERY non-8 width
-        // as a single byte, destroying Float32/Int32/Int16 elements).
-        let l1 = self.fresh_block("elem_load1");
-        let l2 = self.fresh_block("elem_load2");
-        let l4 = self.fresh_block("elem_load4");
-        let l8 = self.fresh_block("elem_load8");
-        let done = self.fresh_block("elem_load_done");
-        self.emitln(&format!(
-            "  switch i64 {esz_val}, label %{l8} [ i64 1, label %{l1}\n    i64 2, label %{l2}\n    i64 4, label %{l4} ]"
-        ));
-        // 1-byte path
-        self.emitln(&format!("\n{l1}:"));
-        let v1 = self.fresh_tmp();
-        let e1 = self.fresh_tmp();
-        self.emitln(&format!("  {v1} = load i8, i8* {src}"));
-        self.emitln(&format!("  {e1} = zext i8 {v1} to i64"));
-        self.emitln(&format!("  store i64 {e1}, i64* {result_slot}"));
-        self.emitln(&format!("  br label %{done}"));
-        // 2-byte path
-        self.emitln(&format!("\n{l2}:"));
-        let p2 = self.fresh_tmp();
-        let v2 = self.fresh_tmp();
-        let e2 = self.fresh_tmp();
-        self.emitln(&format!("  {p2} = bitcast i8* {src} to i16*"));
-        self.emitln(&format!("  {v2} = load i16, i16* {p2}"));
-        self.emitln(&format!("  {e2} = zext i16 {v2} to i64"));
-        self.emitln(&format!("  store i64 {e2}, i64* {result_slot}"));
-        self.emitln(&format!("  br label %{done}"));
-        // 4-byte path (Int32/UInt32/Float32 raw bits — zext keeps the bit
-        // pattern intact for the float bitcast done by the caller)
-        self.emitln(&format!("\n{l4}:"));
-        let p4 = self.fresh_tmp();
-        let v4 = self.fresh_tmp();
-        let e4 = self.fresh_tmp();
-        self.emitln(&format!("  {p4} = bitcast i8* {src} to i32*"));
-        self.emitln(&format!("  {v4} = load i32, i32* {p4}"));
-        self.emitln(&format!("  {e4} = zext i32 {v4} to i64"));
-        self.emitln(&format!("  store i64 {e4}, i64* {result_slot}"));
-        self.emitln(&format!("  br label %{done}"));
-        // 8-byte path (default)
-        self.emitln(&format!("\n{l8}:"));
-        let src64 = self.fresh_tmp();
-        let load64 = self.fresh_tmp();
-        self.emitln(&format!("  {src64} = bitcast i8* {src} to i64*"));
-        self.emitln(&format!("  {load64} = load i64, i64* {src64}"));
-        self.emitln(&format!("  store i64 {load64}, i64* {result_slot}"));
-        self.emitln(&format!("  br label %{done}"));
-        // Done
-        self.emitln(&format!("\n{done}:"));
-        let loaded = self.fresh_tmp();
-        self.emitln(&format!("  {loaded} = load i64, i64* {result_slot}"));
-        loaded
-    }
-
-    /// Extract the element type from an LLVM array type like `[64 x i64]` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ `i64`.
+    /// Extract the element type from an LLVM array type like `[64 x i64]` ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ `i64`.
     fn extract_array_elem_ty(array_ty: &str) -> String {
         if let Some(rest) = array_ty.strip_prefix('[') {
             if let Some(x_pos) = rest.find(" x ") {
@@ -9392,7 +8714,7 @@ impl IrEmitter {
                 let fn_name = match func.as_ref() {
                     Expr::Ident(name) => Some(name.name.clone()),
                     Expr::Field(obj, field, _) => {
-                        // Try to resolve method call: obj.method ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ Type.method
+                        // Try to resolve method call: obj.method ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ Type.method
                         let bare = field.name.clone();
                         if let Some(recv_type) = self.infer_struct_type_name(obj) {
                             let qualified = format!("{}.{}", recv_type, field.name);
@@ -9431,7 +8753,7 @@ impl IrEmitter {
                             }
                         }
                     }
-                    // Function pointer call ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â look up tracked return type
+                    // Function pointer call ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â look up tracked return type
                     if self.lookup_local(name).is_some() {
                         if let Some(ret_ty) = self.fn_ptr_return_types.get(name) {
                             if ret_ty == "double" { return "double".to_string(); }
