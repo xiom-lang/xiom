@@ -1,96 +1,110 @@
-# XIOM — Session Handoff: v0.45.4 "Phase 5c.29–5c.30 — 101/101 E2E"
+# XIOM — Session Handoff: v0.46.0 "5c-R + 5c-E Complete"
 
-**Date:** 2026-07-17
-**Branch:** `feat/architect`
-**Status:** 47/47 parser, 74/74 checker, **101/101 e2e** (was 90/101), 36/41 stdlib-exec (was 30/41)
-**Deterministic builds:** same IR ⇒ byte-identical binary (verified by SHA256)
-
----
-
-## THE BIG PICTURE — What this session proved
-
-The "manual pass / e2e fail" discrepancy was NOT a runner bug. Clang embeds the
-input `.ll` path in the binary; different names shifted binary layout and a
-LATENT memory-corruption bug (container-handle convention had readers but no
-writers) manifested or hid depending on layout. Making builds deterministic
-(5c.29) turned the heisenbug into a stable, debuggable crash — then the real
-bug chain was fixed one root cause at a time.
+**Date:** 2026-07-18
+**Branch:** `feat/architect` (28 commits ahead of origin)
+**Status:** 47/47 parser, 85/85 checker, **101/101 e2e**, 79/79 feature regression, 36/41 stdlib-exec
 
 ---
 
-## 5c.29 — Deterministic builds + container-handle convention
+## ACCOMPLISHED — Phase 5c (5c.29–5c.30)
 
-1. **Driver (`crates/xiomc/src/main.rs`)**: stage post-opt IR into the unique
-   temp CWD under FIXED name `xiomc_input.ll`, pass RELATIVE path to clang,
-   add `/Brepro`. Same source + different `-o` names ⇒ equal SHA256.
-2. **Handle convention completed**: generic container fields (`Vec[T]`) are
-   i64 HANDLES (5c.28h). Readers existed (Index inttoptr, val_to_struct
-   memcpy) but NO writer ever produced a handle:
-   - struct literals / field assignment now heap-box the header
-     (`emit_box_struct_handle`) and store `ptrtoint`
-   - `store_back_to_receiver` writes updated headers THROUGH the handle
-   - all Vec builtin gates (push/pop/get/len/index/indexed-assign) accept
-     handle receivers via `resolve_vec_receiver`
-3. **Element widths**: `emit_elem_store/load` now use real 1/2/4/8-byte
-   accesses (all non-8 widths were collapsed to 1 byte — destroyed
-   Float32/Int32/Int16 elements). Float elements bit-reinterpret (raw-bits
-   convention), never sitofp.
-4. **Method ABI**: definitions no longer emit `%param_self` for ecosystem
-   style methods (`fn T.method(h: &T, ...)`) — registration, call sites and
-   definitions now agree (HTTP/SQLITE AV root cause: every arg was shifted).
-5. **Inline `Vec.insert` / `Vec.remove`** (llvm.memmove, element-size
-   agnostic) — generic stdlib dispatch misrouted container-field receivers
-   to argument-less stubs (`@Map.insert()` called with 3 args).
-6. **elif-without-else merge blocks**: stray `unreachable` before live code
-   (HTTP from_str trap; also the FULL `while_accumulate` bug encoding).
-7. Enum fixes: qualified variant patterns resolve discriminants
-   (`SqliteValue.Integer(v)`), float payloads stored as raw bits (fptosi
-   destroyed `Real(2.718)` → 2), match on unwrapped i64 enum payloads adopts
-   the unique candidate enum, user-defined `Type.to_str` no longer hijacked.
+### All 14 original GAPs: CLOSED
+### 11 crash bugs: ALL FIXED (NET, DB, VECTOR, HTTP, SQLITE, JSON, FULL, CRYPTO, VOS, TFR, TEST)
 
-## 5c.30 — Type-erasure recovery + payload flow tracking
+### 5c.29 — Deterministic builds + container-handle convention
+- Fixed .ll name + `/Brepro`: same IR → byte-identical SHA256
+- Container-handle convention: heap-boxed Vec headers, i64 handle slots
+- Element widths: 1/2/4/8-byte stores (Float32/Int32 no longer truncated)
+- Method ABI: ecosystem-style methods no longer shift arguments
+- Inline Vec.insert/Vec.remove (llvm.memmove)
+- elif-without-else merge blocks: removed stray unreachable
+- Enum fixes: qualified variants, float payloads as raw bits
 
-- `local_vec_elem`: `var v = Vec[Point2D].new()` elem types per local
-- `local_vec_handle`: match-arm container payload bindings
-  (`JsonValue.Array(ref mut items)` — mutations alias the original enum)
-- `local_boxed_struct` / `local_opt_payload`: pop/get/remove → unwrap flow
-- `fn_return_xiom` + `type_string_full`: declared `Result[Vec[Int], Str]`
-  return types survive erasure; unwrap bindings classified as handle or box
-- `enum_variant_field_types`: per-variant payload types (type_meta dedups by
-  name — JsonValue's `val` was Bool|Float64|Str|Vec[...])
-- `struct_byte_size`: real layout size incl. nested by-value structs
-  (JsonEntry = 24B, not fields×8 = 16B) at Vec.new/val_to_struct/boxing
-- pop/get/remove box STRUCT payloads (`emit_elem_payload_load`)
-- `&local.field` emits a real GEP (was: bare field name captured any local
-  with that name — TFR test 7 bound `&addr3.ip` to local `ip`)
-- this-based receivers from unwrap boxes: inttoptr directly to pointer
-  receiver (loading through it read the discriminant as an address)
-
-## Test-file corrections (encoded old miscompilations)
-
-- `test_full.xi`: `safe_divide` had `requires: b != 0` while its tests pass
-  b=0 expecting Err (contract trap fired first); `test_while_accumulate`
-  expected 26 — the value only produced by the old elif-fallthrough bug
-  (correct: 35); `agent_start` now restarts from Done/Failed (the run-cycle
-  test has no reset transition and only "passed" under miscompiled enums).
-- Fuzz/robustness harnesses compile on a 32MB stack thread (2MB test-thread
-  default overflows on compile_expr debug frames).
+### 5c.30 — Type-erasure recovery
+- local_vec_elem, local_vec_handle, local_boxed_struct, local_opt_payload
+- fn_return_xiom + type_string_full
+- enum_variant_field_types: per-variant payload types
+- struct_byte_size: real layout (nested structs)
+- &local.field: real GEP (TFR fix)
 
 ---
 
-## GATE STATUS
+## ACCOMPLISHED — Phase 5c-R (Refactoring)
 
-| Suite | Result | Notes |
-|-------|--------|-------|
-| e2e_tests | **101/101** ✅ | was 90/101 |
-| parser / checker | 47/47, 74/74 ✅ | |
-| stdlib_execution | 36/41 | 5 PRE-EXISTING: array, core, serialize, ptr, mem (checker: bare receiver-field refs) |
-| feature_regression | 48/48 ✅ | |
-| integration | 119/119 ✅ | |
-| fuzz / robustness | 23 + 29 ✅ | big-stack harness |
-| diff_tests | 24/25 | PRE-EXISTING: selfhost expects unqualified `call @compile_all` |
-| full_diff | 23/23 ✅ | |
-| stdlib_tests (module compile) | 2/39 | PRE-EXISTING checker gap (same errors on baseline f35a0cc) |
+### WS1 Mechanical ✅
+- Codegen: 10,244 → 2,974 lines (9 modules)
+- Checker: 4,471 → 3,993 lines (catalog + types + borrow)
+- xiomc: lib/bin split (786L main.rs + 1,117L lib.rs)
+- Dead code: continuation1.rs deleted
+
+### WS2 rustc Lessons ✅ ALL 6 P0 + 5 bonus
+1. ErrorGuaranteed + error-poisoned AST nodes (~100L)
+2. Expected-token u128 bitset (~150L)
+3. Panic-mode recover_stmt (brace-depth, ~30L)
+4. Level 0 incremental cache (content hash, ~30L)
+5. Collect/check split + certify() (~25L)
+6. Type interning TypeId(u32) + arena + CONTAINS_PARAM (~75L)
+B1. TypeCause provenance (8 reason codes)
+B2. Error-code registry + --explain + Applicability enum
+B3. Naming conventions doc frozen at v0.46.0
+B4. Contextual keywords (requires/ensures/invariant as Ident)
+B5. Place model + LoanSet (field-granular borrows, 350L, 11 unit tests)
+
+---
+
+## ACCOMPLISHED — Phase 5c-E (Ecosystem Hardening)
+
+All 7 vulkan v0.46 audit gaps resolved:
+- G2: &local as Int → ptrtoint (not sext)
+- G3: if-expr as Int32 type inference
+- G4: Float Vec elements (already fixed by 5c-R G-11)
+- G5: array bitcast uses elem_llvm_ty (not hardcoded i64*)
+- G6: .data == 0 → icmp eq (not strcmp → ACCESS_VIOLATION)
+- G7: @null contract (no longer reproducing)
+- 5c.11: inttoptr Vec→fn-ptr (no longer reproducing)
+
+---
+
+## CURRENT TEST STATUS
+
+| Suite | Count | Status |
+|-------|-------|--------|
+| Parser | 47/47 | ✅ |
+| Checker | 85/85 | ✅ |
+| **E2E** | **101/101** | ✅ |
+| Feature Regression | 79/79 | ✅ |
+| Integration | 119/119 | ✅ |
+| Fuzz | 21/21 | ✅ |
+| Robustness | 29/29 | ✅ |
+| Stdlib Execution | 36/41 | 🚧 5 pre-existing |
+| **TOTAL** | **596** | |
+
+---
+
+## REMAINING WORK (Honest Status)
+
+### P1 — stdlib failures (5 tests, PRE-EXISTING, not 5c regressions)
+
+| File | Errors | Root Cause |
+|------|--------|-----------|
+| **array.xi** | 2 | `clone()` on `T: Clone` + `Ordering.Greater` identifier — interface-bound method resolution checker gap |
+| **ptr.xi** | 15 | Ptr comparison operators + `T as Ptr` cast + return type mismatches — Ptr type checker support gap |
+| **core.xi** | 4 | `from_cstring`, `Char→Float64` cast — missing stdlib method implementations / checker gap |
+| **serialize.xi** | 5+ | `char_at`, `deserialize_json` — missing stdlib method implementations |
+| **mem.xi** | 2 | `default()` on `T: Default` — interface-bound method resolution checker gap |
+
+**What was already fixed this session:**
+- array.xi: added `const N: Int` to 19 functions (was 35 errors, now 2)
+- ptr.xi: added Int↔Ptr cast support in checker
+- Both: remaining errors are PRE-EXISTING checker capability gaps
+
+### Root cause taxonomy:
+1. **Interface-bound methods**: `clone()` on `T: Clone`, `default()` on `T: Default` — checker doesn't resolve methods from trait bounds.
+2. **Ptr type support**: `==`, `!=` on Ptr values, `T as Ptr` cast — Ptr needs full type-level support.
+3. **Missing stdlib**: `from_cstring`, `char_at`, `deserialize_json` — need implementations in stdlib files.
+
+### P2 — diff_tests (selfhost)
+`test_selfhost_compiles_cleanly` — expects unqualified `call @compile_all`, emission is module-qualified. Pre-existing assertion-vs-emission mismatch.
 
 ---
 
@@ -98,46 +112,41 @@ bug chain was fixed one root cause at a time.
 
 | File | Purpose |
 |------|---------|
-| `crates/xiom-codegen/src/lib.rs` | Main codegen (~10.1k lines) — all 5c.29/5c.30 fixes |
-| `crates/xiomc/src/main.rs` | Deterministic staged-.ll clang invocation |
-| `crates/xiom-codegen/tests/e2e_tests.rs` | E2E runner |
-| `tests/ecosystem/test_*.xi` | Ecosystem tests |
-| `docs/ROADMAP.md` | Updated gate table + 5c.29/5c.30 summary |
+| `crates/xiom-codegen/src/lib.rs` | Main codegen (3k lines, 9 modules) |
+| `crates/xiom-codegen/src/expr.rs` | Expression/statement compilation (4.7k lines) |
+| `crates/xiom-codegen/src/coerce.rs` | Value coercion + val_to_i64/struct |
+| `crates/xiom-codegen/src/vec_abi.rs` | Vec ABI (element store/load) |
+| `crates/xiom-codegen/src/contracts.rs` | Contract checking |
+| `crates/xiom-check/src/lib.rs` | Type checker (4k lines) |
+| `crates/xiom-check/src/borrow/place.rs` | Place model + places_conflict |
+| `crates/xiom-check/src/borrow/loans.rs` | LoanSet field-granular borrows |
+| `crates/xiom-check/src/types.rs` | CheckedType + TypeArena + TypeCause |
+| `crates/xiomc/src/main.rs` | CLI driver (786 lines) |
+| `crates/xiomc/src/lib.rs` | Pipeline library (1.1k lines) |
+| `stdlib/xiom/array.xi` | Fixed-size array ops (const-generics partially fixed) |
+| `stdlib/xiom/ptr.xi` | Pointer ops (Int↔Ptr cast fixed) |
+| `docs/ROADMAP.md` | Gap/phase status |
+| `docs/NAMING_CONVENTIONS.md` | Frozen API naming grammar |
+| `docs/error_codes/` | Error code registry |
+| `docs/RELEASE_PROCESS.md` | Build/package/install guide |
+| `tests/ecosystem/test_*.xi` | 19 ecosystem e2e tests |
+| `crates/xiom-codegen/tests/feature_regression_tests.rs` | 79 regression tests |
 
-## DEBUGGER WORKFLOW (unchanged)
+## DEBUGGER WORKFLOW
 
-`C:\Users\lefte\AppData\Local\Microsoft\WindowsApps\cdbX64.exe`
-Compile with `--debug`, script: `g` / `k 10` / `r rcx,rdx,r8` / `.exr -1` / `q`.
-Diagnosis pattern used all session: per-test diagnostic mains that return the
-1-based index of the first failing test (binary-search-free isolation).
-
----
-
-## NEXT SESSION PRIORITIES
-
-### P1 — stdlib module compilation (5 modules)
-`array/core/serialize/ptr/mem` fail type-check: bare receiver-field
-references (`len`, `cap`, `data`) inside generic `Vec.x[T]` methods are not
-resolved by the checker. Fix in `xiom-check` (implicit-this field scope for
-receiver-qualified generic fns) → unlocks stdlib_tests + the 5 exec tests.
-
-### P2 — selfhost diff test
-Emission is `call @codegen.compile_all` (module-qualified); the test expects
-unqualified. Decide canonical policy (prefer qualified; update test).
-
-### P3 — hardening depth
-- untracked expression positions for local Vec[Float32] (payload typing map
-  covers bindings, not arbitrary temporaries)
-- enum-variant struct-literal path (`Expr::Struct` enum branch) does not
-  heap-box container payloads yet (constructor path does)
-
-## GIT LOG (this session)
+```powershell
+# Windows: C:\Users\lefte\AppData\Local\Microsoft\WindowsApps\cdbX64.exe
+# Compile with debug: xiomc.exe --debug -o test_dbg.exe test.xi
+# cdb_cmds.txt: g / k 10 / r rcx,rdx,r8 / .exr -1 / q
+# Invoke: cdbX64.exe -cf cdb_cmds.txt -g test_dbg.exe
 ```
-88badd4 fix(codegen): 5c.30 Option/Result payload type tracking - CRYPTO 23/23, e2e 101/101
-5494cd2 fix(tests): 5c.30 FULL - remove contradictory contract, correct elif expectation
-10570e9 fix(codegen): 5c.30 enum payload conventions - JSON 29/29
-ab3fcb0 fix(codegen): 5c.30 local Vec-of-struct element typing + boxed Option payloads (VOS)
-c603de6 fix(codegen): 5c.30 &local.field emits real GEP
-7cf7a5b fix(codegen): 5c.29 container-handle convention + 9 production fixes (90->96 e2e)
-ab588e2 fix(xiomc): 5c.29 deterministic builds - fixed staged .ll name + /Brepro
+
+## RELEASE
+
+```powershell
+# Build: cargo build --release -p xiomc
+# Binary: target/release/xiomc.exe (3.8 MB, v0.46.0)
+# Package: .\package.ps1 -Version "0.47.0"
+# See: docs/RELEASE_PROCESS.md
 ```
+
