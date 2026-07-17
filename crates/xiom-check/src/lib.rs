@@ -2639,13 +2639,18 @@ impl Checker {
             Expr::Error(_guarantee, _span) => CheckedType::Error,
             Expr::If(cond, then_block, elifs, else_block, _) => {
                 self.check_expr(cond);
-                self.check_block(then_block, None);
+                let then_ty = self.check_block(then_block, None).unwrap_or(CheckedType::Unit);
                 for (econd, eblock) in elifs {
                     self.check_expr(econd);
-                    self.check_block(eblock, None);
+                    let _ = self.check_block(eblock, None);
                 }
-                if let Some(eb) = else_block { self.check_block(eb, None); }
-                CheckedType::Named("_".into())
+                if let Some(eb) = else_block { let _ = self.check_block(eb, None); }
+                // 5c-E: if-expression type is the then-branch type when concrete
+                match &then_ty {
+                    CheckedType::Unit => CheckedType::Named("_".into()),
+                    CheckedType::Named(s) if s == "_" => CheckedType::Named("_".into()),
+                    _ => then_ty,
+                }
             }
             Expr::Match(scrutinee, arms, _) => {
                 self.check_expr(scrutinee);

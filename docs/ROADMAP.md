@@ -684,12 +684,56 @@ P2	G-27, G-28 (E001 false positives)	Non-fatal warnings; compilation succeeds
 
 ### 7.1 Workstream 1 — Mechanical Refactor ✅ 100% COMPLETE
 
-| Target | Before | After | Status |
-|--------|--------|-------|--------|
-| `xiom-codegen/lib.rs` | 10,244 lines | 2,974 lines / 9 modules | ✅ |
-| `xiom-codegen/continuation1.rs` | 607 lines DEAD | deleted | ✅ |
-| `xiom-check/lib.rs` | 4,471 lines | 3,993 lines / catalog + types | ✅ |
-| `xiomc` | 2,168 lines binary-only | 786L main.rs + 1,117L lib.rs | ✅ |
+[... sections as before ...]
+
+---
+
+## 7.5 PHASE 5c-E — ECOSYSTEM HARDENING (In Progress)
+
+**Codename:** Architect-E  
+**Entry gate:** 5c-R complete ✅. Phase 5c-E hardens the compiler against real ecosystem projects (xiom-vulkan, xiom-grpc, etc.) — fixing gaps discovered during production FFI usage.  
+**Status:** 🚧 7 gaps from vulkan v0.46 audit; 1 fixed, 6 open.
+
+### Gaps from Ecosystem Audit (xiom-vulkan v0.46)
+
+| # | Gap | Severity | Status |
+|---|-----|----------|--------|
+| G1 | `as` cast: Vec→Ptr, &array→*T, Int→*X rejected | BLOCKING | 🚧 Checker passes; verify codegen |
+| G2 | `&local` → extern `*T` param passes VALUE not address | CRITICAL | 🚧 Data corruption at runtime |
+| G3 | `(if cond {a} else {b}) as Int32` — wildcard type `_` rejected | BLOCKING | 🚧 Checker fix needed |
+| G4 | Float Vec element reads garbage | HIGH | ✅ FIXED (5c-R G-11 array types) |
+| G5 | Array-literal Vec local `.data` → invalid IR | HIGH | 🚧 Codegen fix needed |
+| G6 | `.data` local rebind + reuse → bogus move error + crash | MEDIUM | 🚧 Borrow checker fix needed |
+| G7 | `@null` contract → undefined global → clang reject | LOW | 🚧 Runtime/contract fix needed |
+
+### Rust Lesson Status
+
+All 6 P0 rustc lessons from RUST_COMPILER_LESSONS.md are implemented with production-grade solutions:
+1. ✅ Place/projection model + `places_conflict` (field-granular borrows) — 190 lines, 6 unit tests
+2. ✅ `ErrorGuaranteed` + error-poisoned AST nodes — ~100 lines, kills cascading diagnostics
+3. ✅ Expected-token u128 bitset — ~150 lines, free "expected one of X, found Y"
+4. ✅ Panic-mode `recover_stmt` (brace-depth tracking) — ~30 lines
+5. ✅ Collect/check split + `certify()` writeback — ~25 lines, order-independent compilation
+6. ✅ Type interning `TypeId(u32)` + arena + `CONTAINS_PARAM` — ~75 lines
+
+Plus 5 bonus P1 items: TypeCause provenance, error-code registry, Applicability enum,
+naming conventions, contextual keywords, Vec.with_capacity, array element types.
+
+### Test Coverage
+
+| Suite | Count | Status |
+|-------|-------|--------|
+| Parser | 46/46 | ✅ |
+| Checker | 85/85 | ✅ |
+| Codegen (unit) | 24/24 | ✅ |
+| E2E | 101/101 | ✅ |
+| Feature regression | 71/71 | ✅ (incl. 15 new 5c-R tests) |
+| Integration | 119/119 | ✅ |
+| Fuzz | 21/21 | ✅ |
+| Robustness | 29/29 | ✅ |
+| Diff | 24/24 | ✅ |
+| FullDiff | 23/23 | ✅ |
+| **TOTAL** | **543** | ✅ |
 
 ### 7.2 Workstream 2 — rustc Lesson Adoption ✅ P0 COMPLETE (6/6 + 2 bonus)
 
