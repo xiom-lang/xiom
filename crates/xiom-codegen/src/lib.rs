@@ -164,6 +164,9 @@ pub struct IrEmitter {
     /// Temporary register values that originated from Expr::Array literals.
     /// Used by val_to_struct to distinguish array-buffer i8* from generic i8*.
     array_value_regs: HashSet<String>,
+    /// 5c-R: LLVM element type for local array bindings (`let arr = [1.0, 2.0]`
+    /// → "arr" → "double") so array indexing uses the correct load type (G-11).
+    local_array_elem: HashMap<String, String>,
     /// Set of function names already declared via `declare` (to avoid duplicates)
     already_declared: HashSet<String>,
     /// Module/global `const` values, keyed by bare name (last definition wins),
@@ -238,6 +241,7 @@ impl IrEmitter {
             fn_return_xiom: HashMap::new(),
             current_receiver: None,
             array_value_regs: HashSet::new(),
+            local_array_elem: HashMap::new(),
             already_declared: HashSet::new(),
             constants: HashMap::new(),
             module_globals: HashMap::new(),
