@@ -191,6 +191,13 @@ impl Checker {
             generics: vec![],
             uses_implicit_this: false,
         });
+        // 5c-R: Vec.with_capacity(n) — pre-allocate internal buffer
+        self.functions.insert("Vec.with_capacity".to_string(), FnSig {
+            params: vec![("capacity".to_string(), CheckedType::Int)],
+            return_type: Some(CheckedType::Named("Vec".into())),
+            generics: vec![],
+            uses_implicit_this: false,
+        });
         self.functions.insert("Vec.push".to_string(), FnSig {
             params: vec![
                 ("self".to_string(), CheckedType::Named("Vec".into())),

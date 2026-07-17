@@ -2387,6 +2387,54 @@ impl IrEmitter {
                             let loaded = self.emit_vec_load_fields(&struct_alloca);
                             return Ok((loaded, "%struct.Vec".to_string()));
                     }
+                    // 5c-R: Vec.with_capacity(n) — same as Vec.new but with
+                    // user-specified initial capacity (G-06).
+                    if recv_ident == Some("Vec") && fn_name == "with_capacity" && args.len() == 1 {
+                            let (cap_val, cap_ty) = self.compile_expr(&args[0])?;
+                            let cap_i64 = self.val_to_i64(&cap_val, &cap_ty);
+                            let elem_size: i64 = if let Some(type_arg) = type_arg {
+                                let type_name = match type_arg {
+                                    Expr::Ident(id) => id.name.clone(),
+                                    Expr::Tuple(elems, _) => elems.first()
+                                        .map(|e| match e { Expr::Ident(id) => id.name.clone(), _ => "Int".to_string() })
+                                        .unwrap_or_else(|| "Int".to_string()),
+                                    _ => "Int".to_string(),
+                                };
+                                match type_name.as_str() {
+                                    "UInt8" | "Int8" | "Char" | "Bool" => 1,
+                                    "Int16" | "UInt16" => 2,
+                                    "Int32" | "UInt32" | "Float32" => 4,
+                                    _ => self.struct_byte_size(&type_name),
+                                }
+                            } else { 8 };
+                            let struct_alloca = self.fresh_tmp();
+                            self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
+                            let data_ptr = self.fresh_tmp();
+                            self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 {elem_size} * {cap_i64})"));
+                            let null_check = self.fresh_tmp();
+                            let ok_block = self.fresh_block("vec_wc_ok");
+                            let trap_block = self.fresh_block("vec_wc_trap");
+                            self.emitln(&format!("  {null_check} = icmp eq i8* {data_ptr}, null"));
+                            self.emitln(&format!("  br i1 {null_check}, label %{trap_block}, label %{ok_block}"));
+                            self.emitln(&format!("\n{trap_block}:"));
+                            self.emitln("  call void @llvm.trap()");
+                            self.emitln("  unreachable");
+                            self.emitln(&format!("\n{ok_block}:"));
+                            let dg = self.fresh_tmp();
+                            self.emitln(&format!("  {dg} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 0"));
+                            self.emitln(&format!("  store i8* {data_ptr}, i8** {dg}"));
+                            let lg = self.fresh_tmp();
+                            self.emitln(&format!("  {lg} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 1"));
+                            self.emitln(&format!("  store i64 0, i64* {lg}"));
+                            let cg = self.fresh_tmp();
+                            self.emitln(&format!("  {cg} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 2"));
+                            self.emitln(&format!("  store i64 {cap_i64}, i64* {cg}"));
+                            let eg = self.fresh_tmp();
+                            self.emitln(&format!("  {eg} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 3"));
+                            self.emitln(&format!("  store i64 {elem_size}, i64* {eg}"));
+                            let loaded = self.emit_vec_load_fields(&struct_alloca);
+                            return Ok((loaded, "%struct.Vec".to_string()));
+                    }
                 }
                 // Vec.push(vec, val) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â method call on Vec
                 if fn_name == "push" && args.len() >= 1 {
