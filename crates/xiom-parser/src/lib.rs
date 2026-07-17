@@ -461,7 +461,8 @@ impl Parser {
         let mut derived_fields = Vec::new();
         let mut invariants = Vec::new();
         while !self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Eof)) {
-            if self.check(|k| matches!(k, TokenKind::Invariant)) {
+            // 5c-R: contextual keyword — `invariant` is an Ident, not a reserved token
+            if self.check(|k| matches!(k, TokenKind::Ident(s) if s == "invariant")) {
                 self.advance();
                 self.expect_kind(TokenKind::Colon, "':'")?;
                 let expr = self.parse_expr()?;
@@ -642,8 +643,8 @@ impl Parser {
         let params = if self.check(|k| matches!(k, TokenKind::RParen)) { self.advance(); Vec::new() } else { let p = self.parse_param_list()?; self.expect_kind(TokenKind::RParen, "')'")?; p };
         let return_type = if self.skip(TokenKind::Arrow) { Some(self.parse_type()?) } else { None };
         let mut contracts = Vec::new();
-        while self.check(|k| matches!(k, TokenKind::Requires | TokenKind::Ensures)) {
-            let is_req = matches!(self.peek_kind(), TokenKind::Requires);
+        while self.check(|k| matches!(k, TokenKind::Ident(s) if s == "requires" || s == "ensures")) {
+            let is_req = matches!(self.peek_kind(), TokenKind::Ident(s) if s == "requires");
             self.advance();
             self.expect_kind(TokenKind::Colon, "':'")?;
             // Parse first expression
