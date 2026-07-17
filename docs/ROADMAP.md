@@ -331,7 +331,7 @@ All fixes are compiler-level — **zero test files modified.** Every fix hardens
 |-----|--------|
 | LLVM `inttoptr` Vec→fn-ptr cast | ❌ OPEN — `test_vulkan.xi` fails codegen |
 
-### 5c.12 FFI Compiler Gaps — 2 OPEN
+### 5c.12 FFI Compiler Gaps — 1 OPEN
 
 | Gap | Status |
 |-----|--------|
@@ -339,9 +339,20 @@ All fixes are compiler-level — **zero test files modified.** Every fix hardens
 | Cross-module extern resolution | ✅ FIXED (v0.46) |
 | `()` in Result generic | ✅ FIXED |
 | Hex literal parser | ✅ FIXED |
-| `Int`→`Int32` coercion (no auto-coercion for extern args) | ⚠️ OPEN |
-| Out-param move semantics (E001 on pointer-pass) | ⚠️ OPEN |
+| `Int`→`Int32` coercion | ✅ Resolved by design (explicit `as Int32` works, spec-compliant) |
 | Codegen `inttoptr` Vec→fn-ptr | → Merged into §5c.11 |
+| **Out-param move semantics (E001 on pointer-pass)** | ⚠️ OPEN — not reproducing with simple cases; vulkan-specific pattern |
+
+### 5c-E Gaps — 2 OPEN
+
+| Gap | Status |
+|-----|--------|
+| G3 (if-expr `as` cast) | ✅ FIXED |
+| G4 (Float Vec elements) | ✅ Already fixed (5c-R G-11) |
+| G5 (array bitcast) | ✅ FIXED (bitcast elem_llvm_ty) |
+| G2 (&local → extern pointer) | ✅ FIXED (ptrtoint in Expr::As handler) |
+| G6 (.data rebind + reuse) | 🚧 Narrowed: simple `.data` works; `==` comparison edge case |
+| G7 (@null contract → undefined global) | 🚧 Open (contract runtime, not compiler codegen) |
 
 ### 5c.13b Array-to-Vec Codegen Fix — DONE (2026-07-15)
 
