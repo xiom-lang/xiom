@@ -11,6 +11,15 @@ impl IrEmitter {
                 // Track array-literal bindings for Expr::Index dispatch
                 if matches!(value, Expr::Array(..)) {
                     self.array_locals.insert(name.name.clone());
+                    // 5c-R: record the element LLVM type for typed array indexing (G-11)
+                    if let Expr::Array(elems, _) = value {
+                        if let Some(first) = elems.first() {
+                            let elem_ty = self.infer_llvm_type(first);
+                            if elem_ty != "i64" {
+                                self.local_array_elem.insert(name.name.clone(), elem_ty);
+                            }
+                        }
+                    }
                 }
                 // 5c.30: record Vec element type for local Vec bindings.
                 if let Some(elem) = Self::vec_ctor_elem_type(value) {
@@ -61,6 +70,15 @@ impl IrEmitter {
                 // Track array-literal bindings for Expr::Index dispatch
                 if matches!(value, Expr::Array(..)) {
                     self.array_locals.insert(name.name.clone());
+                    // 5c-R: record the element LLVM type for typed array indexing (G-11)
+                    if let Expr::Array(elems, _) = value {
+                        if let Some(first) = elems.first() {
+                            let elem_ty = self.infer_llvm_type(first);
+                            if elem_ty != "i64" {
+                                self.local_array_elem.insert(name.name.clone(), elem_ty);
+                            }
+                        }
+                    }
                 }
                 // 5c.30: record Vec element type for local Vec bindings.
                 if let Some(elem) = Self::vec_ctor_elem_type(value) {
@@ -3944,15 +3962,20 @@ impl IrEmitter {
                 );
                 if is_array_buf {
                     let base_ptr = self.fresh_tmp();
-                    self.emitln(&format!("  {base_ptr} = bitcast i8* {cont_val} to i64*"));
+                    // 5c-R: use the declared element type for arrays (G-11).
+                    // Default to i64 for backward-compat. Tracked via local_array_elem.
+                    let arr_elem_ty = if let Expr::Ident(ident) = container.as_ref() {
+                        self.local_array_elem.get(&ident.name).cloned().unwrap_or_else(|| "i64".to_string())
+                    } else { "i64".to_string() };
+                    self.emitln(&format!("  {base_ptr} = bitcast i8* {cont_val} to {arr_elem_ty}*"));
                     // Element is at position index+1 (slot 0 is the length).
                     let offset = self.fresh_tmp();
                     self.emitln(&format!("  {offset} = add i64 {idx}, 1"));
                     let elem_ptr = self.fresh_tmp();
-                    self.emitln(&format!("  {elem_ptr} = getelementptr i64, i64* {base_ptr}, i64 {offset}"));
+                    self.emitln(&format!("  {elem_ptr} = getelementptr {arr_elem_ty}, {arr_elem_ty}* {base_ptr}, i64 {offset}"));
                     let elem = self.fresh_tmp();
-                    self.emitln(&format!("  {elem} = load i64, i64* {elem_ptr}"));
-                    return Ok((elem, "i64".to_string()));
+                    self.emitln(&format!("  {elem} = load {arr_elem_ty}, {arr_elem_ty}* {elem_ptr}"));
+                    return Ok((elem, arr_elem_ty));
                 }
                 // Raw `*T` pointer held in an i64 (a pointer param): inttoptr and read
                 // one byte. Checked before the Str path since these lower to i64.
@@ -4418,25 +4441,31 @@ impl IrEmitter {
                 Ok((loaded, struct_ty))
             }
             Expr::Array(elems, _) => {
-                // Materialize a fixed-size `[N]T` array literal into an i8* buffer
-                // with the length stored at position [0] (for runtime intrinsics like
-                // `is_sorted`/`contains`) and elements at [1..N].  Array-indexing
-                // (`arr[i]`) on literal arrays is handled in the Expr::Index path,
-                // which recognises this layout and skips the leading length slot.
+                // Materialize a fixed-size `[N]T` array literal. 5c-R: use the
+                // ACTUAL element LLVM type (Float64 → double, Int → i64, struct →
+                // %struct.Name) instead of always coercing to i64. The element
+                // type is determined from the first element's compiled type.
                 let n = elems.len() as i64;
+                let elem_llvm_ty = if let Some(first) = elems.first() {
+                    let t = self.infer_llvm_type(first);
+                    if t == "double" || t == "float" || t.starts_with("%struct.") { t } else { "i64".to_string() }
+                } else { "i64".to_string() };
                 let buf = self.fresh_tmp();
                 let alloc_count = n + 1;
-                self.emitln(&format!("  {buf} = alloca i64, i64 {alloc_count}"));
+                self.emitln(&format!("  {buf} = alloca {elem_llvm_ty}, i64 {alloc_count}"));
                 let gep0 = self.fresh_tmp();
-                self.emitln(&format!("  {gep0} = getelementptr i64, i64* {buf}, i64 0"));
-                self.emitln(&format!("  store i64 {n}, i64* {gep0}"));
+                self.emitln(&format!("  {gep0} = getelementptr {elem_llvm_ty}, {elem_llvm_ty}* {buf}, i64 0"));
+                // Store length as i64 for all types (the length is always an integer)
+                let gep0_i64 = self.fresh_tmp();
+                self.emitln(&format!("  {gep0_i64} = bitcast {elem_llvm_ty}* {gep0} to i64*"));
+                self.emitln(&format!("  store i64 {n}, i64* {gep0_i64}"));
                 for (i, e) in elems.iter().enumerate() {
-                    let (v, _) = self.compile_expr(e)?;
+                    let (v, val_ty) = self.compile_expr(e)?;
                     let gep = self.fresh_tmp();
                     let idx = (i + 1) as i64;
-                    self.emitln(&format!("  {gep} = getelementptr i64, i64* {buf}, i64 {idx}"));
-                    let store_val = self.val_to_i64(&v, &self.infer_llvm_type(e));
-                    self.emitln(&format!("  store i64 {store_val}, i64* {gep}"));
+                    self.emitln(&format!("  {gep} = getelementptr {elem_llvm_ty}, {elem_llvm_ty}* {buf}, i64 {idx}"));
+                    let store_val = self.coerce_value(&v, &val_ty, &elem_llvm_ty);
+                    self.emitln(&format!("  store {elem_llvm_ty} {store_val}, {elem_llvm_ty}* {gep}"));
                 }
                 let ptr = self.fresh_tmp();
                 self.emitln(&format!("  {ptr} = bitcast i64* {buf} to i8*"));
