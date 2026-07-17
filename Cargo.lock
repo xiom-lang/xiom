@@ -269,6 +269,7 @@ name = "xiom-codegen"
 version = "0.1.0"
 dependencies = [
  "xiom-ast",
+ "xiom-check",
  "xiom-lexer",
  "xiom-parser",
 ]
