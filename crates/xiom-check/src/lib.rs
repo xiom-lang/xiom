@@ -444,39 +444,44 @@ impl Checker {
     // Program-level checking
     // ========================================================================
 
-    pub fn check_program(&mut self, program: &Program) -> Result<(), Vec<CheckError>> {
-        // Register all type declarations first
+    /// 5c-R: Phase 1 — Collect ALL signatures without visiting bodies.
+    /// After this pass, every type, function signature, interface, and global
+    /// const is registered. Callers can check individual bodies or run the full
+    /// body-check pass (`check_all_bodies`).
+    /// (rustc lesson: collect/check split — `compiler/rustc_hir_analysis/src/collect.rs`)
+    pub fn collect_signatures(&mut self, program: &Program) {
+        // Single pass over items: register types, functions, interfaces, consts
         for item in &program.items {
             self.register_type_decl(item);
-        }
-
-        // Build variant field maps from all enum declarations
-        self.register_all_variant_fields(program);
-
-        // Register all function signatures
-        for item in &program.items {
             self.register_fn_signature(item);
-        }
-
-        // Register interface declarations so method calls on interface-typed
-        // receivers can be resolved.
-        for item in &program.items {
             self.register_interface_decl(item);
-        }
-
-        // Pre-register module-level const/var globals so references resolve
-        // regardless of source order (a fn may use a const declared later).
-        for item in &program.items {
             self.register_global_const(item);
         }
-
+        // Build variant field maps from all enum declarations
+        self.register_all_variant_fields(program);
         // Resolve module system (imports and module hierarchy)
         self.resolve_imports(program);
+    }
 
-        // Check all function bodies
+    /// 5c-R: Phase 2 — Check all function bodies (collect must run first).
+    pub fn check_all_bodies(&mut self, program: &Program) {
         for item in &program.items {
             self.check_top_decl(item);
         }
+    }
+
+    /// 5c-R: Choke point — after checking, certify that every body was processed
+    /// and the checker state is clean. (rustc lesson: writeback certification —
+    /// "every node concretely typed" before borrow check.)
+    pub fn certify(&self) -> bool {
+        // ErrorGuaranteed already ensures error-poisoned nodes are skipped.
+        // If any errors were emitted, certification fails.
+        !self.has_errors()
+    }
+
+    pub fn check_program(&mut self, program: &Program) -> Result<(), Vec<CheckError>> {
+        self.collect_signatures(program);
+        self.check_all_bodies(program);
 
         if self.errors.is_empty() {
             Ok(())
