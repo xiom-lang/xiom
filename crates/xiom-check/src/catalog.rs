@@ -7,7 +7,18 @@ use xiom_ast::*;
 use xiom_lexer::Lexer;
 use xiom_parser::Parser;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
+
+/// Fast 64-bit content hash (FNV-1a) for Level 0 incremental caching.
+/// Not cryptographic — collision resistance is unnecessary for build caches.
+fn hash_bytes(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for &b in bytes {
+        h = h.wrapping_mul(0x100000001b3).wrapping_add(b as u64);
+    }
+    h
+}
 
 // ============================================================================
 // Module export representation
@@ -38,6 +49,10 @@ pub struct CachedModule {
     pub functions: HashMap<String, FnSig>,
     /// Type-name → field-name → CheckedType for structs declared in this file.
     pub type_fields: HashMap<String, HashMap<String, CheckedType>>,
+    /// 5c-R: Content hash of the source file (Level 0 incremental cache).
+    /// Computed from the raw file bytes. If the hash matches the previous
+    /// session, the entire checker/codegen/clang pipeline can be skipped.
+    pub source_hash: u64,
 }
 
 /// Lazy-loading cache of external `.xi` files keyed by dotted module path.
@@ -306,6 +321,7 @@ impl ModuleCatalog {
     /// Full parse of a .xi file into a CachedModule.
     fn parse_file(&self, file_path: &str, path_segments: &[String]) -> Option<CachedModule> {
         let source = std::fs::read_to_string(file_path).ok()?;
+        let source_hash = hash_bytes(source.as_bytes());
         let tokens = Lexer::new(&source).tokenize();
         let program = Parser::new(tokens).parse_program().ok()?;
 
@@ -322,6 +338,7 @@ impl ModuleCatalog {
             types,
             functions,
             type_fields,
+            source_hash,
         })
     }
 
