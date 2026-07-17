@@ -1321,6 +1321,25 @@ impl IrEmitter {
                     // where unwrap's ABI return is i64 but holds an i8*): coerce the
                     // i64 side to i8* so the content compare is well-typed.
                     if (lt == "i8*" || rt == "i8*") && (lt == "i8*" || lt == "i64") && (rt == "i8*" || rt == "i64") {
+                        // 5c-E G6: pointer-to-null comparison. When comparing an i8*
+                        // data pointer to literal 0, use icmp eq i8* NULL, not strcmp.
+                        // strcmp(NULL, ...) crashes with ACCESS_VIOLATION.
+                        if (lt == "i8*" && r == "0") || (rt == "i8*" && l == "0") {
+                            let lp = self.val_to_i8ptr(&l, &lt);
+                            let rp = self.val_to_i8ptr(&r, &rt);
+                            let nullp = if l == "0" { "null".to_string() } else { "null".to_string() };
+                            let cmp = self.fresh_tmp();
+                            let icmp_val = if l == "0" { &rp } else { &lp };
+                            self.emitln(&format!("  {cmp} = icmp eq i8* {icmp_val}, null"));
+                            let zext = self.fresh_tmp();
+                            self.emitln(&format!("  {zext} = zext i1 {cmp} to i64"));
+                            if matches!(op, BinOp::Neq) {
+                                let neg = self.fresh_tmp();
+                                self.emitln(&format!("  {neg} = xor i64 {zext}, 1"));
+                                return Ok((neg, "i64".to_string()));
+                            }
+                            return Ok((zext, "i64".to_string()));
+                        }
                         let lp = self.val_to_i8ptr(&l, &lt);
                         let rp = self.val_to_i8ptr(&r, &rt);
                         let cmp = self.fresh_tmp();
