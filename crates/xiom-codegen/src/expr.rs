@@ -4598,6 +4598,12 @@ impl IrEmitter {
                 self.emitln(&format!("  {loaded} = load {result_ty}, {result_ty}* {result_alloca}"));
                 Ok((loaded, result_ty))
             }
+            Expr::Error(_guarantee, _span) => {
+                // Error-poisoned node: the checker already emitted a diagnostic.
+                // Return a dummy i64 value so compilation continues without
+                // cascading errors (rustc lesson: ErrorGuaranteed).
+                Ok(("0".to_string(), "i64".to_string()))
+            }
             Expr::Match(scrutinee, arms, span) => {
                 // Compile a match-expression by allocating a result slot, running the
                 // statement-form match (whose arm bodies store their value into
