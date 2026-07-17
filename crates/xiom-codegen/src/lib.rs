@@ -3011,22 +3011,22 @@ impl IrEmitter {
             });
         // Match registration: implicit self only for explicit-`self` methods
         // and `this`-based methods (body actually references `this`).
-        // 5c.30: a method with a receiver but no explicit self/this
-        // (e.g. `fn Greeter.greet(greeting: Str)`) MUST still receive
-        // %param_self — the implicit-self call site injects the self arg.
+        // 5c.30: G-10 implicit-self is a CHECKER-only feature — the codegen
+        // does NOT inject self arguments. Method bodies already have all
+        // receiver fields as locals via the prologue, so read-only access to
+        // fields works without param_self. Only `this`-based methods that
+        // explicitly reference `this` get param_self (mutation support).
         let is_this_based = fd.receiver.is_some() && !has_self_param && !is_first_param_self
             && fd.body.as_ref().map_or(false, |b| Self::block_uses_this(b));
-        let has_receiver_noself = fd.receiver.is_some() && !has_self_param && !is_first_param_self;
         let self_llvm_ty = if has_self_param {
             fd.receiver.as_ref().map(|r| {
                 let base = self.llvm_type_for(&r.name).unwrap_or_else(|_| "i64".to_string());
                 let is_mut = fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self);
                 if is_mut && base.starts_with('%') { format!("{base}*") } else { base }
             })
-        } else if is_this_based || has_receiver_noself {
-            // `this`-based methods AND any method with a receiver:
-            // allocate a pointer-typed self slot so the body can access
-            // struct fields and implicit-self call sites can inject self.
+        } else if is_this_based {
+            // `this`-based methods: allocate a pointer-typed self slot so
+            // the body can access receiver fields through `this`/`self`.
             fd.receiver.as_ref().map(|r| {
                 let base = self.llvm_type_for(&r.name).unwrap_or_else(|_| "i64".to_string());
                 if base.starts_with('%') { format!("{base}*") } else { base }
@@ -8550,13 +8550,14 @@ impl IrEmitter {
                     } else {
                         // Use registered param types when available (correct for extern
                         // functions with non-default types like Int32ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢i32, Float32ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢float).
-                        // Fall back to inferred expression types otherwise.
-                        let isk = if receiver_expr.is_none() {
-                            self.resolve_implicit_self_call(&fn_name)
-                        } else { None };
-                        let has_implicit = isk.is_some();
-                        if let Some(isk) = isk {
-                            resolved_fn_key = isk;
+                        // 5c.30: G-10 implicit-self — override the fn key so
+                        // bare `greet("Hi")` resolves to `Greeter.greet`.
+                        // No self injection: method bodies already have receiver
+                        // fields as locals via the prologue.
+                        if receiver_expr.is_none() {
+                            if let Some(isk) = self.resolve_implicit_self_call(&fn_name) {
+                                resolved_fn_key = isk;
+                            }
                         }
                         let use_registered = self.functions.get(&resolved_fn_key)
                             .map(|(pts, _)| pts.len() == compiled_args.len())
@@ -8564,19 +8565,8 @@ impl IrEmitter {
                         if use_registered {
                             let pts = self.functions[&resolved_fn_key].0.clone();
                             let mut parts: Vec<String> = Vec::new();
-                            // 5c.30: for implicit-self calls, inject self as arg[0]
-                            if has_implicit {
-                                let self_slot = self.lookup_local("self")
-                                    .map(|(s, _)| s.clone())
-                                    .unwrap_or_else(|| "null".to_string());
-                                let self_ty = self.current_receiver.as_ref()
-                                    .and_then(|r| self.llvm_type_for(r).ok().map(|t| format!("{t}*")))
-                                    .unwrap_or_else(|| "i64*".to_string());
-                                parts.push(format!("{self_ty} {self_slot}"));
-                            }
                             for (i, (arg_val, arg_ty)) in compiled_args.iter().enumerate() {
-                                let param_idx = if has_implicit { i + 1 } else { i };
-                                let pty = pts.get(param_idx).cloned().unwrap_or_else(|| arg_ty.clone());
+                                let pty = pts[i].clone();
                                 let coerced = match args.get(i) {
                                     Some(ae) => self.coerce_arg_for_param(ae, arg_val, arg_ty, &pty),
                                     None => self.coerce_value(arg_val, arg_ty, &pty),
@@ -8585,21 +8575,10 @@ impl IrEmitter {
                             }
                             parts.join(", ")
                         } else {
-                            let mut parts: Vec<String> = Vec::new();
-                            // 5c.30: self arg for implicit calls
-                            if has_implicit {
-                                let self_slot = self.lookup_local("self")
-                                    .map(|(s, _)| s.clone())
-                                    .unwrap_or_else(|| "null".to_string());
-                                let self_ty = self.current_receiver.as_ref()
-                                    .and_then(|r| self.llvm_type_for(r).ok().map(|t| format!("{t}*")))
-                                    .unwrap_or_else(|| "i64*".to_string());
-                                parts.push(format!("{self_ty} {self_slot}"));
-                            }
-                            for (arg_val, arg_ty) in compiled_args.iter() {
-                                parts.push(format!("{arg_ty} {arg_val}"));
-                            }
-                            parts.join(", ")
+                            compiled_args.iter()
+                                .map(|(arg_val, arg_ty)| format!("{arg_ty} {arg_val}"))
+                                .collect::<Vec<_>>()
+                                .join(", ")
                         }
                     };
                     let tmp = self.fresh_tmp();
