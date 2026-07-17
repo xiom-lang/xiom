@@ -1,8 +1,8 @@
 # XIOM — Session Handoff: v0.46.0 "5c-R + 5c-E Complete"
 
 **Date:** 2026-07-18
-**Branch:** `feat/architect` (28 commits ahead of origin)
-**Status:** 47/47 parser, 85/85 checker, **101/101 e2e**, 79/79 feature regression, 36/41 stdlib-exec
+**Branch:** `feat/architect` (31 commits ahead of origin)
+**Status:** 47/47 parser, 85/85 checker, **101/101 e2e**, 79/79 feature regression, **39/41 stdlib-exec** (release)
 
 ---
 
@@ -83,20 +83,27 @@ All 7 vulkan v0.46 audit gaps resolved:
 
 ## REMAINING WORK (Honest Status)
 
-### P1 — stdlib failures (5 tests, PRE-EXISTING, not 5c regressions)
+### P1 — stdlib failures (2 tests, PRE-EXISTING, not 5c regressions)
 
 | File | Errors | Root Cause |
 |------|--------|-----------|
-| **array.xi** | 2 | `clone()` on `T: Clone` + `Ordering.Greater` identifier — interface-bound method resolution checker gap |
-| **ptr.xi** | 15 | Ptr comparison operators + `T as Ptr` cast + return type mismatches — Ptr type checker support gap |
-| **core.xi** | 4 | `from_cstring`, `Char→Float64` cast — missing stdlib method implementations / checker gap |
-| **serialize.xi** | 5+ | `char_at`, `deserialize_json` — missing stdlib method implementations |
-| **mem.xi** | 2 | `default()` on `T: Default` — interface-bound method resolution checker gap |
+| **array.xi** | ✅ **FIXED** | const-generic N inference + subst_type for Ref/Slice/Array + pointer-typed Index handler |
+| **ptr.xi** | ✅ **FIXED** | idx_is_type now recognizes primitive types |
+| **mem.xi** | ✅ **FIXED** | Same idx_is_type + resolve_module_call fix |
+| **core.xi** | 1 | T inferred as Str (i8* buffer) instead of Int from array element; `&Slice[T]` abi mismatch |
+| **serialize.xi** | 5+ | Map.keys undefined — codegen gap for Map type methods |
 
-**What was already fixed this session:**
-- array.xi: added `const N: Int` to 19 functions (was 35 errors, now 2)
-- ptr.xi: added Int↔Ptr cast support in checker
-- Both: remaining errors are PRE-EXISTING checker capability gaps
+### What was fixed this session:
+- **idx_is_type** now checks `is_primitive_type_name` → ptr.null[Int]() + mem.swap[Int]() resolved correctly
+- **resolve_module_call** now searches generic_fn_decls → module-qualified generic calls resolved
+- **extract_type_arg_names** handles Ref/MutRef/Ptr/Array/Slice (both lib.rs and types.rs versions)
+- **subst_type** for Ref now separately handles Array/Slice inner types with const_map size resolution
+- **substitute_type** recurses into Array/Option/Result/Vec/Map/Set for type param substitution
+- **xiom_type_name_from_llvm** fixed i8*→Str mapping (was incorrectly mapping to Int8)
+- **const-generic inference** simplified: searches ALL params for array-local refs instead of name-matching
+- **Expr::Index handler** added pointer-typed (i64*) array access for monomorphised generic params
+- **local_array_sizes** map tracks array-literal sizes for const-generic inference
+- **current_const_map** field enables const-value substitution in monomorphised body compilation
 
 ### Root cause taxonomy:
 1. **Interface-bound methods**: `clone()` on `T: Clone`, `default()` on `T: Default` — checker doesn't resolve methods from trait bounds.
