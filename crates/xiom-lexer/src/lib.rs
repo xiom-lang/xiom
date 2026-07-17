@@ -20,7 +20,9 @@ pub enum TokenKind {
     Spawn, Await, Comptime,
     Module, Use, Pub, As,
     Type, Enum, Interface, Derive,
-    Requires, Ensures, Invariant,
+    // requires/ensures/invariant are CONTEXTUAL keywords (5c-R: interned symbols,
+    // rustc lesson). They are tokenized as regular Ident and only recognized
+    // as keywords at specific parser positions — so `var requires = 5;` works.
     True, False, Self_,
     Some, None, Ok_, Err_,
     Unsafe, Extern, Is,
@@ -418,9 +420,8 @@ impl Lexer {
             "enum"      => TokenKind::Enum,
             "interface" => TokenKind::Interface,
             "derive"    => TokenKind::Derive,
-            "requires"  => TokenKind::Requires,
-            "ensures"   => TokenKind::Ensures,
-            "invariant" => TokenKind::Invariant,
+            // requires/ensures/invariant — contextuel keywords (5c-R).
+            // Removed from reserved set; tokenized as regular Ident.
             "true"      => TokenKind::True,
             "false"     => TokenKind::False,
             "self"      => TokenKind::Self_,
