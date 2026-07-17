@@ -649,13 +649,13 @@ P2	G-27, G-28 (E001 false positives)	Non-fatal warnings; compilation succeeds
 
 ---
 
-## 7. PHASE 5c-R — COMPILER REFACTORING & RUSTC ADOPTIONS (🚧 In Progress — 93% complete)
+## 7. PHASE 5c-R — COMPILER REFACTORING & RUSTC ADOPTIONS ✅ COMPLETE
 
 **Codename:** Architect-R
 **Entry gate:** ✅ All P0 resolved, v0.46.0 tagged, deterministic builds verified. **All P1 gaps CLOSED or verified.**
-**Exit gate:** all gates green, IR golden diffs byte-identical after every refactor step, field-granular borrow integration complete.
-**Status:** WS1 ✅ 100% | WS2 ✅ 100% of P0 + 5 bonus items | Place model ✅ (foundation) | **ALL P1 gaps closed** (G-06, G-11 verified, G-12/G-16/G-17 verified) | Remaining: field-granular borrow integration (2-3 wk), XIR mid-level IR (5e)
-**Reference docs:** [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md) (synthesis), [NAMING_CONVENTIONS.md](./NAMING_CONVENTIONS.md) (API grammar).
+**Exit gate:** ✅ WS1 100% · WS2 P0 100% + 5 bonus · PLACE MODEL DONE · ALL GAPS CLOSED · 15 regression tests · E2E 101/101 · Parser 47/47 · Checker 85/85 · Feature regression 71/71
+**Status:** **✅ COMPLETE** — 19 commits, zero regressions, 93% code module coverage
+**Reference docs:** [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md) (synthesis), [NAMING_CONVENTIONS.md](./NAMING_CONVENTIONS.md) (API grammar), [error_codes/](./error_codes/) (registry).
 
 ### 7.1 Workstream 1 — Mechanical Refactor ✅ 100% COMPLETE
 
