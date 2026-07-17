@@ -3,6 +3,10 @@ name = "xiomc"
 version = "0.46.0"
 edition = "2024"
 
+[lib]
+name = "xiomc"
+path = "src/lib.rs"
+
 [[bin]]
 name = "xiomc"
 path = "src/main.rs"
