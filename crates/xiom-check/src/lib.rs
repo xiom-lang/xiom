@@ -2639,6 +2639,9 @@ impl Checker {
                     // Char is a codepoint: convertible to/from any integer type
                     _ if inner_ty == CheckedType::Char && target_ty.is_integer() => target_ty,
                     _ if inner_ty.is_integer() && target_ty == CheckedType::Char => target_ty,
+                    // 5c-E: Int ↔ Ptr casts (raw pointer FFI, ptr.xi)
+                    (CheckedType::Int, CheckedType::Named(s)) if s == "Ptr" => target_ty,
+                    (CheckedType::Named(s), CheckedType::Int) if s == "Ptr" => target_ty,
                     _ => self.error(format!("unsupported type cast: {} to {}", inner_ty.name(), target_ty.name()), *span),
                 }
             }
