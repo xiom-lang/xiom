@@ -142,6 +142,21 @@ impl IrEmitter {
                     inner.clone()
                 }
             }
+            // Recursively substitute type params in composite types.
+            Type::Array(size, elem) => {
+                Type::Array(size.clone(), Box::new(Self::substitute_type(inner, elem, type_map)))
+            }
+            Type::Option(e) => Type::Option(Box::new(Self::substitute_type(inner, e, type_map))),
+            Type::Result(ok, err) => Type::Result(
+                Box::new(Self::substitute_type(inner, ok, type_map)),
+                Box::new(Self::substitute_type(inner, err, type_map)),
+            ),
+            Type::Vec(e) => Type::Vec(Box::new(Self::substitute_type(inner, e, type_map))),
+            Type::Map(k, v) => Type::Map(
+                Box::new(Self::substitute_type(inner, k, type_map)),
+                Box::new(Self::substitute_type(inner, v, type_map)),
+            ),
+            Type::Set(e) => Type::Set(Box::new(Self::substitute_type(inner, e, type_map))),
             Type::Ptr(i2) | Type::MutRef(i2) | Type::Ref(i2) => Self::substitute_type(inner, i2, type_map),
             _ => inner.clone(),
         };
@@ -444,14 +459,18 @@ impl IrEmitter {
             let module_name = &id.name;
             // Try leaf-qualified: "math.run_all"
             let leaf_key = format!("{}.{}", module_name, fn_name);
-            if self.functions.contains_key(&leaf_key) {
+            if self.functions.contains_key(&leaf_key)
+                || self.generic_fn_decls.iter().any(|(k, _)| k == &leaf_key)
+            {
                 return leaf_key;
             }
             // Try parent-qualified: "benchmark.math.run_all" (current_module parent + module_name)
             if let Some(ref cur_mod) = self.current_module {
                 if let Some(parent) = cur_mod.rsplitn(2, '.').last() {
                     let parent_key = format!("{}.{}.{}", parent, module_name, fn_name);
-                    if self.functions.contains_key(&parent_key) {
+                    if self.functions.contains_key(&parent_key)
+                        || self.generic_fn_decls.iter().any(|(k, _)| k == &parent_key)
+                    {
                         return parent_key;
                     }
                 }
@@ -459,6 +478,12 @@ impl IrEmitter {
             // Try any key ending with ".module_name.fn_name" as a fallback
             let suffix = format!(".{}.{}", module_name, fn_name);
             for k in self.functions.keys() {
+                if k.ends_with(&suffix) {
+                    return k.clone();
+                }
+            }
+            // Also search generic function decls for the suffix
+            for (k, _) in &self.generic_fn_decls {
                 if k.ends_with(&suffix) {
                     return k.clone();
                 }
