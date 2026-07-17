@@ -1,4 +1,4 @@
-﻿// XIOM ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â LLVM IR Codegen
+// XIOM ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â LLVM IR Codegen
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -114,6 +114,8 @@ pub struct IrEmitter {
     /// Current type substitution map for monomorphisation: generic_name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ concrete_type
     current_type_map: HashMap<String, String>,
     /// Maps variable name to concrete type for generic params in monomorphised functions
+    /// Current const-generic value map during monomorphised body compilation.
+    current_const_map: HashMap<String, i64>,
     param_concrete_types: HashMap<String, String>,
     /// LLVM target triple (default: x86_64-pc-windows-msvc)
     target_triple: String,
@@ -167,6 +169,9 @@ pub struct IrEmitter {
     /// 5c-R: LLVM element type for local array bindings (`let arr = [1.0, 2.0]`
     /// → "arr" → "double") so array indexing uses the correct load type (G-11).
     local_array_elem: HashMap<String, String>,
+    /// Fixed-size array-local bindings (var name -> N elements). Populated
+    /// from Expr::Array during let/var; used by const-generic inference.
+    local_array_sizes: HashMap<String, i64>,
     /// Set of function names already declared via `declare` (to avoid duplicates)
     already_declared: HashSet<String>,
     /// Module/global `const` values, keyed by bare name (last definition wins),
@@ -226,6 +231,7 @@ impl IrEmitter {
             used_builtins: HashSet::new(),
             current_type_map: HashMap::new(),
             param_concrete_types: HashMap::new(),
+            current_const_map: HashMap::new(),
             target_triple: "x86_64-pc-windows-msvc".to_string(),
             emitted_fns: HashSet::new(),
             current_module: None,
@@ -242,6 +248,10 @@ impl IrEmitter {
             current_receiver: None,
             array_value_regs: HashSet::new(),
             local_array_elem: HashMap::new(),
+            /// Fixed-size of array-local bindings (var name -> N elements).
+            /// Populated from Expr::Array during let/var compilation;
+            /// consumed by const-generic inference (5c.30).
+            local_array_sizes: HashMap::new(),
             already_declared: HashSet::new(),
             constants: HashMap::new(),
             module_globals: HashMap::new(),
@@ -2198,6 +2208,7 @@ impl IrEmitter {
             }
 
             // Set type substitution map for method dispatch in body
+            self.current_const_map = const_map.clone();
             self.current_type_map = type_map.clone();
 
             // Compile body

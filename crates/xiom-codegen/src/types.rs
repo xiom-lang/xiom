@@ -261,6 +261,8 @@ impl crate::IrEmitter {
             Type::Vec(inner) => vec![Self::type_from_ast(inner)],
             Type::Map(k, v) => vec![Self::type_from_ast(k), Self::type_from_ast(v)],
             Type::Set(inner) => vec![Self::type_from_ast(inner)],
+            // Unwrap Ref/MutRef/Ptr to find type args nested inside (e.g. `&[N]T` -> N, T)
+            Type::Ref(inner) | Type::MutRef(inner) | Type::Ptr(inner) => Self::extract_type_arg_names(inner),
             _ => vec![],
         }
     }

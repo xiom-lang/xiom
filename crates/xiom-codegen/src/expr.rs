@@ -1,4 +1,4 @@
-﻿use xiom_ast::*;
+use xiom_ast::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -19,6 +19,8 @@ impl IrEmitter {
                                 self.local_array_elem.insert(name.name.clone(), elem_ty);
                             }
                         }
+                        // 5c.30: record array size for const-generic inference
+                        self.local_array_sizes.insert(name.name.clone(), elems.len() as i64);
                     }
                 }
                 // 5c.30: record Vec element type for local Vec bindings.
@@ -78,6 +80,8 @@ impl IrEmitter {
                                 self.local_array_elem.insert(name.name.clone(), elem_ty);
                             }
                         }
+                        // 5c.30: record array size for const-generic inference
+                        self.local_array_sizes.insert(name.name.clone(), elems.len() as i64);
                     }
                 }
                 // 5c.30: record Vec element type for local Vec bindings.
@@ -1069,6 +1073,10 @@ impl IrEmitter {
         match expr {
             Expr::Ident(ident) => {
                 // `this` keyword in method bodies maps to the receiver `self`.
+                // 5c.30 const-generic: substitute compile-time const value (e.g. N=5)
+                if let Some(val) = self.current_const_map.get(&ident.name) {
+                    return Ok((val.to_string(), "i64".to_string()));
+                }
                 let lookup_name: &str = if ident.name == "this" { "self" } else { &ident.name };
                 if let Some((ptr, llvm_ty)) = self.lookup_local(lookup_name).cloned() {
                     let tmp = self.fresh_tmp();
@@ -1959,12 +1967,13 @@ impl IrEmitter {
                 let idx_is_type = |idx: &Expr| -> bool {
                     match idx {
                         Expr::Ident(id) => {
-                            self.types.contains_key(&id.name)
+                            Self::is_primitive_type_name(&id.name)
+                                || self.types.contains_key(&id.name)
                                 || self.type_meta.contains_key(&id.name)
                                 || (id.name.len() == 1 && id.name.chars().next().map_or(false, |c| c.is_ascii_uppercase()))
                         }
-                        Expr::Field(_, _, _) => true, // module.Type ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â always a type path
-                        _ => false, // integer literal, binary expr, etc. ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â always a value index
+                        Expr::Field(_, _, _) => true, // module.Type — always a type path
+                        _ => false, // integer literal, binary expr, etc. — always a value index
                     }
                 };
                 let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
@@ -3428,24 +3437,41 @@ impl IrEmitter {
                             // Const-generic params: extract the integer value from the
                             // explicit type arg (e.g. `len[Int, 5](arr)`).
                             if gp.is_const {
+                                let mut found_const = false;
                                 if let Some(ta) = type_arg {
-                                    // type_arg may be an Int literal for a single const,
-                                    // or a Tuple for multiple. Match on the position.
                                     let const_expr: Option<Expr> = match ta {
                                         Expr::Int(n, _) => Some(Expr::Int(*n, Span::new(0, 0))),
                                         Expr::Tuple(elems, _) => {
-                                            // Find the first Int literal ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â this is the const value.
-                                            // For multiple const params, this is a simplification.
                                             elems.iter().find(|e| matches!(e, Expr::Int(..))).cloned()
                                         }
                                         _ => None,
                                     };
                                     if let Some(Expr::Int(n, _)) = const_expr {
                                         const_values.insert(gp.name.name.clone(), n as i64);
+                                        found_const = true;
                                     }
                                 }
-                                // Add a placeholder so the zip aligns ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â const params
-                                // don't contribute to concrete_types.
+                                // 5c.30: If no explicit type arg, infer const-generic value
+                                // from the argument (e.g. array size for `arr: &[N]T`).
+                                if !found_const {
+                                    for (param, arg_expr) in fd.params.iter().zip(args.iter()) {
+                                        let arg_names = Self::extract_type_arg_names(&param.ty);
+                                        if arg_names.iter().any(|a| a == &gp.name.name) {
+                                            let inner_expr: &Expr = match arg_expr {
+                                                Expr::Ref(i, _) | Expr::MutRef(i, _)
+                                                | Expr::Unary(UnaryOp::Ref, i, _)
+                                                | Expr::Unary(UnaryOp::MutRef, i, _) => i.as_ref(),
+                                                other => other,
+                                            };
+                                            if let Expr::Ident(id) = inner_expr {
+                                                if let Some(size) = self.local_array_sizes.get(&id.name) {
+                                                    const_values.insert(gp.name.name.clone(), *size);
+                                                }
+                                            }
+                                            break;
+                                        }
+                                    }
+                                }
                                 concrete_types.push("Int".to_string());
                                 continue;
                             }
