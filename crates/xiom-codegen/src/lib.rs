@@ -554,6 +554,18 @@ impl IrEmitter {
             Type::Vec(inner) => vec![Self::type_from_ast(inner)],
             Type::Map(k, v) => vec![Self::type_from_ast(k), Self::type_from_ast(v)],
             Type::Set(inner) => vec![Self::type_from_ast(inner)],
+            // Unwrap Ref/MutRef/Ptr to find type args nested inside.
+            Type::Ref(inner) | Type::MutRef(inner) | Type::Ptr(inner) => Self::extract_type_arg_names(inner),
+            // Array: extract const-generic size ident + element type args.
+            Type::Array(size_expr, elem) => {
+                let mut names = vec![Self::type_from_ast(elem)];
+                if let Expr::Ident(id) = size_expr.as_ref() {
+                    names.insert(0, id.name.clone());
+                }
+                names
+            }
+            // Slice: extract element type args.
+            Type::Slice(elem) => vec![Self::type_from_ast(elem)],
             _ => vec![],
         }
     }
@@ -588,6 +600,7 @@ impl IrEmitter {
                     _ => elem_name,
                 }
             }
+            Type::Slice(elem) => Self::type_from_ast(elem),
             _ => "Int".to_string(),
         }
     }
@@ -1989,26 +2002,73 @@ impl IrEmitter {
                     Type::Ptr(inner) | Type::MutRef(inner) => {
                         let subst = Self::substitute_type(t, inner, &type_map);
                         let name = Self::type_from_ast(&subst);
-                        // `name` is `*Inner`; resolve the inner to an LLVM type.
                         if let Some(inner_name) = name.strip_prefix('*') {
                             let inner_llvm = if struct_types.contains(inner_name) {
                                 format!("%struct.{inner_name}")
                             } else {
                                 Self::xiom_to_llvm_type(inner_name).to_string()
                             };
-                            if inner_llvm == "void" {
-                                "i8*".to_string()
-                            } else {
-                                format!("{inner_llvm}*")
-                            }
+                            if inner_llvm == "void" { "i8*".to_string() } else { format!("{inner_llvm}*") }
                         } else {
-                            // MutRef over a non-scalar stays by-value (no `*` prefix).
                             if struct_types.contains(&name) {
-                                format!("%struct.{name}")
+                                format!("%struct.{name}*")
                             } else {
-                                Self::xiom_to_llvm_type(&name).to_string()
+                                format!("{}*", Self::xiom_to_llvm_type(&name))
                             }
                         }
+                    }
+                    Type::Ref(inner) => {
+                        // Unwrap Ref to reach Array/Slice handlers directly.
+                        let inner_subst = Self::substitute_type(inner, inner, &type_map);
+                        // Arrays/Slices: produce proper pointer types with const-size resolution.
+let inner_llvm = match &inner_subst {
+                            Type::Array(size_expr, elem) => {
+                                let subst_elem = Self::substitute_type(t, elem, &type_map);
+                                let elem_name = Self::type_from_ast(&subst_elem);
+                                let elem_ty = if struct_types.contains(&elem_name) {
+                                    format!("%struct.{elem_name}")
+                                } else {
+                                    Self::xiom_to_llvm_type(&elem_name).to_string()
+                                };
+                                let size_val: u64 = match size_expr.as_ref() {
+                                    Expr::Int(n, _) => *n as u64,
+                                    Expr::Ident(id) => const_map.get(&id.name).copied().unwrap_or(0) as u64,
+                                    _ => 0,
+                                };
+                                // For ref params, produce a plain pointer (i64*) instead
+                                // of typed array pointer ([5 x i64]*) for ABI compat.
+                                // The const N is used in the body via const_map.
+                                format!("{elem_ty}*")
+                            }
+                            Type::Slice(elem) => {
+let subst_elem = Self::substitute_type(t, elem, &type_map);
+                                let elem_name = Self::type_from_ast(&subst_elem);
+                                let elem_ty = if struct_types.contains(&elem_name) {
+                                    format!("%struct.{elem_name}")
+                                } else {
+                                    Self::xiom_to_llvm_type(&elem_name).to_string()
+                                };
+                                format!("{elem_ty}*")
+                            }
+                            _ => {
+                                let name = Self::type_from_ast(&inner_subst);
+                                if let Some(inner_name) = name.strip_prefix('*') {
+                                    let base = if struct_types.contains(inner_name) {
+                                        format!("%struct.{inner_name}")
+                                    } else {
+                                        Self::xiom_to_llvm_type(inner_name).to_string()
+                                    };
+                                    if base == "void" { "i8*".to_string() } else { format!("{base}*") }
+                                } else if struct_types.contains(&name) {
+                                    format!("%struct.{name}")
+                                } else {
+                                    Self::xiom_to_llvm_type(&name).to_string()
+                                }
+                            }
+                        };
+                        // Arrays from Ref/Ptr/MutRef always become pointers.
+                        if inner_llvm.starts_with('[') { format!("{inner_llvm}*") }
+                        else { inner_llvm }
                     }
                     Type::Tuple(elems) => {
                         let parts: Vec<String> = elems.iter().map(|e| {

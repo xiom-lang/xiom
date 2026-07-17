@@ -263,6 +263,15 @@ impl crate::IrEmitter {
             Type::Set(inner) => vec![Self::type_from_ast(inner)],
             // Unwrap Ref/MutRef/Ptr to find type args nested inside (e.g. `&[N]T` -> N, T)
             Type::Ref(inner) | Type::MutRef(inner) | Type::Ptr(inner) => Self::extract_type_arg_names(inner),
+            // Array: extract const-generic size ident + element type args
+            // (e.g. [N]T -> N, T; [3]Int -> Int)
+            Type::Slice(elem) => Self::type_from_ast(elem), Type::Array(size_expr, elem) => {
+                let mut names = vec![Self::type_from_ast(elem)];
+                if let Expr::Ident(id) = size_expr.as_ref() {
+                    names.insert(0, id.name.clone());
+                }
+                names
+            }
             _ => vec![],
         }
     }
@@ -289,7 +298,7 @@ impl crate::IrEmitter {
                 let parts: Vec<String> = types.iter().map(Self::type_from_ast).collect();
                 format!("Tuple_{}", parts.join("_"))
             }
-            Type::Array(size_expr, elem) => {
+            Type::Slice(elem) => Self::type_from_ast(elem), Type::Array(size_expr, elem) => {
                 let elem_name = Self::type_from_ast(elem);
                 match size_expr.as_ref() {
                     Expr::Int(n, _) => format!("[{n} x {elem_name}]"),
