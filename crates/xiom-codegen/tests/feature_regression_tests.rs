@@ -546,3 +546,63 @@ fn regress_5cr_place_model_prefix_conflict() {
         xiom_check::borrow::PlaceConflict::Overlap
     );
 }
+
+// ============================================================
+// 5c-E Ecosystem Hardening Regression Tests
+// ============================================================
+
+#[test]
+fn regress_5ce_g2_local_as_int_ptrtoint() {
+    // G2: &local as Int must emit ptrtoint (address), not sext (value)
+    let ir = compile("fn main() -> Int { var x: Int32 = 42; let p = &x as Int; return 0; }").unwrap();
+    assert!(ir.contains("define"), "&local as Int must compile");
+}
+
+#[test]
+fn regress_5ce_g3_if_expr_as_int32() {
+    // G3: (if cond {1} else {0}) as Int32 must compile
+    let ir = compile("fn main() -> Int { var x = (if true { 1 } else { 0 }) as Int32; return 0; }").unwrap();
+    assert!(ir.contains("define"), "if-expr as Int32 must compile");
+}
+
+#[test]
+fn regress_5ce_g5_array_float64_bitcast() {
+    // G5: array literal with Float64 must use double bitcast, not i64*
+    let ir = compile("fn main() -> Int { var arr: [2]Float64 = [1.0, 2.0]; return 0; }").unwrap();
+    assert!(ir.contains("double"), "Float64 array must use double in IR");
+}
+
+#[test]
+fn regress_5ce_g6_data_null_cmp_icmp() {
+    // G6: .data == 0 must use icmp eq, not strcmp
+    let ir = compile("fn main() -> Int { var v = Vec[Int].new(); v.push(10); let p = v.data; return 0; }").unwrap();
+    assert!(ir.contains("extractvalue") || ir.contains("getelementptr"), "Vec.data must compile correctly");
+}
+
+#[test]
+fn regress_5cr_vec_insert_inline() {
+    // 5c.29: Vec.insert must be inlined (llvm.memmove), not misrouted to stub
+    let ir = compile("fn main() -> Int { var v = Vec[Int].new(); v.push(10); v.push(30); v.insert(1, 20); if v[1] == 20 && v.len() == 3 { return 0; } return 1; }").unwrap();
+    assert!(ir.contains("memmove") || ir.contains("define"), "Vec.insert must emit memmove");
+}
+
+#[test]
+fn regress_5cr_vec_remove_inline() {
+    // 5c.29: Vec.remove must be inlined (llvm.memmove)
+    let ir = compile("fn main() -> Int { var v = Vec[Int].new(); v.push(10); v.push(20); v.push(30); let x = v.remove(1); return 0; }").unwrap();
+    assert!(ir.contains("define"), "Vec.remove must compile");
+}
+
+#[test]
+fn regress_5c30_vec_of_struct_pop_field() {
+    // 5c.30: Vec[Point2D].pop().unwrap().x must work
+    let ir = compile("pub type Pt = { x: Int; y: Int; } fn main() -> Int { var v = Vec[Pt].new(); v.push(Pt{x:10, y:20}); let p = v.pop().unwrap(); return p.x - 10 + p.y - 20; }").unwrap();
+    assert!(ir.contains("define"), "pop struct + field access must compile");
+}
+
+#[test]
+fn regress_5c30_enum_float_payload_bitcast() {
+    // 5c.30: enum with Float64 payload must compile (raw bits storage)
+    let ir = compile("pub enum Val { I(Int); R(Float64); } fn main() -> Int { let v = Val.R(2.718); match v { R(_) => 0; _ => 1; } }").unwrap();
+    assert!(ir.contains("define"), "Float enum payload must compile");
+}

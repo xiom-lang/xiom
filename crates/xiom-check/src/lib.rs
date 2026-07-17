@@ -1736,6 +1736,17 @@ impl Checker {
             self.add_local(&param.name.name, CheckedType::from_ast_type(&param.ty));
         }
 
+        // 5c-E: register const-generic parameters as locals
+        // `fn len[T, const N: Int](arr: &[N]T) -> Int { N }` — N must resolve
+        for g in &fd.generics {
+            let gen_ty = if g.is_const {
+                g.const_ty.as_ref().map(|t| CheckedType::from_ast_type(t)).unwrap_or(CheckedType::Int)
+            } else {
+                CheckedType::Named("type".into())
+            };
+            self.add_local(&g.name.name, gen_ty);
+        }
+
         // For methods, inject the receiver's fields into scope (implicit self)
         if let Some(recv) = fd.receiver.as_ref() {
             // Add self as a variable (for match self { ... } in enum methods)
@@ -3048,6 +3059,13 @@ impl BorrowChecker {
         self.push_scope();
         for param in &fd.params {
             self.add_local(&param.name.name, true);
+        }
+        // 5c-E: register const-generic parameters (borrow checker)
+        for g in &fd.generics {
+            if g.is_const {
+                let gt = g.const_ty.as_ref().map(|t| CheckedType::from_ast_type(t)).unwrap_or(CheckedType::Int);
+                self.add_local(&g.name.name, gt.is_numeric() || gt == CheckedType::Int);
+            }
         }
         if let Some(body) = fd.body.as_ref() {
             self.check_block(body);
