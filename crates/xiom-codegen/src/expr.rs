@@ -3452,23 +3452,23 @@ impl IrEmitter {
                                     }
                                 }
                                 // 5c.30: If no explicit type arg, infer const-generic value
-                                // from the argument (e.g. array size for `arr: &[N]T`).
+                                // from any argument that references an array local.
+                                // We search ALL params because const-generic names
+                                // may not appear in the parameter type AST (parser
+                                // lowers [N]T as Slice(T), losing N).
                                 if !found_const {
-                                    for (param, arg_expr) in fd.params.iter().zip(args.iter()) {
-                                        let arg_names = Self::extract_type_arg_names(&param.ty);
-                                        if arg_names.iter().any(|a| a == &gp.name.name) {
-                                            let inner_expr: &Expr = match arg_expr {
-                                                Expr::Ref(i, _) | Expr::MutRef(i, _)
-                                                | Expr::Unary(UnaryOp::Ref, i, _)
-                                                | Expr::Unary(UnaryOp::MutRef, i, _) => i.as_ref(),
-                                                other => other,
-                                            };
-                                            if let Expr::Ident(id) = inner_expr {
-                                                if let Some(size) = self.local_array_sizes.get(&id.name) {
-                                                    const_values.insert(gp.name.name.clone(), *size);
-                                                }
+                                    for (_param, arg_expr) in fd.params.iter().zip(args.iter()) {
+                                        let inner_expr: &Expr = match arg_expr {
+                                            Expr::Ref(i, _) | Expr::MutRef(i, _)
+                                            | Expr::Unary(UnaryOp::Ref, i, _)
+                                            | Expr::Unary(UnaryOp::MutRef, i, _) => i.as_ref(),
+                                            other => other,
+                                        };
+                                        if let Expr::Ident(id) = inner_expr {
+                                            if let Some(size) = self.local_array_sizes.get(&id.name) {
+                                                const_values.insert(gp.name.name.clone(), *size);
+                                                break;
                                             }
-                                            break;
                                         }
                                     }
                                 }
@@ -4144,7 +4144,17 @@ impl IrEmitter {
                     let result = self.val_to_i64(&elem, &inner_ty);
                     return Ok((result, "i64".to_string()));
                 }
-                // Unknown container ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â safe default.
+                // Handle pointer-typed array references from monomorphised generic params.
+                if cont_ty.ends_with('*') && cont_ty != "i8*" {
+                    let elem_ty = cont_ty.trim_end_matches('*');
+                    let elem_ptr = self.fresh_tmp();
+                    self.emitln(&format!("  {elem_ptr} = getelementptr {elem_ty}, {cont_ty} {cont_val}, i64 {idx}"));
+                    let elem = self.fresh_tmp();
+                    self.emitln(&format!("  {elem} = load {elem_ty}, {elem_ty}* {elem_ptr}"));
+                    let result = self.val_to_i64(&elem, &elem_ty);
+                    return Ok((result, "i64".to_string()));
+                }
+                // safe default.
                 Ok(("0".to_string(), "i64".to_string()))
             }
             Expr::AtPre(inner, _) => {
