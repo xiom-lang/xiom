@@ -642,13 +642,38 @@ P2	G-27, G-28 (E001 false positives)	Non-fatal warnings; compilation succeeds
 
 ---
 
-## 7. PHASE 5c-R — COMPILER REFACTORING & RUSTC ADOPTIONS (🚧 In Progress — 87% complete)
+## 7. PHASE 5c-R — COMPILER REFACTORING & RUSTC ADOPTIONS (🚧 In Progress — 93% complete)
 
 **Codename:** Architect-R
 **Entry gate:** ✅ All P0 resolved, v0.46.0 tagged, deterministic builds verified.
 **Exit gate:** all gates green, IR golden diffs byte-identical after every refactor step, field-granular borrow tests passing.
-**Status:** WS1 ✅ 100% | WS2 ✅ 100% of P0, partial P1 | Deferred: field-granular borrows (2-4 wk), XIR mid-level IR (5e)
-**Reference docs:** [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md) (synthesis), [rust/README.md](./rust/README.md) (report index), [NAMING_CONVENTIONS.md](./NAMING_CONVENTIONS.md) (API grammar).
+**Status:** WS1 ✅ 100% | WS2 ✅ 100% of P0 + 4 P1 extras | Place model ✅ (foundation) | Remaining: field-granular borrow integration (2-3 wk), XIR mid-level IR (5e)
+**Reference docs:** [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md) (synthesis), [NAMING_CONVENTIONS.md](./NAMING_CONVENTIONS.md) (API grammar).
+
+### 7.1 Workstream 1 — Mechanical Refactor ✅ 100% COMPLETE
+
+| Target | Before | After | Status |
+|--------|--------|-------|--------|
+| `xiom-codegen/lib.rs` | 10,244 lines | 2,974 lines / 9 modules | ✅ |
+| `xiom-codegen/continuation1.rs` | 607 lines DEAD | deleted | ✅ |
+| `xiom-check/lib.rs` | 4,471 lines | 3,993 lines / catalog + types + borrow | ✅ |
+| `xiomc` | 2,168 lines binary-only | 786L main.rs + 1,117L lib.rs | ✅ |
+
+### 7.2 Workstream 2 — rustc Lesson Adoption ✅ P0 COMPLETE + 5 BONUS
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Place/projection model + `places_conflict` (foundation for field-granular borrows) | ✅ Data structures done; integration pending |
+| 2 | `ErrorGuaranteed` + error-poisoned AST nodes | ✅ |
+| 3 | Expected-token u128 bitset | ✅ |
+| 4 | Panic-mode `recover_stmt` (brace-depth) | ✅ |
+| 5 | Collect/check split + `certify()` writeback | ✅ |
+| 6 | Type interning `TypeId(u32)` + arena + `CONTAINS_PARAM` | ✅ |
+| 7 | `TypeCause` provenance (8 reason codes) | ✅ |
+| B1 | Error-code registry + `--explain` + `Applicability` enum | ✅ |
+| B2 | Naming conventions doc frozen at v0.46.0 | ✅ |
+| B3 | Contextual keywords (requires/ensures/invariant as Ident) | ✅ |
+| B4 | `Vec[T]::with_capacity(n)` — closes G-06 | ✅ |
 
 ### 7.1 Workstream 1 — Mechanical Refactor ✅ 100% COMPLETE
 
