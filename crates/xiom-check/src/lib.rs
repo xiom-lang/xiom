@@ -2815,6 +2815,10 @@ pub struct BorrowChecker {
     borrow_stack: Vec<Vec<ScopeBorrow>>,
     errors: Vec<BorrowError>,
     param_names: HashSet<String>,
+    /// 5c-R: Active Place-level loans for field-granular borrow checking.
+    /// Consulted BEFORE the ScopeBorrow stack; if a Place conflict is found,
+    /// an error is emitted and the loan is rejected.
+    active_loans: crate::borrow::LoanSet,
 }
 
 impl BorrowChecker {
@@ -2824,6 +2828,7 @@ impl BorrowChecker {
             borrow_stack: vec![Vec::new()],
             errors: Vec::new(),
             param_names: HashSet::new(),
+            active_loans: crate::borrow::LoanSet::new(),
         }
     }
 
@@ -2840,6 +2845,8 @@ impl BorrowChecker {
             }
         }
         self.ownership.pop();
+        // 5c-R: release all active Place-level loans when scope exits
+        self.active_loans.release_all();
     }
 
     fn release_borrow(&mut self, name: &str, borrow_type: BorrowType) {
@@ -2906,6 +2913,8 @@ impl BorrowChecker {
     }
 
     fn read_borrow(&mut self, name: &str, span: Span) {
+        // 5c-R: Place-level loan tracking — only for field-granular paths.
+        // Bare-variable borrows use existing ScopeBorrow tracking.
         let ok = match self.find_var(name) {
             Some(info) => match info.state {
                 BorrowState::Moved => {
@@ -2937,6 +2946,7 @@ impl BorrowChecker {
     }
 
     fn write_borrow(&mut self, name: &str, span: Span) {
+        // 5c-R: Place-level loan tracking — only for field-granular paths.
         let ok = match self.find_var(name) {
             Some(info) => match info.state {
                 BorrowState::Moved => {
@@ -3391,6 +3401,7 @@ mod tests {
             Err(e) => Err(vec![CheckError {
                 message: format!("parse error: {e}"),
                 span: e.span,
+                cause: crate::types::TypeCause::Other,
             }]),
         }
     }

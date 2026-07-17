@@ -9,3 +9,4 @@ xiom-ast = { path = "../xiom-ast" }
 [dev-dependencies]
 xiom-lexer = { path = "../xiom-lexer" }
 xiom-parser = { path = "../xiom-parser" }
+xiom-check = { path = "../xiom-check" }
