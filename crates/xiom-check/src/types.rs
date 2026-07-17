@@ -6,6 +6,53 @@ use xiom_ast::*;
 use std::fmt;
 
 // ============================================================================
+// Type Interning (5c-R: TypeId + arena — rustc lesson from TyCtxt)
+// ============================================================================
+
+/// Opaque index into the type arena. O(1) equality, zero heap indirection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TypeId(u32);
+
+/// Arena that interns type names and tracks the `CONTAINS_PARAM` flag.
+/// Named types resolve to TypeIds for O(1) comparison; the flag enables
+/// monomorphisation to skip non-generic types in O(1).
+#[derive(Debug, Clone, Default)]
+pub struct TypeArena {
+    /// Interned type names. Index = TypeId.0.
+    names: Vec<String>,
+    /// Whether each interned type contains a generic parameter somewhere in
+    /// its definition (e.g., `Vec[T]`, `Option[T]`, user-generic `Box[T]`).
+    contains_param: Vec<bool>,
+}
+
+impl TypeArena {
+    pub fn new() -> Self { Self { names: Vec::new(), contains_param: Vec::new() } }
+
+    /// Intern a type name, returning its TypeId. If the name is already
+    /// present, the existing ID is returned (deduplication).
+    pub fn intern(&mut self, name: &str, contains_param: bool) -> TypeId {
+        if let Some(pos) = self.names.iter().position(|n| n == name) {
+            return TypeId(pos as u32);
+        }
+        let id = TypeId(self.names.len() as u32);
+        self.names.push(name.to_string());
+        self.contains_param.push(contains_param);
+        id
+    }
+
+    /// Look up the string name for a TypeId.
+    pub fn name_of(&self, id: TypeId) -> &str {
+        &self.names[id.0 as usize]
+    }
+
+    /// True when the type (or any nested type) contains a generic parameter.
+    /// Monomorphisation skips `contains_param` == false in O(1).
+    pub fn contains_param(&self, id: TypeId) -> bool {
+        self.contains_param[id.0 as usize]
+    }
+}
+
+// ============================================================================
 // Type representation for the checker
 // ============================================================================
 

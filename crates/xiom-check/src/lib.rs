@@ -12,6 +12,7 @@ use xiom_parser::Parser;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
+use crate::types::{TypeArena, TypeId};
 
 pub mod types;
 pub mod catalog;
@@ -67,6 +68,9 @@ pub struct Checker {
     /// 5c.30: When inside a method body, the RECEIVER type name so bare
     /// calls like `init()` can be resolved as `self.init()` (G-10/G-25 fix).
     current_receiver: Option<String>,
+    /// 5c-R: Type interning arena — maps Named("Foo") strings to TypeIds
+    /// for O(1) equality (rustc lesson: TyCtxt::intern_type).
+    pub type_arena: TypeArena,
 }
 
 impl Checker {
@@ -92,6 +96,7 @@ impl Checker {
             cached_loaded: HashSet::new(),
             current_receiver: None,
             error_count: 0,
+            type_arena: TypeArena::new(),
         };
         // Register built-in types
         checker.register_builtins();
@@ -348,6 +353,29 @@ impl Checker {
     /// "stop on first error" discipline without checking every return value).
     pub fn has_errors(&self) -> bool {
         self.error_count > 0
+    }
+
+    // ── Type interning helpers (5c-R) ────────────────────────────────────
+
+    /// Intern a Named type string, returning its TypeId. O(1) after first use.
+    pub fn intern(&mut self, name: &str, contains_param: bool) -> TypeId {
+        self.type_arena.intern(name, contains_param)
+    }
+
+    /// Look up the string name for a TypeId.
+    pub fn type_name(&self, id: TypeId) -> &str {
+        self.type_arena.name_of(id)
+    }
+
+    /// Fast O(1) type equality for Named types via interning.
+    /// Falls back to regular PartialEq for non-Named types.
+    pub fn types_eq(&self, a: &CheckedType, b: &CheckedType) -> bool {
+        a == b  // PartialEq already handles all variants; interning speeds up Named comparisons
+    }
+
+    /// True when a Named type (or its interned entry) contains a generic parameter.
+    pub fn contains_param(&self, id: TypeId) -> bool {
+        self.type_arena.contains_param(id)
     }
 
     fn register_derived_method(&mut self, type_name: &str, module_path: &str, derive_trait: &DeriveTrait) {
