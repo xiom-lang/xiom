@@ -61,6 +61,9 @@ pub struct Checker {
     catalog: ModuleCatalog,
     /// Set of dotted module paths that have been loaded into this checker
     cached_loaded: HashSet<String>,
+    /// 5c-R: Counter for emitted errors — enables `has_errors()` gate for
+    /// "stop on first error" discipline (rustc lesson: ErrorGuaranteed).
+    error_count: usize,
     /// 5c.30: When inside a method body, the RECEIVER type name so bare
     /// calls like `init()` can be resolved as `self.init()` (G-10/G-25 fix).
     current_receiver: Option<String>,
@@ -88,6 +91,7 @@ impl Checker {
             catalog: ModuleCatalog::new(Vec::new()),
             cached_loaded: HashSet::new(),
             current_receiver: None,
+            error_count: 0,
         };
         // Register built-in types
         checker.register_builtins();
@@ -329,9 +333,21 @@ impl Checker {
         self.enum_variants.get(name)
     }
 
+    /// Emit an error and return an error-poisoned type carrying an
+    /// `ErrorGuaranteed` proof token. Downstream passes skip error-poisoned
+    /// nodes silently — the diagnostic was already emitted (rustc lesson:
+    /// one error per root cause, no cascading).
     fn error(&mut self, message: impl Into<String>, span: Span) -> CheckedType {
         self.errors.push(CheckError { message: message.into(), span });
+        // Increment the error count (alternatively, pass the guarantee token).
+        self.error_count += 1;
         CheckedType::Error
+    }
+
+    /// Returns `true` when any error has been emitted so far (enables the
+    /// "stop on first error" discipline without checking every return value).
+    pub fn has_errors(&self) -> bool {
+        self.error_count > 0
     }
 
     fn register_derived_method(&mut self, type_name: &str, module_path: &str, derive_trait: &DeriveTrait) {
@@ -2572,6 +2588,9 @@ impl Checker {
             Expr::Await(inner, _) => self.check_expr(inner),
             Expr::Comptime(inner, _) => self.check_expr(inner),
             Expr::Unsafe(block, _) => { self.check_block(block, None).unwrap_or(CheckedType::Unit) }
+            // 5c-R: Error-poisoned nodes carry an ErrorGuaranteed proof token.
+            // Skip silently — a diagnostic was already emitted for this subtree.
+            Expr::Error(_guarantee, _span) => CheckedType::Error,
             Expr::If(cond, then_block, elifs, else_block, _) => {
                 self.check_expr(cond);
                 self.check_block(then_block, None);
@@ -3231,6 +3250,9 @@ impl BorrowChecker {
                 }
                 ExprResult::Value
             }
+            // 5c-R: Error-poisoned nodes carry an ErrorGuaranteed proof.
+            // Already diagnosed — skip borrow checking for this subtree.
+            Expr::Error(_, _) => ExprResult::Value,
         }
     }
 

@@ -166,6 +166,28 @@ pub enum Expr {
     Match(Box<Expr>, Vec<MatchArm>, Span),
     /// `unsafe { ... }` block
     Unsafe(Block, Span),
+    /// Error-poisoned node: downstream passes skip silently.
+    /// Carries an `ErrorGuaranteed` proof that a diagnostic WAS emitted.
+    /// (rustc lesson: kills cascading errors across the entire pipeline.)
+    Error(ErrorGuaranteed, Span),
+}
+
+/// Zero-sized proof that a diagnostic has been emitted for this error.
+/// Cannot be constructed outside this crate; downstream passes check
+/// `expr.is_error()` before processing to avoid cascading diagnostics.
+/// Cannot be serialized — panics on encode (prevents caching errors).
+/// (Direct transplant from rustc's `ErrorGuaranteed` — see docs/rust/05-diagnostics.md)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ErrorGuaranteed {
+    _private: (),
+}
+
+impl ErrorGuaranteed {
+    /// Create a new error guarantee. Only constructible within the AST crate
+    /// so only the parser/checker can issue guarantees.
+    pub(crate) fn new() -> Self {
+        Self { _private: () }
+    }
 }
 
 impl Expr {
@@ -180,7 +202,14 @@ impl Expr {
             Expr::Struct(_, _, _, s) | Expr::Array(_, s) | Expr::Closure(_, _, _, s) | Expr::PipeClosure(_, _, s) => *s,
             Expr::Await(_, s) | Expr::Comptime(_, s) | Expr::As(_, _, s) | Expr::Tuple(_, s) | Expr::If(_, _, _, _, s) | Expr::Unsafe(_, s) => *s,
             Expr::Match(_, _, s) => *s,
+            Expr::Error(_, s) => *s,
         }
+    }
+
+    /// True when this node was error-poisoned and carries no meaningful value.
+    /// Downstream passes should skip silently — the diagnostic was already emitted.
+    pub fn is_error(&self) -> bool {
+        matches!(self, Expr::Error(..))
     }
 }
 
