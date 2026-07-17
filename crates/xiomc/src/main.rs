@@ -34,6 +34,16 @@ fn main() {
         return;
     }
 
+    // 5c-R: --explain EXXXX opens the error code reference
+    if let Some(pos) = args.iter().position(|a| a == "--explain") {
+        if let Some(code) = args.get(pos + 1) {
+            xiomc::explain_error(code);
+            return;
+        }
+        eprintln!("usage: xiomc --explain <code>  (e.g., xiomc --explain X0010)");
+        process::exit(1);
+    }
+
     let emit_ir = args.iter().any(|a| a == "--emit-ir");
     let do_run = args.iter().any(|a| a == "--run");
     let check_only = args.iter().any(|a| a == "--check");

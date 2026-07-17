@@ -846,6 +846,26 @@ pub fn is_newer(src: &std::path::Path, dst: &std::path::Path) -> bool {
     true
 }
 
+/// 5c-R: Display the error code reference for `--explain <code>`.
+/// Reads from `docs/error_codes/{code}.md` relative to the project root.
+pub fn explain_error(code: &str) {
+    let root = std::env::current_dir().unwrap_or_default();
+    let path = root.join("docs").join("error_codes").join(format!("{code}.md"));
+    match std::fs::read_to_string(&path) {
+        Ok(content) => {
+            println!("{content}");
+            println!("──");
+            println!("For the full error-code index: docs/error_codes/README.md");
+        }
+        Err(_) => {
+            eprintln!("Unknown error code: {code}");
+            eprintln!("Available codes are listed in docs/error_codes/README.md");
+            eprintln!("Run: xiomc --explain X0010  (for type mismatch)");
+            std::process::exit(1);
+        }
+    }
+}
+
 pub fn render_error(code: &str, span: &xiom_ast::Span, message: &str, source_text: Option<&str>, help: Option<&str>, note: Option<&str>) {
     eprintln!("error[{code}]: {l}:{c}: {m}", l = span.line, c = span.col, m = message);
     if let Some(text) = source_text {

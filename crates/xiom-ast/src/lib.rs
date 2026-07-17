@@ -6,6 +6,25 @@
 //! This is the single source of truth for what the parser produces
 //! and what every downstream pass consumes.
 
+// ============================================================================
+// Applicability — suggestion confidence contract (5c-R, rustc lesson)
+// ============================================================================
+
+/// How confident the compiler is that a suggested fix is correct.
+/// Tools (LSP, xiom-fix) auto-apply only `MachineApplicable` suggestions.
+/// Direct transplant from rustc's `Applicability` enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Applicability {
+    /// The suggestion is definitely correct — safe to auto-apply.
+    MachineApplicable,
+    /// The suggestion may be correct but the compiler cannot guarantee it.
+    MaybeIncorrect,
+    /// The suggestion contains placeholder types that need resolution first.
+    HasPlaceholders,
+    /// The suggestion is untested / ad-hoc — never auto-apply.
+    Unspecified,
+}
+
 use std::fmt;
 
 // ============================================================================
