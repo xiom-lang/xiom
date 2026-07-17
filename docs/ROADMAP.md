@@ -324,55 +324,24 @@ All fixes are compiler-level — **zero test files modified.** Every fix hardens
 **Ecosystem checker status: 0 checker errors.** All ecosystem tests type-check.
 **Ecosystem codegen status: 0 LLVM errors** (existing 10 tests). All 10 ecosystem tests compile and run.
 
-### 5c.11 Vulkan Bridge Codegen Gap — OPEN (2026-07-15)
+### 5c.11 Vulkan Bridge Codegen Gap — OPEN
 
-| Fix | Status | Impact |
-|-----|--------|--------|
-| LLVM `inttoptr` Vec→fn-ptr cast (offscreen test) | ❌ OPEN | `test_vulkan.xi` fails codegen with `invalid cast opcode for cast from '%struct.Vec' to 'ptr'` |
+**COMPILER GAP:** `inttoptr %struct.Vec → fn-ptr` produces invalid LLVM IR.
+| Fix | Status |
+|-----|--------|
+| LLVM `inttoptr` Vec→fn-ptr cast | ❌ OPEN — `test_vulkan.xi` fails codegen |
 
-**Minimal repro:** Compile `ecosystem/xiom-vulkan/tests/test_vulkan.xi` + `ecosystem/xiom-vulkan/vulkan.xi` → Parser + checker pass. Codegen emits `inttoptr %struct.Vec %tmp15 to i64 ()*` which clang rejects.
+### 5c.12 FFI Compiler Gaps — 2 OPEN
 
-**Affected functions:** `offscreen_hash(app) -> Int`, `offscreen_render_triangle(app, r, g, b) -> Int32`, `offscreen_create(width, height) -> Int`. All are `extern "C"` wrappers returning integer types used in XIOM expressions (match arms, `assert` calls). The compiler appears to mis-resolve the return type of these externs during codegen, attempting to treat a Vec result as a callable function pointer.
-
-**Note:** The 5 Vulkan demos (demo_2d, demo_3d, demo_cubes, demo_particles, demo_shapes) compile and link successfully. The rendering issues (empty window, particle freeze) are **C bridge bugs** (Vulkan pipeline/shaders), NOT compiler issues. Only the test target (`--Target test`) hits the codegen gap.
-
-### 5c.12 FFI Binding Generator Gaps — MOSTLY RESOLVED (2026-07-15)
-
-Compiler gaps discovered while generating production-grade Vulkan FFI bindings for `ecosystem/xiom-vulkan`:
-
-| Gap | Code | Detail | Status |
-|-----|------|--------|--------|
-| **pub const module limit** | P001 | ~99 `pub const` declarations per module triggers "too many parse errors" abort. | ⚠️ OPEN — `vulkan_constants.xi` (single-file, ~300 consts) left in repo as test case |
-| **Cross-module extern resolution** | T001 | `extern "C"` functions declared in module A resolve to `()` when called from module B via `use`. | ✅ FIXED |
-| **`()` in Result generic** | T001 | `Result[(), VulkanError]` — unit type in generic position unsupported. | ✅ FIXED |
-| **`Int`→`Int32` coercion** | T001 | Integer literals default to `Int`, no auto-coercion to `Int32` in extern call args or `let` bindings. Requires explicit `as Int32`. | ⚠️ OPEN — workaround: `count as Int32` casts |
-| **Out-param move semantics** | E001 | Passing a local variable to an extern out-parameter triggers "use of moved value". Compiler treats value as consumed, not borrowed. | ⚠️ OPEN — E001 warnings emitted; codegen correctness unverified |
-| **Codegen `inttoptr` Vec→fn-ptr** | LLVM | `extern "C"` functions returning `Int` used in `match`/`assert` produce `inttoptr %struct.Vec to i64 ()*` invalid LLVM IR. | ⚠️ OPEN — blocks `test_vulkan.xi` compilation (ROADMAP §5c.11) |
-| **Hex literal parser** | P001 | `0x00000001` hex syntax fails when preceded by >~100 `pub const` declarations. Decimal equivalents work. | ⚠️ Link to pub const limit above |
-
-**Test case for pub const limit:** `ecosystem/xiom-vulkan/src/vulkan_constants_all.xi` — single file with 300+ constants, intentionally over limit. Compile with `xiomc --diagnostics=json vulkan_constants_all.xi` to reproduce.
-
-### 5c.13 Vulkan FFI Production-Grade Status (2026-07-15)
-
-| Layer | File | Status | Functions/Types |
-|-------|------|--------|-----------------|
-| C Bridge | `bridge/xiom_vk_bridge.c` | ⚠️ Rendering bugs | 22 xvk_* functions (GLFW+GLSL+pipelines) |
-| XIOM Bridge Wrappers | `vulkan.xi` | ✅ | 22 safe wrappers over xvk bridge |
-| Convenience Layer | `src/wrapper.xi` | ✅ | VulkanApp struct |
-| **Raw FFI** | `vulkan_extern.xi` | 🚧 In Progress | Target: 400+ vk* `extern "C"` decls |
-| **Constants** | `src/vulkan_constants_all.xi` | 🚧 In Progress | Target: 500+ enum/flag consts in ONE file |
-| **Safe Wrappers** | `src/vulkan_safe.xi` | 🚧 Expanding | Target: 15+ resource types with contracts |
-| **Examples** | `examples/demo_*.xi` | 🚧 Expanding | Target: viewport, UI, model loading, compute, etc. |
-
-**Target scope:** Full Vulkan 1.4 API surface sufficient to build a game engine (Godot-class). Coverage includes core functions + KHR swapchain/surface/ray_tracing + EXT debug utils + platform surface creation.
-
-**Non-Vulkan headers bundled in SDK:**
-- `SDL2/`, `SDL3/` — cross-platform windowing (NOT Vulkan, use GLFW or xvk bridge)
-- `glm/` — OpenGL Mathematics (C++ math library, NOT Vulkan)
-- `vma/` — Vulkan Memory Allocator (separate C library, NOT Vulkan headers)
-- `Volk/` — Vulkan meta-loader
-- `glslang/`, `shaderc/`, `slang/`, `dxc/` — shader compilers
-- `spirv*/` — SPIR-V tools
+| Gap | Status |
+|-----|--------|
+| pub const module limit | ✅ FIXED (3700+ consts verified) |
+| Cross-module extern resolution | ✅ FIXED (v0.46) |
+| `()` in Result generic | ✅ FIXED |
+| Hex literal parser | ✅ FIXED |
+| `Int`→`Int32` coercion (no auto-coercion for extern args) | ⚠️ OPEN |
+| Out-param move semantics (E001 on pointer-pass) | ⚠️ OPEN |
+| Codegen `inttoptr` Vec→fn-ptr | → Merged into §5c.11 |
 
 ### 5c.13b Array-to-Vec Codegen Fix — DONE (2026-07-15)
 
