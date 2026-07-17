@@ -4256,7 +4256,6 @@ impl IrEmitter {
                 if let Expr::Ident(id) = inner.as_ref() {
                     if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
                         if slot_ty.starts_with("%struct.") {
-                            // Return the alloca pointer ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the caller coerces as needed.
                             return Ok((slot, format!("{slot_ty}*")));
                         }
                     }
