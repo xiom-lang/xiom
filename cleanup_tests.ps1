@@ -42,7 +42,18 @@ Get-ChildItem -Path . -Filter *.wasm | ForEach-Object {
 }
 Write-Host "  ($count .wasm files deleted)"
 
-# 4. Delete object, assembly, and text artifacts
+# 4. Delete PDB debug symbol files
+Write-Host ""
+Write-Host "--- Deleting PDB symbol files ---" -ForegroundColor Yellow
+$count = 0
+Get-ChildItem -Path . -Filter *.pdb | ForEach-Object {
+    Remove-Item $_.FullName -Force
+    Write-Host "  DEL: $($_.Name)"
+    $count++
+}
+Write-Host "  ($count .pdb files deleted)"
+
+# 5. Delete object, assembly, and text artifacts
 Write-Host ""
 Write-Host "--- Deleting .obj/.s/.txt artifacts ---" -ForegroundColor Yellow
 Get-ChildItem -Path . -Filter *.obj | ForEach-Object { Remove-Item $_.FullName -Force; Write-Host "  DEL: $($_.Name)" }

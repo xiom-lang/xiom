@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    XIOM Compiler v0.11.0 Installer
+    XIOM Compiler v0.46.0 Installer
 .DESCRIPTION
     Installs the XIOM toolchain: xiomc, xiom fmt, xiom doc, xiom ffigen, xiom pkg, xiom lsp
 .PARAMETER InstallDir
@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$xiomVersion = "0.20.0"
+$xiomVersion = "0.46.0"
 $xiomRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # ============================================================================
