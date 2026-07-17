@@ -526,6 +526,8 @@ impl IrEmitter {
     }
 
     fn xiom_type_name_from_llvm(llvm_ty: &str) -> String {
+        // Check pointer types before stripping `*` — `i8*` is Str, not Int8.
+        if llvm_ty == "i8*" { return "Str".to_string(); }
         let base = llvm_ty
             .trim_start_matches("%struct.")
             .trim_start_matches('%')
@@ -539,7 +541,6 @@ impl IrEmitter {
             "double" => "Float64".to_string(),
             "float" => "Float32".to_string(),
             "i1" => "Bool".to_string(),
-            "i8*" => "Str".to_string(),
             _ => base.to_string(),
         }
     }
