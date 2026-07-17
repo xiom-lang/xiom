@@ -3179,6 +3179,10 @@ impl Checker {
             // Tuple types are broadly compatible with anything
             (CheckedType::Named(n), _) if n.starts_with("Tuple") => true,
             (_, CheckedType::Named(n)) if n.starts_with("Tuple") => true,
+            // 5c.30: integer literals (always `Int`) are compatible with any
+            // integer-like target (Int8, UInt8, UInt32, etc.).
+            (CheckedType::Int, other) | (other, CheckedType::Int)
+                if other.is_numeric() => true,
             // Named types: allow compatible across different names (e.g., Range vs Vec)
             (CheckedType::Named(_), CheckedType::Named(_)) => true,
             // Wildcard placeholder type is compatible with everything
