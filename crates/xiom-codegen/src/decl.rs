@@ -288,7 +288,7 @@ impl IrEmitter {
                     }
                 }
             }
-            let self_param_name: Option<String> = if is_first_param_self {
+            let _self_param_name: Option<String> = if is_first_param_self {
                 fd.params.first().map(|p| p.name.name.clone())
             } else if has_recv {
                 Some("self".to_string())
@@ -921,7 +921,7 @@ impl IrEmitter {
         let err_name = err_ty.trim_start_matches("%struct.");
         let concrete_name = format!("Result__{ok_name}__{err_name}");
         if !self.type_meta.contains_key(&concrete_name) {
-            let mut fields = vec![
+            let fields = vec![
                 ("discriminant".to_string(), "i64".to_string()),
                 ("value".to_string(), ok_ty.to_string()),
                 ("error".to_string(), err_ty.to_string()),
