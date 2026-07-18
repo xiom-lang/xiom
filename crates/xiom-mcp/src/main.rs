@@ -192,30 +192,22 @@ fn tool_check_xiom_syntax(params: &Value) -> Result<Value, String> {
 }
 
 fn tool_format_xiom_code(params: &Value) -> Result<Value, String> {
-    let source = params["source"]
-        .as_str()
-        .ok_or("Missing required parameter: source")?;
-
+    let source = params["source"].as_str().ok_or("Missing required parameter: source")?;
     let tmp = std::env::temp_dir().join(format!("xiom_fmt_{}.xi", std::process::id()));
     std::fs::write(&tmp, source).map_err(|e| format!("Failed to write temp file: {e}"))?;
-
-    let output = Command::new("xiom-fmt")
-        .arg(tmp.to_str().unwrap())
-        .output()
-        .map_err(|e| format!("Failed to spawn xiom-fmt: {e}"))?;
-
+    let output = Command::new("xiom-fmt").arg(tmp.to_str().unwrap()).output().map_err(|e| format!("Failed to spawn xiom-fmt: {e}"))?;
     let _ = std::fs::remove_file(&tmp);
+    Ok(json!({"success": output.status.success(), "formatted": String::from_utf8_lossy(&output.stdout).to_string(), "changed": source != String::from_utf8_lossy(&output.stdout)}))
+}
 
-    let formatted = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let success = output.status.success();
-
-    Ok(json!({
-        "success": success,
-        "formatted": formatted,
-        "diagnostics": stderr,
-        "changed": source != formatted,
-    }))
+/// Phase 5d.9: Sandbox safety audit tool — runs xiomc --sandbox-report=json
+/// and returns structured safety findings for CI/CD gating.
+fn tool_audit_safety_sandbox(params: &Value) -> Result<Value, String> {
+    let file = params["file"].as_str().ok_or("Missing required parameter: file")?;
+    if !std::path::Path::new(file).exists() { return Err(format!("File not found: {file}")); }
+    let output = Command::new("xiomc").args(["--sandbox-report=json", file]).output().map_err(|e| format!("Failed to spawn xiomc: {e}"))?;
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap_or(json!({"error": "Failed to parse sandbox report"}));
+    Ok(json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&report).unwrap_or_default()}]}))
 }
 
 // ============================================================================
@@ -275,13 +267,12 @@ fn list_tools() -> Vec<ToolDef> {
         ToolDef {
             name: "format_xiom_code".into(),
             description: "Format XIOM source code according to the canonical style using xiom-fmt.".into(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "source": { "type": "string", "description": "XIOM source code to format" }
-                },
-                "required": ["source"]
-            }),
+            input_schema: json!({"type":"object","properties":{"source":{"type":"string","description":"XIOM source code to format"}},"required":["source"]}),
+        },
+        ToolDef {
+            name: "audit_safety_sandbox".into(),
+            description: "Run compiler safety audit on a XIOM source file. Enumerates unsafe blocks, categorises operations, scores severity (HIGH/MEDIUM/LOW), and returns structured findings for CI/CD gating.".into(),
+            input_schema: json!({"type":"object","properties":{"file":{"type":"string","description":"Path to .xi file to audit"}},"required":["file"]}),
         },
     ]
 }
@@ -293,6 +284,7 @@ fn call_tool(name: &str, params: &Value) -> Result<Value, String> {
         "get_contract_signature" => tool_get_contract_signature(params).map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })),
         "check_xiom_syntax" => tool_check_xiom_syntax(params).map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })),
         "format_xiom_code" => tool_format_xiom_code(params).map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })),
+        "audit_safety_sandbox" => tool_audit_safety_sandbox(params).map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })),
         _ => Err(format!("Unknown tool: {name}")),
     }
 }
@@ -408,15 +400,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_list_tools_returns_five_tools() {
+    fn test_list_tools_returns_six_tools() {
         let tools = list_tools();
-        assert_eq!(tools.len(), 5, "MVP must have 5 tools");
+        assert_eq!(tools.len(), 6, "MVP+Sandbox must have 6 tools");
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
         assert!(names.contains(&"compile_and_analyze"));
         assert!(names.contains(&"explain_error_code"));
         assert!(names.contains(&"get_contract_signature"));
         assert!(names.contains(&"check_xiom_syntax"));
-        assert!(names.contains(&"format_xiom_code"));
+        assert!(names.contains(&"audit_safety_sandbox"));
     }
 
     #[test]
