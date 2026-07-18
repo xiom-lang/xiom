@@ -38,10 +38,10 @@ vsce package
 ## Binary Resolution Order
 
 Both `xiom-lsp` and `xiom-dbg` are found automatically:
-1. VS Code setting (`xiom.lsp.path` / `xiom.dbg.path`)
-2. `<workspace>/target/debug/` and `<workspace>/target/release/`
-3. The extension's own directory (for bundled binaries)
-4. `PATH`
+1. VS Code setting (`xiom.lsp.path` / `xiom.dbg.path`) — explicit override
+2. **`PATH`** — the installed XIOM toolchain (standard for end users; release zip's `bin/` on PATH)
+3. `<workspace>/target/release/` and `target/debug/` — compiler developers working in the XIOM repo
+4. The extension's own directory (bundled binaries)
 
 ## Debug Launch Configuration
 
