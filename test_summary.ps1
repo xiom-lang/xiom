@@ -100,6 +100,7 @@ $tooling = @(
     @{pkg="xiom-doc";      test=$null; label="doc-gen"},
     @{pkg="xiom-ffigen";   test=$null; label="ffi-gen"},
     @{pkg="xiom-mcp";      test=$null; label="mcp-server"},
+    @{pkg="xiom-dbg";      test=$null; label="debugger"},
     @{pkg="xiom-verify";   test=$null; label="verifier"}
 )
 

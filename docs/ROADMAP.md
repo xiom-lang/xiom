@@ -106,18 +106,18 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | 4 | Or-Patterns | Pattern matching | ✅ | — |
 | **5a** | **Codegen Hardening** | **Compiler correctness** | **✅** | [COMPILER_ARCHITECTURE.md](./COMPILER_ARCHITECTURE.md) |
 | **5b** | **Stdlib Completion** | **Standard library** | **✅** | — |
-| **5c** | **Production Toolchain** | **CLI, build, errors, robustness** | **✅ Complete — 495/495 tests; zero warnings; zero ignored; deterministic builds; all P0+P1+P2 resolved** | [PRODUCTION_HARDENING_BUGS.md](./PRODUCTION_HARDENING_BUGS.md), [COMPILER_ARCHITECTURE.md](./COMPILER_ARCHITECTURE.md) |
-| **5c-R** | **Architect-R** | **Compiler refactoring + rustc lesson adoption** | **✅ Complete — 9 WS2 items, Place model, 19 commits, 93 regression tests** | [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md) |
-| **5c-E** | **Architect-E** | **Ecosystem hardening (vulkan audit gaps)** | **✅ Complete — ALL 7 gaps closed (G1-G7), 11 regression tests** | [ecosystem/xiom-vulkan/AUDIT.md](./ecosystem/xiom-vulkan/AUDIT.md) |
-| **5c-W** | **Warning Elimination** | **Zero compiler warnings across all crates** | **✅ Complete — zero warnings; removed duplicate coercion block** | — |
+| **5c** | **Production Toolchain** | **CLI, build, errors, robustness** | **✅ Complete** | [PRODUCTION_HARDENING_BUGS.md](./PRODUCTION_HARDENING_BUGS.md) |
+| **5c-R** | **Architect-R** | **Compiler refactoring + rustc lesson adoption** | **✅ Complete** | [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md) |
+| **5c-E** | **Architect-E** | **Ecosystem hardening (vulkan audit gaps)** | **✅ Complete** | [ecosystem/xiom-vulkan/AUDIT.md](./ecosystem/xiom-vulkan/AUDIT.md) |
 | │ | | | |
-| **5c-S** | **🔒 SANDBOX** | `--sandbox` flag, unsafe audit, severity scoring, CI/CD gate | 🟢 **Ready to build — zero deps** | [SAFETY_AUDIT.md](./SAFETY_AUDIT.md) |
-| **5d.1** | **🔧 MCP SERVER** | 8 native agent tools (compile, explain, sandbox, cheatsheet) | 🟢 **MVP in 3-5 days — 3 tools work TODAY** | [MCP_SERVER.md](./MCP_SERVER.md) |
-| **5g** | **🤖 AI PIPELINE** | `--ai` flag, LLM hints, contract-guided, temp=0 | 🟡 **Depends on 5f (Z3) for static verification** | [AI_PIPELINE.md](./AI_PIPELINE.md) |
+| **5d.1** | **🔧 MCP SERVER** | 8 native agent tools (compile, explain, sandbox, cheatsheet) | 🟢 **MVP in days** | [MCP_SERVER.md](./MCP_SERVER.md) |
+| **5d.2** | **🔒 SANDBOX** | `--sandbox` flag, unsafe audit, severity scoring, CI/CD gate | 🟢 **Zero deps** | [SAFETY_AUDIT.md](./SAFETY_AUDIT.md) |
 | │ | | | |
 | 5e | Advanced Compilation | Incremental, parallel, hot reload, XIR mid-level IR | Planned | [rust/04-incremental-compilation.md](./rust/04-incremental-compilation.md) |
-| 5f | Z3 Static Verification | Contract proof at compile time (SMT-LIB → Z3) | Planned — prerequisite for AI static verification | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
-| 5h | 🏁 Self-Hosting | XIOM compiler in XIOM | **Planned — LAST PHASE** | [rust/RUST_COMPILER_LESSONS.md §4.5](./rust/RUST_COMPILER_LESSONS.md) |
+| 5f | Z3 Static Verification | Contract proof at compile time (SMT-LIB → Z3) | Planned | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
+| **5g** | **🤖 AI PIPELINE** | `--ai` flag, LLM hints, contract-guided, temp=0 | 🟡 **After 5f** | [AI_PIPELINE.md](./AI_PIPELINE.md) |
+| │ | | | |
+| 5h | 🏁 Self-Hosting | XIOM compiler in XIOM | **LAST PHASE** | [rust/RUST_COMPILER_LESSONS.md] |
 
 ---
 
