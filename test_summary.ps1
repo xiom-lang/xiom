@@ -81,7 +81,7 @@ foreach ($s in $compiler) {
 $compilerPassed = $global:totalPassed
 $compilerFailed = $global:totalFailed
 $compilerIgnored = $global:totalIgnored
-$compilerTotal = $compilerPassed + $compilerFailed + $compilerIgnored
+$compilerTotal = $compilerPassed + $compilerFailed
 
 # ============================================================================
 # TOOLING SUITES
@@ -111,7 +111,10 @@ foreach ($s in $tooling) {
 $toolingPassed = $global:totalPassed
 $toolingFailed = $global:totalFailed
 $toolingIgnored = $global:totalIgnored
-$toolingTotal = $toolingPassed + $toolingFailed + $toolingIgnored
+# Display totals count runnable tests (passed+failed) — consistent with the
+# per-suite "OK (passed/total)" lines. Ignored tests are excluded so a
+# skipped test never masquerades as a failure in the ratio.
+$toolingTotal = $toolingPassed + $toolingFailed
 
 # ============================================================================
 # TOTALS
@@ -123,12 +126,15 @@ $grandTotal   = $compilerTotal   + $toolingTotal
 
 Write-Host ""
 Write-Host "=============================================" -ForegroundColor Magenta
-Write-Host "  COMPILER  $compilerTotal/$compilerTotal" -ForegroundColor $(if ($compilerFailed -eq 0){"Green"}else{"Red"})
-Write-Host "  TOOLING   $toolingTotal/$toolingTotal"  -ForegroundColor $(if ($toolingFailed -eq 0){"Green"}else{"Red"})
+Write-Host "  COMPILER  $compilerPassed/$compilerTotal" -ForegroundColor $(if ($compilerFailed -eq 0){"Green"}else{"Red"})
+Write-Host "  TOOLING   $toolingPassed/$toolingTotal"  -ForegroundColor $(if ($toolingFailed -eq 0){"Green"}else{"Red"})
 Write-Host "  ----------------------------------------"
 if ($grandFailed -eq 0 -and $global:failedSuites.Count -eq 0) {
     Write-Host "  ALL $grandTotal TESTS PASSED" -ForegroundColor Green
-    Write-Host "  TOTAL: $grandTotal/$grandTotal tests passed" -ForegroundColor Green
+    Write-Host "  TOTAL: $grandPassed/$grandTotal tests passed" -ForegroundColor Green
+    if ($grandIgnored -gt 0) {
+        Write-Host "  ($grandIgnored ignored)" -ForegroundColor Yellow
+    }
 } else {
     Write-Host "  $grandPassed passed, $grandFailed failed ($grandTotal total)" -ForegroundColor Red
     if ($global:failedSuites.Count -gt 0) {
@@ -139,5 +145,5 @@ Write-Host "=============================================" -ForegroundColor Mage
 
 # Final summary line for release tags
 if ($grandFailed -eq 0 -and $global:failedSuites.Count -eq 0) {
-    Write-Host "  Release tag: $grandTotal/$grandTotal tests" -ForegroundColor Cyan
+    Write-Host "  Release tag: $grandPassed/$grandTotal tests" -ForegroundColor Cyan
 }

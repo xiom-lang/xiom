@@ -89,7 +89,7 @@ done
 COMPILER_PASSED=$TOTAL_PASSED
 COMPILER_FAILED=$TOTAL_FAILED
 COMPILER_IGNORED=$TOTAL_IGNORED
-COMPILER_TOTAL=$((COMPILER_PASSED + COMPILER_FAILED + COMPILER_IGNORED))
+COMPILER_TOTAL=$((COMPILER_PASSED + COMPILER_FAILED))
 
 # ============================================================================
 # TOOLING
@@ -116,23 +116,32 @@ done
 TOOLING_PASSED=$TOTAL_PASSED
 TOOLING_FAILED=$TOTAL_FAILED
 TOOLING_IGNORED=$TOTAL_IGNORED
-TOOLING_TOTAL=$((TOOLING_PASSED + TOOLING_FAILED + TOOLING_IGNORED))
+# Display totals count runnable tests (passed+failed) — consistent with the
+# per-suite "OK (passed/total)" lines. Ignored tests excluded from the ratio.
+TOOLING_TOTAL=$((TOOLING_PASSED + TOOLING_FAILED))
 
 # ============================================================================
 # TOTALS
 # ============================================================================
 GRAND_PASSED=$((COMPILER_PASSED + TOOLING_PASSED))
 GRAND_FAILED=$((COMPILER_FAILED + TOOLING_FAILED))
+GRAND_IGNORED=$((COMPILER_IGNORED + TOOLING_IGNORED))
 GRAND_TOTAL=$((COMPILER_TOTAL + TOOLING_TOTAL))
+
+compiler_color=$GREEN; [ "$COMPILER_FAILED" -gt 0 ] && compiler_color=$RED
+tooling_color=$GREEN;  [ "$TOOLING_FAILED"  -gt 0 ] && tooling_color=$RED
 
 echo ""
 echo "============================================="
-echo -e "  COMPILER  ${GREEN}${COMPILER_TOTAL}/${COMPILER_TOTAL}${NC}"
-echo -e "  TOOLING   ${GREEN}${TOOLING_TOTAL}/${TOOLING_TOTAL}${NC}"
+echo -e "  COMPILER  ${compiler_color}${COMPILER_PASSED}/${COMPILER_TOTAL}${NC}"
+echo -e "  TOOLING   ${tooling_color}${TOOLING_PASSED}/${TOOLING_TOTAL}${NC}"
 echo    "  ----------------------------------------"
 if [ "$GRAND_FAILED" -eq 0 ] && [ ${#FAILED_SUITES[@]} -eq 0 ]; then
     echo -e "  ${GREEN}ALL $GRAND_TOTAL TESTS PASSED${NC}"
-    echo -e "  ${GREEN}TOTAL: $GRAND_TOTAL/$GRAND_TOTAL tests passed${NC}"
+    echo -e "  ${GREEN}TOTAL: $GRAND_PASSED/$GRAND_TOTAL tests passed${NC}"
+    if [ "$GRAND_IGNORED" -gt 0 ]; then
+        echo -e "  ${YELLOW}($GRAND_IGNORED ignored)${NC}"
+    fi
 else
     echo -e "  ${RED}$GRAND_PASSED passed, $GRAND_FAILED failed ($GRAND_TOTAL total)${NC}"
     echo -e "  ${RED}Failures: ${FAILED_SUITES[*]}${NC}"
@@ -140,5 +149,5 @@ fi
 echo "============================================="
 
 if [ "$GRAND_FAILED" -eq 0 ] && [ ${#FAILED_SUITES[@]} -eq 0 ]; then
-    echo -e "  ${CYAN}Release tag: $GRAND_TOTAL/$GRAND_TOTAL tests${NC}"
+    echo -e "  ${CYAN}Release tag: $GRAND_PASSED/$GRAND_TOTAL tests${NC}"
 fi
