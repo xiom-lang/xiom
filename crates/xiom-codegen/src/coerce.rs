@@ -155,10 +155,17 @@ impl IrEmitter {
                 self.emitln(&format!("  {loaded} = load {to}, {to}* {typed_ptr}"));
                 return loaded;
             }
-            // pointer or pointer-like (ptr, T*) -> struct: load the value.
+            // Opaque pointer (ptr) or pointer types -> struct: load the struct value.
+            // Also handle opaque ptr -> %struct.Vec (removed the i8* exclusion for ptr).
+            if from == "ptr" {
+                let loaded = self.fresh_tmp();
+                self.emitln(&format!("  {loaded} = load {to}, ptr {val}"));
+                return loaded;
+            }
+            // pointer or pointer-like (T*) -> struct: load the value.
             // Exclude i8* -> Vec because that path requires val_to_struct's
             // array-buffer-to-Vec construction with proper field initialization.
-            if (from == "ptr" || from.ends_with('*')) && !(from == "i8*" && (to == "%struct.Vec" || to.ends_with(".Vec"))) {
+            if from.ends_with('*') && !(from == "i8*" && (to == "%struct.Vec" || to.ends_with(".Vec"))) {
                 let loaded = self.fresh_tmp();
                 self.emitln(&format!("  {loaded} = load {to}, {from} {val}"));
                 return loaded;
