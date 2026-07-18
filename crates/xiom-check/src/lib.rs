@@ -2636,6 +2636,9 @@ impl Checker {
                     // 5c-E: Int ↔ Ptr casts (raw pointer FFI, ptr.xi)
                     (CheckedType::Int, CheckedType::Named(s)) if s == "Ptr" => target_ty,
                     (CheckedType::Named(s), CheckedType::Int) if s == "Ptr" => target_ty,
+                    // 5c-E: Vec/Slice/Array → Ptr cast (Vulkan FFI: pass buffer to extern)
+                    (CheckedType::Named(s), CheckedType::Named(t))
+                        if t == "Ptr" && (s == "Vec" || s == "Slice") => target_ty,
                     _ => self.error(format!("unsupported type cast: {} to {}", inner_ty.name(), target_ty.name()), *span),
                 }
             }
@@ -2705,6 +2708,13 @@ impl Checker {
             return true; // Don't cascade errors
         }
         if found == expected {
+            return true;
+        }
+        // 5c-E: Scalar types are compatible with raw Ptr when passed by reference
+        // (&T -> *T for extern FFI calls). The codegen emits the pointer address.
+        if expected == &CheckedType::Named("Ptr".into())
+            && (found.is_numeric() || found == &CheckedType::Bool)
+        {
             return true;
         }
         // Named types are compatible if they have the same name
