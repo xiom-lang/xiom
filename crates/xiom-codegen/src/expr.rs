@@ -1973,6 +1973,10 @@ impl IrEmitter {
                                 || (id.name.len() == 1 && id.name.chars().next().map_or(false, |c| c.is_ascii_uppercase()))
                         }
                         Expr::Field(_, _, _) => true, // module.Type — always a type path
+                        // Tuple of type names (e.g. Map[Str, JsonValue]): each element
+                        // should itself be a type (Ident or Field). This enables
+                        // multi-param generic type-arg extraction for Map/Vec/etc.
+                        Expr::Tuple(elems, _) => elems.iter().all(|e| idx_is_type(e)),
                         _ => false, // integer literal, binary expr, etc. — always a value index
                     }
                 };
