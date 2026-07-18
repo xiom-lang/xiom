@@ -109,6 +109,7 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | **5c-R** | **Architect-R** | **Compiler refactoring + rustc lesson adoption** | **✅ Complete — 9 WS2 items, Place model, 19 commits, 79 regression tests** | [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md) |
 | **5c-E** | **Architect-E** | **Ecosystem hardening (vulkan audit gaps)** | **✅ Complete — 7 gaps closed, 8 regression tests** | [ecosystem/xiom-vulkan/AUDIT.md](./ecosystem/xiom-vulkan/AUDIT.md) |
 | **5c-S** | **Safety Audit** | `--sandbox` flag, unsafe block enumeration, severity scoring, CI/CD gate | **Planned — zero deps, buildable now** | [SAFETY_AUDIT.md](./SAFETY_AUDIT.md) |
+| **5c-W** | **Warning Elimination** | **Zero compiler warnings across all crates (release build)** | **✅ Complete — 15 warnings fixed, 441/441 tests** | — |
 | 5d | Ecosystem & Tooling | MCP server (3 tools MVP), package manager, debugger, LSP, docs | Planned — MCP MVP buildable now | [MCP_SERVER.md](./MCP_SERVER.md), [XIOM_TOOLING_SPEC.md](./XIOM_TOOLING_SPEC.md) |
 | 5e | Advanced Compilation | Incremental, parallel, hot reload, XIR mid-level IR | Planned | [rust/04-incremental-compilation.md](./rust/04-incremental-compilation.md) |
 | 5f | Z3 Static Verification | Contract proof at compile time (SMT-LIB → Z3) | Planned | `E:\repos\z3.rs` |

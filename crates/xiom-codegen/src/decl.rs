@@ -884,6 +884,7 @@ impl IrEmitter {
     /// inner LLVM type.  For scalar payloads uses `%struct.Option`; for
     /// struct payloads creates a concrete type like `%struct.Option__Point`
     /// that stores the struct inline (BUG-006 fix).
+    #[allow(dead_code)]
     pub(crate) fn get_concrete_option_type(&mut self, inner_ty: &str) -> String {
         if !inner_ty.starts_with('%') {
             return "%struct.Option".to_string();
@@ -911,6 +912,7 @@ impl IrEmitter {
     /// Return the LLVM struct type for a `Result<Ok, Err>` with the given
     /// concrete inner types.  Same logic as `get_concrete_option_type`
     /// but for 3-field Result structs.
+    #[allow(dead_code)]
     pub(crate) fn get_concrete_result_type(&mut self, ok_ty: &str, err_ty: &str) -> String {
         let ok_struct = ok_ty.starts_with('%');
         let err_struct = err_ty.starts_with('%');

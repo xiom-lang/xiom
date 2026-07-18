@@ -7,7 +7,6 @@ use xiom_ast::*;
 use xiom_lexer::Lexer;
 use xiom_parser::Parser;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::path::Path;
 
 /// Fast 64-bit content hash (FNV-1a) for Level 0 incremental caching.

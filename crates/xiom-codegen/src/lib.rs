@@ -852,6 +852,7 @@ impl IrEmitter {
     /// (stored inline via memcpy or as val_to_i64 heap pointer), resolve field
     /// access via inttoptr+GEP on a known struct type. Returns None if no
     /// unambiguous match.
+    #[allow(dead_code)]
     fn try_i64_field_access(&mut self, obj_val: &str, field_name: &str) -> Option<(String, String)> {
         let ts: Vec<(String, Vec<String>)> = self.types.iter()
             .map(|(k,v)| (k.clone(), v.clone())).collect();
@@ -2774,11 +2775,6 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                     }
                 }
                 None
-            }
-            Expr::Index(base, _, _) => {
-                // Strip Index wrapper for type-arg annotations like
-                // `Map[Str, JsonValue].new()`. The base is the actual type name.
-                self.infer_struct_type_name(base.as_ref())
             }
             _ => None,
         }

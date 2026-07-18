@@ -2,7 +2,6 @@
 // Extends the existing lexical BorrowChecker with Place-level conflict detection.
 
 use super::place::{Place, PlaceConflict, places_conflict};
-use crate::types::TypeCause;
 
 /// A single loan: a borrow of a specific place with a read/write kind.
 #[derive(Debug, Clone)]
