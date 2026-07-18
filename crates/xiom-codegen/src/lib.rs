@@ -1087,9 +1087,13 @@ impl IrEmitter {
             });
         if let Some(meta) = meta {
             if let Some((_, ty_name)) = meta.fields.get(field_idx) {
-                // For generic types (Vec[Int], Map[Str,Int]), return i64
-                // to avoid Win64 sret corruption (5c.28 NET crash fix).
+                // For generic types like Vec[K] or Map[Str,V], strip generic
+                // args and use the base struct type (e.g. Vec -> %struct.Vec).
                 if ty_name.contains('[') {
+                    let base = ty_name.split('[').next().unwrap_or(ty_name);
+                    if self.types.contains_key(base) || self.type_meta.contains_key(base) {
+                        return format!("%struct.{base}");
+                    }
                     return "i64".to_string();
                 }
                 return self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
@@ -1249,6 +1253,20 @@ impl IrEmitter {
                     }
                 }
             }
+            // Map[K, V]: register with keys and values fields (both are %struct.Vec).
+            // Without this, field access like `entries.keys` falls through
+            // to function-pointer resolution (producing undefined @Map.keys).
+            let map_fields: Vec<String> = vec!["keys".to_string(), "values".to_string()];
+            let map_full_fields: Vec<(String, String)> = vec![
+                ("keys".to_string(), "Vec".to_string()),
+                ("values".to_string(), "Vec".to_string()),
+            ];
+            self.types.insert("Map".to_string(), map_fields);
+            self.type_meta.entry("Map".to_string()).or_insert_with(|| TypeMeta {
+                fields: map_full_fields,
+                derives: Vec::new(),
+                invariants: Vec::new(),
+            });
         }
 
         // Register type structures

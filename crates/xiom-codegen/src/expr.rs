@@ -4155,8 +4155,11 @@ impl IrEmitter {
                 // Handle pointer-typed array references from monomorphised generic params.
                 if cont_ty.ends_with('*') && cont_ty != "i8*" {
                     let elem_ty = cont_ty.trim_end_matches('*');
+                    // Array buffers store the length at [0], so elements start at [1].
+                    let offset = self.fresh_tmp();
+                    self.emitln(&format!("  {offset} = add i64 {idx}, 1"));
                     let elem_ptr = self.fresh_tmp();
-                    self.emitln(&format!("  {elem_ptr} = getelementptr {elem_ty}, {cont_ty} {cont_val}, i64 {idx}"));
+                    self.emitln(&format!("  {elem_ptr} = getelementptr {elem_ty}, {cont_ty} {cont_val}, i64 {offset}"));
                     let elem = self.fresh_tmp();
                     self.emitln(&format!("  {elem} = load {elem_ty}, {elem_ty}* {elem_ptr}"));
                     let result = self.val_to_i64(&elem, &elem_ty);
