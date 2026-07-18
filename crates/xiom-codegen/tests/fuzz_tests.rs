@@ -58,13 +58,6 @@ fn assert_no_panic(source: &str) {
 /// Used for inputs that must be rejected, e.g. nesting past the depth guard.
 /// NOTE: With Phase 5c error recovery, the guard fires but recovery may
 /// salvage a partial program. Use `assert_parser_error` for guard tests.
-fn assert_clean_err(source: &str) {
-    let result = compile_no_panic(source);
-    assert!(
-        result.is_err(),
-        "expected a clean Err (rejection), but compilation succeeded"
-    );
-}
 
 /// Assert the parser records at least one error (e.g. depth guard fired).
 /// Error recovery may still produce a valid partial program (5c recovery),
