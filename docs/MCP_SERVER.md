@@ -182,6 +182,50 @@ Returns:
   - errors: [{ line, column, message }]
 ```
 
+### 3.8 `get_language_cheatsheet` ⭐ (Friction Point Solver)
+
+```
+Tool: get_language_cheatsheet
+Description: Return a structural template of XIOM syntax rules for the given pattern.
+  Agent calls this BEFORE writing its first line of XIOM code.
+  Dramatically reduces failed compilation attempts by teaching the
+  structural rules upfront instead of through compiler rejection.
+Parameters:
+  - pattern (string, required): What the agent wants to write
+    Values: "function" | "method" | "struct" | "enum" | "contract"
+    | "variable" | "control_flow" | "match" | "extern_c" | "full"
+Returns:
+  - syntax_example: string (valid XIOM code showing the pattern)
+  - rules: [string] (non-negotiable rules for this pattern)
+  - common_mistakes: [string] (what untrained models typically get wrong)
+  - parser_errors_if_done_wrong: [string] (which error codes trigger)
+```
+
+**Example: agent calls `get_language_cheatsheet("function")`**
+
+```json
+{
+  "pattern": "function",
+  "syntax_example": "fn add(a: Int, b: Int) -> Int {\n  return a + b;\n}",
+  "rules": [
+    "All parameters MUST have type annotations",
+    "Return type is required unless function returns nothing",
+    "Tail expression (no return keyword, no semicolon) is the return value",
+    "Every statement MUST end with ;",
+    "Contracts go between signature and body: `requires: b != 0;`"
+  ],
+  "common_mistakes": [
+    "Forgetting return type annotation on fn with return value",
+    "Using `else if` instead of `elif`",
+    "Putting ; after a tail expression",
+    "Using `self.x` inside methods — fields are implicit, just write `x`"
+  ],
+  "parser_errors_if_done_wrong": "X0001 (unexpected token), X0010 (type mismatch)"
+}
+```
+
+**Why this tool is critical:** The chat analysis nailed it — "the agent will essentially learn the syntax via the compiler's rejection messages." This tool short-circuits that. The agent learns the syntax BEFORE writing code, not through 5 failed compilations. It turns "trial-and-error learning" into "reference-card programming."
+
 ---
 
 ## 4. MVP: What Ships First
