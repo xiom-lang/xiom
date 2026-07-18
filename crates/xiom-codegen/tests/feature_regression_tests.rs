@@ -606,3 +606,52 @@ fn regress_5c30_enum_float_payload_bitcast() {
     let ir = compile("pub enum Val { I(Int); R(Float64); } fn main() -> Int { let v = Val.R(2.718); match v { R(_) => 0; _ => 1; } }").unwrap();
     assert!(ir.contains("define"), "Float enum payload must compile");
 }
+
+// =====================================================================
+// 5c-E: Vulkan FFI probes (G1/G2/G4)
+// =====================================================================
+
+#[test]
+fn regress_5c_e_vec_as_ptr_cast_g1() {
+    // 5c-E G1: Vec -> Ptr cast for Vulkan FFI buffer passing
+    let src = r#"
+extern "C" { fn probe(data: *UInt8, size: Int); }
+fn main() -> Int {
+  var v: Vec[Float32] = [1.0, 2.0];
+  unsafe { probe(v as *UInt8, v.len() * 4); }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Vec as Ptr cast must compile");
+}
+
+#[test]
+fn regress_5c_e_ref_as_ptr_ffi_g2() {
+    // 5c-E G2: &local passed to extern function expecting *T
+    let src = r#"
+extern "C" { fn probe(out: *Int32); }
+fn main() -> Int {
+  var w: Int32 = 0;
+  unsafe { probe(&w); }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "&local as Ptr arg must compile");
+}
+
+#[test]
+fn regress_5c_e_float_vec_element_read_g4() {
+    // 5c-E G4: Float Vec element reads with typed access
+    let src = r#"
+fn main() -> Int {
+  let a: Vec[Float64] = [1.5, 2.5];
+  if a[0] != 1.5 { return 1; }
+  let c = Vec[Float64].new(); c.push(3.5);
+  if c[0] != 3.5 { return 2; }
+  let e = Vec[Float32].new(); e.push(6.5); let e0: Float32 = e[0];
+  if e0 != 6.5 { return 3; }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Float Vec element reads must compile");
+}
