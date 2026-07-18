@@ -1972,11 +1972,8 @@ impl IrEmitter {
                                 || self.type_meta.contains_key(&id.name)
                                 || (id.name.len() == 1 && id.name.chars().next().map_or(false, |c| c.is_ascii_uppercase()))
                         }
-                        Expr::Field(_, _, _) => true, // module.Type — always a type path
-                        // Tuple of type names (e.g. Map[Str, JsonValue]): each element
-                        // should itself be a type (Ident or Field). This enables
-                        // multi-param generic type-arg extraction for Map/Vec/etc.
-                        Expr::Tuple(elems, _) => elems.iter().all(|e| idx_is_type(e)),
+                        Expr::Field(_, _, _) => true, Expr::Tuple(elems, _) => elems.iter().all(|e| matches!(e, Expr::Ident(_) | Expr::Field(_, _, _))),
+                        
                         _ => false, // integer literal, binary expr, etc. — always a value index
                     }
                 };
@@ -3437,13 +3434,15 @@ impl IrEmitter {
                 } else {
                     fn_key
                 };
-                let is_generic = self.generic_fn_decls.iter().any(|(k, _)| k == &fn_key);
+                let is_generic = self.generic_fn_decls.iter().any(|(k, _)| k == &fn_key)
+                    || self.generic_fn_decls.iter().any(|(k, _)| k.ends_with(&format!(".{}", fn_key)));
                 if is_generic {
                     // Infer concrete types from argument types
                     let mut concrete_types: Vec<String> = Vec::new();
                     let mut const_values: HashMap<String, i64> = HashMap::new();
                     // Find the generic function declaration
-                    if let Some((_, fd)) = self.generic_fn_decls.iter().find(|(k, _)| k == &fn_key) {
+                    if let Some((_, fd)) = self.generic_fn_decls.iter().find(|(k, _)| k == &fn_key)
+                        .or_else(|| self.generic_fn_decls.iter().find(|(k_2, _)| k_2.ends_with(&format!(".{}", fn_key)))) {
                         let fd = fd.clone();
                         for gp in &fd.generics {
                             // Const-generic params: extract the integer value from the
