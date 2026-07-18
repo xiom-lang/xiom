@@ -122,10 +122,11 @@
 | **5c** | **Production Toolchain** | **CLI, build, errors, robustness** | **✅ Complete — 101/101 e2e; deterministic builds; all P0 resolved; all P1 closed** | [PRODUCTION_HARDENING_BUGS.md](./PRODUCTION_HARDENING_BUGS.md), [COMPILER_ARCHITECTURE.md](./COMPILER_ARCHITECTURE.md) |
 | **5c-R** | **Architect-R** | **Compiler refactoring + rustc lesson adoption** | **✅ Complete — 9 WS2 items, Place model, 19 commits, 79 regression tests** | [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md) |
 | **5c-E** | **Architect-E** | **Ecosystem hardening (vulkan audit gaps)** | **✅ Complete — 7 gaps closed, 8 regression tests** | [ecosystem/xiom-vulkan/AUDIT.md](./ecosystem/xiom-vulkan/AUDIT.md) |
+| **5c-S** | **Safety Audit** | `--sandbox` flag, unsafe block enumeration, severity scoring, CI/CD gate | **Planned — zero deps, buildable now** | [SAFETY_AUDIT.md](./SAFETY_AUDIT.md) |
 | 5d | Ecosystem & Tooling | Package manager, debugger, LSP, docs | Planned | [XIOM_TOOLING_SPEC.md](./XIOM_TOOLING_SPEC.md) |
 | 5e | Advanced Compilation | Incremental, parallel, hot reload, XIR mid-level IR | Planned | [rust/04-incremental-compilation.md](./rust/04-incremental-compilation.md) |
 | 5f | Z3 Static Verification | Contract proof at compile time (SMT-LIB → Z3) | Planned — prerequisite for AI pipeline | `E:\repos\z3.rs` |
-| **5g** | **AI-Assisted Pipeline** | `--ai` flag, LLM auto-iteration, contract-guided prompts | **Planned — depends on 5f (Z3)** | [AI_PIPELINE.md](./AI_PIPELINE.md) |
+| **5g** | **AI-Assisted Pipeline** | `--ai` flag, LLM hints, contract-guided prompts, LSP integration | **Planned — depends on 5f (Z3)** | [AI_PIPELINE.md](./AI_PIPELINE.md) |
 | 5h | Self-Hosting | XIOM compiler in XIOM | Planned (LAST) | [rust/RUST_COMPILER_LESSONS.md §4.5](./rust/RUST_COMPILER_LESSONS.md) |
 
 ---
