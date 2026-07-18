@@ -178,32 +178,57 @@ impl GdbBackend {
                 let mut name = "??".to_string();
                 let mut file = "unknown.xi".to_string();
                 let mut line_num: u64 = 0;
-
-                if let Some(start) = line.find("func=\"") {
-                    let rest = &line[start + 6..];
-                    if let Some(end) = rest.find('"') { name = rest[..end].to_string(); }
-                }
-                if let Some(start) = line.find("file=\"") {
-                    let rest = &line[start + 6..];
-                    if let Some(end) = rest.find('"') { file = rest[..end].to_string(); }
-                }
-                if let Some(start) = line.find("line=\"") {
-                    let rest = &line[start + 6..];
-                    if let Some(end) = rest.find('"') {
-                        line_num = rest[..end].parse().unwrap_or(0);
-                    }
-                }
-
-                frames.push(json!({
-                    "id": frame_id,
-                    "name": name,
-                    "source": { "name": file, "path": file },
-                    "line": line_num,
-                    "column": 0,
-                }));
+                if let Some(start) = line.find("func=\"") { let rest = &line[start + 6..]; if let Some(end) = rest.find('"') { name = rest[..end].to_string(); } }
+                if let Some(start) = line.find("file=\"") { let rest = &line[start + 6..]; if let Some(end) = rest.find('"') { file = rest[..end].to_string(); } }
+                if let Some(start) = line.find("line=\"") { let rest = &line[start + 6..]; if let Some(end) = rest.find('"') { line_num = rest[..end].parse().unwrap_or(0); } }
+                frames.push(json!({"id": frame_id, "name": name, "source": {"name": file, "path": file}, "line": line_num, "column": 0}));
             }
         }
         Ok(frames)
+    }
+
+    /// Get local variables for the current frame.
+    fn list_variables(&mut self) -> Result<Vec<Value>, String> {
+        let resp = self.send_mi("-stack-list-variables --simple-values")?;
+        let mut vars = Vec::new();
+        let mut var_ref = 1000;
+
+        for line in resp.lines() {
+            if line.contains("name=\"") {
+                let mut name = String::new();
+                let mut value = String::new();
+                let mut var_type = "unknown".to_string();
+
+                if let Some(start) = line.find("name=\"") {
+                    let rest = &line[start + 6..];
+                    if let Some(end) = rest.find('"') { name = rest[..end].to_string(); }
+                }
+                if let Some(start) = line.find("value=\"") {
+                    let rest = &line[start + 7..];
+                    if let Some(end) = rest.find('"') { value = rest[..end].to_string(); }
+                }
+                if let Some(start) = line.find("type=\"") {
+                    let rest = &line[start + 6..];
+                    if let Some(end) = rest.find('"') { var_type = rest[..end].to_string(); }
+                }
+
+                if !name.is_empty() && name != "..." {
+                    let is_compound = var_type.contains('*') || var_type.contains("struct") || var_type.contains("class");
+                    let var_ref_id = if is_compound { var_ref += 1; var_ref } else { 0 };
+                    vars.push(json!({
+                        "name": name,
+                        "value": value,
+                        "type": var_type,
+                        "variablesReference": var_ref_id,
+                    }));
+                }
+            }
+        }
+
+        if vars.is_empty() {
+            vars.push(json!({"name": "no locals", "value": "<no variables in scope>", "variablesReference": 0}));
+        }
+        Ok(vars)
     }
 
     fn terminate(&mut self) -> Result<(), String> {
@@ -373,8 +398,10 @@ fn handle_request(gdb: &mut GdbBackend, req: &DapRequest) {
         }
 
         "variables" => {
-            // Placeholder: return empty variables list
-            send_response(req.seq, &req.command, true, Some(json!({"variables": []})), None);
+            match gdb.list_variables() {
+                Ok(vars) => send_response(req.seq, &req.command, true, Some(json!({"variables": vars})), None),
+                Err(e) => send_response(req.seq, &req.command, false, None, Some(e)),
+            }
         }
 
         "continue" => {
