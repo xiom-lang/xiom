@@ -113,7 +113,7 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | **5c-W** | **Warning Elimination** | **Zero compiler warnings across all crates (release build)** | **✅ Complete — 15 warnings fixed, 441/441 tests** | — |
 | 5d | Ecosystem & Tooling | MCP server (3 tools MVP), package manager, debugger, LSP, docs | Planned — MCP MVP buildable now | [MCP_SERVER.md](./MCP_SERVER.md), [XIOM_TOOLING_SPEC.md](./XIOM_TOOLING_SPEC.md) |
 | 5e | Advanced Compilation | Incremental, parallel, hot reload, XIR mid-level IR | Planned | [rust/04-incremental-compilation.md](./rust/04-incremental-compilation.md) |
-| 5f | Z3 Static Verification | Contract proof at compile time (SMT-LIB → Z3) | Planned | `E:\repos\z3.rs` |
+| 5f | Z3 Static Verification | Contract proof at compile time (SMT-LIB → Z3) | Planned | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) (analysis of `E:\repos\z3.rs`) |
 | **5g** | **AI-Assisted Pipeline** | `--ai` flag, LLM hints, contract-guided prompts, LSP integration | **Planned — depends on 5f (Z3)** | [AI_PIPELINE.md](./AI_PIPELINE.md) |
 | 5h | Self-Hosting | XIOM compiler in XIOM | Planned (LAST) | [rust/RUST_COMPILER_LESSONS.md §4.5](./rust/RUST_COMPILER_LESSONS.md) |
 
@@ -801,14 +801,20 @@ naming conventions, contextual keywords, Vec.with_capacity, array element types.
 
 ## 10. PHASE 5f — VERIFICATION (Planned)
 
+**Design reference:** [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) — analysis of the `z3`/`z3-sys` Rust bindings (`E:\repos\z3.rs`): SMT encoding guidance (Int vs BV, datatypes for Option/structs/enums, VC generation with body encoding), staged integration path (Stage 0 textual SMT-LIB + CLI output parsing → Stage 1 feature-gated `z3` crate → Stage 2 incremental/parallel solving), and X7000-series counterexample diagnostics. Note: rustc does not use Z3 — built-in verification is a XIOM differentiator.
+
+**Known soundness gap to fix first (P0):** current `xiom-verify` never encodes function bodies — it only checks `requires ∧ ¬ensures` consistency, so it cannot prove a function meets its contract. See Z3_LESSONS §4.
+
 ### 10.1 Contract Verification (IMPROVEMENT_PLAN §3.0)
 
 | Item | Priority |
 |------|----------|
+| VC generation with body encoding (SSA/weakest-precondition) — fixes soundness gap | P0 |
 | Z3 static verification (prove contracts at compile time) | P1 |
+| Counterexample parsing → X7000-series diagnostics (`note:` rendered models) | P1 |
 | Abstract interpretation (array bounds, integer ranges) | P2 |
 | Contract composition analysis (call chain verification) | P2 |
-| Symbolic execution (auto-generated tests from contracts) | P2 |
+| Symbolic execution (auto-generated tests from contracts — `solver.solutions()` iterator) | P2 |
 | Contract coverage analyzer (`xiom test --coverage`) | P1 |
 | Formal verification dashboard | P2 |
 
@@ -896,3 +902,4 @@ cargo test -p xiom-codegen  # all regression gates
 | `docs/ARC_A_POINTERS.md` | Pointer/reference design |
 | `docs/PRODUCTION_HARDENING_BUGS.md` | All 10 bugs documented |
 | [`docs/rust/`](./rust/README.md) (README + 8 reports) | rustc & stdlib analysis — basis for Phase 5c-R adoptions |
+| [`docs/z3/Z3_LESSONS.md`](./z3/Z3_LESSONS.md) | z3.rs bindings analysis — SMT encoding + integration strategy for Phase 5f |
