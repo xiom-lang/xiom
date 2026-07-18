@@ -325,6 +325,7 @@ dependencies = [
  "xiom-check",
  "xiom-lexer",
  "xiom-parser",
+ "xiomc",
 ]
 
 [[package]]
