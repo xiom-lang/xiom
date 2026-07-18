@@ -21,6 +21,18 @@ echo "  XIOM Release Packager v$VERSION"
 echo "  ================================"
 echo ""
 
+# Bump version in Cargo.toml so the binary reports the correct version.
+# Uses env!("CARGO_PKG_VERSION") at compile time.
+CARGO_TOML="$ROOT/crates/xiomc/Cargo.toml"
+if [ -f "$CARGO_TOML" ]; then
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "s/^version *= *\"[^\"]*\"/version = \"$VERSION\"/" "$CARGO_TOML"
+    else
+        sed -i "s/^version *= *\"[^\"]*\"/version = \"$VERSION\"/" "$CARGO_TOML"
+    fi
+    echo "  Cargo.toml version set to $VERSION"
+fi
+
 # Build all tools
 TOOLS=("xiomc" "xiom-fmt" "xiom-doc" "xiom-ffigen" "xiom-pkg" "xiom-lsp")
 BUILT_OK=()
