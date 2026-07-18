@@ -1288,6 +1288,28 @@ impl IrEmitter {
                         self.emitln(&format!("  {fp} = ptrtoint {fpty} @{fn_name} to i64"));
                         return Ok((fp, "i64".to_string()));
                     }
+                    // G-20: a bare receiver-FIELD reference in a method body with
+                    // no receiver slot (no self param, no &T receiver-style param,
+                    // no `this` usage → no %param_self). Emitting the generic `0`
+                    // fallback here produced silent wrong values. Fail loudly with
+                    // the fix.
+                    if let Some(recv) = self.current_receiver.clone() {
+                        let fields = self.type_meta.get(&recv)
+                            .or_else(|| {
+                                let suffix = format!(".{recv}");
+                                self.type_meta.iter()
+                                    .find(|(k, _)| k.ends_with(&suffix))
+                                    .map(|(_, v)| v)
+                            });
+                        if let Some(meta) = fields {
+                            if meta.fields.iter().any(|(fname, _)| fname == &ident.name) {
+                                return Err(format!(
+                                    "receiver field '{0}' cannot be read bare in this method — use 'this.{0}' (bare fields need a `self` param, a `&{1}` receiver-style first param, or a `this`-based body)",
+                                    ident.name, recv
+                                ));
+                            }
+                        }
+                    }
                     Ok(("0".to_string(), "i64".to_string()))
                 }
             }

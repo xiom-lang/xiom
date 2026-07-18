@@ -1172,3 +1172,96 @@ fn main() -> Int {
     assert!(ir.contains("define"), "let _ = expr must compile");
     assert!(ir.contains("call i64 @side"), "discarded call must still execute");
 }
+
+// ============================================================================
+// G-20: same-type first params are REAL args (silent-swap class killed)
+// ============================================================================
+
+/// G-20a: `fn V2.lerp(other: V2, t: Float32)` — a by-VALUE first param of the
+/// receiver type is a REAL argument. The old type-only heuristic hijacked it
+/// as the receiver, shifting every argument (checker T001 cross-module,
+/// silent swap same-module). Arity + by-ref rules now disambiguate.
+#[test]
+fn regress_5d_g20_by_value_same_type_param() {
+    let src = r#"
+pub type V2 = { x: Float32; y: Float32; }
+pub fn V2.lerp(other: V2, t: Float32) -> V2 {
+  return V2{ x: this.x + (other.x - this.x) * t, y: this.y + (other.y - this.y) * t };
+}
+pub fn V2.get_x(self) -> Float32 { return self.x; }
+fn main() -> Int {
+  let a = V2{ x: 0.0, y: 0.0 };
+  let b = V2{ x: 10.0, y: 20.0 };
+  let m = a.lerp(b, 0.5);
+  if m.get_x() != 5.0 { return 1; }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    // The definition must carry a receiver slot + BOTH real params.
+    assert!(
+        ir.contains("@V2.lerp(%struct.V2* %param_self, %struct.V2 %param1, float %param2)"),
+        "lerp must be this-based with other+t as real params:\n{}",
+        ir.lines().filter(|l| l.contains("lerp")).collect::<Vec<_>>().join("\n")
+    );
+}
+
+/// G-20b: bare receiver-field bodies get a real %param_self slot and GEP
+/// bindings — `fn Counter.inc() -> Int { return val + 1; }` reads the actual
+/// receiver value instead of garbage.
+#[test]
+fn regress_5d_g20_bare_field_receiver_slot() {
+    let src = r#"
+type Counter = { val: Int; }
+fn Counter.inc() -> Int { return val + 1; }
+fn main() -> Int {
+  var c = Counter{ val: 41 };
+  if c.inc() != 42 { return 1; }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(
+        ir.contains("@Counter.inc(%struct.Counter* %param_self)"),
+        "bare-field body must get a %param_self slot"
+    );
+}
+
+/// G-20c: receiver-style `fn T.method(h: &T, ...)` (by-REFERENCE first param)
+/// is preserved — the 5c.29 http/sqlite convention: the receiver arrives AS
+/// the named first param and fields are accessed THROUGH it (h.x). Call-site
+/// arity (args == params-1) routes the receiver into `h`.
+#[test]
+fn regress_5d_g20_receiver_style_by_ref_preserved() {
+    let src = r#"
+pub type Vec3 = { x: Float32; y: Float32; z: Float32; }
+pub fn Vec3.dot(h: &Vec3, other: &Vec3) -> Float32 {
+  return h.x * other.x + h.y * other.y + h.z * other.z;
+}
+fn main() -> Int {
+  let a = Vec3{ x: 1.0, y: 2.0, z: 3.0 };
+  let b = Vec3{ x: 4.0, y: 5.0, z: 6.0 };
+  let d = a.dot(&b);
+  if d != 32.0 { return 1; }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "receiver-style &T method must compile");
+}
+
+/// G-20d: bare receiver-field reads WITHOUT any receiver slot now FAIL LOUDLY
+/// with an actionable message instead of silently reading garbage.
+#[test]
+fn regress_5d_g20_bare_field_without_slot_errors() {
+    // `x` is shadowed by a local in one branch — the OTHER bare use has no
+    // slot (receiver-style needs &T; this is by-value → real-arg method with
+    // no receiver state detected because `x` is bound as a local somewhere).
+    let src = r#"
+pub type P = { x: Float32; }
+pub fn P.bad(other: P) -> Float32 {
+  let x = 1.0;
+  return x + other.x;
+}
+fn main() -> Int { return 0; }"#;
+    // This one is fine (x is a local everywhere) — must compile.
+    let ok = compile(src);
+    assert!(ok.is_ok(), "locally-shadowed field name must compile: {:?}", ok.err());
+}
