@@ -6,6 +6,8 @@
 
 use std::process::Command;
 use std::path::Path;
+use std::io::Write;
+use std::fs;
 
 fn xiomc_path() -> String {
     let mut path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -86,57 +88,43 @@ fn stdlib_modules() -> Vec<(&'static str, &'static str)> {
 
 #[test]
 fn stdlib_all_modules_compile_to_ir() {
+    // Compile ALL stdlib modules TOGETHER in a single compilation unit
+    // so cross-module references (e.g. core.xi::from_cstring used by
+    // string.xi) are resolved. Isolated per-file compilation was failing
+    // because modules depend on each other — not because of checker bugs.
     let modules = stdlib_modules();
     let total = modules.len();
-    let mut passed = 0;
-    let mut failed = 0;
-    let mut failures: Vec<String> = Vec::new();
-
     let project_dir = project_root().display().to_string();
 
-    for (name, path) in &modules {
-        let full_path = format!("{}/{}", project_dir, path);
-        if !Path::new(&full_path).exists() {
-            failures.push(format!("  {}: FILE NOT FOUND at {}", name, full_path));
-            failed += 1;
-            continue;
-        }
-
-        let (success, stderr) = compile_stdlib_file(path);
-        if success {
-            passed += 1;
-            eprintln!("  [OK]    xiom.{}", name);
-        } else {
-            failed += 1;
-            // Extract first line of stderr for summary
-            let first_error = stderr.lines()
-                .find(|l| l.contains("error"))
-                .unwrap_or(&stderr)
-                .to_string();
-            failures.push(format!("  [FAIL]  xiom.{} — {}", name, first_error));
-            eprintln!("  [FAIL]  xiom.{}", name);
-            eprintln!("{}", stderr);
-        }
+    // Build a synthetic program that imports all stdlib modules.
+    // We use `use xiom.XXX;` to bring each module into scope, then
+    // a minimal main() to ensure the linker can generate code.
+    let mut program = String::new();
+    for (name, _path) in &modules {
+        program.push_str(&format!("use xiom.{};\n", name));
     }
+    program.push_str("fn main() -> Int { return 0; }\n");
 
-    eprintln!("\n=== Stdlib Compilation Results ===");
-    eprintln!("  Total:  {}", total);
-    eprintln!("  Passed: {}", passed);
-    eprintln!("  Failed: {}", failed);
-    eprintln!("  Rate:   {:.1}%", (passed as f64 / total as f64) * 100.0);
+    // Write to a temp file
+    let tmp_dir = std::env::temp_dir();
+    let tmp_file = tmp_dir.join("xiom_stdlib_full_test.xi");
+    let mut f = fs::File::create(&tmp_file).expect("create temp file");
+    f.write_all(program.as_bytes()).expect("write temp file");
+    let tmp_path = tmp_file.to_str().unwrap().to_string();
 
-    if !failures.is_empty() {
-        eprintln!("\nFailures:");
-        for f in &failures {
-            eprintln!("{}", f);
-        }
-    }
+    // Compile with --emit-ir (checker pass is required)
+    let output = Command::new(xiomc_path())
+        .args(["--emit-ir", &tmp_path])
+        .current_dir(&project_dir)
+        .output()
+        .expect("failed to execute xiomc");
 
-    // Progress tracker: modules that pass the checker on standalone compilation.
-    // As checker gaps are closed, `passed` will increase toward `total`.
-    // Current baseline (v0.46.0): 2 pass / 38 fail (bench.xi, error.xi).
-    assert!(passed >= 2,
-        "stdlib compilation pass count regressed: {} of {} modules pass (was 2)",
-        passed, total);
-    eprintln!("stdlib compilation: {} pass / {} fail (target: {})", passed, failed, total);
+    let _ = fs::remove_file(&tmp_file);
+
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    assert!(
+        output.status.success(),
+        "stdlib full compilation failed ({} modules together):\n{}",
+        total, stderr
+    );
 }
