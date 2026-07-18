@@ -1,12 +1,13 @@
 // XIOM MCP Server — Model Context Protocol for AI agent tool-calling
-// Phase 5d.1: MVP with compile_and_analyze, explain_error_code,
-// get_contract_signature, check_xiom_syntax, format_xiom_code.
+// Phase 5d.1-8.2: Library mode (xiomc linked directly, no subprocess).
 // Transport: stdio (JSON-RPC 2.0). Production-grade error handling.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{self, BufRead, BufReader, Write};
 use std::process::Command;
+
+use xiomc::{CompileConfig, Target, compile_with_diagnostics};
 
 // ============================================================================
 // JSON-RPC 2.0 types
@@ -92,51 +93,25 @@ fn tool_compile_and_analyze(params: &Value) -> Result<Value, String> {
     let file = params["file"]
         .as_str()
         .ok_or("Missing required parameter: file")?;
-    let target = params["target"].as_str().unwrap_or("native");
-    let strict = params["strict"].as_bool().unwrap_or(false);
 
-    // Validate file exists
     if !std::path::Path::new(file).exists() {
         return Err(format!("File not found: {file}"));
     }
 
-    let mut args = vec![file, "--diagnostics=json"];
-    if target != "native" {
-        args.push("--target");
-        args.push(target);
-    }
-    if strict {
-        args.push("--no-contracts"); // --strict mode: contracts enforced
-    }
-
-    let output = Command::new("xiomc")
-        .args(&args)
-        .output()
-        .map_err(|e| format!("Failed to spawn xiomc: {e}"))?;
-
-    let diagnostics: Value = serde_json::from_slice(&output.stdout)
-        .unwrap_or_else(|_| {
-            json!({
-                "success": output.status.success(),
-                "exit_code": output.status.code(),
-                "raw_stderr": String::from_utf8_lossy(&output.stderr).to_string(),
-                "error": "Failed to parse diagnostics JSON"
-            })
-        });
-
-    let raw_stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let warnings: Vec<&str> = raw_stderr
-        .lines()
-        .filter(|l| l.contains("warning"))
-        .collect();
+    // Phase 8.2: Library mode — calls xiomc::compile_with_diagnostics directly.
+    let config = CompileConfig {
+        diagnostics_json: true,
+        dump_contracts: params["strict"].as_bool().unwrap_or(false),
+        ..std::default::Default::default()
+    };
+    let result = compile_with_diagnostics(&config, &[file.to_string()]);
 
     Ok(json!({
-        "success": output.status.success(),
-        "exit_code": output.status.code(),
-        "diagnostics": diagnostics,
-        "warnings": warnings,
+        "success": result.success,
+        "diagnostics": result.diagnostics,
+        "warnings": result.warnings,
         "file": file,
-        "target": target,
+        "file_count": result.file_count,
     }))
 }
 
@@ -150,55 +125,45 @@ fn tool_get_contract_signature(params: &Value) -> Result<Value, String> {
     if function_name.is_none() && type_name.is_none() {
         return Err("Either function_name or type_name is required".to_string());
     }
-
     if !std::path::Path::new(file).exists() {
         return Err(format!("File not found: {file}"));
     }
 
-    let output = Command::new("xiomc")
-        .args([file, "--dump-contracts"])
-        .output()
-        .map_err(|e| format!("Failed to spawn xiomc: {e}"))?;
+    // Library mode: compile with dump_contracts to get contract JSON
+    let config = CompileConfig {
+        dump_contracts: true,
+        ..std::default::Default::default()
+    };
+    let result = compile_with_diagnostics(&config, &[file.to_string()]);
 
-    let contracts: Value = serde_json::from_slice(&output.stdout)
-        .unwrap_or_else(|_| json!({ "error": "Failed to parse contracts JSON" }));
+    // Parse contracts from result
+    let contracts: Value = result.contracts
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or(json!([]));
 
-    // Filter by function_name or type_name if specified
+    // Filter by function_name or type_name
     let filtered = if let Some(fn_name) = function_name {
         match &contracts {
             Value::Array(items) => Value::Array(
-                items
-                    .iter()
-                    .filter(|c| {
-                        c.get("function")
-                            .and_then(|f| f.as_str())
-                            .map_or(false, |f| f == fn_name)
-                    })
-                    .cloned()
-                    .collect(),
+                items.iter().filter(|c| {
+                    c.get("function").and_then(|f| f.as_str()).map_or(false, |f| f == fn_name)
+                }).cloned().collect()
             ),
             _ => contracts,
         }
     } else if let Some(tn) = type_name {
         match &contracts {
             Value::Array(items) => Value::Array(
-                items
-                    .iter()
-                    .filter(|c| {
-                        c.get("type")
-                            .and_then(|t| t.as_str())
-                            .map_or(false, |t| t == tn)
-                    })
-                    .cloned()
-                    .collect(),
+                items.iter().filter(|c| {
+                    c.get("type").and_then(|t| t.as_str()).map_or(false, |t| t == tn)
+                }).cloned().collect()
             ),
             _ => contracts,
         }
-    } else {
-        contracts
-    };
+    } else { contracts };
 
-    Ok(filtered)
+    Ok(json!({ "contracts": filtered }))
 }
 
 fn tool_check_xiom_syntax(params: &Value) -> Result<Value, String> {
