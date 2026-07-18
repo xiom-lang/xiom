@@ -25,6 +25,12 @@ impl IrEmitter {
                 // 5c.30: record Vec element type for local Vec bindings.
                 if let Some(elem) = Self::vec_ctor_elem_type(value) {
                     self.local_vec_elem.insert(name.name.clone(), elem);
+                } else if let Some(ty) = _ty {
+                    if let Some(elem) = Self::vec_elem_from_type_annotation(ty) {
+                        self.local_vec_elem.insert(name.name.clone(), elem);
+                    } else {
+                        self.local_vec_elem.remove(&name.name);
+                    }
                 } else {
                     self.local_vec_elem.remove(&name.name);
                 }
@@ -96,6 +102,12 @@ impl IrEmitter {
                 // 5c.30: record Vec element type for local Vec bindings.
                 if let Some(elem) = Self::vec_ctor_elem_type(value) {
                     self.local_vec_elem.insert(name.name.clone(), elem);
+                } else if let Some(ty) = _ty {
+                    if let Some(elem) = Self::vec_elem_from_type_annotation(ty) {
+                        self.local_vec_elem.insert(name.name.clone(), elem);
+                    } else {
+                        self.local_vec_elem.remove(&name.name);
+                    }
                 } else {
                     self.local_vec_elem.remove(&name.name);
                 }
@@ -2633,6 +2645,18 @@ impl IrEmitter {
                         let (recv_val, recv_actual_ty) = self.compile_expr(receiver)?;
                         let (recv_vec, _) = self.resolve_vec_receiver(receiver, &recv_val, &recv_actual_ty);
                         let (val_raw, val_ty) = self.compile_expr(&args[0])?;
+                        // G4: Float64->Float32 coercion for Vec[Float32] push.
+                        // val_to_i64 bitcasts double→i64 preserving all 64 bits,
+                        // but emit_elem_store truncates to i32 for 4-byte slots,
+                        // discarding the upper 32 bits (exponent+sign). Must first
+                        // fptrunc double→float so the float32 bit pattern is stored.
+                        let (val_raw, val_ty) = if val_ty == "double" && self.vec_elem_float_type(receiver) == Some("float") {
+                            let f32 = self.fresh_tmp();
+                            self.emitln(&format!("  {f32} = fptrunc double {val_raw} to float"));
+                            (f32, "float".to_string())
+                        } else {
+                            (val_raw, val_ty)
+                        };
                         let vec_alloca = self.fresh_tmp();
                         self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
                         // Store Vec via extractvalue+individual stores to prevent
