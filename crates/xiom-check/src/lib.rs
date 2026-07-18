@@ -1756,6 +1756,10 @@ impl Checker {
             // 5c.30: track the receiver type for implicit-self method call
             // resolution (G-10: bare `init()` inside `fn GrpcClient.init()`).
             self.current_receiver = Some(recv.name.clone());
+            // G-20: bare receiver fields are backed by codegen for ALL slot
+            // forms now — explicit `self`, receiver-style `&T` first param,
+            // `this`-based bodies, AND bare-field bodies (codegen emits a
+            // %param_self slot whenever the body mentions receiver state).
             let fields_clone = self.get_type(&recv.name).cloned();
             if let Some(fields) = fields_clone {
                 for (field_name, field_ty) in fields {
@@ -2273,14 +2277,31 @@ impl Checker {
                                 _ => false,
                             };
                             // Determine the self-kind of this method:
-                            //   explicit self: first param type matches receiver (e.g. fn T.method(h: &T, ...))
-                            //     OR param named `self` with type `Self`
-                            //   implicit this: uses `this` keyword, no self in params (e.g. fn T.method(idx: Int))
-                            //   constructor:   no self at all (e.g. fn T.new(method: X, path: Y))
-                            let has_explicit_self = sig.params.first().map_or(false, |(_, pty)| {
-                                matches!(pty, CheckedType::Named(n) if n.as_str() == type_name.as_str()
-                                    || n == "Self")
+                            //   explicit self: param literally named `self`/typed `Self`,
+                            //     OR receiver-style `fn T.method(h: &T, ...)` — but ONLY
+                            //     when call-site ARITY says so (G-20 fix below)
+                            //   implicit this: uses `this` keyword, no self in params
+                            //   constructor:   no self at all (e.g. fn T.new(...))
+                            let first_param_is_self_named = sig.params.first()
+                                .map_or(false, |(pname, pty)| {
+                                    pname == "self" || matches!(pty, CheckedType::Named(n) if n == "Self")
+                                });
+                            let first_param_matches_receiver = sig.params.first().map_or(false, |(_, pty)| {
+                                matches!(pty, CheckedType::Named(n) if n.as_str() == type_name.as_str())
                             });
+                            // G-20 fix: `fn V2.lerp(other: V2, t: Float32)` — a first
+                            // param of the receiver TYPE is ambiguous between
+                            // receiver-style (h IS the receiver) and a REAL argument
+                            // (math-style lerp/dot/cross). Call-site arity settles it
+                            // deterministically:
+                            //   args == params     → params are all real (offset 0)
+                            //   args == params - 1 → first param is the receiver (offset 1)
+                            // Previously the type heuristic always chose receiver-style,
+                            // shifting every arg and rejecting/miscompiling lerp-shaped
+                            // methods (silent swap class).
+                            let arity_direct = args.len() == sig.params.len();
+                            let has_explicit_self = first_param_is_self_named
+                                || (first_param_matches_receiver && !arity_direct);
                             // param_offset table:
                             //   explicit self  + instance call → skip self (offset=1)
                             //   explicit self  + static call   → self is first arg (offset=0)

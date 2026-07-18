@@ -255,9 +255,16 @@ impl IrEmitter {
                 self.ensure_tuple_type_registered(&p.ty);
             }
             let mut param_types: Vec<String> = Vec::new();
-            // Detect self param: either named "self" OR first param whose type
-            // matches the receiver type (ecosystem pattern: `fn T.method(h: &mut T, ...)`).
+            // Detect self param: either named "self" OR receiver-style first
+            // param. G-20 fix: receiver-style `fn T.method(h: &T, ...)` applies
+            // ONLY to by-REFERENCE first params (&T / &mut T / *T). A by-VALUE
+            // first param of the receiver type (math lerp/dot pattern
+            // `fn V2.lerp(other: V2, t)`) is a REAL argument, never the receiver
+            // — the old type-only heuristic hijacked it and shifted every arg
+            // (silent-swap miscompile class).
             let is_first_param_self = fd.receiver.is_some() && fd.params.first().map_or(false, |p| {
+                let is_ref = matches!(&p.ty, Type::Ref(_) | Type::MutRef(_) | Type::Ptr(_));
+                if !is_ref { return false; }
                 let pt = Self::type_from_ast(&p.ty);
                 let ptn = pt.trim_start_matches('*');
                 fd.receiver.as_ref().map_or(false, |r| ptn == r.name)
@@ -266,11 +273,14 @@ impl IrEmitter {
                 || is_first_param_self;
             let has_recv = fd.receiver.is_some() && has_self_param;
             // For `this`-based methods (receiver exists but no explicit `self`
-            // param, AND body uses `this`), register the receiver as a pointer
-            // type so call-site receiver handling can detect the need for a
-            // pointer and coerce instance method calls (v.method()) correctly.
+            // param, AND body references receiver STATE — `this` or bare
+            // fields), register the receiver as a pointer type so call-site
+            // receiver handling can detect the need for a pointer and coerce
+            // instance method calls (v.method()) correctly. (G-20: bare-field
+            // bodies included so `fn Counter.inc() { return val + 1; }` gets
+            // a real receiver slot instead of reading garbage.)
             let is_this_based = fd.receiver.is_some() && !has_self_param
-                && fd.body.as_ref().map_or(false, |b| Self::block_uses_this(b));
+                && self.body_uses_receiver_state(fd);
             // If first param IS the self (type matches receiver), don't add
             // receiver type ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the first param already covers it.
             if has_recv && !is_first_param_self {
@@ -605,8 +615,12 @@ impl IrEmitter {
         // definition must not emit `%param_self` either (the extra leading
         // param shifted every argument and made the body read uninitialized
         // registers â€” HTTP/SQLITE ACCESS_VIOLATION).
+        // G-20 fix: receiver-style requires a by-REFERENCE first param
+        // (&T/&mut T/*T). By-value same-type params are real arguments.
         let is_first_param_self = fd.receiver.is_some() && !has_self_param
             && fd.params.first().map_or(false, |p| {
+                let is_ref = matches!(&p.ty, Type::Ref(_) | Type::MutRef(_) | Type::Ptr(_));
+                if !is_ref { return false; }
                 let pt = Self::type_from_ast(&p.ty);
                 // type_from_ast returns "*T" for &mut T â€” strip the pointer
                 // prefix to compare with the bare receiver name.
@@ -614,14 +628,13 @@ impl IrEmitter {
                 fd.receiver.as_ref().map_or(false, |r| ptn == r.name)
             });
         // Match registration: implicit self only for explicit-`self` methods
-        // and `this`-based methods (body actually references `this`).
-        // 5c.30: G-10 implicit-self is a CHECKER-only feature â€” the codegen
-        // does NOT inject self arguments. Method bodies already have all
-        // receiver fields as locals via the prologue, so read-only access to
-        // fields works without param_self. Only `this`-based methods that
-        // explicitly reference `this` get param_self (mutation support).
+        // and `this`-based methods (body references receiver state).
+        // G-20: `this`-based now includes BARE-FIELD bodies (e.g.
+        // `fn Counter.inc() -> Int { return val + 1; }`) — the %param_self
+        // slot is emitted and the prologue GEP-binds every field, so bare
+        // reads are correct instead of garbage. Must match registration.
         let is_this_based = fd.receiver.is_some() && !has_self_param && !is_first_param_self
-            && fd.body.as_ref().map_or(false, |b| Self::block_uses_this(b));
+            && self.body_uses_receiver_state(fd);
         let self_llvm_ty = if has_self_param {
             fd.receiver.as_ref().map(|r| {
                 let base = self.llvm_type_for(&r.name).unwrap_or_else(|_| "i64".to_string());

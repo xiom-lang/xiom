@@ -185,6 +185,97 @@ impl crate::IrEmitter {
         })
     }
 
+    /// G-20: does the method body reference receiver STATE — either `this`
+    /// or a BARE receiver-field ident (e.g. `val` in `fn Counter.inc() ->
+    /// Int { return val + 1; }`)? Used by registration + definition to emit
+    /// a %param_self slot so the prologue can bind bare fields via GEP.
+    /// Param names shadow fields (a param `x` is never receiver state).
+    pub fn body_uses_receiver_state(&self, fd: &FnDecl) -> bool {
+        let Some(body) = fd.body.as_ref() else { return false };
+        if Self::block_uses_this(body) {
+            return true;
+        }
+        let Some(recv) = fd.receiver.as_ref() else { return false };
+        let fields = self.types.get(&recv.name)
+            .or_else(|| {
+                let suffix = format!(".{}", recv.name);
+                self.types.keys().find(|k| k.ends_with(&suffix)).and_then(|k| self.types.get(k))
+            });
+        let Some(fields) = fields else { return false };
+        let param_names: std::collections::HashSet<&str> =
+            fd.params.iter().map(|p| p.name.name.as_str()).collect();
+        let candidates: Vec<&str> = fields.iter()
+            .map(|f| f.as_str())
+            .filter(|f| !param_names.contains(f))
+            .collect();
+        if candidates.is_empty() { return false; }
+        Self::block_mentions_any_ident(body, &candidates)
+    }
+
+    fn block_mentions_any_ident(block: &Block, names: &[&str]) -> bool {
+        block.stmts.iter().any(|s| match s {
+            StmtOrExpr::Stmt(stmt) => Self::stmt_mentions_any_ident(stmt, names),
+            StmtOrExpr::Expr(expr) => Self::expr_mentions_any_ident(expr, names),
+        })
+    }
+
+    fn stmt_mentions_any_ident(stmt: &Stmt, names: &[&str]) -> bool {
+        match stmt {
+            Stmt::Expr(e, _) | Stmt::Return(Some(e), _) => Self::expr_mentions_any_ident(e, names),
+            Stmt::Let(_, _, init, _) | Stmt::Var(_, _, init, _) => Self::expr_mentions_any_ident(init, names),
+            Stmt::Assign(lhs, rhs, _) => Self::expr_mentions_any_ident(lhs, names) || Self::expr_mentions_any_ident(rhs, names),
+            Stmt::If(cond, then_b, elifs, else_b, _) => {
+                Self::expr_mentions_any_ident(cond, names) || Self::block_mentions_any_ident(then_b, names)
+                    || elifs.iter().any(|(c, b)| Self::expr_mentions_any_ident(c, names) || Self::block_mentions_any_ident(b, names))
+                    || else_b.as_ref().map_or(false, |b| Self::block_mentions_any_ident(b, names))
+            }
+            Stmt::While(cond, body, _) => Self::expr_mentions_any_ident(cond, names) || Self::block_mentions_any_ident(body, names),
+            Stmt::For(_, iter, body, _) => Self::expr_mentions_any_ident(iter, names) || Self::block_mentions_any_ident(body, names),
+            Stmt::Match(scrut, arms, _) => {
+                Self::expr_mentions_any_ident(scrut, names)
+                    || arms.iter().any(|arm| match &arm.body {
+                        MatchBody::Block(b) => Self::block_mentions_any_ident(b, names),
+                        MatchBody::Expr(e) => Self::expr_mentions_any_ident(e, names),
+                    })
+            }
+            _ => false,
+        }
+    }
+
+    fn expr_mentions_any_ident(expr: &Expr, names: &[&str]) -> bool {
+        match expr {
+            Expr::Ident(id) => names.contains(&id.name.as_str()),
+            Expr::Paren(e, _) | Expr::Unary(_, e, _) | Expr::Try(e, _)
+            | Expr::Ref(e, _) | Expr::MutRef(e, _)
+            | Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _)
+            | Expr::As(e, _, _) => Self::expr_mentions_any_ident(e, names),
+            Expr::Binary(a, _, b, _) => Self::expr_mentions_any_ident(a, names) || Self::expr_mentions_any_ident(b, names),
+            // obj.FIELD: the field NAME is not a bare ident — only scan the object.
+            Expr::Field(obj, _, _) => Self::expr_mentions_any_ident(obj, names),
+            Expr::Call(func, args, _) => Self::expr_mentions_any_ident(func, names) || args.iter().any(|a| Self::expr_mentions_any_ident(a, names)),
+            Expr::Index(arr, idx, _) => Self::expr_mentions_any_ident(arr, names) || Self::expr_mentions_any_ident(idx, names),
+            Expr::Unsafe(block, _) => Self::block_mentions_any_ident(block, names),
+            Expr::If(cond, then_b, elifs, else_b, _) => {
+                Self::expr_mentions_any_ident(cond, names) || Self::block_mentions_any_ident(then_b, names)
+                    || elifs.iter().any(|(c, b)| Self::expr_mentions_any_ident(c, names) || Self::block_mentions_any_ident(b, names))
+                    || else_b.as_ref().map_or(false, |b| Self::block_mentions_any_ident(b, names))
+            }
+            Expr::Match(scrut, arms, _) => {
+                Self::expr_mentions_any_ident(scrut, names)
+                    || arms.iter().any(|arm| match &arm.body {
+                        MatchBody::Block(b) => Self::block_mentions_any_ident(b, names),
+                        MatchBody::Expr(e) => Self::expr_mentions_any_ident(e, names),
+                    })
+            }
+            Expr::Array(elems, _) | Expr::Tuple(elems, _) => elems.iter().any(|e| Self::expr_mentions_any_ident(e, names)),
+            Expr::Struct(_, fields, base, _) => {
+                fields.iter().any(|(_, v)| Self::expr_mentions_any_ident(v, names))
+                    || base.as_ref().map_or(false, |b| Self::expr_mentions_any_ident(b, names))
+            }
+            _ => false,
+        }
+    }
+
     pub fn is_primitive_type_name(type_name: &str) -> bool {
         matches!(
             type_name,
