@@ -1087,13 +1087,9 @@ impl IrEmitter {
             });
         if let Some(meta) = meta {
             if let Some((_, ty_name)) = meta.fields.get(field_idx) {
-                // For generic types like Vec[K] or Map[Str,V], strip generic
-                // args and use the base struct type (e.g. Vec -> %struct.Vec).
+                // For generic types (Vec[Int], Map[Str,Int]), return i64
+                // to avoid Win64 sret corruption (5c.28 NET crash fix).
                 if ty_name.contains('[') {
-                    let base = ty_name.split('[').next().unwrap_or(ty_name);
-                    if self.types.contains_key(base) || self.type_meta.contains_key(base) {
-                        return format!("%struct.{base}");
-                    }
                     return "i64".to_string();
                 }
                 return self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
