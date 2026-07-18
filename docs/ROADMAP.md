@@ -120,7 +120,7 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | **5d.6** | **📖 Doc Generator** | **xiom-doc: Markdown from source** | **✅ Built — 4 tests** | 4 | — |
 | **5d.7** | **🔗 FFI Generator** | **xiom-ffigen: C→XIOM bindings** | **✅ Built — 18 tests** | 18 | — |
 | **5d.8** | **✅ Verifier** | **xiom-verify: SMT-LIB + Z3** | **✅ Built — CLI + lib** | 0 | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
-| **5d.9** | **🔒 Sandbox Audit** | **--sandbox flag, unsafe audit, CI/CD gate** | **Planned — zero deps** | — | [SAFETY_AUDIT.md](./SAFETY_AUDIT.md) |
+| **5d.9** | **🔒 Sandbox Audit** | **--sandbox flag, unsafe audit, severity scoring, CI/CD gate** | **✅ Built — 10 tests** | — | [SAFETY_AUDIT.md](./SAFETY_AUDIT.md) |
 | │ | | | | | |
 | **5e** | **Advanced Compilation** | **Incremental, parallel, hot reload, XIR** | **Planned** | — | [rust/04-incremental-compilation.md](./rust/04-incremental-compilation.md) |
 | **5f** | **Z3 Verification** | **Contract proof at compile time** | **Planned** | — | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
