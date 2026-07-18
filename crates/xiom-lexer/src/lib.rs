@@ -471,7 +471,8 @@ mod tests {
         assert!(tokens.iter().any(|t| matches!(t, TokenKind::Fn)));
         assert!(tokens.iter().any(|t| matches!(t, TokenKind::Interface)));
         assert!(tokens.iter().any(|t| matches!(t, TokenKind::Derive)));
-        assert!(tokens.iter().any(|t| matches!(t, TokenKind::Invariant)));
+        // requires/ensures/invariant are contextual keywords (5c-R): tokenized as Ident
+        assert!(tokens.iter().any(|t| matches!(t, TokenKind::Ident(s) if s == "invariant")));
     }
 
     #[test]
