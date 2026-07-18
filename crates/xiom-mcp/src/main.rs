@@ -260,16 +260,22 @@ pub type Color = { r: UInt8; g: UInt8; b: UInt8; }
 ```"#,
         "enums" => r#"## Enums
 ```xiom
-pub type Option[T] = enum { Some(T); None; }
-pub type Result[T, E] = enum { Ok(T); Err(E); }
 pub type Color = enum { Red; Green; Blue; Custom(Int, Int, Int); }
 
-// Match:
-match color {
-  Color::Red => { return "warm"; }
-  Color::Custom(r, g, b) if r > 200 => { return "bright red"; }
-  _ => { return "other"; }
+// Construct with TypeName.Variant(...) — DOT syntax, never ::
+let c = Color.Custom(255, 0, 0);
+
+// Match with BARE variant patterns:
+match c {
+  Red => { return 1; }
+  Custom(r, g, b) => { return r; }
+  _ => { return 0; }
 }
+
+// Option/Result use bare constructors (built-in):
+let some_val = Some(42);
+let ok_val = Ok(42);
+let err_val = Err("failed");
 ```"#,
         "contracts" => r#"## Contracts
 ```xiom
@@ -318,8 +324,8 @@ unsafe {
 ```xiom
 fn identity[T](x: T) -> T { return x; }
 fn first[T](items: &Slice[T]) -> Option[T] {
-  if items.len() > 0 { return Option::Some(items[0]); }
-  return Option::None;
+  if items.len() > 0 { return Some(items[0]); }
+  return None;
 }
 // With trait bounds:
 fn max[T: Ord](a: T, b: T) -> T { if a > b { return a; } return b; }
@@ -362,10 +368,10 @@ let joined = string.join(parts, " | ");
 // Iterators:
 for item in v.iter() { core.print(item.to_string()); }
 
-// Option/Result:
+// Option/Result (bare constructors and patterns):
 match some_value {
-  Option::Some(x) => { use(x); }
-  Option::None => { return defaultValue; }
+  Some(x) => { use_value(x); }
+  None => { return default_value; }
 }
 let val = maybe_value.unwrap_or(0);
 

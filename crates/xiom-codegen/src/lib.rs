@@ -152,6 +152,10 @@ pub struct IrEmitter {
     /// header), e.g. match-arm payload bindings like
     /// `JsonValue.Array(ref mut items)` â†’ "items" â†’ elem "JsonValue".
     local_vec_handle: HashMap<String, String>,
+    /// 5d: ERROR payload type of locals holding Result[T, E] values
+    /// (`let r = parse()` where parse -> Result[Int, Str] â†’ "r" â†’ "Str").
+    /// Drives unwrap_err() typing and match Err(e) payload binding.
+    local_err_payload: HashMap<String, String>,
     /// 5c.30: per-variant payload field TYPE names (enum â†’ [(variant,
     /// [field types])]). type_meta dedups payload fields by NAME, losing
     /// per-variant types (JsonValue's `val` is Bool|Float64|Str|Vec[...]).
@@ -244,6 +248,7 @@ impl IrEmitter {
             local_opt_payload: HashMap::new(),
             local_boxed_struct: HashMap::new(),
             local_vec_handle: HashMap::new(),
+            local_err_payload: HashMap::new(),
             enum_variant_field_types: HashMap::new(),
             fn_return_xiom: HashMap::new(),
             current_receiver: None,
@@ -660,6 +665,28 @@ impl IrEmitter {
         Some(inner[..end].trim().to_string())
     }
 
+    /// 5d: Extract the ERROR payload type of `Result[T, E]` (the second
+    /// generic argument). Returns None for Option or non-generic types.
+    fn option_result_err_payload(s: &str) -> Option<String> {
+        let open = s.find('[')?;
+        if &s[..open] != "Result" {
+            return None;
+        }
+        let inner = &s[open + 1..s.rfind(']')?];
+        let mut depth = 0i32;
+        for (i, c) in inner.char_indices() {
+            match c {
+                '[' => depth += 1,
+                ']' => depth -= 1,
+                ',' if depth == 0 => {
+                    return Some(inner[i + 1..].trim().to_string());
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
     /// 5c.30: Resolve the declared XIOM return type of a call expression's
     /// callee (exact key, then unique `.name` suffix match).
     fn callee_return_xiom(&self, func: &Expr) -> Option<String> {
@@ -695,6 +722,7 @@ impl IrEmitter {
         self.local_opt_payload.remove(name);
         self.local_boxed_struct.remove(name);
         self.local_vec_handle.remove(name);
+        self.local_err_payload.remove(name);
         if let Expr::Call(func, _, _) = value {
             if let Expr::Field(recv, method, _) = func.as_ref() {
                 match method.name.as_str() {
@@ -734,6 +762,10 @@ impl IrEmitter {
                             .unwrap_or(payload)
                     };
                     self.local_opt_payload.insert(name.to_string(), stored);
+                }
+                // 5d: record the Result ERROR payload for unwrap_err/match Err(e).
+                if let Some(err_payload) = Self::option_result_err_payload(&ret) {
+                    self.local_err_payload.insert(name.to_string(), err_payload);
                 }
             }
         }
