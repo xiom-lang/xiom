@@ -493,6 +493,8 @@ Verified: `IpAddr.is_v4/is_v6` field access now correctly loads and compares str
 
 ### 5c.16b Ecosystem Audit — Compiler Gaps (37 modules scanned, 2026-07-15)
 
+> **SUPERSEDED (2026-07-18):** fresh scan of all 40 `ecosystem/*/AUDIT.md` files consolidated in [ecosystem-audit/COMPILER_GAPS.md](./ecosystem-audit/COMPILER_GAPS.md) (49 gaps: 26 open / 9 fixed / 14 needs-retest; new IDs G-29..G-49). Overview: [ecosystem-audit/README.md](./ecosystem-audit/README.md). The tables below are the historical 2026-07-15 baseline.
+
 Consolidated from all 37 `ecosystem/*/AUDIT.md` files. **28 unique gaps, 51 total module occurrences.** All are production-grade findings — no workarounds applied, only documented.
 
 P001 — Parse Errors (3 gaps, 7 modules)
@@ -857,3 +859,4 @@ cargo test --all
 | `docs/PRODUCTION_HARDENING_BUGS.md` | All 10 bugs documented |
 | [`docs/rust/`](./rust/README.md) (README + 8 reports) | rustc & stdlib analysis — basis for Phase 5c-R adoptions |
 | [`docs/z3/Z3_LESSONS.md`](./z3/Z3_LESSONS.md) | z3.rs bindings analysis — SMT encoding + integration strategy for Phase 5f |
+| [`docs/ecosystem-audit/`](./ecosystem-audit/README.md) | Consolidated compiler-gap registry from 40 ecosystem AUDIT.md files (G-01..G-49, 2026-07-18) |
