@@ -264,10 +264,12 @@ This tool is NOT a full language reference — it's a **structural template gene
 | **Tier 2: Training-quality** | "Function `add` is missing a return type annotation after the parameter list. All functions returning a value must declare `-> Type`." | MCP `compile_and_analyze` with AI enhancement | Full sentence, rule citation, line pointer |
 
 **Action items to make error messages training-quality:**
-1. Audit every error code (X0001–X7999) for whether it teaches the rule or just states the fact
-2. For each "states the fact" error, add a `--explain` entry with the rule and a fix example
+1. Audit every error code (X0001–X7999, L001, P001, T001, C001, E001) for whether it teaches the rule or just states the fact
+2. For each "states the fact" error, add a `docs/error_codes/{CODE}.md` entry with the rule, bad example, and fix
 3. The MCP `compile_and_analyze` tool always includes the `--explain` text inline
 4. The `get_language_cheatsheet` tool pre-loads the agent with the most common rules
+
+**Current state:** 3 codes documented (X0010, X0011, X0100). Compiler emits at least 15+ distinct codes. Gap: ~12+ undocumented codes need `docs/error_codes/` pages. This is a ~1-day documentation task — no compiler changes needed.
 
 ### 4.3 Friction: "The Feedback Loop Must Be Fast"
 
