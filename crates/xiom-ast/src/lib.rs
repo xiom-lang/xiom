@@ -204,6 +204,7 @@ pub struct ErrorGuaranteed {
 impl ErrorGuaranteed {
     /// Create a new error guarantee. Only constructible within the AST crate
     /// so only the parser/checker can issue guarantees.
+    #[allow(dead_code)]
     pub(crate) fn new() -> Self {
         Self { _private: () }
     }

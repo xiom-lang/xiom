@@ -435,7 +435,7 @@ fn handle_install(_args: &[String], pkg_name: Option<&str>, registry_url: &str, 
     for dep in &deps {
         let parts: Vec<&str> = dep.splitn(2, ':').collect();
         let name = parts[0].trim();
-        let version_req = parts.get(1).map(|s| s.trim()).unwrap_or("*");
+        let _version_req = parts.get(1).map(|s| s.trim()).unwrap_or("*");
 
         let repo_url = if let Ok(ref idx) = index {
             idx.get(name).map(|pkg| pkg.repo.clone())
@@ -516,6 +516,7 @@ fn parse_deps_from_manifest(path: &str) -> Result<Vec<String>, String> {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+#[allow(dead_code)]
 struct RegistryPackage {
     repo: String,
     #[serde(default)]

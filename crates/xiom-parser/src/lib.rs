@@ -54,6 +54,7 @@ impl Parser {
     }
 
     /// Skip tokens until a synchronisation point (top-level keyword or `}`).
+    #[allow(dead_code)]
     fn recover_to_sync(&mut self) {
         while !self.peek().is_eof() {
             match self.peek_kind() {
@@ -185,8 +186,6 @@ impl Parser {
             TokenKind::Bang => 1 << 32,
             TokenKind::Amp => 1 << 33,
             TokenKind::Pipe => 1 << 34,
-            TokenKind::Ampersand => 1 << 35,
-            TokenKind::Arrow => 1 << 34,
             TokenKind::Ampersand => 1 << 35,
             TokenKind::Arrow => 1 << 36,
             TokenKind::FatArrow => 1 << 37,
@@ -1082,11 +1081,11 @@ impl Parser {
                 // In XIOM's value semantics, they're syntactic sugar — the
                 // compiler treats them as regular bindings. Parse and discard
                 // them silently so patterns like `Array(ref mut items)` work.
-                let mut is_ref = false;
+                let mut _is_ref = false;
                 let mut _is_mut_ref = false;
                 if let TokenKind::Ident(s) = self.peek_kind() {
                     if s == "ref" {
-                        is_ref = true;
+                        _is_ref = true;
                         self.advance();
                         if let TokenKind::Ident(s2) = self.peek_kind() {
                             if s2 == "mut" { _is_mut_ref = true; self.advance(); }

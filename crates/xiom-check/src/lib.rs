@@ -309,7 +309,7 @@ impl Checker {
                     field_types = self.variant_fields.get(bare).cloned().unwrap_or_default();
                 }
                 // Fallback: use Int type (assignment checker catches mismatches)
-                let fallback_ty = CheckedType::Int;
+                let _fallback_ty = CheckedType::Int;
                 for (i, field) in fields.iter().enumerate() {
                     if field.name == "_" { continue; } // skip wildcard placeholders
                     let field_ty = field_types.get(i)
@@ -1424,12 +1424,6 @@ impl Checker {
                 }
                 TopDecl::Const(cd) if cd.is_pub => {
                     let ty = CheckedType::from_ast_type(&cd.ty);
-                    let sig = FnSig {
-                        params: vec![],
-                        return_type: Some(ty.clone()),
-                        generics: vec![],
-                        uses_implicit_this: false,
-                    };
                     map.insert(cd.name.name.clone(), ModuleExport::Const {
                         ty,
                         value: cd.value.clone(),
