@@ -68,7 +68,19 @@ impl Backend {
         let mut parser = Parser::new(tokens);
         match parser.parse_program() {
             Ok(program) => {
+                // Production-grade: mirror xiomc's checker setup so cross-module
+                // types (Result, Option, stdlib preludes) resolve exactly like a
+                // real compile. Isolated checking produced false positives
+                // (e.g. "expected Result, found ()") on files that import
+                // or rely on catalog-resolved module types.
                 let mut checker = xiom_check::Checker::new();
+                if let Some(dir) = uri_to_parent_dir(uri) {
+                    checker.add_source_dir(dir);
+                }
+                for stdlib_dir in xiomc::find_stdlib_dirs() {
+                    checker.add_source_dir(stdlib_dir);
+                }
+                checker.build_catalog_index();
                 if let Err(errors) = checker.check_program(&program) {
                     for err in &errors {
                         diagnostics.push(diagnostic_from_check_error(err));
@@ -82,6 +94,29 @@ impl Backend {
 
         diagnostics
     }
+}
+
+/// Convert an LSP file URI to its parent directory path.
+/// `file:///e%3A/Projects/AXIOM/stdlib/xiom/alloc.xi` → `e:\Projects\AXIOM\stdlib\xiom`
+fn uri_to_parent_dir(uri: &str) -> Option<String> {
+    let path = uri.strip_prefix("file:///")?;
+    // Percent-decode (%3A → :, %20 → space, etc.)
+    let mut decoded = String::with_capacity(path.len());
+    let bytes = path.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(byte) = u8::from_str_radix(&path[i + 1..i + 3], 16) {
+                decoded.push(byte as char);
+                i += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[i] as char);
+        i += 1;
+    }
+    let fs_path = std::path::PathBuf::from(decoded);
+    fs_path.parent().map(|p| p.to_string_lossy().to_string())
 }
 
 // ============================================================================
@@ -2229,5 +2264,57 @@ mod tests {
         assert_eq!(shutdown_response["jsonrpc"].as_str(), Some("2.0"));
         assert_eq!(shutdown_response["id"].as_i64(), Some(6));
         assert!(shutdown_response["result"].is_null(), "shutdown result should be null");
+    }
+
+    // -----------------------------------------------------------------------
+    // test_stdlib_module_no_false_positives — regression for isolated checking
+    // -----------------------------------------------------------------------
+
+    /// Locks in the catalog-aware diagnostics fix: stdlib modules that rely on
+    /// cross-module types (Result, Option) must NOT produce false type errors
+    /// when opened in the editor. Reproduces the alloc.xi report:
+    /// "expected Result, found ()" / "field 'value' type mismatch".
+    #[test]
+    fn test_stdlib_module_no_false_positives() {
+        let backend = Backend::new();
+        // Read the real stdlib file — same content the user opens in VS Code.
+        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent().unwrap().parent().unwrap();
+        let alloc_path = repo_root.join("stdlib").join("xiom").join("alloc.xi");
+        let text = std::fs::read_to_string(&alloc_path)
+            .expect("stdlib/xiom/alloc.xi must exist");
+
+        // Store the document directly (bypasses JSON escaping issues)
+        let uri = format!("file:///{}", alloc_path.to_string_lossy().replace('\\', "/").replace(':', "%3A"));
+        {
+            let mut docs = backend.documents.lock().unwrap();
+            docs.insert(uri.clone(), text);
+        }
+
+        let diagnostics = backend.publish_diagnostics(&uri);
+        let errors: Vec<String> = diagnostics.iter()
+            .filter_map(|d| d["message"].as_str().map(String::from))
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "stdlib/xiom/alloc.xi must produce ZERO diagnostics via LSP (compiles clean with xiomc). Got {} errors:\n{}",
+            errors.len(),
+            errors.join("\n")
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // test_uri_to_parent_dir — percent-decoding and path extraction
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_uri_to_parent_dir() {
+        let dir = uri_to_parent_dir("file:///e%3A/Projects/AXIOM/stdlib/xiom/alloc.xi");
+        assert!(dir.is_some());
+        let dir = dir.unwrap();
+        assert!(dir.contains("stdlib"), "parent dir should contain stdlib: {dir}");
+        assert!(dir.ends_with("xiom"), "parent dir should end with xiom: {dir}");
+        // Windows drive colon decoded
+        assert!(dir.starts_with("e:") || dir.starts_with("E:"), "drive letter decoded: {dir}");
     }
 }

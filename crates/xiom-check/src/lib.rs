@@ -1772,18 +1772,25 @@ impl Checker {
     fn check_block(&mut self, block: &Block, expected_return: Option<CheckedType>) -> Option<CheckedType> {
         let mut last_expr_ty = None;
         let mut has_return = false;
+        let mut tail_diverges = false;
 
         for item in &block.stmts {
             match item {
                 StmtOrExpr::Stmt(stmt) => {
                     self.check_stmt(stmt);
-                    if matches!(stmt, Stmt::Return(..)) {
+                    if Self::stmt_always_returns(stmt) {
                         has_return = true;
                         last_expr_ty = None; // return already checked, don't double-check
                     }
+                    tail_diverges = false;
                 }
                 StmtOrExpr::Expr(expr) => {
                     last_expr_ty = Some(self.check_expr(expr));
+                    // Divergence analysis: a tail expression whose every path
+                    // ends in `return` (e.g. `unsafe { ...; return X; }`)
+                    // satisfies any declared return type — the block value is
+                    // never observed. Production pattern in FFI wrappers.
+                    tail_diverges = Self::expr_always_returns(expr);
                 }
             }
         }
@@ -1791,7 +1798,7 @@ impl Checker {
         // If this block is the function body and has a return, skip the return type check
         // (return statements are already checked individually)
         if let Some(expected) = expected_return {
-            if !has_return {
+            if !has_return && !tail_diverges {
                 if let Some(found) = &last_expr_ty {
                     if found != &CheckedType::Error && expected != CheckedType::Error {
                         if !self.types_compatible(found, &expected) {
@@ -1809,6 +1816,66 @@ impl Checker {
         }
 
         last_expr_ty
+    }
+
+    /// Divergence analysis: does this block ALWAYS exit via `return` on every
+    /// path? Used to accept `fn f() -> T { unsafe { ...; return x; } }` where
+    /// the tail expression types as Unit but control never falls through.
+    fn block_always_returns(block: &Block) -> bool {
+        for item in &block.stmts {
+            match item {
+                StmtOrExpr::Stmt(s) => {
+                    if Self::stmt_always_returns(s) {
+                        return true; // everything after is unreachable
+                    }
+                }
+                StmtOrExpr::Expr(e) => {
+                    if Self::expr_always_returns(e) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn stmt_always_returns(stmt: &Stmt) -> bool {
+        match stmt {
+            Stmt::Return(..) => true,
+            Stmt::Expr(e, ..) => Self::expr_always_returns(e),
+            Stmt::If(_, then_b, elifs, Some(else_b), _) => {
+                Self::block_always_returns(then_b)
+                    && elifs.iter().all(|(_, b)| Self::block_always_returns(b))
+                    && Self::block_always_returns(else_b)
+            }
+            Stmt::Match(_, arms, _) => {
+                !arms.is_empty() && arms.iter().all(|a| Self::match_body_always_returns(&a.body))
+            }
+            _ => false,
+        }
+    }
+
+    fn expr_always_returns(expr: &Expr) -> bool {
+        match expr {
+            Expr::Unsafe(block, _) => Self::block_always_returns(block),
+            Expr::Paren(inner, _) => Self::expr_always_returns(inner),
+            Expr::If(_, then_b, elifs, Some(else_b), _) => {
+                Self::block_always_returns(then_b)
+                    && elifs.iter().all(|(_, b)| Self::block_always_returns(b))
+                    && Self::block_always_returns(else_b)
+            }
+            Expr::Match(_, arms, _) => {
+                !arms.is_empty() && arms.iter().all(|a| Self::match_body_always_returns(&a.body))
+            }
+            _ => false,
+        }
+    }
+
+    fn match_body_always_returns(body: &MatchBody) -> bool {
+        match body {
+            MatchBody::Block(b) => Self::block_always_returns(b),
+            MatchBody::Expr(e) => Self::expr_always_returns(e),
+        }
     }
 
     fn check_stmt(&mut self, stmt: &Stmt) {
@@ -3446,6 +3513,44 @@ mod tests {
     fn test_return_type_mismatch() {
         let result = check("fn bad() -> Int { return true; }");
         assert!(result.is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // Divergence analysis (5d): tail expressions whose every path returns
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_divergence_unsafe_tail_return() {
+        // The alloc.xi FFI-wrapper pattern: entire body is `unsafe { ...; return X; }`.
+        let result = check("fn f() -> Int { unsafe { return 42; } }");
+        assert!(result.is_ok(), "unsafe tail with return must satisfy fn return type: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_divergence_unsafe_with_early_return() {
+        let src = r#"
+fn f(x: Int) -> Int {
+  unsafe {
+    if x == 0 { return 1; };
+    return x * 2;
+  }
+}"#;
+        let result = check(src);
+        assert!(result.is_ok(), "unsafe with guard + tail return must pass: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_divergence_if_else_both_return() {
+        let src = "fn f(x: Int) -> Int { if x > 0 { return 1; } else { return 2; } }";
+        let result = check(src);
+        assert!(result.is_ok(), "if/else where both branches return must pass: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_divergence_negative_unsafe_no_return_still_errors() {
+        // The unsafe block does NOT return — the () tail must still mismatch Int.
+        let result = check("fn f() -> Int { unsafe { let x = 1; } }");
+        assert!(result.is_err(), "unsafe tail WITHOUT return must still be a type error");
     }
 
     #[test]
