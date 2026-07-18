@@ -1,23 +1,22 @@
 # XIOM Compiler — Production Roadmap
 
-**Current:** v0.45.5 "Phase 5c Complete" — **101/101 e2e**, 36/41 stdlib-exec, 47/47 parser, 74/74 checker, deterministic builds, all P0 resolved, 6 P1 gaps closed
+**Current:** v0.46.0 "ALL GAPS CLOSED" — **101/101 e2e**, **41/41 stdlib-exec**, **79/79 regression**, **25/25 diff**, 47/47 parser, 74/74 checker, deterministic builds, ALL P0+P1+P2 resolved
 **Branch:** `feat/architect` (Phase 5c)
-**Next:** v0.46.0 stable tag → Phase 5c-R refactoring (entry gate: all P0 closed ✅)
+**Next:** v0.46.0 stable tag → Phase 5c-R refactoring (entry gate: all P0-P2 closed ✅)
 
 ---
 
-## 1. CURRENT STATE (2026-07-17)
+## 1. CURRENT STATE (2026-07-18)
 
 | Gate | Count | Status |
 |------|-------|--------|
 | Parser tests | 47/47 | ✅ |
 | Checker tests | 74/74 | ✅ |
 | **E2E tests** | **101/101** | ✅ **ALL GREEN** |
-| Stdlib execution | 36/41 | 🚧 5 pre-existing module failures (bare receiver-field refs in generic stdlib methods) |
-| Feature regression | 48/48 | ✅ |
-| Integration regression | 119/119 | ✅ |
-| Fuzz / Robustness | 23+29 | ✅ (big-stack harness) |
-| Diff / FullDiff | 24/25 + 23/23 | 🚧 1 pre-existing selfhost assertion (qualified call emission) |
+| Stdlib execution | 41/41 | ✅ **ALL 5 PRE-EXISTING FIXED** |
+| Feature regression | 79/79 | ✅ |
+| Diff / FullDiff | 25/25 | ✅ |
+| Fuzz / Robustness | 23+29 | ✅ |
 | **Deterministic builds** | same IR ⇒ same SHA256 | ✅ 5c.29 |
 
 ### P0 Gaps: ALL RESOLVED ✅
