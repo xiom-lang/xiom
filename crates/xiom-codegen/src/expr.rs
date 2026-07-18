@@ -54,13 +54,6 @@ impl IrEmitter {
                 } else {
                     (val, val_llvm_ty)
                 };
-                // 5c-E: same type coercion as Let (see above).
-                let (val, val_llvm_ty) = if llvm_ty != val_llvm_ty && !val.is_empty() {
-                    let coerced = self.coerce_value(&val, &val_llvm_ty, &llvm_ty);
-                    (coerced, llvm_ty.clone())
-                } else {
-                    (val, val_llvm_ty)
-                };
                 // Track Bool-typed locals
                 let is_bool = matches!(_ty.as_deref(), Some(Type::Named(id, _)) if id.name == "Bool")
                     || matches!(value, Expr::Bool(..))
@@ -126,7 +119,7 @@ impl IrEmitter {
                     val_llvm_ty
                 };
                 // 5c-E: If declared type differs from value type, coerce before storing.
-                let (val, val_llvm_ty) = if llvm_ty != orig_val_ty && !val.is_empty() {
+                let (val, _val_llvm_ty) = if llvm_ty != orig_val_ty && !val.is_empty() {
                     let coerced = self.coerce_value(&val, &orig_val_ty, &llvm_ty);
                     (coerced, llvm_ty.clone())
                 } else {
@@ -1089,6 +1082,59 @@ impl IrEmitter {
         Ok(())
     }
 
+    /// Lower a single binary operation for the iterative fold path (deep-chain
+    /// hardening). Takes pre-compiled operands and produces the folded result.
+    /// Handles arithmetic (Add/Sub/Mul), bitwise (And/Or/Xor), and float coercions.
+    fn compile_binop_fold(&mut self, l: &str, lt: &str, r: &str, rt: &str, op: &BinOp) -> Result<(String, String), String> {
+        let is_float = lt == "float" || lt == "double" || rt == "float" || rt == "double";
+        let float_ty = if lt == "float" || rt == "float" { "float" } else { "double" };
+        let is_add_sub_mul = matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul);
+        let ty = if is_float && is_add_sub_mul { float_ty } else { "i64" };
+        let llvm_op = match op {
+            BinOp::Add => if is_float { "fadd" } else { "add" },
+            BinOp::Sub => if is_float { "fsub" } else { "sub" },
+            BinOp::Mul => if is_float { "fmul" } else { "mul" },
+            BinOp::BitAnd => "and",
+            BinOp::BitOr => "or",
+            BinOp::BitXor => "xor",
+            _ => return Err(format!("compile_binop_fold: unsupported op {op:?}")),
+        };
+        // Coerce to float if needed
+        let (mut lv, mut rv) = (l.to_string(), r.to_string());
+        if is_float && is_add_sub_mul {
+            if lt == "i64" {
+                let conv = self.fresh_tmp();
+                self.emitln(&format!("  {conv} = sitofp i64 {l} to {float_ty}"));
+                lv = conv;
+            }
+            if rt == "i64" {
+                let conv = self.fresh_tmp();
+                self.emitln(&format!("  {conv} = sitofp i64 {r} to {float_ty}"));
+                rv = conv;
+            }
+            if float_ty == "float" {
+                if lt == "double" {
+                    let conv = self.fresh_tmp();
+                    self.emitln(&format!("  {conv} = fptrunc double {l} to float"));
+                    lv = conv;
+                }
+                if rt == "double" {
+                    let conv = self.fresh_tmp();
+                    self.emitln(&format!("  {conv} = fptrunc double {r} to float"));
+                    rv = conv;
+                }
+            }
+        }
+        // Widen narrow integers for non-float ops
+        if !is_float && ty == "i64" {
+            lv = self.widen_to_i64(&lv, lt);
+            rv = self.widen_to_i64(&rv, rt);
+        }
+        let tmp = self.fresh_tmp();
+        self.emitln(&format!("  {tmp} = {llvm_op} {ty} {lv}, {rv}"));
+        Ok((tmp, ty.to_string()))
+    }
+
     pub(crate) fn compile_expr(&mut self, expr: &Expr) -> Result<(String, String), String> {
         // Flush any concrete struct types that were registered during
         // compilation (e.g. %struct.Option__Point) so they appear before
@@ -1257,6 +1303,49 @@ impl IrEmitter {
                 }
             }
             Expr::Binary(left, op, right, _) => {
+                // Production hardening: deep left-associative chains of the same
+                // arithmetic/bitwise operator can create ASTs thousands of levels
+                // deep, overflowing the native stack via recursive compile_expr.
+                // Detect this pattern and compile operands iteratively via an
+                // explicit work list, avoiding stack overflow.
+                let is_foldable = matches!(op,
+                    BinOp::Add | BinOp::Sub | BinOp::Mul |
+                    BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor
+                );
+                if is_foldable {
+                    // Walk the left-associative chain collecting operands
+                    let mut operands: Vec<Expr> = Vec::new();
+                    let mut current: &Expr = left;
+                    loop {
+                        if let Expr::Binary(inner_left, inner_op, inner_right, _) = current {
+                            if *inner_op == *op {
+                                operands.push((**inner_right).clone());
+                                current = inner_left;
+                                continue;
+                            }
+                        }
+                        operands.push(current.clone());
+                        break;
+                    }
+                    operands.reverse();
+                    operands.push((**right).clone());
+                    if operands.len() > 2 {
+                        // Compile the first operand
+                        let (mut acc_val, mut acc_ty) = self.compile_expr(&operands[0])?;
+                        // Iteratively compile and fold each remaining operand
+                        for operand in &operands[1..] {
+                            let (r_val, r_ty) = self.compile_expr(operand)?;
+                            let (l, lt) = (acc_val, acc_ty);
+                            let (r, rt) = (r_val, r_ty);
+                            // Reuse the standard BinOp lowering for each pair
+                            let folded = self.compile_binop_fold(&l, &lt, &r, &rt, op)?;
+                            acc_val = folded.0;
+                            acc_ty = folded.1;
+                        }
+                        return Ok((acc_val, acc_ty));
+                    }
+                }
+                // Normal path (short chain or non-foldable operator)
                 let (mut l, mut lt) = self.compile_expr(left)?;
                 let (mut r, mut rt) = self.compile_expr(right)?;
                 let tmp = self.fresh_tmp();

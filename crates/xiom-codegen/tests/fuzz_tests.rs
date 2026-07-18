@@ -201,12 +201,10 @@ fn fuzz_large_valid_arithmetic_expr() {
 
 // KNOWN LIMITATION (pre-existing, not from stdlib work): a very deep but VALID
 // left-associative expression builds a deep AST that the checker/codegen walk
-// recursively, overflowing the native stack (catch_unwind cannot catch a stack
-// overflow — the process aborts). Ignored so it documents the limit without
-// killing the test binary. Fix path: convert deep-recursion codegen/check walks
-// to an explicit work-stack, or compile on a thread with a large stack.
+// recursively, overflowing the native stack. Fixed by iterative BinOp flattening
+// in compile_expr — deep same-operator chains are compiled via an explicit work
+// list instead of recursive descent. The test now exercises the hardened compiler.
 #[test]
-#[ignore]
 fn fuzz_deep_arithmetic_overflows_known_limitation() {
     let expr = (0..5000).map(|_| "1 + ").collect::<String>() + "1";
     let src = format!("fn main() -> Int {{ return {}; }}", expr);
