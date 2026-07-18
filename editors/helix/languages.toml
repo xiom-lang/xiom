@@ -1,0 +1,27 @@
+# XIOM language support for Helix — append to ~/.config/helix/languages.toml
+# Requires xiom-lsp (and xiom-dbg for debugging) on PATH.
+
+[language-server.xiom-lsp]
+command = "xiom-lsp"
+
+[[language]]
+name = "xiom"
+scope = "source.xiom"
+injection-regex = "xiom"
+file-types = ["xi"]
+roots = ["package.xi", ".git"]
+comment-token = "//"
+block-comment-tokens = { start = "/*", end = "*/" }
+indent = { tab-width = 2, unit = "  " }
+language-servers = ["xiom-lsp"]
+
+[language.debugger]
+name = "xiom-dbg"
+transport = "stdio"
+command = "xiom-dbg"
+
+[[language.debugger.templates]]
+name = "launch"
+request = "launch"
+completion = [{ name = "binary", completion = "filename" }]
+args = { program = "{0}", stopOnEntry = true, contractTraps = true }
