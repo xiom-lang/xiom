@@ -1,12 +1,12 @@
 # XIOM Compiler — Production Roadmap
 
-**Current:** v0.47.5 "ZERO GAPS" — **495/495 all tests**, all P0+P1+P2 resolved, 39/39 stdlib modules compile, deterministic builds, zero warnings, zero ignored
-**Branch:** `feat/architect` (Phase 5c)
-**Next:** v0.46.0 stable tag 🚀 → Phase 5d Ecosystem & Tooling
+**Current:** v0.47.6 "ALL GATES CLOSED" — **495/495 all tests**, all 7 Vulkan gaps (G1-G7) fixed, zero warnings, zero ignored, 39/39 stdlib compile
+**Branch:** `feat/architect` (Phase 5c ✅ → Phase 5d next)
+**Next:** Phase 5d Ecosystem & Tooling
 
 ---
 
-## 1. CURRENT STATE (2026-07-18)
+## 1. CURRENT STATE (2026-07-18 — v0.47.6)
 
 | Gate | Count | Status | Notes |
 |------|-------|--------|-------|
@@ -19,7 +19,7 @@
 | Stdlib compilation | **40/40** | ✅ | 39 per-module + 1 combined cross-module |
 | Diff / FullDiff | **25/25 + 23/23** | ✅ | Selfhost assertion gap fixed (P2) |
 | Robustness | **29/29** | ✅ | |
-| **TOTAL (all tests)** | **495/495** | ✅ **ALL GREEN — v0.47.5** | Zero gaps, zero warnings, zero ignored |
+| **TOTAL (all tests)** | **495/495** | ✅ **ALL GREEN — v0.47.6** | All 7 Vulkan gaps closed; all 5c sub-phases complete |
 
 ### P0 Gaps: ALL RESOLVED ✅
 
@@ -106,13 +106,13 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | 4 | Or-Patterns | Pattern matching | ✅ | — |
 | **5a** | **Codegen Hardening** | **Compiler correctness** | **✅** | [COMPILER_ARCHITECTURE.md](./COMPILER_ARCHITECTURE.md) |
 | **5b** | **Stdlib Completion** | **Standard library** | **✅** | — |
-| **5c** | **Production Toolchain** | **CLI, build, errors, robustness** | **✅ Complete — 101/101 e2e; deterministic builds; all P0 resolved; all P1 closed** | [PRODUCTION_HARDENING_BUGS.md](./PRODUCTION_HARDENING_BUGS.md), [COMPILER_ARCHITECTURE.md](./COMPILER_ARCHITECTURE.md) |
-| **5c-R** | **Architect-R** | **Compiler refactoring + rustc lesson adoption** | **✅ Complete — 9 WS2 items, Place model, 19 commits, 79 regression tests** | [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md) |
+| **5c** | **Production Toolchain** | **CLI, build, errors, robustness** | **✅ Complete — 495/495 tests; zero warnings; zero ignored; deterministic builds; all P0+P1+P2 resolved** | [PRODUCTION_HARDENING_BUGS.md](./PRODUCTION_HARDENING_BUGS.md), [COMPILER_ARCHITECTURE.md](./COMPILER_ARCHITECTURE.md) |
+| **5c-R** | **Architect-R** | **Compiler refactoring + rustc lesson adoption** | **✅ Complete — 9 WS2 items, Place model, 19 commits, 93 regression tests** | [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md) |
 | **5c-E** | **Architect-E** | **Ecosystem hardening (vulkan audit gaps)** | **✅ Complete — ALL 7 gaps closed (G1-G7), 11 regression tests** | [ecosystem/xiom-vulkan/AUDIT.md](./ecosystem/xiom-vulkan/AUDIT.md) |
 | **5c-S** | **Safety Audit** | `--sandbox` flag, unsafe block enumeration, severity scoring, CI/CD gate | **Planned — zero deps, buildable now** | [SAFETY_AUDIT.md](./SAFETY_AUDIT.md) |
-| **5c-W** | **Warning Elimination** | **Zero compiler warnings across all crates (release build)** | **✅ Complete — 15 warnings fixed, 441/441 tests** | — |
-| 5d | Ecosystem & Tooling | MCP server (3 tools MVP), package manager, debugger, LSP, docs | Planned — MCP MVP buildable now | [MCP_SERVER.md](./MCP_SERVER.md), [XIOM_TOOLING_SPEC.md](./XIOM_TOOLING_SPEC.md) |
-| 5e | Advanced Compilation | Incremental, parallel, hot reload, XIR mid-level IR | Planned | [rust/04-incremental-compilation.md](./rust/04-incremental-compilation.md) |
+| **5c-W** | **Warning Elimination** | **Zero compiler warnings across all crates (release build)** | **✅ Complete — zero warnings; removed duplicate coercion block; all warnings fixed** | — |
+| **5d** | **Ecosystem & Tooling** | MCP server, package manager, debugger, LSP, docs | **Next — buildable now** | [MCP_SERVER.md](./MCP_SERVER.md), [XIOM_TOOLING_SPEC.md](./XIOM_TOOLING_SPEC.md) |
+| **5e** | **Advanced Compilation** | Incremental, parallel, hot reload, XIR mid-level IR | Planned | [rust/04-incremental-compilation.md](./rust/04-incremental-compilation.md) |
 | 5f | Z3 Static Verification | Contract proof at compile time (SMT-LIB → Z3) | Planned | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) (analysis of `E:\repos\z3.rs`) |
 | **5g** | **AI-Assisted Pipeline** | `--ai` flag, LLM hints, contract-guided prompts, LSP integration | **Planned — depends on 5f (Z3)** | [AI_PIPELINE.md](./AI_PIPELINE.md) |
 | 5h | Self-Hosting | XIOM compiler in XIOM | Planned (LAST) | [rust/RUST_COMPILER_LESSONS.md §4.5](./rust/RUST_COMPILER_LESSONS.md) |
@@ -454,28 +454,17 @@ Verified: `IpAddr.is_v4/is_v6` field access now correctly loads and compares str
 - ✅ 5c.25: @pre snapshot dereferences &mut pointers for by-value struct copy
 - ✅ 5c.26: fn-ptr as value resolves function name to pointer (FNPTR: ACCESS_VIOLATION → exit 1)
 
-**Current state: 90/101 e2e. 11 remaining failures:**
-- 6 counter pattern: NET, DB, VECTOR, FULL, TEST, SQLITE (STACK_OVERFLOW/ACCESS_VIOLATION)
-- 1 BREAKPOINT: CRYPTO (llvm.trap, pre-existing since c6e9804)
-- 2 exit 1: JSON, this_field_ref (wrong results)
-- 1 exit 1: vec_of_struct (FIELD-I64 fix works manually, e2e discrepancy)
-- 1 ACCESS_VIOLATION: HTTP (store_back_to_receiver skips field-access receivers)
-
-**Troubleshooting Notes:**
-- **HTTP crash (Vec-of-struct):** `val_to_i64` heap-allocates multi-field structs and returns
-  pointers (i64). Vec stores these as i64. When loaded back via `emit_elem_load`, the i64
-  pointer isn't recognized — downstream field access gets `i64` type. Two approaches explored:
-  (a) elem_size computed from struct field count with memcpy store/load — complex because
-  push calls val_to_i64 first; (b) i64-inttoptr in field access via struct type lookup in
-  type_meta — fragile due to ambiguous field names across structs. The `type_from_ast_with_args`
-  helper was added to preserve Vec element types in type_meta for future use. A complete fix
-  requires changes to push, emit_elem_store/load, val_to_struct, and Index handler paths.
-- **Counter pattern (FULL/TEST):** Multiple test functions modifying mutable vars trigger
-  ACCESS_VIOLATION. Minimal repros with struct+this methods pass — issue is specific to
-  enum patterns, &mut references, or contract-heavy workflows. Needs focused bisect.
+**Current state (v0.47.6): 495/495 all tests. Zero failures. Zero warnings. Zero ignored.**
+- All 101 E2E tests pass
+- All 93 feature regression tests pass
+- All 7 Vulkan audit gaps (G1-G7) closed
+- Deep-chain iterative BinOp flattening prevents stack overflow on 5000-term expressions
+- String concatenation chain fix prevents ACCESS_VIOLATION on 3+ term str concat
+- Float64 Vec reads use bitcast (not sitofp); Float64→Float32 push coerces fptrunc
+- Zero compiler warnings (duplicate coercion removed, shadow variable fixed)
 
 **Ecosystem:** 10/10 compile and run — 213 ecosystem tests type-check with 0 errors.
-**Gates:** 47/47 parser, 74/74 checker, 88/98 e2e.
+**Gates:** 47/47 parser, 74/74 checker, 101/101 e2e, 93/93 regression, 41/41 stdlib-exec.
 
 ### 5c.14b Struct Pointer Coercion — DONE (2026-07-15)
 
@@ -489,14 +478,7 @@ Verified: `IpAddr.is_v4/is_v6` field access now correctly loads and compares str
 
 ### 5c.15 Remaining Runtime Gaps
 
-All 10 failures are now RUNTIME (0 checker errors, 0 LLVM codegen errors):
-
-| Category | Count | Tests | Root Cause Hypothesis |
-|----------|-------|-------|----------------------|
-| BREAKPOINT | 2 | crypto, http | llvm.trap from recursion depth or contract violation |
-| ACCESS_VIOLATION | 4 | fnptr, full, net, test | Null pointer dereference in function pointer storage or struct field access |
-| WRONG RESULT | 3 | db, sqlite, vector | Logic errors in Vec operations, enum constructors, or float math |
-| PARSER | 1 | json | Pre-existing parse error at line 123 |
+**All 5c.15 runtime gaps resolved in v0.47.6.** Zero runtime failures. See [AUDIT.md](./ecosystem/xiom-vulkan/AUDIT.md) for per-gap closure details.
 
 ### 5c.16b Ecosystem Audit — Compiler Gaps (37 modules scanned, 2026-07-15)
 
@@ -882,12 +864,18 @@ Stdlib resolution: `xiomc` finds stdlib via `XIOM_STDLIB` env var, `%LOCALAPPDAT
 ## 14. VERIFICATION PROTOCOL
 
 ```bash
-cargo build -p xiomc
-cargo test -p xiom-parser --lib
-cargo test -p xiom-check --lib
-cargo test -p xiom-codegen --test stdlib_execution_tests -- --nocapture
-cargo test -p xiom-codegen --test e2e_tests
-cargo test -p xiom-codegen  # all regression gates
+# Full build (zero warnings):
+cargo build --release -p xiomc
+
+# Full test suite (495/495):
+cargo test --all
+# or:
+.\test_summary.ps1     # Windows
+./test_summary.sh      # Linux/macOS
+
+# Release package:
+.\package.ps1 -Version "0.47.6"   # Windows
+./package.sh 0.47.6               # Linux/macOS
 ```
 
 ---
