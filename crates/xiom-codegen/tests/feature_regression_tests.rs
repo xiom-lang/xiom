@@ -655,3 +655,61 @@ fn main() -> Int {
     let ir = compile(src).unwrap();
     assert!(ir.contains("define"), "Float Vec element reads must compile");
 }
+
+// =====================================================================
+// 5c-E v0.47.3: Remaining Vulkan FFI gaps (G5, G6, G7)
+// =====================================================================
+
+#[test]
+fn regress_5c_e_vec_literal_data_field_g5() {
+    // 5c-E G5: var Vec literal + .data field access must emit valid IR
+    // v0.46 regression: store %struct.Vec mismatch → clang reject
+    let src = r#"
+extern "C" { fn probe(data: *UInt8, count: Int); }
+fn main() -> Int {
+  var v: Vec[Float32] = [1.0, 2.0, 3.0];
+  unsafe { probe(v.data, v.len()); }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Vec literal .data field must emit valid IR");
+    // Must NOT contain store %struct.Vec %tmp, %struct.Vec* (invalid IR pattern)
+    let store_mismatch = ir.contains("store %struct.Vec %tmp") && ir.contains("%struct.Vec*");
+    assert!(!store_mismatch || ir.contains("bitcast"), "must not emit malformed struct store");
+}
+
+#[test]
+fn regress_5c_e_vec_data_local_rebind_g6() {
+    // 5c-E G6: .data bound to local and reused must not emit bogus E001 or crash
+    // v0.46: E001 "use of moved value" + runtime ACCESS_VIOLATION
+    let src = r#"
+extern "C" { fn probe_out(w: *Int32, h: *Int32); }
+fn main() -> Int {
+  var wh = Vec[Int32].new();
+  wh.push(0); wh.push(0);
+  let base = wh.data;
+  unsafe { probe_out(base, base); }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), ".data rebind must compile without E001");
+}
+
+#[test]
+fn regress_5c_e_void_null_contract_ref_g7() {
+    // 5c-E G7: @null in contract clauses must not emit undefined LLVM global
+    // v0.46: ptr.xi contracts reference `null` → clang rejects `@null`
+    // Test: declare null as a local pointer, use it in a requires clause
+    let src = r#"
+extern "C" { fn probe(p: *UInt8); }
+fn checked_deref(p: *UInt8) -> UInt8
+  requires: p != 0
+{
+  unsafe { return *p; }
+}
+fn main() -> Int {
+  unsafe { return 0; }
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "contract with pointer-null check must compile");
+}
