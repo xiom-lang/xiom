@@ -117,3 +117,72 @@ fn stdlib_all_modules_compile_to_ir() {
         total, stderr
     );
 }
+
+// =====================================================================
+// Individual per-module tests (stdlib validation with granularity).
+// Each module is compiled with `use xiom.core;` for cross-module deps.
+// =====================================================================
+
+fn compile_module(module: &str) -> bool {
+    let project_dir = project_root().display().to_string();
+    let program = format!("use xiom.core;\nuse xiom.{};\nfn main() -> Int {{ return 0; }}\n", module);
+    let tmp_file = std::env::temp_dir().join(format!("xiom_stdlib_{}.xi", module));
+    fs::write(&tmp_file, program).expect("write temp file");
+    let tmp_path = tmp_file.to_str().unwrap().to_string();
+    let output = Command::new(xiomc_path())
+        .args(["--emit-ir", &tmp_path])
+        .current_dir(&project_dir)
+        .output()
+        .expect("failed to execute xiomc");
+    let _ = fs::remove_file(&tmp_file);
+    output.status.success()
+}
+
+macro_rules! stdlib_test {
+    ($name:ident, $module:literal) => {
+        #[test]
+        fn $name() {
+            assert!(compile_module($module), "stdlib module '{}' must compile", $module);
+        }
+    };
+}
+
+stdlib_test!(stdlib_core,        "core");
+stdlib_test!(stdlib_array,       "array");
+stdlib_test!(stdlib_string,      "string");
+stdlib_test!(stdlib_collections, "collections");
+stdlib_test!(stdlib_io,          "io");
+stdlib_test!(stdlib_fmt,         "fmt");
+stdlib_test!(stdlib_iter,        "iter");
+stdlib_test!(stdlib_math,        "math");
+stdlib_test!(stdlib_num,         "num");
+stdlib_test!(stdlib_cmp,         "cmp");
+stdlib_test!(stdlib_hash,        "hash");
+stdlib_test!(stdlib_mem,         "mem");
+stdlib_test!(stdlib_ptr,         "ptr");
+stdlib_test!(stdlib_char,        "char");
+stdlib_test!(stdlib_path,        "path");
+stdlib_test!(stdlib_convert,     "convert");
+stdlib_test!(stdlib_ffi,         "ffi");
+stdlib_test!(stdlib_sync,        "sync");
+stdlib_test!(stdlib_thread,      "thread");
+stdlib_test!(stdlib_async,       "async");
+stdlib_test!(stdlib_net,         "net");
+stdlib_test!(stdlib_os,          "os");
+stdlib_test!(stdlib_time,        "time");
+stdlib_test!(stdlib_test,        "test");
+stdlib_test!(stdlib_bench,       "bench");
+stdlib_test!(stdlib_log,         "log");
+stdlib_test!(stdlib_serialize,   "serialize");
+stdlib_test!(stdlib_crypto,      "crypto");
+stdlib_test!(stdlib_regex,       "regex");
+stdlib_test!(stdlib_rand,        "rand");
+stdlib_test!(stdlib_encoding,    "encoding");
+stdlib_test!(stdlib_compress,    "compress");
+stdlib_test!(stdlib_contracts,   "contracts");
+stdlib_test!(stdlib_reflect,     "reflect");
+stdlib_test!(stdlib_cell,        "cell");
+stdlib_test!(stdlib_rc,          "rc");
+stdlib_test!(stdlib_alloc,       "alloc");
+stdlib_test!(stdlib_env,         "env");
+stdlib_test!(stdlib_error,       "error");
