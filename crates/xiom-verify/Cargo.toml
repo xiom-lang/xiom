@@ -3,6 +3,10 @@ name = "xiom-verify"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "xiom-verify"
+path = "src/main.rs"
+
 [dependencies]
 xiom-ast = { path = "../xiom-ast" }
 xiom-lexer = { path = "../xiom-lexer" }

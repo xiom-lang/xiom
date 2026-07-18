@@ -271,3 +271,274 @@ fn print_usage() {
     eprintln!("  xiom ffigen stdlib/libc.xiom-bind");
     eprintln!("  xiom ffigen ecosystem/xiom-http/libcurl.xiom-bind");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_type_mapping() {
+        assert_eq!(xiom_type("i32"), "Int32");
+        assert_eq!(xiom_type("i8"), "Int8");
+        assert_eq!(xiom_type("u8"), "UInt8");
+        assert_eq!(xiom_type("i16"), "Int16");
+        assert_eq!(xiom_type("u16"), "UInt16");
+        assert_eq!(xiom_type("u32"), "UInt32");
+        assert_eq!(xiom_type("i64"), "Int64");
+        assert_eq!(xiom_type("u64"), "UInt");
+        assert_eq!(xiom_type("f32"), "Float32");
+        assert_eq!(xiom_type("f64"), "Float64");
+        assert_eq!(xiom_type("str"), "Str");
+        assert_eq!(xiom_type("ptr"), "*UInt8");
+        assert_eq!(xiom_type("bool"), "Bool");
+        assert_eq!(xiom_type("void"), "");
+    }
+
+    #[test]
+    fn test_type_mapping_unknown_falls_through() {
+        assert_eq!(xiom_type("size_t"), "size_t");
+        assert_eq!(xiom_type("FILE"), "FILE");
+        assert_eq!(xiom_type("intptr_t"), "intptr_t");
+    }
+
+    #[test]
+    fn test_parse_simple_function() {
+        let func = parse_fn_spec("fn greet(name: str) -> i32;").expect("should parse");
+        assert_eq!(func.name, "greet");
+        assert_eq!(func.params.len(), 1);
+        assert_eq!(func.params[0].0, "name");
+        assert_eq!(func.params[0].1, "str");
+        assert_eq!(func.return_type, "i32");
+        assert!(!func.variadic);
+        assert!(!func.nullable_return);
+    }
+
+    #[test]
+    fn test_parse_function_with_multiple_params() {
+        let func = parse_fn_spec("fn add(a: i32, b: i32) -> i32;").expect("should parse");
+        assert_eq!(func.name, "add");
+        assert_eq!(func.params.len(), 2);
+        assert_eq!(func.params[0].0, "a");
+        assert_eq!(func.params[0].1, "i32");
+        assert_eq!(func.params[1].0, "b");
+        assert_eq!(func.params[1].1, "i32");
+        assert_eq!(func.return_type, "i32");
+    }
+
+    #[test]
+    fn test_parse_void_return_function() {
+        let func = parse_fn_spec("fn log(msg: str);").expect("should parse");
+        assert_eq!(func.name, "log");
+        assert_eq!(func.return_type, "void");
+    }
+
+    #[test]
+    fn test_parse_variadic_function() {
+        let func = parse_fn_spec("fn printf(fmt: str, ...) -> i32;").expect("should parse");
+        assert_eq!(func.name, "printf");
+        assert!(func.variadic);
+        assert_eq!(func.params.len(), 1);
+        assert_eq!(func.return_type, "i32");
+    }
+
+    #[test]
+    fn test_parse_no_param_function() {
+        let func = parse_fn_spec("fn getpid() -> i32;").expect("should parse");
+        assert_eq!(func.name, "getpid");
+        assert!(func.params.is_empty());
+        assert_eq!(func.return_type, "i32");
+    }
+
+    #[test]
+    fn test_parse_nullable_return() {
+        let func =
+            parse_fn_spec("fn fopen(path: str, mode: str) -> ptr nullable;").expect("should parse");
+        assert_eq!(func.name, "fopen");
+        assert_eq!(func.return_type, "ptr nullable");
+        assert!(func.nullable_return);
+    }
+
+    #[test]
+    fn test_contract_inference_str_param() {
+        let func = Function {
+            name: "puts".into(),
+            params: vec![("s".into(), "str".into())],
+            return_type: "i32".into(),
+            variadic: false,
+            nullable_return: false,
+        };
+        let contracts = infer_contracts(&func);
+        assert!(contracts.contains(&"requires: s != null".to_string()));
+        assert_eq!(contracts.len(), 1);
+    }
+
+    #[test]
+    fn test_contract_inference_ptr_param() {
+        let func = Function {
+            name: "memcpy".into(),
+            params: vec![
+                ("dest".into(), "ptr".into()),
+                ("src".into(), "ptr".into()),
+                ("n".into(), "i32".into()),
+            ],
+            return_type: "ptr".into(),
+            variadic: false,
+            nullable_return: false,
+        };
+        let contracts = infer_contracts(&func);
+        assert!(contracts.contains(&"requires: dest != null".to_string()));
+        assert!(contracts.contains(&"requires: src != null".to_string()));
+        assert!(contracts.contains(&"ensures: result != null".to_string()));
+    }
+
+    #[test]
+    fn test_contract_inference_non_pointer_no_null_check() {
+        let func = Function {
+            name: "abs".into(),
+            params: vec![("x".into(), "i32".into())],
+            return_type: "i32".into(),
+            variadic: false,
+            nullable_return: false,
+        };
+        let contracts = infer_contracts(&func);
+        assert!(contracts.is_empty());
+    }
+
+    #[test]
+    fn test_contract_nullable_return_no_ensures() {
+        let func = Function {
+            name: "fopen".into(),
+            params: vec![
+                ("path".into(), "str".into()),
+                ("mode".into(), "str".into()),
+            ],
+            return_type: "ptr".into(),
+            variadic: false,
+            nullable_return: true,
+        };
+        let contracts = infer_contracts(&func);
+        assert!(contracts.contains(&"requires: path != null".to_string()));
+        assert!(contracts.contains(&"requires: mode != null".to_string()));
+        let has_result_ensures = contracts.iter().any(|c| c.contains("result != null"));
+        assert!(!has_result_ensures);
+    }
+
+    #[test]
+    fn test_malloc_contract() {
+        let func = Function {
+            name: "malloc".into(),
+            params: vec![("size".into(), "u64".into())],
+            return_type: "ptr".into(),
+            variadic: false,
+            nullable_return: false,
+        };
+        let contracts = infer_contracts(&func);
+        assert_eq!(contracts.len(), 2);
+        assert!(contracts.contains(&"requires: size > 0".to_string()));
+        assert!(contracts.contains(&"ensures: result != null".to_string()));
+    }
+
+    #[test]
+    fn test_free_no_contracts() {
+        let func = Function {
+            name: "free".into(),
+            params: vec![("ptr".into(), "ptr".into())],
+            return_type: "void".into(),
+            variadic: false,
+            nullable_return: false,
+        };
+        let contracts = infer_contracts(&func);
+        assert!(contracts.is_empty());
+    }
+
+    #[test]
+    fn test_parse_full_spec() {
+        let source = r#"
+# standard library
+library "libc" {
+  fn malloc(size: u64) -> ptr;
+  fn free(ptr: ptr);
+  fn puts(s: str) -> i32;
+  fn printf(fmt: str, ...) -> i32;
+  fn fopen(path: str, mode: str) -> ptr nullable;
+}
+"#;
+        let libraries = parse_spec(source);
+        assert_eq!(libraries.len(), 1);
+        assert_eq!(libraries[0].name, "libc");
+        assert_eq!(libraries[0].functions.len(), 5);
+
+        let malloc_func = libraries[0].functions.iter().find(|f| f.name == "malloc").unwrap();
+        assert_eq!(malloc_func.params[0].0, "size");
+        assert_eq!(malloc_func.params[0].1, "u64");
+        assert_eq!(malloc_func.return_type, "ptr");
+        assert!(!malloc_func.nullable_return);
+
+        let printf_func = libraries[0].functions.iter().find(|f| f.name == "printf").unwrap();
+        assert!(printf_func.variadic);
+
+        let free_func = libraries[0].functions.iter().find(|f| f.name == "free").unwrap();
+        assert_eq!(free_func.return_type, "void");
+        assert_eq!(free_func.params.len(), 1);
+
+        let fopen_func = libraries[0].functions.iter().find(|f| f.name == "fopen").unwrap();
+        assert!(fopen_func.nullable_return);
+        assert_eq!(fopen_func.return_type, "ptr nullable");
+    }
+
+    #[test]
+    fn test_parse_spec_handles_empty_lines_and_comments() {
+        let source = "
+
+# comment
+library \"test\" {
+
+# another comment
+  fn foo(x: i32) -> i32;
+}
+";
+        let libraries = parse_spec(source);
+        assert_eq!(libraries.len(), 1);
+        assert_eq!(libraries[0].functions.len(), 1);
+        assert_eq!(libraries[0].functions[0].name, "foo");
+    }
+
+    #[test]
+    fn test_parse_spec_ignores_junk_lines() {
+        let source = r#"
+library "example" {
+  typedef int my_int;
+  fn bar() -> i32;
+  #include <stdio.h>
+}
+"#;
+        let libraries = parse_spec(source);
+        assert_eq!(libraries.len(), 1);
+        assert_eq!(libraries[0].functions.len(), 1);
+        assert_eq!(libraries[0].functions[0].name, "bar");
+    }
+
+    #[test]
+    fn test_xiom_type_output_for_function() {
+        let func = Function {
+            name: "create_window".into(),
+            params: vec![
+                ("title".into(), "str".into()),
+                ("width".into(), "i32".into()),
+                ("height".into(), "i32".into()),
+            ],
+            return_type: "ptr".into(),
+            variadic: false,
+            nullable_return: false,
+        };
+
+        assert_eq!(xiom_type(&func.params[0].1), "Str");
+        assert_eq!(xiom_type(&func.params[1].1), "Int32");
+        assert_eq!(xiom_type(&func.params[2].1), "Int32");
+        assert_eq!(xiom_type(&func.return_type), "*UInt8");
+
+        let contracts = infer_contracts(&func);
+        assert!(contracts.contains(&"requires: title != null".to_string()));
+        assert!(contracts.contains(&"ensures: result != null".to_string()));
+    }
+}

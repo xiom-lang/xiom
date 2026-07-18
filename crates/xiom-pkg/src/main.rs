@@ -375,3 +375,185 @@ fn print_usage() {
     eprintln!("  xiom pkg --list --root stdlib");
     eprintln!("  xiom pkg --root myproject");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_package_manifest() {
+        let manifest = r#"
+name: "mypkg";
+version: "0.1.0";
+description: "A test package";
+modules: ["src/mod1.xi", "src/mod2.xi"];
+"#;
+        let pkg = parse_manifest(manifest);
+        assert_eq!(pkg.name, "mypkg");
+        assert_eq!(pkg.version, "0.1.0");
+        assert_eq!(pkg.description, "A test package");
+        assert_eq!(pkg.modules, vec!["src/mod1.xi".to_string(), "src/mod2.xi".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_package_with_braces() {
+        let manifest = r#"{
+  name: "braced";
+  version: "2.0.0";
+  modules: ["src/x.xi"];
+}"#;
+        let pkg = parse_manifest(manifest);
+        assert_eq!(pkg.name, "braced");
+        assert_eq!(pkg.version, "2.0.0");
+        assert_eq!(pkg.modules, vec!["src/x.xi".to_string()]);
+    }
+
+    #[test]
+    fn test_list_output() {
+        let manifest = r#"
+name: "mylist";
+version: "1.0.0";
+modules: ["src/main.xi", "src/lib.xi", "src/utils.xi"];
+"#;
+        let pkg = parse_manifest(manifest);
+        assert_eq!(pkg.name, "mylist");
+        assert_eq!(pkg.version, "1.0.0");
+        assert_eq!(pkg.modules.len(), 3);
+        assert!(pkg.modules.contains(&"src/main.xi".to_string()));
+        assert!(pkg.modules.contains(&"src/lib.xi".to_string()));
+        assert!(pkg.modules.contains(&"src/utils.xi".to_string()));
+    }
+
+    #[test]
+    fn test_list_output_empty_modules() {
+        let manifest = r#"
+name: "minimal";
+version: "0.1.0";
+"#;
+        let pkg = parse_manifest(manifest);
+        assert_eq!(pkg.name, "minimal");
+        assert_eq!(pkg.version, "0.1.0");
+        assert_eq!(pkg.modules.len(), 0);
+    }
+
+    #[test]
+    fn test_empty_manifest() {
+        let manifest = "";
+        let pkg = parse_manifest(manifest);
+        assert_eq!(pkg.name, "");
+        assert_eq!(pkg.version, "");
+        assert!(pkg.modules.is_empty());
+        assert!(pkg.deps.is_empty());
+        assert_eq!(pkg.description, "");
+        assert!(pkg.authors.is_empty());
+    }
+
+    #[test]
+    fn test_minimal_manifest() {
+        let manifest = r#"
+name: "mini";
+"#;
+        let pkg = parse_manifest(manifest);
+        assert_eq!(pkg.name, "mini");
+        assert_eq!(pkg.version, "");
+        assert!(pkg.modules.is_empty());
+    }
+
+    #[test]
+    fn test_missing_name() {
+        let manifest = r#"
+version: "0.2.0";
+modules: ["src/a.xi"];
+"#;
+        let pkg = parse_manifest(manifest);
+        assert_eq!(pkg.name, "");
+        assert_eq!(pkg.version, "0.2.0");
+        assert!(pkg.modules.contains(&"src/a.xi".to_string()));
+    }
+
+    #[test]
+    fn test_multiline_modules() {
+        let manifest = r#"
+name: "multi";
+version: "0.5.0";
+modules: [
+  "a.xi",
+  "b.xi",
+  "c.xi"
+];
+"#;
+        let pkg = parse_manifest(manifest);
+        assert_eq!(pkg.name, "multi");
+        assert_eq!(pkg.version, "0.5.0");
+        assert_eq!(pkg.modules, vec![
+            "a.xi".to_string(),
+            "b.xi".to_string(),
+            "c.xi".to_string(),
+        ]);
+    }
+
+    #[test]
+    fn test_resolve_dependencies_no_deps() {
+        let pkg = Package::default();
+        let root = std::env::temp_dir();
+        let resolved = resolve_dependencies(&pkg, &root);
+        assert!(resolved.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_dependencies_with_dep() {
+        let mut pkg = Package::default();
+        pkg.deps.insert("xiom-std".to_string(), "0.1.0".to_string());
+
+        let root = std::env::temp_dir();
+        let resolved = resolve_dependencies(&pkg, &root);
+        // xiom-std resolves only if <workspace_root>/stdlib exists;
+        // when run from a temp dir with no Cargo.toml ancestry,
+        // find_workspace_root returns the temp dir itself and stdlib is absent.
+        assert!(!resolved.contains_key("xiom-std"));
+    }
+
+    #[test]
+    fn test_extract_field() {
+        assert_eq!(extract_field(r#"name: "test";"#, "name:"), Some("test".to_string()));
+        assert_eq!(extract_field(r#"version: "1.2.3";"#, "version:"), Some("1.2.3".to_string()));
+        assert_eq!(extract_field(r#"other: "";"#, "other:"), None); // empty value returns None
+        assert_eq!(extract_field(r#"name: "test";"#, "name:"), Some("test".to_string())); // immediate semicolon
+    }
+
+    #[test]
+    fn test_strip_outer_block_no_braces() {
+        let input = "name: \"x\";";
+        assert_eq!(strip_outer_block(input), "name: \"x\";");
+    }
+
+    #[test]
+    fn test_strip_outer_block_with_braces() {
+        let input = "{ name: \"x\"; }";
+        assert_eq!(strip_outer_block(input), "name: \"x\";");
+    }
+
+    #[test]
+    fn test_parse_authors() {
+        let manifest = r#"
+name: "team";
+version: "1.0.0";
+authors: ["Alice", "Bob"];
+"#;
+        let pkg = parse_manifest(manifest);
+        assert_eq!(pkg.authors, vec!["Alice".to_string(), "Bob".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_comments_ignored() {
+        let manifest = r#"
+// This is a comment
+name: "pkg";
+// Another comment
+version: "0.1.0";
+"#;
+        let pkg = parse_manifest(manifest);
+        assert_eq!(pkg.name, "pkg");
+        assert_eq!(pkg.version, "0.1.0");
+    }
+}

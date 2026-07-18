@@ -42,45 +42,52 @@ fn main() {
     }
 }
 
-fn generate_docs(program: &Program, depth: usize) {
-    for item in &program.items {
-        doc_item(item, depth);
-    }
+fn generate_docs(program: &Program, _depth: usize) {
+    print!("{}", generate_docs_str(program));
 }
 
-fn doc_item(item: &TopDecl, depth: usize) {
+fn generate_docs_str(program: &Program) -> String {
+    let mut out = String::new();
+    for item in &program.items {
+        out.push_str(&doc_item_str(item, 0));
+    }
+    out
+}
+
+fn doc_item_str(item: &TopDecl, depth: usize) -> String {
     let prefix = "#".repeat(depth + 2);
     match item {
         TopDecl::Fn(f) if f.is_pub => {
-            println!("{} `fn {}`", prefix, fn_signature(f));
-            println!();
+            let mut out = String::new();
+            out.push_str(&format!("{} `fn {}`\n\n", prefix, fn_signature(f)));
             for c in &f.contracts {
                 match c {
                     ContractClause::Requires(e, _) => {
-                        println!("- **Precondition:** `{}`", expr_to_string(e));
+                        out.push_str(&format!("- **Precondition:** `{}`\n", expr_to_string(e)));
                     }
                     ContractClause::Ensures(e, _) => {
-                        println!("- **Postcondition:** `{}`", expr_to_string(e));
+                        out.push_str(&format!("- **Postcondition:** `{}`\n", expr_to_string(e)));
                     }
                 }
             }
-            if !f.contracts.is_empty() { println!(); }
+            if !f.contracts.is_empty() { out.push('\n'); }
+            out
         }
         TopDecl::Type(td) if td.is_pub => {
-            println!("{} `type {}`", prefix, td.name.name);
-            println!();
-            println!("| Field | Type |");
-            println!("|-------|------|");
+            let mut out = String::new();
+            out.push_str(&format!("{} `type {}`\n\n", prefix, td.name.name));
+            out.push_str("| Field | Type |\n");
+            out.push_str("|-------|------|\n");
             for field in &td.fields {
-                println!("| `{}` | `{}` |", field.name.name, type_to_string(&field.ty));
+                out.push_str(&format!("| `{}` | `{}` |\n", field.name.name, type_to_string(&field.ty)));
             }
-            println!();
+            out.push('\n');
             if !td.invariants.is_empty() {
-                println!("**Invariants:**");
+                out.push_str("**Invariants:**\n");
                 for inv in &td.invariants {
-                    println!("- `{}`", expr_to_string(inv));
+                    out.push_str(&format!("- `{}`\n", expr_to_string(inv)));
                 }
-                println!();
+                out.push('\n');
             }
             if !td.derives.is_empty() {
                 let derives: Vec<&str> = td.derives.iter().map(|d| match d {
@@ -90,41 +97,44 @@ fn doc_item(item: &TopDecl, depth: usize) {
                     DeriveTrait::Hash => "Hash",
                     DeriveTrait::Ord => "Ord",
                 }).collect();
-                println!("**Derives:** `{}`", derives.join(", "));
-                println!();
+                out.push_str(&format!("**Derives:** `{}`\n\n", derives.join(", ")));
             }
+            out
         }
         TopDecl::Enum(ed) if ed.is_pub => {
-            println!("{} `enum {}`", prefix, ed.name.name);
-            println!();
+            let mut out = String::new();
+            out.push_str(&format!("{} `enum {}`\n\n", prefix, ed.name.name));
             for v in &ed.variants {
                 if v.fields.is_empty() {
-                    println!("- `{}`", v.name.name);
+                    out.push_str(&format!("- `{}`\n", v.name.name));
                 } else {
                     let fields: Vec<String> = v.fields.iter()
                         .map(|f| format!("{}: {}", f.name.name, type_to_string(&f.ty)))
                         .collect();
-                    println!("- `{}({})`", v.name.name, fields.join(", "));
+                    out.push_str(&format!("- `{}({})`\n", v.name.name, fields.join(", ")));
                 }
             }
-            println!();
+            out.push('\n');
+            out
         }
         TopDecl::Module(m) => {
             let heading = if depth == 0 { "#".to_string() } else { "#".repeat(depth + 2) };
-            println!("{} Module `{}`", heading, m.name.name);
-            println!();
-            generate_docs_inner(&m.items, depth + 1);
-            println!("---");
-            println!();
+            let mut out = String::new();
+            out.push_str(&format!("{} Module `{}`\n\n", heading, m.name.name));
+            out.push_str(&generate_docs_inner_str(&m.items, depth + 1));
+            out.push_str("---\n\n");
+            out
         }
-        _ => {}
+        _ => String::new(),
     }
 }
 
-fn generate_docs_inner(items: &[TopDecl], depth: usize) {
+fn generate_docs_inner_str(items: &[TopDecl], depth: usize) -> String {
+    let mut out = String::new();
     for item in items {
-        doc_item(item, depth);
+        out.push_str(&doc_item_str(item, depth));
     }
+    out
 }
 
 fn fn_signature(f: &FnDecl) -> String {
@@ -247,6 +257,53 @@ fn op_to_str(op: &BinOp) -> &str {
         BinOp::Assign => "=",
         BinOp::BitAnd => "&", BinOp::BitOr => "|", BinOp::BitXor => "^",
         BinOp::Shl => "<<", BinOp::Shr => ">>",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use xiom_lexer::Lexer;
+    use xiom_parser::Parser;
+
+    fn parse_and_generate(source: &str) -> String {
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize();
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program().expect("parse failed");
+        generate_docs_str(&program)
+    }
+
+    #[test]
+    fn test_doc_fn() {
+        let source = "pub fn add(a: Int, b: Int) -> Int { a + b }";
+        let result = parse_and_generate(source);
+        assert!(result.contains("fn add"));
+        assert!(result.contains("Int"));
+    }
+
+    #[test]
+    fn test_doc_struct() {
+        let source = "pub type Point = { x: Float64; y: Float64; }";
+        let result = parse_and_generate(source);
+        assert!(result.contains("`type Point`"));
+        assert!(result.contains("| `x` | `Float64` |"));
+        assert!(result.contains("| `y` | `Float64` |"));
+    }
+
+    #[test]
+    fn test_doc_pub_only() {
+        let source = "pub fn visible() -> Int { 0 }\nfn hidden() -> Int { 0 }";
+        let result = parse_and_generate(source);
+        assert!(result.contains("visible"));
+        assert!(!result.contains("hidden"));
+    }
+
+    #[test]
+    fn test_doc_empty() {
+        let source = "";
+        let result = parse_and_generate(source);
+        assert!(result.is_empty());
     }
 }
 

@@ -13,16 +13,18 @@ use xiom_fmt::Formatter;
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mut check_mode = false;
+    let mut in_place = false;
     let mut files = Vec::new();
 
     for arg in &args[1..] {
-        if arg == "--check" {
-            check_mode = true;
-        } else if arg == "--help" {
-            print_usage();
-            return;
-        } else {
-            files.push(arg.clone());
+        match arg.as_str() {
+            "--check" => check_mode = true,
+            "--in-place" | "-i" => in_place = true,
+            "--help" => {
+                print_usage();
+                return;
+            }
+            _ => files.push(arg.clone()),
         }
     }
 
@@ -30,6 +32,8 @@ fn main() {
         print_usage();
         process::exit(1);
     }
+
+    let mut exit_code = 0;
 
     for file in &files {
         let source = fs::read_to_string(file).unwrap_or_else(|e| {
@@ -49,10 +53,17 @@ fn main() {
                 if check_mode {
                     if formatted != source {
                         eprintln!("{}: not canonically formatted", file);
-                        process::exit(1);
+                        exit_code = 1;
+                    }
+                } else if in_place {
+                    if formatted != source {
+                        fs::write(file, &formatted).unwrap_or_else(|e| {
+                            eprintln!("xiom fmt: {}: write error: {}", file, e);
+                            process::exit(1);
+                        });
                     }
                 } else {
-                    print!("{}", formatted);
+                    print!("{formatted}");
                 }
             }
             Err(e) => {
@@ -61,19 +72,25 @@ fn main() {
             }
         }
     }
+
+    if exit_code != 0 {
+        process::exit(exit_code);
+    }
 }
 
 fn print_usage() {
-    eprintln!("XIOM Format v0.10.1 -- Canonical Formatter");
+    eprintln!("XIOM Format v0.47.6 — Canonical Formatter");
     eprintln!();
     eprintln!("USAGE:");
-    eprintln!("  xiom fmt [OPTIONS] <file.xi>");
+    eprintln!("  xiom fmt [OPTIONS] <file.xi> [file2.xi ...]");
     eprintln!();
     eprintln!("OPTIONS:");
-    eprintln!("  --help        Show this help message");
-    eprintln!("  --check       Check only (exit 1 if not formatted, no output)");
+    eprintln!("  --help           Show this help message");
+    eprintln!("  --check          Check only (exit 1 if not formatted, no output)");
+    eprintln!("  --in-place, -i   Write formatted output back to the file");
     eprintln!();
     eprintln!("EXAMPLES:");
-    eprintln!("  xiom fmt source.xi");
-    eprintln!("  xiom fmt --check source.xi");
+    eprintln!("  xiom fmt source.xi              Print formatted to stdout");
+    eprintln!("  xiom fmt --check source.xi      Verify formatting only");
+    eprintln!("  xiom fmt -i source.xi           Format file in-place");
 }

@@ -2,7 +2,7 @@
 
 **Current:** v0.47.6 "ALL GATES CLOSED" — **495/495 all tests**, all 7 Vulkan gaps (G1-G7) fixed, zero warnings, zero ignored, 39/39 stdlib compile
 **Branch:** `feat/architect` (Phase 5c ✅ → Phase 5d next)
-**Next:** Phase 5d Ecosystem & Tooling
+**Next:** Phase 5d Ecosystem & Tooling (in progress)
 
 ---
 
@@ -111,7 +111,7 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | **5c-E** | **Architect-E** | **Ecosystem hardening (vulkan audit gaps)** | **✅ Complete — ALL 7 gaps closed (G1-G7), 11 regression tests** | [ecosystem/xiom-vulkan/AUDIT.md](./ecosystem/xiom-vulkan/AUDIT.md) |
 | **5c-S** | **Safety Audit** | `--sandbox` flag, unsafe block enumeration, severity scoring, CI/CD gate | **Planned — zero deps, buildable now** | [SAFETY_AUDIT.md](./SAFETY_AUDIT.md) |
 | **5c-W** | **Warning Elimination** | **Zero compiler warnings across all crates (release build)** | **✅ Complete — zero warnings; removed duplicate coercion block; all warnings fixed** | — |
-| **5d** | **Ecosystem & Tooling** | MCP server, package manager, debugger, LSP, docs | **Next — buildable now** | [MCP_SERVER.md](./MCP_SERVER.md), [XIOM_TOOLING_SPEC.md](./XIOM_TOOLING_SPEC.md) |
+| **5d** | **Ecosystem & Tooling** | MCP server, package manager, debugger, LSP, docs | **In Progress — xiom-mcp built (12 tests), xiom-verify CLI, 57 new tooling tests** | [MCP_SERVER.md](./MCP_SERVER.md), [XIOM_TOOLING_SPEC.md](./XIOM_TOOLING_SPEC.md) |
 | **5e** | **Advanced Compilation** | Incremental, parallel, hot reload, XIR mid-level IR | Planned | [rust/04-incremental-compilation.md](./rust/04-incremental-compilation.md) |
 | 5f | Z3 Static Verification | Contract proof at compile time (SMT-LIB → Z3) | Planned | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) (analysis of `E:\repos\z3.rs`) |
 | **5g** | **AI-Assisted Pipeline** | `--ai` flag, LLM hints, contract-guided prompts, LSP integration | **Planned — depends on 5f (Z3)** | [AI_PIPELINE.md](./AI_PIPELINE.md) |
