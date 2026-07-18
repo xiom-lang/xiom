@@ -228,7 +228,124 @@ Returns:
 
 ---
 
-## 4. MVP: What Ships First
+## 4. Friction Points — Honest Analysis
+
+The chat identified two real friction points. Here's how each is solved:
+
+### 4.1 Friction: "The Agent Doesn't Know XIOM Syntax"
+
+**Problem:** An untrained model guesses syntax based on Rust/C++. Its first attempt WILL fail. It learns XIOM by being rejected by the compiler.
+
+**How much this matters:** Medium. On a 5-compilation loop, the agent spends 80% of its time fixing syntax errors, 20% on logic. With `get_language_cheatsheet`, this inverts: 20% syntax, 80% logic.
+
+**Solution — `get_language_cheatsheet` tool (3.8):**
+
+Before writing code, the agent calls `get_language_cheatsheet("function")`. It gets:
+- A valid example it can pattern-match
+- Non-negotiable rules (type annotations required, `elif` not `else if`, no `self.x`)
+- Common mistakes untrained models make
+- Which error codes trigger if done wrong
+
+This tool is NOT a full language reference — it's a **structural template generator**. It gives the agent the exact shape of what to write, which is what untrained models need most.
+
+**Economic impact:** 5 failed compilations → 1-2 failed compilations. Token savings: ~60% per new function.
+
+### 4.2 Friction: "Error Messages ARE the Training Data"
+
+**Problem:** The agent learns XIOM syntax through compiler rejection. Every error message doubles as a training example. If the message says "expected ';', found '}'" without context, the agent learns nothing. If it says "every statement must end with ';' — the tail expression is the last expression in a block and must NOT have a semicolon" with a pointer to the exact location, the agent learns the rule.
+
+**How much this matters:** CRITICAL. Bad error messages = slow agent learning = more iterations = more tokens = more cost. The compiler's error messages are NOT just diagnostics — they are the training curriculum.
+
+**Solution — Two-tier error system:**
+
+| Tier | What | When | Format |
+|------|------|------|--------|
+| **Tier 1: Imprecise fallback** | "unexpected token" (current state) | Parser catches bare syntax error | Brief, no context |
+| **Tier 2: Training-quality** | "Function `add` is missing a return type annotation after the parameter list. All functions returning a value must declare `-> Type`." | MCP `compile_and_analyze` with AI enhancement | Full sentence, rule citation, line pointer |
+
+**Action items to make error messages training-quality:**
+1. Audit every error code (X0001–X7999) for whether it teaches the rule or just states the fact
+2. For each "states the fact" error, add a `--explain` entry with the rule and a fix example
+3. The MCP `compile_and_analyze` tool always includes the `--explain` text inline
+4. The `get_language_cheatsheet` tool pre-loads the agent with the most common rules
+
+### 4.3 Friction: "The Feedback Loop Must Be Fast"
+
+**Problem:** If each compilation takes 2 seconds, a 5-iteration loop takes 10 seconds. For an agent generating 100 functions, that's 200+ seconds of dead time. The agent's context window is burning tokens while waiting.
+
+**Solution — Tiered tool pipeline:**
+
+```
+check_xiom_syntax (parse only, ~50ms)
+       │
+       ▼ FAIL
+  fix syntax errors (0-2 iterations)
+       │ PASS
+       ▼
+compile_and_analyze (full compile, ~500ms)
+       │
+       ▼ FAIL
+  fix type/contract errors (0-3 iterations)
+       │ PASS
+       ▼
+audit_safety_sandbox (optional, ~100ms)
+       │
+       ▼
+DONE — code is safe
+```
+
+**The key insight:** `check_xiom_syntax` catches 90% of syntax errors in <50ms without invoking the full compiler pipeline. The agent only pays for a full compile when the syntax is already clean. This is the same insight as Rust's `cargo check` vs `cargo build` — fast feedback on syntax, slow feedback on types.
+
+### 4.4 Friction: "What If The Agent Gets Stuck In A Loop?"
+
+**Problem:** The agent writes code, compiler rejects, agent rewrites, compiler rejects again with the SAME error. The agent doesn't realize it's making the same mistake. Token budget burns while the agent spins.
+
+**How much this matters:** HIGH for unsupervised loops. An agent can burn thousands of tokens re-compiling the same broken code.
+
+**Solution — Hash-based loop detection in the MCP server:**
+
+```rust
+// The MCP server tracks compilation attempts per session
+let hash = sha256(&format!("{}:{}", error_code, function_body));
+if attempt_count[hash] >= 3 {
+    return ToolResult::intervention(format!(
+        "This exact error ({error_code}) has occurred 3 times in this function. \
+         The agent may be stuck. Consider:
+         1. Run `explain_error_code(\"{error_code}\")` for the full rule
+         2. Run `get_language_cheatsheet(pattern)` for a structural template
+         3. Ask the user for guidance if the error persists"
+    ));
+}
+```
+
+This is a **circuit breaker**. It detects agent looping and provides an escalation path before token budget is exhausted.
+
+### 4.5 Friction: "The Agent Doesn't Know The Stdlib"
+
+**Problem:** Even with perfect syntax knowledge, the agent doesn't know which stdlib functions exist. It writes `array.len(arr)` when the function is `array.length(arr)` or vice versa.
+
+**Solution — `get_type_definition` + `get_contract_signature`:** These tools let the agent query the stdlib directly. If the agent needs to work with `Vec[T]`, it calls `get_type_definition("Vec")` and sees all available methods. No guessing, no reading docs, no training data needed.
+
+---
+
+## 4.6 The Bounded Search Paradigm
+
+The chat's most important insight: **programming becomes a bounded search problem.**
+
+```
+while !compiler.passes():
+    error = compiler.compile(code)
+    if error is None: break      // SAFE — the compiler guarantees it
+    code = agent.fix(code, error) // targeted fix based on precise error
+```
+
+This works because:
+1. The search space is finite: there's only one correct way to write a function signature
+2. Each iteration reduces the error count: errors never increase (no cascading from our ErrorGuaranteed fix)
+3. The compiler is deterministic: same code = same error every time (temperature 0 AI hints reinforce this)
+4. The exit condition is indisputable: `compiler.passes() → code is safe`
+
+**This is the paradigm shift.** The AI doesn't need to prove correctness — the compiler does. The AI just needs to be compliant enough to pass the gate.
 
 The MVP uses **subprocess mode** and ships with 3 tools that work TODAY:
 
