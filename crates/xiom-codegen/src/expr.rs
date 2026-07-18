@@ -44,6 +44,23 @@ impl IrEmitter {
                 } else {
                     val_llvm_ty.clone()
                 };
+                // 5c-E: If the declared type differs from the compiled value type
+                // (e.g. Vec[Float32] = [] produces i8* but expected %struct.Vec),
+                // coerce the value before storing. Prevents 'store %struct.Vec i8*'
+                // llvm type mismatch (clang opaque pointer reject).
+                let (val, val_llvm_ty) = if llvm_ty != val_llvm_ty && !val.is_empty() {
+                    let coerced = self.coerce_value(&val, &val_llvm_ty, &llvm_ty);
+                    (coerced, llvm_ty.clone())
+                } else {
+                    (val, val_llvm_ty)
+                };
+                // 5c-E: same type coercion as Let (see above).
+                let (val, val_llvm_ty) = if llvm_ty != val_llvm_ty && !val.is_empty() {
+                    let coerced = self.coerce_value(&val, &val_llvm_ty, &llvm_ty);
+                    (coerced, llvm_ty.clone())
+                } else {
+                    (val, val_llvm_ty)
+                };
                 // Track Bool-typed locals
                 let is_bool = matches!(_ty.as_deref(), Some(Type::Named(id, _)) if id.name == "Bool")
                     || matches!(value, Expr::Bool(..))
@@ -95,6 +112,7 @@ impl IrEmitter {
                     self.llvm_type_for(&name).unwrap_or_else(|_| "i64".to_string())
                 });
                 let (val, val_llvm_ty) = self.compile_expr(value)?;
+                let orig_val_ty = val_llvm_ty.clone();
                 let llvm_ty = if val_llvm_ty == "i64" && val == "0" {
                     declared_llvm_ty.clone().unwrap_or(val_llvm_ty)
                 } else if val_llvm_ty == "void" || val.is_empty() {
@@ -106,6 +124,13 @@ impl IrEmitter {
                     declared_llvm_ty.clone().unwrap()
                 } else {
                     val_llvm_ty
+                };
+                // 5c-E: If declared type differs from value type, coerce before storing.
+                let (val, val_llvm_ty) = if llvm_ty != orig_val_ty && !val.is_empty() {
+                    let coerced = self.coerce_value(&val, &orig_val_ty, &llvm_ty);
+                    (coerced, llvm_ty.clone())
+                } else {
+                    (val, orig_val_ty.clone())
                 };
                 let is_bool = matches!(_ty.as_deref(), Some(Type::Named(id, _)) if id.name == "Bool")
                     || matches!(value, Expr::Bool(..))
@@ -4259,6 +4284,28 @@ impl IrEmitter {
                 // corruption when the Vec is modified.
                 if let Expr::Array(elems, _) = inner.as_ref() {
                     let n = elems.len() as i64;
+                    // 5c-E: Empty array (n == 0) — construct a zeroed Vec without malloc.
+                    // malloc(0) returns NULL on many platforms, causing a trap.
+                    if n == 0 {
+                        let vec_alloca = self.fresh_tmp();
+                        let struct_ty = "%struct.Vec";
+                        self.emitln(&format!("  {vec_alloca} = alloca {struct_ty}"));
+                        let g0 = self.fresh_tmp();
+                        self.emitln(&format!("  {g0} = getelementptr {struct_ty}, {struct_ty}* {vec_alloca}, i32 0, i32 0"));
+                        self.emitln(&format!("  store i8* null, i8** {g0}"));
+                        let g1 = self.fresh_tmp();
+                        self.emitln(&format!("  {g1} = getelementptr {struct_ty}, {struct_ty}* {vec_alloca}, i32 0, i32 1"));
+                        self.emitln(&format!("  store i64 0, i64* {g1}"));
+                        let g2 = self.fresh_tmp();
+                        self.emitln(&format!("  {g2} = getelementptr {struct_ty}, {struct_ty}* {vec_alloca}, i32 0, i32 2"));
+                        self.emitln(&format!("  store i64 0, i64* {g2}"));
+                        let g3 = self.fresh_tmp();
+                        self.emitln(&format!("  {g3} = getelementptr {struct_ty}, {struct_ty}* {vec_alloca}, i32 0, i32 3"));
+                        self.emitln(&format!("  store i64 4, i64* {g3}"));
+                        let loaded = self.fresh_tmp();
+                        self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {vec_alloca}"));
+                        return Ok((loaded, struct_ty.to_string()));
+                    }
                     let alloc_count = n + 1;
                     let buf = self.fresh_tmp();
                     self.emitln(&format!("  {buf} = alloca i64, i64 {alloc_count}"));
