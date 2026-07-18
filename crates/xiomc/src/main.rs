@@ -30,7 +30,9 @@ fn main() {
     }
 
     if args.iter().any(|a| a == "--version") {
-        println!("XIOM Compiler v{} \"Production\" - 101/101 e2e, deterministic builds", env!("CARGO_PKG_VERSION"));
+        let tag = option_env!("XIOM_RELEASE_TAG").unwrap_or("Production");
+        let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("101/101 e2e, deterministic builds");
+        println!("XIOM Compiler v{} \"{tag}\" - {stats}", env!("CARGO_PKG_VERSION"));
         return;
     }
 
@@ -213,7 +215,9 @@ fn main() {
 }
 
 fn print_usage() {
-        eprintln!("XIOM Compiler v{} \"Production\" -- Deterministic Builds, 101/101 E2E", env!("CARGO_PKG_VERSION"));
+        let tag = option_env!("XIOM_RELEASE_TAG").unwrap_or("Production");
+        let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("Deterministic Builds, 101/101 E2E");
+        eprintln!("XIOM Compiler v{} \"{tag}\" -- {stats}", env!("CARGO_PKG_VERSION"));
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("  xiomc [OPTIONS] <source.xi>");
