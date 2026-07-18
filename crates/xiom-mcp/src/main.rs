@@ -223,6 +223,177 @@ fn tool_audit_safety_sandbox(params: &Value) -> Result<Value, String> {
     Ok(json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&report).unwrap_or_default()}]}))
 }
 
+/// Phase 5d.1: XIOM language cheatsheet — common patterns and idioms for AI agents.
+/// Returns canonical code snippets for functions, structs, enums, contracts,
+/// error handling, FFI, generics, ownership, and the standard library.
+fn tool_xiom_cheatsheet(params: &Value) -> Result<Value, String> {
+    let section = params["section"].as_str().unwrap_or("all");
+
+    let cheatsheet = match section {
+        "functions" => r#"## Functions
+```xiom
+fn add(a: Int, b: Int) -> Int { return a + b; }
+pub fn public_api(x: Float64) -> Float64 { return x * 2.0; }
+// Method on struct:
+fn Point.distance(self: &Point, other: &Point) -> Float64 { ... }
+// Async:
+async fn fetch(url: Str) -> Result[Str] { ... }
+```"#,
+        "structs" => r#"## Structs
+```xiom
+pub type Point = { x: Float64; y: Float64; }
+pub type Person = {
+  name: Str;
+  age: Int;
+}
+// With invariants:
+pub type PositiveInt = Int
+  invariant: this > 0;
+// Derive:
+#[derive(Clone, Eq, Hash)]
+pub type Color = { r: UInt8; g: UInt8; b: UInt8; }
+```"#,
+        "enums" => r#"## Enums
+```xiom
+pub type Option[T] = enum { Some(T); None; }
+pub type Result[T, E] = enum { Ok(T); Err(E); }
+pub type Color = enum { Red; Green; Blue; Custom(Int, Int, Int); }
+
+// Match:
+match color {
+  Color::Red => { return "warm"; }
+  Color::Custom(r, g, b) if r > 200 => { return "bright red"; }
+  _ => { return "other"; }
+}
+```"#,
+        "contracts" => r#"## Contracts
+```xiom
+fn divide(a: Int, b: Int) -> Int
+  requires: b != 0;
+  ensures: result * b == a;
+{
+  return a / b;
+}
+
+// Invariants on types:
+pub type NonEmptyStr = Str
+  invariant: this.len() > 0;
+
+// Method with contracts:
+fn Vec[T].get(self: &Vec[T], index: Int) -> T
+  requires: index >= 0 && index < self.len();
+{
+  return self.data()[index];
+}
+```"#,
+        "ffi" => r#"## FFI (C Interop)
+```xiom
+extern "C" {
+  fn malloc(size: UInt64) -> *UInt8;
+  fn free(ptr: *UInt8);
+  fn printf(format: *UInt8, ...) -> Int;
+}
+
+// Safe wrapper with contracts:
+fn safe_malloc(size: Int) -> *UInt8
+  requires: size > 0;
+  ensures: result != null;
+{
+  return unsafe { malloc(size as UInt64) };
+}
+
+// Call extern in unsafe block:
+unsafe {
+  let ptr = malloc(1024);
+  printf("allocated %d bytes\n", 1024);
+  free(ptr);
+}
+```"#,
+        "generics" => r#"## Generics
+```xiom
+fn identity[T](x: T) -> T { return x; }
+fn first[T](items: &Slice[T]) -> Option[T] {
+  if items.len() > 0 { return Option::Some(items[0]); }
+  return Option::None;
+}
+// With trait bounds:
+fn max[T: Ord](a: T, b: T) -> T { if a > b { return a; } return b; }
+```"#,
+        "ownership" => r#"## Ownership & Borrowing
+```xiom
+fn process(data: &Vec[Int]) -> Int { return data.len(); }  // borrow
+fn consume(data: Vec[Int]) -> Int { return data.len(); }    // move
+
+// Mutable borrow:
+fn fill(data: &mut Vec[Int], value: Int) {
+  var i = 0;
+  while i < data.len() { data[i] = value; i = i + 1; }
+}
+
+// Clone to avoid move:
+let copy = original.clone();
+process(&copy);  // borrow the clone
+consume(copy);   // move the clone
+```"#,
+        "stdlib" => r#"## Standard Library Essentials
+```xiom
+use xiom.core;
+use xiom.string;
+use xiom.collections;
+
+// Vec:
+let v = Vec[Int].new();
+v.push(42); v.push(7);
+let first = v[0];
+let len = v.len();
+let sorted = core.is_sorted(&v);
+
+// String operations:
+let s = "hello";
+let upper = s.to_upper();
+let parts = s.split(",");
+let joined = string.join(parts, " | ");
+
+// Iterators:
+for item in v.iter() { core.print(item.to_string()); }
+
+// Option/Result:
+match some_value {
+  Option::Some(x) => { use(x); }
+  Option::None => { return defaultValue; }
+}
+let val = maybe_value.unwrap_or(0);
+
+// FFI memory:
+let buf = core.alloc(1024);
+// ... use buf ...
+core.free(buf);
+```"#,
+        _ => r#"# XIOM Language Cheatsheet
+
+## Quick Reference
+
+| Feature | Syntax |
+|---------|--------|
+| Function | `fn name(params) -> RetType { body }` |
+| Variable | `let x = 5;` (inferred) or `var x: Int = 5;` (typed) |
+| Struct | `pub type Point = { x: Float64; y: Float64; }` |
+| Enum | `pub type Option[T] = enum { Some(T); None; }` |
+| Contract | `fn f(x: Int) -> Int requires: x > 0; ensures: result > 0;` |
+| Borrow | `fn read(data: &Vec[Int])` |
+| Mutable borrow | `fn write(data: &mut Vec[Int])` |
+| Generic | `fn first[T](items: &Slice[T]) -> T { return items[0]; }` |
+| Unsafe | `unsafe { extern_c_call(args); }` |
+| Extern C | `extern "C" { fn malloc(size: UInt64) -> *UInt8; }` |
+| Module | `module my.module { pub fn helper() { ... } }` |
+| Use | `use xiom.core;` |
+
+Use `xiom_cheatsheet {section}` for detailed examples of: functions, structs, enums, contracts, ffi, generics, ownership, stdlib."#
+    };
+
+    Ok(Value::String(cheatsheet.to_string()))
+}
+
 // ============================================================================
 // Tool registry
 // ============================================================================
@@ -287,6 +458,11 @@ fn list_tools() -> Vec<ToolDef> {
             description: "Run compiler safety audit on a XIOM source file. Enumerates unsafe blocks, categorises operations, scores severity (HIGH/MEDIUM/LOW), and returns structured findings for CI/CD gating.".into(),
             input_schema: json!({"type":"object","properties":{"file":{"type":"string","description":"Path to .xi file to audit"}},"required":["file"]}),
         },
+        ToolDef {
+            name: "xiom_cheatsheet".into(),
+            description: "Get canonical XIOM code patterns and idioms for common tasks (functions, structs, enums, contracts, FFI, generics, ownership, stdlib). Use this when writing new XIOM code to follow language conventions.".into(),
+            input_schema: json!({"type":"object","properties":{"section":{"type":"string","description":"Cheatsheet section: all, functions, structs, enums, contracts, ffi, generics, ownership, stdlib","default":"all"}}}),
+        },
     ]
 }
 
@@ -298,6 +474,7 @@ fn call_tool(name: &str, params: &Value) -> Result<Value, String> {
         "check_xiom_syntax" => tool_check_xiom_syntax(params).map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })),
         "format_xiom_code" => tool_format_xiom_code(params).map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })),
         "audit_safety_sandbox" => tool_audit_safety_sandbox(params).map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })),
+        "xiom_cheatsheet" => tool_xiom_cheatsheet(params).map(|s| json!({ "content": [{ "type": "text", "text": s }] })),
         _ => Err(format!("Unknown tool: {name}")),
     }
 }
@@ -413,9 +590,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_list_tools_returns_six_tools() {
+    fn test_list_tools_returns_seven_tools() {
         let tools = list_tools();
-        assert_eq!(tools.len(), 6, "MVP+Sandbox must have 6 tools");
+        assert_eq!(tools.len(), 7, "Production MCP must have 7 tools");
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
         assert!(names.contains(&"compile_and_analyze"));
         assert!(names.contains(&"explain_error_code"));

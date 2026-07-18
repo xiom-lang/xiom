@@ -5,15 +5,103 @@ let client;
 
 function activate(context) {
   console.log('XIOM extension activated');
+
+  // LSP client
   client = new LspClient(context);
   client.start().catch(() => {
     console.log('XIOM LSP not available — syntax highlighting only');
   });
+
+  // DAP debug adapter
+  const dbgProvider = new XiomDebugAdapterDescriptorFactory(context);
+  context.subscriptions.push(
+    vscode.debug.registerDebugAdapterDescriptorFactory('xiom', dbgProvider)
+  );
+  context.subscriptions.push(
+    vscode.debug.registerDebugConfigurationProvider('xiom', new XiomDebugConfigProvider())
+  );
+
+  console.log('XIOM debug adapter registered (xiom-dbg)');
 }
 
 function deactivate() {
   if (client) {
     client.shutdown();
+  }
+}
+
+// ============================================================================
+// Debug Adapter Descriptor Factory — resolves xiom-dbg binary path
+// ============================================================================
+
+class XiomDebugAdapterDescriptorFactory {
+  constructor(context) {
+    this.context = context;
+  }
+
+  async createDebugAdapterDescriptor(session, executable) {
+    const config = vscode.workspace.getConfiguration('xiom');
+    let dbgPath = config.get('dbg.path') || '';
+
+    if (!dbgPath) {
+      const rootFolder = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+      const names = ['xiom-dbg', 'xiom-dbg.exe'];
+      const candidates = [];
+
+      // Workspace target directories
+      if (rootFolder) {
+        for (const name of names) {
+          candidates.push(vscode.Uri.joinPath(vscode.Uri.file(rootFolder), 'target', 'debug', name));
+          candidates.push(vscode.Uri.joinPath(vscode.Uri.file(rootFolder), 'target', 'release', name));
+        }
+      }
+      // Extension directory
+      if (this.context.extensionUri) {
+        for (const name of names) {
+          candidates.push(vscode.Uri.joinPath(this.context.extensionUri, name));
+        }
+      }
+      // PATH
+      candidates.push(vscode.Uri.file('xiom-dbg'));
+      candidates.push(vscode.Uri.file('xiom-dbg.exe'));
+
+      for (const candidate of candidates) {
+        try {
+          await vscode.workspace.fs.stat(candidate);
+          dbgPath = candidate.fsPath;
+          break;
+        } catch { /* not found */ }
+      }
+    }
+
+    if (!dbgPath) {
+      vscode.window.showErrorMessage('XIOM Debugger: xiom-dbg binary not found. Set xiom.dbg.path in settings or build xiom-dbg.');
+      throw new Error('xiom-dbg not found');
+    }
+
+    console.log(`XIOM Debugger: using ${dbgPath}`);
+    return new vscode.DebugAdapterExecutable(dbgPath, [], {});
+  }
+}
+
+// ============================================================================
+// Debug Configuration Provider — provides default launch configs
+// ============================================================================
+
+class XiomDebugConfigProvider {
+  resolveDebugConfiguration(folder, config) {
+    if (!config.type && !config.request && !config.name) {
+      config.type = 'xiom';
+      config.request = 'launch';
+      config.name = 'Debug XIOM Program';
+    }
+    if (!config.program) {
+      config.program = '${workspaceFolder}/a.exe';
+    }
+    if (config.stopOnEntry === undefined) {
+      config.stopOnEntry = true;
+    }
+    return config;
   }
 }
 

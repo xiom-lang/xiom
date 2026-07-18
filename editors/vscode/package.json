@@ -1,16 +1,18 @@
 {
   "name": "xiom",
   "displayName": "XIOM Language Support",
-  "description": "Syntax highlighting, autocomplete, go-to-definition, and diagnostics for the XIOM programming language.",
-  "version": "0.10.0",
+  "description": "Syntax highlighting, autocomplete, go-to-definition, diagnostics, and debugging for the XIOM programming language.",
+  "version": "0.11.0",
   "publisher": "xiom-lang",
   "license": "MIT OR Apache-2.0",
   "engines": {
     "vscode": "^1.80.0"
   },
-  "categories": ["Programming Languages"],
+  "categories": ["Programming Languages", "Debuggers"],
   "activationEvents": [
-    "onLanguage:xiom"
+    "onLanguage:xiom",
+    "onDebugInitialConfigurations",
+    "onDebugResolve:xiom"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -25,6 +27,65 @@
       "scopeName": "source.xiom",
       "path": "./syntaxes/xiom.tmLanguage.json"
     }],
+    "debuggers": [{
+      "type": "xiom",
+      "label": "XIOM Debugger",
+      "program": "./xiom-dbg.exe",
+      "runtime": "node",
+      "configurationAttributes": {
+        "launch": {
+          "properties": {
+            "program": {
+              "type": "string",
+              "description": "Path to the compiled XIOM executable (e.g., a.exe or target/debug/myapp.exe).",
+              "default": "${workspaceFolder}/a.exe"
+            },
+            "args": {
+              "type": "array",
+              "description": "Command-line arguments passed to the XIOM program.",
+              "default": []
+            },
+            "cwd": {
+              "type": "string",
+              "description": "Working directory for the XIOM program.",
+              "default": "${workspaceFolder}"
+            },
+            "stopOnEntry": {
+              "type": "boolean",
+              "description": "Stop at program entry point (main function).",
+              "default": true
+            },
+            "contractTraps": {
+              "type": "boolean",
+              "description": "Break on contract violation traps (resolves contract name from DWARF).",
+              "default": true
+            }
+          }
+        }
+      },
+      "initialConfigurations": [
+        {
+          "type": "xiom",
+          "request": "launch",
+          "name": "Debug XIOM Program",
+          "program": "${workspaceFolder}/a.exe",
+          "stopOnEntry": true
+        }
+      ],
+      "configurationSnippets": [
+        {
+          "label": "XIOM: Launch",
+          "description": "Launch and debug a compiled XIOM program",
+          "body": {
+            "type": "xiom",
+            "request": "launch",
+            "name": "Debug XIOM Program",
+            "program": "^\"\\${workspaceFolder}/a.exe\"",
+            "stopOnEntry": true
+          }
+        }
+      ]
+    }],
     "configuration": {
       "title": "XIOM",
       "properties": {
@@ -32,6 +93,11 @@
           "type": "string",
           "default": "",
           "description": "Path to the xiom-lsp binary. Leave empty to use bundled binary."
+        },
+        "xiom.dbg.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the xiom-dbg debug adapter. Leave empty for auto-detection."
         }
       }
     }
