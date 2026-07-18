@@ -762,6 +762,31 @@ impl IrEmitter {
                 }
             }
         }
+        // Array literals: infer element type from first element.
+        // e.g. [1.5, 2.5] → Float64, [1, 2, 3] → Int
+        if let Expr::Array(elems, _) = expr {
+            if let Some(first) = elems.first() {
+                match first {
+                    Expr::Float(..) => return Some("Float64".to_string()),
+                    Expr::Int(..) => return Some("Int".to_string()),
+                    Expr::Bool(..) => return Some("Bool".to_string()),
+                    Expr::Str(..) => return Some("Str".to_string()),
+                    _ => {}
+                }
+            }
+        }
+        None
+    }
+
+    /// Extract the element type name from a `Vec[T]` type annotation.
+    pub fn vec_elem_from_type_annotation(ty: &Type) -> Option<String> {
+        if let Type::Named(ident, type_args) = ty {
+            if ident.name == "Vec" {
+                if let Some(first) = type_args.first() {
+                    return Some(Self::type_from_ast(first));
+                }
+            }
+        }
         None
     }
 
@@ -1076,7 +1101,7 @@ impl IrEmitter {
                 if let Some(ref module) = self.current_module {
                     let qualified = format!("{}.{}", module, struct_name);
                     self.type_meta.get(&qualified)
-                } else {
+            } else {
                     None
                 }
             })

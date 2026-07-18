@@ -641,7 +641,10 @@ fn main() -> Int {
 
 #[test]
 fn regress_5c_e_float_vec_element_read_g4() {
-    // 5c-E G4: Float Vec element reads with typed access
+    // 5c-E G4: Float Vec element reads must bitcast, not sitofp.
+    // Floats are stored as raw IEEE 754 bits via val_to_i64 bitcast,
+    // so reading them back must also use bitcast (not sitofp which
+    // numerically converts the integer value).
     let src = r#"
 fn main() -> Int {
   let a: Vec[Float64] = [1.5, 2.5];
@@ -654,6 +657,22 @@ fn main() -> Int {
 }"#;
     let ir = compile(src).unwrap();
     assert!(ir.contains("define"), "Float Vec element reads must compile");
+    // Verify Float64 reads use bitcast (not sitofp)
+    assert!(
+        ir.contains("bitcast i64") && ir.contains("double"),
+        "Float64 Vec read must use bitcast i64 to double, got:\n{}",
+        &ir[..ir.len().min(2000)]
+    );
+    // Verify Float32 reads use bitcast (not sitofp)
+    assert!(
+        ir.contains("bitcast i32") && ir.contains("float"),
+        "Float32 Vec read must use bitcast i32 to float"
+    );
+    // Verify Float64 push coerces fptrunc double->float for Vec[Float32]
+    assert!(
+        ir.contains("fptrunc double"),
+        "Float64 push to Vec[Float32] must fptrunc double to float"
+    );
 }
 
 // =====================================================================
