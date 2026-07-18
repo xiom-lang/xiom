@@ -71,3 +71,5 @@ $RECYCLE.BIN/
 /tmp/
 /temp/
 *.tmp
+
+release/
