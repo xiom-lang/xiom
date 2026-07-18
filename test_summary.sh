@@ -107,6 +107,7 @@ for suite in \
     "xiom-doc    _ doc-gen" \
     "xiom-ffigen _ ffi-gen" \
     "xiom-mcp    _ mcp-server" \
+    "xiom-dbg    _ debugger" \
     "xiom-verify _ verifier"
 do
     read -r pkg _ label <<< "$suite"

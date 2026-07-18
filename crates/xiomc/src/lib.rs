@@ -46,6 +46,32 @@ pub struct CompileConfig {
     pub c_sources: Vec<String>,
 }
 
+impl Default for CompileConfig {
+    fn default() -> Self {
+        CompileConfig {
+            target: Target::Native,
+            emit_ir: false,
+            do_run: false,
+            check_only: false,
+            release: false,
+            check_contracts: true,
+            diagnostics_json: false,
+            strict_mode: false,
+            debug_symbols: false,
+            shared_lib: false,
+            static_lib: false,
+            max_recursion_depth: 500,
+            dump_contracts: false,
+            verify: false,
+            verify_output: None,
+            output_file: None,
+            link_libs: Vec::new(),
+            link_paths: Vec::new(),
+            c_sources: Vec::new(),
+        }
+    }
+}
+
 // ============================================================================
 // Phase 5d: Safe library API for MCP/tooling (returns Result, never exit)
 // ============================================================================

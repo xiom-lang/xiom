@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use std::io::{self, BufRead, BufReader, Write};
 use std::process::Command;
 
-use xiomc::{CompileConfig, Target, compile_with_diagnostics};
+use xiomc::{CompileConfig, compile_with_diagnostics};
 
 // ============================================================================
 // JSON-RPC 2.0 types
@@ -171,30 +171,22 @@ fn tool_check_xiom_syntax(params: &Value) -> Result<Value, String> {
         .as_str()
         .ok_or("Missing required parameter: source")?;
 
-    // Use xiom-lexer and xiom-parser via subprocess (parse-only mode)
-    // Write temp file for parsing
+    // Library mode: parse-only check via compile_with_diagnostics.
+    // Writes source to temp file (the API requires a file path for now).
     let tmp = std::env::temp_dir().join(format!("xiom_syntax_check_{}.xi", std::process::id()));
     std::fs::write(&tmp, source).map_err(|e| format!("Failed to write temp file: {e}"))?;
 
-    let output = Command::new("xiomc")
-        .args([tmp.to_str().unwrap(), "--emit-ir"]) // emit-ir forces parse+check without full codegen
-        .output()
-        .map_err(|e| format!("Failed to spawn xiomc: {e}"))?;
-
+    let config = CompileConfig { ..std::default::Default::default() };
+    let result = compile_with_diagnostics(&config, &[tmp.to_str().unwrap().to_string()]);
     let _ = std::fs::remove_file(&tmp);
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let errors: Vec<Value> = stderr
-        .lines()
-        .filter(|l| l.contains("error") || l.contains("Error"))
-        .map(|l| {
-            json!({ "message": l.trim() })
-        })
-        .collect();
+    let errors: Vec<Value> = result.diagnostics.iter().map(|d| {
+        json!({ "code": d.code, "message": d.message, "line": d.line, "col": d.col })
+    }).collect();
 
     Ok(json!({
-        "valid": output.status.success() && errors.is_empty(),
-        "exit_code": output.status.code(),
+        "valid": result.success && errors.is_empty(),
+        "diagnostics_count": result.diagnostics.len(),
         "errors": errors,
     }))
 }
