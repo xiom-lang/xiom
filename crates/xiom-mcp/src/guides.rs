@@ -60,7 +60,7 @@ derive options: Eq, Clone, Display, Hash, Ord
 
 ## Enums (sum types)
 ```xiom
-pub type Shape = enum { Circle(Float64); Rect(Float64, Float64); Empty; }
+pub type Shape = enum { Circle(r: Float64), Rect(w: Float64, h: Float64), Empty, }
 let s = Shape.Circle(2.0);        // construct with TypeName.Variant(...)
 match s {
   Circle(r) => { ... }            // match with BARE variant patterns
@@ -68,8 +68,10 @@ match s {
   Empty => { ... }
 }
 ```
-Note: construction uses DOT syntax (`Shape.Circle(2.0)`), never `Shape::Circle`.
-Match patterns use bare variant names.
+Note: variants separated by COMMAS (trailing comma ok); payload fields are
+NAMED (`Circle(r: Float64)`). Construction uses DOT syntax (`Shape.Circle(2.0)`),
+never `Shape::Circle`. Match patterns use bare variant names.
+`derive[Clone, Eq]` works on enums including heap payloads (Str/Vec).
 
 ## Generics — square brackets
 ```xiom

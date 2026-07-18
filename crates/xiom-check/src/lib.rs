@@ -598,6 +598,13 @@ impl Checker {
                     self.types.entry(bare_key).or_insert(HashMap::new());
                 }
                 self.visibility.insert(ed.name.name.clone(), ed.is_pub);
+                // G-13: register derived methods for enums (clone/eq/hash/...).
+                // Codegen already emits the implementations; the checker never
+                // registered them, so `value.clone()` on a derived enum was
+                // rejected with "cannot call 'clone'".
+                for derive_trait in &ed.derives {
+                    self.register_derived_method(&ed.name.name, module_path, derive_trait);
+                }
                 for variant in &ed.variants {
                     let variant_key = if module_path.is_empty() {
                         variant.name.name.clone()
@@ -2358,6 +2365,9 @@ impl Checker {
                             // Gap A fix: to_owned is the idiomatic Str duplication
                             // alias (Rust parity). Same semantics as clone.
                             "to_owned" if prim_ty == CheckedType::Str => return CheckedType::Str,
+                            // G-43: C-string interop (BUG-008 codegen builtins).
+                            "c_str" if prim_ty == CheckedType::Str => return CheckedType::Named("Ptr".into()),
+                            "byte_len" if prim_ty == CheckedType::Str => return CheckedType::Int,
                             "to_str" | "to_string" => return CheckedType::Str,
                             _ => {}
                         }

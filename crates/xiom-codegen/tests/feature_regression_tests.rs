@@ -1265,3 +1265,49 @@ fn main() -> Int { return 0; }"#;
     let ok = compile(src);
     assert!(ok.is_ok(), "locally-shadowed field name must compile: {:?}", ok.err());
 }
+
+/// G-13: derive[Clone] on enums with heap payloads (Str/Vec). The old
+/// field-by-field clone copied only ["discriminant"], dropping payload slots.
+/// Clone is now a total by-value copy (`ret %self`) — uniform shallow
+/// semantics with derived struct clone. Checker registers enum derives.
+#[test]
+fn regress_5d_g13_enum_derive_clone_heap_payloads() {
+    let src = r#"
+pub type Value = enum {
+  Null,
+  Text(s: Str),
+  Numbers(v: Vec[Int]),
+} derive[Clone]
+
+fn main() -> Int {
+  let a = Value.Text("hello");
+  let b = a.clone();
+  var nums0 = Vec[Int].new();
+  nums0.push(1); nums0.push(2);
+  let c = Value.Numbers(nums0);
+  let d = c.clone();
+  match d {
+    Numbers(nums) => {
+      if nums.len() != 2 { return 1; }
+    }
+    _ => { return 2; }
+  }
+  match b {
+    Text(s) => {
+      if s.len() != 5 { return 3; }
+      return 0;
+    }
+    _ => { return 4; }
+  }
+}"#;
+    let ir = compile(src).unwrap();
+    // Clone must be the total by-value copy — no partial field loop.
+    assert!(
+        ir.contains("define %struct.Value @Value.clone(%struct.Value %self)"),
+        "enum clone must be emitted"
+    );
+    assert!(
+        ir.contains("ret %struct.Value %self"),
+        "enum clone must be a TOTAL by-value copy (payload slots included)"
+    );
+}

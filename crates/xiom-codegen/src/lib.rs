@@ -1925,27 +1925,14 @@ impl IrEmitter {
         }
         self.emitted_fns.insert(fn_name.clone());
         self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string()], struct_ty.to_string()));
+        // G-13: a by-value struct return copies EVERY field — including enum
+        // payload slots that aren't in field_names (the old field-by-field
+        // loop copied only ["discriminant"] for enums, dropping payloads).
+        // Shallow-copy semantics match derived struct clone (heap handles
+        // shared), now uniform across structs and enums.
+        let _ = field_names;
         self.emitln(&format!("define {struct_ty} @{fn_name}({struct_ty} %self) {{"));
-        let self_alloca = self.fresh_tmp();
-        let result_alloca = self.fresh_tmp();
-        self.emitln(&format!("  {self_alloca} = alloca {struct_ty}"));
-        self.emitln(&format!("  store {struct_ty} %self, {struct_ty}* {self_alloca}"));
-        self.emitln(&format!("  {result_alloca} = alloca {struct_ty}"));
-
-        for (i, fname) in field_names.iter().enumerate() {
-            let src_gep = self.fresh_tmp();
-            let src_val = self.fresh_tmp();
-            let dst_gep = self.fresh_tmp();
-            let field_llvm_ty = self.field_llvm_type(type_name, i);
-            self.emitln(&format!("  {src_gep} = getelementptr {struct_ty}, {struct_ty}* {self_alloca}, i32 0, i32 {i}"));
-            self.emitln(&format!("  {src_val} = load {field_llvm_ty}, {field_llvm_ty}* {src_gep}"));
-            self.emitln(&format!("  {dst_gep} = getelementptr {struct_ty}, {struct_ty}* {result_alloca}, i32 0, i32 {i}"));
-            self.emitln(&format!("  store {field_llvm_ty} {src_val}, {field_llvm_ty}* {dst_gep}"));
-            let _ = fname;
-        }
-        let loaded = self.fresh_tmp();
-        self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {result_alloca}"));
-        self.emitln(&format!("  ret {struct_ty} {loaded}"));
+        self.emitln(&format!("  ret {struct_ty} %self"));
         self.emitln("}\n");
         self.functions.insert(fn_name, (vec![struct_ty.to_string()], struct_ty.to_string()));
         Ok(())

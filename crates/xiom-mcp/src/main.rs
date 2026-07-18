@@ -260,7 +260,7 @@ pub type Color = { r: UInt8; g: UInt8; b: UInt8; }
 ```"#,
         "enums" => r#"## Enums
 ```xiom
-pub type Color = enum { Red; Green; Blue; Custom(Int, Int, Int); }
+pub type Color = enum { Red, Green, Blue, Custom(r: Int, g: Int, b: Int), }
 
 // Construct with TypeName.Variant(...) — DOT syntax, never ::
 let c = Color.Custom(255, 0, 0);
@@ -389,7 +389,7 @@ core.free(buf);
 | Function | `fn name(params) -> RetType { body }` |
 | Variable | `let x = 5;` (inferred) or `var x: Int = 5;` (typed) |
 | Struct | `pub type Point = { x: Float64; y: Float64; }` |
-| Enum | `pub type Option[T] = enum { Some(T); None; }` |
+| Enum | `pub type Color = enum { Red, Custom(v: Int), }` (commas; bare Ok/Err/Some/None built in) |
 | Contract | `fn f(x: Int) -> Int requires: x > 0; ensures: result > 0;` |
 | Borrow | `fn read(data: &Vec[Int])` |
 | Mutable borrow | `fn write(data: &mut Vec[Int])` |
