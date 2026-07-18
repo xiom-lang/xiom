@@ -1,5 +1,51 @@
 const vscode = require('vscode');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
+
+/**
+ * Resolve a XIOM toolchain binary. Production resolution order:
+ *   1. Explicit VS Code setting (highest priority)
+ *   2. PATH — the installed release toolchain (standard for end users)
+ *   3. Workspace target/release, target/debug — compiler developers
+ *   4. Extension directory — bundled binaries
+ * Returns the resolved path/command or null.
+ */
+async function resolveXiomBinary(name, settingValue, context) {
+  if (settingValue) return settingValue;
+
+  // 2. PATH resolution via where/which — end-user installs
+  const probe = process.platform === 'win32' ? 'where' : 'which';
+  try {
+    const res = spawnSync(probe, [name], { encoding: 'utf8', timeout: 3000 });
+    if (res.status === 0 && res.stdout) {
+      const first = res.stdout.split(/\r?\n/).find((l) => l.trim().length > 0);
+      if (first) return first.trim();
+    }
+  } catch { /* where/which unavailable */ }
+
+  // 3. Workspace target dirs — developing the compiler itself
+  const rootFolder = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+  const fileNames = process.platform === 'win32' ? [`${name}.exe`, name] : [name];
+  const candidates = [];
+  if (rootFolder) {
+    for (const fn of fileNames) {
+      candidates.push(vscode.Uri.joinPath(vscode.Uri.file(rootFolder), 'target', 'release', fn));
+      candidates.push(vscode.Uri.joinPath(vscode.Uri.file(rootFolder), 'target', 'debug', fn));
+    }
+  }
+  // 4. Extension directory — bundled
+  if (context?.extensionUri) {
+    for (const fn of fileNames) {
+      candidates.push(vscode.Uri.joinPath(context.extensionUri, fn));
+    }
+  }
+  for (const uri of candidates) {
+    try {
+      await vscode.workspace.fs.stat(uri);
+      return uri.fsPath;
+    } catch { /* not found */ }
+  }
+  return null;
+}
 
 let client;
 
@@ -41,41 +87,10 @@ class XiomDebugAdapterDescriptorFactory {
 
   async createDebugAdapterDescriptor(session, executable) {
     const config = vscode.workspace.getConfiguration('xiom');
-    let dbgPath = config.get('dbg.path') || '';
+    const dbgPath = await resolveXiomBinary('xiom-dbg', config.get('dbg.path') || '', this.context);
 
     if (!dbgPath) {
-      const rootFolder = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
-      const names = ['xiom-dbg', 'xiom-dbg.exe'];
-      const candidates = [];
-
-      // Workspace target directories
-      if (rootFolder) {
-        for (const name of names) {
-          candidates.push(vscode.Uri.joinPath(vscode.Uri.file(rootFolder), 'target', 'debug', name));
-          candidates.push(vscode.Uri.joinPath(vscode.Uri.file(rootFolder), 'target', 'release', name));
-        }
-      }
-      // Extension directory
-      if (this.context.extensionUri) {
-        for (const name of names) {
-          candidates.push(vscode.Uri.joinPath(this.context.extensionUri, name));
-        }
-      }
-      // PATH
-      candidates.push(vscode.Uri.file('xiom-dbg'));
-      candidates.push(vscode.Uri.file('xiom-dbg.exe'));
-
-      for (const candidate of candidates) {
-        try {
-          await vscode.workspace.fs.stat(candidate);
-          dbgPath = candidate.fsPath;
-          break;
-        } catch { /* not found */ }
-      }
-    }
-
-    if (!dbgPath) {
-      vscode.window.showErrorMessage('XIOM Debugger: xiom-dbg binary not found. Set xiom.dbg.path in settings or build xiom-dbg.');
+      vscode.window.showErrorMessage('XIOM Debugger: xiom-dbg binary not found. Install the XIOM toolchain (PATH), set xiom.dbg.path, or build with: cargo build --release -p xiom-dbg');
       throw new Error('xiom-dbg not found');
     }
 
@@ -118,42 +133,7 @@ class LspClient {
 
   async start() {
     const config = vscode.workspace.getConfiguration('xiom');
-    let lspPath = config.get('lsp.path') || '';
-
-    // Resolve workspace root for relative path lookups
-    const rootFolder = vscode.workspace.workspaceFolders
-      && vscode.workspace.workspaceFolders.length > 0
-      ? vscode.workspace.workspaceFolders[0].uri.fsPath
-      : null;
-
-    if (!lspPath) {
-      const candidates = [];
-      const names = ['xiom-lsp', 'xiom-lsp.exe'];
-      // Try workspace-root-relative paths first
-      if (rootFolder) {
-        for (const name of names) {
-          candidates.push(vscode.Uri.joinPath(vscode.Uri.file(rootFolder), 'target', 'debug', name));
-          candidates.push(vscode.Uri.joinPath(vscode.Uri.file(rootFolder), 'target', 'release', name));
-        }
-      }
-      // Try extension directory
-      if (this.context.extensionUri) {
-        for (const name of names) {
-          candidates.push(vscode.Uri.joinPath(this.context.extensionUri, name));
-        }
-      }
-      // Try PATH
-      candidates.push(vscode.Uri.file('xiom-lsp'));
-      candidates.push(vscode.Uri.file('xiom-lsp.exe'));
-
-      for (const uri of candidates) {
-        try {
-          await vscode.workspace.fs.stat(uri);
-          lspPath = uri.fsPath;
-          break;
-        } catch {}
-      }
-    }
+    const lspPath = await resolveXiomBinary('xiom-lsp', config.get('lsp.path') || '', this.context);
 
     if (!lspPath) {
       vscode.window.showInformationMessage(
