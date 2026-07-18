@@ -43,7 +43,7 @@ if (Test-Path $cargoTomlPath) {
 }
 
 # Build all tools
-$tools = @("xiomc", "xiom-fmt", "xiom-doc", "xiom-ffigen", "xiom-pkg", "xiom-lsp")
+$tools = @("xiomc", "xiom-fmt", "xiom-doc", "xiom-ffigen", "xiom-pkg", "xiom-lsp", "xiom-mcp", "xiom-dbg", "xiom-verify")
 $builtOk = @()
 foreach ($tool in $tools) {
     Write-Host "  Building $tool..." -ForegroundColor Cyan

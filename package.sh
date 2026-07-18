@@ -39,7 +39,7 @@ if [ -f "$CARGO_TOML" ]; then
 fi
 
 # Build all tools
-TOOLS=("xiomc" "xiom-fmt" "xiom-doc" "xiom-ffigen" "xiom-pkg" "xiom-lsp")
+TOOLS=("xiomc" "xiom-fmt" "xiom-doc" "xiom-ffigen" "xiom-pkg" "xiom-lsp" "xiom-mcp" "xiom-dbg" "xiom-verify")
 BUILT_OK=()
 for tool in "${TOOLS[@]}"; do
     echo "  Building $tool..."
@@ -144,6 +144,9 @@ case "$1" in
     ffigen)  shift; exec "$XIOM_BIN/xiom-ffigen" "$@" ;;
     pkg)     shift; exec "$XIOM_BIN/xiom-pkg" "$@" ;;
     lsp)     shift; exec "$XIOM_BIN/xiom-lsp" "$@" ;;
+    mcp)     shift; exec "$XIOM_BIN/xiom-mcp" "$@" ;;
+    dbg)     shift; exec "$XIOM_BIN/xiom-dbg" "$@" ;;
+    verify)  shift; exec "$XIOM_BIN/xiom-verify" "$@" ;;
     *)       exec "$XIOM_BIN/xiomc" "$@" ;;
 esac
 WRAPEOF
@@ -162,7 +165,7 @@ PATH_TYPE="${PATH_TYPE:-U}"
 case "$PATH_TYPE" in
     [Ss])
         sudo ln -sf "$XIOM_BIN/xiom" /usr/local/bin/xiom 2>/dev/null || true
-        for tool in xiomc xiom-fmt xiom-doc xiom-ffigen xiom-pkg xiom-lsp; do
+        for tool in xiomc xiom-fmt xiom-doc xiom-ffigen xiom-pkg xiom-lsp xiom-mcp xiom-dbg xiom-verify; do
             sudo ln -sf "$XIOM_BIN/$tool" "/usr/local/bin/$tool" 2>/dev/null || true
         done
         echo "    + Symlinks created in /usr/local/bin"
