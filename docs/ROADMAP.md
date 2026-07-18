@@ -14,11 +14,11 @@
 | Checker tests | 74/74 | ✅ | |
 | **E2E tests** | **101/101** | ✅ **ALL GREEN** | |
 | Stdlib execution (smoke) | **41/41** | ✅ **ALL 5 FIXED (5c.30)** | array, core, serialize, mem, ptr |
-| Feature regression | **79/79** | ✅ | |
+| Feature regression | **82/82** | ✅ | incl. 5c-E Vulkan probes (G1/G2/G4) |
 | Integration regression | **119/119** | ✅ | |
 | Diff / FullDiff | **25/25 + 23/23** | ✅ | Selfhost assertion gap fixed (P2) |
 | Robustness | **29/29** | ✅ | |
-| **TOTAL (all tests)** | **441/441** | ✅ **ALL GREEN** | |
+| **TOTAL (all tests)** | **445/445** | ✅ **ALL GREEN** | |
 
 ### P0 Gaps: ALL RESOLVED ✅
 
