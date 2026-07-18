@@ -38,6 +38,23 @@ impl IrEmitter {
         None
     }
 
+    /// Resolve a local variable's XIOM type name, with array-element awareness.
+    /// For array-literal locals (in `array_locals`), returns the ELEMENT type
+    /// (e.g. "Int" for `[5]Int`) instead of the buffer pointer type ("Str").
+    pub(crate) fn resolve_local_xiom_type(&self, name: &str) -> Option<String> {
+        if let Some((_, llvm_ty)) = self.lookup_local(name) {
+            if self.array_locals.contains(name) {
+                if let Some(elem_llvm) = self.local_array_elem.get(name) {
+                    return Some(Self::xiom_type_name_from_llvm(elem_llvm));
+                }
+                return Some("Int".to_string());
+            }
+            Some(Self::xiom_type_name_from_llvm(llvm_ty))
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn emitln(&mut self, s: &str) {
         self.output.push_str(s);
         self.output.push('\n');

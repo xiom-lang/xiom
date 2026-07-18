@@ -2980,6 +2980,14 @@ impl IrEmitter {
                             self.emitln(&format!("  {tmp} = call i64 @xiom_str_len(i8* {recv_val})"));
                             return Ok((tmp, "i64".to_string()));
                         }
+                        // Pointer-typed array references from monomorphised generics
+                        // (e.g. &Slice[Int] -> i64*): length is at buf[0].
+                        if recv_ty.ends_with('*') && recv_ty != "i8*" {
+                            let (recv_val, _) = self.compile_expr(receiver)?;
+                            let tmp = self.fresh_tmp();
+                            self.emitln(&format!("  {tmp} = load i64, {recv_ty} {recv_val}"));
+                            return Ok((tmp, "i64".to_string()));
+                        }
                         // Vec/Slice: length is field 1 of the {ptr, len, cap} struct.
                         if recv_ty == "%struct.Vec" || recv_ty.ends_with(".Vec")
                             || recv_ty == "%struct.Slice" || recv_ty.ends_with(".Slice")
@@ -3490,7 +3498,7 @@ impl IrEmitter {
                                             if let Some(concrete) = self.param_concrete_types.get(&id.name) {
                                                 concrete.clone()
                                             } else if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
-                                                Self::xiom_type_name_from_llvm(llvm_ty)
+                                                self.resolve_local_xiom_type(&id.name).unwrap_or_else(|| "Int".to_string())
                                             } else {
                                                 gp.name.name.clone()
                                             }
@@ -3545,7 +3553,7 @@ impl IrEmitter {
                                             if let Some(concrete) = self.param_concrete_types.get(&id.name) {
                                                 concrete.clone()
                                             } else if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
-                                                Self::xiom_type_name_from_llvm(llvm_ty)
+                                                self.resolve_local_xiom_type(&id.name).unwrap_or_else(|| "Int".to_string())
                                             } else {
                                                 gp.name.name.clone()
                                             }
@@ -3579,7 +3587,7 @@ impl IrEmitter {
                                     let concrete_ty = match arg_expr {
                                         Expr::Ident(id) => {
                                             if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
-                                                Self::xiom_type_name_from_llvm(llvm_ty)
+                                                self.resolve_local_xiom_type(&id.name).unwrap_or_else(|| "Int".to_string())
                                             } else { String::new() }
                                         }
                                         _ => String::new(),
