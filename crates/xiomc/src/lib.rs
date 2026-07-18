@@ -46,6 +46,193 @@ pub struct CompileConfig {
     pub c_sources: Vec<String>,
 }
 
+// ============================================================================
+// Phase 5d: Safe library API for MCP/tooling (returns Result, never exit)
+// ============================================================================
+
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Diagnostic {
+    pub kind: String,       // "lex_error", "parse_error", "type_error", "codegen_error"
+    pub code: String,       // "L001", "P001", "T001", "C001"
+    pub message: String,
+    pub line: u32,
+    pub col: u32,
+    pub file: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CompileResult {
+    pub success: bool,
+    pub diagnostics: Vec<Diagnostic>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contracts: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<Vec<String>>,
+    pub file_count: usize,
+}
+
+/// Production-grade library API: compile XIOM sources and return structured
+/// diagnostics. Never calls `process::exit()`. Safe for use from MCP server,
+/// LSP, debugger, and any long-running process.
+pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String]) -> CompileResult {
+    let mut result = CompileResult {
+        success: false,
+        diagnostics: Vec::new(),
+        ir: None,
+        contracts: None,
+        warnings: None,
+        file_count: 0,
+    };
+    let mut warnings = Vec::new();
+
+    // Stage 1: Lex & Parse
+    let mut all_programs: Vec<Program> = Vec::new();
+    for source_path in source_paths {
+        let file_name = Path::new(source_path).file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if file_name == "package.xi" { continue; }
+
+        let source = match fs::read_to_string(source_path) {
+            Ok(s) => s,
+            Err(e) => {
+                result.diagnostics.push(Diagnostic {
+                    kind: "io_error".into(), code: "I001".into(),
+                    message: format!("cannot read '{}': {}", source_path, e),
+                    line: 0, col: 0, file: source_path.clone(),
+                    suggestion: None, help: None, note: None,
+                });
+                return result;
+            }
+        };
+        result.file_count += 1;
+
+        let mut lexer = Lexer::new(&source);
+        let tokens = lexer.tokenize();
+
+        // Collect lex errors
+        let mut lex_errors = false;
+        for tok in &tokens {
+            if let xiom_lexer::TokenKind::Error(msg) = &tok.kind {
+                result.diagnostics.push(Diagnostic {
+                    kind: "lex_error".into(), code: "L001".into(),
+                    message: msg.clone(),
+                    line: tok.span.line, col: tok.span.col, file: source_path.clone(),
+                    suggestion: None, help: None, note: None,
+                });
+                lex_errors = true;
+            }
+        }
+        if lex_errors { continue; }
+
+        let mut parser = Parser::new(tokens);
+        match parser.parse_program() {
+            Ok(p) => all_programs.push(p),
+            Err(e) => {
+                let (help, note) = diagnostic_for(&e.message);
+                let suggestion = suggest_fix(&e.message);
+                result.diagnostics.push(Diagnostic {
+                    kind: "parse_error".into(), code: "P001".into(),
+                    message: e.message,
+                    line: e.span.line, col: e.span.col, file: source_path.clone(),
+                    suggestion: Some(suggestion),
+                    help, note,
+                });
+            }
+        }
+    }
+
+    if result.diagnostics.iter().any(|d| d.kind == "parse_error" || d.kind == "lex_error") {
+        return result;
+    }
+
+    if all_programs.is_empty() {
+        return result;
+    }
+
+    // Merge programs
+    let program = merge_programs(all_programs);
+
+    // Stage 3: Type Check
+    let mut checker = Checker::new();
+    if let Some(primary) = source_paths.first() {
+        if let Some(parent) = Path::new(primary).parent() {
+            checker.add_source_dir(parent.to_string_lossy().to_string());
+        }
+    }
+    for stdlib_dir in find_stdlib_dirs() {
+        checker.add_source_dir(stdlib_dir);
+    }
+    checker.build_catalog_index();
+
+    if let Err(errors) = checker.check_program(&program) {
+        for err in &errors {
+            let suggestion = suggest_fix(&err.message);
+            let (help, note) = diagnostic_for(&err.message);
+            result.diagnostics.push(Diagnostic {
+                kind: "type_error".into(), code: "T001".into(),
+                message: err.message.clone(),
+                line: err.span.line, col: err.span.col, file: "<unknown>".into(),
+                suggestion: Some(suggestion),
+                help, note,
+            });
+        }
+        // Collect warnings from stderr-like messages
+        for err in &errors {
+            if err.message.contains("warning") {
+                warnings.push(err.message.clone());
+            }
+        }
+        return result;
+    }
+
+    // Stage 5: Codegen (IR emission)
+    let mut emitter = IrEmitter::new();
+    match config.target {
+        Target::Wasm => emitter.set_target_triple("wasm32-unknown-unknown"),
+        Target::Arm => emitter.set_target_triple("aarch64-unknown-linux-gnu"),
+        Target::RisCv => emitter.set_target_triple("riscv64-unknown-linux-gnu"),
+        Target::Native => {}
+    }
+    emitter.set_check_contracts(config.check_contracts);
+    emitter.set_max_recursion_depth(config.max_recursion_depth);
+    emitter.set_strict_mode(config.strict_mode);
+
+    match emitter.compile_program(&program) {
+        Ok(ir) => {
+            result.ir = Some(ir.clone());
+            result.success = true;
+
+            // Dump contracts if requested
+            if config.dump_contracts {
+                result.contracts = Some(dump_contracts_json(&program));
+            }
+        }
+        Err(e) => {
+            result.diagnostics.push(Diagnostic {
+                kind: "codegen_error".into(), code: "C001".into(),
+                message: e,
+                line: 0, col: 0, file: "<unknown>".into(),
+                suggestion: None, help: None, note: None,
+            });
+        }
+    }
+
+    if !warnings.is_empty() {
+        result.warnings = Some(warnings);
+    }
+
+    result
+}
+
 pub fn compile(config: &CompileConfig, source_paths: &[String]) {
     // Stage 1: Lex & Parse
     let mut all_programs: Vec<xiom_ast::Program> = Vec::new();
@@ -1099,7 +1286,8 @@ fn fn_signature_string(fd: &FnDecl) -> String {
     sig
 }
 
-fn dump_contracts_json(program: &Program) -> String {
+/// Phase 5d: Public API — dump all contract signatures as JSON.
+pub fn dump_contracts_json(program: &Program) -> String {
     let mut items: Vec<String> = Vec::new();
 
     for decl in &program.items {
