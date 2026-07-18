@@ -248,9 +248,9 @@ impl IrEmitter {
             current_receiver: None,
             array_value_regs: HashSet::new(),
             local_array_elem: HashMap::new(),
-            /// Fixed-size of array-local bindings (var name -> N elements).
-            /// Populated from Expr::Array during let/var compilation;
-            /// consumed by const-generic inference (5c.30).
+            // Fixed-size of array-local bindings (var name -> N elements).
+            // Populated from Expr::Array during let/var compilation;
+            // consumed by const-generic inference (5c.30).
             local_array_sizes: HashMap::new(),
             already_declared: HashSet::new(),
             constants: HashMap::new(),
@@ -1965,7 +1965,7 @@ impl IrEmitter {
             let specialized_name = self.monomorphised_fn_name(base_name, concrete_types);
             // Build type substitution map: generic param name -> concrete type name
             let mut type_map: HashMap<String, String> = HashMap::new();
-            let mut const_map: HashMap<String, i64> = self.const_value_map.get(&specialized_name).cloned().unwrap_or_default();
+            let const_map: HashMap<String, i64> = self.const_value_map.get(&specialized_name).cloned().unwrap_or_default();
             for (gp, ct) in fd.generics.iter().zip(concrete_types.iter()) {
                 if gp.is_const { continue; } // const params use const_map, not type_map
                 type_map.insert(gp.name.name.clone(), ct.clone());
@@ -2045,7 +2045,7 @@ let inner_llvm = match &inner_subst {
                                 } else {
                                     Self::xiom_to_llvm_type(&elem_name).to_string()
                                 };
-                                let size_val: u64 = match size_expr.as_ref() {
+                                let _size_val: u64 = match size_expr.as_ref() {
                                     Expr::Int(n, _) => *n as u64,
                                     Expr::Ident(id) => const_map.get(&id.name).copied().unwrap_or(0) as u64,
                                     _ => 0,

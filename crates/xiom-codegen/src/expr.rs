@@ -1,6 +1,5 @@
 use xiom_ast::*;
 use std::collections::HashMap;
-use std::collections::HashSet;
 
 use super::IrEmitter;
 
@@ -800,7 +799,7 @@ impl IrEmitter {
                                 self.emitln(&format!("  {disc_check} = icmp eq i64 {disc_val}, {expected_disc}"));
                                 // For Some(inner_lit) / Ok(inner_lit) with a literal
                                 // inner pattern, add a second check on the payload.
-                                if let (1i64, Some(pat @ Pattern::Lit(Literal::Char(ch, _)))) = (expected_disc, inner_pat) {
+                                if let (1i64, Some(_pat @ Pattern::Lit(Literal::Char(ch, _)))) = (expected_disc, inner_pat) {
                                     let inner_ok = self.fresh_block("match_inner_ok");
                                     self.emitln(&format!("  br i1 {disc_check}, label %{inner_ok}, label %{next}"));
                                     self.emitln(&format!("\n{inner_ok}:"));
@@ -1335,7 +1334,7 @@ impl IrEmitter {
                         if (lt == "i8*" && r == "0") || (rt == "i8*" && l == "0") {
                             let lp = self.val_to_i8ptr(&l, &lt);
                             let rp = self.val_to_i8ptr(&r, &rt);
-                            let nullp = if l == "0" { "null".to_string() } else { "null".to_string() };
+                            let _nullp = if l == "0" { "null".to_string() } else { "null".to_string() };
                             let cmp = self.fresh_tmp();
                             let icmp_val = if l == "0" { &rp } else { &lp };
                             self.emitln(&format!("  {cmp} = icmp eq i8* {icmp_val}, null"));
@@ -3501,7 +3500,7 @@ impl IrEmitter {
                                         Expr::Ident(id) => {
                                             if let Some(concrete) = self.param_concrete_types.get(&id.name) {
                                                 concrete.clone()
-                                            } else if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
+                                            } else if let Some((_, _llvm_ty)) = self.lookup_local(&id.name) {
                                                 self.resolve_local_xiom_type(&id.name).unwrap_or_else(|| "Int".to_string())
                                             } else {
                                                 gp.name.name.clone()
@@ -3515,7 +3514,7 @@ impl IrEmitter {
                                 }
                                 // Nested generic: e.g. `Option[T]` ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ extract T from type args
                                 let arg_names = Self::extract_type_arg_names(&param.ty);
-                                if let Some(pos) = arg_names.iter().position(|a| a == &gp.name.name) {
+                                if let Some(_pos) = arg_names.iter().position(|a| a == &gp.name.name) {
                                     let concrete_ty = "Int".to_string();
                                     concrete_types.push(concrete_ty);
                                     inferred = true;
@@ -3556,7 +3555,7 @@ impl IrEmitter {
                                         Expr::Ident(id) => {
                                             if let Some(concrete) = self.param_concrete_types.get(&id.name) {
                                                 concrete.clone()
-                                            } else if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
+                                            } else if let Some((_, _llvm_ty)) = self.lookup_local(&id.name) {
                                                 self.resolve_local_xiom_type(&id.name).unwrap_or_else(|| "Int".to_string())
                                             } else {
                                                 gp.name.name.clone()
@@ -3590,7 +3589,7 @@ impl IrEmitter {
                                 if self.interfaces.contains_key(&param_name) {
                                     let concrete_ty = match arg_expr {
                                         Expr::Ident(id) => {
-                                            if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
+                                            if let Some((_, _llvm_ty)) = self.lookup_local(&id.name) {
                                                 self.resolve_local_xiom_type(&id.name).unwrap_or_else(|| "Int".to_string())
                                             } else { String::new() }
                                         }
