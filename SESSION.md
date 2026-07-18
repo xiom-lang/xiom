@@ -1,4 +1,4 @@
-# XIOM — Session Handoff: v0.46.0 "5c-R + 5c-E Complete"
+# XIOM â€” Session Handoff: v0.46.0 "5c-R + 5c-E Complete"
 
 **Date:** 2026-07-18
 **Branch:** `feat/architect` (31 commits ahead of origin)
@@ -6,13 +6,13 @@
 
 ---
 
-## ACCOMPLISHED — Phase 5c (5c.29–5c.30)
+## ACCOMPLISHED â€” Phase 5c (5c.29â€“5c.30)
 
 ### All 14 original GAPs: CLOSED
 ### 11 crash bugs: ALL FIXED (NET, DB, VECTOR, HTTP, SQLITE, JSON, FULL, CRYPTO, VOS, TFR, TEST)
 
-### 5c.29 — Deterministic builds + container-handle convention
-- Fixed .ll name + `/Brepro`: same IR → byte-identical SHA256
+### 5c.29 â€” Deterministic builds + container-handle convention
+- Fixed .ll name + `/Brepro`: same IR â†’ byte-identical SHA256
 - Container-handle convention: heap-boxed Vec headers, i64 handle slots
 - Element widths: 1/2/4/8-byte stores (Float32/Int32 no longer truncated)
 - Method ABI: ecosystem-style methods no longer shift arguments
@@ -20,7 +20,7 @@
 - elif-without-else merge blocks: removed stray unreachable
 - Enum fixes: qualified variants, float payloads as raw bits
 
-### 5c.30 — Type-erasure recovery
+### 5c.30 â€” Type-erasure recovery
 - local_vec_elem, local_vec_handle, local_boxed_struct, local_opt_payload
 - fn_return_xiom + type_string_full
 - enum_variant_field_types: per-variant payload types
@@ -29,15 +29,15 @@
 
 ---
 
-## ACCOMPLISHED — Phase 5c-R (Refactoring)
+## ACCOMPLISHED â€” Phase 5c-R (Refactoring)
 
-### WS1 Mechanical ✅
-- Codegen: 10,244 → 2,974 lines (9 modules)
-- Checker: 4,471 → 3,993 lines (catalog + types + borrow)
+### WS1 Mechanical âœ…
+- Codegen: 10,244 â†’ 2,974 lines (9 modules)
+- Checker: 4,471 â†’ 3,993 lines (catalog + types + borrow)
 - xiomc: lib/bin split (786L main.rs + 1,117L lib.rs)
 - Dead code: continuation1.rs deleted
 
-### WS2 rustc Lessons ✅ ALL 6 P0 + 5 bonus
+### WS2 rustc Lessons âœ… ALL 6 P0 + 5 bonus
 1. ErrorGuaranteed + error-poisoned AST nodes (~100L)
 2. Expected-token u128 bitset (~150L)
 3. Panic-mode recover_stmt (brace-depth, ~30L)
@@ -52,16 +52,16 @@ B5. Place model + LoanSet (field-granular borrows, 350L, 11 unit tests)
 
 ---
 
-## ACCOMPLISHED — Phase 5c-E (Ecosystem Hardening)
+## ACCOMPLISHED â€” Phase 5c-E (Ecosystem Hardening)
 
 All 7 vulkan v0.46 audit gaps resolved:
-- G2: &local as Int → ptrtoint (not sext)
+- G2: &local as Int â†’ ptrtoint (not sext)
 - G3: if-expr as Int32 type inference
 - G4: Float Vec elements (already fixed by 5c-R G-11)
 - G5: array bitcast uses elem_llvm_ty (not hardcoded i64*)
-- G6: .data == 0 → icmp eq (not strcmp → ACCESS_VIOLATION)
+- G6: .data == 0 â†’ icmp eq (not strcmp â†’ ACCESS_VIOLATION)
 - G7: @null contract (no longer reproducing)
-- 5c.11: inttoptr Vec→fn-ptr (no longer reproducing)
+- 5c.11: inttoptr Vecâ†’fn-ptr (no longer reproducing)
 
 ---
 
@@ -69,49 +69,49 @@ All 7 vulkan v0.46 audit gaps resolved:
 
 | Suite | Count | Status |
 |-------|-------|--------|
-| Parser | 47/47 | ✅ |
-| Checker | 85/85 | ✅ |
-| **E2E** | **101/101** | ✅ |
-| Feature Regression | 79/79 | ✅ |
-| Integration | 119/119 | ✅ |
-| Fuzz | 21/21 | ✅ |
-| Robustness | 29/29 | ✅ |
-| Stdlib Execution | 36/41 | 🚧 5 pre-existing |
+| Parser | 47/47 | âœ… |
+| Checker | 85/85 | âœ… |
+| **E2E** | **101/101** | âœ… |
+| Feature Regression | 79/79 | âœ… |
+| Integration | 119/119 | âœ… |
+| Fuzz | 21/21 | âœ… |
+| Robustness | 29/29 | âœ… |
+| Stdlib Execution | 36/41 | ðŸš§ 5 pre-existing |
 | **TOTAL** | **596** | |
 
 ---
 
 ## REMAINING WORK (Honest Status)
 
-### P1 — stdlib failures (2 tests, PRE-EXISTING, not 5c regressions)
+### P1 â€” stdlib failures (2 tests, PRE-EXISTING, not 5c regressions)
 
 | File | Errors | Root Cause |
 |------|--------|-----------|
-| **array.xi** | ✅ **FIXED** | const-generic N inference + subst_type for Ref/Slice/Array + pointer-typed Index handler |
-| **ptr.xi** | ✅ **FIXED** | idx_is_type now recognizes primitive types |
-| **mem.xi** | ✅ **FIXED** | Same idx_is_type + resolve_module_call fix |
+| **array.xi** | âœ… **FIXED** | const-generic N inference + subst_type for Ref/Slice/Array + pointer-typed Index handler |
+| **ptr.xi** | âœ… **FIXED** | idx_is_type now recognizes primitive types |
+| **mem.xi** | âœ… **FIXED** | Same idx_is_type + resolve_module_call fix |
 | **core.xi** | 1 | T inferred as Str (i8* buffer) instead of Int from array element; `&Slice[T]` abi mismatch |
-| **serialize.xi** | 5+ | Map.keys undefined — codegen gap for Map type methods |
+| **serialize.xi** | 5+ | Map.keys undefined â€” codegen gap for Map type methods |
 
 ### What was fixed this session:
-- **idx_is_type** now checks `is_primitive_type_name` → ptr.null[Int]() + mem.swap[Int]() resolved correctly
-- **resolve_module_call** now searches generic_fn_decls → module-qualified generic calls resolved
+- **idx_is_type** now checks `is_primitive_type_name` â†’ ptr.null[Int]() + mem.swap[Int]() resolved correctly
+- **resolve_module_call** now searches generic_fn_decls â†’ module-qualified generic calls resolved
 - **extract_type_arg_names** handles Ref/MutRef/Ptr/Array/Slice (both lib.rs and types.rs versions)
 - **subst_type** for Ref now separately handles Array/Slice inner types with const_map size resolution
 - **substitute_type** recurses into Array/Option/Result/Vec/Map/Set for type param substitution
-- **xiom_type_name_from_llvm** fixed i8*→Str mapping (was incorrectly mapping to Int8)
+- **xiom_type_name_from_llvm** fixed i8*â†’Str mapping (was incorrectly mapping to Int8)
 - **const-generic inference** simplified: searches ALL params for array-local refs instead of name-matching
 - **Expr::Index handler** added pointer-typed (i64*) array access for monomorphised generic params
 - **local_array_sizes** map tracks array-literal sizes for const-generic inference
 - **current_const_map** field enables const-value substitution in monomorphised body compilation
 
 ### Root cause taxonomy:
-1. **Interface-bound methods**: `clone()` on `T: Clone`, `default()` on `T: Default` — checker doesn't resolve methods from trait bounds.
-2. **Ptr type support**: `==`, `!=` on Ptr values, `T as Ptr` cast — Ptr needs full type-level support.
-3. **Missing stdlib**: `from_cstring`, `char_at`, `deserialize_json` — need implementations in stdlib files.
+1. **Interface-bound methods**: `clone()` on `T: Clone`, `default()` on `T: Default` â€” checker doesn't resolve methods from trait bounds.
+2. **Ptr type support**: `==`, `!=` on Ptr values, `T as Ptr` cast â€” Ptr needs full type-level support.
+3. **Missing stdlib**: `from_cstring`, `char_at`, `deserialize_json` â€” need implementations in stdlib files.
 
-### P2 — diff_tests (selfhost)
-`test_selfhost_compiles_cleanly` — expects unqualified `call @compile_all`, emission is module-qualified. Pre-existing assertion-vs-emission mismatch.
+### P2 â€” diff_tests (selfhost)
+`test_selfhost_compiles_cleanly` â€” expects unqualified `call @compile_all`, emission is module-qualified. Pre-existing assertion-vs-emission mismatch.
 
 ---
 
@@ -131,7 +131,7 @@ All 7 vulkan v0.46 audit gaps resolved:
 | `crates/xiomc/src/main.rs` | CLI driver (786 lines) |
 | `crates/xiomc/src/lib.rs` | Pipeline library (1.1k lines) |
 | `stdlib/xiom/array.xi` | Fixed-size array ops (const-generics partially fixed) |
-| `stdlib/xiom/ptr.xi` | Pointer ops (Int↔Ptr cast fixed) |
+| `stdlib/xiom/ptr.xi` | Pointer ops (Intâ†”Ptr cast fixed) |
 | `docs/ROADMAP.md` | Gap/phase status |
 | `docs/NAMING_CONVENTIONS.md` | Frozen API naming grammar |
 | `docs/error_codes/` | Error code registry |
