@@ -13,4 +13,5 @@ members = [
     "crates/xiom-pkg",
     "crates/xiom-ffigen",
     "crates/xiom-verify",
+    "crates/xiom-mcp",
 ]

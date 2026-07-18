@@ -1106,6 +1106,665 @@ fn write_lsp_message(body: &serde_json::Value) {
 // Main
 // ============================================================================
 
+fn handle_lsp_message(msg: &serde_json::Value, backend: &Backend) -> Vec<serde_json::Value> {
+    let mut responses = Vec::new();
+
+    let method = match msg["method"].as_str() {
+        Some(m) => m.to_string(),
+        None => return responses,
+    };
+
+    match method.as_str() {
+        "initialize" => {
+            let id = msg["id"].clone();
+            let init_result = serde_json::json!({
+                "capabilities": {
+                    "textDocumentSync": {
+                        "openClose": true,
+                        "change": 2
+                    },
+                    "hoverProvider": true,
+                    "completionProvider": {
+                        "triggerCharacters": [".", ":"]
+                    },
+                    "definitionProvider": true,
+                    "signatureHelpProvider": {
+                        "triggerCharacters": ["(", ","]
+                    },
+                    "documentSymbolProvider": true
+                }
+            });
+            responses.push(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": init_result
+            }));
+            responses.push(serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "window/logMessage",
+                "params": {
+                    "type": 3,
+                    "message": "XIOM Language Server v0.6.6"
+                }
+            }));
+        }
+
+        "initialized" => {}
+
+        "shutdown" => {
+            let id = msg["id"].clone();
+            responses.push(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": null
+            }));
+        }
+
+        "textDocument/didOpen" => {
+            let params = &msg["params"];
+            if let (Some(uri), Some(text)) = (
+                params["textDocument"]["uri"].as_str(),
+                params["textDocument"]["text"].as_str(),
+            ) {
+                let uri = uri.to_string();
+                {
+                    let mut docs = backend.documents.lock().unwrap();
+                    docs.insert(uri.clone(), text.to_string());
+                }
+                let diagnostics = backend.publish_diagnostics(&uri);
+                responses.push(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": "textDocument/publishDiagnostics",
+                    "params": {
+                        "uri": uri,
+                        "diagnostics": diagnostics
+                    }
+                }));
+            }
+        }
+
+        "textDocument/didChange" => {
+            let params = &msg["params"];
+            if let Some(uri) = params["textDocument"]["uri"].as_str() {
+                let uri = uri.to_string();
+                if let Some(changes) = params["contentChanges"].as_array() {
+                    {
+                        let mut docs = backend.documents.lock().unwrap();
+                        let text = docs.entry(uri.clone()).or_default();
+                        for change in changes {
+                            if change.get("range").and_then(|r| r.as_object()).is_some() {
+                                let start_line = change["range"]["start"]["line"].as_u64().unwrap_or(0) as usize;
+                                let start_char = change["range"]["start"]["character"].as_u64().unwrap_or(0) as usize;
+                                let end_line = change["range"]["end"]["line"].as_u64().unwrap_or(0) as usize;
+                                let end_char = change["range"]["end"]["character"].as_u64().unwrap_or(0) as usize;
+                                let new_text = change["text"].as_str().unwrap_or("");
+                                let updated = apply_text_edit(text, start_line, start_char, end_line, end_char, new_text);
+                                *text = updated;
+                            } else if let Some(text_str) = change["text"].as_str() {
+                                *text = text_str.to_string();
+                            }
+                        }
+                    }
+                    let diagnostics = backend.publish_diagnostics(&uri);
+                    responses.push(serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "method": "textDocument/publishDiagnostics",
+                        "params": {
+                            "uri": uri,
+                            "diagnostics": diagnostics
+                        }
+                    }));
+                }
+            }
+        }
+
+        "textDocument/didClose" => {
+            let params = &msg["params"];
+            if let Some(uri) = params["textDocument"]["uri"].as_str() {
+                let mut docs = backend.documents.lock().unwrap();
+                docs.remove(uri);
+            }
+        }
+
+        "textDocument/hover" => {
+            let uri = msg["params"]["textDocument"]["uri"]
+                .as_str()
+                .map(|s| s.to_string());
+            let line = msg["params"]["position"]["line"].as_u64().unwrap_or(0) as usize;
+            let character = msg["params"]["position"]["character"]
+                .as_u64()
+                .unwrap_or(0) as usize;
+
+            let hover = uri.and_then(|u| {
+                let docs = backend.documents.lock().unwrap();
+                let text = docs.get(&u)?.clone();
+                drop(docs);
+                let line_str = text.lines().nth(line)?;
+                let word = extract_word(line_str, character);
+                if word.is_empty() {
+                    return None;
+                }
+
+                let bytes = line_str.as_bytes();
+                let wstart = word_start_pos(line_str, character);
+
+                let is_field_access = wstart > 0
+                    && wstart <= bytes.len()
+                    && bytes[wstart - 1] == b'.';
+
+                if is_field_access {
+                    let dot_pos = wstart - 1;
+                    let obj_expr = extract_obj_expr(line_str, dot_pos);
+
+                    let mut lexer = Lexer::new(&text);
+                    let tokens = lexer.tokenize();
+                    let mut parser = Parser::new(tokens);
+                    if let Ok(program) = parser.parse_program() {
+                        if let Some(obj_type) = resolve_obj_type_text(&program, &obj_expr) {
+                            let fields = find_struct_fields_in_program(&program, &obj_type);
+                            for (fname, ftype) in &fields {
+                                if fname == &word {
+                                    return Some(serde_json::json!({
+                                        "contents": {
+                                            "kind": "markdown",
+                                            "value": format!("**field** `{}`\n```xiom\n{}: {}\n```", fname, fname, ftype)
+                                        }
+                                    }));
+                                }
+                            }
+                            let methods = find_methods_in_program(&program, &obj_type);
+                            for (mname, sig) in &methods {
+                                if mname == &word {
+                                    return Some(serde_json::json!({
+                                        "contents": {
+                                            "kind": "markdown",
+                                            "value": format!("**method**\n```xiom\n{}\n```", sig)
+                                        }
+                                    }));
+                                }
+                            }
+                            let iface_methods = find_interface_methods_for_type(&program, &obj_type);
+                            for (mname, sig) in &iface_methods {
+                                if mname == &word {
+                                    return Some(serde_json::json!({
+                                        "contents": {
+                                            "kind": "markdown",
+                                            "value": format!("**method**\n```xiom\n{}\n```", sig)
+                                        }
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                    Some(serde_json::json!({
+                        "contents": {
+                            "kind": "markdown",
+                            "value": format!("**member** `{}`", word)
+                        }
+                    }))
+                } else {
+                    let mut lexer = Lexer::new(&text);
+                    let tokens = lexer.tokenize();
+                    let mut parser = Parser::new(tokens);
+                    if let Ok(program) = parser.parse_program() {
+                        if let Some(sig) = find_function_signature(&program, &word) {
+                            return Some(serde_json::json!({
+                                "contents": {
+                                    "kind": "markdown",
+                                    "value": format!("**function**\n```xiom\n{}\n```", sig)
+                                }
+                            }));
+                        }
+                        if let Some(ty) = find_variable_type_in_program(&program, &word) {
+                            return Some(serde_json::json!({
+                                "contents": {
+                                    "kind": "markdown",
+                                    "value": format!("**variable** `{}`\n```xiom\n{}: {}\n```", word, word, ty)
+                                }
+                            }));
+                        }
+                        for item in &program.items {
+                            if let xiom_ast::TopDecl::Type(t) = item {
+                                if t.name.name == word {
+                                    let fields: Vec<String> = t.fields.iter()
+                                        .map(|f| format!("{}: {}", f.name.name, type_to_string(&f.ty)))
+                                        .collect();
+                                    let detail = if fields.is_empty() {
+                                        format!("type `{}`", word)
+                                    } else {
+                                        format!("type `{}` {{\n  {}\n}}", word, fields.join("\n  "))
+                                    };
+                                    return Some(serde_json::json!({
+                                        "contents": {
+                                            "kind": "markdown",
+                                            "value": format!("**type**\n```xiom\n{}\n```", detail)
+                                        }
+                                    }));
+                                }
+                            }
+                            if let xiom_ast::TopDecl::Enum(e) = item {
+                                if e.name.name == word {
+                                    let variants: Vec<String> = e.variants.iter()
+                                        .map(|v| {
+                                            if v.fields.is_empty() {
+                                                v.name.name.clone()
+                                            } else {
+                                                let fds: Vec<String> = v.fields.iter()
+                                                    .map(|f| format!("{}: {}", f.name.name, type_to_string(&f.ty)))
+                                                    .collect();
+                                                format!("{}({})", v.name.name, fds.join(", "))
+                                            }
+                                        })
+                                        .collect();
+                                    return Some(serde_json::json!({
+                                        "contents": {
+                                            "kind": "markdown",
+                                            "value": format!("**enum** `{}`\n```xiom\nenum {} {{\n  {}\n}}\n```", word, word, variants.join("\n  "))
+                                        }
+                                    }));
+                                }
+                            }
+                        }
+                        if let Some((enum_name, _)) = find_enum_variant_info(&program, &word) {
+                            return Some(serde_json::json!({
+                                "contents": {
+                                    "kind": "markdown",
+                                    "value": format!("**variant** of `{}`", enum_name)
+                                }
+                            }));
+                        }
+                    }
+                    Some(serde_json::json!({
+                        "contents": {
+                            "kind": "markdown",
+                            "value": format!("XIOM identifier: `{}`", word)
+                        }
+                    }))
+                }
+            });
+
+            let id = msg["id"].clone();
+            responses.push(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": hover
+            }));
+        }
+
+        "textDocument/completion" => {
+            let uri = msg["params"]["textDocument"]["uri"].as_str().map(|s| s.to_string());
+            let line = msg["params"]["position"]["line"].as_u64().unwrap_or(0) as usize;
+            let character = msg["params"]["position"]["character"].as_u64().unwrap_or(0) as usize;
+
+            let mut items = Vec::new();
+
+            let (word_prefix, is_dot_completion, obj_name, member_prefix) = uri.as_ref().and_then(|u| {
+                let docs = backend.documents.lock().unwrap();
+                let text = docs.get(u)?;
+                let line_str = text.lines().nth(line)?;
+                let before_cursor = &line_str[..character.min(line_str.len())];
+                if let Some(dot_pos) = before_cursor.rfind('.') {
+                    let mut obj_start = dot_pos;
+                    let bytes = line_str.as_bytes();
+                    while obj_start > 0 && (is_ident_char(bytes[obj_start - 1]) || bytes[obj_start - 1] == b'.') {
+                        obj_start -= 1;
+                    }
+                    let obj_name = line_str[obj_start..dot_pos].to_string();
+                    let member_prefix = line_str[dot_pos + 1..character].to_string();
+                    Some((String::new(), true, obj_name, member_prefix))
+                } else if before_cursor.ends_with("::") {
+                    let colon_pos = before_cursor.rfind("::").unwrap_or(0);
+                    let mut obj_start = colon_pos;
+                    let bytes = line_str.as_bytes();
+                    while obj_start > 0 && is_ident_char(bytes[obj_start - 1]) {
+                        obj_start -= 1;
+                    }
+                    let obj_name = line_str[obj_start..colon_pos].to_string();
+                    let member_prefix = line_str[colon_pos + 2..character].to_string();
+                    Some((String::new(), true, obj_name, member_prefix))
+                } else {
+                    Some((extract_word(line_str, character), false, String::new(), String::new()))
+                }
+            }).unwrap_or_default();
+
+            let keywords = vec![
+                "fn", "let", "var", "return", "if", "else", "elif", "while",
+                "match", "for", "in", "module", "use", "pub", "type", "enum",
+                "interface", "derive", "requires", "ensures", "invariant",
+                "async", "await", "spawn", "true", "false", "Some", "None", "Ok", "Err",
+            ];
+            let primitives = vec![
+                "Int", "Float64", "Bool", "Str", "Char", "Int8", "Int16", "Int32", "Int64",
+                "UInt", "UInt8", "Float32", "Option", "Result", "Vec", "Map", "Set", "Slice",
+            ];
+
+            if !is_dot_completion {
+                for kw in keywords.iter().chain(primitives.iter()) {
+                    if kw.starts_with(&word_prefix) || word_prefix.is_empty() {
+                        items.push(serde_json::json!({
+                            "label": kw,
+                            "kind": 14,
+                            "insertText": kw
+                        }));
+                    }
+                }
+            }
+
+            if !is_dot_completion {
+                let snippets: Vec<(Vec<&str>, &str, &str, u32)> = vec![
+                    (vec!["fn"], "function", "fn ${1:name}(${2:params})${3: -> ${4:ReturnType}} {\n\t${0}\n}", 3),
+                    (vec!["if"], "if", "if ${1:condition} {\n\t${0}\n}", 3),
+                    (vec!["elif", "else if"], "else if", "elif ${1:condition} {\n\t${0}\n}", 3),
+                    (vec!["else"], "else", "else {\n\t${0}\n}", 3),
+                    (vec!["while"], "while", "while ${1:condition} {\n\t${0}\n}", 3),
+                    (vec!["for"], "for", "for ${1:ident} in ${2:expr} {\n\t${0}\n}", 3),
+                    (vec!["match"], "match", "match ${1:expr} {\n\t${2:pattern} => ${0},\n}", 3),
+                    (vec!["let"], "let binding", "let ${1:name}${2: : ${3:Type}} = ${4:expr}${0};", 3),
+                    (vec!["var"], "var binding", "var ${1:name}${2: : ${3:Type}} = ${4:expr}${0};", 3),
+                    (vec!["type"], "type", "type ${1:Name} = {\n\t${2:field}: ${3:Type},\n}", 3),
+                    (vec!["enum"], "enum", "enum ${1:Name} {\n\t${2:Variant},\n}", 3),
+                    (vec!["interface"], "interface", "interface ${1:Name} {\n\t${2:fn ${3:method}(${4:params})${5: -> ${6:Type}};}\n}", 3),
+                    (vec!["module"], "module", "module ${1:name} {\n\t${0}\n}", 3),
+                    (vec!["use"], "use", "use ${1:path};", 3),
+                ];
+                for (triggers, label, snippet, kind) in &snippets {
+                    for trigger in triggers {
+                        if trigger.starts_with(&word_prefix) || word_prefix.is_empty() {
+                            items.push(serde_json::json!({
+                                "label": format!("{}\t({})", trigger, label),
+                                "kind": kind,
+                                "detail": *label,
+                                "insertText": snippet,
+                                "insertTextFormat": 2
+                            }));
+                        }
+                    }
+                }
+
+                items.push(serde_json::json!({
+                    "label": "self",
+                    "kind": 14,
+                    "detail": "method receiver",
+                    "insertText": "self"
+                }));
+
+                let std_modules = vec![
+                    "xiom", "io", "math", "string", "collections",
+                    "fs", "net", "time", "json", "test",
+                ];
+                for m in &std_modules {
+                    if m.starts_with(&word_prefix) || word_prefix.is_empty() {
+                        items.push(serde_json::json!({
+                            "label": m,
+                            "kind": 2,
+                            "detail": "module",
+                            "insertText": m
+                        }));
+                    }
+                }
+            }
+
+            if let Some(ref u) = uri {
+                let docs = backend.documents.lock().unwrap();
+                if let Some(text) = docs.get(u) {
+                    let mut lexer = xiom_lexer::Lexer::new(text);
+                    let tokens = lexer.tokenize();
+                    let mut parser = xiom_parser::Parser::new(tokens);
+                    if let Ok(program) = parser.parse_program() {
+                        if !is_dot_completion {
+                            for item in &program.items {
+                                collect_symbols(item, &mut items, &word_prefix);
+                            }
+
+                            for item in &program.items {
+                                if let xiom_ast::TopDecl::Enum(ed) = item {
+                                    for variant in &ed.variants {
+                                        let label = format!("{}::{}", ed.name.name, variant.name.name);
+                                        if word_prefix.is_empty() || label.starts_with(&word_prefix) {
+                                            let mut detail = format!("variant of {}", ed.name.name);
+                                            if !variant.fields.is_empty() {
+                                                let fds: Vec<String> = variant.fields.iter()
+                                                    .map(|f| format!("{}: {}", f.name.name, type_to_string(&f.ty)))
+                                                    .collect();
+                                                detail = format!("{}({})", detail, fds.join(", "));
+                                            }
+                                            items.push(serde_json::json!({
+                                                "label": &label,
+                                                "kind": 22,
+                                                "detail": detail,
+                                                "insertText": &label
+                                            }));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if is_dot_completion && !obj_name.is_empty() {
+                            if let Some(type_name) = resolve_obj_type_text(&program, &obj_name) {
+                                let fields = find_struct_fields_in_program(&program, &type_name);
+                                for (field_name, field_type) in &fields {
+                                    if member_prefix.is_empty() || field_name.starts_with(&member_prefix) {
+                                        items.push(serde_json::json!({
+                                            "label": field_name,
+                                            "kind": 5,
+                                            "detail": field_type,
+                                            "insertText": field_name
+                                        }));
+                                    }
+                                }
+
+                                let methods = find_methods_in_program(&program, &type_name);
+                                for (method_name, sig) in &methods {
+                                    if member_prefix.is_empty() || method_name.starts_with(&member_prefix) {
+                                        items.push(serde_json::json!({
+                                            "label": method_name,
+                                            "kind": 2,
+                                            "detail": sig,
+                                            "insertText": format!("{}(", method_name)
+                                        }));
+                                    }
+                                }
+
+                                let iface_methods = find_interface_methods_for_type(&program, &type_name);
+                                for (method_name, sig) in &iface_methods {
+                                    if member_prefix.is_empty() || method_name.starts_with(&member_prefix) {
+                                        items.push(serde_json::json!({
+                                            "label": method_name,
+                                            "kind": 2,
+                                            "detail": sig,
+                                            "insertText": format!("{}(", method_name)
+                                        }));
+                                    }
+                                }
+
+                                let enum_variants = collect_enum_variants_for_type(&program, &type_name);
+                                for (variant_label, variant_detail) in &enum_variants {
+                                    if member_prefix.is_empty() || variant_label.starts_with(&member_prefix) {
+                                        items.push(serde_json::json!({
+                                            "label": variant_label,
+                                            "kind": 22,
+                                            "detail": variant_detail,
+                                            "insertText": variant_label
+                                        }));
+                                    }
+                                }
+                            }
+
+                            collect_module_members(&program, &obj_name, &member_prefix, &mut items);
+                        }
+                    }
+                }
+            }
+
+            let id = msg["id"].clone();
+            responses.push(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": items
+            }));
+        }
+
+        "textDocument/definition" => {
+            let uri = msg["params"]["textDocument"]["uri"].as_str().map(|s| s.to_string());
+            let line = msg["params"]["position"]["line"].as_u64().unwrap_or(0) as usize;
+            let character = msg["params"]["position"]["character"].as_u64().unwrap_or(0) as usize;
+
+            let mut location = None;
+
+            if let Some(ref u) = uri {
+                let word = {
+                    let docs = backend.documents.lock().unwrap();
+                    if let Some(text) = docs.get(u) {
+                        let line_str = text.lines().nth(line).unwrap_or("");
+                        extract_word(line_str, character)
+                    } else {
+                        String::new()
+                    }
+                };
+
+                if !word.is_empty() {
+                    let docs = backend.documents.lock().unwrap();
+                    if let Some(text) = docs.get(u) {
+                        let mut lexer = xiom_lexer::Lexer::new(text);
+                        let tokens = lexer.tokenize();
+                        let mut parser = xiom_parser::Parser::new(tokens);
+                        if let Ok(program) = parser.parse_program() {
+                            if let Some(pos) = find_definition(&program, &word) {
+                                location = Some(serde_json::json!({
+                                    "uri": u,
+                                    "range": {
+                                        "start": { "line": pos.0, "character": pos.1 },
+                                        "end": { "line": pos.0, "character": pos.1 + word.len() as u64 }
+                                    }
+                                }));
+                            }
+                        }
+                    }
+                }
+            }
+
+            let id = msg["id"].clone();
+            responses.push(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": location
+            }));
+        }
+
+        "textDocument/signatureHelp" => {
+            let uri = msg["params"]["textDocument"]["uri"].as_str().unwrap_or("");
+            let line = msg["params"]["position"]["line"].as_u64().unwrap_or(0) as usize;
+            let character = msg["params"]["position"]["character"].as_u64().unwrap_or(0) as usize;
+
+            let mut signatures = Vec::new();
+            let mut active_parameter = 0;
+
+            let docs = backend.documents.lock().unwrap();
+            if let Some(text) = docs.get(uri) {
+                let line_str = text.lines().nth(line).unwrap_or("");
+                let before_cursor = &line_str[..character.min(line_str.len())];
+                if let Some(paren_pos) = before_cursor.rfind('(') {
+                    let before_paren = &before_cursor[..paren_pos];
+                    let fn_name = before_paren.split_whitespace()
+                        .last()
+                        .unwrap_or("")
+                        .trim();
+                    if !fn_name.is_empty() {
+                        let mut lexer = xiom_lexer::Lexer::new(text);
+                        let tokens = lexer.tokenize();
+                        let mut parser = xiom_parser::Parser::new(tokens);
+                        if let Ok(program) = parser.parse_program() {
+                            if let Some(sig) = find_function_signature(&program, fn_name) {
+                                signatures.push(serde_json::json!({
+                                    "label": sig,
+                                    "documentation": ""
+                                }));
+                            }
+                        }
+                    }
+
+                    let after_paren = &before_cursor[paren_pos + 1..];
+                    let mut comma_count = 0;
+                    let mut depth_paren = 0;
+                    let mut depth_brace = 0;
+                    let mut in_string = false;
+                    let mut string_char = '"';
+
+                    for c in after_paren.chars() {
+                        if in_string {
+                            if c == string_char {
+                                in_string = false;
+                            }
+                            continue;
+                        }
+                        match c {
+                            '"' | '\'' => {
+                                in_string = true;
+                                string_char = c;
+                            }
+                            '(' | '[' => depth_paren += 1,
+                            ')' | ']' => {
+                                if depth_paren > 0 { depth_paren -= 1; }
+                            }
+                            '{' => depth_brace += 1,
+                            '}' => {
+                                if depth_brace > 0 { depth_brace -= 1; }
+                            }
+                            ',' if depth_paren == 0 && depth_brace == 0 => {
+                                comma_count += 1;
+                            }
+                            _ => {}
+                        }
+                    }
+                    active_parameter = comma_count;
+                }
+            }
+
+            let id = msg["id"].clone();
+            responses.push(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "signatures": signatures,
+                    "activeSignature": 0,
+                    "activeParameter": active_parameter
+                }
+            }));
+        }
+
+        "textDocument/documentSymbol" => {
+            let uri = msg["params"]["textDocument"]["uri"].as_str().map(|s| s.to_string());
+            let mut symbols = Vec::new();
+
+            if let Some(ref u) = uri {
+                let docs = backend.documents.lock().unwrap();
+                if let Some(text) = docs.get(u) {
+                    let mut lexer = xiom_lexer::Lexer::new(text);
+                    let tokens = lexer.tokenize();
+                    let mut parser = xiom_parser::Parser::new(tokens);
+                    if let Ok(program) = parser.parse_program() {
+                        for item in &program.items {
+                            collect_document_symbols(item, &mut symbols);
+                        }
+                    }
+                }
+            }
+
+            let id = msg["id"].clone();
+            responses.push(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": symbols
+            }));
+        }
+
+        _ => {}
+    }
+
+    responses
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.iter().any(|a| a == "--help") {
@@ -1113,26 +1772,8 @@ fn main() {
         return;
     }
 
-    let backend = Arc::new(Backend::new());
+    let backend = Backend::new();
     let reader = LspReader::new();
-
-    let init_result = serde_json::json!({
-        "capabilities": {
-            "textDocumentSync": {
-                "openClose": true,
-                "change": 2
-            },
-            "hoverProvider": true,
-            "completionProvider": {
-                "triggerCharacters": [".", ":"]
-            },
-            "definitionProvider": true,
-            "signatureHelpProvider": {
-                "triggerCharacters": ["(", ","]
-            },
-            "documentSymbolProvider": true
-        }
-    });
 
     while let Some(raw) = reader.read_message() {
         let msg: serde_json::Value = match serde_json::from_str(&raw) {
@@ -1140,676 +1781,19 @@ fn main() {
             Err(_) => continue,
         };
 
-        let method = match msg["method"].as_str() {
-            Some(m) => m.to_string(),
-            None => continue,
-        };
+        if msg["method"].as_str().is_none() {
+            continue;
+        }
 
-        match method.as_str() {
-            "initialize" => {
-                let id = msg["id"].clone();
-                write_lsp_message(&serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": init_result
-                }));
-                write_lsp_message(&serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "method": "window/logMessage",
-                    "params": {
-                        "type": 3,
-                        "message": "XIOM Language Server v0.6.6"
-                    }
-                }));
-            }
+        let responses = handle_lsp_message(&msg, &backend);
+        for response in &responses {
+            write_lsp_message(response);
+        }
 
-            "initialized" => {
-                // No-op, but required by protocol
-            }
-
-            "shutdown" => {
-                let id = msg["id"].clone();
-                write_lsp_message(&serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": null
-                }));
-                break;
-            }
-
-            "textDocument/didOpen" => {
-                let params = &msg["params"];
-                if let (Some(uri), Some(text)) = (
-                    params["textDocument"]["uri"].as_str(),
-                    params["textDocument"]["text"].as_str(),
-                ) {
-                    let uri = uri.to_string();
-                    {
-                        let mut docs = backend.documents.lock().unwrap();
-                        docs.insert(uri.clone(), text.to_string());
-                    }
-                    publish_diagnostics(&backend, &uri);
-                }
-            }
-
-            "textDocument/didChange" => {
-                let params = &msg["params"];
-                if let Some(uri) = params["textDocument"]["uri"].as_str() {
-                    let uri = uri.to_string();
-                    if let Some(changes) = params["contentChanges"].as_array() {
-                        {
-                            let mut docs = backend.documents.lock().unwrap();
-                            let text = docs.entry(uri.clone()).or_default();
-                            for change in changes {
-                                if change.get("range").and_then(|r| r.as_object()).is_some() {
-                                    let start_line = change["range"]["start"]["line"].as_u64().unwrap_or(0) as usize;
-                                    let start_char = change["range"]["start"]["character"].as_u64().unwrap_or(0) as usize;
-                                    let end_line = change["range"]["end"]["line"].as_u64().unwrap_or(0) as usize;
-                                    let end_char = change["range"]["end"]["character"].as_u64().unwrap_or(0) as usize;
-                                    let new_text = change["text"].as_str().unwrap_or("");
-                                    let updated = apply_text_edit(text, start_line, start_char, end_line, end_char, new_text);
-                                    *text = updated;
-                                } else if let Some(text_str) = change["text"].as_str() {
-                                    *text = text_str.to_string();
-                                }
-                            }
-                        }
-                        publish_diagnostics(&backend, &uri);
-                    }
-                }
-            }
-
-            "textDocument/didClose" => {
-                let params = &msg["params"];
-                if let Some(uri) = params["textDocument"]["uri"].as_str() {
-                    let mut docs = backend.documents.lock().unwrap();
-                    docs.remove(uri);
-                }
-            }
-
-            "textDocument/hover" => {
-                let uri = msg["params"]["textDocument"]["uri"]
-                    .as_str()
-                    .map(|s| s.to_string());
-                let line = msg["params"]["position"]["line"].as_u64().unwrap_or(0) as usize;
-                let character = msg["params"]["position"]["character"]
-                    .as_u64()
-                    .unwrap_or(0) as usize;
-
-                let hover = uri.and_then(|u| {
-                    let docs = backend.documents.lock().unwrap();
-                    let text = docs.get(&u)?.clone();
-                    drop(docs);
-                    let line_str = text.lines().nth(line)?;
-                    let word = extract_word(line_str, character);
-                    if word.is_empty() {
-                        return None;
-                    }
-
-                    let bytes = line_str.as_bytes();
-                    let wstart = word_start_pos(line_str, character);
-
-                    // Check if preceded by a dot (field/method access)
-                    let is_field_access = wstart > 0
-                        && wstart <= bytes.len()
-                        && bytes[wstart - 1] == b'.';
-
-                    if is_field_access {
-                        let dot_pos = wstart - 1;
-                        let obj_expr = extract_obj_expr(line_str, dot_pos);
-
-                        let mut lexer = Lexer::new(&text);
-                        let tokens = lexer.tokenize();
-                        let mut parser = Parser::new(tokens);
-                        if let Ok(program) = parser.parse_program() {
-                            if let Some(obj_type) = resolve_obj_type_text(&program, &obj_expr) {
-                                // Check struct fields
-                                let fields = find_struct_fields_in_program(&program, &obj_type);
-                                for (fname, ftype) in &fields {
-                                    if fname == &word {
-                                        return Some(serde_json::json!({
-                                            "contents": {
-                                                "kind": "markdown",
-                                                "value": format!("**field** `{}`\n```xiom\n{}: {}\n```", fname, fname, ftype)
-                                            }
-                                        }));
-                                    }
-                                }
-                                // Check methods
-                                let methods = find_methods_in_program(&program, &obj_type);
-                                for (mname, sig) in &methods {
-                                    if mname == &word {
-                                        return Some(serde_json::json!({
-                                            "contents": {
-                                                "kind": "markdown",
-                                                "value": format!("**method**\n```xiom\n{}\n```", sig)
-                                            }
-                                        }));
-                                    }
-                                }
-                                // Check interface methods
-                                let iface_methods = find_interface_methods_for_type(&program, &obj_type);
-                                for (mname, sig) in &iface_methods {
-                                    if mname == &word {
-                                        return Some(serde_json::json!({
-                                            "contents": {
-                                                "kind": "markdown",
-                                                "value": format!("**method**\n```xiom\n{}\n```", sig)
-                                            }
-                                        }));
-                                    }
-                                }
-                            }
-                        }
-                        // Fallback for field access
-                        Some(serde_json::json!({
-                            "contents": {
-                                "kind": "markdown",
-                                "value": format!("**member** `{}`", word)
-                            }
-                        }))
-                    } else {
-                        // Not a field access — check various possibilities
-                        let mut lexer = Lexer::new(&text);
-                        let tokens = lexer.tokenize();
-                        let mut parser = Parser::new(tokens);
-                        if let Ok(program) = parser.parse_program() {
-                            // Check function
-                            if let Some(sig) = find_function_signature(&program, &word) {
-                                return Some(serde_json::json!({
-                                    "contents": {
-                                        "kind": "markdown",
-                                        "value": format!("**function**\n```xiom\n{}\n```", sig)
-                                    }
-                                }));
-                            }
-                            // Check variable (including params in functions)
-                            if let Some(ty) = find_variable_type_in_program(&program, &word) {
-                                return Some(serde_json::json!({
-                                    "contents": {
-                                        "kind": "markdown",
-                                        "value": format!("**variable** `{}`\n```xiom\n{}: {}\n```", word, word, ty)
-                                    }
-                                }));
-                            }
-                            // Check type declarations
-                            for item in &program.items {
-                                if let xiom_ast::TopDecl::Type(t) = item {
-                                    if t.name.name == word {
-                                        let fields: Vec<String> = t.fields.iter()
-                                            .map(|f| format!("{}: {}", f.name.name, type_to_string(&f.ty)))
-                                            .collect();
-                                        let detail = if fields.is_empty() {
-                                            format!("type `{}`", word)
-                                        } else {
-                                            format!("type `{}` {{\n  {}\n}}", word, fields.join("\n  "))
-                                        };
-                                        return Some(serde_json::json!({
-                                            "contents": {
-                                                "kind": "markdown",
-                                                "value": format!("**type**\n```xiom\n{}\n```", detail)
-                                            }
-                                        }));
-                                    }
-                                }
-                                if let xiom_ast::TopDecl::Enum(e) = item {
-                                    if e.name.name == word {
-                                        let variants: Vec<String> = e.variants.iter()
-                                            .map(|v| {
-                                                if v.fields.is_empty() {
-                                                    v.name.name.clone()
-                                                } else {
-                                                    let fds: Vec<String> = v.fields.iter()
-                                                        .map(|f| format!("{}: {}", f.name.name, type_to_string(&f.ty)))
-                                                        .collect();
-                                                    format!("{}({})", v.name.name, fds.join(", "))
-                                                }
-                                            })
-                                            .collect();
-                                        return Some(serde_json::json!({
-                                            "contents": {
-                                                "kind": "markdown",
-                                                "value": format!("**enum** `{}`\n```xiom\nenum {} {{\n  {}\n}}\n```", word, word, variants.join("\n  "))
-                                            }
-                                        }));
-                                    }
-                                }
-                            }
-                            // Check enum variant
-                            if let Some((enum_name, _)) = find_enum_variant_info(&program, &word) {
-                                return Some(serde_json::json!({
-                                    "contents": {
-                                        "kind": "markdown",
-                                        "value": format!("**variant** of `{}`", enum_name)
-                                    }
-                                }));
-                            }
-                        }
-                        // Fallback
-                        Some(serde_json::json!({
-                            "contents": {
-                                "kind": "markdown",
-                                "value": format!("XIOM identifier: `{}`", word)
-                            }
-                        }))
-                    }
-                });
-
-                let id = msg["id"].clone();
-                write_lsp_message(&serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": hover
-                }));
-            }
-
-            "textDocument/completion" => {
-                let uri = msg["params"]["textDocument"]["uri"].as_str().map(|s| s.to_string());
-                let line = msg["params"]["position"]["line"].as_u64().unwrap_or(0) as usize;
-                let character = msg["params"]["position"]["character"].as_u64().unwrap_or(0) as usize;
-
-                let mut items = Vec::new();
-
-                // Parse the completion context
-                let (word_prefix, is_dot_completion, obj_name, member_prefix) = uri.as_ref().and_then(|u| {
-                    let docs = backend.documents.lock().unwrap();
-                    let text = docs.get(u)?;
-                    let line_str = text.lines().nth(line)?;
-                    let before_cursor = &line_str[..character.min(line_str.len())];
-                    if let Some(dot_pos) = before_cursor.rfind('.') {
-                        let mut obj_start = dot_pos;
-                        let bytes = line_str.as_bytes();
-                        while obj_start > 0 && (is_ident_char(bytes[obj_start - 1]) || bytes[obj_start - 1] == b'.') {
-                            obj_start -= 1;
-                        }
-                        let obj_name = line_str[obj_start..dot_pos].to_string();
-                        let member_prefix = line_str[dot_pos + 1..character].to_string();
-                        Some((String::new(), true, obj_name, member_prefix))
-                    } else if before_cursor.ends_with("::") {
-                        // :: triggers for enum variant completion
-                        let colon_pos = before_cursor.rfind("::").unwrap_or(0);
-                        let mut obj_start = colon_pos;
-                        let bytes = line_str.as_bytes();
-                        while obj_start > 0 && is_ident_char(bytes[obj_start - 1]) {
-                            obj_start -= 1;
-                        }
-                        let obj_name = line_str[obj_start..colon_pos].to_string();
-                        let member_prefix = line_str[colon_pos + 2..character].to_string();
-                        Some((String::new(), true, obj_name, member_prefix))
-                    } else {
-                        Some((extract_word(line_str, character), false, String::new(), String::new()))
-                    }
-                }).unwrap_or_default();
-
-                // Keywords and primitives (for non-dot completions)
-                let keywords = vec![
-                    "fn", "let", "var", "return", "if", "else", "elif", "while",
-                    "match", "for", "in", "module", "use", "pub", "type", "enum",
-                    "interface", "derive", "requires", "ensures", "invariant",
-                    "async", "await", "spawn", "true", "false", "Some", "None", "Ok", "Err",
-                ];
-                let primitives = vec![
-                    "Int", "Float64", "Bool", "Str", "Char", "Int8", "Int16", "Int32", "Int64",
-                    "UInt", "UInt8", "Float32", "Option", "Result", "Vec", "Map", "Set", "Slice",
-                ];
-
-                // Add keyword completions for regular (non-dot) context
-                if !is_dot_completion {
-                    for kw in keywords.iter().chain(primitives.iter()) {
-                        if kw.starts_with(&word_prefix) || word_prefix.is_empty() {
-                            items.push(serde_json::json!({
-                                "label": kw,
-                                "kind": 14,
-                                "insertText": kw
-                            }));
-                        }
-                    }
-                }
-
-                // Add snippets for non-dot context
-                if !is_dot_completion {
-                    let snippets: Vec<(Vec<&str>, &str, &str, u32)> = vec![
-                        (vec!["fn"], "function", "fn ${1:name}(${2:params})${3: -> ${4:ReturnType}} {\n\t${0}\n}", 3),
-                        (vec!["if"], "if", "if ${1:condition} {\n\t${0}\n}", 3),
-                        (vec!["elif", "else if"], "else if", "elif ${1:condition} {\n\t${0}\n}", 3),
-                        (vec!["else"], "else", "else {\n\t${0}\n}", 3),
-                        (vec!["while"], "while", "while ${1:condition} {\n\t${0}\n}", 3),
-                        (vec!["for"], "for", "for ${1:ident} in ${2:expr} {\n\t${0}\n}", 3),
-                        (vec!["match"], "match", "match ${1:expr} {\n\t${2:pattern} => ${0},\n}", 3),
-                        (vec!["let"], "let binding", "let ${1:name}${2: : ${3:Type}} = ${4:expr}${0};", 3),
-                        (vec!["var"], "var binding", "var ${1:name}${2: : ${3:Type}} = ${4:expr}${0};", 3),
-                        (vec!["type"], "type", "type ${1:Name} = {\n\t${2:field}: ${3:Type},\n}", 3),
-                        (vec!["enum"], "enum", "enum ${1:Name} {\n\t${2:Variant},\n}", 3),
-                        (vec!["interface"], "interface", "interface ${1:Name} {\n\t${2:fn ${3:method}(${4:params})${5: -> ${6:Type}};}\n}", 3),
-                        (vec!["module"], "module", "module ${1:name} {\n\t${0}\n}", 3),
-                        (vec!["use"], "use", "use ${1:path};", 3),
-                    ];
-                    for (triggers, label, snippet, kind) in &snippets {
-                        for trigger in triggers {
-                            if trigger.starts_with(&word_prefix) || word_prefix.is_empty() {
-                                items.push(serde_json::json!({
-                                    "label": format!("{}\t({})", trigger, label),
-                                    "kind": kind,
-                                    "detail": *label,
-                                    "insertText": snippet,
-                                    "insertTextFormat": 2
-                                }));
-                            }
-                        }
-                    }
-
-                    // Add `self` for method bodies
-                    items.push(serde_json::json!({
-                        "label": "self",
-                        "kind": 14,
-                        "detail": "method receiver",
-                        "insertText": "self"
-                    }));
-
-                    // Add standard library module names
-                    let std_modules = vec![
-                        "xiom", "io", "math", "string", "collections",
-                        "fs", "net", "time", "json", "test",
-                    ];
-                    let alias_modules = std_modules.iter().map(|m| {
-                        if m.starts_with(&word_prefix) || word_prefix.is_empty() {
-                            Some(serde_json::json!({
-                                "label": m,
-                                "kind": 2,
-                                "detail": "module",
-                                "insertText": m
-                            }))
-                        } else {
-                            None
-                        }
-                    });
-                    for m in alias_modules.flatten() {
-                        items.push(m);
-                    }
-                }
-
-                // Parse document for program-level completions
-                if let Some(ref u) = uri {
-                    let docs = backend.documents.lock().unwrap();
-                    if let Some(text) = docs.get(u) {
-                        let mut lexer = xiom_lexer::Lexer::new(text);
-                        let tokens = lexer.tokenize();
-                        let mut parser = xiom_parser::Parser::new(tokens);
-                        if let Ok(program) = parser.parse_program() {
-                            // Non-dot: add all program symbols
-                            if !is_dot_completion {
-                                for item in &program.items {
-                                    collect_symbols(item, &mut items, &word_prefix);
-                                }
-
-                                // Add enum variants as standalone completions
-                                for item in &program.items {
-                                    if let xiom_ast::TopDecl::Enum(ed) = item {
-                                        for variant in &ed.variants {
-                                            let label = format!("{}::{}", ed.name.name, variant.name.name);
-                                            if word_prefix.is_empty() || label.starts_with(&word_prefix) {
-                                                let mut detail = format!("variant of {}", ed.name.name);
-                                                if !variant.fields.is_empty() {
-                                                    let fds: Vec<String> = variant.fields.iter()
-                                                        .map(|f| format!("{}: {}", f.name.name, type_to_string(&f.ty)))
-                                                        .collect();
-                                                    detail = format!("{}({})", detail, fds.join(", "));
-                                                }
-                                                items.push(serde_json::json!({
-                                                    "label": &label,
-                                                    "kind": 22,
-                                                    "detail": detail,
-                                                    "insertText": &label
-                                                }));
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Dot completion
-                            if is_dot_completion && !obj_name.is_empty() {
-                                // Try to resolve the type of the object expression
-                                if let Some(type_name) = resolve_obj_type_text(&program, &obj_name) {
-                                    // Struct fields
-                                    let fields = find_struct_fields_in_program(&program, &type_name);
-                                    for (field_name, field_type) in &fields {
-                                        if member_prefix.is_empty() || field_name.starts_with(&member_prefix) {
-                                            items.push(serde_json::json!({
-                                                "label": field_name,
-                                                "kind": 5,
-                                                "detail": field_type,
-                                                "insertText": field_name
-                                            }));
-                                        }
-                                    }
-
-                                    // Methods (receiver-based)
-                                    let methods = find_methods_in_program(&program, &type_name);
-                                    for (method_name, sig) in &methods {
-                                        if member_prefix.is_empty() || method_name.starts_with(&member_prefix) {
-                                            items.push(serde_json::json!({
-                                                "label": method_name,
-                                                "kind": 2,
-                                                "detail": sig,
-                                                "insertText": format!("{}(", method_name)
-                                            }));
-                                        }
-                                    }
-
-                                    // Interface methods
-                                    let iface_methods = find_interface_methods_for_type(&program, &type_name);
-                                    for (method_name, sig) in &iface_methods {
-                                        if member_prefix.is_empty() || method_name.starts_with(&member_prefix) {
-                                            items.push(serde_json::json!({
-                                                "label": method_name,
-                                                "kind": 2,
-                                                "detail": sig,
-                                                "insertText": format!("{}(", method_name)
-                                            }));
-                                        }
-                                    }
-
-                                    // Enum variants (for enum types)
-                                    let enum_variants = collect_enum_variants_for_type(&program, &type_name);
-                                    for (variant_label, variant_detail) in &enum_variants {
-                                        if member_prefix.is_empty() || variant_label.starts_with(&member_prefix) {
-                                            items.push(serde_json::json!({
-                                                "label": variant_label,
-                                                "kind": 22,
-                                                "detail": variant_detail,
-                                                "insertText": variant_label
-                                            }));
-                                        }
-                                    }
-                                }
-
-                                // Try module-qualified members
-                                collect_module_members(&program, &obj_name, &member_prefix, &mut items);
-                            }
-                        }
-                    }
-                }
-
-                let id = msg["id"].clone();
-                write_lsp_message(&serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": items
-                }));
-            }
-
-            "textDocument/definition" => {
-                let uri = msg["params"]["textDocument"]["uri"].as_str().map(|s| s.to_string());
-                let line = msg["params"]["position"]["line"].as_u64().unwrap_or(0) as usize;
-                let character = msg["params"]["position"]["character"].as_u64().unwrap_or(0) as usize;
-
-                let mut location = None;
-
-                if let Some(ref u) = uri {
-                    let word = {
-                        let docs = backend.documents.lock().unwrap();
-                        if let Some(text) = docs.get(u) {
-                            let line_str = text.lines().nth(line).unwrap_or("");
-                            extract_word(line_str, character)
-                        } else {
-                            String::new()
-                        }
-                    };
-
-                    if !word.is_empty() {
-                        let docs = backend.documents.lock().unwrap();
-                        if let Some(text) = docs.get(u) {
-                            let mut lexer = xiom_lexer::Lexer::new(text);
-                            let tokens = lexer.tokenize();
-                            let mut parser = xiom_parser::Parser::new(tokens);
-                            if let Ok(program) = parser.parse_program() {
-                                if let Some(pos) = find_definition(&program, &word) {
-                                    location = Some(serde_json::json!({
-                                        "uri": u,
-                                        "range": {
-                                            "start": { "line": pos.0, "character": pos.1 },
-                                            "end": { "line": pos.0, "character": pos.1 + word.len() as u64 }
-                                        }
-                                    }));
-                                }
-                            }
-                        }
-                    }
-                }
-
-                let id = msg["id"].clone();
-                write_lsp_message(&serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": location
-                }));
-            }
-
-            "textDocument/signatureHelp" => {
-                let uri = msg["params"]["textDocument"]["uri"].as_str().unwrap_or("");
-                let line = msg["params"]["position"]["line"].as_u64().unwrap_or(0) as usize;
-                let character = msg["params"]["position"]["character"].as_u64().unwrap_or(0) as usize;
-
-                let mut signatures = Vec::new();
-                let mut active_parameter = 0;
-
-                let docs = backend.documents.lock().unwrap();
-                if let Some(text) = docs.get(uri) {
-                    let line_str = text.lines().nth(line).unwrap_or("");
-                    let before_cursor = &line_str[..character.min(line_str.len())];
-                    if let Some(paren_pos) = before_cursor.rfind('(') {
-                        // Extract function name
-                        let before_paren = &before_cursor[..paren_pos];
-                        let fn_name = before_paren.split_whitespace()
-                            .last()
-                            .unwrap_or("")
-                            .trim();
-                        if !fn_name.is_empty() {
-                            let mut lexer = xiom_lexer::Lexer::new(text);
-                            let tokens = lexer.tokenize();
-                            let mut parser = xiom_parser::Parser::new(tokens);
-                            if let Ok(program) = parser.parse_program() {
-                                if let Some(sig) = find_function_signature(&program, fn_name) {
-                                    signatures.push(serde_json::json!({
-                                        "label": sig,
-                                        "documentation": ""
-                                    }));
-                                }
-                            }
-                        }
-
-                        // Count commas between `(` and cursor to determine activeParameter
-                        let after_paren = &before_cursor[paren_pos + 1..];
-                        let mut comma_count = 0;
-                        let mut depth_paren = 0;
-                        let mut depth_brace = 0;
-                        let mut in_string = false;
-                        let mut string_char = '"';
-
-                        for c in after_paren.chars() {
-                            if in_string {
-                                if c == string_char {
-                                    in_string = false;
-                                }
-                                continue;
-                            }
-                            match c {
-                                '"' | '\'' => {
-                                    in_string = true;
-                                    string_char = c;
-                                }
-                                '(' | '[' => depth_paren += 1,
-                                ')' | ']' => {
-                                    if depth_paren > 0 { depth_paren -= 1; }
-                                }
-                                '{' => depth_brace += 1,
-                                '}' => {
-                                    if depth_brace > 0 { depth_brace -= 1; }
-                                }
-                                ',' if depth_paren == 0 && depth_brace == 0 => {
-                                    comma_count += 1;
-                                }
-                                _ => {}
-                            }
-                        }
-                        active_parameter = comma_count;
-                    }
-                }
-
-                let id = msg["id"].clone();
-                write_lsp_message(&serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "signatures": signatures,
-                        "activeSignature": 0,
-                        "activeParameter": active_parameter
-                    }
-                }));
-            }
-
-            "textDocument/documentSymbol" => {
-                let uri = msg["params"]["textDocument"]["uri"].as_str().map(|s| s.to_string());
-                let mut symbols = Vec::new();
-
-                if let Some(ref u) = uri {
-                    let docs = backend.documents.lock().unwrap();
-                    if let Some(text) = docs.get(u) {
-                        let mut lexer = xiom_lexer::Lexer::new(text);
-                        let tokens = lexer.tokenize();
-                        let mut parser = xiom_parser::Parser::new(tokens);
-                        if let Ok(program) = parser.parse_program() {
-                            for item in &program.items {
-                                collect_document_symbols(item, &mut symbols);
-                            }
-                        }
-                    }
-                }
-
-                let id = msg["id"].clone();
-                write_lsp_message(&serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": symbols
-                }));
-            }
-
-            _ => {}
+        if msg["method"].as_str() == Some("shutdown") {
+            break;
         }
     }
-}
-
-fn publish_diagnostics(backend: &Backend, uri: &str) {
-    let diagnostics = backend.publish_diagnostics(uri);
-    write_lsp_message(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "textDocument/publishDiagnostics",
-        "params": {
-            "uri": uri,
-            "diagnostics": diagnostics
-        }
-    }));
 }
 
 fn print_usage() {
@@ -1822,4 +1806,307 @@ fn print_usage() {
     eprintln!("and go-to-definition for .xi files. Launch from editor configuration.");
     eprintln!();
     eprintln!("VS Code: editors/vscode/package.json");
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_msg(json_str: &str) -> serde_json::Value {
+        serde_json::from_str(json_str).unwrap()
+    }
+
+    fn find_response_by_method<'a>(
+        responses: &'a [serde_json::Value],
+        method: &str,
+    ) -> Option<&'a serde_json::Value> {
+        responses
+            .iter()
+            .find(|r| r["method"].as_str() == Some(method))
+    }
+
+    fn find_response_by_id<'a>(
+        responses: &'a [serde_json::Value],
+        id: i32,
+    ) -> Option<&'a serde_json::Value> {
+        responses
+            .iter()
+            .find(|r| r["id"].as_i64() == Some(id as i64))
+    }
+
+    fn open_document(backend: &Backend, uri: &str, text: &str) -> Vec<serde_json::Value> {
+        let msg = parse_msg(&format!(
+            r#"{{
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": {{
+                    "textDocument": {{
+                        "uri": "{uri}",
+                        "languageId": "xiom",
+                        "version": 1,
+                        "text": "{text}"
+                    }}
+                }}
+            }}"#,
+            uri = uri,
+            text = text.replace('\\', "\\\\").replace('"', "\\\"")
+        ));
+        handle_lsp_message(&msg, backend)
+    }
+
+    // -----------------------------------------------------------------------
+    // test_initialize
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_initialize() {
+        let backend = Backend::new();
+        let msg = parse_msg(
+            r#"{
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "processId": null,
+                    "rootUri": null,
+                    "capabilities": {}
+                }
+            }"#,
+        );
+
+        let responses = handle_lsp_message(&msg, &backend);
+
+        let init_response = find_response_by_id(&responses, 1)
+            .expect("should have initialize response");
+
+        let result = &init_response["result"];
+        let caps = &result["capabilities"];
+
+        assert_eq!(init_response["jsonrpc"].as_str(), Some("2.0"));
+        assert_eq!(caps["hoverProvider"].as_bool(), Some(true));
+        assert_eq!(caps["definitionProvider"].as_bool(), Some(true));
+        assert_eq!(caps["documentSymbolProvider"].as_bool(), Some(true));
+
+        let sync = &caps["textDocumentSync"];
+        assert_eq!(sync["openClose"].as_bool(), Some(true));
+        assert_eq!(sync["change"].as_i64(), Some(2));
+
+        let completion = &caps["completionProvider"];
+        let triggers: Vec<&str> = completion["triggerCharacters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(triggers.contains(&"."));
+        assert!(triggers.contains(&":"));
+
+        let sig_help = &caps["signatureHelpProvider"];
+        let sig_triggers: Vec<&str> = sig_help["triggerCharacters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(sig_triggers.contains(&"("));
+        assert!(sig_triggers.contains(&","));
+
+        let log_msg = find_response_by_method(&responses, "window/logMessage")
+            .expect("should have logMessage notification");
+        assert_eq!(log_msg["params"]["message"].as_str(), Some("XIOM Language Server v0.6.6"));
+    }
+
+    // -----------------------------------------------------------------------
+    // test_did_open_pushes_diagnostics
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_did_open_pushes_diagnostics() {
+        let backend = Backend::new();
+        let responses = open_document(
+            &backend,
+            "file:///test.xi",
+            "fn main() -> Int { 42 }",
+        );
+
+        let diag_notification = find_response_by_method(
+            &responses,
+            "textDocument/publishDiagnostics",
+        )
+        .expect("didOpen should trigger publishDiagnostics");
+
+        assert_eq!(
+            diag_notification["params"]["uri"].as_str(),
+            Some("file:///test.xi")
+        );
+        assert!(diag_notification["params"]["diagnostics"].is_array());
+    }
+
+    #[test]
+    fn test_did_open_stores_document() {
+        let backend = Backend::new();
+        open_document(&backend, "file:///test.xi", "fn foo() {}");
+        let docs = backend.documents.lock().unwrap();
+        assert_eq!(docs.get("file:///test.xi").unwrap(), "fn foo() {}");
+    }
+
+    // -----------------------------------------------------------------------
+    // test_hover_function
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_hover_function() {
+        let backend = Backend::new();
+        open_document(
+            &backend,
+            "file:///test.xi",
+            "fn add(x: Int, y: Int) -> Int { x + y }",
+        );
+
+        let msg = parse_msg(
+            r#"{
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "textDocument/hover",
+                "params": {
+                    "textDocument": { "uri": "file:///test.xi" },
+                    "position": { "line": 0, "character": 3 }
+                }
+            }"#,
+        );
+
+        let responses = handle_lsp_message(&msg, &backend);
+        let hover_response = find_response_by_id(&responses, 2)
+            .expect("should have hover response");
+
+        let result = &hover_response["result"];
+        assert!(!result.is_null(), "hover result should not be null");
+        let value = result["contents"]["value"].as_str().unwrap();
+        assert!(value.contains("function"), "hover should show function");
+        assert!(value.contains("add"), "hover should contain function name");
+        assert!(value.contains("Int"), "hover should contain parameter types");
+    }
+
+    #[test]
+    fn test_hover_returns_null_for_empty_document() {
+        let backend = Backend::new();
+        open_document(&backend, "file:///empty.xi", "");
+
+        let msg = parse_msg(
+            r#"{
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "textDocument/hover",
+                "params": {
+                    "textDocument": { "uri": "file:///empty.xi" },
+                    "position": { "line": 0, "character": 0 }
+                }
+            }"#,
+        );
+
+        let responses = handle_lsp_message(&msg, &backend);
+        let hover_response = find_response_by_id(&responses, 3).unwrap();
+        assert!(hover_response["result"].is_null());
+    }
+
+    // -----------------------------------------------------------------------
+    // test_completion_keywords
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_completion_keywords() {
+        let backend = Backend::new();
+        open_document(&backend, "file:///test.xi", "");
+
+        let msg = parse_msg(
+            r#"{
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "textDocument/completion",
+                "params": {
+                    "textDocument": { "uri": "file:///test.xi" },
+                    "position": { "line": 0, "character": 0 }
+                }
+            }"#,
+        );
+
+        let responses = handle_lsp_message(&msg, &backend);
+        let completion_response = find_response_by_id(&responses, 4)
+            .expect("should have completion response");
+
+        let items = completion_response["result"]
+            .as_array()
+            .expect("result should be an array");
+
+        let labels: Vec<&str> = items
+            .iter()
+            .map(|item| item["label"].as_str().unwrap())
+            .collect();
+
+        assert!(labels.contains(&"fn"), "completions should include 'fn'");
+        assert!(labels.contains(&"let"), "completions should include 'let'");
+        assert!(labels.contains(&"return"), "completions should include 'return'");
+        assert!(labels.contains(&"if"), "completions should include 'if'");
+        assert!(labels.contains(&"Int"), "completions should include 'Int'");
+        assert!(labels.contains(&"Bool"), "completions should include 'Bool'");
+    }
+
+    #[test]
+    fn test_completion_keywords_with_prefix() {
+        let backend = Backend::new();
+        open_document(&backend, "file:///test.xi", "f");
+
+        let msg = parse_msg(
+            r#"{
+                "jsonrpc": "2.0",
+                "id": 5,
+                "method": "textDocument/completion",
+                "params": {
+                    "textDocument": { "uri": "file:///test.xi" },
+                    "position": { "line": 0, "character": 1 }
+                }
+            }"#,
+        );
+
+        let responses = handle_lsp_message(&msg, &backend);
+        let completion_response = find_response_by_id(&responses, 5).unwrap();
+        let items = completion_response["result"].as_array().unwrap();
+        let labels: Vec<&str> = items
+            .iter()
+            .map(|item| item["label"].as_str().unwrap())
+            .collect();
+
+        assert!(labels.contains(&"fn"), "should suggest 'fn' for prefix 'f'");
+        assert!(labels.contains(&"for"), "should suggest 'for' for prefix 'f'");
+        assert!(labels.contains(&"false"), "should suggest 'false' for prefix 'f'");
+    }
+
+    // -----------------------------------------------------------------------
+    // test_shutdown
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_shutdown() {
+        let backend = Backend::new();
+        let msg = parse_msg(
+            r#"{
+                "jsonrpc": "2.0",
+                "id": 6,
+                "method": "shutdown",
+                "params": null
+            }"#,
+        );
+
+        let responses = handle_lsp_message(&msg, &backend);
+        assert_eq!(responses.len(), 1, "shutdown should produce exactly one response");
+
+        let shutdown_response = &responses[0];
+        assert_eq!(shutdown_response["jsonrpc"].as_str(), Some("2.0"));
+        assert_eq!(shutdown_response["id"].as_i64(), Some(6));
+        assert!(shutdown_response["result"].is_null(), "shutdown result should be null");
+    }
 }
