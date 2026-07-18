@@ -977,18 +977,57 @@ impl IrEmitter {
                     }
                     // Handle Some(inner) / Ok(inner) payload extraction:
                     // extract field 1 (the payload) and bind to the inner pattern.
-                    if let Pattern::Some(inner, _) | Pattern::Ok(inner, _) = &arm.pattern {
+                    // Err(inner) extracts field 2 (the error payload).
+                    // 5d: bindings are TYPED from the scrutinee's declared payload
+                    // types (local_opt_payload / local_err_payload) so `.len()` etc.
+                    // dispatch correctly (fixes match Ok(bytes) → bytes.len()).
+                    let payload_binding: Option<(&Pattern, i32)> = match &arm.pattern {
+                        Pattern::Some(inner, _) | Pattern::Ok(inner, _) => Some((inner.as_ref(), 1)),
+                        Pattern::Err(inner, _) => Some((inner.as_ref(), 2)),
+                        _ => None,
+                    };
+                    if let Some((inner, val_field)) = payload_binding {
                         if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
                             let val_gep = self.fresh_tmp();
-                            self.emitln(&format!("  {val_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 1"));
-                            let field_ty = self.field_llvm_type(type_name, 1);
+                            self.emitln(&format!("  {val_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {val_field}"));
+                            let field_ty = self.field_llvm_type(type_name, val_field as usize);
                             let loaded = self.fresh_tmp();
                             self.emitln(&format!("  {loaded} = load {field_ty}, {field_ty}* {val_gep}"));
-                            if let Pattern::Ident(ident) = inner.as_ref() {
+                            if let Pattern::Ident(ident) = inner {
+                                // Declared payload type from scrutinee tracking
+                                let declared: Option<String> = if let Expr::Ident(sid) = expr_match {
+                                    if val_field == 2 {
+                                        self.local_err_payload.get(&sid.name).cloned()
+                                    } else {
+                                        self.local_opt_payload.get(&sid.name).cloned()
+                                    }
+                                } else { None };
+
+                                let (bind_val, bind_ty) = match declared.as_deref() {
+                                    Some("Str") if field_ty == "i64" => {
+                                        let sptr = self.fresh_tmp();
+                                        self.emitln(&format!("  {sptr} = inttoptr i64 {loaded} to i8*"));
+                                        (sptr, "i8*".to_string())
+                                    }
+                                    Some("Float64") if field_ty == "i64" => {
+                                        let f = self.fresh_tmp();
+                                        self.emitln(&format!("  {f} = bitcast i64 {loaded} to double"));
+                                        (f, "double".to_string())
+                                    }
+                                    _ => (loaded.clone(), field_ty.clone()),
+                                };
                                 let field_alloca = self.fresh_tmp();
-                                self.emitln(&format!("  {field_alloca} = alloca {field_ty}"));
-                                self.emitln(&format!("  store {field_ty} {loaded}, {field_ty}* {field_alloca}"));
-                                self.add_local(&ident.name, field_alloca, &field_ty);
+                                self.emitln(&format!("  {field_alloca} = alloca {bind_ty}"));
+                                self.emitln(&format!("  store {bind_ty} {bind_val}, {bind_ty}* {field_alloca}"));
+                                self.add_local(&ident.name, field_alloca, &bind_ty);
+                                // Vec[T] payloads are container HANDLES: register so
+                                // len/push/index dereference the boxed Vec header.
+                                self.local_vec_handle.remove(&ident.name);
+                                if let Some(decl_ty) = declared.as_deref() {
+                                    if let Some(elem) = decl_ty.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
+                                        self.local_vec_handle.insert(ident.name.clone(), elem.to_string());
+                                    }
+                                }
                             }
                         }
                     }
@@ -2280,7 +2319,7 @@ impl IrEmitter {
                 // primitives satisfy Ord/Eq/Hash/Clone bounds without a user method.
                 let is_builtin_iface_method = matches!(
                     fn_name.as_str(),
-                    "compare" | "eq" | "ne" | "lt" | "gt" | "le" | "ge" | "hash" | "clone"
+                    "compare" | "eq" | "ne" | "lt" | "gt" | "le" | "ge" | "hash" | "clone" | "to_owned"
                 );
                 if is_builtin_iface_method {
                     if let Some(receiver) = receiver_expr {
@@ -2297,6 +2336,19 @@ impl IrEmitter {
                             // module-qualified call ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â fall through to generic dispatch
                         } else {
                         let recv_llvm_ty = self.infer_llvm_type(receiver);
+                        // Gap A fix: clone/to_owned on Str (i8*) receivers.
+                        // XIOM strings are immutable, so duplication can share the
+                        // pointer soundly. Previously this fell through to generic
+                        // dispatch and MISCOMPILED into a call to an undefined
+                        // @clone symbol (silent corruption, wrong results).
+                        if recv_llvm_ty == "i8*"
+                            && matches!(fn_name.as_str(), "clone" | "to_owned")
+                            && args.is_empty()
+                            && !receiver_is_type_name
+                        {
+                            let (recv_val, _) = self.compile_expr(receiver)?;
+                            return Ok((recv_val, "i8*".to_string()));
+                        }
                         // Only scalar (integer/float) receivers get inline handling;
                         // structs use derived/user impls, pointers (Str) fall through.
                         let is_scalar = !receiver_is_type_name
@@ -2307,7 +2359,7 @@ impl IrEmitter {
                             let (recv_val, _recv_val_ty) = self.compile_expr(receiver)?;
                             let is_float = recv_llvm_ty == "double" || recv_llvm_ty == "float";
                             match fn_name.as_str() {
-                                "clone" => return Ok((recv_val, recv_llvm_ty.clone())),
+                                "clone" | "to_owned" => return Ok((recv_val, recv_llvm_ty.clone())),
                                 "hash" if args.is_empty() => {
                                     if is_float {
                                         let bits = if recv_llvm_ty == "double" { "i64" } else { "i32" };
@@ -3498,6 +3550,33 @@ impl IrEmitter {
                             // If the payload is already a struct type, return it directly.
                             if field_ty.starts_with('%') {
                                 return Ok((val, field_ty));
+                            }
+                            // 5d: Typed payload extraction from tracked declared types.
+                            // `let r = f()` where f -> Result[T, E] records T in
+                            // local_opt_payload and E in local_err_payload. Use them
+                            // so `.unwrap()`/`.unwrap_err()` return properly typed
+                            // values instead of raw i64 (fixes msg.len() → @len
+                            // miscompile on Str payloads).
+                            if field_ty == "i64" {
+                                let declared: Option<String> = if let Expr::Ident(rid) = receiver.as_ref() {
+                                    if fn_name == "unwrap_err" {
+                                        self.local_err_payload.get(&rid.name).cloned()
+                                    } else {
+                                        self.local_opt_payload.get(&rid.name).cloned()
+                                    }
+                                } else { None };
+                                if let Some(decl_ty) = declared {
+                                    if decl_ty == "Str" {
+                                        let sptr = self.fresh_tmp();
+                                        self.emitln(&format!("  {sptr} = inttoptr i64 {val} to i8*"));
+                                        return Ok((sptr, "i8*".to_string()));
+                                    }
+                                    if decl_ty == "Float64" {
+                                        let f = self.fresh_tmp();
+                                        self.emitln(&format!("  {f} = bitcast i64 {val} to double"));
+                                        return Ok((f, "double".to_string()));
+                                    }
+                                }
                             }
                             // When field_ty is i64, the payload may be a heap pointer
                             // from val_to_i64 for struct payloads.  Determine the actual

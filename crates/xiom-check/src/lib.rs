@@ -318,14 +318,22 @@ impl Checker {
                     self.add_local(&field.name, field_ty);
                 }
             }
-            Pattern::Ok(inner, _) => {
-                self.add_pattern_bindings(inner);
-            }
-            Pattern::Err(inner, _) => {
-                self.add_pattern_bindings(inner);
-            }
-            Pattern::Some(inner, _) => {
-                self.add_pattern_bindings(inner);
+            Pattern::Ok(inner, _) | Pattern::Err(inner, _) | Pattern::Some(inner, _) => {
+                // Gap D fix: payload bindings from Ok/Err/Some patterns get the
+                // wildcard type — the SAME convention as Result.unwrap/Option.value
+                // (line ~2347). Container builtins (.len/.push) and interface
+                // methods then dispatch; codegen resolves the concrete type.
+                // Previously these bound as Error, which rejected all method calls
+                // ("cannot call 'len'") and forced the is_ok()+unwrap() workaround.
+                if let Pattern::Ident(name) = inner.as_ref() {
+                    if !(self.enum_variants.contains_key(&name.name)
+                        || self.resolve_enum_variant(&name.name).is_some())
+                    {
+                        self.add_local(&name.name, CheckedType::Named("_".into()));
+                    }
+                } else {
+                    self.add_pattern_bindings(inner);
+                }
             }
             Pattern::Or(alts, _) => {
                 for alt in alts {
@@ -2326,6 +2334,9 @@ impl Checker {
                             "clone" => return prim_ty,
                             // Str builtins.
                             "len" if prim_ty == CheckedType::Str => return CheckedType::Int,
+                            // Gap A fix: to_owned is the idiomatic Str duplication
+                            // alias (Rust parity). Same semantics as clone.
+                            "to_owned" if prim_ty == CheckedType::Str => return CheckedType::Str,
                             "to_str" | "to_string" => return CheckedType::Str,
                             _ => {}
                         }
@@ -2344,7 +2355,7 @@ impl Checker {
                             ("Vec" | "Slice" | "Array" | "Str", "is_empty") => return CheckedType::Bool,
                             // Option/Result payload accessors — inner type is erased,
                             // so return a wildcard the rest of the checker accepts.
-                            ("Option" | "Result", "unwrap" | "unwrap_or" | "expect" | "value")
+                            ("Option" | "Result", "unwrap" | "unwrap_or" | "unwrap_err" | "expect" | "value")
                                 => return CheckedType::Named("_".into()),
                             ("Option" | "Result", "is_some" | "is_none" | "is_ok" | "is_err")
                                 => return CheckedType::Bool,

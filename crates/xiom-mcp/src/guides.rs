@@ -61,13 +61,15 @@ derive options: Eq, Clone, Display, Hash, Ord
 ## Enums (sum types)
 ```xiom
 pub type Shape = enum { Circle(Float64); Rect(Float64, Float64); Empty; }
-let s = Shape::Circle(2.0);
+let s = Shape.Circle(2.0);        // construct with TypeName.Variant(...)
 match s {
-  Shape::Circle(r) => { ... }
-  Shape::Rect(w, h) => { ... }
-  Shape::Empty => { ... }
+  Circle(r) => { ... }            // match with BARE variant patterns
+  Rect(w, h) => { ... }
+  Empty => { ... }
 }
 ```
+Note: construction uses DOT syntax (`Shape.Circle(2.0)`), never `Shape::Circle`.
+Match patterns use bare variant names.
 
 ## Generics — square brackets
 ```xiom
@@ -173,27 +175,42 @@ cross-file types resolve automatically.
 
 const ERROR_HANDLING: &str = r#"# XIOM Error Handling
 
-## Option[T]
+## Option[T] — bare Some/None constructors
 ```xiom
 fn find(v: &Vec[Int], x: Int) -> Option[Int] {
   var i = 0;
   while i < v.len() {
-    if v[i] == x { return Option::Some(i); }
+    if v[i] == x { return Some(i); }
     i = i + 1;
   }
-  return Option::None;
+  return None;
+}
+match find(&v, 42) {
+  Some(idx) => { core.print("found"); }
+  None => { core.print("missing"); }
 }
 let idx = find(&v, 42).unwrap_or(0);
 ```
 
-## Result[T, E]
+## Result[T, E] — bare Ok/Err constructors
 ```xiom
 fn parse(s: Str) -> Result[Int, Str] {
-  if s.len() == 0 { return Result::Err("empty"); }
-  return Result::Ok(0);
+  if s.len() == 0 { return Err("empty"); }
+  return Ok(0);
 }
+let r = parse(input);
+match r {
+  Ok(n) => { use_value(n); }
+  Err(msg) => { core.print(msg); }
+}
+// Accessors:
+if r.is_ok() { let n = r.unwrap(); }
+if r.is_err() { let msg = r.unwrap_err(); }
 let n = parse(input)?;   // ? unwraps Ok or early-returns Err
 ```
+
+IMPORTANT: constructors are BARE — `Ok(x)`, `Err(e)`, `Some(x)`, `None`.
+There is NO `Result::Ok` / `Option::Some` path syntax in XIOM.
 
 ## Guidance
 - Recoverable failures → Result.

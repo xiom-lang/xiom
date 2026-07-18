@@ -992,3 +992,111 @@ fn main() -> Int {
     let add_count = ir.lines().filter(|l| l.trim().contains("add i64")).count();
     assert!(add_count >= 4, "expected at least 4 add i64 instructions for 5-term chain, got {add_count}");
 }
+
+// ============================================================================
+// 5d ecosystem gaps: Str clone/to_owned, unwrap_err, match payload typing
+// ============================================================================
+
+/// Gap A: `.clone()`/`.to_owned()` on Str previously MISCOMPILED into a call
+/// to an undefined `@clone`/`@to_owned` symbol (silent runtime corruption).
+/// Strings are immutable, so duplication shares the pointer soundly.
+#[test]
+fn regress_5d_str_clone_to_owned() {
+    let src = r#"
+fn main() -> Int {
+  let s = "hello";
+  let o = s.to_owned();
+  if o.len() != 5 { return 1; }
+  let c = s.clone();
+  if c.len() != 5 { return 2; }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "str clone/to_owned must compile");
+    assert!(!ir.contains("call i64 @clone"), "clone must NOT lower to undefined @clone");
+    assert!(!ir.contains("call i64 @to_owned"), "to_owned must NOT lower to undefined @to_owned");
+    assert!(ir.contains("@xiom_str_len"), "len on the clones must use xiom_str_len");
+}
+
+/// Gap D: `match r { Ok(bytes) => bytes.len() }` where r: Result[Vec[UInt8], Str].
+/// Payload bindings are now typed from the callee's declared return type:
+/// Vec payloads register as container handles, Str payloads as i8*.
+#[test]
+fn regress_5d_match_ok_payload_typed() {
+    let src = r#"
+fn read_data(n: Int) -> Result[Vec[UInt8], Str] {
+  var v = Vec[UInt8].new();
+  var i = 0;
+  while i < n { v.push(7); i = i + 1; }
+  return Ok(v);
+}
+fn main() -> Int {
+  let r = read_data(4);
+  match r {
+    Ok(bytes) => {
+      if bytes.len() != 4 { return 1; }
+      return 0;
+    }
+    Err(msg) => { return 2; }
+  }
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "match Ok(bytes) + len must compile");
+    assert!(!ir.contains("call i64 @len"), "bytes.len() must NOT lower to undefined @len");
+}
+
+/// Gap E: `r.unwrap_err()` where r: Result[Int, Str] — the error payload
+/// extraction must be typed (i8* for Str) so `.len()` dispatches correctly.
+#[test]
+fn regress_5d_unwrap_err_typed() {
+    let src = r#"
+fn make_err() -> Result[Int, Str] {
+  return Err("boom");
+}
+fn main() -> Int {
+  let r = make_err();
+  if r.is_ok() { return 3; }
+  let msg = r.unwrap_err();
+  if msg.len() != 4 { return 4; }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "unwrap_err must compile");
+    assert!(!ir.contains("call i64 @len"), "msg.len() must NOT lower to undefined @len");
+    assert!(ir.contains("inttoptr i64") && ir.contains("to i8*"), "Str payload must be inttoptr'd to i8*");
+}
+
+/// Gap E companion: match Err(msg) payload binding (field 2 extraction).
+#[test]
+fn regress_5d_match_err_payload_typed() {
+    let src = r#"
+fn make_err() -> Result[Int, Str] {
+  return Err("boom");
+}
+fn main() -> Int {
+  let r = make_err();
+  match r {
+    Ok(n) => { return 1; }
+    Err(msg) => {
+      if msg.len() != 4 { return 2; }
+      return 0;
+    }
+  }
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "match Err(msg) must compile");
+    assert!(!ir.contains("call i64 @len"), "msg.len() must NOT lower to undefined @len");
+}
+
+/// Gap B: Vec[T].with_capacity(n) — parity with Vec[T].new().
+#[test]
+fn regress_5d_vec_with_capacity() {
+    let src = r#"
+fn main() -> Int {
+  let v = Vec[Int].with_capacity(16);
+  if v.len() != 0 { return 1; }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "with_capacity must compile");
+}
