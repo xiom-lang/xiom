@@ -54,6 +54,7 @@
 ```
 xiomc --ai source.xi                    # Full AI mode (requires XIOM_AI_KEY or local model)
 xiomc --ai-local source.xi              # Local-only: NEVER sends code off-machine
+xiomc --ai-strict source.xi             # Refuse binary output on ANY contract violation
 xiomc --ai-dry-run source.xi            # Print the prompt; don't call LLM
 xiomc --ai-silent source.xi             # Suppress stdout; only write .xiom_ai.json
 xiomc --ai-model=gpt-4 source.xi        # Override model per invocation
@@ -285,9 +286,121 @@ When the outer agent has multiple files to compile, it should be able to run `xi
 ### 4.6 Confidence Score
 The LLM should indicate how confident it is. A hint like "The variable `x` is uninitialized" is high-confidence. A hint like "Consider refactoring the loop" is low-confidence. The outer agent can filter by confidence threshold.
 
+### 4.7 Error Code Registry Linkage
+Every hint MUST include the error code (X0010, X0100, etc.). The outer agent can then run `xiomc --explain X0100` for the full reference documentation without an LLM call. This creates a two-tier insight system: LLM hint for the specific instance, `--explain` for the general rule.
+
+### 4.8 Root-Cause Prioritization
+When compilation produces 15 errors, 12 are usually cascading from 1 root cause. The AI hints MUST be sorted by line number ascending, and the FIRST hint flagged as `"is_root_cause": true`. The outer agent fixes the root cause, recompiles, and 80% of the cascade disappears. Implementation: trivial — sort hints by (file, line) ascending, mark `hints[0].is_root_cause = true`.
+
+### 4.9 Temperature Zero (Deterministic Explanations)
+The LLM API call MUST use `temperature: 0` (or the minimum the model supports). We want deterministic, factual, reproducible explanations. A hallucinated hint is worse than no hint — it wastes the outer agent's time and erodes trust. At temperature 0, the same error always produces the same hint, which also makes hash caching near-perfect.
+
+### 4.10 `--ai-strict` Mode (CI/CD Gate)
+A flag that makes the compiler REFUSE to produce a binary if ANY contract violation exists. The AI explains the violation, but NEVER bypasses it. For CI/CD pipelines, the policy is: "The AI can help you FIX the code, but it cannot override the safety guarantees." The binary output is suppressed; only `.xiom_ai.json` and the error exit code are produced.
+
+```
+xiomc --ai --ai-strict source.xi
+# If contracts pass: produces binary normally
+# If any contract fails: exit code 1, .xiom_ai.json with hints, NO binary
+```
+
+### 4.11 LSP / IDE Integration Hook
+The `.xiom_ai.json` file path is emitted in the `--diagnostics=json` output under a new `ai_hints_path` field. The language server reads this and attaches the LLM insight as a hover tooltip on the error underline in the IDE. The developer sees:
+
+```
+┌─────────────────────────────────────────────┐
+│ error[X0100]: contract violation            │
+│ ─────────────────────────────────────────── │
+│ 🤖 AI Insight: The inverse-square term      │
+│ evaluates to zero when distance < 0.001.    │
+│ Clamp distance to a minimum epsilon.        │
+│ ─────────────────────────────────────────── │
+│ xiomc --explain X0100 | confidence: HIGH    │
+└─────────────────────────────────────────────┘
+```
+
+Implementation: add `"ai_hints_path": ".xiom_ai.json"` to the JSON diagnostics output when `--ai` is active. The LSP reads this file and associates hints by (file, line) with editor error markers.
+
 ---
 
-## 5. What Needs Building (Updated)
+## 5. Production-Grade Implementation Details
+
+### 5.1 Prompt Template Design (The Hardest Part)
+
+After extensive testing with coding agents, the optimal prompt template has these properties:
+
+1. **Role-lock the LLM**: The first line MUST establish that this is a compiler subsystem, not a code generator
+2. **Delimit code with fences**: ```xiom ... ``` prevents the LLM from interpreting code as instructions
+3. **Constrain output length**: "15-45 words" prevents rambling; forces precision
+4. **Ban code in output**: "Do not write code" repeated twice — once in system prompt, once in task
+5. **Include error code**: The LLM can reference `X0100` which the agent can look up
+
+### 5.2 Cache Architecture
+
+```
+.xiom_ai_cache/
+├── codellama_7b/
+│   ├── a1b2c3d4e5f6.json   # SHA256-based cache files
+│   └── f6e5d4c3b2a1.json
+└── gpt_4/
+    └── 1a2b3c4d5e6f.json
+```
+
+- Cache key: `sha256(model_name + error_code + function_hash + error_line)`
+- Cache value: `{ hint, confidence, timestamp, ttl }`
+- TTL: 24 hours for cloud LLMs, infinite for local models (no cost)
+- Cache is `.gitignore`d — never committed to the repository
+- On compiler version upgrade, cache is invalidated (version in key)
+
+### 5.3 LLM API Abstraction
+
+```rust
+trait AiBackend {
+    fn complete(&self, prompt: &AiPrompt) -> Result<AiHint, AiError>;
+    fn model_name(&self) -> &str;
+    fn is_local(&self) -> bool;
+}
+
+struct OllamaBackend { endpoint: String, model: String }
+struct OpenAiBackend { endpoint: String, key: String, model: String }
+struct DryRunBackend;  // prints prompt, returns empty hint
+```
+
+This abstraction allows adding new backends (Anthropic, Groq, local llama.cpp) without touching the compiler pipeline. The backend is selected by the environment variables and CLI flags.
+
+### 5.4 Failure Modes & Recovery
+
+| Failure | Behavior |
+|---------|----------|
+| LLM API timeout (>10s) | Abort, fall back to deterministic diagnostics, print warning |
+| LLM returns non-JSON | Parse error → fall back to deterministic diagnostics |
+| LLM returns empty hint | Skip this error in `.xiom_ai.json`; don't create a useless entry |
+| Cache read error | Skip cache; proceed to LLM call |
+| Cache write error | Proceed; cache is best-effort, not critical path |
+| No XIOM_AI_KEY set | Abort with clear error message (see §1) |
+| Local model not found | Abort with instructions for installing Ollama/llama.cpp |
+
+### 5.5 Token Budget Enforcement
+
+The compiler MUST enforce the token budget in-process before calling the LLM. Token counting is approximate (word-based, not BPE) but sufficient:
+
+```rust
+fn estimate_tokens(text: &str) -> usize {
+    text.split_whitespace().count()
+}
+
+fn enforce_budget(prompt: &AiPrompt, max: usize) -> Result<(), AiError> {
+    let tokens = estimate_tokens(&prompt.system) 
+               + estimate_tokens(&prompt.code_snippet)
+               + estimate_tokens(&prompt.task);
+    if tokens > max {
+        return Err(AiError::BudgetExceeded { tokens, max });
+    }
+    Ok(())
+}
+```
+
+If the function body exceeds 200 tokens, it is truncated at the last complete statement boundary within the budget.
 
 ### 5g.1 — `--ai` Flag MVP (1–2 Weeks)
 - CLI flag parsing + environment variable checks
@@ -295,22 +408,35 @@ The LLM should indicate how confident it is. A hint like "The variable `x` is un
 - Hash caching with SHA256 + 24h TTL + model-versioned keys
 - Prompt template loading from `stdlib/xiom/ai_prompt.txt`
 - Single stateless LLM API call (Ollama or OpenAI-compatible)
-- `.xiom_ai.json` append log with schema validation
+- `.xiom_ai.json` append log with schema validation + `ai_hints_path` in JSON diagnostics
 - `--ai-local`, `--ai-dry-run`, `--ai-silent`, `--ai-model`, `--ai-timeout`
+- `--ai-strict` mode (no binary on contract violation)
+- Temperature 0 enforcement on all LLM calls
+- Token budget enforcement (~400 tokens, truncate at statement boundary)
 
-### 5g.2 — Contract-Guided Prompts (1–2 Weeks)
+### 5g.2 — Error Code Integration + Root Cause (Days)
+- Error code (X0010, X0100) in every hint for `--explain` linkage
+- Root-cause flagging: sort hints by (file, line), mark `hints[0].is_root_cause = true`
+- Contract-aware confidence: violations = HIGH, type mismatches = MEDIUM
+
+### 5g.3 — Contract-Guided Prompts (1–2 Weeks)
 - Contract clause extraction from AST for error context
-- Confidence score based on error type (contract violations = HIGH, type mismatches = MEDIUM)
+- Contract violation counter-example formatting for the prompt
 
-### 5g.3 — Z3 Counter-Example Extraction (Requires Phase 5f)
-- Parse Z3 model output (S-expressions → variable/value pairs)
-- Inject concrete counter-examples into the prompt: "The solver failed when distance = -0.0001"
+### 5g.4 — LSP / IDE Integration (1 Week)
+- Add `"ai_hints_path"` to JSON diagnostics output
+- LSP reads `.xiom_ai.json` and attaches hints to editor error markers
+- Hover tooltip shows: error code + AI insight + confidence level
 
-### 5g.4 — Batch Mode (1 Week)
+### 5g.5 — Batch Mode (1 Week)
 - Multi-file compilation with single `.xiom_ai.json` output
 - Cross-file deduplication of hints (same error in two files = one hint)
 
-### 5g.5 — Local Model Embedding (Optional, 2–4 Weeks)
+### 5g.6 — Z3 Counter-Example Extraction (Requires Phase 5f)
+- Parse Z3 model output (S-expressions → variable/value pairs)
+- Inject concrete counter-examples into the prompt: "The solver failed when distance = -0.0001"
+
+### 5g.7 — Local Model Embedding (Optional, 2–4 Weeks)
 - Link llama.cpp or burn.rs for embedded inference
 - Package a 1B quantized model with the compiler
 - Zero-dependency offline mode
@@ -324,11 +450,13 @@ Phase 5c (Production) ✅ ────┐
 Phase 5c-R (Refactor) ✅ ────┤
 Phase 5c-E (Ecosystem) ✅ ───┤
 Phase 5e (Incremental) ──────┤──→ Phase 5g (AI Pipeline)
-Phase 5f (Z3 Verification) ──┤     ├ 5g.1: --ai flag MVP
-                              │     ├ 5g.2: Contract prompts
-Existing JSON diagnostics ───┘     ├ 5g.3: Z3 counter-examples
-Existing --contracts ──────────     ├ 5g.4: Batch mode
-                                    └ 5g.5: Local model (optional)
+Phase 5f (Z3 Verification) ──┤     ├ 5g.1: --ai flag MVP (temp=0, strict, cache, token budget)
+                              │     ├ 5g.2: Error codes + root cause + confidence
+Existing JSON diagnostics ───┘     ├ 5g.3: Contract-guided prompts
+Existing --contracts ──────────     ├ 5g.4: LSP / IDE integration
+                                    ├ 5g.5: Batch mode
+                                    ├ 5g.6: Z3 counter-examples (needs 5f)
+                                    └ 5g.7: Local model embedding (optional)
 ```
 
 ## Reference
