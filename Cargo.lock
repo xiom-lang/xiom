@@ -334,6 +334,9 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "xiom-ast",
+ "xiom-lexer",
+ "xiom-parser",
  "xiomc",
 ]
 
