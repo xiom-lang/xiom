@@ -54,7 +54,7 @@ fn test_selfhost_compiles_cleanly() {
     assert!(ir.contains("define void @emit_sq"), "should emit sq codegen function");
     assert!(ir.contains("define void @emit_main_demo"), "should emit main_demo codegen function");
     assert!(ir.contains("define void @compile_all"), "should emit compile_all function");
-    assert!(ir.contains("call void @compile_all"), "should call compile_all");
+    assert!(ir.contains("call void @codegen.compile_all"), "should call compile_all");
 }
 
 #[test]
