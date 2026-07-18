@@ -222,7 +222,20 @@ fn main() {
     if sandbox_mode {
         let strict = args.iter().any(|a| a == "--sandbox=strict");
         let json_output = args.iter().any(|a| a == "--sandbox-report=json");
+        let _text_output = !json_output && !args.iter().any(|a| a.starts_with("--sandbox-report="));
+        let output_file = args.iter().position(|a| a == "--sandbox-report")
+            .and_then(|i| args.get(i + 1).cloned());
+        // Also support --sandbox-report=<path>
+        let output_file = output_file.or_else(|| {
+            args.iter().find(|a| a.starts_with("--sandbox-report="))
+                .and_then(|a| a.strip_prefix("--sandbox-report="))
+                .map(|s| if s == "json" || s == "text" || s == "silent" { "" } else { s })
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+        });
+        let silent = args.iter().any(|a| a == "--sandbox-report=silent");
 
+        let mut overall_exit = 0;
         for source_path in &source_paths {
             let source = std::fs::read_to_string(source_path).unwrap_or_default();
             let tokens = Lexer::new(&source).tokenize();
@@ -230,19 +243,32 @@ fn main() {
                 let mut auditor = SafetyAuditor::new();
                 let report = auditor.audit(&program, source_path);
 
-                if json_output {
-                    println!("{}", report.to_json());
+                let output = if json_output {
+                    report.to_json()
                 } else {
-                    println!("{}", report.to_text());
+                    report.to_text()
+                };
+
+                if let Some(ref path) = output_file {
+                    if !path.is_empty() {
+                        let _ = std::fs::write(path, &output);
+                    }
+                }
+                if !silent && output_file.is_none() {
+                    println!("{output}");
                 }
 
-                if strict && report.summary.safety_score == "HIGH" || report.summary.safety_score == "CRITICAL" {
-                    eprintln!("error: --sandbox=strict blocked compilation due to {} safety findings", report.summary.high_severity);
-                    process::exit(3);
+                if strict && (report.summary.safety_score == "HIGH" || report.summary.safety_score == "CRITICAL") {
+                    eprintln!("error: --sandbox=strict blocked compilation due to {} HIGH severity findings", report.summary.high_severity);
+                    overall_exit = 3;
+                } else if report.summary.safety_score == "HIGH" || report.summary.safety_score == "CRITICAL" {
+                    overall_exit = std::cmp::max(overall_exit, 2);
+                } else if report.summary.safety_score == "MEDIUM" {
+                    overall_exit = std::cmp::max(overall_exit, 1);
                 }
             }
         }
-        return;
+        process::exit(overall_exit);
     }
 
     compile(&config, &source_paths);

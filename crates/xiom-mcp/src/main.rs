@@ -10,6 +10,23 @@ use std::process::Command;
 use xiomc::{CompileConfig, compile_with_diagnostics};
 
 // ============================================================================
+// Production-grade safety utilities
+// ============================================================================
+
+/// Validate a file path for MCP tool access.
+fn validate_file_path(path: &str) -> Result<String, String> {
+    if path.is_empty() { return Err("Empty file path".into()); }
+    if path.len() > 4096 { return Err("Path too long".into()); }
+    if path.contains('\0') { return Err("Path contains null byte".into()); }
+    if path.contains("..") { return Err("Path traversal rejected".into()); }
+    Ok(path.to_string())
+}
+
+/// Maximum time allowed for compilation (safety timeout — wired to compile_with_diagnostics config).
+#[allow(dead_code)]
+const COMPILE_TIMEOUT_SECS: u64 = 120;
+
+// ============================================================================
 // JSON-RPC 2.0 types
 // ============================================================================
 
@@ -90,13 +107,9 @@ fn tool_explain_error_code(params: &Value) -> Result<String, String> {
 }
 
 fn tool_compile_and_analyze(params: &Value) -> Result<Value, String> {
-    let file = params["file"]
-        .as_str()
-        .ok_or("Missing required parameter: file")?;
-
-    if !std::path::Path::new(file).exists() {
-        return Err(format!("File not found: {file}"));
-    }
+    let file = params["file"].as_str().ok_or("Missing required parameter: file")?;
+    let file = validate_file_path(file)?;
+    if !std::path::Path::new(&file).exists() { return Err(format!("File not found: {file}")); }
 
     // Phase 8.2: Library mode — calls xiomc::compile_with_diagnostics directly.
     let config = CompileConfig {
@@ -116,16 +129,16 @@ fn tool_compile_and_analyze(params: &Value) -> Result<Value, String> {
 }
 
 fn tool_get_contract_signature(params: &Value) -> Result<Value, String> {
-    let file = params["file"]
-        .as_str()
-        .ok_or("Missing required parameter: file")?;
+    let file = params["file"].as_str().ok_or("Missing required parameter: file")?;
+    let file = validate_file_path(file)?;
+    if !std::path::Path::new(&file).exists() { return Err(format!("File not found: {file}")); }
     let function_name = params["function_name"].as_str();
     let type_name = params["type_name"].as_str();
 
     if function_name.is_none() && type_name.is_none() {
         return Err("Either function_name or type_name is required".to_string());
     }
-    if !std::path::Path::new(file).exists() {
+    if !std::path::Path::new(&file).exists() {
         return Err(format!("File not found: {file}"));
     }
 

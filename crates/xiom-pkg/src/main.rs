@@ -8,6 +8,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
+/// Production registry URL. Override with XIOM_REGISTRY env var.
+const DEFAULT_REGISTRY: &str = "https://registry.xiom-lang.com";
+
+fn registry_url() -> String {
+    env::var("XIOM_REGISTRY").unwrap_or_else(|_| DEFAULT_REGISTRY.to_string())
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.iter().any(|a| a == "--help") {
@@ -286,7 +293,7 @@ fn publish_package(_args: &[String]) {
             "-s",
             "-X",
             "POST",
-            "http://localhost:8080/publish",
+            &format!("{}/publish", registry_url()),
             "-H",
             "Content-Type: application/json",
             "-d",
@@ -317,7 +324,7 @@ fn install_package(args: &[String]) {
     };
 
     let output = process::Command::new("curl")
-        .args(["-s", "http://localhost:8080/index.json"])
+        .args(["-s", &format!("{}/index.json", registry_url())])
         .output()
         .unwrap_or_else(|e| {
             eprintln!("xiom pkg: failed to run curl: {}", e);
