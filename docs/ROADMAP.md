@@ -115,7 +115,7 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | **5d.1** | **🔧 MCP Server** | **7 AI tools, library mode, path guard, cheatsheet** | **✅ Production — 12 tests** | 12 | [MCP_SERVER.md](./MCP_SERVER.md) |
 | **5d.2** | **📦 Package Manager** | **xiom-pkg: install, publish, resolve, lockfile, native HTTP** | **✅ Production — 15 tests** | 15 | [XIOM_TOOLING_SPEC.md](./XIOM_TOOLING_SPEC.md) |
 | **5d.3** | **🎨 Formatter** | **xiom-fmt: canonical formatting, --in-place** | **✅ Production — 18 tests** | 18 | — |
-| **5d.4** | **📝 LSP Server** | **xiom-lsp: hover, completion, references, rename, symbols** | **✅ Production — 8 tests** | 8 | — |
+| **5d.4** | **📝 LSP Server** | **xiom-lsp: hover, completion, references, rename, symbols; catalog-aware diagnostics** | **✅ Production — 10 tests. Editor configs: VS Code, Neovim, JetBrains (LSP4IJ), Helix, Sublime, Emacs ([editors/](../editors/))** | 10 | — |
 | **5d.5** | **🐛 DAP Debugger** | **xiom-dbg: GDB/MI, breakpoints, step, variables, VS Code wired** | **✅ Production — 8 tests** | 8 | [XIOM_TOOLING_SPEC.md](./XIOM_TOOLING_SPEC.md) |
 | **5d.6** | **📖 Doc Generator** | **xiom-doc: Markdown from source** | **✅ Production — 4 tests** | 4 | — |
 | **5d.7** | **🔗 FFI Generator** | **xiom-ffigen: C→XIOM bindings, contracts** | **✅ Production — 18 tests** | 18 | — |

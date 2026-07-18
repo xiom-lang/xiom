@@ -1,0 +1,11 @@
+// XIOM — merge into Preferences → Package Settings → LSP → Settings
+{
+  "clients": {
+    "xiom-lsp": {
+      "enabled": true,
+      "command": ["xiom-lsp"],
+      "selector": "source.xiom",
+      "languageId": "xiom"
+    }
+  }
+}
