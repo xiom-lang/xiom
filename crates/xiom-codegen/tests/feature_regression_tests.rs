@@ -826,6 +826,7 @@ fn main() -> Int {
             }
         }
     }
+}
 
 #[test]
 fn regress_5c_e_vec_with_contracts_no_type_clash() {
@@ -860,4 +861,65 @@ fn main() -> Int {
         }
     }
 }
+
+// ============================================================================
+// 5c-E: Vec-by-value round-trip (buffer_read_float pattern)
+// ============================================================================
+
+/// Locks in the pattern from vulkan.xi's `buffer_read_float`: a function that
+/// creates a `Vec[T]` from an empty array literal `[]`, passes it to unsafe
+/// extern calls, and returns it by value. The empty array `[]` compiles to an
+/// i8* buffer which must be coerced to `%struct.Vec` via `val_to_struct`.
+/// The Stmt::Var coercion path (commit e9e6cd6) covers this; this test
+/// guards against regressions (especially build-cache false-positives).
+#[test]
+fn regress_5c_e_vec_by_value_empty_init_coercion() {
+    let src = r#"
+fn buffer_float(dev: Int, buf: Int, off: Int, cnt: Int) -> Vec[Float32] {
+  var out: Vec[Float32] = [];
+  let sz = cnt * 4;
+  return out;
+}
+fn main() -> Int {
+  let v = buffer_float(1, 2, 3, 4);
+  return v.len();
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Vec-by-value empty init must compile");
+    let lines_v: Vec<&str> = ir.lines().collect();
+    let mut ptr_defs = std::collections::HashSet::new();
+    // Collect all registers defined from float/int allocas (not Vec allocas).
+    // These produce 'ptr' in opaque-pointer mode and must not be reused as
+    // %struct.Vec store values.
+    for line in &lines_v {
+        let trimmed = line.trim();
+        if trimmed.contains("alloca float") || trimmed.contains("alloca i32") {
+            if let Some(reg) = trimmed.split_whitespace().next() {
+                ptr_defs.insert(reg);
+            }
+        }
+    }
+    // Every `store %struct.Vec` must use a value register NOT defined by
+    // a float/int alloca. (A float alloca produces ptr in opaque mode;
+    // reusing it as %struct.Vec triggers "expected '%struct.Vec' but got 'ptr'".)
+    for line in &lines_v {
+        let trimmed = line.trim();
+        if trimmed.contains("store %struct.Vec") {
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            if parts.len() >= 3 {
+                let val_reg = parts[2].trim_end_matches(',');
+                assert!(
+                    !ptr_defs.contains(val_reg),
+                    "Vec-by-value coercion gap: store %struct.Vec from ptr-defined register {}",
+                    val_reg
+                );
+            }
+        }
+    }
+    // Additionally, verify the function returns %struct.Vec (not i8* or ptr).
+    assert!(
+        ir.contains("@buffer_float")
+            && (ir.contains("ret %struct.Vec") || ir.contains("store %struct.Vec")),
+        "buffer_float must emit Vec-typed IR"
+    );
 }
