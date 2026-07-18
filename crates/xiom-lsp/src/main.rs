@@ -68,6 +68,11 @@ impl Backend {
         let mut parser = Parser::new(tokens);
         match parser.parse_program() {
             Ok(program) => {
+                // Surface RECOVERED parse errors (panic-mode recovery) so
+                // silently-dropped declarations show up in the editor.
+                for err in parser.errors() {
+                    diagnostics.push(diagnostic_from_parse_error(err));
+                }
                 // Production-grade: mirror xiomc's checker setup so cross-module
                 // types (Result, Option, stdlib preludes) resolve exactly like a
                 // real compile. Isolated checking produced false positives

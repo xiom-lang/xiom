@@ -161,7 +161,23 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
 
         let mut parser = Parser::new(tokens);
         match parser.parse_program() {
-            Ok(p) => all_programs.push(p),
+            Ok(p) => {
+                // Surface RECOVERED parse errors: parse_program returns Ok with
+                // a partial AST after panic-mode recovery. Silently accepting
+                // it drops declarations (e.g. a trailing-comma fn vanished
+                // with no diagnostic). Report every recovered error.
+                for e in parser.errors() {
+                    let (help, note) = diagnostic_for(&e.message);
+                    result.diagnostics.push(Diagnostic {
+                        kind: "parse_error".into(), code: "P001".into(),
+                        message: e.message.clone(),
+                        line: e.span.line, col: e.span.col, file: source_path.clone(),
+                        suggestion: Some(suggest_fix(&e.message)),
+                        help, note,
+                    });
+                }
+                all_programs.push(p);
+            }
             Err(e) => {
                 let (help, note) = diagnostic_for(&e.message);
                 let suggestion = suggest_fix(&e.message);
@@ -288,7 +304,20 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
 
         let mut parser = Parser::new(tokens);
         match parser.parse_program() {
-            Ok(p) => all_programs.push(p),
+            Ok(p) => {
+                // Surface RECOVERED parse errors (panic-mode recovery returns
+                // Ok with a partial AST). Without this, a malformed declaration
+                // is silently DROPPED — e.g. a trailing-comma fn disappeared
+                // with no diagnostic and callers got 'undefined variable'.
+                if !parser.errors().is_empty() {
+                    for e in parser.errors() {
+                        let (help, note) = diagnostic_for(&e.message);
+                        render_error("P001", &e.span, &e.message, Some(&source), help.as_deref(), note.as_deref());
+                    }
+                    process::exit(1);
+                }
+                all_programs.push(p);
+            }
             Err(e) => {
                 let (help, note) = diagnostic_for(&e.message);
                 render_error("P001", &e.span, &e.message, Some(&source), help.as_deref(), note.as_deref());
