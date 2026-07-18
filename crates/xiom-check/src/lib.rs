@@ -2353,6 +2353,8 @@ impl Checker {
                             ("Vec" | "Slice" | "Array" | "Str" | "Map" | "Set", "len")
                                 => return CheckedType::Int,
                             ("Vec" | "Slice" | "Array" | "Str", "is_empty") => return CheckedType::Bool,
+                            // G-36: container clone returns the same container type.
+                            ("Vec" | "Slice" | "Map" | "Set", "clone") => return obj_ty.clone(),
                             // Option/Result payload accessors — inner type is erased,
                             // so return a wildcard the rest of the checker accepts.
                             ("Option" | "Result", "unwrap" | "unwrap_or" | "unwrap_err" | "expect" | "value")

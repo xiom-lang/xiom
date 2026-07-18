@@ -1100,3 +1100,75 @@ fn main() -> Int {
     let ir = compile(src).unwrap();
     assert!(ir.contains("define"), "with_capacity must compile");
 }
+
+/// G-36: Vec[T].clone() — deep copy with buffer independence.
+/// Previously unregistered ("cannot call 'clone'"); ecosystem modules wrote
+/// manual copy_vec_* push-loop helpers (opencv, torch, onnx, imgui).
+#[test]
+fn regress_5d_vec_clone_deep_copy() {
+    let src = r#"
+fn main() -> Int {
+  var v = Vec[Int].new();
+  v.push(10); v.push(20);
+  var c = v.clone();
+  c.push(30);
+  if v.len() != 2 { return 1; }
+  if c.len() != 3 { return 2; }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Vec.clone must compile");
+    assert!(ir.contains("@llvm.memcpy"), "clone must deep-copy via memcpy");
+    assert!(ir.contains("@malloc"), "clone must allocate a fresh buffer");
+}
+
+/// G-35: method calls on match-bound struct payloads (Ok(dev) => dev.method()).
+/// Covered by the typed-payload binding work; locked here with a user struct.
+#[test]
+fn regress_5d_method_on_match_payload() {
+    let src = r#"
+pub type Device = { id: Int; } derive[Clone]
+pub fn Device.get_id(self) -> Int { return self.id; }
+fn make() -> Result[Device, Str] { return Ok(Device{ id: 42 }); }
+fn main() -> Int {
+  let r = make();
+  match r {
+    Ok(dev) => {
+      if dev.get_id() != 42 { return 1; }
+      return 0;
+    }
+    Err(msg) => { return 2; }
+  }
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "method on match payload must compile");
+    assert!(ir.contains("get_id"), "user method must be emitted and called");
+}
+
+/// G-14: Result[Unit, E] as generic instantiation with Ok(()).
+#[test]
+fn regress_5d_result_unit_payload() {
+    let src = r#"
+fn nothing() -> Result[Unit, Str] { return Ok(()); }
+fn main() -> Int {
+  let r = nothing();
+  if r.is_ok() { return 0; }
+  return 1;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Result[Unit, E] must compile");
+}
+
+/// G-02: `let _ = expr` discard binding.
+#[test]
+fn regress_5d_underscore_discard_binding() {
+    let src = r#"
+fn side() -> Int { return 7; }
+fn main() -> Int {
+  let _ = side();
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "let _ = expr must compile");
+    assert!(ir.contains("call i64 @side"), "discarded call must still execute");
+}
