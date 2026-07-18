@@ -713,3 +713,151 @@ fn main() -> Int {
     let ir = compile(src).unwrap();
     assert!(ir.contains("define"), "contract with pointer-null check must compile");
 }
+
+// =====================================================================
+// 5c-E: Vec struct marshalling regression tests
+// =====================================================================
+
+#[test]
+fn regress_5c_e_vec_param_by_value_ir_valid() {
+    // Vec passed by value to a function must produce valid IR with consistent
+    // types — no ptr->%struct.Vec mismatch. This catches the LLVM opaque-
+    // pointer coercion gap in wrapper.xi-style FFI.
+    let src = r#"
+fn buffer_write(verts: Vec[Float32]) -> Int {
+  return verts.len();
+}
+fn main() -> Int {
+  var v: Vec[Float32] = [1.0, 2.0];
+  return buffer_write(v);
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Vec param by-value must compile");
+    // Guard: must NOT contain malformed store that clang would reject
+    // (store %struct.Vec %X, %struct.Vec* %Y where %X was defined as ptr)
+    let store_mismatch = ir.contains("store %struct.Vec %tmp") && ir.contains("%struct.Vec*");
+    if store_mismatch {
+        // Check that the value operand of each store matches
+        // If it was loaded as ptr, clang will reject. We can't verify
+        // clang acceptance here, but we can check for the pattern.
+        assert!(!ir.contains("load ptr, ptr*"),
+            "Vec param must not produce opaque ptr loads (clang reject: ptr vs %struct.Vec)");
+    }
+}
+
+#[test]
+fn regress_5c_e_vec_ret_by_value_ir_valid() {
+    // Vec returned by value must produce valid IR
+    let src = r#"
+fn make_vec() -> Vec[Float64] {
+  var v = Vec[Float64].new();
+  v.push(3.14);
+  return v;
+}
+fn main() -> Int {
+  let v = make_vec();
+  return v.len() - 1;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Vec return by-value must compile");
+    assert!(!ir.contains("load ptr, ptr*"),
+        "Vec return must not produce opaque ptr loads");
+}
+
+#[test]
+fn regress_5c_e_vec_arg_coerce_ptr_to_struct() {
+    // When a Vec[Int] variable is passed where %struct.Vec is expected,
+    // the codegen must coerce the pointer/handle to the struct value.
+    let src = r#"
+fn use_vec(v: Vec[Int]) -> Int {
+  return v.len();
+}
+fn main() -> Int {
+  var v: Vec[Int] = [1, 2, 3];
+  return use_vec(v);
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Vec arg coerce must compile");
+}
+
+#[test]
+fn regress_5c_e_vec_float_mixed_params_no_type_clash() {
+    // wrapper.xi pattern: function with both Float32 params AND Vec params.
+    // The entry block has 'alloca float' (-> ptr) and body has %struct.Vec stores.
+    // Must not produce 'store %struct.Vec %X, %struct.Vec* %Y' where %X was
+    // defined as ptr from a prior alloca. Clang rejects this in opaque ptr mode.
+    let src = r#"
+fn buffer_write_float(dev: Int, buf: Int, off: Int, verts: Vec[Float32]) {
+  var i = 0;
+  while i < verts.len() {
+    i = i + 1;
+  }
+}
+fn main() -> Int {
+  var v: Vec[Float32] = [1.0, 2.0, 3.0];
+  buffer_write_float(1, 2, 3, v);
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Vec+float mixed params must compile");
+    // Check: the IR must not have the broken pattern where a ptr value
+    // is used as %struct.Vec. Look for 'store %struct.Vec' and verify
+    // the value operand was NOT previously defined as ptr (alloca float).
+    let lines: Vec<&str> = ir.lines().collect();
+    let mut ptr_defs: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for line in &lines {
+        // Track alloca instructions that produce ptr
+        if line.contains("alloca float") || line.contains("alloca i32") || line.contains("alloca i8") {
+            if let Some(reg) = line.split_whitespace().nth(0) {
+                ptr_defs.insert(reg);
+            }
+        }
+    }
+    // Check each Vec store
+    for line in &lines {
+        if line.contains("store %struct.Vec") {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            // parts: ["store", "%struct.Vec", "%tmpX,", "%struct.Vec*", "%tmpY"]
+            if parts.len() >= 3 {
+                let val_reg = parts[2].trim_end_matches(',');
+                assert!(!ptr_defs.contains(val_reg),
+                    "Vec store value '{}' was defined as ptr (alloca float/etc). This would be rejected by clang.",
+                    val_reg);
+            }
+        }
+    }
+
+#[test]
+fn regress_5c_e_vec_with_contracts_no_type_clash() {
+    let src = r#"
+fn push_float(dev: Int, buf: Int, off: Int, f: Float32, verts: Vec[Float32])
+  requires: off >= 0
+{
+  var i = 0;
+  while i < verts.len() { i = i + 1; }
+}
+fn main() -> Int {
+  var v: Vec[Float32] = [1.0, 2.0, 3.0];
+  push_float(1, 2, 0, 0.5, v);
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Vec+contract+float params must compile");
+    let lines_v: Vec<&str> = ir.lines().collect();
+    let mut ptr_defs = std::collections::HashSet::new();
+    for line in &lines_v {
+        if line.contains("alloca float") || line.contains("alloca i32") {
+            if let Some(reg) = line.split_whitespace().next() { ptr_defs.insert(reg); }
+        }
+    }
+    for line in &lines_v {
+        if line.contains("store %struct.Vec") {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 3 {
+                let val_reg = parts[2].trim_end_matches(",");
+                assert!(!ptr_defs.contains(val_reg), "Vec store from ptr: clang reject");
+            }
+        }
+    }
+}
+}

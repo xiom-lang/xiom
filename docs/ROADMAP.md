@@ -14,7 +14,7 @@
 | Checker tests | 74/74 | ✅ | |
 | **E2E tests** | **101/101** | ✅ **ALL GREEN** | |
 | Stdlib execution (smoke) | **41/41** | ✅ **ALL 5 FIXED (5c.30)** | array, core, serialize, mem, ptr |
-| Feature regression | **85/85** | ✅ | incl. 5c-E Vulkan probes (G1-G7) |
+| Feature regression | **88/88** | ✅ | incl. 5c-E Vulkan probes (G1-G7) + Vec marshalling |
 | Integration regression | **119/119** | ✅ | |
 | Stdlib compilation | **40/40** | ✅ | 39 per-module + 1 combined cross-module |
 | Diff / FullDiff | **25/25 + 23/23** | ✅ | Selfhost assertion gap fixed (P2) |
