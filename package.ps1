@@ -1,17 +1,15 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
-    XIOM Release Packager
+    XIOM Release Packager (Windows)
 .DESCRIPTION
-    Builds all tools in release mode and packages into a distributable portable folder + zip.
-    The release folder can be used directly (copy to any location, add to PATH)
-    or installed via the included install.bat.
+    Builds all tools in release mode and packages into distributable folder + zip.
 .PARAMETER Version
-    Version string for the package filename (default: 0.20.0)
+    Version string (default: 0.46.0)
 .EXAMPLE
     ./package.ps1
 .EXAMPLE
-    ./package.ps1 -Version 0.20.0
+    ./package.ps1 -Version 0.47.0
 #>
 
 param([string]$Version = "0.46.0")
@@ -29,72 +27,89 @@ Write-Host "  XIOM Release Packager v$Version" -ForegroundColor Magenta
 Write-Host "  ================================" -ForegroundColor Magenta
 Write-Host ""
 
-# â”€â”€ Build all tools â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Build all tools
 $tools = @("xiomc", "xiom-fmt", "xiom-doc", "xiom-ffigen", "xiom-pkg", "xiom-lsp")
 $builtOk = @()
 foreach ($tool in $tools) {
     Write-Host "  Building $tool..." -ForegroundColor Cyan
-    cargo build -p $tool --release 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) {
+    $prevErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $output = cargo build -p $tool --release 2>&1
+    $exitCode = $LASTEXITCODE
+    $ErrorActionPreference = $prevErrorAction
+    if ($exitCode -eq 0) {
         $builtOk += $tool
-        Write-Host "    âœ“ $tool" -ForegroundColor Green
+        Write-Host "    [OK] $tool" -ForegroundColor Green
     } else {
-        Write-Host "    âœ- $tool failed (skipped - may not be part of this release)" -ForegroundColor Yellow
+        Write-Host "    [SKIP] $tool (crate not found or build failed)" -ForegroundColor Yellow
     }
 }
 
-# â”€â”€ Create release directory structure â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Create release directories
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
 New-Item -ItemType Directory -Force -Path $libDir | Out-Null
 New-Item -ItemType Directory -Force -Path $rtDir | Out-Null
 
-# â”€â”€ Copy binaries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Copy binaries
 Write-Host ""
 Write-Host "  Packaging release..." -ForegroundColor Cyan
 foreach ($tool in $builtOk) {
-    Copy-Item "$root\target\release\$tool.exe" "$binDir\$tool.exe" -Force
-    Write-Host "    + $tool.exe" -ForegroundColor DarkGray
+    $src = "$root\target\release\$tool.exe"
+    if (Test-Path $src) {
+        Copy-Item $src "$binDir\$tool.exe" -Force
+        Write-Host "    + $tool.exe" -ForegroundColor DarkGray
+    }
 }
 
-# â”€â”€ Copy icon â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-Copy-Item "$root\resource\img\xiom-icon.ico" "$binDir\xiom-icon.ico" -Force
-Write-Host "    + xiom-icon.ico" -ForegroundColor DarkGray
+# Copy icon
+$iconSrc = "$root\resource\img\xiom-icon.ico"
+if (Test-Path $iconSrc) {
+    Copy-Item $iconSrc "$binDir\xiom-icon.ico" -Force
+    Write-Host "    + xiom-icon.ico" -ForegroundColor DarkGray
+}
 
-# â”€â”€ Copy stdlib + runtime â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-Copy-Item "$root\stdlib\*" "$libDir\" -Recurse -Force
-Write-Host "    + stdlib/ -> lib/" -ForegroundColor DarkGray
-Copy-Item "$root\stdlib\runtime\xiom_runtime.c" "$rtDir\" -Force
-Write-Host "    + xiom_runtime.c -> runtime/" -ForegroundColor DarkGray
+# Copy stdlib + runtime
+$stdlibSrc = "$root\stdlib"
+if (Test-Path $stdlibSrc) {
+    Copy-Item "$stdlibSrc\*" "$libDir\" -Recurse -Force
+    Write-Host "    + stdlib/ -> lib/" -ForegroundColor DarkGray
+}
+$rtSrc = "$root\stdlib\runtime\xiom_runtime.c"
+if (Test-Path $rtSrc) {
+    Copy-Item $rtSrc "$rtDir\" -Force
+    Write-Host "    + xiom_runtime.c -> runtime/" -ForegroundColor DarkGray
+}
 
-# â”€â”€ Copy documentation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Copy documentation (optional)
 $docsDir = "$pkgDir\docs"
-if (Test-Path "$root\docs\language\html") {
+$htmlDocs = "$root\docs\language\html"
+if (Test-Path $htmlDocs) {
     New-Item -ItemType Directory -Force -Path $docsDir | Out-Null
-    Copy-Item "$root\docs\language\html\*" "$docsDir\" -Recurse -Force
+    Copy-Item "$htmlDocs\*" "$docsDir\" -Recurse -Force
     Write-Host "    + docs/ (API reference)" -ForegroundColor DarkGray
 }
 
-# â”€â”€ Create install.bat (portable CLI installer) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-@"
+# Create install.bat
+$installBat = @'
 @echo off
 setlocal enabledelayedexpansion
-title XIOM v$Version Installer
+title XIOM INSTALLER
 
 echo.
-echo   XIOM Compiler v$Version
-echo   ========================
+echo   XIOM Compiler
+echo   =============
 echo.
-echo   This installer copies XIOM to your chosen directory
+echo   This script copies XIOM to your chosen directory
 echo   and optionally adds it to your user PATH.
 echo.
 
-:: â”€â”€ Choose install directory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+:: Choose install directory
 set "XIOM_DEFAULT=%LOCALAPPDATA%\xiom"
 set /p XIOM_DIR="  Install directory [%XIOM_DEFAULT%]: "
 if "!XIOM_DIR!"=="" set "XIOM_DIR=%XIOM_DEFAULT%"
 set "XIOM_BIN=!XIOM_DIR!\bin"
 
-:: â”€â”€ Install files â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+:: Install files
 echo.
 echo   Installing to !XIOM_DIR!...
 mkdir "!XIOM_DIR!" 2>nul
@@ -123,14 +138,14 @@ if exist "%~dp0docs\" (
     set /p INSTALL_DOCS="  Install API documentation? [Y/n]: "
     if /i not "!INSTALL_DOCS!"=="n" if /i not "!INSTALL_DOCS!"=="N" (
         xcopy /Y /E /Q "%~dp0docs\*" "!XIOM_DIR!\docs\" >nul 2>nul
-        echo     + Documentation installed ^(open !XIOM_DIR!\docs\index.html^)
+        echo     + Documentation installed
     )
 )
 
-:: â”€â”€ Create xiom.bat wrapper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+:: Create xiom.bat wrapper
 (
 echo @echo off
-echo REM XIOM Toolchain v$Version
+echo REM XIOM Toolchain
 echo set "XIOM_BIN=!XIOM_BIN!"
 echo if "%%1"=="" "%%XIOM_BIN%%\xiomc.exe" --help ^& goto :eof
 echo if "%%1"=="compile" ^( shift ^& "%%XIOM_BIN%%\xiomc.exe" %%* ^) ^& goto :eof
@@ -139,15 +154,15 @@ echo if "%%1"=="doc"     ^( shift ^& "%%XIOM_BIN%%\xiom-doc.exe" %%* ^) ^& goto 
 echo if "%%1"=="ffigen"  ^( shift ^& "%%XIOM_BIN%%\xiom-ffigen.exe" %%* ^) ^& goto :eof
 echo if "%%1"=="pkg"     ^( shift ^& "%%XIOM_BIN%%\xiom-pkg.exe" %%* ^) ^& goto :eof
 echo if "%%1"=="lsp"     ^( shift ^& "%%XIOM_BIN%%\xiom-lsp.exe" %%* ^) ^& goto :eof
-echo REM Unknown subcommand â€” pass through to xiomc
+echo REM Unknown subcommand - pass through to xiomc
 echo "%%XIOM_BIN%%\xiomc.exe" %%*
 ) > "!XIOM_BIN!\xiom.bat"
 
-:: â”€â”€ Add to PATH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+:: Add to PATH
 echo.
 echo   PATH options:
-echo     [U] User PATH  - only your account ^(default, no admin needed^)
-echo     [S] System PATH - all users ^(requires admin^)
+echo     [U] User PATH  - only your account (default, no admin needed)
+echo     [S] System PATH - all users (requires admin)
 echo     [N] Skip       - add manually later
 echo.
 set /p PATH_TYPE="  Choose [U/s/N]: "
@@ -159,7 +174,7 @@ set "REG_KEY=Environment"
 if /i "!PATH_TYPE!"=="S" (
     set "REG_HIVE=HKLM"
     set "REG_KEY=SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
-    echo   Requesting System PATH ^(needs admin^)...
+    echo   Requesting System PATH (needs admin)...
 )
 
 for /f "usebackq tokens=2,*" %%A in (`reg query !REG_HIVE!\!REG_KEY! /v PATH 2^>nul`) do set "CUR_PATH=%%B"
@@ -171,11 +186,10 @@ if "!CUR_PATH!"=="" (
         reg add !REG_HIVE!\!REG_KEY! /v PATH /t REG_EXPAND_SZ /d "!CUR_PATH!;!XIOM_BIN!" /f >nul 2>nul
     )
 )
-echo     + Added to PATH ^(restart terminal^)
-:: Refresh PATH in current cmd session
+echo     + Added to PATH (restart terminal)
 set "PATH=%PATH%;!XIOM_BIN!"
 
-:: â”€â”€ Register .xi file icon â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+:: Register .xi file icon
 echo.
 set /p REG_EXT="  Register .xi files with XIOM icon? [y/N]: "
 if /i not "!REG_EXT!"=="y" goto :skip_reg
@@ -187,10 +201,10 @@ echo     + .xi files registered
 
 :skip_reg
 
-:: â”€â”€ Create uninstaller â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+:: Create uninstaller
 (
 echo @echo off
-echo echo XIOM Uninstaller v$Version
+echo echo XIOM Uninstaller
 echo echo.
 echo echo This will remove: !XIOM_DIR!
 echo echo.
@@ -203,10 +217,10 @@ echo echo XIOM removed. Remove from PATH manually if needed.
 echo pause
 ) > "!XIOM_BIN!\uninstall.bat"
 
-:: â”€â”€ Done â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+:skip_path
 echo.
 echo   =========================================
-echo   XIOM v$Version installed successfully!
+echo   XIOM installed successfully!
 echo   =========================================
 echo.
 echo   Location:  !XIOM_DIR!
@@ -217,26 +231,25 @@ echo   Quick start:
 echo     xiom compile hello.xi
 echo     xiom --help
 echo.
-:: Check for clang (runtime dependency for native compilation)
 where clang >nul 2>nul
 if errorlevel 1 (
     echo   NOTE: clang not found on PATH.
     echo   XIOM emits LLVM IR; clang compiles it to native .exe.
     echo   Install LLVM: winget install LLVM.LLVM
-    echo   Or: https://github.com/llvm/llvm-project/releases
-    echo   Without clang, use: xiomc --emit-ir file.xi ^(prints IR^)
 )
 echo.
 echo   To uninstall: !XIOM_BIN!\uninstall.bat
 echo.
 pause
 endlocal
-"@ | Out-File -FilePath "$pkgDir\install.bat" -Encoding ASCII
+'@
+
+$installBat | Out-File -FilePath "$pkgDir\install.bat" -Encoding ASCII
 Write-Host "    + install.bat" -ForegroundColor DarkGray
 
-# â”€â”€ Create README â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Create README
 @"
-XIOM v$Version â€” Portable Release
+XIOM v$Version - Portable Release
 ===================================
 
 Quick install:
@@ -249,15 +262,15 @@ Manual install:
   3. Run: xiomc --help
 
 Contents:
-  bin\       â€” xiomc.exe, xiom-fmt.exe, xiom-doc.exe, etc.
-  lib\       â€” Standard library (.xi source files)
-  runtime\   â€” C runtime (xiom_runtime.c)
-  install.bat â€” Windows installer
+  bin\       - xiomc.exe, xiom-fmt.exe, xiom-doc.exe, etc.
+  lib\       - Standard library (.xi source files)
+  runtime\   - C runtime (xiom_runtime.c)
+  install.bat - Windows installer
 
 Need dependencies? Run install_deps.ps1 from the source repo first.
 "@ | Out-File -FilePath "$pkgDir\README.txt" -Encoding ASCII
 
-# â”€â”€ Create ZIP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Create ZIP
 $zipName = "xiom-v$Version-windows-x64.zip"
 $zipPath = "$releaseDir\$zipName"
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
@@ -267,9 +280,3 @@ Write-Host "  Release packaged:" -ForegroundColor Green
 Write-Host "    Folder: $pkgDir" -ForegroundColor Green
 Write-Host "    ZIP:    $zipPath" -ForegroundColor Green
 Write-Host ""
-Write-Host "  Install from this release:" -ForegroundColor Cyan
-Write-Host "    .\install.ps1 -BinaryPath '$pkgDir'" -ForegroundColor White
-Write-Host "  Or run the portable installer:" -ForegroundColor Cyan
-Write-Host "    $pkgDir\install.bat" -ForegroundColor White
-Write-Host ""
-
