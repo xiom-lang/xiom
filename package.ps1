@@ -37,7 +37,7 @@ if (-not $env:XIOM_RELEASE_STATS)  { $env:XIOM_RELEASE_STATS  = "441/441 tests, 
 $cargoTomlPath = "$root\crates\xiomc\Cargo.toml"
 if (Test-Path $cargoTomlPath) {
     $toml = Get-Content $cargoTomlPath -Raw
-    $toml = $toml -replace '^version\s*=\s*"[^"]+"', "version = `"$Version`""
+    $toml = $toml -replace '(?m)^version\s*=\s*"[^"]+"', "version = `"$Version`""
     Set-Content $cargoTomlPath -Value $toml -NoNewline
     Write-Host "  Cargo.toml version set to $Version" -ForegroundColor DarkGray
 }
