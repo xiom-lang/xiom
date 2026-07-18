@@ -3435,7 +3435,8 @@ impl IrEmitter {
                     fn_key
                 };
                 let is_generic = self.generic_fn_decls.iter().any(|(k, _)| k == &fn_key)
-                    || self.generic_fn_decls.iter().any(|(k, _)| k.ends_with(&format!(".{}", fn_key)));
+                    || (!self.functions.contains_key(&fn_key)
+                        && self.generic_fn_decls.iter().any(|(k, _)| k.ends_with(&format!(".{}", fn_key))));
                 if is_generic {
                     // Infer concrete types from argument types
                     let mut concrete_types: Vec<String> = Vec::new();
