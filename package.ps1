@@ -27,6 +27,16 @@ Write-Host "  XIOM Release Packager v$Version" -ForegroundColor Magenta
 Write-Host "  ================================" -ForegroundColor Magenta
 Write-Host ""
 
+# Bump version in Cargo.toml so the binary reports the correct version.
+# Uses env!("CARGO_PKG_VERSION") at compile time.
+$cargoTomlPath = "$root\crates\xiomc\Cargo.toml"
+if (Test-Path $cargoTomlPath) {
+    $toml = Get-Content $cargoTomlPath -Raw
+    $toml = $toml -replace '^version\s*=\s*"[^"]+"', "version = `"$Version`""
+    Set-Content $cargoTomlPath -Value $toml -NoNewline
+    Write-Host "  Cargo.toml version set to $Version" -ForegroundColor DarkGray
+}
+
 # Build all tools
 $tools = @("xiomc", "xiom-fmt", "xiom-doc", "xiom-ffigen", "xiom-pkg", "xiom-lsp")
 $builtOk = @()
