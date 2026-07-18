@@ -1,6 +1,6 @@
 # XIOM Compiler — Production Roadmap
 
-**Current:** v0.47.5 "ZERO GAPS" — **493/493 all tests**, all P0+P1+P2 resolved, 39/39 stdlib modules compile, deterministic builds, Vec-by-value coercion verified
+**Current:** v0.47.5 "ZERO GAPS" — **495/495 all tests**, all P0+P1+P2 resolved, 39/39 stdlib modules compile, deterministic builds, zero warnings, zero ignored
 **Branch:** `feat/architect` (Phase 5c)
 **Next:** v0.46.0 stable tag 🚀 → Phase 5d Ecosystem & Tooling
 
@@ -14,12 +14,12 @@
 | Checker tests | 74/74 | ✅ | |
 | **E2E tests** | **101/101** | ✅ **ALL GREEN** | |
 | Stdlib execution (smoke) | **41/41** | ✅ **ALL 5 FIXED (5c.30)** | array, core, serialize, mem, ptr |
-| Feature regression | **91/91** | ✅ | incl. 5c-E Vulkan probes (G1-G7) + Vec-by-value coercion locked |
+| Feature regression | **93/93** | ✅ | incl. 5c-E Vulkan probes (G1-G7) + Vec-by-value + deep-chain hardening |
 | Integration regression | **119/119** | ✅ | |
 | Stdlib compilation | **40/40** | ✅ | 39 per-module + 1 combined cross-module |
 | Diff / FullDiff | **25/25 + 23/23** | ✅ | Selfhost assertion gap fixed (P2) |
 | Robustness | **29/29** | ✅ | |
-| **TOTAL (all tests)** | **493/493** | ✅ **ALL GREEN — v0.47.5** | Vec-by-value coercion gap closed; 5c-E complete |
+| **TOTAL (all tests)** | **495/495** | ✅ **ALL GREEN — v0.47.5** | Zero gaps, zero warnings, zero ignored |
 
 ### P0 Gaps: ALL RESOLVED ✅
 
@@ -108,7 +108,7 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | **5b** | **Stdlib Completion** | **Standard library** | **✅** | — |
 | **5c** | **Production Toolchain** | **CLI, build, errors, robustness** | **✅ Complete — 101/101 e2e; deterministic builds; all P0 resolved; all P1 closed** | [PRODUCTION_HARDENING_BUGS.md](./PRODUCTION_HARDENING_BUGS.md), [COMPILER_ARCHITECTURE.md](./COMPILER_ARCHITECTURE.md) |
 | **5c-R** | **Architect-R** | **Compiler refactoring + rustc lesson adoption** | **✅ Complete — 9 WS2 items, Place model, 19 commits, 79 regression tests** | [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md) |
-| **5c-E** | **Architect-E** | **Ecosystem hardening (vulkan audit gaps)** | **✅ Complete — 8 gaps closed, 9 regression tests** | [ecosystem/xiom-vulkan/AUDIT.md](./ecosystem/xiom-vulkan/AUDIT.md) |
+| **5c-E** | **Architect-E** | **Ecosystem hardening (vulkan audit gaps)** | **✅ Complete — 8 gaps closed, 11 regression tests** | [ecosystem/xiom-vulkan/AUDIT.md](./ecosystem/xiom-vulkan/AUDIT.md) |
 | **5c-S** | **Safety Audit** | `--sandbox` flag, unsafe block enumeration, severity scoring, CI/CD gate | **Planned — zero deps, buildable now** | [SAFETY_AUDIT.md](./SAFETY_AUDIT.md) |
 | **5c-W** | **Warning Elimination** | **Zero compiler warnings across all crates (release build)** | **✅ Complete — 15 warnings fixed, 441/441 tests** | — |
 | 5d | Ecosystem & Tooling | MCP server (3 tools MVP), package manager, debugger, LSP, docs | Planned — MCP MVP buildable now | [MCP_SERVER.md](./MCP_SERVER.md), [XIOM_TOOLING_SPEC.md](./XIOM_TOOLING_SPEC.md) |

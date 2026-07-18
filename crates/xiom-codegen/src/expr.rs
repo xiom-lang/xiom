@@ -1086,6 +1086,16 @@ impl IrEmitter {
     /// hardening). Takes pre-compiled operands and produces the folded result.
     /// Handles arithmetic (Add/Sub/Mul), bitwise (And/Or/Xor), and float coercions.
     fn compile_binop_fold(&mut self, l: &str, lt: &str, r: &str, rt: &str, op: &BinOp) -> Result<(String, String), String> {
+        // String concatenation: Add with i8* operands must call xiom_str_concat,
+        // not emit `add i64` on pointer values. The normal BinOp path checks this
+        // first; replicate the check here for the iterative fold path.
+        if matches!(op, BinOp::Add) && (lt == "i8*" || rt == "i8*") {
+            let lp = self.val_to_i8ptr(l, lt);
+            let rp = self.val_to_i8ptr(r, rt);
+            let res = self.fresh_tmp();
+            self.emitln(&format!("  {res} = call i8* @xiom_str_concat(i8* {lp}, i8* {rp})"));
+            return Ok((res, "i8*".to_string()));
+        }
         let is_float = lt == "float" || lt == "double" || rt == "float" || rt == "double";
         let float_ty = if lt == "float" || rt == "float" { "float" } else { "double" };
         let is_add_sub_mul = matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul);
@@ -1125,10 +1135,20 @@ impl IrEmitter {
                 }
             }
         }
-        // Widen narrow integers for non-float ops
+        // Widen narrow integers for non-float ops.
+        // Extract scalar fields from struct operands (e.g. Option::unwrap()
+        // returns a struct value used in arithmetic).
         if !is_float && ty == "i64" {
             lv = self.widen_to_i64(&lv, lt);
             rv = self.widen_to_i64(&rv, rt);
+        }
+        // Struct operands in arithmetic context: extract the leading scalar.
+        // Handles patterns like Some(x).unwrap() + 1 being folded.
+        if lt.starts_with("%struct.") && ty == "i64" {
+            lv = self.extract_scalar_field0(&lv, lt);
+        }
+        if rt.starts_with("%struct.") && ty == "i64" {
+            rv = self.extract_scalar_field0(&rv, rt);
         }
         let tmp = self.fresh_tmp();
         self.emitln(&format!("  {tmp} = {llvm_op} {ty} {lv}, {rv}"));
