@@ -762,7 +762,14 @@ impl Parser {
 
     fn parse_param_list(&mut self) -> Result<Vec<Param>, ParseError> {
         let mut params = Vec::new();
-        loop { params.push(self.parse_param()?); if !self.skip(TokenKind::Comma) { break; } }
+        loop {
+            params.push(self.parse_param()?);
+            if !self.skip(TokenKind::Comma) { break; }
+            // Trailing comma: `fn f(a: Int, b: Int,)` — accepted like call
+            // args/arrays. Previously this made parse_param fail on `)` and
+            // the whole function was silently dropped by error recovery.
+            if self.check(|k| matches!(k, TokenKind::RParen)) { break; }
+        }
         Ok(params)
     }
 
@@ -809,6 +816,8 @@ impl Parser {
                 params.push(GenericParam { name, bounds, is_const: false, const_ty: None });
             }
             if !self.skip(TokenKind::Comma) { break; }
+            // Trailing comma in generic params: `fn f[T, U,](...)`.
+            if self.check(|k| matches!(k, TokenKind::RBracket)) { break; }
         }
         Ok(params)
     }
@@ -1509,6 +1518,20 @@ mod tests {
     #[test] fn test_struct_with_invariants() { let prog = parse("type Health = { current: Int; maximum: Int; invariant: current >= 0; invariant: current <= maximum; }").unwrap(); match &prog.items[0] { TopDecl::Type(t) => { assert_eq!(t.invariants.len(), 2); } _ => panic!("expected type"), } }
     #[test] fn test_enum_decl() { let prog = parse("enum Option { Some(value: Int), None }").unwrap(); match &prog.items[0] { TopDecl::Enum(e) => { assert_eq!(e.variants.len(), 2); } _ => panic!("expected enum"), } }
     #[test] fn test_enum_trailing_comma() { let prog = parse("enum E { A, B, }").unwrap(); match &prog.items[0] { TopDecl::Enum(e) => { assert_eq!(e.variants.len(), 2); } _ => panic!("expected enum"), } }
+    // 5d gap: trailing commas in multi-line parameter lists silently DROPPED
+    // the whole function (panic-mode recovery swallowed it, no diagnostic).
+    #[test] fn test_param_list_trailing_comma() { let prog = parse("fn add3(\n  a: Int,\n  b: Int,\n  c: Int,\n) -> Int { return a + b + c; }").unwrap(); assert_eq!(prog.items.len(), 1); match &prog.items[0] { TopDecl::Fn(f) => { assert_eq!(f.name.name, "add3"); assert_eq!(f.params.len(), 3); } _ => panic!("expected function"), } }
+    #[test] fn test_generic_params_trailing_comma() { let prog = parse("fn pair[T, U,](a: T, b: U) -> Int { return 0; }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { assert_eq!(f.generics.len(), 2); } _ => panic!("expected function"), } }
+    // Recovered parse errors MUST be visible via parser.errors() so drivers
+    // (xiomc, LSP, MCP) can refuse silently-partial programs.
+    #[test] fn test_recovered_errors_are_visible() {
+        let tokens = Lexer::new("fn broken(a: Int, : ) -> Int { return 1; }\nfn ok() -> Int { return 0; }").tokenize();
+        let mut p = Parser::new(tokens);
+        let prog = p.parse_program().unwrap();
+        assert!(!p.errors().is_empty(), "recovered parse errors must be recorded");
+        // The valid function must survive recovery.
+        assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(f) if f.name.name == "ok")), "recovery must keep the valid fn");
+    }
     #[test] fn test_generic_fn() { let prog = parse("fn max[T: Comparable](a: T, b: T) -> T { if a > b { return a; } return b; }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { assert_eq!(f.generics.len(), 1); } _ => panic!("expected function"), } }
     #[test] fn test_method_decl() { let prog = parse("pub fn Vec3.dot(other: &Vec3) -> Float32 { return x * other.x + y * other.y; }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { assert!(f.is_method()); assert_eq!(f.name.name, "dot"); } _ => panic!("expected method"), } }
     #[test] fn test_module() { let prog = parse("module math { pub fn add(a: Int, b: Int) -> Int { return a + b; } }").unwrap(); match &prog.items[0] { TopDecl::Module(m) => { assert_eq!(m.name.name, "math"); } _ => panic!("expected module"), } }
