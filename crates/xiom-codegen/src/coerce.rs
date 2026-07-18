@@ -120,6 +120,12 @@ impl IrEmitter {
             self.emitln(&format!("  {t} = fptrunc double {val} to float"));
             return t;
         }
+        // 5c-E: i8* buffer pointer -> %struct.Vec coercion.
+        // Used when returning a Vec-typed array literal from a function
+        // (e.g. `return out` where `out: Vec[Float32] = []` is i8*).
+        if from == "i8*" && to == "%struct.Vec" {
+            return self.val_to_struct(val, from, to);
+        }
         // Typed struct value -> struct pointer: allocate a slot, store the value,
         // return the slot pointer.  e.g. `%struct.HttpHeaders -> %struct.HttpHeaders*`
         // when a method expects `&mut T` (pointer) but the caller has a T value.
