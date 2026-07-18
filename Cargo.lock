@@ -344,7 +344,7 @@ dependencies = [
 
 [[package]]
 name = "xiomc"
-version = "0.47.0"
+version = "0.47.2"
 dependencies = [
  "serde",
  "serde_json",
