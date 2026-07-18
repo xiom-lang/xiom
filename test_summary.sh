@@ -1,73 +1,143 @@
 #!/usr/bin/env bash
-# XIOM Full Test Suite — runs all tests and prints a single-line summary.
+# XIOM Full Test Suite — compiler + tooling. Single-line release tag.
 # Run: ./test_summary.sh
-# Output last line: "TOTAL: 441/441 tests passed" (ready for release tagging)
+# Output last line: "Release tag: NNN/NNN tests" (ready for release tagging)
 
 set -euo pipefail
 
-TOTAL_PASSED=0
-TOTAL_FAILED=0
-TOTAL_IGNORED=0
-FAILED_SUITES=()
+GREEN='\033[32m'
+RED='\033[31m'
+YELLOW='\033[33m'
+CYAN='\033[36m'
+MAGENTA='\033[35m'
+NC='\033[0m'
 
-echo ""
-echo "XIOM Test Suite"
-echo "=============="
-echo ""
+# ---- helpers ----------------------------------------------------------------
+run_suite() {
+    local pkg="$1"
+    local test_file="$2"
+    local label="$3"
 
-declare -A SUITES=(
-    ["e2e"]="e2e_tests"
-    ["feature-regression"]="feature_regression_tests"
-    ["stdlib-execution"]="stdlib_execution_tests"
-    ["diff"]="diff_tests"
-    ["full-diff"]="full_diff_tests"
-    ["fuzz"]="fuzz_tests"
-    ["integration"]="integration_tests"
-    ["robustness"]="robustness_tests"
-    ["stdlib-compile"]="stdlib_tests"
-)
+    printf "  %-22s " "${label}"
 
-for name in e2e feature-regression stdlib-execution diff full-diff fuzz integration robustness stdlib-compile; do
-    test_file="${SUITES[$name]}"
-    printf "  %-22s " "$name ..."
-    output=$(cargo test -p xiom-codegen --test "$test_file" 2>&1) || true
-    
+    local output
+    if [ -z "${test_file}" ]; then
+        output=$(cargo test -p "$pkg" 2>&1) || true
+    else
+        output=$(cargo test -p "$pkg" --test "$test_file" 2>&1) || true
+    fi
+
     if echo "$output" | grep -q 'test result:'; then
+        local result_line
         result_line=$(echo "$output" | grep 'test result:')
+        local passed failed ignored
         passed=$(echo "$result_line" | sed -n 's/.*\([0-9]\+\) passed.*/\1/p')
         failed=$(echo "$result_line" | sed -n 's/.*\([0-9]\+\) failed.*/\1/p')
         ignored=$(echo "$result_line" | sed -n 's/.*\([0-9]\+\) ignored.*/\1/p')
         passed=${passed:-0}
         failed=${failed:-0}
         ignored=${ignored:-0}
-        
+
         TOTAL_PASSED=$((TOTAL_PASSED + passed))
         TOTAL_FAILED=$((TOTAL_FAILED + failed))
         TOTAL_IGNORED=$((TOTAL_IGNORED + ignored))
-        
+
         if [ "$failed" -gt 0 ]; then
-            echo -e "\033[31mFAIL ($passed/$((passed + failed)))\033[0m"
-            FAILED_SUITES+=("$name")
+            echo -e "${RED}FAIL ($passed/$((passed + failed)))${NC}"
+            FAILED_SUITES+=("$label")
         else
-            echo -e "\033[32mOK ($passed/$((passed + failed)))\033[0m"
+            echo -e "${GREEN}OK ($passed/$((passed + failed)))${NC}"
         fi
     else
-        echo -e "\033[31mERROR\033[0m"
+        echo -e "${RED}CRASH${NC}"
+        FAILED_SUITES+=("$label (no result)")
     fi
-done
+}
 
-TOTAL=$((TOTAL_PASSED + TOTAL_FAILED + TOTAL_IGNORED))
+TOTAL_PASSED=0
+TOTAL_FAILED=0
+TOTAL_IGNORED=0
+FAILED_SUITES=()
+COMPILER_PASSED=0; COMPILER_FAILED=0; COMPILER_IGNORED=0
+TOOLING_PASSED=0;  TOOLING_FAILED=0;  TOOLING_IGNORED=0
+
+echo ""
+echo -e "${MAGENTA}XIOM Test Suite${NC}"
+echo -e "${MAGENTA}==============${NC}"
+echo ""
+
+# ============================================================================
+# COMPILER
+# ============================================================================
+echo -e "${YELLOW}COMPILER${NC}"
+
+TOTAL_PASSED=0; TOTAL_FAILED=0; TOTAL_IGNORED=0
+for suite in \
+    "xiom-codegen e2e_tests e2e" \
+    "xiom-codegen feature_regression_tests feature-regression" \
+    "xiom-codegen stdlib_execution_tests stdlib-execution" \
+    "xiom-codegen diff_tests diff" \
+    "xiom-codegen full_diff_tests full-diff" \
+    "xiom-codegen fuzz_tests fuzz" \
+    "xiom-codegen integration_tests integration" \
+    "xiom-codegen robustness_tests robustness" \
+    "xiom-codegen stdlib_tests stdlib-compile"
+do
+    read -r pkg test label <<< "$suite"
+    run_suite "$pkg" "$test" "$label"
+done
+COMPILER_PASSED=$TOTAL_PASSED
+COMPILER_FAILED=$TOTAL_FAILED
+COMPILER_IGNORED=$TOTAL_IGNORED
+COMPILER_TOTAL=$((COMPILER_PASSED + COMPILER_FAILED + COMPILER_IGNORED))
+
+# ============================================================================
+# TOOLING
+# ============================================================================
+echo ""
+echo -e "${YELLOW}TOOLING${NC}"
+
+TOTAL_PASSED=0; TOTAL_FAILED=0; TOTAL_IGNORED=0
+for suite in \
+    "xiom-check  _ checker" \
+    "xiom-parser _ parser" \
+    "xiom-fmt    _ formatter" \
+    "xiom-lsp    _ lsp" \
+    "xiom-pkg    _ package-mgr" \
+    "xiom-doc    _ doc-gen" \
+    "xiom-ffigen _ ffi-gen" \
+    "xiom-mcp    _ mcp-server" \
+    "xiom-verify _ verifier"
+do
+    read -r pkg _ label <<< "$suite"
+    run_suite "$pkg" "" "$label"
+done
+TOOLING_PASSED=$TOTAL_PASSED
+TOOLING_FAILED=$TOTAL_FAILED
+TOOLING_IGNORED=$TOTAL_IGNORED
+TOOLING_TOTAL=$((TOOLING_PASSED + TOOLING_FAILED + TOOLING_IGNORED))
+
+# ============================================================================
+# TOTALS
+# ============================================================================
+GRAND_PASSED=$((COMPILER_PASSED + TOOLING_PASSED))
+GRAND_FAILED=$((COMPILER_FAILED + TOOLING_FAILED))
+GRAND_TOTAL=$((COMPILER_TOTAL + TOOLING_TOTAL))
+
 echo ""
 echo "============================================="
-if [ "$TOTAL_FAILED" -eq 0 ]; then
-    echo -e "\033[32m  ALL $TOTAL TESTS PASSED\033[0m"
-    echo -e "\033[32m  TOTAL: $TOTAL/$TOTAL tests passed\033[0m"
+echo -e "  COMPILER  ${GREEN}${COMPILER_TOTAL}/${COMPILER_TOTAL}${NC}"
+echo -e "  TOOLING   ${GREEN}${TOOLING_TOTAL}/${TOOLING_TOTAL}${NC}"
+echo    "  ----------------------------------------"
+if [ "$GRAND_FAILED" -eq 0 ] && [ ${#FAILED_SUITES[@]} -eq 0 ]; then
+    echo -e "  ${GREEN}ALL $GRAND_TOTAL TESTS PASSED${NC}"
+    echo -e "  ${GREEN}TOTAL: $GRAND_TOTAL/$GRAND_TOTAL tests passed${NC}"
 else
-    echo -e "\033[31m  $TOTAL_PASSED passed, $TOTAL_FAILED failed ($TOTAL total)\033[0m"
-    echo -e "\033[31m  Failures: ${FAILED_SUITES[*]}\033[0m"
+    echo -e "  ${RED}$GRAND_PASSED passed, $GRAND_FAILED failed ($GRAND_TOTAL total)${NC}"
+    echo -e "  ${RED}Failures: ${FAILED_SUITES[*]}${NC}"
 fi
 echo "============================================="
 
-if [ "$TOTAL_FAILED" -eq 0 ]; then
-    echo -e "\033[36m  Release tag: $TOTAL/$TOTAL tests\033[0m"
+if [ "$GRAND_FAILED" -eq 0 ] && [ ${#FAILED_SUITES[@]} -eq 0 ]; then
+    echo -e "  ${CYAN}Release tag: $GRAND_TOTAL/$GRAND_TOTAL tests${NC}"
 fi
