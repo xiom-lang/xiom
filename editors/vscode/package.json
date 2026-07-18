@@ -5,6 +5,7 @@
   "version": "0.11.0",
   "publisher": "xiom-lang",
   "license": "MIT OR Apache-2.0",
+  "icon": "icon.png",
   "engines": {
     "vscode": "^1.80.0"
   },
