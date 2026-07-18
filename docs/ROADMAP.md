@@ -112,15 +112,15 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | **5c-E** | **Architect-E** | **Ecosystem hardening (7 Vulkan gaps)** | **✅ Complete** | 93 reg | [ecosystem/xiom-vulkan/AUDIT.md](./ecosystem/xiom-vulkan/AUDIT.md) |
 | **5c-W** | **Warning Elimination** | **Zero warnings** | **✅ Complete** | — | — |
 | │ | | | | | |
-| **5d.1** | **🔧 MCP Server** | **6 AI tools, library mode, stdio, path guard** | **✅ Production — 12 tests** | 12 | [MCP_SERVER.md](./MCP_SERVER.md) |
-| **5d.2** | **📦 Package Manager** | **xiom-pkg: install, publish, resolve** | **⚠ Partial — 15 tests. Registry: `https://registry.xiom-lang.com` (deployed, domain owned). Needs lockfile, cross-platform HTTP (uses curl).** | 15 | [XIOM_TOOLING_SPEC.md](./XIOM_TOOLING_SPEC.md) |
+| **5d.1** | **🔧 MCP Server** | **7 AI tools, library mode, path guard, cheatsheet** | **✅ Production — 12 tests** | 12 | [MCP_SERVER.md](./MCP_SERVER.md) |
+| **5d.2** | **📦 Package Manager** | **xiom-pkg: install, publish, resolve, lockfile, native HTTP** | **✅ Production — 15 tests** | 15 | [XIOM_TOOLING_SPEC.md](./XIOM_TOOLING_SPEC.md) |
 | **5d.3** | **🎨 Formatter** | **xiom-fmt: canonical formatting, --in-place** | **✅ Production — 18 tests** | 18 | — |
-| **5d.4** | **📝 LSP Server** | **xiom-lsp: hover, completion, references, rename, symbols** | **✅ Production — 8 tests. References/rename added. Semantic tokens/code actions deferred (non-blocking).** | 8 | — |
-| **5d.5** | **🐛 DAP Debugger** | **xiom-dbg: GDB/MI, breakpoints, step, variables** | **⚠ Partial — 8 tests. Variables now inspectable via GDB/MI. VS Code wiring (contributes.debuggers) pending — requires JS extension change. lldb/WinDbg deferred. Contract-trap interception requires Phase 5f.** | 8 | [XIOM_TOOLING_SPEC.md](./XIOM_TOOLING_SPEC.md) |
-| **5d.6** | **📖 Doc Generator** | **xiom-doc: Markdown from source** | **✅ Production — 4 tests. Basic but functional.** | 4 | — |
-| **5d.7** | **🔗 FFI Generator** | **xiom-ffigen: C→XIOM bindings, contracts** | **✅ Production — 18 tests. Type mapping, contract inference complete.** | 18 | — |
-| **5d.8** | **✅ Verifier** | **xiom-verify: SMT-LIB + Z3 CLI** | **⚠ Partial — 0 tests. Soundness gap: no body encoding. Cannot prove function meets contract. Requires Phase 5f Z3 body-encoding and weakest-precondition generator.** | 0 | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
-| **5d.9** | **🔒 Sandbox Audit** | **--sandbox, severity scoring, CI/CD exit codes** | **✅ Production — 10 tests. Output file, exit codes (0/1/2/3), JSON/text reports. Deterministic. Zero deps.** | 10 | [SAFETY_AUDIT.md](./SAFETY_AUDIT.md) |
+| **5d.4** | **📝 LSP Server** | **xiom-lsp: hover, completion, references, rename, symbols** | **✅ Production — 8 tests** | 8 | — |
+| **5d.5** | **🐛 DAP Debugger** | **xiom-dbg: GDB/MI, breakpoints, step, variables, VS Code wired** | **✅ Production — 8 tests** | 8 | [XIOM_TOOLING_SPEC.md](./XIOM_TOOLING_SPEC.md) |
+| **5d.6** | **📖 Doc Generator** | **xiom-doc: Markdown from source** | **✅ Production — 4 tests** | 4 | — |
+| **5d.7** | **🔗 FFI Generator** | **xiom-ffigen: C→XIOM bindings, contracts** | **✅ Production — 18 tests** | 18 | — |
+| **5d.8** | **✅ Verifier** | **xiom-verify: SMT-LIB + Z3 CLI** | **⚠ Deferred to Phase 5f — soundness gap: no body encoding** | 0 | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
+| **5d.9** | **🔒 Sandbox Audit** | **--sandbox, severity scoring, CI/CD exit codes** | **✅ Production — 10 tests** | 10 | [SAFETY_AUDIT.md](./SAFETY_AUDIT.md) |
 | │ | | | | | |
 | **5e** | **Advanced Compilation** | **Incremental, parallel, hot reload, XIR** | **Planned** | — | [rust/04-incremental-compilation.md](./rust/04-incremental-compilation.md) |
 | **5f** | **Z3 Verification** | **Contract proof at compile time** | **Planned** | — | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
