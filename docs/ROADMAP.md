@@ -1,6 +1,6 @@
 # XIOM Compiler — Production Roadmap
 
-**Current:** v0.46.0 "ZERO GAPS" — **441/441 all tests**, all P0+P1+P2 resolved, 39/39 stdlib modules compile, deterministic builds
+**Current:** v0.47.5 "ZERO GAPS" — **493/493 all tests**, all P0+P1+P2 resolved, 39/39 stdlib modules compile, deterministic builds, Vec-by-value coercion verified
 **Branch:** `feat/architect` (Phase 5c)
 **Next:** v0.46.0 stable tag 🚀 → Phase 5d Ecosystem & Tooling
 
@@ -14,12 +14,12 @@
 | Checker tests | 74/74 | ✅ | |
 | **E2E tests** | **101/101** | ✅ **ALL GREEN** | |
 | Stdlib execution (smoke) | **41/41** | ✅ **ALL 5 FIXED (5c.30)** | array, core, serialize, mem, ptr |
-| Feature regression | **88/88** | ✅ | incl. 5c-E Vulkan probes (G1-G7) + Vec marshalling |
+| Feature regression | **91/91** | ✅ | incl. 5c-E Vulkan probes (G1-G7) + Vec-by-value coercion locked |
 | Integration regression | **119/119** | ✅ | |
 | Stdlib compilation | **40/40** | ✅ | 39 per-module + 1 combined cross-module |
 | Diff / FullDiff | **25/25 + 23/23** | ✅ | Selfhost assertion gap fixed (P2) |
 | Robustness | **29/29** | ✅ | |
-| **TOTAL (all tests)** | **487/487** | ✅ **ALL GREEN** | |
+| **TOTAL (all tests)** | **493/493** | ✅ **ALL GREEN — v0.47.5** | Vec-by-value coercion gap closed; 5c-E complete |
 
 ### P0 Gaps: ALL RESOLVED ✅
 
