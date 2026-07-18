@@ -56,12 +56,35 @@ fn assert_no_panic(source: &str) {
 
 /// Assert the pipeline returns a clean Err (rejection) — no panic, no Ok.
 /// Used for inputs that must be rejected, e.g. nesting past the depth guard.
+/// NOTE: With Phase 5c error recovery, the guard fires but recovery may
+/// salvage a partial program. Use `assert_parser_error` for guard tests.
 fn assert_clean_err(source: &str) {
     let result = compile_no_panic(source);
     assert!(
         result.is_err(),
         "expected a clean Err (rejection), but compilation succeeded"
     );
+}
+
+/// Assert the parser records at least one error (e.g. depth guard fired).
+/// Error recovery may still produce a valid partial program (5c recovery),
+/// but the guard must have triggered.
+fn assert_parser_error(source: &str) {
+    let src = source.to_string();
+    std::thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(move || {
+            let tokens = Lexer::new(&src).tokenize();
+            let mut parser = Parser::new(tokens);
+            let _ = parser.parse_program();
+            assert!(
+                !parser.errors().is_empty(),
+                "expected parser errors (e.g. depth guard), but parser recorded none"
+            );
+        })
+        .expect("spawn parser thread")
+        .join()
+        .expect("parser thread must not panic");
 }
 
 // =====================================================================
@@ -131,25 +154,26 @@ fn fuzz_nested_generics_under_guard() {
 #[test]
 fn fuzz_nested_generics_over_guard() {
     // `Vec[Vec[...]]` 40 levels deep — over the depth guard (32). The parser
-    // must return a clean Err (nesting too deep), NOT overflow the stack.
+    // must record an error (guard triggered), even if 5c error recovery
+    // salvages a partial program from remaining declarations.
     let src = format!(
         "fn f(x: {}Int{}) -> Int {{ return 0; }} fn main() -> Int {{ return 0; }}",
         "Vec[".repeat(40),
         "]".repeat(40)
     );
-    assert_clean_err(&src);
+    assert_parser_error(&src);
 }
 
 #[test]
 fn fuzz_deeply_nested_parens_over_guard() {
-    // 100 nested parens — well over the depth guard. Must be a clean Err
-    // (matches the parser's own 500-paren regression test), never a crash.
+    // 100 nested parens — well over the depth guard. Parser must record
+    // an error, even if 5c recovery salvages the rest.
     let src = format!(
         "fn main() -> Int {{ return {}1{}; }}",
         "(".repeat(100),
         ")".repeat(100)
     );
-    assert_clean_err(&src);
+    assert_parser_error(&src);
 }
 
 // =====================================================================

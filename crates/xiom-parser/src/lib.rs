@@ -34,6 +34,7 @@ pub struct Parser {
 const MAX_EXPR_DEPTH: usize = 32;
 
 impl Parser {
+        pub fn errors(&self) -> &[ParseError] { &self.errors }
     pub fn new(tokens: Vec<Token>) -> Self {
         Self { tokens, pos: 0, restrict_struct: false, depth: 0, errors: Vec::new(), expected: 0 }
     }
