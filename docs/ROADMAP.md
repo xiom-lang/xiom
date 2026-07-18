@@ -121,6 +121,7 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | **5d.7** | **🔗 FFI Generator** | **xiom-ffigen: C→XIOM bindings, contracts** | **✅ Production — 18 tests** | 18 | — |
 | **5d.8** | **✅ Verifier** | **xiom-verify: SMT-LIB + Z3 CLI** | **⚠ Deferred to Phase 5f — soundness gap: no body encoding** | 0 | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
 | **5d.9** | **🔒 Sandbox Audit** | **--sandbox, severity scoring, CI/CD exit codes** | **✅ Production — 10 tests** | 10 | [SAFETY_AUDIT.md](./SAFETY_AUDIT.md) |
+| **5d.10** | **🧭 Ecosystem Gap Registry** | **Canonical G-01..G-49 registry + retest addendum; ecosystem-driven compiler fixes land here** | **🚧 Active — 23 FIXED / 20 OPEN / 6 RETEST. 2026-07-19 wave closed 14 rows (typed payloads, Str clone miscompile, Vec.clone, unwrap_err, trailing commas, silent-drop kill). Remaining P0s (G-16 callbacks, G-30/31 cross-package) are 5e-scale.** | 9 regress_5d | [ecosystem-audit/](./ecosystem-audit/README.md) |
 | │ | | | | | |
 | **5e** | **Advanced Compilation** | **Incremental, parallel, hot reload, XIR** | **Planned** | — | [rust/04-incremental-compilation.md](./rust/04-incremental-compilation.md) |
 | **5f** | **Z3 Verification** | **Contract proof at compile time** | **Planned** | — | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
@@ -493,7 +494,7 @@ Verified: `IpAddr.is_v4/is_v6` field access now correctly loads and compares str
 
 ### 5c.16b Ecosystem Audit — Compiler Gaps (37 modules scanned, 2026-07-15)
 
-> **SUPERSEDED (2026-07-18):** fresh scan of all 40 `ecosystem/*/AUDIT.md` files consolidated in [ecosystem-audit/COMPILER_GAPS.md](./ecosystem-audit/COMPILER_GAPS.md) (49 gaps: 26 open / 9 fixed / 14 needs-retest; new IDs G-29..G-49). Overview: [ecosystem-audit/README.md](./ecosystem-audit/README.md). The tables below are the historical 2026-07-15 baseline.
+> **SUPERSEDED (2026-07-18) — tracking moved to Phase 5d.10:** fresh scan of all 40 `ecosystem/*/AUDIT.md` files consolidated in [ecosystem-audit/COMPILER_GAPS.md](./ecosystem-audit/COMPILER_GAPS.md). Current status after the 2026-07-19 retest/fix wave: **49 gaps — 23 FIXED / 20 OPEN / 6 NEEDS-RETEST** (see registry addendum). Overview: [ecosystem-audit/README.md](./ecosystem-audit/README.md). The tables below are the historical 2026-07-15 baseline only.
 
 Consolidated from all 37 `ecosystem/*/AUDIT.md` files. **28 unique gaps, 51 total module occurrences.** All are production-grade findings — no workarounds applied, only documented.
 

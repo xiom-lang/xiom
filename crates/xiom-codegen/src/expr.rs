@@ -3159,6 +3159,61 @@ impl IrEmitter {
                     }
                 }
                 // Vec.len(vec) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â method call on Vec
+                // G-36: Vec.clone() — deep copy. New buffer (len*elem_size bytes),
+                // memcpy the payload, fresh struct {newbuf, len, len, elem_size}.
+                // Registered in the checker for Vec/Slice/Map/Set receivers.
+                if fn_name == "clone" && args.is_empty() {
+                    if let Some(receiver) = receiver_expr {
+                        let recv_ty = self.infer_llvm_type(receiver);
+                        if recv_ty == "%struct.Vec" || recv_ty.contains("struct.Vec")
+                            || self.is_container_vec_field(receiver)
+                        {
+                            let (recv_raw, recv_raw_ty) = self.compile_expr(receiver)?;
+                            let (recv_vec, vec_ty) = self.resolve_vec_receiver(receiver, &recv_raw, &recv_raw_ty);
+                            let slot = self.fresh_tmp();
+                            self.emitln(&format!("  {slot} = alloca {vec_ty}"));
+                            self.emitln(&format!("  store {vec_ty} {recv_vec}, {vec_ty}* {slot}"));
+                            // Load all 4 fields: data, len, cap, elem_size
+                            let data_gep = self.fresh_tmp();
+                            let data = self.fresh_tmp();
+                            self.emitln(&format!("  {data_gep} = getelementptr {vec_ty}, {vec_ty}* {slot}, i32 0, i32 0"));
+                            self.emitln(&format!("  {data} = load i8*, i8** {data_gep}"));
+                            let len_gep = self.fresh_tmp();
+                            let len = self.fresh_tmp();
+                            self.emitln(&format!("  {len_gep} = getelementptr {vec_ty}, {vec_ty}* {slot}, i32 0, i32 1"));
+                            self.emitln(&format!("  {len} = load i64, i64* {len_gep}"));
+                            let es_gep = self.fresh_tmp();
+                            let es = self.fresh_tmp();
+                            self.emitln(&format!("  {es_gep} = getelementptr {vec_ty}, {vec_ty}* {slot}, i32 0, i32 3"));
+                            self.emitln(&format!("  {es} = load i64, i64* {es_gep}"));
+                            // bytes = len * elem_size; guard elem_size==0 → treat as 8
+                            let es_zero = self.fresh_tmp();
+                            self.emitln(&format!("  {es_zero} = icmp eq i64 {es}, 0"));
+                            let es_fixed = self.fresh_tmp();
+                            self.emitln(&format!("  {es_fixed} = select i1 {es_zero}, i64 8, i64 {es}"));
+                            let bytes = self.fresh_tmp();
+                            self.emitln(&format!("  {bytes} = mul i64 {len}, {es_fixed}"));
+                            // Allocate at least 1 byte so malloc(0) never returns null-ish edge
+                            let bytes_zero = self.fresh_tmp();
+                            self.emitln(&format!("  {bytes_zero} = icmp eq i64 {bytes}, 0"));
+                            let alloc_bytes = self.fresh_tmp();
+                            self.emitln(&format!("  {alloc_bytes} = select i1 {bytes_zero}, i64 1, i64 {bytes}"));
+                            let newbuf = self.fresh_tmp();
+                            self.emitln(&format!("  {newbuf} = call i8* @malloc(i64 {alloc_bytes})"));
+                            self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {newbuf}, i8* {data}, i64 {bytes}, i1 false)"));
+                            // Build the cloned struct: {newbuf, len, cap=len, elem_size}
+                            let s0 = self.fresh_tmp();
+                            self.emitln(&format!("  {s0} = insertvalue {vec_ty} undef, i8* {newbuf}, 0"));
+                            let s1 = self.fresh_tmp();
+                            self.emitln(&format!("  {s1} = insertvalue {vec_ty} {s0}, i64 {len}, 1"));
+                            let s2 = self.fresh_tmp();
+                            self.emitln(&format!("  {s2} = insertvalue {vec_ty} {s1}, i64 {len}, 2"));
+                            let s3 = self.fresh_tmp();
+                            self.emitln(&format!("  {s3} = insertvalue {vec_ty} {s2}, i64 {es_fixed}, 3"));
+                            return Ok((s3, vec_ty));
+                        }
+                    }
+                }
                 // Vec.len(vec) â€” method call on Vec
                 if fn_name == "len" && args.is_empty() {
                     if let Some(receiver) = receiver_expr {
