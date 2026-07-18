@@ -5,6 +5,8 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process;
 
@@ -15,6 +17,80 @@ fn registry_url() -> String {
     env::var("XIOM_REGISTRY").unwrap_or_else(|_| DEFAULT_REGISTRY.to_string())
 }
 
+// ============================================================================
+// Native HTTP client — falls back from curl → PowerShell → built-in TCP
+// ============================================================================
+
+fn http_get(url: &str) -> Result<String, String> {
+    // Strategy 1: curl (most portable, handles HTTPS)
+    if let Ok(output) = process::Command::new("curl").args(["-s", "-L", url]).output() {
+        if output.status.success() {
+            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+        }
+    }
+    // Strategy 2: PowerShell on Windows
+    #[cfg(windows)]
+    {
+        if let Ok(output) = process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", &format!("(Invoke-WebRequest -Uri '{url}' -UseBasicParsing).Content")])
+            .output()
+        {
+            if output.status.success() {
+                return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+            }
+        }
+    }
+    // Strategy 3: built-in TCP for plain HTTP (no TLS)
+    if url.starts_with("http://") {
+        return http_get_tcp(url);
+    }
+    Err(format!("Cannot fetch {url}: no curl, no powershell, and URL requires HTTPS"))
+}
+
+fn http_get_tcp(url: &str) -> Result<String, String> {
+    let url = url.strip_prefix("http://").ok_or("Invalid HTTP URL")?;
+    let (host, path) = url.split_once('/').unwrap_or((url, ""));
+    let host_port = if host.contains(':') { host.to_string() } else { format!("{host}:80") };
+    let path = format!("/{path}");
+
+    let mut stream = TcpStream::connect(&host_port).map_err(|e| format!("TCP connect: {e}"))?;
+    let request = format!("GET {path} HTTP/1.0\r\nHost: {host}\r\nConnection: close\r\n\r\n");
+    stream.write_all(request.as_bytes()).map_err(|e| format!("TCP write: {e}"))?;
+
+    let mut response = String::new();
+    stream.read_to_string(&mut response).map_err(|e| format!("TCP read: {e}"))?;
+
+    // Strip HTTP headers
+    if let Some(body_start) = response.find("\r\n\r\n") {
+        Ok(response[body_start + 4..].to_string())
+    } else {
+        Ok(response)
+    }
+}
+
+fn http_post(url: &str, body: &str) -> Result<String, String> {
+    if let Ok(output) = process::Command::new("curl")
+        .args(["-s", "-L", "-X", "POST", url, "-H", "Content-Type: application/json", "-d", body])
+        .output()
+    {
+        if output.status.success() {
+            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+        }
+    }
+    #[cfg(windows)]
+    {
+        if let Ok(output) = process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", &format!("(Invoke-WebRequest -Uri '{url}' -Method POST -Body '{body}' -ContentType 'application/json' -UseBasicParsing).Content")])
+            .output()
+        {
+            if output.status.success() {
+                return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+            }
+        }
+    }
+    Err(format!("Cannot POST to {url}: no curl, no powershell"))
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.iter().any(|a| a == "--help") {
@@ -23,14 +99,9 @@ fn main() {
     }
 
     if let Some(cmd) = args.get(1) {
-        if cmd == "publish" {
-            publish_package(&args);
-            return;
-        }
-        if cmd == "install" {
-            install_package(&args);
-            return;
-        }
+        if cmd == "publish" { publish_package(&args); return; }
+        if cmd == "install" { install_package(&args); return; }
+        if cmd == "lock" { generate_lockfile(); return; }
     }
 
     let mut list_mode = false;
@@ -283,60 +354,24 @@ fn publish_package(_args: &[String]) {
     });
     let pkg = parse_manifest(&manifest);
 
-    let body = format!(
-        r#"{{"name":"{}","version":"{}","description":"{}"}}"#,
-        pkg.name, pkg.version, pkg.description
-    );
+    let body = format!(r#"{{"name":"{}","version":"{}","description":"{}"}}"#, pkg.name, pkg.version, pkg.description);
 
-    let output = process::Command::new("curl")
-        .args([
-            "-s",
-            "-X",
-            "POST",
-            &format!("{}/publish", registry_url()),
-            "-H",
-            "Content-Type: application/json",
-            "-d",
-            &body,
-        ])
-        .output()
-        .unwrap_or_else(|e| {
-            eprintln!("xiom pkg: failed to run curl: {}", e);
-            process::exit(1);
-        });
-
-    if output.status.success() {
-        println!("Published {} v{}", pkg.name, pkg.version);
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        eprintln!("xiom pkg: publish failed: {}", stderr);
-        process::exit(1);
+    match http_post(&format!("{}/publish", registry_url()), &body) {
+        Ok(_) => println!("Published {} v{}", pkg.name, pkg.version),
+        Err(e) => { eprintln!("xiom pkg: publish failed: {e}"); process::exit(1); }
     }
 }
 
 fn install_package(args: &[String]) {
     let pkg_name = match args.get(2) {
         Some(n) => n,
-        None => {
-            eprintln!("Usage: xiom pkg install <package>");
-            process::exit(1);
-        }
+        None => { eprintln!("Usage: xiom pkg install <package>"); process::exit(1); }
     };
 
-    let output = process::Command::new("curl")
-        .args(["-s", &format!("{}/index.json", registry_url())])
-        .output()
-        .unwrap_or_else(|e| {
-            eprintln!("xiom pkg: failed to run curl: {}", e);
-            process::exit(1);
-        });
-
-    if !output.status.success() {
-        eprintln!("xiom pkg: failed to fetch registry");
-        process::exit(1);
-    }
-
-    let body = String::from_utf8_lossy(&output.stdout);
+    let body = match http_get(&format!("{}/index.json", registry_url())) {
+        Ok(b) => b,
+        Err(e) => { eprintln!("xiom pkg: failed to fetch registry: {e}"); process::exit(1); }
+    };
 
     let search = format!("\"name\":\"{}\",\"version\":\"", pkg_name);
     if let Some(pos) = body.find(&search) {
@@ -364,13 +399,45 @@ fn find_workspace_root(project_root: &Path) -> PathBuf {
     project_root.to_path_buf()
 }
 
+/// Generate a xiom.lock file from the package.xi manifest.
+/// Locks all dependency versions for reproducible builds.
+fn generate_lockfile() {
+    let manifest_path = find_manifest();
+    let manifest = fs::read_to_string(&manifest_path).unwrap_or_else(|e| {
+        eprintln!("xiom pkg: cannot read {}: {}", manifest_path.display(), e);
+        process::exit(1);
+    });
+    let pkg = parse_manifest(&manifest);
+
+    let mut locked_deps = Vec::new();
+    for (name, version) in &pkg.deps {
+        locked_deps.push(format!(r#"    "{}": "{}""#, name, version));
+    }
+
+    let lock_content = format!(
+        "{{\n  \"package\": \"{}\",\n  \"version\": \"{}\",\n  \"dependencies\": {{\n{}\n  }}\n}}\n",
+        pkg.name,
+        pkg.version,
+        locked_deps.join(",\n")
+    );
+
+    let project_root = manifest_path.parent().unwrap_or(Path::new("."));
+    let lock_path = project_root.join("xiom.lock");
+    fs::write(&lock_path, &lock_content).unwrap_or_else(|e| {
+        eprintln!("xiom pkg: cannot write {}: {}", lock_path.display(), e);
+        process::exit(1);
+    });
+    println!("Generated {}", lock_path.display());
+}
+
 fn print_usage() {
-    eprintln!("XIOM Package v0.10.1 -- Package Manager");
+    eprintln!("XIOM Package v0.47.8 -- Package Manager");
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("  xiom pkg [OPTIONS] --root <dir>");
     eprintln!("  xiom pkg publish                   Publish package to registry");
     eprintln!("  xiom pkg install <name>            Install package from registry");
+    eprintln!("  xiom pkg lock                      Generate xiom.lock from package.xi");
     eprintln!();
     eprintln!("OPTIONS:");
     eprintln!("  --help        Show this help message");

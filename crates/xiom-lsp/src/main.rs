@@ -288,6 +288,35 @@ fn collect_symbols(item: &xiom_ast::TopDecl, items: &mut Vec<serde_json::Value>,
     }
 }
 
+/// Find the identifier at a given line/col position. Returns the identifier
+/// string and its range for references/rename support.
+fn find_ident_at(backend: &Backend, uri: &str, line: usize, col: usize) -> Option<String> {
+    let docs = backend.documents.lock().unwrap();
+    let text = docs.get(uri)?;
+    let target_line = text.lines().nth(line)?;
+
+    // Find word boundaries around the cursor position
+    let chars: Vec<char> = target_line.chars().collect();
+    if col >= chars.len() { return None; }
+
+    // Scan left for word boundary
+    let mut start = col;
+    while start > 0 && (chars[start - 1].is_alphanumeric() || chars[start - 1] == '_') {
+        start -= 1;
+    }
+    // Scan right for word boundary
+    let mut end = col;
+    while end < chars.len() && (chars[end].is_alphanumeric() || chars[end] == '_') {
+        end += 1;
+    }
+
+    if start < end {
+        Some(chars[start..end].iter().collect())
+    } else {
+        None
+    }
+}
+
 fn collect_document_symbols(
     item: &xiom_ast::TopDecl,
     symbols: &mut Vec<serde_json::Value>,
@@ -1756,6 +1785,98 @@ fn handle_lsp_message(msg: &serde_json::Value, backend: &Backend) -> Vec<serde_j
                 "jsonrpc": "2.0",
                 "id": id,
                 "result": symbols
+            }));
+        }
+
+        // Production-grade: textDocument/references — find all references
+        "textDocument/references" => {
+            let uri = msg["params"]["textDocument"]["uri"].as_str().unwrap_or("");
+            let pos = &msg["params"]["position"];
+            let line = pos["line"].as_u64().unwrap_or(0) as usize;
+            let col = pos["character"].as_u64().unwrap_or(0) as usize;
+
+            let mut locations = Vec::new();
+            if let Some(ident) = find_ident_at(backend, uri, line, col) {
+                // Search the current document for all occurrences of this identifier
+                let docs = backend.documents.lock().unwrap();
+                if let Some(text) = docs.get(uri) {
+                    for (ln, line_text) in text.lines().enumerate() {
+                        let mut search_start = 0;
+                        while let Some(pos) = line_text[search_start..].find(&ident) {
+                            let abs_col = search_start + pos;
+                            // Verify it's a whole word (surrounded by non-ident chars)
+                            let before = line_text[..abs_col].chars().last().map(|c| !c.is_alphanumeric() && c != '_').unwrap_or(true);
+                            let after = line_text[abs_col + ident.len()..].chars().next().map(|c| !c.is_alphanumeric() && c != '_').unwrap_or(true);
+                            if before && after {
+                                locations.push(serde_json::json!({
+                                    "uri": uri,
+                                    "range": {
+                                        "start": {"line": ln, "character": abs_col},
+                                        "end": {"line": ln, "character": abs_col + ident.len()}
+                                    }
+                                }));
+                            }
+                            search_start = abs_col + ident.len();
+                        }
+                    }
+                }
+            }
+
+            let id = msg["id"].clone();
+            responses.push(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": locations
+            }));
+        }
+
+        // Production-grade: textDocument/rename — rename symbol
+        "textDocument/rename" => {
+            let uri = msg["params"]["textDocument"]["uri"].as_str().unwrap_or("");
+            let pos = &msg["params"]["position"];
+            let line = pos["line"].as_u64().unwrap_or(0) as usize;
+            let col = pos["character"].as_u64().unwrap_or(0) as usize;
+            let new_name = msg["params"]["newName"].as_str().unwrap_or("");
+
+            let mut edits = Vec::new();
+            if !new_name.is_empty() {
+                if let Some(ident) = find_ident_at(backend, uri, line, col) {
+                    let mut docs = backend.documents.lock().unwrap();
+                    if let Some(text) = docs.get_mut(uri) {
+                        let mut text_edits = Vec::new();
+                        for (ln, line_text) in text.lines().enumerate() {
+                            let mut search_start = 0;
+                            while let Some(pos) = line_text[search_start..].find(&ident) {
+                                let abs_col = search_start + pos;
+                                let before = line_text[..abs_col].chars().last().map(|c| !c.is_alphanumeric() && c != '_').unwrap_or(true);
+                                let after = line_text[abs_col + ident.len()..].chars().next().map(|c| !c.is_alphanumeric() && c != '_').unwrap_or(true);
+                                if before && after {
+                                    text_edits.push(serde_json::json!({
+                                        "range": {
+                                            "start": {"line": ln, "character": abs_col},
+                                            "end": {"line": ln, "character": abs_col + ident.len()}
+                                        },
+                                        "newText": new_name
+                                    }));
+                                }
+                                search_start = abs_col + ident.len();
+                            }
+                        }
+                        if !text_edits.is_empty() {
+                            edits.push(serde_json::json!({
+                                "textDocument": {"uri": uri, "version": null},
+                                "edits": text_edits
+                            }));
+                        }
+                    }
+                }
+            }
+
+            let id = msg["id"].clone();
+            responses.push(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {"changes": edits}
             }));
         }
 
