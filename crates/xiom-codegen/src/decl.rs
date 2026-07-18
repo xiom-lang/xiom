@@ -25,8 +25,11 @@ impl IrEmitter {
             let full_fields: Vec<(String, String)> = td.fields.iter()
                 .map(|f| (f.name.name.clone(), Self::type_from_ast_with_args(&f.ty)))
                 .collect();
-            self.types.insert(type_name.clone(), fields);
-            self.type_meta.insert(type_name, TypeMeta {
+            self.types.entry(type_name.clone()).or_insert(fields);
+            // Use or_insert_with so manual pre-registrations (e.g. Map with
+            // resolved Vec type names) are not overwritten by the generic
+            // type definition (which uses Vec[K] with unresolved generics).
+            self.type_meta.entry(type_name).or_insert_with(|| TypeMeta {
                 fields: full_fields,
                 derives: td.derives.clone(),
                 invariants: td.invariants.clone(),
