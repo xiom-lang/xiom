@@ -30,17 +30,6 @@ fn project_root() -> &'static Path {
     }).as_path()
 }
 
-/// Run xiomc --emit-ir on a single .xi file. Returns (success, stderr).
-fn compile_stdlib_file(file_path: &str) -> (bool, String) {
-    let output = Command::new(xiomc_path())
-        .args(["--emit-ir", file_path])
-        .current_dir(project_root())
-        .output()
-        .expect("failed to execute xiomc");
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    (output.status.success(), stderr)
-}
-
 /// All stdlib .xi files to compile (module name → relative path from project root)
 fn stdlib_modules() -> Vec<(&'static str, &'static str)> {
     vec![

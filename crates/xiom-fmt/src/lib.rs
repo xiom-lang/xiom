@@ -565,6 +565,7 @@ impl Formatter {
                 self.push_indent();
                 self.buf.push('}');
             }
+            Expr::Error(_, _) => self.buf.push_str("<error>"),
         }
     }
 

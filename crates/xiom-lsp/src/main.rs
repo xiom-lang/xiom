@@ -8,7 +8,7 @@ use std::io::{self, BufRead, Read, Write};
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use xiom_check::CheckError;
+use xiom_check::types::CheckError;
 use xiom_lexer::Lexer;
 use xiom_parser::{ParseError, Parser};
 
