@@ -8,3 +8,6 @@ description = "XIOM Model Context Protocol server — AI agent tool-calling API"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 xiomc = { path = "../xiomc" }
+xiom-ast = { path = "../xiom-ast" }
+xiom-lexer = { path = "../xiom-lexer" }
+xiom-parser = { path = "../xiom-parser" }

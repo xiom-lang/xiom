@@ -9,6 +9,11 @@ use std::process::Command;
 
 use xiomc::{CompileConfig, compile_with_diagnostics};
 
+mod guides;
+use guides::{language_guide, workflow_guide};
+mod knowledge;
+use knowledge::stdlib_reference;
+
 // ============================================================================
 // Production-grade safety utilities
 // ============================================================================
@@ -463,6 +468,21 @@ fn list_tools() -> Vec<ToolDef> {
             description: "Get canonical XIOM code patterns and idioms for common tasks (functions, structs, enums, contracts, FFI, generics, ownership, stdlib). Use this when writing new XIOM code to follow language conventions.".into(),
             input_schema: json!({"type":"object","properties":{"section":{"type":"string","description":"Cheatsheet section: all, functions, structs, enums, contracts, ffi, generics, ownership, stdlib","default":"all"}}}),
         },
+        ToolDef {
+            name: "xiom_stdlib_reference".into(),
+            description: "Query the XIOM standard library — LIVE parsed from stdlib source, always accurate. Without arguments: lists all modules with descriptions. With module name: full public API (function signatures, contracts, types). Use this to discover which stdlib functions exist and their exact signatures before calling them.".into(),
+            input_schema: json!({"type":"object","properties":{"module":{"type":"string","description":"Module name (e.g. 'alloc', 'string', 'collections'). Omit to list all modules."}}}),
+        },
+        ToolDef {
+            name: "xiom_language_guide".into(),
+            description: "Deep XIOM language semantics by topic: types, ownership (move/borrow rules + E001 fixes), contracts (requires/ensures/@pre), modules, error-handling (Option/Result/?), unsafe-ffi (extern C rules, symbol shadowing), debugging (error codes, fixes). Essential for agents without XIOM training data.".into(),
+            input_schema: json!({"type":"object","properties":{"topic":{"type":"string","description":"One of: overview, types, ownership, contracts, modules, error-handling, unsafe-ffi, debugging","default":"overview"}}}),
+        },
+        ToolDef {
+            name: "xiom_workflow_guide".into(),
+            description: "XIOM toolchain operations reference: compile (flags, targets, exit codes), test (conventions, running), debug (symbols, VS Code, contract traps), package (manifest, lockfile, registry publish), sandbox (safety audit CI gating). Use before invoking toolchain commands.".into(),
+            input_schema: json!({"type":"object","properties":{"topic":{"type":"string","description":"One of: overview, compile, test, debug, package, sandbox","default":"overview"}}}),
+        },
     ]
 }
 
@@ -475,6 +495,18 @@ fn call_tool(name: &str, params: &Value) -> Result<Value, String> {
         "format_xiom_code" => tool_format_xiom_code(params).map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })),
         "audit_safety_sandbox" => tool_audit_safety_sandbox(params).map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })),
         "xiom_cheatsheet" => tool_xiom_cheatsheet(params).map(|s| json!({ "content": [{ "type": "text", "text": s }] })),
+        "xiom_stdlib_reference" => {
+            let module = params["module"].as_str();
+            stdlib_reference(module).map(|s| json!({ "content": [{ "type": "text", "text": s }] }))
+        }
+        "xiom_language_guide" => {
+            let topic = params["topic"].as_str().unwrap_or("overview");
+            Ok(json!({ "content": [{ "type": "text", "text": language_guide(topic) }] }))
+        }
+        "xiom_workflow_guide" => {
+            let topic = params["topic"].as_str().unwrap_or("overview");
+            Ok(json!({ "content": [{ "type": "text", "text": workflow_guide(topic) }] }))
+        }
         _ => Err(format!("Unknown tool: {name}")),
     }
 }
@@ -590,15 +622,80 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_list_tools_returns_seven_tools() {
+    fn test_list_tools_returns_ten_tools() {
         let tools = list_tools();
-        assert_eq!(tools.len(), 7, "Production MCP must have 7 tools");
+        assert_eq!(tools.len(), 10, "Production MCP must have 10 tools");
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
         assert!(names.contains(&"compile_and_analyze"));
         assert!(names.contains(&"explain_error_code"));
         assert!(names.contains(&"get_contract_signature"));
         assert!(names.contains(&"check_xiom_syntax"));
         assert!(names.contains(&"audit_safety_sandbox"));
+        assert!(names.contains(&"xiom_cheatsheet"));
+        assert!(names.contains(&"xiom_stdlib_reference"));
+        assert!(names.contains(&"xiom_language_guide"));
+        assert!(names.contains(&"xiom_workflow_guide"));
+        assert!(names.contains(&"format_xiom_code"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Knowledge tools (5d.1 expansion)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_stdlib_reference_lists_modules() {
+        let result = stdlib_reference(None);
+        assert!(result.is_ok(), "listing must work from repo: {:?}", result.err());
+        let text = result.unwrap();
+        assert!(text.contains("alloc"), "module table must include alloc");
+        assert!(text.contains("| Module |"), "must be a markdown table");
+    }
+
+    #[test]
+    fn test_stdlib_reference_describes_alloc() {
+        let result = stdlib_reference(Some("alloc"));
+        assert!(result.is_ok(), "{:?}", result.err());
+        let text = result.unwrap();
+        assert!(text.contains("use xiom.alloc;"), "must show import line");
+        assert!(text.contains("pub fn alloc(size: Int) -> *UInt8"), "must render signature");
+        assert!(text.contains("requires: size > 0"), "must render contracts");
+        assert!(text.contains("ensures:  result != null"), "must render ensures");
+        assert!(text.contains("realloc_sized"), "must show renamed wrapper");
+        assert!(text.contains("result is Ok(_) => result != null"), "must render is-patterns");
+    }
+
+    #[test]
+    fn test_stdlib_reference_unknown_module() {
+        let result = stdlib_reference(Some("nonexistent_xyz"));
+        assert!(result.is_err(), "unknown module must error");
+        let msg = result.err().unwrap();
+        assert!(msg.contains("Available:"), "error must list available modules");
+    }
+
+    #[test]
+    fn test_language_guide_topics() {
+        for topic in ["overview", "types", "ownership", "contracts", "modules", "error-handling", "unsafe-ffi", "debugging"] {
+            let text = language_guide(topic);
+            assert!(text.len() > 200, "guide topic '{topic}' must have substance, got {} chars", text.len());
+            assert!(text.starts_with("# XIOM"), "topic '{topic}' must have a title");
+        }
+        // Ownership must cover the E001 fix
+        assert!(language_guide("ownership").contains("E001"));
+        // FFI must warn about symbol shadowing
+        assert!(language_guide("unsafe-ffi").contains("realloc_sized"));
+    }
+
+    #[test]
+    fn test_workflow_guide_topics() {
+        for topic in ["overview", "compile", "test", "debug", "package", "sandbox"] {
+            let text = workflow_guide(topic);
+            assert!(text.len() > 200, "workflow topic '{topic}' must have substance");
+        }
+        // Sandbox must document exit codes for CI
+        let sandbox = workflow_guide("sandbox");
+        assert!(sandbox.contains("exit 3") || sandbox.contains("3 = strict"), "sandbox must document exit codes");
+        // Package must mention the registry
+        assert!(workflow_guide("package").contains("registry.xiom-lang.com"));
     }
 
     #[test]
