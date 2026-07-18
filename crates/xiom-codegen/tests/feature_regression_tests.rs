@@ -923,3 +923,53 @@ fn main() -> Int {
         "buffer_float must emit Vec-typed IR"
     );
 }
+
+// ============================================================================
+// 5c-E: Deep chain hardening — string concatenation chains
+// ============================================================================
+
+/// Locks in the fix for deep same-operator chains (iterative BinOp flattening).
+/// A 3+ term string concatenation like `a + b + c` creates a deep left-associative
+/// Add chain whose i8* operands MUST be lowered to `call @xiom_str_concat`, not
+/// `add i64` (which would corrupt pointers and cause ACCESS_VIOLATION at runtime).
+/// The iterative fold path now replicates the string-concat special case from the
+/// normal BinOp handler.
+#[test]
+fn regress_5c_e_deep_chain_string_concat_no_crash() {
+    let src = r#"
+fn ip_to_str() -> Str { return "1.1.1.1"; }
+fn main() -> Int {
+  let addr = ip_to_str() + ":" + "8080";
+  if addr == "1.1.1.1:8080" { return 0; }
+  return 1;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "string concat chain must compile");
+    // Must NOT contain raw `add i64` on str pointer values.
+    // The flattened chain must use @xiom_str_concat, not pointer arithmetic.
+    assert!(
+        ir.contains("@xiom_str_concat"),
+        "flattened string concat must call @xiom_str_concat"
+    );
+    assert!(
+        !ir.contains("add i8*"),
+        "flattened string concat must NOT use raw add on i8*"
+    );
+}
+
+/// Locks in the pattern from `int_to_str`: 3-term integer addition chain.
+/// `passed + 1 + 1` or similar arithmetic chains must compile correctly
+/// through the iterative fold path without ACCESS_VIOLATION.
+#[test]
+fn regress_5c_e_deep_chain_int_add_no_crash() {
+    let src = r#"
+fn main() -> Int {
+  var x = 1 + 2 + 3 + 4 + 5;
+  return x - 15;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "int add chain must compile");
+    // Verify the chain was flattened into iterative adds
+    let add_count = ir.lines().filter(|l| l.trim().contains("add i64")).count();
+    assert!(add_count >= 4, "expected at least 4 add i64 instructions for 5-term chain, got {add_count}");
+}
