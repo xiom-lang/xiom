@@ -16,9 +16,10 @@
 | Stdlib execution (smoke) | **41/41** | ✅ **ALL 5 FIXED (5c.30)** | array, core, serialize, mem, ptr |
 | Feature regression | **85/85** | ✅ | incl. 5c-E Vulkan probes (G1-G7) |
 | Integration regression | **119/119** | ✅ | |
+| Stdlib compilation | **40/40** | ✅ | 39 per-module + 1 combined cross-module |
 | Diff / FullDiff | **25/25 + 23/23** | ✅ | Selfhost assertion gap fixed (P2) |
 | Robustness | **29/29** | ✅ | |
-| **TOTAL (all tests)** | **448/448** | ✅ **ALL GREEN** | |
+| **TOTAL (all tests)** | **487/487** | ✅ **ALL GREEN** | |
 
 ### P0 Gaps: ALL RESOLVED ✅
 
