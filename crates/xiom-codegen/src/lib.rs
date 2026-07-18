@@ -18,6 +18,7 @@ pub mod decl;
 pub mod emitter;
 pub mod enum_ctors;
 pub mod expr;
+pub mod sandbox;
 pub mod vec_abi;
 
 // ============================================================================

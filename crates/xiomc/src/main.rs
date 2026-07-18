@@ -14,6 +14,9 @@
 //!   xiomc --run <source.xi>                   compile and run, print exit code
 //!   xiomc --diagnostics=json <source.xi>      JSON-structured compiler output
 //!   xiomc --dump-contracts <source.xi>        emit contract index as JSON
+//!   xiomc --sandbox <source.xi>                safety audit report (text)
+//!   xiomc --sandbox=strict <source.xi>         block compilation on HIGH findings
+//!   xiomc --sandbox-report=json <source.xi>    safety audit as JSON
 
 use std::collections::HashMap;
 use std::env;
@@ -21,6 +24,9 @@ use std::process;
 use std::time::Duration;
 
 use xiomc::{self, compile, CompileConfig, Target, resolve_source_files};
+use xiom_lexer::Lexer;
+use xiom_parser::Parser;
+use xiom_codegen::sandbox::SafetyAuditor;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -211,6 +217,34 @@ fn main() {
         c_sources,
     };
 
+    // --sandbox: run safety audit and exit (skips compilation unless --sandbox=strict passes)
+    let sandbox_mode = args.iter().any(|a| a == "--sandbox" || a.starts_with("--sandbox="));
+    if sandbox_mode {
+        let strict = args.iter().any(|a| a == "--sandbox=strict");
+        let json_output = args.iter().any(|a| a == "--sandbox-report=json");
+
+        for source_path in &source_paths {
+            let source = std::fs::read_to_string(source_path).unwrap_or_default();
+            let tokens = Lexer::new(&source).tokenize();
+            if let Ok(program) = Parser::new(tokens).parse_program() {
+                let mut auditor = SafetyAuditor::new();
+                let report = auditor.audit(&program, source_path);
+
+                if json_output {
+                    println!("{}", report.to_json());
+                } else {
+                    println!("{}", report.to_text());
+                }
+
+                if strict && report.summary.safety_score == "HIGH" || report.summary.safety_score == "CRITICAL" {
+                    eprintln!("error: --sandbox=strict blocked compilation due to {} safety findings", report.summary.high_severity);
+                    process::exit(3);
+                }
+            }
+        }
+        return;
+    }
+
     compile(&config, &source_paths);
 }
 
@@ -232,6 +266,9 @@ fn print_usage() {
     eprintln!("  --no-contracts      Disable contract runtime checks");
     eprintln!("  --diagnostics=json  Output diagnostics as JSON");
     eprintln!("  --dump-contracts    Print contract index as JSON");
+    eprintln!("  --sandbox           Run safety audit on unsafe blocks (text report)");
+    eprintln!("  --sandbox=strict    Block compilation if HIGH severity findings");
+    eprintln!("  --sandbox-report=json  Output sandbox report as JSON");
     eprintln!("  --verify            Generate SMT-LIB contract verification output");
     eprintln!("  --verify-output <f> Write SMT-LIB to file");
     eprintln!("  --timeout <seconds>  Set compilation timeout (default: 60)");
