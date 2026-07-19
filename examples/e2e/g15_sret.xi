@@ -1,0 +1,18 @@
+// G-15: sret ABI — C struct return on Linux SysV
+// Verifies XIOM correctly handles extern C functions returning structs by value.
+
+type Small = { x: Int; y: Int; }
+type Large = { a: Int; b: Int; c: Int; d: Int; e: Int; }
+
+extern "C" {
+  fn g15_small_return() -> Small;
+  fn g15_large_return() -> Large;
+  fn g15_pass_and_return(s: Small) -> Small;
+}
+
+fn main() -> Int {
+  var small = g15_small_return();
+  var large = g15_large_return();
+  var rt = g15_pass_and_return(small);
+  return 0;
+}

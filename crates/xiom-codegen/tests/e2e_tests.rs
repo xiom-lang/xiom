@@ -1010,18 +1010,48 @@ fn e2e_cross_package_use() {
 /// in one module propagate correctly when used from another module via `use`.
 #[test]
 fn e2e_cross_package_extern() {
-    let src = r#"
-module cross_pkg.ext_test
-use math_utils;
-fn main() -> Int {
-  let s = math_utils.square(5);
-  if s != 25 { return 1; }
-  return 0;
-}
-"#;
-    // Uses the math_utils.xi in examples/e2e/cross_pkg/ from a temp file
-    // — verifies cross-directory resolution works for any file in the tree.
+    // Uses the math_utils.xi in examples/e2e/cross_pkg/ — verifies
+    // cross-directory resolution works for any file in the tree.
     let result = compile_and_run("examples\\e2e\\cross_pkg\\main.xi");
     assert_eq!(result, Some(0),
         "G-30/G-31: cross-package use+extern should compile and run");
+}
+
+/// 5e G-15: sret ABI — C struct return on Linux SysV. Small structs
+/// (<16 bytes) return in registers; large structs (>16 bytes) use sret.
+/// Verifies XIOM emits correct struct-return IR for both cases.
+#[test]
+fn e2e_g15_sret_abi() {
+    let output = Command::new(xiomc_path())
+        .args(["--emit-ir", "examples/e2e/g15_sret.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("xiomc");
+    let ir = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "G-15 sret must compile: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(ir.contains("declare %struct.Small @g15_small_return()"),
+        "Small struct must return by value (no sret):\n{ir}");
+    assert!(ir.contains("declare %struct.Large @g15_large_return()"),
+        "Large struct must return (LLVM uses sret):\n{ir}");
+    assert!(ir.contains("declare %struct.Small @g15_pass_and_return(%struct.Small)"),
+        "struct pass+return must work:\n{ir}");
+}
+
+/// 5e G-40: repr(C) layout — mixed-width C struct fields. Verifies XIOM
+/// emits correct LLVM struct layout for Int8/Int16/Int32/Int64/Float32/Float64.
+#[test]
+fn e2e_g40_repc_layout() {
+    let output = Command::new(xiomc_path())
+        .args(["--emit-ir", "examples/e2e/g40_repc.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("xiomc");
+    let ir = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "G-40 repr(C) must compile: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(ir.contains("%struct.MixedC = type"), "MixedC struct must be defined:\n{ir}");
+    assert!(ir.contains("i8"), "Must have i8 field for Int8:\n{ir}");
+    assert!(ir.contains("i16"), "Must have i16 field for Int16:\n{ir}");
+    assert!(ir.contains("i32"), "Must have i32 field for Int32:\n{ir}");
+    assert!(ir.contains("float"), "Must have float field for Float32:\n{ir}");
+    assert!(ir.contains("double"), "Must have double field for Float64:\n{ir}");
 }
