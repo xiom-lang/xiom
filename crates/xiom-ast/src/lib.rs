@@ -328,8 +328,8 @@ pub enum Stmt {
     If(Expr, Block, Vec<(Expr, Block)>, Option<Block>, Span),
     /// `match expr { arms }`
     Match(Expr, Vec<MatchArm>, Span),
-    /// `while expr block`
-    While(Expr, Block, Span),
+    /// `while expr [invariant: expr] block`
+    While(Expr, Block, Option<Expr>, Span),
     /// `for ident in expr block`
     For(Ident, Expr, Block, Span),
     /// `spawn block`

@@ -1010,7 +1010,7 @@ impl IrEmitter {
             S::Let(_, _, e, _) | S::Var(_, _, e, _) | S::Return(Some(e), _)
             | S::Expr(e, _) | S::Assign(_, e, _) => Self::expr_contains_unsafe(e),
             S::If(c, t, _, _, _) => Self::expr_contains_unsafe(c) || Self::block_contains_unsafe(t),
-            S::While(c, b, _) => Self::expr_contains_unsafe(c) || Self::block_contains_unsafe(b),
+            S::While(c, b, _, _) => Self::expr_contains_unsafe(c) || Self::block_contains_unsafe(b),
             S::Match(e, arms, _) => Self::expr_contains_unsafe(e) || arms.iter().any(|a| match &a.body {
                 xiom_ast::MatchBody::Block(b) => Self::block_contains_unsafe(b),
                 xiom_ast::MatchBody::Expr(e) => Self::expr_contains_unsafe(e),

@@ -359,11 +359,24 @@ impl SMTGenerator {
                     self.encode_block(else_body, f);
                 }
             }
-            Stmt::While(cond, body, _) => {
-                // Without invariants, emit honest diagnostic
-                let c = self.translate_expr_to_val(cond);
-                let _ = c;
-                self.emit("; WARNING: loop without invariant — cannot verify");
+            Stmt::While(cond, body, invariant, span) => {
+                if let Some(inv) = invariant {
+                    // Loop invariant present — emit as assertion (P1: full VC generation
+                    // with entry check + preservation + exit hypothesis)
+                    let inv_smt = self.translate_expr_to_val(inv);
+                    self.emit(&format!("; loop invariant: {}", expr_display(inv)));
+                    self.emit(&format!("(assert (! {} :named |inv_loop_{}|))", inv_smt, self.side_conditions.len()));
+                    // Mark as side condition for tracking
+                    self.side_conditions.push(SideCondition {
+                        code: X7006_INVARIANT,
+                        message: format!("loop invariant must hold: {}", expr_display(inv)),
+                        span: *span,
+                        smt: inv_smt,
+                    });
+                } else {
+                    self.emit("; WARNING: loop without invariant — cannot verify");
+                }
+                let _c = self.translate_expr_to_val(cond);
                 self.encode_block(body, f);
             }
             Stmt::Return(expr_opt, _) => {
