@@ -3535,10 +3535,11 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                         return Ok((tmp, pointee));
                     }
                 }
-                // Builtin size_of[T](): return the LLVM size in bytes of type T.
-                // The type arg may be parsed as Expr::Index (generic call form) OR
-                // as args[0] (regular call form: size_of(RcInner[T])).
-                if fn_name == "size_of" || fn_name == "align_of" {
+                // Builtin size_of[T]() / sizeof[T](): return the LLVM size in bytes of type T.
+                // size_of uses struct_byte_size (field-count × 8, XIOM-semantic).
+                // sizeof uses sizeof_struct (precise LLVM widths, C-FFI-compatible).
+                // align_of[T](): return alignment (8 for structs, else size).
+                if fn_name == "size_of" || fn_name == "sizeof" || fn_name == "align_of" {
                     // 5e.3: type_arg may be None when idx_is_type fails or when
                     // the parser produces size_of(T) as a regular call instead of
                     // size_of[T]() as a generic instantiation. Try all sources.
@@ -3557,7 +3558,11 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                     if ta.is_none() {
                         if let Some(ref current_fn) = self.current_fn {
                             if current_fn.contains("RcInner") || current_fn.contains("Rc.new_") || current_fn.contains("Rc.drop_") || current_fn.contains("Weak.drop_") {
-                                let sz = self.struct_byte_size("RcInner");
+                                let sz = if fn_name == "sizeof" {
+                                    self.sizeof_struct("RcInner") as i64
+                                } else {
+                                    self.struct_byte_size("RcInner")
+                                };
                                 if sz > 0 {
                                     if fn_name == "align_of" { return Ok(("8".to_string(), "i64".to_string())); }
                                     return Ok((sz.to_string(), "i64".to_string()));
@@ -3586,13 +3591,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                                 });
                             let size = if llvm_ty.starts_with("%struct.") {
                                 let type_name = llvm_ty[8..].to_string();
-                                let sz = self.struct_byte_size(&type_name);
-                                sz
+                                if fn_name == "sizeof" {
+                                    // 5e.1 G-18: precise LLVM byte widths for C FFI.
+                                    // i8=1, i16=2, i32=4, i64=8 — matches C ABI sizes.
+                                    self.sizeof_struct(&type_name) as i64
+                                } else {
+                                    self.struct_byte_size(&type_name)
+                                }
                             } else {
                                 match llvm_ty.as_str() {
-                                    "i8" => 1,
+                                    "i1" | "i8" => 1,
                                     "i16" => 2,
-                                    "i32" => 4,
+                                    "i32" | "float" => 4,
                                     "i64" | "double" | "i8*" | "ptr" => 8,
                                     _ => 8,
                                 }

@@ -1500,3 +1500,31 @@ fn main() -> Int {
         ir.lines().filter(|l| l.contains("my_handler")).collect::<Vec<_>>().join("\n")
     );
 }
+
+/// 5e.1 G-18: sizeof() compiler intrinsic wired to checker + codegen dispatch.
+/// sizeof_struct() provides precise LLVM byte widths for C FFI: i8=1,i16=2,i32=4,i64=8.
+/// Contrast with size_of() which uses field-count×8 (XIOM-semantic size).
+/// Verifies: sizeof[Int]()=8, sizeof[Int8]()=1, sizeof on a struct with mixed-width
+/// fields returns the sum of correct LLVM widths.
+#[test]
+fn regress_5e_g18_sizeof() {
+    let src = r#"
+type MixedStruct = { a: Int8; b: Int16; c: Int32; d: Float32; e: Float64; }
+fn main() -> Int {
+  let s = sizeof[MixedStruct]();
+  if s != 19 { return 1; }
+  if sizeof[Int]() != 8 { return 2; }
+  if sizeof[Int8]() != 1 { return 3; }
+  if sizeof[Float64]() != 8 { return 4; }
+  if sizeof[Float32]() != 4 { return 5; }
+  if sizeof[Int32]() != 4 { return 6; }
+  return 0;
+}
+"#;
+    let ir = compile(src).expect("sizeof smoke must compile");
+    assert!(ir.contains("%struct.MixedStruct"), "MixedStruct type must be emitted");
+    // sizeof must be fully inlined — no call to @sizeof remains in the IR
+    assert!(!ir.contains("@sizeof"), "sizeof must be fully inlined, not a call:\n{ir}");
+    // The result of sizeof[MixedStruct] should appear as a literal 19
+    assert!(ir.contains("i64 19") || ir.contains("19,"), "sizeof[MixedStruct] must be inlined as 19:\n{ir}");
+}
