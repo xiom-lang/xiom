@@ -3,6 +3,7 @@
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::env;
 use std::io::{self, BufRead, Read, Write};
 use std::sync::Arc;
@@ -82,12 +83,15 @@ impl Backend {
                 if let Some(dir) = uri_to_parent_dir(uri) {
                     checker.add_source_dir(dir);
                 }
-                // 5e.3 G-31: add grandparent directory so the catalog can
-                // resolve `use xiom.vulkan` from `project/examples/demo.xi`
-                // when `vulkan.xi` is at `project/vulkan.xi`.
+                // 5e.3 G-31: add grandparent only if it contains .xi files
                 if let Some(file_path) = uri_to_file_path(uri) {
                     if let Some(grandparent) = file_path.parent().and_then(|p| p.parent()) {
-                        checker.add_source_dir(grandparent.to_string_lossy().to_string());
+                        if grandparent.join(file_path.parent().unwrap_or(Path::new(".")).file_name().unwrap_or_default()).exists() {
+                            let has_xi = std::fs::read_dir(&grandparent).map(|entries| {
+                                entries.flatten().any(|e| e.path().extension().map_or(false, |ext| ext == "xi"))
+                            }).unwrap_or(false);
+                            if has_xi { checker.add_source_dir(grandparent.to_string_lossy().to_string()); }
+                        }
                     }
                     if let Some(root) = xiomc::find_project_root(&file_path) {
                         let src_dir = root.join("src");
