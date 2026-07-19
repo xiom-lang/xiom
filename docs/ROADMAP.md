@@ -1,26 +1,25 @@
 # XIOM Compiler — Production Roadmap
 
-**Current:** v0.47.8 — **741/741 all tests** (512 compiler + 229 tooling), 5d complete (38/49 gaps closed), zero warnings, zero ignored
+**Current:** v0.48.5 — **768/768 all tests** (524 compiler + 244 tooling), 5d-5f complete (49/49 gaps closed), zero warnings
 **Branch:** `feat/architect`
-**Next:** Phase 5e Advanced Compilation 🚧 — remaining OPEN gaps are 5e sub-phase targets, not 5d backlog
+**Next:** Phase 5g AI Pipeline — compiler-integrated LLM hints
 
 ---
 
-## 1. CURRENT STATE (2026-07-18 — v0.47.8, 710 tests)
+## 1. CURRENT STATE (2026-07-20 — v0.48.5, 768 tests)
 
 | Gate | Count | Status | Notes |
 |------|-------|--------|-------|
-| Parser tests | 47/47 | ✅ | |
-| Checker tests | 85/85 | ✅ | |
-| **E2E tests** | **101/101** | ✅ **ALL GREEN** | |
-| Stdlib execution (smoke) | **41/41** | ✅ **ALL 5 FIXED (5c.30)** | array, core, serialize, mem, ptr |
-| Feature regression | **93/93** | ✅ | incl. 5c-E Vulkan probes (G1-G7) + Vec-by-value + deep-chain hardening |
+| E2E tests | **106/106** | ✅ | incl. cross-package use+extern, sret+repr(C)+Float32 ARM |
+| Feature regression | **117/117** | ✅ | incl. sizeof, CG-02 Float32 init, RC fix, G-20 bare-field |
+| Stdlib execution | **41/41** | ✅ | RC fixed (pre-existing failure resolved) |
+| Stdlib compilation | **40/40** | ✅ | All modules compile (no freeze — grandparent guard) |
 | Integration regression | **119/119** | ✅ | |
-| Stdlib compilation | **40/40** | ✅ | 39 per-module + 1 combined cross-module |
-| Diff / FullDiff | **25/25 + 23/23** | ✅ | Selfhost assertion gap fixed (P2) |
+| Diff / FullDiff / Fuzz | **25+23+24 / 25+23+24** | ✅ | |
 | Robustness | **29/29** | ✅ | |
-| Tooling tests | 215/215 | ✅ | 10 crates: checker, parser, fmt, lsp, pkg, doc, ffigen, mcp, dbg, verify |
-| **TOTAL** | **710/710** | ✅ **ALL GREEN — v0.47.8** | 495 compiler + 215 tooling; zero warnings, zero ignored |
+| Verifier | **15/15** | ✅ | SMT gen + z3 integration + contract composition + loop invariants |
+| Tooling | 229/229 | ✅ | checker, parser, fmt, lsp, pkg, doc, ffigen, mcp, dbg |
+| **TOTAL** | **768/768** | ✅ **ALL GREEN — v0.48.5** | 524 compiler + 244 tooling |
 
 ### P0 Gaps: ALL RESOLVED ✅
 
@@ -49,8 +48,8 @@
 | G-06 | grpc, protobuf | ✅ **CLOSED** — `Vec[T]::with_capacity(n)` registered + codegen inline |
 | G-11 | math | ✅ **CLOSED** — `[N]T` array element type now uses actual LLVM type from annotation |
 | G-12 | vector (HNSW) | ✅ **VERIFIED** — Struct field access through `&T` + Vec indexing works (5c.30) |
-| G-16 | meshopt, sdl3 | ⚠️ Linker-level — checker/codegen handle fn ptr types; requires C bridge |
-| G-17 | miniaudio, sdl3 | ⚠️ Linker-level — extern struct fields resolve; requires C bridge |
+| G-16 | meshopt, sdl3 | ✅ **FIXED (5e.2)** — C callback lowering + fn-ptr cast verified |
+| G-17 | miniaudio, sdl3 | ✅ **FIXED (5e.1)** — C struct field access via pointer verified |
 | G-04 | integer casts | ✅ Already closed (5c.30 types_compatible Int→numeric) |
 | G-10 | implicit-self | ✅ Already closed (5c.30 checker+codegen) |
 | G-22 | string concat | ✅ Already closed (5c.29) |
@@ -119,9 +118,9 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | **5d.5** | **🐛 DAP Debugger** | **xiom-dbg: GDB/MI, breakpoints, step, variables, VS Code wired** | **✅ Production — 8 tests** | 8 | [XIOM_TOOLING_SPEC.md](./XIOM_TOOLING_SPEC.md) |
 | **5d.6** | **📖 Doc Generator** | **xiom-doc: Markdown from source** | **✅ Production — 4 tests** | 4 | — |
 | **5d.7** | **🔗 FFI Generator** | **xiom-ffigen: C→XIOM bindings, contracts** | **✅ Production — 18 tests** | 18 | — |
-| **5d.8** | **✅ Verifier** | **xiom-verify: SMT-LIB + Z3 CLI** | **⚠ Deferred to Phase 5f — soundness gap: no body encoding** | 0 | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
+| **5d.8** | **✅ Verifier** | **xiom-verify: SMT-LIB + Z3 CLI** | **✅ Production — 15 tests (body encoding + side-conditions + contract composition + loop invariants + z3 integration)** | 15 | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
 | **5d.9** | **🔒 Sandbox Audit** | **--sandbox, severity scoring, CI/CD exit codes** | **✅ Production — 10 tests** | 10 | [SAFETY_AUDIT.md](./SAFETY_AUDIT.md) |
-| **5d.10** | **🧭 Ecosystem Gap Registry** | **Canonical G-01..G-49 registry. 38 FIXED, 8 OPEN, 3 RETEST. OPEN→5e targets.** | **✅ Complete — OPEN gaps carried into 5e.1–5e.4 as acceptance criteria.** | [ecosystem-audit/](./ecosystem-audit/README.md) |
+| **5d.10** | **🧭 Ecosystem Gap Registry** | **Canonical G-01..G-49 registry. ALL 49 FIXED/VERIFIED.** | **✅ Complete** | [ecosystem-audit/](./ecosystem-audit/README.md) |
 | │ | | | | | |
 | **5e** | **Advanced Compilation** | **Typed IR, multi-package, incremental — 48/49 gaps FIXED, all 5e sub-phases complete** | **✅ COMPLETE — 750/750 tests** | [rust/RUST_COMPILER_LESSONS.md](../rust/RUST_COMPILER_LESSONS.md) |
 | │ | | | | | |
@@ -770,7 +769,7 @@ Plus 5 bonus P1 items: TypeCause provenance, error-code registry, Applicability 
 - **Contract-aware**: exception breakpoint filter for contract violations (`@llvm.trap()` interception)
 - **VS Code extension**: exists at `editors/vscode/` — LSP + syntax highlighting; needs `contributes.debuggers` wiring for xiom-dbg
 
-### 5d.9 Sandbox Audit — REMAINING ⬜
+### 5d.9 Sandbox Audit — COMPLETE ✅
 
 - `--sandbox` CLI flag
 - Unsafe block enumeration + severity scoring (HIGH/MEDIUM/LOW)
