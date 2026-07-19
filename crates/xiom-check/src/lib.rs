@@ -2765,9 +2765,9 @@ impl Checker {
                     // 5c-E: Vec/Slice/Array → Ptr cast (Vulkan FFI: pass buffer to extern)
                     (CheckedType::Named(s), CheckedType::Named(t))
                         if t == "Ptr" && (s == "Vec" || s == "Slice") => target_ty,
-                    // 5e.2 G-34: Int → fn-ptr cast (COM vtables, callback registries).
-                    // The target type is CheckedType::Fn(params, ret), not Named.
+                    // 5e.2 G-34: fn-ptr ↔ Int casts (COM vtables, callback registries).
                     (CheckedType::Int, CheckedType::Fn(..)) => target_ty,
+                    (CheckedType::Fn(..), CheckedType::Int) => target_ty,
                     _ => {
                         self.error(format!("unsupported type cast: {} to {}", inner_ty.name(), target_ty.name()), *span)
                     }

@@ -1207,7 +1207,30 @@ impl IrEmitter {
         match type_name {
             "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
             | "Bool" | "Float32" | "Float64" | "Str" | "Char" | "()" => Ok(builtin.to_string()),
-            _ => Err(format!("unknown type '{}' ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â not a registered struct, enum, or builtin", type_name)),
+            _ => {
+                // 5e.2 G-34: function-pointer types: "fn(Int) -> Int"
+                // Æ’ "i64 (i64)*". Parse the signature and lower each part.
+                if type_name.starts_with("fn(") {
+                    if let Some(sig) = type_name.strip_prefix("fn(") {
+                        if let Some(arrow_pos) = sig.find(") -> ") {
+                            let params_str = &sig[..arrow_pos];
+                            let ret_str = &sig[arrow_pos + 5..];
+                            let param_llvm: Vec<String> = if params_str.is_empty() {
+                                Vec::new()
+                            } else {
+                                params_str.split(',')
+                                    .map(|p| p.trim())
+                                    .filter(|p| !p.is_empty())
+                                    .map(|p| self.llvm_type_for(p).unwrap_or_else(|_| "i64".to_string()))
+                                    .collect()
+                            };
+                            let ret_llvm = self.llvm_type_for(ret_str.trim()).unwrap_or_else(|_| "i64".to_string());
+                            return Ok(format!("{ret_llvm} ({})*", param_llvm.join(", ")));
+                        }
+                    }
+                }
+                Err(format!("unknown type '{}' — not a registered struct, enum, or builtin", type_name))
+            }
         }
     }
 
