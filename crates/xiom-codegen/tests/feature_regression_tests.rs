@@ -1406,3 +1406,45 @@ fn main() -> Int {
         "field access must be GEP-based, not offset arithmetic"
     );
 }
+
+/// G-39: Int8/UInt8 as struct-field types for C Bool layout.
+/// XIOM Bool = i64 but C bool = 1 byte; `Int8` maps to LLVM i8.
+/// Verified: `CBoxFixed = type { i8, i32 }` emitted correctly.
+#[test]
+fn regress_5e_g39_int8_struct_field() {
+    let src = r#"
+pub type CBoxFixed = { enabled: Int8; flags: Int32; }
+
+fn main() -> Int {
+  var x: Int8 = 1;
+  if x != 1 { return 1; }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Int8 struct field must compile");
+    // LLVM struct must use i8, not i64.
+    assert!(
+        ir.contains("%struct.CBoxFixed = type { i8, i32 }"),
+        "Int8 field must map to LLVM i8 (1-byte C bool), got:\n{}",
+        ir.lines().filter(|l| l.contains("CBoxFixed")).collect::<Vec<_>>().join("\n")
+    );
+}
+
+/// 5e.1 G-32: bare imported consts (ONNX pattern `use mod; PI`).
+/// The SubModule injection pass now recursively inserts pub consts
+/// into imported_items so bare references resolve.
+#[test]
+fn regress_5e_g32_bare_imported_const() {
+    let src = r#"
+pub const PI: Float64 = 3.14159;
+pub fn helper() -> Int { return 42; }
+fn main() -> Int {
+  if PI <= 3.0 { return 1; }
+  if helper() != 42 { return 2; }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "bare imported const must compile");
+    // PI must resolve to the literal value (not undefined variable error).
+    assert!(!ir.contains("undefined variable"), "bare const must resolve");
+}
