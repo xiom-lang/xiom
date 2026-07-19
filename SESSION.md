@@ -1,9 +1,9 @@
-# XIOM — Session Handoff: v0.48.0-pre "5e Gate — 44/49 Gaps Closed"
+# XIOM — Session Handoff: v0.48.0-pre "5e Gate — RC Fixed, 746/746 ALL GREEN"
 
-**Date:** 2026-07-19 14:47
-**Branch:** `feat/architect` (65± commits ahead of origin)
-**Status:** **746/746 tests pass** (516 compiler + 229 tooling + 1 pre-existing RC failure)
-**Phase:** 5d Complete → 5e Advanced Compilation in progress (90% gaps closed)
+**Date:** 2026-07-19 15:45
+**Branch:** `feat/architect`
+**Status:** **746/746 tests pass** (517 compiler + 229 tooling, ZERO failures)
+**Phase:** 5d Complete → 5e Advanced Compilation in progress (44/49 gaps closed, 90%)
 
 ---
 
@@ -53,7 +53,7 @@
 |-------|-------|--------|
 | E2E | **101/101** | ✅ |
 | Feature Regression | **115/115** | ✅ (incl. 16 5e regression tests) |
-| Stdlib Execution | **40/41** | ⚠ (1 pre-existing RC failure) |
+| Stdlib Execution | **41/41** | ✅ ALL GREEN (RC FIXED) |
 | Diff Tests | **25/25** | ✅ |
 | Full Diff | **23/23** | ✅ |
 | Fuzz | **24/24** | ✅ |
@@ -69,7 +69,7 @@
 | FFI Gen | **18/18** | ✅ |
 | MCP Server | **17/17** | ✅ |
 | Debugger | **8/8** | ✅ |
-| **TOTAL** | **746/746** | ✅ (1 known RC) |
+| **TOTAL** | **746/746** | ✅ ALL GREEN |
 
 ---
 
@@ -92,9 +92,15 @@
 | G-24 | Float32 ARM hard-float ABI | Need ARM CI runner |
 | G-40 | `#[repr(C)]` struct layout | Need link-level verification with C test |
 
-### Pre-existing RC Failure
+### Pre-existing RC Failure — FIXED ✅
 
-`stdlib_exec_rc_runs` — exits 1. Verified pre-existing (`git stash` → still fails). Not a 5e regression. RC module has a checker/codegen mismatch in its `clone` lowering (uses macro-expanded path that bypasses the Vec.clone builtin). Fix path: trace `rc.Rc[T].clone()` lowering vs inline `Vec.clone()`.
+`stdlib_exec_rc_runs` — **FIXED.** Root cause: three interrelated codegen bugs in `Rc.new[T]` monomorphisation path:
+
+1. **size_of[RcInner[T]]() returned 8 instead of 24:** The parser drops nested generic type args like `RcInner[T]` in `size_of[RcInner[T]]()`. Added fallback in size_of handler to compute `struct_byte_size("RcInner")` when type_arg is missing and context is inside Rc/RcInner/Weak.drop functions. Also registered `RcInner` as a builtin type in `type_meta` (3× i64 fields = 24 bytes) so the size computation works even when `rc.xi` is not compiled directly.
+
+2. **Expr::As pointer-to-pointer cast corrupted stack:** `raw as *RcInner[T]` where `raw` is already `*UInt8` (pointer type) was bitcasting the alloca address (`i8**` → `%struct.RcInner*`) instead of loading the stored pointer first. Fixed by checking `slot_ty.ends_with('*')` and emitting a `load` before the `bitcast`.
+
+3. **Layout.new cross-module resolution:** `alloc.Layout.new(size)` failed to resolve because `Layout.new` from `alloc.xi` is not compiled when `rc.xi` is transitively included. Added inline handler for `Layout.new` using `insertvalue` IR instructions. Also added suffix disambiguation for module-qualified calls like `Layout.new` vs `Rc.new`.
 
 ---
 
@@ -123,38 +129,38 @@
 
 ```
 Continue XIOM compiler production hardening from SESSION.md (v0.48.0-pre).
-Branch: feat/architect. 746/746 tests pass (1 pre-existing RC failure).
+Branch: feat/architect. 746/746 ALL TESTS GREEN.
 
 CURRENT STATE:
 - 44/49 ecosystem gaps FIXED (registry: docs/ecosystem-audit/COMPILER_GAPS.md)
-- 5d complete. 5e.1-5e.2 in progress.
+- 5d complete. 5e.1-5e.2 complete. RC failure FIXED.
 - Phase 5e Advanced Compilation with 4 sub-phases mapped to remaining gaps.
 
 REMAINING WORK (priority order):
 
-1. PRE-EXISTING RC FAILURE (stdlib_exec_rc_runs):
-   - stdlib/xiom/rc.xi clone() uses macro-expanded path that bypasses Vec.clone builtin.
-   - Trace rc.Rc[T].clone() lowering vs inline Vec.clone() — fix in codegen or rc.xi.
-   - This is the LAST test failure. Close it → 746/746 ALL GREEN.
-
-2. sizeof() WIRING (G-18):
-   - sizeof_struct() already compiled on IrEmitter (lib.rs line ~1316).
+1. sizeof() WIRING (G-18):
+   - sizeof_struct() already compiled on IrEmitter.
    - Wire into checker (register "sizeof" as known fn returning Int).
    - Wire into codegen call-site dispatch (emit literal from sizeof_struct).
    - Regression test: regress_5e_g18_sizeof.
 
-3. G-30/G-31 CROSS-PACKAGE BUILDS (5e.3):
+2. G-30/G-31 CROSS-PACKAGE BUILDS (5e.3):
    - Read XIOM_PATH / lockfile deps for multi-package resolution.
    - Package-graph catalog: add all package roots as source dirs.
    - Resolve externs + use fns across packages.
    - These are the last 2 OPEN gaps — closing them achieves 46/49.
 
-4. G-15/G-24/G-40 PLATFORM RETESTS:
+3. G-15/G-24/G-40 PLATFORM RETESTS:
    - Need real C libs with struct-returning fns (G-15), ARM CI (G-24), link-level repr(C) test (G-40).
    - These are verification-only — compiler changes likely not needed.
 
+4. PARSER BUG: nested generic type args dropped
+   - size_of[RcInner[T]]() produces Call(Ident("size_of"), []) — the [RcInner[T]] is lost.
+   - Some other nested generic call forms may be affected.
+   - Workaround in place (size_of handler context-sensitive fallback).
+
 5. 5e REFACTOR (deferred):
-   - lib.rs (3300 lines), expr.rs (5200 lines) need module splits.
+   - lib.rs (3336 lines), expr.rs (5319 lines) need module splits.
    - Opportunities: layout.rs, ir_intrinsics.rs, ir_struct.rs, ir_fnptr.rs.
 
 RULES:
@@ -169,12 +175,9 @@ RULES:
 KEY FILES:
   docs/ROADMAP.md (5e sub-phase table with gap cross-reference)
   docs/ecosystem-audit/COMPILER_GAPS.md (canonical gap registry, 49 gaps)
-  crates/xiom-codegen/src/lib.rs (sizeof_struct at ~line 1316, body_uses_receiver_state)
-  crates/xiom-codegen/src/expr.rs (As handler G-34/G-44, Vec.clone, BinOp flattening)
-  crates/xiom-check/src/lib.rs (divergence analysis, fn-ptr casts, SubModule injection)
+  crates/xiom-codegen/src/lib.rs (sizeof_struct at ~line 1362, RcInner/Layout builtins)
+  crates/xiom-codegen/src/expr.rs (size_of handler L3535, Layout.new inline L2636, Expr::As fix L4908, suffix disambiguation L4099)
+  crates/xiom-check/src/lib.rs (register_builtins)
   crates/xiom-codegen/tests/feature_regression_tests.rs (115 tests, 16 5e-specific)
-  stdlib/xiom/rc.xi (RC clone — pre-existing failure)
   docs/RELEASE_PROCESS.md (v0.48.0 release prep)
-  editors/vscode/ (VS Code extension v0.11.0 with debug adapter)
-  crates/xiom-mcp/src/ (MCP server — 10 tools, LIVE stdlib parsing)
 ```
