@@ -82,12 +82,13 @@ impl Backend {
                 if let Some(dir) = uri_to_parent_dir(uri) {
                     checker.add_source_dir(dir);
                 }
-                // 5e.3 G-31: walk-up project root detection so cross-directory
-                // `use xiom.*` imports resolve in single-file LSP mode.
-                // Only add the project root's src/ subdirectory (if present)
-                // — do NOT add the root itself to avoid polluting the catalog
-                // with ghost modules from other project subtrees.
+                // 5e.3 G-31: add grandparent directory so the catalog can
+                // resolve `use xiom.vulkan` from `project/examples/demo.xi`
+                // when `vulkan.xi` is at `project/vulkan.xi`.
                 if let Some(file_path) = uri_to_file_path(uri) {
+                    if let Some(grandparent) = file_path.parent().and_then(|p| p.parent()) {
+                        checker.add_source_dir(grandparent.to_string_lossy().to_string());
+                    }
                     if let Some(root) = xiomc::find_project_root(&file_path) {
                         let src_dir = root.join("src");
                         if src_dir.is_dir() {

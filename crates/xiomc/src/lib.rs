@@ -206,13 +206,17 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     // Stage 3: Type Check
     let mut checker = Checker::new();
     if let Some(primary) = source_paths.first() {
+        // Add the file's parent directory (e.g. examples/)
         if let Some(parent) = Path::new(primary).parent() {
             checker.add_source_dir(parent.to_string_lossy().to_string());
+            // 5e.3 G-31: also walk up one more level to the PROJECT root.
+            // For `project/examples/demo.xi` using `use xiom.vulkan`,
+            // the catalog needs to scan `project/` to find `vulkan.xi`.
+            if let Some(grandparent) = parent.parent() {
+                checker.add_source_dir(grandparent.to_string_lossy().to_string());
+            }
         }
-        // 5e.3 G-31: walk-up project root detection for cross-directory
-        // use resolution. Only add the project root's src/ subdirectory
-        // (if present) — do NOT add the root itself to avoid polluting
-        // the catalog with ghost modules from other project subtrees.
+        // Walk-up: if a project marker exists, add src/ subdirectory
         if let Some(root) = find_project_root(Path::new(primary)) {
             let src_dir = root.join("src");
             if src_dir.is_dir() {
@@ -344,8 +348,10 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
     if let Some(primary) = source_paths.first() {
         if let Some(parent) = Path::new(primary).parent() {
             checker.add_source_dir(parent.to_string_lossy().to_string());
+            if let Some(grandparent) = parent.parent() {
+                checker.add_source_dir(grandparent.to_string_lossy().to_string());
+            }
         }
-        // 5e.3 G-31: walk-up project root detection. Only add src/ subdir.
         if let Some(root) = find_project_root(Path::new(primary)) {
             let src_dir = root.join("src");
             if src_dir.is_dir() {
