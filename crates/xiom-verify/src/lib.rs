@@ -204,6 +204,7 @@ impl SMTGenerator {
                 self.translate_expr(&clause_expr(contract));
                 self.emit(&format!(") :named |{}|))", label));
                 self.emit("(check-sat)");
+                self.emit("(get-model)");
                 self.emit("(pop)");
                 self.emit("");
             }
@@ -217,6 +218,7 @@ impl SMTGenerator {
                 self.emit("(push)");
                 self.emit(&format!("(assert (! (not {}) :named |obl_{}|))", sc.smt, sc.code));
                 self.emit("(check-sat)");
+                self.emit("(get-model)");
                 self.emit("(pop)");
                 self.emit("");
             }
@@ -538,11 +540,8 @@ impl Z3Runner {
 
     /// Run z3 on SMT-LIB2 text, parse results into VerifyResult per obligation.
     pub fn verify(&self, smt: &str) -> Vec<VerifyResult> {
-        let timeout_secs = (self.timeout_ms + 999) / 1000;
         let output = match Command::new(&self.z3_path)
-            .args(["-in", &format!("-T:{timeout_secs}")])
-            .arg("-v:0")
-            .arg("smt.string=true")
+            .arg("-in")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -550,8 +549,10 @@ impl Z3Runner {
         {
             Ok(mut child) => {
                 use std::io::Write;
-                if let Some(ref mut stdin) = child.stdin {
+                if let Some(mut stdin) = child.stdin.take() {
                     let _ = stdin.write_all(smt.as_bytes());
+                    let _ = stdin.flush();
+                    // stdin is dropped here (pipe closed), signalling EOF to z3
                 }
                 child.wait_with_output().unwrap_or_else(|e| {
                     std::process::Output {
@@ -571,17 +572,21 @@ impl Z3Runner {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         
-        if !stderr.is_empty() && !stderr.contains("WARNING") {
-            return vec![VerifyResult::Error {
-                message: format!("z3 error: {}", stderr.trim()),
-            }];
+        if !stderr.is_empty() && !stderr.trim().starts_with("WARNING") && !stderr.trim().contains("WARNING") {
+            // Filter benign errors: model not available after unsat, etc.
+            let benign = stderr.trim().contains("model is not available");
+            if !benign && (stderr.trim().starts_with("(error") || stderr.trim().starts_with("error")) {
+                return vec![VerifyResult::Error {
+                    message: format!("z3 error: {}", stderr.trim()),
+                }];
+            }
         }
 
         self.parse_z3_output(&stdout)
     }
 
     /// Parse z3 output: extract sat/unsat/unknown per check-sat and models.
-    fn parse_z3_output(&self, output: &str) -> Vec<VerifyResult> {
+    pub fn parse_z3_output(&self, output: &str) -> Vec<VerifyResult> {
         let mut results = Vec::new();
         let mut current_model = String::new();
         let mut in_model = false;
@@ -591,7 +596,6 @@ impl Z3Runner {
             
             if trimmed == "sat" {
                 in_model = false;
-                // Model follows — we'll capture it on next iteration
                 current_model.clear();
             } else if trimmed == "unsat" {
                 in_model = false;
@@ -615,10 +619,17 @@ impl Z3Runner {
                     });
                     current_model.clear();
                 }
+            } else if trimmed == "(" && !in_model {
+                // z3 4.13.4 (get-model) outputs raw "(\n  (define-fun ..." without "(model"
+                in_model = true;
+                current_model.push_str(trimmed);
+                current_model.push('\n');
             } else if trimmed.starts_with("(error") {
-                results.push(VerifyResult::Error {
-                    message: trimmed.to_string(),
-                });
+                if !trimmed.contains("model is not available") {
+                    results.push(VerifyResult::Error {
+                        message: trimmed.to_string(),
+                    });
+                }
             }
         }
 
