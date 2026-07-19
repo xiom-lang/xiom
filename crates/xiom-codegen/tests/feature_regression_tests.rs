@@ -1448,3 +1448,29 @@ fn main() -> Int {
     // PI must resolve to the literal value (not undefined variable error).
     assert!(!ir.contains("undefined variable"), "bare const must resolve");
 }
+
+/// 5e.2 G-34: Int ↔ fn-ptr casts for COM vtables and callback registries.
+/// The roundtrip `Int as fn(Int)->Int as Int` must compile cleanly.
+#[test]
+fn regress_5e_g34_int_fnptr_cast() {
+    let src = r#"
+extern "C" {
+  fn register_callback(cb: Int);
+  fn get_handler() -> Int;
+}
+fn my_handler(x: Int) -> Int { return x + 1; }
+fn main() -> Int {
+  unsafe {
+    let addr = get_handler();
+    let cb = addr as fn(Int) -> Int;
+    let ptr = cb as Int;
+    register_callback(ptr);
+  }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "fn-ptr cast must compile");
+    // LLVM must NOT reject the type — the IR must be valid.
+    assert!(ir.contains("declare i64 @get_handler"), "extern fn must be declared");
+    assert!(ir.contains("declare void @register_callback"), "callback registration must be declared");
+}
