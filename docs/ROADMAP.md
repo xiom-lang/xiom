@@ -1,8 +1,8 @@
 # XIOM Compiler — Production Roadmap
 
-**Current:** v0.47.8 — **710/710 all tests** (495 compiler + 215 tooling), 5d in progress, zero warnings, zero ignored
+**Current:** v0.47.8 — **741/741 all tests** (512 compiler + 229 tooling), 5d complete (38/49 gaps closed), zero warnings, zero ignored
 **Branch:** `feat/architect`
-**Next:** Phase 5d sandbox audit → Phase 5e Advanced Compilation
+**Next:** Phase 5e Advanced Compilation 🚧 — remaining OPEN gaps are 5e sub-phase targets, not 5d backlog
 
 ---
 
@@ -121,9 +121,14 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | **5d.7** | **🔗 FFI Generator** | **xiom-ffigen: C→XIOM bindings, contracts** | **✅ Production — 18 tests** | 18 | — |
 | **5d.8** | **✅ Verifier** | **xiom-verify: SMT-LIB + Z3 CLI** | **⚠ Deferred to Phase 5f — soundness gap: no body encoding** | 0 | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
 | **5d.9** | **🔒 Sandbox Audit** | **--sandbox, severity scoring, CI/CD exit codes** | **✅ Production — 10 tests** | 10 | [SAFETY_AUDIT.md](./SAFETY_AUDIT.md) |
-| **5d.10** | **🧭 Ecosystem Gap Registry** | **Canonical G-01..G-49 registry + retest addendum; ecosystem-driven compiler fixes land here** | **🚧 Active — 23 FIXED / 20 OPEN / 6 RETEST. 2026-07-19 wave closed 14 rows (typed payloads, Str clone miscompile, Vec.clone, unwrap_err, trailing commas, silent-drop kill). Remaining P0s (G-16 callbacks, G-30/31 cross-package) are 5e-scale.** | 9 regress_5d | [ecosystem-audit/](./ecosystem-audit/README.md) |
+| **5d.10** | **🧭 Ecosystem Gap Registry** | **Canonical G-01..G-49 registry. 38 FIXED, 8 OPEN, 3 RETEST. OPEN→5e targets.** | **✅ Complete — OPEN gaps carried into 5e.1–5e.4 as acceptance criteria.** | [ecosystem-audit/](./ecosystem-audit/README.md) |
 | │ | | | | | |
-| **5e** | **Advanced Compilation** | **Incremental, parallel, hot reload, XIR** | **Planned** | — | [rust/04-incremental-compilation.md](./rust/04-incremental-compilation.md) |
+| **5e** | **Advanced Compilation** | **Typed IR, multi-package, incremental — solves all remaining 5d OPEN gaps** | **🚧 STARTING — 38/49 FIXED from 5d; 8 OPEN + 3 retest carried into 5e sub-phases** | [rust/RUST_COMPILER_LESSONS.md](../rust/RUST_COMPILER_LESSONS.md) |
+| │ | | | | | |
+| **5e.1** | **🔗 Typed Pointer IR** | **C struct field access, sizeof, Bool C layout** | **→ Solves G-17, G-18, G-39** | [ecosystem-audit/COMPILER_GAPS.md](../docs/ecosystem-audit/COMPILER_GAPS.md) |
+| **5e.2** | **🖇️ Fn-Pointer Types** | **XIOM fn→C callback, Int→fn-ptr cast** | **→ Solves G-16, G-34** | — |
+| **5e.3** | **📦 Multi-Package Build** | **Cross-package extern/use, catalog** | **→ Solves G-30, G-31, G-32** | — |
+| **5e.4** | **🏷️ Distinct Newtype** | **`distinct` keyword for handle safety** | **→ Solves G-41, closes 5d.9 follow-up** | — |
 | **5f** | **Z3 Verification** | **Contract proof at compile time** | **Planned** | — | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
 | **5g** | **🤖 AI Pipeline** | **--ai flag, LLM hints, contract-guided, temp=0** | **Planned (after 5f)** | — | [AI_PIPELINE.md](./AI_PIPELINE.md) |
 | **5h** | **🏁 Self-Hosting** | **XIOM compiler in XIOM** | **Planned (LAST)** | — | [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md) |
