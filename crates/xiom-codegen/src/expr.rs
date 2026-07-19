@@ -4880,6 +4880,23 @@ impl IrEmitter {
             }
             Expr::Closure(_, _, _, _) | Expr::PipeClosure(_, _, _) => Ok(("0".to_string(), "i64".to_string())),
             Expr::As(inner, ty, _) => {
+                // G-44: `&out as *mut UInt8` — Xiom binds `&` with LOWER
+                // precedence than `as`, so the AST is `&(out as *mut UInt8)`.
+                // The `inner` of `As` is a bare `Expr::Ident("out")` — never
+                // `Expr::Ref`. We must detect the local BEFORE compile_expr
+                // loads the value and produce the alloca address as a typed
+                // pointer. Previously `out` compiled to `load i64 = 7` and
+                // `inttoptr i64 7 to i8*` caused AV on memset write-back.
+                if let Expr::Ident(id) = inner.as_ref() {
+                    let target_llvm_ty = self.llvm_type_for_fallback(&Self::type_from_ast(ty));
+                    if target_llvm_ty.ends_with('*') {
+                        if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
+                            let ptr_reg = self.fresh_tmp();
+                            self.emitln(&format!("  {ptr_reg} = bitcast {slot_ty}* {slot} to {target_llvm_ty}"));
+                            return Ok((ptr_reg, target_llvm_ty.clone()));
+                        }
+                    }
+                }
                 // Use the compiled value's REAL LLVM type as the source of the
                 // cast (from the refactor), falling back to infer only when the
                 // real type is unknown. This ensures e.g. `c as Int` where `c` is
