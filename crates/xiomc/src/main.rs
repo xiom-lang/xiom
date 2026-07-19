@@ -63,6 +63,8 @@ fn main() {
     let debug_symbols = args.iter().any(|a| a == "--debug") || args.iter().any(|a| a == "-g");
     let shared_lib = args.iter().any(|a| a == "--shared");
     let static_lib = args.iter().any(|a| a == "--static");
+    let watch_mode = args.iter().any(|a| a == "--watch");
+    let hot_reload = args.iter().any(|a| a == "--hot-reload");
     let test_mode = args.iter().any(|a| a == "--test");
     let clean_mode = args.iter().any(|a| a == "--clean");
     let install_mode = args.iter().any(|a| a == "install");
@@ -271,6 +273,46 @@ fn main() {
         process::exit(overall_exit);
     }
 
+    // 5e Hot Reload
+    if watch_mode || hot_reload {
+        let hot_config = CompileConfig {
+            shared_lib: hot_reload || shared_lib,
+            ..config // consumes config
+        };
+        eprintln!("\n[HOT RELOAD] Watching {} source file(s)...", source_paths.len());
+        eprintln!("[HOT RELOAD] Press Ctrl+C to stop.\n");
+
+        let mut last_mod: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+        for p in &source_paths {
+            if let Ok(meta) = std::fs::metadata(p) {
+                if let Ok(mtime) = meta.modified() {
+                    if let Ok(dur) = mtime.duration_since(std::time::UNIX_EPOCH) {
+                        last_mod.insert(p.clone(), dur.as_secs());
+                    }
+                }
+            }
+        }
+
+        // Initial compile
+        compile(&hot_config, &source_paths);
+
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let mut changed = false;
+            for p in &source_paths {
+                if let Ok(meta) = std::fs::metadata(p) {
+                    if let Ok(mtime) = meta.modified() {
+                        if let Ok(dur) = mtime.duration_since(std::time::UNIX_EPOCH) {
+                            let s = dur.as_secs();
+                            if last_mod.get(p) != Some(&s) { last_mod.insert(p.clone(), s); changed = true; }
+                        }
+                    }
+                }
+            }
+            if changed { compile(&hot_config, &source_paths); }
+        }
+    }
+
     compile(&config, &source_paths);
 }
 
@@ -297,6 +339,9 @@ fn print_usage() {
     eprintln!("  --sandbox-report=json  Output sandbox report as JSON");
     eprintln!("  --verify            Generate SMT-LIB contract verification output");
     eprintln!("  --verify-output <f> Write SMT-LIB to file");
+    eprintln!("  --shared            Compile as shared library (DLL)");
+    eprintln!("  --watch             Watch source files and recompile on change");
+    eprintln!("  --hot-reload        Hot reload mode: watch + shared library");
     eprintln!("  --timeout <seconds>  Set compilation timeout (default: 60)");
     eprintln!("  --max-memory-mb <N>       Set max memory budget in MB (0 = disabled)");
     eprintln!("  --link <name>             Link a native library (repeatable, e.g. vulkan-1)");
