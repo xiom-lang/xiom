@@ -1311,3 +1311,33 @@ fn main() -> Int {
         "enum clone must be a TOTAL by-value copy (payload slots included)"
     );
 }
+
+/// G-44: `&out as *mut UInt8` — local cast to pointer must produce the
+/// alloca ADDRESS (bitcast), not the loaded value (inttoptr). Xiom binds
+/// `&` with LOWER precedence than `as`, so the As handler sees a bare
+/// `Ident`, not a `Ref`. Fixed by detecting local→pointer cast BEFORE
+/// compile_expr loads the value. Verified with memset write-back (AV→pass).
+#[test]
+fn regress_5d_g44_local_as_ptr_uses_address() {
+    let src = r#"
+extern "C" {
+  fn memset(ptr: *mut UInt8, value: Int, size: UInt) -> *mut UInt8;
+}
+fn main() -> Int {
+  var out: Int = 7;
+  unsafe {
+    let p = &out as *mut UInt8;
+    memset(p, 0, 8);
+  }
+  if out != 0 { return 1; }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "local as *T must compile");
+    // Must use bitcast from the alloca address, never inttoptr(value).
+    assert!(
+        ir.contains("bitcast i64* %") && ir.contains(" to i8*"),
+        "local cast to pointer must use bitcast (alloca address), got inttoptr:\n{}",
+        ir.lines().filter(|l| l.contains("bitcast") || l.contains("inttoptr")).collect::<Vec<_>>().join("\n")
+    );
+}
