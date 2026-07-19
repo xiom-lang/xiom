@@ -122,7 +122,7 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | **5d.9** | **🔒 Sandbox Audit** | **--sandbox, severity scoring, CI/CD exit codes** | **✅ Production — 10 tests** | 10 | [SAFETY_AUDIT.md](./SAFETY_AUDIT.md) |
 | **5d.10** | **🧭 Ecosystem Gap Registry** | **Canonical G-01..G-49 registry. ALL 49 FIXED/VERIFIED.** | **✅ Complete** | [ecosystem-audit/](./ecosystem-audit/README.md) |
 | │ | | | | | |
-| **5e** | **Advanced Compilation** | **Typed IR, multi-package, incremental — 48/49 gaps FIXED, all 5e sub-phases complete** | **✅ COMPLETE — 750/750 tests** | [rust/RUST_COMPILER_LESSONS.md](../rust/RUST_COMPILER_LESSONS.md) |
+| **5e** | **Advanced Compilation** | **Typed IR, multi-package, hot reload, 48/49 gaps FIXED** | **✅ COMPLETE — --watch + --hot-reload flags, all 4 sub-phases** | |
 | │ | | | | | |
 | **5e.1** | **🔗 Typed Pointer IR** | **C struct field access, sizeof, Bool C layout** | **✅ G-17, G-18, G-39 — all FIXED** | [ecosystem-audit/COMPILER_GAPS.md](../docs/ecosystem-audit/COMPILER_GAPS.md) |
 | **5e.2** | **🖇️ Fn-Pointer Types** | **XIOM fn→C callback, Int→fn-ptr cast** | **✅ G-16, G-34 — all FIXED** | — |
@@ -812,8 +812,8 @@ Plus 5 bonus P1 items: TypeCause provenance, error-code registry, Applicability 
 | References | ✅ `textDocument/references` — document-wide ident search |
 | Rename | ✅ `textDocument/rename` — edits + WorkspaceEdit |
 | Semantic tokens | ✅ `textDocument/semanticTokens/full` — keywords, types, strings, numbers |
-| Code actions / Quick fixes | ⬜ Planned (P2) |
-| Workspace symbol search | ⬜ Planned (P2) |
+| Workspace symbol search | ⬜ Deferred (P2) — handler infra exists, needs insertion without corrupting dispatch |
+| Code actions / Quick fixes | ⬜ Deferred (P2) — requires diagnostic-to-fix mapping |
 
 **Current AI-friendly surface:** `--diagnostics=json` + `--dump-contracts` provide structured data for external tools without baking LLM calls into the compiler.
 
