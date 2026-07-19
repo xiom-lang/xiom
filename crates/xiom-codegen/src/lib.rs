@@ -1294,7 +1294,9 @@ impl IrEmitter {
                     .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
                     .map(|(_, v)| v)
             });
-        let Some(meta) = meta else { return 8 };
+        let Some(meta) = meta else {
+            return 8
+        };
         let mut total = 0i64;
         for (_, fty) in meta.fields.iter() {
             // Generic containers are i64 handles (5c.28h).
@@ -1537,6 +1539,40 @@ impl IrEmitter {
                 derives: Vec::new(),
                 invariants: Vec::new(),
             });
+        }
+
+        // 5e.3: Register Layout as a builtin type so its struct definition
+        // ({i64, i64}) is emitted even when alloc.xi is not compiled directly.
+        // The Layout.new constructor is inlined in expr.rs; this ensures the
+        // type definition exists for the emitted insertvalue instructions.
+        if !self.type_meta.contains_key("xiom.alloc.Layout") {
+            self.type_meta.insert("xiom.alloc.Layout".to_string(), TypeMeta {
+                fields: vec![
+                    ("size".to_string(), "Int".to_string()),
+                    ("align".to_string(), "Int".to_string()),
+                ],
+                derives: vec![],
+                invariants: vec![],
+            });
+            self.types.insert("Layout".to_string(), vec!["size".to_string(), "align".to_string()]);
+        }
+
+        // 5e.3: Register RcInner as a builtin type so size_of[RcInner[T]]()
+        // resolves inside monomorphised generic bodies (e.g. Rc.new_Int).
+        // RcInner has 3 i64-wide fields: strong, weak, value = 24 bytes.
+        if !self.type_meta.contains_key("xiom.rc.RcInner") {
+            self.type_meta.insert("xiom.rc.RcInner".to_string(), TypeMeta {
+                fields: vec![
+                    ("strong".to_string(), "Int".to_string()),
+                    ("weak".to_string(), "Int".to_string()),
+                    ("value".to_string(), "Int".to_string()),
+                ],
+                derives: vec![],
+                invariants: vec![],
+            });
+            self.types.insert("RcInner".to_string(), vec![
+                "strong".to_string(), "weak".to_string(), "value".to_string(),
+            ]);
         }
 
         // Register type structures

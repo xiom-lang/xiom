@@ -2178,13 +2178,26 @@ impl IrEmitter {
                                 || self.type_meta.contains_key(&id.name)
                                 || (id.name.len() == 1 && id.name.chars().next().map_or(false, |c| c.is_ascii_uppercase()))
                         }
-                        Expr::Field(_, _, _) => true, Expr::Tuple(elems, _) => elems.iter().all(|e| matches!(e, Expr::Ident(_) | Expr::Field(_, _, _))),
-                        
+                        Expr::Field(_, _, _) => true,
+                        Expr::Tuple(elems, _) => elems.iter().all(|e| matches!(e, Expr::Ident(_) | Expr::Field(_, _, _))),
+                        // 5e.3: parameterized type args like RcInner[T] parse as
+                        // Expr::Index(Ident(base), Ident(T)). Recognize when the
+                        // base is a known type so size_of/align_of receive type_arg.
+                        Expr::Index(base, inner, _) => {
+                            matches!(base.as_ref(), Expr::Ident(b) if
+                                Self::is_primitive_type_name(&b.name)
+                                || self.types.contains_key(&b.name)
+                                || self.type_meta.contains_key(&b.name))
+                            && matches!(inner.as_ref(), Expr::Ident(i) if
+                                i.name.len() == 1 && i.name.chars().next().map_or(false, |c| c.is_ascii_uppercase()))
+                        }
                         _ => false, // integer literal, binary expr, etc. — always a value index
                     }
                 };
-                let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
-                    Expr::Index(base, idx, _) if idx_is_type(idx) => (base.as_ref(), Some(idx.as_ref())),
+let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
+                    Expr::Index(base, idx, _) if idx_is_type(idx) => {
+                        (base.as_ref(), Some(idx.as_ref()))
+                    }
                     other => (other, None),
                 };
                 let (fn_name_opt, receiver_expr) = match func_unwrapped {
@@ -2203,9 +2216,11 @@ impl IrEmitter {
                     }
                 }
                 let fn_name = match fn_name_opt {
-                    Some(ref n) => n.clone(),
+                    Some(ref n) => {
+                        n.clone()
+                    }
                     None => {
-                        // The callee is not a simple Ident or Field ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â it may be an
+                        // The callee is not a simple Ident or Field — it may be an
                         // Expr::Index (e.g. `tests[i]()`) that produces a function pointer
                         // value. Compile the expression and call the result.
                         if let Expr::Index(ref container, ref index, _) = **func {
@@ -2596,8 +2611,34 @@ impl IrEmitter {
                             Expr::Ident(id) => Some(id.name.as_str()),
                             _ => None,
                         },
+                        // 5e.3: module-qualified type paths like alloc.Layout
+                        // produce Expr::Field receivers whose leaf is the type.
+                        Expr::Field(_, field, _) => Some(field.name.as_str()),
                         _ => None,
                     };
+                    // 5e.3: Layout.new(size) — inline struct constructor { size, align: 8 }.
+                    // Layout is defined in xiom.alloc and may not be compiled into
+                    // the current module's IR. Inlining here avoids the need for
+                    // cross-module function resolution.
+                    if (recv_ident == Some("Layout") || recv_ident == Some("alloc.Layout") || recv_ident == Some("xiom.alloc.Layout")) && fn_name == "new" {
+                        if args.len() == 1 {
+                            let (size_val, size_ty) = self.compile_expr(&args[0])?;
+                            let size_i64 = self.val_to_i64(&size_val, &size_ty);
+                            // Layout may be defined as bare "Layout" (from source)
+                            // or qualified "xiom.alloc.Layout" (from builtin fallback).
+                            // Use the type that actually has a struct definition emitted.
+                            let layout_ty = if self.type_meta.contains_key("Layout") {
+                                self.llvm_type_for("Layout").unwrap_or_else(|_| "%struct.xiom.alloc.Layout".to_string())
+                            } else {
+                                self.llvm_type_for("xiom.alloc.Layout").unwrap_or_else(|_| "%struct.xiom.alloc.Layout".to_string())
+                            };
+                            let s0 = self.fresh_tmp();
+                            self.emitln(&format!("  {s0} = insertvalue {layout_ty} undef, i64 {size_i64}, 0"));
+                            let s1 = self.fresh_tmp();
+                            self.emitln(&format!("  {s1} = insertvalue {layout_ty} {s0}, i64 8, 1"));
+                            return Ok((s1, layout_ty));
+                        }
+                    }
                     if recv_ident == Some("Vec") && fn_name == "new" {
                             // Determine element size from the type argument.
                             // Vec[UInt8] ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ 1, Vec[Int16] ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ 2, Vec[Int32] ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ 4, default ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ 8.
@@ -3495,20 +3536,58 @@ impl IrEmitter {
                     }
                 }
                 // Builtin size_of[T](): return the LLVM size in bytes of type T.
-                // The type arg is parsed as `Expr::Index` and captured in type_arg.
+                // The type arg may be parsed as Expr::Index (generic call form) OR
+                // as args[0] (regular call form: size_of(RcInner[T])).
                 if fn_name == "size_of" || fn_name == "align_of" {
-                    if let Some(ta) = type_arg {
+                    // 5e.3: type_arg may be None when idx_is_type fails or when
+                    // the parser produces size_of(T) as a regular call instead of
+                    // size_of[T]() as a generic instantiation. Try all sources.
+                    let ta: Option<&Expr> = type_arg
+                        .or_else(|| args.first())
+                        .or_else(|| {
+                            match &**func {
+                                Expr::Index(_, idx, _) => Some(idx.as_ref()),
+                                _ => None,
+                            }
+                        });
+                    // 5e.3: parser drops nested generic type args like
+                    // RcInner[T] in size_of[RcInner[T]](). When ta is None,
+                    // check if we're inside a monomorphised Rc/RcInner context
+                    // and compute the size of the base struct directly.
+                    if ta.is_none() {
+                        if let Some(ref current_fn) = self.current_fn {
+                            if current_fn.contains("RcInner") || current_fn.contains("Rc.new_") || current_fn.contains("Rc.drop_") || current_fn.contains("Weak.drop_") {
+                                let sz = self.struct_byte_size("RcInner");
+                                if sz > 0 {
+                                    if fn_name == "align_of" { return Ok(("8".to_string(), "i64".to_string())); }
+                                    return Ok((sz.to_string(), "i64".to_string()));
+                                }
+                            }
+                        }
+                    }
+                    if let Some(ta) = ta {
                         let xiom_ty = match ta {
                             Expr::Ident(id) => id.name.clone(),
                             Expr::Field(_, f, _) => f.name.clone(),
+                            // 5e.3: parameterized types like RcInner[T] parse as
+                            // Expr::Index(Expr::Ident("RcInner"), Expr::Ident("T")).
+                            // Extract the base type name so size_of/align_of can
+                            // resolve it through type_meta (G-18, RC fix).
+                            Expr::Index(base, _idx, _) => match base.as_ref() {
+                                Expr::Ident(id) => id.name.clone(),
+                                _ => String::new(),
+                            },
                             _ => String::new(),
                         };
                         if !xiom_ty.is_empty() {
                             let llvm_ty = self.llvm_type_for(&xiom_ty)
-                                .unwrap_or_else(|_| Self::xiom_to_llvm_type(&xiom_ty).to_string());
+                                .unwrap_or_else(|_| {
+                                    Self::xiom_to_llvm_type(&xiom_ty).to_string()
+                                });
                             let size = if llvm_ty.starts_with("%struct.") {
                                 let type_name = llvm_ty[8..].to_string();
-                                self.struct_byte_size(&type_name)
+                                let sz = self.struct_byte_size(&type_name);
+                                sz
                             } else {
                                 match llvm_ty.as_str() {
                                     "i8" => 1,
@@ -4089,20 +4168,30 @@ impl IrEmitter {
                     // when the receiver type is i64 (not a named struct), so the bare-call
                     // skip must NOT apply.
                     if !self.functions.contains_key(&resolved_fn_key) {
+                        // 5e.3: when resolved_fn_key is Type.method (e.g. "Layout.new"),
+                        // try ".Type.method" suffix FIRST so alloc.Layout.new(..)
+                        // resolves to xiom.alloc.Layout.new even when Rc.new confuses
+                        // the generic ".new" suffix search.
                         let suffix = format!(".{fn_name}");
                         let mut found = String::new();
                         let is_bare_call = !resolved_fn_key.contains('.') && receiver_expr.is_none();
-                        for key in self.functions.keys() {
-                            if key.ends_with(&suffix) {
-                                // Skip method names when resolving truly bare calls
-                                if is_bare_call && key.contains('.') {
-                                    continue;
+                        // Pass 1: specific suffix match (e.g. ".Layout.new")
+                        if resolved_fn_key.contains('.') {
+                            let specific = format!(".{}", resolved_fn_key);
+                            for key in self.functions.keys() {
+                                if key.ends_with(&specific) {
+                                    if found.is_empty() { found = key.clone(); }
+                                    else if found != *key { found.clear(); break; }
                                 }
-                                if found.is_empty() {
-                                    found = key.clone();
-                                } else if found != *key {
-                                    found.clear();
-                                    break;
+                            }
+                        }
+                        // Pass 2: generic suffix match (e.g. ".new")
+                        if found.is_empty() {
+                            for key in self.functions.keys() {
+                                if key.ends_with(&suffix) {
+                                    if is_bare_call && key.contains('.') { continue; }
+                                    if found.is_empty() { found = key.clone(); }
+                                    else if found != *key { found.clear(); break; }
                                 }
                             }
                         }
@@ -4891,8 +4980,19 @@ impl IrEmitter {
                     let target_llvm_ty = self.llvm_type_for_fallback(&Self::type_from_ast(ty));
                     if target_llvm_ty.ends_with('*') {
                         if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
+                            // 5e.3: when the local is already a pointer type
+                            // (e.g. raw: *UInt8 cast to *RcInner[T]), load the
+                            // stored pointer value BEFORE bitcasting. Without this,
+                            // bitcast(i8** -> %RcInner*) corrupts the stack by
+                            // pointing to the alloca slot instead of the heap buf.
                             let ptr_reg = self.fresh_tmp();
-                            self.emitln(&format!("  {ptr_reg} = bitcast {slot_ty}* {slot} to {target_llvm_ty}"));
+                            if slot_ty.ends_with('*') {
+                                let loaded = self.fresh_tmp();
+                                self.emitln(&format!("  {loaded} = load {slot_ty}, {slot_ty}* {slot}"));
+                                self.emitln(&format!("  {ptr_reg} = bitcast {slot_ty} {loaded} to {target_llvm_ty}"));
+                            } else {
+                                self.emitln(&format!("  {ptr_reg} = bitcast {slot_ty}* {slot} to {target_llvm_ty}"));
+                            }
                             return Ok((ptr_reg, target_llvm_ty.clone()));
                         }
                     }
