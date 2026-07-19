@@ -336,8 +336,15 @@ impl IrEmitter {
                 }
             }
             Expr::Float(f, _) => {
-                if llvm_ty == "double" || llvm_ty == "float" {
+                if llvm_ty == "double" {
                     format!("{f:.6}")
+                } else if llvm_ty == "float" {
+                    // CG-02: LLVM requires float constants to round-trip exactly
+                    // through decimal→double→float. Use ryu crate or manual formatting
+                    // with enough digits for the exact float32→float64→decimal→float64
+                    // roundtrip. 17 significant digits is enough.
+                    let f32_val = *f as f32;
+                    format!("{:.17e}", f32_val)
                 } else {
                     Self::default_const_for(llvm_ty)
                 }
