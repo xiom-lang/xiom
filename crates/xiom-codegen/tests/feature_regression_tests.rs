@@ -1549,3 +1549,25 @@ fn main() -> Int {
     assert!(!ir.contains("float 0.300000"), "must not emit old decimal format:\n{ir}");
     assert!(!ir.contains("float 0.500000"), "must not emit old decimal format:\n{ir}");
 }
+
+/// CG-01b: Int32→Float32 cast must emit `sitofp i64 to float`, not
+/// produce "%tmp defined with type 'i32' but expected 'float'" LLVM error.
+/// Verified fixed in v0.48.8 — agent report from v0.48.6 was stale.
+#[test]
+fn regress_cg01_int32_to_float32_cast() {
+    let src = "fn main() -> Int { var x: Int32 = 42; var y: Float32 = x as Float32; if y > 41.0 { return 0; } return 1; }";
+    let ir = compile(src).expect("CG-01b Int32->Float32 must compile");
+    assert!(ir.contains("sitofp"), "Must emit sitofp for Int32->Float32 cast:\n{ir}");
+    assert!(!ir.contains("error"), "Must not contain LLVM errors:\n{ir}");
+}
+
+/// CG-02: Module-scope Float32 non-zero init must compile without
+/// "floating point constant invalid for type" LLVM error.
+/// Verified fixed in v0.48.6 (17-digit scientific notation).
+#[test]
+fn regress_cg02_float32_module_scope_init() {
+    let src = "var x: Float32 = 0.5; var y: Float32 = 0.3; fn main() -> Int { if x > 0.4 { return 0; } return 1; }";
+    let ir = compile(src).expect("CG-02 Float32 init must compile");
+    assert!(ir.contains("global float"), "Must emit float global:\n{ir}");
+    assert!(!ir.contains("float 0.300000"), "Must not emit old hex-invalid format:\n{ir}");
+}
