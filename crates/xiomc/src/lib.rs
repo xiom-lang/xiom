@@ -215,15 +215,10 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
             // contains at least one .xi file (avoid scanning system dirs like
             // C:\Users\...\AppData\Local for temp files).
             if let Some(grandparent) = parent.parent() {
-                if grandparent.join(parent.file_name().unwrap_or_default()).exists() {
-                    let has_xi = std::fs::read_dir(grandparent).map(|entries| {
-                        entries.flatten().any(|e| {
-                            e.path().extension().map_or(false, |ext| ext == "xi")
-                        })
-                    }).unwrap_or(false);
-                    if has_xi {
-                        checker.add_source_dir(grandparent.to_string_lossy().to_string());
-                    }
+                if std::fs::read_dir(grandparent).map_or(false, |entries| {
+                    entries.flatten().any(|e| e.path().extension().map_or(false, |ext| ext == "xi"))
+                }) {
+                    checker.add_source_dir(grandparent.to_string_lossy().to_string());
                 }
             }
         }
@@ -361,12 +356,9 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
         if let Some(parent) = file_path.parent() {
             checker.add_source_dir(parent.to_string_lossy().to_string());
             if let Some(grandparent) = parent.parent() {
-                if grandparent.join(parent.file_name().unwrap_or_default()).exists() {
-                    let has_xi = std::fs::read_dir(grandparent).map(|entries| {
-                        entries.flatten().any(|e| e.path().extension().map_or(false, |ext| ext == "xi"))
-                    }).unwrap_or(false);
-                    if has_xi { checker.add_source_dir(grandparent.to_string_lossy().to_string()); }
-                }
+                if std::fs::read_dir(grandparent).map_or(false, |entries| {
+                    entries.flatten().any(|e| e.path().extension().map_or(false, |ext| ext == "xi"))
+                }) { checker.add_source_dir(grandparent.to_string_lossy().to_string()); }
             }
         }
         if let Some(root) = find_project_root(file_path) {
