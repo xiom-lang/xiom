@@ -205,15 +205,15 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
 
     // Stage 3: Type Check
     let mut checker = Checker::new();
-    // 5e.3 G-31: add source file's parent directory for single-file resolution.
-    // Also walk up to find project root (package.xi, xiom.lock, .git, src/) so
-    // cross-directory `use xiom.*` imports resolve from any file in the tree.
     if let Some(primary) = source_paths.first() {
         if let Some(parent) = Path::new(primary).parent() {
             checker.add_source_dir(parent.to_string_lossy().to_string());
         }
+        // 5e.3 G-31: walk-up project root detection for cross-directory
+        // use resolution. Only add the project root's src/ subdirectory
+        // (if present) — do NOT add the root itself to avoid polluting
+        // the catalog with ghost modules from other project subtrees.
         if let Some(root) = find_project_root(Path::new(primary)) {
-            checker.add_source_dir(root.to_string_lossy().to_string());
             let src_dir = root.join("src");
             if src_dir.is_dir() {
                 checker.add_source_dir(src_dir.to_string_lossy().to_string());
@@ -345,9 +345,8 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
         if let Some(parent) = Path::new(primary).parent() {
             checker.add_source_dir(parent.to_string_lossy().to_string());
         }
-        // 5e.3 G-31: walk-up project root detection for cross-directory use resolution
+        // 5e.3 G-31: walk-up project root detection. Only add src/ subdir.
         if let Some(root) = find_project_root(Path::new(primary)) {
-            checker.add_source_dir(root.to_string_lossy().to_string());
             let src_dir = root.join("src");
             if src_dir.is_dir() {
                 checker.add_source_dir(src_dir.to_string_lossy().to_string());

@@ -84,9 +84,11 @@ impl Backend {
                 }
                 // 5e.3 G-31: walk-up project root detection so cross-directory
                 // `use xiom.*` imports resolve in single-file LSP mode.
+                // Only add the project root's src/ subdirectory (if present)
+                // — do NOT add the root itself to avoid polluting the catalog
+                // with ghost modules from other project subtrees.
                 if let Some(file_path) = uri_to_file_path(uri) {
                     if let Some(root) = xiomc::find_project_root(&file_path) {
-                        checker.add_source_dir(root.to_string_lossy().to_string());
                         let src_dir = root.join("src");
                         if src_dir.is_dir() {
                             checker.add_source_dir(src_dir.to_string_lossy().to_string());
