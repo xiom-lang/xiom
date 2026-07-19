@@ -1376,3 +1376,33 @@ fn regress_5d_g47_forward_decl() {
     // The forward-declared fn must be emitted (non-stub, not dropped).
     assert!(!ir.contains("declare i64 @helper"), "forward decl must NOT become extern declare");
 }
+
+/// 5e.1 G-17: C struct field access through typed pointer from extern "C"
+/// declaration. The typed-pointer infrastructure (5c/5c-E) already emits
+/// `%struct.T*` return types and supports GEP + load for field access.
+#[test]
+fn regress_5e_g17_c_struct_field_via_pointer() {
+    let src = r#"
+pub type CDevice = { id: Int; name_len: Int; }
+
+extern "C" {
+  fn get_device() -> *CDevice;
+}
+
+fn main() -> Int {
+  unsafe {
+    let d = get_device();
+    let ident = d.id;
+    if ident > 0 { return 1; }
+  }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "C struct field via pointer must compile");
+    // Must have typed pointer return + GEP-based field access.
+    assert!(ir.contains("declare %struct.CDevice* @get_device"), "extern must return typed ptr");
+    assert!(
+        ir.contains("getelementptr %struct.CDevice, %struct.CDevice*") && ir.contains("i32 0, i32 0"),
+        "field access must be GEP-based, not offset arithmetic"
+    );
+}
