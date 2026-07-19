@@ -1341,3 +1341,38 @@ fn main() -> Int {
         ir.lines().filter(|l| l.contains("bitcast") || l.contains("inttoptr")).collect::<Vec<_>>().join("\n")
     );
 }
+
+/// G-28: E001 false-move on extern out-params — Place-model (5c-R) already
+/// resolved this. The pattern `&local as *T` + extern write-back must NOT
+/// trigger "use of moved value". Locking with a regression.
+#[test]
+fn regress_5d_g28_extern_out_param_no_false_move() {
+    let src = r#"
+extern "C" {
+  fn memset(ptr: *mut UInt8, value: Int, size: UInt) -> *mut UInt8;
+}
+fn main() -> Int {
+  var out: Int = 7;
+  unsafe {
+    let p = &out as *mut UInt8;
+    memset(p, 0, 8);
+  }
+  if out != 0 { return 1; }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "extern out-param pattern must compile");
+    // Must not contain E001 move errors in diagnostics.
+    assert!(!ir.contains("use of moved value"), "out-param must not be a false move");
+}
+
+/// G-47: forward declarations (`fn f(...) -> T;`) are accepted and compile
+/// the same as full-body definitions. Both forms must work interchangeably.
+#[test]
+fn regress_5d_g47_forward_decl() {
+    let src = "fn helper(x: Int) -> Int; fn main() -> Int { return helper(5); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "forward decl must compile");
+    // The forward-declared fn must be emitted (non-stub, not dropped).
+    assert!(!ir.contains("declare i64 @helper"), "forward decl must NOT become extern declare");
+}
