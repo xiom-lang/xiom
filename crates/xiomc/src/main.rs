@@ -323,7 +323,7 @@ fn main() {
         }
     }
 
-    // 5g AI Pipeline: load config and generate hints
+    // 5g AI Pipeline: run check-only compile first to get diagnostics, then call LLM
     if ai_mode || ai_local || ai_dry_run {
         let ai_config = xiomc::ai::load_ai_config(ai_model.clone());
         let ai_config = xiomc::ai::AiConfig {
@@ -333,20 +333,40 @@ fn main() {
             model: ai_model.unwrap_or(ai_config.model),
             ..ai_config
         };
-        eprintln!("[AI] Provider: {}, Model: {}, Endpoint: {}",
-            ai_config.provider, ai_config.model,
-            if ai_config.endpoint.len() > 40 { format!("{}...", &ai_config.endpoint[..40]) } else { ai_config.endpoint.clone() });
+        eprintln!("[AI] Provider: {}, Model: {}",
+            ai_config.provider, ai_config.model);
 
+        // Run check-only pass to collect diagnostics
         for path in &source_paths {
-            if let Ok(source) = std::fs::read_to_string(path) {
-                match xiomc::ai::run_ai_pipeline(&ai_config, &source, path, &[]) {
+            let check_config = CompileConfig {
+                check_only: true, emit_ir: true, diagnostics_json: true,
+                target: config.target, release: config.release,
+                do_run: false, check_contracts: config.check_contracts,
+                strict_mode: config.strict_mode, debug_symbols: config.debug_symbols,
+                shared_lib: false, static_lib: false,
+                max_recursion_depth: config.max_recursion_depth,
+                dump_contracts: config.dump_contracts,
+                verify: config.verify,
+                verify_output: config.verify_output.clone(),
+                output_file: None,
+                link_libs: vec![],
+                link_paths: vec![],
+                c_sources: vec![],
+            };
+            let result = xiomc::compile_with_diagnostics(&check_config, &[path.clone()]);
+            let source = std::fs::read_to_string(path).unwrap_or_default();
+
+            if !result.diagnostics.is_empty() {
+                match xiomc::ai::run_ai_pipeline(&ai_config, &source, path, &result.diagnostics) {
                     Ok(output) if !ai_silent => {
-                        eprintln!("xiomc --ai: {} hints written to .xiom_ai.json ({} cached, {} API calls)",
-                            output.total_hints, output.cached_hints, output.api_calls);
+                        eprintln!("xiomc --ai: {} hints → .xiom_ai.json ({} API, {} cached)",
+                            output.total_hints, output.api_calls, output.cached_hints);
                     }
                     Err(e) => eprintln!("[AI] {e}"),
                     _ => {}
                 }
+            } else {
+                eprintln!("[AI] No diagnostics — source compiles cleanly.");
             }
         }
     }
