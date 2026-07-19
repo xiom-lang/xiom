@@ -122,12 +122,34 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | **5d.9** | **🔒 Sandbox Audit** | **--sandbox, severity scoring, CI/CD exit codes** | **✅ Production — 10 tests** | 10 | [SAFETY_AUDIT.md](./SAFETY_AUDIT.md) |
 | **5d.10** | **🧭 Ecosystem Gap Registry** | **Canonical G-01..G-49 registry. ALL 49 FIXED/VERIFIED.** | **✅ Complete** | [ecosystem-audit/](./ecosystem-audit/README.md) |
 | │ | | | | | |
-| **5e** | **Advanced Compilation** | **Typed IR, multi-package, hot reload, 48/49 gaps FIXED** | **✅ COMPLETE — --watch + --hot-reload flags, all 4 sub-phases** | |
+| **5e** | **Advanced Compilation** | **Multi-package, hot reload, LSP polish, P2/P3 deferred** | **🚧 4 sub-phases ✅ + 3 new sub-phases (5e.5–5e.7)** | |
 | │ | | | | | |
 | **5e.1** | **🔗 Typed Pointer IR** | **C struct field access, sizeof, Bool C layout** | **✅ G-17, G-18, G-39 — all FIXED** | [ecosystem-audit/COMPILER_GAPS.md](../docs/ecosystem-audit/COMPILER_GAPS.md) |
 | **5e.2** | **🖇️ Fn-Pointer Types** | **XIOM fn→C callback, Int→fn-ptr cast** | **✅ G-16, G-34 — all FIXED** | — |
 | **5e.3** | **📦 Multi-Package Build** | **Cross-package extern/use, catalog, grandparent dir** | **✅ G-30, G-31, G-32 — all FIXED** | — |
 | **5e.4** | **🏷️ Distinct Newtype** | **`distinct` keyword for handle safety** | **✅ G-41 — FIXED** | — |
+| │ | | | | | |
+| **5e.5** | **🔥 Hot Reload** | **--watch + --hot-reload, function pointer table, DLL lifecycle** | **🚧 Foundation (--watch + runtime) done; codegen indirection + host exe + state migration pending** | [COMPILER_IMPROVEMENT_PLAN.md](./COMPILER_IMPROVEMENT_PLAN.md) |
+| │ │ 5e.5a Indirect call thunks | Modify codegen — pub fn calls through `@xiom_hot_get_ptr` thunk | ⬜ P0 (2-3 days) |
+| │ │ 5e.5b DLL host executable | Load DLL, watch files, recompile, swap pointers | ⬜ P0 (1-2 days) |
+| │ │ 5e.5c State migration | Serialize globals → shared segment → survive reload | ⬜ P1 (2-3 days) |
+| │ │ 5e.5d Filesystem events | `ReadDirectoryChangesW` / `inotify` instead of 500ms polling | ⬜ P1 (1 day) |
+| │ │ 5e.5e Contract verification on reload | Verify new code satisfies contracts before hot-swapping | ⬜ P2 (2-3 days) |
+| │ │ 5e.5f Incremental recompilation | Only recompile changed modules, reuse previous IR | ⬜ P2 (3-5 days) |
+| │ | | | | | |
+| **5e.6** | **🖥️ LSP P2 Polish** | **Workspace symbols, code actions, semantic tokens (done)** | **🚧 Semantic tokens ✅; workspace symbols + code actions ⬜** | |
+| │ │ 5e.6a Semantic tokens | `textDocument/semanticTokens/full` — keywords, types, strings, numbers | ✅ Done |
+| │ │ 5e.6b Workspace symbol search | `workspace/symbol` — project-wide `collect_top_symbols` | ⬜ P1 (1 day) |
+| │ │ 5e.6c Code actions / Quick fixes | `textDocument/codeAction` — diagnostic-to-fix mapping | ⬜ P2 (2-3 days) |
+| │ │ 5e.6d Inlay hints | Type annotations, parameter names | ⬜ P3 (1-2 days) |
+| │ | | | | | |
+| **5e.7** | **🔧 P2/P3 Deferred** | **Debugger backends, registry, signing, derive, CI** | **⬜ All deferred — not blocking release** | |
+| │ │ 5e.7a Platform debug API | WinDbg/lldb backends (GDB only currently) | ⬜ P3 (3-5 days) |
+| │ │ 5e.7b Remote dependency registry | Replace hardcoded known packages with remote lookup | ⬜ P3 (5-7 days) |
+| │ │ 5e.7c Digital signing | Code signing for distributed binaries | ⬜ P3 (2-3 days) |
+| │ │ 5e.7d Derive macro improvements | `derive[Clone/Eq/Ord/Hash]` for enums with heap fields | ⬜ P2 (2-3 days) |
+| │ │ 5e.7e CI/GitHub Actions | Automated test suite, release packaging | ⬜ POSTPONE — manual release for now |
+| │ | | | | | |
 | **5f** | **Z3 Verification** | **Contract proof at compile time — "near zero runtime crashes"** | **✅ Stage 2 — body encoding + side-condition VCs + contract composition + z3 auto-detect + span diagnostics** | — | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
 | **5g** | **🤖 AI Pipeline** | **--ai flag, LLM hints, contract-guided, temp=0** | **Planned (after 5f)** | — | [AI_PIPELINE.md](./AI_PIPELINE.md) |
 | **5h** | **🏁 Self-Hosting** | **XIOM compiler in XIOM** | **Planned (LAST)** | — | [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md) |
