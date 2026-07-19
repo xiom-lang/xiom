@@ -86,12 +86,9 @@ impl Backend {
                 // 5e.3 G-31: add grandparent only if it contains .xi files
                 if let Some(file_path) = uri_to_file_path(uri) {
                     if let Some(grandparent) = file_path.parent().and_then(|p| p.parent()) {
-                        if grandparent.join(file_path.parent().unwrap_or(Path::new(".")).file_name().unwrap_or_default()).exists() {
-                            let has_xi = std::fs::read_dir(&grandparent).map(|entries| {
-                                entries.flatten().any(|e| e.path().extension().map_or(false, |ext| ext == "xi"))
-                            }).unwrap_or(false);
-                            if has_xi { checker.add_source_dir(grandparent.to_string_lossy().to_string()); }
-                        }
+                        if std::fs::read_dir(&grandparent).map_or(false, |entries| {
+                            entries.flatten().any(|e| e.path().extension().map_or(false, |ext| ext == "xi"))
+                        }) { checker.add_source_dir(grandparent.to_string_lossy().to_string()); }
                     }
                     if let Some(root) = xiomc::find_project_root(&file_path) {
                         let src_dir = root.join("src");
