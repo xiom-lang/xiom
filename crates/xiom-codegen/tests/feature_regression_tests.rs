@@ -1474,3 +1474,29 @@ fn main() -> Int {
     assert!(ir.contains("declare i64 @get_handler"), "extern fn must be declared");
     assert!(ir.contains("declare void @register_callback"), "callback registration must be declared");
 }
+
+/// G-16 (5e.2): XIOM fn → C callback lowering. `my_handler as Int` emits
+/// `ptrtoint {fn_ty} @my_handler to i64` — the XIOM function's address is
+/// passed to the extern callback registry as an integer pointer.
+#[test]
+fn regress_5e_g16_xiom_fn_as_c_callback() {
+    let src = r#"
+extern "C" {
+  fn set_callback(cb: Int);
+}
+fn my_handler(x: Int) -> Int { return x + 1; }
+fn main() -> Int {
+  unsafe {
+    let fn_ptr = my_handler as Int;
+    set_callback(fn_ptr);
+  }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "fn as callback must compile");
+    assert!(
+        ir.contains("ptrtoint i64 (i64)* @my_handler to i64"),
+        "XIOM fn must be lowered to ptrtoint @symbol:\n{}",
+        ir.lines().filter(|l| l.contains("my_handler")).collect::<Vec<_>>().join("\n")
+    );
+}
