@@ -228,7 +228,7 @@ impl Formatter {
                 self.push_indent();
                 self.buf.push_str("}\n");
             }
-            Stmt::While(cond, body, _) => {
+            Stmt::While(cond, body, _, _) => {
                 self.push_indent();
                 self.buf.push_str("while ");
                 self.format_expr(cond);

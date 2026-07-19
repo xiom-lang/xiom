@@ -759,7 +759,7 @@ impl Checker {
                     || elifs.iter().any(|(c, b)| Self::expr_uses_this(c) || Self::block_uses_this(b))
                     || else_b.as_ref().map_or(false, |b| Self::block_uses_this(b))
             }
-            xiom_ast::Stmt::While(cond, body, _) | xiom_ast::Stmt::For(_, cond, body, _) => {
+            xiom_ast::Stmt::While(cond, body, _, _) | xiom_ast::Stmt::For(_, cond, body, _) => {
                 Self::expr_uses_this(cond) || Self::block_uses_this(body)
             }
             xiom_ast::Stmt::Match(scrut, arms, _) => {
@@ -1282,7 +1282,7 @@ impl Checker {
                         }
                     }
                 }
-                Stmt::While(c, b, _) => { collect_expr_names(c, out); collect_block_names(b, out); }
+                Stmt::While(c, b, _, _) => { collect_expr_names(c, out); collect_block_names(b, out); }
                 Stmt::For(_, e, b, _) => { collect_expr_names(e, out); collect_block_names(b, out); }
                 Stmt::Spawn(b, _) => collect_block_names(b, out),
                 Stmt::Destructure(_, e, _) => collect_expr_names(e, out),
@@ -2035,7 +2035,7 @@ impl Checker {
                 }
                 let _ = matched_ty;
             }
-            Stmt::While(cond, body, _) => {
+            Stmt::While(cond, body, _, _) => {
                 let cond_ty = self.check_expr(cond);
                 if cond_ty.name() != "Bool" && cond_ty != CheckedType::Error {
                     self.error(format!("while condition must be Bool, found {}", cond_ty.name()), cond.span());
@@ -3307,7 +3307,7 @@ impl BorrowChecker {
                     }
                 }
             }
-            Stmt::While(cond, body, _) => {
+            Stmt::While(cond, body, _, _) => {
                 self.check_expr(cond);
                 self.push_scope();
                 self.check_block(body);

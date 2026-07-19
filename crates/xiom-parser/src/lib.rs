@@ -950,7 +950,7 @@ impl Parser {
                 let span = self.advance().span; // consume 'loop'
                 let body = self.parse_block()?;
                 // Desugar `loop { ... }` to `while true { ... }`
-                Ok(StmtOrExpr::Stmt(Stmt::While(Expr::Bool(true, span), body, span)))
+                Ok(StmtOrExpr::Stmt(Stmt::While(Expr::Bool(true, span), body, None, span)))
             }
             _ => {
                 let expr = self.parse_expr()?;
@@ -1046,7 +1046,20 @@ impl Parser {
         }
     }
 
-    fn parse_while_stmt(&mut self) -> Result<Stmt, ParseError> { let span = self.advance().span; let cond = self.parse_cond()?; let body = self.parse_block()?; Ok(Stmt::While(cond, body, span)) }
+    fn parse_while_stmt(&mut self) -> Result<Stmt, ParseError> {
+        let span = self.advance().span;
+        let cond = self.parse_cond()?;
+        // 5f: optional loop invariant
+        let invariant = if self.check(|k| matches!(k, TokenKind::Ident(s) if s == "invariant")) {
+            self.advance();
+            self.expect_kind(TokenKind::Colon, "':' after 'invariant'")?;
+            Some(self.parse_cond()?)
+        } else {
+            None
+        };
+        let body = self.parse_block()?;
+        Ok(Stmt::While(cond, body, invariant, span))
+    }
     fn parse_for_stmt(&mut self) -> Result<Stmt, ParseError> { let span = self.advance().span; let var = self.parse_ident()?; self.expect_kind(TokenKind::In, "'in'")?; let iter = self.parse_cond()?; let body = self.parse_block()?; Ok(Stmt::For(var, iter, body, span)) }
     fn parse_spawn_stmt(&mut self) -> Result<Stmt, ParseError> { let span = self.advance().span; let body = self.parse_block()?; Ok(Stmt::Spawn(body, span)) }
 

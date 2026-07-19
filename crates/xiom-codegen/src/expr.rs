@@ -1051,7 +1051,7 @@ impl IrEmitter {
 
                 self.emitln(&format!("\n{merge_label}:"));
             }
-            Stmt::While(cond, body, _) => {
+            Stmt::While(cond, body, _, _) => {
                 let loop_cond = self.fresh_block("while_cond");
                 let loop_body = self.fresh_block("while_body");
                 let loop_exit = self.fresh_block("while_exit");

@@ -170,7 +170,7 @@ impl crate::IrEmitter {
                     || elifs.iter().any(|(c, b)| Self::expr_uses_this(c) || Self::block_uses_this(b))
                     || else_b.as_ref().map_or(false, |b| Self::block_uses_this(b))
             }
-            Stmt::While(cond, body, _) => Self::expr_uses_this(cond) || Self::block_uses_this(body),
+            Stmt::While(cond, body, _, _) => Self::expr_uses_this(cond) || Self::block_uses_this(body),
             Stmt::Match(scrut, arms, _) => {
                 Self::expr_uses_this(scrut)
                     || arms.iter().any(|arm| match &arm.body {
@@ -233,7 +233,7 @@ impl crate::IrEmitter {
                     || elifs.iter().any(|(c, b)| Self::expr_mentions_any_ident(c, names) || Self::block_mentions_any_ident(b, names))
                     || else_b.as_ref().map_or(false, |b| Self::block_mentions_any_ident(b, names))
             }
-            Stmt::While(cond, body, _) => Self::expr_mentions_any_ident(cond, names) || Self::block_mentions_any_ident(body, names),
+            Stmt::While(cond, body, _, _) => Self::expr_mentions_any_ident(cond, names) || Self::block_mentions_any_ident(body, names),
             Stmt::For(_, iter, body, _) => Self::expr_mentions_any_ident(iter, names) || Self::block_mentions_any_ident(body, names),
             Stmt::Match(scrut, arms, _) => {
                 Self::expr_mentions_any_ident(scrut, names)
