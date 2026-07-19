@@ -45,9 +45,9 @@ pub fn Point2D.new(x: Float64, y: Float64) -> Point2D {
   return Point2D{ x: x, y: y };
 }
 
-pub fn Point2D.dist_sq(other: &Point2D) -> Float64 {
-  var dx = x - other.x;
-  var dy = y - other.y;
+pub fn Point2D.dist_sq(self, other: &Point2D) -> Float64 {
+  var dx = self.x - other.x;
+  var dy = self.y - other.y;
   return dx * dx + dy * dy;
 }
 
@@ -55,10 +55,10 @@ pub fn Point3D.new(x: Float64, y: Float64, z: Float64) -> Point3D {
   return Point3D{ x: x, y: y, z: z };
 }
 
-pub fn Point3D.dist_sq(other: &Point3D) -> Float64 {
-  var dx = x - other.x;
-  var dy = y - other.y;
-  var dz = z - other.z;
+pub fn Point3D.dist_sq(self, other: &Point3D) -> Float64 {
+  var dx = self.x - other.x;
+  var dy = self.y - other.y;
+  var dz = self.z - other.z;
   return dx * dx + dy * dy + dz * dz;
 }
 
@@ -192,12 +192,12 @@ pub fn BigStruct.new(val: Int) -> BigStruct {
   };
 }
 
-pub fn BigStruct.sum() -> Int {
-  return f00 + f01 + f02 + f03 + f04 + f05 + f06 + f07 + f08 + f09
-    + f10 + f11 + f12 + f13 + f14 + f15 + f16 + f17 + f18 + f19
-    + f20 + f21 + f22 + f23 + f24 + f25 + f26 + f27 + f28 + f29
-    + f30 + f31 + f32 + f33 + f34 + f35 + f36 + f37 + f38 + f39
-    + f40 + f41 + f42 + f43 + f44 + f45 + f46 + f47 + f48 + f49;
+pub fn BigStruct.sum(self) -> Int {
+  return self.f00 + self.f01 + self.f02 + self.f03 + self.f04 + self.f05 + self.f06 + self.f07 + self.f08 + self.f09
+    + self.f10 + self.f11 + self.f12 + self.f13 + self.f14 + self.f15 + self.f16 + self.f17 + self.f18 + self.f19
+    + self.f20 + self.f21 + self.f22 + self.f23 + self.f24 + self.f25 + self.f26 + self.f27 + self.f28 + self.f29
+    + self.f30 + self.f31 + self.f32 + self.f33 + self.f34 + self.f35 + self.f36 + self.f37 + self.f38 + self.f39
+    + self.f40 + self.f41 + self.f42 + self.f43 + self.f44 + self.f45 + self.f46 + self.f47 + self.f48 + self.f49;
 }
 
 fn test_big_struct() -> Int {
@@ -235,8 +235,8 @@ pub fn Matrix2x2.new(a11: Float64, a12: Float64, a21: Float64, a22: Float64) -> 
   return Matrix2x2{ a11: a11, a12: a12, a21: a21, a22: a22 };
 }
 
-pub fn Matrix2x2.determinant() -> Float64 {
-  return a11 * a22 - a12 * a21;
+pub fn Matrix2x2.determinant(self) -> Float64 {
+  return self.a11 * self.a22 - self.a12 * self.a21;
 }
 
 pub fn Matrix3x3.new(m11: Float64, m12: Float64, m13: Float64, m21: Float64, m22: Float64, m23: Float64, m31: Float64, m32: Float64, m33: Float64) -> Matrix3x3 {
@@ -247,10 +247,10 @@ pub fn Matrix3x3.new(m11: Float64, m12: Float64, m13: Float64, m21: Float64, m22
   };
 }
 
-pub fn Matrix3x3.determinant() -> Float64 {
-  var a = m11 * (m22 * m33 - m23 * m32);
-  var b = m12 * (m21 * m33 - m23 * m31);
-  var c = m13 * (m21 * m32 - m22 * m31);
+pub fn Matrix3x3.determinant(self) -> Float64 {
+  var a = self.m11 * (self.m22 * self.m33 - self.m23 * self.m32);
+  var b = self.m12 * (self.m21 * self.m33 - self.m23 * self.m31);
+  var c = self.m13 * (self.m21 * self.m32 - self.m22 * self.m31);
   return a - b + c;
 }
 
@@ -352,28 +352,28 @@ pub fn Counter.new(start: Int, step: Int) -> Counter {
   return Counter{ value: start, step: step };
 }
 
-pub fn Counter.inc() -> Counter {
-  return Counter{ value: value + step, step: step };
+pub fn Counter.inc(self) -> Counter {
+  return Counter{ value: self.value + self.step, step: self.step };
 }
 
-pub fn Counter.dec() -> Counter {
-  return Counter{ value: value - step, step: step };
+pub fn Counter.dec(self) -> Counter {
+  return Counter{ value: self.value - self.step, step: self.step };
 }
 
-pub fn Counter.reset() -> Counter {
-  return Counter{ value: 0, step: step };
+pub fn Counter.reset(self) -> Counter {
+  return Counter{ value: 0, step: self.step };
 }
 
-pub fn Counter.set(new_val: Int) -> Counter {
-  return Counter{ value: new_val, step: step };
+pub fn Counter.set(self, new_val: Int) -> Counter {
+  return Counter{ value: new_val, step: self.step };
 }
 
-pub fn Counter.is_positive() -> Bool {
-  return value > 0;
+pub fn Counter.is_positive(self) -> Bool {
+  return self.value > 0;
 }
 
-pub fn Counter.is_zero() -> Bool {
-  return value == 0;
+pub fn Counter.is_zero(self) -> Bool {
+  return self.value == 0;
 }
 
 fn test_counter() -> Int {

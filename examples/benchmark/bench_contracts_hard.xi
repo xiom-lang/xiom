@@ -192,28 +192,28 @@ pub fn Fraction.new(num: Int, den: Int) -> Fraction
   return Fraction{ numerator: num, denominator: den };
 }
 
-pub fn Fraction.add(other: &Fraction) -> Fraction
-  requires: denominator > 0
+pub fn Fraction.add(self, other: &Fraction) -> Fraction
+  requires: self.denominator > 0
   requires: other.denominator > 0
   ensures: result.denominator > 0
-  ensures: result.denominator == denominator * other.denominator
-  ensures: result.numerator == numerator * other.denominator + other.numerator * denominator
+  ensures: result.denominator == self.denominator * other.denominator
+  ensures: result.numerator == self.numerator * other.denominator + other.numerator * self.denominator
 {
   return Fraction{
-    numerator: numerator * other.denominator + other.numerator * denominator,
-    denominator: denominator * other.denominator,
+    numerator: self.numerator * other.denominator + other.numerator * self.denominator,
+    denominator: self.denominator * other.denominator,
   };
 }
 
-pub fn Fraction.multiply(other: &Fraction) -> Fraction
-  requires: denominator > 0
+pub fn Fraction.multiply(self, other: &Fraction) -> Fraction
+  requires: self.denominator > 0
   requires: other.denominator > 0
   ensures: result.denominator > 0
-  ensures: result.denominator == denominator * other.denominator
+  ensures: result.denominator == self.denominator * other.denominator
 {
   return Fraction{
-    numerator: numerator * other.numerator,
-    denominator: denominator * other.denominator,
+    numerator: self.numerator * other.numerator,
+    denominator: self.denominator * other.denominator,
   };
 }
 

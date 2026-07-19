@@ -134,18 +134,18 @@ pub type Point2D = {
   y: Float64;
 } derive[Eq, Clone]
 
-pub fn Point2D.distance_sq(other: &Point2D) -> Float64 {
-  var dx = x - other.x;
-  var dy = y - other.y;
+pub fn Point2D.distance_sq(self, other: &Point2D) -> Float64 {
+  var dx = self.x - other.x;
+  var dy = self.y - other.y;
   return dx * dx + dy * dy;
 }
 
-pub fn Point2D.magnitude_sq() -> Float64 {
-  return x * x + y * y;
+pub fn Point2D.magnitude_sq(self) -> Float64 {
+  return self.x * self.x + self.y * self.y;
 }
 
-pub fn Point2D.add(other: &Point2D) -> Float64 {
-  return x + other.x + y + other.y;
+pub fn Point2D.add(self, other: &Point2D) -> Float64 {
+  return self.x + other.x + self.y + other.y;
 }
 
 pub fn distance_between(p1: &Point2D, p2: &Point2D) -> Float64 {

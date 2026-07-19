@@ -706,15 +706,19 @@ impl IrEmitter {
                 self.emitln(&format!("  {loaded_ptr} = load {st}, {st}* {self_alloca}"));
                 self.add_local("self", loaded_ptr.clone(), struct_ty);
                 // Add struct fields via GEP on the loaded pointer.
-                // Try bare name first, then module-qualified if not found.
-                let fields = self.types.get(&recv.name)
+                // 5e.3: try types first, then type_meta (catalog-loaded structs).
+                let types_fields = self.types.get(&recv.name)
                     .or_else(|| {
-                        // Try module-qualified name (e.g. "tests.ecosystem.test_net.IpAddr")
                         let suffix = format!(".{}", recv.name);
                         self.types.keys().find(|k| k.ends_with(&suffix))
                             .and_then(|k| self.types.get(k))
                     })
                     .cloned();
+                let fields: Option<Vec<String>> = types_fields.or_else(|| {
+                    self.type_meta.get(&recv.name).map(|m| {
+                        m.fields.iter().map(|(n, _)| n.clone()).collect()
+                    })
+                });
                 if let Some(fields) = fields {
                     for (idx, field_name) in fields.iter().enumerate() {
                         let field_llvm_ty = self.field_llvm_type(&recv.name, idx);
@@ -726,12 +730,18 @@ impl IrEmitter {
             } else {
                 self.add_local("self", self_alloca.clone(), st);
                 // Also add struct fields as locals for direct access
-                let fields = self.types.get(&recv.name)
+                // 5e.3: types first, then type_meta for catalog-loaded structs.
+                let types_fields = self.types.get(&recv.name)
                     .or_else(|| {
                         let suffix = format!(".{}", recv.name);
                         self.types.keys().find(|k| k.ends_with(&suffix)).and_then(|k| self.types.get(k))
                     })
                     .cloned();
+                let fields: Option<Vec<String>> = types_fields.or_else(|| {
+                    self.type_meta.get(&recv.name).map(|m| {
+                        m.fields.iter().map(|(n, _)| n.clone()).collect()
+                    })
+                });
                 if let Some(fields) = fields {
                     let alloca_ref = self_alloca;
                     for (idx, field_name) in fields.iter().enumerate() {
