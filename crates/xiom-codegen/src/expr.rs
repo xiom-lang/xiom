@@ -4941,6 +4941,18 @@ impl IrEmitter {
                         Ok((tmp, "i64".to_string()))
                     }
                     (a, b) if a == b => Ok((val, target_llvm_ty.clone())),
+                    // 5e.2 G-34: Int → fn-ptr cast.
+                    // LLVM fn-pointer type = e.g. "i64 (i64)*".
+                    // Emit inttoptr so the result can be called or stored.
+                    (inner_ty, target_fn_ptr) if target_fn_ptr.contains('(')
+                        && target_fn_ptr.contains(')')
+                        && target_fn_ptr.ends_with('*')
+                        && int_width(&inner_ty).is_some() =>
+                    {
+                        let ptr_reg = self.fresh_tmp();
+                        self.emitln(&format!("  {ptr_reg} = inttoptr {inner_ty} {val} to {target_fn_ptr}"));
+                        return Ok((ptr_reg, target_fn_ptr.to_string()));
+                    }
                     // 5c-E G2: &local as Int — emit ADDRESS not VALUE
                     (a, b) if matches!(inner.as_ref(), Expr::Ref(_, _) | Expr::MutRef(_, _))
                         && int_width(b).is_some()
