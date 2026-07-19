@@ -625,6 +625,38 @@ fn find_def_in_item(item: &xiom_ast::TopDecl, name: &str) -> Option<(u64, u64)> 
 }
 
 // ============================================================================
+// AI-02: LSP hover AI insights — reads .xiom_ai.json for error line matches
+// ============================================================================
+
+/// Search `.xiom_ai.json` for a hint matching the given file and line (0-indexed).
+/// Returns the AI insight text if found, or None.
+fn get_ai_insight_for_line(uri: &str, line: usize) -> Option<String> {
+    let ai_path = std::path::Path::new(".xiom_ai.json");
+    if !ai_path.exists() { return None; }
+
+    let data = std::fs::read_to_string(ai_path).ok()?;
+    let output: serde_json::Value = serde_json::from_str(&data).ok()?;
+
+    // Extract filename from URI
+    let file_name = uri.rsplit('/').next().unwrap_or(uri);
+
+    let hints = output["hints"].as_array()?;
+    for hint in hints {
+        let hint_file = hint["file"].as_str().unwrap_or("");
+        let hint_line = hint["line"].as_u64().unwrap_or(0) as usize;
+        // Convert 1-indexed (xiomc) to 0-indexed (LSP)
+        if (hint_file.ends_with(file_name) || hint_file == file_name) && hint_line.saturating_sub(1) == line {
+            let insight = hint["insight"].as_str().unwrap_or("");
+            if insight.is_empty() || insight.starts_with("[fallback]") { return None; }
+            let confidence = hint["confidence"].as_str().unwrap_or("MEDIUM");
+            let error_code = hint["error_code"].as_str().unwrap_or("");
+            return Some(format!("[{error_code}] ({confidence} confidence)\n{insight}"));
+        }
+    }
+    None
+}
+
+// ============================================================================
 // Semantic Tokens (5d.4 P2 — syntax highlighting)
 // ============================================================================
 
@@ -1417,6 +1449,9 @@ fn handle_lsp_message(msg: &serde_json::Value, backend: &Backend) -> Vec<serde_j
                 .as_u64()
                 .unwrap_or(0) as usize;
 
+            // 5f.3 AI-02: pre-load AI insight for this line
+            let ai_insight = uri.as_ref().and_then(|u| get_ai_insight_for_line(u, line));
+
             let hover = uri.and_then(|u| {
                 let docs = backend.documents.lock().unwrap();
                 let text = docs.get(&u)?.clone();
@@ -1563,6 +1598,21 @@ fn handle_lsp_message(msg: &serde_json::Value, backend: &Backend) -> Vec<serde_j
                         }
                     }))
                 }
+            });
+
+            // 5f.3 AI-02: inject pre-loaded AI insight into hover
+            let hover = hover.map(|mut h| {
+                if let Some(ref ai_text) = ai_insight {
+                    if let Some(obj) = h.as_object_mut() {
+                        if let Some(contents) = obj.get_mut("contents").and_then(|c| c.as_object_mut()) {
+                            if let Some(value) = contents.get("value").and_then(|v| v.as_str()) {
+                                let enhanced = format!("{}\n\n---\n🤖 **AI Insight:** {}", value, ai_text);
+                                contents.insert("value".into(), serde_json::json!(enhanced));
+                            }
+                        }
+                    }
+                }
+                h
             });
 
             let id = msg["id"].clone();
