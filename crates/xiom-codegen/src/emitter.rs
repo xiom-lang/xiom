@@ -154,7 +154,7 @@ impl IrEmitter {
         self.emitln("declare void @xiom_ir_call_arg_lit(i8*, i8*)");
         self.emitln("declare void @xiom_ir_ret_reg(i64)");
         self.emitln("declare void @xiom_ir_ret_lit(i64)");
-        // v0.10.0 function table
+        // v0.10.0 function table (IR self-hosting)
         self.emitln("declare void @xiom_fn_table_init()");
         self.emitln("declare void @xiom_set_source(i64)");
         self.emitln("declare void @xiom_fn_table_add(i64, i64, i64, i64, i64)");
