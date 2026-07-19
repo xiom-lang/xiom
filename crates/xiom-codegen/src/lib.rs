@@ -502,11 +502,26 @@ impl IrEmitter {
             return true;
         }
         let Some(recv) = fd.receiver.as_ref() else { return false };
-        let fields = self.types.get(&recv.name)
+        // 5e.3: check BOTH types and type_meta — catalog-loaded types (e.g.,
+        // benchmark modules) may only be in type_meta, not types.
+        let types_fields = self.types.get(&recv.name)
             .or_else(|| {
                 let suffix = format!(".{}", recv.name);
                 self.types.keys().find(|k| k.ends_with(&suffix)).and_then(|k| self.types.get(k))
-            });
+            })
+            .cloned();
+        let fields: Option<Vec<String>> = types_fields.or_else(|| {
+            self.type_meta.get(&recv.name).map(|m| {
+                m.fields.iter().map(|(n, _)| n.clone()).collect()
+            })
+        }).or_else(|| {
+            let suffix = format!(".{}", recv.name);
+            self.type_meta.keys().find(|k| k.ends_with(&suffix)).and_then(|k| {
+                self.type_meta.get(k).map(|m| {
+                    m.fields.iter().map(|(n, _)| n.clone()).collect()
+                })
+            })
+        });
         let Some(fields) = fields else { return false };
         // Names bound ANYWHERE in the fn shadow receiver fields: params,
         // let/var locals, for-binders, match-pattern bindings. A bare ident

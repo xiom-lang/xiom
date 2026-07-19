@@ -84,10 +84,10 @@ pub fn PositiveInt.new(val: Int) -> PositiveInt
   return PositiveInt{ value: val };
 }
 
-pub fn PositiveInt.add(other: &PositiveInt) -> PositiveInt
-  requires: value + other.value > 0
+pub fn PositiveInt.add(self, other: &PositiveInt) -> PositiveInt
+  requires: self.value + other.value > 0
 {
-  return PositiveInt{ value: value + other.value };
+  return PositiveInt{ value: self.value + other.value };
 }
 
 pub fn BoundedInt.new(val: Int, lo: Int, hi: Int) -> BoundedInt
@@ -98,18 +98,18 @@ pub fn BoundedInt.new(val: Int, lo: Int, hi: Int) -> BoundedInt
   return BoundedInt{ value: val, lo: lo, hi: hi };
 }
 
-pub fn BoundedInt.inc() -> BoundedInt
-  requires: value < hi
-  ensures: result.value == value@pre + 1
+pub fn BoundedInt.inc(self) -> BoundedInt
+  requires: self.value < self.hi
+  ensures: result.value == self.value@pre + 1
 {
-  return BoundedInt{ value: value + 1, lo: lo, hi: hi };
+  return BoundedInt{ value: self.value + 1, lo: self.lo, hi: self.hi };
 }
 
-pub fn BoundedInt.dec() -> BoundedInt
-  requires: value > lo
-  ensures: result.value == value@pre - 1
+pub fn BoundedInt.dec(self) -> BoundedInt
+  requires: self.value > self.lo
+  ensures: result.value == self.value@pre - 1
 {
-  return BoundedInt{ value: value - 1, lo: lo, hi: hi };
+  return BoundedInt{ value: self.value - 1, lo: self.lo, hi: self.hi };
 }
 
 fn test_invariants() -> Int {
@@ -155,22 +155,22 @@ pub fn SafeStack.new[T](cap: Int) -> SafeStack[T]
   return SafeStack[T]{ items: Vec[T].new(), capacity: cap };
 }
 
-pub fn SafeStack.push[T](val: T) -> Bool {
-  if items.len() >= capacity { return false; }
-  items.push(val);
+pub fn SafeStack.push[T](self, val: T) -> Bool {
+  if self.items.len() >= self.capacity { return false; }
+  self.items.push(val);
   return true;
 }
 
-pub fn SafeStack.len[T]() -> Int {
-  return items.len();
+pub fn SafeStack.len[T](self) -> Int {
+  return self.items.len();
 }
 
-pub fn SafeStack.is_full[T]() -> Bool {
-  return items.len() >= capacity;
+pub fn SafeStack.is_full[T](self) -> Bool {
+  return self.items.len() >= self.capacity;
 }
 
-pub fn SafeStack.is_empty[T]() -> Bool {
-  return items.len() == 0;
+pub fn SafeStack.is_empty[T](self) -> Bool {
+  return self.items.len() == 0;
 }
 
 fn test_safe_stack() -> Int {
@@ -246,23 +246,23 @@ pub fn Account.new(initial: Int, overdraft_limit: Int) -> Account
   return Account{ balance: initial, overdraft: overdraft_limit };
 }
 
-pub fn Account.deposit(amount: Int) -> Account
+pub fn Account.deposit(self, amount: Int) -> Account
   requires: amount > 0
-  ensures: result.balance == balance@pre + amount
+  ensures: result.balance == self.balance@pre + amount
 {
-  return Account{ balance: balance + amount, overdraft: overdraft };
+  return Account{ balance: self.balance + amount, overdraft: self.overdraft };
 }
 
-pub fn Account.withdraw(amount: Int) -> Account
+pub fn Account.withdraw(self, amount: Int) -> Account
   requires: amount > 0
-  requires: balance - amount >= -overdraft
-  ensures: result.balance == balance@pre - amount
+  requires: self.balance - amount >= -self.overdraft
+  ensures: result.balance == self.balance@pre - amount
 {
-  return Account{ balance: balance - amount, overdraft: overdraft };
+  return Account{ balance: self.balance - amount, overdraft: self.overdraft };
 }
 
-pub fn Account.available() -> Int {
-  return balance + overdraft;
+pub fn Account.available(self) -> Int {
+  return self.balance + self.overdraft;
 }
 
 fn test_account() -> Int {
@@ -303,30 +303,30 @@ pub fn Health.new(max_val: Int) -> Health
   return Health{ current: max_val, maximum: max_val };
 }
 
-pub fn Health.damage(amount: Int) -> Health
+pub fn Health.damage(self, amount: Int) -> Health
   requires: amount >= 0
   ensures: result.current >= 0
 {
-  var new_val = current - amount;
+  var new_val = self.current - amount;
   if new_val < 0 { new_val = 0; }
-  return Health{ current: new_val, maximum: maximum };
+  return Health{ current: new_val, maximum: self.maximum };
 }
 
-pub fn Health.heal(amount: Int) -> Health
+pub fn Health.heal(self, amount: Int) -> Health
   requires: amount >= 0
-  ensures: result.current <= maximum
+  ensures: result.current <= self.maximum
 {
-  var new_val = current + amount;
-  if new_val > maximum { new_val = maximum; }
-  return Health{ current: new_val, maximum: maximum };
+  var new_val = self.current + amount;
+  if new_val > self.maximum { new_val = self.maximum; }
+  return Health{ current: new_val, maximum: self.maximum };
 }
 
-pub fn Health.is_alive() -> Bool {
-  return current > 0;
+pub fn Health.is_alive(self) -> Bool {
+  return self.current > 0;
 }
 
-pub fn Health.health_ratio() -> Int {
-  return current * 100 / maximum;
+pub fn Health.health_ratio(self) -> Int {
+  return self.current * 100 / self.maximum;
 }
 
 fn test_health() -> Int {

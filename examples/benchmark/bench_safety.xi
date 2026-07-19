@@ -20,14 +20,14 @@ pub fn Point.new(x: Int, y: Int) -> Point {
   return Point{ x: x, y: y };
 }
 
-pub fn Point.dist_sq(other: &Point) -> Int {
-  var dx = x - other.x;
-  var dy = y - other.y;
+pub fn Point.dist_sq(self, other: &Point) -> Int {
+  var dx = self.x - other.x;
+  var dy = self.y - other.y;
   return dx * dx + dy * dy;
 }
 
-pub fn Point.midpoint(other: &Point) -> Point {
-  return Point{ x: (x + other.x) / 2, y: (y + other.y) / 2 };
+pub fn Point.midpoint(self, other: &Point) -> Point {
+  return Point{ x: (self.x + other.x) / 2, y: (self.y + other.y) / 2 };
 }
 
 pub fn compute_with_borrows(p1: &Point, p2: &Point, p3: &Point) -> Int {
@@ -68,15 +68,15 @@ pub fn Data.new(id: Int) -> Data {
   return Data{ id: id, values: Vec[Int].new() };
 }
 
-pub fn Data.add(val: Int) {
-  values.push(val);
+pub fn Data.add(self, val: Int) {
+  self.values.push(val);
 }
 
-pub fn Data.sum() -> Int {
+pub fn Data.sum(self) -> Int {
   var total = 0;
   var i = 0;
-  while i < values.len() {
-    total = total + values[i];
+  while i < self.values.len() {
+    total = total + self.values[i];
     i = i + 1;
   }
   return total;
@@ -168,21 +168,21 @@ pub fn Rect.new(x: Int, y: Int, w: Int, h: Int) -> Rect {
   return Rect{ x: x, y: y, w: w, h: h };
 }
 
-pub fn Rect.area() -> Int {
-  return w * h;
+pub fn Rect.area(self) -> Int {
+  return self.w * self.h;
 }
 
-pub fn Rect.perimeter() -> Int {
-  return 2 * (w + h);
+pub fn Rect.perimeter(self) -> Int {
+  return 2 * (self.w + self.h);
 }
 
-pub fn Rect.contains_point(px: Int, py: Int) -> Bool {
-  return px >= x && px < x + w && py >= y && py < y + h;
+pub fn Rect.contains_point(self, px: Int, py: Int) -> Bool {
+  return px >= self.x && px < self.x + self.w && py >= self.y && py < self.y + self.h;
 }
 
-pub fn Rect.overlaps(other: &Rect) -> Bool {
-  if x + w <= other.x || other.x + other.w <= x { return false; }
-  if y + h <= other.y || other.y + other.h <= y { return false; }
+pub fn Rect.overlaps(self, other: &Rect) -> Bool {
+  if self.x + self.w <= other.x || other.x + other.w <= self.x { return false; }
+  if self.y + self.h <= other.y || other.y + other.h <= self.y { return false; }
   return true;
 }
 
@@ -216,16 +216,16 @@ pub fn Resource.new(id: Int) -> Resource {
   return Resource{ id: id, data: Vec[Int].new() };
 }
 
-pub fn Resource.fill(n: Int) {
+pub fn Resource.fill(self, n: Int) {
   var i = 0;
   while i < n {
-    data.push(i);
+    self.data.push(i);
     i = i + 1;
   }
 }
 
-pub fn Resource.len() -> Int {
-  return data.len();
+pub fn Resource.len(self) -> Int {
+  return self.data.len();
 }
 
 pub fn take_resource(r: Resource) -> Int {
