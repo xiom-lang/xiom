@@ -1,8 +1,27 @@
-// XIOM — AI-Assisted Compilation Pipeline (Phase 5g MVP)
-use std::collections::HashMap;
+// XIOM — AI-Assisted Compilation Pipeline (Phase 5g)
+// Supports: Ollama, DeepSeek, OpenAI, OpenRouter, Groq, and any OpenAI-compatible endpoint.
+// Secure config via .xiom_ai_config.json or environment variables.
+// Never modifies source files. Only writes .xiom_ai.json hints.
+
 use std::io::Write;
 use sha2::{Sha256, Digest};
 use serde::{Serialize, Deserialize};
+
+// =========================================================================
+// Configuration — loaded from .xiom_ai_config.json, then env vars, then defaults
+// =========================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiConfigFile {
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub provider: Option<String>,  // "ollama", "deepseek", "openai", "openrouter", "groq", "custom"
+}
 
 #[derive(Debug, Clone)]
 pub struct AiConfig {
@@ -14,6 +33,7 @@ pub struct AiConfig {
     pub model: String,
     pub endpoint: String,
     pub api_key: String,
+    pub provider: String,
     pub timeout_secs: u32,
     pub max_tokens: usize,
 }
@@ -22,13 +42,94 @@ impl Default for AiConfig {
     fn default() -> Self {
         Self {
             enabled: false, local_only: false, dry_run: false, silent: false, strict: false,
-            model: std::env::var("XIOM_AI_MODEL").unwrap_or_else(|_| "codellama".to_string()),
-            endpoint: std::env::var("XIOM_AI_ENDPOINT").unwrap_or_else(|_| "http://localhost:11434".to_string()),
-            api_key: std::env::var("XIOM_AI_KEY").unwrap_or_default(),
-            timeout_secs: 10, max_tokens: 500,
+            model: String::new(), endpoint: String::new(), api_key: String::new(),
+            provider: String::new(), timeout_secs: 30, max_tokens: 800,
         }
     }
 }
+
+/// Load AI config from .xiom_ai_config.json, then env vars, then defaults.
+/// Priority: CLI flags > env vars > config file > built-in defaults.
+pub fn load_ai_config(cli_model: Option<String>) -> AiConfig {
+    let mut cfg = AiConfig::default();
+
+    // 1. Try .xiom_ai_config.json in current dir, then home dir
+    for dir in &[std::env::current_dir().ok(), dirs::home_dir()] {
+        if let Some(d) = dir {
+            let path = d.join(".xiom_ai_config.json");
+            if let Ok(data) = std::fs::read_to_string(&path) {
+                if let Ok(file_cfg) = serde_json::from_str::<AiConfigFile>(&data) {
+                    if let Some(ep) = file_cfg.endpoint { cfg.endpoint = ep; }
+                    if let Some(key) = file_cfg.api_key { cfg.api_key = key; }
+                    if let Some(m) = file_cfg.model { cfg.model = m; }
+                    if let Some(p) = file_cfg.provider { cfg.provider = p; }
+                    break; // first found wins
+                }
+            }
+        }
+    }
+
+    // 2. Environment variables override config file
+    if let Ok(ep) = std::env::var("XIOM_AI_ENDPOINT") { cfg.endpoint = ep; }
+    if let Ok(key) = std::env::var("XIOM_AI_KEY") { cfg.api_key = key; }
+    if let Ok(m) = std::env::var("XIOM_AI_MODEL") { cfg.model = m; }
+    if let Ok(p) = std::env::var("XIOM_AI_PROVIDER") { cfg.provider = p; }
+
+    // 3. CLI model flag overrides all
+    if let Some(m) = cli_model { cfg.model = m; }
+
+    // 4. Auto-detect provider from endpoint if not set
+    if cfg.provider.is_empty() {
+        cfg.provider = detect_provider(&cfg.endpoint);
+    }
+
+    // 5. Apply provider defaults if endpoint/key/model still empty
+    if cfg.endpoint.is_empty() {
+        cfg.endpoint = default_endpoint(&cfg.provider);
+    }
+    if cfg.model.is_empty() {
+        cfg.model = default_model(&cfg.provider);
+    }
+
+    cfg
+}
+
+fn detect_provider(endpoint: &str) -> String {
+    let ep = endpoint.to_lowercase();
+    if ep.contains("11434") || ep.contains("ollama") { return "ollama".into(); }
+    if ep.contains("deepseek") { return "deepseek".into(); }
+    if ep.contains("openai") { return "openai".into(); }
+    if ep.contains("openrouter") { return "openrouter".into(); }
+    if ep.contains("groq") { return "groq".into(); }
+    if ep.contains("api") || ep.contains("v1") { return "openai-compatible".into(); }
+    "ollama".into()
+}
+
+fn default_endpoint(provider: &str) -> String {
+    match provider {
+        "ollama" => "http://localhost:11434".into(),
+        "deepseek" => "https://api.deepseek.com".into(),
+        "openai" => "https://api.openai.com/v1".into(),
+        "openrouter" => "https://openrouter.ai/api/v1".into(),
+        "groq" => "https://api.groq.com/openai/v1".into(),
+        _ => "http://localhost:11434".into(),
+    }
+}
+
+fn default_model(provider: &str) -> String {
+    match provider {
+        "ollama" => "codellama".into(),
+        "deepseek" => "deepseek-chat".into(),
+        "openai" => "gpt-4o-mini".into(),
+        "openrouter" => "anthropic/claude-3.5-sonnet".into(),
+        "groq" => "llama-3.1-8b-instant".into(),
+        _ => "codellama".into(),
+    }
+}
+
+// =========================================================================
+// AI Hint Output
+// =========================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiHint {
@@ -43,138 +144,265 @@ pub struct AiHint {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiOutput {
     pub schema_version: u32, pub session: String, pub compiler_version: String,
-    pub model: String, pub source_hash: String,
+    pub provider: String, pub model: String, pub source_hash: String,
     pub total_hints: usize, pub cached_hints: usize, pub api_calls: usize,
     pub hints: Vec<AiHint>,
 }
 
+// =========================================================================
+// Hash Cache
+// =========================================================================
+
 pub struct AiCache { cache_dir: std::path::PathBuf }
 
 impl AiCache {
-    pub fn new() -> Self {
-        let dir = std::path::PathBuf::from(".xiom_ai_cache");
+    pub fn new(model: &str) -> Self {
+        let dir = std::path::PathBuf::from(".xiom_ai_cache").join(model);
         let _ = std::fs::create_dir_all(&dir);
         Self { cache_dir: dir }
     }
-    fn cache_key(model: &str, error_code: &str, fn_hash: &str, line: u32) -> String {
-        let mut h = Sha256::new(); h.update(format!("{model}:{error_code}:{fn_hash}:{line}")); format!("{:x}", h.finalize())
+    fn key(model: &str, error_code: &str, fn_hash: &str, line: u32) -> String {
+        let mut h = Sha256::new();
+        h.update(format!("{model}:{error_code}:{fn_hash}:{line}"));
+        format!("{:x}", h.finalize())
     }
     pub fn get(&self, model: &str, error_code: &str, fn_hash: &str, line: u32) -> Option<AiHint> {
-        let key = Self::cache_key(model, error_code, fn_hash, line);
-        if let Ok(data) = std::fs::read_to_string(self.cache_dir.join(format!("{key}.json"))) {
-            if let Ok(hint) = serde_json::from_str::<AiHint>(&data) { return Some(hint); }
-        }
-        None
+        let path = self.cache_dir.join(Self::key(model, error_code, fn_hash, line) + ".json");
+        std::fs::read_to_string(&path).ok()
+            .and_then(|d| serde_json::from_str::<AiHint>(&d).ok())
     }
     pub fn put(&self, model: &str, error_code: &str, fn_hash: &str, line: u32, hint: &AiHint) {
-        let key = Self::cache_key(model, error_code, fn_hash, line);
-        if let Ok(json) = serde_json::to_string(hint) { let _ = std::fs::write(self.cache_dir.join(format!("{key}.json")), json); }
+        let path = self.cache_dir.join(Self::key(model, error_code, fn_hash, line) + ".json");
+        if let Ok(json) = serde_json::to_string(hint) { let _ = std::fs::write(path, json); }
     }
 }
 
+// =========================================================================
+// Context Slicer
+// =========================================================================
+
 pub struct ContextSlice {
-    pub function_signature: String, pub function_body: String,
+    pub function_body: String,
     pub error_code: String, pub error_type: String,
-    pub error_line: u32, pub error_column: u32,
-    pub contract_clause: Option<String>,
+    pub error_line: u32,
 }
 
 pub fn slice_error_context(source: &str, diag: &crate::Diagnostic) -> Option<ContextSlice> {
     let lines: Vec<&str> = source.lines().collect();
     let el = diag.line.saturating_sub(1) as usize;
-    let mut fn_sig = String::new(); let mut fn_start = el;
-    for i in (0..=el).rev() {
+    let mut fn_start = el;
+    for i in (0..=el.min(lines.len().saturating_sub(1))).rev() {
         let line = lines.get(i).unwrap_or(&"");
-        if line.trim().starts_with("fn ") || line.trim().starts_with("pub fn ") { fn_start = i; fn_sig = line.trim().to_string(); break; }
+        if line.trim().starts_with("fn ") || line.trim().starts_with("pub fn ") { fn_start = i; break; }
     }
     let mut body = String::new(); let mut bc = 0i32; let mut fo = false;
-    for i in fn_start..lines.len() {
+    let end = lines.len().min(fn_start + 200);
+    for i in fn_start..end {
         let line = lines.get(i).unwrap_or(&""); if line.contains('{') { fo = true; }
         if fo { body.push_str(line); body.push('\n');
             for ch in line.chars() { if ch == '{' { bc += 1; } if ch == '}' { bc -= 1; } }
             if bc == 0 && fo { break; }
         }
-        if body.split_whitespace().count() > 200 { body.push_str("  // ... (truncated)\n"); break; }
+        if body.len() > 3000 { body.push_str("  // ... (truncated)\n"); break; }
     }
-    let contract = if diag.message.contains("requires") || diag.message.contains("ensures") {
-        let idx = diag.message.find("requires:").or_else(|| diag.message.find("ensures:"));
-        idx.map(|i| diag.message[i..].lines().next().unwrap_or("").trim().to_string())
-    } else { None };
     let et = match diag.code.chars().next().unwrap_or('?') {
         'X' => "ContractViolation", 'T' => "TypeError", 'P' => "ParseError", 'C' => "CodegenError", _ => "CompileError",
     };
-    Some(ContextSlice { function_signature: fn_sig, function_body: body, error_code: diag.code.clone(),
-        error_type: et.to_string(), error_line: diag.line, error_column: diag.col, contract_clause: contract })
+    Some(ContextSlice { function_body: body, error_code: diag.code.clone(),
+        error_type: et.to_string(), error_line: diag.line })
 }
 
-const DEFAULT_PROMPT: &str = r#"[System] You are the internal 'xiomc' compiler diagnostic translator. Give 1-2 sentence insights. CRITICAL: Do not write code.
-[State] Error: {error_code} ({error_type}) Line: {line}
-[Code]
-```xiom
-{function_body}
-```
-[Task] Explain the failure in 15-45 words. Be specific about which variable or expression triggered it."#;
+// =========================================================================
+// Prompt Templates — provider-optimized
+// =========================================================================
 
-fn build_prompt(ctx: &ContextSlice) -> String {
-    DEFAULT_PROMPT
-        .replace("{error_code}", &ctx.error_code).replace("{error_type}", &ctx.error_type)
-        .replace("{line}", &ctx.error_line.to_string()).replace("{function_body}", &ctx.function_body)
+fn build_chat_prompt(ctx: &ContextSlice) -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({"role": "system", "content": "You are an internal compiler diagnostic translator for the XIOM programming language. Give 1-2 sentence insights about compilation errors. Be specific about which variable or expression triggered the failure. CRITICAL: Do not write code. Do not output markdown code blocks."}),
+        serde_json::json!({"role": "user", "content": format!(
+            "XIOM compiler error: [{}] {} at line {}\n\nCode context:\n```xiom\n{}\n```\n\nExplain this error in 15-45 words.",
+            ctx.error_code, ctx.error_type, ctx.error_line, ctx.function_body
+        )}),
+    ]
 }
+
+// =========================================================================
+// LLM Backend — unified OpenAI-compatible chat API
+// =========================================================================
+
+fn call_llm_chat(endpoint: &str, api_key: &str, model: &str, messages: &[serde_json::Value], timeout_secs: u32) -> Result<String, String> {
+    let body = serde_json::json!({
+        "model": model,
+        "messages": messages,
+        "temperature": 0.0,
+        "max_tokens": 150,
+    });
+
+    let mut req = ureq::post(&format!("{endpoint}/chat/completions"))
+        .timeout(std::time::Duration::from_secs(timeout_secs as u64));
+
+    if !api_key.is_empty() {
+        req = req.set("Authorization", &format!("Bearer {api_key}"));
+    }
+
+    let resp = req.send_json(&body).map_err(|e| format!("API error: {e}"))?;
+    let json: serde_json::Value = resp.into_json().map_err(|e| format!("Parse error: {e}"))?;
+
+    json["choices"][0]["message"]["content"].as_str()
+        .map(|s| s.trim().to_string())
+        .ok_or_else(|| format!("Unexpected API response: {}", serde_json::to_string_pretty(&json).unwrap_or_default()))
+}
+
+fn call_ollama(endpoint: &str, model: &str, prompt: &str, timeout_secs: u32) -> Result<String, String> {
+    let body = serde_json::json!({
+        "model": model, "prompt": prompt, "stream": false,
+        "options": { "temperature": 0.0, "num_predict": 150 }
+    });
+    let resp = ureq::post(&format!("{endpoint}/api/generate"))
+        .timeout(std::time::Duration::from_secs(timeout_secs as u64))
+        .send_json(&body).map_err(|e| format!("Ollama error: {e}"))?;
+    let json: serde_json::Value = resp.into_json().map_err(|e| format!("Parse error: {e}"))?;
+    json["response"].as_str().map(|s| s.trim().to_string())
+        .ok_or_else(|| "No response from Ollama".to_string())
+}
+
+// =========================================================================
+// Main AI Pipeline
+// =========================================================================
 
 pub fn run_ai_pipeline(config: &AiConfig, source: &str, source_path: &str, diagnostics: &[crate::Diagnostic]) -> Result<AiOutput, String> {
     if diagnostics.is_empty() {
-        return Ok(AiOutput { schema_version: 1, session: String::new(), compiler_version: env!("CARGO_PKG_VERSION").to_string(),
-            model: config.model.clone(), source_hash: hash_source(source), total_hints: 0, cached_hints: 0, api_calls: 0, hints: vec![] });
+        return Ok(AiOutput { schema_version: 1, session: timestamp(), compiler_version: env!("CARGO_PKG_VERSION").into(),
+            provider: config.provider.clone(), model: config.model.clone(), source_hash: hash_source(source),
+            total_hints: 0, cached_hints: 0, api_calls: 0, hints: vec![] });
     }
-    if !config.local_only && config.api_key.is_empty() && config.endpoint.contains("11434") {
-        return Err("--ai requires XIOM_AI_KEY or a local LLM.\nSet XIOM_AI_KEY=<key> or use --ai-local for offline mode.".to_string());
-    }
-    let cache = AiCache::new();
+
+    let cache = AiCache::new(&config.model);
     let mut hints = Vec::new(); let mut cached = 0usize; let mut api_calls = 0usize;
 
     for diag in diagnostics {
         let ctx = match slice_error_context(source, diag) { Some(c) => c, None => continue };
         let fn_hash = hash_str(&ctx.function_body);
+
+        // Check cache
         if let Some(mut hint) = cache.get(&config.model, &ctx.error_code, &fn_hash, ctx.error_line) {
             hint.is_root_cause = Some(hints.is_empty()); hints.push(hint); cached += 1; continue;
         }
-        let prompt = build_prompt(&ctx);
+
+        // Call LLM
         let insight = if config.dry_run {
-            eprintln!("[AI DRY RUN] Prompt for {}:{}:\n{prompt}", source_path, ctx.error_line);
+            let prompt = format!("[{}.{}] {}", ctx.error_code, ctx.error_type, ctx.function_body.lines().next().unwrap_or(""));
+            eprintln!("[AI DRY RUN] {}:{}:{} → {}", source_path, ctx.error_line, ctx.error_code, prompt);
             "(dry run — no LLM call)".to_string()
         } else {
-            match call_ollama(&config.endpoint, &config.model, &prompt, config.timeout_secs) {
+            let result = if config.provider == "ollama" {
+                let prompt = format!("XIOM compiler error [{}] {} at line {}.\nCode:\n```xiom\n{}\n```\nExplain in 1-2 sentences.",
+                    ctx.error_code, ctx.error_type, ctx.error_line, ctx.function_body);
+                call_ollama(&config.endpoint, &config.model, &prompt, config.timeout_secs)
+            } else {
+                let messages = build_chat_prompt(&ctx);
+                call_llm_chat(&config.endpoint, &config.api_key, &config.model, &messages, config.timeout_secs)
+            };
+            match result {
                 Ok(text) => { api_calls += 1; text }
                 Err(e) => { eprintln!("[AI] LLM call failed: {e}"); format!("[fallback] {}", diag.message) }
             }
         };
-        let hint = AiHint { file: source_path.to_string(), line: diag.line, column: diag.col,
-            error_code: diag.code.clone(), error_type: ctx.error_type.clone(), contract: ctx.contract_clause.clone(),
+
+        let hint = AiHint {
+            file: source_path.to_string(), line: diag.line, column: diag.col,
+            error_code: diag.code.clone(), error_type: ctx.error_type.clone(),
+            contract: None,
             insight, cached: false,
             timestamp_ms: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
             is_root_cause: Some(hints.is_empty()),
-            confidence: match ctx.error_type.as_str() { "ContractViolation" => Some("HIGH".to_string()), _ => Some("MEDIUM".to_string()) },
+            confidence: match ctx.error_type.as_str() { "ContractViolation" | "DivisionByZero" => Some("HIGH".into()), _ => Some("MEDIUM".into()) },
         };
         cache.put(&config.model, &ctx.error_code, &fn_hash, ctx.error_line, &hint);
         hints.push(hint);
     }
+
     hints.sort_by_key(|h| (h.file.clone(), h.line));
-    let output = AiOutput { schema_version: 1, session: format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()),
-        compiler_version: env!("CARGO_PKG_VERSION").to_string(), model: config.model.clone(),
-        source_hash: hash_source(source), total_hints: hints.len(), cached_hints: cached, api_calls, hints };
+    let output = AiOutput {
+        schema_version: 1, session: timestamp(), compiler_version: env!("CARGO_PKG_VERSION").into(),
+        provider: config.provider.clone(), model: config.model.clone(),
+        source_hash: hash_source(source), total_hints: hints.len(), cached_hints: cached, api_calls, hints,
+    };
+
     let json = serde_json::to_string_pretty(&output).map_err(|e| format!("JSON error: {e}"))?;
     std::fs::write(".xiom_ai.json", &json).map_err(|e| format!("Write error: {e}"))?;
-    if !config.silent { eprintln!("xiomc --ai: {} hints written to .xiom_ai.json ({} API, {} cached)", output.total_hints, api_calls, cached); }
+
+    if !config.silent {
+        eprintln!("xiomc --ai: {} hints → .xiom_ai.json ({} API, {} cached, provider: {})",
+            output.total_hints, api_calls, cached, config.provider);
+    }
+    if config.strict && !output.hints.is_empty() {
+        return Err(format!("--ai-strict: {} error(s) present. Fix before binary output.", output.total_hints));
+    }
     Ok(output)
 }
 
-fn call_ollama(endpoint: &str, model: &str, prompt: &str, timeout: u32) -> Result<String, String> {
-    let body = serde_json::json!({ "model": model, "prompt": prompt, "stream": false, "options": { "temperature": 0.0, "num_predict": 100 } });
-    let resp = ureq::post(&format!("{endpoint}/api/generate")).timeout(std::time::Duration::from_secs(timeout as u64))
-        .send_json(&body).map_err(|e| format!("Ollama error: {e}"))?;
-    let json: serde_json::Value = resp.into_json().map_err(|e| format!("Parse error: {e}"))?;
-    json["response"].as_str().map(|s| s.to_string()).ok_or_else(|| "No response".to_string())
-}
-
+fn timestamp() -> String { format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()) }
 fn hash_source(s: &str) -> String { let mut h = Sha256::new(); h.update(s); format!("{:x}", h.finalize())[..8].to_string() }
 fn hash_str(s: &str) -> String { let mut h = Sha256::new(); h.update(s); format!("{:x}", h.finalize())[..16].to_string() }
+
+// =========================================================================
+// Public API — called from CLI
+// =========================================================================
+
+/// Print AI mode help text for --help output
+pub fn ai_help_text() -> &'static str {
+    r#"
+AI-ASSISTED COMPILATION (--ai):
+  XIOM can call an LLM to explain compilation errors with actionable hints.
+  Results are written to .xiom_ai.json — NEVER modifies source files.
+
+  Quick Start:
+    1. Install Ollama:   winget install Ollama.Ollama
+    2. Pull a model:      ollama pull codellama
+    3. Compile with AI:   xiomc --ai source.xi
+
+  Using DeepSeek:
+    set XIOM_AI_KEY=sk-your-deepseek-key
+    set XIOM_AI_ENDPOINT=https://api.deepseek.com
+    set XIOM_AI_MODEL=deepseek-chat
+    xiomc --ai source.xi
+
+  Using OpenAI:
+    set XIOM_AI_KEY=sk-your-openai-key
+    set XIOM_AI_ENDPOINT=https://api.openai.com/v1
+    set XIOM_AI_MODEL=gpt-4o-mini
+    xiomc --ai source.xi
+
+  Config File (secure, recommended):
+    Create .xiom_ai_config.json in your project or home directory:
+    {
+      "provider": "deepseek",
+      "endpoint": "https://api.deepseek.com",
+      "api_key": "sk-your-key-here",
+      "model": "deepseek-chat"
+    }
+
+  Flags:
+    --ai                Enable AI diagnostics (requires Ollama or API key)
+    --ai-local          Local-only: never sends code to cloud (Ollama required)
+    --ai-dry-run        Print the prompt without calling LLM
+    --ai-silent         Suppress stdout, write only .xiom_ai.json
+    --ai-strict         Refuse binary output on contract violations
+    --ai-model=<name>   Override model (e.g., deepseek-chat, gpt-4o-mini)
+    --ai-timeout=<sec>  LLM timeout in seconds (default: 30)
+
+  Supported Providers:
+    ollama     (local, free)       codellama, llama3, mistral, phi3
+    deepseek   (cloud, cheap)      deepseek-chat, deepseek-coder
+    openai     (cloud)             gpt-4o-mini, gpt-4o
+    openrouter (cloud, multi)      anthropic/claude-3.5-sonnet, google/gemini-flash
+    groq       (cloud, fast)       llama-3.1-8b-instant, mixtral-8x7b
+
+  Environment Variables:
+    XIOM_AI_KEY         API key (not needed for Ollama)
+    XIOM_AI_ENDPOINT    API endpoint URL
+    XIOM_AI_MODEL       Model name (provider-dependent)
+    XIOM_AI_PROVIDER    Force provider: ollama, deepseek, openai, openrouter, groq
+"#
+}
