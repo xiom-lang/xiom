@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 
 use xiom_ast::*;
@@ -205,9 +205,19 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
 
     // Stage 3: Type Check
     let mut checker = Checker::new();
+    // 5e.3 G-31: add source file's parent directory for single-file resolution.
+    // Also walk up to find project root (package.xi, xiom.lock, .git, src/) so
+    // cross-directory `use xiom.*` imports resolve from any file in the tree.
     if let Some(primary) = source_paths.first() {
         if let Some(parent) = Path::new(primary).parent() {
             checker.add_source_dir(parent.to_string_lossy().to_string());
+        }
+        if let Some(root) = find_project_root(Path::new(primary)) {
+            checker.add_source_dir(root.to_string_lossy().to_string());
+            let src_dir = root.join("src");
+            if src_dir.is_dir() {
+                checker.add_source_dir(src_dir.to_string_lossy().to_string());
+            }
         }
     }
     for stdlib_dir in find_stdlib_dirs() {
@@ -334,6 +344,14 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
     if let Some(primary) = source_paths.first() {
         if let Some(parent) = Path::new(primary).parent() {
             checker.add_source_dir(parent.to_string_lossy().to_string());
+        }
+        // 5e.3 G-31: walk-up project root detection for cross-directory use resolution
+        if let Some(root) = find_project_root(Path::new(primary)) {
+            checker.add_source_dir(root.to_string_lossy().to_string());
+            let src_dir = root.join("src");
+            if src_dir.is_dir() {
+                checker.add_source_dir(src_dir.to_string_lossy().to_string());
+            }
         }
     }
     let examples_root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -987,6 +1005,29 @@ pub fn find_stdlib_dirs() -> Vec<String> {
         }
     }
     dirs
+}
+
+/// 5e.3 G-30/G-31: walk up from a source file's parent directory looking for
+/// project root markers (package.xi, xiom.lock, .git, src/). When found, the
+/// project root and its src/ subdirectory are added as source_dirs so the
+/// catalog can resolve cross-directory `use xiom.*` imports.
+pub fn find_project_root(file_path: &Path) -> Option<PathBuf> {
+    let start = if file_path.is_dir() { file_path.to_path_buf() } else {
+        file_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
+    };
+    let mut cur = Some(start.as_path());
+    let mut hops = 0;
+    while let Some(dir) = cur {
+        // Project markers (in priority order)
+        if dir.join("package.xi").is_file() { return Some(dir.to_path_buf()); }
+        if dir.join("xiom.lock").is_file()    { return Some(dir.to_path_buf()); }
+        if dir.join(".git").is_dir()          { return Some(dir.to_path_buf()); }
+        if dir.join("src").is_dir()           { return Some(dir.to_path_buf()); }
+        hops += 1;
+        if hops > 8 { break; }
+        cur = dir.parent();
+    }
+    None
 }
 
 pub fn find_runtime_c() -> Option<String> {
