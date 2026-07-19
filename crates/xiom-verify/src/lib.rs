@@ -14,18 +14,6 @@ use std::process::Command;
 use std::collections::HashMap;
 
 // =========================================================================
-// Span helpers — carry source locations through to diagnostics
-// =========================================================================
-
-/// Extract line from a Span, defaulting to 0 if span is dummy.
-fn span_line(span: &Span) -> u32 { span.line }
-
-/// Format a span as "file.xi:line:col"
-fn span_display(file: &str, span: &Span) -> String {
-    format!("{file}:{}:{}", span.line, span.col)
-}
-
-// =========================================================================
 // Error Codes (X7000 series — verification diagnostics)
 // =========================================================================
 
@@ -89,14 +77,6 @@ fn xiom_to_smt_sort(ty: &Type) -> String {
     }
 }
 
-fn is_bv_sort(sort: &str) -> bool {
-    sort.starts_with("(_ BitVec")
-}
-
-fn is_fp_sort(sort: &str) -> bool {
-    sort.starts_with("(_ FloatingPoint")
-}
-
 // =========================================================================
 // SMT Generator — Stage 0 (textual SMT-LIB 2.6)
 // =========================================================================
@@ -113,7 +93,6 @@ pub struct SMTGenerator {
 struct SideCondition {
     code: &'static str,
     message: String,
-    span: Span,
     smt: String,
 }
 
@@ -139,7 +118,7 @@ impl SMTGenerator {
         let contracted = self.collect_contracted_fns(program);
         if !contracted.is_empty() {
             self.emit("; --- contract axioms (modular verification) ---");
-            for (name, params, ret, contracts, reqs, enss) in &contracted {
+            for (name, params, ret, _contracts, reqs, enss) in &contracted {
                 let smt_ret = ret.as_ref().map(|t| xiom_to_smt_sort(t)).unwrap_or_else(|| "Bool".to_string());
                 let smt_params: Vec<String> = params.iter().map(|(n, t)| format!("({} {})", smt_escape(n), xiom_to_smt_sort(t))).collect();
                 // Declare function as uninterpreted
@@ -147,7 +126,7 @@ impl SMTGenerator {
                 
                 // Emit contract axiom: forall params. requires(params) => ensures(params, result)
                 if !reqs.is_empty() || !enss.is_empty() {
-                    let param_names: Vec<String> = params.iter().map(|(n, _)| smt_escape(n)).collect();
+                    let _param_names: Vec<String> = params.iter().map(|(n, _)| smt_escape(n)).collect();
                     let axiom_body = if reqs.is_empty() {
                         format!("(and {})", enss.iter().map(|e| {
                             let mut buf = String::new();
@@ -348,7 +327,7 @@ impl SMTGenerator {
                 self.emit(&format!("(assert (= {} {}))", ssa_name, val));
             }
             Stmt::If(cond, then_b, elifs, else_b, _) => {
-                let c = self.translate_expr_to_val(cond);
+                let _c = self.translate_expr_to_val(cond);
                 self.encode_block(then_b, f);
                 for (cond_e, body_e) in elifs {
                     let ce = self.translate_expr_to_val(cond_e);
@@ -359,7 +338,7 @@ impl SMTGenerator {
                     self.encode_block(else_body, f);
                 }
             }
-            Stmt::While(cond, body, invariant, span) => {
+            Stmt::While(cond, body, invariant, _span) => {
                 if let Some(inv) = invariant {
                     // Loop invariant present — emit as assertion (P1: full VC generation
                     // with entry check + preservation + exit hypothesis)
@@ -370,7 +349,6 @@ impl SMTGenerator {
                     self.side_conditions.push(SideCondition {
                         code: X7006_INVARIANT,
                         message: format!("loop invariant must hold: {}", expr_display(inv)),
-                        span: *span,
                         smt: inv_smt,
                     });
                 } else {
@@ -506,7 +484,6 @@ impl SMTGenerator {
                         self.side_conditions.push(SideCondition {
                             code: X7004_DIV_BY_ZERO,
                             message: format!("division by zero at line {}", span.line),
-                            span: *span,
                             smt: div_smt,
                         });
                     }

@@ -3,7 +3,6 @@
 // Secure config via .xiom_ai_config.json or environment variables.
 // Never modifies source files. Only writes .xiom_ai.json hints.
 
-use std::io::Write;
 use sha2::{Sha256, Digest};
 use serde::{Serialize, Deserialize};
 

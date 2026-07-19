@@ -3,7 +3,6 @@
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::env;
 use std::io::{self, BufRead, Read, Write};
 use std::sync::Arc;

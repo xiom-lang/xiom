@@ -1,0 +1,6 @@
+fn buggy_divide(a: Int, b: Int) -> Int
+    requires: b != 0
+    ensures: result > 0
+{
+    return a / b;
+}

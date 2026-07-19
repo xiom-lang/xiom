@@ -9,7 +9,7 @@
 
 use std::env;
 use std::fs;
-use std::process::{self, Command};
+use std::process::{self};
 use xiom_lexer::Lexer;
 use xiom_parser::Parser;
 use xiom_check::Checker;
