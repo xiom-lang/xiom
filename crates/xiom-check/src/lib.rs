@@ -2768,6 +2768,8 @@ impl Checker {
                     // 5e.2 G-34: fn-ptr ↔ Int casts (COM vtables, callback registries).
                     (CheckedType::Int, CheckedType::Fn(..)) => target_ty,
                     (CheckedType::Fn(..), CheckedType::Int) => target_ty,
+                    // G-16: function name as Int (callback pointer).
+                    (CheckedType::Named(n), CheckedType::Int) if n == "fn" => target_ty,
                     _ => {
                         self.error(format!("unsupported type cast: {} to {}", inner_ty.name(), target_ty.name()), *span)
                     }
