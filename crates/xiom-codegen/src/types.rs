@@ -37,6 +37,7 @@ impl crate::IrEmitter {
     /// safe default. Such globals are always assigned before first meaningful
     /// read in practice.
     pub fn global_const_init(value: &Expr, llvm_ty: &str) -> String {
+        eprintln!("CG02 DEBUG: value={value:?}, llvm_ty={llvm_ty}");
         match value {
             Expr::Int(n, _) => {
                 if llvm_ty == "double" || llvm_ty == "float" {
@@ -54,13 +55,16 @@ impl crate::IrEmitter {
                     Self::default_const_for(llvm_ty)
                 }
             }
-            Expr::Float(f, _) => {
-                if llvm_ty == "double" || llvm_ty == "float" {
-                    format!("{f:.6}")
-                } else {
-                    Self::default_const_for(llvm_ty)
-                }
+        Expr::Float(f, _) => {
+            eprintln!("CG02 DEBUG: Float({f}), llvm_ty={llvm_ty}");
+            if llvm_ty == "double" {
+                format!("{f:.6}")
+            } else if llvm_ty == "float" {
+                format!("0x{:08X}", (*f as f32).to_bits())
+            } else {
+                Self::default_const_for(llvm_ty)
             }
+        }
             Expr::Char(c, _) => {
                 if llvm_ty.starts_with('i') {
                     format!("{}", *c as u32)
