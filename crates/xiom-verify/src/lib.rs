@@ -14,6 +14,18 @@ use std::process::Command;
 use std::collections::HashMap;
 
 // =========================================================================
+// Span helpers — carry source locations through to diagnostics
+// =========================================================================
+
+/// Extract line from a Span, defaulting to 0 if span is dummy.
+fn span_line(span: &Span) -> u32 { span.line }
+
+/// Format a span as "file.xi:line:col"
+fn span_display(file: &str, span: &Span) -> String {
+    format!("{file}:{}:{}", span.line, span.col)
+}
+
+// =========================================================================
 // Error Codes (X7000 series — verification diagnostics)
 // =========================================================================
 
@@ -39,7 +51,7 @@ pub struct Counterexample {
 #[derive(Debug)]
 pub enum VerifyResult {
     Proven,
-    Violated { code: &'static str, message: String, counterexample: Option<Counterexample> },
+    Violated { code: &'static str, message: String, span: Option<String>, counterexample: Option<Counterexample> },
     Inconclusive { reason: String },
     Error { message: String },
 }
@@ -101,6 +113,7 @@ pub struct SMTGenerator {
 struct SideCondition {
     code: &'static str,
     message: String,
+    span: Span,
     smt: String,
 }
 
@@ -465,7 +478,7 @@ impl SMTGenerator {
             Expr::Str(s, _) => {
                 self.buf.push_str(&format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")));
             }
-            Expr::Binary(left, op, right, _) => {
+            Expr::Binary(left, op, right, span) => {
                 // Stage 1: track div-by-zero side condition
                 if matches!(op, BinOp::Div | BinOp::Rem) {
                     let mut div_buf = String::new();
@@ -479,7 +492,8 @@ impl SMTGenerator {
                     if !dup {
                         self.side_conditions.push(SideCondition {
                             code: X7004_DIV_BY_ZERO,
-                            message: format!("division by zero: {}", expr_display(right)),
+                            message: format!("division by zero at line {}", span.line),
+                            span: *span,
                             smt: div_smt,
                         });
                     }
@@ -718,6 +732,7 @@ impl Z3Runner {
                     results.push(VerifyResult::Violated {
                         code: X7001_ENSURES_VIOLATION,
                         message: "ensures clause violated".to_string(),
+                        span: None,
                         counterexample: Some(ce),
                     });
                     current_model.clear();
