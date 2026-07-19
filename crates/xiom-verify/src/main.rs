@@ -113,9 +113,13 @@ fn main() {
                     proven += 1;
                     eprintln!("  ✅ VERIFIED");
                 }
-                VerifyResult::Violated { code, message, counterexample } => {
+                VerifyResult::Violated { code, message, span, counterexample } => {
                     violated += 1;
-                    eprintln!("  ❌ VIOLATED [{code}]: {message}");
+                    if let Some(loc) = span {
+                        eprintln!("  ❌ VIOLATED [{code}] at {loc}: {message}");
+                    } else {
+                        eprintln!("  ❌ VIOLATED [{code}]: {message}");
+                    }
                     if let Some(ce) = counterexample {
                         if !ce.values.is_empty() {
                             for (var, val) in &ce.values {
