@@ -151,7 +151,7 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | │ │ 5e.7e CI/GitHub Actions | Automated test suite, release packaging | ⬜ POSTPONE — manual release for now |
 | │ | | | | | |
 | **5f** | **Z3 Verification** | **Contract proof at compile time — "near zero runtime crashes"** | **✅ Stage 2 — body encoding + side-condition VCs + contract composition + z3 auto-detect + span diagnostics** | — | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
-| **5g** | **🤖 AI Pipeline** | **--ai flag, LLM hints, contract-guided, temp=0** | **Planned (after 5f)** | — | [AI_PIPELINE.md](./AI_PIPELINE.md) |
+| **5g** | **🤖 AI Pipeline** | **--ai flag, LLM hints, contract-guided, temp=0** | **🚧 5g.1 MVP — --ai flag + context slicing + Ollama backend + hash cache + .xiom_ai.json** | — | [AI_PIPELINE.md](./AI_PIPELINE.md) |
 | **5h** | **🏁 Self-Hosting** | **XIOM compiler in XIOM** | **Planned (LAST)** | — | [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md) |
 
 ---
