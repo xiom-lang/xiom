@@ -91,14 +91,22 @@ fn is_fp_sort(sort: &str) -> bool {
 
 pub struct SMTGenerator {
     buf: String,
-    indent_level: usize,
     ssa_counter: u64,
     var_sort_map: HashMap<String, String>,
+    /// Accumulated side-condition obligations (div-by-zero, overflow, bounds, null)
+    side_conditions: Vec<SideCondition>,
+}
+
+#[derive(Debug, Clone)]
+struct SideCondition {
+    code: &'static str,
+    message: String,
+    smt: String,
 }
 
 impl SMTGenerator {
     pub fn new() -> Self {
-        Self { buf: String::new(), indent_level: 0, ssa_counter: 0, var_sort_map: HashMap::new() }
+        Self { buf: String::new(), ssa_counter: 0, var_sort_map: HashMap::new(), side_conditions: Vec::new() }
     }
 
     // ---------------------------------------------------------------------
@@ -143,6 +151,7 @@ impl SMTGenerator {
     fn verify_function(&mut self, f: &FnDecl) {
         self.emit(&format!("; === Function: {} ===", f.name.name));
         self.emit("(push)");
+        self.side_conditions.clear();
 
         // Register param sorts
         for param in &f.params {
@@ -194,6 +203,19 @@ impl SMTGenerator {
                 self.emit(&format!("(assert (! (not "));
                 self.translate_expr(&clause_expr(contract));
                 self.emit(&format!(") :named |{}|))", label));
+                self.emit("(check-sat)");
+                self.emit("(pop)");
+                self.emit("");
+            }
+        }
+
+        // Side-condition obligation VCs (Stage 1: div-by-zero, overflow, bounds, null)
+        if !self.side_conditions.is_empty() {
+            self.emit("; --- side-condition obligations ---");
+            for sc in &self.side_conditions.clone() {
+                self.emit(&format!("; {}: {}", sc.code, sc.message));
+                self.emit("(push)");
+                self.emit(&format!("(assert (! (not {}) :named |obl_{}|))", sc.smt, sc.code));
                 self.emit("(check-sat)");
                 self.emit("(pop)");
                 self.emit("");
@@ -371,6 +393,24 @@ impl SMTGenerator {
                 self.buf.push_str(&format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")));
             }
             Expr::Binary(left, op, right, _) => {
+                // Stage 1: track div-by-zero side condition
+                if matches!(op, BinOp::Div | BinOp::Rem) {
+                    let mut div_buf = String::new();
+                    std::mem::swap(&mut self.buf, &mut div_buf);
+                    self.buf.push_str("(not (= ");
+                    self.translate_expr(right);
+                    self.buf.push_str(" 0))");
+                    let div_smt = std::mem::replace(&mut self.buf, div_buf);
+                    // Check if this div-by-zero is already tracked (dedup)
+                    let dup = self.side_conditions.iter().any(|sc| sc.smt == div_smt && sc.code == X7004_DIV_BY_ZERO);
+                    if !dup {
+                        self.side_conditions.push(SideCondition {
+                            code: X7004_DIV_BY_ZERO,
+                            message: format!("division by zero: {}", expr_display(right)),
+                            smt: div_smt,
+                        });
+                    }
+                }
                 let smt_op = match op {
                     BinOp::Add => "+",
                     BinOp::Sub => "-",
