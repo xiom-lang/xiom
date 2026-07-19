@@ -1528,3 +1528,24 @@ fn main() -> Int {
     // The result of sizeof[MixedStruct] should appear as a literal 19
     assert!(ir.contains("i64 19") || ir.contains("19,"), "sizeof[MixedStruct] must be inlined as 19:\n{ir}");
 }
+
+/// CG-02: module-scope `var x: Float32 = 0.5` caused LLVM constant error
+/// because values like 0.3 can't be exactly represented as Float32.
+/// Fixed by emitting with 17-digit scientific notation for exact roundtrip.
+#[test]
+fn regress_5e_cg02_float32_module_var_init() {
+    let src = r#"
+module cg02_test
+var x: Float32 = 0.5;
+var y: Float32 = 0.3;
+fn main() -> Int {
+  if x > 0.4 { return 0; }
+  return 1;
+}
+"#;
+    let ir = compile(src).expect("CG-02 must compile");
+    assert!(ir.contains("global float"), "float global must be emitted");
+    // Must NOT contain the old broken decimal format that LLVM rejects
+    assert!(!ir.contains("float 0.300000"), "must not emit old decimal format:\n{ir}");
+    assert!(!ir.contains("float 0.500000"), "must not emit old decimal format:\n{ir}");
+}
