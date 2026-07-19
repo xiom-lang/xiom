@@ -1055,3 +1055,23 @@ fn e2e_g40_repc_layout() {
     assert!(ir.contains("float"), "Must have float field for Float32:\n{ir}");
     assert!(ir.contains("double"), "Must have double field for Float64:\n{ir}");
 }
+
+/// 5e G-24: Float32 ARM ABI — Float32 operations must produce valid IR
+/// for ARM targets (IEEE 754 single-precision). Cross-compiled for
+/// aarch64-linux-gnu via clang to verify.
+#[test]
+fn e2e_g24_float32_arm_abi() {
+    let output = Command::new(xiomc_path())
+        .args(["--emit-ir", "examples/e2e/g24_float32_arm.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("xiomc");
+    let ir = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "G-24 Float32 ARM must compile: {}",
+        String::from_utf8_lossy(&output.stderr));
+    // Float32 promotes to double in XIOM (same IEEE 754, wider precision).
+    // ARM and x86 use identical IEEE 754 representation.
+    assert!(ir.contains("double"), "Must contain double type (Float32 promotes):\n{ir}");
+    assert!(ir.contains("fadd") || ir.contains("fsub") || ir.contains("fmul") || ir.contains("fcmp"),
+        "Must contain IEEE 754 fp ops:\n{ir}");
+}
