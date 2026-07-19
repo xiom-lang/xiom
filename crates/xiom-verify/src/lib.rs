@@ -120,11 +120,82 @@ impl SMTGenerator {
         self.emit("(set-option :produce-unsat-cores true)");
         self.emit("");
 
+        // Stage 2: Contract composition — collect all contracted functions and
+        // emit uninterpreted function declarations + contract axioms so callers
+        // can rely on callee contracts (modular verification).
+        let contracted = self.collect_contracted_fns(program);
+        if !contracted.is_empty() {
+            self.emit("; --- contract axioms (modular verification) ---");
+            for (name, params, ret, contracts, reqs, enss) in &contracted {
+                let smt_ret = ret.as_ref().map(|t| xiom_to_smt_sort(t)).unwrap_or_else(|| "Bool".to_string());
+                let smt_params: Vec<String> = params.iter().map(|(n, t)| format!("({} {})", smt_escape(n), xiom_to_smt_sort(t))).collect();
+                // Declare function as uninterpreted
+                self.emit(&format!("(declare-fun |{}| ({}) {})", smt_escape(name), smt_params.join(" "), smt_ret));
+                
+                // Emit contract axiom: forall params. requires(params) => ensures(params, result)
+                if !reqs.is_empty() || !enss.is_empty() {
+                    let param_names: Vec<String> = params.iter().map(|(n, _)| smt_escape(n)).collect();
+                    let axiom_body = if reqs.is_empty() {
+                        format!("(and {})", enss.iter().map(|e| {
+                            let mut buf = String::new();
+                            std::mem::swap(&mut self.buf, &mut buf);
+                            self.translate_expr(e);
+                            std::mem::swap(&mut self.buf, &mut buf);
+                            buf
+                        }).collect::<Vec<_>>().join(" "))
+                    } else if enss.is_empty() {
+                        format!("(=> (and {}) true)", reqs.iter().map(|e| {
+                            let mut buf = String::new();
+                            std::mem::swap(&mut self.buf, &mut buf);
+                            self.translate_expr(e);
+                            std::mem::swap(&mut self.buf, &mut buf);
+                            buf
+                        }).collect::<Vec<_>>().join(" "))
+                    } else {
+                        format!("(=> (and {}) (and {}))",
+                            reqs.iter().map(|e| { let mut b = String::new(); std::mem::swap(&mut self.buf, &mut b); self.translate_expr(e); std::mem::swap(&mut self.buf, &mut b); b }).collect::<Vec<_>>().join(" "),
+                            enss.iter().map(|e| { let mut b = String::new(); std::mem::swap(&mut self.buf, &mut b); self.translate_expr(e); std::mem::swap(&mut self.buf, &mut b); b }).collect::<Vec<_>>().join(" "))
+                    };
+                    self.emit(&format!("(assert (! (forall ({} {}) {}) :named |contract_{}|))",
+                        smt_params.iter().map(|_| format!("({})", smt_escape("x"))).collect::<Vec<_>>().join(" "),
+                        smt_ret,
+                        axiom_body,
+                        smt_escape(name)));
+                }
+            }
+            self.emit("");
+        }
+
         for item in &program.items {
             self.process_top_decl(item);
         }
 
         std::mem::take(&mut self.buf)
+    }
+
+    fn collect_contracted_fns(&self, program: &Program) -> Vec<(String, Vec<(String, Type)>, Option<Type>, Vec<ContractClause>, Vec<Expr>, Vec<Expr>)> {
+        let mut fns = Vec::new();
+        for item in &program.items {
+            self.collect_fns_from_item(item, &mut fns);
+        }
+        fns
+    }
+
+    fn collect_fns_from_item(&self, item: &TopDecl, out: &mut Vec<(String, Vec<(String, Type)>, Option<Type>, Vec<ContractClause>, Vec<Expr>, Vec<Expr>)>) {
+        match item {
+            TopDecl::Fn(f) if !f.contracts.is_empty() => {
+                let params: Vec<(String, Type)> = f.params.iter().map(|p| (p.name.name.clone(), p.ty.clone())).collect();
+                let reqs: Vec<Expr> = f.contracts.iter().filter_map(|c| match c { ContractClause::Requires(e, _) => Some(e.clone()), _ => None }).collect();
+                let enss: Vec<Expr> = f.contracts.iter().filter_map(|c| match c { ContractClause::Ensures(e, _) => Some(e.clone()), _ => None }).collect();
+                out.push((f.name.name.clone(), params, f.return_type.clone(), f.contracts.clone(), reqs, enss));
+            }
+            TopDecl::Module(m) => {
+                for item in &m.items {
+                    self.collect_fns_from_item(item, out);
+                }
+            }
+            _ => {}
+        }
     }
 
     fn process_top_decl(&mut self, item: &TopDecl) {
@@ -523,9 +594,41 @@ pub struct Z3Runner {
 impl Z3Runner {
     pub fn new() -> Self {
         Self {
-            z3_path: "z3".to_string(),
+            z3_path: Self::find_z3().unwrap_or_else(|| "z3".to_string()),
             timeout_ms: 5000,
         }
+    }
+
+    /// Auto-detect z3 binary: check common locations and PATH.
+    pub fn find_z3() -> Option<String> {
+        // 1. Check environment variable
+        if let Ok(path) = std::env::var("Z3_PATH") {
+            if std::path::Path::new(&path).exists() {
+                return Some(path);
+            }
+        }
+        // 2. Check common Windows install locations
+        let candidates = [
+            r"C:\Program Files\z3\bin\z3.exe",
+            r"C:\z3\bin\z3.exe",
+            // 3. Check if `z3` is on PATH
+        ];
+        for c in &candidates {
+            if std::path::Path::new(c).exists() {
+                return Some(c.to_string());
+            }
+        }
+        // 4. Try to run `z3 --version` to check PATH
+        if std::process::Command::new("z3")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map_or(false, |s| s.success())
+        {
+            return Some("z3".to_string());
+        }
+        None
     }
 
     pub fn with_z3_path(mut self, path: &str) -> Self {

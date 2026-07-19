@@ -20,11 +20,9 @@ fn z3_path() -> Option<String> {
     let candidates = [
         r"C:\Users\lefte\AppData\Local\Temp\z3.exe",
         r"E:\repos\z3\build\Release\z3.exe",
-        r"E:\repos\z3\build\z3.exe",
     ];
     for c in &candidates {
         if Path::new(c).exists() {
-            // Verify it actually works
             let out = Command::new(c).arg("--version").output();
             if out.map_or(false, |o| o.status.success()) {
                 return Some(c.to_string());
@@ -40,9 +38,10 @@ fn project_root() -> std::path::PathBuf {
         .to_path_buf()
 }
 
-fn run_verify(file: &str) -> std::process::Output {
+fn verify_with_z3(file: &str) -> std::process::Output {
+    let z3 = z3_path().expect("z3 not found");
     Command::new(verify_path())
-        .args([file, "--check", "--z3-path", &z3_path().unwrap_or_else(|| "z3".to_string())])
+        .args([file, "--check", "--z3-path", &z3])
         .current_dir(project_root())
         .output()
         .expect("xiom-verify")
@@ -78,8 +77,8 @@ fn smt_abs_has_body_encoding() {
 #[test]
 fn smt_div_zero_has_side_condition() {
     let smt = smt_for("tests/verify/test_div_zero.xi");
-    assert!(smt.contains("side-condition obligations"), "Must have side-conditions section:\n{smt}");
-    assert!(smt.contains("obl_X7004"), "Must have div-by-zero obligation:\n{smt}");
+    assert!(smt.contains("side-condition obligations"), "Must have side-conditions section");
+    assert!(smt.contains("obl_X7004"), "Must have div-by-zero obligation");
 }
 
 #[test]
@@ -96,18 +95,15 @@ module test_types
 fn check_types(a: Int32, b: Float64, c: Bool) -> Int32
     requires: a > 0
     ensures: result > a
-{
-    return a + 1;
-}
+{ return a + 1; }
 "#;
     let tmp = std::env::temp_dir().join("xiom_vrfy_types.xi");
     std::fs::write(&tmp, src).expect("write test file");
     let smt = smt_for(tmp.to_str().unwrap());
     let _ = std::fs::remove_file(&tmp);
-    // Int32 should map to (_ BitVec 32), not Int
-    assert!(smt.contains("(_ BitVec 32)"), "Int32 must map to BV32:\n{smt}");
-    assert!(smt.contains("(_ FloatingPoint 11 53)"), "Float64 must map to FP:\n{smt}");
-    assert!(smt.contains("Bool"), "Bool must map to Bool:\n{smt}");
+    assert!(smt.contains("(_ BitVec 32)"), "Int32 must map to BV32");
+    assert!(smt.contains("(_ FloatingPoint 11 53)"), "Float64 must map to FP");
+    assert!(smt.contains("Bool"), "Bool must map to Bool");
 }
 
 #[test]
@@ -118,33 +114,27 @@ fn clamp(x: Int, lo: Int, hi: Int) -> Int
     requires: lo <= hi
     ensures: result >= lo
     ensures: result <= hi
-{
-    if x < lo { return lo; }
-    if x > hi { return hi; }
-    return x;
-}
+{ if x < lo { return lo; } if x > hi { return hi; } return x; }
 "#;
     let tmp = std::env::temp_dir().join("xiom_vrfy_multi.xi");
     std::fs::write(&tmp, src).expect("write test file");
     let smt = smt_for(tmp.to_str().unwrap());
     let _ = std::fs::remove_file(&tmp);
-    // Should have 2 ensures check-sat blocks
     let count = smt.match_indices("(check-sat)").count();
-    assert!(count >= 2, "Must have at least 2 check-sat (one per ensures), got {count}:\n{smt}");
+    assert!(count >= 2, "Must have at least 2 check-sat (one per ensures), got {count}");
+}
+
+#[test]
+fn smt_compose_has_contract_axioms() {
+    let smt = smt_for("tests/verify/test_compose.xi");
+    assert!(smt.contains("contract axioms"), "Must have contract composition");
+    assert!(smt.contains("declare-fun |square|"), "square must be declared as uninterpreted");
+    assert!(smt.contains("contract_square"), "Must have axiom for square");
 }
 
 // =========================================================================
 // Z3 Integration Tests (require z3)
 // =========================================================================
-
-fn verify_with_z3(file: &str) -> std::process::Output {
-    let z3 = z3_path().expect("z3 not found");
-    Command::new(verify_path())
-        .args([file, "--check", "--z3-path", &z3])
-        .current_dir(project_root())
-        .output()
-        .expect("xiom-verify")
-}
 
 #[test]
 fn z3_abs_proven() {
@@ -170,6 +160,15 @@ fn z3_div_zero_side_condition() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!stderr.is_empty(), "z3 should produce output");
     assert!(stderr.contains("VERIFIED"), "With requires b!=0, div-by-zero must be proven:\n{stderr}");
+}
+
+#[test]
+fn z3_compose_proven() {
+    if z3_path().is_none() { eprintln!("SKIP: z3 not found"); return; }
+    let output = verify_with_z3("tests/verify/test_compose.xi");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("VERIFIED"),
+        "use_square must be proven via contract composition:\n{stderr}");
 }
 
 // =========================================================================
@@ -238,7 +237,7 @@ fn parse_z3_error() {
 fn parse_z3_multiple_check_sat() {
     let output = r#"unsat
 sat
-(model
+(
   (define-fun x () Int (- 3))
 )
 "#;
