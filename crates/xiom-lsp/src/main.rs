@@ -82,6 +82,17 @@ impl Backend {
                 if let Some(dir) = uri_to_parent_dir(uri) {
                     checker.add_source_dir(dir);
                 }
+                // 5e.3 G-31: walk-up project root detection so cross-directory
+                // `use xiom.*` imports resolve in single-file LSP mode.
+                if let Some(file_path) = uri_to_file_path(uri) {
+                    if let Some(root) = xiomc::find_project_root(&file_path) {
+                        checker.add_source_dir(root.to_string_lossy().to_string());
+                        let src_dir = root.join("src");
+                        if src_dir.is_dir() {
+                            checker.add_source_dir(src_dir.to_string_lossy().to_string());
+                        }
+                    }
+                }
                 for stdlib_dir in xiomc::find_stdlib_dirs() {
                     checker.add_source_dir(stdlib_dir);
                 }
@@ -104,8 +115,12 @@ impl Backend {
 /// Convert an LSP file URI to its parent directory path.
 /// `file:///e%3A/Projects/AXIOM/stdlib/xiom/alloc.xi` → `e:\Projects\AXIOM\stdlib\xiom`
 fn uri_to_parent_dir(uri: &str) -> Option<String> {
+    uri_to_file_path(uri).and_then(|p| p.parent().map(|p| p.to_string_lossy().to_string()))
+}
+
+/// Convert a percent-encoded file:// URI to a filesystem PathBuf.
+fn uri_to_file_path(uri: &str) -> Option<std::path::PathBuf> {
     let path = uri.strip_prefix("file:///")?;
-    // Percent-decode (%3A → :, %20 → space, etc.)
     let mut decoded = String::with_capacity(path.len());
     let bytes = path.as_bytes();
     let mut i = 0;
@@ -120,8 +135,7 @@ fn uri_to_parent_dir(uri: &str) -> Option<String> {
         decoded.push(bytes[i] as char);
         i += 1;
     }
-    let fs_path = std::path::PathBuf::from(decoded);
-    fs_path.parent().map(|p| p.to_string_lossy().to_string())
+    Some(std::path::PathBuf::from(decoded))
 }
 
 // ============================================================================
