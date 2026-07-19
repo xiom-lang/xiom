@@ -500,6 +500,11 @@ fn list_tools() -> Vec<ToolDef> {
             input_schema: json!({"type":"object","properties":{"file":{"type":"string","description":"Path to the XIOM source file to hot-reload"}},"required":["file"]}),
         },
         ToolDef {
+            name: "compile_and_fix".into(),
+            description: "One-shot compile + AI diagnose: compiles XIOM source, collects all errors, runs AI diagnostic on each, and returns error descriptions with specific fix suggestions. Combines compile_and_analyze + ai_diagnose in one call.".into(),
+            input_schema: json!({"type":"object","properties":{"source":{"type":"string","description":"XIOM source code to compile and diagnose"},"file":{"type":"string","description":"Optional file path for context (default: inline.xi)"}},"required":["source"]}),
+        },
+        ToolDef {
             name: "verify_contracts".into(),
             description: "Runs xiom-verify on source code: checks function contracts (requires/ensures) with Z3 SMT solver and returns proof results with counterexamples. Use to verify 'if it compiles, it won't crash' guarantees.".into(),
             input_schema: json!({"type":"object","properties":{"file":{"type":"string","description":"Path to XIOM source file with contracts"},"check":{"type":"boolean","description":"Run Z3 to verify (requires z3 on PATH)","default":false}},"required":["file"]}),
@@ -515,24 +520,101 @@ fn tool_ai_diagnose(params: &Value) -> Result<String, String> {
     let source = params["source"].as_str().ok_or("Missing source code")?;
     let error = params["error"].as_str().ok_or("Missing error message")?;
 
-    let mut hints = Vec::new();
-    for (i, line) in source.lines().enumerate() {
-        if line.contains("fn ") && line.contains("->") {
-            hints.push(format!("Function at line {}: {}", i + 1, line.trim()));
+    // Build a synthetic diagnostic from the error string
+    let parts: Vec<&str> = error.splitn(2, ':').collect();
+    let code = parts[0].trim().to_string();
+    let msg = parts.get(1).map(|s| s.trim()).unwrap_or(error);
+    let line = error.find("line ").and_then(|i| {
+        error[i+5..].split(|c: char| !c.is_ascii_digit()).next()
+    }).and_then(|s| s.parse().ok()).unwrap_or(1u32);
+
+    let diag = xiomc::Diagnostic {
+        kind: "ai_diagnose".into(), code, message: msg.to_string(),
+        line, col: 1, file: "inline".into(),
+        suggestion: None, help: None, note: None,
+    };
+
+    // Call the actual AI pipeline
+    let cfg = xiomc::ai::load_ai_config(None);
+    if cfg.api_key.is_empty() && !cfg.endpoint.contains("11434") {
+        // No API key, return fallback analysis
+        let mut hints = Vec::new();
+        for (i, line) in source.lines().enumerate() {
+            if line.contains("fn ") { hints.push(format!("L{}: {}", i+1, line.trim())); }
+        }
+        return Ok(format!(
+            "# XIOM AI Diagnostic (offline)\n\n**Error:** {error}\n\n**Source functions:**\n{}\n\n\
+             **Setup LLM:** Set XIOM_AI_KEY environment variable and retry.\n\
+             **Quick fix:** Check type compatibility, contract clauses, and syntax.",
+            if hints.is_empty() { "(none)".into() } else { hints.join("\n") }
+        ));
+    }
+
+    match xiomc::ai::run_ai_pipeline(&cfg, source, "inline.xi", &[diag]) {
+        Ok(output) => {
+            if output.hints.is_empty() {
+                Ok("# XIOM AI Diagnostic\n\nNo actionable hints generated. Source may compile cleanly.".into())
+            } else {
+                let summary: Vec<String> = output.hints.iter().map(|h| {
+                    format!("**[{}] {}** ({}%, {}): {}\n  → {}",
+                        h.error_code,
+                        if h.cached { "📦 cached" } else { "🤖 AI" },
+                        h.confidence.as_deref().unwrap_or("?"),
+                        h.error_type,
+                        h.file,
+                        h.insight)
+                }).collect();
+                Ok(format!("# XIOM AI Diagnostic\n\n**Model:** {}\n**Provider:** {}\n\n{}",
+                    output.model, output.provider, summary.join("\n\n")))
+            }
+        }
+        Err(e) => Ok(format!("# XIOM AI Diagnostic\n\n**Error:** {e}\n\nFallback: check type compatibility and syntax.")),
+    }
+}
+
+fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
+    let source = params["source"].as_str().ok_or("Missing source code")?;
+    let file = params.get("file").and_then(|v| v.as_str()).unwrap_or("inline.xi");
+
+    // Write source to temp file
+    let tmp = std::env::temp_dir().join("xiom_mcp_compile.xi");
+    std::fs::write(&tmp, source).map_err(|e| format!("Cannot write temp file: {e}"))?;
+
+    // Run check-only compile
+    let check_cfg = xiomc::CompileConfig {
+        check_only: true, emit_ir: true, diagnostics_json: true,
+        target: xiomc::Target::Native, release: false, do_run: false,
+        check_contracts: true, strict_mode: false, debug_symbols: false,
+        shared_lib: false, static_lib: false, max_recursion_depth: 500,
+        dump_contracts: false, verify: false, verify_output: None,
+        output_file: None, link_libs: vec![], link_paths: vec![], c_sources: vec![],
+    };
+    let result = xiomc::compile_with_diagnostics(&check_cfg, &[tmp.to_str().unwrap().to_string()]);
+    let _ = std::fs::remove_file(&tmp);
+
+    if result.diagnostics.is_empty() {
+        return Ok("# XIOM Compile+Fix\n\n✅ **No errors** — source compiles cleanly.".into());
+    }
+
+    // Run AI pipeline on each diagnostic
+    let cfg = xiomc::ai::load_ai_config(None);
+    let ai_output = xiomc::ai::run_ai_pipeline(&cfg, source, file, &result.diagnostics).unwrap_or_else(|_e| {
+        xiomc::ai::AiOutput { schema_version: 1, session: String::new(), compiler_version: String::new(),
+            provider: "offline".into(), model: "none".into(), source_hash: String::new(),
+            total_hints: 0, cached_hints: 0, api_calls: 0, hints: vec![] }
+    });
+
+    let mut report = format!("# XIOM Compile+Fix\n\n**{} error(s) found**\n\n", result.diagnostics.len());
+    for (i, diag) in result.diagnostics.iter().enumerate() {
+        report.push_str(&format!("### Error {}: [{}] {}\n", i+1, diag.code, diag.message));
+        if let Some(hint) = ai_output.hints.iter().find(|h| h.error_code == diag.code && h.line == diag.line) {
+            report.push_str(&format!("**Fix:** {}\n\n", hint.insight));
+        } else {
+            report.push_str("**Fix:** Review the error and surrounding code.\n\n");
         }
     }
 
-    let error_code = error.split_whitespace().next().unwrap_or("X0000");
-    let hints_text = if hints.is_empty() { "(none found)".to_string() } else { hints.join("\n- ") };
-    let output = format!(
-        "# XIOM AI Diagnostic\n\n**Error:** {error}\n\n**Functions found in source:**\n{hints_text}\n\n**Recommended actions:**\n\
-         1. Run `xiomc --ai \"<file>\"` for LLM-powered diagnostics (DeepSeek/Ollama/OpenAI)\n\
-         2. Run `xiomc --explain {error_code}` for detailed error docs\n\
-         3. Run `xiomc --verify \"<file>\" --check` if contracts are involved\n\
-         4. Add `requires:`/`ensures:` contracts to enable compile-time verification\n\n\
-         **Setup AI mode:** `xiomc --help-ai` for full configuration guide.",
-    );
-    Ok(output)
+    Ok(report)
 }
 
 fn tool_hot_reload_watch(params: &Value) -> Result<String, String> {
@@ -588,6 +670,7 @@ fn call_tool(name: &str, params: &Value) -> Result<Value, String> {
         "format_xiom_code" => tool_format_xiom_code(params).map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })),
         "audit_safety_sandbox" => tool_audit_safety_sandbox(params).map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })),
         "ai_diagnose" => tool_ai_diagnose(params).map(|s| json!({ "content": [{ "type": "text", "text": s }] })),
+        "compile_and_fix" => tool_compile_and_fix(params).map(|s| json!({ "content": [{ "type": "text", "text": s }] })),
         "hot_reload_watch" => tool_hot_reload_watch(params).map(|s| json!({ "content": [{ "type": "text", "text": s }] })),
         "verify_contracts" => tool_verify_contracts(params).map(|s| json!({ "content": [{ "type": "text", "text": s }] })),
         "xiom_cheatsheet" => tool_xiom_cheatsheet(params).map(|s| json!({ "content": [{ "type": "text", "text": s }] })),
@@ -718,9 +801,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_list_tools_returns_thirteen_tools() {
+    fn test_list_tools_returns_fourteen_tools() {
         let tools = list_tools();
-        assert_eq!(tools.len(), 13, "Production MCP must have 13 tools (10 original + 3 5g/5e)");
+        assert_eq!(tools.len(), 14, "Production MCP must have 14 tools");
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
         assert!(names.contains(&"compile_and_analyze"));
         assert!(names.contains(&"explain_error_code"));

@@ -184,6 +184,7 @@ pub struct ContextSlice {
     pub function_body: String,
     pub error_code: String, pub error_type: String,
     pub error_line: u32,
+    pub contract_clause: Option<String>,
 }
 
 pub fn slice_error_context(source: &str, diag: &crate::Diagnostic) -> Option<ContextSlice> {
@@ -207,8 +208,20 @@ pub fn slice_error_context(source: &str, diag: &crate::Diagnostic) -> Option<Con
     let et = match diag.code.chars().next().unwrap_or('?') {
         'X' => "ContractViolation", 'T' => "TypeError", 'P' => "ParseError", 'C' => "CodegenError", _ => "CompileError",
     };
+    // Extract contract clauses from function signature
+    let mut contract = None;
+    for i in fn_start..el.min(lines.len()) {
+        let line = lines.get(i).unwrap_or(&"");
+        if line.contains("requires:") || line.contains("ensures:") {
+            contract = Some(line.trim().to_string());
+        }
+    }
+    // Also check diagnostic message for contract mentions
+    if contract.is_none() && diag.message.contains("contract") {
+        contract = Some(diag.message.clone());
+    }
     Some(ContextSlice { function_body: body, error_code: diag.code.clone(),
-        error_type: et.to_string(), error_line: diag.line })
+        error_type: et.to_string(), error_line: diag.line, contract_clause: contract })
 }
 
 // =========================================================================
@@ -216,11 +229,34 @@ pub fn slice_error_context(source: &str, diag: &crate::Diagnostic) -> Option<Con
 // =========================================================================
 
 fn build_chat_prompt(ctx: &ContextSlice) -> Vec<serde_json::Value> {
+    let error_guidance = match ctx.error_code.chars().next().unwrap_or('?') {
+        'T' => "Type mismatch: check that the expression type matches the declared return type or parameter type. Consider adding an explicit cast or conversion.",
+        'C' => "Codegen error: the compiler cannot lower this construct. Check for unsupported patterns like bare field reads without self parameter.",
+        'P' => "Parse error: the syntax is invalid. Check for missing semicolons, braces, or incorrect keyword usage.",
+        'X' => "Contract violation: the function's requires/ensures clause is not satisfied. Check the boundary conditions of your inputs.",
+        _ => "Compilation error: review the error message and the surrounding code context.",
+    };
+
     vec![
-        serde_json::json!({"role": "system", "content": "You are an internal compiler diagnostic translator for the XIOM programming language. Give 1-2 sentence insights about compilation errors. Be specific about which variable or expression triggered the failure. CRITICAL: Do not write code. Do not output markdown code blocks."}),
+        serde_json::json!({"role": "system", "content": format!(
+            "You are an expert XIOM compiler diagnostic assistant. Your job is to analyze compilation errors and provide SPECIFIC, ACTIONABLE fix suggestions.\n\n\
+             RULES:\n\
+             - Always suggest the exact fix (e.g., 'change return type from Str to Int' or 'add requires: x != 0')\n\
+             - Reference the specific variable or expression that triggered the error\n\
+             - If a contract is involved, explain which boundary condition fails\n\
+             - Keep responses under 60 words\n\
+             - NEVER write full code — suggest the fix in plain English\n\
+             - Confidence: HIGH for type/contract errors, MEDIUM for codegen/parse errors\n\n\
+             Error code reference: {error_guidance}"
+        )}),
         serde_json::json!({"role": "user", "content": format!(
-            "XIOM compiler error: [{}] {} at line {}\n\nCode context:\n```xiom\n{}\n```\n\nExplain this error in 15-45 words.",
-            ctx.error_code, ctx.error_type, ctx.error_line, ctx.function_body
+            "XIOM Error [{code}] {etype} at line {line}\n\n\
+             Code context:\n```xiom\n{body}\n```\n\n\
+             {contract_hint}\
+             Task: What is the EXACT fix needed? Be specific.",
+            code = ctx.error_code, etype = ctx.error_type, line = ctx.error_line,
+            body = ctx.function_body,
+            contract_hint = ctx.contract_clause.as_ref().map(|c| format!("Failed contract: {c}\n\n")).unwrap_or_default()
         )}),
     ]
 }
@@ -311,7 +347,7 @@ pub fn run_ai_pipeline(config: &AiConfig, source: &str, source_path: &str, diagn
         let hint = AiHint {
             file: source_path.to_string(), line: diag.line, column: diag.col,
             error_code: diag.code.clone(), error_type: ctx.error_type.clone(),
-            contract: None,
+            contract: ctx.contract_clause.clone(),
             insight, cached: false,
             timestamp_ms: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
             is_root_cause: Some(hints.is_empty()),
