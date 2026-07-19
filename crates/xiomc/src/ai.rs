@@ -228,27 +228,42 @@ pub fn slice_error_context(source: &str, diag: &crate::Diagnostic) -> Option<Con
 // Prompt Templates — provider-optimized
 // =========================================================================
 
-fn build_chat_prompt(ctx: &ContextSlice) -> Vec<serde_json::Value> {
-    let error_guidance = match ctx.error_code.chars().next().unwrap_or('?') {
-        'T' => "Type mismatch: check that the expression type matches the declared return type or parameter type. Consider adding an explicit cast or conversion.",
-        'C' => "Codegen error: the compiler cannot lower this construct. Check for unsupported patterns like bare field reads without self parameter.",
-        'P' => "Parse error: the syntax is invalid. Check for missing semicolons, braces, or incorrect keyword usage.",
-        'X' => "Contract violation: the function's requires/ensures clause is not satisfied. Check the boundary conditions of your inputs.",
-        _ => "Compilation error: review the error message and the surrounding code context.",
-    };
+/// Load system prompt from stdlib/xiom/ai_prompt.txt, fall back to hardcoded.
+fn load_system_prompt() -> String {
+    let paths = [
+        "stdlib/xiom/ai_prompt.txt",
+        "lib/xiom/ai_prompt.txt",
+    ];
+    for p in &paths {
+        if let Ok(content) = std::fs::read_to_string(p) {
+            if !content.trim().is_empty() {
+                return content;
+            }
+        }
+    }
+    // Hardcoded fallback (AI-04: production-grade default)
+    format!(
+        "You are an expert XIOM compiler diagnostic assistant. Your job is to analyze compilation errors and provide SPECIFIC, ACTIONABLE fix suggestions.\n\n\
+         RULES:\n\
+         - Always suggest the exact fix (e.g., 'change return type from Str to Int' or 'add requires: x != 0')\n\
+         - Reference the specific variable or expression that triggered the error\n\
+         - If a contract is involved, explain which boundary condition fails\n\
+         - Keep responses under 60 words\n\
+         - NEVER write full code — suggest the fix in plain English\n\
+         - Confidence: HIGH for type/contract errors, MEDIUM for codegen/parse errors\n\n\
+         Error categories:\n\
+         - T (Type): Type mismatch — check expression type vs declared type\n\
+         - C (Codegen): Compiler cannot lower this construct — unsupported pattern\n\
+         - P (Parse): Invalid syntax — missing semicolons, braces, or keywords\n\
+         - X (Contract): Contract violation — requires/ensures clause not satisfied\n\
+         - E (Borrow): Ownership error — use of moved value\n\
+         - L (Lexer): Invalid token or character"
+    )
+}
 
+fn build_chat_prompt(ctx: &ContextSlice) -> Vec<serde_json::Value> {
     vec![
-        serde_json::json!({"role": "system", "content": format!(
-            "You are an expert XIOM compiler diagnostic assistant. Your job is to analyze compilation errors and provide SPECIFIC, ACTIONABLE fix suggestions.\n\n\
-             RULES:\n\
-             - Always suggest the exact fix (e.g., 'change return type from Str to Int' or 'add requires: x != 0')\n\
-             - Reference the specific variable or expression that triggered the error\n\
-             - If a contract is involved, explain which boundary condition fails\n\
-             - Keep responses under 60 words\n\
-             - NEVER write full code — suggest the fix in plain English\n\
-             - Confidence: HIGH for type/contract errors, MEDIUM for codegen/parse errors\n\n\
-             Error code reference: {error_guidance}"
-        )}),
+        serde_json::json!({"role": "system", "content": load_system_prompt()}),
         serde_json::json!({"role": "user", "content": format!(
             "XIOM Error [{code}] {etype} at line {line}\n\n\
              Code context:\n```xiom\n{body}\n```\n\n\

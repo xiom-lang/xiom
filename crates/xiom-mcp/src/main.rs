@@ -593,7 +593,11 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
     let _ = std::fs::remove_file(&tmp);
 
     if result.diagnostics.is_empty() {
-        return Ok("# XIOM Compile+Fix\n\n✅ **No errors** — source compiles cleanly.".into());
+        return Ok(json!({
+            "status": "ok",
+            "errors": [],
+            "summary": "Source compiles cleanly — no errors found."
+        }).to_string());
     }
 
     // Run AI pipeline on each diagnostic
@@ -604,17 +608,28 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
             total_hints: 0, cached_hints: 0, api_calls: 0, hints: vec![] }
     });
 
-    let mut report = format!("# XIOM Compile+Fix\n\n**{} error(s) found**\n\n", result.diagnostics.len());
-    for (i, diag) in result.diagnostics.iter().enumerate() {
-        report.push_str(&format!("### Error {}: [{}] {}\n", i+1, diag.code, diag.message));
-        if let Some(hint) = ai_output.hints.iter().find(|h| h.error_code == diag.code && h.line == diag.line) {
-            report.push_str(&format!("**Fix:** {}\n\n", hint.insight));
-        } else {
-            report.push_str("**Fix:** Review the error and surrounding code.\n\n");
-        }
+    let mut errors_json = Vec::new();
+    for diag in &result.diagnostics {
+        let hint = ai_output.hints.iter().find(|h| h.error_code == diag.code && h.line == diag.line);
+        errors_json.push(json!({
+            "code": diag.code,
+            "message": diag.message,
+            "line": diag.line,
+            "column": diag.col,
+            "error_type": hint.map(|h| h.error_type.clone()).unwrap_or_else(|| "CompileError".into()),
+            "fix": hint.map(|h| h.insight.clone()).unwrap_or_else(|| "Review the error and surrounding code.".into()),
+            "confidence": hint.and_then(|h| h.confidence.clone()).unwrap_or_else(|| "MEDIUM".into()),
+            "cached": hint.map(|h| h.cached).unwrap_or(false),
+        }));
     }
 
-    Ok(report)
+    Ok(json!({
+        "status": "errors_found",
+        "error_count": result.diagnostics.len(),
+        "provider": ai_output.provider,
+        "model": ai_output.model,
+        "errors": errors_json
+    }).to_string())
 }
 
 fn tool_hot_reload_watch(params: &Value) -> Result<String, String> {
