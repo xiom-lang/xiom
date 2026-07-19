@@ -1,4 +1,3 @@
-fn uninit(x: Int) -> Int {
-    var y: Int;
-    return y;
+fn type_err(x: Int) -> Str {
+    return x;
 }
