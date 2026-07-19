@@ -1,8 +1,93 @@
 # Phase 5g — AI-Assisted Compilation Pipeline
 
-> **Status:** Planned. Depends on Phase 5f (Z3 Static Verification).  
-> **Prerequisites:** `--diagnostics=json` ✅ (exists), `--contracts` ✅ (runtime), `--verify` (SMT-LIB) ✅ (exists, needs Z3 backend).  
-> **Target:** The compiler as a **diagnostic oracle** — an insider that reads the full compilation state and produces precise, actionable hints for an external coding agent. The compiler NEVER writes code, NEVER modifies files, NEVER acts autonomously. It is a translator from compiler-internal error state to human-level insight.
+> **Status:** ✅ Implemented (5g.1 MVP complete). 14 MCP tools. Zero warnings. 768/768 tests.
+> **Version:** v0.48.8
+> **Implementation date:** 2026-07-20
+
+## Implementation Summary
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| `--ai` flag | ✅ | Runs check-only compile, collects diagnostics, calls LLM, writes `.xiom_ai.json` |
+| `--ai-dry-run` | ✅ | Prints prompt without calling LLM |
+| `--ai-local` | ✅ | Ollama-only, never sends code off-machine |
+| `--ai-strict` | ✅ | Refuses binary output on any error |
+| `--ai-silent` | ✅ | Quiet mode, only writes `.xiom_ai.json` |
+| `--ai-model=<name>` | ✅ | Override model per invocation |
+| `--ai-timeout=<sec>` | ✅ | LLM timeout (default: 30s) |
+| `--help-ai` | ✅ | Full setup guide with examples for all providers |
+| Provider auto-detection | ✅ | Ollama, DeepSeek, OpenAI, OpenRouter, Groq, custom OpenAI-compatible |
+| Config file | ✅ | `.xiom_ai_config.json` in project or home directory |
+| Hash cache | ✅ | SHA256 with model-versioned keys, `.xiom_ai_cache/` |
+| Context slicing | ✅ | Extracts failing function + contract clauses from source |
+| Contract-aware prompts | ✅ | Includes `requires:`/`ensures:` clauses in LLM prompt |
+| Error-type guidance | ✅ | Specific fix suggestions per error category (T=type, C=codegen, P=parse, X=contract) |
+| `.xiom_ai.json` output | ✅ | Schema-validated JSON with confidence scores and root-cause flagging |
+| DeepSeek support | ✅ | `XIOM_AI_ENDPOINT=https://api.deepseek.com`, model: `deepseek-chat` |
+| OpenAI support | ✅ | `XIOM_AI_ENDPOINT=https://api.openai.com/v1`, model: `gpt-4o-mini` |
+| Ollama support | ✅ | Local, free, no API key needed |
+
+## MCP Server Tools (14 total)
+
+| # | Tool | Description |
+|---|------|-------------|
+| 1 | `compile_and_analyze` | Compile XIOM file, return structured diagnostics JSON |
+| 2 | `explain_error_code` | Explain compiler error codes (X, T, P, C, E series) |
+| 3 | `get_contract_signature` | Get function contracts (requires/ensures/invariants) |
+| 4 | `check_xiom_syntax` | Parse-only syntax check |
+| 5 | `format_xiom_code` | Format XIOM source per canonical style |
+| 6 | `audit_safety_sandbox` | Safety audit on unsafe blocks |
+| 7 | `xiom_cheatsheet` | XIOM code patterns and idioms |
+| 8 | `xiom_stdlib_reference` | Stdlib API reference (LIVE parsed from source) |
+| 9 | `xiom_language_guide` | Language semantics by topic |
+| 10 | `xiom_workflow_guide` | Toolchain operations reference |
+| 11 | **`ai_diagnose`** | **Calls LLM (DeepSeek/Ollama/OpenAI) for error fix suggestions** |
+| 12 | **`compile_and_fix`** | **Compile + AI diagnose in one call — returns errors with fix suggestions** |
+| 13 | **`hot_reload_watch`** | **Hot reload compilation guide (--watch + --hot-reload)** |
+| 14 | **`verify_contracts`** | **Contract verification with Z3 SMT solver** |
+
+## Hot Reload (5e)
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| `--watch` flag | ✅ | Polls file modification times (500ms), recompiles on change |
+| `--hot-reload` flag | ✅ | Forces `--shared` (DLL), watches, recompiles |
+| Function pointer table runtime | ✅ | `stdlib/runtime/xiom_hot_reload.c` — hash table with djb2 |
+| Codegen indirect call thunks | ⬜ | 5e.5a — needed for live function swapping |
+| DLL host executable | ⬜ | 5e.5b — manages LoadLibrary/FreeLibrary cycle |
+
+## Quick Start for AI Agents
+
+### Compile + Fix (recommended — one shot)
+```json
+// MCP tool: compile_and_fix
+{
+  "source": "fn bad(x: Int) -> Str { return x; }"
+}
+// Returns: "Error 1: [T001] return type mismatch → Fix: change return type from Str to Int"
+```
+
+### AI Diagnostic (if you already have the error)
+```json
+// MCP tool: ai_diagnose  
+{
+  "source": "fn divide(a: Int, b: Int) -> Int { return a / b; }",
+  "error": "X7004: division by zero at line 2"
+}
+```
+
+### CLI Usage
+```powershell
+# One-time setup
+set XIOM_AI_ENDPOINT=https://api.deepseek.com
+set XIOM_AI_KEY=sk-your-key
+
+# Use it
+xiomc --ai source.xi           # AI diagnostics
+xiomc --ai-strict source.xi    # No binary on violations
+xiomc --ai-dry-run source.xi   # See prompt without API call
+xiomc --help-ai                # Full setup guide
+```
 
 ---
 
