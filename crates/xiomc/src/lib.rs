@@ -4,6 +4,7 @@
 // Licensed under the MIT or Apache-2.0 license, at your option.
 // -----------------------------------------------------------------------
 
+pub mod ai;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};

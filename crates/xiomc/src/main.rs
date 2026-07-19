@@ -65,6 +65,16 @@ fn main() {
     let static_lib = args.iter().any(|a| a == "--static");
     let watch_mode = args.iter().any(|a| a == "--watch");
     let hot_reload = args.iter().any(|a| a == "--hot-reload");
+    // 5g AI Pipeline flags
+    let ai_mode = args.iter().any(|a| a == "--ai");
+    let ai_local = args.iter().any(|a| a == "--ai-local");
+    let ai_dry_run = args.iter().any(|a| a == "--ai-dry-run");
+    let ai_silent = args.iter().any(|a| a == "--ai-silent");
+    let ai_strict = args.iter().any(|a| a == "--ai-strict");
+    let ai_model: Option<String> = args.iter().position(|a| a == "--ai-model")
+        .and_then(|i| args.get(i + 1).cloned()).filter(|m| !m.starts_with('-'));
+    let ai_timeout: u32 = parse_flag_value(&args, "--ai-timeout")
+        .and_then(|v| v.parse().ok()).unwrap_or(10);
     let test_mode = args.iter().any(|a| a == "--test");
     let clean_mode = args.iter().any(|a| a == "--clean");
     let install_mode = args.iter().any(|a| a == "install");
@@ -313,6 +323,28 @@ fn main() {
         }
     }
 
+    // 5g AI Pipeline: run before main compile to generate hints
+    if ai_mode || ai_local || ai_dry_run {
+        let ai_config = xiomc::ai::AiConfig {
+            enabled: true, local_only: ai_local, dry_run: ai_dry_run,
+            silent: ai_silent, strict: ai_strict,
+            model: ai_model.unwrap_or_else(|| "codellama".to_string()),
+            ..Default::default()
+        };
+        for path in &source_paths {
+            if let Ok(source) = std::fs::read_to_string(path) {
+                match xiomc::ai::run_ai_pipeline(&ai_config, &source, path, &[]) {
+                    Ok(output) if !ai_silent => {
+                        eprintln!("xiomc --ai: {} hints written to .xiom_ai.json ({} cached)",
+                            output.total_hints, output.cached_hints);
+                    }
+                    Err(e) => eprintln!("[AI] {e}"),
+                    _ => {}
+                }
+            }
+        }
+    }
+
     compile(&config, &source_paths);
 }
 
@@ -342,6 +374,12 @@ fn print_usage() {
     eprintln!("  --shared            Compile as shared library (DLL)");
     eprintln!("  --watch             Watch source files and recompile on change");
     eprintln!("  --hot-reload        Hot reload mode: watch + shared library");
+    eprintln!("  --ai                AI-assisted diagnostics (requires Ollama or API key)");
+    eprintln!("  --ai-local          AI mode: local LLM only, never sends code off-machine");
+    eprintln!("  --ai-dry-run        AI mode: print prompt, don't call LLM");
+    eprintln!("  --ai-strict         Refuse binary output on any contract violation");
+    eprintln!("  --ai-model=<name>   Override AI model (default: codellama)");
+    eprintln!("  --ai-timeout=<sec>  AI LLM call timeout (default: 10s)");
     eprintln!("  --timeout <seconds>  Set compilation timeout (default: 60)");
     eprintln!("  --max-memory-mb <N>       Set max memory budget in MB (0 = disabled)");
     eprintln!("  --link <name>             Link a native library (repeatable, e.g. vulkan-1)");
