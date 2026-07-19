@@ -123,12 +123,12 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | **5d.9** | **🔒 Sandbox Audit** | **--sandbox, severity scoring, CI/CD exit codes** | **✅ Production — 10 tests** | 10 | [SAFETY_AUDIT.md](./SAFETY_AUDIT.md) |
 | **5d.10** | **🧭 Ecosystem Gap Registry** | **Canonical G-01..G-49 registry. 38 FIXED, 8 OPEN, 3 RETEST. OPEN→5e targets.** | **✅ Complete — OPEN gaps carried into 5e.1–5e.4 as acceptance criteria.** | [ecosystem-audit/](./ecosystem-audit/README.md) |
 | │ | | | | | |
-| **5e** | **Advanced Compilation** | **Typed IR, multi-package, incremental — solves all remaining 5d OPEN gaps** | **🚧 STARTING — 38/49 FIXED from 5d; 8 OPEN + 3 retest carried into 5e sub-phases** | [rust/RUST_COMPILER_LESSONS.md](../rust/RUST_COMPILER_LESSONS.md) |
+| **5e** | **Advanced Compilation** | **Typed IR, multi-package, incremental — 48/49 gaps FIXED, all 5e sub-phases complete** | **✅ COMPLETE — 750/750 tests** | [rust/RUST_COMPILER_LESSONS.md](../rust/RUST_COMPILER_LESSONS.md) |
 | │ | | | | | |
-| **5e.1** | **🔗 Typed Pointer IR** | **C struct field access, sizeof, Bool C layout** | **→ Solves G-17, G-18, G-39** | [ecosystem-audit/COMPILER_GAPS.md](../docs/ecosystem-audit/COMPILER_GAPS.md) |
-| **5e.2** | **🖇️ Fn-Pointer Types** | **XIOM fn→C callback, Int→fn-ptr cast** | **→ Solves G-16, G-34** | — |
-| **5e.3** | **📦 Multi-Package Build** | **Cross-package extern/use, catalog** | **→ Solves G-30, G-31, G-32** | — |
-| **5e.4** | **🏷️ Distinct Newtype** | **`distinct` keyword for handle safety** | **→ Solves G-41, closes 5d.9 follow-up** | — |
+| **5e.1** | **🔗 Typed Pointer IR** | **C struct field access, sizeof, Bool C layout** | **✅ G-17, G-18, G-39 — all FIXED** | [ecosystem-audit/COMPILER_GAPS.md](../docs/ecosystem-audit/COMPILER_GAPS.md) |
+| **5e.2** | **🖇️ Fn-Pointer Types** | **XIOM fn→C callback, Int→fn-ptr cast** | **✅ G-16, G-34 — all FIXED** | — |
+| **5e.3** | **📦 Multi-Package Build** | **Cross-package extern/use, catalog, grandparent dir** | **✅ G-30, G-31, G-32 — all FIXED** | — |
+| **5e.4** | **🏷️ Distinct Newtype** | **`distinct` keyword for handle safety** | **✅ G-41 — FIXED** | — |
 | **5f** | **Z3 Verification** | **Contract proof at compile time** | **Planned** | — | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
 | **5g** | **🤖 AI Pipeline** | **--ai flag, LLM hints, contract-guided, temp=0** | **Planned (after 5f)** | — | [AI_PIPELINE.md](./AI_PIPELINE.md) |
 | **5h** | **🏁 Self-Hosting** | **XIOM compiler in XIOM** | **Planned (LAST)** | — | [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md) |
