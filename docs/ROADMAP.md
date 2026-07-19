@@ -129,7 +129,7 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | **5e.2** | **🖇️ Fn-Pointer Types** | **XIOM fn→C callback, Int→fn-ptr cast** | **✅ G-16, G-34 — all FIXED** | — |
 | **5e.3** | **📦 Multi-Package Build** | **Cross-package extern/use, catalog, grandparent dir** | **✅ G-30, G-31, G-32 — all FIXED** | — |
 | **5e.4** | **🏷️ Distinct Newtype** | **`distinct` keyword for handle safety** | **✅ G-41 — FIXED** | — |
-| **5f** | **Z3 Verification** | **Contract proof at compile time** | **Planned** | — | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
+| **5f** | **Z3 Verification** | **Contract proof at compile time** | **🚧 Stage 0 — body encoding VC gen complete; P0 type map fixed; z3 subprocess with model extraction** | — | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
 | **5g** | **🤖 AI Pipeline** | **--ai flag, LLM hints, contract-guided, temp=0** | **Planned (after 5f)** | — | [AI_PIPELINE.md](./AI_PIPELINE.md) |
 | **5h** | **🏁 Self-Hosting** | **XIOM compiler in XIOM** | **Planned (LAST)** | — | [rust/RUST_COMPILER_LESSONS.md](./rust/RUST_COMPILER_LESSONS.md) |
 
