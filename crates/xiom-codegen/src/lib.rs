@@ -1331,6 +1331,24 @@ impl IrEmitter {
         "i64".to_string()
     }
 
+    /// 5e.1 G-18: byte size of a struct from type_meta field list.
+    /// Sums LLVM type widths: i8=1, i16=2, i32=4, i64=8, etc.
+    /// Returns 0 for unknown types. Used for C FFI malloc/offsetof.
+    pub(crate) fn sizeof_struct(&self, type_name: &str) -> usize {
+        let suffix = format!(".{type_name}");
+        let meta = self.type_meta.get(type_name)
+            .or_else(|| self.type_meta.iter().find(|(k, _)| k.ends_with(&suffix)).map(|(_, v)| v));
+        let Some(meta) = meta else { return 0 };
+        meta.fields.iter().map(|(_, ty_name)| {
+            if ty_name.contains('[') { return 8; }
+            let llvm_ty = self.llvm_type_for(ty_name).unwrap_or_else(|_| ty_name.clone());
+            match llvm_ty.as_str() {
+                "i1" | "i8" => 1, "i16" => 2, "i32" | "float" => 4,
+                "i64" | "double" => 8, _ => 8,
+            }
+        }).sum()
+    }
+
     /// Returns `true` if `name` is the name of a variant of the enum currently
     /// being matched on. Used to decide whether a bare `Pattern::Ident` should
     /// be compiled as a runtime discriminant check (rather than a variable

@@ -1584,6 +1584,21 @@ impl Checker {
             // and modules (for expression paths like `async.Executor.new()`)
             if let ModuleExport::SubModule(sub_exports) = &export {
                 self.modules.entry(local_name.clone()).or_insert_with(|| sub_exports.clone());
+                // G-32: when `use mod` imports a SubModule, recursively
+                // inject its pub items (fns, types, CONSTS) so bare `PI`
+                // resolves. Previously the module was registered but the
+                // items inside were hidden — consts were invisible to bare
+                // reference while `mod.PI` worked (the catalog path hit
+                // find_external_module which does a fresh scan).
+                for (name, item_export) in sub_exports.iter() {
+                    let is_pub = match item_export {
+                        ModuleExport::Type { is_pub, .. } | ModuleExport::Function { is_pub, .. } | ModuleExport::Const { is_pub, .. } => *is_pub,
+                        _ => false,
+                    };
+                    if is_pub && !self.imported_items.contains_key(name) {
+                        self.imported_items.insert(name.clone(), item_export.clone());
+                    }
+                }
             }
             self.imported_items.insert(local_name, export);
         }
