@@ -783,9 +783,9 @@ Plus 5 bonus P1 items: TypeCause provenance, error-code registry, Applicability 
 | `xiom install <package>` | ✅ |
 | `xiom publish` | ✅ |
 | `package.xi` manifest parse | ✅ |
-| Dependency resolution | ⚠️ Hardcoded known packages, no real registry |
-| `xiom.lock` lockfile | ⬜ TODO |
-| Digital signing | ⬜ TODO (Phase 5f) |
+| Dependency resolution | ⚠️ Hardcoded known packages, no remote registry (P2) |
+| `xiom.lock` lockfile generation | ✅ `xiom pkg lock` command |
+| Digital signing | ⬜ Planned (P3) |
 
 ### Debugger Status (5d.5)
 
@@ -793,11 +793,11 @@ Plus 5 bonus P1 items: TypeCause provenance, error-code registry, Applicability 
 |---------|--------|
 | GDB/MI backend (launch, breakpoints, step) | ✅ |
 | DAP protocol (initialize, threads, stackTrace, scopes, variables) | ✅ |
-| VS Code extension (`editors/vscode/`) | ✅ LSP + syntax highlighting |
-| VS Code debug configuration provider | ⬜ TODO — needs `contributes.debuggers` in package.json |
+| VS Code extension (`editors/vscode/`) | ✅ LSP + debug config + `contributes.debuggers` |
+| VS Code debug configuration provider | ✅ Initial configs + snippets in package.json |
 | Contract-aware trap interception | ✅ Exception filter defined |
-| Platform debug API (WinDbg/lldb) | ⬜ TODO — GDB only currently |
-| Variable inspection from GDB locals | ⬜ TODO — placeholder returns empty |
+| Platform debug API (WinDbg/lldb) | ⬜ Planned (P3) — GDB only currently |
+| Variable inspection from GDB locals | ✅ `-stack-list-variables --simple-values` with type detection |
 
 ### LSP Status (5d.4)
 
@@ -809,10 +809,11 @@ Plus 5 bonus P1 items: TypeCause provenance, error-code registry, Applicability 
 | Go-to-definition | ✅ |
 | Signature help | ✅ |
 | Document symbols | ✅ |
-| References / Rename | ⬜ TODO |
-| Semantic tokens | ⬜ TODO |
-| Code actions / Quick fixes | ⬜ TODO |
-| Workspace symbol search | ⬜ TODO |
+| References | ✅ `textDocument/references` — document-wide ident search |
+| Rename | ✅ `textDocument/rename` — edits + WorkspaceEdit |
+| Semantic tokens | ⬜ Planned (P2) |
+| Code actions / Quick fixes | ⬜ Planned (P2) |
+| Workspace symbol search | ⬜ Planned (P2) |
 
 **Current AI-friendly surface:** `--diagnostics=json` + `--dump-contracts` provide structured data for external tools without baking LLM calls into the compiler.
 
