@@ -323,26 +323,38 @@ fn main() {
         }
     }
 
-    // 5g AI Pipeline: run before main compile to generate hints
+    // 5g AI Pipeline: load config and generate hints
     if ai_mode || ai_local || ai_dry_run {
+        let ai_config = xiomc::ai::load_ai_config(ai_model.clone());
         let ai_config = xiomc::ai::AiConfig {
             enabled: true, local_only: ai_local, dry_run: ai_dry_run,
             silent: ai_silent, strict: ai_strict,
-            model: ai_model.unwrap_or_else(|| "codellama".to_string()),
-            ..Default::default()
+            timeout_secs: ai_timeout,
+            model: ai_model.unwrap_or(ai_config.model),
+            ..ai_config
         };
+        eprintln!("[AI] Provider: {}, Model: {}, Endpoint: {}",
+            ai_config.provider, ai_config.model,
+            if ai_config.endpoint.len() > 40 { format!("{}...", &ai_config.endpoint[..40]) } else { ai_config.endpoint.clone() });
+
         for path in &source_paths {
             if let Ok(source) = std::fs::read_to_string(path) {
                 match xiomc::ai::run_ai_pipeline(&ai_config, &source, path, &[]) {
                     Ok(output) if !ai_silent => {
-                        eprintln!("xiomc --ai: {} hints written to .xiom_ai.json ({} cached)",
-                            output.total_hints, output.cached_hints);
+                        eprintln!("xiomc --ai: {} hints written to .xiom_ai.json ({} cached, {} API calls)",
+                            output.total_hints, output.cached_hints, output.api_calls);
                     }
                     Err(e) => eprintln!("[AI] {e}"),
                     _ => {}
                 }
             }
         }
+    }
+
+    // Show AI help on --help
+    if args.iter().any(|a| a == "--help-ai") {
+        eprintln!("{}", xiomc::ai::ai_help_text());
+        process::exit(0);
     }
 
     compile(&config, &source_paths);
@@ -380,6 +392,7 @@ fn print_usage() {
     eprintln!("  --ai-strict         Refuse binary output on any contract violation");
     eprintln!("  --ai-model=<name>   Override AI model (default: codellama)");
     eprintln!("  --ai-timeout=<sec>  AI LLM call timeout (default: 10s)");
+    eprintln!("  --help-ai           Show AI mode setup and configuration guide");
     eprintln!("  --timeout <seconds>  Set compilation timeout (default: 60)");
     eprintln!("  --max-memory-mb <N>       Set max memory budget in MB (0 = disabled)");
     eprintln!("  --link <name>             Link a native library (repeatable, e.g. vulkan-1)");
