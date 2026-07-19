@@ -224,6 +224,16 @@ impl Checker {
             generics: vec![],
             uses_implicit_this: false,
         });
+        // 5e.1 G-18: sizeof[T]() compiler intrinsic for C FFI byte sizes.
+        // Returns the LLVM byte size of type T (struct, primitive, or extern).
+        // Codegen emits a compile-time constant via sizeof_struct().
+        // Registered same pattern as size_of/align_of: zero-arg generic.
+        self.functions.insert("sizeof".to_string(), FnSig {
+            params: vec![],
+            return_type: Some(CheckedType::Int),
+            generics: vec!["T".to_string()],
+            uses_implicit_this: false,
+        });
     }
 
     fn push_scope(&mut self) {
