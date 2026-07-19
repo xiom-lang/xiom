@@ -1,5 +1,5 @@
 // Phase 5f — Verifier regression tests
-// Tests SMT-LIB generation (not z3 execution, which requires z3 on PATH).
+// Tests SMT-LIB generation AND z3 execution (when z3 is available).
 
 use std::process::Command;
 use std::path::Path;
@@ -16,60 +16,241 @@ fn verify_path() -> String {
     path.to_str().unwrap().to_string()
 }
 
+fn z3_path() -> Option<String> {
+    let candidates = [
+        r"C:\Users\lefte\AppData\Local\Temp\z3.exe",
+        r"E:\repos\z3\build\Release\z3.exe",
+        r"E:\repos\z3\build\z3.exe",
+    ];
+    for c in &candidates {
+        if Path::new(c).exists() {
+            // Verify it actually works
+            let out = Command::new(c).arg("--version").output();
+            if out.map_or(false, |o| o.status.success()) {
+                return Some(c.to_string());
+            }
+        }
+    }
+    None
+}
+
 fn project_root() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent().unwrap().parent().unwrap()
         .to_path_buf()
 }
 
-/// Test that a function with `requires` + `ensures` generates correct SMT-LIB
-/// with body encoding (declare-const for params, assert for body, push/pop for ensures).
-#[test]
-fn verify_abs_generates_body_encoding() {
-    let output = Command::new(verify_path())
-        .args(["tests/verify/test_abs.xi", "-o", "NUL"]) // -o NUL discards output
+fn run_verify(file: &str) -> std::process::Output {
+    Command::new(verify_path())
+        .args([file, "--check", "--z3-path", &z3_path().unwrap_or_else(|| "z3".to_string())])
         .current_dir(project_root())
         .output()
-        .expect("xiom-verify");
-    
-    assert!(output.status.success(),
-        "verifier must succeed: {}",
-        String::from_utf8_lossy(&output.stderr));
+        .expect("xiom-verify")
 }
 
-/// Test that a buggy function's SMT output still generates (the violation is
-/// detected by z3, not by the SMT generator).
-#[test]
-fn verify_buggy_generates_smt() {
+fn smt_for(file: &str) -> String {
+    let tmp = std::env::temp_dir().join(format!("xiom_vrfy_{}.smt2", file.replace(['/', '\\', '.'], "_")));
     let output = Command::new(verify_path())
-        .args(["tests/verify/test_buggy.xi", "--output", "NUL"])
+        .args([file, "-o", tmp.to_str().unwrap()])
         .current_dir(project_root())
         .output()
         .expect("xiom-verify");
-    
-    assert!(output.status.success(),
-        "verifier must succeed for buggy code (violation detected by z3, not generator): {}",
-        String::from_utf8_lossy(&output.stderr));
-}
-
-/// Test that the SMT output contains the expected body encoding patterns.
-#[test]
-fn verify_abs_smt_has_body() {
-    let tmp = std::env::temp_dir().join("xiom_verify_test.smt2");
-    let output = Command::new(verify_path())
-        .args(["tests/verify/test_abs.xi", "-o", tmp.to_str().unwrap()])
-        .current_dir(project_root())
-        .output()
-        .expect("xiom-verify");
-    
-    assert!(output.status.success(), "verifier failed: {}", String::from_utf8_lossy(&output.stderr));
-    
-    let smt = std::fs::read_to_string(&tmp).expect("read SMT file");
+    assert!(output.status.success(), "verifier failed on {file}: {}", String::from_utf8_lossy(&output.stderr));
+    let smt = std::fs::read_to_string(&tmp).expect("read SMT");
     let _ = std::fs::remove_file(&tmp);
-    
-    assert!(smt.contains("declare-const x Int"), "Must declare param x:\n{smt}");
-    assert!(smt.contains("declare-const |result| Int"), "Must declare result:\n{smt}");
-    assert!(smt.contains("; --- body encoding ---"), "Must have body encoding:\n{smt}");
-    assert!(smt.contains("(check-sat)"), "Must have check-sat:\n{smt}");
-    assert!(!smt.contains("QF_NRA"), "Must not use QF_NRA for integer contracts");
+    smt
+}
+
+// =========================================================================
+// SMT Generation Tests (no z3 required)
+// =========================================================================
+
+#[test]
+fn smt_abs_has_body_encoding() {
+    let smt = smt_for("tests/verify/test_abs.xi");
+    assert!(smt.contains("declare-const x Int"), "Must declare param x");
+    assert!(smt.contains("declare-const |result| Int"), "Must declare result");
+    assert!(smt.contains("; --- body encoding ---"), "Must have body section");
+    assert!(smt.contains("(check-sat)"), "Must have check-sat");
+    assert!(!smt.contains("QF_NRA"), "Must not use QF_NRA");
+}
+
+#[test]
+fn smt_div_zero_has_side_condition() {
+    let smt = smt_for("tests/verify/test_div_zero.xi");
+    assert!(smt.contains("side-condition obligations"), "Must have side-conditions section:\n{smt}");
+    assert!(smt.contains("obl_X7004"), "Must have div-by-zero obligation:\n{smt}");
+}
+
+#[test]
+fn smt_buggy_generates_output() {
+    let smt = smt_for("tests/verify/test_buggy.xi");
+    assert!(smt.contains("declare-const x Int"), "Buggy must still generate SMT");
+    assert!(smt.contains("; --- body encoding ---"), "Buggy must still encode body");
+}
+
+#[test]
+fn smt_has_correct_type_map() {
+    let src = r#"
+module test_types
+fn check_types(a: Int32, b: Float64, c: Bool) -> Int32
+    requires: a > 0
+    ensures: result > a
+{
+    return a + 1;
+}
+"#;
+    let tmp = std::env::temp_dir().join("xiom_vrfy_types.xi");
+    std::fs::write(&tmp, src).expect("write test file");
+    let smt = smt_for(tmp.to_str().unwrap());
+    let _ = std::fs::remove_file(&tmp);
+    // Int32 should map to (_ BitVec 32), not Int
+    assert!(smt.contains("(_ BitVec 32)"), "Int32 must map to BV32:\n{smt}");
+    assert!(smt.contains("(_ FloatingPoint 11 53)"), "Float64 must map to FP:\n{smt}");
+    assert!(smt.contains("Bool"), "Bool must map to Bool:\n{smt}");
+}
+
+#[test]
+fn smt_multiple_ensures() {
+    let src = r#"
+module test_multi
+fn clamp(x: Int, lo: Int, hi: Int) -> Int
+    requires: lo <= hi
+    ensures: result >= lo
+    ensures: result <= hi
+{
+    if x < lo { return lo; }
+    if x > hi { return hi; }
+    return x;
+}
+"#;
+    let tmp = std::env::temp_dir().join("xiom_vrfy_multi.xi");
+    std::fs::write(&tmp, src).expect("write test file");
+    let smt = smt_for(tmp.to_str().unwrap());
+    let _ = std::fs::remove_file(&tmp);
+    // Should have 2 ensures check-sat blocks
+    let count = smt.match_indices("(check-sat)").count();
+    assert!(count >= 2, "Must have at least 2 check-sat (one per ensures), got {count}:\n{smt}");
+}
+
+// =========================================================================
+// Z3 Integration Tests (require z3)
+// =========================================================================
+
+fn verify_with_z3(file: &str) -> std::process::Output {
+    let z3 = z3_path().expect("z3 not found");
+    Command::new(verify_path())
+        .args([file, "--check", "--z3-path", &z3])
+        .current_dir(project_root())
+        .output()
+        .expect("xiom-verify")
+}
+
+#[test]
+fn z3_abs_proven() {
+    if z3_path().is_none() { eprintln!("SKIP: z3 not found"); return; }
+    let output = verify_with_z3("tests/verify/test_abs.xi");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("VERIFIED"), "abs must be proven:\n{stderr}");
+}
+
+#[test]
+fn z3_buggy_violated() {
+    if z3_path().is_none() { eprintln!("SKIP: z3 not found"); return; }
+    let output = verify_with_z3("tests/verify/test_buggy.xi");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("VIOLATED") || stderr.contains("COUNTEREXAMPLE"),
+        "buggy_abs must be violated:\n{stderr}");
+}
+
+#[test]
+fn z3_div_zero_side_condition() {
+    if z3_path().is_none() { eprintln!("SKIP: z3 not found"); return; }
+    let output = verify_with_z3("tests/verify/test_div_zero.xi");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.is_empty(), "z3 should produce output");
+    assert!(stderr.contains("VERIFIED"), "With requires b!=0, div-by-zero must be proven:\n{stderr}");
+}
+
+// =========================================================================
+// Z3Runner Parsing Tests (unit tests, no z3 required)
+// =========================================================================
+
+#[test]
+fn parse_z3_unsat() {
+    let output = "unsat\n";
+    let runner = xiom_verify::Z3Runner::new();
+    let results = runner.parse_z3_output(output);
+    assert_eq!(results.len(), 1);
+    match &results[0] {
+        xiom_verify::VerifyResult::Proven => {},
+        other => panic!("expected Proven, got {:?}", other),
+    }
+}
+
+#[test]
+fn parse_z3_sat_with_model() {
+    let output = r#"sat
+(model
+  (define-fun x () Int 5)
+  (define-fun |result| () Int (- 5))
+)
+"#;
+    let runner = xiom_verify::Z3Runner::new();
+    let results = runner.parse_z3_output(output);
+    assert_eq!(results.len(), 1);
+    match &results[0] {
+        xiom_verify::VerifyResult::Violated { code, counterexample, .. } => {
+            assert_eq!(*code, "X7001");
+            let ce = counterexample.as_ref().expect("must have counterexample");
+            assert!(ce.values.contains_key("x"), "must have x in model");
+            assert!(ce.values.contains_key("result"), "must have result in model");
+        }
+        other => panic!("expected Violated, got {:?}", other),
+    }
+}
+
+#[test]
+fn parse_z3_unknown() {
+    let output = "unknown\n";
+    let runner = xiom_verify::Z3Runner::new();
+    let results = runner.parse_z3_output(output);
+    assert_eq!(results.len(), 1);
+    match &results[0] {
+        xiom_verify::VerifyResult::Inconclusive { .. } => {},
+        other => panic!("expected Inconclusive, got {:?}", other),
+    }
+}
+
+#[test]
+fn parse_z3_error() {
+    let output = "(error \"line 5 column 10: invalid expression\")";
+    let runner = xiom_verify::Z3Runner::new();
+    let results = runner.parse_z3_output(output);
+    assert!(!results.is_empty());
+    match &results[0] {
+        xiom_verify::VerifyResult::Error { .. } => {},
+        other => panic!("expected Error, got {:?}", other),
+    }
+}
+
+#[test]
+fn parse_z3_multiple_check_sat() {
+    let output = r#"unsat
+sat
+(model
+  (define-fun x () Int (- 3))
+)
+"#;
+    let runner = xiom_verify::Z3Runner::new();
+    let results = runner.parse_z3_output(output);
+    assert_eq!(results.len(), 2);
+    match &results[0] {
+        xiom_verify::VerifyResult::Proven => {},
+        other => panic!("first must be Proven, got {:?}", other),
+    }
+    match &results[1] {
+        xiom_verify::VerifyResult::Violated { .. } => {},
+        other => panic!("second must be Violated, got {:?}", other),
+    }
 }
