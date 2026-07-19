@@ -71,6 +71,7 @@ fn main() {
     let ai_dry_run = args.iter().any(|a| a == "--ai-dry-run");
     let ai_silent = args.iter().any(|a| a == "--ai-silent");
     let ai_strict = args.iter().any(|a| a == "--ai-strict");
+    let _ai_batch = args.iter().any(|a| a == "--ai-batch" || a == "--batch");
     let ai_model: Option<String> = args.iter().position(|a| a == "--ai-model")
         .and_then(|i| args.get(i + 1).cloned()).filter(|m| !m.starts_with('-'));
     let ai_timeout: u32 = parse_flag_value(&args, "--ai-timeout")
@@ -410,6 +411,7 @@ fn print_usage() {
     eprintln!("  --ai-local          AI mode: local LLM only, never sends code off-machine");
     eprintln!("  --ai-dry-run        AI mode: print prompt, don't call LLM");
     eprintln!("  --ai-strict         Refuse binary output on any contract violation");
+    eprintln!("  --ai-batch          Batch mode: analyze all source files, single .xiom_ai.json");
     eprintln!("  --ai-model=<name>   Override AI model (default: codellama)");
     eprintln!("  --ai-timeout=<sec>  AI LLM call timeout (default: 10s)");
     eprintln!("  --help-ai           Show AI mode setup and configuration guide");

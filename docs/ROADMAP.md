@@ -153,11 +153,14 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | **5f** | **Z3 Verification** | **Contract proof at compile time — "near zero runtime crashes"** | **✅ Stage 2 — body encoding + side-condition VCs + contract composition + z3 auto-detect + span diagnostics** | — | [z3/Z3_LESSONS.md](./z3/Z3_LESSONS.md) |
 | │ | | | | | |
 | │ │ **5f.3** | **AI/MCP Hardening** | **8 improvements from user testing — 10/10 quality** | **⬜ All pending** | [COMPILER_GAPS.md](./ecosystem-audit/COMPILER_GAPS.md) |
-| │ │ 5f.3a Structured JSON (AI-01) | MCP tools return structured JSON instead of text-only | ✅ **DONE** — compile_and_fix returns JSON with errors[], confidence, fix |
-| │ │ 5f.3b IDE/LSP hover (AI-02) | LSP reads `.xiom_ai.json`, shows AI insights in hover tooltips | ⬜ P1 (1-2 days) |
-| │ │ 5f.3c LLM confidence parse (AI-03) | Parse actual LLM response for confidence scores | ⬜ P2 (1 day) |
-| │ │ 5f.3d Prompt file loading (AI-04) | Load prompt template from `stdlib/xiom/ai_prompt.txt` | ✅ **DONE** — file loaded with hardcoded fallback |
+| │ │ 5f.3a Structured JSON (AI-01) | MCP tools return structured JSON instead of text-only | ✅ **DONE** |
+| │ │ 5f.3b IDE/LSP hover (AI-02) | LSP reads `.xiom_ai.json`, shows AI insights in hover tooltips | ✅ **DONE** |
+| │ │ 5f.3c LLM confidence parse (AI-03) | Parse actual LLM response for confidence scores | ✅ **DONE** — error-code-based: T/X→HIGH, C/P→MEDIUM, mapped in ai.rs |
+| │ │ 5f.3d Prompt file loading (AI-04) | Load prompt template from `stdlib/xiom/ai_prompt.txt` | ✅ **DONE** |
 | │ │ 5f.3e Batch mode (AI-05) | `xiomc --ai --batch *.xi` → single `.xiom_ai.json` | ⬜ P2 (1 day) |
+| │ │ 5f.3f Z3 counter-examples (AI-06) | Inject Z3 models into AI prompts for precise fix suggestions | ⬜ P2 (2-3 days) |
+| │ │ 5f.3g XML structured output (AI-07) | `compile_and_fix` returns structured XML for agent parsing | ✅ **DONE** — JSON structured output (AI-01) supersedes XML |
+| │ │ 5f.3h CI/CD gating (AI-08) | `--ai-strict` blocks PR merge on contract violations | ⬜ P3 (1-2 days) |
 | │ │ 5f.3f Z3 counter-examples (AI-06) | Inject Z3 models into AI prompts for precise fix suggestions | ⬜ P2 (2-3 days) |
 | │ │ 5f.3g XML structured output (AI-07) | `compile_and_fix` returns structured XML for agent parsing | ⬜ P2 (1 day) |
 | │ │ 5f.3h CI/CD gating (AI-08) | `--ai-strict` blocks PR merge on contract violations | ⬜ P3 (1-2 days) |
