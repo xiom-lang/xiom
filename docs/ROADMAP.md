@@ -2,7 +2,7 @@
 
 **Current:** v0.49.7 — **881/881 all tests** (636 compiler + 245 tooling), zero warnings  
 **Branch:** `feat/architect`  
-**Next:** Debugger JSON API hardening
+**Next:** Phase 8C — Debugger Pro (commercial GUI)
 
 ---
 
@@ -78,47 +78,52 @@ All 10 legacy bugs (BUG-001 through BUG-010) resolved.
 
 | Item | Status |
 |------|--------|
-| install.bat (Windows) | Done — ASCII art, AI config, MCP setup, PATH registration |
-| install.sh (Linux/macOS) | Done — cross-platform, shell RC integration |
-| MCP templates (12 IDEs) | Done — Kilo, Cursor, Claude, Windsurf, Continue, Cline, Copilot, Aider, Codex, Antigravity, Trae |
-| package.ps1 | Done — bundles MCP, ecosystem skipped (xiom pkg install) |
-| GitHub Actions CI/CD | Done — 3-platform build matrix, test suite, release artifacts |
-| Ecosystem package resolver | Done — xiom pkg install from local ecosystem/ fallback |
+| install.bat (Windows) | Done |
+| install.sh (Linux/macOS) | Done |
+| MCP templates (12 IDEs) | Done |
+| package.ps1 | Done |
+| GitHub Actions CI/CD | Done |
+| Ecosystem package resolver | Done |
 
-### 8B — Debugger Foundation (IN PROGRESS)
-
-| Item | Effort | Status |
-|------|--------|--------|
-| xiom-dbg --json API engine | 3-5 days | Next |
-| Type-aware variable display | 2 days | Planned |
-| Memory inspection + registers | 2 days | Planned |
-| DWARF source-level debugging | 3 days | Planned |
-
-### 8C — Debugger Pro (separate repo)
-
-See `docs/DEBUGGER_PRO_ROADMAP.md` for full plan.
-
-| Feature | License |
-|---------|---------|
-| egui-based GUI debugger | Commercial / source-available |
-| Breakpoint manager, watch panel | Pro |
-| Theme engine, project launcher | Pro |
-| Hot-reload debug integration | Pro |
-
-### 8D — Package Registry (P3)
+### 8B — Debugger JSON API (DONE)
 
 | Item | Status |
 |------|--------|
-| Remote registry (registry.xiom-lang.org) | P3 — needs hosting |
-| xiom pkg publish | Framework exists, needs registry backend |
-| xiom pkg search | Framework exists, needs registry data |
+| --json mode (14 commands) | Done |
+| GDB/MI: registers, memory read | Done |
+| CDB/WinDbg: stubs | Done |
+| DAP protocol (VS Code) | Preserved as default |
 
-### 8E — Self-Hosting Bootstrap (P4)
+### 8C — Debugger Pro (NEXT — separate repo, commercial license)
+
+Priority: **BEFORE self-hosting.** Rationale: tooling drives adoption; adoption drives stability; stability enables self-hosting.
+
+| Phase | What | Effort |
+|-------|------|--------|
+| C1 | egui shell: source view, breakpoints, step controls | 2 weeks |
+| C2 | Variable inspector, memory view, registers, stack | 2 weeks |
+| C3 | Watch panel, conditional breakpoints, theme engine | 2 weeks |
+| C4 | Project launcher, hot-reload integration, polish | 2 weeks |
+
+### 8D — Package Registry (AFTER DEBUGGER PRO)
 
 | Item | Status |
 |------|--------|
-| Compile xiomc with xiomc | Requires Phase 7D complete |
-| Full bootstrap chain | Long-term research project |
+| registry.xiom-lang.org backend | P3 — needs hosting |
+| xiom pkg publish ? registry | P3 |
+| xiom pkg search | P3 |
+
+### 8E — Self-Hosting Bootstrap (LAST — Phase 9)
+
+**Prerequisite:** Compiler must be rock-solid across all 75+ ecosystem packages.
+Debugger Pro helps achieve this by driving real-world usage and bug discovery.
+
+| Milestone | What |
+|-----------|------|
+| 9A | Compile xiomc stdlib subset with xiomc |
+| 9B | Full compiler surface: all features self-hosted |
+| 9C | Bootstrap chain: Rust-xiomc ? XIOM-xiomc |
+| 9D | Dogfood: develop XIOM in XIOM |
 
 ---
 
