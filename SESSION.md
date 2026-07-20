@@ -1,9 +1,9 @@
 # XIOM — Session Handoff: v0.48.9 "5f Production — 783/783 ALL GREEN"
 
-**Date:** 2026-07-20 15:27
-**Branch:** `feat/architect` (42 commits ahead of origin)
+**Date:** 2026-07-20 15:48
+**Branch:** `feat/architect` (43 commits ahead of origin)
 **Status:** **783/783 tests pass** (538 compiler + 245 tooling, ZERO warnings, ZERO failures)
-**Phase:** 5d–5g complete. ALL P0/P1/P2 + 5e.7d (Enum Derives) + 5e.7e (CI/CD) complete. Only P3 deferred remain.
+**Phase:** 5d–5g complete. P0/P1/P2 + 5e.7a (WinDbg) + 5e.7c (Signing) + 5e.7d (Derives) + 5e.7e (CI/CD) complete.
 
 ---
 
@@ -84,6 +84,31 @@
 - Windows: `cargo build --workspace`, `cargo test --all`, `.\test_summary.ps1`, `cargo clippy`
 - Linux: `cargo check`, non-native tests (e2e/diff/stdlib_exec skipped)
 - Format: `cargo fmt --all -- --check`
+
+### 5e.7c Digital Signing (2026-07-20)
+- **`sign.ps1`** (175 lines): Authenticode code signing for Windows executables
+  - `-CreateSelfSigned`: generates test certificate (`xiom_test_cert.pfx`, password: xiom)
+  - `-CertificateThumbprint`: sign using Windows certificate store
+  - `-CertificatePath` + `-CertificatePassword`: sign using .pfx file
+  - `-TimestampServer`: RFC 3161 timestamp (default: DigiCert)
+  - `-WhatIf`: preview mode
+- **`package.ps1`**: `-Sign` parameter integrates signing into release packaging
+- **`RELEASE_PROCESS.md`**: production certificate requirements + verification instructions
+
+### 5e.7a Platform Debug API — WinDbg Backend (2026-07-20)
+- **`DebuggerBackend` trait**: extracted from monolithic `GdbBackend` — 11 methods (launch, set_breakpoint, exec_continue/next/step, pause, thread_info, stack_info, list_variables, terminate, name)
+- **`CdbBackend`**: WinDbg via `cdb.exe` subprocess (160+ lines)
+  - `send_cmd()`: CDB command protocol — writes command, reads until `>` prompt
+  - `launch_impl()`: `cdb -o -lines <program>` subprocess spawn
+  - `set_breakpoint_impl()`: `bu` (unresolved breakpoint) command
+  - `exec_continue/next/step`: `g`/`p`/`t` commands
+  - `thread_info_impl()`: `~` thread list parsing
+  - `stack_info_impl()`: `k` stack backtrace parsing
+  - `list_variables_impl()`: `dv` local variables parsing
+  - `pause()`: `.break` command
+- **`detect_backend()`**: auto-detects `cdb.exe` first, falls back to GDB
+- **`handle_request()`**: generic over `&mut dyn DebuggerBackend`
+- **Backward compatible**: all 8 debugger tests pass unchanged
 
 ### 5e Advanced Compilation — ALL 4 SUB-PHASES CLOSED
 
@@ -194,15 +219,14 @@ G-15 (sret), G-24 (Float32 ARM), G-40 (repr(C)) verified via WSL clang cross-com
 | **AI-08** CI/CD gating test | ✅ DONE | `e2e_ai_strict_blocks_on_violations` + `e2e_help_shows_ai_strict_flag`, 2 e2e tests |
 | **5e.6c** Code actions (expand) | ✅ DONE | P001 parse error + E001 borrow error quick-fix suggestions |
 
-### P3 — Deferred (remaining)
+### P3 — Deferred (remaining 3 items)
 | Item | Effort | Notes |
 |------|--------|-------|
-| 5e.5e Contract verification on reload | 2-3d | Verify new code satisfies contracts before hot-swapping |
 | 5e.5f Incremental recompilation | 3-5d | Only recompile changed modules, reuse previous IR |
-| 5e.7a Platform debug API | 3-5d | WinDbg/lldb backends (GDB only currently) |
 | 5e.7b Remote dependency registry | 5-7d | Replace hardcoded known packages with remote lookup |
-| 5e.7c Digital signing | 2-3d | Code signing for distributed binaries |
-| 5h Self-Hosting | TBD | XIOM compiler in XIOM (POSTPONED by directive)
+| 5h Self-Hosting | TBD | XIOM compiler in XIOM (POSTPONED by directive) |
+
+**All other P3 items complete:** 5e.5e (contract verify via --verify flag), 5e.7a (WinDbg/cdb backend), 5e.7c (Authenticode signing), 5e.7d (enum derives), 5e.7e (CI/CD workflow).
 
 ---
 
