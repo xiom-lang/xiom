@@ -1486,7 +1486,7 @@ fn handle_lsp_message(msg: &serde_json::Value, backend: &Backend) -> Vec<serde_j
                 "method": "window/logMessage",
                 "params": {
                     "type": 3,
-                    "message": "XIOM Language Server v0.6.6"
+                    "message": "XIOM Language Server v0.48.9"
                 }
             }));
         }
@@ -2365,7 +2365,7 @@ fn main() {
 }
 
 fn print_usage() {
-    eprintln!("XIOM Language Server v0.10.1");
+    eprintln!("XIOM Language Server v0.48.9");
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("  xiom lsp");
@@ -2486,7 +2486,7 @@ mod tests {
 
         let log_msg = find_response_by_method(&responses, "window/logMessage")
             .expect("should have logMessage notification");
-        assert_eq!(log_msg["params"]["message"].as_str(), Some("XIOM Language Server v0.6.6"));
+        assert_eq!(log_msg["params"]["message"].as_str(), Some("XIOM Language Server v0.48.9"));
     }
 
     // -----------------------------------------------------------------------
