@@ -111,10 +111,37 @@ fn tool_explain_error_code(params: &Value) -> Result<String, String> {
     }
 }
 
+/// 6G: Discover sibling .xi files in the same directory as the target file.
+/// Returns a Vec of paths including the target file itself.
+fn discover_sibling_sources(file: &str) -> Vec<String> {
+    let mut sources = vec![file.to_string()];
+    let file_path = std::path::Path::new(file);
+    if let Some(parent) = file_path.parent() {
+        if let Ok(entries) = std::fs::read_dir(parent) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.extension().and_then(|e| e.to_str()) == Some("xi")
+                    && p != file_path
+                {
+                    if let Some(s) = p.to_str() {
+                        if sources.len() < 50 {
+                            sources.push(s.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    sources
+}
+
 fn tool_compile_and_analyze(params: &Value) -> Result<Value, String> {
     let file = params["file"].as_str().ok_or("Missing required parameter: file")?;
     let file = validate_file_path(file)?;
     if !std::path::Path::new(&file).exists() { return Err(format!("File not found: {file}")); }
+
+    // 6G: Cross-file dependency resolution
+    let sources = discover_sibling_sources(&file);
 
     // Phase 8.2: Library mode — calls xiomc::compile_with_diagnostics directly.
     let config = CompileConfig {
@@ -122,7 +149,7 @@ fn tool_compile_and_analyze(params: &Value) -> Result<Value, String> {
         dump_contracts: params["strict"].as_bool().unwrap_or(false),
         ..std::default::Default::default()
     };
-    let result = compile_with_diagnostics(&config, &[file.to_string()]);
+    let result = compile_with_diagnostics(&config, &sources);
 
     Ok(json!({
         "success": result.success,
@@ -130,6 +157,7 @@ fn tool_compile_and_analyze(params: &Value) -> Result<Value, String> {
         "warnings": result.warnings,
         "file": file,
         "file_count": result.file_count,
+        "sources_compiled": sources.len(),
     }))
 }
 
@@ -152,7 +180,8 @@ fn tool_get_contract_signature(params: &Value) -> Result<Value, String> {
         dump_contracts: true,
         ..std::default::Default::default()
     };
-    let result = compile_with_diagnostics(&config, &[file.to_string()]);
+    let sources = discover_sibling_sources(&file);
+    let result = compile_with_diagnostics(&config, &sources);
 
     // Parse contracts from result
     let contracts: Value = result.contracts
