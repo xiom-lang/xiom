@@ -4,15 +4,34 @@
     XIOM Release Packager (Windows)
 .DESCRIPTION
     Builds all tools in release mode and packages into distributable folder + zip.
+    Optionally signs all binaries with Authenticode (requires code signing certificate).
 .PARAMETER Version
     Version string (default: 0.46.0)
+.PARAMETER Sign
+    Sign all .exe binaries after packaging (requires -CertificateThumbprint or -CertificatePath).
+.PARAMETER CertificateThumbprint
+    Thumbprint of code signing certificate in Windows certificate store.
+.PARAMETER CertificatePath
+    Path to .pfx file containing code signing certificate.
+.PARAMETER CertificatePassword
+    Password for .pfx certificate file.
 .EXAMPLE
     ./package.ps1
 .EXAMPLE
-    ./package.ps1 -Version 0.47.0
+    ./package.ps1 -Version 0.48.9
+.EXAMPLE
+    ./package.ps1 -Version 0.48.9 -Sign -CertificateThumbprint "A1B2C3D4..."
+.EXAMPLE
+    ./package.ps1 -Version 0.48.9 -Sign -CertificatePath .\xiom_code_sign.pfx -CertificatePassword "secret"
 #>
 
-param([string]$Version = "0.46.0")
+param(
+    [string]$Version = "0.46.0",
+    [switch]$Sign,
+    [string]$CertificateThumbprint,
+    [string]$CertificatePath,
+    [string]$CertificatePassword
+)
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -295,6 +314,28 @@ Contents:
 
 Need dependencies? Run install_deps.ps1 from the source repo first.
 "@ | Out-File -FilePath "$pkgDir\README.txt" -Encoding ASCII
+
+# 5e.7c: Digital signing (Authenticode) — called before ZIP if -Sign is specified
+if ($Sign) {
+    Write-Host ""
+    Write-Host "  Code signing binaries..." -ForegroundColor Cyan
+    $signArgs = @{
+        Path = $binDir
+    }
+    if ($CertificateThumbprint) { $signArgs.CertificateThumbprint = $CertificateThumbprint }
+    if ($CertificatePath)       { $signArgs.CertificatePath       = $CertificatePath }
+    if ($CertificatePassword)   { $signArgs.CertificatePassword   = $CertificatePassword }
+
+    $signScript = "$root\sign.ps1"
+    if (Test-Path $signScript) {
+        & $signScript @signArgs
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  WARNING: Signing had errors — continuing with unsigned package." -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "  WARNING: sign.ps1 not found — skipping signing." -ForegroundColor Yellow
+    }
+}
 
 # Create ZIP
 $zipName = "xiom-v$Version-windows-x64.zip"
