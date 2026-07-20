@@ -124,6 +124,8 @@ static void unload_dll(HMODULE mod) {
 
 typedef int64_t (*fn_main_t)(void);
 typedef void    (*fn_init_t)(void);
+typedef void    (*fn_save_state_t)(void);
+typedef void    (*fn_restore_state_t)(void);
 
 static int call_main(HMODULE mod) {
     fn_main_t main_fn = (fn_main_t)GetProcAddress(mod, "main");
@@ -246,6 +248,15 @@ int main(int argc, char** argv) {
                 continue;
             }
 
+            // 5e.5c: save state from old DLL before unloading
+            {
+                fn_save_state_t save_fn = (fn_save_state_t)GetProcAddress(old_dll, "xiom_hot_save_state");
+                if (save_fn) {
+                    printf("[HOST] Saving global state...\n");
+                    save_fn();
+                }
+            }
+
             // Swap DLLs
             HMODULE old_dll = g_dll;
             g_dll = load_dll(dll_path);
@@ -253,6 +264,15 @@ int main(int argc, char** argv) {
                 g_dll = old_dll;  // Restore old DLL
                 printf("[HOST] Failed to load new DLL. Keeping old DLL.\n");
                 continue;
+            }
+
+            // 5e.5c: restore state into new DLL
+            {
+                fn_restore_state_t restore_fn = (fn_restore_state_t)GetProcAddress(g_dll, "xiom_hot_restore_state");
+                if (restore_fn) {
+                    printf("[HOST] Restoring global state...\n");
+                    restore_fn();
+                }
             }
 
             unload_dll(old_dll);

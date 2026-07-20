@@ -169,6 +169,11 @@ impl IrEmitter {
         if self.hot_reload {
             self.emitln("declare i64 @xiom_hot_get_ptr(i64)");
             self.emitln("declare void @xiom_hot_set_ptr(i64, i64)");
+            // 5e.5c: state migration — file I/O for global save/restore
+            self.emitln("declare i8* @fopen(i8*, i8*)");
+            self.emitln("declare i64 @fwrite(i8*, i64, i64, i8*)");
+            self.emitln("declare i64 @fread(i8*, i64, i64, i8*)");
+            self.emitln("declare i32 @fclose(i8*)");
         }
         self.emitln("");
     }
