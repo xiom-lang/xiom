@@ -559,26 +559,196 @@ fn publish_package(_args: &[String]) {
     }
 }
 
+/// Install a package from the local ecosystem directory or remote registry.
+/// 7F+: Local ecosystem resolution — copies from `<repo>/ecosystem/<pkg>/` to
+/// `<project>/vendor/<pkg>/` for development/prototyping before remote registry
+/// is available.
 fn install_package(args: &[String]) {
-    let pkg_name = match args.get(2) {
+    let pkg_spec = match args.get(2) {
         Some(n) => n,
-        None => { eprintln!("Usage: xiom pkg install <package>"); process::exit(1); }
+        None => { eprintln!("Usage: xiom pkg install <package>[@version]"); process::exit(1); }
     };
 
-    let body = match http_get(&format!("{}/index.json", registry_url())) {
-        Ok(b) => b,
-        Err(e) => { eprintln!("xiom pkg: failed to fetch registry: {e}"); process::exit(1); }
-    };
-
-    let search = format!("\"name\":\"{}\",\"version\":\"", pkg_name);
-    if let Some(pos) = body.find(&search) {
-        let rest = &body[pos + search.len()..];
-        let version = rest.split('"').next().unwrap_or("?");
-        println!("Found: {} v{}", pkg_name, version);
-        println!("Install directory: <project>/vendor/{}", pkg_name);
+    let (pkg_name, _version) = if let Some(at) = pkg_spec.find('@') {
+        (&pkg_spec[..at], Some(&pkg_spec[at+1..]))
     } else {
-        println!("Package '{}' not found in registry.", pkg_name);
+        (pkg_spec.as_str(), None)
+    };
+
+    // 1. Try registry first
+    if let Ok(body) = http_get(&format!("{}/index.json", registry_url())) {
+        let search = format!("\"name\":\"{}\"", pkg_name);
+        if body.contains(&search) {
+            println!("xiom pkg: found {} in registry", pkg_name);
+            if let Err(e) = install_from_registry_download(pkg_name, _version, &registry_url()) {
+                eprintln!("xiom pkg: registry download failed: {e}");
+            } else {
+                return;
+            }
+        }
     }
+
+    // 2. Fallback: local ecosystem directory
+    install_from_ecosystem(pkg_name);
+}
+
+/// Install a package from the local ecosystem/ directory.
+fn install_from_ecosystem(pkg_name: &str) {
+    // Find the AXIOM workspace root (where Cargo.toml lives)
+    let workspace = find_workspace_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let ecosystem_dir = workspace.join("ecosystem");
+    let pkg_dir = ecosystem_dir.join(format!("xiom-{}", pkg_name.strip_prefix("xiom.").unwrap_or(pkg_name)));
+
+    if !pkg_dir.exists() {
+        // Try without xiom- prefix
+        let alt_dir = ecosystem_dir.join(pkg_name);
+        if !alt_dir.exists() {
+            eprintln!("xiom pkg: package '{}' not found in local ecosystem/", pkg_name);
+            eprintln!("xiom pkg: available packages:");
+            if let Ok(entries) = std::fs::read_dir(&ecosystem_dir) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.starts_with("xiom-") {
+                        println!("  {}", name);
+                    }
+                }
+            }
+            return;
+        }
+        install_package_files(&alt_dir, pkg_name);
+    } else {
+        install_package_files(&pkg_dir, pkg_name);
+    }
+}
+
+/// Copy package files from source directory to install location.
+fn install_package_files(src_dir: &Path, pkg_name: &str) {
+    // Determine install directory
+    let xiom_home = std::env::var("XIOM_HOME").ok()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            let base = if cfg!(windows) {
+                PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string()))
+            } else {
+                PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
+            };
+            base.join("xiom")
+        });
+
+    let pkg_version = read_package_version(src_dir).unwrap_or_else(|| "0.1.0".to_string());
+    let dest_dir = xiom_home.join("packages").join(format!("{}-{}", pkg_name, pkg_version));
+
+    // Create destination
+    if dest_dir.exists() {
+        println!("xiom pkg: {} already installed at {}", pkg_name, dest_dir.display());
+        println!("xiom pkg: add to your package.xi: deps = {{ \"{}\" = \"{}\" }}", pkg_name, pkg_version);
+        return;
+    }
+
+    let _ = std::fs::create_dir_all(&dest_dir);
+
+    // Copy package files
+    let mut copied = 0usize;
+    copy_dir_contents(src_dir, &dest_dir, &mut copied);
+
+    println!("xiom pkg: installed {} v{} → {} ({} files)",
+        pkg_name, pkg_version, dest_dir.display(), copied);
+    println!("xiom pkg: add to your package.xi:");
+    println!("  dependencies = {{");
+    println!("    \"{}\" = \"{}\"", pkg_name, pkg_version);
+    println!("  }}");
+}
+
+/// Read the version from a package.xi or Cargo.toml in the source directory.
+fn read_package_version(dir: &Path) -> Option<String> {
+    // Try package.xi first
+    if let Ok(content) = std::fs::read_to_string(dir.join("package.xi")) {
+        for line in content.lines() {
+            if let Some(v) = line.trim().strip_prefix("version:") {
+                return Some(v.trim().trim_matches('"').trim_matches(';').to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Recursively copy directory contents.
+fn copy_dir_contents(src: &Path, dest: &Path, count: &mut usize) {
+    if let Ok(entries) = std::fs::read_dir(src) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let dest_path = dest.join(&name);
+
+            if path.is_dir() {
+                // Skip build artifacts and hidden dirs
+                if name.to_str().map_or(false, |n| n.starts_with('.') || n == "target" || n == "build") {
+                    continue;
+                }
+                let _ = std::fs::create_dir_all(&dest_path);
+                copy_dir_contents(&path, &dest_path, count);
+            } else {
+                let _ = std::fs::copy(&path, &dest_path);
+                *count += 1;
+            }
+        }
+    }
+}
+
+/// Download and install from remote registry.
+fn install_from_registry_download(name: &str, version: Option<&str>, registry: &str) -> Result<(), String> {
+    let index_url = format!("{}/index.json", registry);
+    let body = http_get(&index_url)?;
+
+    // Find the package in the index
+    let search = format!("\"name\":\"{}\"", name);
+    let pos = body.find(&search).ok_or_else(|| format!("package '{}' not found in registry", name))?;
+    let section = &body[pos..];
+    let latest = version.map(|v| v.to_string()).or_else(|| {
+        section.find("\"latest\":\"").and_then(|p| {
+            let rest = &section[p + 10..];
+            rest.split('"').next().map(|s| s.to_string())
+        })
+    }).ok_or_else(|| "cannot determine version".to_string())?;
+
+    let download_url = format!("{}/packages/{}/{}/package.tar.gz", registry, name, latest);
+    eprintln!("xiom pkg: downloading {} v{} from {}", name, latest, download_url);
+
+    // Download
+    let tmp = std::env::temp_dir().join(format!("xiom_pkg_{}_{}.tar.gz", name, latest));
+    let dl_result = http_get_binary(&download_url);
+    match dl_result {
+        Ok(data) => {
+            std::fs::write(&tmp, &data).map_err(|e| format!("write: {e}"))?;
+            // Extract
+            let xiom_home = get_xiom_home();
+            let pkg_dir = xiom_home.join("packages").join(format!("{}-{}", name, latest));
+            let _ = std::fs::create_dir_all(&pkg_dir);
+            let status = std::process::Command::new("tar")
+                .args(["-xzf", &tmp.to_string_lossy(), "-C", &pkg_dir.to_string_lossy()])
+                .status()
+                .map_err(|e| format!("tar: {e}"))?;
+            if status.success() {
+                println!("xiom pkg: installed {} v{} → {}", name, latest, pkg_dir.display());
+                Ok(())
+            } else {
+                Err("tar extraction failed".to_string())
+            }
+        }
+        Err(e) => Err(format!("download failed: {e}")),
+    }
+}
+
+/// Get XIOM_HOME directory.
+fn get_xiom_home() -> PathBuf {
+    std::env::var("XIOM_HOME").ok().map(PathBuf::from).unwrap_or_else(|| {
+        let base = if cfg!(windows) {
+            PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string()))
+        } else {
+            PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
+        };
+        base.join("xiom")
+    })
 }
 
 fn find_workspace_root(project_root: &Path) -> PathBuf {
@@ -628,14 +798,18 @@ fn generate_lockfile() {
 }
 
 fn print_usage() {
-    eprintln!("XIOM Package v0.48.9 — Package Manager (5e.7b remote registry)");
+    eprintln!("XIOM Package v0.49.5 — Package Manager (7F: local ecosystem + remote registry)");
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("  xiom pkg [OPTIONS] --root <dir>");
     eprintln!("  xiom pkg search [query]           Search registry for packages");
-    eprintln!("  xiom pkg install <pkg>[@version]  Install from registry (auto-detects)");
+    eprintln!("  xiom pkg install <pkg>[@version]  Install package (local ecosystem fallback)");
     eprintln!("  xiom pkg publish                   Publish package to registry");
     eprintln!("  xiom pkg lock                      Generate xiom.lock from package.xi");
+    eprintln!("  xiom pkg list                       List installed packages");
+    eprintln!();
+    eprintln!("Install locations:");
+    eprintln!("  Local ecosystem: <repo>/ecosystem/xiom-<pkg>/ → XIOM_HOME/packages/<pkg>-<ver>/");
     eprintln!();
     eprintln!("OPTIONS:");
     eprintln!("  --help        Show this help message");
