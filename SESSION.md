@@ -1,13 +1,44 @@
-# XIOM — Session Handoff: v0.48.9 "5f Production — 770/770 ALL GREEN"
+# XIOM — Session Handoff: v0.48.9 "5f Production — 774/774 ALL GREEN"
 
-**Date:** 2026-07-20 03:39
-**Branch:** `feat/architect` (33 commits ahead of origin)
-**Status:** **770/770 tests pass** (526 compiler + 244 tooling, ZERO warnings, ZERO failures)
-**Phase:** 5d–5g complete. 5e.5 (Hot Reload) + 5e.6b (Workspace Symbols) remaining.
+**Date:** 2026-07-20 03:42
+**Branch:** `feat/architect` (35 commits ahead of origin)
+**Status:** **774/774 tests pass** (529 compiler + 245 tooling, ZERO warnings, ZERO failures)
+**Phase:** 5d–5g complete. 5e.5a (Hot Reload Thunks) + 5e.6b (Workspace Symbols) + 5e.5b (DLL Host) complete.
 
 ---
 
 ## ACCOMPLISHED — Sessions 2026-07-19 through 2026-07-20
+
+### 5e.6b Workspace Symbol Search (2026-07-20)
+- **`collect_workspace_symbols` helper**: iterates TopDecl items, returns SymbolInformation (fn/type/enum/interface/const) with URI + range
+- **`workspaceSymbolProvider: true`** registered in LSP capabilities
+- **`workspace/symbol` handler** added to LSP dispatch (before `_ => {}` catch-all)
+- **`parse_workspace_document`** convenience: parses source text → Vec<TopDecl>
+- **Truncation**: 50 results max, case-insensitive substring query matching
+- **Fixed `open_document` test helper**: now escapes `\n`, `\r`, `\t` in JSON strings
+- **LSP version bump**: v0.6.6 → v0.48.9
+
+### 5e.5a Hot Reload Indirect Call Thunks (2026-07-20)
+- **`IrEmitter`**: added `hot_reload: bool` + `pub_functions: HashSet<String>` + `set_hot_reload()` + `djb2_hash()`
+- **`emit_builtin_declares`**: `declare i64 @xiom_hot_get_ptr(i64)` + `declare void @xiom_hot_set_ptr(i64, i64)` (guarded by `hot_reload`)
+- **`compile_fn` (decl.rs)**: after function body, emits lazy-self-registering thunk `xiom_hot_thunk_<name>`:
+  - Calls `xiom_hot_get_ptr(hash)` → if NULL, calls `xiom_hot_set_ptr(hash, ptrtoint(@fn))` to self-register
+  - `inttoptr` → `call` through pointer → return
+  - Simple `%p0, %p1, ...` param naming avoids signature-matching complexity
+- **`Expr::Call` dispatch (expr.rs)**: when `hot_reload && pub fn`, redirects to `@xiom_hot_thunk_<name>` instead of direct `@fn`
+- **`CompileConfig`**: added `hot_reload: bool` field (default false)
+- **`xiomc main.rs`**: sets `hot_reload: true` in hot reload config
+- **Regression tests** (3): `regress_5e_hot_reload_thunk`, `_no_thunk_for_private`, `_thunk_disabled`
+
+### 5e.5b DLL Host Executable (2026-07-20)
+- **`stdlib/runtime/xiom_hot_host.c`**: Windows DLL host (287 lines)
+  - Compiles source→DLL via `xiomc --shared --hot-reload`
+  - `LoadLibrary` → `xiom_hot_init()` → `main()`
+  - 500ms file polling → recompile → `FreeLibrary` old → `LoadLibrary` new
+  - Graceful Ctrl+C shutdown via `SetConsoleCtrlHandler`
+  - Falls back to old DLL on compilation failure
+- **`stdlib/runtime/hot_reload_demo.xi`**: simple test source for host verification
+- Compile host: `cl xiom_hot_host.c /Fe:xiom_hot_host.exe /link user32.lib`
 
 ### 5e Advanced Compilation — ALL 4 SUB-PHASES CLOSED
 
@@ -76,7 +107,7 @@
 | Suite | Count | Status |
 |-------|-------|--------|
 | E2E | **106/106** | ✅ |
-| Feature Regression | **119/119** | ✅ (incl. CG-01b Int32→Float32, CG-02 Float32 init, sizeof, RC fix) |
+| Feature Regression | **122/122** | ✅ (incl. CG-01b, CG-02, sizeof, RC fix + 3 hot reload thunk tests) |
 | Stdlib Execution | **41/41** | ✅ |
 | Diff Tests | **25/25** | ✅ |
 | Full Diff | **23/23** | ✅ |
@@ -87,14 +118,14 @@
 | Checker | **89/89** | ✅ |
 | Parser | **50/50** | ✅ |
 | Formatter | **18/18** | ✅ |
-| LSP | **10/10** | ✅ |
+| LSP | **11/11** | ✅ (incl. workspace symbol test) |
 | Package Mgr | **15/15** | ✅ |
 | Doc Gen | **4/4** | ✅ |
 | FFI Gen | **18/18** | ✅ |
 | MCP Server | **17/17** | ✅ (14 tools) |
 | Debugger | **8/8** | ✅ |
 | Verifier | **15/15** | ✅ |
-| **TOTAL** | **770/770** | ✅ ALL GREEN |
+| **TOTAL** | **774/774** | ✅ ALL GREEN |
 
 ---
 
@@ -110,9 +141,9 @@ G-15 (sret), G-24 (Float32 ARM), G-40 (repr(C)) verified via WSL clang cross-com
 ### P0/P1 — Production-Grade
 | Item | Effort | Details |
 |------|--------|---------|
-| **5e.6b** Workspace symbol search | 1 day | LSP `workspace/symbol` handler — `collect_workspace_symbols` helper exists, needs dispatch insertion |
-| **5e.5a** Hot reload indirect call thunks | 2-3 days | Codegen: emit `@xiom_hot_get_ptr` thunks for all `pub fn`, indirect calls through pointer table |
-| **5e.5b** DLL host executable | 1-2 days | `xiom_hot_host.c`: LoadLibrary, watch loop, recompile, pointer swap |
+| **5e.6b** Workspace symbol search | ✅ DONE | `workspace/symbol` handler, `collect_workspace_symbols`, 11/11 LSP tests |
+| **5e.5a** Hot reload indirect call thunks | ✅ DONE | `xiom_hot_thunk_<name>` lazy-registering thunks, 3 regression tests |
+| **5e.5b** DLL host executable | ✅ DONE | `xiom_hot_host.c` (287 lines), `hot_reload_demo.xi`
 
 ### P2 — Enhancement
 | Item | Effort | Details |
@@ -136,12 +167,17 @@ G-15 (sret), G-24 (Float32 ARM), G-40 (repr(C)) verified via WSL clang cross-com
 |------|---------|
 | `crates/xiomc/src/ai.rs` | AI pipeline — provider detection, context slicing, prompt templates, hash cache |
 | `crates/xiomc/src/main.rs` | CLI — --ai, --watch, --hot-reload, --help-ai flags |
+| `crates/xiomc/src/lib.rs` | CompileConfig + library API (hot_reload field added) |
 | `crates/xiom-verify/src/lib.rs` | Verifier — SMT gen, Z3Runner, parse_z3_model, side-conditions |
-| `crates/xiom-lsp/src/main.rs` | LSP — hover AI insights, code actions, semantic tokens, capabilities |
+| `crates/xiom-lsp/src/main.rs` | LSP — workspace/symbol handler, AI hover insights, code actions, semantic tokens (v0.48.9) |
 | `crates/xiom-mcp/src/main.rs` | MCP — 14 tools, structured JSON, compile_and_fix |
-| `crates/xiom-codegen/src/` | Codegen — RC fix, sizeof, Layout.new, type_meta hardening |
+| `crates/xiom-codegen/src/` | Codegen — hot reload thunks (decl.rs/expr.rs), sizeof, Layout.new, type_meta hardening |
+| `crates/xiom-codegen/src/emitter.rs` | Builtin declares — xiom_hot_get_ptr/set_ptr (hot_reload-gated) |
+| `crates/xiom-codegen/tests/feature_regression_tests.rs` | 122 tests — incl. 3 hot reload thunk regression tests |
 | `stdlib/xiom/ai_prompt.txt` | AI system prompt template |
-| `stdlib/runtime/xiom_hot_reload.c` | Hot reload function pointer table |
+| `stdlib/runtime/xiom_hot_reload.c` | Hot reload function pointer table (djb2 hash, linear probe) |
+| `stdlib/runtime/xiom_hot_host.c` | Windows DLL host — LoadLibrary, watch loop, recompile, reload (287 lines) |
+| `stdlib/runtime/hot_reload_demo.xi` | Demo source for hot reload host verification |
 | `docs/AI_PIPELINE.md` | AI pipeline full spec + implementation status |
 | `docs/ecosystem-audit/COMPILER_GAPS.md` | Gap registry — 49/49 FIXED, CG-01..CG-06, AI-01..AI-08 |
 | `docs/ROADMAP.md` | Phase tracking — 5d–5g complete, 5e sub-tasks detailed |

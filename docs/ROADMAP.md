@@ -1,12 +1,12 @@
-# XIOM Compiler â€” Production Roadmap
+﻿# XIOM Compiler â€” Production Roadmap
 
-**Current:** v0.48.5 â€” **768/768 all tests** (524 compiler + 244 tooling), 5d-5f complete (49/49 gaps closed), zero warnings
+**Current:** v0.48.9 â€” **774/774 all tests** (529 compiler + 245 tooling), 5d-5g complete (49/49 gaps closed), zero warnings
 **Branch:** `feat/architect`
-**Next:** Phase 5g AI Pipeline â€” compiler-integrated LLM hints
+**Next:** Phase 5e.5c State Migration / 5e.5d Filesystem Events
 
 ---
 
-## 1. CURRENT STATE (2026-07-20 â€” v0.48.5, 768 tests)
+## 1. CURRENT STATE (2026-07-20 â€” v0.48.9, 768 tests)
 
 | Gate | Count | Status | Notes |
 |------|-------|--------|-------|
@@ -19,7 +19,7 @@
 | Robustness | **29/29** | âœ… | |
 | Verifier | **15/15** | âœ… | SMT gen + z3 integration + contract composition + loop invariants |
 | Tooling | 229/229 | âœ… | checker, parser, fmt, lsp, pkg, doc, ffigen, mcp, dbg |
-| **TOTAL** | **768/768** | âœ… **ALL GREEN â€” v0.48.5** | 524 compiler + 244 tooling |
+| **TOTAL** | **774/774** | âœ… **ALL GREEN â€” v0.48.9** | 529 compiler + 245 tooling |
 
 ### P0 Gaps: ALL RESOLVED âœ…
 
