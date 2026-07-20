@@ -1,7 +1,7 @@
-# XIOM Session Handoff — v0.49.3 "Phase 7B Industrial Cache"
+# XIOM Session Handoff — v0.49.4 "Phase 7C Parallel"
 
-**Date:** 2026-07-20 19:45 | **Branch:** `feat/architect` | **Commits ahead:** ~52
-**Status:** **820/820 ALL TESTS PASS** (575 compiler + 245 tooling, ZERO warnings, ZERO failures)
+**Date:** 2026-07-20 23:30 | **Branch:** `feat/architect` | **Commits ahead:** ~54
+**Status:** **827/827 ALL TESTS PASS** (582 compiler + 245 tooling, ZERO warnings, ZERO failures)
 
 ---
 
@@ -42,17 +42,24 @@
 - **Pipeline integration**: Replaced DefaultHasher with SHA-256, graph-aware incremental_check/incremental_save, multi-file caching support
 - **11 feature regression tests**: SHA-256 correctness, short_hash, CacheDb open/persistence/tier-store/purge, fingerprint, project cache location, --incremental flag
 
+### Phase 7C — Parallel Compilation (COMPLETE)
+- **rayon-based parallel lex+parse**: All source files lexed and parsed in parallel via thread pool
+- **CompileConfig.parallel/jobs**: New fields for controlling parallelism, `--parallel`/`--sequential`/`--jobs N` CLI flags
+- **Smart fallback**: Single-file compiles avoid rayon overhead, sequential path for n=1
+- **7 feature regression tests** (7C-01 through 7C-07): config defaults, flag logic, sequential/parallel paths, diagnostics
+- **ffi consolidation fix**: Removed stale `xiom-ffi` reference from `ecosystem/package.xi`
+
 ### Phase 7 Roadmap (REMAINING)
-Full plan in `docs/ROADMAP.md`: parallel compilation, module-level hot reload, sanitizers, build server daemon. Self-hosting → Phase 8.
+Full plan in `docs/ROADMAP.md`: module-level hot reload, sanitizers, build server daemon. Self-hosting → Phase 8.
 
 ---
 
 ## CURRENT STATE
 
-### Test Baseline: 820/820
+### Test Baseline: 827/827
 | Suite | Count |
 |-------|-------|
-| Compiler (e2e, feature-reg, stdlib, diff, full-diff, fuzz, integration, robustness, stdlib-compile) | 575 |
+| Compiler (e2e, feature-reg, stdlib, diff, full-diff, fuzz, integration, robustness, stdlib-compile) | 582 |
 | Tooling (checker, parser, formatter, lsp, pkg-mgr, doc, ffigen, mcp, dbg, verify) | 245 |
 
 ### Key Crates (16 total, +xiom-graph)
