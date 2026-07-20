@@ -1,8 +1,8 @@
 ﻿# XIOM Compiler â€” Production Roadmap
 
-**Current:** v0.48.9 â€” **783/783 all tests** (538 compiler + 245 tooling), 5d-5g complete (49/49 gaps closed), zero warnings
+**Current:** v0.49.1 — **798/798 all tests** (553 compiler + 245 tooling), Phase 6 complete, zero warnings
 **Branch:** `feat/architect`
-**Next:** Phase 5e.5c State Migration | ✅ DONE (save/restore via fwrite/fread)
+**Next:** Phase 7A — Module System & Dependency Graph
 
 ---
 
@@ -1001,10 +1001,172 @@ cargo test --all
 
 ---
 
-## Phase 7: Self-Hosting
+## Phase 7: Compiler Scalability — Million-LOC Production
 
-**Status:** POSTPONED by directive. Will begin after Phase 6 completion.
-**Current:** `selfhost/` directory contains partial xiomc.xi, xiom-lexer.xi, xiom-parser.xi, xiom-check.xi, xiom-codegen.xi
+**Status:** PLANNING | **Target:** 1000+ tests | **Time:** 8-12 weeks
+**Goal:** Compile 10K+ files, million+ LOC in under 5 seconds (incremental), near-zero runtime errors, memory-safe at scale.
+
+### 7A — Module System & Dependency Graph (2-3 weeks)
+
+**Problem:** XIOM has no proper import resolution. Ecosystem packages pass all files on the command line — doesn't scale beyond ~20 files.
+
+**Solution:**
+- `use pkg.module;` resolution: parser → name resolution → file discovery → dependency graph
+- Project manifest `xiom.toml`: declares packages, dependencies, source roots
+- Topological sort: build order from leaf dependencies to root
+- Lazy compilation: only compile modules when their symbols are actually needed
+- Symbol index: per-module exports table for fast cross-module lookup
+- File watching: `inotify`/`ReadDirectoryChangesW` for project-aware incremental rebuilds
+
+```toml
+# xiom.toml — project manifest
+[project]
+name = "my_app"
+root = "src/"
+
+[dependencies]
+xiom-vulkan = "0.5"
+xiom-imgui = "1.1"
+```
+
+### 7B — Industrial Incremental Compilation (2-3 weeks)
+
+**Problem:** Current `--incremental` caches per-file IR but doesn't handle cross-file dependencies, type changes, or concurrent access.
+
+**Solution:**
+- **Content-hash cache**: SHA-256 of each source file → `.xi_cache/<hash>/`
+- **Dependency tracking**: each module records which other modules it depends on
+- **Transitive invalidation**: changing `type Foo` invalidates all files that use `Foo`
+- **Fingerprint-based**: only recompile when semantic fingerprint changes (not just content)
+- **Cache tiers**:
+  - L1: Token stream (lexer output)
+  - L2: AST (parser output)  
+  - L3: Type-checked IR (checker output)
+  - L4: LLVM IR (codegen output)
+  - L5: Object file (linker output)
+- **Cold start**: first compile — all modules. Second compile — only changed modules + dependents.
+- **Warm start**: background daemon keeps ASTs in memory, watches filesystem.
+- **Thread-safe cache**: `Arc<RwLock<CacheDb>>` with LRU eviction (max 1000 entries)
+
+### 7C — Parallel Compilation (2 weeks)
+
+**Problem:** Compiler is single-threaded. 10K files = minutes of compile time.
+
+**Solution:**
+- **Per-module parallelism**: independent modules compiled in parallel via `rayon`
+- **Pipeline stages**: lex→parse (per-file), check (per-module), codegen (per-function)
+- **Work stealing**: idle threads pick up unprocessed modules
+- **Thread pool**: `num_cpus` worker threads, `crossbeam` channels for task distribution
+- **Lock-free symbol table**: immutable `HashMap` snapshots shared across threads
+- **Parallel linker**: `lld` or `gold` for fast multi-threaded linking
+
+```
+                    ┌──────────┐
+     source.xi ────→│  Lexer   │──── tokens
+                    └──────────┘
+                         │
+                    ┌──────────┐
+                    │  Parser  │──── AST  ────┐
+                    └──────────┘              │
+                         │                    ▼
+                    ┌──────────┐    ┌──────────────────┐
+                    │  Checker │───→│ Dependency Graph │
+                    └──────────┘    └──────────────────┘
+                         │                    │
+                    ┌──────────┐    ┌──────────────────┐
+                    │ Codegen  │←───│ Topological Sort │
+                    └──────────┘    └──────────────────┘
+                         │
+                    ┌──────────┐
+                    │  Linker  │──── binary
+                    └──────────┘
+```
+
+### 7D — Hot Reload Safety at Scale (2 weeks)
+
+**Problem:** Hot reload currently reloads the entire DLL. At scale, module-level reloading is needed. State migration is per-global, not per-module. No contract verification on reload.
+
+**Solution:**
+- **Module-level hot reload**: each module compiles to its own `.dll`/`.so`
+- **Versioned exports**: each module export has a monotonic version number
+- **Contract checker on reload**: before swapping, verify new module contracts against callers
+- **State migration per module**: only migrate globals from the changed module
+- **Backward compatibility**: `@deprecated` functions supported for N versions before removal
+- **Rollback on failure**: if new module fails verification, keep old module
+- **Live patching**: swap function pointers atomically via `InterlockedExchange`
+
+### 7E — Runtime Safety Guarantees (1-2 weeks)
+
+**Problem:** Generated code can crash (0xC0000005), overflow stack, leak memory, or produce UB.
+
+**Solution:**
+- **Bounds checking**: all array/vector/slice indexing checked at runtime (already done)
+- **Stack canaries**: `-fstack-protector` equivalent in generated IR
+- **Address sanitizer integration**: `-fsanitize=address` compiler flag
+- **Undefined behavior sanitizer**: `-fsanitize=undefined` flag
+- **Leak sanitizer**: `-fsanitize=leak` for debug builds
+- **Overflow checking**: `-ftrapv` for signed integer overflow (debug mode)
+- **Recursion guard**: already present (depth 2000), configurable per-crate
+- **Null pointer checks**: all pointer dereferences have null checks (debug mode)
+- **Contract enforcement**: `requires` and `ensures` checked at runtime with `--runtime-contracts` flag
+
+### 7F — Build System & IDE Integration (1-2 weeks)
+
+**Problem:** MCP/LSP tools compile single files. No project awareness. No build caching.
+
+**Solution:**
+- **Project model**: `xiom.toml` defines source roots, dependencies, compiler flags
+- **MCP project awareness**: `compile_and_analyze` loads full project, not just one file
+- **LSP workspace**: `workspace/symbol` already done; add `workspace/didChangeWatchedFiles`
+- **Build server**: background `xiom build --watch` daemon for incremental builds
+- **Build graph visualization**: `xiom build --graph` outputs dependency graph
+- **CI integration**: GitHub Actions matrix for multi-platform testing
+- **Pre-compiled headers**: cache parsed stdlib + ecosystem headers as binary blobs
+
+### 7G — Self-Hosting Bootstrap (Phase 8 handoff)
+
+**Problem:** XIOM compiler is written in Rust. Self-hosting means rewriting in XIOM.
+
+**Solution (Phase 8, POSTPONED):**
+- Bootstrap: write a minimal XIOM compiler in XIOM that compiles itself
+- Stage 0: use Rust xiomc to compile stage-1 XIOM compiler
+- Stage 1: stage-1 compiler compiles itself
+- Stage 2: full-featured XIOM compiler in XIOM
+- Verify: stage-1 and stage-2 produce bit-identical output
+
+---
+
+### Phase 7 Sprints
+
+| Sprint | Weeks | What | Impact |
+|--------|-------|------|--------|
+| **7A** | 2-3 | Module system, `xiom.toml`, dependency graph, topological sort | Foundation for everything below |
+| **7B** | 2-3 | 5-tier incremental cache, fingerprint invalidation, warm daemon | Cold: 10s→2s, Warm: 2s→0.1s |
+| **7C** | 2 | `rayon` parallel compilation, pipeline parallelism, parallel linker | 8-core: 4-6x speedup |
+| **7D** | 2 | Module-level hot reload, versioned exports, contract-on-reload | Zero-downtime deploys |
+| **7E** | 1-2 | Sanitizer flags, stack canaries, runtime contract enforcement | UB detection, crash prevention |
+| **7F** | 1-2 | Project model, build server, MCP/LSP project awareness | IDE-quality tooling at scale |
+| **7G** | — | Handoff to Phase 8 Self-Hosting | POSTPONED |
+
+### Key Performance Targets
+
+| Metric | Current | Phase 7 Target |
+|--------|---------|----------------|
+| Single-file compile | ~0.2s | ~0.1s (L1 cache hit) |
+| 100-file project (cold) | ~20s | ~3s |
+| 100-file project (incremental, 1 file changed) | ~20s | ~0.3s |
+| 10K-file project (cold) | N/A | ~30s |
+| 10K-file project (incremental, 1 file changed) | N/A | ~0.5s |
+| Memory usage (10K files) | N/A | < 2GB |
+| Hot reload latency | ~3s (full DLL) | ~0.2s (single module) |
+| MCP compile_and_analyze | 80+ false errors | 0 false errors (project-aware) |
+
+---
+
+## Phase 8: Self-Hosting
+
+**Status:** POSTPONED until Phase 7 completion.
+**Dependency:** Module system (7A) must be production-ready first.
 
 ---
 
@@ -1012,7 +1174,8 @@ cargo test --all
 
 | Version | Date | Tests | Milestone |
 |---------|------|-------|-----------|
-| v0.49.0 | 2026-07-20 | **788** | Phase 5 complete, Phase 6 audit complete |
+| v0.49.1 | 2026-07-20 | **798** | Phase 6 complete, MCP cross-file resolution, Phase 7 planning |
+| v0.49.0 | 2026-07-20 | 788 | Phase 5 complete, Phase 6 audit complete |
 | v0.48.9 | 2026-07-20 | 783 | Enum derives, CI/CD, WinDbg, signing |
 | v0.48.5 | 2026-07-19 | 768 | 49/49 gaps closed, 5d AI pipeline |
 | v0.47.8 | 2026-07-18 | 710 | G-01..G-49 hardened |
