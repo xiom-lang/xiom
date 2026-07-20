@@ -73,6 +73,11 @@ pub struct Checker {
     /// 5c-R: Type interning arena — maps Named("Foo") strings to TypeIds
     /// for O(1) equality (rustc lesson: TyCtxt::intern_type).
     pub type_arena: TypeArena,
+    /// Phase 7E/Feature: Type alias resolution table.
+    /// Maps `type Foo = Int;` → Foo resolves to Int.
+    /// Used by types_compatible to auto-coerce newtypes to their underlying types
+    /// for seamless FFI calls and ecosystem wrapper ergonomics.
+    aliases: HashMap<String, CheckedType>,
 }
 
 impl Checker {
@@ -99,6 +104,7 @@ impl Checker {
             current_receiver: None,
             error_count: 0,
             type_arena: TypeArena::new(),
+            aliases: HashMap::new(),
         };
         // Register built-in types
         checker.register_builtins();
@@ -581,6 +587,16 @@ impl Checker {
     fn register_type_decl_inner(&mut self, item: &TopDecl, module_path: &str) {
         match item {
             TopDecl::Type(td) => {
+                // Phase 7E/Feature: Register type alias for newtype auto-conversion.
+                // `type Foo = Int;` → Foo resolves to Int in types_compatible.
+                if let Some(ref alias_ty) = td.alias {
+                    let resolved = CheckedType::from_ast_type(alias_ty);
+                    let key = if module_path.is_empty() { td.name.name.clone() } else { format!("{}.{}", module_path, td.name.name) };
+                    self.aliases.insert(key.clone(), resolved.clone());
+                    if key != td.name.name {
+                        self.aliases.entry(td.name.name.clone()).or_insert(resolved);
+                    }
+                }
                 let mut fields = HashMap::new();
                 for field in &td.fields {
                     fields.insert(field.name.name.clone(), CheckedType::from_ast_type(&field.ty));
@@ -2761,15 +2777,18 @@ impl Checker {
             Expr::As(inner, ty, span) => {
                 let inner_ty = self.check_expr(inner);
                 let target_ty = CheckedType::from_ast_type(ty);
-                match (&inner_ty, &target_ty) {
+                // Phase 7E/Feature: Resolve aliases so `x as Int` works when x: VkHandle
+                let inner_resolved = self.resolve_alias(&inner_ty);
+                let target_resolved = self.resolve_alias(&target_ty);
+                match (&inner_resolved, &target_resolved) {
                     (CheckedType::Int, CheckedType::Float64) => target_ty,
                     (CheckedType::Float64, CheckedType::Int) => target_ty,
-                    _ if inner_ty == target_ty => target_ty,
-                    _ if inner_ty == CheckedType::Error => CheckedType::Error,
-                    _ if inner_ty.is_numeric() && target_ty.is_numeric() => target_ty,
+                    _ if inner_resolved == target_resolved => target_ty,
+                    _ if inner_resolved == CheckedType::Error => CheckedType::Error,
+                    _ if inner_resolved.is_numeric() && target_resolved.is_numeric() => target_ty,
                     // Char is a codepoint: convertible to/from any integer type
-                    _ if inner_ty == CheckedType::Char && target_ty.is_integer() => target_ty,
-                    _ if inner_ty.is_integer() && target_ty == CheckedType::Char => target_ty,
+                    _ if inner_resolved == CheckedType::Char && target_resolved.is_integer() => target_ty,
+                    _ if inner_resolved.is_integer() && target_resolved == CheckedType::Char => target_ty,
                     // 5c-E: Int ↔ Ptr casts (raw pointer FFI, ptr.xi)
                     (CheckedType::Int, CheckedType::Named(s)) if s == "Ptr" => target_ty,
                     (CheckedType::Named(s), CheckedType::Int) if s == "Ptr" => target_ty,
@@ -2828,7 +2847,32 @@ impl Checker {
         }
     }
 
+    /// Phase 7E/Feature: Resolve type aliases recursively.
+    /// `type Foo = Int; type Bar = Foo;` — resolving Bar gives Int.
+    /// Guards against infinite loops (max depth 16).
+    fn resolve_alias(&self, ty: &CheckedType) -> CheckedType {
+        let mut current = ty.clone();
+        let mut depth = 0;
+        loop {
+            if depth > 16 { break; } // cycle guard
+            if let CheckedType::Named(name) = &current {
+                if let Some(resolved) = self.aliases.get(name.as_str()) {
+                    current = resolved.clone();
+                    depth += 1;
+                    continue;
+                }
+            }
+            break;
+        }
+        current
+    }
+
     fn types_compatible(&self, found: &CheckedType, expected: &CheckedType) -> bool {
+        // Phase 7E/Feature: Resolve type aliases so newtypes auto-convert
+        // to their underlying types (e.g. `type VkHandle = Int;` allows
+        // passing VkHandle where Int is expected, and vice versa).
+        let found = &self.resolve_alias(found);
+        let expected = &self.resolve_alias(expected);
         // Wildcard type `_` (unresolved generic placeholder returned by Vec[T]
         // indexing, Option.unwrap(), and field access on generic params) is
         // compatible with any concrete type.  The codegen resolves the actual

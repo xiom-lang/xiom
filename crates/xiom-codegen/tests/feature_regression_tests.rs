@@ -2755,6 +2755,259 @@ fn regress_7e11_runtime_contracts_overrides_release() {
     assert!(effective, "runtime_contracts must override release mode");
 }
 
+// =====================================================================
+// Feature: Newtype Auto-Conversion (Phase 7E ecosystem ergonomics)
+// =====================================================================
+
+/// NT-01: type alias resolves to underlying type — Int newtype used as Int.
+#[test]
+fn regress_nt01_newtype_to_int() {
+    let src = r#"
+type VkHandle = Int;
+extern "C" { fn vk_destroy(handle: Int); }
+fn destroy(h: VkHandle) { unsafe { vk_destroy(h); } }
+fn main() -> Int { return 0; }
+"#;
+    // Must compile without "argument type mismatch" errors
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Newtype→Int must compile:\n{ir}");
+}
+
+/// NT-02: Int to newtype — Int assigned to newtype variable.
+#[test]
+fn regress_nt02_int_to_newtype() {
+    let src = r#"
+type Handle = Int;
+fn get_handle() -> Int { return 42; }
+fn main() -> Int {
+  var h: Handle = get_handle();
+  return h;
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("ret i64 42"), "Int→newtype must compile:\n{ir}");
+}
+
+/// NT-03: newtype operators — Int operations on newtype values.
+#[test]
+fn regress_nt03_newtype_arithmetic() {
+    let src = r#"
+type Counter = Int;
+fn main() -> Int {
+  var a: Counter = 10;
+  var b: Counter = 20;
+  var c: Counter = a + b;
+  return c;
+}
+"#;
+    let ir = compile(src).unwrap();
+    // The add must be present (10 + 20 = 30), even if stored through allocas
+    assert!(ir.contains("add i64"), "Newtype arithmetic must generate add:\n{ir}");
+}
+
+/// NT-04: Chained aliases — type Bar = Foo; type Foo = Int; resolves to Int.
+#[test]
+fn regress_nt04_chained_alias() {
+    let src = r#"
+type Foo = Int;
+type Bar = Foo;
+fn make_foo() -> Foo { return 100; }
+fn takes_int(x: Int) -> Int { return x; }
+fn main() -> Int {
+  var b: Bar = make_foo();
+  return takes_int(b);
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("ret i64 100"), "Chained alias must resolve:\n{ir}");
+}
+
+/// NT-05: newtype to Float64 — Float64 newtype used as Float64.
+#[test]
+fn regress_nt05_newtype_to_float() {
+    let src = r#"
+type Real = Float64;
+fn main() -> Int {
+  var x: Real = 3.14;
+  if x > 3.0 { return 0; }
+  return 1;
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("fcmp"), "Float64 newtype must compile:\n{ir}");
+}
+
+/// NT-06: as-cast on newtype — VkHandle as Int.
+#[test]
+fn regress_nt06_newtype_as_cast() {
+    let src = r#"
+type Flags = Int32;
+fn main() -> Int {
+  var f: Flags = 7;
+  var raw: Int32 = f as Int32;
+  if raw == 7 { return 0; }
+  return 1;
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("ret i64 0"), "Newtype as-cast must work:\n{ir}");
+}
+
+/// NT-07: extern function with newtype param — pass newtype to extern.
+#[test]
+fn regress_nt07_extern_newtype_param() {
+    let src = r#"
+type FileDesc = Int;
+extern "C" { fn close(fd: Int) -> Int; }
+fn close_file(fd: FileDesc) -> Int { return unsafe { close(fd) }; }
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Extern+newtype must compile:\n{ir}");
+}
+
+/// NT-08: newtype comparison — newtype values compared.
+#[test]
+fn regress_nt08_newtype_comparison() {
+    let src = r#"
+type Id = Int;
+fn main() -> Int {
+  var a: Id = 1;
+  var b: Id = 2;
+  if a < b { return 0; }
+  return 1;
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("ret i64 0"), "Newtype comparison must work:\n{ir}");
+}
+
+/// NT-09: newtype as function return — return newtype where Int expected.
+#[test]
+fn regress_nt09_newtype_return() {
+    let src = r#"
+type Status = Int;
+fn get_status() -> Status { return 200; }
+fn check(x: Int) -> Bool { return x == 200; }
+fn main() -> Int {
+  var s: Status = get_status();
+  if check(s) { return 0; }
+  return 1;
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("ret i64 0"), "Newtype return must work:\n{ir}");
+}
+
+/// NT-10: newtype in Vec — Vec[Handle] works with Int functions.
+#[test]
+fn regress_nt10_newtype_in_vec() {
+    let src = r#"
+type Handle = Int;
+fn main() -> Int {
+  var v: Vec[Handle] = Vec[Handle].new();
+  v.push(42);
+  v.push(99);
+  if v.len() == 2 { return 0; }
+  return 1;
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("ret i64 0"), "Vec[newtype] must compile:\n{ir}");
+}
+
+// =====================================================================
+// Bug Fix: Float32 literal inference in tuple returns
+// =====================================================================
+
+/// FLOAT-01: 0.0 literal defaults to Float64 but must narrow to Float32 in tuple returns.
+#[test]
+fn regress_float01_float32_tuple_return() {
+    let src = r#"
+fn get_cursor_pos() -> (Float32, Float32) {
+  return (0.0, 0.0);
+}
+fn main() -> Int { return 0; }
+"#;
+    // Must compile without LLVM type mismatch (double vs float)
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Float32 tuple return must compile:\n{ir}");
+    // Should contain fptrunc for narrowing double→float
+    // (or the struct stores float directly)
+}
+
+/// FLOAT-02: Float64 literal in Float64 tuple — no coercion needed.
+#[test]
+fn regress_float02_float64_tuple_return() {
+    let src = r#"
+fn get_pos() -> (Float64, Float64) {
+  return (1.5, 2.5);
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Float64 tuple must compile:\n{ir}");
+}
+
+/// FLOAT-03: Mixed Float32/Float64 tuple with literals.
+#[test]
+fn regress_float03_mixed_tuple_return() {
+    let src = r#"
+fn get_mixed() -> (Float32, Float64) {
+  return (0.0, 1.0);
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Mixed float tuple must compile:\n{ir}");
+}
+
+/// FLOAT-04: Float32 in Vec.push — literal narrowing.
+#[test]
+fn regress_float04_vec_float32_push() {
+    let src = r#"
+fn main() -> Int {
+  var v: Vec[Float32] = Vec[Float32].new();
+  v.push(0.0);
+  v.push(1.5);
+  return 0;
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("fptrunc") || ir.contains("float"), "Float32 Vec push must compile:\n{ir}");
+}
+
+/// FLOAT-05: Float32 arithmetic with literal.
+#[test]
+fn regress_float05_float32_arithmetic() {
+    let src = r#"
+fn main() -> Int {
+  var x: Float32 = 1.5;
+  var y: Float32 = 2.5;
+  var z: Float32 = x + y;
+  if z > 3.0 { return 0; }
+  return 1;
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("fadd") || ir.contains("float"), "Float32 arithmetic must compile:\n{ir}");
+}
+
+/// FLOAT-06: Int literal does not need narrowing (regression guard).
+#[test]
+fn regress_float06_int_tuple_unchanged() {
+    let src = r#"
+fn get_ints() -> (Int, Int) {
+  return (1, 2);
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Int tuple must compile unchanged:\n{ir}");
+}
+
+
+
 
 
 
