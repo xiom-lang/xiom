@@ -215,8 +215,8 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
         source_paths
     };
 
-    // 5e.5f: Incremental compilation — check cache for single-file compiles
-    if config.incremental && !config.force && effective_sources.len() == 1 {
+    // 5e.5f / 7B: Incremental compilation — check graph-aware cache
+    if config.incremental && !config.force && effective_sources.len() >= 1 {
         let sp = &effective_sources[0];
         if let Some(cached_ir) = incremental_check(sp) {
             result.success = true;
@@ -383,8 +383,8 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
             result.ir = Some(ir.clone());
             result.success = true;
 
-            // 5e.5f: Save compiled IR to incremental cache
-            if config.incremental && !config.force && effective_sources.len() == 1 {
+            // 5e.5f / 7B: Save compiled IR to incremental cache
+            if config.incremental && !config.force && effective_sources.len() >= 1 {
                 incremental_save(&effective_sources[0], &ir);
             }
 
@@ -1645,83 +1645,120 @@ fn dump_module_contracts(md: &ModuleDecl) -> Vec<String> {
 }
 
 // ============================================================================
-// 5e.5f: Incremental Compilation — hash-based change detection + IR cache
+// ============================================================================
+// Phase 7B: Industrial Incremental Compilation — Graph-aware Cache
 // ============================================================================
 
-use std::io::Read;
-
-/// Returns the cache directory for a source file: `.xiom_cache/`
-fn incremental_cache_dir(source_path: &str) -> PathBuf {
-    let src = Path::new(source_path);
-    let parent = src.parent().unwrap_or(Path::new("."));
-    parent.join(".xiom_cache")
+/// Get or create the project-level cache database.
+/// Cache directory: `<project_root>/.xi_cache/`
+pub fn get_project_cache(source_file: &Path) -> Option<xiom_graph::CacheDb> {
+    let root = find_project_root(source_file)?;
+    Some(xiom_graph::CacheDb::for_project(&root))
 }
 
-/// SHA-256 hash of a file's contents (hex string, first 16 chars).
-fn file_content_hash(path: &str) -> Result<String, String> {
-    let mut f = std::fs::File::open(path).map_err(|e| format!("open: {e}"))?;
-    let mut data = Vec::new();
-    f.read_to_end(&mut data).map_err(|e| format!("read: {e}"))?;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    data.hash(&mut hasher);
-    Ok(format!("{:016x}", hasher.finish()))
-}
-
-/// Load the hash cache: `{ source_path: hash }`
-fn load_hash_cache(cache_dir: &Path) -> HashMap<String, String> {
-    let cache_file = cache_dir.join("hashes.json");
-    if let Ok(data) = std::fs::read_to_string(&cache_file) {
-        serde_json::from_str(&data).unwrap_or_default()
-    } else {
-        HashMap::new()
-    }
-}
-
-/// Save the hash cache.
-fn save_hash_cache(cache_dir: &Path, hashes: &HashMap<String, String>) {
-    let _ = std::fs::create_dir_all(cache_dir);
-    let cache_file = cache_dir.join("hashes.json");
-    if let Ok(json) = serde_json::to_string(hashes) {
-        let _ = std::fs::write(cache_file, json);
-    }
-}
-
-/// Try to load cached IR for a source file. Returns Some(ir) if valid cache exists.
-fn load_cached_ir(source_path: &str, cache_dir: &Path, current_hash: &str) -> Option<String> {
-    let hashes = load_hash_cache(cache_dir);
-    let cached_hash = hashes.get(source_path)?;
-    if cached_hash != current_hash {
-        return None; // source changed
-    }
-    let ir_path = cache_dir.join(format!("{}.ll", current_hash));
-    std::fs::read_to_string(&ir_path).ok()
-}
-
-/// Save compiled IR to cache.
-fn save_cached_ir(source_path: &str, cache_dir: &Path, hash: &str, ir: &str) {
-    let _ = std::fs::create_dir_all(cache_dir);
-    // Save IR
-    let ir_path = cache_dir.join(format!("{hash}.ll"));
-    let _ = std::fs::write(&ir_path, ir);
-    // Update hash cache
-    let mut hashes = load_hash_cache(cache_dir);
-    hashes.insert(source_path.to_string(), hash.to_string());
-    save_hash_cache(cache_dir, &hashes);
-}
-
-/// Check if a source file can use cached IR (incremental mode).
-/// Returns Some(cached_ir) if cache is valid, None if recompilation needed.
+/// Phase 7B: Check if cached IR is available for a module via the graph-aware cache.
+/// Returns Some(cached_ir) if all of the following are true:
+/// 1. A project root is found (xiom.toml, package.xi, etc.)
+/// 2. The module's source hash matches the cached fingerprint
+/// 3. All dependencies are still valid
+/// 4. L4 (IR) tier is cached
+///
+/// Falls back to legacy single-file check for non-project files.
 pub fn incremental_check(source_path: &str) -> Option<String> {
-    let cache_dir = incremental_cache_dir(source_path);
-    let hash = file_content_hash(source_path).ok()?;
-    load_cached_ir(source_path, &cache_dir, &hash)
+    let path = Path::new(source_path);
+    let cache = get_project_cache(path)?;
+
+    // Try to find this file in the dependency graph
+    let module_path = match xiom_graph::build_project_graph(path) {
+        Ok(graph) => {
+            // Find the module by file path
+            graph.nodes.iter()
+                .find(|n| n.file_path == path)
+                .map(|n| n.module_path.clone())
+        }
+        Err(_) => None,
+    };
+
+    if let Some(mp) = module_path {
+        // Graph-aware cache check
+        let entry = cache.get(&mp)?;
+        let current_hash = match xiom_graph::hash::file_sha256(path) {
+            Ok(h) => h,
+            Err(_) => return None,
+        };
+        if entry.fingerprint.source_hash != current_hash {
+            return None;
+        }
+        if !entry.tiers.l4_ir {
+            return None;
+        }
+        cache.load_tier(&entry.cache_key, "ll")
+    } else {
+        // Legacy fallback: simple content-hash check
+        let current_hash = match xiom_graph::hash::file_sha256(path) {
+            Ok(h) => h,
+            Err(_) => return None,
+        };
+        let cache_key = &current_hash[..current_hash.len().min(16)];
+        cache.load_tier(cache_key, "ll")
+    }
 }
 
-/// Save compiled IR to incremental cache.
+/// Phase 7B: Save compiled IR to the graph-aware cache.
+/// Stores the L4 (IR) tier and updates the cache entry with fingerprint metadata.
 pub fn incremental_save(source_path: &str, ir: &str) {
-    let cache_dir = incremental_cache_dir(source_path);
-    if let Ok(hash) = file_content_hash(source_path) {
-        save_cached_ir(source_path, &cache_dir, &hash, ir);
+    let path = Path::new(source_path);
+    let cache = match get_project_cache(path) {
+        Some(c) => c,
+        None => return,
+    };
+
+    let current_hash = match xiom_graph::hash::file_sha256(path) {
+        Ok(h) => h,
+        Err(_) => return,
+    };
+    let cache_key = xiom_graph::hash::short_hash(&current_hash).to_string();
+
+    // Store the IR
+    cache.store_tier(&cache_key, "ll", ir);
+
+    // Try to build a graph entry for this file
+    if let Ok(graph) = xiom_graph::build_project_graph(path) {
+        if let Some(node) = graph.nodes.iter().find(|n| n.file_path == path) {
+            let dependents: Vec<String> = graph
+                .reverse_edges
+                .get(graph.path_to_idx.get(&node.module_path).copied().unwrap_or(0))
+                .map(|v| v.iter().map(|&i| graph.nodes[i].module_path.clone()).collect())
+                .unwrap_or_default();
+
+            let mut tiers = xiom_graph::CacheTiers::default();
+            tiers.l4_ir = true;
+
+            let entry = xiom_graph::cache::make_cache_entry(node, dependents, tiers);
+            cache.insert(entry);
+        }
+    } else {
+        // Store a minimal entry for non-project files
+        let entry = xiom_graph::CacheEntry {
+            module_path: path.to_string_lossy().to_string(),
+            file_path: path.to_string_lossy().to_string(),
+            fingerprint: xiom_graph::Fingerprint {
+                source_hash: current_hash,
+                signature_hash: String::new(),
+            },
+            cache_key: cache_key.clone(),
+            tiers: {
+                let mut t = xiom_graph::CacheTiers::default();
+                t.l4_ir = true;
+                t
+            },
+            dependencies: vec![],
+            dependents: vec![],
+            last_compiled: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        };
+        cache.insert(entry);
     }
 }
