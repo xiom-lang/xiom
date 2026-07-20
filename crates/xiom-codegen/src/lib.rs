@@ -2559,22 +2559,11 @@ impl IrEmitter {
                         let op = self.fresh_tmp();
                         body.push(format!("  {sp} = inttoptr i64 {sv} to i8*"));
                         body.push(format!("  {op} = inttoptr i64 {ov} to i8*"));
-                        // Null check: both null → equal, one null → not equal
-                        let sn = self.fresh_tmp(); let on = self.fresh_tmp();
-                        let both_null = self.fresh_tmp();
-                        let both_null_blk = self.fresh_block("eq_str_both_null");
-                        let cmp_blk = self.fresh_block("eq_str_cmp");
-                        body.push(format!("  {sn} = icmp eq i8* {sp}, null"));
-                        body.push(format!("  {on} = icmp eq i8* {op}, null"));
-                        body.push(format!("  {both_null} = and i1 {sn}, {on}"));
-                        body.push(format!("  br i1 {both_null}, label %{both_null_blk}, label %{cmp_blk}"));
-                        body.push(format!("\n{comp_blk}:", comp_blk = cmp_blk)); // Hmm this won't work cleanly
-                        // Simplify: just strcmp with null guard
-                        let cmp = self.fresh_tmp();
+                        let cr = self.fresh_tmp();
                         let eq = self.fresh_tmp();
                         let ze = self.fresh_tmp();
-                        body.push(format!("  {cmp} = call i32 @strcmp(i8* {sp}, i8* {op})"));
-                        body.push(format!("  {eq} = icmp eq i32 {cmp}, 0"));
+                        body.push(format!("  {cr} = call i32 @strcmp(i8* {sp}, i8* {op})"));
+                        body.push(format!("  {eq} = icmp eq i32 {cr}, 0"));
                         body.push(format!("  {ze} = zext i1 {eq} to i64"));
                         body.push(format!("  ret i64 {ze}"));
                     } else if fty_name.starts_with("Vec[") || fty_name == "Vec" {
@@ -2616,15 +2605,7 @@ impl IrEmitter {
                         body.push(format!("  {r} = call i64 @Result.eq(%struct.Result {vl}, %struct.Result {ol})"));
                         body.push(format!("  ret i64 {r}"));
                     } else if actual_llvm == "i8*" {
-                        let cr = self.fresh_tmp();
-                        let eq = self.fresh_tmp();
-                        let ze = self.fresh_tmp();
-                        body.push(format!("  {cr} = call i32 @strcmp(i8* {sv}, i8* {ov})"));
-                        body.push(format!("  {eq} = icmp eq i32 {cr}, 0"));
-                        body.push(format!("  {ze} = zext i1 {eq} to i64"));
-                        body.push(format!("  ret i64 {ze}"));
-                    } else if actual_llvm == "i8*" {
-                        // Raw i8* pointer field — compare directly
+                        // Raw i8* pointer field — compare via strcmp
                         let cr = self.fresh_tmp();
                         let eq = self.fresh_tmp();
                         let ze = self.fresh_tmp();
