@@ -1336,6 +1336,7 @@ fn handle_lsp_message(msg: &serde_json::Value, backend: &Backend) -> Vec<serde_j
                     "documentSymbolProvider": true,
                     "referencesProvider": true,
                     "renameProvider": true,
+                    "codeActionProvider": true,
                     "semanticTokensProvider": {
                         "legend": {
                             "tokenTypes": [
@@ -2093,6 +2094,80 @@ fn handle_lsp_message(msg: &serde_json::Value, backend: &Backend) -> Vec<serde_j
                 "jsonrpc": "2.0",
                 "id": id,
                 "result": { "data": tokens }
+            }));
+        }
+
+        // 5e.6c: textDocument/codeAction — quick fixes for common errors
+        "textDocument/codeAction" => {
+            let uri = msg["params"]["textDocument"]["uri"].as_str().unwrap_or("");
+            let diagnostics = msg["params"]["context"]["diagnostics"].as_array()
+                .cloned().unwrap_or_default();
+
+            let mut actions = Vec::new();
+            for diag in &diagnostics {
+                let code = diag["code"].as_str().unwrap_or("");
+                let msg_text = diag["message"].as_str().unwrap_or("");
+                let line = diag["range"]["start"]["line"].as_u64().unwrap_or(0);
+                let col = diag["range"]["start"]["character"].as_u64().unwrap_or(0);
+
+                // T001: type mismatch → suggest adding as cast
+                if code == "T001" && msg_text.contains("expected") && msg_text.contains("found") {
+                    actions.push(serde_json::json!({
+                        "title": format!("Fix type mismatch: add explicit cast for '{}'", msg_text),
+                        "kind": "quickfix",
+                        "diagnostics": [diag],
+                        "edit": {
+                            "changes": {
+                                uri: [{
+                                    "range": {
+                                        "start": {"line": line, "character": col},
+                                        "end": {"line": line, "character": col + 1}
+                                    },
+                                    "newText": format!("/* FIX: type mismatch — {} */", msg_text)
+                                }]
+                            }
+                        }
+                    }));
+                }
+
+                // X series: contract violation → suggest adding contract
+                if code.starts_with("X") {
+                    actions.push(serde_json::json!({
+                        "title": format!("[{}] {}", code, msg_text),
+                        "kind": "quickfix",
+                        "diagnostics": [diag],
+                        "edit": {
+                            "changes": {
+                                uri: [{
+                                    "range": {
+                                        "start": {"line": line, "character": 0},
+                                        "end": {"line": line, "character": 0}
+                                    },
+                                    "newText": format!("// FIX [{code}]: {msg_text}\n")
+                                }]
+                            }
+                        }
+                    }));
+                }
+
+                // Generic: offer to run --ai for diagnosis
+                actions.push(serde_json::json!({
+                    "title": format!("🔍 Run xiomc --ai to diagnose: {}", msg_text),
+                    "kind": "quickfix",
+                    "diagnostics": [diag],
+                    "command": {
+                        "title": "AI Diagnose",
+                        "command": "xiomc.ai.diagnose",
+                        "arguments": [uri, line, col, msg_text]
+                    }
+                }));
+            }
+
+            let id = msg["id"].clone();
+            responses.push(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": actions
             }));
         }
 
