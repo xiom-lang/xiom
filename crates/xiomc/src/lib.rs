@@ -42,6 +42,10 @@ pub struct CompileConfig {
     pub incremental: bool,
     /// 5e.5f: force recompilation — ignore all caches
     pub force: bool,
+    /// 7C: parallel compilation — use rayon thread pool for lex+parse
+    pub parallel: bool,
+    /// 7C: maximum number of parallel jobs (0 = num_cpus)
+    pub jobs: usize,
     pub max_recursion_depth: u32,
     pub dump_contracts: bool,
     pub verify: bool,
@@ -69,6 +73,8 @@ impl Default for CompileConfig {
             hot_reload: false,
             incremental: false,
             force: false,
+            parallel: false,
+            jobs: 0,
             max_recursion_depth: 500,
             dump_contracts: false,
             verify: false,
@@ -226,79 +232,176 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
         }
     }
 
-    // Stage 1: Lex & Parse
-    let mut all_programs: Vec<Program> = Vec::new();
-    for source_path in effective_sources {
-        let file_name = Path::new(source_path).file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if file_name == "package.xi" { continue; }
-
-        let source = match fs::read_to_string(source_path) {
-            Ok(s) => s,
-            Err(e) => {
-                result.diagnostics.push(Diagnostic {
-                    kind: "io_error".into(), code: "I001".into(),
-                    message: format!("cannot read '{}': {}", source_path, e),
-                    line: 0, col: 0, file: source_path.clone(),
-                    suggestion: None, help: None, note: None,
-                });
-                return result;
-            }
-        };
-        result.file_count += 1;
-
-        let mut lexer = Lexer::new(&source);
-        let tokens = lexer.tokenize();
-
-        // Collect lex errors
-        let mut lex_errors = false;
-        for tok in &tokens {
-            if let xiom_lexer::TokenKind::Error(msg) = &tok.kind {
-                result.diagnostics.push(Diagnostic {
-                    kind: "lex_error".into(), code: "L001".into(),
-                    message: msg.clone(),
-                    line: tok.span.line, col: tok.span.col, file: source_path.clone(),
-                    suggestion: None, help: None, note: None,
-                });
-                lex_errors = true;
-            }
-        }
-        if lex_errors { continue; }
-
-        let mut parser = Parser::new(tokens);
-        match parser.parse_program() {
-            Ok(p) => {
-                // Surface RECOVERED parse errors: parse_program returns Ok with
-                // a partial AST after panic-mode recovery. Silently accepting
-                // it drops declarations (e.g. a trailing-comma fn vanished
-                // with no diagnostic). Report every recovered error.
-                for e in parser.errors() {
-                    let (help, note) = diagnostic_for(&e.message);
-                    result.diagnostics.push(Diagnostic {
-                        kind: "parse_error".into(), code: "P001".into(),
-                        message: e.message.clone(),
-                        line: e.span.line, col: e.span.col, file: source_path.clone(),
-                        suggestion: Some(suggest_fix(&e.message)),
-                        help, note,
-                    });
-                }
-                all_programs.push(p);
-            }
-            Err(e) => {
-                let (help, note) = diagnostic_for(&e.message);
-                let suggestion = suggest_fix(&e.message);
-                result.diagnostics.push(Diagnostic {
-                    kind: "parse_error".into(), code: "P001".into(),
-                    message: e.message,
-                    line: e.span.line, col: e.span.col, file: source_path.clone(),
-                    suggestion: Some(suggestion),
-                    help, note,
-                });
-            }
+    // Stage 1: Lex & Parse (Phase 7C: parallel across files via rayon)
+    let file_count = effective_sources.len();
+    let use_parallel = config.parallel && file_count > 1;
+    if use_parallel && config.jobs > 0 {
+        // Respect explicit job count (safe: set before rayon pool init)
+        if std::env::var("RAYON_NUM_THREADS").is_err() {
+            unsafe { std::env::set_var("RAYON_NUM_THREADS", config.jobs.to_string()); }
         }
     }
+    let parse_results: Vec<(usize, Option<Program>, Vec<Diagnostic>)> = if use_parallel {
+        use rayon::prelude::*;
+        effective_sources
+            .par_iter()
+            .enumerate()
+            .map(|(idx, source_path)| {
+                let mut diags = Vec::new();
+                let file_name = Path::new(source_path).file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if file_name == "package.xi" { return (idx, None, diags); }
 
+                let source = match fs::read_to_string(source_path) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        diags.push(Diagnostic {
+                            kind: "io_error".into(), code: "I001".into(),
+                            message: format!("cannot read '{}': {}", source_path, e),
+                            line: 0, col: 0, file: source_path.clone(),
+                            suggestion: None, help: None, note: None,
+                        });
+                        return (idx, None, diags);
+                    }
+                };
+
+                let mut lexer = Lexer::new(&source);
+                let tokens = lexer.tokenize();
+
+                let mut lex_errors = false;
+                for tok in &tokens {
+                    if let xiom_lexer::TokenKind::Error(msg) = &tok.kind {
+                        diags.push(Diagnostic {
+                            kind: "lex_error".into(), code: "L001".into(),
+                            message: msg.clone(),
+                            line: tok.span.line, col: tok.span.col, file: source_path.clone(),
+                            suggestion: None, help: None, note: None,
+                        });
+                        lex_errors = true;
+                    }
+                }
+                if lex_errors { return (idx, None, diags); }
+
+                let mut parser = Parser::new(tokens);
+                match parser.parse_program() {
+                    Ok(p) => {
+                        for e in parser.errors() {
+                            let (help, note) = diagnostic_for(&e.message);
+                            diags.push(Diagnostic {
+                                kind: "parse_error".into(), code: "P001".into(),
+                                message: e.message.clone(),
+                                line: e.span.line, col: e.span.col, file: source_path.clone(),
+                                suggestion: Some(suggest_fix(&e.message)),
+                                help, note,
+                            });
+                        }
+                        (idx, Some(p), diags)
+                    }
+                    Err(e) => {
+                        let (help, note) = diagnostic_for(&e.message);
+                        let suggestion = suggest_fix(&e.message);
+                        diags.push(Diagnostic {
+                            kind: "parse_error".into(), code: "P001".into(),
+                            message: e.message,
+                            line: e.span.line, col: e.span.col, file: source_path.clone(),
+                            suggestion: Some(suggestion),
+                            help, note,
+                        });
+                        (idx, None, diags)
+                    }
+                }
+            })
+            .collect()
+    } else {
+        // Single-file: sequential path (no rayon overhead)
+        effective_sources
+            .iter()
+            .enumerate()
+            .map(|(idx, source_path)| {
+                let mut diags = Vec::new();
+                let file_name = Path::new(source_path).file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if file_name == "package.xi" { return (idx, None, diags); }
+
+                let source = match fs::read_to_string(source_path) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        diags.push(Diagnostic {
+                            kind: "io_error".into(), code: "I001".into(),
+                            message: format!("cannot read '{}': {}", source_path, e),
+                            line: 0, col: 0, file: source_path.clone(),
+                            suggestion: None, help: None, note: None,
+                        });
+                        return (idx, None, diags);
+                    }
+                };
+
+                let mut lexer = Lexer::new(&source);
+                let tokens = lexer.tokenize();
+
+                let mut lex_errors = false;
+                for tok in &tokens {
+                    if let xiom_lexer::TokenKind::Error(msg) = &tok.kind {
+                        diags.push(Diagnostic {
+                            kind: "lex_error".into(), code: "L001".into(),
+                            message: msg.clone(),
+                            line: tok.span.line, col: tok.span.col, file: source_path.clone(),
+                            suggestion: None, help: None, note: None,
+                        });
+                        lex_errors = true;
+                    }
+                }
+                if lex_errors { return (idx, None, diags); }
+
+                let mut parser = Parser::new(tokens);
+                match parser.parse_program() {
+                    Ok(p) => {
+                        for e in parser.errors() {
+                            let (help, note) = diagnostic_for(&e.message);
+                            diags.push(Diagnostic {
+                                kind: "parse_error".into(), code: "P001".into(),
+                                message: e.message.clone(),
+                                line: e.span.line, col: e.span.col, file: source_path.clone(),
+                                suggestion: Some(suggest_fix(&e.message)),
+                                help, note,
+                            });
+                        }
+                        (idx, Some(p), diags)
+                    }
+                    Err(e) => {
+                        let (help, note) = diagnostic_for(&e.message);
+                        let suggestion = suggest_fix(&e.message);
+                        diags.push(Diagnostic {
+                            kind: "parse_error".into(), code: "P001".into(),
+                            message: e.message,
+                            line: e.span.line, col: e.span.col, file: source_path.clone(),
+                            suggestion: Some(suggestion),
+                            help, note,
+                        });
+                        (idx, None, diags)
+                    }
+                }
+            })
+            .collect()
+    };
+
+    // Collect diagnostics and programs in order
+    let mut all_programs: Vec<Program> = Vec::new();
+    for (_, _prog, diags) in &parse_results {
+        for d in diags {
+            result.diagnostics.push(d.clone());
+        }
+    }
+    result.file_count = file_count;
+
+    // Check for parse/lex errors before proceeding
     if result.diagnostics.iter().any(|d| d.kind == "parse_error" || d.kind == "lex_error") {
         return result;
+    }
+
+    // Collect programs in original order
+    for (_, prog, _) in parse_results {
+        if let Some(p) = prog {
+            all_programs.push(p.clone());
+        }
     }
 
     if all_programs.is_empty() {

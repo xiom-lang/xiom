@@ -635,6 +635,8 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
         hot_reload: false,
         incremental: false,
         force: false,
+        parallel: false,
+        jobs: 0,
     };
     let result = xiomc::compile_with_diagnostics(&check_cfg, &[tmp.to_str().unwrap().to_string()]);
     let _ = std::fs::remove_file(&tmp);

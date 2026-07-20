@@ -68,6 +68,10 @@ fn main() {
     // 5e.5f: Incremental compilation flags
     let incremental = args.iter().any(|a| a == "--incremental");
     let force_recompile = args.iter().any(|a| a == "--force");
+    // 7C: Parallel compilation flags
+    let parallel = args.iter().any(|a| a == "--parallel") && !args.iter().any(|a| a == "--sequential");
+    let jobs: usize = parse_flag_value(&args, "--jobs")
+        .and_then(|v| v.parse().ok()).unwrap_or(0);
     // 5g AI Pipeline flags
     let ai_mode = args.iter().any(|a| a == "--ai");
     let ai_local = args.iter().any(|a| a == "--ai-local");
@@ -234,6 +238,8 @@ fn main() {
         hot_reload: false,  // set to true by hot reload loop below
         incremental,
         force: force_recompile,
+        parallel,
+        jobs,
     };
 
     // --sandbox: run safety audit and exit (skips compilation unless --sandbox=strict passes)
@@ -359,12 +365,12 @@ fn main() {
                 verify: config.verify,
                 verify_output: config.verify_output.clone(),
                 output_file: None,
+                incremental: false, force: false,
+                parallel: false, jobs: 0,
                 link_libs: vec![],
                 link_paths: vec![],
                 c_sources: vec![],
                 hot_reload: false,
-                incremental: false,
-                force: false,
             };
             let result = xiomc::compile_with_diagnostics(&check_config, &[path.clone()]);
             let source = std::fs::read_to_string(path).unwrap_or_default();
@@ -421,6 +427,9 @@ fn print_usage() {
     eprintln!("  --hot-reload        Hot reload mode: watch + shared library");
     eprintln!("  --incremental       5e.5f: Cache compiled IR, skip unchanged sources");
     eprintln!("  --force             5e.5f: Force recompile — ignore all caches");
+    eprintln!("  --parallel          7C: Enable parallel lex+parse (rayon thread pool)");
+    eprintln!("  --sequential        7C: Force sequential compilation (disable parallel)");
+    eprintln!("  --jobs <N>          7C: Number of parallel compile jobs (default: num CPUs)");
     eprintln!("  --ai                AI-assisted diagnostics (requires Ollama or API key)");
     eprintln!("  --ai-local          AI mode: local LLM only, never sends code off-machine");
     eprintln!("  --ai-dry-run        AI mode: print prompt, don't call LLM");
