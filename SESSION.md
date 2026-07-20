@@ -1,9 +1,9 @@
-# XIOM — Session Handoff: v0.48.9 "5f Production — 774/774 ALL GREEN"
+# XIOM — Session Handoff: v0.48.9 "5f Production — 779/779 ALL GREEN"
 
-**Date:** 2026-07-20 03:42
-**Branch:** `feat/architect` (35 commits ahead of origin)
-**Status:** **774/774 tests pass** (529 compiler + 245 tooling, ZERO warnings, ZERO failures)
-**Phase:** 5d–5g complete. 5e.5a (Hot Reload Thunks) + 5e.6b (Workspace Symbols) + 5e.5b (DLL Host) complete.
+**Date:** 2026-07-20 15:14
+**Branch:** `feat/architect` (39 commits ahead of origin)
+**Status:** **779/779 tests pass** (534 compiler + 245 tooling, ZERO warnings, ZERO failures)
+**Phase:** 5d–5g complete. ALL P0/P1/P2 items complete. Only P3 deferred items remain.
 
 ---
 
@@ -138,20 +138,16 @@ G-15 (sret), G-24 (Float32 ARM), G-40 (repr(C)) verified via WSL clang cross-com
 
 ## REMAINING WORK
 
-### P0/P1 — Production-Grade
-| Item | Effort | Details |
-|------|--------|---------|
-| **5e.6b** Workspace symbol search | ✅ DONE | `workspace/symbol` handler, `collect_workspace_symbols`, 11/11 LSP tests |
+### P2 — Enhancement (ALL COMPLETE ✅)
+| Item | Effort | Status |
+|------|--------|--------|
+| **5e.6b** Workspace symbol search | ✅ DONE | `workspace/symbol` handler, 11/11 LSP tests |
 | **5e.5a** Hot reload indirect call thunks | ✅ DONE | `xiom_hot_thunk_<name>` lazy-registering thunks, 3 regression tests |
-| **5e.5b** DLL host executable | ✅ DONE | `xiom_hot_host.c` (287 lines), `hot_reload_demo.xi`
-
-### P2 — Enhancement
-| Item | Effort | Details |
-|------|--------|---------|
-| 5e.5c State migration | 2-3 days | Serialize globals → shared segment across reload |
-| 5e.5d Filesystem events | 1 day | ReadDirectoryChangesW / inotify instead of polling |
-| AI-08 CI/CD gating (test) | 0.5 day | Add regression test for --ai-strict exit codes |
-| 5e.6c Code actions (expand) | 1-2 days | More fix suggestions (P001 parse errors, E001 borrow) |
+| **5e.5b** DLL host executable | ✅ DONE | `xiom_hot_host.c` (320 lines), `hot_reload_demo.xi` |
+| **5e.5c** State migration | ✅ DONE | `xiom_hot_save_state()`/`xiom_hot_restore_state()` via fwrite/fread, 3 regression tests |
+| **5e.5d** Filesystem events | ✅ DONE | `FindFirstChangeNotification`/`ReadDirectoryChangesW` instead of Sleep polling |
+| **AI-08** CI/CD gating test | ✅ DONE | `e2e_ai_strict_blocks_on_violations` + `e2e_help_shows_ai_strict_flag`, 2 e2e tests |
+| **5e.6c** Code actions (expand) | ✅ DONE | P001 parse error + E001 borrow error quick-fix suggestions |
 
 ### P3 — Deferred
 - 5e.5e Contract verification on reload
