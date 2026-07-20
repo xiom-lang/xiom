@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "xiom-compiler": {
+      "command": "/home/user/.local/share/xiom/bin/xiom-mcp",
+      "args": [],
+      "env": {
+        "XIOM_HOME": "/home/user/.local/share/xiom"
+      }
+    }
+  }
+}
