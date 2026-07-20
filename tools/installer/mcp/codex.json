@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "xiom": {
+      "command": "xiom-mcp",
+      "args": [],
+      "env": {
+        "XIOM_HOME": "XIOM_HOME"
+      }
+    }
+  }
+}

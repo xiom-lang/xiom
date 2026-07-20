@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "xiom": {
+      "command": "XIOM_BIN\\xiom-mcp.exe",
+      "args": [],
+      "env": {
+        "XIOM_HOME": "XIOM_HOME"
+      }
+    }
+  }
+}

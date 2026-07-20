@@ -1,0 +1,68 @@
+{
+  "name": "xiom-compiler",
+  "version": "0.49.5",
+  "description": "XIOM Compiler MCP Server — AI-assisted compiler diagnostics, SMT verification, and project analysis",
+  "tools": {
+    "compile_and_analyze": {
+      "description": "Compile a XIOM source file and return diagnostics with AI-powered fix suggestions",
+      "parameters": {
+        "file": { "type": "string", "description": "Path to .xi source file" },
+        "strict": { "type": "boolean", "description": "Enable strict contract checking" }
+      }
+    },
+    "compile_and_fix": {
+      "description": "One-shot compile + AI diagnose with fix suggestions for every error",
+      "parameters": {
+        "source": { "type": "string", "description": "XIOM source code text" },
+        "file": { "type": "string", "description": "Optional file path for context" }
+      }
+    },
+    "verify_contracts": {
+      "description": "Run SMT-based contract verification using Z3",
+      "parameters": {
+        "file": { "type": "string", "description": "Path to .xi source file" },
+        "check": { "type": "boolean", "description": "Run Z3 to verify contracts" }
+      }
+    },
+    "format_code": {
+      "description": "Format XIOM source code",
+      "parameters": {
+        "source": { "type": "string", "description": "XIOM source code to format" }
+      }
+    }
+  },
+  "integration": {
+    "kilo": {
+      "file": ".kilocode/mcp.json",
+      "config": {
+        "xiom": {
+          "command": "XIOM_BIN\\xiom-mcp.exe",
+          "args": [],
+          "env": { "XIOM_HOME": "XIOM_HOME" }
+        }
+      }
+    },
+    "claude": {
+      "command": "claude mcp add xiom --",
+      "config": {
+        "xiom": {
+          "command": "XIOM_BIN/xiom-mcp",
+          "args": [],
+          "env": { "XIOM_HOME": "XIOM_HOME" }
+        }
+      }
+    },
+    "cursor": {
+      "file": ".cursor/mcp.json",
+      "config": {
+        "mcpServers": {
+          "xiom": {
+            "command": "XIOM_BIN/xiom-mcp",
+            "args": [],
+            "env": { "XIOM_HOME": "XIOM_HOME" }
+          }
+        }
+      }
+    }
+  }
+}

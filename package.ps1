@@ -143,7 +143,7 @@ if (Test-Path $htmlDocs) {
 }
 
 # Copy MCP configs
-$mcpSrc = "$root\release\mcp"
+$mcpSrc = "$root\tools\installer\mcp"
 if (Test-Path $mcpSrc) {
     New-Item -ItemType Directory -Force -Path "$pkgDir\mcp" | Out-Null
     Copy-Item "$mcpSrc\*" "$pkgDir\mcp\" -Force
@@ -151,7 +151,7 @@ if (Test-Path $mcpSrc) {
 }
 
 # Create install.bat from release template
-$installBatSrc = "$root\release\install.bat"
+$installBatSrc = "$root\tools\installer\install.bat"
 if (Test-Path $installBatSrc) {
     Copy-Item $installBatSrc "$pkgDir\install.bat" -Force
     Write-Host "    + install.bat" -ForegroundColor DarkGray
@@ -160,7 +160,7 @@ if (Test-Path $installBatSrc) {
 }
 
 # Copy install.sh for Linux/macOS
-$installShSrc = "$root\release\install.sh"
+$installShSrc = "$root\tools\installer\install.sh"
 if (Test-Path $installShSrc) {
     Copy-Item $installShSrc "$pkgDir\install.sh" -Force
     Write-Host "    + install.sh (Linux/macOS)" -ForegroundColor DarkGray
@@ -215,7 +215,7 @@ if ($Sign) {
         if ($LASTEXITCODE -ne 0) {
             Write-Host "  WARNING: Signing had errors" -ForegroundColor Yellow
 # Copy MCP configs
-$mcpSrc = "$root\release\mcp"
+$mcpSrc = "$root\tools\installer\mcp"
 if (Test-Path $mcpSrc) {
     New-Item -ItemType Directory -Force -Path "$pkgDir\mcp" | Out-Null
     Copy-Item "$mcpSrc\*" "$pkgDir\mcp\" -Force
@@ -223,12 +223,12 @@ if (Test-Path $mcpSrc) {
 }
 
 # Copy install scripts
-$installBatSrc = "$root\release\install.bat"
+$installBatSrc = "$root\tools\installer\install.bat"
 if (Test-Path $installBatSrc) {
     Copy-Item $installBatSrc "$pkgDir\install.bat" -Force
     Write-Host "    + install.bat (Windows)" -ForegroundColor DarkGray
 }
-$installShSrc = "$root\release\install.sh"
+$installShSrc = "$root\tools\installer\install.sh"
 if (Test-Path $installShSrc) {
     Copy-Item $installShSrc "$pkgDir\install.sh" -Force
     Write-Host "    + install.sh (Linux/macOS)" -ForegroundColor DarkGray
