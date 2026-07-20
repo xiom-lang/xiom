@@ -15,4 +15,5 @@ members = [
     "crates/xiom-verify",
     "crates/xiom-mcp",
     "crates/xiom-dbg",
+    "crates/xiom-display",
 ]

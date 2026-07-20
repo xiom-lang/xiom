@@ -1,0 +1,8 @@
+[package]
+name = "xiom-display"
+version = "0.1.0"
+edition = "2021"
+description = "Shared type/expression display utilities for XIOM tooling"
+
+[dependencies]
+xiom-ast = { path = "../xiom-ast" }
