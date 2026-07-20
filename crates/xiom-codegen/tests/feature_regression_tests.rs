@@ -1610,3 +1610,36 @@ fn regress_5e_hot_reload_thunk_disabled() {
     assert!(!ir.contains("@xiom_hot_thunk_"), "No thunk without hot_reload:\n{ir}");
     assert!(!ir.contains("@xiom_hot_get_ptr"), "No hot ptr declares without hot_reload:\n{ir}");
 }
+
+// =====================================================================
+// 5e.5c Hot Reload State Migration Tests
+// =====================================================================
+
+/// Verify that --hot-reload with globals emits save/restore functions.
+#[test]
+fn regress_5e_hot_reload_state_save_restore() {
+    let src = "var counter: Int = 0; pub fn inc() -> Int { counter = counter + 1; return counter; }";
+    let ir = compile_hot_reload(src).expect("hot reload compile must succeed");
+    assert!(ir.contains("@xiom_hot_save_state"), "Must emit save_state function:\n{ir}");
+    assert!(ir.contains("@xiom_hot_restore_state"), "Must emit restore_state function:\n{ir}");
+    assert!(ir.contains("@xiom_hot_state_path"), "Must emit state path constant:\n{ir}");
+    assert!(ir.contains("call i64 @fwrite"), "Must call fwrite in save:\n{ir}");
+    assert!(ir.contains("call i64 @fread"), "Must call fread in restore:\n{ir}");
+}
+
+/// Verify that no save/restore when there are no mutable globals.
+#[test]
+fn regress_5e_hot_reload_state_no_globals() {
+    let src = "pub fn add(x: Int, y: Int) -> Int { return x + y; }";
+    let ir = compile_hot_reload(src).expect("hot reload compile must succeed");
+    assert!(!ir.contains("@xiom_hot_save_state"), "No save_state without globals:\n{ir}");
+}
+
+/// Verify that save/restore NOT emitted when hot_reload disabled.
+#[test]
+fn regress_5e_hot_reload_state_disabled() {
+    let src = "var counter: Int = 0; fn main() -> Int { return counter; }";
+    let ir = compile(src).expect("normal compile must succeed");
+    assert!(!ir.contains("@xiom_hot_save_state"), "No save_state without hot_reload:\n{ir}");
+    assert!(!ir.contains("@fopen"), "No fopen declare without hot_reload:\n{ir}");
+}

@@ -235,7 +235,14 @@ impl IrEmitter {
                     // Dedup the emitted definition by symbol name.
                     if !self.module_global_defs.iter().any(|(s, _, _)| s == &symbol) {
                         let init = Self::global_const_init(&cd.value, &llvm_ty);
-                        self.module_global_defs.push((symbol, llvm_ty, init));
+                        self.module_global_defs.push((symbol.clone(), llvm_ty.clone(), init));
+                    }
+                    // 5e.5c: track for hot reload state migration
+                    if self.hot_reload {
+                        let byte_sz = Self::llvm_type_byte_size(&llvm_ty, &self.type_meta);
+                        if !self.xiom_hot_globals.iter().any(|(s, _, _)| s == &symbol) {
+                            self.xiom_hot_globals.push((symbol.clone(), llvm_ty.clone(), byte_sz));
+                        }
                     }
                 } else {
                     // Type doesn't lower to a simple global: keep old behavior.

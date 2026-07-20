@@ -198,6 +198,8 @@ pub struct IrEmitter {
     pub(crate) hot_reload: bool,
     /// Set of pub function keys (for hot reload thunk dispatch)
     pub(crate) pub_functions: HashSet<String>,
+    /// 5e.5c: globals to save/restore across hot reload: (symbol, llvm_type, byte_size)
+    pub(crate) xiom_hot_globals: Vec<(String, String, usize)>,
 }
 
 impl IrEmitter {
@@ -268,6 +270,7 @@ impl IrEmitter {
             module_global_defs: Vec::new(),
             hot_reload: false,
             pub_functions: HashSet::new(),
+            xiom_hot_globals: Vec::new(),
         }
     }
 
@@ -298,6 +301,108 @@ impl IrEmitter {
             hash = hash.wrapping_mul(33).wrapping_add(b as u64);
         }
         (hash % 1024) as i64
+    }
+
+    /// 5e.5c: byte size of an LLVM type for state serialization.
+    pub(crate) fn llvm_type_byte_size(llvm_ty: &str, type_meta: &HashMap<String, TypeMeta>) -> usize {
+        match llvm_ty {
+            "i1" | "i8" => 1,
+            "i16" => 2,
+            "i32" | "float" => 4,
+            "i64" | "double" => 8,
+            ty if ty.starts_with("%struct.") => {
+                let inner = &ty[8..];
+                let meta = type_meta.get(inner)
+                    .or_else(|| type_meta.iter().find(|(k,_)| k.ends_with(&format!(".{inner}"))).map(|(_,v)| v));
+                match meta {
+                    Some(m) => {
+                        let mut total: usize = 0;
+                        for (_, field_ty) in &m.fields {
+                            if field_ty.contains('[') && !field_ty.starts_with('[') {
+                                total += 8; // generic container → i64 handle
+                            } else if field_ty.starts_with('[') {
+                                total += 8; // fixed-size array → 8 per element simplified
+                            } else {
+                                let fllvm = if field_ty.starts_with('%') { field_ty.clone() }
+                                    else { format!("%struct.{field_ty}") };
+                                total += Self::llvm_type_byte_size(&fllvm, type_meta);
+                            }
+                        }
+                        total
+                    }
+                    None => 8
+                }
+            }
+            _ => 8,
+        }
+    }
+
+    /// 5e.5c: emit xiom_hot_save_state() and xiom_hot_restore_state() functions.
+    /// These serialize/deserialize all module-level `var` globals to `xiom_hot_state.bin`
+    /// so that the hot reload host can preserve state across DLL reloads.
+    fn emit_hot_state_functions(&mut self) {
+        if self.xiom_hot_globals.is_empty() { return; }
+        let globals_snapshot = self.xiom_hot_globals.clone();
+
+        // String constants for file I/O
+        self.emitln("@xiom_hot_state_path = private constant [20 x i8] c\"xiom_hot_state.bin\\00\"");
+        self.emitln("@xiom_hot_wb = private constant [3 x i8] c\"wb\\00\"");
+        self.emitln("@xiom_hot_rb = private constant [3 x i8] c\"rb\\00\"");
+        self.emitln("");
+
+        // --- Save function ---
+        self.emitln("define void @xiom_hot_save_state() {");
+        self.emitln("entry:");
+        let f_save = self.fresh_tmp();
+        self.emitln(&format!("  {f_save} = call i8* @fopen(i8* getelementptr inbounds ([20 x i8], [20 x i8]* @xiom_hot_state_path, i32 0, i32 0), i8* getelementptr inbounds ([3 x i8], [3 x i8]* @xiom_hot_wb, i32 0, i32 0))"));
+        let null_s = self.fresh_tmp();
+        self.emitln(&format!("  {null_s} = icmp eq i8* {f_save}, null"));
+        let save_body = self.fresh_block("hot_save_body");
+        let save_done = self.fresh_block("hot_save_done");
+        self.emitln(&format!("  br i1 {null_s}, label %{save_done}, label %{save_body}"));
+        self.emitln(&format!("\n{save_body}:"));
+        for (symbol, llvm_ty, byte_sz) in &globals_snapshot {
+            let load_tmp = self.fresh_tmp();
+            self.emitln(&format!("  {load_tmp} = load {llvm_ty}, {llvm_ty}* @{symbol}"));
+            let buf = self.fresh_tmp();
+            self.emitln(&format!("  {buf} = alloca {llvm_ty}"));
+            self.emitln(&format!("  store {llvm_ty} {load_tmp}, {llvm_ty}* {buf}"));
+            let bc = self.fresh_tmp();
+            self.emitln(&format!("  {bc} = bitcast {llvm_ty}* {buf} to i8*"));
+            self.emitln(&format!("  call i64 @fwrite(i8* {bc}, i64 {byte_sz}, i64 1, i8* {f_save})"));
+        }
+        self.emitln(&format!("  call i32 @fclose(i8* {f_save})"));
+        self.emitln(&format!("  br label %{save_done}"));
+        self.emitln(&format!("\n{save_done}:"));
+        self.emitln("  ret void");
+        self.emitln("}\n");
+
+        // --- Restore function ---
+        self.emitln("define void @xiom_hot_restore_state() {");
+        self.emitln("entry:");
+        let f_restore = self.fresh_tmp();
+        self.emitln(&format!("  {f_restore} = call i8* @fopen(i8* getelementptr inbounds ([20 x i8], [20 x i8]* @xiom_hot_state_path, i32 0, i32 0), i8* getelementptr inbounds ([3 x i8], [3 x i8]* @xiom_hot_rb, i32 0, i32 0))"));
+        let null_r = self.fresh_tmp();
+        self.emitln(&format!("  {null_r} = icmp eq i8* {f_restore}, null"));
+        let restore_body = self.fresh_block("hot_restore_body");
+        let restore_done = self.fresh_block("hot_restore_done");
+        self.emitln(&format!("  br i1 {null_r}, label %{restore_done}, label %{restore_body}"));
+        self.emitln(&format!("\n{restore_body}:"));
+        for (symbol, llvm_ty, byte_sz) in &globals_snapshot {
+            let buf = self.fresh_tmp();
+            self.emitln(&format!("  {buf} = alloca {llvm_ty}"));
+            let bc = self.fresh_tmp();
+            self.emitln(&format!("  {bc} = bitcast {llvm_ty}* {buf} to i8*"));
+            self.emitln(&format!("  call i64 @fread(i8* {bc}, i64 {byte_sz}, i64 1, i8* {f_restore})"));
+            let val = self.fresh_tmp();
+            self.emitln(&format!("  {val} = load {llvm_ty}, {llvm_ty}* {buf}"));
+            self.emitln(&format!("  store {llvm_ty} {val}, {llvm_ty}* @{symbol}"));
+        }
+        self.emitln(&format!("  call i32 @fclose(i8* {f_restore})"));
+        self.emitln(&format!("  br label %{restore_done}"));
+        self.emitln(&format!("\n{restore_done}:"));
+        self.emitln("  ret void");
+        self.emitln("}\n");
     }
 
     /// Convert literal "0" to "zeroinitializer" for aggregate (struct) types
@@ -1665,6 +1770,11 @@ impl IrEmitter {
                 self.emitln(&format!("@{symbol} = internal global {llvm_ty} {init}"));
             }
             self.emitln("");
+        }
+
+        // 5e.5c: emit hot reload state save/restore functions
+        if self.hot_reload && !self.xiom_hot_globals.is_empty() {
+            self.emit_hot_state_functions();
         }
 
         self.emit_builtin_declares();
