@@ -49,7 +49,7 @@ Write-Host ""
 # Set release metadata (baked into binary via env! macros at compile time).
 # Override these before running to customize the version banner.
 if (-not $env:XIOM_RELEASE_TAG)    { $env:XIOM_RELEASE_TAG    = "Production" }
-if (-not $env:XIOM_RELEASE_STATS)  { $env:XIOM_RELEASE_STATS  = "441/441 tests, zero warnings" }
+if (-not $env:XIOM_RELEASE_STATS)  { $env:XIOM_RELEASE_STATS  = "871/871 tests, zero warnings" }
 
 # Bump version in Cargo.toml so the binary reports the correct version.
 # Uses env!("CARGO_PKG_VERSION") at compile time.
@@ -63,6 +63,14 @@ if (Test-Path $cargoTomlPath) {
 
 # Build all tools
 $tools = @("xiomc", "xiom-fmt", "xiom-doc", "xiom-ffigen", "xiom-pkg", "xiom-lsp", "xiom-mcp", "xiom-dbg", "xiom-verify")
+
+# Kill any running tool processes to avoid file-lock on release build
+$toolNames = @("xiomc", "xiom-fmt", "xiom-doc", "xiom-ffigen", "xiom-pkg", "xiom-lsp", "xiom-mcp", "xiom-dbg", "xiom-verify")
+foreach ($name in $toolNames) {
+    $null = Stop-Process -Name $name -Force -ErrorAction SilentlyContinue
+}
+Start-Sleep -Seconds 1
+
 $builtOk = @()
 foreach ($tool in $tools) {
     Write-Host "  Building $tool..." -ForegroundColor Cyan
