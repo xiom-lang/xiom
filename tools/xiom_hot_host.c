@@ -3,6 +3,7 @@
 // loads it, and watches for changes to recompile/reload.
 //
 // Compile: cl xiom_hot_host.c /Fe:xiom_hot_host.exe /link user32.lib
+//         (from a VS Developer Command Prompt in the tools/ directory)
 //
 // Usage: xiom_hot_host.exe <source.xi> [xiomc args...]
 //

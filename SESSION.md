@@ -176,7 +176,7 @@ G-15 (sret), G-24 (Float32 ARM), G-40 (repr(C)) verified via WSL clang cross-com
 | `crates/xiom-codegen/tests/feature_regression_tests.rs` | 122 tests — incl. 3 hot reload thunk regression tests |
 | `stdlib/xiom/ai_prompt.txt` | AI system prompt template |
 | `stdlib/runtime/xiom_hot_reload.c` | Hot reload function pointer table (djb2 hash, linear probe) |
-| `stdlib/runtime/xiom_hot_host.c` | Windows DLL host — LoadLibrary, watch loop, recompile, reload (287 lines) |
+| `tools/xiom_hot_host.c` | Windows DLL host — LoadLibrary, watch loop, recompile, reload (287 lines) |
 | `stdlib/runtime/hot_reload_demo.xi` | Demo source for hot reload host verification |
 | `docs/AI_PIPELINE.md` | AI pipeline full spec + implementation status |
 | `docs/ecosystem-audit/COMPILER_GAPS.md` | Gap registry — 49/49 FIXED, CG-01..CG-06, AI-01..AI-08 |
