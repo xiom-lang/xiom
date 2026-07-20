@@ -950,6 +950,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "xiom-display"
+version = "0.1.0"
+dependencies = [
+ "xiom-ast",
+]
+
+[[package]]
 name = "xiom-doc"
 version = "0.1.0"
 dependencies = [
