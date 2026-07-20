@@ -72,6 +72,8 @@ struct Breakpoint {
 trait DebuggerBackend {
     fn launch(&mut self, program: &str, args: &[String], cwd: &str) -> Result<(), String>;
     fn set_breakpoint(&mut self, source: &str, line: u64) -> Result<Breakpoint, String>;
+    fn list_breakpoints(&self) -> Vec<Breakpoint>;
+    fn delete_breakpoint(&mut self, id: u64) -> Result<(), String>;
     fn exec_continue(&mut self) -> Result<(), String>;
     fn exec_next(&mut self) -> Result<(), String>;
     fn exec_step(&mut self) -> Result<(), String>;
@@ -81,6 +83,8 @@ trait DebuggerBackend {
     fn thread_info(&mut self) -> Result<Vec<Value>, String>;
     fn stack_info(&mut self) -> Result<Vec<Value>, String>;
     fn list_variables(&mut self) -> Result<Vec<Value>, String>;
+    fn list_registers(&mut self) -> Result<Vec<Value>, String>;
+    fn read_memory(&mut self, addr: u64, size: usize) -> Result<Vec<u8>, String>;
     fn terminate(&mut self) -> Result<(), String>;
     fn name(&self) -> &'static str;
 }
@@ -262,11 +266,56 @@ impl GdbBackend {
         self.child = None;
         Ok(())
     }
+
+    fn list_breakpoints(&self) -> Vec<Breakpoint> {
+        self.breakpoints.values().cloned().collect()
+    }
+
+    fn delete_breakpoint(&mut self, id: u64) -> Result<(), String> {
+        if self.child.is_none() { return Err("No debug session".into()); }
+        let _ = self.send_mi(&format!("-break-delete {}", id));
+        self.breakpoints.remove(&id);
+        Ok(())
+    }
+
+    fn list_registers(&mut self) -> Result<Vec<Value>, String> {
+        if self.child.is_none() { return Err("No debug session".into()); }
+        let resp = self.send_mi("-data-list-register-values x")?;
+        let mut regs = Vec::new();
+        if let Some(start) = resp.find("register-values=[") {
+            let section = &resp[start + 17..];
+            if let Some(end) = section.find(']') {
+                let values_str = &section[..end];
+                for entry in values_str.split("},") {
+                    let val = entry.split("value=\"").nth(1).and_then(|s| s.split('"').next()).unwrap_or("?");
+                    let num = entry.split("number=\"").nth(1).and_then(|s| s.split('"').next()).unwrap_or("?");
+                    regs.push(json!({"name": format!("r{}", num), "value": val}));
+                }
+            }
+        }
+        Ok(regs)
+    }
+
+    fn read_memory(&mut self, addr: u64, size: usize) -> Result<Vec<u8>, String> {
+        if self.child.is_none() { return Err("No debug session".into()); }
+        let resp = self.send_mi(&format!("-data-read-memory-bytes 0x{:X} {}", addr, size))?;
+        if let Some(start) = resp.find("contents=\"") {
+            let bytes_str = &resp[start + 10..];
+            if let Some(end) = bytes_str.find('"') {
+                let hex = &bytes_str[..end];
+                let mut bytes = Vec::new();
+                for chunk in hex.split_whitespace() {
+                    if let Ok(b) = u8::from_str_radix(chunk, 16) { bytes.push(b); }
+                }
+                return Ok(bytes);
+            }
+        }
+        Err("Cannot read memory".into())
+    }
 }
 
-// ============================================================================
-// DAP Message Handler
-// ============================================================================
+// 8B: Compound GDB backend (for --json mode on Windows without GDB installed)
+struct CompoundBackend { gdb: GdbBackend, use_gdb: bool }
 
 fn send(msg: &impl Serialize) {
     let json = serde_json::to_string(msg).unwrap_or_default();
@@ -336,6 +385,10 @@ impl DebuggerBackend for GdbBackend {
     fn stack_info(&mut self) -> Result<Vec<Value>, String> { GdbBackend::stack_info(self) }
     fn list_variables(&mut self) -> Result<Vec<Value>, String> { GdbBackend::list_variables(self) }
     fn terminate(&mut self) -> Result<(), String> { GdbBackend::terminate(self) }
+    fn list_breakpoints(&self) -> Vec<Breakpoint> { GdbBackend::list_breakpoints(self) }
+    fn delete_breakpoint(&mut self, id: u64) -> Result<(), String> { GdbBackend::delete_breakpoint(self, id) }
+    fn list_registers(&mut self) -> Result<Vec<Value>, String> { GdbBackend::list_registers(self) }
+    fn read_memory(&mut self, a: u64, s: usize) -> Result<Vec<u8>, String> { GdbBackend::read_memory(self, a, s) }
     fn name(&self) -> &'static str { "GDB/MI" }
 }
 
@@ -469,6 +522,12 @@ impl DebuggerBackend for CdbBackend {
     fn stack_info(&mut self) -> Result<Vec<Value>, String> { self.stack_info_impl() }
     fn list_variables(&mut self) -> Result<Vec<Value>, String> { self.list_variables_impl() }
     fn terminate(&mut self) -> Result<(), String> { self.terminate_impl() }
+    fn list_breakpoints(&self) -> Vec<Breakpoint> { Vec::new() }
+    fn delete_breakpoint(&mut self, _id: u64) -> Result<(), String> { self.send_cmd(&format!("bc {}", _id)).map(|_| ()) }
+    fn list_registers(&mut self) -> Result<Vec<Value>, String> { self.send_cmd("r").map(|_| vec![]) }
+    fn read_memory(&mut self, addr: u64, size: usize) -> Result<Vec<u8>, String> {
+        self.send_cmd(&format!("db 0x{:X} L{}", addr, size)).map(|_| vec![])
+    }
     fn name(&self) -> &'static str { "CDB/WinDbg" }
 }
 
@@ -485,7 +544,203 @@ fn detect_backend() -> Box<dyn DebuggerBackend> {
     Box::new(GdbBackend::new())
 }
 
+// ============================================================================
+// Phase 8B: JSON API Mode — single-command structured output for GUI/scripts
+// ============================================================================
+
+fn print_json(val: &Value) {
+    println!("{}", serde_json::to_string_pretty(val).unwrap_or_else(|_| "{}".to_string()));
+}
+
+fn run_json_mode(args: &[String]) -> io::Result<()> {
+    let mut backend: Box<dyn DebuggerBackend> = detect_backend();
+    let mut target: Option<String> = None;
+    let mut cmd: Option<String> = None;
+    let mut cmd_args: Vec<String> = Vec::new();
+    let mut i = 2;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--target" => { i += 1; if i < args.len() { target = Some(args[i].clone()); } }
+            "--command" => { i += 1; if i < args.len() { cmd = Some(args[i].clone()); } }
+            "--arg" => { i += 1; if i < args.len() { cmd_args.push(args[i].clone()); } }
+            _ => {
+                if cmd.is_none() { cmd = Some(args[i].clone()); }
+                else { cmd_args.push(args[i].clone()); }
+            }
+        }
+        i += 1;
+    }
+
+    let command = match cmd {
+        Some(c) => c,
+        None => {
+            print_json(&json!({"error": "no command specified", "usage": "xiom-dbg --json --target <exe> <command>"}));
+            return Ok(());
+        }
+    };
+
+    match command.as_str() {
+        "launch" => {
+            let program = target.clone().unwrap_or_else(|| "a.exe".to_string());
+            match backend.launch(&program, &cmd_args, ".") {
+                Ok(()) => print_json(&json!({"status": "launched", "pid": std::process::id()})),
+                Err(e) => print_json(&json!({"error": e})),
+            }
+        }
+        "breakpoints" => {
+            // List all breakpoints
+            let bps: Vec<Value> = backend.list_breakpoints().iter().map(|bp| json!({
+                "id": bp.id, "file": bp.source_path, "line": bp.line, "verified": bp.verified
+            })).collect();
+            print_json(&json!({"breakpoints": bps}));
+        }
+        "set-breakpoint" => {
+            let file = cmd_args.get(0).cloned().unwrap_or_default();
+            let line: u64 = cmd_args.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+            if file.is_empty() || line == 0 {
+                print_json(&json!({"error": "usage: set-breakpoint <file> <line>"}));
+            } else {
+                match backend.set_breakpoint(&file, line) {
+                    Ok(bp) => print_json(&json!({"breakpoint": {"id": bp.id, "file": bp.source_path, "line": bp.line, "verified": bp.verified}})),
+                    Err(e) => print_json(&json!({"error": e})),
+                }
+            }
+        }
+        "delete-breakpoint" => {
+            let id: u64 = cmd_args.get(0).and_then(|s| s.parse().ok()).unwrap_or(0);
+            if id == 0 {
+                print_json(&json!({"error": "usage: delete-breakpoint <id>"}));
+            } else {
+                match backend.delete_breakpoint(id) {
+                    Ok(()) => print_json(&json!({"deleted": id})),
+                    Err(e) => print_json(&json!({"error": e})),
+                }
+            }
+        }
+        "stack" => {
+            match backend.stack_info() {
+                Ok(frames) => {
+                    let mut idx = 0u64;
+                    let formatted: Vec<Value> = frames.iter().map(|f| {
+                        let result = json!({"frame": idx, "function": f["name"], "file": f.get("source").and_then(|s| s["path"].as_str()).unwrap_or("?"), "line": f["line"], "address": f.get("address").and_then(|a| a.as_str()).unwrap_or("?")});
+                        idx += 1;
+                        result
+                    }).collect();
+                    print_json(&json!({"stack": formatted}));
+                }
+                Err(e) => print_json(&json!({"error": e})),
+            }
+        }
+        "variables" => {
+            match backend.list_variables() {
+                Ok(vars) => print_json(&json!({"variables": vars})),
+                Err(e) => print_json(&json!({"error": e})),
+            }
+        }
+        "registers" => {
+            match backend.list_registers() {
+                Ok(regs) => print_json(&json!({"registers": regs})),
+                Err(e) => print_json(&json!({"error": e})),
+            }
+        }
+        "memory" => {
+            let addr: u64 = cmd_args.get(0).and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok()).unwrap_or(0);
+            let size: usize = cmd_args.get(1).and_then(|s| s.parse().ok()).unwrap_or(64);
+            match backend.read_memory(addr, size) {
+                Ok(bytes) => {
+                    let hex: Vec<String> = bytes.iter().map(|b| format!("{:02X}", b)).collect();
+                    let ascii: String = bytes.iter().map(|&b| if b >= 32 && b < 127 { b as char } else { '.' }).collect();
+                    print_json(&json!({"address": format!("0x{:X}", addr), "size": size, "bytes": hex.join(" "), "ascii": ascii}));
+                }
+                Err(e) => print_json(&json!({"error": e})),
+            }
+        }
+        "step" => {
+            match backend.exec_next() {
+                Ok(()) => {
+                    if let Ok(info) = backend.poll_stopped() {
+                        print_json(&json!({"stopped": true, "reason": info["reason"], "file": info.get("source").and_then(|s| s["path"].as_str()), "line": info["line"]}));
+                    } else { print_json(&json!({"stopped": true})); }
+                }
+                Err(e) => print_json(&json!({"error": e})),
+            }
+        }
+        "step-in" => {
+            match backend.exec_step() {
+                Ok(()) => {
+                    if let Ok(info) = backend.poll_stopped() {
+                        print_json(&json!({"stopped": true, "reason": info["reason"]}));
+                    } else { print_json(&json!({"stopped": true})); }
+                }
+                Err(e) => print_json(&json!({"error": e})),
+            }
+        }
+        "continue" => {
+            match backend.exec_continue() {
+                Ok(()) => {
+                    if let Ok(info) = backend.poll_stopped() {
+                        print_json(&json!({"stopped": true, "reason": info["reason"]}));
+                    } else { print_json(&json!({"running": true})); }
+                }
+                Err(e) => print_json(&json!({"error": e})),
+            }
+        }
+        "evaluate" => {
+            let expr = cmd_args.join(" ");
+            match backend.evaluate_expression(&expr) {
+                Ok(result) => print_json(&json!({"expression": expr, "value": result})),
+                Err(e) => print_json(&json!({"error": e})),
+            }
+        }
+        "threads" => {
+            match backend.thread_info() {
+                Ok(threads) => print_json(&json!({"threads": threads})),
+                Err(e) => print_json(&json!({"error": e})),
+            }
+        }
+        "terminate" => {
+            match backend.terminate() {
+                Ok(()) => print_json(&json!({"terminated": true})),
+                Err(e) => print_json(&json!({"error": e})),
+            }
+        }
+        "help" => {
+            eprintln!("XIOM Debugger v0.49.7 — JSON API Mode");
+            eprintln!("Usage: xiom-dbg --json --target <exe> <command> [args]");
+            eprintln!();
+            eprintln!("Commands:");
+            eprintln!("  launch [args]              Launch target under debugger");
+            eprintln!("  breakpoints                List all breakpoints");
+            eprintln!("  set-breakpoint <file> <line>  Set breakpoint");
+            eprintln!("  delete-breakpoint <id>     Remove breakpoint");
+            eprintln!("  stack                      Show call stack");
+            eprintln!("  variables                  List local variables");
+            eprintln!("  registers                  Show CPU registers");
+            eprintln!("  memory <addr> <size>       Read memory (hex dump)");
+            eprintln!("  step                       Step over (next)");
+            eprintln!("  step-in                    Step into");
+            eprintln!("  continue                   Continue execution");
+            eprintln!("  evaluate <expr>            Evaluate expression");
+            eprintln!("  threads                    List threads");
+            eprintln!("  terminate                  End debug session");
+        }
+        _ => {
+            print_json(&json!({"error": format!("unknown command: {}", command)}));
+        }
+    }
+
+    Ok(())
+}
+
 fn main() -> io::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+
+    // Phase 8B: --json mode — single-command JSON API for GUIs/scripts
+    if args.len() >= 2 && args[1] == "--json" {
+        return run_json_mode(&args);
+    }
+
+    // Default: DAP server mode (VS Code / IDE integration)
     let mut backend: Box<dyn DebuggerBackend> = detect_backend();
     let stdin = io::stdin();
     let mut reader = BufReader::new(stdin.lock());
