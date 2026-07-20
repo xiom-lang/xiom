@@ -1,4 +1,4 @@
-use super::{IrEmitter, TypeMeta};
+﻿use super::{IrEmitter, TypeMeta};
 use xiom_ast::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -17,7 +17,7 @@ impl IrEmitter {
             let bare_name = td.name.name.clone();
             let type_name = if prefix.is_empty() { bare_name.clone() } else { format!("{}.{}", prefix, bare_name) };
             // Record generic type names so their methods are skipped from direct
-            // (un-monomorphised) emission ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â such bodies produce malformed IR.
+            // (un-monomorphised) emission -- such bodies produce malformed IR.
             if !td.generics.is_empty() {
                 self.generic_type_names.insert(bare_name.clone());
                 self.generic_type_names.insert(type_name.clone());
@@ -219,7 +219,7 @@ impl IrEmitter {
                 // Only do this when the declared type resolves to a concrete LLVM
                 // type; otherwise (e.g. `Map[K,V]`, whose LLVM lowering isn't a
                 // simple global slot) fall back to constant substitution so the
-                // existing behavior ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â and the green test gate ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â is preserved.
+                // existing behavior -- and the green test gate -- is preserved.
                 let ty_name = Self::type_from_ast(&cd.ty);
                 if let Ok(llvm_ty) = self.llvm_type_for(&ty_name) {
                     let symbol = if let Some(ref m) = self.current_module {
