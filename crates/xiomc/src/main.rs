@@ -432,44 +432,99 @@ fn main() {
         eprintln!("[AI] Provider: {}, Model: {}",
             ai_config.provider, ai_config.model);
 
-        // Run check-only pass to collect diagnostics
-        for path in &source_paths {
-            let check_config = CompileConfig {
-                check_only: true, emit_ir: true, diagnostics_json: true,
-                target: config.target, release: config.release,
-                do_run: false, check_contracts: config.check_contracts,
-                strict_mode: config.strict_mode, debug_symbols: config.debug_symbols,
-                shared_lib: false, static_lib: false,
-                max_recursion_depth: config.max_recursion_depth,
-                dump_contracts: config.dump_contracts,
-                verify: config.verify,
-                verify_output: config.verify_output.clone(),
-                output_file: None,
-                incremental: false, force: false,
-                parallel: false, jobs: 0,
-                link_libs: vec![],
-                link_paths: vec![],
-                c_sources: vec![],
-                hot_reload: false,
-                hot_reload_contracts: false,
-                sanitize: None,
-                stack_protector: false,
-                runtime_contracts: false,
-            };
-            let result = xiomc::compile_with_diagnostics(&check_config, &[path.clone()]);
-            let source = std::fs::read_to_string(path).unwrap_or_default();
+        // 5f.3e: Batch mode — collect diagnostics from all files into single output
+        if _ai_batch {
+            let mut all_diagnostics: Vec<xiomc::Diagnostic> = Vec::new();
+            let mut all_sources: Vec<(String, String)> = Vec::new(); // (path, source)
 
-            if !result.diagnostics.is_empty() {
-                match xiomc::ai::run_ai_pipeline(&ai_config, &source, path, &result.diagnostics) {
+            for path in &source_paths {
+                let check_config = CompileConfig {
+                    check_only: true, emit_ir: true, diagnostics_json: true,
+                    target: config.target, release: config.release,
+                    do_run: false, check_contracts: config.check_contracts,
+                    strict_mode: config.strict_mode, debug_symbols: config.debug_symbols,
+                    shared_lib: false, static_lib: false,
+                    max_recursion_depth: config.max_recursion_depth,
+                    dump_contracts: config.dump_contracts,
+                    verify: config.verify,
+                    verify_output: config.verify_output.clone(),
+                    output_file: None,
+                    incremental: false, force: false,
+                    parallel: false, jobs: 0,
+                    link_libs: vec![],
+                    link_paths: vec![],
+                    c_sources: vec![],
+                    hot_reload: false,
+                    hot_reload_contracts: false,
+                    sanitize: None,
+                    stack_protector: false,
+                    runtime_contracts: false,
+                };
+                let result = xiomc::compile_with_diagnostics(&check_config, &[path.clone()]);
+                let source = std::fs::read_to_string(path).unwrap_or_default();
+                all_diagnostics.extend(result.diagnostics);
+                all_sources.push((path.clone(), source));
+            }
+
+            if !all_diagnostics.is_empty() {
+                // 5f.3f: Run Z3 verification for contract violations to get counterexamples
+                let z3_models = xiomc::ai::run_z3_for_contract_errors(&all_diagnostics, &all_sources);
+                match xiomc::ai::run_ai_pipeline_batch(&ai_config, &all_sources, &all_diagnostics, &z3_models) {
                     Ok(output) if !ai_silent => {
-                        eprintln!("xiomc --ai: {} hints → .xiom_ai.json ({} API, {} cached)",
-                            output.total_hints, output.api_calls, output.cached_hints);
+                        eprintln!("xiomc --ai --batch: {} hints → .xiom_ai.json ({} API, {} cached, {} Z3 models)",
+                            output.total_hints, output.api_calls, output.cached_hints, z3_models.len());
                     }
                     Err(e) => eprintln!("[AI] {e}"),
                     _ => {}
                 }
             } else {
-                eprintln!("[AI] No diagnostics — source compiles cleanly.");
+                eprintln!("[AI] All sources compile cleanly — no diagnostics.");
+            }
+        } else {
+            // Single-file mode (existing behavior)
+            for path in &source_paths {
+                let check_config = CompileConfig {
+                    check_only: true, emit_ir: true, diagnostics_json: true,
+                    target: config.target, release: config.release,
+                    do_run: false, check_contracts: config.check_contracts,
+                    strict_mode: config.strict_mode, debug_symbols: config.debug_symbols,
+                    shared_lib: false, static_lib: false,
+                    max_recursion_depth: config.max_recursion_depth,
+                    dump_contracts: config.dump_contracts,
+                    verify: config.verify,
+                    verify_output: config.verify_output.clone(),
+                    output_file: None,
+                    incremental: false, force: false,
+                    parallel: false, jobs: 0,
+                    link_libs: vec![],
+                    link_paths: vec![],
+                    c_sources: vec![],
+                    hot_reload: false,
+                    hot_reload_contracts: false,
+                    sanitize: None,
+                    stack_protector: false,
+                    runtime_contracts: false,
+                };
+                let result = xiomc::compile_with_diagnostics(&check_config, &[path.clone()]);
+                let source = std::fs::read_to_string(path).unwrap_or_default();
+
+                // 5f.3f: Run Z3 for contract errors in single-file mode too
+                let diags = result.diagnostics.clone();
+                let sources = vec![(path.clone(), source.clone())];
+                let z3_models = xiomc::ai::run_z3_for_contract_errors(&diags, &sources);
+
+                if !result.diagnostics.is_empty() {
+                    match xiomc::ai::run_ai_pipeline(&ai_config, &source, path, &result.diagnostics, &z3_models) {
+                        Ok(output) if !ai_silent => {
+                            eprintln!("xiomc --ai: {} hints → .xiom_ai.json ({} API, {} cached, {} Z3 models)",
+                                output.total_hints, output.api_calls, output.cached_hints, z3_models.len());
+                        }
+                        Err(e) => eprintln!("[AI] {e}"),
+                        _ => {}
+                    }
+                } else {
+                    eprintln!("[AI] No diagnostics — source compiles cleanly.");
+                }
             }
         }
     }

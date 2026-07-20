@@ -594,7 +594,8 @@ fn tool_ai_diagnose(params: &Value) -> Result<String, String> {
         ));
     }
 
-    match xiomc::ai::run_ai_pipeline(&cfg, source, "inline.xi", &[diag]) {
+    let empty_z3 = std::collections::HashMap::new();
+    match xiomc::ai::run_ai_pipeline(&cfg, source, "inline.xi", &[diag], &empty_z3) {
         Ok(output) => {
             if output.hints.is_empty() {
                 Ok("# XIOM AI Diagnostic\n\nNo actionable hints generated. Source may compile cleanly.".into())
@@ -655,7 +656,8 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
 
     // Run AI pipeline on each diagnostic
     let cfg = xiomc::ai::load_ai_config(None);
-    let ai_output = xiomc::ai::run_ai_pipeline(&cfg, source, file, &result.diagnostics).unwrap_or_else(|_e| {
+    let empty_z3_2 = std::collections::HashMap::new();
+    let ai_output = xiomc::ai::run_ai_pipeline(&cfg, source, file, &result.diagnostics, &empty_z3_2).unwrap_or_else(|_e| {
         xiomc::ai::AiOutput { schema_version: 1, session: String::new(), compiler_version: String::new(),
             provider: "offline".into(), model: "none".into(), source_hash: String::new(),
             total_hints: 0, cached_hints: 0, api_calls: 0, hints: vec![] }
