@@ -283,8 +283,9 @@ impl DebuggerBackend for GdbBackend {
     fn exec_next(&mut self) -> Result<(), String> { GdbBackend::exec_next(self) }
     fn exec_step(&mut self) -> Result<(), String> { GdbBackend::exec_step(self) }
     fn pause(&mut self) -> Result<(), String> {
-        if let Some(ref _child) = self.child {
+        if let Some(ref child) = self.child {
             #[cfg(unix)] unsafe { libc::kill(child.id() as i32, libc::SIGINT); }
+            #[cfg(windows)] { let _ = child; }
         }
         Ok(())
     }
