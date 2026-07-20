@@ -1,7 +1,7 @@
-# XIOM Session Handoff — v0.49.5 "Phase 7D Hot Reload Safety"
+# XIOM Session Handoff — v0.49.6 "Phase 7E Runtime Safety"
 
-**Date:** 2026-07-20 23:50 | **Branch:** `feat/architect` | **Commits ahead:** ~55
-**Status:** **835/835 ALL TESTS PASS** (590 compiler + 245 tooling, ZERO warnings, ZERO failures)
+**Date:** 2026-07-21 00:00 | **Branch:** `feat/architect` | **Commits ahead:** ~56
+**Status:** **846/846 ALL TESTS PASS** (601 compiler + 245 tooling, ZERO warnings, ZERO failures)
 
 ---
 
@@ -42,21 +42,21 @@
 - **Pipeline integration**: Replaced DefaultHasher with SHA-256, graph-aware incremental_check/incremental_save, multi-file caching support
 - **11 feature regression tests**: SHA-256 correctness, short_hash, CacheDb open/persistence/tier-store/purge, fingerprint, project cache location, --incremental flag
 
-### Phase 7D — Hot Reload Safety at Scale (COMPLETE)
-- **Runtime v2**: Process-wide pointer table support (XIOM_HOT_RUNTIME_SHARED mode), atomic pointer swaps with in-flight detection, generation tracking
-- **State versioning (7D.2)**: Layout metadata embedded in state file header — restore aborts on type/size mismatch, preventing silent corruption
-- **Contract verification (7D.3)**: `xiom_hot_verify_contracts()` callback + `--hot-reload-contracts` CLI flag for pre-swap safety checks
-- **Export manifest (7D.4)**: `generate_export_manifest()` produces `.exports` file listing pub fn → djb2 hash indices for the host
-- **8 feature regression tests** (7D-01 through 7D-08): layout metadata, save/restore with verification, thunk preservation, export manifest, contract config
+### Phase 7E — Runtime Safety Guarantees (COMPLETE)
+- **Sanitizer flags (7E.1)**: `--sanitize=address|undefined|leak|thread` passes through to clang `-fsanitize=`, with `-g -fno-omit-frame-pointer` for asan
+- **Stack protector (7E.2)**: `--stack-protector` flag → clang `-fstack-protector` (stack canaries)
+- **Runtime contracts (7E.4)**: `--runtime-contracts` forces contract checks even in release mode; `CompileConfig.runtime_contracts` field
+- **Emitter wiring**: `set_check_contracts(config.check_contracts || config.runtime_contracts)` at both call sites
+- **11 feature regression tests** (7E-01 through 7E-11): sanitize/stack_protector/runtime_contracts config, sanitizer combinations, contract enforcement, div-zero trap, unwrap trap, recursion guard
 
-### Test Baseline: 835/835
+### Test Baseline: 846/846
 | Suite | Count |
 |-------|-------|
-| Compiler | 590 |
+| Compiler | 601 |
 | Tooling | 245 |
 
 ### Phase 7 Roadmap (REMAINING)
-7E Runtime Safety Guarantees (sanitizers), 7F Build System & IDE Integration. Self-hosting → Phase 8.
+7F Build System & IDE Integration. Self-hosting → Phase 8.
 
 ---
 
