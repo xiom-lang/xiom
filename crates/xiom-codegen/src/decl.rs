@@ -508,7 +508,7 @@ impl IrEmitter {
     pub(crate) fn compile_top_decl(&mut self, item: &TopDecl) -> Result<(), String> {
         match item {
             TopDecl::Fn(fd) => {
-                // Skip generic functions ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â they will be monomorphised later
+                // Skip generic functions — they will be monomorphised later
                 if fd.generics.is_empty() {
                     // Skip methods on generic types (e.g. `BinaryHeap[T].push`). The
                     // generic parameter lives on the RECEIVER type, not in fd.generics,
@@ -520,7 +520,11 @@ impl IrEmitter {
                         .unwrap_or(false);
                     if !recv_is_generic && fd.body.is_some() {
                         let fn_name = self.fn_symbol(fd);
-                        self.emitted_fns.insert(fn_name);
+                        self.emitted_fns.insert(fn_name.clone());
+                        // 5e.5a: track pub functions for hot reload thunk dispatch
+                        if self.hot_reload && fd.is_pub {
+                            self.pub_functions.insert(fn_name.clone());
+                        }
                         self.compile_fn(fd)?;
                     }
                 }
@@ -895,6 +899,81 @@ impl IrEmitter {
         }
 
         self.emitln("}\n");
+
+        // 5e.5a: emit hot reload thunk for pub functions
+        if self.hot_reload && fd.is_pub {
+            let thunk_name = format!("xiom_hot_thunk_{}", name);
+            let hash = Self::djb2_hash(&name);
+
+            // Build the thunk signature and forwarding param list.
+            // Uses simple p0, p1, ... naming to avoid matching complexities.
+            let mut thunk_param_decls: Vec<String> = Vec::new();
+            let mut thunk_param_names: Vec<String> = Vec::new();
+            let mut thunk_param_types: Vec<String> = Vec::new();
+            let mut idx: usize = 0;
+
+            if let Some(ref st) = self_llvm_ty {
+                let pname = format!("%p{idx}");
+                thunk_param_decls.push(format!("{st} {pname}"));
+                thunk_param_names.push(pname);
+                thunk_param_types.push(st.clone());
+                idx += 1;
+            }
+            for (i, p) in fd.params.iter().enumerate() {
+                if self_offset == 1 && p.name.name == "self" { continue; }
+                let llvm_ty = if i < self.current_param_llvm_types.len() {
+                    self.current_param_llvm_types[i].clone()
+                } else {
+                    "i64".to_string()
+                };
+                let pname = format!("%p{idx}");
+                thunk_param_decls.push(format!("{llvm_ty} {pname}"));
+                thunk_param_names.push(pname);
+                thunk_param_types.push(llvm_ty);
+                idx += 1;
+            }
+
+            let params_join = thunk_param_decls.join(", ");
+            let param_names_join = thunk_param_names.join(", ");
+            let param_types_join = thunk_param_types.join(", ");
+
+            // Handle void return specially
+            let is_void = ret_llvm == "void";
+            let fn_ptr_ty = if is_void {
+                format!("void ({param_types_join})*")
+            } else {
+                format!("{ret_llvm} ({param_types_join})*")
+            };
+
+            // Emit the thunk: lazy self-registration on first call via xiom_hot_get_ptr
+            self.emitln(&format!("define {ret_llvm} @{thunk_name}({params_join}) {{"));
+            self.emitln("entry:");
+            let ptr_i64 = self.fresh_tmp();
+            self.emitln(&format!("  {ptr_i64} = call i64 @xiom_hot_get_ptr(i64 {hash})"));
+            let is_null = self.fresh_tmp();
+            self.emitln(&format!("  {is_null} = icmp eq i64 {ptr_i64}, 0"));
+            let reg_block = self.fresh_block("hot_reg");
+            let call_block = self.fresh_block("hot_call");
+            self.emitln(&format!("  br i1 {is_null}, label %{reg_block}, label %{call_block}"));
+            self.emitln(&format!("\n{reg_block}:"));
+            self.emitln(&format!("  call void @xiom_hot_set_ptr(i64 {hash}, i64 ptrtoint ({fn_ptr_ty} @{name} to i64))"));
+            self.emitln(&format!("  br label %{call_block}"));
+            self.emitln(&format!("\n{call_block}:"));
+            let ptr_phi = self.fresh_tmp();
+            self.emitln(&format!("  {ptr_phi} = phi i64 [ {ptr_i64}, %entry ], [ ptrtoint ({fn_ptr_ty} @{name} to i64), %{reg_block} ]"));
+            let fp = self.fresh_tmp();
+            self.emitln(&format!("  {fp} = inttoptr i64 {ptr_phi} to {fn_ptr_ty}"));
+            if is_void {
+                self.emitln(&format!("  call void {fp}({param_names_join})"));
+                self.emitln("  ret void");
+            } else {
+                let result = self.fresh_tmp();
+                self.emitln(&format!("  {result} = call {ret_llvm} {fp}({param_names_join})"));
+                self.emitln(&format!("  ret {ret_llvm} {result}"));
+            }
+            self.emitln("}\n");
+        }
+
         self.pop_scope();
         self.current_fn = None;
         self.current_receiver = None;

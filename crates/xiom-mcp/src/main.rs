@@ -588,6 +588,7 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
         shared_lib: false, static_lib: false, max_recursion_depth: 500,
         dump_contracts: false, verify: false, verify_output: None,
         output_file: None, link_libs: vec![], link_paths: vec![], c_sources: vec![],
+        hot_reload: false,
     };
     let result = xiomc::compile_with_diagnostics(&check_cfg, &[tmp.to_str().unwrap().to_string()]);
     let _ = std::fs::remove_file(&tmp);

@@ -228,6 +228,7 @@ fn main() {
         link_libs,
         link_paths,
         c_sources,
+        hot_reload: false,  // set to true by hot reload loop below
     };
 
     // --sandbox: run safety audit and exit (skips compilation unless --sandbox=strict passes)
@@ -288,6 +289,7 @@ fn main() {
     if watch_mode || hot_reload {
         let hot_config = CompileConfig {
             shared_lib: hot_reload || shared_lib,
+            hot_reload,
             ..config // consumes config
         };
         eprintln!("\n[HOT RELOAD] Watching {} source file(s)...", source_paths.len());
@@ -353,6 +355,7 @@ fn main() {
                 link_libs: vec![],
                 link_paths: vec![],
                 c_sources: vec![],
+                hot_reload: false,
             };
             let result = xiomc::compile_with_diagnostics(&check_config, &[path.clone()]);
             let source = std::fs::read_to_string(path).unwrap_or_default();

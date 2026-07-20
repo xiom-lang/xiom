@@ -12,6 +12,14 @@ fn compile(source: &str) -> Result<String, String> {
     emitter.compile_program(&program)
 }
 
+fn compile_hot_reload(source: &str) -> Result<String, String> {
+    let tokens = Lexer::new(source).tokenize();
+    let program = Parser::new(tokens).parse_program().map_err(|e| e.to_string())?;
+    let mut emitter = IrEmitter::new();
+    emitter.set_hot_reload(true);
+    emitter.compile_program(&program)
+}
+
 // =====================================================================
 // Lexer features
 // =====================================================================
@@ -1570,4 +1578,35 @@ fn regress_cg02_float32_module_scope_init() {
     let ir = compile(src).expect("CG-02 Float32 init must compile");
     assert!(ir.contains("global float"), "Must emit float global:\n{ir}");
     assert!(!ir.contains("float 0.300000"), "Must not emit old hex-invalid format:\n{ir}");
+}
+
+// =====================================================================
+// 5e.5a Hot Reload Thunk Tests
+// =====================================================================
+
+/// Verify that --hot-reload generates thunk functions with xiom_hot_get_ptr calls.
+#[test]
+fn regress_5e_hot_reload_thunk() {
+    let src = "pub fn add(x: Int, y: Int) -> Int { return x + y; }";
+    let ir = compile_hot_reload(src).expect("hot reload compile must succeed");
+    assert!(ir.contains("@xiom_hot_thunk_"), "Must emit thunk function:\n{ir}");
+    assert!(ir.contains("call i64 @xiom_hot_get_ptr"), "Must call xiom_hot_get_ptr in thunk:\n{ir}");
+    assert!(ir.contains("call void @xiom_hot_set_ptr"), "Must call xiom_hot_set_ptr for registration:\n{ir}");
+}
+
+/// Verify that non-pub functions do NOT get thunks even with --hot-reload.
+#[test]
+fn regress_5e_hot_reload_thunk_no_thunk_for_private() {
+    let src = "fn helper(x: Int) -> Int { return x; }";
+    let ir = compile_hot_reload(src).expect("hot reload compile must succeed");
+    assert!(!ir.contains("@xiom_hot_thunk_"), "Private fn must not get thunk:\n{ir}");
+}
+
+/// Verify that thunks are NOT emitted when hot_reload is disabled.
+#[test]
+fn regress_5e_hot_reload_thunk_disabled() {
+    let src = "pub fn add(x: Int, y: Int) -> Int { return x + y; }";
+    let ir = compile(src).expect("normal compile must succeed");
+    assert!(!ir.contains("@xiom_hot_thunk_"), "No thunk without hot_reload:\n{ir}");
+    assert!(!ir.contains("@xiom_hot_get_ptr"), "No hot ptr declares without hot_reload:\n{ir}");
 }

@@ -165,6 +165,11 @@ impl IrEmitter {
         self.emitln("declare i64 @xiom_fn_body_start(i64)");
         self.emitln("declare i64 @xiom_fn_body_end(i64)");
         self.emitln("declare i64 @xiom_fn_emit_all()");
+        // 5e.5a: hot reload function pointer table (only when enabled)
+        if self.hot_reload {
+            self.emitln("declare i64 @xiom_hot_get_ptr(i64)");
+            self.emitln("declare void @xiom_hot_set_ptr(i64, i64)");
+        }
         self.emitln("");
     }
 

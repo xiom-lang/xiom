@@ -194,6 +194,10 @@ pub struct IrEmitter {
     /// symbol name so the defining module and an injected external copy do not
     /// emit the same global twice.
     module_global_defs: Vec<(String, String, String)>,
+    /// Hot reload mode: pub fn calls go through @xiom_hot_get_ptr thunks
+    pub(crate) hot_reload: bool,
+    /// Set of pub function keys (for hot reload thunk dispatch)
+    pub(crate) pub_functions: HashSet<String>,
 }
 
 impl IrEmitter {
@@ -262,6 +266,8 @@ impl IrEmitter {
             constants: HashMap::new(),
             module_globals: HashMap::new(),
             module_global_defs: Vec::new(),
+            hot_reload: false,
+            pub_functions: HashSet::new(),
         }
     }
 
@@ -279,6 +285,19 @@ impl IrEmitter {
 
     pub fn set_strict_mode(&mut self, strict: bool) {
         self.strict_mode = strict;
+    }
+
+    pub fn set_hot_reload(&mut self, enabled: bool) {
+        self.hot_reload = enabled;
+    }
+
+    /// djb2 hash of a function name for stable pointer table index (5e.5a).
+    pub(crate) fn djb2_hash(name: &str) -> i64 {
+        let mut hash: u64 = 5381;
+        for b in name.bytes() {
+            hash = hash.wrapping_mul(33).wrapping_add(b as u64);
+        }
+        (hash % 1024) as i64
     }
 
     /// Convert literal "0" to "zeroinitializer" for aggregate (struct) types

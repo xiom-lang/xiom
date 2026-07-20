@@ -4395,6 +4395,25 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                             self.emitln(&format!("  {tmp} = call {actual_ret_ty} {fn_ptr}({args_str})"));
                             Ok((tmp, actual_ret_ty))
                         }
+                    } else if self.hot_reload
+                        && (self.pub_functions.contains(&resolved_fn_key)
+                            || resolved_fn_key.rsplitn(2, '.').next()
+                                .map_or(false, |bare| self.pub_functions.contains(bare)))
+                    {
+                        // 5e.5a: hot reload — redirect pub fn calls through thunks
+                        let thunk_name = format!("xiom_hot_thunk_{}", resolved_fn_key);
+                        if ret_ty == "void" {
+                            self.emitln(&format!("  call void @{thunk_name}({args_str})"));
+                            Ok((String::new(), "void".to_string()))
+                        } else {
+                            self.emitln(&format!("  {tmp} = call {ret_ty} @{thunk_name}({args_str})"));
+                            if let Some(receiver) = receiver_expr {
+                                if ret_ty.starts_with("%struct.") {
+                                    self.store_back_to_receiver(receiver, &tmp, &ret_ty);
+                                }
+                            }
+                            Ok((tmp, ret_ty.clone()))
+                        }
                     } else if ret_ty == "void" {
                         self.emitln(&format!("  call void @{resolved_fn_key}({args_str})"));
                         Ok((String::new(), "void".to_string()))
