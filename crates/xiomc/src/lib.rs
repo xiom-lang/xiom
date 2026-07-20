@@ -37,6 +37,7 @@ pub struct CompileConfig {
     pub debug_symbols: bool,
     pub shared_lib: bool,
     pub static_lib: bool,
+    pub hot_reload: bool,
     pub max_recursion_depth: u32,
     pub dump_contracts: bool,
     pub verify: bool,
@@ -61,6 +62,7 @@ impl Default for CompileConfig {
             debug_symbols: false,
             shared_lib: false,
             static_lib: false,
+            hot_reload: false,
             max_recursion_depth: 500,
             dump_contracts: false,
             verify: false,
@@ -268,6 +270,7 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     emitter.set_check_contracts(config.check_contracts);
     emitter.set_max_recursion_depth(config.max_recursion_depth);
     emitter.set_strict_mode(config.strict_mode);
+    emitter.set_hot_reload(config.hot_reload);
 
     match emitter.compile_program(&program) {
         Ok(ir) => {
@@ -497,6 +500,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
     emitter.set_check_contracts(config.check_contracts);
     emitter.set_max_recursion_depth(config.max_recursion_depth);
     emitter.set_strict_mode(config.strict_mode);
+    emitter.set_hot_reload(config.hot_reload);
     emitter.set_target_triple(match config.target {
         Target::Wasm => "wasm32-unknown-unknown",
         Target::Arm => "aarch64-unknown-linux-gnu",
