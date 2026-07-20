@@ -219,7 +219,7 @@ impl IrEmitter {
             strings: Vec::new(),
             current_param_llvm_types: Vec::new(),
             check_contracts: true,
-            max_recursion_depth: 500,
+            max_recursion_depth: 2000,  // 6F: increased from 500 for production workloads
             strict_mode: false,
 
             // Remaining fields use defaults

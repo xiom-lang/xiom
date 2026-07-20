@@ -1862,3 +1862,89 @@ fn main() -> Int {
 
 // ACCEPT: Self is an alias — tested via e2e_method_match_self_enum
 // ACCEPT: Interface compatible — tested via e2e_interface_compat_with_implementor
+
+// =====================================================================
+// 6F: Recursion Depth Guard — production hardening
+// =====================================================================
+
+/// Verify deep recursion (1000 levels) compiles without trap (limit is 2000).
+#[test]
+fn regress_6f_deep_recursion_no_crash() {
+    let src = r#"
+fn sum(n: Int) -> Int {
+  if n <= 0 { return 0; }
+  return n + sum(n - 1);
+}
+fn main() -> Int {
+  return sum(1000);
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("ret i64"), "Deep recursion must compile:\n{ir}");
+}
+
+/// Verify recursion guard still traps at excessive depth (infinite recursion).
+#[test]
+fn regress_6f_recursion_guard_still_active() {
+    let src = r#"
+fn infinite() -> Int {
+  return infinite() + 1;
+}
+fn main() -> Int {
+  return infinite();
+}"#;
+    let ir = compile(src).unwrap();
+    // Must have trap for infinite recursion protection
+    assert!(ir.contains("@llvm.trap"), "Must have trap guard:\n{ir}");
+}
+
+// =====================================================================
+// CG-01/CG-02/E001 verification — compiler gap regression tests
+// =====================================================================
+
+/// CG-01b: Verify Int32 as Float32 cast generates correct sitofp IR.
+#[test]
+fn regress_cg01b_int32_to_float32_cast() {
+    let src = r#"
+fn main() -> Int {
+  var w: Int32 = 1920;
+  var h: Int32 = 1080;
+  var ratio: Float32 = (w as Float32) / (h as Float32);
+  if ratio > 1.7 { return 0; }
+  return 1;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("sitofp"), "Must contain sitofp for Int32->Float32:\n{ir}");
+    assert!(ir.contains("fdiv float"), "Must contain fdiv after cast:\n{ir}");
+}
+
+/// CG-02: Verify module-scope var Float32 init compiles without LLVM error.
+#[test]
+fn regress_cg02_float32_global_init() {
+    let src = r#"
+module test_cg02
+var g_scale: Float32 = 0.5;
+fn main() -> Int {
+  if g_scale > 0.0 { return 0; }
+  return 1;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(!ir.contains("constant expression"), "Must not have const expr error:\n{ir}");
+    assert!(ir.contains("ret i64 0"), "Must compile cleanly:\n{ir}");
+}
+
+/// E001: Verify moved-value warnings do NOT block compilation (non-fatal).
+#[test]
+fn regress_e001_warnings_non_fatal() {
+    let src = r#"
+fn identity(x: Float64) -> Float64 { return x; }
+fn main() -> Int {
+  var a: Float64 = 3.14;
+  var b = identity(a);
+  var c = identity(b);
+  if c > 3.0 { return 0; }
+  return 1;
+}"#;
+    let ir = compile(src).unwrap();
+    // Must compile successfully despite E001 warnings
+    assert!(ir.contains("ret i64"), "E001 must not block compilation:\n{ir}");
+}
