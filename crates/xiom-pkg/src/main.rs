@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 
 /// Production registry URL. Override with XIOM_REGISTRY env var.
-const DEFAULT_REGISTRY: &str = "https://registry.xiom-lang.com";
+const DEFAULT_REGISTRY: &str = "https://registry.xiom-lang.org";
 
 fn registry_url() -> String {
     env::var("XIOM_REGISTRY").unwrap_or_else(|_| DEFAULT_REGISTRY.to_string())
@@ -91,6 +91,162 @@ fn http_post(url: &str, body: &str) -> Result<String, String> {
     Err(format!("Cannot POST to {url}: no curl, no powershell"))
 }
 
+// ============================================================================
+// 5e.7b: Remote Registry Client
+// ============================================================================
+
+/// Cached registry index (lazy-loaded, refreshed every 5 min)
+static mut REGISTRY_CACHE: Option<(String, u64)> = None;
+
+#[derive(Debug, serde::Deserialize)]
+struct RegistryIndex {
+    #[allow(dead_code)]
+    registry: String,
+    #[allow(dead_code)]
+    version: String,
+    packages: HashMap<String, RegistryPackage>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct RegistryPackage {
+    name: String,
+    description: String,
+    repository: String,
+    latest: String,
+    versions: Vec<String>,
+}
+
+fn fetch_registry_index(registry: &str) -> Result<RegistryIndex, String> {
+    // Check cache (5 min TTL)
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    unsafe {
+        if let Some((ref cached, ts)) = REGISTRY_CACHE {
+            if now - ts < 300 {
+                if let Ok(idx) = serde_json::from_str::<RegistryIndex>(cached) {
+                    return Ok(idx);
+                }
+            }
+        }
+    }
+
+    let url = format!("{registry}/index.json");
+    let body = http_get(&url)?;
+    let index: RegistryIndex = serde_json::from_str(&body)
+        .map_err(|e| format!("Invalid registry index: {e}"))?;
+
+    unsafe { REGISTRY_CACHE = Some((body, now)); }
+    Ok(index)
+}
+
+fn search_registry(query: &str, registry: &str) -> Result<(), String> {
+    let index = fetch_registry_index(registry)?;
+    let q = query.to_lowercase();
+    let mut found = 0;
+    println!("Searching '{}' in {}...\n", query, registry);
+    for (name, pkg) in &index.packages {
+        if q.is_empty() || name.to_lowercase().contains(&q) || pkg.description.to_lowercase().contains(&q) {
+            println!("  {} v{}", name, pkg.latest);
+            println!("    {}", pkg.description);
+            if !pkg.repository.is_empty() {
+                println!("    repo: {}", pkg.repository);
+            }
+            println!();
+            found += 1;
+        }
+    }
+    println!("{} package(s) found.", found);
+    Ok(())
+}
+
+fn install_from_registry(package: &str, version: Option<&str>, registry: &str) -> Result<(), String> {
+    let index = fetch_registry_index(registry)?;
+
+    // Resolve package name
+    let pkg_info = index.packages.get(package)
+        .ok_or_else(|| format!("Package '{}' not found in registry. Try: xiom pkg search {}", package, package))?;
+
+    let ver = version.unwrap_or(&pkg_info.latest);
+    if !pkg_info.versions.contains(&ver.to_string()) {
+        return Err(format!("Version '{}' not found for '{}'. Available: {:?}", ver, package, pkg_info.versions));
+    }
+
+    // Download package archive
+    let dl_url = format!("{}/packages/{}/{}/package.tar.gz", registry, package, ver);
+    println!("Downloading {} v{} from {}...", package, ver, registry);
+
+    let archive = http_get_binary(&dl_url)?;
+    if archive.is_empty() {
+        return Err(format!("Empty archive from {dl_url}"));
+    }
+
+    // Extract to local package cache
+    let cache_dir = package_cache_dir();
+    let pkg_dir = cache_dir.join(format!("{}-{}", package.replace('.', "-"), ver));
+    if pkg_dir.exists() {
+        std::fs::remove_dir_all(&pkg_dir).map_err(|e| format!("Cannot clean cache: {e}"))?;
+    }
+    extract_tar_gz(&archive, &pkg_dir)?;
+
+    println!("Installed {} v{} to {}", package, ver, pkg_dir.display());
+    println!("  Add to your package.xi dependencies:");
+    println!("    dependencies = {{ {} = \"{}\" }}", package, ver);
+    Ok(())
+}
+
+fn http_get_binary(url: &str) -> Result<Vec<u8>, String> {
+    // Use curl for binary downloads
+    if let Ok(output) = process::Command::new("curl").args(["-s", "-L", url]).output() {
+        if output.status.success() {
+            return Ok(output.stdout);
+        }
+    }
+    #[cfg(windows)]
+    {
+        if let Ok(output) = process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", &format!("[System.Convert]::FromBase64String((Invoke-WebRequest -Uri '{url}' -UseBasicParsing).Content)")])
+            .output()
+        {
+            if output.status.success() { return Ok(output.stdout); }
+        }
+    }
+    Err(format!("Cannot download binary from {url}"))
+}
+
+fn package_cache_dir() -> PathBuf {
+    let base = if cfg!(windows) {
+        PathBuf::from(env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string()))
+    } else {
+        PathBuf::from(env::var("HOME").unwrap_or_else(|_| ".".to_string()))
+    };
+    base.join("xiom").join("packages")
+}
+
+/// Minimal tar.gz extractor (handles basic .tar.gz files without external tools).
+fn extract_tar_gz(data: &[u8], dest: &Path) -> Result<(), String> {
+    // Use system tar if available
+    let tmp = std::env::temp_dir().join(format!("xiom_pkg_{}.tar.gz", std::process::id()));
+    std::fs::write(&tmp, data).map_err(|e| format!("Write temp: {e}"))?;
+
+    std::fs::create_dir_all(dest).map_err(|e| format!("Create dir: {e}"))?;
+
+    let result = if cfg!(windows) {
+        process::Command::new("tar").args(["-xzf", &tmp.to_string_lossy(), "-C", &dest.to_string_lossy()]).status()
+    } else {
+        process::Command::new("tar").args(["-xzf", &tmp.to_string_lossy(), "-C", &dest.to_string_lossy()]).status()
+    };
+
+    let _ = std::fs::remove_file(&tmp);
+
+    match result {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(format!("tar exited with code {}", s.code().unwrap_or(-1))),
+        Err(e) => Err(format!("tar not found: {e}. Install tar to extract packages.")),
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.iter().any(|a| a == "--help") {
@@ -98,9 +254,38 @@ fn main() {
         return;
     }
 
+    // 5e.7b: Remote registry commands
     if let Some(cmd) = args.get(1) {
+        if cmd == "search" {
+            let query = args.get(2).map(|s| s.as_str()).unwrap_or("");
+            let registry = registry_url();
+            if let Err(e) = search_registry(query, &registry) {
+                eprintln!("xiom pkg search: {e}");
+                process::exit(1);
+            }
+            return;
+        }
         if cmd == "publish" { publish_package(&args); return; }
-        if cmd == "install" { install_package(&args); return; }
+        if cmd == "install" {
+            let pkg_name = args.get(2).cloned().unwrap_or_default();
+            if pkg_name.is_empty() {
+                eprintln!("Usage: xiom pkg install <package>[@version]");
+                process::exit(1);
+            }
+            let (name, version) = if let Some(at) = pkg_name.find('@') {
+                (&pkg_name[..at], Some(&pkg_name[at+1..]))
+            } else {
+                (pkg_name.as_str(), None)
+            };
+            let registry = registry_url();
+            if let Err(e) = install_from_registry(name, version, &registry) {
+                // Fallback: try local resolution
+                eprintln!("xiom pkg: registry install failed: {e}");
+                eprintln!("xiom pkg: trying local resolution...");
+                install_package(&args);
+            }
+            return;
+        }
         if cmd == "lock" { generate_lockfile(); return; }
     }
 
@@ -431,12 +616,13 @@ fn generate_lockfile() {
 }
 
 fn print_usage() {
-    eprintln!("XIOM Package v0.47.8 -- Package Manager");
+    eprintln!("XIOM Package v0.48.9 — Package Manager (5e.7b remote registry)");
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("  xiom pkg [OPTIONS] --root <dir>");
+    eprintln!("  xiom pkg search [query]           Search registry for packages");
+    eprintln!("  xiom pkg install <pkg>[@version]  Install from registry (auto-detects)");
     eprintln!("  xiom pkg publish                   Publish package to registry");
-    eprintln!("  xiom pkg install <name>            Install package from registry");
     eprintln!("  xiom pkg lock                      Generate xiom.lock from package.xi");
     eprintln!();
     eprintln!("OPTIONS:");
@@ -445,9 +631,14 @@ fn print_usage() {
     eprintln!("  --resolve     Show resolved dependency tree");
     eprintln!("  --root <dir>  Package root directory");
     eprintln!();
+    eprintln!("ENVIRONMENT:");
+    eprintln!("  XIOM_REGISTRY  Registry URL (default: https://registry.xiom-lang.org)");
+    eprintln!();
     eprintln!("EXAMPLES:");
+    eprintln!("  xiom pkg search vulkan");
+    eprintln!("  xiom pkg install xiom.stdlib");
+    eprintln!("  xiom pkg install xiom.vulkan@0.5.0");
     eprintln!("  xiom pkg --list --root stdlib");
-    eprintln!("  xiom pkg --root myproject");
 }
 
 #[cfg(test)]

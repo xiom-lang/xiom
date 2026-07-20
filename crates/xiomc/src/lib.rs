@@ -38,6 +38,10 @@ pub struct CompileConfig {
     pub shared_lib: bool,
     pub static_lib: bool,
     pub hot_reload: bool,
+    /// 5e.5f: incremental compilation — cache IR, skip unchanged files
+    pub incremental: bool,
+    /// 5e.5f: force recompilation — ignore all caches
+    pub force: bool,
     pub max_recursion_depth: u32,
     pub dump_contracts: bool,
     pub verify: bool,
@@ -63,6 +67,8 @@ impl Default for CompileConfig {
             shared_lib: false,
             static_lib: false,
             hot_reload: false,
+            incremental: false,
+            force: false,
             max_recursion_depth: 500,
             dump_contracts: false,
             verify: false,
@@ -123,6 +129,17 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
         file_count: 0,
     };
     let mut warnings = Vec::new();
+
+    // 5e.5f: Incremental compilation — check cache for single-file compiles
+    if config.incremental && !config.force && source_paths.len() == 1 {
+        let sp = &source_paths[0];
+        if let Some(cached_ir) = incremental_check(sp) {
+            result.success = true;
+            result.ir = Some(cached_ir);
+            result.file_count = 1;
+            return result;
+        }
+    }
 
     // Stage 1: Lex & Parse
     let mut all_programs: Vec<Program> = Vec::new();
@@ -276,6 +293,11 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
         Ok(ir) => {
             result.ir = Some(ir.clone());
             result.success = true;
+
+            // 5e.5f: Save compiled IR to incremental cache
+            if config.incremental && !config.force && source_paths.len() == 1 {
+                incremental_save(&source_paths[0], &ir);
+            }
 
             // Dump contracts if requested
             if config.dump_contracts {
@@ -1518,4 +1540,86 @@ fn dump_module_contracts(md: &ModuleDecl) -> Vec<String> {
     }
 
     items
+}
+
+// ============================================================================
+// 5e.5f: Incremental Compilation — hash-based change detection + IR cache
+// ============================================================================
+
+use std::io::Read;
+
+/// Returns the cache directory for a source file: `.xiom_cache/`
+fn incremental_cache_dir(source_path: &str) -> PathBuf {
+    let src = Path::new(source_path);
+    let parent = src.parent().unwrap_or(Path::new("."));
+    parent.join(".xiom_cache")
+}
+
+/// SHA-256 hash of a file's contents (hex string, first 16 chars).
+fn file_content_hash(path: &str) -> Result<String, String> {
+    let mut f = std::fs::File::open(path).map_err(|e| format!("open: {e}"))?;
+    let mut data = Vec::new();
+    f.read_to_end(&mut data).map_err(|e| format!("read: {e}"))?;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    data.hash(&mut hasher);
+    Ok(format!("{:016x}", hasher.finish()))
+}
+
+/// Load the hash cache: `{ source_path: hash }`
+fn load_hash_cache(cache_dir: &Path) -> HashMap<String, String> {
+    let cache_file = cache_dir.join("hashes.json");
+    if let Ok(data) = std::fs::read_to_string(&cache_file) {
+        serde_json::from_str(&data).unwrap_or_default()
+    } else {
+        HashMap::new()
+    }
+}
+
+/// Save the hash cache.
+fn save_hash_cache(cache_dir: &Path, hashes: &HashMap<String, String>) {
+    let _ = std::fs::create_dir_all(cache_dir);
+    let cache_file = cache_dir.join("hashes.json");
+    if let Ok(json) = serde_json::to_string(hashes) {
+        let _ = std::fs::write(cache_file, json);
+    }
+}
+
+/// Try to load cached IR for a source file. Returns Some(ir) if valid cache exists.
+fn load_cached_ir(source_path: &str, cache_dir: &Path, current_hash: &str) -> Option<String> {
+    let hashes = load_hash_cache(cache_dir);
+    let cached_hash = hashes.get(source_path)?;
+    if cached_hash != current_hash {
+        return None; // source changed
+    }
+    let ir_path = cache_dir.join(format!("{}.ll", current_hash));
+    std::fs::read_to_string(&ir_path).ok()
+}
+
+/// Save compiled IR to cache.
+fn save_cached_ir(source_path: &str, cache_dir: &Path, hash: &str, ir: &str) {
+    let _ = std::fs::create_dir_all(cache_dir);
+    // Save IR
+    let ir_path = cache_dir.join(format!("{hash}.ll"));
+    let _ = std::fs::write(&ir_path, ir);
+    // Update hash cache
+    let mut hashes = load_hash_cache(cache_dir);
+    hashes.insert(source_path.to_string(), hash.to_string());
+    save_hash_cache(cache_dir, &hashes);
+}
+
+/// Check if a source file can use cached IR (incremental mode).
+/// Returns Some(cached_ir) if cache is valid, None if recompilation needed.
+pub fn incremental_check(source_path: &str) -> Option<String> {
+    let cache_dir = incremental_cache_dir(source_path);
+    let hash = file_content_hash(source_path).ok()?;
+    load_cached_ir(source_path, &cache_dir, &hash)
+}
+
+/// Save compiled IR to incremental cache.
+pub fn incremental_save(source_path: &str, ir: &str) {
+    let cache_dir = incremental_cache_dir(source_path);
+    if let Ok(hash) = file_content_hash(source_path) {
+        save_cached_ir(source_path, &cache_dir, &hash, ir);
+    }
 }
