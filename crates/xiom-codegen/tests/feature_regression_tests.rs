@@ -3006,6 +3006,51 @@ fn main() -> Int { return 0; }
     assert!(ir.contains("define"), "Int tuple must compile unchanged:\n{ir}");
 }
 
+/// FLOAT-07: glfw pattern — var x: Float32 = 0.0; return (x, y).
+/// Verifies the var declaration narrows the Float64 literal to Float32
+/// and the tuple return uses the correct struct type.
+#[test]
+fn regress_float07_glfw_cursor_pattern() {
+    let src = r#"
+extern "C" { fn bridge_get_cursor(win: Int, x: Int, y: Int); }
+type Window = Int;
+pub fn get_cursor(win: Window) -> (Float32, Float32) {
+  var x: Float32 = 0.0;
+  var y: Float32 = 0.0;
+  unsafe { bridge_get_cursor(win, &x, &y); }
+  return (x, y);
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    // Must compile without LLVM type mismatch errors
+    assert!(ir.contains("define"), "glfw cursor pattern must compile:\n{ir}");
+    // Must NOT contain fptrunc for the var declarations (they should use float natively)
+    // The tuple struct should be Tuple_Float32_Float32 (not Float64)
+    assert!(
+        !ir.contains("Tuple_Float64_Float64"),
+        "Must not use Float64 tuple when returning Float32 locals:\n{ir}"
+    );
+}
+
+/// FLOAT-08: Direct float literal in tuple return — narrowing.
+#[test]
+fn regress_float08_direct_literal_tuple() {
+    let src = r#"
+fn get_pos() -> (Float32, Float32) {
+  return (0.0, 0.0);
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Direct literal tuple must compile:\n{ir}");
+    // Should not contain the wrong tuple type
+    assert!(
+        !ir.contains("Tuple_Float64_Float64"),
+        "Must not use Float64 tuple for Float32 return:\n{ir}"
+    );
+}
+
 // =====================================================================
 // Phase 7F: Build System & IDE Integration
 // =====================================================================

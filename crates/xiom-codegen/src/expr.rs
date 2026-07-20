@@ -123,10 +123,15 @@ impl IrEmitter {
                 } else if val_llvm_ty == "void" || val.is_empty() {
                     declared_llvm_ty.clone().unwrap_or_else(|| "i64".to_string())
                 } else if declared_llvm_ty.as_ref().map_or(false, |d| d.starts_with('%')) {
-                    // Declared type is a struct ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â prefer it over the value's
+                    // Declared type is a struct — prefer it over the value's
                     // raw i64 type (handles Option.unwrap() round-trip where
                     // the heap pointer needs inttoptr+load coercion).
                     declared_llvm_ty.clone().unwrap()
+                } else if declared_llvm_ty.as_ref().map_or(false, |d| d == "float")
+                    && val_llvm_ty == "double"
+                {
+                    // Fix: var x: Float32 = 0.0 — narrow double literal to float
+                    "float".to_string()
                 } else {
                     val_llvm_ty
                 };
@@ -1334,9 +1339,15 @@ impl IrEmitter {
                 if items.is_empty() {
                     Ok(("0".to_string(), "void".to_string()))
                 } else {
-                    let struct_ty = self.infer_llvm_type(expr);
+                    let mut struct_ty = self.infer_llvm_type(expr);
+                    // Fix: If inference falls back to i64 (because element types
+                    // don't match registered struct), try the function return type.
                     if !struct_ty.starts_with("%struct.") {
-                        return Ok(("0".to_string(), "i64".to_string()));
+                        if self.current_return_type.starts_with("%struct.") {
+                            struct_ty = self.current_return_type.clone();
+                        } else {
+                            return Ok(("0".to_string(), "i64".to_string()));
+                        }
                     }
                     // Parse field types from struct name: %struct.Tuple_Float32_Int →
                     // field LLVM types: [float, i64]
