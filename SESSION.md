@@ -1,7 +1,7 @@
-# XIOM Session Handoff — v0.49.2 "Phase 7A Foundation"
+# XIOM Session Handoff — v0.49.3 "Phase 7B Industrial Cache"
 
-**Date:** 2026-07-20 19:30 | **Branch:** `feat/architect` | **Commits ahead:** ~51
-**Status:** **809/809 ALL TESTS PASS** (564 compiler + 245 tooling, ZERO warnings, ZERO failures)
+**Date:** 2026-07-20 19:45 | **Branch:** `feat/architect` | **Commits ahead:** ~52
+**Status:** **820/820 ALL TESTS PASS** (575 compiler + 245 tooling, ZERO warnings, ZERO failures)
 
 ---
 
@@ -36,18 +36,23 @@
 - **11 feature regression tests**: graph construction, topo sort, cycle detection, manifest parsing, source root resolution, module discovery
 - **Zero regression**: 798→809 total tests, all passing
 
+### Phase 7B — Industrial Incremental Compilation (COMPLETE)
+- **xiom_graph::hash**: Centralized SHA-256 hashing (hash_bytes, hash_str, file_sha256, short_hash), Fingerprint struct
+- **xiom_graph::cache**: Thread-safe CacheDb (Arc<RwLock<HashMap>>), 5-tier cache (L1-L5), index.json persistence, transitive invalidation on signature change, GC/purge-stale
+- **Pipeline integration**: Replaced DefaultHasher with SHA-256, graph-aware incremental_check/incremental_save, multi-file caching support
+- **11 feature regression tests**: SHA-256 correctness, short_hash, CacheDb open/persistence/tier-store/purge, fingerprint, project cache location, --incremental flag
+
 ### Phase 7 Roadmap (REMAINING)
-Full plan in `docs/ROADMAP.md`: 5-tier incremental cache, parallel compilation,
-module-level hot reload, sanitizers, project model, build server. Self-hosting → Phase 8.
+Full plan in `docs/ROADMAP.md`: parallel compilation, module-level hot reload, sanitizers, build server daemon. Self-hosting → Phase 8.
 
 ---
 
 ## CURRENT STATE
 
-### Test Baseline: 809/809
+### Test Baseline: 820/820
 | Suite | Count |
 |-------|-------|
-| Compiler (e2e, feature-reg, stdlib, diff, full-diff, fuzz, integration, robustness, stdlib-compile) | 564 |
+| Compiler (e2e, feature-reg, stdlib, diff, full-diff, fuzz, integration, robustness, stdlib-compile) | 575 |
 | Tooling (checker, parser, formatter, lsp, pkg-mgr, doc, ffigen, mcp, dbg, verify) | 245 |
 
 ### Key Crates (16 total, +xiom-graph)
@@ -82,7 +87,9 @@ module-level hot reload, sanitizers, project model, build server. Self-hosting �
 | `crates/xiom-graph/src/discover.rs` | **NEW** — Recursive .xi discovery, module header parsing |
 | `crates/xiom-graph/src/graph.rs` | **NEW** — Graph nodes, edge resolution, compilation_order |
 | `crates/xiom-graph/src/sort.rs` | **NEW** — Kahn topological sort, cycle detection |
-| `crates/xiomc/src/lib.rs` | expand_sources_with_graph, CompileConfig, compile pipeline |
+| `crates/xiom-graph/src/hash.rs` | **NEW** — SHA-256 hashing, Fingerprint, short_hash |
+| `crates/xiom-graph/src/cache.rs` | **NEW** — CacheDb (Arc<RwLock>), 5-tier cache, transitive invalidation |
+| `crates/xiomc/src/lib.rs` | expand_sources_with_graph, graph-aware incremental_check/save, compile pipeline |
 | `crates/xiom-codegen/src/lib.rs` | IrEmitter (55 fields), compile_program, const_eval |
 | `crates/xiom-codegen/src/decl.rs` | compile_fn, compile_top_decl, recursion guard |
 | `crates/xiom-codegen/src/expr.rs` | Expr codegen, call dispatch, hot reload thunks |

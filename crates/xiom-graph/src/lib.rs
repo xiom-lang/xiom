@@ -10,13 +10,17 @@
 //! This crate is the single source of truth for "what modules exist in the
 //! project and in what order should they be compiled."
 
+pub mod cache;
 mod discover;
 mod graph;
+pub mod hash;
 pub mod manifest;
 mod sort;
 
+pub use cache::{make_cache_entry, CacheDb, CacheEntry, CacheTiers};
 pub use discover::{discover_modules, discover_sources, ModuleDiscovery};
 pub use graph::{DependencyGraph, ModuleNode};
+pub use hash::{file_sha256, hash_bytes, hash_str, Fingerprint};
 pub use manifest::{CompilerConfig, DependencySpec, ProjectManifest};
 pub use sort::{topological_sort, CycleError};
 
