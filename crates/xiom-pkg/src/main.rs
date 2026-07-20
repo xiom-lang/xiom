@@ -96,7 +96,7 @@ fn http_post(url: &str, body: &str) -> Result<String, String> {
 // ============================================================================
 
 /// Cached registry index (lazy-loaded, refreshed every 5 min)
-static mut REGISTRY_CACHE: Option<(String, u64)> = None;
+static REGISTRY_CACHE: std::sync::Mutex<Option<(String, u64)>> = std::sync::Mutex::new(None);
 
 #[derive(Debug, serde::Deserialize)]
 struct RegistryIndex {
@@ -122,8 +122,9 @@ fn fetch_registry_index(registry: &str) -> Result<RegistryIndex, String> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    unsafe {
-        if let Some((ref cached, ts)) = REGISTRY_CACHE {
+    {
+        let cache = REGISTRY_CACHE.lock().map_err(|e| format!("cache lock: {e}"))?;
+        if let Some((ref cached, ts)) = *cache {
             if now - ts < 300 {
                 if let Ok(idx) = serde_json::from_str::<RegistryIndex>(cached) {
                     return Ok(idx);
@@ -137,7 +138,8 @@ fn fetch_registry_index(registry: &str) -> Result<RegistryIndex, String> {
     let index: RegistryIndex = serde_json::from_str(&body)
         .map_err(|e| format!("Invalid registry index: {e}"))?;
 
-    unsafe { REGISTRY_CACHE = Some((body, now)); }
+    let mut cache = REGISTRY_CACHE.lock().map_err(|e| format!("cache lock: {e}"))?;
+    *cache = Some((body, now));
     Ok(index)
 }
 

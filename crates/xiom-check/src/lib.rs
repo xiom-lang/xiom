@@ -2881,8 +2881,20 @@ impl Checker {
             // integer-like target (Int8, UInt8, UInt32, etc.).
             (CheckedType::Int, other) | (other, CheckedType::Int)
                 if other.is_numeric() => true,
-            // Named types: allow compatible across different names (e.g., Range vs Vec)
-            (CheckedType::Named(_), CheckedType::Named(_)) => true,
+            // 6A.1: Named types with different names are NOT compatible.
+            // Previously (Named(_), Named(_)) => true allowed any two user-defined
+            // types to be compatible (e.g., Point = Color passed type checking).
+            // Exception: Self is always compatible — it's an alias for the concrete type.
+            (CheckedType::Named(a), CheckedType::Named(b)) if a == "Self" || b == "Self" => true,
+            // Interface/trait names are compatible with their implementor types.
+            (CheckedType::Named(a), CheckedType::Named(b))
+                if self.interfaces.contains_key(a) || self.interfaces.contains_key(b) => true,
+            // Array[N]T, Slice[T], and Vec[T] share the same runtime layout.
+            (CheckedType::Named(a), CheckedType::Named(b))
+                if (a.starts_with("Array") || a.starts_with("Slice") || a.starts_with("Vec")) &&
+                   (b.starts_with("Array") || b.starts_with("Slice") || b.starts_with("Vec")) &&
+                   a != b => true,
+            (CheckedType::Named(_), CheckedType::Named(_)) => false,
             // Wildcard placeholder type is compatible with everything
             (CheckedType::Named(n), _) if n == "_" => true,
             (_, CheckedType::Named(n)) if n == "_" => true,

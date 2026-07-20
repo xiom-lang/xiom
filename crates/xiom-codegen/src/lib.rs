@@ -968,7 +968,12 @@ impl IrEmitter {
             "Float64" => "double",
             "Str" => "i8*",
             "()" => "void",
-            _ => "i64", // Default: treat unknown types as i64
+            // 6A.2: Unknown types must not silently compile as i64.
+            // Log the unknown type so the user can diagnose the issue.
+            _ => {
+                eprintln!("xiomc: warning: unknown type '{}' — defaulting to i64. This may produce incorrect code.", xiom_ty);
+                "i64"
+            }
         }
     }
 
