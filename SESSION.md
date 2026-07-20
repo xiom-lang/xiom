@@ -1,7 +1,7 @@
-# XIOM Session Handoff — v0.49.1 "Phase 6 Complete"
+# XIOM Session Handoff — v0.49.2 "Phase 7A Foundation"
 
-**Date:** 2026-07-20 18:57 | **Branch:** `feat/architect` | **Commits ahead:** ~50
-**Status:** **798/798 ALL TESTS PASS** (553 compiler + 245 tooling, ZERO warnings, ZERO failures)
+**Date:** 2026-07-20 19:30 | **Branch:** `feat/architect` | **Commits ahead:** ~51
+**Status:** **809/809 ALL TESTS PASS** (564 compiler + 245 tooling, ZERO warnings, ZERO failures)
 
 ---
 
@@ -28,28 +28,37 @@
 - **6F**: Contracts + guards — Option methods contracts, recursion depth 500→2000, CG-01/CG-02/E001 verified
 - **6G**: MCP cross-file — `discover_sibling_sources()` auto-includes sibling .xi files
 
-### Phase 7 Roadmap (PLANNING — NOT STARTED)
-Full plan in `docs/ROADMAP.md`: module system, 5-tier incremental cache, parallel compilation,
+### Phase 7A — Module System & Dependency Graph (FOUNDATION COMPLETE)
+- **xiom-graph crate**: new dependency graph crate (DependencyGraph, ModuleNode, topological sort, cycle detection)
+- **xiom.toml manifest**: full TOML schema (project, dependencies, compiler config), backward compat with package.xi
+- **Transitive module discovery**: recursive .xi file discovery from source roots, module header + use parsing
+- **Pipeline integration**: wired into xiomc (expand_sources_with_graph), LSP (workspace source roots), MCP (graph-based discovery)
+- **11 feature regression tests**: graph construction, topo sort, cycle detection, manifest parsing, source root resolution, module discovery
+- **Zero regression**: 798→809 total tests, all passing
+
+### Phase 7 Roadmap (REMAINING)
+Full plan in `docs/ROADMAP.md`: 5-tier incremental cache, parallel compilation,
 module-level hot reload, sanitizers, project model, build server. Self-hosting → Phase 8.
 
 ---
 
 ## CURRENT STATE
 
-### Test Baseline: 798/798
+### Test Baseline: 809/809
 | Suite | Count |
 |-------|-------|
-| Compiler (e2e, feature-reg, stdlib, diff, full-diff, fuzz, integration, robustness, stdlib-compile) | 553 |
+| Compiler (e2e, feature-reg, stdlib, diff, full-diff, fuzz, integration, robustness, stdlib-compile) | 564 |
 | Tooling (checker, parser, formatter, lsp, pkg-mgr, doc, ffigen, mcp, dbg, verify) | 245 |
 
-### Key Crates (15 total, incl. xiom-display)
+### Key Crates (16 total, +xiom-graph)
 | Crate | Rating | Notes |
 |-------|--------|-------|
+| xiom-graph | **8.0** | NEW — Dependency graph, xiom.toml parser, topological sort, module discovery |
 | xiom-codegen | 4.9 | God object (55 fields), raw string IR — needs Phase 7 refactor |
 | xiom-check | 6.3 | types_compatible fixed (6A.1), compat module extracted |
-| xiom-lsp | 3.1 | 2800+ line monolith, zero tests — needs splitting |
+| xiom-lsp | 3.1 | 2800+ line monolith, zero tests — needs splitting; Phase 7A adds graph source dirs |
 | xiom-pkg | 3.4 | HTTP bugs fixed (6C.1), static mut fixed (6A.3) |
-| xiom-display | 8.0 | New shared crate — type_to_string, op_to_str |
+| xiom-display | 8.0 | Shared crate — type_to_string, op_to_str |
 
 ### Stdlib
 - HashMap added (collections.xi), cell.xi Ref/RefMut fixed, simd.xi leak fixed, crypto.xi AES-NI fixed
@@ -68,6 +77,12 @@ module-level hot reload, sanitizers, project model, build server. Self-hosting �
 
 | File | Purpose |
 |------|---------|
+| `crates/xiom-graph/src/lib.rs` | **NEW** — DependencyGraph, ModuleNode, build_project_graph |
+| `crates/xiom-graph/src/manifest.rs` | **NEW** — xiom.toml parser, source root resolution |
+| `crates/xiom-graph/src/discover.rs` | **NEW** — Recursive .xi discovery, module header parsing |
+| `crates/xiom-graph/src/graph.rs` | **NEW** — Graph nodes, edge resolution, compilation_order |
+| `crates/xiom-graph/src/sort.rs` | **NEW** — Kahn topological sort, cycle detection |
+| `crates/xiomc/src/lib.rs` | expand_sources_with_graph, CompileConfig, compile pipeline |
 | `crates/xiom-codegen/src/lib.rs` | IrEmitter (55 fields), compile_program, const_eval |
 | `crates/xiom-codegen/src/decl.rs` | compile_fn, compile_top_decl, recursion guard |
 | `crates/xiom-codegen/src/expr.rs` | Expr codegen, call dispatch, hot reload thunks |

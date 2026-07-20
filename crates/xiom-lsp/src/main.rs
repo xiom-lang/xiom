@@ -95,6 +95,12 @@ impl Backend {
                             checker.add_source_dir(src_dir.to_string_lossy().to_string());
                         }
                     }
+                    // Phase 7A: Add graph-discovered source roots for project awareness
+                    if let Ok(graph) = xiom_graph::build_project_graph(&file_path) {
+                        for root in &graph.source_roots {
+                            checker.add_source_dir(root.to_string_lossy().to_string());
+                        }
+                    }
                 }
                 for stdlib_dir in xiomc::find_stdlib_dirs() {
                     checker.add_source_dir(stdlib_dir);
