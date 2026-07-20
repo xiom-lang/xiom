@@ -63,6 +63,24 @@ struct Breakpoint {
     verified: bool,
 }
 
+// ============================================================================
+// Debugger Backend Trait (5e.7a — multi-backend support)
+// ============================================================================
+
+trait DebuggerBackend {
+    fn launch(&mut self, program: &str, args: &[String], cwd: &str) -> Result<(), String>;
+    fn set_breakpoint(&mut self, source: &str, line: u64) -> Result<Breakpoint, String>;
+    fn exec_continue(&mut self) -> Result<(), String>;
+    fn exec_next(&mut self) -> Result<(), String>;
+    fn exec_step(&mut self) -> Result<(), String>;
+    fn pause(&mut self) -> Result<(), String>;
+    fn thread_info(&mut self) -> Result<Vec<Value>, String>;
+    fn stack_info(&mut self) -> Result<Vec<Value>, String>;
+    fn list_variables(&mut self) -> Result<Vec<Value>, String>;
+    fn terminate(&mut self) -> Result<(), String>;
+    fn name(&self) -> &'static str;
+}
+
 impl GdbBackend {
     fn new() -> Self {
         GdbBackend {
@@ -254,6 +272,29 @@ fn send(msg: &impl Serialize) {
     stdout.flush().ok();
 }
 
+impl DebuggerBackend for GdbBackend {
+    fn launch(&mut self, program: &str, args: &[String], cwd: &str) -> Result<(), String> {
+        GdbBackend::launch(self, program, args, cwd)
+    }
+    fn set_breakpoint(&mut self, source: &str, line: u64) -> Result<Breakpoint, String> {
+        GdbBackend::set_breakpoint(self, source, line)
+    }
+    fn exec_continue(&mut self) -> Result<(), String> { GdbBackend::exec_continue(self) }
+    fn exec_next(&mut self) -> Result<(), String> { GdbBackend::exec_next(self) }
+    fn exec_step(&mut self) -> Result<(), String> { GdbBackend::exec_step(self) }
+    fn pause(&mut self) -> Result<(), String> {
+        if let Some(ref _child) = self.child {
+            #[cfg(unix)] unsafe { libc::kill(child.id() as i32, libc::SIGINT); }
+        }
+        Ok(())
+    }
+    fn thread_info(&mut self) -> Result<Vec<Value>, String> { GdbBackend::thread_info(self) }
+    fn stack_info(&mut self) -> Result<Vec<Value>, String> { GdbBackend::stack_info(self) }
+    fn list_variables(&mut self) -> Result<Vec<Value>, String> { GdbBackend::list_variables(self) }
+    fn terminate(&mut self) -> Result<(), String> { GdbBackend::terminate(self) }
+    fn name(&self) -> &'static str { "GDB/MI" }
+}
+
 fn send_event(event: &str, body: Option<Value>) {
     send(&DapEvent { msg_type: "event".into(), event: event.into(), body });
 }
@@ -266,11 +307,136 @@ fn send_response(req_seq: u64, command: &str, success: bool, body: Option<Value>
 }
 
 // ============================================================================
-// Main — DAP stdio loop
+// CDB/WinDbg Backend (5e.7a — Windows Debugger Engine via cdb.exe)
 // ============================================================================
 
+struct CdbBackend {
+    child: Option<Child>,
+    breakpoints: HashMap<u64, Breakpoint>,
+    next_breakpoint_id: u64,
+    program_path: Option<String>,
+}
+
+impl CdbBackend {
+    fn new() -> Self {
+        CdbBackend { child: None, breakpoints: HashMap::new(), next_breakpoint_id: 1, program_path: None }
+    }
+
+    fn send_cmd(&mut self, cmd: &str) -> Result<String, String> {
+        let child = self.child.as_mut().ok_or("cdb not launched")?;
+        let stdin = child.stdin.as_mut().ok_or("stdin unavailable")?;
+        writeln!(stdin, "{cmd}").map_err(|e| format!("write: {e}"))?;
+        stdin.flush().map_err(|e| format!("flush: {e}"))?;
+        let stdout = child.stdout.as_mut().ok_or("stdout unavailable")?;
+        let reader = BufReader::new(stdout);
+        let mut output = String::new();
+        for line in reader.lines() {
+            let line = line.map_err(|e| format!("read: {e}"))?;
+            if line.trim().ends_with(">") { break; }
+            output.push_str(&line); output.push('\n');
+        }
+        Ok(output)
+    }
+
+    fn launch_impl(&mut self, program: &str, args: &[String], _cwd: &str) -> Result<(), String> {
+        self.program_path = Some(program.to_string());
+        let mut cmd = Command::new("cdb");
+        cmd.arg("-o").arg("-lines").arg(program);
+        if !args.is_empty() { cmd.arg("--"); for a in args { cmd.arg(a); } }
+        cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit());
+        self.child = Some(cmd.spawn().map_err(|e| format!("cannot launch cdb: {e}"))?);
+        Ok(())
+    }
+
+    fn set_breakpoint_impl(&mut self, source: &str, line: u64) -> Result<Breakpoint, String> {
+        let stem = std::path::Path::new(source).file_stem().and_then(|s| s.to_str()).unwrap_or(source);
+        let output = self.send_cmd(&format!("bu `{}:{}`", stem, line))?;
+        let bp = Breakpoint { id: self.next_breakpoint_id, source_path: source.into(), line,
+            verified: !output.contains("Unable to") && !output.contains("Couldn't") };
+        self.next_breakpoint_id += 1;
+        self.breakpoints.insert(bp.id, bp.clone());
+        Ok(bp)
+    }
+
+    fn exec_continue_impl(&mut self) -> Result<(), String> { self.send_cmd("g").map(|_| ()) }
+    fn exec_next_impl(&mut self) -> Result<(), String> { self.send_cmd("p").map(|_| ()) }
+    fn exec_step_impl(&mut self) -> Result<(), String> { self.send_cmd("t").map(|_| ()) }
+
+    fn thread_info_impl(&mut self) -> Result<Vec<Value>, String> {
+        let output = self.send_cmd("~")?;
+        let mut threads = Vec::new();
+        for line in output.lines() {
+            if let Some(dot) = line.find('.') {
+                let ids: String = line[..dot].chars().filter(|c| c.is_ascii_digit()).collect();
+                if let Ok(id) = ids.parse::<u64>() { threads.push(json!({"id":id,"name":format!("Thread {id}")})); }
+            }
+        }
+        if threads.is_empty() { threads.push(json!({"id":0,"name":"Main Thread"})); }
+        Ok(threads)
+    }
+
+    fn stack_info_impl(&mut self) -> Result<Vec<Value>, String> {
+        let output = self.send_cmd("k")?;
+        let mut frames = Vec::new();
+        for (i, line) in output.lines().enumerate() {
+            let t = line.trim();
+            if t.is_empty() || t == "ChildEBP RetAddr" { continue; }
+            let name: String = if let Some(b) = t.find('!') { t[b+1..].split_whitespace().next().unwrap_or(t).into() } else { t.into() };
+            frames.push(json!({"id":i,"name":name,"source":null,"line":0,"column":0}));
+        }
+        if frames.is_empty() { frames.push(json!({"id":0,"name":"<unknown>","source":null,"line":0,"column":0})); }
+        Ok(frames)
+    }
+
+    fn list_variables_impl(&mut self) -> Result<Vec<Value>, String> {
+        let output = self.send_cmd("dv")?;
+        let mut vars = Vec::new();
+        for line in output.lines() {
+            let t = line.trim();
+            if t.is_empty() { continue; }
+            let parts: Vec<&str> = t.splitn(2,'=').collect();
+            vars.push(json!({"name":parts[0].trim(),"value":parts.get(1).map_or("<unknown>",|s|s.trim()),"variablesReference":0}));
+        }
+        if vars.is_empty() { vars.push(json!({"name":"no locals","value":"<no variables in scope>","variablesReference":0})); }
+        Ok(vars)
+    }
+
+    fn terminate_impl(&mut self) -> Result<(), String> {
+        if let Some(ref mut child) = self.child { let _ = child.kill(); let _ = child.wait(); }
+        self.child = None;
+        Ok(())
+    }
+}
+
+impl DebuggerBackend for CdbBackend {
+    fn launch(&mut self, p: &str, a: &[String], c: &str) -> Result<(), String> { self.launch_impl(p,a,c) }
+    fn set_breakpoint(&mut self, s: &str, l: u64) -> Result<Breakpoint, String> { self.set_breakpoint_impl(s,l) }
+    fn exec_continue(&mut self) -> Result<(), String> { self.exec_continue_impl() }
+    fn exec_next(&mut self) -> Result<(), String> { self.exec_next_impl() }
+    fn exec_step(&mut self) -> Result<(), String> { self.exec_step_impl() }
+    fn pause(&mut self) -> Result<(), String> { let _ = self.send_cmd(".break"); Ok(()) }
+    fn thread_info(&mut self) -> Result<Vec<Value>, String> { self.thread_info_impl() }
+    fn stack_info(&mut self) -> Result<Vec<Value>, String> { self.stack_info_impl() }
+    fn list_variables(&mut self) -> Result<Vec<Value>, String> { self.list_variables_impl() }
+    fn terminate(&mut self) -> Result<(), String> { self.terminate_impl() }
+    fn name(&self) -> &'static str { "CDB/WinDbg" }
+}
+
+// ============================================================================
+// Main — DAP stdio loop (5e.7a — auto-detect backend)
+// ============================================================================
+
+fn detect_backend() -> Box<dyn DebuggerBackend> {
+    if std::process::Command::new("cdb").arg("/?").stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok() {
+        eprintln!("xiom-dbg: CDB/WinDbg backend (5e.7a)");
+        return Box::new(CdbBackend::new());
+    }
+    eprintln!("xiom-dbg: GDB/MI backend");
+    Box::new(GdbBackend::new())
+}
+
 fn main() -> io::Result<()> {
-    let mut gdb = GdbBackend::new();
+    let mut backend: Box<dyn DebuggerBackend> = detect_backend();
     let stdin = io::stdin();
     let mut reader = BufReader::new(stdin.lock());
     let mut line = String::new();
@@ -293,14 +459,14 @@ fn main() -> io::Result<()> {
             let body_str = String::from_utf8_lossy(&body);
 
             if let Ok(req) = serde_json::from_str::<DapRequest>(&body_str) {
-                handle_request(&mut gdb, &req);
+                handle_request(backend.as_mut(), &req);
             }
         }
     }
     Ok(())
 }
 
-fn handle_request(gdb: &mut GdbBackend, req: &DapRequest) {
+fn handle_request(backend: &mut dyn DebuggerBackend, req: &DapRequest) {
     let args = req.arguments.clone().unwrap_or(Value::Null);
 
     match req.command.as_str() {
@@ -334,7 +500,7 @@ fn handle_request(gdb: &mut GdbBackend, req: &DapRequest) {
                 .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
                 .unwrap_or_default();
 
-            match gdb.launch(program, &program_args, cwd) {
+            match backend.launch(program, &program_args, cwd) {
                 Ok(()) => {
                     send_response(req.seq, &req.command, true, None, None);
                 }
@@ -352,7 +518,7 @@ fn handle_request(gdb: &mut GdbBackend, req: &DapRequest) {
             if let Some(breakpoints) = breakpoints_arg {
                 for bp in breakpoints {
                     if let Some(line) = bp["line"].as_u64() {
-                        match gdb.set_breakpoint(source_path, line) {
+                        match backend.set_breakpoint(source_path, line) {
                             Ok(bp) => bps.push(json!({"id": bp.id, "verified": bp.verified, "line": bp.line, "source": {"path": bp.source_path}})),
                             Err(_) => bps.push(json!({"verified": false, "line": line, "message": "Failed to set breakpoint"})),
                         }
@@ -369,19 +535,19 @@ fn handle_request(gdb: &mut GdbBackend, req: &DapRequest) {
 
         "configurationDone" => {
             // Run the program to the first breakpoint or main
-            let _ = gdb.send_mi("-exec-run");
+            let _ = backend.exec_continue();
             send_response(req.seq, &req.command, true, None, None);
         }
 
         "threads" => {
-            match gdb.thread_info() {
+            match backend.thread_info() {
                 Ok(threads) => send_response(req.seq, &req.command, true, Some(json!({"threads": threads})), None),
                 Err(e) => send_response(req.seq, &req.command, false, None, Some(e)),
             }
         }
 
         "stackTrace" => {
-            match gdb.stack_info() {
+            match backend.stack_info() {
                 Ok(frames) => send_response(req.seq, &req.command, true, Some(json!({"stackFrames": frames, "totalFrames": frames.len()})), None),
                 Err(e) => send_response(req.seq, &req.command, false, None, Some(e)),
             }
@@ -398,46 +564,40 @@ fn handle_request(gdb: &mut GdbBackend, req: &DapRequest) {
         }
 
         "variables" => {
-            match gdb.list_variables() {
+            match backend.list_variables() {
                 Ok(vars) => send_response(req.seq, &req.command, true, Some(json!({"variables": vars})), None),
                 Err(e) => send_response(req.seq, &req.command, false, None, Some(e)),
             }
         }
 
         "continue" => {
-            match gdb.exec_continue() {
+            match backend.exec_continue() {
                 Ok(()) => send_response(req.seq, &req.command, true, Some(json!({"allThreadsContinued": true})), None),
                 Err(e) => send_response(req.seq, &req.command, false, None, Some(e)),
             }
         }
 
         "next" => {
-            match gdb.exec_next() {
+            match backend.exec_next() {
                 Ok(()) => send_response(req.seq, &req.command, true, None, None),
                 Err(e) => send_response(req.seq, &req.command, false, None, Some(e)),
             }
         }
 
         "stepIn" => {
-            match gdb.exec_step() {
+            match backend.exec_step() {
                 Ok(()) => send_response(req.seq, &req.command, true, None, None),
                 Err(e) => send_response(req.seq, &req.command, false, None, Some(e)),
             }
         }
 
         "pause" => {
-            if let Some(ref mut child) = gdb.child {
-                // Send SIGINT to GDB
-                #[cfg(unix)]
-                unsafe { libc::kill(child.id() as i32, libc::SIGINT); }
-                #[cfg(windows)]
-                { let _ = child.kill(); }
-            }
+            let _ = backend.pause();
             send_response(req.seq, &req.command, true, None, None);
         }
 
         "disconnect" => {
-            let _ = gdb.terminate();
+            let _ = backend.terminate();
             send_response(req.seq, &req.command, true, None, None);
         }
 
