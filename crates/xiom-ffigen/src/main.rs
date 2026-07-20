@@ -27,6 +27,12 @@ fn main() {
         print_usage();
         return;
     }
+    if args.iter().any(|a| a == "--version") {
+        eprintln!("xiom-ffigen v{} (XIOM v{})",
+            env!("CARGO_PKG_VERSION"),
+            option_env!("XIOM_RELEASE_VERSION").unwrap_or("0.49.7"));
+        return;
+    }
 
     let mut json_mode = false;
     let mut input_file = None;

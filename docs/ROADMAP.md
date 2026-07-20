@@ -2,7 +2,7 @@
 
 **Current:** v0.49.7 — **881/881 all tests** (636 compiler + 245 tooling), zero warnings  
 **Branch:** `feat/architect`  
-**Next:** Phase 8C — Debugger Pro (commercial GUI)
+**Next:** Phase 8B — Preflight Hardening (M1 quick wins)
 
 ---
 

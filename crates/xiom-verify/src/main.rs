@@ -18,9 +18,19 @@ use xiom_verify::{SMTGenerator, Z3Runner, VerifyResult};
 fn main() {
     let args: Vec<String> = env::args().collect();
 
+    if args.iter().any(|a| a == "--help") {
+        print_usage();
+        return;
+    }
+    if args.iter().any(|a| a == "--version") {
+        eprintln!("xiom-verify v{} (XIOM v{})",
+            env!("CARGO_PKG_VERSION"),
+            option_env!("XIOM_RELEASE_VERSION").unwrap_or("0.49.7"));
+        return;
+    }
+
     if args.len() < 2 {
-        eprintln!("XIOM Contract Verifier v0.9.0 (Phase 5f)");
-        eprintln!("Usage: xiom-verify <file.xi> [-o <file>] [--check] [--z3-path <path>]");
+        print_usage();
         process::exit(1);
     }
 
@@ -162,4 +172,23 @@ fn main() {
             fs::write(smt_path, &smt_output).ok();
         }
     }
+}
+
+fn print_usage() {
+    eprintln!("XIOM Contract Verifier v{} (Phase 5f)", env!("CARGO_PKG_VERSION"));
+    eprintln!();
+    eprintln!("USAGE:");
+    eprintln!("  xiom-verify <file.xi> [-o <output.smt>] [--check] [--z3-path <path>]");
+    eprintln!();
+    eprintln!("OPTIONS:");
+    eprintln!("  -o <file>          Write SMT-LIB output to file");
+    eprintln!("  --check            Run Z3 to verify contracts");
+    eprintln!("  --z3-path <path>   Use specific Z3 binary");
+    eprintln!("  --help             Show this help message");
+    eprintln!("  --version          Show version information");
+    eprintln!();
+    eprintln!("EXAMPLES:");
+    eprintln!("  xiom-verify app.xi                    Emit SMT-LIB to stdout");
+    eprintln!("  xiom-verify app.xi -o app.smt2        Write SMT to file");
+    eprintln!("  xiom-verify app.xi --check            Verify contracts with Z3");
 }

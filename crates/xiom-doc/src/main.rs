@@ -10,11 +10,27 @@ use xiom_ast::*;
 use xiom_lexer::Lexer;
 use xiom_parser::Parser;
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+fn xiom_version() -> &'static str {
+    option_env!("XIOM_RELEASE_VERSION").unwrap_or("0.49.7")
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() < 2 || args.iter().any(|a| a == "--help") {
+
+    if args.iter().any(|a| a == "--help") {
         print_usage();
-        process::exit(if args.iter().any(|a| a == "--help") { 0 } else { 1 });
+        return;
+    }
+    if args.iter().any(|a| a == "--version") {
+        eprintln!("xiom-doc v{} (XIOM v{})", VERSION, xiom_version());
+        return;
+    }
+
+    if args.len() < 2 {
+        print_usage();
+        process::exit(1);
     }
 
     let file = &args[1];
@@ -79,7 +95,7 @@ fn doc_item_str(item: &TopDecl, depth: usize) -> String {
             out.push_str("| Field | Type |\n");
             out.push_str("|-------|------|\n");
             for field in &td.fields {
-                out.push_str(&format!("| `{}` | `{}` |\n", field.name.name, type_to_string(&field.ty)));
+                out.push_str(&format!("| `{}` | `{}` |\n", field.name.name, xiom_display::type_to_string(&field.ty)));
             }
             out.push('\n');
             if !td.invariants.is_empty() {
@@ -109,7 +125,7 @@ fn doc_item_str(item: &TopDecl, depth: usize) -> String {
                     out.push_str(&format!("- `{}`\n", v.name.name));
                 } else {
                     let fields: Vec<String> = v.fields.iter()
-                        .map(|f| format!("{}: {}", f.name.name, type_to_string(&f.ty)))
+                        .map(|f| format!("{}: {}", f.name.name, xiom_display::type_to_string(&f.ty)))
                         .collect();
                     out.push_str(&format!("- `{}({})`\n", v.name.name, fields.join(", ")));
                 }
@@ -151,38 +167,20 @@ fn fn_signature(f: &FnDecl) -> String {
     s.push('(');
     for (i, p) in f.params.iter().enumerate() {
         if i > 0 { s.push_str(", "); }
-        s.push_str(&format!("{}: {}", p.name.name, type_to_string(&p.ty)));
+        s.push_str(&format!("{}: {}", p.name.name, xiom_display::type_to_string(&p.ty)));
     }
     s.push(')');
     if let Some(ref ret) = f.return_type {
-        s.push_str(&format!(" -> {}", type_to_string(ret)));
+        s.push_str(&format!(" -> {}", xiom_display::type_to_string(ret)));
     }
     s
 }
 
-fn type_to_string(ty: &Type) -> String {
-    match ty {
-        Type::Named(name, _) => name.name.clone(),
-        Type::Ref(inner) => format!("&{}", type_to_string(inner)),
-        Type::MutRef(inner) => format!("&mut {}", type_to_string(inner)),
-        Type::Option(inner) => format!("Option[{}]", type_to_string(inner)),
-        Type::Result(ok, err) => format!("Result[{}, {}]", type_to_string(ok), type_to_string(err)),
-        Type::Vec(inner) => format!("Vec[{}]", type_to_string(inner)),
-        Type::Slice(inner) => format!("Slice[{}]", type_to_string(inner)),
-        Type::Map(k, v) => format!("Map[{}, {}]", type_to_string(k), type_to_string(v)),
-        Type::Set(inner) => format!("Set[{}]", type_to_string(inner)),
-        Type::Tuple(items) => {
-            let inner: Vec<String> = items.iter().map(type_to_string).collect();
-            format!("({})", inner.join(", "))
-        }
-        Type::Ptr(inner) => format!("*{}", type_to_string(inner)),
-        Type::Array(size, elem) => format!("[{}]{}", expr_to_string(size), type_to_string(elem)),
-        Type::Fn(params, ret) => {
-            let p: Vec<String> = params.iter().map(type_to_string).collect();
-            format!("fn({}) -> {}", p.join(", "), type_to_string(ret))
-        }
-    }
-}
+// Phase 8B: type_to_string/op_to_str/pattern_to_string delegated to xiom-display.
+// expr_to_string kept locally (xiom-display doesn't export it yet).
+
+fn op_to_str(op: &BinOp) -> &str { xiom_display::op_to_str(op) }
+fn pattern_to_string(pat: &Pattern) -> String { xiom_display::pattern_to_string(pat) }
 
 fn expr_to_string(expr: &Expr) -> String {
     match expr {
@@ -196,14 +194,8 @@ fn expr_to_string(expr: &Expr) -> String {
             format!("{} {} {}", expr_to_string(left), op_to_str(op), expr_to_string(right))
         }
         Expr::Unary(op, inner, _) => {
-            format!("{}{}", match op {
-                UnaryOp::Not => "!",
-                UnaryOp::Neg => "-",
-                UnaryOp::BitNot => "~",
-                UnaryOp::Deref => "*",
-                UnaryOp::Ref => "&",
-                UnaryOp::MutRef => "&mut ",
-            }, expr_to_string(inner))
+            use xiom_display::unary_op_to_str;
+            format!("{}{}", unary_op_to_str(op), expr_to_string(inner))
         }
         Expr::Call(func, args, _) => {
             let args: Vec<String> = args.iter().map(expr_to_string).collect();
@@ -223,40 +215,6 @@ fn expr_to_string(expr: &Expr) -> String {
         Expr::Imply(left, right, _) => format!("{} => {}", expr_to_string(left), expr_to_string(right)),
         Expr::Is(expr, pat, _) => format!("{} is {}", expr_to_string(expr), pattern_to_string(pat)),
         _ => "?".to_string(),
-    }
-}
-
-fn pattern_to_string(pat: &Pattern) -> String {
-    match pat {
-        Pattern::Wildcard(_) => "_".to_string(),
-        Pattern::Ident(id) => id.name.clone(),
-        Pattern::Variant(name, fields, _) => {
-            let f: Vec<String> = fields.iter().map(|id| id.name.clone()).collect();
-            format!("{}({})", name.name, f.join(", "))
-        }
-        Pattern::Lit(lit) => match lit {
-            Literal::Int(n, _) => n.to_string(),
-            Literal::Float(f, _) => f.to_string(),
-            Literal::Str(s, _) => format!("\"{}\"", s),
-            Literal::Char(c, _) => format!("'{}'", c),
-            Literal::Bool(b, _) => if *b { "true" } else { "false" }.to_string(),
-        },
-        Pattern::Some(inner, _) => format!("Some({})", pattern_to_string(inner)),
-        Pattern::None(_) => "None".to_string(),
-        Pattern::Ok(inner, _) => format!("Ok({})", pattern_to_string(inner)),
-        Pattern::Err(inner, _) => format!("Err({})", pattern_to_string(inner)),
-        Pattern::Or(alts, _) => alts.iter().map(pattern_to_string).collect::<Vec<_>>().join(" | "),
-    }
-}
-
-fn op_to_str(op: &BinOp) -> &str {
-    match op {
-        BinOp::Add => "+", BinOp::Sub => "-", BinOp::Mul => "*", BinOp::Div => "/", BinOp::Rem => "%",
-        BinOp::Eq => "==", BinOp::Neq => "!=", BinOp::Lt => "<", BinOp::Gt => ">",
-        BinOp::Le => "<=", BinOp::Ge => ">=", BinOp::And => "&&", BinOp::Or => "||",
-        BinOp::Assign => "=",
-        BinOp::BitAnd => "&", BinOp::BitOr => "|", BinOp::BitXor => "^",
-        BinOp::Shl => "<<", BinOp::Shr => ">>",
     }
 }
 
@@ -308,13 +266,14 @@ mod tests {
 }
 
 fn print_usage() {
-    eprintln!("XIOM Doc v0.10.1 -- Documentation Generator");
+    eprintln!("XIOM Doc v{} — Documentation Generator", VERSION);
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("  xiom doc <file.xi>");
     eprintln!();
     eprintln!("OPTIONS:");
     eprintln!("  --help        Show this help message");
+    eprintln!("  --version     Show version information");
     eprintln!();
     eprintln!("EXAMPLES:");
     eprintln!("  xiom doc examples/phase1_contracts.xi");

@@ -7,3 +7,4 @@ edition = "2024"
 xiom-ast = { path = "../xiom-ast" }
 xiom-lexer = { path = "../xiom-lexer" }
 xiom-parser = { path = "../xiom-parser" }
+xiom-display = { path = "../xiom-display" }
