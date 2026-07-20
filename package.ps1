@@ -83,6 +83,20 @@ if (Test-Path $iconSrc) {
     Write-Host "    + xiom-icon.ico" -ForegroundColor DarkGray
 }
 
+# Bundle z3 for contract verification (auto-detected by xiom-verify)
+$z3Src = "$root\target\release\z3.exe"
+if (-not (Test-Path $z3Src)) {
+    $z3Src = "$env:TEMP\z3.exe"
+}
+if (Test-Path $z3Src) {
+    Copy-Item $z3Src "$binDir\z3.exe" -Force
+    Write-Host "    + z3.exe (bundled for --verify --check)" -ForegroundColor DarkGray
+} else {
+    Write-Host "    - z3.exe not found (install Z3 for contract verification)" -ForegroundColor Yellow
+}
+    Write-Host "    + xiom-icon.ico" -ForegroundColor DarkGray
+}
+
 # Copy stdlib + runtime
 $stdlibSrc = "$root\stdlib"
 if (Test-Path $stdlibSrc) {

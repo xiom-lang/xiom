@@ -605,24 +605,30 @@ impl Z3Runner {
 
     /// Auto-detect z3 binary: check common locations and PATH.
     pub fn find_z3() -> Option<String> {
-        // 1. Check environment variable
+        // 1. Check environment variable (explicit override)
         if let Ok(path) = std::env::var("Z3_PATH") {
             if std::path::Path::new(&path).exists() {
                 return Some(path);
             }
         }
-        // 2. Check common Windows install locations
+        // 2. Check bundled z3 next to the xiomc binary (production release)
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(dir) = exe_path.parent() {
+                let bundled = dir.join("z3.exe");
+                if bundled.exists() { return Some(bundled.to_string_lossy().to_string()); }
+            }
+        }
+        // 3. Check common install locations
         let candidates = [
             r"C:\Program Files\z3\bin\z3.exe",
             r"C:\z3\bin\z3.exe",
-            // 3. Check if `z3` is on PATH
         ];
         for c in &candidates {
             if std::path::Path::new(c).exists() {
                 return Some(c.to_string());
             }
         }
-        // 4. Try to run `z3 --version` to check PATH
+        // 4. Try `z3` on PATH
         if std::process::Command::new("z3")
             .arg("--version")
             .stdout(std::process::Stdio::null())
