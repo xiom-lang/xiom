@@ -337,20 +337,29 @@ impl IrEmitter {
         }
     }
 
-    /// 5e.5c: emit xiom_hot_save_state() and xiom_hot_restore_state() functions.
+    /// 5e.5c / 7D.2: emit xiom_hot_save_state() and xiom_hot_restore_state() functions.
     /// These serialize/deserialize all module-level `var` globals to `xiom_hot_state.bin`
-    /// so that the hot reload host can preserve state across DLL reloads.
+    /// with a versioned header containing a layout hash to detect struct changes.
     fn emit_hot_state_functions(&mut self) {
         if self.xiom_hot_globals.is_empty() { return; }
         let globals_snapshot = self.xiom_hot_globals.clone();
 
-        // String constants for file I/O
-        self.emitln("@xiom_hot_state_path = private constant [20 x i8] c\"xiom_hot_state.bin\\00\"");
-        self.emitln("@xiom_hot_wb = private constant [3 x i8] c\"wb\\00\"");
-        self.emitln("@xiom_hot_rb = private constant [3 x i8] c\"rb\\00\"");
+        // Build layout metadata string: "name:type:size;name:type:size;..."
+        let layout_metadata: String = globals_snapshot.iter()
+            .map(|(sym, ty, sz)| format!("{}:{}:{}", sym, ty, sz))
+            .collect::<Vec<_>>()
+            .join(";");
+        let layout_len = layout_metadata.len();
+
+        // String constants
+        self.emitln(&format!("@xiom_hot_state_path = private constant [20 x i8] c\"xiom_hot_state.bin\\00\""));
+        self.emitln(&format!("@xiom_hot_wb = private constant [3 x i8] c\"wb\\00\""));
+        self.emitln(&format!("@xiom_hot_rb = private constant [3 x i8] c\"rb\\00\""));
+        // 7D.2: Layout metadata string (null-terminated)
+        self.emitln(&format!("@xiom_hot_layout_meta = private constant [{} x i8] c\"{}\\00\"", layout_len + 1, layout_metadata));
         self.emitln("");
 
-        // --- Save function ---
+        // --- Save function (7D.2: with layout header) ---
         self.emitln("define void @xiom_hot_save_state() {");
         self.emitln("entry:");
         let f_save = self.fresh_tmp();
@@ -361,6 +370,11 @@ impl IrEmitter {
         let save_done = self.fresh_block("hot_save_done");
         self.emitln(&format!("  br i1 {null_s}, label %{save_done}, label %{save_body}"));
         self.emitln(&format!("\n{save_body}:"));
+        // 7D.2: Write layout metadata first (so host can verify layout on restore)
+        let meta_ptr = self.fresh_tmp();
+        self.emitln(&format!("  {meta_ptr} = bitcast [{} x i8]* @xiom_hot_layout_meta to i8*", layout_len + 1));
+        self.emitln(&format!("  call i64 @fwrite(i8* {meta_ptr}, i64 {}, i64 1, i8* {f_save})", layout_len + 1));
+        // Write global variable data
         for (symbol, llvm_ty, byte_sz) in &globals_snapshot {
             let load_tmp = self.fresh_tmp();
             self.emitln(&format!("  {load_tmp} = load {llvm_ty}, {llvm_ty}* @{symbol}"));
@@ -377,7 +391,7 @@ impl IrEmitter {
         self.emitln("  ret void");
         self.emitln("}\n");
 
-        // --- Restore function ---
+        // --- Restore function (7D.2: with layout verification) ---
         self.emitln("define void @xiom_hot_restore_state() {");
         self.emitln("entry:");
         let f_restore = self.fresh_tmp();
@@ -385,9 +399,25 @@ impl IrEmitter {
         let null_r = self.fresh_tmp();
         self.emitln(&format!("  {null_r} = icmp eq i8* {f_restore}, null"));
         let restore_body = self.fresh_block("hot_restore_body");
+        let restore_skip = self.fresh_block("hot_restore_skip");
         let restore_done = self.fresh_block("hot_restore_done");
         self.emitln(&format!("  br i1 {null_r}, label %{restore_done}, label %{restore_body}"));
         self.emitln(&format!("\n{restore_body}:"));
+        // 7D.2: Read and verify layout metadata before restoring
+        // If layout changed, skip restore (avoid corrupting state)
+        let meta_buf = self.fresh_tmp();
+        self.emitln(&format!("  {meta_buf} = alloca [{} x i8]", layout_len + 1));
+        let meta_bc = self.fresh_tmp();
+        self.emitln(&format!("  {meta_bc} = bitcast [{} x i8]* {meta_buf} to i8*", layout_len + 1));
+        self.emitln(&format!("  call i64 @fread(i8* {meta_bc}, i64 {}, i64 1, i8* {f_restore})", layout_len + 1));
+        // Compare layout metadata strings
+        let cmp_tmp = self.fresh_tmp();
+        self.emitln(&format!("  {cmp_tmp} = call i32 @strncmp(i8* {meta_bc}, i8* getelementptr inbounds ([{} x i8], [{} x i8]* @xiom_hot_layout_meta, i32 0, i32 0), i64 {})", layout_len + 1, layout_len + 1, layout_len));
+        let layout_ok = self.fresh_tmp();
+        self.emitln(&format!("  {layout_ok} = icmp eq i32 {cmp_tmp}, 0"));
+        self.emitln(&format!("  br i1 {layout_ok}, label %{restore_body}_data, label %{restore_skip}"));
+        // Data restore
+        self.emitln(&format!("\n{restore_body}_data:"));
         for (symbol, llvm_ty, byte_sz) in &globals_snapshot {
             let buf = self.fresh_tmp();
             self.emitln(&format!("  {buf} = alloca {llvm_ty}"));
@@ -398,6 +428,8 @@ impl IrEmitter {
             self.emitln(&format!("  {val} = load {llvm_ty}, {llvm_ty}* {buf}"));
             self.emitln(&format!("  store {llvm_ty} {val}, {llvm_ty}* @{symbol}"));
         }
+        self.emitln(&format!("  br label %{restore_skip}"));
+        self.emitln(&format!("\n{restore_skip}:"));
         self.emitln(&format!("  call i32 @fclose(i8* {f_restore})"));
         self.emitln(&format!("  br label %{restore_done}"));
         self.emitln(&format!("\n{restore_done}:"));

@@ -65,6 +65,7 @@ fn main() {
     let static_lib = args.iter().any(|a| a == "--static");
     let watch_mode = args.iter().any(|a| a == "--watch");
     let hot_reload = args.iter().any(|a| a == "--hot-reload");
+    let hot_reload_contracts = args.iter().any(|a| a == "--hot-reload-contracts");
     // 5e.5f: Incremental compilation flags
     let incremental = args.iter().any(|a| a == "--incremental");
     let force_recompile = args.iter().any(|a| a == "--force");
@@ -236,6 +237,7 @@ fn main() {
         link_paths,
         c_sources,
         hot_reload: false,  // set to true by hot reload loop below
+        hot_reload_contracts,
         incremental,
         force: force_recompile,
         parallel,
@@ -371,6 +373,7 @@ fn main() {
                 link_paths: vec![],
                 c_sources: vec![],
                 hot_reload: false,
+                hot_reload_contracts: false,
             };
             let result = xiomc::compile_with_diagnostics(&check_config, &[path.clone()]);
             let source = std::fs::read_to_string(path).unwrap_or_default();
@@ -425,6 +428,7 @@ fn print_usage() {
     eprintln!("  --shared            Compile as shared library (DLL)");
     eprintln!("  --watch             Watch source files and recompile on change");
     eprintln!("  --hot-reload        Hot reload mode: watch + shared library");
+    eprintln!("  --hot-reload-contracts  7D: Verify contracts before hot-swapping function pointers");
     eprintln!("  --incremental       5e.5f: Cache compiled IR, skip unchanged sources");
     eprintln!("  --force             5e.5f: Force recompile — ignore all caches");
     eprintln!("  --parallel          7C: Enable parallel lex+parse (rayon thread pool)");

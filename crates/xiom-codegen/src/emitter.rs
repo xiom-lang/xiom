@@ -174,6 +174,8 @@ impl IrEmitter {
             self.emitln("declare i64 @fwrite(i8*, i64, i64, i8*)");
             self.emitln("declare i64 @fread(i8*, i64, i64, i8*)");
             self.emitln("declare i32 @fclose(i8*)");
+            // 7D.2: string comparison for layout metadata verification
+            self.emitln("declare i32 @strncmp(i8*, i8*, i64)");
         }
         self.emitln("");
     }
