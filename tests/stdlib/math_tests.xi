@@ -195,6 +195,12 @@ fn test_sin_pi_half() -> TestResult {
   return assert(false, "math::sin(PI/2) ≈ 1");
 }
 
+fn test_sin_pi() -> TestResult {
+  var r = math.sin(math.PI);
+  if math.abs_float(r - 0.0) < 0.01 { return assert(true, "math::sin(PI) ≈ 0"); }
+  return assert(false, "math::sin(PI) ≈ 0");
+}
+
 fn test_cos_zero() -> TestResult {
   var r = math.cos(0.0);
   if math.abs_float(r - 1.0) < 0.0001 { return assert(true, "math::cos(0) ≈ 1"); }
@@ -205,6 +211,122 @@ fn test_cos_pi() -> TestResult {
   var r = math.cos(math.PI);
   if math.abs_float(r + 1.0) < 0.01 { return assert(true, "math::cos(PI) ≈ -1"); }
   return assert(false, "math::cos(PI) ≈ -1");
+}
+
+fn test_cos_pi_half() -> TestResult {
+  var r = math.cos(math.PI / 2.0);
+  if math.abs_float(r - 0.0) < 0.01 { return assert(true, "math::cos(PI/2) ≈ 0"); }
+  return assert(false, "math::cos(PI/2) ≈ 0");
+}
+
+fn test_tan_zero() -> TestResult {
+  var r = math.tan(0.0);
+  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::tan(0) ≈ 0"); }
+  return assert(false, "math::tan(0) ≈ 0");
+}
+
+fn test_tan_pi_quarter() -> TestResult {
+  var r = math.tan(math.PI / 4.0);
+  if math.abs_float(r - 1.0) < 0.05 { return assert(true, "math::tan(PI/4) ≈ 1"); }
+  return assert(false, "math::tan(PI/4) ≈ 1");
+}
+
+fn test_asin_zero() -> TestResult {
+  var r = math.asin(0.0);
+  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::asin(0) ≈ 0"); }
+  return assert(false, "math::asin(0) ≈ 0");
+}
+
+fn test_asin_one() -> TestResult {
+  var r = math.asin(1.0);
+  if math.abs_float(r - math.PI / 2.0) < 0.01 { return assert(true, "math::asin(1) ≈ PI/2"); }
+  return assert(false, "math::asin(1) ≈ PI/2");
+}
+
+fn test_acos_one() -> TestResult {
+  var r = math.acos(1.0);
+  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::acos(1) ≈ 0"); }
+  return assert(false, "math::acos(1) ≈ 0");
+}
+
+fn test_acos_zero() -> TestResult {
+  var r = math.acos(0.0);
+  if math.abs_float(r - math.PI / 2.0) < 0.01 { return assert(true, "math::acos(0) ≈ PI/2"); }
+  return assert(false, "math::acos(0) ≈ PI/2");
+}
+
+fn test_atan_zero() -> TestResult {
+  var r = math.atan(0.0);
+  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::atan(0) ≈ 0"); }
+  return assert(false, "math::atan(0) ≈ 0");
+}
+
+fn test_atan2_x_axis() -> TestResult {
+  var r = math.atan2(0.0, 1.0);
+  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::atan2(0,1) = 0"); }
+  return assert(false, "math::atan2(0,1) = 0");
+}
+
+fn test_atan2_y_axis() -> TestResult {
+  var r = math.atan2(1.0, 0.0);
+  if math.abs_float(r - math.PI / 2.0) < 0.01 { return assert(true, "math::atan2(1,0) ≈ PI/2"); }
+  return assert(false, "math::atan2(1,0) ≈ PI/2");
+}
+
+// Trig identity: sin² + cos² = 1
+fn test_trig_identity_sin2_cos2() -> TestResult {
+  var x = 0.7;
+  var s = math.sin(x);
+  var c = math.cos(x);
+  var sum = s * s + c * c;
+  if math.abs_float(sum - 1.0) < 0.0001 { return assert(true, "math::sin²+cos²=1"); }
+  return assert(false, "math::sin²+cos²=1");
+}
+
+// Trig identity: tan = sin / cos
+fn test_trig_identity_tan() -> TestResult {
+  var x = 0.5;
+  var t = math.tan(x);
+  var ratio = math.sin(x) / math.cos(x);
+  if math.abs_float(t - ratio) < 0.001 { return assert(true, "math::tan=sin/cos"); }
+  return assert(false, "math::tan=sin/cos");
+}
+
+// === Pure XIOM fallback tests (no libm required) ===
+
+fn test_sin_pure_zero() -> TestResult {
+  var r = math.sin_pure(0.0);
+  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::sin_pure(0) ≈ 0"); }
+  return assert(false, "math::sin_pure(0) ≈ 0");
+}
+
+fn test_cos_pure_zero() -> TestResult {
+  var r = math.cos_pure(0.0);
+  if math.abs_float(r - 1.0) < 0.0001 { return assert(true, "math::cos_pure(0) ≈ 1"); }
+  return assert(false, "math::cos_pure(0) ≈ 1");
+}
+
+fn test_atan_pure_zero() -> TestResult {
+  var r = math.atan_pure(0.0);
+  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::atan_pure(0) ≈ 0"); }
+  return assert(false, "math::atan_pure(0) ≈ 0");
+}
+
+// Verify pure and FFI implementations agree within tolerance
+fn test_sin_pure_vs_ffi() -> TestResult {
+  var x = 0.5;
+  var r1 = math.sin(x);
+  var r2 = math.sin_pure(x);
+  if math.abs_float(r1 - r2) < 0.001 { return assert(true, "math::sin vs sin_pure agree"); }
+  return assert(false, "math::sin vs sin_pure agree");
+}
+
+fn test_cos_pure_vs_ffi() -> TestResult {
+  var x = 1.0;
+  var r1 = math.cos(x);
+  var r2 = math.cos_pure(x);
+  if math.abs_float(r1 - r2) < 0.001 { return assert(true, "math::cos vs cos_pure agree"); }
+  return assert(false, "math::cos vs cos_pure agree");
 }
 
 // ============================================================
@@ -520,8 +642,16 @@ fn main() -> Int {
     test_ceil_positive, test_ceil_negative, test_ceil_zero,
     test_round,
     test_pow_2_3, test_pow_3_2, test_pow_5_0, test_pow_zero_base,
-    test_sin_zero, test_sin_pi_half,
-    test_cos_zero, test_cos_pi,
+    test_sin_zero, test_sin_pi_half, test_sin_pi,
+    test_cos_zero, test_cos_pi, test_cos_pi_half,
+    test_tan_zero, test_tan_pi_quarter,
+    test_asin_zero, test_asin_one,
+    test_acos_one, test_acos_zero,
+    test_atan_zero,
+    test_atan2_x_axis, test_atan2_y_axis,
+    test_trig_identity_sin2_cos2, test_trig_identity_tan,
+    test_sin_pure_zero, test_cos_pure_zero, test_atan_pure_zero,
+    test_sin_pure_vs_ffi, test_cos_pure_vs_ffi,
     test_exp_zero, test_exp_one,
     test_ln_one,
     test_clamp_in_range, test_clamp_below, test_clamp_above,
