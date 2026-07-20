@@ -797,6 +797,36 @@ impl Z3Runner {
     }
 }
 
+/// AI-06: Parse Z3 model text and extract counterexample (define-fun ...) values.
+/// Input: "(define-fun x () Int 5)\n(define-fun |result| () Int (- 5))\n"
+/// Output: [("x", "5"), ("result", "(- 5)")]
+pub fn parse_z3_model(model_text: &str) -> Vec<(String, String)> {
+    let mut values = Vec::new();
+    for line in model_text.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("(define-fun ") {
+            // Format: (define-fun NAME () SORT VALUE)
+            let name_end = rest.find(|c: char| c.is_whitespace() || c == '(').unwrap_or(rest.len());
+            let name = rest[..name_end].trim_matches('|').to_string();
+            // Skip past "() SORT " to get to VALUE
+            let after_sig = &rest[name_end..];
+            // Find the second ')' which closes "()" and skip past the sort
+            if let Some(close_paren) = after_sig.find(')') {
+                let after_sort = &after_sig[close_paren + 1..].trim(); // "SORT VALUE)"
+                // Split on space to skip SORT, then take VALUE
+                let parts: Vec<&str> = after_sort.splitn(2, ' ').collect();
+                if parts.len() >= 2 {
+                    let value = parts[1].trim_end_matches(')').trim().to_string();
+                    if !value.is_empty() && !name.is_empty() {
+                        values.push((name, value));
+                    }
+                }
+            }
+        }
+    }
+    values
+}
+
 // =========================================================================
 // Legacy helpers (kept for compatibility)
 // =========================================================================

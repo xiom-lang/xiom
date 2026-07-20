@@ -185,6 +185,8 @@ pub struct ContextSlice {
     pub error_code: String, pub error_type: String,
     pub error_line: u32,
     pub contract_clause: Option<String>,
+    /// Z3 counter-example values: e.g. {"x": "-1", "b": "0"}
+    pub counterexample: Option<Vec<(String, String)>>,
 }
 
 pub fn slice_error_context(source: &str, diag: &crate::Diagnostic) -> Option<ContextSlice> {
@@ -221,7 +223,45 @@ pub fn slice_error_context(source: &str, diag: &crate::Diagnostic) -> Option<Con
         contract = Some(diag.message.clone());
     }
     Some(ContextSlice { function_body: body, error_code: diag.code.clone(),
-        error_type: et.to_string(), error_line: diag.line, contract_clause: contract })
+        error_type: et.to_string(), error_line: diag.line, contract_clause: contract,
+        counterexample: None })
+}
+
+/// Parse z3 model text for counterexample values.
+/// Input: "sat\n(model\n  (define-fun x () Int 5)\n  (define-fun |result| () Int (- 5))\n)"
+/// Output: [("x", "5"), ("result", "-5")]
+pub fn parse_z3_model(model_text: &str) -> Vec<(String, String)> {
+    let mut values = Vec::new();
+    for line in model_text.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("(define-fun ") {
+            // Extract name (first token before space or '(')
+            let name_end = rest.find(|c: char| c.is_whitespace() || c == '(').unwrap_or(rest.len());
+            let name = rest[..name_end].trim_matches('|').to_string();
+            // Skip past the empty arg list "()"
+            if let Some(after_args) = rest[name_end..].find(')') {
+                let after = &rest[name_end + after_args..].trim();
+                // Extract value before closing paren
+                if let Some(val_end) = after.find(')') {
+                    let value = after[..val_end].trim().to_string();
+                    if !value.is_empty() && !name.is_empty() {
+                        values.push((name, value));
+                    }
+                }
+            }
+        }
+    }
+    values
+}
+
+/// Inject counterexample into an AI prompt for context-aware suggestions.
+pub fn inject_counterexample(ctx: &mut ContextSlice, z3_output: &str) {
+    if z3_output.contains("sat") && z3_output.contains("(define-fun") {
+        let ce = parse_z3_model(z3_output);
+        if !ce.is_empty() {
+            ctx.counterexample = Some(ce);
+        }
+    }
 }
 
 // =========================================================================
@@ -268,10 +308,15 @@ fn build_chat_prompt(ctx: &ContextSlice) -> Vec<serde_json::Value> {
             "XIOM Error [{code}] {etype} at line {line}\n\n\
              Code context:\n```xiom\n{body}\n```\n\n\
              {contract_hint}\
+             {counterexample_hint}\
              Task: What is the EXACT fix needed? Be specific.",
             code = ctx.error_code, etype = ctx.error_type, line = ctx.error_line,
             body = ctx.function_body,
-            contract_hint = ctx.contract_clause.as_ref().map(|c| format!("Failed contract: {c}\n\n")).unwrap_or_default()
+            contract_hint = ctx.contract_clause.as_ref().map(|c| format!("Failed contract: {c}\n\n")).unwrap_or_default(),
+            counterexample_hint = ctx.counterexample.as_ref().map(|ce| {
+                let vals: Vec<String> = ce.iter().map(|(k, v)| format!("  {} = {}", k, v)).collect();
+                format!("Z3 Counterexample (concrete violation):\n{}\n\n", vals.join("\n"))
+            }).unwrap_or_default()
         )}),
     ]
 }
