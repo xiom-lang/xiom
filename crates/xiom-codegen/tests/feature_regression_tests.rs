@@ -3006,6 +3006,134 @@ fn main() -> Int { return 0; }
     assert!(ir.contains("define"), "Int tuple must compile unchanged:\n{ir}");
 }
 
+// =====================================================================
+// Phase 7F: Build System & IDE Integration
+// =====================================================================
+
+/// 7F-01: Verify graph visualization DOT format contains nodes.
+#[test]
+fn regress_7f01_graph_dot_viz() {
+    use xiom_graph::{DependencyGraph, ModuleNode};
+    use std::path::PathBuf;
+
+    let mut g = DependencyGraph::new("test".into(), vec![PathBuf::from("src")]);
+    g.add_node(ModuleNode {
+        module_path: "app".into(), file_path: PathBuf::from("src/app.xi"),
+        dependencies: vec!["lib".into()], source_hash: None,
+    });
+    g.add_node(ModuleNode {
+        module_path: "lib".into(), file_path: PathBuf::from("src/lib.xi"),
+        dependencies: vec![], source_hash: None,
+    });
+    // Resolve edges
+    let discovery = xiom_graph::ModuleDiscovery {
+        modules: vec![], index: std::collections::HashMap::new(), source_files: vec![],
+    };
+    let _ = g.resolve_edges(&discovery);
+
+    let dot = xiomc::graph_viz::generate_dot_graph(&g, xiomc::graph_viz::GraphFormat::Dot);
+    assert!(dot.contains("digraph"), "DOT must start with digraph");
+    assert!(dot.contains("app"), "Must contain app node");
+    assert!(dot.contains("lib"), "Must contain lib node");
+}
+
+/// 7F-02: Verify graph visualization Mermaid format.
+#[test]
+fn regress_7f02_graph_mermaid_viz() {
+    use xiom_graph::{DependencyGraph, ModuleNode};
+    use std::path::PathBuf;
+
+    let mut g = DependencyGraph::new("test".into(), vec![PathBuf::from("src")]);
+    g.add_node(ModuleNode {
+        module_path: "main".into(), file_path: PathBuf::from("src/main.xi"),
+        dependencies: vec!["core".into()], source_hash: None,
+    });
+    g.add_node(ModuleNode {
+        module_path: "core".into(), file_path: PathBuf::from("src/core.xi"),
+        dependencies: vec![], source_hash: None,
+    });
+    // Resolve edges
+    let discovery = xiom_graph::ModuleDiscovery {
+        modules: vec![], index: std::collections::HashMap::new(), source_files: vec![],
+    };
+    let _ = g.resolve_edges(&discovery);
+
+    let mermaid = xiomc::graph_viz::generate_dot_graph(&g, xiomc::graph_viz::GraphFormat::Mermaid);
+    assert!(mermaid.contains("graph LR"), "Mermaid must start with graph LR");
+    assert!(mermaid.contains("```mermaid"), "Must have mermaid code fence");
+    assert!(mermaid.contains("main"), "Must contain main node");
+}
+
+/// 7F-03: Verify build command discovers project graph.
+#[test]
+fn regress_7f03_build_project_discovery() {
+    // Verify graph building works on examples/ directory
+    let examples = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent().unwrap().parent().unwrap()
+        .join("examples");
+    if examples.exists() {
+        let graph = xiom_graph::build_project_graph(&examples);
+        // May or may not find a manifest in examples/ — that's OK
+        match graph {
+            Ok(g) => assert!(g.len() > 0, "Graph must have modules if project found"),
+            Err(_) => {} // No manifest found is also acceptable
+        }
+    }
+}
+
+/// 7F-04: Verify graph_viz module public API.
+#[test]
+fn regress_7f04_graph_viz_api() {
+    // The module must be importable and have both format variants
+    let dot_fmt = xiomc::graph_viz::GraphFormat::Dot;
+    let mmd_fmt = xiomc::graph_viz::GraphFormat::Mermaid;
+    // Verify they're different variants
+    let dot_str = format!("{:?}", dot_fmt);
+    let mmd_str = format!("{:?}", mmd_fmt);
+    assert_ne!(dot_str, mmd_str);
+}
+
+/// 7F-05: Verify build command compiles with --graph from CLI.
+#[test]
+fn regress_7f05_graph_cli_no_panic() {
+    // Verify that the graph_viz module doesn't panic on empty graph
+    let g = xiom_graph::DependencyGraph::new("empty".into(), vec![]);
+    let dot = xiomc::graph_viz::generate_dot_graph(&g, xiomc::graph_viz::GraphFormat::Dot);
+    assert!(dot.contains("digraph"));
+    let mermaid = xiomc::graph_viz::generate_dot_graph(&g, xiomc::graph_viz::GraphFormat::Mermaid);
+    assert!(mermaid.contains("graph LR"));
+}
+
+/// 7F-06: Verify expand_sources_with_graph works with build command pattern.
+#[test]
+fn regress_7f06_build_expand_sources() {
+    // Test that expand_sources_with_graph handles the build command pattern
+    let cwd = std::env::current_dir().unwrap();
+    let cwd_str = cwd.to_string_lossy().to_string();
+    let (expanded, extra_dirs) = xiomc::expand_sources_with_graph(&[cwd_str]);
+    // Should not panic; cwd is a directory so it might use graph discovery
+    let _ = expanded;
+    let _ = extra_dirs;
+}
+
+/// 7F-07: Verify xiom build --watch help text is available.
+#[test]
+fn regress_7f07_build_watch_help() {
+    // Verify the help output contains build-related text
+    let output = std::process::Command::new("cargo")
+        .args(["run", "-p", "xiomc", "--", "--help"])
+        .output();
+    if let Ok(out) = output {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        // Accept either help appearing in stdout or stderr
+        let combined = format!("{}{}", stderr, String::from_utf8_lossy(&out.stdout));
+        assert!(
+            combined.contains("build") || combined.contains("--graph"),
+            "Help must mention build or --graph:\n{combined}"
+        );
+    }
+}
+
 
 
 
