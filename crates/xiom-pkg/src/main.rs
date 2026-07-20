@@ -265,6 +265,12 @@ fn main() {
         print_usage();
         return;
     }
+    if args.iter().any(|a| a == "--version") {
+        eprintln!("xiom-pkg v{} (XIOM v{})",
+            env!("CARGO_PKG_VERSION"),
+            option_env!("XIOM_RELEASE_VERSION").unwrap_or("0.49.7"));
+        return;
+    }
 
     // 5e.7b: Remote registry commands
     if let Some(cmd) = args.get(1) {
