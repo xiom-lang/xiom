@@ -149,7 +149,7 @@ impl SMTGenerator {
                             enss.iter().map(|e| { let mut b = String::new(); std::mem::swap(&mut self.buf, &mut b); self.translate_expr(e); std::mem::swap(&mut self.buf, &mut b); b }).collect::<Vec<_>>().join(" "))
                     };
                     self.emit(&format!("(assert (! (forall ({} {}) {}) :named |contract_{}|))",
-                        smt_params.iter().map(|_| format!("({})", smt_escape("x"))).collect::<Vec<_>>().join(" "),
+                        smt_params.join(" "),
                         smt_ret,
                         axiom_body,
                         smt_escape(name)));
@@ -552,10 +552,11 @@ impl SMTGenerator {
                 self.translate_expr(obj);
                 self.buf.push(')');
             }
-            // P1: unknown expressions → hard error instead of silent true
+            // 6C.4: unknown expressions → emit false to force verification failure
+            // (previously "true" — silently assumed contract satisfied)
             other => {
                 self.buf.push_str(&format!("; WARNING: unsupported expr {:?}", other));
-                self.buf.push_str("true");
+                self.buf.push_str("false");
             }
         }
     }

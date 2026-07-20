@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Write};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdout, Command, Stdio};
 
 // ============================================================================
 // DAP Protocol Types
@@ -50,6 +50,8 @@ struct DapEvent {
 
 struct GdbBackend {
     child: Option<Child>,
+    /// 6C.3: Persistent BufReader to avoid desync across send_mi calls
+    reader: Option<BufReader<ChildStdout>>,
     breakpoints: HashMap<u64, Breakpoint>,
     next_breakpoint_id: u64,
     program_path: Option<String>,
@@ -74,6 +76,8 @@ trait DebuggerBackend {
     fn exec_next(&mut self) -> Result<(), String>;
     fn exec_step(&mut self) -> Result<(), String>;
     fn pause(&mut self) -> Result<(), String>;
+    fn poll_stopped(&mut self) -> Result<Value, String>;
+    fn evaluate_expression(&mut self, expr: &str) -> Result<String, String>;
     fn thread_info(&mut self) -> Result<Vec<Value>, String>;
     fn stack_info(&mut self) -> Result<Vec<Value>, String>;
     fn list_variables(&mut self) -> Result<Vec<Value>, String>;
@@ -83,12 +87,7 @@ trait DebuggerBackend {
 
 impl GdbBackend {
     fn new() -> Self {
-        GdbBackend {
-            child: None,
-            breakpoints: HashMap::new(),
-            next_breakpoint_id: 1,
-            program_path: None,
-        }
+        GdbBackend { child: None, reader: None, breakpoints: HashMap::new(), next_breakpoint_id: 1, program_path: None }
     }
 
     /// Launch the XIOM binary under GDB control.
@@ -108,29 +107,34 @@ impl GdbBackend {
            .stdout(Stdio::piped())
            .stderr(Stdio::inherit());
 
-        let child = cmd.spawn().map_err(|e| format!("Failed to spawn GDB: {e}"))?;
+        let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn GDB: {e}"))?;
+        // 6C.3: Take ownership of stdout for persistent buffered reader
+        let stdout = child.stdout.take().ok_or("Failed to capture GDB stdout")?;
+        self.reader = Some(BufReader::new(stdout));
         self.child = Some(child);
         self.program_path = Some(program.to_string());
 
         Ok(())
     }
 
-    /// Send a GDB/MI command and read the response.
+    /// 6C.3: Send a GDB/MI command and read the response using persistent reader.
+    /// Also detects *stopped async records and returns them for event generation.
     fn send_mi(&mut self, cmd: &str) -> Result<String, String> {
         let child = self.child.as_mut().ok_or("No debug session")?;
         let stdin = child.stdin.as_mut().ok_or("No stdin")?;
         writeln!(stdin, "{cmd}").map_err(|e| format!("GDB write error: {e}"))?;
         stdin.flush().map_err(|e| format!("GDB flush error: {e}"))?;
 
-        // Read stdout until we get a complete MI record (ends with ^done, ^error, etc.)
-        let stdout = child.stdout.as_mut().ok_or("No stdout")?;
-        let reader = BufReader::new(stdout);
+        let reader = self.reader.as_mut().ok_or("No stdout reader")?;
         let mut response = String::new();
-        for line in reader.lines() {
-            let line = line.map_err(|e| format!("GDB read error: {e}"))?;
+        loop {
+            let mut line = String::new();
+            let n = reader.read_line(&mut line).map_err(|e| format!("GDB read error: {e}"))?;
+            if n == 0 { break; }
             response.push_str(&line);
-            response.push('\n');
-            if line.starts_with('^') || line.starts_with('*') {
+            // Stop on synchronous result record or async exec record
+            let trimmed = line.trim();
+            if trimmed.starts_with('^') || trimmed.starts_with("*stopped") || trimmed.starts_with("*running") {
                 break;
             }
         }
@@ -289,6 +293,45 @@ impl DebuggerBackend for GdbBackend {
         }
         Ok(())
     }
+
+    /// 6C.3: Poll for *stopped async record from GDB.
+    fn poll_stopped(&mut self) -> Result<Value, String> {
+        // Read any pending async records (*stopped, *running)
+        if let Some(ref mut reader) = self.reader {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) => return Err("EOF".to_string()),
+                Ok(_) => {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("*stopped") {
+                        let reason = if trimmed.contains("breakpoint-hit") { "breakpoint" }
+                            else if trimmed.contains("end-stepping-range") { "step" }
+                            else { "pause" };
+                        let desc = trimmed.replacen("*stopped,", "", 1);
+                        return Ok(json!({"reason": reason, "description": desc, "threadId": 1, "allThreadsStopped": true}));
+                    } else if trimmed.starts_with("*running") {
+                        return Ok(json!({"reason": "continued", "threadId": 1}));
+                    }
+                    return Ok(json!({"reason": "unknown"}));
+                }
+                Err(e) => return Err(format!("read error: {e}")),
+            }
+        }
+        Err("no reader".to_string())
+    }
+
+    /// 6C.3: Evaluate expression in debugger context.
+    fn evaluate_expression(&mut self, expr: &str) -> Result<String, String> {
+        let resp = self.send_mi(&format!("-data-evaluate-expression \"{expr}\""))?;
+        // Parse MI result: ^done,value="<val>"
+        if let Some(val_start) = resp.find("value=\"") {
+            let after = &resp[val_start + 7..];
+            if let Some(val_end) = after.find('"') {
+                return Ok(after[..val_end].to_string());
+            }
+        }
+        Ok(resp)
+    }
     fn thread_info(&mut self) -> Result<Vec<Value>, String> { GdbBackend::thread_info(self) }
     fn stack_info(&mut self) -> Result<Vec<Value>, String> { GdbBackend::stack_info(self) }
     fn list_variables(&mut self) -> Result<Vec<Value>, String> { GdbBackend::list_variables(self) }
@@ -416,6 +459,12 @@ impl DebuggerBackend for CdbBackend {
     fn exec_next(&mut self) -> Result<(), String> { self.exec_next_impl() }
     fn exec_step(&mut self) -> Result<(), String> { self.exec_step_impl() }
     fn pause(&mut self) -> Result<(), String> { let _ = self.send_cmd(".break"); Ok(()) }
+    fn poll_stopped(&mut self) -> Result<Value, String> {
+        Ok(json!({"reason": "pause", "threadId": 0, "allThreadsStopped": true}))
+    }
+    fn evaluate_expression(&mut self, expr: &str) -> Result<String, String> {
+        self.send_cmd(&format!("? {expr}"))
+    }
     fn thread_info(&mut self) -> Result<Vec<Value>, String> { self.thread_info_impl() }
     fn stack_info(&mut self) -> Result<Vec<Value>, String> { self.stack_info_impl() }
     fn list_variables(&mut self) -> Result<Vec<Value>, String> { self.list_variables_impl() }
@@ -573,21 +622,49 @@ fn handle_request(backend: &mut dyn DebuggerBackend, req: &DapRequest) {
 
         "continue" => {
             match backend.exec_continue() {
-                Ok(()) => send_response(req.seq, &req.command, true, Some(json!({"allThreadsContinued": true})), None),
+                Ok(()) => {
+                    send_response(req.seq, &req.command, true, Some(json!({"allThreadsContinued": true})), None);
+                    // 6C.3: Poll for *stopped event after continue
+                    if let Ok(info) = backend.poll_stopped() {
+                        send_event("stopped", Some(info));
+                    }
+                }
                 Err(e) => send_response(req.seq, &req.command, false, None, Some(e)),
             }
         }
 
         "next" => {
             match backend.exec_next() {
-                Ok(()) => send_response(req.seq, &req.command, true, None, None),
+                Ok(()) => {
+                    send_response(req.seq, &req.command, true, None, None);
+                    if let Ok(info) = backend.poll_stopped() {
+                        send_event("stopped", Some(info));
+                    }
+                }
                 Err(e) => send_response(req.seq, &req.command, false, None, Some(e)),
             }
         }
 
         "stepIn" => {
             match backend.exec_step() {
-                Ok(()) => send_response(req.seq, &req.command, true, None, None),
+                Ok(()) => {
+                    send_response(req.seq, &req.command, true, None, None);
+                    if let Ok(info) = backend.poll_stopped() {
+                        send_event("stopped", Some(info));
+                    }
+                }
+                Err(e) => send_response(req.seq, &req.command, false, None, Some(e)),
+            }
+        }
+
+        // 6C.3: DAP evaluate handler — variable watch, REPL, hover
+        "evaluate" => {
+            let expr = args["expression"].as_str().unwrap_or("0");
+            match backend.evaluate_expression(expr) {
+                Ok(result) => send_response(req.seq, &req.command, true, Some(json!({
+                    "result": result,
+                    "variablesReference": 0,
+                })), None),
                 Err(e) => send_response(req.seq, &req.command, false, None, Some(e)),
             }
         }
