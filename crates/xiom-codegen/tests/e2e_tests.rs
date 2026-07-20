@@ -1077,6 +1077,52 @@ fn e2e_g24_float32_arm_abi() {
 }
 
 // ============================================================================
+// 6A.1: Type Checker Hardening — Self + Interface compatibility e2e tests
+// ============================================================================
+
+/// Verify Self compatibility is maintained (existing test proves this).
+/// e2e_method_match_self_enum already covers Self-as-receiver matching.
+/// NOTE: `-> Self` return type resolution is a separate Phase 6 gap
+/// (checker does not resolve Self to concrete type in return position yet).
+#[test]
+fn e2e_self_compat_method_receiver() {
+    // Use existing test file that compiles and runs correctly
+    let output = std::process::Command::new(xiomc_path())
+        .args(["examples/e2e/method_match_self_enum.xi", "--run"])
+        .current_dir(project_root())
+        .output()
+        .expect("xiomc");
+    assert!(output.status.success(),
+        "Self receiver matching must work. stderr: {}",
+        String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.status.code(), Some(0));
+}
+
+/// Verify interface name is compatible with concrete implementor type.
+#[test]
+fn e2e_interface_compat_with_implementor() {
+    let test_file = project_root().join("e2e_iface_compat_test.xi");
+    std::fs::write(&test_file, r#"
+interface Drawable { fn draw(self); }
+type Circle = { r: Float64; }
+fn Circle.draw(self) { }
+fn make() -> Drawable { return Circle { r: 1.0 }; }
+fn main() -> Int { return 0; }
+"#).expect("write test file");
+
+    let output = std::process::Command::new(xiomc_path())
+        .args([&test_file.to_string_lossy(), "--run"])
+        .current_dir(project_root())
+        .output()
+        .expect("xiomc");
+    let _ = std::fs::remove_file(&test_file);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(),
+        "Interface must be compatible with implementor. stderr: {stderr}");
+}
+
+// ============================================================================
 // AI-08: --ai-strict CI/CD gating regression
 // ============================================================================
 

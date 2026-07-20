@@ -20,6 +20,21 @@ fn compile_hot_reload(source: &str) -> Result<String, String> {
     emitter.compile_program(&program)
 }
 
+/// Compile with full type-checking enabled. Returns Err on type errors.
+fn compile_checked(source: &str) -> Result<String, String> {
+    let tokens = Lexer::new(source).tokenize();
+    let program = Parser::new(tokens).parse_program().map_err(|e| e.to_string())?;
+    // Run the full checker on the program
+    let mut checker = xiom_check::Checker::new();
+    checker.collect_signatures(&program);
+    checker.check_all_bodies(&program);
+    if checker.has_errors() {
+        return Err("type error".to_string());
+    }
+    let mut emitter = IrEmitter::new();
+    emitter.compile_program(&program)
+}
+
 // =====================================================================
 // Lexer features
 // =====================================================================
@@ -1780,3 +1795,70 @@ fn main() -> Int { return 0; }
     // Should compile (consts resolve to whatever, just not crash)
     assert!(ir.contains("ret i64 0"), "Should not crash on cycle:\n{ir}");
 }
+
+// =====================================================================
+// 6A.1: Type Checker Hardening — types_compatible regression tests
+// =====================================================================
+
+/// REJECT: two different named types must fail type checking.
+/// Before 6A.1, `(Named(_), Named(_)) => true` allowed Point = Color.
+#[test]
+fn regress_6a1_named_mismatch_must_fail() {
+    let src = r#"
+type Point { x: Int, y: Int }
+type Color { r: Int, g: Int, b: Int }
+fn takes_point(p: Point) -> Int { return p.x; }
+fn main() -> Int {
+  return takes_point(Color { r: 1, g: 2, b: 3 });
+}"#;
+    let result = compile_checked(src);
+    assert!(result.is_err(),
+        "T001: Point != Color must be rejected. Got: {:?}", result);
+}
+
+/// REJECT: Str must NOT be compatible with Int.
+#[test]
+fn regress_6a1_str_not_int_must_fail() {
+    let src = r#"
+fn takes_int(x: Int) -> Int { return x; }
+fn main() -> Int {
+  return takes_int("hello");
+}"#;
+    let result = compile_checked(src);
+    assert!(result.is_err(),
+        "T001: Str must not be compatible with Int. Got: {:?}", result);
+}
+
+/// ACCEPT: Self is an alias for the concrete receiver type.
+/// Must use full xiomc pipeline since it requires module-level resolution.
+/// Tested via e2e: e2e_method_match_self_enum
+// regress_6a1_self_alias_must_pass → moved to e2e_tests
+
+/// ACCEPT: Interface name compatible with concrete implementor.
+/// Must use full xiomc pipeline since it requires interface scanning.
+/// Tested via e2e: e2e_cross_package_extern (exercises interface dispatch)
+// regress_6a1_interface_implementor_must_pass → moved to e2e_tests
+
+/// ACCEPT: Vec literal passed to Array parameter must be compatible.
+#[test]
+fn regress_6a1_vec_array_compat_must_pass() {
+    let src = r#"
+fn sum(arr: [5]Int) -> Int {
+  var total: Int = 0;
+  var i: Int = 0;
+  while i < 5 {
+    total = total + arr[i];
+    i = i + 1;
+  }
+  return total;
+}
+fn main() -> Int {
+  return sum([10, 20, 30, 40, 50]);
+}"#;
+    let ir = compile_checked(src).expect("Vec must be compatible with Array parameter");
+    // sum should be 150
+    assert!(ir.contains("ret i64"), "Should compile. IR:\n{ir}");
+}
+
+// ACCEPT: Self is an alias — tested via e2e_method_match_self_enum
+// ACCEPT: Interface compatible — tested via e2e_interface_compat_with_implementor
