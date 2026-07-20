@@ -315,28 +315,6 @@ Contents:
 Need dependencies? Run install_deps.ps1 from the source repo first.
 "@ | Out-File -FilePath "$pkgDir\README.txt" -Encoding ASCII
 
-# 5e.7c: Digital signing (Authenticode) — called before ZIP if -Sign is specified
-if ($Sign) {
-    Write-Host ""
-    Write-Host "  Code signing binaries..." -ForegroundColor Cyan
-    $signArgs = @{
-        Path = $binDir
-    }
-    if ($CertificateThumbprint) { $signArgs.CertificateThumbprint = $CertificateThumbprint }
-    if ($CertificatePath)       { $signArgs.CertificatePath       = $CertificatePath }
-    if ($CertificatePassword)   { $signArgs.CertificatePassword   = $CertificatePassword }
-
-    $signScript = "$root\sign.ps1"
-    if (Test-Path $signScript) {
-        & $signScript @signArgs
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  WARNING: Signing had errors — continuing with unsigned package." -ForegroundColor Yellow
-        }
-    } else {
-        Write-Host "  WARNING: sign.ps1 not found — skipping signing." -ForegroundColor Yellow
-    }
-}
-
 # Create ZIP
 $zipName = "xiom-v$Version-windows-x64.zip"
 $zipPath = "$releaseDir\$zipName"
@@ -347,3 +325,21 @@ Write-Host "  Release packaged:" -ForegroundColor Green
 Write-Host "    Folder: $pkgDir" -ForegroundColor Green
 Write-Host "    ZIP:    $zipPath" -ForegroundColor Green
 Write-Host ""
+
+# 5e.7c: Digital signing (Authenticode)
+if ($Sign) {
+    Write-Host "  Code signing binaries..." -ForegroundColor Cyan
+    $signArgs = @{ Path = $binDir }
+    if ($CertificateThumbprint) { $signArgs.CertificateThumbprint = $CertificateThumbprint }
+    if ($CertificatePath)       { $signArgs.CertificatePath       = $CertificatePath }
+    if ($CertificatePassword)   { $signArgs.CertificatePassword   = $CertificatePassword }
+    $signScript = "$root\sign.ps1"
+    if (Test-Path $signScript) {
+        & $signScript @signArgs
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  WARNING: Signing had errors" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "  WARNING: sign.ps1 not found" -ForegroundColor Yellow
+    }
+}
