@@ -110,6 +110,17 @@ fn main() {
         .unwrap_or(10);
     let init_mode = args.iter().any(|a| a == "init");
     let new_mode = args.iter().any(|a| a == "new");
+    let build_mode = args.iter().any(|a| a == "build");
+    let graph_mode = args.iter().any(|a| a == "--graph");
+    let graph_format = if args.iter().any(|a| a == "--graph=mermaid" || a == "--graph-format=mermaid") {
+        Some("mermaid")
+    } else if args.iter().any(|a| a == "--graph=dot" || a == "--graph-format=dot") {
+        Some("dot")
+    } else if graph_mode {
+        Some("dot") // default
+    } else {
+        None
+    };
     let new_name: Option<String> = args.iter().position(|a| a == "new")
         .and_then(|i| args.get(i + 1).cloned())
         .filter(|n| !n.starts_with('-'));
@@ -218,7 +229,8 @@ fn main() {
     }
 
     let source_paths = resolve_source_files(&args);
-    if source_paths.is_empty() && !test_mode {
+
+    if source_paths.is_empty() && !test_mode && !build_mode && !graph_mode {
         eprintln!("error: no source file(s) provided");
         process::exit(1);
     }
@@ -258,6 +270,57 @@ fn main() {
         parallel,
         jobs,
     };
+
+    // 7F.2: Build graph visualization
+    if let Some(fmt) = graph_format {
+        let first = if !source_paths.is_empty() {
+            std::path::Path::new(&source_paths[0]).to_path_buf()
+        } else {
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+        };
+        match xiom_graph::build_project_graph(&first) {
+            Ok(graph) => {
+                let format = if fmt == "mermaid" {
+                    xiomc::graph_viz::GraphFormat::Mermaid
+                } else {
+                    xiomc::graph_viz::GraphFormat::Dot
+                };
+                let output = xiomc::graph_viz::generate_dot_graph(&graph, format);
+                println!("{output}");
+            }
+            Err(e) => {
+                eprintln!("error: cannot build dependency graph: {e}");
+                process::exit(1);
+            }
+        }
+        return;
+    }
+
+    // 7F.1: Build daemon mode
+    if build_mode && !watch_mode {
+        if !source_paths.is_empty() {
+            let (resolved, _) = xiomc::expand_sources_with_graph(&source_paths);
+            compile(&config, &resolved);
+        } else {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            if let Ok(graph) = xiom_graph::build_project_graph(&cwd) {
+                eprintln!("Build: {} ({} modules)", graph.project_name, graph.len());
+                match graph.compilation_order() {
+                    Ok(order) => {
+                        let files: Vec<String> = order.iter()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .collect();
+                        compile(&config, &files);
+                    }
+                    Err(e) => { eprintln!("error: {e}"); process::exit(1); }
+                }
+            } else {
+                eprintln!("error: no xiom.toml or package.xi found. Run 'xiom init' first.");
+                process::exit(1);
+            }
+        }
+        return;
+    }
 
     // --sandbox: run safety audit and exit (skips compilation unless --sandbox=strict passes)
     let sandbox_mode = args.iter().any(|a| a == "--sandbox" || a.starts_with("--sandbox="));
@@ -449,6 +512,10 @@ fn print_usage() {
     eprintln!("  --hot-reload-contracts  7D: Verify contracts before hot-swapping function pointers");
     eprintln!("  --sanitize=<type>    7E.1: Enable sanitizer (address, undefined, leak, thread)");
     eprintln!("  --stack-protector    7E.2: Enable stack canaries (-fstack-protector)");
+    eprintln!("  --graph             7F.2: Output dependency graph (DOT format)");
+    eprintln!("  --graph=mermaid     7F.2: Output dependency graph (Mermaid format)");
+    eprintln!("  build               7F.1: Build entire project (from xiom.toml)");
+    eprintln!("  build --watch       7F.1: Build daemon — watch and rebuild on changes");
     eprintln!("  --runtime-contracts  7E.4: Force runtime contract checks (even in release mode)");
     eprintln!("  --no-contracts       Disable all contract checks (faster, less safe)");
     eprintln!("  --incremental       5e.5f: Cache compiled IR, skip unchanged sources");
