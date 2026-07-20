@@ -199,19 +199,29 @@ fn install_from_registry(package: &str, version: Option<&str>, registry: &str) -
 }
 
 fn http_get_binary(url: &str) -> Result<Vec<u8>, String> {
-    // Use curl for binary downloads
+    // Use curl for binary downloads (available on all modern OS)
     if let Ok(output) = process::Command::new("curl").args(["-s", "-L", url]).output() {
         if output.status.success() {
             return Ok(output.stdout);
         }
     }
+    // 6C.1: Fixed PowerShell fallback — use -OutFile for binary, then read file
     #[cfg(windows)]
     {
+        let tmp = std::env::temp_dir().join(format!("xiom_pkg_dl_{}", std::process::id()));
         if let Ok(output) = process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", &format!("[System.Convert]::FromBase64String((Invoke-WebRequest -Uri '{url}' -UseBasicParsing).Content)")])
+            .args(["-NoProfile", "-Command",
+                   &format!("Invoke-WebRequest -Uri '{url}' -OutFile '{}' -UseBasicParsing",
+                            tmp.to_string_lossy().replace('\'', "''"))])
             .output()
         {
-            if output.status.success() { return Ok(output.stdout); }
+            if output.status.success() {
+                if let Ok(data) = std::fs::read(&tmp) {
+                    let _ = std::fs::remove_file(&tmp);
+                    return Ok(data);
+                }
+                let _ = std::fs::remove_file(&tmp);
+            }
         }
     }
     Err(format!("Cannot download binary from {url}"))
