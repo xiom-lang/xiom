@@ -94,9 +94,6 @@ if (Test-Path $z3Src) {
 } else {
     Write-Host "    - z3.exe not found (install Z3 for contract verification)" -ForegroundColor Yellow
 }
-    Write-Host "    + xiom-icon.ico" -ForegroundColor DarkGray
-}
-
 # Copy stdlib + runtime
 $stdlibSrc = "$root\stdlib"
 if (Test-Path $stdlibSrc) {
