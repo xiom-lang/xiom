@@ -1,0 +1,127 @@
+name: XIOM CI
+
+on:
+  push:
+    branches: [main, feat/architect]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.vscode/**'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Build & Test (Windows MSVC + LLVM)
+  # -----------------------------------------------------------------------
+  build-test:
+    name: Build & Test (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install LLVM
+        run: |
+          choco install llvm --version=18.1.8 -y --no-progress
+          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Verify tools
+        run: |
+          rustc --version
+          cargo --version
+          clang --version
+
+      - name: Build (debug)
+        run: cargo build --workspace
+
+      - name: Build (release)
+        run: cargo build --release -p xiomc
+
+      - name: Test (all crates)
+        run: cargo test --all -- --test-threads=2
+        timeout-minutes: 15
+
+      - name: Test summary (PowerShell)
+        run: powershell -ExecutionPolicy Bypass -File .\test_summary.ps1
+        timeout-minutes: 15
+
+      - name: Lint (clippy)
+        run: cargo clippy --all-targets -- -D warnings
+        continue-on-error: true
+
+  # -----------------------------------------------------------------------
+  # Build check (Linux) — cross-platform source validation only
+  # -----------------------------------------------------------------------
+  build-linux:
+    name: Build Check (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build check (no clang needed)
+        run: cargo check --workspace
+
+      - name: Test (non-native tests only)
+        run: cargo test --workspace -- --skip e2e --skip diff --skip full_diff --skip stdlib_exec
+        continue-on-error: true
+
+  # -----------------------------------------------------------------------
+  # Format check
+  # -----------------------------------------------------------------------
+  format:
+    name: Format Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
