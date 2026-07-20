@@ -1,4 +1,4 @@
-// XIOM — Feature Regression Tests
+﻿// XIOM - Feature Regression Tests
 // Locks in every syntax/semantic feature added during stdlib hardening.
 
 use xiom_lexer::Lexer;
@@ -294,7 +294,7 @@ fn regress_primitive_eq() {
 }
 
 // =====================================================================
-// Ecosystem compiler gaps (COMPILER_GAPS.md) — lock in that each spec-valid
+// Ecosystem compiler gaps (COMPILER_GAPS.md) - lock in that each spec-valid
 // pattern the production ecosystem uses parses + emits IR. Every one of these
 // was a reported gap in xiomc v0.11.0; these tests prevent regression.
 // =====================================================================
@@ -535,7 +535,7 @@ fn regress_5cr_collect_check_split() {
 fn regress_5cr_type_interning_dedup() {
     // Type interning: same type string interns to same TypeId
     let ir = compile("type A = { x: Int; } type B = { y: Int; } fn main() -> Int { return 0; }").unwrap();
-    // Both A and B have Int fields — type interning deduplicates Int
+    // Both A and B have Int fields - type interning deduplicates Int
     assert!(ir.contains("define"), "multiple type declarations must compile");
 }
 
@@ -561,7 +561,7 @@ fn regress_5cr_place_model_disjoint_fields() {
 
 #[test]
 fn regress_5cr_place_model_prefix_conflict() {
-    // Place model: prefix rule — &a.b vs use of a.b.c = conflict
+    // Place model: prefix rule - &a.b vs use of a.b.c = conflict
     let a = xiom_check::borrow::Place::from_local("a").field("b");
     let b = xiom_check::borrow::Place::from_local("a").field("b").field("c");
     assert_eq!(
@@ -763,7 +763,7 @@ fn main() -> Int {
 #[test]
 fn regress_5c_e_vec_param_by_value_ir_valid() {
     // Vec passed by value to a function must produce valid IR with consistent
-    // types — no ptr->%struct.Vec mismatch. This catches the LLVM opaque-
+    // types - no ptr->%struct.Vec mismatch. This catches the LLVM opaque-
     // pointer coercion gap in wrapper.xi-style FFI.
     let src = r#"
 fn buffer_write(verts: Vec[Float32]) -> Int {
@@ -967,7 +967,7 @@ fn main() -> Int {
 }
 
 // ============================================================================
-// 5c-E: Deep chain hardening — string concatenation chains
+// 5c-E: Deep chain hardening - string concatenation chains
 // ============================================================================
 
 /// Locks in the fix for deep same-operator chains (iterative BinOp flattening).
@@ -1068,7 +1068,7 @@ fn main() -> Int {
     assert!(!ir.contains("call i64 @len"), "bytes.len() must NOT lower to undefined @len");
 }
 
-/// Gap E: `r.unwrap_err()` where r: Result[Int, Str] — the error payload
+/// Gap E: `r.unwrap_err()` where r: Result[Int, Str] - the error payload
 /// extraction must be typed (i8* for Str) so `.len()` dispatches correctly.
 #[test]
 fn regress_5d_unwrap_err_typed() {
@@ -1111,7 +1111,7 @@ fn main() -> Int {
     assert!(!ir.contains("call i64 @len"), "msg.len() must NOT lower to undefined @len");
 }
 
-/// Gap B: Vec[T].with_capacity(n) — parity with Vec[T].new().
+/// Gap B: Vec[T].with_capacity(n) - parity with Vec[T].new().
 #[test]
 fn regress_5d_vec_with_capacity() {
     let src = r#"
@@ -1124,7 +1124,7 @@ fn main() -> Int {
     assert!(ir.contains("define"), "with_capacity must compile");
 }
 
-/// G-36: Vec[T].clone() — deep copy with buffer independence.
+/// G-36: Vec[T].clone() - deep copy with buffer independence.
 /// Previously unregistered ("cannot call 'clone'"); ecosystem modules wrote
 /// manual copy_vec_* push-loop helpers (opencv, torch, onnx, imgui).
 #[test]
@@ -1200,7 +1200,7 @@ fn main() -> Int {
 // G-20: same-type first params are REAL args (silent-swap class killed)
 // ============================================================================
 
-/// G-20a: `fn V2.lerp(other: V2, t: Float32)` — a by-VALUE first param of the
+/// G-20a: `fn V2.lerp(other: V2, t: Float32)` - a by-VALUE first param of the
 /// receiver type is a REAL argument. The old type-only heuristic hijacked it
 /// as the receiver, shifting every argument (checker T001 cross-module,
 /// silent swap same-module). Arity + by-ref rules now disambiguate.
@@ -1229,7 +1229,7 @@ fn main() -> Int {
 }
 
 /// G-20b: bare receiver-field bodies get a real %param_self slot and GEP
-/// bindings — `fn Counter.inc() -> Int { return val + 1; }` reads the actual
+/// bindings - `fn Counter.inc() -> Int { return val + 1; }` reads the actual
 /// receiver value instead of garbage.
 #[test]
 fn regress_5d_g20_bare_field_receiver_slot() {
@@ -1249,7 +1249,7 @@ fn main() -> Int {
 }
 
 /// G-20c: receiver-style `fn T.method(h: &T, ...)` (by-REFERENCE first param)
-/// is preserved — the 5c.29 http/sqlite convention: the receiver arrives AS
+/// is preserved - the 5c.29 http/sqlite convention: the receiver arrives AS
 /// the named first param and fields are accessed THROUGH it (h.x). Call-site
 /// arity (args == params-1) routes the receiver into `h`.
 #[test]
@@ -1274,7 +1274,7 @@ fn main() -> Int {
 /// with an actionable message instead of silently reading garbage.
 #[test]
 fn regress_5d_g20_bare_field_without_slot_errors() {
-    // `x` is shadowed by a local in one branch — the OTHER bare use has no
+    // `x` is shadowed by a local in one branch - the OTHER bare use has no
     // slot (receiver-style needs &T; this is by-value → real-arg method with
     // no receiver state detected because `x` is bound as a local somewhere).
     let src = r#"
@@ -1284,14 +1284,14 @@ pub fn P.bad(other: P) -> Float32 {
   return x + other.x;
 }
 fn main() -> Int { return 0; }"#;
-    // This one is fine (x is a local everywhere) — must compile.
+    // This one is fine (x is a local everywhere) - must compile.
     let ok = compile(src);
     assert!(ok.is_ok(), "locally-shadowed field name must compile: {:?}", ok.err());
 }
 
 /// G-13: derive[Clone] on enums with heap payloads (Str/Vec). The old
 /// field-by-field clone copied only ["discriminant"], dropping payload slots.
-/// Clone is now a total by-value copy (`ret %self`) — uniform shallow
+/// Clone is now a total by-value copy (`ret %self`) - uniform shallow
 /// semantics with derived struct clone. Checker registers enum derives.
 #[test]
 fn regress_5d_g13_enum_derive_clone_heap_payloads() {
@@ -1324,7 +1324,7 @@ fn main() -> Int {
   }
 }"#;
     let ir = compile(src).unwrap();
-    // Clone must be the total by-value copy — no partial field loop.
+    // Clone must be the total by-value copy - no partial field loop.
     assert!(
         ir.contains("define %struct.Value @Value.clone(%struct.Value %self)"),
         "enum clone must be emitted"
@@ -1335,7 +1335,7 @@ fn main() -> Int {
     );
 }
 
-/// G-44: `&out as *mut UInt8` — local cast to pointer must produce the
+/// G-44: `&out as *mut UInt8` - local cast to pointer must produce the
 /// alloca ADDRESS (bitcast), not the loaded value (inttoptr). Xiom binds
 /// `&` with LOWER precedence than `as`, so the As handler sees a bare
 /// `Ident`, not a `Ref`. Fixed by detecting local→pointer cast BEFORE
@@ -1365,7 +1365,7 @@ fn main() -> Int {
     );
 }
 
-/// G-28: E001 false-move on extern out-params — Place-model (5c-R) already
+/// G-28: E001 false-move on extern out-params - Place-model (5c-R) already
 /// resolved this. The pattern `&local as *T` + extern write-back must NOT
 /// trigger "use of moved value". Locking with a regression.
 #[test]
@@ -1493,13 +1493,13 @@ fn main() -> Int {
 }"#;
     let ir = compile(src).unwrap();
     assert!(ir.contains("define"), "fn-ptr cast must compile");
-    // LLVM must NOT reject the type — the IR must be valid.
+    // LLVM must NOT reject the type - the IR must be valid.
     assert!(ir.contains("declare i64 @get_handler"), "extern fn must be declared");
     assert!(ir.contains("declare void @register_callback"), "callback registration must be declared");
 }
 
 /// G-16 (5e.2): XIOM fn → C callback lowering. `my_handler as Int` emits
-/// `ptrtoint {fn_ty} @my_handler to i64` — the XIOM function's address is
+/// `ptrtoint {fn_ty} @my_handler to i64` - the XIOM function's address is
 /// passed to the extern callback registry as an integer pointer.
 #[test]
 fn regress_5e_g16_xiom_fn_as_c_callback() {
@@ -1546,7 +1546,7 @@ fn main() -> Int {
 "#;
     let ir = compile(src).expect("sizeof smoke must compile");
     assert!(ir.contains("%struct.MixedStruct"), "MixedStruct type must be emitted");
-    // sizeof must be fully inlined — no call to @sizeof remains in the IR
+    // sizeof must be fully inlined - no call to @sizeof remains in the IR
     assert!(!ir.contains("@sizeof"), "sizeof must be fully inlined, not a call:\n{ir}");
     // The result of sizeof[MixedStruct] should appear as a literal 19
     assert!(ir.contains("i64 19") || ir.contains("19,"), "sizeof[MixedStruct] must be inlined as 19:\n{ir}");
@@ -1575,7 +1575,7 @@ fn main() -> Int {
 
 /// CG-01b: Int32→Float32 cast must emit `sitofp i64 to float`, not
 /// produce "%tmp defined with type 'i32' but expected 'float'" LLVM error.
-/// Verified fixed in v0.48.8 — agent report from v0.48.6 was stale.
+/// Verified fixed in v0.48.8 - agent report from v0.48.6 was stale.
 #[test]
 fn regress_cg01_int32_to_float32_cast() {
     let src = "fn main() -> Int { var x: Int32 = 42; var y: Float32 = x as Float32; if y > 41.0 { return 0; } return 1; }";
@@ -1660,7 +1660,7 @@ fn regress_5e_hot_reload_state_disabled() {
 }
 
 // =====================================================================
-// 5e.7d Derive macro improvement tests — enum payload-aware derives
+// 5e.7d Derive macro improvement tests - enum payload-aware derives
 // =====================================================================
 
 /// Verify derive[Eq] on enums with payloads deep-compares (not just discriminant).
@@ -1727,7 +1727,7 @@ fn main() -> Int {
 }
 
 // =====================================================================
-// 5e.7f Const Evaluation Tests — const arithmetic between named constants
+// 5e.7f Const Evaluation Tests - const arithmetic between named constants
 // =====================================================================
 
 /// Verify const arithmetic: `const R = A + B` where A and B are other consts.
@@ -1783,7 +1783,7 @@ fn main() -> Int { return NEG_X; }
     assert!(ir.contains("ret i64 18446744073709551611"), "NEG_X should fold to -5 (u64):\n{ir}");
 }
 
-/// Verify cycle detection — const referencing itself should NOT crash.
+/// Verify cycle detection - const referencing itself should NOT crash.
 #[test]
 fn regress_5e7f_const_cycle_detection() {
     let src = r#"
@@ -1797,7 +1797,7 @@ fn main() -> Int { return 0; }
 }
 
 // =====================================================================
-// 6A.1: Type Checker Hardening — types_compatible regression tests
+// 6A.1: Type Checker Hardening - types_compatible regression tests
 // =====================================================================
 
 /// REJECT: two different named types must fail type checking.
@@ -1860,11 +1860,11 @@ fn main() -> Int {
     assert!(ir.contains("ret i64"), "Should compile. IR:\n{ir}");
 }
 
-// ACCEPT: Self is an alias — tested via e2e_method_match_self_enum
-// ACCEPT: Interface compatible — tested via e2e_interface_compat_with_implementor
+// ACCEPT: Self is an alias - tested via e2e_method_match_self_enum
+// ACCEPT: Interface compatible - tested via e2e_interface_compat_with_implementor
 
 // =====================================================================
-// 6F: Recursion Depth Guard — production hardening
+// 6F: Recursion Depth Guard - production hardening
 // =====================================================================
 
 /// Verify deep recursion (1000 levels) compiles without trap (limit is 2000).
@@ -1898,7 +1898,7 @@ fn main() -> Int {
 }
 
 // =====================================================================
-// CG-01/CG-02/E001 verification — compiler gap regression tests
+// CG-01/CG-02/E001 verification - compiler gap regression tests
 // =====================================================================
 
 /// CG-01b: Verify Int32 as Float32 cast generates correct sitofp IR.
@@ -2406,14 +2406,14 @@ fn main() -> Int { return add(1, 2); }
         parallel: false,
         ..xiomc::CompileConfig::default()
     };
-    // Must compile cleanly — sequential path
+    // Must compile cleanly - sequential path
     let ir = compile(src).unwrap();
     assert!(ir.contains("define"), "Sequential compile must work");
     assert!(ir.contains("add"), "Must contain add function");
 }
 
 /// 7C-04: Verify rayon-powered parallel lex+parse compiles (multi-file simulation).
-/// We compile a single file with parallel enabled — it should fall through to
+/// We compile a single file with parallel enabled - it should fall through to
 /// single-file path seamlessly (rayon overhead is skipped for n=1).
 #[test]
 fn regress_7c04_parallel_single_file_fallback() {
@@ -2759,7 +2759,7 @@ fn regress_7e11_runtime_contracts_overrides_release() {
 // Feature: Newtype Auto-Conversion (Phase 7E ecosystem ergonomics)
 // =====================================================================
 
-/// NT-01: type alias resolves to underlying type — Int newtype used as Int.
+/// NT-01: type alias resolves to underlying type - Int newtype used as Int.
 #[test]
 fn regress_nt01_newtype_to_int() {
     let src = r#"
@@ -2773,7 +2773,7 @@ fn main() -> Int { return 0; }
     assert!(ir.contains("define"), "Newtype→Int must compile:\n{ir}");
 }
 
-/// NT-02: Int to newtype — Int assigned to newtype variable.
+/// NT-02: Int to newtype - Int assigned to newtype variable.
 #[test]
 fn regress_nt02_int_to_newtype() {
     let src = r#"
@@ -2788,7 +2788,7 @@ fn main() -> Int {
     assert!(ir.contains("ret i64 42"), "Int→newtype must compile:\n{ir}");
 }
 
-/// NT-03: newtype operators — Int operations on newtype values.
+/// NT-03: newtype operators - Int operations on newtype values.
 #[test]
 fn regress_nt03_newtype_arithmetic() {
     let src = r#"
@@ -2805,7 +2805,7 @@ fn main() -> Int {
     assert!(ir.contains("add i64"), "Newtype arithmetic must generate add:\n{ir}");
 }
 
-/// NT-04: Chained aliases — type Bar = Foo; type Foo = Int; resolves to Int.
+/// NT-04: Chained aliases - type Bar = Foo; type Foo = Int; resolves to Int.
 #[test]
 fn regress_nt04_chained_alias() {
     let src = r#"
@@ -2822,7 +2822,7 @@ fn main() -> Int {
     assert!(ir.contains("ret i64 100"), "Chained alias must resolve:\n{ir}");
 }
 
-/// NT-05: newtype to Float64 — Float64 newtype used as Float64.
+/// NT-05: newtype to Float64 - Float64 newtype used as Float64.
 #[test]
 fn regress_nt05_newtype_to_float() {
     let src = r#"
@@ -2837,7 +2837,7 @@ fn main() -> Int {
     assert!(ir.contains("fcmp"), "Float64 newtype must compile:\n{ir}");
 }
 
-/// NT-06: as-cast on newtype — VkHandle as Int.
+/// NT-06: as-cast on newtype - VkHandle as Int.
 #[test]
 fn regress_nt06_newtype_as_cast() {
     let src = r#"
@@ -2853,7 +2853,7 @@ fn main() -> Int {
     assert!(ir.contains("ret i64 0"), "Newtype as-cast must work:\n{ir}");
 }
 
-/// NT-07: extern function with newtype param — pass newtype to extern.
+/// NT-07: extern function with newtype param - pass newtype to extern.
 #[test]
 fn regress_nt07_extern_newtype_param() {
     let src = r#"
@@ -2866,7 +2866,7 @@ fn main() -> Int { return 0; }
     assert!(ir.contains("define"), "Extern+newtype must compile:\n{ir}");
 }
 
-/// NT-08: newtype comparison — newtype values compared.
+/// NT-08: newtype comparison - newtype values compared.
 #[test]
 fn regress_nt08_newtype_comparison() {
     let src = r#"
@@ -2882,7 +2882,7 @@ fn main() -> Int {
     assert!(ir.contains("ret i64 0"), "Newtype comparison must work:\n{ir}");
 }
 
-/// NT-09: newtype as function return — return newtype where Int expected.
+/// NT-09: newtype as function return - return newtype where Int expected.
 #[test]
 fn regress_nt09_newtype_return() {
     let src = r#"
@@ -2899,7 +2899,7 @@ fn main() -> Int {
     assert!(ir.contains("ret i64 0"), "Newtype return must work:\n{ir}");
 }
 
-/// NT-10: newtype in Vec — Vec[Handle] works with Int functions.
+/// NT-10: newtype in Vec - Vec[Handle] works with Int functions.
 #[test]
 fn regress_nt10_newtype_in_vec() {
     let src = r#"
@@ -2936,7 +2936,7 @@ fn main() -> Int { return 0; }
     // (or the struct stores float directly)
 }
 
-/// FLOAT-02: Float64 literal in Float64 tuple — no coercion needed.
+/// FLOAT-02: Float64 literal in Float64 tuple - no coercion needed.
 #[test]
 fn regress_float02_float64_tuple_return() {
     let src = r#"
@@ -2962,7 +2962,7 @@ fn main() -> Int { return 0; }
     assert!(ir.contains("define"), "Mixed float tuple must compile:\n{ir}");
 }
 
-/// FLOAT-04: Float32 in Vec.push — literal narrowing.
+/// FLOAT-04: Float32 in Vec.push - literal narrowing.
 #[test]
 fn regress_float04_vec_float32_push() {
     let src = r#"
@@ -3006,7 +3006,7 @@ fn main() -> Int { return 0; }
     assert!(ir.contains("define"), "Int tuple must compile unchanged:\n{ir}");
 }
 
-/// FLOAT-07: glfw pattern — var x: Float32 = 0.0; return (x, y).
+/// FLOAT-07: glfw pattern - var x: Float32 = 0.0; return (x, y).
 /// Verifies the var declaration narrows the Float64 literal to Float32
 /// and the tuple return uses the correct struct type.
 #[test]
@@ -3033,7 +3033,7 @@ fn main() -> Int { return 0; }
     );
 }
 
-/// FLOAT-08: Direct float literal in tuple return — narrowing.
+/// FLOAT-08: Direct float literal in tuple return - narrowing.
 #[test]
 fn regress_float08_direct_literal_tuple() {
     let src = r#"
@@ -3118,7 +3118,7 @@ fn regress_7f03_build_project_discovery() {
         .join("examples");
     if examples.exists() {
         let graph = xiom_graph::build_project_graph(&examples);
-        // May or may not find a manifest in examples/ — that's OK
+        // May or may not find a manifest in examples/ - that's OK
         match graph {
             Ok(g) => assert!(g.len() > 0, "Graph must have modules if project found"),
             Err(_) => {} // No manifest found is also acceptable
@@ -3185,3 +3185,150 @@ fn regress_7f07_build_watch_help() {
 
 
 
+
+// =====================================================================
+// 5e.7d: Derive macro improvements for enums with heap fields
+// =====================================================================
+
+/// DERIVE-01: Enum with Str field derives Eq - deep string comparison.
+#[test]
+fn regress_derive01_enum_str_eq() {
+    let src = r#"
+pub enum Status {
+  Ok,
+  Error(msg: Str),
+} derive[Eq, Clone]
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("Status.eq"), "Must generate Status.eq");
+    assert!(ir.contains("strcmp"), "Str eq must use strcmp");
+}
+
+/// DERIVE-02: Enum with Vec field derives Eq � deep Vec comparison.
+#[test]
+fn regress_derive02_enum_vec_eq() {
+    let src = r#"
+pub enum Collection {
+  Empty,
+  Items(values: Vec[Int]),
+} derive[Eq, Clone]
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("Collection.eq"), "Must generate Collection.eq");
+}
+
+/// DERIVE-03: Enum with Option field derives Eq � delegates to Option.eq.
+#[test]
+fn regress_derive03_enum_option_eq() {
+    let src = r#"
+pub enum Maybe {
+  Nothing,
+  Something(val: Option[Int]),
+} derive[Eq, Clone]
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("Maybe.eq"), "Must generate Maybe.eq");
+}
+
+/// DERIVE-04: Enum derives Ord � compares payload when discriminants match.
+#[test]
+fn regress_derive04_enum_ord_payload() {
+    let src = r#"
+pub enum Priority {
+  Low,
+  Medium(val: Int),
+  High(val: Int),
+} derive[Ord, Eq, Clone]
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("Priority.compare"), "Must generate Priority.compare");
+    assert!(ir.contains("icmp slt") || ir.contains("icmp eq"), "Ord must compare payloads");
+}
+
+/// DERIVE-05: Enum derives Hash � content-based hashing.
+#[test]
+fn regress_derive05_enum_hash() {
+    let src = r#"
+pub enum Tag {
+  A,
+  B(name: Str),
+  C(id: Int),
+} derive[Hash, Eq, Clone]
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("Tag.hash"), "Must generate Tag.hash");
+}
+
+/// DERIVE-06: Enum derives Display � shows variant + value.
+#[test]
+fn regress_derive06_enum_display() {
+    let src = r#"
+pub enum Color {
+  Red,
+  Green,
+  Blue,
+  Custom(code: Int),
+} derive[Display, Eq, Clone]
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("Color.to_str"), "Must generate Color.to_str");
+}
+
+/// DERIVE-07: Enum with no heap fields � Eq still works.
+#[test]
+fn regress_derive07_enum_simple_eq() {
+    let src = r#"
+pub enum Direction {
+  North, South, East, West,
+} derive[Eq, Clone, Hash, Ord]
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("Direction.eq"), "Simple enum Eq must work");
+    assert!(ir.contains("Direction.hash"), "Simple enum Hash must work");
+}
+
+/// DERIVE-08: All five derives on single enum with mixed fields.
+#[test]
+fn regress_derive08_all_derives_mixed() {
+    let src = r#"
+pub enum Mixed {
+  A, B(x: Int), C(s: Str), D(v: Vec[Int]),
+} derive[Eq, Clone, Hash, Ord, Display]
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("Mixed.eq"), "Mixed.eq missing");
+    assert!(ir.contains("Mixed.hash"), "Mixed.hash missing");
+    assert!(ir.contains("Mixed.compare"), "Mixed.compare missing");
+    assert!(ir.contains("Mixed.to_str"), "Mixed.to_str missing");
+}
+
+/// DERIVE-09: No regression � struct derives still work.
+#[test]
+fn regress_derive09_struct_derives_intact() {
+    let src = r#"
+pub type Point = { x: Int; y: Int; } derive[Eq, Clone, Hash, Ord, Display]
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("Point.eq"), "Struct derives must still work");
+}
+
+/// DERIVE-10: Enum Clone is shallow (existing behavior, ensure no regression).
+#[test]
+fn regress_derive10_enum_clone_shallow() {
+    let src = r#"
+pub type Data = { val: Int; } derive[Clone]
+pub enum Container { Empty, Filled(item: Str), } derive[Clone]
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("Container.clone"), "Clone must still work");
+}

@@ -93,6 +93,7 @@ impl IrEmitter {
         self.already_declared = IrEmitter::hardcoded_declare_names();
 
         self.emitln("declare i32 @printf(i8*, ...)");
+        self.emitln("declare i32 @sprintf(i8*, i8*, ...)");
         self.emitln("declare i32 @puts(i8*)");
         self.emitln("declare void @llvm.trap()");
         self.emitln("@xiom_recursion_counter = internal thread_local global i64 0");
