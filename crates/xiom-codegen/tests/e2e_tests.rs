@@ -1075,3 +1075,45 @@ fn e2e_g24_float32_arm_abi() {
     assert!(ir.contains("fadd") || ir.contains("fsub") || ir.contains("fmul") || ir.contains("fcmp"),
         "Must contain IEEE 754 fp ops:\n{ir}");
 }
+
+// ============================================================================
+// AI-08: --ai-strict CI/CD gating regression
+// ============================================================================
+
+/// Verify --ai-strict flag appears in help output.
+#[test]
+fn e2e_help_shows_ai_strict_flag() {
+    let output = std::process::Command::new(xiomc_path())
+        .arg("--help")
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(combined.contains("--ai-strict"), "help should document --ai-strict flag");
+}
+
+/// Verify --ai-strict --check-only exits non-zero on contract violations.
+/// Uses --ai-dry-run to skip actual LLM calls but still check contracts.
+#[test]
+fn e2e_ai_strict_blocks_on_violations() {
+    // Write a file with a contract violation (div-by-zero in requires)
+    let test_file = project_root().join("e2e_ai_strict_test.xi");
+    std::fs::write(&test_file,
+        "fn div(a: Int, b: Int) -> Int\n  requires b != 0\n{ return a / b; }\nfn main() -> Int { return div(10, 0); }\n"
+    ).expect("write test file");
+
+    let output = std::process::Command::new(xiomc_path())
+        .args(["--ai-strict", "--check-only", "--ai-dry-run",
+               &test_file.to_string_lossy()])
+        .current_dir(project_root())
+        .output()
+        .expect("failed");
+    let _ = std::fs::remove_file(&test_file);
+
+    // --ai-strict should cause non-zero exit when violations exist
+    assert!(!output.status.success(),
+        "--ai-strict --check-only should return non-zero on violations. stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+}

@@ -2277,6 +2277,48 @@ fn handle_lsp_message(msg: &serde_json::Value, backend: &Backend) -> Vec<serde_j
                     }));
                 }
 
+                // 5e.6c: P001 parse errors → suggest checking syntax
+                if code == "P001" {
+                    actions.push(serde_json::json!({
+                        "title": format!("Fix parse error: {}", msg_text),
+                        "kind": "quickfix",
+                        "diagnostics": [diag],
+                        "edit": {
+                            "changes": {
+                                uri: [{
+                                    "range": {
+                                        "start": {"line": line, "character": col},
+                                        "end": {"line": line, "character": col + 1}
+                                    },
+                                    "newText": format!("/* P001: {} */", msg_text)
+                                }]
+                            }
+                        }
+                    }));
+                }
+
+                // 5e.6c: E001 borrow errors → suggest clone() or refactor
+                if code == "E001" {
+                    if msg_text.contains("moved") {
+                        actions.push(serde_json::json!({
+                            "title": format!("Fix borrow error: consider .clone() for '{}'", msg_text),
+                            "kind": "quickfix",
+                            "diagnostics": [diag],
+                            "edit": {
+                                "changes": {
+                                    uri: [{
+                                        "range": {
+                                            "start": {"line": line, "character": col},
+                                            "end": {"line": line, "character": col}
+                                        },
+                                        "newText": "/* E001: use .clone() or restructure borrows */"
+                                    }]
+                                }
+                            }
+                        }));
+                    }
+                }
+
                 // Generic: offer to run --ai for diagnosis
                 actions.push(serde_json::json!({
                     "title": format!("🔍 Run xiomc --ai to diagnose: {}", msg_text),

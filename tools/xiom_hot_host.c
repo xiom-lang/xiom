@@ -225,9 +225,43 @@ int main(int argc, char** argv) {
     uint64_t last_mtime = file_mtime(src_path);
     int reload_count = 0;
 
+    // 5e.5d: Use filesystem events instead of polling.
+    // Extract directory from source path for change notification.
+    char src_dir[MAX_PATH];
+    strncpy(src_dir, src_path, sizeof(src_dir) - 1);
+    src_dir[sizeof(src_dir) - 1] = '\0';
+    {
+        char* slash = strrchr(src_dir, '\\');
+        if (!slash) slash = strrchr(src_dir, '/');
+        if (slash) *slash = '\0';
+        else strcpy(src_dir, ".");
+    }
+
+    HANDLE hChange = FindFirstChangeNotificationA(
+        src_dir,
+        FALSE,  // watch subtree? no — just the directory
+        FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME);
+
+    if (hChange == INVALID_HANDLE_VALUE || hChange == NULL) {
+        fprintf(stderr, "[HOST] WARNING: Cannot watch directory '%s' (error %lu). Falling back to polling.\n",
+                src_dir, GetLastError());
+        hChange = NULL;
+    } else {
+        printf("[HOST] Watching directory: %s (filesystem events)\n", src_dir);
+    }
+
     // --- Watch loop ---
     while (g_running) {
-        Sleep(500);  // 500ms poll interval
+        // 5e.5d: Wait for filesystem change or Ctrl+C (500ms timeout for signal check)
+        if (hChange) {
+            DWORD wait_rc = WaitForSingleObject(hChange, 500);
+            if (wait_rc == WAIT_OBJECT_0) {
+                // Change detected — proceed to check file
+                FindNextChangeNotification(hChange);
+            }
+        } else {
+            Sleep(500);  // fallback poll interval
+        }
 
         if (!g_running) break;
 
@@ -283,6 +317,7 @@ int main(int argc, char** argv) {
 
     // --- Cleanup ---
     printf("\n[HOST] Shutting down.\n");
+    if (hChange) FindCloseChangeNotification(hChange);
     unload_dll(g_dll);
     g_dll = NULL;
 
