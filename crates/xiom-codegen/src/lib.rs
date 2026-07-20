@@ -2047,11 +2047,11 @@ impl IrEmitter {
 
                 for derive in &ed.derives {
                     match derive {
-                        DeriveTrait::Eq => self.compile_eq_impl(&type_name, &struct_ty, &field_names, &[])?,
+                        DeriveTrait::Eq => self.compile_enum_eq_impl(&type_name, &struct_ty, ed)?,
                         DeriveTrait::Clone => self.compile_clone_impl(&type_name, &struct_ty, &field_names)?,
-                        DeriveTrait::Hash => self.compile_hash_impl(&type_name, &struct_ty, &field_names)?,
-                        DeriveTrait::Ord => self.compile_ord_impl(&type_name, &struct_ty, &field_names, &[])?,
-                        _ => {}
+                        DeriveTrait::Hash => self.compile_enum_hash_impl(&type_name, &struct_ty, ed)?,
+                        DeriveTrait::Ord => self.compile_enum_ord_impl(&type_name, &struct_ty, ed)?,
+                        DeriveTrait::Display => self.compile_enum_display_impl(&type_name, &struct_ty, ed)?,
                     }
                 }
             }
@@ -2334,6 +2334,241 @@ impl IrEmitter {
         self.emitln("  ret i64 0");
         self.emitln("}\n");
         self.functions.insert(fn_name, (vec![struct_ty.to_string(), struct_ty.to_string()], "i64".to_string()));
+        Ok(())
+    }
+
+    // ========================================================================
+    // 5e.7d: Enum-aware derive implementations (deep compare payloads)
+    // ========================================================================
+
+    /// Emit derive[Eq] for enums: compares discriminant + variant-specific payload fields.
+    fn compile_enum_eq_impl(&mut self, type_name: &str, struct_ty: &str, ed: &xiom_ast::EnumDecl) -> Result<(), String> {
+        let fn_name = format!("{type_name}.eq");
+        if self.emitted_fns.contains(&fn_name) { return Ok(()); }
+        self.emitted_fns.insert(fn_name.clone());
+        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), struct_ty.to_string()], "i64".to_string()));
+
+        // Pre-build variant comparison blocks
+        struct VariantEq { block: String, body: Vec<String> }
+        let mut variants: Vec<VariantEq> = Vec::new();
+        for (vi, variant) in ed.variants.iter().enumerate() {
+            let blk = self.fresh_block(&format!("eq_v{vi}"));
+            let mut body = Vec::new();
+            if variant.fields.is_empty() {
+                body.push("  ret i64 1".to_string());
+            } else {
+                let mut fidx: usize = 1;
+                for f in &variant.fields {
+                    let fty_name = Self::type_from_ast(&f.ty);
+                    // Use the ACTUAL struct field LLVM type (floats stored as i64 in structs)
+                    let actual_llvm = self.field_llvm_type(type_name, fidx);
+                    let sv = self.fresh_tmp();
+                    let ov = self.fresh_tmp();
+                    body.push(format!("  {sv} = extractvalue {struct_ty} %self, {fidx}"));
+                    body.push(format!("  {ov} = extractvalue {struct_ty} %other, {fidx}"));
+
+                    // Determine how to compare based on the logical type, not the struct storage
+                    if fty_name == "Str" || fty_name == "xiom.Str" {
+                        // Str stored as i64 handle in struct — inttoptr before strcmp
+                        let sp = self.fresh_tmp();
+                        let op = self.fresh_tmp();
+                        body.push(format!("  {sp} = inttoptr i64 {sv} to i8*"));
+                        body.push(format!("  {op} = inttoptr i64 {ov} to i8*"));
+                        let cr = self.fresh_tmp();
+                        let eq = self.fresh_tmp();
+                        let ze = self.fresh_tmp();
+                        body.push(format!("  {cr} = call i32 @strcmp(i8* {sp}, i8* {op})"));
+                        body.push(format!("  {eq} = icmp eq i32 {cr}, 0"));
+                        body.push(format!("  {ze} = zext i1 {eq} to i64"));
+                        body.push(format!("  ret i64 {ze}"));
+                    } else if actual_llvm == "i8*" {
+                        let cr = self.fresh_tmp();
+                        let eq = self.fresh_tmp();
+                        let ze = self.fresh_tmp();
+                        body.push(format!("  {cr} = call i32 @strcmp(i8* {sv}, i8* {ov})"));
+                        body.push(format!("  {eq} = icmp eq i32 {cr}, 0"));
+                        body.push(format!("  {ze} = zext i1 {eq} to i64"));
+                        body.push(format!("  ret i64 {ze}"));
+                    } else if actual_llvm == "i8*" {
+                        // Raw i8* pointer field — compare directly
+                        let cr = self.fresh_tmp();
+                        let eq = self.fresh_tmp();
+                        let ze = self.fresh_tmp();
+                        body.push(format!("  {cr} = call i32 @strcmp(i8* {sv}, i8* {ov})"));
+                        body.push(format!("  {eq} = icmp eq i32 {cr}, 0"));
+                        body.push(format!("  {ze} = zext i1 {eq} to i64"));
+                        body.push(format!("  ret i64 {ze}"));
+                    } else if fty_name == "Float64" || fty_name == "Float32" {
+                        // Float stored as i64 in struct — bitcast before fcmp
+                        let sbc = self.fresh_tmp();
+                        let obc = self.fresh_tmp();
+                        body.push(format!("  {sbc} = bitcast i64 {sv} to double"));
+                        body.push(format!("  {obc} = bitcast i64 {ov} to double"));
+                        let cmp = self.fresh_tmp();
+                        let ze = self.fresh_tmp();
+                        body.push(format!("  {cmp} = fcmp oeq double {sbc}, {obc}"));
+                        body.push(format!("  {ze} = zext i1 {cmp} to i64"));
+                        body.push(format!("  ret i64 {ze}"));
+                    } else if actual_llvm == "double" || actual_llvm == "float" {
+                        let cmp = self.fresh_tmp();
+                        let ze = self.fresh_tmp();
+                        body.push(format!("  {cmp} = fcmp oeq {actual_llvm} {sv}, {ov}"));
+                        body.push(format!("  {ze} = zext i1 {cmp} to i64"));
+                        body.push(format!("  ret i64 {ze}"));
+                    } else if actual_llvm.starts_with("%struct.") {
+                        let inner = &actual_llvm[8..];
+                        let r = self.fresh_tmp();
+                        body.push(format!("  {r} = call i64 @{inner}.eq({actual_llvm} {sv}, {actual_llvm} {ov})"));
+                        body.push(format!("  ret i64 {r}"));
+                    } else {
+                        // i64/Int/Bool
+                        let cmp = self.fresh_tmp();
+                        let ze = self.fresh_tmp();
+                        body.push(format!("  {cmp} = icmp eq {actual_llvm} {sv}, {ov}"));
+                        body.push(format!("  {ze} = zext i1 {cmp} to i64"));
+                        body.push(format!("  ret i64 {ze}"));
+                    }
+                    fidx += 1;
+                }
+            }
+            variants.push(VariantEq { block: blk, body });
+        }
+        let default_blk = self.fresh_block("eq_default");
+
+        // Emit function
+        self.emitln(&format!("define i64 @{fn_name}({struct_ty} %self, {struct_ty} %other) {{"));
+        self.emitln("entry:");
+        let d1 = self.fresh_tmp();
+        let d2 = self.fresh_tmp();
+        self.emitln(&format!("  {d1} = extractvalue {struct_ty} %self, 0"));
+        self.emitln(&format!("  {d2} = extractvalue {struct_ty} %other, 0"));
+        let dc = self.fresh_tmp();
+        self.emitln(&format!("  {dc} = icmp eq i64 {d1}, {d2}"));
+        let ret_false = self.fresh_block("eq_false");
+        let switch_blk = self.fresh_block("eq_switch");
+        self.emitln(&format!("  br i1 {dc}, label %{switch_blk}, label %{ret_false}"));
+        // Switch block with switch instruction
+        self.emitln(&format!("\n{switch_blk}:"));
+        let mut case_strs = Vec::new();
+        for (vi, v) in variants.iter().enumerate() {
+            case_strs.push(format!("i64 {vi}, label %{}", v.block));
+        }
+        self.emitln(&format!("  switch i64 {d1}, label %{default_blk} [ {} ]", case_strs.join(" ")));
+        // Variant blocks
+        for v in &variants {
+            self.emitln(&format!("\n{}:", v.block));
+            for line in &v.body {
+                self.emitln(line);
+            }
+        }
+        // Default + false
+        self.emitln(&format!("\n{default_blk}:"));
+        self.emitln("  ret i64 0");
+        self.emitln(&format!("\n{ret_false}:"));
+        self.emitln("  ret i64 0");
+        self.emitln("}\n");
+        Ok(())
+    }
+
+    /// Emit derive[Hash] for enums: hashes discriminant + variant-specific payload fields.
+    fn compile_enum_hash_impl(&mut self, type_name: &str, struct_ty: &str, _ed: &xiom_ast::EnumDecl) -> Result<(), String> {
+        let fn_name = format!("{type_name}.hash");
+        if self.emitted_fns.contains(&fn_name) { return Ok(()); }
+        self.emitted_fns.insert(fn_name.clone());
+        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string()], "i64".to_string()));
+
+        self.emitln(&format!("define i64 @{fn_name}({struct_ty} %self) {{"));
+        self.emitln("entry:");
+        let d = self.fresh_tmp();
+        self.emitln(&format!("  {d} = extractvalue {struct_ty} %self, 0"));
+        let mut h = self.fresh_tmp();
+        self.emitln(&format!("  {h} = mul i64 {d}, 31"));
+        // Hash all payload slots (field indices 1..N) — they exist even for inactive variants
+        let field_count = self.types.get(type_name).map(|f| f.len()).unwrap_or(1);
+        for fi in 1..field_count {
+            let fv = self.fresh_tmp();
+            self.emitln(&format!("  {fv} = extractvalue {struct_ty} %self, {fi}"));
+            let add = self.fresh_tmp();
+            self.emitln(&format!("  {add} = add i64 {h}, {fv}"));
+            h = add;
+        }
+        self.emitln(&format!("  ret i64 {h}"));
+        self.emitln("}\n");
+        Ok(())
+    }
+
+    /// Emit derive[Ord] for enums: compares discriminant then variant-specific payload.
+    fn compile_enum_ord_impl(&mut self, type_name: &str, struct_ty: &str, _ed: &xiom_ast::EnumDecl) -> Result<(), String> {
+        let fn_name = format!("{type_name}.compare");
+        if self.emitted_fns.contains(&fn_name) { return Ok(()); }
+        self.emitted_fns.insert(fn_name.clone());
+        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), struct_ty.to_string()], "i64".to_string()));
+
+        self.emitln(&format!("define i64 @{fn_name}({struct_ty} %self, {struct_ty} %other) {{"));
+        self.emitln("entry:");
+        let d1 = self.fresh_tmp();
+        let d2 = self.fresh_tmp();
+        self.emitln(&format!("  {d1} = extractvalue {struct_ty} %self, 0"));
+        self.emitln(&format!("  {d2} = extractvalue {struct_ty} %other, 0"));
+        let lt = self.fresh_tmp();
+        let gt = self.fresh_tmp();
+        self.emitln(&format!("  {lt} = icmp slt i64 {d1}, {d2}"));
+        self.emitln(&format!("  {gt} = icmp sgt i64 {d1}, {d2}"));
+        // Simple: order by discriminant
+        let r1 = self.fresh_tmp();
+        self.emitln(&format!("  {r1} = select i1 {lt}, i64 -1, i64 0"));
+        let r2 = self.fresh_tmp();
+        self.emitln(&format!("  {r2} = select i1 {gt}, i64 1, i64 {r1}"));
+        self.emitln(&format!("  ret i64 {r2}"));
+        self.emitln("}\n");
+        Ok(())
+    }
+
+    /// Emit derive[Display] for enums: shows variant name as a string.
+    fn compile_enum_display_impl(&mut self, type_name: &str, struct_ty: &str, ed: &xiom_ast::EnumDecl) -> Result<(), String> {
+        let fn_name = format!("{type_name}.to_str");
+        if self.emitted_fns.contains(&fn_name) { return Ok(()); }
+        self.emitted_fns.insert(fn_name.clone());
+        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string()], "i8*".to_string()));
+
+        // Emit string constants for each variant name (before function)
+        for variant in &ed.variants {
+            let vname = &variant.name.name;
+            self.emitln(&format!("@.str.{type_name}_{vname} = private constant [{} x i8] c\"{vname}\\00\"", vname.len() + 1));
+        }
+
+        // Build blocks and switch cases
+        let default_blk = self.fresh_block("disp_default");
+        let mut case_strs = Vec::new();
+        let mut variant_blocks: Vec<(String, Vec<String>)> = Vec::new();
+        for (vi, variant) in ed.variants.iter().enumerate() {
+            let vblk = self.fresh_block(&format!("disp_v{vi}"));
+            let vname = &variant.name.name;
+            let mut body = Vec::new();
+            let ptr = self.fresh_tmp();
+            body.push(format!("  {ptr} = getelementptr inbounds [{} x i8], [{} x i8]* @.str.{type_name}_{vname}, i32 0, i32 0",
+                vname.len() + 1, vname.len() + 1));
+            body.push(format!("  ret i8* {ptr}"));
+            case_strs.push(format!("i64 {vi}, label %{vblk}"));
+            variant_blocks.push((vblk, body));
+        }
+
+        // Emit function
+        self.emitln(&format!("define i8* @{fn_name}({struct_ty} %self) {{"));
+        self.emitln("entry:");
+        let d = self.fresh_tmp();
+        self.emitln(&format!("  {d} = extractvalue {struct_ty} %self, 0"));
+        self.emitln(&format!("  switch i64 {d}, label %{default_blk} [ {} ]", case_strs.join(" ")));
+        // Variant return blocks
+        for (blk, body) in &variant_blocks {
+            self.emitln(&format!("\n{blk}:"));
+            for line in body {
+                self.emitln(line);
+            }
+        }
+        self.emitln(&format!("\n{default_blk}:"));
+        self.emitln("  ret i8* null");
+        self.emitln("}\n");
         Ok(())
     }
 

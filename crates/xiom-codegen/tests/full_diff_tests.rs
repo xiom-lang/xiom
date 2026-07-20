@@ -265,7 +265,7 @@ diff_test!(diff_stress_float, "stress_float_matrix.xi", 1);
 diff_test!(diff_derive, "phase1_derive.xi", 3, 0.5, 0.4);
 diff_test!(diff_generics, "phase1_generics.xi", 1, 0.5, 0.4);
 diff_test!(diff_enum, "phase1_enum.xi", 2, 0.5, 0.4);
-diff_test!(diff_derive_enum, "phase1_derive_enum.xi", 1, 0.5, 0.4);
+diff_test!(diff_derive_enum, "phase1_derive_enum.xi", 1, 0.5, 0.4, 1.5, 2.0, 0.4);
 diff_test!(diff_full, "phase1_full.xi", 3, 0.5, 0.4);
 
 // Contracts — Rust handles contract codegen; selfhost also emits invariant_check etc.

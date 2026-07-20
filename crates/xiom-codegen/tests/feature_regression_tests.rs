@@ -1643,3 +1643,70 @@ fn regress_5e_hot_reload_state_disabled() {
     assert!(!ir.contains("@xiom_hot_save_state"), "No save_state without hot_reload:\n{ir}");
     assert!(!ir.contains("@fopen"), "No fopen declare without hot_reload:\n{ir}");
 }
+
+// =====================================================================
+// 5e.7d Derive macro improvement tests — enum payload-aware derives
+// =====================================================================
+
+/// Verify derive[Eq] on enums with payloads deep-compares (not just discriminant).
+#[test]
+fn regress_5e7d_enum_derive_eq_deep_compare() {
+    let src = r#"
+type Color = enum { Red, Green, Blue(s: Str) } derive[Eq]
+fn main() -> Int {
+  let a = Color.Blue("hello");
+  let b = Color.Blue("hello");
+  let c = Color.Blue("world");
+  if a.eq(b) != true { return 1; }
+  if a.eq(c) == true { return 2; }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("@Color.eq"), "Must emit Color.eq:\n{ir}");
+    assert!(ir.contains("extractvalue"), "Must use extractvalue for enum fields:\n{ir}");
+    assert!(ir.contains("switch"), "Must use switch for variant dispatch:\n{ir}");
+    assert!(ir.contains("@strcmp"), "Must use strcmp for Str payload comparison:\n{ir}");
+}
+
+/// Verify derive[Hash] on enums with payloads.
+#[test]
+fn regress_5e7d_enum_derive_hash_with_payload() {
+    let src = r#"
+type Status = enum { Ok(code: Int), Err } derive[Hash]
+fn main() -> Int {
+  let s = Status.Ok(200);
+  return s.hash();
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("@Status.hash"), "Must emit Status.hash:\n{ir}");
+    assert!(ir.contains("extractvalue"), "Must use extractvalue:\n{ir}");
+}
+
+/// Verify derive[Ord] on enums compares discriminants.
+#[test]
+fn regress_5e7d_enum_derive_ord() {
+    let src = r#"
+type Priority = enum { Low, Medium, High } derive[Ord]
+fn main() -> Int {
+  let a = Priority.Low;
+  let b = Priority.High;
+  if a.compare(b) >= 0 { return 1; }
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("@Priority.compare"), "Must emit Priority.compare:\n{ir}");
+}
+
+/// Verify derive[Display] on enums emits variant names.
+#[test]
+fn regress_5e7d_enum_derive_display() {
+    let src = r#"
+type Result = enum { Success, Failure(msg: Str) } derive[Display]
+fn main() -> Int {
+  let r = Result.Success;
+  return 0;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("@Result.to_str"), "Must emit Result.to_str:\n{ir}");
+    assert!(ir.contains("switch"), "Must use switch for variant dispatch:\n{ir}");
+}
