@@ -1,8 +1,8 @@
 ﻿# XIOM Compiler â€” Production Roadmap
 
-**Current:** v0.48.9 â€” **774/774 all tests** (529 compiler + 245 tooling), 5d-5g complete (49/49 gaps closed), zero warnings
+**Current:** v0.48.9 â€” **783/783 all tests** (538 compiler + 245 tooling), 5d-5g complete (49/49 gaps closed), zero warnings
 **Branch:** `feat/architect`
-**Next:** Phase 5e.5c State Migration / 5e.5d Filesystem Events
+**Next:** Phase 5e.5c State Migration | ✅ DONE (save/restore via fwrite/fread)
 
 ---
 
@@ -19,7 +19,7 @@
 | Robustness | **29/29** | âœ… | |
 | Verifier | **15/15** | âœ… | SMT gen + z3 integration + contract composition + loop invariants |
 | Tooling | 229/229 | âœ… | checker, parser, fmt, lsp, pkg, doc, ffigen, mcp, dbg |
-| **TOTAL** | **774/774** | âœ… **ALL GREEN â€” v0.48.9** | 529 compiler + 245 tooling |
+| **TOTAL** | **783/783** | âœ… **ALL GREEN â€” v0.48.9** | 538 compiler + 245 tooling |
 
 ### P0 Gaps: ALL RESOLVED âœ…
 
@@ -132,7 +132,7 @@ All P0, P1, P2, and stdlib codegen gaps are resolved. The sole remaining issue �
 | **5e.5** | **ðŸ”¥ Hot Reload** | **--watch + --hot-reload, function pointer table, DLL lifecycle** | **ðŸš§ Foundation (--watch + runtime) done; codegen indirection + host exe + state migration pending** | [COMPILER_IMPROVEMENT_PLAN.md](./COMPILER_IMPROVEMENT_PLAN.md) |
 | â”‚ â”‚ 5e.5a Indirect call thunks | Modify codegen â€” pub fn calls through `@xiom_hot_get_ptr` thunk | â¬œ P0 (2-3 days) |
 | â”‚ â”‚ 5e.5b DLL host executable | Load DLL, watch files, recompile, swap pointers | â¬œ P0 (1-2 days) |
-| â”‚ â”‚ 5e.5c State migration | Serialize globals â†’ shared segment â†’ survive reload | â¬œ P1 (2-3 days) |
+| â”‚ â”‚ 5e.5c State Migration | ✅ DONE (save/restore via fwrite/fread)
 | â”‚ â”‚ 5e.5d Filesystem events | `ReadDirectoryChangesW` / `inotify` instead of 500ms polling | â¬œ P1 (1 day) |
 | â”‚ â”‚ 5e.5e Contract verification on reload | Verify new code satisfies contracts before hot-swapping | â¬œ P2 (2-3 days) |
 | â”‚ â”‚ 5e.5f Incremental recompilation | Only recompile changed modules, reuse previous IR | â¬œ P2 (3-5 days) |
