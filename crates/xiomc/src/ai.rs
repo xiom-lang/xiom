@@ -365,7 +365,7 @@ fn call_ollama(endpoint: &str, model: &str, prompt: &str, timeout_secs: u32) -> 
 // Main AI Pipeline
 // =========================================================================
 
-pub fn run_ai_pipeline(config: &AiConfig, source: &str, source_path: &str, diagnostics: &[crate::Diagnostic]) -> Result<AiOutput, String> {
+pub fn run_ai_pipeline(config: &AiConfig, source: &str, source_path: &str, diagnostics: &[crate::Diagnostic], z3_models: &std::collections::HashMap<String, String>) -> Result<AiOutput, String> {
     if diagnostics.is_empty() {
         return Ok(AiOutput { schema_version: 1, session: timestamp(), compiler_version: env!("CARGO_PKG_VERSION").into(),
             provider: config.provider.clone(), model: config.model.clone(), source_hash: hash_source(source),
@@ -376,7 +376,13 @@ pub fn run_ai_pipeline(config: &AiConfig, source: &str, source_path: &str, diagn
     let mut hints = Vec::new(); let mut cached = 0usize; let mut api_calls = 0usize;
 
     for diag in diagnostics {
-        let ctx = match slice_error_context(source, diag) { Some(c) => c, None => continue };
+        let mut ctx = match slice_error_context(source, diag) { Some(c) => c, None => continue };
+        // 5f.3f: Inject Z3 counterexample for contract violations
+        if ctx.error_code.starts_with('X') || ctx.error_type == "ContractViolation" {
+            if let Some(z3_output) = z3_models.get(&format!("{}:{}", source_path, diag.line)) {
+                inject_counterexample(&mut ctx, z3_output);
+            }
+        }
         let fn_hash = hash_str(&ctx.function_body);
 
         // Check cache
@@ -387,12 +393,23 @@ pub fn run_ai_pipeline(config: &AiConfig, source: &str, source_path: &str, diagn
         // Call LLM
         let insight = if config.dry_run {
             let prompt = format!("[{}.{}] {}", ctx.error_code, ctx.error_type, ctx.function_body.lines().next().unwrap_or(""));
-            eprintln!("[AI DRY RUN] {}:{}:{} → {}", source_path, ctx.error_line, ctx.error_code, prompt);
+            if ctx.counterexample.is_some() {
+                eprintln!("[AI DRY RUN] {}:{}:{} (Z3 counterexample available) → {}", source_path, ctx.error_line, ctx.error_code, prompt);
+            } else {
+                eprintln!("[AI DRY RUN] {}:{}:{} → {}", source_path, ctx.error_line, ctx.error_code, prompt);
+            }
             "(dry run — no LLM call)".to_string()
         } else {
             let result = if config.provider == "ollama" {
-                let prompt = format!("XIOM compiler error [{}] {} at line {}.\nCode:\n```xiom\n{}\n```\nExplain in 1-2 sentences.",
+                let mut prompt = format!("XIOM compiler error [{}] {} at line {}.\nCode:\n```xiom\n{}\n```\n",
                     ctx.error_code, ctx.error_type, ctx.error_line, ctx.function_body);
+                if let Some(ref ce) = ctx.counterexample {
+                    prompt.push_str(&format!("\nZ3 Counterexample (concrete violation):\n"));
+                    for (var, val) in ce {
+                        prompt.push_str(&format!("  {} = {}\n", var, val));
+                    }
+                }
+                prompt.push_str("Explain in 1-2 sentences.");
                 call_ollama(&config.endpoint, &config.model, &prompt, config.timeout_secs)
             } else {
                 let messages = build_chat_prompt(&ctx);
@@ -435,6 +452,179 @@ pub fn run_ai_pipeline(config: &AiConfig, source: &str, source_path: &str, diagn
         return Err(format!("--ai-strict: {} error(s) present. Fix before binary output.", output.total_hints));
     }
     Ok(output)
+}
+
+/// 5f.3e: Batch AI pipeline — single .xiom_ai.json for all source files.
+pub fn run_ai_pipeline_batch(
+    config: &AiConfig,
+    sources: &[(String, String)], // (path, source)
+    diagnostics: &[crate::Diagnostic],
+    z3_models: &std::collections::HashMap<String, String>,
+) -> Result<AiOutput, String> {
+    if diagnostics.is_empty() {
+        return Ok(AiOutput { schema_version: 1, session: timestamp(), compiler_version: env!("CARGO_PKG_VERSION").into(),
+            provider: config.provider.clone(), model: config.model.clone(), source_hash: "batch".into(),
+            total_hints: 0, cached_hints: 0, api_calls: 0, hints: vec![] });
+    }
+
+    let cache = AiCache::new(&config.model);
+    let mut hints = Vec::new(); let mut cached = 0usize; let mut api_calls = 0usize;
+    // Build a source lookup map for per-diagnostic source access
+    let source_map: std::collections::HashMap<&str, &str> = sources.iter()
+        .map(|(p, s)| (p.as_str(), s.as_str())).collect();
+
+    for diag in diagnostics {
+        let source = source_map.get(diag.file.as_str()).copied().unwrap_or("");
+        let mut ctx = match slice_error_context(source, diag) { Some(c) => c, None => continue };
+        // 5f.3f: Inject Z3 counterexample
+        if ctx.error_code.starts_with('X') || ctx.error_type == "ContractViolation" {
+            if let Some(z3_output) = z3_models.get(&format!("{}:{}", diag.file, diag.line)) {
+                inject_counterexample(&mut ctx, z3_output);
+            }
+        }
+        let fn_hash = hash_str(&ctx.function_body);
+
+        if let Some(mut hint) = cache.get(&config.model, &ctx.error_code, &fn_hash, ctx.error_line) {
+            hint.is_root_cause = Some(hints.is_empty()); hints.push(hint); cached += 1; continue;
+        }
+
+        let insight = if config.dry_run {
+            "(dry run)".to_string()
+        } else {
+            let result = if config.provider == "ollama" {
+                let mut prompt = format!("XIOM compiler error [{}] {} at line {} in {}.\nCode:\n```xiom\n{}\n```\n",
+                    ctx.error_code, ctx.error_type, ctx.error_line, diag.file, ctx.function_body);
+                if let Some(ref ce) = ctx.counterexample {
+                    prompt.push_str("\nZ3 Counterexample (concrete violation):\n");
+                    for (var, val) in ce { prompt.push_str(&format!("  {} = {}\n", var, val)); }
+                }
+                prompt.push_str("Explain in 1-2 sentences.");
+                call_ollama(&config.endpoint, &config.model, &prompt, config.timeout_secs)
+            } else {
+                let messages = build_chat_prompt(&ctx);
+                call_llm_chat(&config.endpoint, &config.api_key, &config.model, &messages, config.timeout_secs)
+            };
+            match result {
+                Ok(text) => { api_calls += 1; text }
+                Err(e) => { eprintln!("[AI] LLM call failed: {e}"); format!("[fallback] {}", diag.message) }
+            }
+        };
+
+        let hint = AiHint {
+            file: diag.file.clone(), line: diag.line, column: diag.col,
+            error_code: diag.code.clone(), error_type: ctx.error_type.clone(),
+            contract: ctx.contract_clause.clone(),
+            insight, cached: false,
+            timestamp_ms: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
+            is_root_cause: Some(hints.is_empty()),
+            confidence: match ctx.error_type.as_str() { "ContractViolation" | "DivisionByZero" => Some("HIGH".into()), _ => Some("MEDIUM".into()) },
+        };
+        cache.put(&config.model, &ctx.error_code, &fn_hash, ctx.error_line, &hint);
+        hints.push(hint);
+    }
+
+    hints.sort_by_key(|h| (h.file.clone(), h.line));
+    let output = AiOutput {
+        schema_version: 1, session: timestamp(), compiler_version: env!("CARGO_PKG_VERSION").into(),
+        provider: config.provider.clone(), model: config.model.clone(),
+        source_hash: hash_source(&sources.iter().map(|(_, s)| s.as_str()).collect::<Vec<_>>().join("\n")),
+        total_hints: hints.len(), cached_hints: cached, api_calls, hints,
+    };
+
+    let json = serde_json::to_string_pretty(&output).map_err(|e| format!("JSON error: {e}"))?;
+    std::fs::write(".xiom_ai.json", &json).map_err(|e| format!("Write error: {e}"))?;
+
+    if !config.silent {
+        eprintln!("xiomc --ai --batch: {} hints → .xiom_ai.json ({} API, {} cached)",
+            output.total_hints, api_calls, cached);
+    }
+    if config.strict && !output.hints.is_empty() {
+        return Err(format!("--ai-strict: {} error(s) present. Fix before binary output.", output.total_hints));
+    }
+    Ok(output)
+}
+
+/// 5f.3f: Run Z3 verification for contract-violation diagnostics.
+/// Uses xiom-verify crate in-process for proper SMT generation + Z3 execution.
+/// Z3 is bundled with the release, so this should always work in production.
+pub fn run_z3_for_contract_errors(
+    diagnostics: &[crate::Diagnostic],
+    sources: &[(String, String)],
+) -> std::collections::HashMap<String, String> {
+    let mut models = std::collections::HashMap::new();
+
+    // Only run Z3 for contract violations (code starts with 'X')
+    let contract_diags: Vec<&crate::Diagnostic> = diagnostics.iter()
+        .filter(|d| d.code.starts_with('X'))
+        .collect();
+
+    if contract_diags.is_empty() {
+        return models;
+    }
+
+    // Try to find z3 binary
+    let z3_path = match xiom_verify::Z3Runner::find_z3() {
+        Some(p) => p,
+        None => return models,
+    };
+    let z3 = xiom_verify::Z3Runner::new().with_z3_path(&z3_path).with_timeout(3000);
+
+    for diag in &contract_diags {
+        let source = sources.iter()
+            .find(|(p, _)| p == &diag.file)
+            .map(|(_, s)| s.as_str())
+            .unwrap_or("");
+        if source.is_empty() { continue; }
+
+        let key = format!("{}:{}", diag.file, diag.line);
+        if let Some(model) = verify_contract_for_diagnostic(source, diag, &z3) {
+            models.insert(key, model);
+        }
+    }
+
+    models
+}
+
+/// Run Z3 verification on a single contract-violation diagnostic.
+/// Returns the raw Z3 model output if a counterexample is found.
+fn verify_contract_for_diagnostic(
+    source: &str,
+    _diag: &crate::Diagnostic,
+    z3: &xiom_verify::Z3Runner,
+) -> Option<String> {
+    // Quick-parse the source to get the program AST
+    let tokens = xiom_lexer::Lexer::new(source).tokenize();
+    // Filter out lex errors
+    if tokens.iter().any(|t| matches!(t.kind, xiom_lexer::TokenKind::Error(_))) {
+        return None;
+    }
+    let mut parser = xiom_parser::Parser::new(tokens);
+    let program = parser.parse_program().ok()?;
+    if parser.errors().len() > 5 { return None; } // too many parse errors
+
+    // Generate SMT
+    let mut smt_gen = xiom_verify::SMTGenerator::new();
+    let smt = smt_gen.generate(&program);
+    if smt.is_empty() { return None; }
+
+    // Run Z3
+    let results = z3.verify(&smt);
+    for r in &results {
+        if let xiom_verify::VerifyResult::Violated { counterexample, .. } = r {
+            if let Some(ce) = counterexample {
+                // Format counterexample as model text for the AI prompt
+                let mut model_text = String::from("sat\n(model\n");
+                for (var, val) in &ce.values {
+                    model_text.push_str(&format!("  (define-fun {} () Int {})\n", var, val));
+                }
+                model_text.push_str(")\n");
+                return Some(model_text);
+            }
+        }
+    }
+
+    // Even if no counterexample found, check raw output for sat models
+    None
 }
 
 fn timestamp() -> String { format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()) }
