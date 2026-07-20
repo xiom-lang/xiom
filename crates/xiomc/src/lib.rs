@@ -38,6 +38,8 @@ pub struct CompileConfig {
     pub shared_lib: bool,
     pub static_lib: bool,
     pub hot_reload: bool,
+    /// 7D.3: verify contracts before hot-swapping function pointers
+    pub hot_reload_contracts: bool,
     /// 5e.5f: incremental compilation — cache IR, skip unchanged files
     pub incremental: bool,
     /// 5e.5f: force recompilation — ignore all caches
@@ -71,6 +73,7 @@ impl Default for CompileConfig {
             shared_lib: false,
             static_lib: false,
             hot_reload: false,
+            hot_reload_contracts: false,
             incremental: false,
             force: false,
             parallel: false,
@@ -770,6 +773,11 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
         process::exit(1);
     }
 
+    // 7D.4: Generate export manifest for hot reload host
+    if config.hot_reload {
+        generate_export_manifest(&program, output);
+    }
+
     let opt = find_tool("opt", &[
         "C:\\Program Files\\LLVM\\bin\\opt.exe",
     ]);
@@ -1009,6 +1017,45 @@ pub fn merge_programs(programs: Vec<xiom_ast::Program>) -> xiom_ast::Program {
         }
     }
     xiom_ast::Program::new(items, xiom_ast::Span::new(0, 0))
+}
+
+/// 7D.4: Generate a module export manifest for the hot reload host.
+/// Lists all `pub fn` names and their djb2 hash table indices.
+/// Format: `fn_name:hash_index` (one per line).
+pub fn generate_export_manifest(program: &xiom_ast::Program, output_base: &str) {
+    let manifest_path = format!("{output_base}.exports");
+    let mut exports = Vec::new();
+
+    fn collect_pub_fns(items: &[xiom_ast::TopDecl], exports: &mut Vec<String>) {
+        for item in items {
+            match item {
+                xiom_ast::TopDecl::Fn(fd) if fd.is_pub => {
+                    let name = if let Some(ref recv) = fd.receiver {
+                        format!("{}.{}", recv.name, fd.name.name)
+                    } else {
+                        fd.name.name.clone()
+                    };
+                    // Compute djb2 hash (same as runtime)
+                    let hash: u64 = name.bytes().fold(5381u64, |h, b| {
+                        ((h << 5).wrapping_add(h)).wrapping_add(b as u64)
+                    });
+                    let idx = hash % 1024;
+                    exports.push(format!("{name}:{idx}"));
+                }
+                xiom_ast::TopDecl::Module(md) => {
+                    collect_pub_fns(&md.items, exports);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    collect_pub_fns(&program.items, &mut exports);
+
+    if !exports.is_empty() {
+        let content = exports.join("\n") + "\n";
+        let _ = fs::write(&manifest_path, &content);
+    }
 }
 
 pub fn resolve_source_files(args: &[String]) -> Vec<String> {

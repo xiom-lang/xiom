@@ -2468,5 +2468,143 @@ fn regress_7c07_parallel_with_diagnostics() {
     assert!(ir.contains("define"));
 }
 
+// =====================================================================
+// Phase 7D: Hot Reload Safety at Scale
+// =====================================================================
+
+/// 7D-01: Verify hot reload state functions include layout metadata (7D.2).
+#[test]
+fn regress_7d01_hot_reload_layout_metadata() {
+    let src = r#"
+module test_7d
+var g_counter: Int = 0;
+pub fn get_counter() -> Int { return g_counter; }
+pub fn inc() { g_counter = g_counter + 1; }
+"#;
+    let ir = compile_hot_reload(src).unwrap();
+    // 7D.2: Layout metadata string must be present for versioned state
+    assert!(ir.contains("xiom_hot_layout_meta"), "Must have layout metadata:\n{ir}");
+    // strncmp must be declared for layout verification
+    assert!(ir.contains("strncmp"), "Must declare strncmp for layout check:\n{ir}");
+}
+
+/// 7D-02: Verify hot reload state save includes layout metadata write.
+#[test]
+fn regress_7d02_hot_reload_save_with_metadata() {
+    let src = r#"
+module test_7d2
+var g_val: Int = 42;
+pub fn get() -> Int { return g_val; }
+"#;
+    let ir = compile_hot_reload(src).unwrap();
+    assert!(ir.contains("xiom_hot_save_state"), "Must have save_state:\n{ir}");
+    // Layout metadata should be written before globals
+    assert!(ir.contains("xiom_hot_layout_meta"), "Layout meta must be in save:\n{ir}");
+}
+
+/// 7D-03: Verify hot reload state restore skips on layout mismatch.
+#[test]
+fn regress_7d03_hot_reload_restore_layout_check() {
+    let src = r#"
+module test_7d3
+var g_data: Int = 1;
+pub fn read() -> Int { return g_data; }
+"#;
+    let ir = compile_hot_reload(src).unwrap();
+    assert!(ir.contains("xiom_hot_restore_state"), "Must have restore_state:\n{ir}");
+    // Layout comparison must be present
+    assert!(ir.contains("strncmp"), "Must compare layout metadata:\n{ir}");
+    // Should have a skip path for layout mismatch
+    assert!(ir.contains("hot_restore_skip"), "Must have skip block for layout mismatch:\n{ir}");
+}
+
+/// 7D-04: Verify hot reload thunks still generated correctly.
+#[test]
+fn regress_7d04_hot_reload_thunks_intact() {
+    let src = r#"
+module test_7d4
+pub fn greet() -> Int { return 1; }
+pub fn add(a: Int, b: Int) -> Int { return a + b; }
+"#;
+    let ir = compile_hot_reload(src).unwrap();
+    // Both pub fns must have thunks
+    assert!(ir.contains("xiom_hot_thunk_"), "Must have thunks for pub fns:\n{ir}");
+    assert!(ir.contains("xiom_hot_get_ptr"), "Must call get_ptr:\n{ir}");
+    assert!(ir.contains("xiom_hot_set_ptr"), "Must call set_ptr for self-registration:\n{ir}");
+}
+
+/// 7D-05: Verify export manifest generation (7D.4).
+#[test]
+fn regress_7d05_export_manifest_generation() {
+    // Parse a simple program with pub and private fns
+    let src = r#"
+module test_export
+pub fn init() -> Int { return 0; }
+fn cleanup() -> Int { return 0; }
+"#;
+    let tokens = xiom_lexer::Lexer::new(src).tokenize();
+    let program = xiom_parser::Parser::new(tokens).parse_program().unwrap();
+
+    let tmp = std::env::temp_dir().join(format!("xiom_test_7d05_{}", std::process::id()));
+    xiomc::generate_export_manifest(&program, &tmp.to_string_lossy());
+
+    let manifest_path = format!("{}.exports", tmp.display());
+    assert!(
+        std::path::Path::new(&manifest_path).exists(),
+        "Export manifest must be generated at {}",
+        manifest_path
+    );
+    let content = std::fs::read_to_string(&manifest_path).unwrap();
+    assert!(content.contains("init:"), "Must list pub fn init:\n{content}");
+    assert!(!content.contains("cleanup:"), "Must NOT list private fn cleanup:\n{content}");
+    let _ = std::fs::remove_file(&manifest_path);
+}
+
+/// 7D-06: Verify hot_reload_contracts field in CompileConfig.
+#[test]
+fn regress_7d06_hot_reload_contracts_config() {
+    let c = xiomc::CompileConfig::default();
+    assert!(!c.hot_reload_contracts, "Default must be false");
+
+    let c2 = xiomc::CompileConfig {
+        hot_reload: true,
+        hot_reload_contracts: true,
+        ..xiomc::CompileConfig::default()
+    };
+    assert!(c2.hot_reload);
+    assert!(c2.hot_reload_contracts);
+}
+
+/// 7D-07: Verify private fns do NOT get thunks (existing behavior preserved).
+#[test]
+fn regress_7d07_private_no_thunks() {
+    let src = r#"
+module test_7d7
+fn helper(x: Int) -> Int { return x * 2; }
+pub fn public_fn(x: Int) -> Int { return helper(x); }
+"#;
+    let ir = compile_hot_reload(src).unwrap();
+    // "helper" should not appear in any thunk name
+    let thunk_lines: Vec<&str> = ir.lines()
+        .filter(|l| l.contains("xiom_hot_thunk_"))
+        .collect();
+    let has_helper_thunk = thunk_lines.iter().any(|l| l.contains("helper"));
+    assert!(!has_helper_thunk, "Private fn must not have thunk:\n{}", thunk_lines.join("\n"));
+}
+
+/// 7D-08: Verify no layout metadata when no globals exist.
+#[test]
+fn regress_7d08_no_layout_meta_without_globals() {
+    let src = r#"
+module test_7d8
+pub fn greet() -> Int { return 42; }
+"#;
+    let ir = compile_hot_reload(src).unwrap();
+    // No globals = no layout metadata / save/restore
+    assert!(!ir.contains("xiom_hot_layout_meta"), "No layout meta without globals:\n{ir}");
+    assert!(!ir.contains("xiom_hot_save_state"), "No save_state without globals:\n{ir}");
+}
+
+
 
 
