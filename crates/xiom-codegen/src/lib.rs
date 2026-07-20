@@ -497,6 +497,150 @@ impl IrEmitter {
         }
     }
 
+    // ========================================================================
+    // 5e.7f: Const Evaluation — walk & fold const expressions at compile time
+    // ========================================================================
+
+    /// Evaluate a const expression to a literal value by recursively resolving
+    /// const references and folding arithmetic. Returns `Some(Expr)` on full
+    /// evaluation, `None` if the expression cannot be const-evaluated.
+    /// `depth` tracks recursion depth for cycle detection (max 128).
+    pub(crate) fn const_eval(
+        expr: &Expr,
+        constants: &HashMap<String, Expr>,
+        depth: u32,
+    ) -> Option<Expr> {
+        if depth > 128 {
+            return None; // cycle detected or too deep
+        }
+        match expr {
+            // Literals return themselves
+            Expr::Int(..) | Expr::Float(..) | Expr::Bool(..) | Expr::Char(..) | Expr::Str(..) => {
+                Some(expr.clone())
+            }
+            // Const reference: look up and recurse
+            Expr::Ident(ident) => {
+                constants.get(&ident.name)
+                    .and_then(|val| Self::const_eval(val, constants, depth + 1))
+            }
+            // Fold arithmetic
+            Expr::Binary(lhs, op, rhs, _) => {
+                let l = Self::const_eval(lhs, constants, depth + 1)?;
+                let r = Self::const_eval(rhs, constants, depth + 1)?;
+                Self::const_fold_binary(&l, op, &r)
+            }
+            // Unary negation
+            Expr::Unary(UnaryOp::Neg, inner, _) => {
+                let v = Self::const_eval(inner, constants, depth + 1)?;
+                match v {
+                    Expr::Int(n, _) => Some(Expr::Int((n as i64).wrapping_neg() as u64, Span::new(0, 0))),
+                    Expr::Float(f, _) => Some(Expr::Float(-f, Span::new(0, 0))),
+                    _ => None,
+                }
+            }
+            // Not-const: calls, casts, field access, index, etc.
+            _ => None,
+        }
+    }
+
+    /// Fold a binary operation on two literal const expressions.
+    fn const_fold_binary(lhs: &Expr, op: &BinOp, rhs: &Expr) -> Option<Expr> {
+        let s = Span::new(0, 0);
+        match (lhs, rhs) {
+            (Expr::Int(a, _), Expr::Int(b, _)) => {
+                let a = *a; let b = *b;
+                match op {
+                    BinOp::Add => Some(Expr::Int(a + b, s)),
+                    BinOp::Sub => Some(Expr::Int((a as i64).wrapping_sub(b as i64) as u64, s)),
+                    BinOp::Mul => Some(Expr::Int(a * b, s)),
+                    BinOp::Div => {
+                        if b == 0 { return None; }
+                        Some(Expr::Int((a as i64 / b as i64) as u64, s))
+                    }
+                    BinOp::Rem => {
+                        if b == 0 { return None; }
+                        Some(Expr::Int((a as i64 % b as i64) as u64, s))
+                    }
+                    BinOp::Shl => {
+                        if b > 63 { return None; }
+                        Some(Expr::Int(a << b, s))
+                    }
+                    BinOp::Shr => {
+                        if b > 63 { return None; }
+                        Some(Expr::Int((a as i64 >> b) as u64, s))
+                    }
+                    BinOp::BitAnd => Some(Expr::Int(a & b, s)),
+                    BinOp::BitOr => Some(Expr::Int(a | b, s)),
+                    BinOp::BitXor => Some(Expr::Int(a ^ b, s)),
+                    _ => None,
+                }
+            }
+            (Expr::Float(a, _), Expr::Float(b, _)) => {
+                let a = *a; let b = *b;
+                match op {
+                    BinOp::Add => Some(Expr::Float(a + b, s)),
+                    BinOp::Sub => Some(Expr::Float(a - b, s)),
+                    BinOp::Mul => Some(Expr::Float(a * b, s)),
+                    BinOp::Div => Some(Expr::Float(a / b, s)),
+                    _ => None,
+                }
+            }
+            (Expr::Int(a, _), Expr::Float(b, _)) => {
+                let a = *a as f64; let b = *b;
+                match op {
+                    BinOp::Add => Some(Expr::Float(a + b, s)),
+                    BinOp::Sub => Some(Expr::Float(a - b, s)),
+                    BinOp::Mul => Some(Expr::Float(a * b, s)),
+                    BinOp::Div => Some(Expr::Float(a / b, s)),
+                    _ => None,
+                }
+            }
+            (Expr::Float(a, _), Expr::Int(b, _)) => {
+                let a = *a; let b = *b as f64;
+                match op {
+                    BinOp::Add => Some(Expr::Float(a + b, s)),
+                    BinOp::Sub => Some(Expr::Float(a - b, s)),
+                    BinOp::Mul => Some(Expr::Float(a * b, s)),
+                    BinOp::Div => Some(Expr::Float(a / b, s)),
+                    _ => None,
+                }
+            }
+            (Expr::Bool(a, _), Expr::Bool(b, _)) => {
+                let a = *a; let b = *b;
+                match op {
+                    BinOp::And => Some(Expr::Bool(a && b, s)),
+                    BinOp::Or => Some(Expr::Bool(a || b, s)),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Promote an Int to Float64 if needed for const arithmetic with floats.
+    #[allow(dead_code)]
+    fn const_promote_to_float(expr: &Expr) -> Option<f64> {
+        match expr {
+            Expr::Int(n, _) => Some(*n as f64),
+            Expr::Float(f, _) => Some(*f),
+            _ => None,
+        }
+    }
+
+    /// 5e.7f: Evaluate all registered constants in-place. Run after
+    /// register_functions so cross-references between consts resolve.
+    fn evaluate_all_consts(&mut self) {
+        // Clone all keys first (can't iterate and mutate simultaneously)
+        let keys: Vec<String> = self.constants.keys().cloned().collect();
+        for name in keys {
+            if let Some(expr) = self.constants.get(&name).cloned() {
+                if let Some(evaluated) = Self::const_eval(&expr, &self.constants, 0) {
+                    self.constants.insert(name, evaluated);
+                }
+            }
+        }
+    }
+
     /// Widen a narrow integer value (`i1`/`i8`/`i16`/`i32`) to `i64` so it can
     /// participate in the emitter's i64 integer arithmetic/comparison model.
     fn widen_to_i64(&mut self, val: &str, ty: &str) -> String {
@@ -1730,6 +1874,10 @@ impl IrEmitter {
         for item in &program.items {
             self.register_functions(item);
         }
+
+        // 5e.7f: Const evaluation pass — fold const expressions after all
+        // constants are registered so cross-references resolve correctly.
+        self.evaluate_all_consts();
 
         // Scan interface implementations: for each interface, find all concrete
         // types that implement all its methods (BUG-007 interface dispatch).

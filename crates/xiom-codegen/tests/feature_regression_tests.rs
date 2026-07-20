@@ -1710,3 +1710,73 @@ fn main() -> Int {
     assert!(ir.contains("@Result.to_str"), "Must emit Result.to_str:\n{ir}");
     assert!(ir.contains("switch"), "Must use switch for variant dispatch:\n{ir}");
 }
+
+// =====================================================================
+// 5e.7f Const Evaluation Tests — const arithmetic between named constants
+// =====================================================================
+
+/// Verify const arithmetic: `const R = A + B` where A and B are other consts.
+#[test]
+fn regress_5e7f_const_arithmetic_add() {
+    let src = r#"
+pub const A: Int = 10;
+pub const B: Int = 20;
+pub const R: Int = A + B;
+fn main() -> Int { return R; }
+"#;
+    let ir = compile(src).unwrap();
+    // R should fold to 30 at compile time
+    assert!(ir.contains("ret i64 30"), "const 10+20 should fold to 30:\n{ir}");
+}
+
+/// Verify const float arithmetic.
+#[test]
+fn regress_5e7f_const_arithmetic_float() {
+    let src = r#"
+pub const PI: Float64 = 3.14;
+pub const TWO_PI: Float64 = PI + PI;
+fn main() -> Float64 { return TWO_PI; }
+"#;
+    let ir = compile(src).unwrap();
+    // 6.28 should appear in IR (not 3.14 + 3.14)
+    assert!(ir.contains("6.28"), "TWO_PI should fold to 6.28:\n{ir}");
+}
+
+/// Verify const multiplication.
+#[test]
+fn regress_5e7f_const_arithmetic_mul() {
+    let src = r#"
+pub const W: Int = 7;
+pub const H: Int = 6;
+pub const AREA: Int = W * H;
+fn main() -> Int { return AREA; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("ret i64 42"), "7*6 should fold to 42:\n{ir}");
+}
+
+/// Verify const arithmetic with negation.
+#[test]
+fn regress_5e7f_const_arithmetic_neg() {
+    let src = r#"
+pub const X: Int = 5;
+pub const NEG_X: Int = -X;
+fn main() -> Int { return NEG_X; }
+"#;
+    let ir = compile(src).unwrap();
+    // -5 as u64 two's complement: 18446744073709551611
+    assert!(ir.contains("ret i64 18446744073709551611"), "NEG_X should fold to -5 (u64):\n{ir}");
+}
+
+/// Verify cycle detection — const referencing itself should NOT crash.
+#[test]
+fn regress_5e7f_const_cycle_detection() {
+    let src = r#"
+const A: Int = B;
+const B: Int = A;
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    // Should compile (consts resolve to whatever, just not crash)
+    assert!(ir.contains("ret i64 0"), "Should not crash on cycle:\n{ir}");
+}
