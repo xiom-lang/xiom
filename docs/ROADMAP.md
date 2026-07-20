@@ -901,3 +901,120 @@ cargo test --all
 | [`docs/rust/`](./rust/README.md) (README + 8 reports) | rustc & stdlib analysis â€” basis for Phase 5c-R adoptions |
 | [`docs/z3/Z3_LESSONS.md`](./z3/Z3_LESSONS.md) | z3.rs bindings analysis â€” SMT encoding + integration strategy for Phase 5f |
 | [`docs/ecosystem-audit/`](./ecosystem-audit/README.md) | Consolidated compiler-gap registry from 40 ecosystem AUDIT.md files (G-01..G-49, 2026-07-18) |
+| `docs/audit/PHASE6_CRATE_AUDIT.md` | Phase 6 crate-by-crate audit — all 14 crates rated and analyzed |
+| `docs/audit/PHASE6_STDLIB_AUDIT.md` | Phase 6 stdlib module audit — all 41 modules rated and categorized |
+| `docs/PRODUCTION_SETUP.md` | Production infrastructure: repo split, registry, CI/CD, cross-platform packaging |
+
+---
+
+## Phase 6: Production Hardening — Crate & Stdlib Quality
+
+**Status:** Audit complete. Implementation begins.
+**Baseline:** 788/788 tests | **Target:** 850+ tests, avg crate rating ≥7.0, stdlib contract coverage ≥50%
+
+### 6.1 Crate Audit Findings (see `docs/audit/PHASE6_CRATE_AUDIT.md`)
+
+**Overall crate rating: 5.6/10** — 14 crates audited, 10 critical issues found.
+
+| Crate | Rating | Phase 6 Action |
+|-------|--------|----------------|
+| xiom-ast | 7.7 | Low — add Span byte offset |
+| xiom-lexer | 7.0 | Low — fix overflow handling |
+| xiom-parser | 7.1 | Medium — split 1662 LOC file |
+| xiom-check | 6.3 | **Critical** — fix types_compatible, split 4228 LOC |
+| xiom-codegen | 4.9 | **Critical** — split IrEmitter, adopt inkwell |
+| xiomc | 6.2 | Medium — extract subcommands |
+| xiom-fmt | 6.7 | Low — fix format_float panic |
+| xiom-mcp | 6.7 | Medium — fix concurrency bugs |
+| xiom-doc | 6.1 | Low — add HTML output |
+| xiom-verify | 5.4 | Medium — fix SMT generation bugs |
+| xiom-ffigen | 5.0 | Low — fix type mapping |
+| xiom-pkg | 3.4 | **Critical** — fix unsafe, HTTP, JSON |
+| xiom-dbg | 3.4 | Medium — fix compile error, add events |
+| xiom-lsp | 3.1 | **Critical** — split monolith, add tests |
+
+### 6.2 Stdlib Audit Findings (see `docs/audit/PHASE6_STDLIB_AUDIT.md`)
+
+**Overall stdlib rating: 5.2/10** — 41 modules audited.
+
+| Category | Count | Modules |
+|----------|-------|---------|
+| PRODUCTION-READY | 6 | time, encoding, char, string, sync, io |
+| PARTIAL | 25 | core, math, num, mem, env, cmp, net, iter, rand, serialize, ptr, cell, async, collections, log, regex, crypto, os, alloc, convert, array, fmt, simd, bench, compress |
+| STUB | 10 | reflect, contracts, rc, error, path, ffi, hash, thread |
+
+**Top Stdlib Actions:**
+1. Contract coverage: 18% → 50%+ (contracts are XIOM's killer feature)
+2. Fix critical bugs: cell Ref/RefMut, path/iter mutation receivers, simd memory leak
+3. Complete collections: hash-based Map, node-based LinkedList
+4. Real compression (zlib/miniz FFI) instead of RLE-only
+5. Missing modules: json, http, fs, process, tls, task
+
+### 6.3 Phase 6 Sprints
+
+**Sprint 6A — Critical Crate Fixes (3 days)**
+- xiom-check: Fix `types_compatible` catch-all
+- xiom-codegen: Unknown type → error (not "i64")
+- xiom-pkg: `static mut` → `OnceLock`
+- xiom-dbg: Fix compile error
+- Fix encoding corruption in source files
+
+**Sprint 6B — Crate Refactoring (5-7 days)**
+- Split xiom-check/lib.rs (4228 → 5 files)
+- Split xiom-lsp/main.rs (2488 → handlers/)
+- Split IrEmitter (55 fields → CodegenContext + FunctionFrame)
+- Create `xiom_display` shared crate
+
+**Sprint 6C — Tooling Hardening (5-7 days)**
+- xiom-pkg: Fix HTTP bugs, proper binary download, JSON parsing
+- xiom-lsp: Add formatting, tests, mutex error handling
+- xiom-dbg: Add GDB async reader, stopped events, evaluate handler
+- xiom-verify: Fix SMT generation bugs, add --json output
+
+**Sprint 6D — Stdlib Critical Bugs (3-5 days)**
+- Fix cell.xi Ref/RefMut borrow restoration
+- Fix path.xi PathBuf mutation receivers
+- Fix iter.xi Iterator mutation receivers
+- Fix simd.xi memory leak
+- Fix crypto.xi AES-NI engagement
+
+**Sprint 6E — Stdlib Collections (5-7 days)**
+- HashMap (hash-based)
+- Fix LinkedList (node-based)
+- Fix Map (hash-based)
+- Vec.reserve/shrink_to_fit/truncate/extend/drain
+
+**Sprint 6F — Stdlib Contract Coverage (3-5 days)**
+- Add contracts to all Vec/Map/Option/Result methods
+- Add contracts to io.xi (file operations)
+- Add contracts to string.xi (bounds, encoding)
+- Target: 50%+ pub fn contract coverage
+
+**Sprint 6G — Stdlib Polish (5-7 days)**
+- Real compression (zlib FFI)
+- Complete error.xi (Display, backtrace)
+- Complete contracts.xi (wire to compiler)
+- Complete reflect.xi (Any trait impls)
+- Complete regex.xi (alternation, groups)
+- Unified version numbers across all crates
+- Standardized error handling (thiserror)
+
+---
+
+## Phase 7: Self-Hosting
+
+**Status:** POSTPONED by directive. Will begin after Phase 6 completion.
+**Current:** `selfhost/` directory contains partial xiomc.xi, xiom-lexer.xi, xiom-parser.xi, xiom-check.xi, xiom-codegen.xi
+
+---
+
+## 16. Version History
+
+| Version | Date | Tests | Milestone |
+|---------|------|-------|-----------|
+| v0.49.0 | 2026-07-20 | **788** | Phase 5 complete, Phase 6 audit complete |
+| v0.48.9 | 2026-07-20 | 783 | Enum derives, CI/CD, WinDbg, signing |
+| v0.48.5 | 2026-07-19 | 768 | 49/49 gaps closed, 5d AI pipeline |
+| v0.47.8 | 2026-07-18 | 710 | G-01..G-49 hardened |
+| v0.46.0 | 2026-07-15 | ~650 | 5c-R rustc lessons |
+| v0.20.0 | 2026-06 | ~500 | Initial production release |
