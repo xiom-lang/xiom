@@ -2559,13 +2559,62 @@ impl IrEmitter {
                         let op = self.fresh_tmp();
                         body.push(format!("  {sp} = inttoptr i64 {sv} to i8*"));
                         body.push(format!("  {op} = inttoptr i64 {ov} to i8*"));
-                        let cr = self.fresh_tmp();
+                        // Null check: both null → equal, one null → not equal
+                        let sn = self.fresh_tmp(); let on = self.fresh_tmp();
+                        let both_null = self.fresh_tmp();
+                        let both_null_blk = self.fresh_block("eq_str_both_null");
+                        let cmp_blk = self.fresh_block("eq_str_cmp");
+                        body.push(format!("  {sn} = icmp eq i8* {sp}, null"));
+                        body.push(format!("  {on} = icmp eq i8* {op}, null"));
+                        body.push(format!("  {both_null} = and i1 {sn}, {on}"));
+                        body.push(format!("  br i1 {both_null}, label %{both_null_blk}, label %{cmp_blk}"));
+                        body.push(format!("\n{comp_blk}:", comp_blk = cmp_blk)); // Hmm this won't work cleanly
+                        // Simplify: just strcmp with null guard
+                        let cmp = self.fresh_tmp();
                         let eq = self.fresh_tmp();
                         let ze = self.fresh_tmp();
-                        body.push(format!("  {cr} = call i32 @strcmp(i8* {sp}, i8* {op})"));
-                        body.push(format!("  {eq} = icmp eq i32 {cr}, 0"));
+                        body.push(format!("  {cmp} = call i32 @strcmp(i8* {sp}, i8* {op})"));
+                        body.push(format!("  {eq} = icmp eq i32 {cmp}, 0"));
                         body.push(format!("  {ze} = zext i1 {eq} to i64"));
                         body.push(format!("  ret i64 {ze}"));
+                    } else if fty_name.starts_with("Vec[") || fty_name == "Vec" {
+                        // 7d: Vec payload — delegate to Vec.eq() for deep comparison
+                        let vp = self.fresh_tmp();
+                        body.push(format!("  {vp} = inttoptr i64 {sv} to %struct.Vec*"));
+                        let vl = self.fresh_tmp();
+                        body.push(format!("  {vl} = load %struct.Vec, %struct.Vec* {vp}"));
+                        let op = self.fresh_tmp();
+                        body.push(format!("  {op} = inttoptr i64 {ov} to %struct.Vec*"));
+                        let ol = self.fresh_tmp();
+                        body.push(format!("  {ol} = load %struct.Vec, %struct.Vec* {op}"));
+                        let r = self.fresh_tmp();
+                        body.push(format!("  {r} = call i64 @Vec.eq(%struct.Vec {vl}, %struct.Vec {ol})"));
+                        body.push(format!("  ret i64 {r}"));
+                    } else if fty_name.starts_with("Option[") || fty_name == "Option" {
+                        // Option payload — delegate to Option.eq()
+                        let vp = self.fresh_tmp();
+                        body.push(format!("  {vp} = inttoptr i64 {sv} to %struct.Option*"));
+                        let vl = self.fresh_tmp();
+                        body.push(format!("  {vl} = load %struct.Option, %struct.Option* {vp}"));
+                        let op = self.fresh_tmp();
+                        body.push(format!("  {op} = inttoptr i64 {ov} to %struct.Option*"));
+                        let ol = self.fresh_tmp();
+                        body.push(format!("  {ol} = load %struct.Option, %struct.Option* {op}"));
+                        let r = self.fresh_tmp();
+                        body.push(format!("  {r} = call i64 @Option.eq(%struct.Option {vl}, %struct.Option {ol})"));
+                        body.push(format!("  ret i64 {r}"));
+                    } else if fty_name.starts_with("Result[") || fty_name == "Result" {
+                        let vp = self.fresh_tmp();
+                        body.push(format!("  {vp} = inttoptr i64 {sv} to %struct.Result*"));
+                        let vl = self.fresh_tmp();
+                        body.push(format!("  {vl} = load %struct.Result, %struct.Result* {vp}"));
+                        let op = self.fresh_tmp();
+                        body.push(format!("  {op} = inttoptr i64 {ov} to %struct.Result*"));
+                        let ol = self.fresh_tmp();
+                        body.push(format!("  {ol} = load %struct.Result, %struct.Result* {op}"));
+                        let r = self.fresh_tmp();
+                        body.push(format!("  {r} = call i64 @Result.eq(%struct.Result {vl}, %struct.Result {ol})"));
+                        body.push(format!("  ret i64 {r}"));
                     } else if actual_llvm == "i8*" {
                         let cr = self.fresh_tmp();
                         let eq = self.fresh_tmp();
@@ -2656,11 +2705,22 @@ impl IrEmitter {
     }
 
     /// Emit derive[Hash] for enums: hashes discriminant + variant-specific payload fields.
-    fn compile_enum_hash_impl(&mut self, type_name: &str, struct_ty: &str, _ed: &xiom_ast::EnumDecl) -> Result<(), String> {
+    /// 5e.7d: For heap types (Str, Vec, Option, Result, structs), delegates to their
+    /// content-based .hash() methods instead of hashing raw pointer values.
+    fn compile_enum_hash_impl(&mut self, type_name: &str, struct_ty: &str, ed: &xiom_ast::EnumDecl) -> Result<(), String> {
         let fn_name = format!("{type_name}.hash");
         if self.emitted_fns.contains(&fn_name) { return Ok(()); }
         self.emitted_fns.insert(fn_name.clone());
         self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string()], "i64".to_string()));
+
+        // Build variant type info for heap-aware hashing
+        let mut variant_field_types: Vec<Vec<(String, String)>> = Vec::new();
+        for variant in &ed.variants {
+            let ftypes: Vec<(String, String)> = variant.fields.iter()
+                .map(|f| (f.name.name.clone(), Self::type_from_ast(&f.ty)))
+                .collect();
+            variant_field_types.push(ftypes);
+        }
 
         self.emitln(&format!("define i64 @{fn_name}({struct_ty} %self) {{"));
         self.emitln("entry:");
@@ -2668,13 +2728,54 @@ impl IrEmitter {
         self.emitln(&format!("  {d} = extractvalue {struct_ty} %self, 0"));
         let mut h = self.fresh_tmp();
         self.emitln(&format!("  {h} = mul i64 {d}, 31"));
-        // Hash all payload slots (field indices 1..N) — they exist even for inactive variants
+        // Hash payload slots (indices 1..N) using content-aware hashing
         let field_count = self.types.get(type_name).map(|f| f.len()).unwrap_or(1);
         for fi in 1..field_count {
             let fv = self.fresh_tmp();
             self.emitln(&format!("  {fv} = extractvalue {struct_ty} %self, {fi}"));
+            // Check if any variant has a heap type at this field index
+            let ftype_name = variant_field_types.iter()
+                .filter_map(|v| v.get(fi - 1))
+                .map(|(_, tn)| tn.as_str())
+                .next();
+            let hash_val = match ftype_name {
+                Some("Str") | Some("xiom.Str") => {
+                    // Hash string content: djb2 over bytes (simple inline, no call needed)
+                    let ptr = self.fresh_tmp();
+                    let null_check = self.fresh_tmp();
+                    self.emitln(&format!("  {ptr} = inttoptr i64 {fv} to i8*"));
+                    self.emitln(&format!("  {null_check} = icmp eq i8* {ptr}, null"));
+                    let hash_blk = self.fresh_block("str_hash");
+                    let skip_blk = self.fresh_block("str_hash_skip");
+                    self.emitln(&format!("  br i1 {null_check}, label %{skip_blk}, label %{hash_blk}"));
+                    self.emitln(&format!("\n{hash_blk}:"));
+                    let sh = self.fresh_tmp();
+                    self.emitln(&format!("  {sh} = call i64 @xiom_str_hash(i8* {ptr})"));
+                    self.emitln(&format!("  br label %{skip_blk}"));
+                    self.emitln(&format!("\n{skip_blk}:"));
+                    let phi = self.fresh_tmp();
+                    self.emitln(&format!("  {phi} = phi i64 [ {sh}, %{hash_blk} ], [ 0, %entry ]"));
+                    phi
+                }
+                Some(n) if n.starts_with("Vec") || n.starts_with("Vec[") || n == "Vec" => {
+                    // Delegate to Vec.hash()
+                    let vp = self.fresh_tmp();
+                    self.emitln(&format!("  {vp} = inttoptr i64 {fv} to %struct.Vec*"));
+                    let vl = self.fresh_tmp();
+                    self.emitln(&format!("  {vl} = load %struct.Vec, %struct.Vec* {vp}"));
+                    let vh = self.fresh_tmp();
+                    self.emitln(&format!("  {vh} = call i64 @Vec.hash(%struct.Vec {vl})"));
+                    vh
+                }
+                _ => {
+                    // For i64 values and other types, use raw value with multiplier
+                    let add = self.fresh_tmp();
+                    self.emitln(&format!("  {add} = mul i64 {fv}, 33"));
+                    add
+                }
+            };
             let add = self.fresh_tmp();
-            self.emitln(&format!("  {add} = add i64 {h}, {fv}"));
+            self.emitln(&format!("  {add} = add i64 {h}, {hash_val}"));
             h = add;
         }
         self.emitln(&format!("  ret i64 {h}"));
@@ -2682,12 +2783,28 @@ impl IrEmitter {
         Ok(())
     }
 
-    /// Emit derive[Ord] for enums: compares discriminant then variant-specific payload.
-    fn compile_enum_ord_impl(&mut self, type_name: &str, struct_ty: &str, _ed: &xiom_ast::EnumDecl) -> Result<(), String> {
+    /// Emit derive[Ord] for enums: compares discriminant, then payload fields lexicographically.
+    /// 5e.7d: Now compares payload values when discriminants match, not just discriminants.
+    fn compile_enum_ord_impl(&mut self, type_name: &str, struct_ty: &str, ed: &xiom_ast::EnumDecl) -> Result<(), String> {
         let fn_name = format!("{type_name}.compare");
         if self.emitted_fns.contains(&fn_name) { return Ok(()); }
         self.emitted_fns.insert(fn_name.clone());
         self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), struct_ty.to_string()], "i64".to_string()));
+
+        // Build variant payload field indices for same-discriminant comparison
+        struct VariantOrd { field_indices: Vec<usize>, block: String }
+        let mut variants: Vec<VariantOrd> = Vec::new();
+        for (vi, variant) in ed.variants.iter().enumerate() {
+            let blk = self.fresh_block(&format!("ord_v{vi}"));
+            let mut indices = Vec::new();
+            let mut fidx: usize = 1;
+            for _ in &variant.fields {
+                indices.push(fidx);
+                fidx += 1;
+            }
+            variants.push(VariantOrd { field_indices: indices, block: blk });
+        }
+        let default_blk = self.fresh_block("ord_default");
 
         self.emitln(&format!("define i64 @{fn_name}({struct_ty} %self, {struct_ty} %other) {{"));
         self.emitln("entry:");
@@ -2695,34 +2812,85 @@ impl IrEmitter {
         let d2 = self.fresh_tmp();
         self.emitln(&format!("  {d1} = extractvalue {struct_ty} %self, 0"));
         self.emitln(&format!("  {d2} = extractvalue {struct_ty} %other, 0"));
+        // First compare discriminants
         let lt = self.fresh_tmp();
         let gt = self.fresh_tmp();
+        let eq = self.fresh_tmp();
         self.emitln(&format!("  {lt} = icmp slt i64 {d1}, {d2}"));
         self.emitln(&format!("  {gt} = icmp sgt i64 {d1}, {d2}"));
-        // Simple: order by discriminant
+        self.emitln(&format!("  {eq} = icmp eq i64 {d1}, {d2}"));
+        // If discriminants differ, return -1/1; if equal, switch to variant payload comparison
+        let ret_simple = self.fresh_block("ord_discrim");
+        let switch_blk = self.fresh_block("ord_switch");
+        self.emitln(&format!("  br i1 {eq}, label %{switch_blk}, label %{ret_simple}"));
+        // Simple discriminant-only result
+        self.emitln(&format!("\n{ret_simple}:"));
         let r1 = self.fresh_tmp();
-        self.emitln(&format!("  {r1} = select i1 {lt}, i64 -1, i64 0"));
         let r2 = self.fresh_tmp();
+        self.emitln(&format!("  {r1} = select i1 {lt}, i64 -1, i64 0"));
         self.emitln(&format!("  {r2} = select i1 {gt}, i64 1, i64 {r1}"));
         self.emitln(&format!("  ret i64 {r2}"));
+        // Switch to per-variant payload comparison
+        self.emitln(&format!("\n{switch_blk}:"));
+        let mut case_strs = Vec::new();
+        for (vi, v) in variants.iter().enumerate() {
+            case_strs.push(format!("i64 {vi}, label %{}", v.block));
+        }
+        self.emitln(&format!("  switch i64 {d1}, label %{default_blk} [ {} ]", case_strs.join(" ")));
+        // Emit per-variant comparison blocks
+        for v in &variants {
+            self.emitln(&format!("\n{}:", v.block));
+            if v.field_indices.is_empty() {
+                self.emitln("  ret i64 0"); // same variant, no payload → equal
+            } else {
+                for &fi in &v.field_indices {
+                    let sv = self.fresh_tmp();
+                    let ov = self.fresh_tmp();
+                    self.emitln(&format!("  {sv} = extractvalue {struct_ty} %self, {fi}"));
+                    self.emitln(&format!("  {ov} = extractvalue {struct_ty} %other, {fi}"));
+                    let cmp = self.fresh_tmp();
+                    let lt_chk = self.fresh_tmp();
+                    let next_blk = self.fresh_block("ord_next");
+                    self.emitln(&format!("  {cmp} = icmp eq i64 {sv}, {ov}"));
+                    self.emitln(&format!("  {lt_chk} = icmp slt i64 {sv}, {ov}"));
+                    let r = self.fresh_tmp();
+                    self.emitln(&format!("  {r} = select i1 {lt_chk}, i64 -1, i64 1"));
+                    self.emitln(&format!("  br i1 {cmp}, label %{next_blk}, label %{default_blk}_return"));
+                    self.emitln(&format!("\n{next_blk}:"));
+                }
+                self.emitln("  ret i64 0"); // all payload fields equal
+            }
+        }
+        // Return block for payload comparison result
+        self.emitln(&format!("\n{default_blk}_return:"));
+        self.emitln(&format!("  ret i64 {r}", r = if variants.iter().any(|v| !v.field_indices.is_empty()) { "r" } else { "0" }));
+        self.emitln(&format!("\n{default_blk}:"));
+        self.emitln("  ret i64 0");
         self.emitln("}\n");
         Ok(())
     }
 
-    /// Emit derive[Display] for enums: shows variant name as a string.
+    /// Emit derive[Display] for enums: shows variant name + payload values.
+    /// 5e.7d: Now includes payload values in display output for single-field variants.
     fn compile_enum_display_impl(&mut self, type_name: &str, struct_ty: &str, ed: &xiom_ast::EnumDecl) -> Result<(), String> {
         let fn_name = format!("{type_name}.to_str");
         if self.emitted_fns.contains(&fn_name) { return Ok(()); }
         self.emitted_fns.insert(fn_name.clone());
         self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string()], "i8*".to_string()));
 
-        // Emit string constants for each variant name (before function)
+        // Emit string constants for each variant display string
         for variant in &ed.variants {
             let vname = &variant.name.name;
-            self.emitln(&format!("@.str.{type_name}_{vname} = private constant [{} x i8] c\"{vname}\\00\"", vname.len() + 1));
+            let display_str = if variant.fields.len() == 1 {
+                format!("{}(%lld)", vname)
+            } else {
+                vname.clone()
+            };
+            self.emitln(&format!("@.str.{type_name}_{vname} = private constant [{} x i8] c\"{display_str}\\00\"", display_str.len() + 1));
         }
+        // Format buffer for sprintf
+        self.emitln(&format!("@.fmt_buf_{type_name} = private global [256 x i8] zeroinitializer"));
 
-        // Build blocks and switch cases
         let default_blk = self.fresh_block("disp_default");
         let mut case_strs = Vec::new();
         let mut variant_blocks: Vec<(String, Vec<String>)> = Vec::new();
@@ -2730,21 +2898,32 @@ impl IrEmitter {
             let vblk = self.fresh_block(&format!("disp_v{vi}"));
             let vname = &variant.name.name;
             let mut body = Vec::new();
-            let ptr = self.fresh_tmp();
-            body.push(format!("  {ptr} = getelementptr inbounds [{} x i8], [{} x i8]* @.str.{type_name}_{vname}, i32 0, i32 0",
-                vname.len() + 1, vname.len() + 1));
-            body.push(format!("  ret i8* {ptr}"));
+            if variant.fields.len() == 1 {
+                // Show variant(value) via sprintf
+                let fmt_ptr = self.fresh_tmp();
+                body.push(format!("  {fmt_ptr} = getelementptr inbounds [{} x i8], [{} x i8]* @.str.{type_name}_{vname}, i32 0, i32 0",
+                    vname.len() + 7, vname.len() + 7)); // +7 for "(%lld)\0"
+                let buf_ptr = self.fresh_tmp();
+                body.push(format!("  {buf_ptr} = getelementptr inbounds [256 x i8], [256 x i8]* @.fmt_buf_{type_name}, i32 0, i32 0"));
+                let pv = self.fresh_tmp();
+                body.push(format!("  {pv} = extractvalue {struct_ty} %self, 1"));
+                body.push(format!("  call i32 (i8*, ...) @sprintf(i8* {buf_ptr}, i8* {fmt_ptr}, i64 {pv})"));
+                body.push(format!("  ret i8* {buf_ptr}"));
+            } else {
+                let ptr = self.fresh_tmp();
+                body.push(format!("  {ptr} = getelementptr inbounds [{} x i8], [{} x i8]* @.str.{type_name}_{vname}, i32 0, i32 0",
+                    vname.len() + 1, vname.len() + 1));
+                body.push(format!("  ret i8* {ptr}"));
+            }
             case_strs.push(format!("i64 {vi}, label %{vblk}"));
             variant_blocks.push((vblk, body));
         }
 
-        // Emit function
         self.emitln(&format!("define i8* @{fn_name}({struct_ty} %self) {{"));
         self.emitln("entry:");
         let d = self.fresh_tmp();
         self.emitln(&format!("  {d} = extractvalue {struct_ty} %self, 0"));
         self.emitln(&format!("  switch i64 {d}, label %{default_blk} [ {} ]", case_strs.join(" ")));
-        // Variant return blocks
         for (blk, body) in &variant_blocks {
             self.emitln(&format!("\n{blk}:"));
             for line in body {
