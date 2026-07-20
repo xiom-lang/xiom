@@ -1338,10 +1338,21 @@ impl IrEmitter {
                     if !struct_ty.starts_with("%struct.") {
                         return Ok(("0".to_string(), "i64".to_string()));
                     }
+                    // Parse field types from struct name: %struct.Tuple_Float32_Int →
+                    // field LLVM types: [float, i64]
+                    let field_types = self.parse_struct_field_types(&struct_ty);
                     let alloca = self.fresh_tmp();
                     self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
                     for (i, item) in items.iter().enumerate() {
-                        let (item_val, item_ty) = self.compile_expr(item)?;
+                        let (mut item_val, mut item_ty) = self.compile_expr(item)?;
+                        // Coerce float literals to match struct field width.
+                        // e.g., 0.0 defaults to double, but Float32 field needs float.
+                        if let Some(needed) = field_types.get(i) {
+                            if *needed != item_ty {
+                                item_val = self.coerce_value(&item_val, &item_ty, needed);
+                                item_ty = needed.clone();
+                            }
+                        }
                         let gep = self.fresh_tmp();
                         self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {i}"));
                         self.emitln(&format!("  store {item_ty} {item_val}, {item_ty}* {gep}"));

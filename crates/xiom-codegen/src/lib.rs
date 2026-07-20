@@ -3652,6 +3652,30 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
         self.infer_llvm_type_impl(expr)
     }
 
+    /// Parse field LLVM types from a tuple struct name.
+    /// `%struct.Tuple_Float32_Float32` → `["float", "float"]`
+    /// `%struct.Tuple_Int_Float64` → `["i64", "double"]`
+    fn parse_struct_field_types(&self, struct_ty: &str) -> Vec<String> {
+        let name = struct_ty.trim_start_matches("%struct.");
+        // Struct names for tuples have format: Tuple_Type1_Type2_... or just Type1_Type2
+        let parts: Vec<&str> = name.split('_').collect();
+        let mut types = Vec::new();
+        for part in parts {
+            if part == "Tuple" { continue; }
+            // Map XIOM type names to LLVM types
+            let llvm = match part {
+                "Int" | "Bool" | "Int32" | "UInt32" | "UInt64" | "Int64" | "Int8" | "UInt8" | "Int16" | "UInt16" => "i64",
+                "Float64" => "double",
+                "Float32" => "float",
+                "Char" => "i8",
+                "Str" => "i8*",
+                _ => "i64", // default for unknown/custom types
+            };
+            types.push(llvm.to_string());
+        }
+        types
+    }
+
     /// Emit a private constant C string and return an `i8*` register pointing at it.
     /// Uses byte length (not char count) so multi-byte UTF-8 is sized correctly.
     fn intern_cstring(&mut self, s: &str) -> String {
