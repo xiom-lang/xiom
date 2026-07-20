@@ -570,6 +570,132 @@ fn collect_document_symbols(
     }
 }
 
+/// Collect workspace-level symbols from a parsed program for workspace/symbol.
+/// Returns flat SymbolInformation entries (no children — workspace/symbol is flat).
+fn collect_workspace_symbols(
+    item: &xiom_ast::TopDecl,
+    uri: &str,
+    query: &str,
+    results: &mut Vec<serde_json::Value>,
+) {
+    let query_lower = query.to_lowercase();
+    match item {
+        xiom_ast::TopDecl::Fn(f) => {
+            let name = &f.name.name;
+            if query.is_empty() || name.to_lowercase().contains(&query_lower) {
+                let line = if f.name.span.line > 0 { f.name.span.line as u64 - 1 } else { 0 };
+                let col = if f.name.span.col > 0 { f.name.span.col as u64 - 1 } else { 0 };
+                let len = name.len() as u64;
+                results.push(serde_json::json!({
+                    "name": name,
+                    "kind": 12, // Function
+                    "location": {
+                        "uri": uri,
+                        "range": {
+                            "start": { "line": line, "character": col },
+                            "end": { "line": line, "character": col + len }
+                        }
+                    }
+                }));
+            }
+        }
+        xiom_ast::TopDecl::Type(td) => {
+            let name = &td.name.name;
+            if query.is_empty() || name.to_lowercase().contains(&query_lower) {
+                let line = if td.name.span.line > 0 { td.name.span.line as u64 - 1 } else { 0 };
+                let col = if td.name.span.col > 0 { td.name.span.col as u64 - 1 } else { 0 };
+                let len = name.len() as u64;
+                results.push(serde_json::json!({
+                    "name": name,
+                    "kind": 23, // Struct
+                    "location": {
+                        "uri": uri,
+                        "range": {
+                            "start": { "line": line, "character": col },
+                            "end": { "line": line, "character": col + len }
+                        }
+                    }
+                }));
+            }
+        }
+        xiom_ast::TopDecl::Enum(ed) => {
+            let name = &ed.name.name;
+            if query.is_empty() || name.to_lowercase().contains(&query_lower) {
+                let line = if ed.name.span.line > 0 { ed.name.span.line as u64 - 1 } else { 0 };
+                let col = if ed.name.span.col > 0 { ed.name.span.col as u64 - 1 } else { 0 };
+                let len = name.len() as u64;
+                results.push(serde_json::json!({
+                    "name": name,
+                    "kind": 13, // Enum
+                    "location": {
+                        "uri": uri,
+                        "range": {
+                            "start": { "line": line, "character": col },
+                            "end": { "line": line, "character": col + len }
+                        }
+                    }
+                }));
+            }
+        }
+        xiom_ast::TopDecl::Interface(id) => {
+            let name = &id.name.name;
+            if query.is_empty() || name.to_lowercase().contains(&query_lower) {
+                let line = if id.name.span.line > 0 { id.name.span.line as u64 - 1 } else { 0 };
+                let col = if id.name.span.col > 0 { id.name.span.col as u64 - 1 } else { 0 };
+                let len = name.len() as u64;
+                results.push(serde_json::json!({
+                    "name": name,
+                    "kind": 11, // Interface
+                    "location": {
+                        "uri": uri,
+                        "range": {
+                            "start": { "line": line, "character": col },
+                            "end": { "line": line, "character": col + len }
+                        }
+                    }
+                }));
+            }
+        }
+        xiom_ast::TopDecl::Const(cd) => {
+            let name = &cd.name.name;
+            if query.is_empty() || name.to_lowercase().contains(&query_lower) {
+                let line = if cd.name.span.line > 0 { cd.name.span.line as u64 - 1 } else { 0 };
+                let col = if cd.name.span.col > 0 { cd.name.span.col as u64 - 1 } else { 0 };
+                let len = name.len() as u64;
+                results.push(serde_json::json!({
+                    "name": name,
+                    "kind": 14, // Constant
+                    "location": {
+                        "uri": uri,
+                        "range": {
+                            "start": { "line": line, "character": col },
+                            "end": { "line": line, "character": col + len }
+                        }
+                    }
+                }));
+            }
+        }
+        xiom_ast::TopDecl::Module(m) => {
+            for inner in &m.items {
+                collect_workspace_symbols(inner, uri, query, results);
+            }
+        }
+        xiom_ast::TopDecl::Extern(_) => {}
+        _ => {}
+    }
+}
+
+/// Convenience: parse source text, return Vec<TopDecl> or an empty vec on error.
+fn parse_workspace_document(source: &str) -> Vec<xiom_ast::TopDecl> {
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize();
+    let mut parser = Parser::new(tokens);
+    match parser.parse_program() {
+        Ok(program) => program.items,
+        Err(_) => Vec::new(),
+    }
+}
+
 fn find_definition(program: &xiom_ast::Program, name: &str) -> Option<(u64, u64)> {
     for item in &program.items {
         if let Some(pos) = find_def_in_item(item, name) {
@@ -1337,6 +1463,7 @@ fn handle_lsp_message(msg: &serde_json::Value, backend: &Backend) -> Vec<serde_j
                     "referencesProvider": true,
                     "renameProvider": true,
                     "codeActionProvider": true,
+                    "workspaceSymbolProvider": true,
                     "semanticTokensProvider": {
                         "legend": {
                             "tokenTypes": [
@@ -2171,6 +2298,35 @@ fn handle_lsp_message(msg: &serde_json::Value, backend: &Backend) -> Vec<serde_j
             }));
         }
 
+        // 5e.6b: workspace/symbol — project-wide symbol search
+        "workspace/symbol" => {
+            let query = msg["params"]["query"].as_str().unwrap_or("");
+            let mut symbols = Vec::new();
+
+            {
+                let docs = backend.documents.lock().unwrap();
+                for (uri, text) in docs.iter() {
+                    let items = parse_workspace_document(text);
+                    for item in &items {
+                        collect_workspace_symbols(item, uri, query, &mut symbols);
+                        if symbols.len() >= 50 {
+                            break;
+                        }
+                    }
+                    if symbols.len() >= 50 {
+                        break;
+                    }
+                }
+            }
+
+            let id = msg["id"].clone();
+            responses.push(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": symbols
+            }));
+        }
+
         _ => {}
     }
 
@@ -2265,7 +2421,7 @@ mod tests {
                 }}
             }}"#,
             uri = uri,
-            text = text.replace('\\', "\\\\").replace('"', "\\\"")
+            text = text.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "\\r").replace('\t', "\\t")
         ));
         handle_lsp_message(&msg, backend)
     }
@@ -2302,6 +2458,7 @@ mod tests {
         assert_eq!(caps["hoverProvider"].as_bool(), Some(true));
         assert_eq!(caps["definitionProvider"].as_bool(), Some(true));
         assert_eq!(caps["documentSymbolProvider"].as_bool(), Some(true));
+        assert_eq!(caps["workspaceSymbolProvider"].as_bool(), Some(true), "workspaceSymbolProvider must be registered");
 
         let sync = &caps["textDocumentSync"];
         assert_eq!(sync["openClose"].as_bool(), Some(true));
@@ -2572,5 +2729,74 @@ mod tests {
         assert!(dir.ends_with("xiom"), "parent dir should end with xiom: {dir}");
         // Windows drive colon decoded
         assert!(dir.starts_with("e:") || dir.starts_with("E:"), "drive letter decoded: {dir}");
+    }
+
+    // -----------------------------------------------------------------------
+    // test_workspace_symbol — 5e.6b regression
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_workspace_symbol() {
+        let backend = Backend::new();
+        // Open two documents with symbols
+        open_document(
+            &backend,
+            "file:///a.xi",
+            "fn hello() -> Int { 42 }\nfn world() -> Bool { true }\nconst MAX: Int = 100",
+        );
+        open_document(
+            &backend,
+            "file:///b.xi",
+            "fn add(x: Int, y: Int) -> Int { x + y }\nenum Color { Red, Green, Blue }",
+        );
+
+        // Send workspace/symbol with query "hello"
+        let msg = parse_msg(
+            r#"{
+                "jsonrpc": "2.0",
+                "id": 20,
+                "method": "workspace/symbol",
+                "params": { "query": "hello" }
+            }"#,
+        );
+        let responses = handle_lsp_message(&msg, &backend);
+        let ws_response = find_response_by_id(&responses, 20)
+            .expect("should have workspace/symbol response");
+        let symbols = ws_response["result"].as_array()
+            .expect("result should be an array");
+        assert_eq!(symbols.len(), 1, "query 'hello' should match exactly one symbol");
+        assert_eq!(symbols[0]["name"].as_str(), Some("hello"));
+        assert_eq!(symbols[0]["kind"].as_i64(), Some(12)); // Function
+        assert_eq!(symbols[0]["location"]["uri"].as_str(), Some("file:///a.xi"));
+
+        // Empty query returns all symbols (truncated at 50)
+        let msg2 = parse_msg(
+            r#"{
+                "jsonrpc": "2.0",
+                "id": 21,
+                "method": "workspace/symbol",
+                "params": { "query": "" }
+            }"#,
+        );
+        let responses2 = handle_lsp_message(&msg2, &backend);
+        let ws_response2 = find_response_by_id(&responses2, 21).unwrap();
+        let symbols2 = ws_response2["result"].as_array().unwrap();
+        assert!(symbols2.len() >= 5, "empty query should return all symbols (got {})", symbols2.len());
+
+        // Query "color" (case-insensitive) should match enum
+        let msg3 = parse_msg(
+            r#"{
+                "jsonrpc": "2.0",
+                "id": 22,
+                "method": "workspace/symbol",
+                "params": { "query": "Color" }
+            }"#,
+        );
+        let responses3 = handle_lsp_message(&msg3, &backend);
+        let ws_response3 = find_response_by_id(&responses3, 22).unwrap();
+        let symbols3 = ws_response3["result"].as_array().unwrap();
+        assert_eq!(symbols3.len(), 1);
+        assert_eq!(symbols3[0]["name"].as_str(), Some("Color"));
+        assert_eq!(symbols3[0]["kind"].as_i64(), Some(13)); // Enum
     }
 }
