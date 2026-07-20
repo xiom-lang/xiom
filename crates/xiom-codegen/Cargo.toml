@@ -10,3 +10,6 @@ xiom-ast = { path = "../xiom-ast" }
 xiom-lexer = { path = "../xiom-lexer" }
 xiom-parser = { path = "../xiom-parser" }
 xiom-check = { path = "../xiom-check" }
+xiom-graph = { path = "../xiom-graph" }
+xiomc = { path = "../xiomc" }
+toml = "0.8"

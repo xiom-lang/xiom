@@ -116,6 +116,83 @@ pub struct CompileResult {
     pub file_count: usize,
 }
 
+/// Phase 7A: Resolve all project sources using the dependency graph.
+///
+/// If a `xiom.toml` or `package.xi` is found, discovers all `.xi` files
+/// under the configured source roots and returns them in topological
+/// (dependency-first) order. Falls back to the original source list if
+/// no project manifest is found or the graph cannot be built.
+///
+/// **Important:** The graph is only used for source directory discovery.
+/// The returned source list is the original list — specific file compilation
+/// should not expand to the entire project. The graph source roots are
+/// returned separately so the Checker catalog can resolve `use` imports.
+///
+/// Returns `(expanded_sources, extra_source_dirs)`.
+pub fn expand_sources_with_graph(source_paths: &[String]) -> (Vec<String>, Vec<String>) {
+    if source_paths.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+
+    let first = Path::new(&source_paths[0]);
+    if !first.exists() {
+        return (source_paths.to_vec(), Vec::new());
+    }
+
+    // Try building the project graph for catalog/checker source dirs only.
+    // We do NOT replace the source file list — explicit compilation of
+    // specific files must work without pulling in the entire project.
+    match xiom_graph::build_project_graph(first) {
+        Ok(graph) if !graph.is_empty() => {
+            // Collect extra source directories for the Checker catalog.
+            // These enable the catalog to resolve cross-module `use` imports
+            // even when compiling a single file.
+            let extra_dirs: Vec<String> = graph
+                .source_roots
+                .iter()
+                .map(|p| p.to_string_lossy().to_string())
+                .collect();
+
+            // If the user compiled a directory (no specific .xi files),
+            // use the graph's compilation order. Otherwise, keep the
+            // explicit file list.
+            let all_dirs: bool = source_paths.iter().all(|p| {
+                std::fs::metadata(p).map(|m| m.is_dir()).unwrap_or(false)
+            });
+
+            if all_dirs || source_paths.is_empty() {
+                // Directory compilation: use topo-sorted order
+                match graph.compilation_order() {
+                    Ok(files) => {
+                        let paths: Vec<String> = files
+                            .iter()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .collect();
+                        return (paths, extra_dirs);
+                    }
+                    Err(e) => {
+                        eprintln!("xiomc: warning: dependency graph: {}", e);
+                    }
+                }
+            }
+
+            // Explicit files: keep original list, add graph source dirs
+            (source_paths.to_vec(), extra_dirs)
+        }
+        Ok(_) => {
+            // Empty graph — fall back
+            (source_paths.to_vec(), Vec::new())
+        }
+        Err(e) => {
+            // No project found or parse error — fall back silently
+            if !matches!(e, xiom_graph::GraphError::NoProjectFound(_)) {
+                eprintln!("xiomc: warning: {}", e);
+            }
+            (source_paths.to_vec(), Vec::new())
+        }
+    }
+}
+
 /// Production-grade library API: compile XIOM sources and return structured
 /// diagnostics. Never calls `process::exit()`. Safe for use from MCP server,
 /// LSP, debugger, and any long-running process.
@@ -130,9 +207,17 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     };
     let mut warnings = Vec::new();
 
+    // Phase 7A: Expand source list using project dependency graph
+    let (resolved_sources, graph_source_dirs) = expand_sources_with_graph(source_paths);
+    let effective_sources: &[String] = if !resolved_sources.is_empty() {
+        &resolved_sources
+    } else {
+        source_paths
+    };
+
     // 5e.5f: Incremental compilation — check cache for single-file compiles
-    if config.incremental && !config.force && source_paths.len() == 1 {
-        let sp = &source_paths[0];
+    if config.incremental && !config.force && effective_sources.len() == 1 {
+        let sp = &effective_sources[0];
         if let Some(cached_ir) = incremental_check(sp) {
             result.success = true;
             result.ir = Some(cached_ir);
@@ -143,7 +228,7 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
 
     // Stage 1: Lex & Parse
     let mut all_programs: Vec<Program> = Vec::new();
-    for source_path in source_paths {
+    for source_path in effective_sources {
         let file_name = Path::new(source_path).file_name().and_then(|n| n.to_str()).unwrap_or("");
         if file_name == "package.xi" { continue; }
 
@@ -225,7 +310,7 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
 
     // Stage 3: Type Check
     let mut checker = Checker::new();
-    if let Some(primary) = source_paths.first() {
+    if let Some(primary) = effective_sources.first() {
         let file_path = Path::new(primary);
         // Add the file's parent directory (e.g. examples/)
         if let Some(parent) = file_path.parent() {
@@ -249,6 +334,10 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
                 checker.add_source_dir(src_dir.to_string_lossy().to_string());
             }
         }
+    }
+    // Phase 7A: Add source root directories from the dependency graph
+    for dir in &graph_source_dirs {
+        checker.add_source_dir(dir.clone());
     }
     for stdlib_dir in find_stdlib_dirs() {
         checker.add_source_dir(stdlib_dir);
@@ -295,8 +384,8 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
             result.success = true;
 
             // 5e.5f: Save compiled IR to incremental cache
-            if config.incremental && !config.force && source_paths.len() == 1 {
-                incremental_save(&source_paths[0], &ir);
+            if config.incremental && !config.force && effective_sources.len() == 1 {
+                incremental_save(&effective_sources[0], &ir);
             }
 
             // Dump contracts if requested
@@ -322,10 +411,18 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
 }
 
 pub fn compile(config: &CompileConfig, source_paths: &[String]) {
+    // Phase 7A: Expand source list using project dependency graph
+    let (resolved_sources, graph_source_dirs) = expand_sources_with_graph(source_paths);
+    let effective_sources: &[String] = if !resolved_sources.is_empty() {
+        &resolved_sources
+    } else {
+        source_paths
+    };
+
     // Stage 1: Lex & Parse
     let mut all_programs: Vec<xiom_ast::Program> = Vec::new();
 
-    for source_path in source_paths {
+    for source_path in effective_sources {
         let file_name = Path::new(source_path).file_name().and_then(|n| n.to_str()).unwrap_or("");
         if file_name == "package.xi" { continue; }
 
@@ -377,7 +474,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
 
     // Stage 3: Type Check
     let mut checker = Checker::new();
-    if let Some(primary) = source_paths.first() {
+    if let Some(primary) = effective_sources.first() {
         let file_path = Path::new(primary);
         if let Some(parent) = file_path.parent() {
             checker.add_source_dir(parent.to_string_lossy().to_string());
@@ -394,6 +491,10 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
             }
         }
     }
+    // Phase 7A: Add source root directories from the dependency graph
+    for dir in &graph_source_dirs {
+        checker.add_source_dir(dir.clone());
+    }
     let examples_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent().unwrap()
         .parent().unwrap()
@@ -405,7 +506,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
         checker.add_source_dir(stdlib_dir);
     }
     checker.build_catalog_index();
-    let is_multi_file = source_paths.len() > 1 || checker.source_dirs.len() > 0;
+    let is_multi_file = effective_sources.len() > 1 || checker.source_dirs.len() > 0;
     if let Err(errors) = checker.check_program(&program) {
         if config.diagnostics_json {
             let parts: Vec<String> = errors.iter().map(|err| {
@@ -457,7 +558,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
         return;
     }
 
-    let primary_source = source_paths.first().map(|s| s.as_str()).unwrap_or("<unknown>");
+    let primary_source = effective_sources.first().map(|s| s.as_str()).unwrap_or("<unknown>");
 
     if config.check_only {
         if config.diagnostics_json {
@@ -1049,7 +1150,7 @@ pub fn find_stdlib_dirs() -> Vec<String> {
 }
 
 /// 5e.3 G-30/G-31: walk up from a source file's parent directory looking for
-/// project root markers (package.xi, xiom.lock, .git, src/). When found, the
+/// project root markers (xiom.toml, package.xi, xiom.lock, .git, src/). When found, the
 /// project root and its src/ subdirectory are added as source_dirs so the
 /// catalog can resolve cross-directory `use xiom.*` imports.
 pub fn find_project_root(file_path: &Path) -> Option<PathBuf> {
@@ -1060,6 +1161,7 @@ pub fn find_project_root(file_path: &Path) -> Option<PathBuf> {
     let mut hops = 0;
     while let Some(dir) = cur {
         // Project markers (in priority order)
+        if dir.join("xiom.toml").is_file()  { return Some(dir.to_path_buf()); }
         if dir.join("package.xi").is_file() { return Some(dir.to_path_buf()); }
         if dir.join("xiom.lock").is_file()    { return Some(dir.to_path_buf()); }
         if dir.join(".git").is_dir()          { return Some(dir.to_path_buf()); }

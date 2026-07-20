@@ -140,8 +140,23 @@ fn tool_compile_and_analyze(params: &Value) -> Result<Value, String> {
     let file = validate_file_path(file)?;
     if !std::path::Path::new(&file).exists() { return Err(format!("File not found: {file}")); }
 
-    // 6G: Cross-file dependency resolution
-    let sources = discover_sibling_sources(&file);
+    // Phase 7A: Use project graph for automatic dependency discovery.
+    // If a xiom.toml manifest is found, all project sources are compiled
+    // in topological order — no need for manual sibling discovery.
+    // Falls back to discover_sibling_sources if no manifest is found.
+    let file_path = std::path::Path::new(&file);
+    let graph_sources = match xiom_graph::build_project_graph(file_path) {
+        Ok(graph) => {
+            match graph.compilation_order() {
+                Ok(files) => files
+                    .iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect::<Vec<String>>(),
+                Err(_) => discover_sibling_sources(&file),
+            }
+        }
+        Err(_) => discover_sibling_sources(&file),
+    };
 
     // Phase 8.2: Library mode — calls xiomc::compile_with_diagnostics directly.
     let config = CompileConfig {
@@ -149,7 +164,7 @@ fn tool_compile_and_analyze(params: &Value) -> Result<Value, String> {
         dump_contracts: params["strict"].as_bool().unwrap_or(false),
         ..std::default::Default::default()
     };
-    let result = compile_with_diagnostics(&config, &sources);
+    let result = compile_with_diagnostics(&config, &graph_sources);
 
     Ok(json!({
         "success": result.success,
@@ -157,7 +172,7 @@ fn tool_compile_and_analyze(params: &Value) -> Result<Value, String> {
         "warnings": result.warnings,
         "file": file,
         "file_count": result.file_count,
-        "sources_compiled": sources.len(),
+        "sources_compiled": graph_sources.len(),
     }))
 }
 

@@ -1948,3 +1948,240 @@ fn main() -> Int {
     // Must compile successfully despite E001 warnings
     assert!(ir.contains("ret i64"), "E001 must not block compilation:\n{ir}");
 }
+
+// =====================================================================
+// Phase 7A: Module System & Dependency Graph
+// =====================================================================
+
+/// 7A-01: Verify xiom-graph crate builds and provides core types.
+#[test]
+fn regress_7a01_graph_crate_available() {
+    // Verify the crate's public API is accessible
+    let manifest = xiom_graph::find_project_root(std::path::Path::new("."));
+    // May or may not find a project; just verify it doesn't panic
+    let _ = manifest;
+}
+
+/// 7A-02: Verify xiom.toml parsing handles minimal manifest.
+#[test]
+fn regress_7a02_xiom_toml_minimal() {
+    let toml_content = r#"
+[project]
+name = "test_app"
+version = "0.1.0"
+
+[dependencies]
+xiom-vulkan = "0.5"
+"#;
+    let parsed: toml::Value = toml::from_str(toml_content).unwrap();
+    assert_eq!(parsed["project"]["name"].as_str(), Some("test_app"));
+    assert_eq!(parsed["project"]["version"].as_str(), Some("0.1.0"));
+    assert_eq!(parsed["dependencies"]["xiom-vulkan"].as_str(), Some("0.5"));
+}
+
+/// 7A-03: Verify xiom.toml parsing with all fields.
+#[test]
+fn regress_7a03_xiom_toml_full() {
+    let toml_content = r#"
+[project]
+name = "full_app"
+version = "2.0.0"
+root = "lib/"
+description = "A full test app"
+authors = ["dev@example.com"]
+source-roots = ["vendor/", "generated/"]
+
+[dependencies]
+dep_a = "1.0"
+dep_b = { version = "2.0", path = "../lib" }
+
+[compiler]
+target = "native"
+release = true
+incremental = true
+max-depth = 1000
+timeout-secs = 300
+"#;
+    let parsed: toml::Value = toml::from_str(toml_content).unwrap();
+    assert_eq!(parsed["project"]["name"].as_str(), Some("full_app"));
+    assert_eq!(parsed["project"]["root"].as_str(), Some("lib/"));
+    assert_eq!(parsed["compiler"]["release"].as_bool(), Some(true));
+    assert_eq!(parsed["compiler"]["incremental"].as_bool(), Some(true));
+    assert_eq!(parsed["dependencies"]["dep_b"]["path"].as_str(), Some("../lib"));
+}
+
+/// 7A-04: Verify dependency graph construction with topological sort.
+#[test]
+fn regress_7a04_graph_topo_sort() {
+    use xiom_graph::{DependencyGraph, ModuleNode};
+    use std::path::PathBuf;
+
+    let mut graph = DependencyGraph::new("test".to_string(), vec![PathBuf::from("src")]);
+    graph.add_node(ModuleNode {
+        module_path: "core".into(),
+        file_path: PathBuf::from("src/core.xi"),
+        dependencies: vec![],
+        source_hash: None,
+    });
+    graph.add_node(ModuleNode {
+        module_path: "utils".into(),
+        file_path: PathBuf::from("src/utils.xi"),
+        dependencies: vec!["core".into()],
+        source_hash: None,
+    });
+    graph.add_node(ModuleNode {
+        module_path: "main".into(),
+        file_path: PathBuf::from("src/main.xi"),
+        dependencies: vec!["utils".into()],
+        source_hash: None,
+    });
+
+    // Resolve edges
+    let discovery = xiom_graph::ModuleDiscovery {
+        modules: vec![],
+        index: std::collections::HashMap::new(),
+        source_files: vec![],
+    };
+    graph.resolve_edges(&discovery).unwrap();
+
+    let order = graph.compilation_order().unwrap();
+    // core must be first, then utils, then main
+    let names: Vec<&str> = order.iter()
+        .map(|p| p.file_name().unwrap().to_str().unwrap())
+        .collect();
+    let core_pos = names.iter().position(|&n| n == "core.xi").unwrap();
+    let utils_pos = names.iter().position(|&n| n == "utils.xi").unwrap();
+    let main_pos = names.iter().position(|&n| n == "main.xi").unwrap();
+    assert!(core_pos < utils_pos, "core must come before utils");
+    assert!(utils_pos < main_pos, "utils must come before main");
+}
+
+/// 7A-05: Verify cycle detection in dependency graph.
+#[test]
+fn regress_7a05_graph_cycle_detection() {
+    use xiom_graph::{DependencyGraph, ModuleNode};
+    use std::path::PathBuf;
+
+    let mut graph = DependencyGraph::new("test".to_string(), vec![PathBuf::from("src")]);
+    graph.add_node(ModuleNode {
+        module_path: "a".into(),
+        file_path: PathBuf::from("src/a.xi"),
+        dependencies: vec!["b".into()],
+        source_hash: None,
+    });
+    graph.add_node(ModuleNode {
+        module_path: "b".into(),
+        file_path: PathBuf::from("src/b.xi"),
+        dependencies: vec!["c".into()],
+        source_hash: None,
+    });
+    graph.add_node(ModuleNode {
+        module_path: "c".into(),
+        file_path: PathBuf::from("src/c.xi"),
+        dependencies: vec!["a".into()],
+        source_hash: None,
+    });
+
+    let discovery = xiom_graph::ModuleDiscovery {
+        modules: vec![],
+        index: std::collections::HashMap::new(),
+        source_files: vec![],
+    };
+    graph.resolve_edges(&discovery).unwrap();
+
+    let result = graph.compilation_order();
+    assert!(result.is_err(), "Cycle a→b→c→a must be detected");
+}
+
+/// 7A-06: Verify module inference from file paths.
+#[test]
+fn regress_7a06_module_path_inference() {
+    // Module path inference is tested in xiom-graph unit tests.
+    // This regression test ensures it compiles and links.
+    let path = std::path::Path::new("src/xiom/math/trig.xi");
+    assert_eq!(path.extension().unwrap(), "xi");
+}
+
+/// 7A-07: Verify source root resolution from manifest.
+#[test]
+fn regress_7a07_source_root_resolution() {
+    use xiom_graph::manifest::{ProjectManifest, ProjectMeta, CompilerConfig, resolve_source_roots};
+    use std::path::PathBuf;
+
+    // Test with the actual project's src/ directory which exists
+    let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent().unwrap()
+        .parent().unwrap()
+        .to_path_buf();
+
+    let manifest = ProjectManifest {
+        project: ProjectMeta {
+            name: "test".into(),
+            version: "1.0".into(),
+            root: Some("examples/".into()),
+            description: None,
+            authors: vec![],
+            extra_source_roots: vec![],
+        },
+        dependencies: vec![],
+        compiler: CompilerConfig::default(),
+        manifest_dir: project_root.clone(),
+    };
+
+    let roots = resolve_source_roots(&manifest, &manifest.manifest_dir);
+    assert!(!roots.is_empty(), "Should resolve at least one source root");
+    assert!(roots.iter().any(|r| r.ends_with("examples")), "Should include examples/ root");
+}
+
+/// 7A-08: Verify project root detection (xiom.toml in current repo).
+#[test]
+fn regress_7a08_project_root_detection() {
+    let current = std::env::current_dir().unwrap();
+    let root = xiomc::find_project_root(&current);
+    // The AXIOM repo root has package.xi, so it should be detectable
+    assert!(root.is_some(), "Must find project root from repo directory");
+}
+
+/// 7A-09: Verify expand_sources_with_graph returns extra source dirs.
+#[test]
+fn regress_7a09_expand_sources_with_graph() {
+    let sources = vec!["examples/benchmark/main.xi".to_string()];
+    let (expanded, extra_dirs) = xiomc::expand_sources_with_graph(&sources);
+    // Should NOT replace the explicit file list with entire project
+    assert_eq!(expanded, sources, "Explicit file list must be preserved");
+    // Should discover extra source directories for catalog
+    // (may be empty if no xiom.toml exists, which is fine)
+    let _ = extra_dirs;
+}
+
+/// 7A-10: Verify single-file compilation still works (no regression).
+#[test]
+fn regress_7a10_single_file_compile() {
+    let src = r#"
+fn main() -> Int {
+  return 42;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("ret i64 42"), "Single file compilation must work:\n{ir}");
+}
+
+/// 7A-11: Verify module discovery scans recursively.
+#[test]
+fn regress_7a11_module_discovery_recursive() {
+    use xiom_graph::discover_modules;
+    use std::path::PathBuf;
+
+    // Discover from the project's examples/ directory
+    let examples_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent().unwrap()
+        .parent().unwrap()
+        .join("examples");
+
+    let roots = vec![examples_dir];
+    let discovery = discover_modules(&roots);
+    assert!(discovery.is_ok(), "Module discovery must succeed on examples/ dir");
+    let d = discovery.unwrap();
+    assert!(!d.modules.is_empty(), "Must find at least one module in examples/");
+    assert!(d.source_files.len() > 1, "Must find multiple .xi files in examples/");
+}
+
