@@ -48,6 +48,12 @@ pub struct CompileConfig {
     pub parallel: bool,
     /// 7C: maximum number of parallel jobs (0 = num_cpus)
     pub jobs: usize,
+    /// 7E.1: sanitizer type (none, address, undefined, leak, thread)
+    pub sanitize: Option<String>,
+    /// 7E.2: enable stack protector (canaries) via clang -fstack-protector
+    pub stack_protector: bool,
+    /// 7E.4: force runtime contract checks even in release builds
+    pub runtime_contracts: bool,
     pub max_recursion_depth: u32,
     pub dump_contracts: bool,
     pub verify: bool,
@@ -78,6 +84,9 @@ impl Default for CompileConfig {
             force: false,
             parallel: false,
             jobs: 0,
+            sanitize: None,
+            stack_protector: false,
+            runtime_contracts: false,
             max_recursion_depth: 500,
             dump_contracts: false,
             verify: false,
@@ -479,7 +488,7 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
         Target::RisCv => emitter.set_target_triple("riscv64-unknown-linux-gnu"),
         Target::Native => {}
     }
-    emitter.set_check_contracts(config.check_contracts);
+    emitter.set_check_contracts(config.check_contracts || config.runtime_contracts);
     emitter.set_max_recursion_depth(config.max_recursion_depth);
     emitter.set_strict_mode(config.strict_mode);
     emitter.set_hot_reload(config.hot_reload);
@@ -726,7 +735,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
 
     // Stage 5: Codegen
     let mut emitter = IrEmitter::new();
-    emitter.set_check_contracts(config.check_contracts);
+    emitter.set_check_contracts(config.check_contracts || config.runtime_contracts);
     emitter.set_max_recursion_depth(config.max_recursion_depth);
     emitter.set_strict_mode(config.strict_mode);
     emitter.set_hot_reload(config.hot_reload);
@@ -861,6 +870,16 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
             if config.target == Target::Native { cmd.arg("-maes"); }
             if asm_objects.is_empty() { cmd.arg("-DXIOM_NO_ASM"); }
             if config.debug_symbols { cmd.arg("-g"); }
+            // 7E.1: Sanitizer flags
+            if let Some(ref sanitizer) = config.sanitize {
+                cmd.arg(&format!("-fsanitize={}", sanitizer));
+                // Address sanitizer needs -g for line numbers
+                if sanitizer == "address" { cmd.arg("-g"); cmd.arg("-fno-omit-frame-pointer"); }
+            }
+            // 7E.2: Stack protector (stack canaries)
+            if config.stack_protector {
+                cmd.arg("-fstack-protector");
+            }
             if config.shared_lib { cmd.arg("-shared"); }
             if config.static_lib { cmd.arg("-c"); }
             match config.target {

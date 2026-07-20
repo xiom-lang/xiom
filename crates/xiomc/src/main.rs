@@ -58,6 +58,7 @@ fn main() {
     let release = args.iter().any(|a| a == "--release");
     let target = parse_target(&args);
     let check_contracts = !args.iter().any(|a| a == "--no-contracts") && !release;
+    let runtime_contracts = args.iter().any(|a| a == "--runtime-contracts");
     let diagnostics_json = args.iter().any(|a| a == "--diagnostics=json");
     let strict_mode = args.iter().any(|a| a == "--strict");
     let debug_symbols = args.iter().any(|a| a == "--debug") || args.iter().any(|a| a == "-g");
@@ -66,6 +67,17 @@ fn main() {
     let watch_mode = args.iter().any(|a| a == "--watch");
     let hot_reload = args.iter().any(|a| a == "--hot-reload");
     let hot_reload_contracts = args.iter().any(|a| a == "--hot-reload-contracts");
+    // 7E.1: Sanitizer flags
+    let sanitize: Option<String> = args.iter().position(|a| a == "--sanitize" || a.starts_with("--sanitize="))
+        .and_then(|i| {
+            if args[i].starts_with("--sanitize=") {
+                args[i].splitn(2, '=').nth(1).map(|s| s.to_string())
+            } else {
+                args.get(i + 1).cloned().filter(|v| !v.starts_with('-'))
+            }
+        });
+    // 7E.2: Stack protector
+    let stack_protector = args.iter().any(|a| a == "--stack-protector");
     // 5e.5f: Incremental compilation flags
     let incremental = args.iter().any(|a| a == "--incremental");
     let force_recompile = args.iter().any(|a| a == "--force");
@@ -238,6 +250,9 @@ fn main() {
         c_sources,
         hot_reload: false,  // set to true by hot reload loop below
         hot_reload_contracts,
+        sanitize,
+        stack_protector,
+        runtime_contracts,
         incremental,
         force: force_recompile,
         parallel,
@@ -374,6 +389,9 @@ fn main() {
                 c_sources: vec![],
                 hot_reload: false,
                 hot_reload_contracts: false,
+                sanitize: None,
+                stack_protector: false,
+                runtime_contracts: false,
             };
             let result = xiomc::compile_with_diagnostics(&check_config, &[path.clone()]);
             let source = std::fs::read_to_string(path).unwrap_or_default();
@@ -429,6 +447,10 @@ fn print_usage() {
     eprintln!("  --watch             Watch source files and recompile on change");
     eprintln!("  --hot-reload        Hot reload mode: watch + shared library");
     eprintln!("  --hot-reload-contracts  7D: Verify contracts before hot-swapping function pointers");
+    eprintln!("  --sanitize=<type>    7E.1: Enable sanitizer (address, undefined, leak, thread)");
+    eprintln!("  --stack-protector    7E.2: Enable stack canaries (-fstack-protector)");
+    eprintln!("  --runtime-contracts  7E.4: Force runtime contract checks (even in release mode)");
+    eprintln!("  --no-contracts       Disable all contract checks (faster, less safe)");
     eprintln!("  --incremental       5e.5f: Cache compiled IR, skip unchanged sources");
     eprintln!("  --force             5e.5f: Force recompile — ignore all caches");
     eprintln!("  --parallel          7C: Enable parallel lex+parse (rayon thread pool)");
