@@ -3698,3 +3698,16 @@ fn main() -> Int { for i in 0..=4 { } return 0; }
     let ir = compile(src).unwrap();
     assert!(ir.contains("define"), "0..=4 must desugar");
 }
+
+/// M9-20: where clause on generic function compiles.
+#[test]
+fn regress_m920_where_clause() {
+    let src = r#"
+fn find[T](x: T, items: Vec[T]) -> Int
+  where T: Eq
+{ return 0; }
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "where clause must compile");
+}

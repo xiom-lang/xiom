@@ -638,10 +638,41 @@ impl Parser {
             }
         }
         let (receiver, name) = if self.skip(TokenKind::Dot) { (Some(first), self.parse_ident()?) } else { (None, first) };
-        let generics = self.parse_optional_generic_params()?;
+        let mut generics = self.parse_optional_generic_params()?;
         self.expect_kind(TokenKind::LParen, "'('")?;
         let params = if self.check(|k| matches!(k, TokenKind::RParen)) { self.advance(); Vec::new() } else { let p = self.parse_param_list()?; self.expect_kind(TokenKind::RParen, "')'")?; p };
         let return_type = if self.skip(TokenKind::Arrow) { Some(self.parse_type()?) } else { None };
+        // 8B/M9: Parse optional `where` clause and merge bounds into generic params
+        if matches!(self.peek_kind(), TokenKind::Ident(s) if s == "where") {
+            self.advance();
+            loop {
+                let constraint_name = self.parse_ident()?;
+                self.expect_kind(TokenKind::Colon, "':' in where clause")?;
+                let bound_name = self.parse_ident()?;
+                // Add bound to the matching generic param
+                for gp in &mut generics {
+                    if gp.name.name == constraint_name.name {
+                        if gp.bounds.is_empty() {
+                            gp.bounds.push(bound_name.clone());
+                        }
+                        break;
+                    }
+                }
+                if self.peek_kind() == &TokenKind::Plus {
+                    self.advance();
+                    let extra = self.parse_ident()?;
+                    for gp in &mut generics {
+                        if gp.name.name == constraint_name.name {
+                            gp.bounds.push(extra.clone());
+                            break;
+                        }
+                    }
+                }
+                if !self.check(|k| matches!(k, TokenKind::Ident(_))) || self.peek_kind() == &TokenKind::LBrace || self.peek_kind() == &TokenKind::Semicolon {
+                    break;
+                }
+            }
+        }
         let mut contracts = Vec::new();
         while self.check(|k| matches!(k, TokenKind::Ident(s) if s == "requires" || s == "ensures")) {
             let is_req = matches!(self.peek_kind(), TokenKind::Ident(s) if s == "requires");
@@ -713,7 +744,7 @@ impl Parser {
         while !self.peek_is(TokenKind::RBrace) && !self.peek().is_eof() {
             self.expect_kind(TokenKind::Fn, "'fn'")?;
             let fn_name = self.parse_ident()?;
-            let generics = self.parse_optional_generic_params()?;
+        let mut generics = self.parse_optional_generic_params()?;
             self.expect_kind(TokenKind::LParen, "'('")?;
             // Parse params manually, handling variadic '...'
             let mut params = Vec::new();
