@@ -1096,6 +1096,7 @@ name = "xiom-doc"
 version = "0.1.0"
 dependencies = [
  "xiom-ast",
+ "xiom-display",
  "xiom-lexer",
  "xiom-parser",
 ]
