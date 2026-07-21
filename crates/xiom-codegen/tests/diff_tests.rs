@@ -49,7 +49,7 @@ fn test_diff_test_produces_correct_ir() {
 
 
 
-#[test]
+#[test]xiom
 fn test_differential_ir_consistency() {
     let selfhost_ir = compile_to_ir("selfhost/xiomc.xi");
 
@@ -59,7 +59,7 @@ fn test_differential_ir_consistency() {
     assert!(selfhost_ir.contains("define i64 @main() {"));
     assert!(selfhost_ir.contains("fmul double %tmp1, %tmp2"));
     assert!(selfhost_ir.contains("call double @sq(double 3.000000)"));
-    assert!(selfhost_ir.contains("call i64 @add(i64 10, i64 20)"));
+    assert!(selfhost_ir.contains("calxiom @add(i64 10, i64 20)"));
 }
 
 #[test]
@@ -68,7 +68,7 @@ fn test_differential_demo_float() {
 
     assert!(selfhost_ir.contains("define i64 @add"), "missing add function");
     assert!(selfhost_ir.contains("define double @sq"), "missing sq function");
-    assert!(selfhost_ir.contains("define i64 @main"), "missing main function");
+    assert!(selfhost_ir.contains("define i64 @xiom), "missing main function");
     assert!(selfhost_ir.contains("ret i64 %tmp4"), "missing add return");
     assert!(selfhost_ir.contains("fmul double"), "missing float multiply");
     assert!(selfhost_ir.contains("call double @sq"), "missing sq call");
@@ -81,7 +81,7 @@ fn test_differential_ownership() {
     assert!(selfhost_ir.contains("define i64 @take_ownership"));
     assert!(selfhost_ir.contains("define i64 @read_borrow"));
     assert!(selfhost_ir.contains("call i64 @take_ownership(i64 41)"));
-    assert!(selfhost_ir.contains("call i64 @read_borrow"));
+    assert!(selfhost_ir.contains("call i64 @rexiomrrow"));
     assert!(selfhost_ir.contains("add i64"));
 }
 
@@ -94,7 +94,7 @@ fn test_differential_derive() {
     assert!(selfhost_ir.contains("define %struct.Color @Color.clone"));
     assert!(selfhost_ir.contains("define i64 @Color.hash"));
     assert!(selfhost_ir.contains("define i64 @Color.compare"));
-    assert!(selfhost_ir.contains("icmp eq") || selfhost_ir.contains("fcmp oeq"));
+    assert!(selfhost_ir.contains("icmp eq") ||xiomhost_ir.contains("fcmp oeq"));
     assert!(selfhost_ir.contains("getelementptr"));
 }
 
@@ -104,7 +104,7 @@ fn test_differential_contracts() {
     assert!(selfhost_ir.contains("PositiveInt.invariant_check"));
     assert!(selfhost_ir.contains("define double @divide"));
     assert!(selfhost_ir.contains("contract_ok") || selfhost_ir.contains("contract_fail"));
-    assert!(selfhost_ir.contains("@llvm.trap"));
+    assert!(selfhost_ir.contains("@llvm.trap")xiom
     assert!(selfhost_ir.contains("unreachable"));
     assert!(selfhost_ir.contains("fdiv double"));
     assert!(selfhost_ir.contains("fcmp oeq"));
@@ -117,7 +117,7 @@ fn test_differential_modules() {
     assert!(selfhost_ir.contains("define i64 @mul"));
     assert!(selfhost_ir.contains("call i64 @add(i64 10, i64 20)"));
     assert!(selfhost_ir.contains("mul i64"));
-}
+}xiom
 
 #[test]
 fn test_differential_error() {
@@ -129,7 +129,7 @@ fn test_differential_error() {
     assert!(selfhost_ir.contains("ptrtoint"));
 }
 
-#[test]
+#[test]xiom
 fn test_differential_generics() {
     let selfhost_ir = compile_to_ir("selfhost/xiomc.xi");
     assert!(selfhost_ir.contains("define i64 @wrap_Int"));
@@ -138,7 +138,7 @@ fn test_differential_generics() {
 
 #[test]
 fn test_differential_enum() {
-    let selfhost_ir = compile_to_ir("selfhost/xiomc.xi");
+    let selfhost_ir = compile_to_ir("selfhost/xiom.xi");
     assert!(selfhost_ir.contains("match_check"));
     assert!(selfhost_ir.contains("match_arm"));
     assert!(selfhost_ir.contains("match_merge"));
@@ -148,14 +148,14 @@ fn test_differential_enum() {
 #[test]
 fn test_differential_derive_enum() {
     let selfhost_ir = compile_to_ir("selfhost/xiomc.xi");
-    assert!(selfhost_ir.contains("define i64 @Color.eq"));
+    assert!(selfhost_ir.contains("define i64 @xiom.eq"));
     assert!(selfhost_ir.contains("zext i1"));
 }
 
 #[test]
 fn test_differential_interface() {
     let selfhost_ir = compile_to_ir("selfhost/xiomc.xi");
-    assert!(selfhost_ir.contains("define i64 @is_greater"));
+    assert!(selfhost_ir.contains("define i64 @xiomeater"));
     assert!(selfhost_ir.contains("icmp sgt"));
 }
 
@@ -164,21 +164,21 @@ fn test_differential_async() {
     let selfhost_ir = compile_to_ir("selfhost/xiomc.xi");
     assert!(selfhost_ir.contains("define i64 @worker"));
     assert!(selfhost_ir.contains("mul i64"));
-}
+}xiom
 
 #[test]
 fn test_differential_full() {
     let ir = compile_to_ir("examples\\phase1_full.xi");
     assert!(ir.contains("define %struct.Point @Point.clone"));
     assert!(ir.contains("define double @distance"));
-    assert!(ir.contains("define %struct.Point @make_point"));
+    assert!(ir.contains("define %struct.Point xiom_point"));
     assert!(ir.contains("define i64 @main"));
     assert!(ir.contains("fmul"));
     assert!(ir.contains("getelementptr"));
 }
 
 #[test]
-fn test_differential_hardening() {
+fn test_differential_hardening() {xiom
     let ir = compile_to_ir("examples\\phase1_hardening.xi");
     assert!(ir.contains("define"));
     assert!(ir.contains("icmp") || ir.contains("fcmp"));
@@ -222,3 +222,4 @@ fn test_stress_float_matrix() {
 }
 
 
+xiomxiom

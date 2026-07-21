@@ -63,7 +63,7 @@ Agent: calls tool `compile_and_analyze("file.xi")`
 │  └──────┬──────────────────────────────────────┬──────┘   │
 │         │                                      │          │
 │  ┌──────▼──────┐                        ┌─────▼──────┐    │
-│  │ xiom CLI   │                        │ libxiomc   │    │
+│  │ xiom CLI   │                        │ libxiom   │    │
 │  │ (subprocess)│                        │ (Rust API)  │    │
 │  │ --diagnostics│                       │ compile()   │    │
 │  │ --sandbox   │                        │ audit()     │    │
@@ -75,7 +75,7 @@ Agent: calls tool `compile_and_analyze("file.xi")`
 
 **Two integration modes:**
 1. **Subprocess mode** (MVP): MCP server shells out to `xiom`. Works today, no code changes to the compiler.
-2. **Library mode** (Phase 2): MCP server links `xiom` as a Rust library (`libxiomc`). Faster, no process overhead. Requires the 5c-R lib/bin split (already done ✅).
+2. **Library mode** (Phase 2): MCP server links `xiom` as a Rust library (`libxiom`). Faster, no process overhead. Requires the 5c-R lib/bin split (already done ✅).
 
 ---
 

@@ -5,10 +5,10 @@
 // Compile: cl xiom_hot_host.c /Fe:xiom_hot_host.exe /link user32.lib
 //         (from a VS Developer Command Prompt in the tools/ directory)
 //
-// Usage: xiom_hot_host.exe <source.xi> [xiomc args...]
+// Usage: xiom_hot_host.exe <source.xi> [xiom args...]
 //
 // Workflow:
-//   1. Compile source.xi → source.dll (via xiomc --shared --hot-reload)
+//   1. Compile source.xi → source.dll (via xiom --shared --hot-reload)
 //   2. Load source.dll, call xiom_hot_init(), then main()
 //   3. Watch source.xi for changes (poll 500ms)
 //   4. On change: recompile → FreeLibrary old DLL → LoadLibrary new DLL
@@ -41,16 +41,16 @@ static BOOL WINAPI ctrl_handler(DWORD ctrl_type) {
 }
 
 // ---------------------------------------------------------------------------
-// Compile a .xi source to a .dll using xiomc.
+// Compile a .xi source to a .dll using xiom.
 // Returns 0 on success, non-zero on failure.
 // ---------------------------------------------------------------------------
 
 static int compile_to_dll(const char* src_path, const char* dll_path,
                           int argc, char** argv) {
-    // Build the xiomc command line: xiomc --shared --hot-reload <src> [extra args]
+    // Build the xiom command line: xiom --shared --hot-reload <src> [extra args]
     // We pass the user's extra args (e.g. --release) through.
     char cmd[8192];
-    int off = snprintf(cmd, sizeof(cmd), "xiomc --shared --hot-reload \"%s\"", src_path);
+    int off = snprintf(cmd, sizeof(cmd), "xiom --shared --hot-reload \"%s\"", src_path);
     if (off < 0 || (size_t)off >= sizeof(cmd)) return 1;
 
     for (int i = 2; i < argc; i++) {  // argv[0]=host, argv[1]=source
@@ -77,7 +77,7 @@ static int compile_to_dll(const char* src_path, const char* dll_path,
     si.hStdError  = GetStdHandle(STD_ERROR_HANDLE);
 
     if (!CreateProcessA(NULL, cmd, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
-        fprintf(stderr, "[HOST] ERROR: Failed to launch xiomc (is it on PATH?): %lu\n", GetLastError());
+        fprintf(stderr, "[HOST] ERROR: Failed to launch xiom (is it on PATH?): %lu\n", GetLastError());
         return 1;
     }
 
@@ -191,7 +191,7 @@ static void make_dll_path(const char* src, char* out, size_t out_sz) {
 int main(int argc, char** argv) {
     if (argc < 2) {
         fprintf(stderr, "XIOM Hot Reload Host v0.1 (5e.5b)\n");
-        fprintf(stderr, "Usage: xiom_hot_host.exe <source.xi> [xiomc flags...]\n");
+        fprintf(stderr, "Usage: xiom_hot_host.exe <source.xi> [xiom flags...]\n");
         fprintf(stderr, "\n");
         fprintf(stderr, "Compiles source.xi to a DLL, loads it, runs main(),\n");
         fprintf(stderr, "and watches for changes to recompile/reload.\n");
