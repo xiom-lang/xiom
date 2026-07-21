@@ -130,16 +130,34 @@
 | Path/PathBuf implementation | 2d |
 | Iterator adapter parity (step_by, flat_map, etc.) | 2d |
 
-### 8B/M8 — Polish & Ship
-| Item | Effort |
-|------|--------|
-| Edition 2024 migration for all crates | 1d |
-| LSP: adopt lsp-types crate | 1d |
-| MCP: audit 20 unsafe blocks | 1d |
-| xiom-pkg: TLS support via ureq | 1d |
-| xiom-doc: HTML output format | 1d |
-| xiom-fmt: round-trip validation | 1d |
-| Final audit: all crates 10/10 verified | 1d |
+### 8B/M8 — Polish & Ship (IN PROGRESS)
+| Item | Effort | Status |
+|------|--------|--------|
+| Edition 2024 migration for all crates | 1d | ? Done |
+| M9: `and`/`or`/`not` keywords | 0.5d | ? Done |
+| M9: Compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`) | 0.5d | ? Done |
+| LSP: adopt lsp-types crate | 1d | Pending |
+| MCP: audit 20 unsafe blocks | 1d | Pending |
+| xiom-pkg: TLS support via ureq | 1d | Pending |
+| xiom-doc: HTML output format | 1d | Pending |
+| xiom-fmt: round-trip validation | 1d | Pending |
+
+### 8B/M9 — Language Parity (IN PROGRESS)
+Gap analysis completed: 11 missing features identified, 4 fixed so far.
+
+| Gap | Status | Effort |
+|-----|--------|--------|
+| M9.1 `and`/`or`/`not` keywords | ? Done | 0.5d |
+| M9.2 Compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`) | ? Done | 0.5d |
+| M9.3 Range syntax (`..` and `..=`) | Pending | 1d |
+| M9.4 `if let` / `while let` expression | Pending | 2d |
+| M9.5 `where` clauses on generics | Pending | 2d |
+| M9.6 `impl Trait` return types | Pending | 3d |
+| M9.7 Debug trait (stdlib) | Pending | 1d |
+| M9.8 Labeled break/continue | Pending | 1d |
+| M9.9 Tuple structs | Pending | 2d |
+| M9.10 FromStr trait (stdlib) | Pending | 1d |
+| M9.11 `defer` statement | Pending | 2d |
 
 ---
 

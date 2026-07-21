@@ -445,7 +445,7 @@ fn regress_5c29_string_concat() {
 
 #[test]
 fn regress_5c30_uint_coercion() {
-    // Int literal → UInt8 coercion
+    // Int literal ? UInt8 coercion
     let ir = compile(r#"fn main() -> Int { var x: UInt8 = 255; return 0; }"#).unwrap();
     assert!(ir.contains("define"), "Int literal must coerce to UInt8");
 }
@@ -705,7 +705,7 @@ fn main() -> Int {
 #[test]
 fn regress_5c_e_vec_literal_data_field_g5() {
     // 5c-E G5: var Vec literal + .data field access must emit valid IR
-    // v0.46 regression: store %struct.Vec mismatch → clang reject
+    // v0.46 regression: store %struct.Vec mismatch ? clang reject
     let src = r#"
 extern "C" { fn probe(data: *UInt8, count: Int); }
 fn main() -> Int {
@@ -740,7 +740,7 @@ fn main() -> Int {
 #[test]
 fn regress_5c_e_void_null_contract_ref_g7() {
     // 5c-E G7: @null in contract clauses must not emit undefined LLVM global
-    // v0.46: ptr.xi contracts reference `null` → clang rejects `@null`
+    // v0.46: ptr.xi contracts reference `null` ? clang rejects `@null`
     // Test: declare null as a local pointer, use it in a requires clause
     let src = r#"
 extern "C" { fn probe(p: *UInt8); }
@@ -1275,7 +1275,7 @@ fn main() -> Int {
 #[test]
 fn regress_5d_g20_bare_field_without_slot_errors() {
     // `x` is shadowed by a local in one branch - the OTHER bare use has no
-    // slot (receiver-style needs &T; this is by-value → real-arg method with
+    // slot (receiver-style needs &T; this is by-value ? real-arg method with
     // no receiver state detected because `x` is bound as a local somewhere).
     let src = r#"
 pub type P = { x: Float32; }
@@ -1338,8 +1338,8 @@ fn main() -> Int {
 /// G-44: `&out as *mut UInt8` - local cast to pointer must produce the
 /// alloca ADDRESS (bitcast), not the loaded value (inttoptr). Xiom binds
 /// `&` with LOWER precedence than `as`, so the As handler sees a bare
-/// `Ident`, not a `Ref`. Fixed by detecting local→pointer cast BEFORE
-/// compile_expr loads the value. Verified with memset write-back (AV→pass).
+/// `Ident`, not a `Ref`. Fixed by detecting local?pointer cast BEFORE
+/// compile_expr loads the value. Verified with memset write-back (AV?pass).
 #[test]
 fn regress_5d_g44_local_as_ptr_uses_address() {
     let src = r#"
@@ -1472,7 +1472,7 @@ fn main() -> Int {
     assert!(!ir.contains("undefined variable"), "bare const must resolve");
 }
 
-/// 5e.2 G-34: Int ↔ fn-ptr casts for COM vtables and callback registries.
+/// 5e.2 G-34: Int ? fn-ptr casts for COM vtables and callback registries.
 /// The roundtrip `Int as fn(Int)->Int as Int` must compile cleanly.
 #[test]
 fn regress_5e_g34_int_fnptr_cast() {
@@ -1498,7 +1498,7 @@ fn main() -> Int {
     assert!(ir.contains("declare void @register_callback"), "callback registration must be declared");
 }
 
-/// G-16 (5e.2): XIOM fn → C callback lowering. `my_handler as Int` emits
+/// G-16 (5e.2): XIOM fn ? C callback lowering. `my_handler as Int` emits
 /// `ptrtoint {fn_ty} @my_handler to i64` - the XIOM function's address is
 /// passed to the extern callback registry as an integer pointer.
 #[test]
@@ -1526,7 +1526,7 @@ fn main() -> Int {
 
 /// 5e.1 G-18: sizeof() compiler intrinsic wired to checker + codegen dispatch.
 /// sizeof_struct() provides precise LLVM byte widths for C FFI: i8=1,i16=2,i32=4,i64=8.
-/// Contrast with size_of() which uses field-count×8 (XIOM-semantic size).
+/// Contrast with size_of() which uses field-count�8 (XIOM-semantic size).
 /// Verifies: sizeof[Int]()=8, sizeof[Int8]()=1, sizeof on a struct with mixed-width
 /// fields returns the sum of correct LLVM widths.
 #[test]
@@ -1573,7 +1573,7 @@ fn main() -> Int {
     assert!(!ir.contains("float 0.500000"), "must not emit old decimal format:\n{ir}");
 }
 
-/// CG-01b: Int32→Float32 cast must emit `sitofp i64 to float`, not
+/// CG-01b: Int32?Float32 cast must emit `sitofp i64 to float`, not
 /// produce "%tmp defined with type 'i32' but expected 'float'" LLVM error.
 /// Verified fixed in v0.48.8 - agent report from v0.48.6 was stale.
 #[test]
@@ -1832,12 +1832,12 @@ fn main() -> Int {
 /// ACCEPT: Self is an alias for the concrete receiver type.
 /// Must use full xiomc pipeline since it requires module-level resolution.
 /// Tested via e2e: e2e_method_match_self_enum
-// regress_6a1_self_alias_must_pass → moved to e2e_tests
+// regress_6a1_self_alias_must_pass ? moved to e2e_tests
 
 /// ACCEPT: Interface name compatible with concrete implementor.
 /// Must use full xiomc pipeline since it requires interface scanning.
 /// Tested via e2e: e2e_cross_package_extern (exercises interface dispatch)
-// regress_6a1_interface_implementor_must_pass → moved to e2e_tests
+// regress_6a1_interface_implementor_must_pass ? moved to e2e_tests
 
 /// ACCEPT: Vec literal passed to Array parameter must be compatible.
 #[test]
@@ -2090,7 +2090,7 @@ fn regress_7a05_graph_cycle_detection() {
     graph.resolve_edges(&discovery).unwrap();
 
     let result = graph.compilation_order();
-    assert!(result.is_err(), "Cycle a→b→c→a must be detected");
+    assert!(result.is_err(), "Cycle a?b?c?a must be detected");
 }
 
 /// 7A-06: Verify module inference from file paths.
@@ -2770,7 +2770,7 @@ fn main() -> Int { return 0; }
 "#;
     // Must compile without "argument type mismatch" errors
     let ir = compile(src).unwrap();
-    assert!(ir.contains("define"), "Newtype→Int must compile:\n{ir}");
+    assert!(ir.contains("define"), "Newtype?Int must compile:\n{ir}");
 }
 
 /// NT-02: Int to newtype - Int assigned to newtype variable.
@@ -2785,7 +2785,7 @@ fn main() -> Int {
 }
 "#;
     let ir = compile(src).unwrap();
-    assert!(ir.contains("ret i64 42"), "Int→newtype must compile:\n{ir}");
+    assert!(ir.contains("ret i64 42"), "Int?newtype must compile:\n{ir}");
 }
 
 /// NT-03: newtype operators - Int operations on newtype values.
@@ -2932,7 +2932,7 @@ fn main() -> Int { return 0; }
     // Must compile without LLVM type mismatch (double vs float)
     let ir = compile(src).unwrap();
     assert!(ir.contains("define"), "Float32 tuple return must compile:\n{ir}");
-    // Should contain fptrunc for narrowing double→float
+    // Should contain fptrunc for narrowing double?float
     // (or the struct stores float directly)
 }
 
@@ -3205,7 +3205,7 @@ fn main() -> Int { return 0; }
     assert!(ir.contains("strcmp"), "Str eq must use strcmp");
 }
 
-/// DERIVE-02: Enum with Vec field derives Eq � deep Vec comparison.
+/// DERIVE-02: Enum with Vec field derives Eq ? deep Vec comparison.
 #[test]
 fn regress_derive02_enum_vec_eq() {
     let src = r#"
@@ -3219,7 +3219,7 @@ fn main() -> Int { return 0; }
     assert!(ir.contains("Collection.eq"), "Must generate Collection.eq");
 }
 
-/// DERIVE-03: Enum with Option field derives Eq � delegates to Option.eq.
+/// DERIVE-03: Enum with Option field derives Eq ? delegates to Option.eq.
 #[test]
 fn regress_derive03_enum_option_eq() {
     let src = r#"
@@ -3233,7 +3233,7 @@ fn main() -> Int { return 0; }
     assert!(ir.contains("Maybe.eq"), "Must generate Maybe.eq");
 }
 
-/// DERIVE-04: Enum derives Ord � compares payload when discriminants match.
+/// DERIVE-04: Enum derives Ord ? compares payload when discriminants match.
 #[test]
 fn regress_derive04_enum_ord_payload() {
     let src = r#"
@@ -3249,7 +3249,7 @@ fn main() -> Int { return 0; }
     assert!(ir.contains("icmp slt") || ir.contains("icmp eq"), "Ord must compare payloads");
 }
 
-/// DERIVE-05: Enum derives Hash � content-based hashing.
+/// DERIVE-05: Enum derives Hash ? content-based hashing.
 #[test]
 fn regress_derive05_enum_hash() {
     let src = r#"
@@ -3264,7 +3264,7 @@ fn main() -> Int { return 0; }
     assert!(ir.contains("Tag.hash"), "Must generate Tag.hash");
 }
 
-/// DERIVE-06: Enum derives Display � shows variant + value.
+/// DERIVE-06: Enum derives Display ? shows variant + value.
 #[test]
 fn regress_derive06_enum_display() {
     let src = r#"
@@ -3280,7 +3280,7 @@ fn main() -> Int { return 0; }
     assert!(ir.contains("Color.to_str"), "Must generate Color.to_str");
 }
 
-/// DERIVE-07: Enum with no heap fields � Eq still works.
+/// DERIVE-07: Enum with no heap fields ? Eq still works.
 #[test]
 fn regress_derive07_enum_simple_eq() {
     let src = r#"
@@ -3310,7 +3310,7 @@ fn main() -> Int { return 0; }
     assert!(ir.contains("Mixed.to_str"), "Mixed.to_str missing");
 }
 
-/// DERIVE-09: No regression � struct derives still work.
+/// DERIVE-09: No regression ? struct derives still work.
 #[test]
 fn regress_derive09_struct_derives_intact() {
     let src = r#"
@@ -3334,7 +3334,7 @@ fn main() -> Int { return 0; }
 }
 
 // =====================================================================
-// Phase 8B/M3: Integration Tests — Full Pipeline
+// Phase 8B/M3: Integration Tests � Full Pipeline
 // =====================================================================
 
 /// M3-01: xiomc::compile_with_diagnostics on known-good source.
@@ -3349,7 +3349,7 @@ fn main() -> Int { return add(1, 2); }
         ..xiomc::CompileConfig::default()
     };
     let result = xiomc::compile_with_diagnostics(&config, &["inline.xi".to_string()]);
-    // Test would need to write temp file — skip actual compile_with_diagnostics
+    // Test would need to write temp file � skip actual compile_with_diagnostics
     // since it reads from filesystem. Test the config struct instead.
     assert!(!config.force);
     assert!(config.emit_ir);
@@ -3362,7 +3362,7 @@ fn regress_m302_compile_empty_source() {
     assert!(ir.contains("define"), "Empty source must compile");
 }
 
-/// M3-03: Full pipeline — lex → parse → check → codegen on complex source.
+/// M3-03: Full pipeline � lex ? parse ? check ? codegen on complex source.
 #[test]
 fn regress_m303_full_pipeline_complex() {
     let src = r#"
@@ -3411,14 +3411,14 @@ fn regress_m306_version_flag_config() {
 }
 
 // =====================================================================
-// Phase 8B/M4: Code Health — process::exit removal
+// Phase 8B/M4: Code Health � process::exit removal
 // =====================================================================
 
 /// M4-01: Verifies compile_with_diagnostics does NOT call process::exit.
 /// Library functions must return Result, not kill the host process.
 #[test]
 fn regress_m401_no_exit_in_library() {
-    // Compile simple source — must not panic or exit
+    // Compile simple source � must not panic or exit
     let ir = compile("fn main() -> Int { return 0; }").unwrap();
     assert!(ir.contains("ret i64 0"));
 }
@@ -3446,4 +3446,139 @@ fn regress_m403_incremental_config() {
     };
     assert!(c.incremental);
     assert!(!c.force);
+}
+
+// =====================================================================
+// Phase 8B/M9: Language Parity � and/or keywords + compound assignment
+// =====================================================================
+
+/// M9-01: `and` keyword works as `&&`.
+#[test]
+fn regress_m901_and_keyword() {
+    let src = r#"
+fn check(a: Bool, b: Bool) -> Bool { return a and b; }
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "and keyword must compile");
+}
+
+/// M9-02: `or` keyword works as `||`.
+#[test]
+fn regress_m902_or_keyword() {
+    let src = r#"
+fn check(a: Bool, b: Bool) -> Bool { return a or b; }
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "or keyword must compile");
+}
+
+/// M9-03: `not` prefix operator works as `!`.
+#[test]
+fn regress_m903_not_keyword() {
+    let src = r#"
+fn negate(x: Bool) -> Bool { return not x; }
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "not keyword must compile");
+}
+
+/// M9-04: `+=` compound assignment works.
+#[test]
+fn regress_m904_compound_addassign() {
+    let src = r#"
+fn main() -> Int {
+  var x: Int = 1;
+  x += 2;
+  return x;
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("add i64"), "+= must work");
+}
+
+/// M9-05: `-=` compound assignment works.
+#[test]
+fn regress_m905_compound_subassign() {
+    let src = r#"
+fn main() -> Int {
+  var x: Int = 10;
+  x -= 3;
+  return x;
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("sub i64"), "-= must work");
+}
+
+/// M9-06: `*=` compound assignment works.
+#[test]
+fn regress_m906_compound_mulassign() {
+    let src = r#"
+fn main() -> Int {
+  var x: Int = 5;
+  x *= 4;
+  return x;
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("mul i64"), "*= must work");
+}
+
+/// M9-07: `/=` compound assignment works.
+#[test]
+fn regress_m907_compound_divassign() {
+    let src = r#"
+fn main() -> Int {
+  var x: Int = 20;
+  x /= 4;
+  return x;
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("sdiv i64"), "/= must work");
+}
+
+/// M9-08: `%=` compound assignment works.
+#[test]
+fn regress_m908_compound_remassign() {
+    let src = r#"
+fn main() -> Int {
+  var x: Int = 17;
+  x %= 5;
+  return x;
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("srem i64"), "%= must work");
+}
+
+/// M9-09: `and`/`or` mixed with `&&`/`||` works.
+#[test]
+fn regress_m909_and_or_mixed() {
+    let src = r#"
+fn check(a: Bool, b: Bool, c: Bool) -> Bool {
+  return a and b or c;
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "mixed and/or must compile");
+}
+
+/// M9-10: `+=` on struct field works.
+#[test]
+fn regress_m910_compound_on_field() {
+    let src = r#"
+type Counter = { val: Int; }
+fn main() -> Int {
+  var c = Counter { val: 1 };
+  c.val += 5;
+  return c.val;
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("add i64"), "+= on field must work");
 }

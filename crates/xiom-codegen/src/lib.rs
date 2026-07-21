@@ -38,15 +38,20 @@ struct TypeMeta {
 // ============================================================================
 
 pub struct IrEmitter {
+    /// ── Output Buffer ──
+    /// Accumulated LLVM IR text output of the compilation
     output: String,
+    /// ── Counters ──
     /// Counter for unique temporary names
     tmp_counter: u32,
     /// Counter for unique block labels
     block_counter: u32,
     /// Counter for unique string constants
     str_counter: u32,
+    /// ── Function Compilation State ──
     /// Local variables: name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ (alloca_register, llvm_type)
     locals: Vec<HashMap<String, (String, String)>>,
+    /// ── Type System State ──
     /// Known function signatures: name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ (param_llvm_types, return_llvm_type_or_empty)
     functions: HashMap<String, (Vec<String>, String)>,
     /// Known type structures: name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ field names (for struct type definition)
@@ -67,6 +72,7 @@ pub struct IrEmitter {
     current_param_llvm_types: Vec<String>,
     /// Whether to emit contract runtime checks
     check_contracts: bool,
+    /// ── Monomorphisation State ──
     /// Generic function ASTs stored for later monomorphisation,
     /// with pre-computed fn_key to avoid recomputation in the wrong module context.
     generic_fn_decls: Vec<(String, FnDecl)>,
@@ -101,6 +107,7 @@ pub struct IrEmitter {
     /// LLVM type used when storing an arm body into `match_result_ptr`.
     /// When `None`, falls back to `current_return_type` (tail-position match).
     match_result_ty: Option<String>,
+    /// ── Interface/Enum Registry ──
     /// Interface registry: interface name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ vec of (method_name, param_type_names)
     interfaces: HashMap<String, Vec<(String, Vec<String>)>>,
     /// Concrete types that implement each interface: interface_name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ set of concrete_type_names
@@ -130,6 +137,7 @@ pub struct IrEmitter {
     current_module: Option<String>,
     /// Maps function pointer parameter names to their LLVM return types
     fn_ptr_return_types: HashMap<String, String>,
+    /// ── Loop/Match Control Flow ──
     /// Stack of active loop labels: (continue_label, break_label)
     loop_stack: Vec<(String, String)>,
     /// Struct type definitions created during compilation (e.g. concrete
@@ -194,6 +202,7 @@ pub struct IrEmitter {
     /// symbol name so the defining module and an injected external copy do not
     /// emit the same global twice.
     module_global_defs: Vec<(String, String, String)>,
+    /// ── Hot Reload State ──
     /// Hot reload mode: pub fn calls go through @xiom_hot_get_ptr thunks
     pub(crate) hot_reload: bool,
     /// Set of pub function keys (for hot reload thunk dispatch)

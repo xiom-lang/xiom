@@ -954,7 +954,14 @@ impl Parser {
             }
             _ => {
                 let expr = self.parse_expr()?;
-                if self.skip(TokenKind::Eq) { let rhs = self.parse_expr()?; let span = self.peek().span; self.expect_kind(TokenKind::Semicolon, "';'")?; Ok(StmtOrExpr::Stmt(Stmt::Assign(expr, rhs, span))) }
+                // 8B/M9: Compound assignment desugaring
+                let compound = self.try_compound_assign(&expr);
+                if let Some(rhs) = compound {
+                    let _span = self.peek().span;
+                    self.expect_kind(TokenKind::Semicolon, "';'")?;
+                    Ok(StmtOrExpr::Stmt(Stmt::Assign(expr, rhs, _span)))
+                }
+                else if self.skip(TokenKind::Eq) { let rhs = self.parse_expr()?; let span = self.peek().span; self.expect_kind(TokenKind::Semicolon, "';'")?; Ok(StmtOrExpr::Stmt(Stmt::Assign(expr, rhs, span))) }
                 else if self.check(|k| matches!(k, TokenKind::RBrace)) { Ok(StmtOrExpr::Expr(expr)) }
                 else if matches!(expr, Expr::Unsafe(..) | Expr::If(..)) { self.skip(TokenKind::Semicolon); Ok(StmtOrExpr::Expr(expr)) }
                 else { self.expect_kind(TokenKind::Semicolon, "';'")?; Ok(StmtOrExpr::Expr(expr)) }
@@ -1506,6 +1513,24 @@ impl Parser {
             TokenKind::Err_ => Ok(Ident::new("Err".to_string(), tok.span)),
             _ => { let lexeme = tok.lexeme.clone(); Err(self.error(format!("expected variant name, found '{lexeme}'"))) }
         }
+    }
+
+    /// 8B/M9: Try to parse compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`).
+    /// Desugars `x += y` to `x = x + y`. Returns Some(rhs_expr) if a compound
+    /// assignment was parsed, or None if it's a regular assignment or expression.
+    fn try_compound_assign(&mut self, lhs: &Expr) -> Option<Expr> {
+        let span = self.peek().span;
+        let binop = match &self.peek().kind {
+            TokenKind::PlusEq => { self.advance(); BinOp::Add }
+            TokenKind::MinusEq => { self.advance(); BinOp::Sub }
+            TokenKind::StarEq => { self.advance(); BinOp::Mul }
+            TokenKind::SlashEq => { self.advance(); BinOp::Div }
+            TokenKind::PercentEq => { self.advance(); BinOp::Rem }
+            _ => return None,
+        };
+        let rhs = self.parse_expr().ok()?;
+        // Desugar: x += y  →  x = x + y
+        Some(Expr::Binary(Box::new(lhs.clone()), binop, Box::new(rhs), span))
     }
 }
 
