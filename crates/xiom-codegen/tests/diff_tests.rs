@@ -5,7 +5,7 @@
 use std::process::Command;
 use std::path::Path;
 
-/// Path to the compiled xiom binary
+/// Path to the compiled xiomc binary
 fn xiom_path() -> String {
     let mut path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent().unwrap().parent().unwrap()
@@ -27,13 +27,13 @@ fn compile_to_ir(source_path: &str) -> String {
         .arg(source_path)
         .current_dir(project_root)
         .output()
-        .expect("failed to run xiom");
+        .expect("failed to run xiomc");
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     if !output.status.success() {
-        panic!("xiom failed on {}:\n{}", source_path, stderr);
+        panic!("xiomc failed on {}:\n{}", source_path, stderr);
     }
 
     stdout
@@ -47,7 +47,24 @@ fn test_diff_test_produces_correct_ir() {
     assert!(ir.contains("ret i64 42"), "should return 42");
 }
 
+#[test]
+fn test_selfhost_compiles_cleanly() {
+    let ir = compile_to_ir("selfhost/xiomc.xi");
+    assert!(ir.contains("define void @emit_add"), "should emit add codegen function");
+    assert!(ir.contains("define void @emit_sq"), "should emit sq codegen function");
+    assert!(ir.contains("define void @emit_main_demo"), "should emit main_demo codegen function");
+    assert!(ir.contains("define void @compile_all"), "should emit compile_all function");
+    assert!(ir.contains("call void @codegen.compile_all"), "should call compile_all");
+}
 
+#[test]
+fn test_selfhost_ir_strings_match_expected() {
+    let ir = compile_to_ir("selfhost/xiomc.xi");
+    assert!(ir.contains("define i64 @main()"), "selfhost IR should contain 'define i64 @main()' string");
+    assert!(ir.contains("ret i64 %tmp4"), "selfhost IR should contain 'ret i64 %tmp4' string");
+    assert!(ir.contains("entry0:"), "selfhost IR should contain 'entry0:' string");
+    assert!(ir.contains("fmul double"), "selfhost IR should contain float multiply");
+}
 
 #[test]
 fn test_differential_ir_consistency() {
@@ -184,6 +201,12 @@ fn test_differential_hardening() {
     assert!(ir.contains("icmp") || ir.contains("fcmp"));
 }
 
+#[test]
+fn test_differential_selfhost_sim() {
+    let ir = compile_to_ir("examples\\phase1_selfhost.xi");
+    assert!(ir.contains("define"));
+    assert!(ir.contains("call"));
+}
 
 #[test]
 fn test_differential_stress() {
@@ -221,4 +244,53 @@ fn test_stress_float_matrix() {
     assert!(ir.contains("fadd double"));
 }
 
+#[test]
+fn test_selfhost_bootstrap_v050() {
+    // This test requires clang for native linking via --run.
+    // Skip if clang is not available (e.g. fresh laptop without LLVM).
+    if !std::process::Command::new("clang")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        eprintln!("skipping test_selfhost_bootstrap_v050: clang not found in PATH");
+        return;
+    }
 
+    // The v0.5.0 selfhost compiler embeds xiomc.xi source and returns a structural hash.
+    // The Rust compiler, processing the same v0.5.0 source, must produce a binary
+    // that exits with the SAME hash — proving bootstrap correctness.
+    let project_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent().unwrap().parent().unwrap();
+
+    let output = Command::new(xiom_path())
+        .args(["--run", "selfhost/xiomc_v050.xi"])
+        .current_dir(project_root)
+        .output()
+        .expect("failed to compile and run v0.5.0 selfhost");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Find "exit code: N" in stderr
+    let hash: i32 = if let Some(line) = stderr.lines().find(|l| l.contains("exit code:")) {
+        line.split("exit code:").nth(1).unwrap().trim().parse().unwrap_or(-1)
+    } else {
+        -1
+    };
+
+    // Expected hash based on xiomc.xi structural counts:
+    //   modules=4, functions=29, types=2, ifs+elifs=192, whiles=3, returns=192
+    //   hash = 4*100000 + 29*1000 + 2*100 + 192*10 + 3*5 + 192 = 431327
+    assert_eq!(hash, 431327, "Selfhost v0.5.0 bootstrap hash mismatch");
+}
+
+#[test]
+fn test_selfhost_v092_compiles() {
+    // v0.9.2 selfhost compiler should compile and produce IR with
+    // string constants matching the three demo_float functions
+    let ir = compile_to_ir("selfhost/xiomc_v092.xi");
+    assert!(ir.contains("define i64 @add"), "missing add function IR");
+    assert!(ir.contains("define double @sq"), "missing sq function IR");
+    assert!(ir.contains("define i64 @main"), "missing main function IR");
+}

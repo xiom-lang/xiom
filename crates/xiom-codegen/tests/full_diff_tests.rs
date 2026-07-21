@@ -29,13 +29,13 @@ fn xiom_path() -> String {
     path.to_str().unwrap().to_string()
 }
 
-/// Run Rust xiom on a source file with --emit-ir, return IR output lines
+/// Run Rust xiomc on a source file with --emit-ir, return IR output lines
 fn rust_ir(source: &str) -> Vec<String> {
     let output = Command::new(xiom_path())
         .args(["--emit-ir", source])
         .current_dir(project_root())
         .output()
-        .expect("rust xiom failed");
+        .expect("rust xiomc failed");
     let stdout = String::from_utf8_lossy(&output.stdout);
     stdout.lines().map(|l| l.to_string()).collect()
 }
@@ -43,7 +43,7 @@ fn rust_ir(source: &str) -> Vec<String> {
 /// Run selfhost compiler targeting an example, return IR output lines.
 ///
 /// Creates a temp copy of selfhost/xiomc_v10.xi with the source path
-/// replaced to point at the desired example, compiles it with xiom,
+/// replaced to point at the desired example, compiles it with xiomc,
 /// then runs the resulting binary which emits IR for the example.
 /// NOTE: does NOT check process exit code — the selfhost emitter may crash
 /// on complex type patterns, but stdout IR is still captured for comparison.
