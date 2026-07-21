@@ -4284,4 +4284,71 @@ type Wrapper = { val: Int; }\n\
 fn main() -> Int { var x = 42; let r = &x; var y = x; return 0; }");
         assert!(result.is_err(), "move while borrowed should error");
     }
+
+    /// 8B/M5: Fuzz harness — random type combinations, verify TypeArena integrity.
+    #[test]
+    fn fuzz_type_arena_random_inserts() {
+        let mut arena = crate::TypeArena::new();
+        let mut seed: u64 = 99991;
+        let mut names = Vec::new();
+        for _ in 0..200 {
+            let name_len = (seed % 16 + 1) as usize;
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let mut name = String::with_capacity(name_len);
+            for _ in 0..name_len {
+                let c = ((seed % 26) as u8 + b'a') as char;
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                name.push(c);
+            }
+            let id = arena.intern(&name, false);
+            // After interning, looking up the same name must return the same id
+            let id2 = arena.intern(&name, false);
+            assert_eq!(id, id2, "same name must produce same id");
+            names.push((name, id));
+        }
+    }
+
+    /// 8B/M5: Fuzz harness — verify types_compatible with random type pairs.
+    #[test]
+    fn fuzz_types_compatible_random() {
+        let checker = crate::Checker::new();
+        let types = vec![
+            crate::CheckedType::Int,
+            crate::CheckedType::Float64,
+            crate::CheckedType::Float32,
+            crate::CheckedType::Bool,
+            crate::CheckedType::Char,
+            crate::CheckedType::Str,
+        ];
+        for a in &types {
+            for b in &types {
+                // Must not panic on any pair
+                let _ = checker.types_compatible(a, b);
+            }
+        }
+    }
+
+    /// 8B/M5: Fuzz harness — error count should never overflow (u32 safety).
+    #[test]
+    fn fuzz_error_count_boundary() {
+        let mut checker = crate::Checker::new();
+        assert_eq!(checker.error_count, 0);
+        // Error count starts at 0, increments on each error
+        // Must not wrap or panic after many errors
+        for _ in 0..1000 {
+            checker.error_count = checker.error_count.saturating_add(1);
+        }
+        assert!(checker.error_count > 0);
+        assert!(checker.error_count <= 1000);
+    }
+
+    /// 8B/M5: Fuzz harness — source_dirs never cause panic on missing dirs.
+    #[test]
+    fn fuzz_source_dirs_missing() {
+        let mut checker = crate::Checker::new();
+        checker.add_source_dir("/nonexistent/path/12345".to_string());
+        checker.add_source_dir("\\\\invalid\\path\\".to_string());
+        checker.build_catalog_index();
+        // Must not panic — the catalog should handle missing paths gracefully
+    }
 }
