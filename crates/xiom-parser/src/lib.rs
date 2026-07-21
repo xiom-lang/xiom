@@ -1014,11 +1014,43 @@ impl Parser {
     }
 
     fn parse_if_stmt(&mut self) -> Result<Stmt, ParseError> {
-        let span = self.advance().span; let cond = self.parse_cond()?; let then_block = self.parse_block()?;
+        let span = self.advance().span;
+        // 8B/M9: if let pattern matching
+        if self.peek_kind() == &TokenKind::Let {
+            return self.parse_if_let_stmt(span);
+        }
+        let cond = self.parse_cond()?; let then_block = self.parse_block()?;
         let mut elifs = Vec::new();
         while self.skip(TokenKind::Elif) { let econd = self.parse_cond()?; let eblock = self.parse_block()?; elifs.push((econd, eblock)); }
         let else_block = if self.skip(TokenKind::Else) { Some(self.parse_block()?) } else { None };
         Ok(Stmt::If(cond, then_block, elifs, else_block, span))
+    }
+
+    /// 8B/M9: Parse `if let pattern = expr { ... } [else { ... }]`
+    /// Desugars to a match expression:
+    ///   if let Some(v) = x { A } else { B }
+    /// becomes:
+    ///   match x { Some(v) => { A }, _ => { B } }
+    fn parse_if_let_stmt(&mut self, if_span: Span) -> Result<Stmt, ParseError> {
+        self.advance(); // skip 'let'
+        let pattern = self.parse_pattern()?;
+        self.expect_kind(TokenKind::Eq, "'=' in if let")?;
+        let expr = self.parse_expr()?;
+        let then_block = self.parse_block()?;
+        let else_block = if self.skip(TokenKind::Else) { Some(self.parse_block()?) } else { None };
+
+        let wildcard = Pattern::Wildcard(Span::new(0, 0));
+        let else_body = match else_block {
+            Some(b) => MatchBody::Block(b),
+            None => MatchBody::Block(Block { stmts: vec![], span: if_span }),
+        };
+
+        let arms = vec![
+            MatchArm { pattern, guard: None, body: MatchBody::Block(then_block), span: if_span },
+            MatchArm { pattern: wildcard, guard: None, body: else_body, span: if_span },
+        ];
+
+        Ok(Stmt::Match(*Box::new(expr), arms, if_span))
     }
 
     fn parse_match_stmt(&mut self) -> Result<Stmt, ParseError> {
@@ -1055,6 +1087,10 @@ impl Parser {
 
     fn parse_while_stmt(&mut self) -> Result<Stmt, ParseError> {
         let span = self.advance().span;
+        // 8B/M9: while let pattern matching
+        if self.peek_kind() == &TokenKind::Let {
+            return self.parse_while_let_stmt(span);
+        }
         let cond = self.parse_cond()?;
         // 5f: optional loop invariant
         let invariant = if self.check(|k| matches!(k, TokenKind::Ident(s) if s == "invariant")) {
@@ -1066,6 +1102,33 @@ impl Parser {
         };
         let body = self.parse_block()?;
         Ok(Stmt::While(cond, body, invariant, span))
+    }
+
+    /// 8B/M9: Parse `while let pattern = expr { ... }`
+    /// Desugars to `while true { match expr { pattern => { ... }, _ => break } }`
+    fn parse_while_let_stmt(&mut self, while_span: Span) -> Result<Stmt, ParseError> {
+        self.advance(); // skip 'let'
+        let pattern = self.parse_pattern()?;
+        self.expect_kind(TokenKind::Eq, "'=' in while let")?;
+        let expr = self.parse_expr()?;
+        let body_block = self.parse_block()?;
+
+        let wildcard = Pattern::Wildcard(Span::new(0, 0));
+        let break_stmt = StmtOrExpr::Stmt(Stmt::Break(while_span));
+        let break_body = Block { stmts: vec![break_stmt], span: while_span };
+
+        let match_arms = vec![
+            MatchArm { pattern, guard: None, body: MatchBody::Block(body_block), span: while_span },
+            MatchArm { pattern: wildcard, guard: None, body: MatchBody::Block(break_body), span: while_span },
+        ];
+
+        let match_stmt = Stmt::Match(*Box::new(expr), match_arms, while_span);
+        let inner_block = Block {
+            stmts: vec![StmtOrExpr::Stmt(match_stmt)],
+            span: while_span,
+        };
+
+        Ok(Stmt::While(Expr::Bool(true, while_span), inner_block, None, while_span))
     }
     fn parse_for_stmt(&mut self) -> Result<Stmt, ParseError> { let span = self.advance().span; let var = self.parse_ident()?; self.expect_kind(TokenKind::In, "'in'")?; let iter = self.parse_cond()?; let body = self.parse_block()?; Ok(Stmt::For(var, iter, body, span)) }
     fn parse_spawn_stmt(&mut self) -> Result<Stmt, ParseError> { let span = self.advance().span; let body = self.parse_block()?; Ok(Stmt::Spawn(body, span)) }

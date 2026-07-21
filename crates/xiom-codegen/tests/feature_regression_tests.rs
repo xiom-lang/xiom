@@ -3625,4 +3625,76 @@ pub enum Full { A, B(x: Int), C(s: Str) } derive[Eq, Clone, Hash, Ord, Display, 
 fn main() -> Int { return 0; }
 "#;
     let ir = compile(src).unwrap();
+    assert!(ir.contains("Full.fmt"), "Debug must work alongside all other derives");
+    assert!(ir.contains("Full.eq"), "Eq must still work");
+}
+
+// =====================================================================
+// Phase 8B/M9: if let / while let + range syntax tests
+// =====================================================================
+
+/// M9-15: if let Some(v) = x { ... } desugars to match.
+#[test]
+fn regress_m915_if_let_option() {
+    let src = r#"
+fn main() -> Int {
+  var x: Option[Int] = Some(42);
+  if let Some(v) = x { return v; }
+  return 0;
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "if let must compile");
+}
+
+/// M9-16: if let with else block.
+#[test]
+fn regress_m916_if_let_else() {
+    let src = r#"
+fn main() -> Int {
+  var x: Option[Int] = None;
+  if let Some(v) = x { return v; } else { return -1; }
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "if let else must compile");
+}
+
+/// M9-17: while let Some(v) = x { ... } desugars.
+#[test]
+fn regress_m917_while_let() {
+    let src = r#"
+fn main() -> Int {
+  var x: Option[Int] = Some(3);
+  var count: Int = 0;
+  while let Some(v) = x {
+    count += v;
+    if count > 5 { break; }
+    x = None;
+  }
+  return count;
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "while let must compile");
+}
+
+/// M9-18: 0..5 range syntax compiles.
+#[test]
+fn regress_m918_range_exclusive() {
+    let src = r#"
+fn main() -> Int { for i in 0..5 { } return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "0..5 must desugar");
+}
+
+/// M9-19: 0..=4 range_inclusive syntax compiles.
+#[test]
+fn regress_m919_range_inclusive() {
+    let src = r#"
+fn main() -> Int { for i in 0..=4 { } return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "0..=4 must desugar");
 }
