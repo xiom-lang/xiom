@@ -111,14 +111,14 @@
 | Formal verification of borrow checker rules | 5d |
 | Memory leak detection test suite | 2d |
 
-### 8B/M6 — Ecosystem Maturity
-| Item | Effort |
+### 8B/M6 — Ecosystem Maturity (DELEGATED — separate agent)
+| Item | Status |
 |------|--------|
-| xiom-redis fully implemented (hiredis bridge) | 3d |
-| Ecosystem test infrastructure (all 75 packages) | 5d |
-| Package registry backend (registry.xiom-lang.org) | 5d |
-| xiom pkg publish ? registry | 3d |
-| xiom pkg search working | 2d |
+| xiom-redis fully implemented (hiredis bridge) | Delegated |
+| Ecosystem test infrastructure (all 75 packages) | Delegated |
+| Package registry backend (registry.xiom-lang.org) | Delegated |
+| xiom pkg publish ? registry | Delegated |
+| xiom pkg search working | Delegated |
 
 ### 8B/M7 — Stdlib Completion
 | Item | Effort |
