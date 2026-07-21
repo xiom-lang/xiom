@@ -1840,4 +1840,58 @@ mod tests {
         let result = Parser::new(tokens).parse_program();
         assert!(result.is_ok(), "moderate nesting should parse: {:?}", result.err());
     }
+
+    /// 8B/M5: Fuzz harness — feed random tokens to parser, verify no panics.
+    #[test]
+    fn fuzz_parser_random_input() {
+        let mut seed: u64 = 54321;
+        for _ in 0..200 {
+            let len = ((seed >> 32) % 128) as usize + 1;
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let mut input = String::with_capacity(len);
+            // Generate random XIOM-like tokens
+            for _ in 0..len {
+                let byte = (seed % 96) as u8 + 32; // printable ASCII
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                input.push(byte as char);
+            }
+            let tokens = Lexer::new(&input).tokenize();
+            let result = Parser::new(tokens).parse_program();
+            // Must not panic — error recovery should handle any input
+            assert!(result.is_ok() || result.is_err(), "parser must not panic on random input of length {len}");
+        }
+    }
+
+    /// 8B/M5: Fuzz harness — edge cases for parser error recovery.
+    #[test]
+    fn fuzz_parser_edge_cases() {
+        let edge_cases = vec![
+            "fn", "fn {", "fn main", "fn main(", "fn main(}", "fn main()",
+            "fn main() ->", "fn main() -> {", "fn main() -> Int",
+            "fn main() -> Int {", "fn main() -> Int {}",
+            "fn main() -> Int { return; }",
+            "if true", "if true {", "if true {}",
+            "if true {} else", "if true {} else {",
+            "while true", "while true {", "while true {}",
+            "match x {", "match x {}", "match x { _ =>",
+            "let", "let x", "let x =", "let x = ;",
+            "var", "var x", "var x:", "var x: Int",
+            "type", "type Foo", "type Foo =", "type Foo = {",
+            "type Foo = {}", "type Foo = { x:", "type Foo = { x: Int",
+            "enum", "enum Foo", "enum Foo {", "enum Foo {}",
+            "module", "module foo", "module foo {", "module foo {}",
+            "use", "use foo", "use foo.", "use foo.bar",
+            "extern", "extern \"", "extern \"C\"", "extern \"C\" {",
+            "// unterminated line comment (no newline)",
+            "/* unterminated block comment",
+            "\"unterminated string literal",
+            "'unterminated char literal",
+        ];
+        for case in &edge_cases {
+            let tokens = Lexer::new(case).tokenize();
+            let result = Parser::new(tokens).parse_program();
+            // Must not panic on any edge case
+            let _ = result;
+        }
+    }
 }
