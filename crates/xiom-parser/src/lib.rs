@@ -653,7 +653,7 @@ impl Parser {
             }
         }
         let (receiver, name) = if self.skip(TokenKind::Dot) { (Some(first), self.parse_ident()?) } else { (None, first) };
-        let mut generics = self.parse_optional_generic_params()?;
+        let generics = self.parse_optional_generic_params()?;
         self.expect_kind(TokenKind::LParen, "'('")?;
         let params = if self.check(|k| matches!(k, TokenKind::RParen)) { self.advance(); Vec::new() } else { let p = self.parse_param_list()?; self.expect_kind(TokenKind::RParen, "')'")?; p };
         let return_type = if self.skip(TokenKind::Arrow) { Some(self.parse_type()?) } else { None };

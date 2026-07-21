@@ -2420,7 +2420,7 @@ impl IrEmitter {
     }
 
     /// 8B/M9: Debug derive for structs — delegates to Display for now
-    fn compile_debug_impl(&mut self, type_name: &str, struct_ty: &str, field_names: &[String]) -> Result<(), String> {
+    fn compile_debug_impl(&mut self, type_name: &str, struct_ty: &str, _field_names: &[String]) -> Result<(), String> {
         let fn_name = format!("{type_name}.fmt");
         if self.emitted_fns.contains(&fn_name) { return Ok(()); }
         self.emitted_fns.insert(fn_name.clone());
