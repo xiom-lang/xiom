@@ -402,7 +402,7 @@ fn e2e_runtime_ir_declares_externs() {
     assert!(stdout.contains("@xiom_read_file"), "IR should declare xiom_read_file");
     assert!(stdout.contains("@xiom_file_size"), "IR should declare xiom_file_size");
     assert!(stdout.contains("@xiom_free"), "IR should declare xiom_free");
-}xiom
+}
 
 
 
@@ -442,17 +442,17 @@ fn e2e_multifile_bench_math_compiles() {
         .output()
         .expect("failed");
     assert!(output.status.success(), "bench_math.xi should compile to IR via ModuleCatalog");
-}xiom
+}
 
 /// Compile the full 30-module benchmark suite. Uses the ModuleCatalog
 /// (single-file path with lazy loading of all 30 submodules).
-/// NOTE: This test passes individually but timxiomt under heavy parallel load
+/// NOTE: This test passes individually but times out under heavy parallel load
 /// due to the 30-module benchmark's size (65536 mono iterations). Run solo:
 ///   cargo test -p xiom-codegen --test e2e_tests -- e2e_multifile -- --nocapture
 #[test]
 fn e2e_multifile_benchmark_main_compiles() {
     let output = std::process::Command::new(xiom_path())
-        .args(["--emit-ir", "examples\\xiommark\\main.xi"])
+        .args(["--emit-ir", "examples\\benchmark\\main.xi"])
         .current_dir(project_root())
         .output()
         .expect("failed");
@@ -463,17 +463,17 @@ fn e2e_multifile_benchmark_main_compiles() {
 // ============================================================================
 // E2E: CLI Flags — Timeout & Memory
 // NOTE: Watchdog thread tests are inherently racy and environment-dependent.
-// Flag parsing correctness is verifiedxiom--help output test below.
+// Flag parsing correctness is verified via --help output test below.
 // The flags are tested in isolation via unit/integration tests.
 // ============================================================================
 
-#[test]xiom
+#[test]
 fn e2e_help_shows_timeout_and_memory_flags() {
     let output = std::process::Command::new(xiom_path())
         .arg("--help")
         .current_dir(project_root())
         .output()
-        .expect("failed");xiom
+        .expect("failed");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let combined = format!("{}{}", stdout, stderr);
@@ -484,7 +484,7 @@ fn e2e_help_shows_timeout_and_memory_flags() {
 // ============================================================================
 // E2E: Regression — method `match self` on enum receiver
 // ============================================================================
-/// Regression: a method that pattern-mxioms `self` on an enum receiver must
+/// Regression: a method that pattern-matches `self` on an enum receiver must
 /// treat self as the typed struct, NOT a phantom `i64` duplicate param.
 /// Without the fix, variant patterns become variable bindings and arms return
 /// raw i64 discriminants → `store %struct.X i64` (invalid IR).
@@ -500,7 +500,7 @@ fn e2e_method_match_self_enum() {
 // except where noted). Each program returns 0 on success, nonzero on failure.
 // These lock in fixes that were hard-won during the stdlib execution work.
 // ============================================================================
-xiom
+
 /// Enum `==`/`!=` via the builtin `.eq` fallback (compare discriminant inline),
 /// plus enum-variant construction as values from match arms.
 #[test]
@@ -511,7 +511,7 @@ fn e2e_enum_eq_and_variants() {
 
 /// Vec builtins: new/push/len/index-read/pop returning Option, with element
 /// coercion. Locks in inline Vec method dispatch + Option payload extraction.
-#[test]xiom
+#[test]
 fn e2e_vec_ops() {
     assert_eq!(compile_and_run("examples\\e2e\\vec_ops.xi"), Some(0),
         "Vec new/push/len/index/pop should work");
@@ -524,7 +524,7 @@ fn e2e_char_cast() {
         "Char<->Int casts and widening should work");
 }
 
-/// Cross-module use of a stdlib module whose functions callxiomterns
+/// Cross-module use of a stdlib module whose functions call C externs
 /// (math). Locks in cross-module extern-declare injection + libc/libm handling.
 #[test]
 fn e2e_cross_module_math() {
@@ -552,7 +552,7 @@ fn e2e_pub_const_use() {
 fn e2e_enum_variant_value() {
     assert_eq!(compile_and_run("examples\\e2e\\enum_variant_value.xi"), Some(0),
         "enum variant as value and ==/!= should work");
-}xiom
+}
 
 /// Const-generics and array indexing: let-bound arrays index correctly (5a.7),
 /// const-declared sizes work in while loops (5a.5).
@@ -583,17 +583,17 @@ fn e2e_ptr_deref() {
 // ============================================================================
 
 /// Struct field assignment (`self.field = expr`) emits a store instruction
-/// through GEP into the struct alloca.xiom
+/// through GEP into the struct alloca.
 #[test]
 fn e2e_field_assign() {
     assert_eq!(compile_and_run("examples\\e2e\\field_assign.xi"), Some(0),
-        "struct field assignment should store txiomh GEP");
+        "struct field assignment should store through GEP");
 }
 
 /// Struct method returning modified self stores back to the caller's variable
 /// so mutation persists across the call.
 #[test]
-fn e2e_method_store_back() {xiom
+fn e2e_method_store_back() {
     assert_eq!(compile_and_run("examples\\e2e\\method_store_back.xi"), Some(0),
         "mutating struct method should store result back to receiver var");
 }
@@ -606,7 +606,7 @@ fn e2e_call_receiver_type() {
         "chained call receiver type inference should resolve method");
 }
 
-/// Or-patterns like `1 | 2 | 3 =>` in match arms coxiom and match correctly.
+/// Or-patterns like `1 | 2 | 3 =>` in match arms compile and match correctly.
 #[test]
 fn e2e_or_pattern() {
     assert_eq!(compile_and_run("examples\\e2e\\or_pattern.xi"), Some(0),
@@ -632,21 +632,21 @@ fn e2e_mut_struct() {
 
 /// DJB2 hash monomorphized through the Hash interface.
 /// Same input → same hash; different inputs → different hashes.
-#[test]xiom
+#[test]
 fn e2e_djb2_hash() {
     assert_eq!(compile_and_run("examples\\e2e\\djb2_hash.xi"), Some(0),
         "DJB2 hash via Hash[T] interface should produce deterministic non-zero values");
-}xiom
+}
 
 /// Generic swap via `&mut T` references: verifies scalar &mut pointers
 /// work inside generic monomorphized functions (ARC A + ARC B).
 #[test]
 fn e2e_mut_ref_swap() {
-    assert_eq!(compile_and_run("examplexiome\\mut_ref_swap.xi"), Some(0),
+    assert_eq!(compile_and_run("examples\\e2e\\mut_ref_swap.xi"), Some(0),
         "generic &mut T swap should exchange values correctly");
 }
 
-/// Phase 5c.7 hardening: Float32 compat, hex exioms, enum constructors,
+/// Phase 5c.7 hardening: Float32 compat, hex escapes, enum constructors,
 /// comma-separated contracts, Int/Char compat, enum pattern matching.
 #[test]
 fn e2e_phase5c7_hardening() {
