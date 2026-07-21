@@ -25,7 +25,7 @@ LSP4IJ ships a Debug Adapter Protocol client:
    ```json
    { "program": "$PROJECT_DIR$/a.exe", "stopOnEntry": true, "contractTraps": true }
    ```
-4. Compile with symbols first: `xiomc -g -o a.exe main.xi`, set breakpoints, Debug.
+4. Compile with symbols first: `xiom -g -o a.exe main.xi`, set breakpoints, Debug.
 
 ## Native plugin?
 

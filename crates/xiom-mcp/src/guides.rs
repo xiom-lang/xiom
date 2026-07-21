@@ -139,8 +139,8 @@ pub type PositiveInt = Int invariant: this > 0;
 
 ## Behavior
 - Violation → trap with contract name.
-- `xiomc --no-contracts` disables runtime checks.
-- `xiomc --dump-contracts` exports JSON (also: get_contract_signature MCP tool).
+- `xiom --no-contracts` disables runtime checks.
+- `xiom --dump-contracts` exports JSON (also: get_contract_signature MCP tool).
 
 ## Best practices
 1. Null/range checks belong in requires — callers see them in the signature.
@@ -168,7 +168,7 @@ A catalog index gives O(1) module lookup.
 `pub` = exported. Private items are module-internal.
 
 ## Multi-file builds
-`xiomc -o app.exe main.xi lib.xi extra.xi` — files merge into one program;
+`xiom -o app.exe main.xi lib.xi extra.xi` — files merge into one program;
 cross-file types resolve automatically.
 
 ## Errors
@@ -248,18 +248,18 @@ pub fn alloc(size: Int) -> *mut UInt8
    with the extern declaration and is silently dropped. Use `realloc_sized`.
 
 ## Safety audit
-`xiomc --sandbox file.xi` scores unsafe blocks:
+`xiom --sandbox file.xi` scores unsafe blocks:
 - extern call without contract → HIGH
 - pointer arithmetic without bounds → HIGH
 - unsafe in pub fn → MEDIUM
-CI gate: `xiomc --sandbox=strict` (exit 3 on HIGH). JSON: `--sandbox-report=json`."#;
+CI gate: `xiom --sandbox=strict` (exit 3 on HIGH). JSON: `--sandbox-report=json`."#;
 
 const DEBUGGING: &str = r#"# XIOM Debugging Guide
 
 ## Reading compiler errors
 Format: `error[CODE]: line:col: message` + note/help lines.
 Codes: L001 lexer, P001 parser, T001 types, E001 borrow/move, C001 codegen.
-`xiomc --explain T001` prints the full reference for a code.
+`xiom --explain T001` prints the full reference for a code.
 MCP: explain_error_code {code}.
 
 ## Frequent errors → fixes
@@ -270,13 +270,13 @@ MCP: explain_error_code {code}.
 - "unknown module" — add the file to the CLI invocation or fix `use` path.
 
 ## Runtime debugging
-1. Compile with symbols: `xiomc -g -o app.exe main.xi`
+1. Compile with symbols: `xiom -g -o app.exe main.xi`
 2. VS Code: install the XIOM extension, F5 with type "xiom" (uses xiom-dbg + GDB).
 3. Contract violations trap — the debugger's exception filter
    "Contract Violations" breaks at the violating check.
 
 ## Structured output for tools
-`xiomc --diagnostics=json file.xi` — machine-readable diagnostics.
+`xiom --diagnostics=json file.xi` — machine-readable diagnostics.
 MCP compile_and_analyze returns the same structure."#;
 
 const W_OVERVIEW: &str = r#"# XIOM Toolchain Workflows
@@ -291,7 +291,7 @@ Call `xiom_workflow_guide {topic}` with one of:
 ## Toolchain binaries
 | Tool | Purpose |
 |------|---------|
-| xiomc | Compiler (native, WASM, IR) |
+| xiom | Compiler (native, WASM, IR) |
 | xiom-fmt | Canonical formatter (--check, --in-place) |
 | xiom-lsp | Language server (editors) |
 | xiom-dbg | DAP debug adapter (VS Code/JetBrains) |
@@ -304,14 +304,14 @@ Call `xiom_workflow_guide {topic}` with one of:
 const W_COMPILE: &str = r#"# Compile Workflows
 
 ## Basic
-xiomc file.xi                    # print LLVM IR to stdout
-xiomc -o app.exe main.xi         # native binary
-xiomc --run main.xi              # compile + run, prints exit code
-xiomc -o app.exe a.xi b.xi c.xi  # multi-file
+xiom file.xi                    # print LLVM IR to stdout
+xiom -o app.exe main.xi         # native binary
+xiom --run main.xi              # compile + run, prints exit code
+xiom -o app.exe a.xi b.xi c.xi  # multi-file
 
 ## Targets
-xiomc --target wasm -o app.wasm main.xi
-xiomc --target arm / riscv       # cross-compile triples
+xiom --target wasm -o app.wasm main.xi
+xiom --target arm / riscv       # cross-compile triples
 
 ## Modes & flags
 --check              type-check only (no codegen)
@@ -348,7 +348,7 @@ fn main() -> Int {
 Convention: return 0 on success; the process exit code IS the test result.
 
 ## Running
-xiomc --run tests.xi
+xiom --run tests.xi
 echo $LASTEXITCODE   # 0 = green
 
 ## Compiler's own suite (contributors)
@@ -358,7 +358,7 @@ cargo test --all     # 716 tests: compiler 495 + tooling 221"#;
 const W_DEBUG: &str = r#"# Debug Workflows
 
 ## 1. Compile with symbols
-xiomc -g -o app.exe main.xi
+xiom -g -o app.exe main.xi
 
 ## 2. VS Code (XIOM extension)
 launch.json:
@@ -404,10 +404,10 @@ Lockfile (xiom.lock) pins dep versions — commit it."#;
 const W_SANDBOX: &str = r#"# Safety Audit (Sandbox) Workflows
 
 ## Run
-xiomc --sandbox file.xi                  # human-readable report
-xiomc --sandbox-report=json file.xi      # JSON (CI parsing)
-xiomc --sandbox-report=out.json file.xi  # write to file
-xiomc --sandbox=strict file.xi           # exit 3 if HIGH findings
+xiom --sandbox file.xi                  # human-readable report
+xiom --sandbox-report=json file.xi      # JSON (CI parsing)
+xiom --sandbox-report=out.json file.xi  # write to file
+xiom --sandbox=strict file.xi           # exit 3 if HIGH findings
 
 ## Exit codes (CI gating)
 0 = SAFE/LOW only | 1 = MEDIUM present | 2 = HIGH present | 3 = strict-blocked
@@ -425,4 +425,4 @@ LOW: unsafe_block_without_comment
 - Split big unsafe blocks; add `// SAFETY:` comments.
 
 ## GitHub Actions example
-- run: xiomc --sandbox=strict src/main.xi"#;
+- run: xiom --sandbox=strict src/main.xi"#;

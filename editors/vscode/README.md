@@ -23,7 +23,7 @@ Syntax highlighting, autocomplete, go-to-definition, diagnostics, and **debuggin
    - LSP features activate if `target/release/xiom-lsp.exe` exists (auto-detected).
 5. Debugging: press **F5** in the dev host on a `.xi` project → select "XIOM Debugger" →
    it launches `xiom-dbg` against your compiled program (default `${workspaceFolder}/a.exe`).
-   Compile first with `xiomc -g -o a.exe program.xi` for DWARF symbols. GDB must be on PATH.
+   Compile first with `xiom -g -o a.exe program.xi` for DWARF symbols. GDB must be on PATH.
 
 ## Package as .vsix (Distribution)
 

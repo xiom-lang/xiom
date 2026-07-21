@@ -27,7 +27,7 @@ cargo build --release -p xiom-mcp
 
 **Important:** The tools `compile_and_analyze`, `get_contract_signature`, and `check_xiom_syntax`
 link the compiler directly (library mode — no subprocess). The tools `format_xiom_code` and
-`audit_safety_sandbox` spawn `xiom-fmt` / `xiomc`, so keep all binaries in the same directory
+`audit_safety_sandbox` spawn `xiom-fmt` / `xiom`, so keep all binaries in the same directory
 or on `PATH`.
 
 ---
@@ -186,7 +186,7 @@ The agent should call `xiom_cheatsheet {section: "contracts"}` and get canonical
 
 | Channel | How users get it |
 |---------|------------------|
-| **Release zip** | `bin/xiom-mcp.exe` ships alongside `xiomc.exe` — one download, everything included |
+| **Release zip** | `bin/xiom-mcp.exe` ships alongside `xiom.exe` — one download, everything included |
 | **Source build** | `cargo build --release -p xiom-mcp` |
 | **Future: registry** | `xiom pkg install xiom-mcp` (planned, registry.xiom-lang.com) |
 
@@ -207,7 +207,7 @@ be invasive and fragile across agent updates.
 |---------|-----|
 | Agent shows no xiom tools | Check the binary path in config is absolute and exists |
 | `format_xiom_code` fails | Put `xiom-fmt(.exe)` in the same dir as `xiom-mcp` or on PATH |
-| `audit_safety_sandbox` fails | Put `xiomc(.exe)` in the same dir or on PATH |
+| `audit_safety_sandbox` fails | Put `xiom(.exe)` in the same dir or on PATH |
 | Tools error "File not found" | Paths are relative to the agent's working directory — use absolute paths |
 | "Path traversal rejected" | The server blocks `..` in paths by design (security) |
 | Server exits immediately | Run the verify command (section 4) to see raw errors |

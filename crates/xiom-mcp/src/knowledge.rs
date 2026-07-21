@@ -16,7 +16,7 @@ use xiom_parser::Parser;
 
 /// List all stdlib modules, or describe one module's full public API.
 pub fn stdlib_reference(module_filter: Option<&str>) -> Result<String, String> {
-    let dirs = xiomc::find_stdlib_dirs();
+    let dirs = xiom::find_stdlib_dirs();
     if dirs.is_empty() {
         return Err("No stdlib directory found. Set XIOM_STDLIB or run from the XIOM repo/release.".into());
     }

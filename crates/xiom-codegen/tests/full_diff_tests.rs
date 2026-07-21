@@ -19,23 +19,23 @@ fn project_root() -> &'static Path {
     }).as_path()
 }
 
-fn xiomc_path() -> String {
+fn xiom_path() -> String {
     let mut path = project_root()
-        .join("target").join("debug").join("xiomc.exe");
+        .join("target").join("debug").join("xiom.exe");
     if !path.exists() {
         path = project_root()
-            .join("target").join("release").join("xiomc.exe");
+            .join("target").join("release").join("xiom.exe");
     }
     path.to_str().unwrap().to_string()
 }
 
-/// Run Rust xiomc on a source file with --emit-ir, return IR output lines
+/// Run Rust xiom on a source file with --emit-ir, return IR output lines
 fn rust_ir(source: &str) -> Vec<String> {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", source])
         .current_dir(project_root())
         .output()
-        .expect("rust xiomc failed");
+        .expect("rust xiom failed");
     let stdout = String::from_utf8_lossy(&output.stdout);
     stdout.lines().map(|l| l.to_string()).collect()
 }
@@ -43,7 +43,7 @@ fn rust_ir(source: &str) -> Vec<String> {
 /// Run selfhost compiler targeting an example, return IR output lines.
 ///
 /// Creates a temp copy of selfhost/xiomc_v10.xi with the source path
-/// replaced to point at the desired example, compiles it with xiomc,
+/// replaced to point at the desired example, compiles it with xiom,
 /// then runs the resulting binary which emits IR for the example.
 /// NOTE: does NOT check process exit code — the selfhost emitter may crash
 /// on complex type patterns, but stdout IR is still captured for comparison.
@@ -65,7 +65,7 @@ fn selfhost_ir(example: &str) -> Vec<String> {
     fs::write(root.join(&temp_src), &modified)
         .unwrap_or_else(|e| panic!("failed to write {}: {}", temp_src, e));
 
-    let compile = Command::new(xiomc_path())
+    let compile = Command::new(xiom_path())
         .args(["-o", &temp_exe, &temp_src])
         .current_dir(root)
         .output()

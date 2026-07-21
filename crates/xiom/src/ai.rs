@@ -445,7 +445,7 @@ pub fn run_ai_pipeline(config: &AiConfig, source: &str, source_path: &str, diagn
     std::fs::write(".xiom_ai.json", &json).map_err(|e| format!("Write error: {e}"))?;
 
     if !config.silent {
-        eprintln!("xiomc --ai: {} hints → .xiom_ai.json ({} API, {} cached, provider: {})",
+        eprintln!("xiom --ai: {} hints → .xiom_ai.json ({} API, {} cached, provider: {})",
             output.total_hints, api_calls, cached, config.provider);
     }
     if config.strict && !output.hints.is_empty() {
@@ -535,7 +535,7 @@ pub fn run_ai_pipeline_batch(
     std::fs::write(".xiom_ai.json", &json).map_err(|e| format!("Write error: {e}"))?;
 
     if !config.silent {
-        eprintln!("xiomc --ai --batch: {} hints → .xiom_ai.json ({} API, {} cached)",
+        eprintln!("xiom --ai --batch: {} hints → .xiom_ai.json ({} API, {} cached)",
             output.total_hints, api_calls, cached);
     }
     if config.strict && !output.hints.is_empty() {
@@ -645,19 +645,19 @@ AI-ASSISTED COMPILATION (--ai):
   Quick Start:
     1. Install Ollama:   winget install Ollama.Ollama
     2. Pull a model:      ollama pull codellama
-    3. Compile with AI:   xiomc --ai source.xi
+    3. Compile with AI:   xiom --ai source.xi
 
   Using DeepSeek:
     set XIOM_AI_KEY=sk-your-deepseek-key
     set XIOM_AI_ENDPOINT=https://api.deepseek.com
     set XIOM_AI_MODEL=deepseek-chat
-    xiomc --ai source.xi
+    xiom --ai source.xi
 
   Using OpenAI:
     set XIOM_AI_KEY=sk-your-openai-key
     set XIOM_AI_ENDPOINT=https://api.openai.com/v1
     set XIOM_AI_MODEL=gpt-4o-mini
-    xiomc --ai source.xi
+    xiom --ai source.xi
 
   Config File (secure, recommended):
     Create .xiom_ai_config.json in your project or home directory:

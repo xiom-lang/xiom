@@ -296,7 +296,7 @@ fn regress_primitive_eq() {
 // =====================================================================
 // Ecosystem compiler gaps (COMPILER_GAPS.md) - lock in that each spec-valid
 // pattern the production ecosystem uses parses + emits IR. Every one of these
-// was a reported gap in xiomc v0.11.0; these tests prevent regression.
+// was a reported gap in xiom v0.11.0; these tests prevent regression.
 // =====================================================================
 
 #[test]
@@ -1830,12 +1830,12 @@ fn main() -> Int {
 }
 
 /// ACCEPT: Self is an alias for the concrete receiver type.
-/// Must use full xiomc pipeline since it requires module-level resolution.
+/// Must use full xiom pipeline since it requires module-level resolution.
 /// Tested via e2e: e2e_method_match_self_enum
 // regress_6a1_self_alias_must_pass ? moved to e2e_tests
 
 /// ACCEPT: Interface name compatible with concrete implementor.
-/// Must use full xiomc pipeline since it requires interface scanning.
+/// Must use full xiom pipeline since it requires interface scanning.
 /// Tested via e2e: e2e_cross_package_extern (exercises interface dispatch)
 // regress_6a1_interface_implementor_must_pass ? moved to e2e_tests
 
@@ -2137,7 +2137,7 @@ fn regress_7a07_source_root_resolution() {
 #[test]
 fn regress_7a08_project_root_detection() {
     let current = std::env::current_dir().unwrap();
-    let root = xiomc::find_project_root(&current);
+    let root = xiom::find_project_root(&current);
     // The AXIOM repo root has package.xi, so it should be detectable
     assert!(root.is_some(), "Must find project root from repo directory");
 }
@@ -2146,7 +2146,7 @@ fn regress_7a08_project_root_detection() {
 #[test]
 fn regress_7a09_expand_sources_with_graph() {
     let sources = vec!["examples/benchmark/main.xi".to_string()];
-    let (expanded, extra_dirs) = xiomc::expand_sources_with_graph(&sources);
+    let (expanded, extra_dirs) = xiom::expand_sources_with_graph(&sources);
     // Should NOT replace the explicit file list with entire project
     assert_eq!(expanded, sources, "Explicit file list must be preserved");
     // Should discover extra source directories for catalog
@@ -2307,7 +2307,7 @@ fn regress_7b07_cache_persistence() {
 /// 7B-08: Verify project cache created alongside project root.
 #[test]
 fn regress_7b08_project_cache_location() {
-    let cache = xiomc::get_project_cache(std::path::Path::new("examples/benchmark/main.xi"));
+    let cache = xiom::get_project_cache(std::path::Path::new("examples/benchmark/main.xi"));
     // Should find a project root (AXIOM repo has package.xi at root)
     assert!(cache.is_some(), "Must find project cache for files in git repo");
     let c = cache.unwrap();
@@ -2325,13 +2325,13 @@ fn regress_7b09_incremental_check_cached() {
     std::fs::write(&src_file, src).unwrap();
 
     // First compile: should produce IR
-    let config = xiomc::CompileConfig {
+    let config = xiom::CompileConfig {
         incremental: true,
         check_only: true,
         ..Default::default()
     };
     // Run a simple compile to warm the cache
-    let result = xiomc::compile_with_diagnostics(
+    let result = xiom::compile_with_diagnostics(
         &config,
         &[src_file.to_string_lossy().to_string()],
     );
@@ -2376,7 +2376,7 @@ fn main() -> Int {
 /// 7C-01: Verify CompileConfig has parallel and jobs fields.
 #[test]
 fn regress_7c01_parallel_config_defaults() {
-    let config = xiomc::CompileConfig::default();
+    let config = xiom::CompileConfig::default();
     assert!(!config.parallel, "Parallel must default to false");
     assert_eq!(config.jobs, 0, "Jobs must default to 0 (num_cpus)");
 }
@@ -2384,10 +2384,10 @@ fn regress_7c01_parallel_config_defaults() {
 /// 7C-02: Verify parallel flag can be enabled in config.
 #[test]
 fn regress_7c02_parallel_config_enabled() {
-    let config = xiomc::CompileConfig {
+    let config = xiom::CompileConfig {
         parallel: true,
         jobs: 4,
-        ..xiomc::CompileConfig::default()
+        ..xiom::CompileConfig::default()
     };
     assert!(config.parallel);
     assert_eq!(config.jobs, 4);
@@ -2400,11 +2400,11 @@ fn regress_7c03_sequential_compile() {
 fn add(a: Int, b: Int) -> Int { return a + b; }
 fn main() -> Int { return add(1, 2); }
 "#;
-    let _config = xiomc::CompileConfig {
+    let _config = xiom::CompileConfig {
         emit_ir: true,
         check_only: true,
         parallel: false,
-        ..xiomc::CompileConfig::default()
+        ..xiom::CompileConfig::default()
     };
     // Must compile cleanly - sequential path
     let ir = compile(src).unwrap();
@@ -2430,20 +2430,20 @@ fn main() -> Int {
 #[test]
 fn regress_7c05_parallel_cli_flags() {
     // Verify the config fields exist and default correctly
-    let c = xiomc::CompileConfig::default();
+    let c = xiom::CompileConfig::default();
     assert!(!c.parallel);
 
-    let c_par = xiomc::CompileConfig { parallel: true, ..xiomc::CompileConfig::default() };
+    let c_par = xiom::CompileConfig { parallel: true, ..xiom::CompileConfig::default() };
     assert!(c_par.parallel);
 
-    let c_seq = xiomc::CompileConfig { parallel: false, ..xiomc::CompileConfig::default() };
+    let c_seq = xiom::CompileConfig { parallel: false, ..xiom::CompileConfig::default() };
     assert!(!c_seq.parallel);
 }
 
 /// 7C-06: Verify --jobs flag is accepted by CLI.
 #[test]
 fn regress_7c06_jobs_cli_flag() {
-    use xiomc::CompileConfig;
+    use xiom::CompileConfig;
     let config = CompileConfig::default();
     assert_eq!(config.jobs, 0, "Default jobs must be 0");
     // Config with explicit jobs
@@ -2455,13 +2455,13 @@ fn regress_7c06_jobs_cli_flag() {
 #[test]
 fn regress_7c07_parallel_with_diagnostics() {
     let src = "fn main() -> Int { return 0; }";
-    let _config = xiomc::CompileConfig {
+    let _config = xiom::CompileConfig {
         parallel: true,
         jobs: 2,
         emit_ir: true,
         check_only: true,
         diagnostics_json: true,
-        ..xiomc::CompileConfig::default()
+        ..xiom::CompileConfig::default()
     };
     // Just verify it doesn't panic
     let ir = compile(src).unwrap();
@@ -2546,7 +2546,7 @@ fn cleanup() -> Int { return 0; }
     let program = xiom_parser::Parser::new(tokens).parse_program().unwrap();
 
     let tmp = std::env::temp_dir().join(format!("xiom_test_7d05_{}", std::process::id()));
-    xiomc::generate_export_manifest(&program, &tmp.to_string_lossy());
+    xiom::generate_export_manifest(&program, &tmp.to_string_lossy());
 
     let manifest_path = format!("{}.exports", tmp.display());
     assert!(
@@ -2563,13 +2563,13 @@ fn cleanup() -> Int { return 0; }
 /// 7D-06: Verify hot_reload_contracts field in CompileConfig.
 #[test]
 fn regress_7d06_hot_reload_contracts_config() {
-    let c = xiomc::CompileConfig::default();
+    let c = xiom::CompileConfig::default();
     assert!(!c.hot_reload_contracts, "Default must be false");
 
-    let c2 = xiomc::CompileConfig {
+    let c2 = xiom::CompileConfig {
         hot_reload: true,
         hot_reload_contracts: true,
-        ..xiomc::CompileConfig::default()
+        ..xiom::CompileConfig::default()
     };
     assert!(c2.hot_reload);
     assert!(c2.hot_reload_contracts);
@@ -2612,12 +2612,12 @@ pub fn greet() -> Int { return 42; }
 /// 7E-01: Verify sanitize field in CompileConfig.
 #[test]
 fn regress_7e01_sanitize_config() {
-    let c = xiomc::CompileConfig::default();
+    let c = xiom::CompileConfig::default();
     assert!(c.sanitize.is_none(), "Default sanitize must be None");
 
-    let c2 = xiomc::CompileConfig {
+    let c2 = xiom::CompileConfig {
         sanitize: Some("address".into()),
-        ..xiomc::CompileConfig::default()
+        ..xiom::CompileConfig::default()
     };
     assert_eq!(c2.sanitize, Some("address".into()));
 }
@@ -2625,12 +2625,12 @@ fn regress_7e01_sanitize_config() {
 /// 7E-02: Verify stack_protector field in CompileConfig.
 #[test]
 fn regress_7e02_stack_protector_config() {
-    let c = xiomc::CompileConfig::default();
+    let c = xiom::CompileConfig::default();
     assert!(!c.stack_protector, "Default stack_protector must be false");
 
-    let c2 = xiomc::CompileConfig {
+    let c2 = xiom::CompileConfig {
         stack_protector: true,
-        ..xiomc::CompileConfig::default()
+        ..xiom::CompileConfig::default()
     };
     assert!(c2.stack_protector);
 }
@@ -2638,12 +2638,12 @@ fn regress_7e02_stack_protector_config() {
 /// 7E-03: Verify runtime_contracts field in CompileConfig.
 #[test]
 fn regress_7e03_runtime_contracts_config() {
-    let c = xiomc::CompileConfig::default();
+    let c = xiom::CompileConfig::default();
     assert!(!c.runtime_contracts, "Default runtime_contracts must be false");
 
-    let c2 = xiomc::CompileConfig {
+    let c2 = xiom::CompileConfig {
         runtime_contracts: true,
-        ..xiomc::CompileConfig::default()
+        ..xiom::CompileConfig::default()
     };
     assert!(c2.runtime_contracts);
 }
@@ -2668,9 +2668,9 @@ fn main() -> Int {
 #[test]
 fn regress_7e05_sanitizer_combinations() {
     for sanitizer in &["address", "undefined", "leak", "thread"] {
-        let c = xiomc::CompileConfig {
+        let c = xiom::CompileConfig {
             sanitize: Some(sanitizer.to_string()),
-            ..xiomc::CompileConfig::default()
+            ..xiom::CompileConfig::default()
         };
         assert_eq!(c.sanitize.as_deref(), Some(*sanitizer));
     }
@@ -2679,7 +2679,7 @@ fn regress_7e05_sanitizer_combinations() {
 /// 7E-06: Verify contract enforcement stays on by default.
 #[test]
 fn regress_7e06_contracts_on_by_default() {
-    let c = xiomc::CompileConfig::default();
+    let c = xiom::CompileConfig::default();
     assert!(c.check_contracts, "Contracts must be ON by default");
     // Contracts should not be forced-off in debug builds
 }
@@ -2732,7 +2732,7 @@ fn main() -> Int {
 fn regress_7e10_sanitize_cli_parsing() {
     // Simulate CLI parsing
     let args = vec![
-        "xiomc".to_string(),
+        "xiom".to_string(),
         "--sanitize=address".to_string(),
         "test.xi".to_string(),
     ];
@@ -3076,7 +3076,7 @@ fn regress_7f01_graph_dot_viz() {
     };
     let _ = g.resolve_edges(&discovery);
 
-    let dot = xiomc::graph_viz::generate_dot_graph(&g, xiomc::graph_viz::GraphFormat::Dot);
+    let dot = xiom::graph_viz::generate_dot_graph(&g, xiom::graph_viz::GraphFormat::Dot);
     assert!(dot.contains("digraph"), "DOT must start with digraph");
     assert!(dot.contains("app"), "Must contain app node");
     assert!(dot.contains("lib"), "Must contain lib node");
@@ -3103,7 +3103,7 @@ fn regress_7f02_graph_mermaid_viz() {
     };
     let _ = g.resolve_edges(&discovery);
 
-    let mermaid = xiomc::graph_viz::generate_dot_graph(&g, xiomc::graph_viz::GraphFormat::Mermaid);
+    let mermaid = xiom::graph_viz::generate_dot_graph(&g, xiom::graph_viz::GraphFormat::Mermaid);
     assert!(mermaid.contains("graph LR"), "Mermaid must start with graph LR");
     assert!(mermaid.contains("```mermaid"), "Must have mermaid code fence");
     assert!(mermaid.contains("main"), "Must contain main node");
@@ -3130,8 +3130,8 @@ fn regress_7f03_build_project_discovery() {
 #[test]
 fn regress_7f04_graph_viz_api() {
     // The module must be importable and have both format variants
-    let dot_fmt = xiomc::graph_viz::GraphFormat::Dot;
-    let mmd_fmt = xiomc::graph_viz::GraphFormat::Mermaid;
+    let dot_fmt = xiom::graph_viz::GraphFormat::Dot;
+    let mmd_fmt = xiom::graph_viz::GraphFormat::Mermaid;
     // Verify they're different variants
     let dot_str = format!("{:?}", dot_fmt);
     let mmd_str = format!("{:?}", mmd_fmt);
@@ -3143,9 +3143,9 @@ fn regress_7f04_graph_viz_api() {
 fn regress_7f05_graph_cli_no_panic() {
     // Verify that the graph_viz module doesn't panic on empty graph
     let g = xiom_graph::DependencyGraph::new("empty".into(), vec![]);
-    let dot = xiomc::graph_viz::generate_dot_graph(&g, xiomc::graph_viz::GraphFormat::Dot);
+    let dot = xiom::graph_viz::generate_dot_graph(&g, xiom::graph_viz::GraphFormat::Dot);
     assert!(dot.contains("digraph"));
-    let mermaid = xiomc::graph_viz::generate_dot_graph(&g, xiomc::graph_viz::GraphFormat::Mermaid);
+    let mermaid = xiom::graph_viz::generate_dot_graph(&g, xiom::graph_viz::GraphFormat::Mermaid);
     assert!(mermaid.contains("graph LR"));
 }
 
@@ -3155,7 +3155,7 @@ fn regress_7f06_build_expand_sources() {
     // Test that expand_sources_with_graph handles the build command pattern
     let cwd = std::env::current_dir().unwrap();
     let cwd_str = cwd.to_string_lossy().to_string();
-    let (expanded, extra_dirs) = xiomc::expand_sources_with_graph(&[cwd_str]);
+    let (expanded, extra_dirs) = xiom::expand_sources_with_graph(&[cwd_str]);
     // Should not panic; cwd is a directory so it might use graph discovery
     let _ = expanded;
     let _ = extra_dirs;
@@ -3166,7 +3166,7 @@ fn regress_7f06_build_expand_sources() {
 fn regress_7f07_build_watch_help() {
     // Verify the help output contains build-related text
     let output = std::process::Command::new("cargo")
-        .args(["run", "-p", "xiomc", "--", "--help"])
+        .args(["run", "-p", "xiom", "--", "--help"])
         .output();
     if let Ok(out) = output {
         let stderr = String::from_utf8_lossy(&out.stderr);
@@ -3337,25 +3337,25 @@ fn main() -> Int { return 0; }
 // Phase 8B/M3: Integration Tests ? Full Pipeline
 // =====================================================================
 
-/// M3-01: xiomc::compile_with_diagnostics on known-good source.
+/// M3-01: xiom::compile_with_diagnostics on known-good source.
 #[test]
 fn regress_m301_compile_with_diagnostics_success() {
     let src = r#"
 fn add(a: Int, b: Int) -> Int { return a + b; }
 fn main() -> Int { return add(1, 2); }
 "#;
-    let config = xiomc::CompileConfig {
+    let config = xiom::CompileConfig {
         emit_ir: true, check_only: true, diagnostics_json: true,
-        ..xiomc::CompileConfig::default()
+        ..xiom::CompileConfig::default()
     };
-    let result = xiomc::compile_with_diagnostics(&config, &["inline.xi".to_string()]);
+    let result = xiom::compile_with_diagnostics(&config, &["inline.xi".to_string()]);
     // Test would need to write temp file ? skip actual compile_with_diagnostics
     // since it reads from filesystem. Test the config struct instead.
     assert!(!config.force);
     assert!(config.emit_ir);
 }
 
-/// M3-02: xiomc::compile_with_diagnostics handles empty source gracefully.
+/// M3-02: xiom::compile_with_diagnostics handles empty source gracefully.
 #[test]
 fn regress_m302_compile_empty_source() {
     let ir = compile("fn main() -> Int { return 0; }").unwrap();
@@ -3404,7 +3404,7 @@ fn main() -> Int { return 0; }
 /// M3-06: Verifies --version flag is accessible via CompileConfig.
 #[test]
 fn regress_m306_version_flag_config() {
-    let c = xiomc::CompileConfig::default();
+    let c = xiom::CompileConfig::default();
     assert!(!c.parallel);
     assert!(!c.incremental);
     assert!(c.check_contracts);
@@ -3440,9 +3440,9 @@ fn main() -> Int {
 /// M4-03: Verifies incremental cache integration (7B).
 #[test]
 fn regress_m403_incremental_config() {
-    let c = xiomc::CompileConfig {
+    let c = xiom::CompileConfig {
         incremental: true,
-        ..xiomc::CompileConfig::default()
+        ..xiom::CompileConfig::default()
     };
     assert!(c.incremental);
     assert!(!c.force);
@@ -3845,10 +3845,10 @@ fn regress_r902_pkg_help_mentions_install() {
     }
 }
 
-/// R9-03: xiomc --help mentions all 12 subcommands.
+/// R9-03: xiom --help mentions all 12 subcommands.
 #[test]
 fn regress_r903_xiomc_help_subcommands() {
-    let c = xiomc::CompileConfig::default();
+    let c = xiom::CompileConfig::default();
     assert!(c.check_contracts);
     assert!(!c.incremental);
 }

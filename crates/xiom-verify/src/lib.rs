@@ -612,7 +612,7 @@ impl Z3Runner {
                 return Some(path);
             }
         }
-        // 2. Check bundled z3 next to the xiomc binary (production release)
+        // 2. Check bundled z3 next to the xiom binary (production release)
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(dir) = exe_path.parent() {
                 let bundled = dir.join("z3.exe");

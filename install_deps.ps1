@@ -210,7 +210,7 @@ if (Test-Command "clang") {
             Write-Fail "Could not install LLVM/clang."
             Write-Info "  Manual install: https://github.com/llvm/llvm-project/releases"
             Write-Info "  NOTE: Without clang, the compiler emits .ll IR files but cannot link native binaries."
-            Write-Info "  The compiler itself (xiomc) does not require clang to run."
+            Write-Info "  The compiler itself (xiom) does not require clang to run."
             $script:failedCount++
         }
     }

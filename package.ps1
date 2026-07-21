@@ -53,7 +53,7 @@ if (-not $env:XIOM_RELEASE_STATS)  { $env:XIOM_RELEASE_STATS  = "871/871 tests, 
 
 # Bump version in Cargo.toml so the binary reports the correct version.
 # Uses env!("CARGO_PKG_VERSION") at compile time.
-$cargoTomlPath = "$root\crates\xiomc\Cargo.toml"
+$cargoTomlPath = "$root\crates\xiom\Cargo.toml"
 if (Test-Path $cargoTomlPath) {
     $toml = Get-Content $cargoTomlPath -Raw
     $toml = $toml -replace '(?m)^version\s*=\s*"[^"]+"', "version = `"$Version`""
@@ -62,10 +62,10 @@ if (Test-Path $cargoTomlPath) {
 }
 
 # Build all tools
-$tools = @("xiomc", "xiom-fmt", "xiom-doc", "xiom-ffigen", "xiom-pkg", "xiom-lsp", "xiom-mcp", "xiom-dbg", "xiom-verify")
+$tools = @("xiom", "xiom-fmt", "xiom-doc", "xiom-ffigen", "xiom-pkg", "xiom-lsp", "xiom-mcp", "xiom-dbg", "xiom-verify")
 
 # Kill any running tool processes to avoid file-lock on release build
-$toolNames = @("xiomc", "xiom-fmt", "xiom-doc", "xiom-ffigen", "xiom-pkg", "xiom-lsp", "xiom-mcp", "xiom-dbg", "xiom-verify")
+$toolNames = @("xiom", "xiom-fmt", "xiom-doc", "xiom-ffigen", "xiom-pkg", "xiom-lsp", "xiom-mcp", "xiom-dbg", "xiom-verify")
 foreach ($name in $toolNames) {
     $null = Stop-Process -Name $name -Force -ErrorAction SilentlyContinue
 }
@@ -162,10 +162,10 @@ Quick install:
 Manual install:
   1. Copy this entire folder anywhere you like
   2. Add the \bin\ folder to your system PATH
-  3. Run: xiomc --help
+  3. Run: xiom --help
 
 Contents:
-  bin\       - xiomc.exe, xiom-fmt.exe, xiom-doc.exe, etc.
+  bin\       - xiom.exe, xiom-fmt.exe, xiom-doc.exe, etc.
   lib\       - Standard library (.xi source files)
   runtime\   - C runtime (xiom_runtime.c)
   install.bat - Windows installer

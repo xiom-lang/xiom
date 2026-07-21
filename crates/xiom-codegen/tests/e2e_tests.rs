@@ -5,15 +5,15 @@
 use std::process::Command;
 use std::path::Path;
 
-/// Path to the compiled xiomc binary
-fn xiomc_path() -> String {
+/// Path to the compiled xiom binary
+fn xiom_path() -> String {
     let mut path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent().unwrap().parent().unwrap()
-        .join("target").join("debug").join("xiomc.exe");
+        .join("target").join("debug").join("xiom.exe");
     if !path.exists() {
         path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent().unwrap().parent().unwrap()
-            .join("target").join("release").join("xiomc.exe");
+            .join("target").join("release").join("xiom.exe");
     }
     path.to_str().unwrap().to_string()
 }
@@ -32,7 +32,7 @@ fn compile_and_run(source_path: &str) -> Option<i32> {
     let source = Path::new(source_path);
     let exe_name = format!("e2e_{}.exe", source.file_stem()?.to_str()?);
 
-    let bin_path = xiomc_path();
+    let bin_path = xiom_path();
 
     // Compile
     let compile = Command::new(&bin_path)
@@ -64,7 +64,7 @@ fn compile_and_run(source_path: &str) -> Option<i32> {
 fn compile_wasm(source_path: &str) -> bool {
     let source = Path::new(source_path);
     let wasm_name = format!("e2e_{}.wasm", source.file_stem().unwrap().to_str().unwrap());
-    let bin_path = xiomc_path();
+    let bin_path = xiom_path();
     let output = Command::new(&bin_path)
         .args(["--target", "wasm", "-o", &wasm_name, source_path])
         .current_dir(project_root())
@@ -82,7 +82,7 @@ fn compile_wasm(source_path: &str) -> bool {
 
 /// Compile to IR and verify output contains expected text
 fn compile_and_check_ir(source_path: &str, expected_ir: &str) -> bool {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", source_path])
         .current_dir(project_root())
         .output()
@@ -93,7 +93,7 @@ fn compile_and_check_ir(source_path: &str, expected_ir: &str) -> bool {
 
 /// Compile with --diagnostics=json and verify valid JSON
 fn compile_diagnostics_json(source_path: &str) -> bool {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--diagnostics=json", source_path])
         .current_dir(project_root())
         .output()
@@ -104,7 +104,7 @@ fn compile_diagnostics_json(source_path: &str) -> bool {
 
 /// Compile with --dump-contracts and verify output
 fn compile_dump_contracts(source_path: &str) -> bool {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--dump-contracts", source_path])
         .current_dir(project_root())
         .output()
@@ -114,7 +114,7 @@ fn compile_dump_contracts(source_path: &str) -> bool {
 }
 
 fn compile_and_check_ir_with_target(source_path: &str, target: &str, expected_triple: &str) -> bool {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--target", target, "--emit-ir", source_path])
         .current_dir(project_root())
         .output()
@@ -124,7 +124,7 @@ fn compile_and_check_ir_with_target(source_path: &str, target: &str, expected_tr
 }
 
 fn compile_ir(source_path: &str) -> Option<String> {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", source_path])
         .current_dir(project_root())
         .output()
@@ -362,7 +362,7 @@ fn e2e_target_riscv_triple() {
 
 #[test]
 fn e2e_selfhost_lexer_compiles() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "selfhost\\xiom-lexer.xi"])
         .current_dir(project_root())
         .output()
@@ -372,7 +372,7 @@ fn e2e_selfhost_lexer_compiles() {
 
 #[test]
 fn e2e_selfhost_parser_compiles() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "selfhost\\xiom-parser.xi"])
         .current_dir(project_root())
         .output()
@@ -382,7 +382,7 @@ fn e2e_selfhost_parser_compiles() {
 
 #[test]
 fn e2e_selfhost_check_compiles() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "selfhost\\xiom-check.xi"])
         .current_dir(project_root())
         .output()
@@ -392,7 +392,7 @@ fn e2e_selfhost_check_compiles() {
 
 #[test]
 fn e2e_selfhost_codegen_compiles() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "selfhost\\xiom-codegen.xi"])
         .current_dir(project_root())
         .output()
@@ -402,13 +402,13 @@ fn e2e_selfhost_codegen_compiles() {
 
 #[test]
 fn e2e_selfhost_compiler_module() {
-    let ir = compile_ir("selfhost\\xiomc.xi").expect("selfhost/xiomc.xi should compile to IR");
+    let ir = compile_ir("selfhost\\xiom.xi").expect("selfhost/xiomc.xi should compile to IR");
     assert!(ir.contains("define i64 @main"), "selfhost compiler should have main");
 }
 
 #[test]
 fn e2e_no_contracts_flag() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "--no-contracts", "examples\\phase1_contracts.xi"])
         .current_dir(project_root())
         .output()
@@ -418,7 +418,7 @@ fn e2e_no_contracts_flag() {
 
 #[test]
 fn e2e_target_wasm_selfhost_lexer() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--target", "wasm", "--emit-ir", "selfhost\\xiom-lexer.xi"])
         .current_dir(project_root())
         .output()
@@ -441,7 +441,7 @@ fn e2e_runtime_c_exists() {
 
 #[test]
 fn e2e_selfhost_v091_compiles() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "selfhost\\xiomc_v091.xi"])
         .current_dir(project_root())
         .output()
@@ -451,7 +451,7 @@ fn e2e_selfhost_v091_compiles() {
 
 #[test]
 fn e2e_selfhost_v091_has_main() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "selfhost\\xiomc_v091.xi"])
         .current_dir(project_root())
         .output()
@@ -462,7 +462,7 @@ fn e2e_selfhost_v091_has_main() {
 
 #[test]
 fn e2e_selfhost_v094_compiles() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "selfhost\\xiomc_v094.xi"])
         .current_dir(project_root())
         .output()
@@ -472,7 +472,7 @@ fn e2e_selfhost_v094_compiles() {
 
 #[test]
 fn e2e_selfhost_v094_has_main() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "selfhost\\xiomc_v094.xi"])
         .current_dir(project_root())
         .output()
@@ -483,7 +483,7 @@ fn e2e_selfhost_v094_has_main() {
 
 #[test]
 fn e2e_selfhost_v094_contains_extern_decls() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "selfhost\\xiomc_v094.xi"])
         .current_dir(project_root())
         .output()
@@ -499,7 +499,7 @@ fn e2e_selfhost_v094_contains_extern_decls() {
 
 #[test]
 fn e2e_selfhost_v094_contains_codegen_fn() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "selfhost\\xiomc_v094.xi"])
         .current_dir(project_root())
         .output()
@@ -510,7 +510,7 @@ fn e2e_selfhost_v094_contains_codegen_fn() {
 
 #[test]
 fn e2e_runtime_ir_declares_externs() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "selfhost\\xiomc_v091.xi"])
         .current_dir(project_root())
         .output()
@@ -523,7 +523,7 @@ fn e2e_runtime_ir_declares_externs() {
 
 #[test]
 fn e2e_selfhost_v10_self_compile() {
-    let output = std::process::Command::new(xiomc_path())
+    let output = std::process::Command::new(xiom_path())
         .args(["-o", "e2e_v10_self_compile.exe", "selfhost\\xiomc_v10.xi"])
         .current_dir(project_root())
         .output()
@@ -551,7 +551,7 @@ fn e2e_selfhost_v10_self_compile_to_native() {
         eprintln!("  [SKIP] Selfhost native compile — enable with XIOM_SELFHOST=1 (Phase 4)");
         return;
     }
-    let output = std::process::Command::new(xiomc_path())
+    let output = std::process::Command::new(xiom_path())
         .args(["-o", "e2e_v10_self_bootstrap_src.exe", "selfhost\\xiomc_v10.xi"])
         .current_dir(project_root())
         .output()
@@ -582,7 +582,7 @@ fn e2e_selfhost_v10_self_compile_to_native() {
 
 #[test]
 fn e2e_selfhost_v11_compiles() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "selfhost\\xiomc_v11_test.xi"])
         .current_dir(project_root())
         .output()
@@ -592,7 +592,7 @@ fn e2e_selfhost_v11_compiles() {
 
 #[test]
 fn e2e_selfhost_v11_has_main() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "selfhost\\xiomc_v11_test.xi"])
         .current_dir(project_root())
         .output()
@@ -605,7 +605,7 @@ fn e2e_selfhost_v11_has_main() {
 #[test]
 fn e2e_selfhost_v11_self_run() {
     // Compile v11_test to binary, run it — it should emit IR for demo_float.xi functions
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["-o", "e2e_v11_self.exe", "selfhost\\xiomc_v11_test.xi"])
         .current_dir(project_root())
         .output()
@@ -631,7 +631,7 @@ fn e2e_selfhost_v11_self_run() {
 
 #[test]
 fn e2e_selfhost_v093_compiles() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "selfhost\\xiomc_v093.xi"])
         .current_dir(project_root())
         .output()
@@ -641,7 +641,7 @@ fn e2e_selfhost_v093_compiles() {
 
 #[test]
 fn e2e_selfhost_v095_compiles() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "selfhost\\xiomc_v095.xi"])
         .current_dir(project_root())
         .output()
@@ -666,7 +666,7 @@ fn e2e_multifile_testmod_math_runs() {
 /// external benchmark/main.xi). Verifies the catalog resolves cross-file types.
 #[test]
 fn e2e_multifile_bench_math_compiles() {
-    let output = std::process::Command::new(xiomc_path())
+    let output = std::process::Command::new(xiom_path())
         .args(["--emit-ir", "examples\\benchmark\\bench_math.xi"])
         .current_dir(project_root())
         .output()
@@ -681,7 +681,7 @@ fn e2e_multifile_bench_math_compiles() {
 ///   cargo test -p xiom-codegen --test e2e_tests -- e2e_multifile -- --nocapture
 #[test]
 fn e2e_multifile_benchmark_main_compiles() {
-    let output = std::process::Command::new(xiomc_path())
+    let output = std::process::Command::new(xiom_path())
         .args(["--emit-ir", "examples\\benchmark\\main.xi"])
         .current_dir(project_root())
         .output()
@@ -699,7 +699,7 @@ fn e2e_multifile_benchmark_main_compiles() {
 
 #[test]
 fn e2e_help_shows_timeout_and_memory_flags() {
-    let output = std::process::Command::new(xiomc_path())
+    let output = std::process::Command::new(xiom_path())
         .arg("--help")
         .current_dir(project_root())
         .output()
@@ -1022,11 +1022,11 @@ fn e2e_cross_package_extern() {
 /// Verifies XIOM emits correct struct-return IR for both cases.
 #[test]
 fn e2e_g15_sret_abi() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "examples/e2e/g15_sret.xi"])
         .current_dir(project_root())
         .output()
-        .expect("xiomc");
+        .expect("xiom");
     let ir = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "G-15 sret must compile: {}", String::from_utf8_lossy(&output.stderr));
     assert!(ir.contains("declare %struct.Small @g15_small_return()"),
@@ -1041,11 +1041,11 @@ fn e2e_g15_sret_abi() {
 /// emits correct LLVM struct layout for Int8/Int16/Int32/Int64/Float32/Float64.
 #[test]
 fn e2e_g40_repc_layout() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "examples/e2e/g40_repc.xi"])
         .current_dir(project_root())
         .output()
-        .expect("xiomc");
+        .expect("xiom");
     let ir = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "G-40 repr(C) must compile: {}", String::from_utf8_lossy(&output.stderr));
     assert!(ir.contains("%struct.MixedC = type"), "MixedC struct must be defined:\n{ir}");
@@ -1061,11 +1061,11 @@ fn e2e_g40_repc_layout() {
 /// aarch64-linux-gnu via clang to verify.
 #[test]
 fn e2e_g24_float32_arm_abi() {
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", "examples/e2e/g24_float32_arm.xi"])
         .current_dir(project_root())
         .output()
-        .expect("xiomc");
+        .expect("xiom");
     let ir = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "G-24 Float32 ARM must compile: {}",
         String::from_utf8_lossy(&output.stderr));
@@ -1087,11 +1087,11 @@ fn e2e_g24_float32_arm_abi() {
 #[test]
 fn e2e_self_compat_method_receiver() {
     // Use existing test file that compiles and runs correctly
-    let output = std::process::Command::new(xiomc_path())
+    let output = std::process::Command::new(xiom_path())
         .args(["examples/e2e/method_match_self_enum.xi", "--run"])
         .current_dir(project_root())
         .output()
-        .expect("xiomc");
+        .expect("xiom");
     assert!(output.status.success(),
         "Self receiver matching must work. stderr: {}",
         String::from_utf8_lossy(&output.stderr));
@@ -1110,11 +1110,11 @@ fn make() -> Drawable { return Circle { r: 1.0 }; }
 fn main() -> Int { return 0; }
 "#).expect("write test file");
 
-    let output = std::process::Command::new(xiomc_path())
+    let output = std::process::Command::new(xiom_path())
         .args([&test_file.to_string_lossy(), "--run"])
         .current_dir(project_root())
         .output()
-        .expect("xiomc");
+        .expect("xiom");
     let _ = std::fs::remove_file(&test_file);
 
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1129,7 +1129,7 @@ fn main() -> Int { return 0; }
 /// Verify --ai-strict flag appears in help output.
 #[test]
 fn e2e_help_shows_ai_strict_flag() {
-    let output = std::process::Command::new(xiomc_path())
+    let output = std::process::Command::new(xiom_path())
         .arg("--help")
         .current_dir(project_root())
         .output()
@@ -1150,7 +1150,7 @@ fn e2e_ai_strict_blocks_on_violations() {
         "fn div(a: Int, b: Int) -> Int\n  requires b != 0\n{ return a / b; }\nfn main() -> Int { return div(10, 0); }\n"
     ).expect("write test file");
 
-    let output = std::process::Command::new(xiomc_path())
+    let output = std::process::Command::new(xiom_path())
         .args(["--ai-strict", "--check-only", "--ai-dry-run",
                &test_file.to_string_lossy()])
         .current_dir(project_root())

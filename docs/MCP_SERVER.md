@@ -11,7 +11,7 @@
 ```
 Agent: "Compile this file and tell me what's wrong"
   → Agent writes shell script
-  → Runs `xiomc --diagnostics=json file.xi`
+  → Runs `xiom --diagnostics=json file.xi`
   → Parses JSON from stdout (fragile, version-dependent)
   → Tries to map errors to source lines
   → Guesses at fixes
@@ -20,7 +20,7 @@ Agent: "Compile this file and tell me what's wrong"
 ### The MCP Solution
 ```
 Agent: calls tool `compile_and_analyze("file.xi")`
-  → MCP server runs `xiomc --ai --diagnostics=json file.xi`
+  → MCP server runs `xiom --ai --diagnostics=json file.xi`
   → Parses .xiom_ai.json internally
   → Returns structured result directly in agent's context window
   → Agent has error codes, line numbers, AI hints, and safety scores
@@ -59,11 +59,11 @@ Agent: calls tool `compile_and_analyze("file.xi")`
 │         │                 │                  │           │
 │  ┌──────▼─────────────────▼──────────────────▼───────┐   │
 │  │              TOOL DISPATCHER                       │   │
-│  │  Routes tool calls → xiomc CLI or internal APIs    │   │
+│  │  Routes tool calls → xiom CLI or internal APIs    │   │
 │  └──────┬──────────────────────────────────────┬──────┘   │
 │         │                                      │          │
 │  ┌──────▼──────┐                        ┌─────▼──────┐    │
-│  │ xiomc CLI   │                        │ libxiomc   │    │
+│  │ xiom CLI   │                        │ libxiomc   │    │
 │  │ (subprocess)│                        │ (Rust API)  │    │
 │  │ --diagnostics│                       │ compile()   │    │
 │  │ --sandbox   │                        │ audit()     │    │
@@ -74,8 +74,8 @@ Agent: calls tool `compile_and_analyze("file.xi")`
 ```
 
 **Two integration modes:**
-1. **Subprocess mode** (MVP): MCP server shells out to `xiomc`. Works today, no code changes to the compiler.
-2. **Library mode** (Phase 2): MCP server links `xiomc` as a Rust library (`libxiomc`). Faster, no process overhead. Requires the 5c-R lib/bin split (already done ✅).
+1. **Subprocess mode** (MVP): MCP server shells out to `xiom`. Works today, no code changes to the compiler.
+2. **Library mode** (Phase 2): MCP server links `xiom` as a Rust library (`libxiomc`). Faster, no process overhead. Requires the 5c-R lib/bin split (already done ✅).
 
 ---
 
@@ -353,9 +353,9 @@ The MVP uses **subprocess mode** and ships with 3 tools that work TODAY:
 
 | Tool | Status | Backend |
 |------|--------|---------|
-| `explain_error_code` | ✅ Ready | `xiomc --explain X0100` (reads docs/error_codes/ |
-| `compile_and_analyze` | ✅ Ready | `xiomc --diagnostics=json` (parse stdout JSON) |
-| `get_contract_signature` | ✅ Ready | `xiomc --dump-contracts` (parse stdout JSON) |
+| `explain_error_code` | ✅ Ready | `xiom --explain X0100` (reads docs/error_codes/ |
+| `compile_and_analyze` | ✅ Ready | `xiom --diagnostics=json` (parse stdout JSON) |
+| `get_contract_signature` | ✅ Ready | `xiom --dump-contracts` (parse stdout JSON) |
 
 ### MVP Server Implementation
 
@@ -373,7 +373,7 @@ fn main() {
         parameters: json!({ "code": { "type": "string", "required": true } }),
         handler: |params| {
             let code = params["code"].as_str().unwrap();
-            let output = std::process::Command::new("xiomc")
+            let output = std::process::Command::new("xiom")
                 .args(["--explain", code])
                 .output()?;
             Ok(ToolResult::text(String::from_utf8(output.stdout)?))
@@ -391,7 +391,7 @@ fn main() {
         handler: |params| {
             let file = params["file"].as_str().unwrap();
             let args = vec!["--diagnostics=json", file];
-            let output = std::process::Command::new("xiomc")
+            let output = std::process::Command::new("xiom")
                 .args(&args)
                 .output()?;
             let diagnostics: serde_json::Value = serde_json::from_slice(&output.stdout)?;
@@ -410,7 +410,7 @@ After MVP validation, switch to library mode:
 ```rust
 // crates/xiom-mcp/src/main.rs (library mode)
 
-use xiomc::{CompileConfig, CompileResult, Target};
+use xiom::{CompileConfig, CompileResult, Target};
 
 fn handle_compile(params: &Value) -> ToolResult {
     let config = CompileConfig {
@@ -419,7 +419,7 @@ fn handle_compile(params: &Value) -> ToolResult {
         diagnostics_json: true,
         ..Default::default()
     };
-    let result = xiomc::compile(&config)?;  // calls into lib.rs
+    let result = xiom::compile(&config)?;  // calls into lib.rs
     Ok(ToolResult::json(serde_json::to_value(&result)?))
 }
 ```
@@ -453,7 +453,7 @@ Default: **stdio** for local agents, **HTTP** on port 9300 for remote.
 
 ### Risk: Agent can compile arbitrary code
 
-This is the same risk as running `xiomc` from the command line. The MCP server doesn't execute the compiled binary — it only compiles. The agent must explicitly request execution.
+This is the same risk as running `xiom` from the command line. The MCP server doesn't execute the compiled binary — it only compiles. The agent must explicitly request execution.
 
 ### Risk: Agent can read arbitrary files
 
@@ -475,7 +475,7 @@ fn validate_path(path: &str, project_root: &Path) -> Result<(), Error> {
 Large files or infinite loops in the compiler could consume CPU/memory. Mitigation: timeout + memory limit per tool call.
 
 ```
-xiomc --timeout=30 --memory-limit=512MB file.xi
+xiom --timeout=30 --memory-limit=512MB file.xi
 ```
 
 ---
@@ -486,13 +486,13 @@ xiomc --timeout=30 --memory-limit=512MB file.xi
 
 - New crate: `crates/xiom-mcp/`
 - 3 tools: `explain_error_code`, `compile_and_analyze`, `get_contract_signature`
-- Subprocess mode (shells out to xiomc)
+- Subprocess mode (shells out to xiom)
 - stdio + HTTP transports
 - Error handling + timeouts
 
 ### 8.2 — Library Mode Migration (1–2 Days)
 
-- Link `xiomc` as a library (already lib/bin split ✅)
+- Link `xiom` as a library (already lib/bin split ✅)
 - Remove subprocess calls
 - Performance: ~10x faster (no process spawn)
 

@@ -29,7 +29,7 @@ mkdir "%XIOM_MCP%" 2>nul
 echo   [2/5] Copying binaries...
 copy /Y "%~dp0bin\*.exe" "%XIOM_BIN%\" >nul 2>nul
 copy /Y "%~dp0bin\xiom-icon.ico" "%XIOM_BIN%\" >nul 2>nul
-echo     + xiomc, xiom-fmt, xiom-doc, xiom-ffigen, xiom-pkg
+echo     + xiom, xiom-fmt, xiom-doc, xiom-ffigen, xiom-pkg
 echo     + xiom-lsp, xiom-mcp, xiom-dbg, xiom-verify, z3
 
 :: Copy stdlib
@@ -88,11 +88,11 @@ echo @echo off
 echo REM XIOM Toolchain v0.49.8
 echo set "XIOM_BIN=%XIOM_BIN%"
 echo set "XIOM_HOME=%XIOM_DIR%"
-echo if "%%1"=="" "%%XIOM_BIN%%\xiomc.exe" --help ^& goto :eof
-echo if "%%1"=="compile" ^( shift ^& "%%XIOM_BIN%%\xiomc.exe" %%* ^) ^& goto :eof
-echo if "%%1"=="run"     ^( shift ^& "%%XIOM_BIN%%\xiomc.exe" --run %%* ^) ^& goto :eof
-echo if "%%1"=="build"   ^( shift ^& "%%XIOM_BIN%%\xiomc.exe" build %%* ^) ^& goto :eof
-echo if "%%1"=="test"    ^( shift ^& "%%XIOM_BIN%%\xiomc.exe" --test %%* ^) ^& goto :eof
+echo if "%%1"=="" "%%XIOM_BIN%%\xiom.exe" --help ^& goto :eof
+echo if "%%1"=="compile" ^( shift ^& "%%XIOM_BIN%%\xiom.exe" %%* ^) ^& goto :eof
+echo if "%%1"=="run"     ^( shift ^& "%%XIOM_BIN%%\xiom.exe" --run %%* ^) ^& goto :eof
+echo if "%%1"=="build"   ^( shift ^& "%%XIOM_BIN%%\xiom.exe" build %%* ^) ^& goto :eof
+echo if "%%1"=="test"    ^( shift ^& "%%XIOM_BIN%%\xiom.exe" --test %%* ^) ^& goto :eof
 echo if "%%1"=="fmt"     ^( shift ^& "%%XIOM_BIN%%\xiom-fmt.exe" %%* ^) ^& goto :eof
 echo if "%%1"=="doc"     ^( shift ^& "%%XIOM_BIN%%\xiom-doc.exe" %%* ^) ^& goto :eof
 echo if "%%1"=="ffigen"  ^( shift ^& "%%XIOM_BIN%%\xiom-ffigen.exe" %%* ^) ^& goto :eof
@@ -101,9 +101,9 @@ echo if "%%1"=="lsp"     ^( shift ^& "%%XIOM_BIN%%\xiom-lsp.exe" %%* ^) ^& goto 
 echo if "%%1"=="mcp"     ^( shift ^& "%%XIOM_BIN%%\xiom-mcp.exe" %%* ^) ^& goto :eof
 echo if "%%1"=="verify"  ^( shift ^& "%%XIOM_BIN%%\xiom-verify.exe" %%* ^) ^& goto :eof
 echo if "%%1"=="dbg"     ^( shift ^& "%%XIOM_BIN%%\xiom-dbg.exe" %%* ^) ^& goto :eof
-echo if "%%1"=="ai"      ^( shift ^& "%%XIOM_BIN%%\xiomc.exe" --ai %%* ^) ^& goto :eof
-echo REM Unknown — pass through to xiomc
-echo "%%XIOM_BIN%%\xiomc.exe" %%*
+echo if "%%1"=="ai"      ^( shift ^& "%%XIOM_BIN%%\xiom.exe" --ai %%* ^) ^& goto :eof
+echo REM Unknown — pass through to xiom
+echo "%%XIOM_BIN%%\xiom.exe" %%*
 ) > "%XIOM_BIN%\xiom.bat"
 
 :: PATH Configuration
@@ -169,7 +169,7 @@ echo     XIOM v0.49.8 INSTALLED SUCCESSFULLY!
 echo   =========================================
 echo.
 echo   Location:   %XIOM_DIR%
-echo   Binary:     %XIOM_BIN%\xiomc.exe
+echo   Binary:     %XIOM_BIN%\xiom.exe
 echo   Wrapper:    %XIOM_BIN%\xiom.bat
 echo   MCP Config: %XIOM_MCP%\xiom-mcp-config.json
 echo.

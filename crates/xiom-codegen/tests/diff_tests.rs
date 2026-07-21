@@ -5,15 +5,15 @@
 use std::process::Command;
 use std::path::Path;
 
-/// Path to the compiled xiomc binary
-fn xiomc_path() -> String {
+/// Path to the compiled xiom binary
+fn xiom_path() -> String {
     let mut path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent().unwrap().parent().unwrap()
-        .join("target").join("debug").join("xiomc.exe");
+        .join("target").join("debug").join("xiom.exe");
     if !path.exists() {
         path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent().unwrap().parent().unwrap()
-            .join("target").join("release").join("xiomc.exe");
+            .join("target").join("release").join("xiom.exe");
     }
     path.to_str().unwrap().to_string()
 }
@@ -23,17 +23,17 @@ fn compile_to_ir(source_path: &str) -> String {
     let project_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent().unwrap().parent().unwrap();
 
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .arg(source_path)
         .current_dir(project_root)
         .output()
-        .expect("failed to run xiomc");
+        .expect("failed to run xiom");
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     if !output.status.success() {
-        panic!("xiomc failed on {}:\n{}", source_path, stderr);
+        panic!("xiom failed on {}:\n{}", source_path, stderr);
     }
 
     stdout
@@ -258,13 +258,13 @@ fn test_selfhost_bootstrap_v050() {
         return;
     }
 
-    // The v0.5.0 selfhost compiler embeds xiomc.xi source and returns a structural hash.
+    // The v0.5.0 selfhost compiler embeds xiom.xi source and returns a structural hash.
     // The Rust compiler, processing the same v0.5.0 source, must produce a binary
     // that exits with the SAME hash — proving bootstrap correctness.
     let project_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent().unwrap().parent().unwrap();
 
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--run", "selfhost/xiomc_v050.xi"])
         .current_dir(project_root)
         .output()
@@ -279,7 +279,7 @@ fn test_selfhost_bootstrap_v050() {
         -1
     };
 
-    // Expected hash based on xiomc.xi structural counts:
+    // Expected hash based on xiom.xi structural counts:
     //   modules=4, functions=29, types=2, ifs+elifs=192, whiles=3, returns=192
     //   hash = 4*100000 + 29*1000 + 2*100 + 192*10 + 3*5 + 192 = 431327
     assert_eq!(hash, 431327, "Selfhost v0.5.0 bootstrap hash mismatch");

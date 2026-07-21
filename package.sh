@@ -28,7 +28,7 @@ export XIOM_RELEASE_STATS="${XIOM_RELEASE_STATS:-441/441 tests, zero warnings}"
 
 # Bump version in Cargo.toml so the binary reports the correct version.
 # Uses env!("CARGO_PKG_VERSION") at compile time.
-CARGO_TOML="$ROOT/crates/xiomc/Cargo.toml"
+CARGO_TOML="$ROOT/crates/xiom/Cargo.toml"
 if [ -f "$CARGO_TOML" ]; then
     if [[ "$OSTYPE" == "darwin"* ]]; then
         sed -i '' "s/^version *= *\"[^\"]*\"/version = \"$VERSION\"/" "$CARGO_TOML"
@@ -39,7 +39,7 @@ if [ -f "$CARGO_TOML" ]; then
 fi
 
 # Build all tools
-TOOLS=("xiomc" "xiom-fmt" "xiom-doc" "xiom-ffigen" "xiom-pkg" "xiom-lsp" "xiom-mcp" "xiom-dbg" "xiom-verify")
+TOOLS=("xiom" "xiom-fmt" "xiom-doc" "xiom-ffigen" "xiom-pkg" "xiom-lsp" "xiom-mcp" "xiom-dbg" "xiom-verify")
 BUILT_OK=()
 for tool in "${TOOLS[@]}"; do
     echo "  Building $tool..."
@@ -135,10 +135,10 @@ cat > "$XIOM_BIN/xiom" << 'WRAPEOF'
 #!/usr/bin/env bash
 XIOM_BIN="$(dirname "$(readlink -f "$0")")"
 if [ $# -eq 0 ]; then
-    exec "$XIOM_BIN/xiomc" --help
+    exec "$XIOM_BIN/xiom" --help
 fi
 case "$1" in
-    compile) shift; exec "$XIOM_BIN/xiomc" "$@" ;;
+    compile) shift; exec "$XIOM_BIN/xiom" "$@" ;;
     fmt)     shift; exec "$XIOM_BIN/xiom-fmt" "$@" ;;
     doc)     shift; exec "$XIOM_BIN/xiom-doc" "$@" ;;
     ffigen)  shift; exec "$XIOM_BIN/xiom-ffigen" "$@" ;;
@@ -147,7 +147,7 @@ case "$1" in
     mcp)     shift; exec "$XIOM_BIN/xiom-mcp" "$@" ;;
     dbg)     shift; exec "$XIOM_BIN/xiom-dbg" "$@" ;;
     verify)  shift; exec "$XIOM_BIN/xiom-verify" "$@" ;;
-    *)       exec "$XIOM_BIN/xiomc" "$@" ;;
+    *)       exec "$XIOM_BIN/xiom" "$@" ;;
 esac
 WRAPEOF
 chmod +x "$XIOM_BIN/xiom"
@@ -165,7 +165,7 @@ PATH_TYPE="${PATH_TYPE:-U}"
 case "$PATH_TYPE" in
     [Ss])
         sudo ln -sf "$XIOM_BIN/xiom" /usr/local/bin/xiom 2>/dev/null || true
-        for tool in xiomc xiom-fmt xiom-doc xiom-ffigen xiom-pkg xiom-lsp xiom-mcp xiom-dbg xiom-verify; do
+        for tool in xiom xiom-fmt xiom-doc xiom-ffigen xiom-pkg xiom-lsp xiom-mcp xiom-dbg xiom-verify; do
             sudo ln -sf "$XIOM_BIN/$tool" "/usr/local/bin/$tool" 2>/dev/null || true
         done
         echo "    + Symlinks created in /usr/local/bin"
@@ -203,7 +203,7 @@ echo "  XIOM installed successfully!"
 echo "  ========================================="
 echo ""
 echo "  Location:  $XIOM_DIR"
-echo "  Binary:    $XIOM_BIN/xiomc"
+echo "  Binary:    $XIOM_BIN/xiom"
 echo "  Wrapper:   $XIOM_BIN/xiom"
 echo ""
 echo "  Quick start:"
@@ -234,10 +234,10 @@ Quick install:
 Manual install:
   1. Copy this entire folder anywhere you like
   2. Add the bin/ folder to your system PATH
-  3. Run: xiomc --help
+  3. Run: xiom --help
 
 Contents:
-  bin/       - xiomc, xiom-fmt, xiom-doc, etc.
+  bin/       - xiom, xiom-fmt, xiom-doc, etc.
   lib/       - Standard library (.xi source files)
   runtime/   - C runtime (xiom_runtime.c)
   install.sh - Installer script

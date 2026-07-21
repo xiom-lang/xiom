@@ -1,6 +1,6 @@
 // XIOM — Satellite Motion + Trig Verification
 // Uses cos/sin from xiom.math. Pure math checks, no string formatting.
-// Compile: xiomc examples\satellite_motion.xi --run
+// Compile: xiom examples\satellite_motion.xi --run
 
 module satellite_motion
 use xiom.math;

@@ -11,7 +11,7 @@ This document is the authoritative reference for understanding how the XIOM Rust
 
 ## 1. Overview & Three Pillars
 
-The XIOM compiler (`xiomc`) is a multi-stage, single-pass compiler written in Rust. It takes `.xi` source files, produces LLVM IR text, and shells out to `clang` for final native or WASM binary emission. The compiler has completed Phases 0-5b and is now in Phase 5c (Architectural Features + Safety Hardening).
+The XIOM compiler (`xiom`) is a multi-stage, single-pass compiler written in Rust. It takes `.xi` source files, produces LLVM IR text, and shells out to `clang` for final native or WASM binary emission. The compiler has completed Phases 0-5b and is now in Phase 5c (Architectural Features + Safety Hardening).
 
 ### SAFE — Memory safety without runtime overhead
 - **Borrow checker** enforces lexical-scope ownership at compile time. References tracked as read/write borrows that must not overlap with mutations.
@@ -248,7 +248,7 @@ Current smoke tests provide basic coverage (compile + run checks). Phase 5c upgr
 | `crates/xiom-check/src/lib.rs` | 3105 | 4116 | +1011 |
 | `crates/xiom-codegen/src/lib.rs` | 3910 | ~8093 | +4183 |
 | `crates/xiom-verify/src/lib.rs` | 218 | 218 | — |
-| `crates/xiomc/src/main.rs` | 968 | 968 | — |
+| `crates/xiom/src/main.rs` | 968 | 968 | — |
 
 **Key growth areas:**
 - `xiom-check`: interface dispatch (`interfaces` field, `register_interface_decl`, `allow_interface_dispatch`)
@@ -273,7 +273,7 @@ Current smoke tests provide basic coverage (compile + run checks). Phase 5c upgr
 ## Appendix A: Crate Dependency Graph (Unchanged)
 
 ```
-xiomc → xiom-ast, xiom-lexer, xiom-parser, xiom-check, xiom-codegen, xiom-verify
+xiom → xiom-ast, xiom-lexer, xiom-parser, xiom-check, xiom-codegen, xiom-verify
 xiom-parser → xiom-ast, xiom-lexer
 xiom-check → xiom-ast, xiom-lexer, xiom-parser
 xiom-codegen → xiom-ast

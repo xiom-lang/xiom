@@ -6,24 +6,24 @@
 
 //! XIOM Compiler CLI
 //! Usage:
-//!   xiomc <source.xi>                         print LLVM IR to stdout
-//!   xiomc --emit-ir <source.xi>               print LLVM IR to stdout
-//!   xiomc -o <output> <source.xi>             compile to native binary
-//!   xiomc --target wasm <source.xi>           compile to WASM
-//!   xiomc --target wasm -o out.wasm <src.xi>  compile to WASM with name
-//!   xiomc --run <source.xi>                   compile and run, print exit code
-//!   xiomc --diagnostics=json <source.xi>      JSON-structured compiler output
-//!   xiomc --dump-contracts <source.xi>        emit contract index as JSON
-//!   xiomc --sandbox <source.xi>                safety audit report (text)
-//!   xiomc --sandbox=strict <source.xi>         block compilation on HIGH findings
-//!   xiomc --sandbox-report=json <source.xi>    safety audit as JSON
+//!   xiom <source.xi>                         print LLVM IR to stdout
+//!   xiom --emit-ir <source.xi>               print LLVM IR to stdout
+//!   xiom -o <output> <source.xi>             compile to native binary
+//!   xiom --target wasm <source.xi>           compile to WASM
+//!   xiom --target wasm -o out.wasm <src.xi>  compile to WASM with name
+//!   xiom --run <source.xi>                   compile and run, print exit code
+//!   xiom --diagnostics=json <source.xi>      JSON-structured compiler output
+//!   xiom --dump-contracts <source.xi>        emit contract index as JSON
+//!   xiom --sandbox <source.xi>                safety audit report (text)
+//!   xiom --sandbox=strict <source.xi>         block compilation on HIGH findings
+//!   xiom --sandbox-report=json <source.xi>    safety audit as JSON
 
 use std::collections::HashMap;
 use std::env;
 use std::process;
 use std::time::Duration;
 
-use xiomc::{self, compile, CompileConfig, Target, resolve_source_files};
+use xiom::{self, compile, CompileConfig, Target, resolve_source_files};
 use xiom_lexer::Lexer;
 use xiom_parser::Parser;
 use xiom_codegen::sandbox::SafetyAuditor;
@@ -45,10 +45,10 @@ fn main() {
     // 5c-R: --explain EXXXX opens the error code reference
     if let Some(pos) = args.iter().position(|a| a == "--explain") {
         if let Some(code) = args.get(pos + 1) {
-            xiomc::explain_error(code);
+            xiom::explain_error(code);
             return;
         }
-        eprintln!("usage: xiomc --explain <code>  (e.g., xiomc --explain X0010)");
+        eprintln!("usage: xiom --explain <code>  (e.g., xiom --explain X0010)");
         process::exit(1);
     }
 
@@ -287,11 +287,11 @@ fn main() {
         match xiom_graph::build_project_graph(&first) {
             Ok(graph) => {
                 let format = if fmt == "mermaid" {
-                    xiomc::graph_viz::GraphFormat::Mermaid
+                    xiom::graph_viz::GraphFormat::Mermaid
                 } else {
-                    xiomc::graph_viz::GraphFormat::Dot
+                    xiom::graph_viz::GraphFormat::Dot
                 };
-                let output = xiomc::graph_viz::generate_dot_graph(&graph, format);
+                let output = xiom::graph_viz::generate_dot_graph(&graph, format);
                 println!("{output}");
             }
             Err(e) => {
@@ -305,7 +305,7 @@ fn main() {
     // 7F.1: Build daemon mode
     if build_mode && !watch_mode {
         if !source_paths.is_empty() {
-            let (resolved, _) = xiomc::expand_sources_with_graph(&source_paths);
+            let (resolved, _) = xiom::expand_sources_with_graph(&source_paths);
             compile(&config, &resolved);
         } else {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
@@ -427,8 +427,8 @@ fn main() {
 
     // 5g AI Pipeline: run check-only compile first to get diagnostics, then call LLM
     if ai_mode || ai_local || ai_dry_run {
-        let ai_config = xiomc::ai::load_ai_config(ai_model.clone());
-        let ai_config = xiomc::ai::AiConfig {
+        let ai_config = xiom::ai::load_ai_config(ai_model.clone());
+        let ai_config = xiom::ai::AiConfig {
             enabled: true, local_only: ai_local, dry_run: ai_dry_run,
             silent: ai_silent, strict: ai_strict,
             timeout_secs: ai_timeout,
@@ -440,7 +440,7 @@ fn main() {
 
         // 5f.3e: Batch mode — collect diagnostics from all files into single output
         if _ai_batch {
-            let mut all_diagnostics: Vec<xiomc::Diagnostic> = Vec::new();
+            let mut all_diagnostics: Vec<xiom::Diagnostic> = Vec::new();
             let mut all_sources: Vec<(String, String)> = Vec::new(); // (path, source)
 
             for path in &source_paths {
@@ -466,7 +466,7 @@ fn main() {
                     stack_protector: false,
                     runtime_contracts: false,
                 };
-                let result = xiomc::compile_with_diagnostics(&check_config, &[path.clone()]);
+                let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
                 let source = std::fs::read_to_string(path).unwrap_or_default();
                 all_diagnostics.extend(result.diagnostics);
                 all_sources.push((path.clone(), source));
@@ -474,10 +474,10 @@ fn main() {
 
             if !all_diagnostics.is_empty() {
                 // 5f.3f: Run Z3 verification for contract violations to get counterexamples
-                let z3_models = xiomc::ai::run_z3_for_contract_errors(&all_diagnostics, &all_sources);
-                match xiomc::ai::run_ai_pipeline_batch(&ai_config, &all_sources, &all_diagnostics, &z3_models) {
+                let z3_models = xiom::ai::run_z3_for_contract_errors(&all_diagnostics, &all_sources);
+                match xiom::ai::run_ai_pipeline_batch(&ai_config, &all_sources, &all_diagnostics, &z3_models) {
                     Ok(output) if !ai_silent => {
-                        eprintln!("xiomc --ai --batch: {} hints → .xiom_ai.json ({} API, {} cached, {} Z3 models)",
+                        eprintln!("xiom --ai --batch: {} hints → .xiom_ai.json ({} API, {} cached, {} Z3 models)",
                             output.total_hints, output.api_calls, output.cached_hints, z3_models.len());
                     }
                     Err(e) => eprintln!("[AI] {e}"),
@@ -511,18 +511,18 @@ fn main() {
                     stack_protector: false,
                     runtime_contracts: false,
                 };
-                let result = xiomc::compile_with_diagnostics(&check_config, &[path.clone()]);
+                let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
                 let source = std::fs::read_to_string(path).unwrap_or_default();
 
                 // 5f.3f: Run Z3 for contract errors in single-file mode too
                 let diags = result.diagnostics.clone();
                 let sources = vec![(path.clone(), source.clone())];
-                let z3_models = xiomc::ai::run_z3_for_contract_errors(&diags, &sources);
+                let z3_models = xiom::ai::run_z3_for_contract_errors(&diags, &sources);
 
                 if !result.diagnostics.is_empty() {
-                    match xiomc::ai::run_ai_pipeline(&ai_config, &source, path, &result.diagnostics, &z3_models) {
+                    match xiom::ai::run_ai_pipeline(&ai_config, &source, path, &result.diagnostics, &z3_models) {
                         Ok(output) if !ai_silent => {
-                            eprintln!("xiomc --ai: {} hints → .xiom_ai.json ({} API, {} cached, {} Z3 models)",
+                            eprintln!("xiom --ai: {} hints → .xiom_ai.json ({} API, {} cached, {} Z3 models)",
                                 output.total_hints, output.api_calls, output.cached_hints, z3_models.len());
                         }
                         Err(e) => eprintln!("[AI] {e}"),
@@ -537,7 +537,7 @@ fn main() {
 
     // Show AI help on --help
     if args.iter().any(|a| a == "--help-ai") {
-        eprintln!("{}", xiomc::ai::ai_help_text());
+        eprintln!("{}", xiom::ai::ai_help_text());
         process::exit(0);
     }
 
@@ -550,7 +550,7 @@ fn print_usage() {
         eprintln!("XIOM Compiler v{} \"{tag}\" -- {stats}", env!("CARGO_PKG_VERSION"));
     eprintln!();
     eprintln!("USAGE:");
-    eprintln!("  xiomc [OPTIONS] <source.xi>");
+    eprintln!("  xiom [OPTIONS] <source.xi>");
     eprintln!();
     eprintln!("OPTIONS:");
     eprintln!("  --help              Show this help message");
@@ -604,11 +604,11 @@ fn print_usage() {
     eprintln!("  Optional: nasm — hardware-accelerated crypto/memcpy (stdlib)");
     eprintln!();
     eprintln!("EXAMPLES:");
-    eprintln!("  xiomc --run examples/demo_float.xi");
-    eprintln!("  xiomc -o prog.exe source.xi");
-    eprintln!("  xiomc --emit-ir examples/demo_float.xi");
-    eprintln!("  xiomc --target wasm -o prog.wasm source.xi");
-    eprintln!("  xiomc --verify examples/phase1_contracts.xi");
+    eprintln!("  xiom --run examples/demo_float.xi");
+    eprintln!("  xiom -o prog.exe source.xi");
+    eprintln!("  xiom --emit-ir examples/demo_float.xi");
+    eprintln!("  xiom --target wasm -o prog.wasm source.xi");
+    eprintln!("  xiom --verify examples/phase1_contracts.xi");
 }
 
 fn parse_target(args: &[String]) -> Target {
@@ -720,7 +720,7 @@ fn run_xiom_tests(args: &[String]) {
 
     for test_file in &test_files {
         let exe_path = format!("{}.test.exe", test_file);
-        let xiomc_path = std::env::current_exe().unwrap_or_else(|_| "xiomc".into());
+        let xiomc_path = std::env::current_exe().unwrap_or_else(|_| "xiom".into());
         let compile = Cmd::new(&xiomc_path)
             .args(["-o", &exe_path, test_file])
             .output();
@@ -1115,7 +1115,7 @@ fn run_benchmarks(args: &[String], iterations: u32) {
 
     for bench_file in &bench_files {
         let exe_path = format!("{}.bench.exe", bench_file);
-        let xiomc_path = std::env::current_exe().unwrap_or_else(|_| "xiomc".into());
+        let xiomc_path = std::env::current_exe().unwrap_or_else(|_| "xiom".into());
 
         let compile = std::process::Command::new(&xiomc_path)
             .args(["-o", &exe_path, "--release", bench_file])
@@ -1238,7 +1238,7 @@ fn test_hello() -> Int {{
     eprintln!("  Next steps:");
     eprintln!("    cd {dir}");
     eprintln!("    xiom check         ← type-check your project");
-    eprintln!("    xiomc src/main.xi --run   ← compile and run");
+    eprintln!("    xiom src/main.xi --run   ← compile and run");
     eprintln!("    xiom test          ← run test suite");
 }
 
@@ -1247,7 +1247,7 @@ fn run_doctor() {
     println!("XIOM Doctor v0.49.8");
     println!("====================");
     println!();
-    println!("  [OK] xiomc v{}", option_env!("XIOM_RELEASE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")));
+    println!("  [OK] xiom v{}", option_env!("XIOM_RELEASE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")));
     let clang_ok = std::process::Command::new("clang").arg("--version").output().map(|o| o.status.success()).unwrap_or(false);
     if clang_ok { println!("  [OK] clang/LLVM found"); }
     else { println!("  [!!] clang NOT FOUND - run: xiom install llvm"); }

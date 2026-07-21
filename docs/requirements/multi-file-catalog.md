@@ -35,7 +35,7 @@ file. External functions are silently dropped.
 3. Provide `collect_external_decls()` + `CheckedType::to_ast_type()` to inject
    `TopDecl::Type`/`TopDecl::Fn`/`TopDecl::Enum` AST stubs for imported-but-missing decls before
    codegen runs.
-4. In `xiomc/main.rs`, automatically add the project `examples` root plus the primary file's
+4. In `xiom/main.rs`, automatically add the project `examples` root plus the primary file's
    parent directory to `checker.source_dirs`.
 5. Codegen must emit `%struct.BenchResult`, `@make_result`, and module-call thunks
    (`@benchmark_math_run_all`, etc.) for the injected stubs.
@@ -52,9 +52,9 @@ file. External functions are silently dropped.
 
 ## Acceptance Criteria
 
-1. `cargo run -p xiomc -- --run examples\test_mod\math.xi` compiles and exits 34.
-2. `cargo run -p xiomc -- --run examples\benchmark\bench_math.xi` compiles and exits cleanly.
-3. `cargo run -p xiomc -- --run examples\benchmark\main.xi` compiles and runs (aggregates all
+1. `cargo run -p xiom -- --run examples\test_mod\math.xi` compiles and exits 34.
+2. `cargo run -p xiom -- --run examples\benchmark\bench_math.xi` compiles and exits cleanly.
+3. `cargo run -p xiom -- --run examples\benchmark\main.xi` compiles and runs (aggregates all
    24 submodule scores).
 4. `cargo test -p xiom-check` stays at 44/44 passing.
 5. `cargo test -p xiom-codegen` stays green (diff 25 + e2e 61 + full_diff 23 + integration 30,
@@ -76,7 +76,7 @@ cargo test -p xiom-codegen
 cargo test
 
 # Multi-file examples — all must compile and run
-cargo run -p xiomc -- --run examples\test_mod\math.xi
-cargo run -p xiomc -- --run examples\benchmark\bench_math.xi
-cargo run -p xiomc -- --run examples\benchmark\main.xi
+cargo run -p xiom -- --run examples\test_mod\math.xi
+cargo run -p xiom -- --run examples\benchmark\bench_math.xi
+cargo run -p xiom -- --run examples\benchmark\main.xi
 ```

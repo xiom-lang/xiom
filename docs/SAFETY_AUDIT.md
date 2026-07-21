@@ -44,12 +44,12 @@
 ## 2. CLI Interface
 
 ```
-xiomc --sandbox source.xi               # Print safety report to stdout
-xiomc --sandbox --ai source.xi          # Report + AI-enhanced explanations
-xiomc --sandbox=strict source.xi        # REFUSE to compile if HIGH severity findings
-xiomc --sandbox-report=json source.xi   # Output as JSON (.xiom_sandbox.json)
-xiomc --sandbox-report=text source.xi   # Output as human-readable text (default)
-xiomc --sandbox-report=silent source.xi # Suppress output; only exit code
+xiom --sandbox source.xi               # Print safety report to stdout
+xiom --sandbox --ai source.xi          # Report + AI-enhanced explanations
+xiom --sandbox=strict source.xi        # REFUSE to compile if HIGH severity findings
+xiom --sandbox-report=json source.xi   # Output as JSON (.xiom_sandbox.json)
+xiom --sandbox-report=text source.xi   # Output as human-readable text (default)
+xiom --sandbox-report=silent source.xi # Suppress output; only exit code
 ```
 
 ### Exit Codes
@@ -241,7 +241,7 @@ When AI is active, each finding in `.xiom_sandbox.json` gets an additional `ai_i
 
 ### 7.2 — CLI Integration (1 Day)
 
-- `--sandbox` flag in `crates/xiomc/src/main.rs`
+- `--sandbox` flag in `crates/xiom/src/main.rs`
 - `--sandbox-report=json|text|silent`
 - `--sandbox=strict` mode (abort on HIGH)
 - Exit code mapping (0/1/2/3)

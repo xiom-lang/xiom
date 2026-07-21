@@ -132,7 +132,7 @@ The first working XIOM compiler. Establishes the end-to-end pipeline: lexer → 
 
 **Status: Released.** Safety gate, compiler intrinsics, enum variant constructors.
 
-- **Safety gate bypass removed** — `crates/xiomc/src/main.rs:208`: all type errors now abort codegen unconditionally. The "compiles ⇒ safe" guarantee is now enforceable.
+- **Safety gate bypass removed** — `crates/xiom/src/main.rs:208`: all type errors now abort codegen unconditionally. The "compiles ⇒ safe" guarantee is now enforceable.
 - **size_of[T]() / align_of[T]()** compiler intrinsics — capture type_arg from `Expr::Index`, compute size from LLVM type layout (i64=8, i8=1, struct=field_count×8)
 - **Enum variant constructors** — `TypeName.Variant(args)` allocates discriminant struct + payload, store variant index at field 0, payload at field 1+
 - **ptr.read / ptr.write** inline builtins — bypass *T generic monomorphization gap

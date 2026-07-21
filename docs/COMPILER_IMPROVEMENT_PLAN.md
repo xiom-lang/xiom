@@ -176,7 +176,7 @@ These make the compiler fast enough for absurd benchmarks. Without them, 100+ ge
 **Problem:** `ModuleCatalog::load_module` walks all source directories and reads every `.xi` header on cache miss. For 1000 files, cold start = 1000 file reads × M lookups = O(N×M).
 
 **Solution:**
-1. On first `find_owned()` call OR at `xiomc` startup, build a `HashMap<String, String>` (module_path → file_path) by scanning source_dirs once.
+1. On first `find_owned()` call OR at `xiom` startup, build a `HashMap<String, String>` (module_path → file_path) by scanning source_dirs once.
 2. All subsequent lookups are O(1) hash map access — no path guessing, no scan fallback.
 3. The scan still exists as a cold-start bootstrap, but only runs ONCE per compilation session.
 
@@ -200,7 +200,7 @@ These make the compiler fast enough for absurd benchmarks. Without them, 100+ ge
 
 ### 1.3 Incremental Compilation Foundations
 
-**Problem:** Every `xiomc` invocation re-parses every file. For a 1000-file project changing one line, this is wasteful.
+**Problem:** Every `xiom` invocation re-parses every file. For a 1000-file project changing one line, this is wasteful.
 
 **Solution (Phase 1 — foundations only):**
 1. Add `--incremental` flag. On first build, hash every source file and write `target/incremental.json`.
@@ -531,7 +531,7 @@ fn get_mut(v: &mut Vec[Int]) -> &mut Int { return &mut v[0]; }
 
 ### 3.4 CLI & Project Management
 
-**Command:** `xiomc` (the official XIOM compiler and toolchain)
+**Command:** `xiom` (the official XIOM compiler and toolchain)
 
 #### Core Philosophy
 - Simple, intuitive, powerful
@@ -633,7 +633,7 @@ Contract Coverage: 87% (234/268 contracts exercised)
 **Goal:** XIOM compiler compiles to WASM — instant try-before-install at `play.xiom-lang.org`. No backend. No account.
 
 **Compiler changes needed:**
-- `xiomc` compiles to WASM with virtual filesystem (catalog uses in-memory FS)
+- `xiom` compiles to WASM with virtual filesystem (catalog uses in-memory FS)
 - `--target wasm-playground` flag skips clang, returns IR as string for browser display
 - Contract visualization in browser: highlighted pass/fail on contract clauses
 
@@ -723,10 +723,10 @@ A XIOM compiler written in XIOM can be MORE performant and MORE secure than the 
 
 **The bootstrap sequence:**
 1. Write `xiom-lexer.xi`, `xiom-parser.xi`, `xiom-check.xi`, `xiom-codegen.xi` in XIOM
-2. Compile with Rust `xiomc` → produces `xiomc-v1` (native binary)
-3. `xiomc-v1` compiles itself → produces `xiomc-v2`
-4. Diff `xiomc-v1` and `xiomc-v2` output on the full test suite → byte-for-byte identical
-5. `xiomc-v2` replaces Rust `xiomc` as the primary compiler
+2. Compile with Rust `xiom` → produces `xiom-v1` (native binary)
+3. `xiom-v1` compiles itself → produces `xiom-v2`
+4. Diff `xiom-v1` and `xiom-v2` output on the full test suite → byte-for-byte identical
+5. `xiom-v2` replaces Rust `xiom` as the primary compiler
 
 **Target timeline:** 18-24 months from now. The self-hosted compiler is the CAPSTONE, not the foundation.
 
@@ -779,7 +779,7 @@ A XIOM compiler written in XIOM can be MORE performant and MORE secure than the 
 
 ### 1000+ Module Files
 
-**Will it compile?** Yes, but the first `xiomc` invocation will spend seconds scanning for modules.
+**Will it compile?** Yes, but the first `xiom` invocation will spend seconds scanning for modules.
 
 **Will it be fast?** Indexed catalog (Phase 1.1) makes cold-start resolution O(N) for initial scan + O(1) per lookup. After that, sub-second resolution.
 
@@ -871,7 +871,7 @@ xiom install http-server
 
 ### 5.3 Build System
 
-**Current state:** `xiomc` accepts files via CLI. No build configuration. No profiles. No build scripts.
+**Current state:** `xiom` accepts files via CLI. No build configuration. No profiles. No build scripts.
 
 **What production needs:**
 
@@ -985,7 +985,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cargo test --all
-      - run: cargo run -p xiomc -- --run examples/phase1_full.xi
+      - run: cargo run -p xiom -- --run examples/phase1_full.xi
 ```
 
 **Effort:** 1-2 days for initial CI setup. Ongoing maintenance. The compiler already generates correct LLVM IR for all targets — CI just needs to verify it.

@@ -48,7 +48,7 @@ mkdir -p "$XIOM_BIN" "$XIOM_DIR/lib" "$XIOM_DIR/runtime" "$XIOM_MCP"
 echo "  [2/5] Copying binaries..."
 if [ -d "$SCRIPT_DIR/bin" ]; then
   cp "$SCRIPT_DIR/bin/"* "$XIOM_BIN/" 2>/dev/null || true
-  echo "    + xiomc, xiom-fmt, xiom-doc, xiom-ffigen"
+  echo "    + xiom, xiom-fmt, xiom-doc, xiom-ffigen"
   echo "    + xiom-pkg, xiom-lsp, xiom-mcp"
   echo "    + xiom-dbg, xiom-verify, z3"
 fi
@@ -117,10 +117,10 @@ cat > "$XIOM_BIN/xiom" << 'WRAPPER'
 XIOM_BIN="__XIOM_BIN__"
 XIOM_HOME="__XIOM_HOME__"
 case "${1:-}" in
-  compile) shift; exec "$XIOM_BIN/xiomc" "$@" ;;
-  run)     shift; exec "$XIOM_BIN/xiomc" --run "$@" ;;
-  build)   shift; exec "$XIOM_BIN/xiomc" build "$@" ;;
-  test)    shift; exec "$XIOM_BIN/xiomc" --test "$@" ;;
+  compile) shift; exec "$XIOM_BIN/xiom" "$@" ;;
+  run)     shift; exec "$XIOM_BIN/xiom" --run "$@" ;;
+  build)   shift; exec "$XIOM_BIN/xiom" build "$@" ;;
+  test)    shift; exec "$XIOM_BIN/xiom" --test "$@" ;;
   fmt)     shift; exec "$XIOM_BIN/xiom-fmt" "$@" ;;
   doc)     shift; exec "$XIOM_BIN/xiom-doc" "$@" ;;
   ffigen)  shift; exec "$XIOM_BIN/xiom-ffigen" "$@" ;;
@@ -129,9 +129,9 @@ case "${1:-}" in
   mcp)     shift; exec "$XIOM_BIN/xiom-mcp" "$@" ;;
   verify)  shift; exec "$XIOM_BIN/xiom-verify" "$@" ;;
   dbg)     shift; exec "$XIOM_BIN/xiom-dbg" "$@" ;;
-  ai)      shift; exec "$XIOM_BIN/xiomc" --ai "$@" ;;
-  graph)   shift; exec "$XIOM_BIN/xiomc" --graph "$@" ;;
-  *)       exec "$XIOM_BIN/xiomc" "$@" ;;
+  ai)      shift; exec "$XIOM_BIN/xiom" --ai "$@" ;;
+  graph)   shift; exec "$XIOM_BIN/xiom" --graph "$@" ;;
+  *)       exec "$XIOM_BIN/xiom" "$@" ;;
 esac
 WRAPPER
 
@@ -189,7 +189,7 @@ cat << EOF
   =========================================
 
   Location:   $XIOM_DIR
-  Binary:     $XIOM_BIN/xiomc
+  Binary:     $XIOM_BIN/xiom
   Wrapper:    $XIOM_BIN/xiom
   MCP Config: $XIOM_MCP/xiom-mcp-config.json
 EOF
