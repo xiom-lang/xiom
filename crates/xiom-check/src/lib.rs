@@ -423,6 +423,7 @@ impl Checker {
             DeriveTrait::Display => "to_str",
             DeriveTrait::Hash => "hash",
             DeriveTrait::Ord => "compare",
+            DeriveTrait::Debug => "fmt",
         };
         let ret_type = match derive_trait {
             DeriveTrait::Clone => CheckedType::Named(type_name.to_string()),
@@ -430,6 +431,7 @@ impl Checker {
             DeriveTrait::Display => CheckedType::Str,
             DeriveTrait::Hash => CheckedType::Int,
             DeriveTrait::Ord => CheckedType::Int,
+            DeriveTrait::Debug => CheckedType::Str,
         };
         let sig = FnSig {
             params: vec![], // no explicit params, self is implicit

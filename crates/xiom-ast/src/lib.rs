@@ -446,7 +446,7 @@ impl FnDecl {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DeriveTrait {
-    Eq, Clone, Display, Hash, Ord,
+    Eq, Clone, Display, Hash, Ord, Debug,
 }
 
 impl DeriveTrait {
@@ -457,6 +457,7 @@ impl DeriveTrait {
             "Display" => Some(Self::Display),
             "Hash" => Some(Self::Hash),
             "Ord" => Some(Self::Ord),
+            "Debug" => Some(Self::Debug),
             _ => None,
         }
     }

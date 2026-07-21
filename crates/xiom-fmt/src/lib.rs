@@ -716,6 +716,7 @@ impl Formatter {
                     DeriveTrait::Display => "Display",
                     DeriveTrait::Hash => "Hash",
                     DeriveTrait::Ord => "Ord",
+                    DeriveTrait::Debug => "Debug",
                 });
             }
             self.buf.push(']');
@@ -772,6 +773,7 @@ impl Formatter {
                     DeriveTrait::Display => "Display",
                     DeriveTrait::Hash => "Hash",
                     DeriveTrait::Ord => "Ord",
+                    DeriveTrait::Debug => "Debug",
                 });
             }
             self.buf.push(']');

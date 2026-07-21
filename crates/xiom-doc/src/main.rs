@@ -112,6 +112,7 @@ fn doc_item_str(item: &TopDecl, depth: usize) -> String {
                     DeriveTrait::Display => "Display",
                     DeriveTrait::Hash => "Hash",
                     DeriveTrait::Ord => "Ord",
+                    DeriveTrait::Debug => "Debug",
                 }).collect();
                 out.push_str(&format!("**Derives:** `{}`\n\n", derives.join(", ")));
             }
