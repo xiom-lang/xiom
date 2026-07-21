@@ -51,7 +51,7 @@ impl Formatter {
         if f.is_pub { self.buf.push_str("pub "); }
         if f.is_async { self.buf.push_str("async "); }
         self.buf.push_str("fn ");
-        if let Some(ref receiver) = f.receiver {
+        if let Some(receiver) = &f.receiver {
             self.buf.push_str(&receiver.name);
             self.buf.push('.');
         }
@@ -79,7 +79,7 @@ impl Formatter {
             self.format_type(&p.ty);
         }
         self.buf.push(')');
-        if let Some(ref ret) = f.return_type {
+        if let Some(ret) = &f.return_type {
             self.buf.push_str(" -> ");
             self.format_type(ret);
         }
@@ -99,7 +99,7 @@ impl Formatter {
                 }
             }
         }
-        if let Some(ref body) = f.body {
+        if let Some(body) = &f.body {
             self.buf.push_str(" {\n");
             self.indent += 1;
             self.format_block(body);
@@ -128,7 +128,7 @@ impl Formatter {
                 self.push_indent();
                 self.buf.push_str("let ");
                 self.buf.push_str(&ident.name);
-                if let Some(ref t) = ty {
+                if let Some(t) = ty {
                     self.buf.push_str(": ");
                     self.format_type(t);
                 }
@@ -140,7 +140,7 @@ impl Formatter {
                 self.push_indent();
                 self.buf.push_str("var ");
                 self.buf.push_str(&ident.name);
-                if let Some(ref t) = ty {
+                if let Some(t) = ty {
                     self.buf.push_str(": ");
                     self.format_type(t);
                 }
@@ -158,7 +158,7 @@ impl Formatter {
             Stmt::Return(expr, _) => {
                 self.push_indent();
                 self.buf.push_str("return");
-                if let Some(ref e) = expr {
+                if let Some(e) = expr {
                     self.buf.push(' ');
                     self.format_expr(e);
                 }
@@ -189,7 +189,7 @@ impl Formatter {
                     self.push_indent();
                     self.buf.push('}');
                 }
-                if let Some(ref else_b) = else_block {
+                if let Some(else_b) = else_block {
                     self.buf.push_str(" else {\n");
                     self.indent += 1;
                     self.format_block(else_b);
