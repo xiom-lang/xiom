@@ -15,7 +15,7 @@ echo   ^|    |  ^|  \/  |  ^|  \ /  |  ^|    |  Industrial Compiler
 echo   ^|    |  ^|      |  ^|       |  ^|    |  Production Release
 echo.
 echo   ================================================================
-echo     XIOM COMPILER — Lightning-fast systems programming language.
+echo     XIOM COMPILER â€” Lightning-fast systems programming language.
 echo     Zero-cost abstractions, contract verification, hot reload.
 echo     Built for games, engines, embedded, and high-performance apps.
 echo   ================================================================
@@ -26,7 +26,7 @@ echo   Runtime:  Requires CLANG/LLVM on PATH for native compilation
 echo   Docs:     https://xiom-lang.org (coming soon)
 echo.
 
-:: ── Choose install directory ──
+:: â”€â”€ Choose install directory â”€â”€
 set "XIOM_DEFAULT=%LOCALAPPDATA%\xiom"
 set /p XIOM_DIR="  [1/5] Install directory [%XIOM_DEFAULT%]: "
 if "!XIOM_DIR!"=="" set "XIOM_DIR=%XIOM_DEFAULT%"
@@ -39,7 +39,7 @@ mkdir "!XIOM_DIR!" 2>nul
 mkdir "!XIOM_BIN!" 2>nul
 mkdir "!XIOM_MCP!" 2>nul
 
-:: ── Copy binaries ──
+:: â”€â”€ Copy binaries â”€â”€
 echo   [2/5] Copying binaries...
 copy /Y "%~dp0bin\*.exe" "!XIOM_BIN!\" >nul 2>nul
 copy /Y "%~dp0bin\xiom-icon.ico" "!XIOM_BIN!\" >nul 2>nul
@@ -47,20 +47,20 @@ echo     + xiomc.exe, xiom-fmt.exe, xiom-doc.exe, xiom-ffigen.exe
 echo     + xiom-pkg.exe, xiom-lsp.exe, xiom-mcp.exe
 echo     + xiom-dbg.exe, xiom-verify.exe, z3.exe
 
-:: ── Copy stdlib ──
+:: â”€â”€ Copy stdlib â”€â”€
 echo   [3/5] Copying standard library...
 if exist "%~dp0lib\" (
     xcopy /Y /E /Q "%~dp0lib\*" "!XIOM_DIR!\lib\" >nul 2>nul
     echo     + Standard library installed
 )
 
-:: ── Copy runtime ──
+:: â”€â”€ Copy runtime â”€â”€
 if exist "%~dp0runtime\" (
     xcopy /Y /E /Q "%~dp0runtime\*" "!XIOM_DIR!\runtime\" >nul 2>nul
     echo     + Runtime installed
 )
 
-:: ── Copy MCP configs ──
+:: â”€â”€ Copy MCP configs â”€â”€
 echo   [4/5] Setting up MCP configurations...
 if exist "%~dp0mcp\" (
     xcopy /Y /E /Q "%~dp0mcp\*" "!XIOM_MCP!\" >nul 2>nul
@@ -80,9 +80,9 @@ echo }
 ) > "!XIOM_MCP!\xiom-mcp-config.json"
 echo     + MCP configs installed to !XIOM_MCP!
 
-:: ── AI Configuration ──
+:: â”€â”€ AI Configuration â”€â”€
 echo.
-echo   [5/5] AI Configuration (optional — press Enter to skip)
+echo   [5/5] AI Configuration (optional â€” press Enter to skip)
 echo   ---------------------------------------------------------
 echo   XIOM integrates with AI providers for error diagnostics.
 echo   Configure your endpoint and API key below, or skip.
@@ -111,7 +111,7 @@ if not "!AI_ENDPOINT!"=="" (
         echo XIOM_AI_CACHE_DIR=!XIOM_DIR!
 
         echo.
-        echo # MCP Server — start with: xiom-mcp
+        echo # MCP Server â€” start with: xiom-mcp
         echo # The MCP server provides AI-assisted diagnostics to:
         echo #   - Kilo Code / VS Code:    add to .kilocode/mcp.json
         echo #   - Claude Code:            claude mcp add
@@ -123,7 +123,7 @@ if not "!AI_ENDPOINT!"=="" (
     echo     + Config file: !XIOM_DIR!\.xiom_ai_config
 )
 
-:: ── Create xiom.bat wrapper ──
+:: â”€â”€ Create xiom.bat wrapper â”€â”€
 (
 echo @echo off
 echo REM XIOM Toolchain v0.49.5
@@ -144,17 +144,17 @@ echo if "%%1"=="verify"  ^( shift ^& "%%XIOM_BIN%%\xiom-verify.exe" %%* ^) ^& go
 echo if "%%1"=="dbg"     ^( shift ^& "%%XIOM_BIN%%\xiom-dbg.exe" %%* ^) ^& goto :eof
 echo if "%%1"=="ai"      ^( shift ^& "%%XIOM_BIN%%\xiomc.exe" --ai %%* ^) ^& goto :eof
 echo if "%%1"=="graph"   ^( shift ^& "%%XIOM_BIN%%\xiomc.exe" --graph %%* ^) ^& goto :eof
-echo REM Unknown subcommand — pass through to xiomc
+echo REM Unknown subcommand â€” pass through to xiomc
 echo "%%XIOM_BIN%%\xiomc.exe" %%*
 ) > "!XIOM_BIN!\xiom.bat"
 
-:: ── PATH Configuration ──
+:: â”€â”€ PATH Configuration â”€â”€
 echo.
 echo   PATH Configuration
 echo   ------------------
-echo   [U] User PATH   — only your account (default, no admin needed)
-echo   [S] System PATH — all users (requires admin)
-echo   [N] Skip        — add manually later
+echo   [U] User PATH   â€” only your account (default, no admin needed)
+echo   [S] System PATH â€” all users (requires admin)
+echo   [N] Skip        â€” add manually later
 echo.
 set /p PATH_TYPE="  Choose [U/s/N]: "
 if /i "!PATH_TYPE!"=="N" goto :skip_path
@@ -179,13 +179,13 @@ if "!CUR_PATH!"=="" (
 )
 echo     + Added !XIOM_BIN! to PATH
 
-:: ── Set XIOM_HOME env ──
+:: â”€â”€ Set XIOM_HOME env â”€â”€
 reg add HKCU\Environment /v XIOM_HOME /t REG_SZ /d "!XIOM_DIR!" /f >nul 2>nul
 echo     + XIOM_HOME=!XIOM_DIR!
 
 :skip_path
 
-:: ── Register .xi file icon ──
+:: â”€â”€ Register .xi file icon â”€â”€
 echo.
 set /p REG_EXT="  Register .xi files with XIOM icon? [y/N]: "
 if /i "!REG_EXT!"=="y" (
@@ -195,7 +195,7 @@ if /i "!REG_EXT!"=="y" (
     echo     + .xi files registered
 )
 
-:: ── Create uninstaller ──
+:: â”€â”€ Create uninstaller â”€â”€
 (
 echo @echo off
 echo setlocal
@@ -217,7 +217,7 @@ echo echo     Rundll32 sysdm.cpl,EditEnvironmentVariables
 echo pause
 ) > "!XIOM_BIN!\uninstall.bat"
 
-:: ── Final message ──
+:: â”€â”€ Final message â”€â”€
 echo.
 echo   =========================================
 echo     XIOM v0.49.5 INSTALLED SUCCESSFULLY!
