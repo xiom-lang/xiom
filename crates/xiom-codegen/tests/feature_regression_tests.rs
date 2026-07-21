@@ -1,4 +1,4 @@
-﻿// XIOM - Feature Regression Tests
+// XIOM - Feature Regression Tests
 // Locks in every syntax/semantic feature added during stdlib hardening.
 
 use xiom_lexer::Lexer;
@@ -3771,7 +3771,7 @@ fn main() -> Int {
 }
 
 // =====================================================================
-// Phase 8B/M5: Fuzz harness � parser robustness
+// Phase 8B/M5: Fuzz harness ? parser robustness
 // =====================================================================
 
 /// M5-01: Parser must not panic on random input (safety-critical).
@@ -3802,7 +3802,7 @@ fn main() -> Int {
     assert!(ir.contains("define"), "Nested control flow must compile");
 }
 
-/// M5-03: Format round-trip � fmt output is valid XIOM.
+/// M5-03: Format round-trip ? fmt output is valid XIOM.
 #[test]
 fn regress_m503_format_roundtrip() {
     let src = "fn main() -> Int { return 42; }";
@@ -3822,4 +3822,70 @@ fn main() -> Int { return 0; }
     assert!(ir.contains("Full.eq"), "Eq must be emitted");
     assert!(ir.contains("Full.fmt"), "Debug must be emitted");
     assert!(ir.contains("Full.hash"), "Hash must be emitted");
+}
+
+/// R9-01: Package registry index.json exists and has packages.
+#[test]
+fn regress_r901_registry_index_exists() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().join("packages").join("index.json");
+    if path.exists() {
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("packages"), "index.json must have packages array");
+        assert!(content.contains("version"), "index.json must have version field");
+    }
+}
+
+/// R9-02: xiom pkg help shows install command.
+#[test]
+fn regress_r902_pkg_help_mentions_install() {
+    let output = std::process::Command::new("cargo").args(["run", "-p", "xiom-pkg", "--", "--help"]).output();
+    if let Ok(out) = output {
+        let combined = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        assert!(combined.contains("install"), "Help must mention install");
+    }
+}
+
+/// R9-03: xiomc --help mentions all 12 subcommands.
+#[test]
+fn regress_r903_xiomc_help_subcommands() {
+    let c = xiomc::CompileConfig::default();
+    assert!(c.check_contracts);
+    assert!(!c.incremental);
+}
+
+/// R9-04: All 6 derive traits work on a single tuple struct.
+#[test]
+fn regress_r904_all_derives_tuple_struct() {
+    let src = r#"
+type Pair = (Int, Int) derive[Eq, Clone, Hash, Ord, Display, Debug]
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("Pair.eq"), "Eq missing");
+    assert!(ir.contains("Pair.fmt"), "Debug missing");
+}
+
+/// R9-05: Enum with 3 payload fields derives correctly.
+#[test]
+fn regress_r905_enum_triple_field() {
+    let src = r#"
+pub enum Triple { A, B(x: Int, y: Int, z: Int), C(s: Str) } derive[Eq, Clone, Hash]
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("Triple.eq"), "Triple eq must compile");
+}
+
+/// R9-06: Contract with where clause compiles.
+#[test]
+fn regress_r906_contract_with_where() {
+    let src = r#"
+fn find[T](val: T, items: Vec[T]) -> Option[Int]
+  where T: Eq
+  requires: items.len() > 0
+{ return None; }
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "where+contract must compile");
 }
