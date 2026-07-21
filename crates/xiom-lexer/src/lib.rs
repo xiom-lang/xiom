@@ -642,4 +642,58 @@ mod tests {
         assert_eq!(tokens[7], TokenKind::Str("\x08".into()));
         assert_eq!(tokens[8], TokenKind::Str("\x0C".into()));
     }
+
+    /// 8B/M5: Fuzz harness — feed random bytes to lexer, verify no panics.
+    /// Uses a simple LCG for deterministic randomness.
+    #[test]
+    fn fuzz_lexer_random_input() {
+        let mut seed: u64 = 12345;
+        for _ in 0..500 {
+            let len = ((seed >> 32) % 256) as usize;
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let mut input = String::with_capacity(len);
+            for _ in 0..len {
+                let byte = (seed % 256) as u8;
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                input.push(byte as char);
+            }
+            // Must not panic on any random input
+            let mut lexer = Lexer::new(&input);
+            let _ = lexer.tokenize();
+        }
+    }
+
+    /// 8B/M5: Fuzz harness — edge cases (unterminated strings, nested comments, binary)
+    #[test]
+    fn fuzz_lexer_edge_cases() {
+        let edge_cases = vec![
+            "\"", // unterminated string
+            "\"\\", // unterminated escape
+            "'", // unterminated char
+            "'\\", // unterminated char escape
+            "/*", // unterminated block comment
+            "/*/", // tricky comment
+            "/**/", // empty block comment
+            "0x", // incomplete hex
+            "0b", // incomplete binary
+            ".", // lone dot
+            "..", // double dot
+            "...", // triple dot
+            "1.", // trailing dot
+            "1e", // incomplete exponent
+            "//\n", // line comment
+            "\"\\x", // incomplete hex escape
+            "\"\\u{", // incomplete unicode escape
+            "\"\\u{}\"", // empty unicode escape
+            "\"\\u{FFFFFFFF}\"", // overflow unicode escape
+            "fn let var if else match while for", // keyword sequence
+            "0__123_456__", // weird number underscores
+            "_valid_ident", // underscore-prefixed ident
+            "0xDEAD_BEEF", // hex with underscore
+        ];
+        for case in &edge_cases {
+            let mut lexer = Lexer::new(case);
+            let _ = lexer.tokenize(); // must not panic
+        }
+    }
 }
