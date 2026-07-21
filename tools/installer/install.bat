@@ -3,15 +3,10 @@ setlocal enabledelayedexpansion
 title XIOM v0.49.8 INSTALLER
 
 :: ============================================================================
-:: XIOM Compiler Installer (Windows)
+:: XIOM Compiler Installer (Windows) — Production Release v0.49.8
 :: ============================================================================
 
-echo.
-echo   ===========================================
-echo     XIOM COMPILER v0.49.8 "Phoenix"
-echo     Industrial systems programming language
-echo     920/920 (673+247) - Z3, MCP, LSP, Hot Reload, AI
-echo   ===========================================
+type "%~dp0ascii_art.txt"
 echo.
 echo   Install: %%LOCALAPPDATA%%\xiom (default)
 echo   Runtime: Requires CLANG/LLVM on PATH
@@ -107,7 +102,7 @@ echo if "%%1"=="mcp"     ^( shift ^& "%%XIOM_BIN%%\xiom-mcp.exe" %%* ^) ^& goto 
 echo if "%%1"=="verify"  ^( shift ^& "%%XIOM_BIN%%\xiom-verify.exe" %%* ^) ^& goto :eof
 echo if "%%1"=="dbg"     ^( shift ^& "%%XIOM_BIN%%\xiom-dbg.exe" %%* ^) ^& goto :eof
 echo if "%%1"=="ai"      ^( shift ^& "%%XIOM_BIN%%\xiomc.exe" --ai %%* ^) ^& goto :eof
-echo REM Unknown - pass through to xiomc
+echo REM Unknown — pass through to xiomc
 echo "%%XIOM_BIN%%\xiomc.exe" %%*
 ) > "%XIOM_BIN%\xiom.bat"
 

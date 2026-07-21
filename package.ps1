@@ -214,6 +214,11 @@ if (Test-Path $installBatSrc) {
     Copy-Item $installBatSrc "$pkgDir\install.bat" -Force
     Write-Host "    + install.bat (Windows)" -ForegroundColor DarkGray
 }
+# Copy ASCII art for installer
+$asciiArt = "$root\tools\installer\ascii_art.txt"
+if (Test-Path $asciiArt) {
+    Copy-Item $asciiArt "$pkgDir\ascii_art.txt" -Force
+}
 $installShSrc = "$root\tools\installer\install.sh"
 if (Test-Path $installShSrc) {
     Copy-Item $installShSrc "$pkgDir\install.sh" -Force
