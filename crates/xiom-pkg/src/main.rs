@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use serde_json::Value;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
@@ -595,11 +596,11 @@ fn install_package(args: &[String]) {
         (pkg_spec.as_str(), None)
     };
 
-    // 1. Try registry first
+    // 1. Try remote registry
     if let Ok(body) = http_get(&format!("{}/index.json", registry_url())) {
         let search = format!("\"name\":\"{}\"", pkg_name);
         if body.contains(&search) {
-            println!("xiom pkg: found {} in registry", pkg_name);
+            println!("xiom pkg: found {} in remote registry", pkg_name);
             if let Err(e) = install_from_registry_download(pkg_name, _version, &registry_url()) {
                 eprintln!("xiom pkg: registry download failed: {e}");
             } else {
@@ -608,7 +609,30 @@ fn install_package(args: &[String]) {
         }
     }
 
-    // 2. Fallback: local ecosystem directory
+    // 2. Try local index.json for GitHub Releases download
+    if let Ok(index_content) = read_local_index() {
+        if let Ok(index) = serde_json::from_str::<Value>(&index_content) {
+            if let Some(packages) = index["packages"].as_array() {
+                for pkg in packages {
+                    if pkg["name"].as_str() == Some(pkg_name) || pkg["name"].as_str() == Some(&format!("xiom-{}", pkg_name)) {
+                        let version = _version.map(|v| v.to_string())
+                            .unwrap_or_else(|| pkg["version"].as_str().unwrap_or("0.1.0").to_string());
+                        let dl_url = pkg["download_url"].as_str().unwrap_or("");
+                        if !dl_url.is_empty() {
+                            println!("xiom pkg: downloading {} v{} from GitHub Releases", pkg_name, version);
+                            if let Err(e) = download_and_install(pkg_name, &version, dl_url) {
+                                eprintln!("xiom pkg: download failed: {e}");
+                            } else {
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Fallback: local packages/ directory
     install_from_ecosystem(pkg_name);
 }
 
@@ -759,7 +783,55 @@ fn install_from_registry_download(name: &str, version: Option<&str>, registry: &
     }
 }
 
-/// Get XIOM_HOME directory.
+/// Read the local packages/index.json registry manifest.
+fn read_local_index() -> Result<String, String> {
+    let workspace = find_workspace_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let index_path = workspace.join("packages").join("index.json");
+    std::fs::read_to_string(&index_path).map_err(|e| format!("read index.json: {e}"))
+}
+
+/// Download and install a package from a GitHub Releases URL.
+fn download_and_install(pkg_name: &str, version: &str, url: &str) -> Result<(), String> {
+    let xiom_home = get_xiom_home();
+    let pkg_dir = xiom_home.join("packages").join(format!("{}-{}", pkg_name, version));
+
+    if pkg_dir.exists() {
+        println!("xiom pkg: {} v{} already installed at {}", pkg_name, version, pkg_dir.display());
+        return Ok(());
+    }
+
+    let _ = std::fs::create_dir_all(&pkg_dir);
+    eprintln!("xiom pkg: downloading {}...", url);
+
+    // Try ureq first, then curl, then PowerShell
+    let data = match ureq::get(url).call() {
+        Ok(resp) => {
+            let mut buf = Vec::new();
+            resp.into_reader().read_to_end(&mut buf).map_err(|e| format!("read: {e}"))?;
+            buf
+        }
+        Err(_) => {
+            http_get_binary(url)?
+        }
+    };
+
+    // Save and extract
+    let tmp = std::env::temp_dir().join(format!("xiom_pkg_{}_{}.tar.gz", pkg_name, version));
+    std::fs::write(&tmp, &data).map_err(|e| format!("write: {e}"))?;
+
+    let status = std::process::Command::new("tar")
+        .args(["-xzf", &tmp.to_string_lossy(), "-C", &pkg_dir.to_string_lossy()])
+        .status()
+        .map_err(|e| format!("tar: {e}"))?;
+
+    if status.success() {
+        let _ = std::fs::remove_file(&tmp);
+        println!("xiom pkg: installed {} v{} -> {}", pkg_name, version, pkg_dir.display());
+        Ok(())
+    } else {
+        Err("extraction failed".to_string())
+    }
+}
 fn get_xiom_home() -> PathBuf {
     std::env::var("XIOM_HOME").ok().map(PathBuf::from).unwrap_or_else(|| {
         let base = if cfg!(windows) {
