@@ -1,6 +1,6 @@
 # XIOM Compiler Architecture
 
-**Version:** v0.45.3 "Phase 5a/5b Complete"
+**Version:** v0.49.8 "Phase 5a/5b Complete"
 **Date:** 2026-07-14
 **Branch:** `feat/architect` (Phase 5c)
 **Status:** Living document — updated as the compiler evolves
@@ -17,7 +17,7 @@ The XIOM compiler (`xiom`) is a multi-stage, single-pass compiler written in Rus
 - **Borrow checker** enforces lexical-scope ownership at compile time. References tracked as read/write borrows that must not overlap with mutations.
 - **No null types.** All optional values use `Option[T]` discriminated unions with discriminant checks.
 - **Move semantics** checked at AST level — variables marked consumed after by-value pass.
-- **`&mut self` receiver support**: struct methods receive `self` by pointer, enabling in-place mutation (v0.45.3).
+- **`&mut self` receiver support**: struct methods receive `self` by pointer, enabling in-place mutation (v0.49.8).
 - **Unsafe code** explicitly marked (`unsafe { ... }` blocks). Contracts validate pre/post conditions around unsafe regions.
 
 ### VERIFIED — Contracts as compiler-enforced specification
@@ -46,7 +46,7 @@ Checker → Verify (SMT Generator, --verify only) → SMT-LIB 2.6
 
 ---
 
-## 3. What Changed: v0.33.0 → v0.45.3
+## 3. What Changed: v0.33.0 → v0.49.8
 
 ### 3.1 Phase 5a — Codegen Hardening (ALL COMPLETE ✅)
 
@@ -133,7 +133,7 @@ Enforces maximum safety constraints:
 
 #### 4.1c. Compiler Robustness (from V5/V6/V7 audits)
 
-| Issue | Status in v0.45.3 | 5c Target |
+| Issue | Status in v0.49.8 | 5c Target |
 |-------|------------------|-----------|
 | Recursion depth limit | ✅ Fixed (500) | Raise to configurable via `--max-depth N` |
 | Generic mono loop guard | ✅ Fixed (65536) | Lowered to 1000 with clear error message |
@@ -240,13 +240,14 @@ Current smoke tests provide basic coverage (compile + run checks). Phase 5c upgr
 
 ## 6. Updated Crate Reference
 
-| File | Lines (v0.33) | Lines (v0.45.3) | Growth |
+| File | Lines (v0.33) | Lines (v0.49.8) | Growth |
 |------|---------------|-----------------|--------|
 | `crates/xiom-ast/src/lib.rs` | 496 | 533 | +37 |
 | `crates/xiom-lexer/src/lib.rs` | 503 | 503 | — |
 | `crates/xiom-parser/src/lib.rs` | 1931 | 1362 | -569 (refactored) |
 | `crates/xiom-check/src/lib.rs` | 3105 | 4116 | +1011 |
 | `crates/xiom-codegen/src/lib.rs` | 3910 | ~8093 | +4183 |
+| `crates/xiom-graph/src/lib.rs` | — | new | new |
 | `crates/xiom-verify/src/lib.rs` | 218 | 218 | — |
 | `crates/xiom/src/main.rs` | 968 | 968 | — |
 
@@ -256,7 +257,7 @@ Current smoke tests provide basic coverage (compile + run checks). Phase 5c upgr
 
 ---
 
-## 7. Current Gates (v0.45.3)
+## 7. Current Gates (v0.49.8)
 
 | Gate | Count | Status |
 |------|-------|--------|
@@ -273,10 +274,11 @@ Current smoke tests provide basic coverage (compile + run checks). Phase 5c upgr
 ## Appendix A: Crate Dependency Graph (Unchanged)
 
 ```
-xiom → xiom-ast, xiom-lexer, xiom-parser, xiom-check, xiom-codegen, xiom-verify
+xiom → xiom-ast, xiom-lexer, xiom-parser, xiom-check, xiom-codegen, xiom-graph, xiom-verify
 xiom-parser → xiom-ast, xiom-lexer
 xiom-check → xiom-ast, xiom-lexer, xiom-parser
 xiom-codegen → xiom-ast
+xiom-graph → xiom-ast
 xiom-verify → xiom-ast
 ```
 
