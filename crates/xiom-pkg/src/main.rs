@@ -22,6 +22,11 @@ fn registry_url() -> String {
 // ============================================================================
 
 fn http_get(url: &str) -> Result<String, String> {
+    // Strategy 0: ureq (native Rust, TLS built-in, no external deps)
+    match ureq::get(url).call() {
+        Ok(resp) => return resp.into_string().map_err(|e| format!("ureq read: {e}")),
+        Err(_) => {} // fall through to curl
+    }
     // Strategy 1: curl (most portable, handles HTTPS)
     if let Ok(output) = process::Command::new("curl").args(["-s", "-L", url]).output() {
         if output.status.success() {
@@ -199,7 +204,16 @@ fn install_from_registry(package: &str, version: Option<&str>, registry: &str) -
 }
 
 fn http_get_binary(url: &str) -> Result<Vec<u8>, String> {
-    // Use curl for binary downloads (available on all modern OS)
+    // Strategy 0: ureq (native Rust, TLS built-in)
+    match ureq::get(url).call() {
+        Ok(resp) => {
+            let mut data = Vec::new();
+            resp.into_reader().read_to_end(&mut data).map_err(|e| format!("read: {e}"))?;
+            return Ok(data);
+        }
+        Err(_) => {}
+    }
+    // Strategy 1: curl (binary downloads, handles HTTPS)
     if let Ok(output) = process::Command::new("curl").args(["-s", "-L", url]).output() {
         if output.status.success() {
             return Ok(output.stdout);
