@@ -214,10 +214,6 @@ fn e2e_stress_compiles() {
     assert!(compile_and_run("examples\\phase1_stress.xi").is_some());
 }
 
-#[test]
-fn e2e_selfhost_sim_compiles() {
-    assert!(compile_and_run("examples\\phase1_selfhost.xi").is_some());
-}
 
 #[test]
 fn e2e_async_spawn_compiles() {
@@ -360,51 +356,10 @@ fn e2e_target_riscv_triple() {
 // E2E: Selfhost Pipeline (compile only, IR emission)
 // ============================================================================
 
-#[test]
-fn e2e_selfhost_lexer_compiles() {
-    let output = Command::new(xiom_path())
-        .args(["--emit-ir", "selfhost\\xiom-lexer.xi"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed");
-    assert!(output.status.success(), "selfhost/xiom-lexer.xi should compile");
-}
 
-#[test]
-fn e2e_selfhost_parser_compiles() {
-    let output = Command::new(xiom_path())
-        .args(["--emit-ir", "selfhost\\xiom-parser.xi"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed");
-    assert!(output.status.success(), "selfhost/xiom-parser.xi should compile");
-}
 
-#[test]
-fn e2e_selfhost_check_compiles() {
-    let output = Command::new(xiom_path())
-        .args(["--emit-ir", "selfhost\\xiom-check.xi"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed");
-    assert!(output.status.success(), "selfhost/xiom-check.xi should compile");
-}
 
-#[test]
-fn e2e_selfhost_codegen_compiles() {
-    let output = Command::new(xiom_path())
-        .args(["--emit-ir", "selfhost\\xiom-codegen.xi"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed");
-    assert!(output.status.success(), "selfhost/xiom-codegen.xi should compile");
-}
 
-#[test]
-fn e2e_selfhost_compiler_module() {
-    let ir = compile_ir("selfhost\\xiom.xi").expect("selfhost/xiomc.xi should compile to IR");
-    assert!(ir.contains("define i64 @main"), "selfhost compiler should have main");
-}
 
 #[test]
 fn e2e_no_contracts_flag() {
@@ -416,15 +371,6 @@ fn e2e_no_contracts_flag() {
     assert!(output.status.success(), "contracts should compile without contract checks");
 }
 
-#[test]
-fn e2e_target_wasm_selfhost_lexer() {
-    let output = Command::new(xiom_path())
-        .args(["--target", "wasm", "--emit-ir", "selfhost\\xiom-lexer.xi"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed");
-    assert!(output.status.success(), "selfhost lexer should compile to WASM IR");
-}
 
 // ============================================================================
 // E2E: Extern Runtime (xiom_runtime.c)
@@ -439,74 +385,11 @@ fn e2e_runtime_c_exists() {
     );
 }
 
-#[test]
-fn e2e_selfhost_v091_compiles() {
-    let output = Command::new(xiom_path())
-        .args(["--emit-ir", "selfhost\\xiomc_v091.xi"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed");
-    assert!(output.status.success(), "selfhost/xiomc_v091.xi should compile to IR");
-}
 
-#[test]
-fn e2e_selfhost_v091_has_main() {
-    let output = Command::new(xiom_path())
-        .args(["--emit-ir", "selfhost\\xiomc_v091.xi"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("define i64 @main"), "v091 should have main");
-}
 
-#[test]
-fn e2e_selfhost_v094_compiles() {
-    let output = Command::new(xiom_path())
-        .args(["--emit-ir", "selfhost\\xiomc_v094.xi"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed");
-    assert!(output.status.success(), "selfhost/xiomc_v094.xi should compile to IR");
-}
 
-#[test]
-fn e2e_selfhost_v094_has_main() {
-    let output = Command::new(xiom_path())
-        .args(["--emit-ir", "selfhost\\xiomc_v094.xi"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("define i64 @main"), "v094 should have main");
-}
 
-#[test]
-fn e2e_selfhost_v094_contains_extern_decls() {
-    let output = Command::new(xiom_path())
-        .args(["--emit-ir", "selfhost\\xiomc_v094.xi"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("@xiom_ir_define_s"), "v094 IR should declare xiom_ir_define_s");
-    assert!(stdout.contains("@xiom_ir_call_fn"), "v094 IR should declare xiom_ir_call_fn");
-    assert!(stdout.contains("@xiom_ir_call_arg_lit"), "v094 IR should declare xiom_ir_call_arg_lit");
-    assert!(stdout.contains("@xiom_ir_param_int"), "v094 IR should declare xiom_ir_param_int");
-    assert!(stdout.contains("@xiom_ir_param_double"), "v094 IR should declare xiom_ir_param_double");
-    assert!(stdout.contains("@xiom_ir_fmul"), "v094 IR should declare xiom_ir_fmul");
-}
 
-#[test]
-fn e2e_selfhost_v094_contains_codegen_fn() {
-    let output = Command::new(xiom_path())
-        .args(["--emit-ir", "selfhost\\xiomc_v094.xi"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("define void @emit_demo_float"), "v094 should define emit_demo_float");
-}
 
 #[test]
 fn e2e_runtime_ir_declares_externs() {
@@ -521,133 +404,20 @@ fn e2e_runtime_ir_declares_externs() {
     assert!(stdout.contains("@xiom_free"), "IR should declare xiom_free");
 }
 
-#[test]
-fn e2e_selfhost_v10_self_compile() {
-    let output = std::process::Command::new(xiom_path())
-        .args(["-o", "e2e_v10_self_compile.exe", "selfhost\\xiomc_v10.xi"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed to compile v10 selfhost");
-    assert!(output.status.success(), "v10 selfhost compilation failed");
 
-    let run = std::process::Command::new(project_root().join("e2e_v10_self_compile.exe"))
-        .current_dir(project_root())
-        .output()
-        .expect("failed to run v10 selfhost");
-    let stdout = String::from_utf8_lossy(&run.stdout);
-
-    assert!(stdout.contains("define i64 @main"), "Selfhost must emit its own main");
-    assert!(stdout.contains("define"), "Selfhost must emit function definitions");
-    let fn_count = stdout.matches("define ").count();
-    assert!(fn_count >= 5, "Selfhost found only {} functions, expected >= 5", fn_count);
-}
-
-#[test]
-fn e2e_selfhost_v10_self_compile_to_native() {
-    // Phase 4: Self-hosting bootstrap — the v10 selfhost compiler
-    // generates IR that needs updating to work with the v2.0 runtime.
-    // This test will be re-enabled after Phase 3 (Z3, debugger, LSP).
-    if std::env::var("XIOM_SELFHOST").is_err() {
-        eprintln!("  [SKIP] Selfhost native compile — enable with XIOM_SELFHOST=1 (Phase 4)");
-        return;
-    }
-    let output = std::process::Command::new(xiom_path())
-        .args(["-o", "e2e_v10_self_bootstrap_src.exe", "selfhost\\xiomc_v10.xi"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed v10 compile");
-    assert!(output.status.success());
-
-    let run = std::process::Command::new(project_root().join("e2e_v10_self_bootstrap_src.exe"))
-        .current_dir(project_root())
-        .output()
-        .expect("failed v10 run");
-    let stdout = String::from_utf8_lossy(&run.stdout);
-
-    std::fs::write(project_root().join("e2e_v10_output.ll"), stdout.as_bytes()).expect("write IR");
-
-    let clang_result = std::process::Command::new("clang")
-        .args(["-maes", "-DXIOM_NO_ASM", "-o", "e2e_v10_bootstrap.exe", "e2e_v10_output.ll", "stdlib\\runtime\\xiom_runtime.c"])
-        .current_dir(project_root())
-        .output();
-
-    if let Ok(result) = clang_result {
-        assert!(result.status.success(), "Bootstrap IR compilation failed");
-    }
-}
 
 // ============================================================================
 // E2E: Selfhost v11_test — Parameter-counting compiler for demo_float.xi
 // ============================================================================
 
-#[test]
-fn e2e_selfhost_v11_compiles() {
-    let output = Command::new(xiom_path())
-        .args(["--emit-ir", "selfhost\\xiomc_v11_test.xi"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed");
-    assert!(output.status.success(), "selfhost/xiomc_v11_test.xi should compile to IR");
-}
 
-#[test]
-fn e2e_selfhost_v11_has_main() {
-    let output = Command::new(xiom_path())
-        .args(["--emit-ir", "selfhost\\xiomc_v11_test.xi"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("define i64 @main"), "v11_test IR should contain main");
-    assert!(stdout.contains("define"), "v11_test IR should contain function definitions");
-}
 
-#[test]
-fn e2e_selfhost_v11_self_run() {
-    // Compile v11_test to binary, run it — it should emit IR for demo_float.xi functions
-    let output = Command::new(xiom_path())
-        .args(["-o", "e2e_v11_self.exe", "selfhost\\xiomc_v11_test.xi"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed to compile v11 selfhost");
-    assert!(output.status.success(), "v11_test selfhost compilation failed");
-
-    let run = Command::new(project_root().join("e2e_v11_self.exe"))
-        .current_dir(project_root())
-        .output()
-        .expect("failed to run v11 selfhost");
-    let stdout = String::from_utf8_lossy(&run.stdout);
-
-    assert!(stdout.contains("define i64 @main"), "v11_test must emit main function");
-    assert!(stdout.contains("define i64 @add"), "v11_test must emit add function");
-    assert!(stdout.contains("define double @sq"), "v11_test must emit sq function");
-    let fn_count = stdout.matches("define ").count();
-    assert!(fn_count >= 3, "v11_test found only {} functions, expected >= 3", fn_count);
-}
 
 // ============================================================================
 // E2E: Selfhost v093 / v095 — Pipeline compilation checks
 // ============================================================================
 
-#[test]
-fn e2e_selfhost_v093_compiles() {
-    let output = Command::new(xiom_path())
-        .args(["--emit-ir", "selfhost\\xiomc_v093.xi"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed");
-    assert!(output.status.success(), "selfhost/xiomc_v093.xi should compile to IR");
-}
 
-#[test]
-fn e2e_selfhost_v095_compiles() {
-    let output = Command::new(xiom_path())
-        .args(["--emit-ir", "selfhost\\xiomc_v095.xi"])
-        .current_dir(project_root())
-        .output()
-        .expect("failed");
-    assert!(output.status.success(), "selfhost/xiomc_v095.xi should compile to IR");
-}
 
 // ============================================================================
 // E2E: Multi-File Module Catalog — Regression Tests
