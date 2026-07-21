@@ -1,4 +1,4 @@
-// XIOM — Type Checker
+﻿// XIOM — Type Checker
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -1305,7 +1305,7 @@ impl Checker {
                 Stmt::For(_, e, b, _) => { collect_expr_names(e, out); collect_block_names(b, out); }
                 Stmt::Spawn(b, _) => collect_block_names(b, out),
                 Stmt::Destructure(_, e, _) => collect_expr_names(e, out),
-                Stmt::Break(_) | Stmt::Continue(_) => {}
+                Stmt::Break(..) | Stmt::Continue(..) => {}
             }
         }
         fn collect_expr_names(expr: &Expr, out: &mut HashSet<String>) {
@@ -2075,8 +2075,8 @@ impl Checker {
             Stmt::Spawn(body, _) => {
                 self.check_block(body, None);
             }
-            Stmt::Break(_) => {}
-            Stmt::Continue(_) => {}
+            Stmt::Break(..) => {}
+            Stmt::Continue(..) => {}
         }
     }
 
@@ -3397,8 +3397,8 @@ impl BorrowChecker {
                 self.check_block(body);
                 self.pop_scope();
             }
-            Stmt::Break(_) => {}
-            Stmt::Continue(_) => {}
+            Stmt::Break(..) => {}
+            Stmt::Continue(..) => {}
         }
     }
 

@@ -1,4 +1,4 @@
-// XIOM — Canonical Formatter
+﻿// XIOM — Canonical Formatter
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -271,11 +271,11 @@ impl Formatter {
                 self.format_expr(val);
                 self.buf.push_str(";\n");
             }
-            Stmt::Break(_) => {
+            Stmt::Break(..) => {
                 self.push_indent();
                 self.buf.push_str("break;\n");
             }
-            Stmt::Continue(_) => {
+            Stmt::Continue(..) => {
                 self.push_indent();
                 self.buf.push_str("continue;\n");
             }

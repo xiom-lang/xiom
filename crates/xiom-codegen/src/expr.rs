@@ -1,4 +1,4 @@
-use xiom_ast::*;
+﻿use xiom_ast::*;
 use std::collections::HashMap;
 
 use super::IrEmitter;
@@ -1120,14 +1120,14 @@ impl IrEmitter {
             Stmt::Spawn(body, _) => {
                 self.compile_block(body, false)?;
             }
-            Stmt::Break(_) => {
+            Stmt::Break(..) => {
                 if let Some((_, break_label)) = self.loop_stack.last().cloned() {
                     self.emitln(&format!("  br label %{break_label}"));
                     let dead = self.fresh_block("after_break");
                     self.emitln(&format!("\n{dead}:"));
                 }
             }
-            Stmt::Continue(_) => {
+            Stmt::Continue(..) => {
                 if let Some((cont_label, _)) = self.loop_stack.last().cloned() {
                     self.emitln(&format!("  br label %{cont_label}"));
                     let dead = self.fresh_block("after_continue");
