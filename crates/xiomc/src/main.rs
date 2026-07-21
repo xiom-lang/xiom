@@ -111,6 +111,7 @@ fn main() {
     let init_mode = args.iter().any(|a| a == "init");
     let new_mode = args.iter().any(|a| a == "new");
     let build_mode = args.iter().any(|a| a == "build");
+    let doctor_mode = args.iter().any(|a| a == "doctor" || a == "--doctor");
     let graph_mode = args.iter().any(|a| a == "--graph");
     let graph_format = if args.iter().any(|a| a == "--graph=mermaid" || a == "--graph-format=mermaid") {
         Some("mermaid")
@@ -174,6 +175,11 @@ fn main() {
 
     if publish_mode {
         handle_publish(&args);
+        return;
+    }
+
+    if doctor_mode {
+        run_doctor();
         return;
     }
 
@@ -1234,4 +1240,29 @@ fn test_hello() -> Int {{
     eprintln!("    xiom check         ← type-check your project");
     eprintln!("    xiomc src/main.xi --run   ← compile and run");
     eprintln!("    xiom test          ← run test suite");
+}
+
+/// 9A: xiom doctor — check all dependencies and report status.
+fn run_doctor() {
+    println!("XIOM Doctor v0.49.8");
+    println!("====================");
+    println!();
+    println!("  [OK] xiomc v{}", option_env!("XIOM_RELEASE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")));
+    let clang_ok = std::process::Command::new("clang").arg("--version").output().map(|o| o.status.success()).unwrap_or(false);
+    if clang_ok { println!("  [OK] clang/LLVM found"); }
+    else { println!("  [!!] clang NOT FOUND - run: xiom install llvm"); }
+    let z3_ok = xiom_verify::Z3Runner::find_z3().is_some();
+    if z3_ok { println!("  [OK] z3 bundled (contract verification)"); }
+    else { println!("  [--] z3 not found (optional)"); }
+    let home = std::env::var("XIOM_HOME").unwrap_or_else(|_| {
+        if cfg!(windows) { format!("{}\\xiom", std::env::var("LOCALAPPDATA").unwrap_or_default()) }
+        else { format!("{}/xiom", std::env::var("HOME").unwrap_or_default()) }
+    });
+    println!("  [--] XIOM_HOME={}", home);
+    let lib = std::path::Path::new(&home).join("lib").join("xiom");
+    if lib.exists() { println!("  [OK] stdlib installed"); }
+    else { println!("  [!!] stdlib missing - re-run installer"); }
+    let pkgs = std::path::Path::new(&home).join("packages");
+    if pkgs.exists() { println!("  [OK] packages directory exists"); }
+    else { println!("  [--] No packages (use: xiom pkg install <name>)"); }
 }
