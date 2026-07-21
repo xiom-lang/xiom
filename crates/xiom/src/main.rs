@@ -720,8 +720,8 @@ fn run_xiom_tests(args: &[String]) {
 
     for test_file in &test_files {
         let exe_path = format!("{}.test.exe", test_file);
-        let xiomc_path = std::env::current_exe().unwrap_or_else(|_| "xiom".into());
-        let compile = Cmd::new(&xiomc_path)
+        let xiom_path = std::env::current_exe().unwrap_or_else(|_| "xiom".into());
+        let compile = Cmd::new(&xiom_path)
             .args(["-o", &exe_path, test_file])
             .output();
 
@@ -1115,9 +1115,9 @@ fn run_benchmarks(args: &[String], iterations: u32) {
 
     for bench_file in &bench_files {
         let exe_path = format!("{}.bench.exe", bench_file);
-        let xiomc_path = std::env::current_exe().unwrap_or_else(|_| "xiom".into());
+        let xiom_path = std::env::current_exe().unwrap_or_else(|_| "xiom".into());
 
-        let compile = std::process::Command::new(&xiomc_path)
+        let compile = std::process::Command::new(&xiom_path)
             .args(["-o", &exe_path, "--release", bench_file])
             .output();
 

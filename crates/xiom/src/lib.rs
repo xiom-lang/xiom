@@ -923,12 +923,12 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
             let abs_output = if std::path::Path::new(output).is_absolute() { output.to_string() } else { cwd0.join(output).to_string_lossy().to_string() };
 
             let unique_tmp = std::env::temp_dir().join(format!(
-                "xiomc_link_{}_{}",
+                "xiom_link_{}_{}",
                 std::process::id(),
                 output.replace(['\\', '/', ':', '.'], "_")
             ));
             let _ = std::fs::create_dir_all(&unique_tmp);
-            const STAGED_IR_NAME: &str = "xiomc_input.ll";
+            const STAGED_IR_NAME: &str = "xiom_input.ll";
             if let Err(e) = fs::copy(&ir_path, unique_tmp.join(STAGED_IR_NAME)) {
                 eprintln!("error: cannot stage IR file into temp dir: {e}");
                 process::exit(1);
