@@ -2,7 +2,7 @@
 # ============================================================================
 # XIOM Compiler Installer — macOS & Linux
 # ============================================================================
-# Installs the XIOM toolchain: xiomc, xiom fmt, xiom doc (and aux tools)
+# Installs the XIOM toolchain: xiom, xiom fmt, xiom doc (and aux tools)
 #
 # Two modes:
 #   Source build:  ./install.sh                  (auto-installs deps first)
@@ -70,7 +70,7 @@ else
     echo -e "${CYAN}Building XIOM toolchain (release mode)...${NC}"
     cd "$SCRIPT_DIR"
 
-    TOOLS=("xiomc" "xiom-fmt" "xiom-doc" "xiom-ffigen" "xiom-pkg" "xiom-lsp")
+    TOOLS=("xiom" "xiom-fmt" "xiom-doc" "xiom-ffigen" "xiom-pkg" "xiom-lsp")
     for tool in "${TOOLS[@]}"; do
         echo "  Building $tool..."
         cargo build -p "$tool" --release 2>/dev/null || {
@@ -87,7 +87,7 @@ echo -e "${CYAN}Installing to $INSTALL_DIR...${NC}"
 mkdir -p "$BIN_DIR" "$LIB_DIR" "$RUNTIME_DIR"
 
 # Binaries
-for exe in xiomc xiom-fmt xiom-doc xiom-ffigen xiom-pkg xiom-lsp; do
+for exe in xiom xiom-fmt xiom-doc xiom-ffigen xiom-pkg xiom-lsp; do
     if [ -f "$RELEASE_DIR/$exe" ]; then
         cp "$RELEASE_DIR/$exe" "$BIN_DIR/"
         echo -e "  ${GREEN}✓${NC} $exe"
@@ -103,13 +103,13 @@ cat > "$BIN_DIR/xiom" << 'WRAPPER'
 # XIOM toolchain dispatcher
 BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 case "${1:-}" in
-    compile) shift; exec "$BIN_DIR/xiomc" "$@" ;;
+    compile) shift; exec "$BIN_DIR/xiom" "$@" ;;
     fmt)     shift; exec "$BIN_DIR/xiom-fmt" "$@" ;;
     doc)     shift; exec "$BIN_DIR/xiom-doc" "$@" ;;
     ffigen)  shift; exec "$BIN_DIR/xiom-ffigen" "$@" ;;
     pkg)     shift; exec "$BIN_DIR/xiom-pkg" "$@" ;;
     lsp)     shift; exec "$BIN_DIR/xiom-lsp" "$@" ;;
-    *)       exec "$BIN_DIR/xiomc" "$@" ;;
+    *)       exec "$BIN_DIR/xiom" "$@" ;;
 esac
 WRAPPER
 chmod +x "$BIN_DIR/xiom"
@@ -158,11 +158,11 @@ echo -e "${CYAN}Verifying installation...${NC}"
 
 export PATH="$BIN_DIR:$PATH"
 
-if [ -x "$BIN_DIR/xiomc" ]; then
-    "$BIN_DIR/xiomc" --version 2>/dev/null || true
-    echo -e "  ${GREEN}✓${NC} xiomc is ready"
+if [ -x "$BIN_DIR/xiom" ]; then
+    "$BIN_DIR/xiom" --version 2>/dev/null || true
+    echo -e "  ${GREEN}✓${NC} xiom is ready"
 else
-    echo -e "  ${RED}✗${NC} xiomc not found in $BIN_DIR"
+    echo -e "  ${RED}✗${NC} xiom not found in $BIN_DIR"
 fi
 
 # ── Done ────────────────────────────────────────────────────────────────
@@ -171,7 +171,7 @@ echo -e "  ${MAGENTA}========================================${NC}"
 echo -e "  ${MAGENTA}XIOM installed successfully!${NC}"
 echo -e "  ${MAGENTA}========================================${NC}"
 echo ""
-echo -e "  Binary:   ${GREEN}$BIN_DIR/xiomc${NC}"
+echo -e "  Binary:   ${GREEN}$BIN_DIR/xiom${NC}"
 echo -e "  Usage:    ${GREEN}xiom compile file.xi${NC}"
 echo -e "            ${GREEN}xiom fmt file.xi${NC}"
 echo -e "            ${GREEN}xiom doc .${NC}"

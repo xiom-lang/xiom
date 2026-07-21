@@ -9,14 +9,14 @@ use std::path::Path;
 use std::io::Write;
 use std::fs;
 
-fn xiomc_path() -> String {
+fn xiom_path() -> String {
     let mut path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent().unwrap().parent().unwrap()
-        .join("target").join("debug").join("xiomc.exe");
+        .join("target").join("debug").join("xiom.exe");
     if !path.exists() {
         path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent().unwrap().parent().unwrap()
-            .join("target").join("release").join("xiomc.exe");
+            .join("target").join("release").join("xiom.exe");
     }
     path.to_str().unwrap().to_string()
 }
@@ -102,11 +102,11 @@ fn stdlib_all_modules_compile_to_ir() {
     let tmp_path = tmp_file.to_str().unwrap().to_string();
 
     // Compile with --emit-ir (checker pass is required)
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", &tmp_path])
         .current_dir(&project_dir)
         .output()
-        .expect("failed to execute xiomc");
+        .expect("failed to execute xiom");
 
     let _ = fs::remove_file(&tmp_file);
 
@@ -129,11 +129,11 @@ fn compile_module(module: &str) -> bool {
     let tmp_file = std::env::temp_dir().join(format!("xiom_stdlib_{}.xi", module));
     fs::write(&tmp_file, program).expect("write temp file");
     let tmp_path = tmp_file.to_str().unwrap().to_string();
-    let output = Command::new(xiomc_path())
+    let output = Command::new(xiom_path())
         .args(["--emit-ir", &tmp_path])
         .current_dir(&project_dir)
         .output()
-        .expect("failed to execute xiomc");
+        .expect("failed to execute xiom");
     let _ = fs::remove_file(&tmp_file);
     output.status.success()
 }

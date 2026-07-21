@@ -32,7 +32,7 @@
 - **xiom-graph crate**: new dependency graph crate (DependencyGraph, ModuleNode, topological sort, cycle detection)
 - **xiom.toml manifest**: full TOML schema (project, dependencies, compiler config), backward compat with package.xi
 - **Transitive module discovery**: recursive .xi file discovery from source roots, module header + use parsing
-- **Pipeline integration**: wired into xiomc (expand_sources_with_graph), LSP (workspace source roots), MCP (graph-based discovery)
+- **Pipeline integration**: wired into xiom (expand_sources_with_graph), LSP (workspace source roots), MCP (graph-based discovery)
 - **11 feature regression tests**: graph construction, topo sort, cycle detection, manifest parsing, source root resolution, module discovery
 - **Zero regression**: 798→809 total tests, all passing
 
@@ -102,7 +102,7 @@
 | `crates/xiom-graph/src/sort.rs` | **NEW** — Kahn topological sort, cycle detection |
 | `crates/xiom-graph/src/hash.rs` | **NEW** — SHA-256 hashing, Fingerprint, short_hash |
 | `crates/xiom-graph/src/cache.rs` | **NEW** — CacheDb (Arc<RwLock>), 5-tier cache, transitive invalidation |
-| `crates/xiomc/src/lib.rs` | expand_sources_with_graph, graph-aware incremental_check/save, compile pipeline |
+| `crates/xiom/src/lib.rs` | expand_sources_with_graph, graph-aware incremental_check/save, compile pipeline |
 | `crates/xiom-codegen/src/lib.rs` | IrEmitter (55 fields), compile_program, const_eval |
 | `crates/xiom-codegen/src/decl.rs` | compile_fn, compile_top_decl, recursion guard |
 | `crates/xiom-codegen/src/expr.rs` | Expr codegen, call dispatch, hot reload thunks |
@@ -146,7 +146,7 @@ cargo test -p xiom-check
 .\package.ps1 -Version "0.49.1"
 
 # Run satellite motion demo (trig verification)
-& target\debug\xiomc.exe examples\satellite_motion.xi --run
+& target\debug\xiom.exe examples\satellite_motion.xi --run
 
 # MCP server
 cargo run -p xiom-mcp

@@ -663,7 +663,7 @@ module lexer {
 }
 
 module parser {
-  // Hardcoded structural counts of XIOMc.ax
+  // Hardcoded structural counts of xiom.ax
   pub fn count_modules() -> Int { return 4; }
   pub fn count_functions() -> Int { return 29; }
   pub fn count_types() -> Int { return 2; }

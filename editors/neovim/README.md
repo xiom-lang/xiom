@@ -21,4 +21,4 @@ or paste into `init.lua`).
   and you can enable basic keyword highlighting with `vim.cmd('runtime! syntax/c.vim')`
   as a rough fallback, or use a TextMate-grammar plugin.
 - Debug target defaults to `a.exe`/`a.out` in the workspace root — compile first:
-  `xiomc -g -o a.exe main.xi`.
+  `xiom -g -o a.exe main.xi`.

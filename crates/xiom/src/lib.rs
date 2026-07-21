@@ -190,7 +190,7 @@ pub fn expand_sources_with_graph(source_paths: &[String]) -> (Vec<String>, Vec<S
                         return (paths, extra_dirs);
                     }
                     Err(e) => {
-                        eprintln!("xiomc: warning: dependency graph: {}", e);
+                        eprintln!("xiom: warning: dependency graph: {}", e);
                     }
                 }
             }
@@ -205,7 +205,7 @@ pub fn expand_sources_with_graph(source_paths: &[String]) -> (Vec<String>, Vec<S
         Err(e) => {
             // No project found or parse error — fall back silently
             if !matches!(e, xiom_graph::GraphError::NoProjectFound(_)) {
-                eprintln!("xiomc: warning: {}", e);
+                eprintln!("xiom: warning: {}", e);
             }
             (source_paths.to_vec(), Vec::new())
         }
@@ -1456,7 +1456,7 @@ pub fn explain_error(code: &str) {
         Err(_) => {
             eprintln!("Unknown error code: {code}");
             eprintln!("Available codes are listed in docs/error_codes/README.md");
-            eprintln!("Run: xiomc --explain X0010  (for type mismatch)");
+            eprintln!("Run: xiom --explain X0010  (for type mismatch)");
             std::process::exit(1);
         }
     }

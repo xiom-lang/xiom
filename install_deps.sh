@@ -252,7 +252,7 @@ else
         fail "Could not install LLVM/clang."
         info "  Manual install: https://github.com/llvm/llvm-project/releases"
         info "  NOTE: Without clang, the compiler emits .ll IR files but cannot link native binaries."
-        info "  The compiler itself (xiomc) does not require clang to compile XIOM source to IR."
+        info "  The compiler itself (xiom) does not require clang to compile XIOM source to IR."
         ((failed++))
     fi
 fi

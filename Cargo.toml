@@ -6,7 +6,7 @@ members = [
     "crates/xiom-parser",
     "crates/xiom-check",
     "crates/xiom-codegen",
-    "crates/xiomc",
+    "crates/xiom",
     "crates/xiom-fmt",
     "crates/xiom-doc",
     "crates/xiom-lsp",

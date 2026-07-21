@@ -16,7 +16,7 @@ echo ""
 echo "--- Deleting e2e test executables ---"
 count=0
 for f in *.exe; do
-    if [[ "$f" != "xiomc.exe" && "$f" != "xiom-fmt.exe" && \
+    if [[ "$f" != "xiom.exe" && "$f" != "xiom-fmt.exe" && \
           "$f" != "xiom-doc.exe" && "$f" != "xiom-ffigen.exe" && \
           "$f" != "xiom-pkg.exe" && "$f" != "xiom-lsp.exe" ]]; then
         rm -f "$f"

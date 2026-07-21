@@ -53,11 +53,11 @@ Download the latest `xiom-v0.20.0-windows-x64.zip` from [Releases](https://githu
 | **Rust** (rustc/cargo) | Auto-installed by `install_deps` | Not needed |
 | **LLVM/clang** | Auto-installed by `install_deps` | Warned if missing* |
 | **C build tools** | Auto-installed by `install_deps` | Not needed |
-| **xiomc.exe** | Built from source | Included |
+| **xiom.exe** | Built from source | Included |
 | **stdlib** | Copied from repo | Included |
 | **`.xi` icon** | Registered (optional) | Registered (optional) |
 
-\* clang is a runtime dependency — xiomc emits LLVM IR, clang compiles it to native binary. Without clang, use `xiomc --emit-ir file.xi` to view IR.
+\* clang is a runtime dependency — xiom emits LLVM IR, clang compiles it to native binary. Without clang, use `xiom --emit-ir file.xi` to view IR.
 
 ### Creating a Release
 
@@ -72,7 +72,7 @@ Download the latest `xiom-v0.20.0-windows-x64.zip` from [Releases](https://githu
 Release folder structure:
 ```
 xiom-v0.20.0\
-├── bin\              xiomc.exe, xiom-fmt.exe, xiom-doc.exe,
+├── bin\              xiom.exe, xiom-fmt.exe, xiom-doc.exe,
 │                     xiom-ffigen.exe, xiom-pkg.exe, xiom-lsp.exe,
 │                     xiom-icon.ico
 ├── lib\              Standard library (.xi source files)
@@ -95,13 +95,13 @@ The XIOM compiler can compile itself. The Rust compiler is the bootstrap.
 
 ```powershell
 # Step 1: Compile the self-hosted compiler with Rust
-cargo run -p xiomc -- -o xiomc.exe selfhost/xiomc_v10.xi
+cargo run -p xiom -- -o xiom.exe selfhost/xiom_v10.xi
 
-# Step 2: The resulting xiomc.exe IS the XIOM compiler
-.\xiomc.exe --help
+# Step 2: The resulting xiom.exe IS the XIOM compiler
+.\xiom.exe --help
 
 # Step 3: Use it to compile XIOM code
-.\xiomc.exe examples/demo_float.xi --run
+.\xiom.exe examples/demo_float.xi --run
 ```
 
 ### Bootstrap Chain (Self-Hosting Proof)
@@ -109,11 +109,11 @@ cargo run -p xiomc -- -o xiomc.exe selfhost/xiomc_v10.xi
 The XIOM compiler can compile itself. The bootstrap chain begins with the Rust-compiled compiler and produces a self-sustaining loop:
 
 ```
-   Rust xiomc (bootstrap)
+   Rust xiom (bootstrap)
         │
-        ▼ compiles selfhost/xiomc_v10.xi
+        ▼ compiles selfhost/xiom_v10.xi
         │
-   xiomc.exe  ─── stage 1 selfhost binary
+   xiom.exe  ─── stage 1 selfhost binary
         │
         ▼ reads its own source, emits LLVM IR
         │
@@ -121,22 +121,22 @@ The XIOM compiler can compile itself. The bootstrap chain begins with the Rust-c
         │
         ▼ compiled by clang + xiom_runtime.c
         │
-   xiomc_stage2.exe  ─── stage 2 selfhost binary (target)
+   xiom_stage2.exe  ─── stage 2 selfhost binary (target)
 ```
 
 ```powershell
 # Step 1: Compile the selfhost with Rust (bootstrap)
-cargo run -p xiomc -- -o xiomc.exe selfhost/xiomc_v10.xi
+cargo run -p xiom -- -o xiom.exe selfhost/xiom_v10.xi
 
-# Step 2: The resulting xiomc.exe is the XIOM compiler
-.\xiomc.exe --help
+# Step 2: The resulting xiom.exe is the XIOM compiler
+.\xiom.exe --help
 # → XIOM Compiler v0.12.0
 
 # Step 3: Use it to compile XIOM code
-.\xiomc.exe examples/demo_float.xi --emit-ir
+.\xiom.exe examples/demo_float.xi --emit-ir
 
 # Step 4: Self-host the bootstrap
-.\xiomc.exe selfhost/xiomc_v10.xi --emit-ir
+.\xiom.exe selfhost/xiom_v10.xi --emit-ir
 # → produces LLVM IR for all 18 functions
 ```
 
@@ -144,7 +144,7 @@ Latest verification (2026-07-01, feat/ecosystem branch):
 
 | Step | Command | Result |
 |------|---------|--------|
-| 1 | `cargo run -p xiomc -- -o bootstrap_selfhost.exe selfhost\xiomc_v10.xi` | ✅ Compiled, exit 0 |
+| 1 | `cargo run -p xiom -- -o bootstrap_selfhost.exe selfhost\xiom_v10.xi` | ✅ Compiled, exit 0 |
 | 2 | `.\bootstrap_selfhost.exe` | ✅ Emits `define i64 @main()` + 17 other functions |
 | 3 | `.\bootstrap_selfhost.exe > bootstrap_output.ll` | ✅ 18 function definitions captured |
 | 4 | `clang -o bootstrap_stage2.exe bootstrap_output.ll stdlib\runtime\xiom_runtime.c` | ❌ IR syntax issues (named SSA values in calls lack `%` prefix) |
@@ -157,7 +157,7 @@ Latest verification (2026-07-01, feat/ecosystem branch):
 
 | Command | Description |
 |---------|-------------|
-| `xiomc` | Compiler — compiles .xi to native binary |
+| `xiom` | Compiler — compiles .xi to native binary |
 | `xiom fmt` | Canonical formatter |
 | `xiom doc` | Documentation generator |
 | `xiom lsp` | Language server |
@@ -168,7 +168,7 @@ Latest verification (2026-07-01, feat/ecosystem branch):
 ### Compiler Flags
 
 ```
-xiomc [OPTIONS] <source.xi>
+xiom [OPTIONS] <source.xi>
 
 OPTIONS:
   --help              Show help
@@ -245,13 +245,13 @@ clang --version
 
 ```powershell
 # Build for Windows
-cargo build --release -p xiomc --target x86_64-pc-windows-msvc
+cargo build --release -p xiom --target x86_64-pc-windows-msvc
 
 # Build for Linux
-cargo build --release -p xiomc --target x86_64-unknown-linux-gnu
+cargo build --release -p xiom --target x86_64-unknown-linux-gnu
 
 # Build for macOS ARM
-cargo build --release -p xiomc --target aarch64-apple-darwin
+cargo build --release -p xiom --target aarch64-apple-darwin
 ```
 
 ## Version History
@@ -301,7 +301,7 @@ xiom pkg install xiom-http
 ```
 XIOM/
 ├── crates/           # Rust bootstrap compiler (12 crates)
-│   ├── xiomc/       #   Compiler CLI
+│   ├── xiom/       #   Compiler CLI
 │   ├── xiom-ast/    #   AST definitions
 │   ├── xiom-lexer/  #   Tokenizer
 │   ├── xiom-parser/ #   Recursive descent parser
@@ -309,7 +309,7 @@ XIOM/
 │   ├── xiom-codegen/#   LLVM IR emitter
 │   └── ...           #   fmt, doc, lsp, pkg, ffigen, verify
 ├── selfhost/         # XIOM self-hosted compiler
-│   └── xiomc_v10.xi #   Main compiler source
+│   └── xiom_v10.xi #   Main compiler source
 ├── stdlib/           # Standard library
 │   ├── xiom/        #   core, io, collections, string, math, ffi, async
 │   └── runtime/      #   C runtime (xiom_runtime.c)

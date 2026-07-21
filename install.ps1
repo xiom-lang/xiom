@@ -3,7 +3,7 @@
 .SYNOPSIS
     XIOM Compiler v0.46.0 Installer
 .DESCRIPTION
-    Installs the XIOM toolchain: xiomc, xiom fmt, xiom doc, xiom ffigen, xiom pkg, xiom lsp
+    Installs the XIOM toolchain: xiom, xiom fmt, xiom doc, xiom ffigen, xiom pkg, xiom lsp
 .PARAMETER InstallDir
     Installation directory (default: %LOCALAPPDATA%\xiom)
 .PARAMETER NoPath
@@ -124,7 +124,7 @@ if ($BinaryPath) {
     Write-Host ""
 
     Push-Location $xiomRoot
-    $tools = @("xiomc", "xiom-fmt", "xiom-doc", "xiom-ffigen", "xiom-pkg", "xiom-lsp")
+    $tools = @("xiom", "xiom-fmt", "xiom-doc", "xiom-ffigen", "xiom-pkg", "xiom-lsp")
     $built = 0
     $total = $tools.Count
 
@@ -151,7 +151,7 @@ Write-Host "Installing to $installDir..." -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
 
 $files = @(
-    "xiomc.exe", "xiom-fmt.exe", "xiom-doc.exe",
+    "xiom.exe", "xiom-fmt.exe", "xiom-doc.exe",
     "xiom-ffigen.exe", "xiom-pkg.exe", "xiom-lsp.exe"
 )
 foreach ($file in $files) {
@@ -209,7 +209,7 @@ if ($createShortcut -eq "y" -or $createShortcut -eq "Y") {
     $Shortcut.TargetPath = "cmd.exe"
     $Shortcut.Arguments = "/k `"$binDir\xiom.bat`" --help"
     $Shortcut.WorkingDirectory = $env:USERPROFILE
-    $Shortcut.IconLocation = "$binDir\xiomc.exe,0"
+    $Shortcut.IconLocation = "$binDir\xiom.exe,0"
     $Shortcut.Save()
     Write-Host "  Desktop shortcut created." -ForegroundColor Green
 }

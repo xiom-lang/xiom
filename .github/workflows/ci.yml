@@ -104,7 +104,7 @@ jobs:
 
       - name: Build all tools (release)
         run: |
-          cargo build -p xiomc --release
+          cargo build -p xiom --release
           cargo build -p xiom-fmt --release
           cargo build -p xiom-doc --release
           cargo build -p xiom-ffigen --release
@@ -135,7 +135,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           mkdir -p release/xiom-v${{ github.ref_name }}/bin
-          cp target/release/xiomc release/xiom-v${{ github.ref_name }}/bin/
+          cp target/release/xiom release/xiom-v${{ github.ref_name }}/bin/
           cp target/release/xiom-fmt release/xiom-v${{ github.ref_name }}/bin/
           cp target/release/xiom-doc release/xiom-v${{ github.ref_name }}/bin/
           cp target/release/xiom-ffigen release/xiom-v${{ github.ref_name }}/bin/
@@ -161,7 +161,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           mkdir -p release/xiom-v${{ github.ref_name }}/bin
-          cp target/release/xiomc release/xiom-v${{ github.ref_name }}/bin/
+          cp target/release/xiom release/xiom-v${{ github.ref_name }}/bin/
           cp target/release/xiom-fmt release/xiom-v${{ github.ref_name }}/bin/
           cp target/release/xiom-doc release/xiom-v${{ github.ref_name }}/bin/
           cp target/release/xiom-ffigen release/xiom-v${{ github.ref_name }}/bin/

@@ -3,13 +3,13 @@
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
 // These tests compile+run the per-module stdlib smoke programs at
-// `examples\stdlib_smoke\smoke_<module>.xi` using the built `xiomc`
+// `examples\stdlib_smoke\smoke_<module>.xi` using the built `xiom`
 // binary, mirroring the proven harness in `e2e_tests.rs`.
 //
-// IMPORTANT: The harness invokes the *built* xiomc binary. You MUST build
+// IMPORTANT: The harness invokes the *built* xiom binary. You MUST build
 // it first:
 //
-//     cargo build -p xiomc
+//     cargo build -p xiom
 //     cargo test -p xiom-codegen --test stdlib_execution_tests -- --nocapture
 //     cargo test -p xiom-codegen --test stdlib_execution_tests -- --ignored --nocapture
 //
@@ -22,15 +22,15 @@
 use std::process::Command;
 use std::path::Path;
 
-/// Path to the compiled xiomc binary
-fn xiomc_path() -> String {
+/// Path to the compiled xiom binary
+fn xiom_path() -> String {
     let mut path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent().unwrap().parent().unwrap()
-        .join("target").join("debug").join("xiomc.exe");
+        .join("target").join("debug").join("xiom.exe");
     if !path.exists() {
         path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent().unwrap().parent().unwrap()
-            .join("target").join("release").join("xiomc.exe");
+            .join("target").join("release").join("xiom.exe");
     }
     path.to_str().unwrap().to_string()
 }
@@ -50,7 +50,7 @@ fn compile_and_run(source_path: &str) -> Option<i32> {
     let source = Path::new(source_path);
     let exe_name = format!("stdlib_{}.exe", source.file_stem()?.to_str()?);
 
-    let bin_path = xiomc_path();
+    let bin_path = xiom_path();
 
     // Compile
     let compile = Command::new(&bin_path)

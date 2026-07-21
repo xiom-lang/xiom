@@ -73,7 +73,7 @@ impl Backend {
                 for err in parser.errors() {
                     diagnostics.push(diagnostic_from_parse_error(err));
                 }
-                // Production-grade: mirror xiomc's checker setup so cross-module
+                // Production-grade: mirror xiom's checker setup so cross-module
                 // types (Result, Option, stdlib preludes) resolve exactly like a
                 // real compile. Isolated checking produced false positives
                 // (e.g. "expected Result, found ()") on files that import
@@ -89,7 +89,7 @@ impl Backend {
                             entries.flatten().any(|e| e.path().extension().map_or(false, |ext| ext == "xi"))
                         }) { checker.add_source_dir(grandparent.to_string_lossy().to_string()); }
                     }
-                    if let Some(root) = xiomc::find_project_root(&file_path) {
+                    if let Some(root) = xiom::find_project_root(&file_path) {
                         let src_dir = root.join("src");
                         if src_dir.is_dir() {
                             checker.add_source_dir(src_dir.to_string_lossy().to_string());
@@ -102,7 +102,7 @@ impl Backend {
                         }
                     }
                 }
-                for stdlib_dir in xiomc::find_stdlib_dirs() {
+                for stdlib_dir in xiom::find_stdlib_dirs() {
                     checker.add_source_dir(stdlib_dir);
                 }
                 checker.build_catalog_index();
@@ -776,7 +776,7 @@ fn get_ai_insight_for_line(uri: &str, line: usize) -> Option<String> {
     for hint in hints {
         let hint_file = hint["file"].as_str().unwrap_or("");
         let hint_line = hint["line"].as_u64().unwrap_or(0) as usize;
-        // Convert 1-indexed (xiomc) to 0-indexed (LSP)
+        // Convert 1-indexed (xiom) to 0-indexed (LSP)
         if (hint_file.ends_with(file_name) || hint_file == file_name) && hint_line.saturating_sub(1) == line {
             let insight = hint["insight"].as_str().unwrap_or("");
             if insight.is_empty() || insight.starts_with("[fallback]") { return None; }
@@ -2327,12 +2327,12 @@ fn handle_lsp_message(msg: &serde_json::Value, backend: &Backend) -> Vec<serde_j
 
                 // Generic: offer to run --ai for diagnosis
                 actions.push(serde_json::json!({
-                    "title": format!("🔍 Run xiomc --ai to diagnose: {}", msg_text),
+                    "title": format!("🔍 Run xiom --ai to diagnose: {}", msg_text),
                     "kind": "quickfix",
                     "diagnostics": [diag],
                     "command": {
                         "title": "AI Diagnose",
-                        "command": "xiomc.ai.diagnose",
+                        "command": "xiom.ai.diagnose",
                         "arguments": [uri, line, col, msg_text]
                     }
                 }));
@@ -2758,7 +2758,7 @@ mod tests {
             .collect();
         assert!(
             errors.is_empty(),
-            "stdlib/xiom/alloc.xi must produce ZERO diagnostics via LSP (compiles clean with xiomc). Got {} errors:\n{}",
+            "stdlib/xiom/alloc.xi must produce ZERO diagnostics via LSP (compiles clean with xiom). Got {} errors:\n{}",
             errors.len(),
             errors.join("\n")
         );

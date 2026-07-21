@@ -8,19 +8,19 @@
 
 ## ROOT CAUSE ANALYSIS
 
-The reported gap "xiomc -o demo_2d.exe fails with clang reject" was actually a **build cache** issue, not a missing code path:
+The reported gap "xiom -o demo_2d.exe fails with clang reject" was actually a **build cache** issue, not a missing code path:
 
 1. Commit `e9e6cd6` ("feat(5c-E): production-grade coercion for Vec[Float32] bindings") already added proper coercion in `Stmt::Var` (expr.rs lines 128-134)
 2. `coerce_value` → `val_to_struct` correctly handles `i8*` → `%struct.Vec` for array buffer sources
 3. `cargo build --release` reported "Fresh" despite the source change, meaning the old binary (without coercion) was being used
-4. Force-removing `target/release/xiomc.exe` and `target/release/*xiom_codegen*` before rebuilding produces correct behavior
+4. Force-removing `target/release/xiom.exe` and `target/release/*xiom_codegen*` before rebuilding produces correct behavior
 
 ### Verified Correct Path
 
 When compiling `vulkan.xi`'s `buffer_read_float`:
 - `var out: Vec[Float32] = []` → `compile_stmt(Stmt::Var(...))` → `compile_expr(Expr::Array([]))` returns `(ptr, "i8*")` → `coerce_value(ptr, "i8*", "%struct.Vec")` → `val_to_struct(ptr, "i8*", "%struct.Vec")` → constructs proper Vec with heap copy
 - The generated IR shows: `define %struct.Vec @buffer_read_float(...)` with valid `store %struct.Vec` instructions using Vec-defined (not ptr-defined) registers
-- Confirmed with `xiomc --emit-ir vulkan.xi` — no clang type mismatch
+- Confirmed with `xiom --emit-ir vulkan.xi` — no clang type mismatch
 
 ### Why Option A (Expr::Array → Vec) Was Correctly REJECTED
 
@@ -44,8 +44,8 @@ Converting `Expr::Array` to always return `%struct.Vec` breaks `let a = [1, 2, 3
 - Verifies `ret %struct.Vec` or `store %struct.Vec` is present
 
 ### 3. Build Procedure Fix
-- **Workaround:** Must force-remove release artifacts before `cargo build --release -p xiomc` to prevent cargo "Fresh" false-positives
-- Script: `Remove-Item target\release\xiomc.exe, target\release\*xiom_codegen* -Force`
+- **Workaround:** Must force-remove release artifacts before `cargo build --release -p xiom` to prevent cargo "Fresh" false-positives
+- Script: `Remove-Item target\release\xiom.exe, target\release\*xiom_codegen* -Force`
 
 ## TEST COUNTS
 

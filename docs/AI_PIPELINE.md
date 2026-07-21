@@ -83,10 +83,10 @@ set XIOM_AI_ENDPOINT=https://api.deepseek.com
 set XIOM_AI_KEY=sk-your-key
 
 # Use it
-xiomc --ai source.xi           # AI diagnostics
-xiomc --ai-strict source.xi    # No binary on violations
-xiomc --ai-dry-run source.xi   # See prompt without API call
-xiomc --help-ai                # Full setup guide
+xiom --ai source.xi           # AI diagnostics
+xiom --ai-strict source.xi    # No binary on violations
+xiom --ai-dry-run source.xi   # See prompt without API call
+xiom --help-ai                # Full setup guide
 ```
 
 ---
@@ -98,13 +98,13 @@ xiomc --help-ai                # Full setup guide
 │  OUTER CODING AGENT (Claude, GPT, etc.)          │
 │  - Owns the codebase                             │
 │  - Writes .xi source files                       │
-│  - Runs `xiomc --ai source.xi`                   │
+│  - Runs `xiom --ai source.xi`                   │
 │  - Reads `.xiom_ai.json` for hints               │
 │  - Decides what to fix                           │
 └──────────────────┬───────────────────────────────┘
-                   │ runs xiomc
+                   │ runs xiom
 ┌──────────────────▼───────────────────────────────┐
-│  XIOM COMPILER (xiomc --ai)                      │
+│  XIOM COMPILER (xiom --ai)                      │
 │  - Compiles the code                             │
 │  - On failure: slices AST context                │
 │  - Calls LLM with hardcoded 400-token prompt     │
@@ -137,13 +137,13 @@ xiomc --help-ai                # Full setup guide
 ### CLI Flags
 
 ```
-xiomc --ai source.xi                    # Full AI mode (requires XIOM_AI_KEY or local model)
-xiomc --ai-local source.xi              # Local-only: NEVER sends code off-machine
-xiomc --ai-strict source.xi             # Refuse binary output on ANY contract violation
-xiomc --ai-dry-run source.xi            # Print the prompt; don't call LLM
-xiomc --ai-silent source.xi             # Suppress stdout; only write .xiom_ai.json
-xiomc --ai-model=gpt-4 source.xi        # Override model per invocation
-xiomc --ai-timeout=10 source.xi         # Abort LLM call after N seconds (default: 10)
+xiom --ai source.xi                    # Full AI mode (requires XIOM_AI_KEY or local model)
+xiom --ai-local source.xi              # Local-only: NEVER sends code off-machine
+xiom --ai-strict source.xi             # Refuse binary output on ANY contract violation
+xiom --ai-dry-run source.xi            # Print the prompt; don't call LLM
+xiom --ai-silent source.xi             # Suppress stdout; only write .xiom_ai.json
+xiom --ai-model=gpt-4 source.xi        # Override model per invocation
+xiom --ai-timeout=10 source.xi         # Abort LLM call after N seconds (default: 10)
 ```
 
 ### Environment Gating
@@ -231,7 +231,7 @@ The prompt template lives in `stdlib/xiom/ai_prompt.txt` (NOT hardcoded in the b
 
 ```
 [System]
-You are the internal 'xiomc' compiler diagnostic translator. Your sole purpose is to
+You are the internal 'xiom' compiler diagnostic translator. Your sole purpose is to
 translate rigid compiler error states into clear, actionable, 1-2 sentence insights for
 an external programming agent.
 CRITICAL: Do not write code. Do not output markdown code blocks. Do not suggest edits.
@@ -290,7 +290,7 @@ which variable or expression triggered the failure.
 
 **Stdout summary on completion:**
 ```
-xiomc --ai: 2 hints written to .xiom_ai.json (2 API calls, 0 cached, 847ms)
+xiom --ai: 2 hints written to .xiom_ai.json (2 API calls, 0 cached, 847ms)
 ```
 
 ---
@@ -366,13 +366,13 @@ If compilation succeeds, `--ai` should produce NO output (or a single line: `OK`
 The `.xiom_ai.json` schema should be stable across compiler versions. I should be able to write a parser once and trust it for v0.46 through v0.50.
 
 ### 4.5 Batch Mode
-When the outer agent has multiple files to compile, it should be able to run `xiomc --ai --batch *.xi` and get ONE `.xiom_ai.json` with hints for ALL failures across all files, deduplicated.
+When the outer agent has multiple files to compile, it should be able to run `xiom --ai --batch *.xi` and get ONE `.xiom_ai.json` with hints for ALL failures across all files, deduplicated.
 
 ### 4.6 Confidence Score
 The LLM should indicate how confident it is. A hint like "The variable `x` is uninitialized" is high-confidence. A hint like "Consider refactoring the loop" is low-confidence. The outer agent can filter by confidence threshold.
 
 ### 4.7 Error Code Registry Linkage
-Every hint MUST include the error code (X0010, X0100, etc.). The outer agent can then run `xiomc --explain X0100` for the full reference documentation without an LLM call. This creates a two-tier insight system: LLM hint for the specific instance, `--explain` for the general rule.
+Every hint MUST include the error code (X0010, X0100, etc.). The outer agent can then run `xiom --explain X0100` for the full reference documentation without an LLM call. This creates a two-tier insight system: LLM hint for the specific instance, `--explain` for the general rule.
 
 ### 4.8 Root-Cause Prioritization
 When compilation produces 15 errors, 12 are usually cascading from 1 root cause. The AI hints MUST be sorted by line number ascending, and the FIRST hint flagged as `"is_root_cause": true`. The outer agent fixes the root cause, recompiles, and 80% of the cascade disappears. Implementation: trivial — sort hints by (file, line) ascending, mark `hints[0].is_root_cause = true`.
@@ -384,7 +384,7 @@ The LLM API call MUST use `temperature: 0` (or the minimum the model supports). 
 A flag that makes the compiler REFUSE to produce a binary if ANY contract violation exists. The AI explains the violation, but NEVER bypasses it. For CI/CD pipelines, the policy is: "The AI can help you FIX the code, but it cannot override the safety guarantees." The binary output is suppressed; only `.xiom_ai.json` and the error exit code are produced.
 
 ```
-xiomc --ai --ai-strict source.xi
+xiom --ai --ai-strict source.xi
 # If contracts pass: produces binary normally
 # If any contract fails: exit code 1, .xiom_ai.json with hints, NO binary
 ```
@@ -400,7 +400,7 @@ The `.xiom_ai.json` file path is emitted in the `--diagnostics=json` output unde
 │ evaluates to zero when distance < 0.001.    │
 │ Clamp distance to a minimum epsilon.        │
 │ ─────────────────────────────────────────── │
-│ xiomc --explain X0100 | confidence: HIGH    │
+│ xiom --explain X0100 | confidence: HIGH    │
 └─────────────────────────────────────────────┘
 ```
 

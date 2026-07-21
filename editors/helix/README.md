@@ -11,5 +11,5 @@ Append the contents of `languages.toml` to your Helix config
 ## Debugging
 
 Helix has built-in DAP. The `[language.debugger]` section in `languages.toml`
-wires `xiom-dbg`. Compile with symbols first: `xiomc -g -o a.exe main.xi`,
+wires `xiom-dbg`. Compile with symbols first: `xiom -g -o a.exe main.xi`,
 then `:debug-start` in Helix.

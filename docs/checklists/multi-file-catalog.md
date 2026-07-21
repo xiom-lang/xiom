@@ -59,10 +59,10 @@
 - [ ] `cargo test -p xiom-check` — 44/44.
 - [ ] `cargo test -p xiom-codegen` — 139/139 (post v10 flake fix).
 
-## Wave 1 — xiomc wiring
+## Wave 1 — xiom wiring
 
 ### 1.9 Auto-add source directories
-- [x] Replace direct `checker.source_dirs.push()` in `crates/xiomc/src/main.rs` with
+- [x] Replace direct `checker.source_dirs.push()` in `crates/xiom/src/main.rs` with
   `checker.add_source_dir()` calls for:
   - Parent directory of the primary source file.
   - Project `examples/` root (derived from `CARGO_MANIFEST_DIR` → parent → parent → join("examples")).
@@ -73,9 +73,9 @@
 - [x] Keep the `is_multi_file` soft-error gate logic unchanged.
 
 ### 1.11 Verify examples
-- [ ] `cargo run -p xiomc -- --run examples\test_mod\math.xi` → exit 34.
-- [ ] `cargo run -p xiomc -- --run examples\benchmark\bench_math.xi` → compiles and runs.
-- [ ] `cargo run -p xiomc -- --run examples\benchmark\main.xi` → compiles and runs.
+- [ ] `cargo run -p xiom -- --run examples\test_mod\math.xi` → exit 34.
+- [ ] `cargo run -p xiom -- --run examples\benchmark\bench_math.xi` → compiles and runs.
+- [ ] `cargo run -p xiom -- --run examples\benchmark\main.xi` → compiles and runs.
 
 ## Wave 2 — Codegen visibility
 
@@ -89,7 +89,7 @@
 
 ### 2.2 Verify codegen
 - [ ] `cargo test -p xiom-codegen` — all 139 pass.
-- [ ] `cargo run -p xiomc -- --run examples\test_mod\math.xi` — exit 34.
+- [ ] `cargo run -p xiom -- --run examples\test_mod\math.xi` — exit 34.
 
 ## Wave 3 — Stability + cleanup
 

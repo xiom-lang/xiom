@@ -39,7 +39,7 @@
 | xiom-codegen | **4/10** | **God object** (61 fields), 5,323-line expr.rs |
 | xiom-lsp | **4/10** | 2,628-line monolith, zero tests |
 | xiom-pkg | **4/10** | No TLS, 11 process::exit |
-| xiomc | **4/10** | **28 process::exit**, only 3 tests |
+| xiom | **4/10** | **28 process::exit**, only 3 tests |
 | **AVG** | **5.4/10** | **Target: 10/10** |
 
 ### Stdlib Status
@@ -85,8 +85,8 @@
 ### 8B/M3 — Test Coverage (IN PROGRESS — started)
 | Item | Remaining | Effort |
 |------|-----------|--------|
-| M3.1 xiomc pipeline integration tests | ? 6 tests added | Done |
-| M3.2 xiomc::compile_with_diagnostics unit tests | 80% coverage target | 2d |
+| M3.1 xiom pipeline integration tests | ? 6 tests added | Done |
+| M3.2 xiom::compile_with_diagnostics unit tests | 80% coverage target | 2d |
 | M3.3 LSP protocol tests (initialize, hover, completion) | Zero ? 20+ tests | 2d |
 | M3.4 AST serialization round-trip tests | Zero ? 10+ tests | 1d |
 | M3.5 Ecosystem package test infrastructure | All 75 packages | 3d |

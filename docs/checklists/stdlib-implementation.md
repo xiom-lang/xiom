@@ -80,7 +80,7 @@ These are limits of the XIOM **compiler**, not the stdlib. The stdlib code is co
 | Vec fixed 128-byte allocation | >16 Int elements → heap overflow | Dynamic realloc in codegen |
 | 16 struct fields | >16 field structs truncated | Bump to 256 |
 | 64 local variables | Complex functions truncated | Bump to 1024 |
-| Untested compilation | Code written to spec, never compiled | Run `xiomc --run` on test suite |
+| Untested compilation | Code written to spec, never compiled | Run `xiom --run` on test suite |
 | Single-pass type checker | Complex generic usages may fail | Multi-pass or improve inference |
 
 ---

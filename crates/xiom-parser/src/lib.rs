@@ -653,7 +653,7 @@ impl Parser {
             }
         }
         let (receiver, name) = if self.skip(TokenKind::Dot) { (Some(first), self.parse_ident()?) } else { (None, first) };
-        let generics = self.parse_optional_generic_params()?;
+        let mut generics = self.parse_optional_generic_params()?;
         self.expect_kind(TokenKind::LParen, "'('")?;
         let params = if self.check(|k| matches!(k, TokenKind::RParen)) { self.advance(); Vec::new() } else { let p = self.parse_param_list()?; self.expect_kind(TokenKind::RParen, "')'")?; p };
         let return_type = if self.skip(TokenKind::Arrow) { Some(self.parse_type()?) } else { None };
@@ -1717,7 +1717,7 @@ mod tests {
     #[test] fn test_param_list_trailing_comma() { let prog = parse("fn add3(\n  a: Int,\n  b: Int,\n  c: Int,\n) -> Int { return a + b + c; }").unwrap(); assert_eq!(prog.items.len(), 1); match &prog.items[0] { TopDecl::Fn(f) => { assert_eq!(f.name.name, "add3"); assert_eq!(f.params.len(), 3); } _ => panic!("expected function"), } }
     #[test] fn test_generic_params_trailing_comma() { let prog = parse("fn pair[T, U,](a: T, b: U) -> Int { return 0; }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { assert_eq!(f.generics.len(), 2); } _ => panic!("expected function"), } }
     // Recovered parse errors MUST be visible via parser.errors() so drivers
-    // (xiomc, LSP, MCP) can refuse silently-partial programs.
+    // (xiom, LSP, MCP) can refuse silently-partial programs.
     #[test] fn test_recovered_errors_are_visible() {
         let tokens = Lexer::new("fn broken(a: Int, : ) -> Int { return 1; }\nfn ok() -> Int { return 0; }").tokenize();
         let mut p = Parser::new(tokens);

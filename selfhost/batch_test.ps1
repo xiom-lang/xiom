@@ -42,7 +42,7 @@ foreach ($ex in $examples) {
 
     Write-Host "." -NoNewline
     # Compile the test variant
-    $compile = cargo run -p xiomc -- -o "test_temp_$stem.exe" $tempFile 2>&1
+    $compile = cargo run -p xiom -- -o "test_temp_$stem.exe" $tempFile 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host " FAIL (compile)" -ForegroundColor Red
         $fail++

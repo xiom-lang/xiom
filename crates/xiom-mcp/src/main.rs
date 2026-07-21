@@ -1,5 +1,5 @@
 // XIOM MCP Server — Model Context Protocol for AI agent tool-calling
-// Phase 5d.1-8.2: Library mode (xiomc linked directly, no subprocess).
+// Phase 5d.1-8.2: Library mode (xiom linked directly, no subprocess).
 // Transport: stdio (JSON-RPC 2.0). Production-grade error handling.
 
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use std::io::{self, BufRead, BufReader, Write};
 use std::process::Command;
 
-use xiomc::{CompileConfig, compile_with_diagnostics};
+use xiom::{CompileConfig, compile_with_diagnostics};
 
 mod guides;
 use guides::{language_guide, workflow_guide};
@@ -105,7 +105,7 @@ fn tool_explain_error_code(params: &Value) -> Result<String, String> {
                 "# XIOM Error Code: {code}\n\n\
                  **Category:** {category}\n\n\
                  **Note:** No detailed documentation file found at `{doc_path}`.\n\
-                 Run `xiomc --explain {code}` for compiler-provided details.\n"
+                 Run `xiom --explain {code}` for compiler-provided details.\n"
             ))
         }
     }
@@ -158,7 +158,7 @@ fn tool_compile_and_analyze(params: &Value) -> Result<Value, String> {
         Err(_) => discover_sibling_sources(&file),
     };
 
-    // Phase 8.2: Library mode — calls xiomc::compile_with_diagnostics directly.
+    // Phase 8.2: Library mode — calls xiom::compile_with_diagnostics directly.
     let config = CompileConfig {
         diagnostics_json: true,
         dump_contracts: params["strict"].as_bool().unwrap_or(false),
@@ -262,12 +262,12 @@ fn tool_format_xiom_code(params: &Value) -> Result<Value, String> {
     Ok(json!({"success": output.status.success(), "formatted": String::from_utf8_lossy(&output.stdout).to_string(), "changed": source != String::from_utf8_lossy(&output.stdout)}))
 }
 
-/// Phase 5d.9: Sandbox safety audit tool — runs xiomc --sandbox-report=json
+/// Phase 5d.9: Sandbox safety audit tool — runs xiom --sandbox-report=json
 /// and returns structured safety findings for CI/CD gating.
 fn tool_audit_safety_sandbox(params: &Value) -> Result<Value, String> {
     let file = params["file"].as_str().ok_or("Missing required parameter: file")?;
     if !std::path::Path::new(file).exists() { return Err(format!("File not found: {file}")); }
-    let output = Command::new("xiomc").args(["--sandbox-report=json", file]).output().map_err(|e| format!("Failed to spawn xiomc: {e}"))?;
+    let output = Command::new("xiom").args(["--sandbox-report=json", file]).output().map_err(|e| format!("Failed to spawn xiom: {e}"))?;
     let report: Value = serde_json::from_slice(&output.stdout).unwrap_or(json!({"error": "Failed to parse sandbox report"}));
     Ok(json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&report).unwrap_or_default()}]}))
 }
@@ -535,12 +535,12 @@ fn list_tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "ai_diagnose".into(),
-            description: "AI-assisted diagnostics: sends source code and error messages to an LLM (DeepSeek/Ollama/OpenAI) and returns actionable fix hints. Requires XIOM_AI_KEY or local Ollama. Uses xiomc --ai under the hood.".into(),
+            description: "AI-assisted diagnostics: sends source code and error messages to an LLM (DeepSeek/Ollama/OpenAI) and returns actionable fix hints. Requires XIOM_AI_KEY or local Ollama. Uses xiom --ai under the hood.".into(),
             input_schema: json!({"type":"object","properties":{"source":{"type":"string","description":"XIOM source code to diagnose"},"error":{"type":"string","description":"Compilation error message to analyze"}},"required":["source","error"]}),
         },
         ToolDef {
             name: "hot_reload_watch".into(),
-            description: "Triggers hot reload compilation: compiles source to a shared library (DLL) and watches for file changes. Use xiomc --hot-reload under the hood. Essential for game engines and live systems.".into(),
+            description: "Triggers hot reload compilation: compiles source to a shared library (DLL) and watches for file changes. Use xiom --hot-reload under the hood. Essential for game engines and live systems.".into(),
             input_schema: json!({"type":"object","properties":{"file":{"type":"string","description":"Path to the XIOM source file to hot-reload"}},"required":["file"]}),
         },
         ToolDef {
@@ -572,14 +572,14 @@ fn tool_ai_diagnose(params: &Value) -> Result<String, String> {
         error[i+5..].split(|c: char| !c.is_ascii_digit()).next()
     }).and_then(|s| s.parse().ok()).unwrap_or(1u32);
 
-    let diag = xiomc::Diagnostic {
+    let diag = xiom::Diagnostic {
         kind: "ai_diagnose".into(), code, message: msg.to_string(),
         line, col: 1, file: "inline".into(),
         suggestion: None, help: None, note: None,
     };
 
     // Call the actual AI pipeline
-    let cfg = xiomc::ai::load_ai_config(None);
+    let cfg = xiom::ai::load_ai_config(None);
     if cfg.api_key.is_empty() && !cfg.endpoint.contains("11434") {
         // No API key, return fallback analysis
         let mut hints = Vec::new();
@@ -595,7 +595,7 @@ fn tool_ai_diagnose(params: &Value) -> Result<String, String> {
     }
 
     let empty_z3 = std::collections::HashMap::new();
-    match xiomc::ai::run_ai_pipeline(&cfg, source, "inline.xi", &[diag], &empty_z3) {
+    match xiom::ai::run_ai_pipeline(&cfg, source, "inline.xi", &[diag], &empty_z3) {
         Ok(output) => {
             if output.hints.is_empty() {
                 Ok("# XIOM AI Diagnostic\n\nNo actionable hints generated. Source may compile cleanly.".into())
@@ -626,9 +626,9 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
     std::fs::write(&tmp, source).map_err(|e| format!("Cannot write temp file: {e}"))?;
 
     // Run check-only compile
-    let check_cfg = xiomc::CompileConfig {
+    let check_cfg = xiom::CompileConfig {
         check_only: true, emit_ir: true, diagnostics_json: true,
-        target: xiomc::Target::Native, release: false, do_run: false,
+        target: xiom::Target::Native, release: false, do_run: false,
         check_contracts: true, strict_mode: false, debug_symbols: false,
         shared_lib: false, static_lib: false, max_recursion_depth: 500,
         dump_contracts: false, verify: false, verify_output: None,
@@ -643,7 +643,7 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
         parallel: false,
         jobs: 0,
     };
-    let result = xiomc::compile_with_diagnostics(&check_cfg, &[tmp.to_str().unwrap().to_string()]);
+    let result = xiom::compile_with_diagnostics(&check_cfg, &[tmp.to_str().unwrap().to_string()]);
     let _ = std::fs::remove_file(&tmp);
 
     if result.diagnostics.is_empty() {
@@ -655,10 +655,10 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
     }
 
     // Run AI pipeline on each diagnostic
-    let cfg = xiomc::ai::load_ai_config(None);
+    let cfg = xiom::ai::load_ai_config(None);
     let empty_z3_2 = std::collections::HashMap::new();
-    let ai_output = xiomc::ai::run_ai_pipeline(&cfg, source, file, &result.diagnostics, &empty_z3_2).unwrap_or_else(|_e| {
-        xiomc::ai::AiOutput { schema_version: 1, session: String::new(), compiler_version: String::new(),
+    let ai_output = xiom::ai::run_ai_pipeline(&cfg, source, file, &result.diagnostics, &empty_z3_2).unwrap_or_else(|_e| {
+        xiom::ai::AiOutput { schema_version: 1, session: String::new(), compiler_version: String::new(),
             provider: "offline".into(), model: "none".into(), source_hash: String::new(),
             total_hints: 0, cached_hints: 0, api_calls: 0, hints: vec![] }
     });
@@ -693,8 +693,8 @@ fn tool_hot_reload_watch(params: &Value) -> Result<String, String> {
 
     let output = format!(
         "# XIOM Hot Reload\n\n**File:** {file}\n\n**Quick start:**\n\
-        1. `xiomc --hot-reload \"{file}\"` — compiles to DLL and watches for changes\n\
-        2. `xiomc --watch \"{file}\"` — watches and recompiles on change (no DLL)\n\
+        1. `xiom --hot-reload \"{file}\"` — compiles to DLL and watches for changes\n\
+        2. `xiom --watch \"{file}\"` — watches and recompiles on change (no DLL)\n\
         3. Press Ctrl+C to stop watching\n\n\
         **Architecture:** Function pointer table in `stdlib/runtime/xiom_hot_reload.c`.\n\
         **Status:** Foundation ready (--watch + --hot-reload flags, function table).\n\
@@ -714,7 +714,7 @@ fn tool_verify_contracts(params: &Value) -> Result<String, String> {
         **Quick start:**\n\
         1. `xiom-verify \"{file}\"` — generates SMT-LIB verification conditions\n\
         2. `xiom-verify \"{file}\" --check` — runs Z3 to prove contracts\n\
-        3. `xiomc --verify \"{file}\"` — contract verification during compilation\n\n\
+        3. `xiom --verify \"{file}\"` — contract verification during compilation\n\n\
         **Prerequisites:**\n\
         - Write `requires:` / `ensures:` clauses on functions\n\
         - Install Z3: `winget install z3` or download from GitHub\n\
