@@ -1,16 +1,16 @@
 #!/bin/bash
 # ============================================================================
-# XIOM Compiler v0.49.5 â€” Cross-Platform Installer (Linux/macOS)
+# XIOM Compiler v0.49.8 â€” Cross-Platform Installer (Linux/macOS)
 # ============================================================================
 set -e
 
-VERSION="0.49.5"
+VERSION="0.49.8"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # â”€â”€ ASCII Art â”€â”€
 cat << 'EOF'
 
-  |\  /|  |\    /|  |\     /|  |\  /|  v0.49.5
+  |\  /|  |\    /|  |\     /|  |\  /|  v0.49.8
   | \/ |  | \  / |  | \   / |  | \/ |  "Phoenix"
   |    |  |  \/  |  |  \ /  |  |    |  Industrial Compiler
   |    |  |      |  |       |  |    |  Production Release
@@ -21,7 +21,7 @@ cat << 'EOF'
     Built for games, engines, embedded, and high-performance apps.
   ================================================================
 
-  Version:  v0.49.5 (920/920 (673+247) - Z3, MCP, LSP, Hot Reload, AI)
+  Version:  v0.49.8 (905/905 - Z3, MCP, LSP, Hot Reload, AI)
   Runtime:  Requires CLANG/LLVM for native compilation
 
 EOF

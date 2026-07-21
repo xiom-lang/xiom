@@ -12,7 +12,7 @@ Write-Host ""
 Write-Host "--- Deleting e2e test executables ---" -ForegroundColor Yellow
 $count = 0
 Get-ChildItem -Path . -Filter *.exe | Where-Object {
-    $_.Name -notmatch '^(xiom|xiom-fmt|xiom-doc|xiom-ffigen|xiom-pkg|xiom-lsp)\.exe$'
+    $_.Name -notmatch '^(xiom|xiom-fmt|xiom-doc|xiom-ffigen|xiom-pkg|xiom-lsp|xiom-mcp|xiom-dbg|xiom-verify)\.exe$'
 } | ForEach-Object {
     Remove-Item $_.FullName -Force
     Write-Host "  DEL: $($_.Name)"

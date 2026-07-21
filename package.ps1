@@ -6,7 +6,7 @@
     Builds all tools in release mode and packages into distributable folder + zip.
     Optionally signs all binaries with Authenticode (requires code signing certificate).
 .PARAMETER Version
-    Version string (default: 0.46.0)
+    Version string (default: 0.49.8)
 .PARAMETER Sign
     Sign all .exe binaries after packaging (requires -CertificateThumbprint or -CertificatePath).
 .PARAMETER CertificateThumbprint
@@ -26,7 +26,7 @@
 #>
 
 param(
-    [string]$Version = "0.46.0",
+    [string]$Version = "0.49.8",
     [switch]$Sign,
     [string]$CertificateThumbprint,
     [string]$CertificatePath,
@@ -49,7 +49,7 @@ Write-Host ""
 # Set release metadata (baked into binary via env! macros at compile time).
 # Override these before running to customize the version banner.
 if (-not $env:XIOM_RELEASE_TAG)    { $env:XIOM_RELEASE_TAG    = "Production" }
-if (-not $env:XIOM_RELEASE_STATS)  { $env:XIOM_RELEASE_STATS  = "871/871 tests, zero warnings" }
+if (-not $env:XIOM_RELEASE_STATS)  { $env:XIOM_RELEASE_STATS  = "905/905 tests, zero warnings" }
 
 # Bump version in Cargo.toml so the binary reports the correct version.
 # Uses env!("CARGO_PKG_VERSION") at compile time.
