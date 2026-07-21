@@ -336,10 +336,10 @@ pub enum Stmt {
     Spawn(Block, Span),
     /// `var (a, b) = expr;` / `let (a, b) = expr;`
     Destructure(Vec<Ident>, Expr, Span),
-    /// `break;`
-    Break(Span),
-    /// `continue;`
-    Continue(Span),
+    /// `break;` or `break 'label;`
+    Break(Option<Ident>, Span),
+    /// `continue;` or `continue 'label;`
+    Continue(Option<Ident>, Span),
 }
 
 #[derive(Debug, Clone, PartialEq)]

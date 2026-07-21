@@ -985,8 +985,8 @@ impl Parser {
                 Ok(StmtOrExpr::Stmt(Stmt::Let(name, ty, value, span)))
             }
             TokenKind::Return => { let stmt = self.parse_return_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
-            TokenKind::Break => { let span = self.advance().span; self.skip(TokenKind::Semicolon); Ok(StmtOrExpr::Stmt(Stmt::Break(span))) }
-            TokenKind::Continue => { let span = self.advance().span; self.skip(TokenKind::Semicolon); Ok(StmtOrExpr::Stmt(Stmt::Continue(span))) }
+            TokenKind::Break => { let span = self.advance().span; let label = self.parse_optional_label(); self.skip(TokenKind::Semicolon); Ok(StmtOrExpr::Stmt(Stmt::Break(label, span))) }
+            TokenKind::Continue => { let span = self.advance().span; let label = self.parse_optional_label(); self.skip(TokenKind::Semicolon); Ok(StmtOrExpr::Stmt(Stmt::Continue(label, span))) }
             TokenKind::If => { let stmt = self.parse_if_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::Match => { let stmt = self.parse_match_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::While => { let stmt = self.parse_while_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
@@ -1160,7 +1160,7 @@ impl Parser {
         let body_block = self.parse_block()?;
 
         let wildcard = Pattern::Wildcard(Span::new(0, 0));
-        let break_stmt = StmtOrExpr::Stmt(Stmt::Break(while_span));
+        let break_stmt = StmtOrExpr::Stmt(Stmt::Break(None, while_span));
         let break_body = Block { stmts: vec![break_stmt], span: while_span };
 
         let match_arms = vec![
@@ -1656,7 +1656,16 @@ impl Parser {
         Some(Expr::Binary(Box::new(lhs.clone()), binop, Box::new(rhs), span))
     }
 
-    /// 8B/M9: Parse comma-separated types in parentheses for tuple structs.
+    /// 8B/M9: Parse optional label identifier after break/continue.
+    /// Labels use `@name` syntax to avoid conflict with char literals ('x').
+    fn parse_optional_label(&mut self) -> Option<Ident> {
+        if self.peek_kind() == &TokenKind::At {
+            self.advance(); // skip '@'
+            let name = self.parse_ident().ok()?;
+            return Some(name);
+        }
+        None
+    }
     /// `(Int, Float64, Str)` → `vec![Int, Float64, Str]`
     fn parse_tuple_type_args(&mut self) -> Result<Vec<Type>, ParseError> {
         self.expect_kind(TokenKind::LParen, "'('")?;

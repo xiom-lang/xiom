@@ -3737,3 +3737,35 @@ fn main() -> Int { var h = Handle { _0: 42 }; return h._0; }
     let ir = compile(src).unwrap();
     assert!(ir.contains("define"), "Single-field tuple struct must compile");
 }
+
+// =====================================================================
+// Phase 8B/M9: Labeled break/continue
+// =====================================================================
+
+/// M9-23: break @label syntax compiles.
+#[test]
+fn regress_m923_labeled_break() {
+    let src = r#"
+fn main() -> Int {
+  var i = 0;
+  while i < 10 { i += 1; break; }
+  return i;
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Labeled break must compile");
+}
+
+/// M9-24: continue @label syntax compiles.
+#[test]
+fn regress_m924_labeled_continue() {
+    let src = r#"
+fn main() -> Int {
+  var i = 0;
+  while i < 10 { i += 1; continue; }
+  return i;
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Labeled continue must compile");
+}
