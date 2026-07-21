@@ -52,6 +52,20 @@ if exist "%~dp0mcp\" (
 )
 echo     + MCP configs installed to %XIOM_MCP%
 
+:: Generate MCP config with actual install path
+(
+echo {
+echo   "xiom": {
+echo     "command": "%XIOM_BIN:\=\\%\\xiom-mcp.exe",
+echo     "args": [],
+echo     "env": {
+echo       "XIOM_HOME": "%XIOM_DIR:\=\\%"
+echo     }
+echo   }
+echo }
+) > "%XIOM_MCP%\xiom-mcp-config.json"
+echo     + MCP config generated at %XIOM_MCP%\xiom-mcp-config.json
+
 :: AI Configuration
 echo.
 echo   [5/5] AI Configuration (optional - press Enter to skip)
@@ -177,6 +191,14 @@ echo   Quick Start:
 echo     xiom compile hello.xi
 echo     xiom --help
 echo     xiom ai file.xi
+echo.
+echo   MCP Integration:
+echo     Copy configs from %XIOM_MCP% to your IDE:
+echo       Kilo Code  -^> .kilocode\mcp.json
+echo       Cursor     -^> .cursor\mcp.json
+echo       Claude     -^> claude mcp add xiom
+echo       VS Code    -^> .vscode\mcp.json
+echo     Start server: xiom mcp
 echo.
 echo   To uninstall: %XIOM_BIN%\uninstall.bat
 echo.
