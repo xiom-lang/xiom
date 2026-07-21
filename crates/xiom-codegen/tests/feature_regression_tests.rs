@@ -3847,7 +3847,7 @@ fn regress_r902_pkg_help_mentions_install() {
 
 /// R9-03: xiom --help mentions all 12 subcommands.
 #[test]
-fn regress_r903_xiomc_help_subcommands() {
+fn regress_r903_xiom_help_subcommands() {
     let c = xiom::CompileConfig::default();
     assert!(c.check_contracts);
     assert!(!c.incremental);

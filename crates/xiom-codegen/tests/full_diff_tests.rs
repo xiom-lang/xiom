@@ -42,7 +42,7 @@ fn rust_ir(source: &str) -> Vec<String> {
 
 /// Run selfhost compiler targeting an example, return IR output lines.
 ///
-/// Creates a temp copy of selfhost/xiomc_v10.xi with the source path
+/// Creates a temp copy of selfhost/xiom_v10.xi with the source path
 /// replaced to point at the desired example, compiles it with xiom,
 /// then runs the resulting binary which emits IR for the example.
 /// NOTE: does NOT check process exit code — the selfhost emitter may crash
@@ -54,12 +54,12 @@ fn selfhost_ir(example: &str) -> Vec<String> {
     let temp_exe = format!("_diff_{}_{}.exe", stem, id);
     let root = project_root();
 
-    let v10_path = root.join("selfhost\\xiomc_v10.xi");
+    let v10_path = root.join("selfhost\\xiom_v10.xi");
     let original = fs::read_to_string(&v10_path)
         .unwrap_or_else(|e| panic!("cannot read {:?}: {}", v10_path, e));
 
     let modified = original.replace(
-        "selfhost\\\\xiomc_v10.xi",
+        "selfhost\\\\xiom_v10.xi",
         &format!("examples\\\\{}", example),
     );
     fs::write(root.join(&temp_src), &modified)
@@ -234,7 +234,7 @@ macro_rules! diff_test {
 // All 21 Examples
 //
 // Tolerances are relaxed per-example where the selfhost v10 compiler
-// (using xiomc_v10.xi + C runtime emit_body_ir) differs from the full
+// (using xiom_v10.xi + C runtime emit_body_ir) differs from the full
 // Rust compiler:
 //
 // - fn_lo: lower bound for selfhost/rust function ratio
