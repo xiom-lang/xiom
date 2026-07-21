@@ -21,7 +21,7 @@ cat << 'EOF'
     Built for games, engines, embedded, and high-performance apps.
   ================================================================
 
-  Version:  v0.49.5 (881/881 tests, Z3, MCP, LSP, Hot Reload, AI)
+  Version:  v0.49.5 (920/920 (673+247) - Z3, MCP, LSP, Hot Reload, AI)
   Runtime:  Requires CLANG/LLVM for native compilation
 
 EOF
