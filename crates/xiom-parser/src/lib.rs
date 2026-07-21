@@ -451,6 +451,21 @@ impl Parser {
             self.skip(TokenKind::Semicolon); // optional trailing ';' after `type X = enum {...}`
             return Ok(TopDecl::Enum(EnumDecl { is_pub, name, generics, variants, derives, span: start }));
         }
+        if self.check(|k| matches!(k, TokenKind::LParen)) {
+            // 8B/M9: Tuple struct — `type Foo = (Int, Str) [derive[...]]`
+            let tuple_types = self.parse_tuple_type_args()?;
+            let derives = if self.skip(TokenKind::Derive) { self.parse_derive_list()? } else { Vec::new() };
+            self.skip(TokenKind::Semicolon);
+            // Generate synthetic field names: _0, _1, ...
+            let fields: Vec<FieldDecl> = tuple_types.iter().enumerate().map(|(i, ty)| {
+                FieldDecl {
+                    name: Ident::new(format!("_{}", i), start),
+                    ty: ty.clone(),
+                    span: start,
+                }
+            }).collect();
+            return Ok(TopDecl::Type(TypeDecl { is_pub, name, generics, fields, derived_fields: Vec::new(), invariants: Vec::new(), derives, alias: None, span: start }));
+        }
         if !self.check(|k| matches!(k, TokenKind::LBrace)) {
             let alias_type = self.parse_type()?;
             self.expect_kind(TokenKind::Semicolon, "';'")?;
@@ -1639,6 +1654,30 @@ impl Parser {
         let rhs = self.parse_expr().ok()?;
         // Desugar: x += y  →  x = x + y
         Some(Expr::Binary(Box::new(lhs.clone()), binop, Box::new(rhs), span))
+    }
+
+    /// 8B/M9: Parse comma-separated types in parentheses for tuple structs.
+    /// `(Int, Float64, Str)` → `vec![Int, Float64, Str]`
+    fn parse_tuple_type_args(&mut self) -> Result<Vec<Type>, ParseError> {
+        self.expect_kind(TokenKind::LParen, "'('")?;
+        let mut types = Vec::new();
+        if self.check(|k| matches!(k, TokenKind::RParen)) {
+            self.advance();
+            return Ok(types);
+        }
+        loop {
+            types.push(self.parse_type()?);
+            if self.skip(TokenKind::Comma) {
+                if self.check(|k| matches!(k, TokenKind::RParen)) {
+                    self.advance();
+                    break;
+                }
+                continue;
+            }
+            self.expect_kind(TokenKind::RParen, "')'")?;
+            break;
+        }
+        Ok(types)
     }
 }
 

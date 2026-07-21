@@ -3711,3 +3711,29 @@ fn main() -> Int { return 0; }
     let ir = compile(src).unwrap();
     assert!(ir.contains("define"), "where clause must compile");
 }
+
+// =====================================================================
+// Phase 8B/M9: Tuple structs + labeled break
+// =====================================================================
+
+/// M9-21: Tuple struct type Foo = (Int, Float64) compiles.
+#[test]
+fn regress_m921_tuple_struct() {
+    let src = r#"
+type Point = (Int, Int) derive[Eq, Clone]
+fn main() -> Int { var p = Point { _0: 1, _1: 2 }; return p._0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Tuple struct must compile");
+}
+
+/// M9-22: Tuple struct with single field.
+#[test]
+fn regress_m922_tuple_struct_single() {
+    let src = r#"
+type Handle = (Int) derive[Eq, Clone]
+fn main() -> Int { var h = Handle { _0: 42 }; return h._0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Single-field tuple struct must compile");
+}
