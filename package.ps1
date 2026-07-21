@@ -26,7 +26,7 @@
 #>
 
 param(
-    [string]$Version = "0.49.8",
+    [string]$Version = "0.49.9",
     [switch]$Sign,
     [string]$CertificateThumbprint,
     [string]$CertificatePath,
