@@ -44,6 +44,8 @@ pub enum TokenKind {
     AndAnd, OrOr,
     // 8B/M9: Compound assignment operators
     PlusEq, MinusEq, StarEq, SlashEq, PercentEq,
+    // 8B/M9: Range operators
+    DotDot, DotDotEq,
     Underscore, Hash,
 
     // --- Special ---

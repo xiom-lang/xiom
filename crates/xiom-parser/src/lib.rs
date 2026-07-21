@@ -1259,6 +1259,20 @@ impl Parser {
 
     fn parse_postfix_expr(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_primary()?;
+        // 8B/M9: Range syntax after primary — `expr..expr` or `expr..=expr`
+        if self.peek_kind() == &TokenKind::Dot && self.peek_ahead(1) == Some(&TokenKind::Dot) {
+            self.advance(); self.advance(); // skip ..
+            let inclusive = self.peek_kind() == &TokenKind::Eq;
+            if inclusive { self.advance(); }
+            let right = self.parse_primary()?;
+            let span = expr.span();
+            let fn_name = if inclusive { "range_inclusive" } else { "range" };
+            return Ok(Expr::Call(
+                Box::new(Expr::Ident(Ident::new(String::from(fn_name), span))),
+                vec![expr, right],
+                span,
+            ));
+        }
         loop {
             match self.peek_kind() {
                 TokenKind::Dot => {
