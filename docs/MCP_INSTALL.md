@@ -19,7 +19,7 @@ Download the latest release zip. The binary is at `bin/xiom-mcp.exe` (Windows) o
 ### Option B: Build from source (for contributors)
 
 ```bash
-git clone https://github.com/xiom-lang/xiom
+git clone https://github.com/XIOM-lang/XIOM.git 
 cd xiom
 cargo build --release -p xiom-mcp
 # Binary: target/release/xiom-mcp(.exe)
