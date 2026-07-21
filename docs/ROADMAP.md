@@ -1,12 +1,12 @@
 # XIOM Compiler — Production Roadmap
 
-**Current:** v0.49.7 — **890/890 all tests** (645 compiler + 245 tooling), zero warnings  
-**Branch:** `feat/architect`  
-**Next:** Phase 8B/M4 — Code Health (split god objects, remove unwraps/exits)
+**Current:** v0.49.8 — **924/924 all tests** (673 compiler + 251 tooling), zero warnings
+**Branch:** `feat/architect`
+**Next:** Phase 9A — Pre-Release Infrastructure (registry, website, package distribution)
 
 ---
 
-## 1. CURRENT STATE (2026-07-21 — v0.49.7, 890 tests)
+## 1. CURRENT STATE (2026-07-21 — v0.49.8, 924 tests)
 
 | Gate | Count | Status |
 |------|-------|--------|
@@ -161,48 +161,91 @@ Gap analysis completed: 11 missing features identified, 4 fixed so far.
 
 ---
 
-## 4. POST-10/10 — PHASE 9
+## 4. POST-10/10 — PHASE 9 — FIRST PUBLIC RELEASE
 
-**Gate:** All crates rated 10/10. 1,000+ tests. Zero known gaps.
+**Goal:** v0.50.0 or v1.0.0 — first stable public release with full ecosystem.
 
-### 9A — Release v1.0
-| Item | Status |
-|------|--------|
-| Final release packaging | Pending |
-| Cross-platform CI verified | Pending |
-| Documentation site (docs.xiom-lang.org) | Pending |
-| Announcement + blog post | Pending |
+### 9A — Pre-Release Infrastructure (NOW — 1-2 weeks)
 
-### 9B — Debugger Pro (commercial, separate repo)
-**Prerequisite:** Phase 8 complete (10/10 foundation)
+| Item | Status | Notes |
+|------|--------|-------|
+| **Package registry** (GitHub-based) | ?? Pending | `xiom pkg install <name>` downloads from GitHub Releases |
+| **Website** (xiom-lang.org) | ?? Pending | Separate static repo, markdown?HTML via GH Actions |
+| **Playground** (playground.xiom-lang.org) | ?? Pending | Separate repo, React + WASM worker |
+| **Release automation** | ? Done | GitHub Actions builds all 9 tools for Win/Linux/macOS |
+| **Installer verified** | ? Done | Windows install.bat, Linux/macOS install.sh working |
+| **MCP configs** | ? Done | 12 IDE templates in release package |
+| **Ecosystem packages** | ? Done | 72 packages in packages/ directory |
 
-### 9C — Self-Hosting Bootstrap
-**Prerequisite:** 10/10 foundation + real-world usage via Debugger Pro
+### 9B — Registry Architecture (GitHub-Based)
+
+**No server needed.** Uses GitHub Releases API as the package registry:
+
+```
+registry.xiom-lang.org/
+??? index.json          # Auto-generated manifest of all packages
+?                        # { packages: [{ name:"xiom-vulkan", versions:["0.5.0","0.4.1"] }] }
+?
+Package storage: github.com/xiom-lang/packages/xiom-vulkan/releases/
+??? v0.5.0.tar.gz
+??? v0.4.1.tar.gz
+
+xiom pkg install xiom-vulkan
+  ? GET registry.xiom-lang.org/index.json        (discover latest version)
+  ? GET github.com/xiom-lang/packages/xiom-vulkan/releases/download/v0.5.0/package.tar.gz
+  ? extract to XIOM_HOME/packages/xiom-vulkan-0.5.0/
+```
+
+**Why GitHub-based:**
+1. Zero server cost — GitHub provides free CDN
+2. Automatic versioning — git tags = releases
+3. No database — index.json regenerated from git
+4. This is how Go modules + many Rust crates work
+5. Later upgrade to dedicated registry when needed (Option C)
+
+### 9C — Website (xiom-lang.org)
+
+Separate static repo: `github.com/xiom-lang/xiom-lang.github.io`
+
+```
+xiom-lang.org/
+??? index.html           # Landing page
+??? docs/                # Generated from docs/language/*.md
+??? install/             # Download page linking to GitHub Releases
+??? playground ? redirect to playground.xiom-lang.org
+??? packages/            # Package browser (generated from registry)
+```
+
+**Build pipeline:** GitHub Actions converts `docs/language/*.md` ? HTML via pandoc, deploys to GitHub Pages. No server needed.
+
+### 9D — Final Pre-Release Checklist
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | 924 tests, zero warnings | ? |
+| 2 | All 10 tools built + packaged | ? |
+| 3 | Installer works on Windows + Linux + macOS | ? |
+| 4 | Package registry index.json auto-generated | ?? |
+| 5 | `xiom pkg install xiom-vulkan` works end-to-end | ?? |
+| 6 | Website live at xiom-lang.org | ?? |
+| 7 | Playground live at playground.xiom-lang.org | ?? |
+| 8 | At least 5 ecosystem packages have passing tests | ?? |
+| 9 | Documentation: language guide, stdlib reference, getting started | ?? |
+| 10 | CI/CD green on all 3 platforms | ?? |
+
+### 9E — Post-Release (after v1.0)
+
+- Debugger Pro (commercial GUI, separate repo)
+- Self-hosted compiler (XIOM compiled by XIOM)
+- Dedicated package registry server (replace GitHub-based)
 
 ---
 
-## 5. Rating Targets
-
-| Crate | Current | After M4 | After M5 | After M6-M8 |
-|-------|---------|----------|----------|-------------|
-| xiom-display | 8 | 9 | 9 | **10** |
-| xiom-ast | 7 | 8 | 9 | **10** |
-| xiom-lexer | 7 | 8 | **10** | **10** |
-| xiom-graph | 7 | **10** | **10** | **10** |
-| xiom-check | 6 | 8 | 9 | **10** |
-| xiom-parser | 6 | **10** | **10** | **10** |
-| xiom-codegen | 4 | 7 | 8 | **10** |
-| xiom-lsp | 4 | 7 | 8 | **10** |
-| xiom-pkg | 4 | 7 | 8 | **10** |
-| xiomc | 4 | 7 | 8 | **10** |
-| **AVG** | **5.4** | **8.1** | **8.7** | **10.0** |
-
----
-
-## 6. Release History
+## 5. Release History
 
 | Version | Date | Tests | Notes |
 |---------|------|-------|-------|
-| v0.49.7 | 2026-07-21 | 890 | Phase 8B/M1-M3 complete, preflight audit |
+| v0.49.8 | 2026-07-21 | 924 | 10/11 M9 gaps closed, ASCII installer, fuzz harnesses, HTML docs |
+| v0.49.7 | 2026-07-21 | 910 | Phase 8B/M4-M9 complete, preflight audit |
 | v0.49.5 | 2026-07-20 | 871 | Phase 7 complete, installer v2 |
 | v0.48.9 | 2026-07-20 | 768 | Phase 5-6 complete |
