@@ -4,7 +4,7 @@
 
 ## Overview
 
-Expand `ecosystem/xiom-vulkan/` from 22 toy-bridge functions to ~80 production-grade functions covering:
+Expand `packages/xiom-vulkan/` from 22 toy-bridge functions to ~80 production-grade functions covering:
 - Buffer creation (vertex, index, uniform, storage)
 - Image/texture creation and management
 - Sampler configuration

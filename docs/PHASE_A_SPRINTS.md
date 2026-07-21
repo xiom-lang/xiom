@@ -49,7 +49,7 @@ Message to users:
 
 ### Files to create:
 ```
-ecosystem/xiom-glfw/
+packages/xiom-glfw/
 ├── package.xi          # name: "xiom-glfw", version: "0.1.0"
 ├── README.md           # User docs: install GLFW, env vars, usage
 ├── glfw.xi             # XIOM FFI + safe wrappers with contracts
@@ -126,7 +126,7 @@ let app = xiom_vulkan.create_app(win)?;
 
 ### Files affected:
 ```
-ecosystem/xiom-vulkan/
+packages/xiom-vulkan/
 ├── vulkan.xi          # create_app signature change
 ├── src/wrapper.xi     # VulkanApp.new takes Window
 ├── bridge/xvk_app.c   # Accept GLFWwindow*, remove window creation
@@ -157,7 +157,7 @@ xiom_imgui.init(win)?;  // registers callbacks via GLFW bridge
 
 ### Files affected:
 ```
-ecosystem/xiom-imgui/
+packages/xiom-imgui/
 ├── imgui.xi           # init takes xiom_glfw.Window
 ├── bridge/            # Remove imgui_impl_glfw.*
 ├── build.ps1          # Remove imgui_impl_glfw.obj from link
