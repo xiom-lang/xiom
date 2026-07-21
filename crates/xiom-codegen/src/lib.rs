@@ -2209,6 +2209,7 @@ impl IrEmitter {
                         DeriveTrait::Display => self.compile_display_impl(&type_name, &struct_ty, &field_names)?,
                         DeriveTrait::Hash => self.compile_hash_impl(&type_name, &struct_ty, &field_names)?,
                         DeriveTrait::Ord => self.compile_ord_impl(&type_name, &struct_ty, &field_names, &td.fields)?,
+                        DeriveTrait::Debug => self.compile_debug_impl(&type_name, &struct_ty, &field_names)?,
                     }
                 }
 
@@ -2246,6 +2247,7 @@ impl IrEmitter {
                         DeriveTrait::Hash => self.compile_enum_hash_impl(&type_name, &struct_ty, ed)?,
                         DeriveTrait::Ord => self.compile_enum_ord_impl(&type_name, &struct_ty, ed)?,
                         DeriveTrait::Display => self.compile_enum_display_impl(&type_name, &struct_ty, ed)?,
+                        DeriveTrait::Debug => self.compile_enum_debug_impl(&type_name, &struct_ty, ed)?,
                     }
                 }
             }
@@ -2414,6 +2416,23 @@ impl IrEmitter {
         self.emitln(&format!("  ret i8* {buf_ptr}"));
         self.emitln("}\n");
         self.functions.insert(fn_name, (vec![struct_ty.to_string()], "i8*".to_string()));
+        Ok(())
+    }
+
+    /// 8B/M9: Debug derive for structs — delegates to Display for now
+    fn compile_debug_impl(&mut self, type_name: &str, struct_ty: &str, field_names: &[String]) -> Result<(), String> {
+        let fn_name = format!("{type_name}.fmt");
+        if self.emitted_fns.contains(&fn_name) { return Ok(()); }
+        self.emitted_fns.insert(fn_name.clone());
+        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), "i8*".to_string()], "i8*".to_string()));
+
+        // Debug.fmt delegates to Display.to_str
+        self.emitln(&format!("define i8* @{fn_name}({struct_ty} %self, i8* %_f) {{"));
+        self.emitln("entry:");
+        let ptr = self.fresh_tmp();
+        self.emitln(&format!("  {ptr} = call i8* @{type_name}.to_str({struct_ty} %self)"));
+        self.emitln(&format!("  ret i8* {ptr}"));
+        self.emitln("}\n");
         Ok(())
     }
 
@@ -2922,6 +2941,21 @@ impl IrEmitter {
         }
         self.emitln(&format!("\n{default_blk}:"));
         self.emitln("  ret i8* null");
+        self.emitln("}\n");
+        Ok(())
+    }
+
+    /// 8B/M9: Debug derive for enums — delegates to Display.to_str
+    fn compile_enum_debug_impl(&mut self, type_name: &str, struct_ty: &str, _ed: &xiom_ast::EnumDecl) -> Result<(), String> {
+        let fn_name = format!("{type_name}.fmt");
+        if self.emitted_fns.contains(&fn_name) { return Ok(()); }
+        self.emitted_fns.insert(fn_name.clone());
+        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), "i8*".to_string()], "i8*".to_string()));
+        self.emitln(&format!("define i8* @{fn_name}({struct_ty} %self, i8* %_f) {{"));
+        self.emitln("entry:");
+        let ptr = self.fresh_tmp();
+        self.emitln(&format!("  {ptr} = call i8* @{type_name}.to_str({struct_ty} %self)"));
+        self.emitln(&format!("  ret i8* {ptr}"));
         self.emitln("}\n");
         Ok(())
     }

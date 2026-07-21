@@ -1,4 +1,4 @@
-﻿// XIOM - Feature Regression Tests
+// XIOM - Feature Regression Tests
 // Locks in every syntax/semantic feature added during stdlib hardening.
 
 use xiom_lexer::Lexer;
@@ -1526,7 +1526,7 @@ fn main() -> Int {
 
 /// 5e.1 G-18: sizeof() compiler intrinsic wired to checker + codegen dispatch.
 /// sizeof_struct() provides precise LLVM byte widths for C FFI: i8=1,i16=2,i32=4,i64=8.
-/// Contrast with size_of() which uses field-count�8 (XIOM-semantic size).
+/// Contrast with size_of() which uses field-count?8 (XIOM-semantic size).
 /// Verifies: sizeof[Int]()=8, sizeof[Int8]()=1, sizeof on a struct with mixed-width
 /// fields returns the sum of correct LLVM widths.
 #[test]
@@ -3334,7 +3334,7 @@ fn main() -> Int { return 0; }
 }
 
 // =====================================================================
-// Phase 8B/M3: Integration Tests � Full Pipeline
+// Phase 8B/M3: Integration Tests ? Full Pipeline
 // =====================================================================
 
 /// M3-01: xiomc::compile_with_diagnostics on known-good source.
@@ -3349,7 +3349,7 @@ fn main() -> Int { return add(1, 2); }
         ..xiomc::CompileConfig::default()
     };
     let result = xiomc::compile_with_diagnostics(&config, &["inline.xi".to_string()]);
-    // Test would need to write temp file � skip actual compile_with_diagnostics
+    // Test would need to write temp file ? skip actual compile_with_diagnostics
     // since it reads from filesystem. Test the config struct instead.
     assert!(!config.force);
     assert!(config.emit_ir);
@@ -3362,7 +3362,7 @@ fn regress_m302_compile_empty_source() {
     assert!(ir.contains("define"), "Empty source must compile");
 }
 
-/// M3-03: Full pipeline � lex ? parse ? check ? codegen on complex source.
+/// M3-03: Full pipeline ? lex ? parse ? check ? codegen on complex source.
 #[test]
 fn regress_m303_full_pipeline_complex() {
     let src = r#"
@@ -3411,14 +3411,14 @@ fn regress_m306_version_flag_config() {
 }
 
 // =====================================================================
-// Phase 8B/M4: Code Health � process::exit removal
+// Phase 8B/M4: Code Health ? process::exit removal
 // =====================================================================
 
 /// M4-01: Verifies compile_with_diagnostics does NOT call process::exit.
 /// Library functions must return Result, not kill the host process.
 #[test]
 fn regress_m401_no_exit_in_library() {
-    // Compile simple source � must not panic or exit
+    // Compile simple source ? must not panic or exit
     let ir = compile("fn main() -> Int { return 0; }").unwrap();
     assert!(ir.contains("ret i64 0"));
 }
@@ -3449,7 +3449,7 @@ fn regress_m403_incremental_config() {
 }
 
 // =====================================================================
-// Phase 8B/M9: Language Parity � and/or keywords + compound assignment
+// Phase 8B/M9: Language Parity ? and/or keywords + compound assignment
 // =====================================================================
 
 /// M9-01: `and` keyword works as `&&`.
@@ -3581,4 +3581,48 @@ fn main() -> Int {
 "#;
     let ir = compile(src).unwrap();
     assert!(ir.contains("add i64"), "+= on field must work");
+}
+
+/// M9-11: `Debug` derive on struct compiles.
+#[test]
+fn regress_m911_debug_derive_struct() {
+    let src = r#"
+pub type Point = { x: Int; y: Int; } derive[Debug, Clone]
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("Point.fmt"), "Debug.fmt must be emitted");
+}
+
+/// M9-12: `Debug` derive on enum compiles.
+#[test]
+fn regress_m912_debug_derive_enum() {
+    let src = r#"
+pub enum Color { Red, Green, Blue } derive[Debug, Eq]
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("Color.fmt"), "Debug.fmt must be emitted for enum");
+}
+
+/// M9-13: `FromStr` trait defined in convert.xi.
+#[test]
+fn regress_m913_fromstr_trait_defined() {
+    // Verify the trait is usable by parsing a simple type
+    let src = r#"
+use xiom.convert.FromStr;
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "FromStr must be importable");
+}
+
+/// M9-14: `derive[Debug]` on all-5 enum doesn't break existing derives.
+#[test]
+fn regress_m914_debug_with_all_derives() {
+    let src = r#"
+pub enum Full { A, B(x: Int), C(s: Str) } derive[Eq, Clone, Hash, Ord, Display, Debug]
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(src).unwrap();
 }
