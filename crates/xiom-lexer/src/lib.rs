@@ -42,6 +42,8 @@ pub enum TokenKind {
     Bang, Amp, Pipe, Ampersand,
     Eq, EqEq, Neq, Lt, Gt, Le, Ge,
     AndAnd, OrOr,
+    // 8B/M9: Compound assignment operators
+    PlusEq, MinusEq, StarEq, SlashEq, PercentEq,
     Underscore, Hash,
 
     // --- Special ---
@@ -313,19 +315,54 @@ impl Lexer {
             '@' => { self.advance(); Token::new(TokenKind::At, start, "@") }
             '#' => { self.advance(); Token::new(TokenKind::Hash, start, "#") }
             '?' => { self.advance(); Token::new(TokenKind::Question, start, "?") }
-            '+' => { self.advance(); Token::new(TokenKind::Plus, start, "+") }
+            '+' => {
+                self.advance();
+                if self.peek() == Some('=') {
+                    self.advance();
+                    Token::new(TokenKind::PlusEq, start, "+=")
+                } else {
+                    Token::new(TokenKind::Plus, start, "+")
+                }
+            }
             '-' => {
                 self.advance();
                 if self.peek() == Some('>') {
                     self.advance();
                     Token::new(TokenKind::Arrow, start, "->")
+                } else if self.peek() == Some('=') {
+                    self.advance();
+                    Token::new(TokenKind::MinusEq, start, "-=")
                 } else {
                     Token::new(TokenKind::Minus, start, "-")
                 }
             }
-            '*' => { self.advance(); Token::new(TokenKind::Star, start, "*") }
-            '/' => { self.advance(); Token::new(TokenKind::Slash, start, "/") }
-            '%' => { self.advance(); Token::new(TokenKind::Percent, start, "%") }
+            '*' => {
+                self.advance();
+                if self.peek() == Some('=') {
+                    self.advance();
+                    Token::new(TokenKind::StarEq, start, "*=")
+                } else {
+                    Token::new(TokenKind::Star, start, "*")
+                }
+            }
+            '/' => {
+                self.advance();
+                if self.peek() == Some('=') {
+                    self.advance();
+                    Token::new(TokenKind::SlashEq, start, "/=")
+                } else {
+                    Token::new(TokenKind::Slash, start, "/")
+                }
+            }
+            '%' => {
+                self.advance();
+                if self.peek() == Some('=') {
+                    self.advance();
+                    Token::new(TokenKind::PercentEq, start, "%=")
+                } else {
+                    Token::new(TokenKind::Percent, start, "%")
+                }
+            }
             '^' => { self.advance(); Token::new(TokenKind::Caret, start, "^") }
             '~' => { self.advance(); Token::new(TokenKind::Tilde, start, "~") }
             '!' => {
@@ -414,6 +451,9 @@ impl Lexer {
             "comptime"  => TokenKind::Comptime,
             "module"    => TokenKind::Module,
             "use"       => TokenKind::Use,
+            "and"       => TokenKind::AndAnd,   // 8B/M9: boolean operator keyword aliases
+            "or"        => TokenKind::OrOr,
+            "not"       => TokenKind::Bang,
             "pub"       => TokenKind::Pub,
             "as"        => TokenKind::As,
             "type"      => TokenKind::Type,
