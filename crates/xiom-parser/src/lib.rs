@@ -221,7 +221,7 @@ impl Parser {
         else if parts.len() == 1 { parts[0].to_string() }
         else if parts.len() == 2 { format!("{} or {}", parts[0], parts[1]) }
         else {
-            let last = parts.last().unwrap();
+            let last = parts.last().expect("expected_set has parts");
             format!("{}, or {}", parts[..parts.len()-1].join(", "), last)
         }
     }
