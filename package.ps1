@@ -150,24 +150,6 @@ if (Test-Path $mcpSrc) {
     Write-Host "    + mcp/ (IDE configs: Kilo, Cursor, Claude, Windsurf, etc.)" -ForegroundColor DarkGray
 }
 
-# Create install.bat from release template
-$installBatSrc = "$root\tools\installer\install.bat"
-if (Test-Path $installBatSrc) {
-    Copy-Item $installBatSrc "$pkgDir\install.bat" -Force
-    Write-Host "    + install.bat" -ForegroundColor DarkGray
-} else {
-    Write-Host "    - install.bat not found (run from repo root)" -ForegroundColor Yellow
-}
-
-# Copy install.sh for Linux/macOS
-$installShSrc = "$root\tools\installer\install.sh"
-if (Test-Path $installShSrc) {
-    Copy-Item $installShSrc "$pkgDir\install.sh" -Force
-    Write-Host "    + install.sh (Linux/macOS)" -ForegroundColor DarkGray
-}
-
-Write-Host "    + install.bat" -ForegroundColor DarkGray
-
 # Create README
 @"
 XIOM v$Version - Portable Release
@@ -214,6 +196,10 @@ if ($Sign) {
         & $signScript @signArgs
         if ($LASTEXITCODE -ne 0) {
             Write-Host "  WARNING: Signing had errors" -ForegroundColor Yellow
+        }
+    }
+}
+
 # Copy MCP configs
 $mcpSrc = "$root\tools\installer\mcp"
 if (Test-Path $mcpSrc) {
@@ -232,8 +218,4 @@ $installShSrc = "$root\tools\installer\install.sh"
 if (Test-Path $installShSrc) {
     Copy-Item $installShSrc "$pkgDir\install.sh" -Force
     Write-Host "    + install.sh (Linux/macOS)" -ForegroundColor DarkGray
-}
-    } else {
-        Write-Host "  WARNING: sign.ps1 not found" -ForegroundColor Yellow
-    }
 }

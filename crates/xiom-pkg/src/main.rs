@@ -612,20 +612,20 @@ fn install_package(args: &[String]) {
     install_from_ecosystem(pkg_name);
 }
 
-/// Install a package from the local ecosystem/ directory.
+/// Install a package from the local packages/ directory.
 fn install_from_ecosystem(pkg_name: &str) {
     // Find the AXIOM workspace root (where Cargo.toml lives)
     let workspace = find_workspace_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    let ecosystem_dir = workspace.join("ecosystem");
-    let pkg_dir = ecosystem_dir.join(format!("xiom-{}", pkg_name.strip_prefix("xiom.").unwrap_or(pkg_name)));
+    let packages_dir = workspace.join("packages");
+    let pkg_dir = packages_dir.join(format!("xiom-{}", pkg_name.strip_prefix("xiom.").unwrap_or(pkg_name)));
 
     if !pkg_dir.exists() {
         // Try without xiom- prefix
-        let alt_dir = ecosystem_dir.join(pkg_name);
+        let alt_dir = packages_dir.join(pkg_name);
         if !alt_dir.exists() {
-            eprintln!("xiom pkg: package '{}' not found in local ecosystem/", pkg_name);
+            eprintln!("xiom pkg: package '{}' not found in local packages/", pkg_name);
             eprintln!("xiom pkg: available packages:");
-            if let Ok(entries) = std::fs::read_dir(&ecosystem_dir) {
+            if let Ok(entries) = std::fs::read_dir(&packages_dir) {
                 for entry in entries.flatten() {
                     let name = entry.file_name().to_string_lossy().to_string();
                     if name.starts_with("xiom-") {
@@ -818,18 +818,18 @@ fn generate_lockfile() {
 }
 
 fn print_usage() {
-    eprintln!("XIOM Package v0.49.5 — Package Manager (7F: local ecosystem + remote registry)");
+    eprintln!("XIOM Package v0.49.8 — Package Manager (local packages + remote registry)");
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("  xiom pkg [OPTIONS] --root <dir>");
     eprintln!("  xiom pkg search [query]           Search registry for packages");
-    eprintln!("  xiom pkg install <pkg>[@version]  Install package (local ecosystem fallback)");
+    eprintln!("  xiom pkg install <pkg>[@version]  Install package (local packages fallback)");
     eprintln!("  xiom pkg publish                   Publish package to registry");
     eprintln!("  xiom pkg lock                      Generate xiom.lock from package.xi");
     eprintln!("  xiom pkg list                       List installed packages");
     eprintln!();
     eprintln!("Install locations:");
-    eprintln!("  Local ecosystem: <repo>/ecosystem/xiom-<pkg>/ → XIOM_HOME/packages/<pkg>-<ver>/");
+    eprintln!("  Local packages: <repo>/packages/xiom-<pkg>/ → XIOM_HOME/packages/<pkg>-<ver>/");
     eprintln!();
     eprintln!("OPTIONS:");
     eprintln!("  --help        Show this help message");
