@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 pub mod coerce;
+pub mod context;
 pub mod contracts;
 pub mod decl;
 pub mod emitter;
@@ -21,286 +22,75 @@ pub mod expr;
 pub mod sandbox;
 pub mod vec_abi;
 
-// ============================================================================
-// Metadata for user-defined types
-// ============================================================================
-
-#[derive(Clone)]
-#[allow(dead_code)]
-struct TypeMeta {
-    fields: Vec<(String, String)>,  // (field_name, type_name)
-    derives: Vec<DeriveTrait>,
-    invariants: Vec<Expr>,
-}
+pub use context::{CodegenConfig, TypeContext, FunctionContext, MonoContext, LocalContext, TypeMeta};
 
 // ============================================================================
-// LLVM IR Emitter
+// LLVM IR Emitter (M4.1: decomposed from 86-field god object into 5 sub-contexts)
 // ============================================================================
 
 pub struct IrEmitter {
-    /// ── Output Buffer ──
     /// Accumulated LLVM IR text output of the compilation
-    output: String,
-    /// ── Counters ──
+    pub output: String,
     /// Counter for unique temporary names
-    tmp_counter: u32,
+    pub tmp_counter: u32,
     /// Counter for unique block labels
-    block_counter: u32,
+    pub block_counter: u32,
     /// Counter for unique string constants
-    str_counter: u32,
-    /// ── Function Compilation State ──
-    /// Local variables: name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ (alloca_register, llvm_type)
-    locals: Vec<HashMap<String, (String, String)>>,
-    /// ── Type System State ──
-    /// Known function signatures: name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ (param_llvm_types, return_llvm_type_or_empty)
-    functions: HashMap<String, (Vec<String>, String)>,
-    /// Known type structures: name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ field names (for struct type definition)
-    types: HashMap<String, Vec<String>>,
-    /// Full type metadata: name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ TypeMeta
-    type_meta: HashMap<String, TypeMeta>,
-    /// Names of types declared with generic params (e.g. `BinaryHeap[T]`). Methods
-    /// on these cannot be lowered concretely from an un-monomorphised body, so they
-    /// are skipped from direct emission (they are monomorphised on demand instead).
-    generic_type_names: std::collections::HashSet<String>,
-    /// Current function name (for labels)
-    current_fn: Option<String>,
-    /// Return type of current function (empty = void)
-    current_return_type: String,
-    /// String constants to emit at the top
-    strings: Vec<String>,
-    /// Current function's param LLVM types (index ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ type)
-    current_param_llvm_types: Vec<String>,
-    /// Whether to emit contract runtime checks
-    check_contracts: bool,
-    /// ── Monomorphisation State ──
-    /// Generic function ASTs stored for later monomorphisation,
-    /// with pre-computed fn_key to avoid recomputation in the wrong module context.
-    generic_fn_decls: Vec<(String, FnDecl)>,
-    /// Locals whose declared XIOM type is `Bool` (they lower to i64/i1 like Int, so
-    /// `.to_str()` needs this to emit "true"/"false" rather than a number).
-    bool_locals: std::collections::HashSet<String>,
-    /// Locals whose declared XIOM type is a raw pointer (`*T`). These lower to i64
-    /// (an address) in the current ABI, so `buf[i]` indexing must inttoptr-to-i8*
-    /// and load/store a byte rather than falling through to the Str/Vec paths.
-    ptr_locals: std::collections::HashSet<String>,
-    /// Tracked generic instantiations: (fn_original_name, vec![concrete_type_names])
-    generic_instantiations: Vec<(String, Vec<String>)>,
-    /// Const-generic value map: monomorphised_fn_name -> {const_param_name -> value}
-    const_value_map: HashMap<String, HashMap<String, i64>>,
-    /// Specialized monomorphised function names already emitted, so a
-    /// self-referential generic (a cycle in generic definitions) is emitted once
-    /// instead of being re-queued every worklist pass (which would hit the
-    /// 65536-iteration guard / hang).
-    mono_emitted: std::collections::HashSet<String>,
+    pub str_counter: u32,
     /// Whether @llvm.trap has been declared
-    #[allow(dead_code)]
-    has_llvm_trap_decl: bool,
-    /// Pre-state value of self (for self@pre in ensures)
-    #[allow(dead_code)]
-    self_pre_value: Option<String>,
-    /// Current function's ensures clauses (for contract checking at return points)
-    current_ensures: Vec<Expr>,
-    /// Alloca for the result value in ensures expressions
-    result_ptr: Option<String>,
-    /// Alloca for match result in expression position
-    match_result_ptr: Option<String>,
-    /// LLVM type used when storing an arm body into `match_result_ptr`.
-    /// When `None`, falls back to `current_return_type` (tail-position match).
-    match_result_ty: Option<String>,
-    /// ── Interface/Enum Registry ──
-    /// Interface registry: interface name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ vec of (method_name, param_type_names)
-    interfaces: HashMap<String, Vec<(String, Vec<String>)>>,
-    /// Concrete types that implement each interface: interface_name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ set of concrete_type_names
-    interface_impls: HashMap<String, HashSet<String>>,
-    /// Enum variants registry: enum name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ vec of (variant_name, field_names)
-    enum_variants: HashMap<String, Vec<(String, Vec<String>)>>,
-    /// Scrutinee info for match arm field extraction: (alloca_name, type_name)
-    #[allow(dead_code)]
-    scrutinee_info: Option<(String, String)>,
-    /// Builtin types whose impls have been referenced by the program
-    used_builtins: HashSet<String>,
-    /// Current type substitution map for monomorphisation: generic_name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ concrete_type
-    current_type_map: HashMap<String, String>,
-    /// Maps variable name to concrete type for generic params in monomorphised functions
-    /// Current const-generic value map during monomorphised body compilation.
-    current_const_map: HashMap<String, i64>,
-    param_concrete_types: HashMap<String, String>,
-    /// LLVM target triple (default: x86_64-pc-windows-msvc)
-    target_triple: String,
-    /// Maximum allowed recursion depth (emitted into LLVM IR as constant)
-    max_recursion_depth: u32,
-    /// Strict mode: error on unknown types defaulting to i64
-    strict_mode: bool,
-    /// Tracks emitted function names to avoid duplicate definitions
-    emitted_fns: HashSet<String>,
-    /// Current module prefix for scoped type resolution (e.g., "types" or "derive")
-    current_module: Option<String>,
-    /// Maps function pointer parameter names to their LLVM return types
-    fn_ptr_return_types: HashMap<String, String>,
-    /// ── Loop/Match Control Flow ──
-    /// Stack of active loop labels: (continue_label, break_label)
-    loop_stack: Vec<(String, String)>,
-    /// Struct type definitions created during compilation (e.g. concrete
-    /// Option__Point) that need to be emitted before the next function.
-    deferred_struct_types: Vec<(String, String)>,  // (name, body)
-    /// Locals bound from Expr::Array literals (for indexing dispatch)
-    array_locals: HashSet<String>,
-    /// 5c.30: local Vec bindings' declared element type name
-    /// (`var v = Vec[Point2D].new()` â†’ "v" â†’ "Point2D") so Index reads on
-    /// LOCAL Vec-of-struct / Vec-of-float use the right element layout.
-    local_vec_elem: HashMap<String, String>,
-    /// 5c.30: Option locals whose payload is a heap-boxed STRUCT pointer
-    /// (`let popped = points.pop()` on Vec[Point2D] â†’ "popped" â†’ "Point2D").
-    local_opt_payload: HashMap<String, String>,
-    /// 5c.30: i64 locals holding a heap-boxed struct pointer
-    /// (`let val = popped.unwrap()` â†’ "val" â†’ "Point2D") so field access
-    /// dereferences the box with the right struct type.
-    local_boxed_struct: HashMap<String, String>,
-    /// 5c.30: locals holding an i64 CONTAINER HANDLE (pointer to a boxed Vec
-    /// header), e.g. match-arm payload bindings like
-    /// `JsonValue.Array(ref mut items)` â†’ "items" â†’ elem "JsonValue".
-    local_vec_handle: HashMap<String, String>,
-    /// 5d: ERROR payload type of locals holding Result[T, E] values
-    /// (`let r = parse()` where parse -> Result[Int, Str] â†’ "r" â†’ "Str").
-    /// Drives unwrap_err() typing and match Err(e) payload binding.
-    local_err_payload: HashMap<String, String>,
-    /// 5c.30: per-variant payload field TYPE names (enum â†’ [(variant,
-    /// [field types])]). type_meta dedups payload fields by NAME, losing
-    /// per-variant types (JsonValue's `val` is Bool|Float64|Str|Vec[...]).
-    enum_variant_field_types: HashMap<String, Vec<(String, Vec<String>)>>,
-    /// 5c.30: declared XIOM return type per function key (with generic args,
-    /// e.g. "Result[Vec[Int], Str]") so Option/Result payload types survive
-    /// the LLVM type erasure for unwrap-binding classification.
-    fn_return_xiom: HashMap<String, String>,
-    /// 5c.30: current method's receiver TYPE NAME (set during method
-    /// compilation) so bare-name calls like `init()` inside `fn Foo.init()`
-    /// resolve as implicit-self method calls (G-10).
-    current_receiver: Option<String>,
-    /// Temporary register values that originated from Expr::Array literals.
-    /// Used by val_to_struct to distinguish array-buffer i8* from generic i8*.
-    array_value_regs: HashSet<String>,
-    /// 5c-R: LLVM element type for local array bindings (`let arr = [1.0, 2.0]`
-    /// → "arr" → "double") so array indexing uses the correct load type (G-11).
-    local_array_elem: HashMap<String, String>,
-    /// Fixed-size array-local bindings (var name -> N elements). Populated
-    /// from Expr::Array during let/var; used by const-generic inference.
-    local_array_sizes: HashMap<String, i64>,
-    /// Set of function names already declared via `declare` (to avoid duplicates)
-    already_declared: HashSet<String>,
-    /// Module/global `const` values, keyed by bare name (last definition wins),
-    /// used to substitute a constant reference with its literal value.
-    constants: HashMap<String, Expr>,
-    /// Mutable module-level `var` globals: maps a variable name (BOTH the bare
-    /// name and, when inside a module, the module-qualified name) to its emitted
-    /// LLVM symbol name and LLVM type. A reference to such a name is compiled as
-    /// a real `load` from the `@<symbol>` global; an assignment becomes a
-    /// `store`. Unlike `constants`, these are NOT substituted ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â writes persist
-    /// across calls.
-    module_globals: HashMap<String, (String, String)>,
-    /// Ordered list of module-global definitions to emit at the top of the
-    /// module: (llvm symbol name, llvm type, constant initializer). Deduped by
-    /// symbol name so the defining module and an injected external copy do not
-    /// emit the same global twice.
-    module_global_defs: Vec<(String, String, String)>,
-    /// ── Hot Reload State ──
-    /// Hot reload mode: pub fn calls go through @xiom_hot_get_ptr thunks
-    pub(crate) hot_reload: bool,
-    /// Set of pub function keys (for hot reload thunk dispatch)
-    pub(crate) pub_functions: HashSet<String>,
-    /// 5e.5c: globals to save/restore across hot reload: (symbol, llvm_type, byte_size)
-    pub(crate) xiom_hot_globals: Vec<(String, String, usize)>,
+    pub has_llvm_trap_decl: bool,
+
+    /// Compilation flags and target configuration
+    pub config: CodegenConfig,
+    /// Type system registration, interface/enum metadata, function signatures
+    pub types: TypeContext,
+    /// Per-function compilation state (locals, params, return type, ensures)
+    pub fctx: FunctionContext,
+    /// Monomorphisation worklist and instantiation tracking
+    pub mono: MonoContext,
+    /// Local variable classification, module-level globals, loop stack
+    pub local: LocalContext,
 }
 
+
+
 impl IrEmitter {
-    pub fn new() -> Self {
+        pub fn new() -> Self {
         Self {
             output: String::new(),
             tmp_counter: 0,
             block_counter: 0,
             str_counter: 0,
-            locals: vec![HashMap::new()],
-            functions: HashMap::new(),
-            types: HashMap::new(),
-            type_meta: HashMap::new(),
-            generic_type_names: std::collections::HashSet::new(),
-            current_fn: None,
-            current_return_type: String::new(),
-            strings: Vec::new(),
-            current_param_llvm_types: Vec::new(),
-            check_contracts: true,
-            max_recursion_depth: 2000,  // 6F: increased from 500 for production workloads
-            strict_mode: false,
-
-            // Remaining fields use defaults
-            generic_fn_decls: Vec::new(),
-            bool_locals: std::collections::HashSet::new(),
-            ptr_locals: std::collections::HashSet::new(),
-            generic_instantiations: Vec::new(),
-            const_value_map: HashMap::new(),
-            mono_emitted: std::collections::HashSet::new(),
             has_llvm_trap_decl: false,
-            self_pre_value: None,
-            current_ensures: Vec::new(),
-            result_ptr: None,
-            match_result_ptr: None,
-            match_result_ty: None,
-            interfaces: HashMap::new(),
-            interface_impls: HashMap::new(),
-            enum_variants: HashMap::new(),
-            scrutinee_info: None,
-            used_builtins: HashSet::new(),
-            current_type_map: HashMap::new(),
-            param_concrete_types: HashMap::new(),
-            current_const_map: HashMap::new(),
-            target_triple: "x86_64-pc-windows-msvc".to_string(),
-            emitted_fns: HashSet::new(),
-            current_module: None,
-            fn_ptr_return_types: HashMap::new(),
-            loop_stack: Vec::new(),
-            deferred_struct_types: Vec::new(),
-            array_locals: HashSet::new(),
-            local_vec_elem: HashMap::new(),
-            local_opt_payload: HashMap::new(),
-            local_boxed_struct: HashMap::new(),
-            local_vec_handle: HashMap::new(),
-            local_err_payload: HashMap::new(),
-            enum_variant_field_types: HashMap::new(),
-            fn_return_xiom: HashMap::new(),
-            current_receiver: None,
-            array_value_regs: HashSet::new(),
-            local_array_elem: HashMap::new(),
-            // Fixed-size of array-local bindings (var name -> N elements).
-            // Populated from Expr::Array during let/var compilation;
-            // consumed by const-generic inference (5c.30).
-            local_array_sizes: HashMap::new(),
-            already_declared: HashSet::new(),
-            constants: HashMap::new(),
-            module_globals: HashMap::new(),
-            module_global_defs: Vec::new(),
-            hot_reload: false,
-            pub_functions: HashSet::new(),
-            xiom_hot_globals: Vec::new(),
+            config: CodegenConfig::default(),
+            types: TypeContext::default(),
+            fctx: FunctionContext {
+                locals: vec![HashMap::new()],
+                ..FunctionContext::default()
+            },
+            mono: MonoContext::default(),
+            local: LocalContext::default(),
         }
     }
 
     pub fn set_target_triple(&mut self, triple: &str) {
-        self.target_triple = triple.to_string();
+        self.config.target_triple = triple.to_string();
     }
 
     pub fn set_check_contracts(&mut self, enabled: bool) {
-        self.check_contracts = enabled;
+        self.config.check_contracts = enabled;
     }
 
     pub fn set_max_recursion_depth(&mut self, depth: u32) {
-        self.max_recursion_depth = depth;
+        self.config.max_recursion_depth = depth;
     }
 
     pub fn set_strict_mode(&mut self, strict: bool) {
-        self.strict_mode = strict;
+        self.config.strict_mode = strict;
     }
 
     pub fn set_hot_reload(&mut self, enabled: bool) {
-        self.hot_reload = enabled;
+        self.config.hot_reload = enabled;
     }
 
     /// djb2 hash of a function name for stable pointer table index (5e.5a).
@@ -350,8 +140,8 @@ impl IrEmitter {
     /// These serialize/deserialize all module-level `var` globals to `xiom_hot_state.bin`
     /// with a versioned header containing a layout hash to detect struct changes.
     fn emit_hot_state_functions(&mut self) {
-        if self.xiom_hot_globals.is_empty() { return; }
-        let globals_snapshot = self.xiom_hot_globals.clone();
+        if self.config.xiom_hot_globals.is_empty() { return; }
+        let globals_snapshot = self.config.xiom_hot_globals.clone();
 
         // Build layout metadata string: "name:type:size;name:type:size;..."
         let layout_metadata: String = globals_snapshot.iter()
@@ -672,11 +462,11 @@ impl IrEmitter {
     /// register_functions so cross-references between consts resolve.
     fn evaluate_all_consts(&mut self) {
         // Clone all keys first (can't iterate and mutate simultaneously)
-        let keys: Vec<String> = self.constants.keys().cloned().collect();
+        let keys: Vec<String> = self.local.constants.keys().cloned().collect();
         for name in keys {
-            if let Some(expr) = self.constants.get(&name).cloned() {
-                if let Some(evaluated) = Self::const_eval(&expr, &self.constants, 0) {
-                    self.constants.insert(name, evaluated);
+            if let Some(expr) = self.local.constants.get(&name).cloned() {
+                if let Some(evaluated) = Self::const_eval(&expr, &self.local.constants, 0) {
+                    self.local.constants.insert(name, evaluated);
                 }
             }
         }
@@ -813,20 +603,20 @@ impl IrEmitter {
         let Some(recv) = fd.receiver.as_ref() else { return false };
         // 5e.3: check BOTH types and type_meta — catalog-loaded types (e.g.,
         // benchmark modules) may only be in type_meta, not types.
-        let types_fields = self.types.get(&recv.name)
+        let types_fields = self.types.types.get(&recv.name)
             .or_else(|| {
                 let suffix = format!(".{}", recv.name);
-                self.types.keys().find(|k| k.ends_with(&suffix)).and_then(|k| self.types.get(k))
+                self.types.types.keys().find(|k| k.ends_with(&suffix)).and_then(|k| self.types.types.get(k))
             })
             .cloned();
         let fields: Option<Vec<String>> = types_fields.or_else(|| {
-            self.type_meta.get(&recv.name).map(|m| {
+            self.types.type_meta.get(&recv.name).map(|m| {
                 m.fields.iter().map(|(n, _)| n.clone()).collect()
             })
         }).or_else(|| {
             let suffix = format!(".{}", recv.name);
-            self.type_meta.keys().find(|k| k.ends_with(&suffix)).and_then(|k| {
-                self.type_meta.get(k).map(|m| {
+            self.types.type_meta.keys().find(|k| k.ends_with(&suffix)).and_then(|k| {
+                self.types.type_meta.get(k).map(|m| {
                     m.fields.iter().map(|(n, _)| n.clone()).collect()
                 })
             })
@@ -1205,12 +995,12 @@ impl IrEmitter {
             Expr::Field(_, f, _) => f.name.clone(),
             _ => return None,
         };
-        if let Some(rt) = self.fn_return_xiom.get(&leaf) {
+        if let Some(rt) = self.types.fn_return_xiom.get(&leaf) {
             return Some(rt.clone());
         }
         let suffix = format!(".{leaf}");
         let mut found: Option<&String> = None;
-        for (k, v) in self.fn_return_xiom.iter() {
+        for (k, v) in self.types.fn_return_xiom.iter() {
             if k.ends_with(&suffix) {
                 match found {
                     None => found = Some(v),
@@ -1229,27 +1019,27 @@ impl IrEmitter {
     /// - `opt.unwrap()` where opt is such an Option â†’ classify the binding:
     ///   Vec[T] payloads are container HANDLES, struct payloads are boxes.
     fn track_boxed_payload_binding(&mut self, name: &str, value: &Expr) {
-        self.local_opt_payload.remove(name);
-        self.local_boxed_struct.remove(name);
-        self.local_vec_handle.remove(name);
-        self.local_err_payload.remove(name);
+        self.local.local_opt_payload.remove(name);
+        self.local.local_boxed_struct.remove(name);
+        self.local.local_vec_handle.remove(name);
+        self.local.local_err_payload.remove(name);
         if let Expr::Call(func, _, _) = value {
             if let Expr::Field(recv, method, _) = func.as_ref() {
                 match method.name.as_str() {
                     // Only the INLINE builtins that box struct payloads.
                     "pop" | "get" | "remove" => {
                         if let Some(elem_ty) = self.resolve_vec_elem_type(recv) {
-                            self.local_opt_payload.insert(name.to_string(), elem_ty);
+                            self.local.local_opt_payload.insert(name.to_string(), elem_ty);
                             return;
                         }
                     }
                     "unwrap" | "unwrap_or" => {
                         if let Expr::Ident(opt_id) = recv.as_ref() {
-                            if let Some(t) = self.local_opt_payload.get(&opt_id.name).cloned() {
+                            if let Some(t) = self.local.local_opt_payload.get(&opt_id.name).cloned() {
                                 if let Some(elem) = t.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
-                                    self.local_vec_handle.insert(name.to_string(), elem.to_string());
+                                    self.local.local_vec_handle.insert(name.to_string(), elem.to_string());
                                 } else {
-                                    self.local_boxed_struct.insert(name.to_string(), t);
+                                    self.local.local_boxed_struct.insert(name.to_string(), t);
                                 }
                                 return;
                             }
@@ -1266,16 +1056,16 @@ impl IrEmitter {
                     let stored = if payload.contains('[') {
                         payload
                     } else {
-                        self.types.keys()
+                        self.types.types.keys()
                             .find(|k| k.ends_with(&format!(".{payload}")) || k.as_str() == payload)
                             .cloned()
                             .unwrap_or(payload)
                     };
-                    self.local_opt_payload.insert(name.to_string(), stored);
+                    self.local.local_opt_payload.insert(name.to_string(), stored);
                 }
                 // 5d: record the Result ERROR payload for unwrap_err/match Err(e).
                 if let Some(err_payload) = Self::option_result_err_payload(&ret) {
-                    self.local_err_payload.insert(name.to_string(), err_payload);
+                    self.local.local_err_payload.insert(name.to_string(), err_payload);
                 }
             }
         }
@@ -1341,8 +1131,8 @@ impl IrEmitter {
         // 5c.30: local Vec bindings (`var v = Vec[Float32].new()`) and
         // container-handle bindings.
         if let Expr::Ident(id) = container {
-            if let Some(elem) = self.local_vec_elem.get(&id.name)
-                .or_else(|| self.local_vec_handle.get(&id.name))
+            if let Some(elem) = self.local.local_vec_elem.get(&id.name)
+                .or_else(|| self.local.local_vec_handle.get(&id.name))
             {
                 return match elem.as_str() {
                     "Float32" => Some("float"),
@@ -1353,9 +1143,9 @@ impl IrEmitter {
         }
         if let Expr::Field(base, field_expr, _) = container {
             let base_ty = self.infer_struct_type_name(base)?;
-            for key in self.type_meta.keys() {
+            for key in self.types.type_meta.keys() {
                 if key.ends_with(&base_ty) || key == &base_ty {
-                    if let Some(meta) = self.type_meta.get(key) {
+                    if let Some(meta) = self.types.type_meta.get(key) {
                         for (fname, ftype) in &meta.fields {
                             if fname == &field_expr.name {
                                 return match ftype.as_str() {
@@ -1378,27 +1168,27 @@ impl IrEmitter {
         // type was recorded at the let/var binding. Only struct element types
         // are returned (primitives use the scalar elem_load path).
         if let Expr::Ident(id) = container {
-            let elem = self.local_vec_elem.get(&id.name)
-                .or_else(|| self.local_vec_handle.get(&id.name))?;
+            let elem = self.local.local_vec_elem.get(&id.name)
+                .or_else(|| self.local.local_vec_handle.get(&id.name))?;
             if matches!(elem.as_str(), "Int" | "Bool" | "Str" | "Float64" | "Float32" | "UInt8" | "Int8" | "Int16" | "Int32" | "UInt16" | "UInt32" | "Char" | "Float") {
                 return None;
             }
-            return self.types.keys()
+            return self.types.types.keys()
                 .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
                 .cloned();
         }
         if let Expr::Field(base, field_expr, _) = container {
             let base_ty = self.infer_struct_type_name(base)?;
-            for key in self.type_meta.keys() {
+            for key in self.types.type_meta.keys() {
                 if key.ends_with(&base_ty) || key == &base_ty {
-                    if let Some(meta) = self.type_meta.get(key) {
+                    if let Some(meta) = self.types.type_meta.get(key) {
                         for (fname, ftype) in &meta.fields {
                             if fname == &field_expr.name {
                                 if let Some(inner) = ftype.strip_prefix("Vec[") {
                                     if let Some(bare_name) = inner.strip_suffix(']') {
                                         // Only return if this is a known struct type
                                         // (not a primitive like Int, Str, Bool, etc.)
-                                        if let Some(qualified) = self.types.keys()
+                                        if let Some(qualified) = self.types.types.keys()
                                             .find(|k| k.ends_with(&format!(".{}", bare_name)) || k.as_str() == bare_name)
                                             .cloned()
                                         {
@@ -1422,7 +1212,7 @@ impl IrEmitter {
     /// unambiguous match.
     #[allow(dead_code)]
     fn try_i64_field_access(&mut self, obj_val: &str, field_name: &str) -> Option<(String, String)> {
-        let ts: Vec<(String, Vec<String>)> = self.types.iter()
+        let ts: Vec<(String, Vec<String>)> = self.types.types.iter()
             .map(|(k,v)| (k.clone(), v.clone())).collect();
         let mut candidates: Vec<(&str, usize)> = Vec::new();
         for (tn, fns) in &ts {
@@ -1461,9 +1251,9 @@ impl IrEmitter {
                     if let Ok(n) = n_str.parse::<u64>() {
                         return Ok(format!("[{n} x {elem_llvm}]"));
                     }
-                    // Const-ident size: resolve from `self.constants` (module-level
+                    // Const-ident size: resolve from `self.local.constants` (module-level
                     // `const N: Int = 32;` declared before the type is used).
-                    if let Some(cval) = self.constants.get(n_str) {
+                    if let Some(cval) = self.local.constants.get(n_str) {
                         if let Expr::Int(n, _) = cval {
                             let n = *n as u64;
                             return Ok(format!("[{n} x {elem_llvm}]"));
@@ -1490,18 +1280,18 @@ impl IrEmitter {
             return Ok(format!("{inner_llvm}*"));
         }
         // Try current module's qualified name first (e.g., "types.Person")
-        if let Some(ref module) = self.current_module {
+        if let Some(ref module) = self.local.current_module {
             let qualified = format!("{}.{}", module, type_name);
-            if self.types.contains_key(&qualified) || self.type_meta.contains_key(&qualified) {
+            if self.types.types.contains_key(&qualified) || self.types.type_meta.contains_key(&qualified) {
                 return Ok(format!("%struct.{qualified}"));
             }
         }
         // Try exact match
-        if self.types.contains_key(type_name) || self.type_meta.contains_key(type_name) {
+        if self.types.types.contains_key(type_name) || self.types.type_meta.contains_key(type_name) {
             return Ok(format!("%struct.{type_name}"));
         }
         // Search for any module-qualified variant ending with .type_name
-        for (key, _) in &self.type_meta {
+        for (key, _) in &self.types.type_meta {
             if key.ends_with(&format!(".{type_name}")) {
                 return Ok(format!("%struct.{key}"));
             }
@@ -1514,7 +1304,7 @@ impl IrEmitter {
             _ => {}
         }
         // If type_name is an enum variant (e.g., "Image"), find its parent enum type
-        for (enum_key, variants) in &self.enum_variants {
+        for (enum_key, variants) in &self.types.enum_variants {
             if variants.iter().any(|(v, _)| v == type_name) {
                 return Ok(format!("%struct.{enum_key}"));
             }
@@ -1526,16 +1316,16 @@ impl IrEmitter {
         // `i64` fallback while `infer_llvm_type` resolves it to `%struct.Name`,
         // producing store/return/arg type mismatches. Match exact, module-qualified,
         // then suffix ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â mirroring the struct lookup above.
-        if self.enum_variants.contains_key(type_name) {
+        if self.types.enum_variants.contains_key(type_name) {
             return Ok(format!("%struct.{type_name}"));
         }
-        if let Some(ref module) = self.current_module {
+        if let Some(ref module) = self.local.current_module {
             let qualified = format!("{}.{}", module, type_name);
-            if self.enum_variants.contains_key(&qualified) {
+            if self.types.enum_variants.contains_key(&qualified) {
                 return Ok(format!("%struct.{qualified}"));
             }
         }
-        for enum_key in self.enum_variants.keys() {
+        for enum_key in self.types.enum_variants.keys() {
             if enum_key.ends_with(&format!(".{type_name}")) {
                 return Ok(format!("%struct.{enum_key}"));
             }
@@ -1578,12 +1368,12 @@ impl IrEmitter {
             Err(_) => {
                 // Try suffix search across type_meta and types
                 let search = format!(".{}", type_name);
-                for key in self.type_meta.keys() {
+                for key in self.types.type_meta.keys() {
                     if key.ends_with(&search) {
                         return format!("%struct.{key}");
                     }
                 }
-                for key in self.types.keys() {
+                for key in self.types.types.keys() {
                     if key.ends_with(&search) {
                         return format!("%struct.{key}");
                     }
@@ -1591,7 +1381,7 @@ impl IrEmitter {
                 // Also check generic_type_names ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â generic types may not
                 // be in type_meta/types with bare names but ARE registered
                 // as structs (e.g. Cell[T], Map[K,V]).
-                for key in self.generic_type_names.iter() {
+                for key in self.types.generic_type_names.iter() {
                     if key.ends_with(&search) || key == type_name {
                         if let Ok(t) = self.llvm_type_for(key) {
                             return t;
@@ -1624,9 +1414,9 @@ impl IrEmitter {
         if depth > 8 {
             return 8;
         }
-        let meta = self.type_meta.get(type_name)
+        let meta = self.types.type_meta.get(type_name)
             .or_else(|| {
-                self.type_meta.iter()
+                self.types.type_meta.iter()
                     .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
                     .map(|(_, v)| v)
             });
@@ -1663,19 +1453,19 @@ impl IrEmitter {
     }
 
     fn field_llvm_type(&self, struct_name: &str, field_idx: usize) -> String {
-        let meta = self.type_meta.get(struct_name)
+        let meta = self.types.type_meta.get(struct_name)
             .or_else(|| {
                 // Try current module's qualified name first (deterministic)
-                if let Some(ref module) = self.current_module {
+                if let Some(ref module) = self.local.current_module {
                     let qualified = format!("{}.{}", module, struct_name);
-                    self.type_meta.get(&qualified)
+                    self.types.type_meta.get(&qualified)
             } else {
                     None
                 }
             })
             .or_else(|| {
                 // Fallback: search all qualified keys
-                self.type_meta.iter()
+                self.types.type_meta.iter()
                     .find(|(k, _)| k.ends_with(&format!(".{struct_name}")))
                     .map(|(_, v)| v)
             });
@@ -1697,8 +1487,8 @@ impl IrEmitter {
     /// Returns 0 for unknown types. Used for C FFI malloc/offsetof.
     pub(crate) fn sizeof_struct(&self, type_name: &str) -> usize {
         let suffix = format!(".{type_name}");
-        let meta = self.type_meta.get(type_name)
-            .or_else(|| self.type_meta.iter().find(|(k, _)| k.ends_with(&suffix)).map(|(_, v)| v));
+        let meta = self.types.type_meta.get(type_name)
+            .or_else(|| self.types.type_meta.iter().find(|(k, _)| k.ends_with(&suffix)).map(|(_, v)| v));
         let Some(meta) = meta else { return 0 };
         meta.fields.iter().map(|(_, ty_name)| {
             if ty_name.contains('[') { return 8; }
@@ -1720,9 +1510,9 @@ impl IrEmitter {
             // enum qualifier â€” compare the LEAF segment. Also tolerate
             // qualified/unqualified enum keys.
             let leaf = name.rsplit('.').next().unwrap_or(name);
-            let variants = self.enum_variants.get(type_name)
+            let variants = self.types.enum_variants.get(type_name)
                 .or_else(|| {
-                    self.enum_variants.iter()
+                    self.types.enum_variants.iter()
                         .find(|(k, _)| {
                             k.ends_with(&format!(".{type_name}"))
                                 || type_name.ends_with(&format!(".{}", k.as_str()))
@@ -1773,9 +1563,9 @@ impl IrEmitter {
             // carry the enum qualifier in the name â€” compare against the LEAF
             // segment. Also tolerate qualified/unqualified enum keys.
             let leaf = variant_name.rsplit('.').next().unwrap_or(variant_name);
-            let variants = self.enum_variants.get(type_name)
+            let variants = self.types.enum_variants.get(type_name)
                 .or_else(|| {
-                    self.enum_variants.iter()
+                    self.types.enum_variants.iter()
                         .find(|(k, _)| {
                             k.ends_with(&format!(".{type_name}"))
                                 || type_name.ends_with(&format!(".{}", k.as_str()))
@@ -1807,17 +1597,17 @@ impl IrEmitter {
 
     pub fn compile_program(&mut self, program: &Program) -> Result<String, String> {
         // Register builtin types for Option and Result
-        if !self.types.contains_key("Option") {
-            self.types.insert("Option".to_string(), vec!["discriminant".to_string(), "value".to_string()]);
-            self.type_meta.insert("Option".to_string(), TypeMeta {
+        if !self.types.types.contains_key("Option") {
+            self.types.types.insert("Option".to_string(), vec!["discriminant".to_string(), "value".to_string()]);
+            self.types.type_meta.insert("Option".to_string(), TypeMeta {
                 fields: vec![("discriminant".to_string(), "Int".to_string()), ("value".to_string(), "Int".to_string())],
                 derives: vec![],
                 invariants: vec![],
             });
         }
-        if !self.types.contains_key("Result") {
-            self.types.insert("Result".to_string(), vec!["discriminant".to_string(), "value".to_string(), "error".to_string()]);
-            self.type_meta.insert("Result".to_string(), TypeMeta {
+        if !self.types.types.contains_key("Result") {
+            self.types.types.insert("Result".to_string(), vec!["discriminant".to_string(), "value".to_string(), "error".to_string()]);
+            self.types.type_meta.insert("Result".to_string(), TypeMeta {
                 fields: vec![
                     ("discriminant".to_string(), "Int".to_string()),
                     ("value".to_string(), "Int".to_string()),
@@ -1827,8 +1617,8 @@ impl IrEmitter {
                 invariants: vec![],
             });
         }
-        if !self.enum_variants.contains_key("Result") {
-            self.enum_variants.insert("Result".to_string(), vec![
+        if !self.types.enum_variants.contains_key("Result") {
+            self.types.enum_variants.insert("Result".to_string(), vec![
                 ("Err".to_string(), vec!["error".to_string()]),
                 ("Ok".to_string(), vec!["value".to_string()]),
             ]);
@@ -1847,15 +1637,15 @@ impl IrEmitter {
                 ("cap".to_string(), "Int".to_string()),
                 ("elem_size".to_string(), "Int".to_string()),
             ];
-            self.types.insert("Vec".to_string(), fields);
+            self.types.types.insert("Vec".to_string(), fields);
             // Ensure type_meta has a Vec entry so the struct is emitted
-            self.type_meta.entry("Vec".to_string()).or_insert_with(|| TypeMeta {
+            self.types.type_meta.entry("Vec".to_string()).or_insert_with(|| TypeMeta {
                 fields: full_fields.clone(),
                 derives: Vec::new(),
                 invariants: Vec::new(),
             });
             for key in &["xiom.collections.Vec".to_string()] {
-                if let Some(meta) = self.type_meta.get_mut(key) {
+                if let Some(meta) = self.types.type_meta.get_mut(key) {
                     if meta.fields.len() < 4 {
                         meta.fields.push(("elem_size".to_string(), "Int".to_string()));
                     }
@@ -1869,8 +1659,8 @@ impl IrEmitter {
                 ("keys".to_string(), "Vec".to_string()),
                 ("values".to_string(), "Vec".to_string()),
             ];
-            self.types.insert("Map".to_string(), map_fields);
-            self.type_meta.entry("Map".to_string()).or_insert_with(|| TypeMeta {
+            self.types.types.insert("Map".to_string(), map_fields);
+            self.types.type_meta.entry("Map".to_string()).or_insert_with(|| TypeMeta {
                 fields: map_full_fields,
                 derives: Vec::new(),
                 invariants: Vec::new(),
@@ -1881,8 +1671,8 @@ impl IrEmitter {
         // ({i64, i64}) is emitted even when alloc.xi is not compiled directly.
         // The Layout.new constructor is inlined in expr.rs; this ensures the
         // type definition exists for the emitted insertvalue instructions.
-        if !self.type_meta.contains_key("xiom.alloc.Layout") {
-            self.type_meta.insert("xiom.alloc.Layout".to_string(), TypeMeta {
+        if !self.types.type_meta.contains_key("xiom.alloc.Layout") {
+            self.types.type_meta.insert("xiom.alloc.Layout".to_string(), TypeMeta {
                 fields: vec![
                     ("size".to_string(), "Int".to_string()),
                     ("align".to_string(), "Int".to_string()),
@@ -1890,14 +1680,14 @@ impl IrEmitter {
                 derives: vec![],
                 invariants: vec![],
             });
-            self.types.insert("Layout".to_string(), vec!["size".to_string(), "align".to_string()]);
+            self.types.types.insert("Layout".to_string(), vec!["size".to_string(), "align".to_string()]);
         }
 
         // 5e.3: Register RcInner as a builtin type so size_of[RcInner[T]]()
         // resolves inside monomorphised generic bodies (e.g. Rc.new_Int).
         // RcInner has 3 i64-wide fields: strong, weak, value = 24 bytes.
-        if !self.type_meta.contains_key("xiom.rc.RcInner") {
-            self.type_meta.insert("xiom.rc.RcInner".to_string(), TypeMeta {
+        if !self.types.type_meta.contains_key("xiom.rc.RcInner") {
+            self.types.type_meta.insert("xiom.rc.RcInner".to_string(), TypeMeta {
                 fields: vec![
                     ("strong".to_string(), "Int".to_string()),
                     ("weak".to_string(), "Int".to_string()),
@@ -1906,7 +1696,7 @@ impl IrEmitter {
                 derives: vec![],
                 invariants: vec![],
             });
-            self.types.insert("RcInner".to_string(), vec![
+            self.types.types.insert("RcInner".to_string(), vec![
                 "strong".to_string(), "weak".to_string(), "value".to_string(),
             ]);
         }
@@ -1932,7 +1722,7 @@ impl IrEmitter {
         // Emit module header
         self.emitln("; XIOM Phase 1 ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â LLVM IR");
         self.emitln("; Auto-generated by xiom\n");
-        self.emitln(&format!("target triple = \"{}\"", self.target_triple));
+        self.emitln(&format!("target triple = \"{}\"", self.config.target_triple));
         self.emitln("");
 
         // Emit builtin struct types FIRST so user types can reference them.
@@ -1941,7 +1731,7 @@ impl IrEmitter {
         self.emitln("");
 
         // Emit struct type definitions using actual field types from type_meta
-        for (name, meta) in &self.type_meta.clone() {
+        for (name, meta) in &self.types.type_meta.clone() {
             let struct_ref = format!("%struct.{name}");
             let field_types: Vec<String> = meta.fields.iter()
                 .map(|(_, ty_name)| {
@@ -1951,7 +1741,7 @@ impl IrEmitter {
                 .collect();
             self.emitln(&format!("%struct.{name} = type {{ {} }}", field_types.join(", ")));
         }
-        if !self.types.is_empty() {
+        if !self.types.types.is_empty() {
             self.emitln("");
         }
 
@@ -1959,34 +1749,34 @@ impl IrEmitter {
         // `load` and written via `store`). Registered during register_functions;
         // deduped by symbol so the defining module and an injected external copy
         // never emit the same global twice.
-        if !self.module_global_defs.is_empty() {
-            for (symbol, llvm_ty, init) in &self.module_global_defs.clone() {
+        if !self.local.module_global_defs.is_empty() {
+            for (symbol, llvm_ty, init) in &self.local.module_global_defs.clone() {
                 self.emitln(&format!("@{symbol} = internal global {llvm_ty} {init}"));
             }
             self.emitln("");
         }
 
         // 5e.5c: emit hot reload state save/restore functions
-        if self.hot_reload && !self.xiom_hot_globals.is_empty() {
+        if self.config.hot_reload && !self.config.xiom_hot_globals.is_empty() {
             self.emit_hot_state_functions();
         }
 
         self.emit_builtin_declares();
 
         // Emit declares for user-defined extern "C" functions
-        // (skips names already in self.already_declared, e.g. malloc)
+        // (skips names already in self.mono.already_declared, e.g. malloc)
         // Pre-seed the metadata-accessor names when their tables will be DEFINED
         // below (reflect/contracts), so the user extern block's `declare` for them
         // is skipped ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â otherwise the same symbol is both declared and defined,
         // which clang rejects as an invalid redefinition.
         if Self::program_declares_extern(&program.items, "xiom_type_count") {
             for nm in ["xiom_type_count", "xiom_type_name", "xiom_type_field_count", "xiom_type_id_by_name"] {
-                self.already_declared.insert(nm.to_string());
+                self.mono.already_declared.insert(nm.to_string());
             }
         }
         if Self::program_declares_extern(&program.items, "xiom_contract_fn_count") {
             for nm in ["xiom_contract_fn_count", "xiom_contract_fn_name", "xiom_contract_pre_count", "xiom_contract_post_count"] {
-                self.already_declared.insert(nm.to_string());
+                self.mono.already_declared.insert(nm.to_string());
             }
         }
         self.emit_extern_declares(&program.items);
@@ -1995,7 +1785,7 @@ impl IrEmitter {
         // contract table for the `contracts` stdlib module. This is a NEW,
         // self-contained step appended alongside the runtime `declare`s above.
         // It NEVER alters any existing lowering path ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â it only reads
-        // already-registered type metadata (`self.type_meta` / `self.enum_variants`)
+        // already-registered type metadata (`self.types.type_meta` / `self.types.enum_variants`)
         // and the program AST (function contract clauses), then emits new globals
         // and `@xiom_*` function definitions. Emission is gated on the presence of
         // the matching `extern "C"` declarations (added only in reflect.xi /
@@ -2017,10 +1807,10 @@ impl IrEmitter {
         self.compile_builtin_impls();
 
         // Emit string constants collected during compilation
-        for s in &self.strings.clone() {
+        for s in &self.fctx.strings.clone() {
             self.emitln(&s);
         }
-        if !self.strings.is_empty() {
+        if !self.fctx.strings.is_empty() {
             self.emitln("");
         }
 
@@ -2049,7 +1839,7 @@ impl IrEmitter {
                 // the enum itself. Without this, bare-ident match arms were
                 // treated as bindings and dispatch fell through to the last arm.
                 if let Expr::Ident(base_id) = obj.as_ref() {
-                    for (ek, vars) in self.enum_variants.iter() {
+                    for (ek, vars) in self.types.enum_variants.iter() {
                         if (ek == &base_id.name || ek.ends_with(&format!(".{}", base_id.name)))
                             && vars.iter().any(|(v, _)| v == &field.name)
                         {
@@ -2063,16 +1853,16 @@ impl IrEmitter {
                 // `state: AgentState` should use `AgentState` as the
                 // scrutinee type, not `Agent`.
                 if let Some(base_type) = self.infer_struct_type_name(obj.as_ref()) {
-                    for key in self.type_meta.keys() {
+                    for key in self.types.type_meta.keys() {
                         if key.ends_with(&base_type) || key == &base_type {
-                            if let Some(meta) = self.type_meta.get(key) {
+                            if let Some(meta) = self.types.type_meta.get(key) {
                                 for (fname, ftype) in &meta.fields {
                                     if fname == &field.name {
                                         let clean = ftype.trim_start_matches('*');
-                                        if self.type_meta.contains_key(clean) {
+                                        if self.types.type_meta.contains_key(clean) {
                                             return Some(clean.to_string());
                                         }
-                                        for mk in self.type_meta.keys() {
+                                        for mk in self.types.type_meta.keys() {
                                             if mk.ends_with(&format!(".{}", clean)) {
                                                 return Some(mk.clone());
                                             }
@@ -2107,7 +1897,7 @@ impl IrEmitter {
                         let bare = field.name.clone();
                         if let Some(recv_type) = self.infer_struct_type_name(obj) {
                             let qualified = format!("{}.{}", recv_type, field.name);
-                            if self.functions.contains_key(&qualified) {
+                            if self.types.functions.contains_key(&qualified) {
                                 Some(qualified)
                             } else {
                                 Some(bare)
@@ -2120,11 +1910,11 @@ impl IrEmitter {
                 };
                 if let Some(ref name) = fn_name {
                     // Check if the known return type is a struct
-                    if self.type_meta.contains_key(name) {
+                    if self.types.type_meta.contains_key(name) {
                         return Some(name.clone());
                     }
                     // Also check the return type from the function registry
-                    if let Some((_, ret_ty)) = self.functions.get(name) {
+                    if let Some((_, ret_ty)) = self.types.functions.get(name) {
                         if ret_ty.starts_with("%struct.") {
                             return Some(ret_ty[8..].to_string());
                         }
@@ -2193,9 +1983,9 @@ impl IrEmitter {
                 }
                 let bare_name = &td.name.name;
                 // Resolve to qualified name using module context
-                let type_name = if let Some(ref module) = self.current_module {
+                let type_name = if let Some(ref module) = self.local.current_module {
                     let qualified = format!("{}.{}", module, bare_name);
-                    if self.type_meta.contains_key(&qualified) { qualified } else { bare_name.clone() }
+                    if self.types.type_meta.contains_key(&qualified) { qualified } else { bare_name.clone() }
                 } else {
                     bare_name.clone()
                 };
@@ -2223,15 +2013,15 @@ impl IrEmitter {
                     return Ok(());
                 }
                 let bare_name = &ed.name.name;
-                let type_name = if let Some(ref module) = self.current_module {
+                let type_name = if let Some(ref module) = self.local.current_module {
                     let qualified = format!("{}.{}", module, bare_name);
-                    if self.type_meta.contains_key(&qualified) { qualified } else { bare_name.clone() }
+                    if self.types.type_meta.contains_key(&qualified) { qualified } else { bare_name.clone() }
                 } else {
                     bare_name.clone()
                 };
-                if !self.types.contains_key(&type_name) {
-                    self.types.insert(type_name.clone(), vec!["discriminant".to_string()]);
-                    self.type_meta.insert(type_name.clone(), TypeMeta {
+                if !self.types.types.contains_key(&type_name) {
+                    self.types.types.insert(type_name.clone(), vec!["discriminant".to_string()]);
+                    self.types.type_meta.insert(type_name.clone(), TypeMeta {
                         fields: vec![("discriminant".to_string(), "Int".to_string())],
                         derives: ed.derives.clone(),
                         invariants: Vec::new(),
@@ -2252,8 +2042,8 @@ impl IrEmitter {
                 }
             }
             TopDecl::Module(md) => {
-                let saved_module = self.current_module.clone();
-                self.current_module = Some(if let Some(ref prev) = saved_module {
+                let saved_module = self.local.current_module.clone();
+                self.local.current_module = Some(if let Some(ref prev) = saved_module {
                     format!("{}.{}", prev, md.name.name)
                 } else {
                     md.name.name.clone()
@@ -2261,7 +2051,7 @@ impl IrEmitter {
                 for sub in &md.items {
                     self.compile_derive_for_item(sub)?;
                 }
-                self.current_module = saved_module;
+                self.local.current_module = saved_module;
             }
             _ => {}
         }
@@ -2270,11 +2060,11 @@ impl IrEmitter {
 
     fn compile_eq_impl(&mut self, type_name: &str, struct_ty: &str, field_names: &[String], _fields: &[FieldDecl]) -> Result<(), String> {
         let fn_name = format!("{type_name}.eq");
-        if self.emitted_fns.contains(&fn_name) {
+        if self.mono.emitted_fns.contains(&fn_name) {
             return Ok(());
         }
-        self.emitted_fns.insert(fn_name.clone());
-        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), struct_ty.to_string()], "i64".to_string()));
+        self.mono.emitted_fns.insert(fn_name.clone());
+        self.types.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), struct_ty.to_string()], "i64".to_string()));
         self.emitln(&format!("define i64 @{fn_name}({struct_ty} %self, {struct_ty} %other) {{"));
         let self_alloca = self.fresh_tmp();
         let other_alloca = self.fresh_tmp();
@@ -2338,17 +2128,17 @@ impl IrEmitter {
         }
         self.emitln("}\n");
         // Register the generated function
-        self.functions.insert(fn_name, (vec![struct_ty.to_string(), struct_ty.to_string()], "i64".to_string()));
+        self.types.functions.insert(fn_name, (vec![struct_ty.to_string(), struct_ty.to_string()], "i64".to_string()));
         Ok(())
     }
 
     fn compile_clone_impl(&mut self, type_name: &str, struct_ty: &str, field_names: &[String]) -> Result<(), String> {
         let fn_name = format!("{type_name}.clone");
-        if self.emitted_fns.contains(&fn_name) {
+        if self.mono.emitted_fns.contains(&fn_name) {
             return Ok(());
         }
-        self.emitted_fns.insert(fn_name.clone());
-        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string()], struct_ty.to_string()));
+        self.mono.emitted_fns.insert(fn_name.clone());
+        self.types.functions.insert(fn_name.clone(), (vec![struct_ty.to_string()], struct_ty.to_string()));
         // G-13: a by-value struct return copies EVERY field — including enum
         // payload slots that aren't in field_names (the old field-by-field
         // loop copied only ["discriminant"] for enums, dropping payloads).
@@ -2358,17 +2148,17 @@ impl IrEmitter {
         self.emitln(&format!("define {struct_ty} @{fn_name}({struct_ty} %self) {{"));
         self.emitln(&format!("  ret {struct_ty} %self"));
         self.emitln("}\n");
-        self.functions.insert(fn_name, (vec![struct_ty.to_string()], struct_ty.to_string()));
+        self.types.functions.insert(fn_name, (vec![struct_ty.to_string()], struct_ty.to_string()));
         Ok(())
     }
 
     fn compile_display_impl(&mut self, type_name: &str, struct_ty: &str, field_names: &[String]) -> Result<(), String> {
         let fn_name = format!("{type_name}.to_str");
-        if self.emitted_fns.contains(&fn_name) {
+        if self.mono.emitted_fns.contains(&fn_name) {
             return Ok(());
         }
-        self.emitted_fns.insert(fn_name.clone());
-        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string()], "i8*".to_string()));
+        self.mono.emitted_fns.insert(fn_name.clone());
+        self.types.functions.insert(fn_name.clone(), (vec![struct_ty.to_string()], "i8*".to_string()));
         self.emitln(&format!("define i8* @{fn_name}({struct_ty} %self) {{"));
         let self_alloca = self.fresh_tmp();
         self.emitln(&format!("  {self_alloca} = alloca {struct_ty}"));
@@ -2385,7 +2175,7 @@ impl IrEmitter {
         let fmt_label = format!("@.fmt_{fn_name}");
         let escaped = fmt_str.replace('\\', "\\\\").replace('"', "\\22")
             .replace('\n', "\\0A").replace('\t', "\\09");
-        self.strings.push(format!(
+        self.fctx.strings.push(format!(
             "{fmt_label} = private unnamed_addr constant [{len} x i8] c\"{escaped}\\00\"",
             len = fmt_str.len() + 1
         ));
@@ -2415,16 +2205,16 @@ impl IrEmitter {
         // For Phase 1, just return a pointer to the buf (simplified)
         self.emitln(&format!("  ret i8* {buf_ptr}"));
         self.emitln("}\n");
-        self.functions.insert(fn_name, (vec![struct_ty.to_string()], "i8*".to_string()));
+        self.types.functions.insert(fn_name, (vec![struct_ty.to_string()], "i8*".to_string()));
         Ok(())
     }
 
     /// 8B/M9: Debug derive for structs — delegates to Display for now
     fn compile_debug_impl(&mut self, type_name: &str, struct_ty: &str, _field_names: &[String]) -> Result<(), String> {
         let fn_name = format!("{type_name}.fmt");
-        if self.emitted_fns.contains(&fn_name) { return Ok(()); }
-        self.emitted_fns.insert(fn_name.clone());
-        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), "i8*".to_string()], "i8*".to_string()));
+        if self.mono.emitted_fns.contains(&fn_name) { return Ok(()); }
+        self.mono.emitted_fns.insert(fn_name.clone());
+        self.types.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), "i8*".to_string()], "i8*".to_string()));
 
         // Debug.fmt delegates to Display.to_str
         self.emitln(&format!("define i8* @{fn_name}({struct_ty} %self, i8* %_f) {{"));
@@ -2438,11 +2228,11 @@ impl IrEmitter {
 
     fn compile_hash_impl(&mut self, type_name: &str, struct_ty: &str, field_names: &[String]) -> Result<(), String> {
         let fn_name = format!("{type_name}.hash");
-        if self.emitted_fns.contains(&fn_name) {
+        if self.mono.emitted_fns.contains(&fn_name) {
             return Ok(());
         }
-        self.emitted_fns.insert(fn_name.clone());
-        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string()], "i64".to_string()));
+        self.mono.emitted_fns.insert(fn_name.clone());
+        self.types.functions.insert(fn_name.clone(), (vec![struct_ty.to_string()], "i64".to_string()));
         self.emitln(&format!("define i64 @{fn_name}({struct_ty} %self) {{"));
         let self_alloca = self.fresh_tmp();
         self.emitln(&format!("  {self_alloca} = alloca {struct_ty}"));
@@ -2473,17 +2263,17 @@ impl IrEmitter {
         self.emitln(&format!("  {final_hash} = load i64, i64* %hash"));
         self.emitln(&format!("  ret i64 {final_hash}"));
         self.emitln("}\n");
-        self.functions.insert(fn_name, (vec![struct_ty.to_string()], "i64".to_string()));
+        self.types.functions.insert(fn_name, (vec![struct_ty.to_string()], "i64".to_string()));
         Ok(())
     }
 
     fn compile_ord_impl(&mut self, type_name: &str, struct_ty: &str, field_names: &[String], _fields: &[FieldDecl]) -> Result<(), String> {
         let fn_name = format!("{type_name}.compare");
-        if self.emitted_fns.contains(&fn_name) {
+        if self.mono.emitted_fns.contains(&fn_name) {
             return Ok(());
         }
-        self.emitted_fns.insert(fn_name.clone());
-        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), struct_ty.to_string()], "i64".to_string()));
+        self.mono.emitted_fns.insert(fn_name.clone());
+        self.types.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), struct_ty.to_string()], "i64".to_string()));
         self.emitln(&format!("define i64 @{fn_name}({struct_ty} %self, {struct_ty} %other) {{"));
         let self_alloca = self.fresh_tmp();
         let other_alloca = self.fresh_tmp();
@@ -2546,7 +2336,7 @@ impl IrEmitter {
         }
         self.emitln("  ret i64 0");
         self.emitln("}\n");
-        self.functions.insert(fn_name, (vec![struct_ty.to_string(), struct_ty.to_string()], "i64".to_string()));
+        self.types.functions.insert(fn_name, (vec![struct_ty.to_string(), struct_ty.to_string()], "i64".to_string()));
         Ok(())
     }
 
@@ -2557,9 +2347,9 @@ impl IrEmitter {
     /// Emit derive[Eq] for enums: compares discriminant + variant-specific payload fields.
     fn compile_enum_eq_impl(&mut self, type_name: &str, struct_ty: &str, ed: &xiom_ast::EnumDecl) -> Result<(), String> {
         let fn_name = format!("{type_name}.eq");
-        if self.emitted_fns.contains(&fn_name) { return Ok(()); }
-        self.emitted_fns.insert(fn_name.clone());
-        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), struct_ty.to_string()], "i64".to_string()));
+        if self.mono.emitted_fns.contains(&fn_name) { return Ok(()); }
+        self.mono.emitted_fns.insert(fn_name.clone());
+        self.types.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), struct_ty.to_string()], "i64".to_string()));
 
         // Pre-build variant comparison blocks
         struct VariantEq { block: String, body: Vec<String> }
@@ -2718,9 +2508,9 @@ impl IrEmitter {
     /// content-based .hash() methods instead of hashing raw pointer values.
     fn compile_enum_hash_impl(&mut self, type_name: &str, struct_ty: &str, ed: &xiom_ast::EnumDecl) -> Result<(), String> {
         let fn_name = format!("{type_name}.hash");
-        if self.emitted_fns.contains(&fn_name) { return Ok(()); }
-        self.emitted_fns.insert(fn_name.clone());
-        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string()], "i64".to_string()));
+        if self.mono.emitted_fns.contains(&fn_name) { return Ok(()); }
+        self.mono.emitted_fns.insert(fn_name.clone());
+        self.types.functions.insert(fn_name.clone(), (vec![struct_ty.to_string()], "i64".to_string()));
 
         // Build variant type info for heap-aware hashing
         let mut variant_field_types: Vec<Vec<(String, String)>> = Vec::new();
@@ -2738,7 +2528,7 @@ impl IrEmitter {
         let mut h = self.fresh_tmp();
         self.emitln(&format!("  {h} = mul i64 {d}, 31"));
         // Hash payload slots (indices 1..N) using content-aware hashing
-        let field_count = self.types.get(type_name).map(|f| f.len()).unwrap_or(1);
+        let field_count = self.types.types.get(type_name).map(|f| f.len()).unwrap_or(1);
         for fi in 1..field_count {
             let fv = self.fresh_tmp();
             self.emitln(&format!("  {fv} = extractvalue {struct_ty} %self, {fi}"));
@@ -2796,9 +2586,9 @@ impl IrEmitter {
     /// 5e.7d: Now compares payload values when discriminants match, not just discriminants.
     fn compile_enum_ord_impl(&mut self, type_name: &str, struct_ty: &str, ed: &xiom_ast::EnumDecl) -> Result<(), String> {
         let fn_name = format!("{type_name}.compare");
-        if self.emitted_fns.contains(&fn_name) { return Ok(()); }
-        self.emitted_fns.insert(fn_name.clone());
-        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), struct_ty.to_string()], "i64".to_string()));
+        if self.mono.emitted_fns.contains(&fn_name) { return Ok(()); }
+        self.mono.emitted_fns.insert(fn_name.clone());
+        self.types.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), struct_ty.to_string()], "i64".to_string()));
 
         // Build variant payload field indices for same-discriminant comparison
         struct VariantOrd { field_indices: Vec<usize>, block: String }
@@ -2883,9 +2673,9 @@ impl IrEmitter {
     /// 5e.7d: Now includes payload values in display output for single-field variants.
     fn compile_enum_display_impl(&mut self, type_name: &str, struct_ty: &str, ed: &xiom_ast::EnumDecl) -> Result<(), String> {
         let fn_name = format!("{type_name}.to_str");
-        if self.emitted_fns.contains(&fn_name) { return Ok(()); }
-        self.emitted_fns.insert(fn_name.clone());
-        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string()], "i8*".to_string()));
+        if self.mono.emitted_fns.contains(&fn_name) { return Ok(()); }
+        self.mono.emitted_fns.insert(fn_name.clone());
+        self.types.functions.insert(fn_name.clone(), (vec![struct_ty.to_string()], "i8*".to_string()));
 
         // Emit string constants for each variant display string
         for variant in &ed.variants {
@@ -2948,9 +2738,9 @@ impl IrEmitter {
     /// 8B/M9: Debug derive for enums — delegates to Display.to_str
     fn compile_enum_debug_impl(&mut self, type_name: &str, struct_ty: &str, _ed: &xiom_ast::EnumDecl) -> Result<(), String> {
         let fn_name = format!("{type_name}.fmt");
-        if self.emitted_fns.contains(&fn_name) { return Ok(()); }
-        self.emitted_fns.insert(fn_name.clone());
-        self.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), "i8*".to_string()], "i8*".to_string()));
+        if self.mono.emitted_fns.contains(&fn_name) { return Ok(()); }
+        self.mono.emitted_fns.insert(fn_name.clone());
+        self.types.functions.insert(fn_name.clone(), (vec![struct_ty.to_string(), "i8*".to_string()], "i8*".to_string()));
         self.emitln(&format!("define i8* @{fn_name}({struct_ty} %self, i8* %_f) {{"));
         self.emitln("entry:");
         let ptr = self.fresh_tmp();
@@ -2987,13 +2777,13 @@ impl IrEmitter {
                     MAX_GENERIC_ITERATIONS
                 ));
             }
-            let instantiations = std::mem::take(&mut self.generic_instantiations);
+            let instantiations = std::mem::take(&mut self.mono.generic_instantiations);
             if instantiations.is_empty() {
                 break;
             }
             for (base_name, concrete_types) in &instantiations {
             // Find the generic function decl
-            let fd = match self.generic_fn_decls.iter().find(|(k, _)| k == base_name) {
+            let fd = match self.mono.generic_fn_decls.iter().find(|(k, _)| k == base_name) {
                 Some((_, f)) => f.clone(),
                 None => continue,
             };
@@ -3003,13 +2793,13 @@ impl IrEmitter {
             // producing the "exceeded 65536 iterations" error (or a hang).
             // `insert` returns false when the key is already present.
             let mono_key = self.monomorphised_fn_name(base_name, concrete_types);
-            if !self.mono_emitted.insert(mono_key) {
+            if !self.mono.mono_emitted.insert(mono_key) {
                 continue;
             }
             // Check interface bounds for each generic parameter
             for (gp, concrete_type) in fd.generics.iter().zip(concrete_types.iter()) {
                 for bound in &gp.bounds {
-                    if let Some(methods) = self.interfaces.get(&bound.name) {
+                    if let Some(methods) = self.types.interfaces.get(&bound.name) {
                         for (method_name, _) in methods {
                             let method_key = format!("{}.{}", concrete_type, method_name);
                             // Primitive types implicitly implement the builtin interface
@@ -3023,7 +2813,7 @@ impl IrEmitter {
                             if is_builtin_method && Self::is_primitive_type_name(concrete_type) {
                                 continue;
                             }
-                            if !self.functions.contains_key(&method_key) {
+                            if !self.types.functions.contains_key(&method_key) {
                                 return Err(format!(
                                     "type '{}' does not implement '{}': missing method '{}'",
                                     concrete_type, bound.name, method_name
@@ -3036,7 +2826,7 @@ impl IrEmitter {
             let specialized_name = self.monomorphised_fn_name(base_name, concrete_types);
             // Build type substitution map: generic param name -> concrete type name
             let mut type_map: HashMap<String, String> = HashMap::new();
-            let const_map: HashMap<String, i64> = self.const_value_map.get(&specialized_name).cloned().unwrap_or_default();
+            let const_map: HashMap<String, i64> = self.mono.const_value_map.get(&specialized_name).cloned().unwrap_or_default();
             for (gp, ct) in fd.generics.iter().zip(concrete_types.iter()) {
                 if gp.is_const { continue; } // const params use const_map, not type_map
                 type_map.insert(gp.name.name.clone(), ct.clone());
@@ -3048,7 +2838,7 @@ impl IrEmitter {
                 let mut ct_idx = 0;
                 for param in &fd.params {
                     let param_name = Self::type_from_ast(&param.ty);
-                    if self.interfaces.contains_key(&param_name) {
+                    if self.types.interfaces.contains_key(&param_name) {
                         if ct_idx < concrete_types.len() {
                             type_map.insert(param_name.clone(), concrete_types[ct_idx].clone());
                             ct_idx += 1;
@@ -3064,7 +2854,7 @@ impl IrEmitter {
                 self.ensure_concrete_tuple_type_registered(&p.ty, &type_map);
             }
             // Register the specialized function signature
-            let struct_types: HashSet<String> = self.types.keys().cloned().collect();
+            let struct_types: HashSet<String> = self.types.types.keys().cloned().collect();
             let subst_type = |t: &Type| -> String {
                 match t {
                     Type::Named(id, _) => {
@@ -3209,7 +2999,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
             let self_llvm_ty = if let (true, Some(r)) = (has_self_param, fd.receiver.as_ref()) {
                 let base = self.llvm_type_for(&r.name).unwrap_or_else(|_| {
                     let search = format!(".{}", r.name);
-                    for key in self.type_meta.keys() {
+                    for key in self.types.type_meta.keys() {
                         if key.ends_with(&search) { return format!("%struct.{key}"); }
                     }
                     "i64".to_string()
@@ -3226,16 +3016,16 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 .map(|p| subst_type(&p.ty))
                 .collect();
             specialized_param_types.extend(explicit_param_types);
-            self.functions.insert(specialized_name.clone(), (specialized_param_types.clone(), specialized_ret_type.clone()));
+            self.types.functions.insert(specialized_name.clone(), (specialized_param_types.clone(), specialized_ret_type.clone()));
 
             // Emit the specialized function
             self.push_scope();
             self.block_counter = 0;
             self.tmp_counter = 0;
 
-            self.current_return_type = specialized_ret_type.clone();
-            self.current_param_llvm_types = specialized_param_types.clone();
-            self.current_fn = Some(specialized_name.clone());
+            self.fctx.current_return_type = specialized_ret_type.clone();
+            self.fctx.current_param_llvm_types = specialized_param_types.clone();
+            self.fctx.current_fn = Some(specialized_name.clone());
 
             let self_offset: usize = if self_llvm_ty.is_some() { 1 } else { 0 };
             let mut params_str: Vec<String> = Vec::new();
@@ -3271,24 +3061,24 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                     self.add_local("self", loaded_ptr.clone(), struct_ty);
                     // Register fields via GEP on the loaded pointer
                     let recv_type_name = &recv.name;
-                    let names_opt = self.types.get(recv_type_name).cloned()
+                    let names_opt = self.types.types.get(recv_type_name).cloned()
                         .or_else(|| {
-                            if let Some(ref module) = self.current_module {
+                            if let Some(ref module) = self.local.current_module {
                                 let qualified = format!("{}.{}", module, recv_type_name);
-                                self.types.get(&qualified).cloned()
+                                self.types.types.get(&qualified).cloned()
                             } else {
-                                self.types.keys().find(|k| k.ends_with(&format!(".{recv_type_name}"))).and_then(|k| self.types.get(k).cloned())
+                                self.types.types.keys().find(|k| k.ends_with(&format!(".{recv_type_name}"))).and_then(|k| self.types.types.get(k).cloned())
                             }
                         });
                     if let Some(names) = names_opt {
-                        let type_key = self.types.get(recv_type_name).map(|_| recv_type_name.clone())
+                        let type_key = self.types.types.get(recv_type_name).map(|_| recv_type_name.clone())
                             .or_else(|| {
-                                if let Some(ref module) = self.current_module {
+                                if let Some(ref module) = self.local.current_module {
                                     let q = format!("{}.{}", module, recv_type_name);
-                                    if self.types.contains_key(&q) { Some(q) } else { None }
+                                    if self.types.types.contains_key(&q) { Some(q) } else { None }
                                 } else { None }
                             })
-                            .or_else(|| self.types.keys().find(|k| k.ends_with(&format!(".{recv_type_name}"))).cloned())
+                            .or_else(|| self.types.types.keys().find(|k| k.ends_with(&format!(".{recv_type_name}"))).cloned())
                             .unwrap_or_else(|| recv_type_name.clone());
                         for (idx, field_name) in names.iter().enumerate() {
                             let field_llvm_ty = self.field_llvm_type(&type_key, idx);
@@ -3301,24 +3091,24 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                     self.add_local("self", self_alloca.clone(), st);
                     // Register each struct field as a local (bare name access like `items`)
                     let recv_type_name = &recv.name;
-                    let names_opt = self.types.get(recv_type_name).cloned()
+                    let names_opt = self.types.types.get(recv_type_name).cloned()
                         .or_else(|| {
-                            if let Some(ref module) = self.current_module {
+                            if let Some(ref module) = self.local.current_module {
                                 let qualified = format!("{}.{}", module, recv_type_name);
-                                self.types.get(&qualified).cloned()
+                                self.types.types.get(&qualified).cloned()
                             } else {
-                                self.types.iter().find(|(k, _)| k.ends_with(&format!(".{recv_type_name}"))).map(|(_, v)| v.clone())
+                                self.types.types.iter().find(|(k, _)| k.ends_with(&format!(".{recv_type_name}"))).map(|(_, v)| v.clone())
                             }
                         });
                     if let Some(names) = names_opt {
-                        let type_key = self.types.get(recv_type_name).map(|_| recv_type_name.clone())
+                        let type_key = self.types.types.get(recv_type_name).map(|_| recv_type_name.clone())
                             .or_else(|| {
-                                if let Some(ref module) = self.current_module {
+                                if let Some(ref module) = self.local.current_module {
                                     let q = format!("{}.{}", module, recv_type_name);
-                                    if self.types.contains_key(&q) { Some(q) } else { None }
+                                    if self.types.types.contains_key(&q) { Some(q) } else { None }
                                 } else { None }
                             })
-                            .or_else(|| self.types.keys().find(|k| k.ends_with(&format!(".{recv_type_name}"))).cloned())
+                            .or_else(|| self.types.types.keys().find(|k| k.ends_with(&format!(".{recv_type_name}"))).cloned())
                             .unwrap_or_else(|| recv_type_name.clone());
                         for (idx, field_name) in names.iter().enumerate() {
                             let field_llvm_ty = self.field_llvm_type(&type_key, idx);
@@ -3348,14 +3138,14 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 let xiom_ty = Self::type_from_ast(&param.ty);
                 if type_map.contains_key(&xiom_ty) {
                     if let Some(concrete) = type_map.get(&xiom_ty) {
-                        self.param_concrete_types.insert(param.name.name.clone(), concrete.clone());
+                        self.mono.param_concrete_types.insert(param.name.name.clone(), concrete.clone());
                     }
                 }
             }
 
             // Set type substitution map for method dispatch in body
-            self.current_const_map = const_map.clone();
-            self.current_type_map = type_map.clone();
+            self.mono.current_const_map = const_map.clone();
+            self.mono.current_type_map = type_map.clone();
 
             // Compile body
             if let Some(body) = fd.body.as_ref() {
@@ -3363,8 +3153,8 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
             }
 
             // Clear type substitution state
-            self.current_type_map.clear();
-            self.param_concrete_types.clear();
+            self.mono.current_type_map.clear();
+            self.mono.param_concrete_types.clear();
             if fd.return_type.is_none() {
                 self.emitln("  ret void");
             } else if !self.current_block_terminated() {
@@ -3377,8 +3167,8 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
             }
                 self.emitln("}\n");
                 self.pop_scope();
-                self.current_fn = None;
-                self.current_receiver = None;
+                self.fctx.current_fn = None;
+                self.fctx.current_receiver = None;
             }
         }
         Ok(())
@@ -3391,14 +3181,14 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
     /// Emit LLVM IR bodies for compiler-recognized builtin types.
     /// Only emits implementations for types actually used by the program.
     fn compile_builtin_impls(&mut self) {
-        if !self.used_builtins.contains("Option") && !self.used_builtins.contains("Result") {
+        if !self.types.used_builtins.contains("Option") && !self.types.used_builtins.contains("Result") {
             return;
         }
         self.emitln("; Builtin type implementations\n");
-        if self.used_builtins.contains("Option") {
+        if self.types.used_builtins.contains("Option") {
             self.compile_option_impls();
         }
-        if self.used_builtins.contains("Result") {
+        if self.types.used_builtins.contains("Result") {
             self.compile_result_impls();
         }
     }
@@ -3516,22 +3306,22 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
             match item {
                 StmtOrExpr::Stmt(stmt) => {
                     if is_last && is_expression && matches!(stmt, Stmt::Match(..)) {
-                        let ret_ty = &self.current_return_type.clone();
+                        let ret_ty = &self.fctx.current_return_type.clone();
                         let result_alloca = self.fresh_tmp();
                         self.emitln(&format!("  {result_alloca} = alloca {ret_ty}"));
-                        self.match_result_ptr = Some(result_alloca.clone());
+                        self.fctx.match_result_ptr = Some(result_alloca.clone());
                         self.compile_stmt(stmt)?;
-                        self.match_result_ptr = None;
+                        self.fctx.match_result_ptr = None;
                         let loaded = self.fresh_tmp();
                         self.emitln(&format!("  {loaded} = load {ret_ty}, {ret_ty}* {result_alloca}"));
-                        if let Some(res_ptr) = self.result_ptr.as_ref() {
-                            let ret_ty = &self.current_return_type.clone();
+                        if let Some(res_ptr) = self.fctx.result_ptr.as_ref() {
+                            let ret_ty = &self.fctx.current_return_type.clone();
                             self.emitln(&format!("  store {ret_ty} {loaded}, {ret_ty}* {res_ptr}"));
                         }
-                        if !self.current_ensures.is_empty() {
+                        if !self.fctx.current_ensures.is_empty() {
                             self.compile_ensures_checks();
                         }
-                        let ret_ty = &self.current_return_type.clone();
+                        let ret_ty = &self.fctx.current_return_type.clone();
                         self.emitln(&format!("  ret {ret_ty} {loaded}"));
                         last_result = Some(loaded);
                     } else if is_last && is_expression && matches!(stmt, Stmt::If(..)) {
@@ -3542,28 +3332,28 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                         // it (via `match_result_ptr`), then load + `ret`. Previously
                         // such a body fell through to the A4 fallback and returned
                         // `0`/default, silently discarding the branch values.
-                        let ret_ty = self.current_return_type.clone();
+                        let ret_ty = self.fctx.current_return_type.clone();
                         let result_alloca = self.fresh_tmp();
                         self.emitln(&format!("  {result_alloca} = alloca {ret_ty}"));
                         // Seed a default so an else-less path can't load garbage.
                         let seed = Self::default_const_for(&ret_ty);
                         self.emitln(&format!("  store {ret_ty} {seed}, {ret_ty}* {result_alloca}"));
-                        let saved_ptr = self.match_result_ptr.take();
-                        let saved_ty = self.match_result_ty.take();
-                        self.match_result_ptr = Some(result_alloca.clone());
-                        self.match_result_ty = Some(ret_ty.clone());
+                        let saved_ptr = self.fctx.match_result_ptr.take();
+                        let saved_ty = self.fctx.match_result_ty.take();
+                        self.fctx.match_result_ptr = Some(result_alloca.clone());
+                        self.fctx.match_result_ty = Some(ret_ty.clone());
                         self.compile_stmt(stmt)?;
-                        self.match_result_ptr = saved_ptr;
-                        self.match_result_ty = saved_ty;
+                        self.fctx.match_result_ptr = saved_ptr;
+                        self.fctx.match_result_ty = saved_ty;
                         // Emit the load + ret only if the merge block is live (not
                         // `unreachable` from all-branches-returned).
                         if !self.current_block_terminated() {
                             let loaded = self.fresh_tmp();
                             self.emitln(&format!("  {loaded} = load {ret_ty}, {ret_ty}* {result_alloca}"));
-                            if let Some(res_ptr) = self.result_ptr.as_ref() {
+                            if let Some(res_ptr) = self.fctx.result_ptr.as_ref() {
                                 self.emitln(&format!("  store {ret_ty} {loaded}, {ret_ty}* {res_ptr}"));
                             }
-                            if !self.current_ensures.is_empty() {
+                            if !self.fctx.current_ensures.is_empty() {
                                 self.compile_ensures_checks();
                             }
                             self.emitln(&format!("  ret {ret_ty} {loaded}"));
@@ -3575,8 +3365,8 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 }
                 StmtOrExpr::Expr(expr) => {
                     let (result, result_ty) = self.compile_expr(expr)?;
-                    if let Some(ptr) = self.match_result_ptr.clone() {
-                        let ret_ty = self.match_result_ty.clone().unwrap_or_else(|| self.current_return_type.clone());
+                    if let Some(ptr) = self.fctx.match_result_ptr.clone() {
+                        let ret_ty = self.fctx.match_result_ty.clone().unwrap_or_else(|| self.fctx.current_return_type.clone());
                         // Coerce the arm's value to the match result type. An arm
                         // whose body is (e.g.) a bare enum-variant identifier can
                         // compile to a raw i64 discriminant; wrap it into the
@@ -3592,7 +3382,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                             // (e.g. `unsafe { return X() }`, or a tail if/match that
                             // returns on every path). Do NOT emit a second ret.
                         } else {
-                            let ret_ty = self.current_return_type.clone();
+                            let ret_ty = self.fctx.current_return_type.clone();
                             // Coerce the tail value's REAL type to the declared
                             // return type (struct->i64 extracts field 0 / empty
                             // struct -> 0; scalar->struct widens), then guard against
@@ -3601,11 +3391,11 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                             let coerced = self.coerce_value(&result, &result_ty, &ret_ty);
                             let ret_val = self.zero_val_for(&coerced, &ret_ty);
                             // Store result in the result alloca for ensures checks
-                            if let Some(res_ptr) = self.result_ptr.as_ref() {
+                            if let Some(res_ptr) = self.fctx.result_ptr.as_ref() {
                                 self.emitln(&format!("  store {ret_ty} {ret_val}, {ret_ty}* {res_ptr}"));
                             }
                             // Check ensures before returning
-                            if !self.current_ensures.is_empty() {
+                            if !self.fctx.current_ensures.is_empty() {
                                 self.compile_ensures_checks();
                             }
                             self.emitln(&format!("  ret {ret_ty} {ret_val}"));
@@ -3697,13 +3487,13 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
             _ => None,
         }?;
         // Exact enum key.
-        if let Some(vars) = self.enum_variants.get(&type_seg) {
+        if let Some(vars) = self.types.enum_variants.get(&type_seg) {
             if vars.iter().any(|(v, _)| v == variant) {
                 return Some(type_seg);
             }
         }
         // Module-qualified enum key ending in `.type_seg` (e.g. `xiom.log.LogLevel`).
-        for (enum_key, vars) in &self.enum_variants {
+        for (enum_key, vars) in &self.types.enum_variants {
             if enum_key.ends_with(&format!(".{type_seg}"))
                 && vars.iter().any(|(v, _)| v == variant)
             {
@@ -3727,18 +3517,18 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                     }
                 }
                 // Check if it's a type name (for static method calls like Rect.new(...))
-                if self.types.contains_key(&ident.name) || self.type_meta.contains_key(&ident.name) {
+                if self.types.types.contains_key(&ident.name) || self.types.type_meta.contains_key(&ident.name) {
                     return Some(ident.name.clone());
                 }
                 // Try current module's qualified name first (deterministic)
-                if let Some(ref module) = self.current_module {
+                if let Some(ref module) = self.local.current_module {
                     let qualified = format!("{}.{}", module, ident.name);
-                    if self.type_meta.contains_key(&qualified) {
+                    if self.types.type_meta.contains_key(&qualified) {
                         return Some(qualified);
                     }
                 }
                 // Fallback: search all qualified keys (last resort)
-                for key in self.type_meta.keys() {
+                for key in self.types.type_meta.keys() {
                     if key.ends_with(&format!(".{}", ident.name)) {
                         return Some(key.clone());
                     }
@@ -3746,7 +3536,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 // Fallback: search generic_type_names ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â generic types may not
                 // be in type_meta (injection chain can block Type while allowing
                 // its methods), but they ARE registered as structs (e.g. Map[K,V]).
-                for key in self.generic_type_names.iter() {
+                for key in self.types.generic_type_names.iter() {
                     if key.ends_with(&format!(".{}", ident.name)) || key == &ident.name {
                         return Some(key.clone());
                     }
@@ -3755,9 +3545,9 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
             }
             Expr::Struct(ident, _, _, _) => {
                 // Try module-qualified name first, then bare name
-                if let Some(ref module) = self.current_module {
+                if let Some(ref module) = self.local.current_module {
                     let qualified = format!("{}.{}", module, ident.name);
-                    if self.type_meta.contains_key(&qualified) {
+                    if self.types.type_meta.contains_key(&qualified) {
                         return Some(qualified);
                     }
                 }
@@ -3772,17 +3562,17 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 // instance value and the leaf names a known type, resolve to that
                 // type so `alloc.Layout.new(..)` dispatches to `Layout.new`.
                 if !self.receiver_is_instance(obj.as_ref()) {
-                    if self.types.contains_key(&field.name) || self.type_meta.contains_key(&field.name) {
+                    if self.types.types.contains_key(&field.name) || self.types.type_meta.contains_key(&field.name) {
                         return Some(field.name.clone());
                     }
-                    for key in self.type_meta.keys() {
+                    for key in self.types.type_meta.keys() {
                         if key.ends_with(&format!(".{}", field.name)) {
                             return Some(key.clone());
                         }
                     }
                     // Fallback: search generic_type_names for generic types
                     // whose Type declaration may not be in type_meta
-                    for key in self.generic_type_names.iter() {
+                    for key in self.types.generic_type_names.iter() {
                         if key.ends_with(&format!(".{}", field.name)) || key == &field.name {
                             return Some(key.clone());
                         }
@@ -3793,22 +3583,22 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 // method receiver resolves to `Vec` rather than `SqliteRow`.
                 if let Some(base_struct) = self.infer_struct_type_name(obj.as_ref()) {
                     // Try module-qualified type lookup first
-                    for key in self.type_meta.keys() {
+                    for key in self.types.type_meta.keys() {
                         if key.ends_with(&base_struct) || key == &base_struct {
-                            if let Some(meta) = self.type_meta.get(key) {
+                            if let Some(meta) = self.types.type_meta.get(key) {
                                 for (fname, ftype) in &meta.fields {
                                     if fname == &field.name {
                                         // Strip leading `*` from pointer types (e.g. `*SqliteRow`).
                                         let clean = ftype.trim_start_matches('*');
-                                        if self.type_meta.contains_key(clean)
-                                            || self.types.contains_key(clean)
+                                        if self.types.type_meta.contains_key(clean)
+                                            || self.types.types.contains_key(clean)
                                             || clean == "Vec" || clean == "Option"
                                             || clean == "Result" || clean == "Map"
                                             || clean == "Set" || clean == "Str" {
                                             return Some(clean.to_string());
                                         }
                                         // Try suffix-match for module-qualified types
-                                        for mk in self.type_meta.keys() {
+                                        for mk in self.types.type_meta.keys() {
                                             if mk.ends_with(&format!(".{}", clean)) {
                                                 return Some(mk.clone());
                                             }
@@ -3839,7 +3629,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 } else {
                     return None;
                 };
-                if let Some((_, ret_ty)) = self.functions.get(&fn_key) {
+                if let Some((_, ret_ty)) = self.types.functions.get(&fn_key) {
                     if ret_ty.starts_with("%struct.") {
                         return Some(ret_ty[8..].to_string());
                     }
@@ -3888,7 +3678,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
         let escaped = s.replace('\\', "\\\\").replace('"', "\\22")
             .replace('\n', "\\0A").replace('\t', "\\09");
         let n = s.len() + 1;
-        self.strings.push(format!(
+        self.fctx.strings.push(format!(
             "{label} = private unnamed_addr constant [{n} x i8] c\"{escaped}\\00\""
         ));
         let tmp = self.fresh_tmp();
@@ -3897,13 +3687,13 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
     }
 
     fn field_xiom_type(&self, struct_name: &str, field_idx: usize) -> Option<String> {
-        let meta = self.type_meta.get(struct_name)
+        let meta = self.types.type_meta.get(struct_name)
             .or_else(|| {
-                self.current_module.as_ref()
-                    .and_then(|m| self.type_meta.get(&format!("{m}.{struct_name}")))
+                self.local.current_module.as_ref()
+                    .and_then(|m| self.types.type_meta.get(&format!("{m}.{struct_name}")))
             })
             .or_else(|| {
-                self.type_meta.iter()
+                self.types.type_meta.iter()
                     .find(|(k, _)| k.ends_with(&format!(".{struct_name}")))
                     .map(|(_, v)| v)
             })?;
@@ -3927,7 +3717,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
     /// `ptr_locals`), so `expr[i]` must inttoptr-and-byte-access rather than use
     /// the Str/Vec index paths.
     fn is_ptr_local_expr(&self, expr: &Expr) -> bool {
-        matches!(expr, Expr::Ident(id) if self.ptr_locals.contains(&id.name))
+        matches!(expr, Expr::Ident(id) if self.local.ptr_locals.contains(&id.name))
     }
 
     /// Best-effort check whether an expression is Bool-typed (for `.to_str()`
@@ -3936,7 +3726,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
     fn expr_is_bool(&self, expr: &Expr) -> bool {
         match expr {
             Expr::Bool(..) => true,
-            Expr::Ident(id) => self.bool_locals.contains(&id.name),
+            Expr::Ident(id) => self.local.bool_locals.contains(&id.name),
             Expr::Paren(e, _) => self.expr_is_bool(e),
             Expr::Unary(UnaryOp::Not, _, _) => true,
             Expr::Binary(_, op, _, _) => matches!(
@@ -3960,7 +3750,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                     return llvm_ty.clone();
                 }
                 // If the ident is an enum variant name (e.g., DivByZero), return the parent enum's struct type
-                if let Some(enum_key) = self.enum_variants.iter()
+                if let Some(enum_key) = self.types.enum_variants.iter()
                     .find(|(_, vars)| vars.iter().any(|(v, _)| v == &ident.name))
                     .map(|(ek, _)| ek)
                 {
@@ -3974,7 +3764,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                     if let Some((_, llvm_ty)) = self.lookup_local(&obj_ident.name) {
                         if llvm_ty.starts_with("%struct.") {
                             let type_name = &llvm_ty[8..];
-                            if let Some(meta) = self.type_meta.get(type_name) {
+                            if let Some(meta) = self.types.type_meta.get(type_name) {
                                 if let Some((_, ty_name)) = meta.fields.iter().find(|(name, _)| name == &field.name) {
                                     return self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
                                 }
@@ -4000,7 +3790,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                         let bare = field.name.clone();
                         if let Some(recv_type) = self.infer_struct_type_name(obj) {
                             let qualified = format!("{}.{}", recv_type, field.name);
-                            if self.functions.contains_key(&qualified) {
+                            if self.types.functions.contains_key(&qualified) {
                                 Some(qualified)
                             } else {
                                 Some(bare)
@@ -4014,14 +3804,14 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 if let Some(ref name) = fn_name {
                     if name == "xiom_read_file" { return "i64".to_string(); }
                     if name == "xiom_char_at" || name == "xiom_str_len" { return "i64".to_string(); }
-                    if let Some((_, ret_ty)) = self.functions.get(name) {
+                    if let Some((_, ret_ty)) = self.types.functions.get(name) {
                         if ret_ty == "double" { return "double".to_string(); }
                         return ret_ty.clone();
                     }
                     // Fallback: try current-module qualified name (e.g., "benchmark.main.make_result")
-                    if let Some(ref module) = self.current_module {
+                    if let Some(ref module) = self.local.current_module {
                         let qualified = format!("{module}.{name}");
-                        if let Some((_, ret_ty)) = self.functions.get(&qualified) {
+                        if let Some((_, ret_ty)) = self.types.functions.get(&qualified) {
                             if ret_ty == "double" { return "double".to_string(); }
                             return ret_ty.clone();
                         }
@@ -4029,7 +3819,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                     // Fallback: search for any key ending with .name that returns a struct
                     {
                         let suffix = format!(".{name}");
-                        for (k, (_, rt)) in &self.functions {
+                        for (k, (_, rt)) in &self.types.functions {
                             if k.ends_with(&suffix) && rt.starts_with("%struct.") {
                                 return rt.clone();
                             }
@@ -4037,7 +3827,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                     }
                     // Function pointer call ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â look up tracked return type
                     if self.lookup_local(name).is_some() {
-                        if let Some(ret_ty) = self.fn_ptr_return_types.get(name) {
+                        if let Some(ret_ty) = self.types.fn_ptr_return_types.get(name) {
                             if ret_ty == "double" { return "double".to_string(); }
                             return ret_ty.clone();
                         }
@@ -4046,10 +3836,10 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 "i64".to_string()
             }
             Expr::Some(..) | Expr::None(..) => {
-                if self.types.contains_key("Option") { "%struct.Option".to_string() } else { "i64".to_string() }
+                if self.types.types.contains_key("Option") { "%struct.Option".to_string() } else { "i64".to_string() }
             }
             Expr::Ok(..) | Expr::Err(..) => {
-                if self.types.contains_key("Result") { "%struct.Result".to_string() } else { "i64".to_string() }
+                if self.types.types.contains_key("Result") { "%struct.Result".to_string() } else { "i64".to_string() }
             }
             Expr::Struct(ident, _, _, _) => self.llvm_type_for(&ident.name).unwrap_or_else(|_| "i64".to_string()),
             Expr::Paren(inner, _) => self.infer_llvm_type(inner),
@@ -4060,7 +3850,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                         Self::xiom_type_name_from_llvm(&t)
                     }).collect();
                     let name = format!("Tuple_{}", parts.join("_"));
-                    if self.types.contains_key(&name) || self.type_meta.contains_key(&name) {
+                    if self.types.types.contains_key(&name) || self.types.type_meta.contains_key(&name) {
                         format!("%struct.{name}")
                     } else {
                         "i64".to_string()
@@ -4107,7 +3897,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
     fn is_float_expr(&self, expr: &Expr) -> bool {
         match expr {
             Expr::Float(..) => true,
-            Expr::Ident(_) => is_float_local(expr, &self.locals),
+            Expr::Ident(_) => is_float_local(expr, &self.fctx.locals),
             Expr::Binary(left, _, right, _) => self.is_float_expr(left) || self.is_float_expr(right),
             Expr::Paren(inner, _) => self.is_float_expr(inner),
             Expr::Tuple(items, _) => items.iter().any(|i| self.is_float_expr(i)),
@@ -4120,7 +3910,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                     if let Some((_, llvm_ty)) = self.lookup_local(&obj_ident.name) {
                         if llvm_ty.starts_with("%struct.") {
                             let type_name = &llvm_ty[8..];
-                            if let Some(meta) = self.type_meta.get(type_name) {
+                            if let Some(meta) = self.types.type_meta.get(type_name) {
                                 if let Some((_, ty_name)) = meta.fields.iter().find(|(name, _)| name == &field.name) {
                                     return ty_name == "Float64" || ty_name == "Float32";
                                 }

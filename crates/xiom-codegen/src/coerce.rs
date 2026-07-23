@@ -210,7 +210,7 @@ impl IrEmitter {
         }
         // Empty (zero-sized) structs have no field 0 — GEP would be invalid.
         let type_name = &struct_ty[8..];
-        let is_empty = self.type_meta.get(type_name).map(|m| m.fields.is_empty()).unwrap_or(false);
+        let is_empty = self.types.type_meta.get(type_name).map(|m| m.fields.is_empty()).unwrap_or(false);
         if is_empty {
             return "0".to_string();
         }
@@ -231,7 +231,7 @@ impl IrEmitter {
             return val.to_string();
         }
         let type_name = &struct_ty[8..];
-        let is_empty = self.type_meta.get(type_name).map(|m| m.fields.is_empty()).unwrap_or(false);
+        let is_empty = self.types.type_meta.get(type_name).map(|m| m.fields.is_empty()).unwrap_or(false);
         if is_empty {
             return "0".to_string();
         }
@@ -322,7 +322,7 @@ impl IrEmitter {
         // heap copy so the Vec can be safely modified/passed.
         let type_name = &struct_ty[8..];
         let is_vec = type_name == "Vec" || type_name.ends_with(".Vec");
-        if is_vec && val_ty == "i8*" && self.array_value_regs.contains(val) {
+        if is_vec && val_ty == "i8*" && self.local.array_value_regs.contains(val) {
             // (existing array-buffer-to-Vec code, unchanged)
             let len_slot = self.fresh_tmp();
             self.emitln(&format!("  {len_slot} = bitcast i8* {val} to i64*"));
@@ -389,11 +389,11 @@ impl IrEmitter {
         } else if val_ty == "i64" {
             // For multi-field structs loaded from Vec (heap pointer from val_to_i64),
             // memcpy the full struct from the heap instead of storing a single i64.
-            let num_fields = self.types.get(type_name)
+            let num_fields = self.types.types.get(type_name)
                 .or_else(|| {
                     let suffix = format!(".{}", type_name);
-                    self.types.keys().find(|k| k.ends_with(&suffix))
-                        .and_then(|k| self.types.get(k))
+                    self.types.types.keys().find(|k| k.ends_with(&suffix))
+                        .and_then(|k| self.types.types.get(k))
                 })
                 .map(|f| f.len())
                 .unwrap_or(1);

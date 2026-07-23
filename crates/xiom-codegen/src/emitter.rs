@@ -16,21 +16,21 @@ impl IrEmitter {
     }
 
     pub(crate) fn push_scope(&mut self) {
-        self.locals.push(HashMap::new());
+        self.fctx.locals.push(HashMap::new());
     }
 
     pub(crate) fn pop_scope(&mut self) {
-        self.locals.pop();
+        self.fctx.locals.pop();
     }
 
     pub(crate) fn add_local(&mut self, name: &str, reg: String, llvm_ty: &str) {
-        if let Some(scope) = self.locals.last_mut() {
+        if let Some(scope) = self.fctx.locals.last_mut() {
             scope.insert(name.to_string(), (reg, llvm_ty.to_string()));
         }
     }
 
     pub(crate) fn lookup_local(&self, name: &str) -> Option<&(String, String)> {
-        for scope in self.locals.iter().rev() {
+        for scope in self.fctx.locals.iter().rev() {
             if let Some(info) = scope.get(name) {
                 return Some(info);
             }
@@ -43,8 +43,8 @@ impl IrEmitter {
     /// (e.g. "Int" for `[5]Int`) instead of the buffer pointer type ("Str").
     pub(crate) fn resolve_local_xiom_type(&self, name: &str) -> Option<String> {
         if let Some((_, llvm_ty)) = self.lookup_local(name) {
-            if self.array_locals.contains(name) {
-                if let Some(elem_llvm) = self.local_array_elem.get(name) {
+            if self.local.array_locals.contains(name) {
+                if let Some(elem_llvm) = self.local.local_array_elem.get(name) {
                     return Some(Self::xiom_type_name_from_llvm(elem_llvm));
                 }
                 return Some("Int".to_string());
@@ -87,10 +87,10 @@ impl IrEmitter {
     }
 
     /// Emit the builtin `declare` preamble: hardcoded C stdlib, LLVM intrinsics,
-    /// and XIOM runtime symbols. Also pre-seeds `self.already_declared` so user
+    /// and XIOM runtime symbols. Also pre-seeds `self.mono.already_declared` so user
     /// extern blocks never duplicate them.
     pub(crate) fn emit_builtin_declares(&mut self) {
-        self.already_declared = IrEmitter::hardcoded_declare_names();
+        self.mono.already_declared = IrEmitter::hardcoded_declare_names();
 
         self.emitln("declare i32 @printf(i8*, ...)");
         self.emitln("declare i32 @sprintf(i8*, i8*, ...)");
@@ -167,7 +167,7 @@ impl IrEmitter {
         self.emitln("declare i64 @xiom_fn_body_end(i64)");
         self.emitln("declare i64 @xiom_fn_emit_all()");
         // 5e.5a: hot reload function pointer table (only when enabled)
-        if self.hot_reload {
+        if self.config.hot_reload {
             self.emitln("declare i64 @xiom_hot_get_ptr(i64)");
             self.emitln("declare void @xiom_hot_set_ptr(i64, i64)");
             // 5e.5c: state migration — file I/O for global save/restore
@@ -275,7 +275,7 @@ impl IrEmitter {
 
     /// Walk all top-level declarations (recursing into modules) and emit
     /// `declare` statements for every `extern "C"` function whose name is not
-    /// already present in `self.already_declared`. Skips functions whose names
+    /// already present in `self.mono.already_declared`. Skips functions whose names
     /// are already in the hardcoded set or already declared by another extern block.
     pub(crate) fn emit_extern_declares(&mut self, items: &[TopDecl]) {
         for item in items {
@@ -283,10 +283,10 @@ impl IrEmitter {
                 TopDecl::Extern(eb) => {
                     for fd in &eb.functions {
                         let name = &fd.name.name;
-                        if self.already_declared.contains(name) {
+                        if self.mono.already_declared.contains(name) {
                             continue;
                         }
-                        self.already_declared.insert(name.clone());
+                        self.mono.already_declared.insert(name.clone());
                         // Map return type
                         let ret_llvm = fd.return_type.as_ref()
                             .map(|t| self.extern_type_to_llvm(t))
@@ -324,7 +324,7 @@ impl IrEmitter {
     //   * it only READS already-registered state (`type_meta`, `enum_variants`)
     //     and the program AST,
     //   * it only WRITES new globals, new `@xiom_*` function definitions, and
-    //     new entries into `self.functions` (never overwriting existing keys),
+    //     new entries into `self.types.functions` (never overwriting existing keys),
     //   * it is gated so it emits nothing unless the program actually declares
     //     the corresponding `extern "C"` accessors (only reflect.xi /
     //     contracts.xi do), keeping all other programs identical.
@@ -357,7 +357,7 @@ impl IrEmitter {
         // Collect user types in a deterministic (sorted) order, excluding the
         // compiler's builtin/synthetic types. The type id is the index here.
         let mut names: Vec<String> = self
-            .type_meta
+            .types.type_meta
             .keys()
             .filter(|n| {
                 let n = n.as_str();
@@ -371,10 +371,10 @@ impl IrEmitter {
         let field_counts: Vec<usize> = names
             .iter()
             .map(|name| {
-                if self.enum_variants.contains_key(name) {
+                if self.types.enum_variants.contains_key(name) {
                     0
                 } else {
-                    self.type_meta.get(name).map(|m| m.fields.len()).unwrap_or(0)
+                    self.types.type_meta.get(name).map(|m| m.fields.len()).unwrap_or(0)
                 }
             })
             .collect();
@@ -417,14 +417,14 @@ impl IrEmitter {
         }
 
         // i64 @xiom_type_count()
-        self.functions.insert("xiom_type_count".to_string(), (vec![], "i64".to_string()));
+        self.types.functions.insert("xiom_type_count".to_string(), (vec![], "i64".to_string()));
         self.emitln("define i64 @xiom_type_count() {");
         self.emitln("entry:");
         self.emitln(&format!("  ret i64 {n}"));
         self.emitln("}\n");
 
         // i8* @xiom_type_name(i64 %id) — name or "unknown" if out of range.
-        self.functions
+        self.types.functions
             .insert("xiom_type_name".to_string(), (vec!["i64".to_string()], "i8*".to_string()));
         self.emitln("define i8* @xiom_type_name(i64 %id) {");
         self.emitln("entry:");
@@ -444,7 +444,7 @@ impl IrEmitter {
         self.emitln("}\n");
 
         // i64 @xiom_type_field_count(i64 %id) — 0 if out of range.
-        self.functions
+        self.types.functions
             .insert("xiom_type_field_count".to_string(), (vec!["i64".to_string()], "i64".to_string()));
         self.emitln("define i64 @xiom_type_field_count(i64 %id) {");
         self.emitln("entry:");
@@ -463,7 +463,7 @@ impl IrEmitter {
         self.emitln("}\n");
 
         // i64 @xiom_type_id_by_name(i8* %name) — linear search, -1 if absent.
-        self.functions
+        self.types.functions
             .insert("xiom_type_id_by_name".to_string(), (vec!["i8*".to_string()], "i64".to_string()));
         self.emitln("define i64 @xiom_type_id_by_name(i8* %name) {");
         self.emitln("entry:");
@@ -537,7 +537,7 @@ impl IrEmitter {
         }
 
         // i64 @xiom_contract_fn_count()
-        self.functions
+        self.types.functions
             .insert("xiom_contract_fn_count".to_string(), (vec![], "i64".to_string()));
         self.emitln("define i64 @xiom_contract_fn_count() {");
         self.emitln("entry:");
@@ -545,7 +545,7 @@ impl IrEmitter {
         self.emitln("}\n");
 
         // i8* @xiom_contract_fn_name(i64 %idx)
-        self.functions
+        self.types.functions
             .insert("xiom_contract_fn_name".to_string(), (vec!["i64".to_string()], "i8*".to_string()));
         self.emitln("define i8* @xiom_contract_fn_name(i64 %idx) {");
         self.emitln("entry:");
@@ -565,7 +565,7 @@ impl IrEmitter {
         self.emitln("}\n");
 
         // i64 @xiom_contract_pre_count(i64 %idx)
-        self.functions
+        self.types.functions
             .insert("xiom_contract_pre_count".to_string(), (vec!["i64".to_string()], "i64".to_string()));
         self.emitln("define i64 @xiom_contract_pre_count(i64 %idx) {");
         self.emitln("entry:");
@@ -584,7 +584,7 @@ impl IrEmitter {
         self.emitln("}\n");
 
         // i64 @xiom_contract_post_count(i64 %idx)
-        self.functions
+        self.types.functions
             .insert("xiom_contract_post_count".to_string(), (vec!["i64".to_string()], "i64".to_string()));
         self.emitln("define i64 @xiom_contract_post_count(i64 %idx) {");
         self.emitln("entry:");
