@@ -249,8 +249,11 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     let file_count = effective_sources.len();
     let use_parallel = config.parallel && file_count > 1;
     if use_parallel && config.jobs > 0 {
-        // Respect explicit job count (safe: set before rayon pool init)
+        // Respect explicit job count
         if std::env::var("RAYON_NUM_THREADS").is_err() {
+            // SAFETY: set_var is not thread-safe, but this runs before rayon's thread pool
+            // is initialized (par_iter is called below). The guard ensures we only set the
+            // variable once, preventing races with other threads that might read it.
             unsafe { std::env::set_var("RAYON_NUM_THREADS", config.jobs.to_string()); }
         }
     }
