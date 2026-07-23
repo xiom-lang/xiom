@@ -337,6 +337,9 @@ impl DebuggerBackend for GdbBackend {
     fn exec_step(&mut self) -> Result<(), String> { GdbBackend::exec_step(self) }
     fn pause(&mut self) -> Result<(), String> {
         if let Some(ref child) = self.child {
+            // SAFETY: libc::kill is an FFI call to send SIGINT to the child GDB process.
+            // The child ID is guaranteed valid because we hold `Some(ref child)` above,
+            // and SIGINT is a well-defined signal that GDB handles for pause/resume.
             #[cfg(unix)] unsafe { libc::kill(child.id() as i32, libc::SIGINT); }
             #[cfg(windows)] { let _ = child; }
         }
