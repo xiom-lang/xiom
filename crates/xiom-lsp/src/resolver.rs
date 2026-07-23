@@ -121,6 +121,10 @@ pub fn type_to_string(ty: &xiom_ast::Type) -> String {
             let params_str: Vec<String> = params.iter().map(type_to_string).collect();
             format!("fn({}) -> {}", params_str.join(", "), type_to_string(ret))
         }
+        xiom_ast::Type::ImplTrait(traits) => {
+            let names: Vec<String> = traits.iter().map(|t| t.name.clone()).collect();
+            format!("impl {}", names.join(" + "))
+        }
     }
 }
 

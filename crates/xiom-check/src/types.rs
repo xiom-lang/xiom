@@ -74,6 +74,8 @@ pub enum CheckedType {
     Fn(Vec<CheckedType>, Box<CheckedType>),
     /// Error type — used when type checking fails
     Error,
+    /// Opaque impl Trait return type (M9.6)
+    ImplTrait(Vec<String>),
 }
 
 impl CheckedType {
@@ -98,6 +100,9 @@ impl CheckedType {
             Type::Fn(params, ret) => CheckedType::Fn(
                 params.iter().map(CheckedType::from_ast_type).collect(),
                 Box::new(CheckedType::from_ast_type(ret)),
+            ),
+            Type::ImplTrait(traits) => CheckedType::ImplTrait(
+                traits.iter().map(|t| t.name.clone()).collect(),
             ),
         }
     }
@@ -170,6 +175,7 @@ impl CheckedType {
             }
             CheckedType::Generic(s) => s.clone(),
             CheckedType::Error => "<error>".into(),
+            CheckedType::ImplTrait(traits) => format!("impl {}", traits.join(" + ")),
         }
     }
 
@@ -200,6 +206,12 @@ impl CheckedType {
             ),
             CheckedType::Generic(s) => Type::Named(Ident::new(s.clone(), Span::new(0, 0)), vec![]),
             CheckedType::Error => Type::Named(Ident::new("<error>", Span::new(0, 0)), vec![]),
+            CheckedType::ImplTrait(traits) => {
+                let idents: Vec<Ident> = traits.iter()
+                    .map(|t| Ident::new(t.clone(), Span::new(0, 0)))
+                    .collect();
+                Type::ImplTrait(idents)
+            }
         }
     }
 }
