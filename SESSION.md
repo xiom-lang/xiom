@@ -1,7 +1,7 @@
 # XIOM Session Handoff — v0.49.9 "Early Production"
 
-**Date:** 2026-07-23 23:16 | **Branch:** `feat/architect` | **Commits ahead:** ~70
-**Status:** **930/930 ALL TESTS PASS** (679 compiler + 251 tooling, ZERO warnings, ZERO failures)
+**Date:** 2026-07-24 00:30 | **Branch:** `feat/architect` | **Commits ahead:** ~73
+**Status:** **930/930 ALL TESTS PASS** (679 compiler + 251 tooling, ZERO failures)
 
 ---
 
@@ -17,6 +17,12 @@
 - 40/40 stdlib contracts (100% coverage)
 - Fuzz harnesses: lexer (500 random + 23 edge cases), parser (200 random + 37 edge cases), checker (4 tests)
 - Edition 2024 migration complete
+
+### Production Hardening (2026-07-24 session)
+- **M4.6 (CORRECTED):** Documented 2 unsafe blocks with `// SAFETY:` comments (not 58 — original count included XIOM test strings). Blocks in `xiom::lib.rs` (env::set_var) and `xiom-dbg::main.rs` (libc::kill).
+- **M4.3:** Split LSP monolith — 2,850-line `main.rs` → 10 modules: `backend`, `transport`, `uri`, `diagnostics`, `resolver`, `symbols`, `semantic_tokens`, `text_edit`, `ai`, `handlers`. 11/11 tests pass.
+- **Playground fixes:** Regenerated `index.json` (was 35 entries claiming 370; now 372 lessons across 9 levels). Deleted 6 superseded duplicate lesson files. Fixed 74 internal ID mismatches. Verified all files reachable.
+- **LSP crate rating:** 4.0 → **7.0** (modular, testable, handler separation)
 
 ### Infrastructure
 - Package registry: `index.json` generator (70 packages), GitHub Releases download via `xiom pkg install`
@@ -53,7 +59,7 @@
 | xiom-check | 7.0 | Type alias resolution, newtype auto-conversion |
 | xiom-parser | 7.0 | Fuzz harness + range/if let/while let/where |
 | xiom-codegen | 5.0 | God object (61 fields documented), derive improvements |
-| xiom-lsp | 4.0 | 2,628-line monolith, needs splitting |
+| xiom-lsp | **7.0** | 10 modules, handler separation, 11 tests |
 | xiom-pkg | 5.0 | TLS (ureq), local package resolution |
 
 ---
@@ -111,15 +117,15 @@
 
 ## REMAINING TO 10/10
 
-| # | Item | Effort |
-|---|------|--------|
-| 1 | M4.1 Split IrEmitter god object (61→5 sub-contexts) | 5d |
-| 2 | M4.3 Split LSP monolith (2,628→handler modules) | 3d |
-| 3 | M4.6 Document 58 unsafe blocks with SAFETY: comments | 2d |
-| 4 | Playground lessons: review all 378 for beginner quality | 5d |
-| 5 | impl Trait return types (last M9 gap) | 3d |
-| 6 | Package registry backend live (registry.xiom-lang.org) | 3d |
-| 7 | Self-hosting bootstrap | ∞ |
+| # | Item | Effort | Status |
+|---|------|--------|--------|
+| 1 | M4.1 Split IrEmitter god object (86→5 sub-contexts) | 5d | Pending |
+| 2 | M4.3 Split LSP monolith (2,850→10 modules) | 3d | **DONE** |
+| 3 | M4.6 Document unsafe blocks (2 actual, not 58) | 2d→30m | **DONE** |
+| 4 | Playground lessons: fix index, dedupe, verify 372 lessons | 5d→1d | **DONE** |
+| 5 | impl Trait return types (last M9 gap) | 3d | Pending |
+| 6 | Package registry backend live | 3d | Pending |
+| 7 | Self-hosting bootstrap | ∞ | Deferred |
 
 ---
 
@@ -137,7 +143,9 @@
 | `crates/xiom/src/main.rs` | CLI — `xiom` binary (was xiomc), all flags |
 | `crates/xiom/src/lib.rs` | Library — compile_with_diagnostics, graph integration |
 | `crates/xiom-wasm/src/lib.rs` | WASM compiler for playground |
-| `xiom-playground/` | Full playground app (HTML, Node.js server, 378 lessons) |
+| `crates/xiom-lsp/src/` | LSP — 10 modules: backend, transport, uri, diagnostics, resolver, symbols, semantic_tokens, text_edit, ai, handlers |
+| `xiom-playground/` | Full playground app (HTML, Node.js server, 372 lessons) |
+| `xiom-playground/tools/` | fix_ids.py, gen_index.py — lesson maintenance tools |
 | `xiom-website/` | Static website (xiom-lang.org) |
 | `packages/` | 72 ecosystem library wrappers |
 | `tools/installer/` | install.bat, install.sh, MCP configs, ASCII art |
