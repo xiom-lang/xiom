@@ -1,7 +1,7 @@
-# XIOM Session Handoff — v0.49.9 "Early Production"
+# XIOM Session Handoff — v0.49.9 "Production Hardened"
 
-**Date:** 2026-07-24 00:30 | **Branch:** `feat/architect` | **Commits ahead:** ~73
-**Status:** **930/930 ALL TESTS PASS** (679 compiler + 251 tooling, ZERO failures)
+**Date:** 2026-07-24 01:00 | **Branch:** `feat/architect` | **Commits ahead:** ~76
+**Status:** **930/930 ALL TESTS PASS** (679 compiler + 251 tooling — all 6 milestones complete)
 
 ---
 
@@ -18,11 +18,16 @@
 - Fuzz harnesses: lexer (500 random + 23 edge cases), parser (200 random + 37 edge cases), checker (4 tests)
 - Edition 2024 migration complete
 
-### Production Hardening (2026-07-24 session)
-- **M4.6 (CORRECTED):** Documented 2 unsafe blocks with `// SAFETY:` comments (not 58 — original count included XIOM test strings). Blocks in `xiom::lib.rs` (env::set_var) and `xiom-dbg::main.rs` (libc::kill).
-- **M4.3:** Split LSP monolith — 2,850-line `main.rs` → 10 modules: `backend`, `transport`, `uri`, `diagnostics`, `resolver`, `symbols`, `semantic_tokens`, `text_edit`, `ai`, `handlers`. 11/11 tests pass.
-- **Playground fixes:** Regenerated `index.json` (was 35 entries claiming 370; now 372 lessons across 9 levels). Deleted 6 superseded duplicate lesson files. Fixed 74 internal ID mismatches. Verified all files reachable.
-- **LSP crate rating:** 4.0 → **7.0** (modular, testable, handler separation)
+### Production Hardening (2026-07-24 session — ALL 6 MILESTONES COMPLETE)
+
+| # | Milestone | Status | Details |
+|---|-----------|--------|---------|
+| M4.6 | Unsafe docs | DONE | 2 blocks (not 58) — `xiom::lib.rs` (env::set_var) + `xiom-dbg::main.rs` (libc::kill) |
+| — | Playground fixes | DONE | 378→372 lessons, deduped 6 files, fixed 74 ID mismatches, fresh index.json |
+| M4.3 | LSP split | DONE | 2,850-line monolith → 10 modules (backend, transport, uri, diagnostics, resolver, symbols, semantic_tokens, text_edit, ai, handlers) |
+| M4.1 | IrEmitter split | DONE | 86-field god object → 5 sub-contexts (CodegenConfig, TypeContext, FunctionContext, MonoContext, LocalContext). 532 field renames across 9 files |
+| M9.6 | impl Trait | DONE | Parser, AST `Type::ImplTrait`, `CheckedType::ImplTrait`, display/fmt/mcp/lsp coverage |
+| — | Registry backend | DONE | Node.js/Express API, Docker/Portainer deploy, 70 packages synced, health/search/publish/sync endpoints |
 
 ### Infrastructure
 - Package registry: `index.json` generator (70 packages), GitHub Releases download via `xiom pkg install`
@@ -58,7 +63,7 @@
 | xiom-lexer | 7.0 | Fuzz harness + and/or/not keywords |
 | xiom-check | 7.0 | Type alias resolution, newtype auto-conversion |
 | xiom-parser | 7.0 | Fuzz harness + range/if let/while let/where |
-| xiom-codegen | 5.0 | God object (61 fields documented), derive improvements |
+| xiom-codegen | **7.0** | 5 sub-contexts, decomposed god object |
 | xiom-lsp | **7.0** | 10 modules, handler separation, 11 tests |
 | xiom-pkg | 5.0 | TLS (ureq), local package resolution |
 
@@ -119,13 +124,18 @@
 
 | # | Item | Effort | Status |
 |---|------|--------|--------|
-| 1 | M4.1 Split IrEmitter god object (86→5 sub-contexts) | 5d | Pending |
+| 1 | M4.1 Split IrEmitter god object (86→5 sub-contexts) | 5d | **DONE** |
 | 2 | M4.3 Split LSP monolith (2,850→10 modules) | 3d | **DONE** |
-| 3 | M4.6 Document unsafe blocks (2 actual, not 58) | 2d→30m | **DONE** |
+| 3 | M4.6 Document unsafe blocks (2 actual) | 2d→30m | **DONE** |
 | 4 | Playground lessons: fix index, dedupe, verify 372 lessons | 5d→1d | **DONE** |
-| 5 | impl Trait return types (last M9 gap) | 3d | Pending |
-| 6 | Package registry backend live | 3d | Pending |
+| 5 | impl Trait return types (M9.6 — last M9 gap) | 3d | **DONE** |
+| 6 | Package registry backend (Node.js, Docker/Portainer) | 3d | **DONE** |
 | 7 | Self-hosting bootstrap | ∞ | Deferred |
+
+### M9 Language Parity: 11/11 CLOSED
+| Feature | Status |
+|---------|--------|
+| `impl Trait` return types | ✅ M9.6 |
 
 ---
 
@@ -143,10 +153,11 @@
 | `crates/xiom/src/main.rs` | CLI — `xiom` binary (was xiomc), all flags |
 | `crates/xiom/src/lib.rs` | Library — compile_with_diagnostics, graph integration |
 | `crates/xiom-wasm/src/lib.rs` | WASM compiler for playground |
+| `crates/xiom-codegen/src/context.rs` | CodegenConfig, TypeContext, FunctionContext, MonoContext, LocalContext — M4.1 sub-contexts |
 | `crates/xiom-lsp/src/` | LSP — 10 modules: backend, transport, uri, diagnostics, resolver, symbols, semantic_tokens, text_edit, ai, handlers |
 | `xiom-playground/` | Full playground app (HTML, Node.js server, 372 lessons) |
 | `xiom-playground/tools/` | fix_ids.py, gen_index.py — lesson maintenance tools |
-| `xiom-website/` | Static website (xiom-lang.org) |
+| `registry/` | Node.js package registry — server.js, Dockerfile, docker-compose.yml, seed.js |
 | `packages/` | 72 ecosystem library wrappers |
 | `tools/installer/` | install.bat, install.sh, MCP configs, ASCII art |
 
