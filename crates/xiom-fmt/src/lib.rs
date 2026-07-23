@@ -651,6 +651,13 @@ impl Formatter {
                 self.buf.push_str(") -> ");
                 self.format_type(ret);
             }
+            Type::ImplTrait(traits) => {
+                self.buf.push_str("impl ");
+                for (i, t) in traits.iter().enumerate() {
+                    if i > 0 { self.buf.push_str(" + "); }
+                    self.buf.push_str(&t.name);
+                }
+            }
         }
     }
 

@@ -98,6 +98,8 @@ pub enum Type {
     Array(Box<Expr>, Box<Type>),
     /// `fn(T, U) -> V` (function pointer)
     Fn(Vec<Type>, Box<Type>),
+    /// `impl Trait` — opaque return type (existential)
+    ImplTrait(Vec<Ident>),
 }
 
 // ============================================================================

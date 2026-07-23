@@ -906,6 +906,17 @@ impl Parser {
     fn parse_type_base(&mut self) -> Result<Type, ParseError> {
         // Skip 'dyn' keyword (dynamic dispatch marker): `dyn Trait` parses as `Trait`.
         if let TokenKind::Ident(s) = self.peek_kind() { if s == "dyn" { self.advance(); } }
+        // Parse `impl Trait` as opaque return type (M9.6)
+        if let TokenKind::Ident(s) = self.peek_kind() {
+            if s == "impl" {
+                self.advance();
+                let mut traits = vec![self.parse_ident()?];
+                while self.skip(TokenKind::Plus) {
+                    traits.push(self.parse_ident()?);
+                }
+                return Ok(Type::ImplTrait(traits));
+            }
+        }
         let peeked = match self.peek_kind() { TokenKind::Ident(s) => Some(s.clone()), _ => None };
         if let Some(ref s) = peeked {
             match s.as_str() {

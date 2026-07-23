@@ -25,6 +25,10 @@ pub fn type_to_string(ty: &Type) -> String {
             let p: Vec<String> = params.iter().map(|t| type_to_string(t)).collect();
             format!("fn({}) -> {}", p.join(", "), type_to_string(ret))
         }
+        Type::ImplTrait(traits) => {
+            let names: Vec<String> = traits.iter().map(|t| t.name.clone()).collect();
+            format!("impl {}", names.join(" + "))
+        }
         Type::Tuple(types) => {
             let inner: Vec<String> = types.iter().map(|t| type_to_string(t)).collect();
             format!("({})", inner.join(", "))
