@@ -53,6 +53,7 @@ fn main() {
     }
 
     let emit_ir = args.iter().any(|a| a == "--emit-ir");
+    let emit_tokens = args.iter().any(|a| a == "--emit-tokens");
     let do_run = args.iter().any(|a| a == "--run");
     let check_only = args.iter().any(|a| a == "--check");
     let release = args.iter().any(|a| a == "--release");
@@ -297,6 +298,22 @@ fn main() {
             Err(e) => {
                 eprintln!("error: cannot build dependency graph: {e}");
                 process::exit(1);
+            }
+        }
+        return;
+    }
+
+    // --emit-tokens: output token stream and exit
+    if emit_tokens && !source_paths.is_empty() {
+        for path_str in &source_paths {
+            let source = match std::fs::read_to_string(path_str) {
+                Ok(s) => s,
+                Err(e) => { eprintln!("error: {}: {}", path_str, e); continue; }
+            };
+            let mut lexer = Lexer::new(&source);
+            let tokens = lexer.tokenize();
+            for tok in &tokens {
+                println!("{}:{}: {:?}", tok.span.line, tok.span.col, tok.kind);
             }
         }
         return;
