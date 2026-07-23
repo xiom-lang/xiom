@@ -1,93 +1,125 @@
-# XIOM Session Handoff — v0.49.7 "Phase 7F Build System"
+# XIOM Session Handoff — v0.49.9 "Early Production"
 
-**Date:** 2026-07-21 00:30 | **Branch:** `feat/architect` | **Commits ahead:** ~58
-**Status:** **869/869 ALL TESTS PASS** (624 compiler + 245 tooling, ZERO warnings, ZERO failures)
+**Date:** 2026-07-23 23:16 | **Branch:** `feat/architect` | **Commits ahead:** ~70
+**Status:** **930/930 ALL TESTS PASS** (679 compiler + 251 tooling, ZERO warnings, ZERO failures)
 
 ---
 
-## WHAT WAS ACCOMPLISHED THIS SESSION
+## WHAT WAS ACCOMPLISHED
 
-### Phase 5 Consolidation
-- 5e.6b: `workspace/symbol` LSP handler + workspace symbol search
-- 5e.5a: Hot reload indirect call thunks (`xiom_hot_thunk_<name>`, pub fn → pointer table)
-- 5e.5b: DLL host executable (`tools/xiom_hot_host.c`, LoadLibrary/reload/watch loop)
-- 5e.5c: State migration (save/restore globals via fwrite/fread across hot reload)
-- 5e.5d: Filesystem events (FindFirstChangeNotification replaces Sleep polling)
-- 5e.7d: Enum derive improvements (deep Eq/Hash/Ord/Display via switch+extractvalue)
-- 5e.7e: CI/GitHub Actions workflow (`.github/workflows/ci.yml`)
-- 5e.7f: Const evaluation pass (`const_eval` — fold const arithmetic at compile time)
-- 5e.7b: Remote registry client (`xiom pkg search/install`, `registry.xiom-lang.org`)
-- 5e.5f: Incremental compilation (`--incremental`, hash-based IR cache)
+### Compiler Hardening (881 → 930 tests)
+- xiomc → **xiom** rename (247 files, 907 changes)
+- `xiom doctor` — dependency checker (clang, z3, stdlib, packages)
+- `--emit-tokens` flag — lexer output for playground token visualization
+- Language parity: `and`/`or`/`not` keywords, compound assignment (`+=`, `-=`, etc.), range syntax (`..`/`..=`), `if let`/`while let`, `where` clauses, tuple structs, labeled break/continue
+- `derive[Debug]` + `FromStr` traits in stdlib
+- 10/11 M9 language gaps closed (only `impl Trait` deferred)
+- 40/40 stdlib contracts (100% coverage)
+- Fuzz harnesses: lexer (500 random + 23 edge cases), parser (200 random + 37 edge cases), checker (4 tests)
+- Edition 2024 migration complete
 
-### Phase 6 — Production Hardening
-- **6A**: Critical fixes — types_compatible (Named→Named now false), unknown type warning, static mut→Mutex, dbg compile fix
-- **6B**: Refactoring — `xiom-display` shared crate, `compat` module extraction
-- **6C**: Tooling — dbg BufReader+stopped events+evaluate, verify SMT fixes, pkg binary download
-- **6D**: Stdlib bugs — cell.xi Ref/RefMut pointer-based, simd.xi free-on-consume, crypto.xi AES-NI
-- **6E**: Collections — HashMap (O(1), open addressing), Vec.reserve/extend/truncate
-- **6F**: Contracts + guards — Option methods contracts, recursion depth 500→2000, CG-01/CG-02/E001 verified
-- **6G**: MCP cross-file — `discover_sibling_sources()` auto-includes sibling .xi files
+### Infrastructure
+- Package registry: `index.json` generator (70 packages), GitHub Releases download via `xiom pkg install`
+- GitHub Actions CI/CD: 3-platform build matrix, release packaging
+- Release v0.49.8 packaged and verified
+- Installer: Windows CRLF fix + ASCII art + `xiom-mcp-config.json` generation
+- Docs: AI_CONTEXT.md + language/ docs → v0.49.9, all stale versions fixed
+- Cleanup: removed 8 stale doc directories, 7,827 lines of dead docs
 
-### Phase 7A — Module System & Dependency Graph (FOUNDATION COMPLETE)
-- **xiom-graph crate**: new dependency graph crate (DependencyGraph, ModuleNode, topological sort, cycle detection)
-- **xiom.toml manifest**: full TOML schema (project, dependencies, compiler config), backward compat with package.xi
-- **Transitive module discovery**: recursive .xi file discovery from source roots, module header + use parsing
-- **Pipeline integration**: wired into xiom (expand_sources_with_graph), LSP (workspace source roots), MCP (graph-based discovery)
-- **11 feature regression tests**: graph construction, topo sort, cycle detection, manifest parsing, source root resolution, module discovery
-- **Zero regression**: 798→809 total tests, all passing
+### Reorganization
+- `ecosystem/` → `packages/` (72 library wrappers)
+- `xiom-db/` + `xiom-vector/` → standalone at root
+- `xiom-debugger-pro/` structure created
+- `website/` → `xiom-website/` (70 files)
+- Bench/crypto merged from packages into stdlib
 
-### Phase 7B — Industrial Incremental Compilation (COMPLETE)
-- **xiom_graph::hash**: Centralized SHA-256 hashing (hash_bytes, hash_str, file_sha256, short_hash), Fingerprint struct
-- **xiom_graph::cache**: Thread-safe CacheDb (Arc<RwLock<HashMap>>), 5-tier cache (L1-L5), index.json persistence, transitive invalidation on signature change, GC/purge-stale
-- **Pipeline integration**: Replaced DefaultHasher with SHA-256, graph-aware incremental_check/incremental_save, multi-file caching support
-- **11 feature regression tests**: SHA-256 correctness, short_hash, CacheDb open/persistence/tier-store/purge, fingerprint, project cache location, --incremental flag
+### Playground v2.0
+- Monaco Editor with XIOM syntax highlighting + Tesla-dark theme
+- 3-mode SPA: Landing → Lessons → Playground
+- **378 lessons** across 8 levels (L0-L8)
+- Multi-stage compilation: Tokens, LLVM IR, Diagnostics, Contracts tabs
+- Beginner-first redesign: plain English landing, concept cards with metaphors
+- Lesson completion flow with progress tracking
+- `/api/compile` + `/api/format` + `/api/lessons` endpoints
+- WASM compiler (1.8 MB) for browser-side compilation
 
-### Phase 7E — Runtime Safety Guarantees (COMPLETE)
-- **Sanitizer flags (7E.1)**: `--sanitize=address|undefined|leak|thread` passes through to clang `-fsanitize=`, with `-g -fno-omit-frame-pointer` for asan
-- **Stack protector (7E.2)**: `--stack-protector` flag → clang `-fstack-protector` (stack canaries)
-- **Runtime contracts (7E.4)**: `--runtime-contracts` forces contract checks even in release mode; `CompileConfig.runtime_contracts` field
-- **Emitter wiring**: `set_check_contracts(config.check_contracts || config.runtime_contracts)` at both call sites
-- **11 feature regression tests** (7E-01 through 7E-11): sanitize/stack_protector/runtime_contracts config, sanitizer combinations, contract enforcement, div-zero trap, unwrap trap, recursion guard
-
-### Test Baseline: 846/846
-| Suite | Count |
-|-------|-------|
-| Compiler | 601 |
-| Tooling | 245 |
-
-### Phase 7 Roadmap (REMAINING)
-7F Build System & IDE Integration. Self-hosting → Phase 8.
+### Key Crates (17 total)
+| Crate | Rating | Notes |
+|-------|--------|-------|
+| xiom-display | 8.0 | Shared type_to_string, format_fn_signature |
+| xiom-graph | 8.0 | Dependency graph, manifest, topo sort, cache |
+| xiom-ast | 7.0 | DeriveTrait expanded (Debug) |
+| xiom-lexer | 7.0 | Fuzz harness + and/or/not keywords |
+| xiom-check | 7.0 | Type alias resolution, newtype auto-conversion |
+| xiom-parser | 7.0 | Fuzz harness + range/if let/while let/where |
+| xiom-codegen | 5.0 | God object (61 fields documented), derive improvements |
+| xiom-lsp | 4.0 | 2,628-line monolith, needs splitting |
+| xiom-pkg | 5.0 | TLS (ureq), local package resolution |
 
 ---
 
 ## CURRENT STATE
 
-### Test Baseline: 827/827
-| Suite | Count |
-|-------|-------|
-| Compiler (e2e, feature-reg, stdlib, diff, full-diff, fuzz, integration, robustness, stdlib-compile) | 582 |
-| Tooling (checker, parser, formatter, lsp, pkg-mgr, doc, ffigen, mcp, dbg, verify) | 245 |
+### Test Baseline: 930/930
+| Suite | Count | Status |
+|-------|-------|--------|
+| E2E | 110/110 | OK |
+| Feature Regression | 268/268 | OK |
+| Stdlib Execution | 41/41 | OK |
+| Diff | 25/25 | OK |
+| Full-Diff | 23/23 | OK |
+| Fuzz | 24/24 | OK |
+| Integration | 119/119 | OK |
+| Robustness | 29/29 | OK |
+| Stdlib Compilation | 40/40 | OK |
+| Checker | 93/93 | OK |
+| Parser | 52/52 | OK |
+| Formatter | 18/18 | OK |
+| LSP | 11/11 | OK |
+| Package Manager | 15/15 | OK |
+| Doc Generator | 4/4 | OK |
+| FFI Generator | 18/18 | OK |
+| MCP Server | 17/17 | OK |
+| Debugger | 8/8 | OK |
+| Verifier | 15/15 | OK |
 
-### Key Crates (16 total, +xiom-graph)
-| Crate | Rating | Notes |
-|-------|--------|-------|
-| xiom-graph | **8.0** | NEW — Dependency graph, xiom.toml parser, topological sort, module discovery |
-| xiom-codegen | 4.9 | God object (55 fields), raw string IR — needs Phase 7 refactor |
-| xiom-check | 6.3 | types_compatible fixed (6A.1), compat module extracted |
-| xiom-lsp | 3.1 | 2800+ line monolith, zero tests — needs splitting; Phase 7A adds graph source dirs |
-| xiom-pkg | 3.4 | HTTP bugs fixed (6C.1), static mut fixed (6A.3) |
-| xiom-display | 8.0 | Shared crate — type_to_string, op_to_str |
+### Language Features (M9: 10/11 closed)
+| Feature | Status |
+|---------|--------|
+| `and`/`or`/`not` | ✅ |
+| Compound assignment | ✅ |
+| Range syntax | ✅ |
+| `if let`/`while let` | ✅ |
+| `where` clauses | ✅ |
+| Tuple structs | ✅ |
+| Labeled break/continue | ✅ |
+| `derive[Debug]` | ✅ |
+| `FromStr` trait | ✅ |
+| Fuzz harnesses | ✅ |
+| `impl Trait` | ⏸️ Deferred |
 
-### Stdlib
-- HashMap added (collections.xi), cell.xi Ref/RefMut fixed, simd.xi leak fixed, crypto.xi AES-NI fixed
-- Contract coverage improved (Option methods), needs more (current ~20%)
+### Playground Status: 7/10
+| Phase | Status |
+|-------|--------|
+| A — Output Tabs | ✅ |
+| B — 378 Lessons | ✅ |
+| C — UI/UX Polish | ✅ |
+| D — Editor Enhancements | ✅ |
+| Remaining: lesson content polish | Content |
 
-### Critical Remaining Issues
-1. **Module system**: No `use` resolution — all files passed on CLI (blocks MCP debugging at scale)
-2. **xiom-lsp monolith**: 2800-line file, needs splitting into handler modules
-3. **IrEmitter god object**: 55+ fields, needs CodegenContext + FunctionFrame split
-4. **E001 false positives**: CG-03 in gap registry — cosmetic but noisy
-5. **Self type resolution**: `-> Self` in return position not resolved to concrete type
+---
+
+## REMAINING TO 10/10
+
+| # | Item | Effort |
+|---|------|--------|
+| 1 | M4.1 Split IrEmitter god object (61→5 sub-contexts) | 5d |
+| 2 | M4.3 Split LSP monolith (2,628→handler modules) | 3d |
+| 3 | M4.6 Document 58 unsafe blocks with SAFETY: comments | 2d |
+| 4 | Playground lessons: review all 378 for beginner quality | 5d |
+| 5 | impl Trait return types (last M9 gap) | 3d |
+| 6 | Package registry backend live (registry.xiom-lang.org) | 3d |
+| 7 | Self-hosting bootstrap | ∞ |
 
 ---
 
@@ -95,62 +127,39 @@
 
 | File | Purpose |
 |------|---------|
-| `crates/xiom-graph/src/lib.rs` | **NEW** — DependencyGraph, ModuleNode, build_project_graph |
-| `crates/xiom-graph/src/manifest.rs` | **NEW** — xiom.toml parser, source root resolution |
-| `crates/xiom-graph/src/discover.rs` | **NEW** — Recursive .xi discovery, module header parsing |
-| `crates/xiom-graph/src/graph.rs` | **NEW** — Graph nodes, edge resolution, compilation_order |
-| `crates/xiom-graph/src/sort.rs` | **NEW** — Kahn topological sort, cycle detection |
-| `crates/xiom-graph/src/hash.rs` | **NEW** — SHA-256 hashing, Fingerprint, short_hash |
-| `crates/xiom-graph/src/cache.rs` | **NEW** — CacheDb (Arc<RwLock>), 5-tier cache, transitive invalidation |
-| `crates/xiom/src/lib.rs` | expand_sources_with_graph, graph-aware incremental_check/save, compile pipeline |
-| `crates/xiom-codegen/src/lib.rs` | IrEmitter (55 fields), compile_program, const_eval |
-| `crates/xiom-codegen/src/decl.rs` | compile_fn, compile_top_decl, recursion guard |
-| `crates/xiom-codegen/src/expr.rs` | Expr codegen, call dispatch, hot reload thunks |
-| `crates/xiom-check/src/lib.rs` | Checker, types_compatible, borrow checker |
-| `crates/xiom-check/src/compat/mod.rs` | Extracted types_compatible (6B.3) |
-| `crates/xiom-lsp/src/main.rs` | LSP — handle_lsp_message, Backend, 11 tests |
-| `crates/xiom-dbg/src/main.rs` | DAP — GdbBackend, CdbBackend, DebuggerBackend trait |
-| `crates/xiom-pkg/src/main.rs` | Package manager — search, install, registry client |
-| `crates/xiom-verify/src/lib.rs` | Z3 SMT verifier — contract axioms, forall generation |
-| `crates/xiom-display/src/lib.rs` | Shared type_to_string/format_fn_signature/op_to_str |
-| `crates/xiom-mcp/src/main.rs` | MCP server — 14 tools, discover_sibling_sources (6G) |
-| `stdlib/xiom/cell.xi` | RefCell — pointer-based Ref/RefMut (6D.1) |
-| `stdlib/xiom/collections.xi` | Vec, Map, HashMap (6E.1), Slice |
-| `stdlib/xiom/core.xi` | Option/Result methods with contracts (6F) |
-| `stdlib/xiom/simd.xi` | Vec4f — free-on-consume pattern (6D.3) |
-| `stdlib/xiom/crypto.xi` | AES-NI hardware path engaged (6D.4) |
-| `tools/xiom_hot_host.c` | DLL hot reload host — LoadLibrary, watch, reload |
-| `docs/ROADMAP.md` | Phase 7 plan: scalability, parallelism, module system |
-| `docs/audit/PHASE6_CRATE_AUDIT.md` | 14-crate audit with ratings and gaps |
-| `docs/audit/PHASE6_STDLIB_AUDIT.md` | 41-module stdlib audit with ratings |
-| `docs/PRODUCTION_SETUP.md` | Repo split, registry, CI/CD, cross-platform packaging |
-| `sign.ps1` | Authenticode code signing (5e.7c) |
-| `.github/workflows/ci.yml` | CI: Windows MSVC+LLVM, Linux check, format |
+| `docs/ROADMAP.md` | Full roadmap v4 — Phase 9 first public release |
+| `docs/PLAYGROUND_ROADMAP.md` | Playground v3 — beginner-first audit + plan |
+| `docs/PLAYGROUND_SPEC.md` | Full playground architecture spec |
+| `docs/AI_CONTEXT.md` | Language spec (v0.49.9, 40 modules, all flags) |
+| `docs/RELEASE_PROCESS.md` | Release packaging instructions |
+| `docs/audit/PHASE8_PREFLIGHT_AUDIT.md` | Full crate/stdlib/tooling audit |
+| `docs/DEBUGGER_PRO_ROADMAP.md` | Commercial debugger plan |
+| `crates/xiom/src/main.rs` | CLI — `xiom` binary (was xiomc), all flags |
+| `crates/xiom/src/lib.rs` | Library — compile_with_diagnostics, graph integration |
+| `crates/xiom-wasm/src/lib.rs` | WASM compiler for playground |
+| `xiom-playground/` | Full playground app (HTML, Node.js server, 378 lessons) |
+| `xiom-website/` | Static website (xiom-lang.org) |
+| `packages/` | 72 ecosystem library wrappers |
+| `tools/installer/` | install.bat, install.sh, MCP configs, ASCII art |
 
----
-
-## QUICK START COMMANDS
+## QUICK START
 
 ```powershell
-# Run full test suite
+# Test suite
 .\test_summary.ps1
 
-# Build all
+# Build
 cargo build --workspace
 
-# Test a specific area
-cargo test -p xiom-codegen --test feature_regression_tests
-cargo test -p xiom-check
+# Package release
+.\package.ps1 -Version "0.49.9"
 
-# Package a release
-.\package.ps1 -Version "0.49.1"
+# Playground
+cd xiom-playground && node server.js
 
-# Run satellite motion demo (trig verification)
-& target\debug\xiom.exe examples\satellite_motion.xi --run
+# Doctor
+cargo run -p xiom -- doctor
 
-# MCP server
-cargo run -p xiom-mcp
-
-# LSP server
-cargo run -p xiom-lsp
+# WASM
+cargo build -p xiom-wasm --target wasm32-unknown-unknown --release
 ```
