@@ -111,13 +111,13 @@ impl IrEmitter {
         // 5c.30: locals bound to an i64 container handle (match-arm payload
         // bindings like `JsonValue.Array(ref mut items)`).
         if let Expr::Ident(id) = container {
-            return self.local_vec_handle.contains_key(&id.name);
+            return self.local.local_vec_handle.contains_key(&id.name);
         }
         if let Expr::Field(base, field_expr, _) = container {
             if let Some(base_ty) = self.infer_struct_type_name(base) {
-                for key in self.type_meta.keys() {
+                for key in self.types.type_meta.keys() {
                     if key.ends_with(&base_ty) || key == &base_ty {
-                        if let Some(meta) = self.type_meta.get(key) {
+                        if let Some(meta) = self.types.type_meta.get(key) {
                             for (fname, ftype) in &meta.fields {
                                 if fname == &field_expr.name {
                                     return ftype.contains('[');
@@ -139,10 +139,10 @@ impl IrEmitter {
     /// resolved as an implicit-self method call (G-10). Called early in
     /// the Expr::Call handler.
     pub(crate) fn resolve_implicit_self_call(&self, fn_name: &str) -> Option<String> {
-        let recv = self.current_receiver.as_ref()?;
+        let recv = self.fctx.current_receiver.as_ref()?;
         let key = format!("{recv}.{fn_name}");
-        if self.functions.contains_key(&key) { return Some(key); }
-        for k in self.functions.keys() {
+        if self.types.functions.contains_key(&key) { return Some(key); }
+        for k in self.types.functions.keys() {
             if k.ends_with(&format!(".{key}")) { return Some(k.clone()); }
         }
         None

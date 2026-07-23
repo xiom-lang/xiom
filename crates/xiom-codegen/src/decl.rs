@@ -19,17 +19,17 @@ impl IrEmitter {
             // Record generic type names so their methods are skipped from direct
             // (un-monomorphised) emission -- such bodies produce malformed IR.
             if !td.generics.is_empty() {
-                self.generic_type_names.insert(bare_name.clone());
-                self.generic_type_names.insert(type_name.clone());
+                self.types.generic_type_names.insert(bare_name.clone());
+                self.types.generic_type_names.insert(type_name.clone());
             }
             let full_fields: Vec<(String, String)> = td.fields.iter()
                 .map(|f| (f.name.name.clone(), Self::type_from_ast_with_args(&f.ty)))
                 .collect();
-            self.types.entry(type_name.clone()).or_insert(fields);
+            self.types.types.entry(type_name.clone()).or_insert(fields);
             // Use or_insert_with so manual pre-registrations (e.g. Map with
             // resolved Vec type names) are not overwritten by the generic
             // type definition (which uses Vec[K] with unresolved generics).
-            self.type_meta.entry(type_name).or_insert_with(|| TypeMeta {
+            self.types.type_meta.entry(type_name).or_insert_with(|| TypeMeta {
                 fields: full_fields,
                 derives: td.derives.clone(),
                 invariants: td.invariants.clone(),
@@ -38,7 +38,7 @@ impl IrEmitter {
         if let TopDecl::Enum(ed) = item {
             let bare_name = ed.name.name.clone();
             let enum_name = if prefix.is_empty() { bare_name.clone() } else { format!("{}.{}", prefix, bare_name) };
-            if self.types.contains_key(&enum_name) && !self.types.get(&enum_name).map(|f| f.is_empty()).unwrap_or(true) {
+            if self.types.types.contains_key(&enum_name) && !self.types.types.get(&enum_name).map(|f| f.is_empty()).unwrap_or(true) {
                 return;
             }
             let mut all_fields = vec!["discriminant".to_string()];
@@ -62,14 +62,14 @@ impl IrEmitter {
                 variants_info.push((vname.clone(), vfields));
                 variants_types.push((vname, vftypes));
             }
-            self.types.insert(enum_name.clone(), all_fields);
-            self.type_meta.insert(enum_name.clone(), TypeMeta {
+            self.types.types.insert(enum_name.clone(), all_fields);
+            self.types.type_meta.insert(enum_name.clone(), TypeMeta {
                 fields: all_meta,
                 derives: ed.derives.clone(),
                 invariants: Vec::new(),
             });
-            self.enum_variants.insert(enum_name.clone(), variants_info);
-            self.enum_variant_field_types.insert(enum_name, variants_types);
+            self.types.enum_variants.insert(enum_name.clone(), variants_info);
+            self.types.enum_variant_field_types.insert(enum_name, variants_types);
         }
         if let TopDecl::Module(md) = item {
             let new_prefix = if prefix.is_empty() { md.name.name.clone() } else { format!("{}.{}", prefix, md.name.name) };
@@ -83,14 +83,14 @@ impl IrEmitter {
         match ty {
             Type::Tuple(elems) => {
                 let name = Self::type_from_ast(ty);
-                if self.type_meta.contains_key(&name) { return; }
+                if self.types.type_meta.contains_key(&name) { return; }
                 let field_names: Vec<String> = (0..elems.len()).map(|i| format!("_{i}")).collect();
                 let field_types: Vec<(String, String)> = elems.iter()
                     .enumerate()
                     .map(|(i, t)| (format!("_{i}"), Self::type_from_ast(t)))
                     .collect();
-                self.types.insert(name.clone(), field_names);
-                self.type_meta.insert(name, TypeMeta {
+                self.types.types.insert(name.clone(), field_names);
+                self.types.type_meta.insert(name, TypeMeta {
                     fields: field_types,
                     derives: vec![],
                     invariants: vec![],
@@ -175,14 +175,14 @@ impl IrEmitter {
         match ty {
             Type::Tuple(elems) => {
                 let name = Self::substitute_concrete_name(ty, type_map);
-                if self.type_meta.contains_key(&name) { return; }
+                if self.types.type_meta.contains_key(&name) { return; }
                 let field_names: Vec<String> = (0..elems.len()).map(|i| format!("_{i}")).collect();
                 let field_types: Vec<(String, String)> = elems.iter()
                     .enumerate()
                     .map(|(i, e)| (format!("_{i}"), Self::substitute_concrete_name(e, type_map)))
                     .collect();
-                self.types.insert(name.clone(), field_names);
-                self.type_meta.insert(name, TypeMeta {
+                self.types.types.insert(name.clone(), field_names);
+                self.types.type_meta.insert(name, TypeMeta {
                     fields: field_types,
                     derives: vec![],
                     invariants: vec![],
@@ -222,7 +222,7 @@ impl IrEmitter {
                 // existing behavior -- and the green test gate -- is preserved.
                 let ty_name = Self::type_from_ast(&cd.ty);
                 if let Ok(llvm_ty) = self.llvm_type_for(&ty_name) {
-                    let symbol = if let Some(ref m) = self.current_module {
+                    let symbol = if let Some(ref m) = self.local.current_module {
                         format!("{}.{}", m, cd.name.name)
                     } else {
                         cd.name.name.clone()
@@ -230,29 +230,29 @@ impl IrEmitter {
                     // Register lookups under BOTH the bare and qualified names so a
                     // reference resolves whether the module is compiled directly or
                     // its decls are injected flattened at top level.
-                    self.module_globals.insert(cd.name.name.clone(), (symbol.clone(), llvm_ty.clone()));
-                    self.module_globals.insert(symbol.clone(), (symbol.clone(), llvm_ty.clone()));
+                    self.local.module_globals.insert(cd.name.name.clone(), (symbol.clone(), llvm_ty.clone()));
+                    self.local.module_globals.insert(symbol.clone(), (symbol.clone(), llvm_ty.clone()));
                     // Dedup the emitted definition by symbol name.
-                    if !self.module_global_defs.iter().any(|(s, _, _)| s == &symbol) {
+                    if !self.local.module_global_defs.iter().any(|(s, _, _)| s == &symbol) {
                         let init = Self::global_const_init(&cd.value, &llvm_ty);
-                        self.module_global_defs.push((symbol.clone(), llvm_ty.clone(), init));
+                        self.local.module_global_defs.push((symbol.clone(), llvm_ty.clone(), init));
                     }
                     // 5e.5c: track for hot reload state migration
-                    if self.hot_reload {
-                        let byte_sz = Self::llvm_type_byte_size(&llvm_ty, &self.type_meta);
-                        if !self.xiom_hot_globals.iter().any(|(s, _, _)| s == &symbol) {
-                            self.xiom_hot_globals.push((symbol.clone(), llvm_ty.clone(), byte_sz));
+                    if self.config.hot_reload {
+                        let byte_sz = Self::llvm_type_byte_size(&llvm_ty, &self.types.type_meta);
+                        if !self.config.xiom_hot_globals.iter().any(|(s, _, _)| s == &symbol) {
+                            self.config.xiom_hot_globals.push((symbol.clone(), llvm_ty.clone(), byte_sz));
                         }
                     }
                 } else {
                     // Type doesn't lower to a simple global: keep old behavior.
-                    self.constants.insert(cd.name.name.clone(), cd.value.clone());
+                    self.local.constants.insert(cd.name.name.clone(), cd.value.clone());
                 }
             } else {
                 // Record module/global constants so a bare reference can be substituted
                 // with its literal value (constants are not emitted as globals). Last
                 // definition wins; both bare and module-qualified names are keyed.
-                self.constants.insert(cd.name.name.clone(), cd.value.clone());
+                self.local.constants.insert(cd.name.name.clone(), cd.value.clone());
             }
         }
         if let TopDecl::Fn(fd) = item {
@@ -319,26 +319,26 @@ impl IrEmitter {
                 .map(|t| self.llvm_type_for(&Self::type_from_ast(t)).unwrap_or_else(|_| "i64".to_string()))
                 .unwrap_or_else(|| "void".to_string());
             let key = self.fn_key(fd);
-            self.functions.insert(key.clone(), (param_types.clone(), ret_type.clone()));
+            self.types.functions.insert(key.clone(), (param_types.clone(), ret_type.clone()));
             // 5c.30: keep the declared XIOM return type WITH generic args so
             // Option/Result payload types survive LLVM erasure.
             if let Some(rt) = fd.return_type.as_ref() {
-                self.fn_return_xiom.insert(key.clone(), Self::type_string_full(rt));
+                self.types.fn_return_xiom.insert(key.clone(), Self::type_string_full(rt));
             }
             // Detect interface-typed params: store these functions so call sites
             // can monomorphise them for each concrete implementor (BUG-007).
             let has_iface_param = fd.params.iter().any(|p| {
                 let name = Self::type_from_ast(&p.ty);
-                self.interfaces.contains_key(&name)
+                self.types.interfaces.contains_key(&name)
             }) || fd.return_type.as_ref().map_or(false, |t| {
                 let name = Self::type_from_ast(t);
-                self.interfaces.contains_key(&name)
+                self.types.interfaces.contains_key(&name)
             });
             if has_iface_param {
                 // Add to generic_fn_decls as a pseudo-generic so the
                 // monomorphisation loop picks it up.
-                if !self.generic_fn_decls.iter().any(|(k, _)| k == &key) {
-                    self.generic_fn_decls.push((key.clone(), fd.clone()));
+                if !self.mono.generic_fn_decls.iter().any(|(k, _)| k == &key) {
+                    self.mono.generic_fn_decls.push((key.clone(), fd.clone()));
                 }
             }
             // Register leaf-module key (e.g. "mem.replace", "ptr.replace") so
@@ -347,24 +347,24 @@ impl IrEmitter {
             // naming collisions between same-named generic functions from
             // different modules (BUG-005).
             if fd.receiver.is_none() {
-                if let Some(ref module) = self.current_module {
+                if let Some(ref module) = self.local.current_module {
                     if let Some(leaf) = module.rsplit('.').next() {
                         let leaf_key = format!("{}.{}", leaf, key);
                         if leaf_key != key {
-                            self.functions.insert(leaf_key.clone(), (param_types.clone(), ret_type.clone()));
+                            self.types.functions.insert(leaf_key.clone(), (param_types.clone(), ret_type.clone()));
                         }
                     }
                 }
             }
             if !fd.generics.is_empty() {
-                self.generic_fn_decls.push((key.clone(), fd.clone()));
+                self.mono.generic_fn_decls.push((key.clone(), fd.clone()));
                 // Also register with leaf-module key for generic resolution
                 if fd.receiver.is_none() {
-                    if let Some(ref module) = self.current_module {
+                    if let Some(ref module) = self.local.current_module {
                         if let Some(leaf) = module.rsplit('.').next() {
                             let leaf_key = format!("{}.{}", leaf, key);
                             if leaf_key != key {
-                                self.generic_fn_decls.push((leaf_key, fd.clone()));
+                                self.mono.generic_fn_decls.push((leaf_key, fd.clone()));
                             }
                         }
                     }
@@ -381,7 +381,7 @@ impl IrEmitter {
                     methods.push((fd.name.name.clone(), param_type_names));
                 }
             }
-            self.interfaces.insert(id.name.name.clone(), methods);
+            self.types.interfaces.insert(id.name.name.clone(), methods);
         }
         if let TopDecl::Extern(eb) = item {
             // Register extern "C" functions so calls to them use correct LLVM types.
@@ -393,12 +393,12 @@ impl IrEmitter {
                 let ret_type = fd.return_type.as_ref()
                     .map(|t| self.extern_type_to_llvm(t))
                     .unwrap_or_else(|| "void".to_string());
-                self.functions.insert(fd.name.name.clone(), (param_types, ret_type));
+                self.types.functions.insert(fd.name.name.clone(), (param_types, ret_type));
             }
         }
         if let TopDecl::Module(md) = item {
-            let saved_module = self.current_module.clone();
-            self.current_module = Some(if let Some(ref prev) = saved_module {
+            let saved_module = self.local.current_module.clone();
+            self.local.current_module = Some(if let Some(ref prev) = saved_module {
                 format!("{}.{}", prev, md.name.name)
             } else {
                 md.name.name.clone()
@@ -406,17 +406,17 @@ impl IrEmitter {
             for sub in &md.items {
                 self.register_functions(sub);
             }
-            self.current_module = saved_module;
+            self.local.current_module = saved_module;
         }
     }
 
     /// Scan all registered interfaces and concrete types to determine which
     /// types implement which interfaces (BUG-007). A type implements an
     /// interface if, for every method in the interface, there is a function
-    /// registered as `TypeName.methodName` in self.functions.
+    /// registered as `TypeName.methodName` in self.types.functions.
     pub(crate) fn scan_interface_impls(&mut self) {
-        for (iface_name, methods) in self.interfaces.clone().iter() {
-            for type_name in self.types.keys().cloned().collect::<Vec<_>>().iter() {
+        for (iface_name, methods) in self.types.interfaces.clone().iter() {
+            for type_name in self.types.types.keys().cloned().collect::<Vec<_>>().iter() {
                 // Skip builtin types (Option, Result, Vec, etc.)
                 if ["Option", "Result", "Vec", "Slice", "Map", "Set"].contains(&type_name.as_str()) { continue; }
                 let mut all_implemented = true;
@@ -426,15 +426,15 @@ impl IrEmitter {
                     let leaf_key = if leaf_parts.len() > 1 {
                         format!("{}.{}", leaf_parts[1], method_name)
                     } else { fn_key.clone() };
-                    if !self.functions.contains_key(&fn_key) && !self.functions.contains_key(&leaf_key) {
-                        if !self.generic_fn_decls.iter().any(|(k, _)| k == &fn_key || k == &leaf_key) {
+                    if !self.types.functions.contains_key(&fn_key) && !self.types.functions.contains_key(&leaf_key) {
+                        if !self.mono.generic_fn_decls.iter().any(|(k, _)| k == &fn_key || k == &leaf_key) {
                             all_implemented = false;
                             break;
                         }
                     }
                 }
                 if all_implemented {
-                    self.interface_impls.entry(iface_name.clone())
+                    self.types.interface_impls.entry(iface_name.clone())
                         .or_insert_with(HashSet::new)
                         .insert(type_name.clone());
                 }
@@ -445,9 +445,9 @@ impl IrEmitter {
     pub(crate) fn fn_key(&self, fd: &FnDecl) -> String {
         if let Some(recv_name) = &fd.receiver {
             // Use module context to resolve receiver type to qualified name
-            let recv_type = if let Some(ref module) = self.current_module {
+            let recv_type = if let Some(ref module) = self.local.current_module {
                 let qualified = format!("{}.{}", module, recv_name.name);
-                if self.type_meta.contains_key(&qualified) { qualified } else { recv_name.name.clone() }
+                if self.types.type_meta.contains_key(&qualified) { qualified } else { recv_name.name.clone() }
             } else {
                 recv_name.name.clone()
             };
@@ -464,8 +464,8 @@ impl IrEmitter {
         // Keep `main` as bare entry point regardless of module
         if bare == "main" { return bare; }
         // If bare name already emitted (collision from multi-file merge), qualify it
-        if self.emitted_fns.contains(&bare) {
-            if let Some(ref module) = self.current_module {
+        if self.mono.emitted_fns.contains(&bare) {
+            if let Some(ref module) = self.local.current_module {
                 return format!("{}.{}", module, bare);
             }
         }
@@ -479,17 +479,17 @@ impl IrEmitter {
             let module_name = &id.name;
             // Try leaf-qualified: "math.run_all"
             let leaf_key = format!("{}.{}", module_name, fn_name);
-            if self.functions.contains_key(&leaf_key)
-                || self.generic_fn_decls.iter().any(|(k, _)| k == &leaf_key)
+            if self.types.functions.contains_key(&leaf_key)
+                || self.mono.generic_fn_decls.iter().any(|(k, _)| k == &leaf_key)
             {
                 return leaf_key;
             }
             // Try parent-qualified: "benchmark.math.run_all" (current_module parent + module_name)
-            if let Some(ref cur_mod) = self.current_module {
+            if let Some(ref cur_mod) = self.local.current_module {
                 if let Some(parent) = cur_mod.rsplitn(2, '.').last() {
                     let parent_key = format!("{}.{}.{}", parent, module_name, fn_name);
-                    if self.functions.contains_key(&parent_key)
-                        || self.generic_fn_decls.iter().any(|(k, _)| k == &parent_key)
+                    if self.types.functions.contains_key(&parent_key)
+                        || self.mono.generic_fn_decls.iter().any(|(k, _)| k == &parent_key)
                     {
                         return parent_key;
                     }
@@ -497,13 +497,13 @@ impl IrEmitter {
             }
             // Try any key ending with ".module_name.fn_name" as a fallback
             let suffix = format!(".{}.{}", module_name, fn_name);
-            for k in self.functions.keys() {
+            for k in self.types.functions.keys() {
                 if k.ends_with(&suffix) {
                     return k.clone();
                 }
             }
             // Also search generic function decls for the suffix
-            for (k, _) in &self.generic_fn_decls {
+            for (k, _) in &self.mono.generic_fn_decls {
                 if k.ends_with(&suffix) {
                     return k.clone();
                 }
@@ -523,14 +523,14 @@ impl IrEmitter {
                     // erases `self` to i64 and produces malformed struct-access IR.
                     // These are monomorphised on demand at call sites instead.
                     let recv_is_generic = fd.receiver.as_ref()
-                        .map(|r| self.generic_type_names.contains(&r.name))
+                        .map(|r| self.types.generic_type_names.contains(&r.name))
                         .unwrap_or(false);
                     if !recv_is_generic && fd.body.is_some() {
                         let fn_name = self.fn_symbol(fd);
-                        self.emitted_fns.insert(fn_name.clone());
+                        self.mono.emitted_fns.insert(fn_name.clone());
                         // 5e.5a: track pub functions for hot reload thunk dispatch
-                        if self.hot_reload && fd.is_pub {
-                            self.pub_functions.insert(fn_name.clone());
+                        if self.config.hot_reload && fd.is_pub {
+                            self.config.pub_functions.insert(fn_name.clone());
                         }
                         self.compile_fn(fd)?;
                     }
@@ -538,8 +538,8 @@ impl IrEmitter {
                 Ok(())
             }
             TopDecl::Module(md) => {
-                let saved_module = self.current_module.clone();
-                self.current_module = Some(if let Some(ref prev) = saved_module {
+                let saved_module = self.local.current_module.clone();
+                self.local.current_module = Some(if let Some(ref prev) = saved_module {
                     format!("{}.{}", prev, md.name.name)
                 } else {
                     md.name.name.clone()
@@ -547,7 +547,7 @@ impl IrEmitter {
                 for sub in &md.items {
                     self.compile_top_decl(sub)?;
                 }
-                self.current_module = saved_module;
+                self.local.current_module = saved_module;
                 Ok(())
             }
             TopDecl::Interface(_) | TopDecl::Enum(_) | TopDecl::Const(_) | TopDecl::Type(_) | TopDecl::Use(_) | TopDecl::Extern(_) => Ok(()),
@@ -566,13 +566,13 @@ impl IrEmitter {
             if bare != "main"
                 && fd.receiver.is_none()
                 && !bare.starts_with("xiom_")
-                && self.already_declared.contains(&bare)
+                && self.mono.already_declared.contains(&bare)
             {
                 return Ok(());
             }
         }
         // --strict mode: enforce #[safety_audit] on functions with unsafe blocks
-        if self.strict_mode && fd.body.as_ref().map_or(false, |b| {
+        if self.config.strict_mode && fd.body.as_ref().map_or(false, |b| {
             Self::block_contains_unsafe(b)
         }) {
             let has_audit = fd.attributes.iter().any(|a| a.name.name == "safety_audit");
@@ -585,36 +585,36 @@ impl IrEmitter {
         self.push_scope();
         self.block_counter = 0;
         self.tmp_counter = 0;
-        self.fn_ptr_return_types.clear();
-        self.bool_locals.clear();
-        self.ptr_locals.clear();
-        self.local_vec_elem.clear();
-        self.local_opt_payload.clear();
-        self.local_boxed_struct.clear();
-        self.local_vec_handle.clear();
+        self.types.fn_ptr_return_types.clear();
+        self.local.bool_locals.clear();
+        self.local.ptr_locals.clear();
+        self.local.local_vec_elem.clear();
+        self.local.local_opt_payload.clear();
+        self.local.local_boxed_struct.clear();
+        self.local.local_vec_handle.clear();
 
         let ret_llvm = fd.return_type.as_ref()
             .map(|t| self.llvm_type_for(&Self::type_from_ast(t)).unwrap_or_else(|_| "i64".to_string()))
             .unwrap_or_else(|| "void".to_string());
-        self.current_return_type = ret_llvm.clone();
-        self.current_param_llvm_types = fd.params.iter()
+        self.fctx.current_return_type = ret_llvm.clone();
+        self.fctx.current_param_llvm_types = fd.params.iter()
             .map(|p| self.llvm_type_for(&Self::type_from_ast(&p.ty)).unwrap_or_else(|_| "i64".to_string()))
             .collect();
 
         // Store ensures clauses for return point checking
-        self.current_ensures = Vec::new();
-        if self.check_contracts {
+        self.fctx.current_ensures = Vec::new();
+        if self.config.check_contracts {
             for clause in &fd.contracts {
                 if let ContractClause::Ensures(e, _) = clause {
-                    self.current_ensures.push(e.clone());
+                    self.fctx.current_ensures.push(e.clone());
                 }
             }
         }
 
         let name = self.fn_key(fd);
-        self.current_fn = Some(name.clone());
+        self.fctx.current_fn = Some(name.clone());
         // 5c.30: track receiver type for implicit-self method calls (G-10)
-        self.current_receiver = fd.receiver.as_ref().map(|r| r.name.clone());
+        self.fctx.current_receiver = fd.receiver.as_ref().map(|r| r.name.clone());
 
         // For methods, prepend the self struct parameter. A receiver-qualified fn
         // with NO `self` param is a static constructor (e.g. `Layout.new(size)`):
@@ -692,7 +692,7 @@ impl IrEmitter {
         let new_depth = self.fresh_tmp();
         self.emitln(&format!("  {new_depth} = add i64 {depth_tmp}, 1"));
         let depth_ok = self.fresh_tmp();
-        self.emitln(&format!("  {depth_ok} = icmp slt i64 {new_depth}, {}", self.max_recursion_depth));
+        self.emitln(&format!("  {depth_ok} = icmp slt i64 {new_depth}, {}", self.config.max_recursion_depth));
         let trap_block = self.fresh_block("depth_trap");
         let ok_block = self.fresh_block("depth_ok");
         self.emitln(&format!("  br i1 {depth_ok}, label %{ok_block}, label %{trap_block}"));
@@ -718,15 +718,15 @@ impl IrEmitter {
                 self.add_local("self", loaded_ptr.clone(), struct_ty);
                 // Add struct fields via GEP on the loaded pointer.
                 // 5e.3: try types first, then type_meta (catalog-loaded structs).
-                let types_fields = self.types.get(&recv.name)
+                let types_fields = self.types.types.get(&recv.name)
                     .or_else(|| {
                         let suffix = format!(".{}", recv.name);
-                        self.types.keys().find(|k| k.ends_with(&suffix))
-                            .and_then(|k| self.types.get(k))
+                        self.types.types.keys().find(|k| k.ends_with(&suffix))
+                            .and_then(|k| self.types.types.get(k))
                     })
                     .cloned();
                 let fields: Option<Vec<String>> = types_fields.or_else(|| {
-                    self.type_meta.get(&recv.name).map(|m| {
+                    self.types.type_meta.get(&recv.name).map(|m| {
                         m.fields.iter().map(|(n, _)| n.clone()).collect()
                     })
                 });
@@ -742,14 +742,14 @@ impl IrEmitter {
                 self.add_local("self", self_alloca.clone(), st);
                 // Also add struct fields as locals for direct access
                 // 5e.3: types first, then type_meta for catalog-loaded structs.
-                let types_fields = self.types.get(&recv.name)
+                let types_fields = self.types.types.get(&recv.name)
                     .or_else(|| {
                         let suffix = format!(".{}", recv.name);
-                        self.types.keys().find(|k| k.ends_with(&suffix)).and_then(|k| self.types.get(k))
+                        self.types.types.keys().find(|k| k.ends_with(&suffix)).and_then(|k| self.types.types.get(k))
                     })
                     .cloned();
                 let fields: Option<Vec<String>> = types_fields.or_else(|| {
-                    self.type_meta.get(&recv.name).map(|m| {
+                    self.types.type_meta.get(&recv.name).map(|m| {
                         m.fields.iter().map(|(n, _)| n.clone()).collect()
                     })
                 });
@@ -788,25 +788,25 @@ impl IrEmitter {
             // Record raw-pointer params (`*T`/`&T`/`&mut T` over a pointer) so that
             // `param[i]` indexing treats the i64 value as an address (byte buffer).
             if matches!(&param.ty, Type::Ptr(_)) {
-                self.ptr_locals.insert(param.name.name.clone());
+                self.local.ptr_locals.insert(param.name.name.clone());
             } else {
-                self.ptr_locals.remove(&param.name.name);
+                self.local.ptr_locals.remove(&param.name.name);
             }
             // Track function pointer return types for function pointer parameters
             if let Type::Fn(_, ret) = &param.ty {
                 let ret_ty_name = Self::type_from_ast(ret);
                 let ret_llvm = self.llvm_type_for_fallback(&ret_ty_name);
-                self.fn_ptr_return_types.insert(param.name.name.clone(), ret_llvm);
+                self.types.fn_ptr_return_types.insert(param.name.name.clone(), ret_llvm);
             }
         }
 
         // Capture self@pre for ensures (method functions with self@pre references)
-        if self.check_contracts && !self.current_ensures.is_empty() {
+        if self.config.check_contracts && !self.fctx.current_ensures.is_empty() {
             // Phase 5c @pre snapshot: for every variable referenced in an
             // `ensures` clause with `@pre`, store its entry-point value so the
             // ensures check uses the pre-state value, not the current one.
             let mut pre_vars: HashSet<String> = HashSet::new();
-            for expr in &self.current_ensures {
+            for expr in &self.fctx.current_ensures {
                 Self::collect_atpre_vars(expr, &mut pre_vars);
             }
             for var_name in &pre_vars {
@@ -853,16 +853,16 @@ impl IrEmitter {
         }
 
         // Create result alloca for ensures if function returns a value
-        self.result_ptr = None;
-        if !self.current_ensures.is_empty() && fd.return_type.is_some() {
+        self.fctx.result_ptr = None;
+        if !self.fctx.current_ensures.is_empty() && fd.return_type.is_some() {
             let result_alloca = self.fresh_tmp();
             self.emitln(&format!("  {result_alloca} = alloca {ret_llvm}"));
             self.add_local("result", result_alloca.clone(), &ret_llvm);
-            self.result_ptr = Some(result_alloca);
+            self.fctx.result_ptr = Some(result_alloca);
         }
 
         // Emit requires checks at function entry
-        if self.check_contracts {
+        if self.config.check_contracts {
             for clause in &fd.contracts {
                 if let ContractClause::Requires(expr, _span) = clause {
                     self.compile_contract_check(expr, "requires");
@@ -878,7 +878,7 @@ impl IrEmitter {
         // Implicit return
         if fd.return_type.is_none() {
             // Check ensures before implicit void return
-            if !self.current_ensures.is_empty() {
+            if !self.fctx.current_ensures.is_empty() {
                 self.compile_ensures_checks();
             }
             // Decrement recursion depth
@@ -908,7 +908,7 @@ impl IrEmitter {
         self.emitln("}\n");
 
         // 5e.5a: emit hot reload thunk for pub functions
-        if self.hot_reload && fd.is_pub {
+        if self.config.hot_reload && fd.is_pub {
             let thunk_name = format!("xiom_hot_thunk_{}", name);
             let hash = Self::djb2_hash(&name);
 
@@ -928,8 +928,8 @@ impl IrEmitter {
             }
             for (i, p) in fd.params.iter().enumerate() {
                 if self_offset == 1 && p.name.name == "self" { continue; }
-                let llvm_ty = if i < self.current_param_llvm_types.len() {
-                    self.current_param_llvm_types[i].clone()
+                let llvm_ty = if i < self.fctx.current_param_llvm_types.len() {
+                    self.fctx.current_param_llvm_types[i].clone()
                 } else {
                     "i64".to_string()
                 };
@@ -982,10 +982,10 @@ impl IrEmitter {
         }
 
         self.pop_scope();
-        self.current_fn = None;
-        self.current_receiver = None;
-        self.current_ensures.clear();
-        self.result_ptr = None;
+        self.fctx.current_fn = None;
+        self.fctx.current_receiver = None;
+        self.fctx.current_ensures.clear();
+        self.fctx.result_ptr = None;
         Ok(())
     }
 
@@ -1000,9 +1000,9 @@ impl IrEmitter {
         }
         let inner_name = inner_ty.trim_start_matches("%struct.");
         let concrete_name = format!("Option__{inner_name}");
-        if !self.type_meta.contains_key(&concrete_name) {
-            self.types.insert(concrete_name.clone(), vec!["discriminant".to_string(), "value".to_string()]);
-            self.type_meta.insert(concrete_name.clone(), TypeMeta {
+        if !self.types.type_meta.contains_key(&concrete_name) {
+            self.types.types.insert(concrete_name.clone(), vec!["discriminant".to_string(), "value".to_string()]);
+            self.types.type_meta.insert(concrete_name.clone(), TypeMeta {
                 fields: vec![("discriminant".to_string(), "i64".to_string()), ("value".to_string(), inner_ty.to_string())],
                 derives: vec![],
                 invariants: vec![],
@@ -1010,7 +1010,7 @@ impl IrEmitter {
             // Defer LLVM type emission until flush_deferred_types()
             let field_llvm_ty = if inner_ty.starts_with('%') { inner_ty.to_string() }
                 else { self.llvm_type_for(inner_ty).unwrap_or_else(|_| "i64".to_string()) };
-            self.deferred_struct_types.push((
+            self.local.deferred_struct_types.push((
                 concrete_name.clone(),
                 format!("{{ i64, {field_llvm_ty} }}"),
             ));
@@ -1031,15 +1031,15 @@ impl IrEmitter {
         let ok_name = ok_ty.trim_start_matches("%struct.");
         let err_name = err_ty.trim_start_matches("%struct.");
         let concrete_name = format!("Result__{ok_name}__{err_name}");
-        if !self.type_meta.contains_key(&concrete_name) {
+        if !self.types.type_meta.contains_key(&concrete_name) {
             let fields = vec![
                 ("discriminant".to_string(), "i64".to_string()),
                 ("value".to_string(), ok_ty.to_string()),
                 ("error".to_string(), err_ty.to_string()),
             ];
             let field_names: Vec<String> = fields.iter().map(|(n, _)| n.clone()).collect();
-            self.types.insert(concrete_name.clone(), field_names);
-            self.type_meta.insert(concrete_name.clone(), TypeMeta {
+            self.types.types.insert(concrete_name.clone(), field_names);
+            self.types.type_meta.insert(concrete_name.clone(), TypeMeta {
                 fields,
                 derives: vec![],
                 invariants: vec![],
@@ -1070,11 +1070,11 @@ impl IrEmitter {
     /// Emit any deferred struct type definitions (concrete Option__Point,
     /// Result__X__Y, etc.) before the next function body.
     pub(crate) fn flush_deferred_types(&mut self) {
-        if self.deferred_struct_types.is_empty() { return; }
-        for (name, body) in std::mem::take(&mut self.deferred_struct_types) {
+        if self.local.deferred_struct_types.is_empty() { return; }
+        for (name, body) in std::mem::take(&mut self.local.deferred_struct_types) {
             self.emitln(&format!("%struct.{name} = type {body}"));
         }
-        if !self.deferred_struct_types.is_empty() {
+        if !self.local.deferred_struct_types.is_empty() {
             self.emitln("");
         }
     }

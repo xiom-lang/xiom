@@ -37,7 +37,7 @@ impl super::IrEmitter {
         self.str_counter += 1;
         let label = format!("@.contract_str{str_id}");
         let escaped = msg.replace('\\', "\\\\").replace('"', "\\22");
-        self.strings.push(format!(
+        self.fctx.strings.push(format!(
             "{label} = private unnamed_addr constant [{len} x i8] c\"{escaped}\\00\"",
             len = msg.len() + 1
         ));
@@ -52,14 +52,14 @@ impl super::IrEmitter {
     /// Emit checks for all ensures clauses of the current function.
     /// Called just before a return instruction.
     pub(crate) fn compile_ensures_checks(&mut self) {
-        for expr in &self.current_ensures.clone() {
+        for expr in &self.fctx.current_ensures.clone() {
             self.compile_contract_check(expr, "ensures");
         }
     }
 
     /// Generate an invariant check function for a struct type.
     pub(crate) fn compile_invariant_check(&mut self, type_name: &str) -> Result<(), String> {
-        let invariants = match self.type_meta.get(type_name) {
+        let invariants = match self.types.type_meta.get(type_name) {
             Some(m) => m.invariants.clone(),
             None => return Ok(()),
         };
@@ -67,7 +67,7 @@ impl super::IrEmitter {
             return Ok(());
         }
         // Look up field names for this type
-        let field_names = match self.types.get(type_name) {
+        let field_names = match self.types.types.get(type_name) {
             Some(f) => f.clone(),
             None => return Ok(()),
         };
@@ -92,8 +92,8 @@ impl super::IrEmitter {
             // Push a synthetic scope for invariant compilation
             // Since compile_contract_check will call compile_expr which uses lookup_local,
             // we need to register these field names temporarily
-            if self.locals.is_empty() {
-                self.locals.push(HashMap::new());
+            if self.fctx.locals.is_empty() {
+                self.fctx.locals.push(HashMap::new());
             }
             self.add_local(fname, field_alloca, &field_llvm_ty);
         }
@@ -105,7 +105,7 @@ impl super::IrEmitter {
         // Clean up the temporary field locals
         // We added them to the current scope, they'll be cleaned on pop_scope
         // But since we're not actually pushing a real scope, let's just clear
-        if let Some(scope) = self.locals.last_mut() {
+        if let Some(scope) = self.fctx.locals.last_mut() {
             for fname in &field_names {
                 scope.remove(fname);
             }
@@ -119,7 +119,7 @@ impl super::IrEmitter {
     pub(crate) fn maybe_check_value_invariants(&mut self, value: &Expr, val_reg: &str) {
         let type_name = self.struct_type_from_expr(value);
         if let Some(ref tn) = type_name {
-            if self.type_meta.get(tn).map(|m| !m.invariants.is_empty()).unwrap_or(false) {
+            if self.types.type_meta.get(tn).map(|m| !m.invariants.is_empty()).unwrap_or(false) {
                 self.compile_invariant_call(tn, val_reg);
             }
         }
@@ -150,7 +150,7 @@ impl super::IrEmitter {
                 // mutation aliases the original enum/struct field.
                 if slot_ty == "i64"
                     && ty.starts_with("%struct.")
-                    && self.local_vec_handle.contains_key(&id.name)
+                    && self.local.local_vec_handle.contains_key(&id.name)
                 {
                     let h = self.fresh_tmp();
                     self.emitln(&format!("  {h} = load i64, i64* {slot}"));
@@ -172,10 +172,10 @@ impl super::IrEmitter {
                         return; // cannot determine struct type
                     };
                     let clean_name = sty[8..].trim_end_matches('*').to_string();
-                    if let Some(field_names) = self.types.get(&clean_name)
-                        .or_else(|| self.types.keys()
+                    if let Some(field_names) = self.types.types.get(&clean_name)
+                        .or_else(|| self.types.types.keys()
                             .find(|k| k.ends_with(&format!(".{clean_name}")))
-                            .and_then(|k| self.types.get(k)))
+                            .and_then(|k| self.types.types.get(k)))
                         .cloned()
                     {
                         if let Some(fi) = field_names.iter().position(|f| f == &field_expr.name) {
@@ -221,7 +221,7 @@ impl super::IrEmitter {
     }
 
     pub(crate) fn compile_invariant_call(&mut self, type_name: &str, struct_val_reg: &str) {
-        let meta = match self.type_meta.get(type_name) {
+        let meta = match self.types.type_meta.get(type_name) {
             Some(m) => m,
             None => return,
         };

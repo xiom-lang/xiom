@@ -9,30 +9,30 @@ impl IrEmitter {
             Stmt::Let(name, _ty, value, _) => {
                 // Track array-literal bindings for Expr::Index dispatch
                 if matches!(value, Expr::Array(..)) {
-                    self.array_locals.insert(name.name.clone());
+                    self.local.array_locals.insert(name.name.clone());
                     // 5c-R: record the element LLVM type for typed array indexing (G-11)
                     if let Expr::Array(elems, _) = value {
                         if let Some(first) = elems.first() {
                             let elem_ty = self.infer_llvm_type(first);
                             if elem_ty != "i64" {
-                                self.local_array_elem.insert(name.name.clone(), elem_ty);
+                                self.local.local_array_elem.insert(name.name.clone(), elem_ty);
                             }
                         }
                         // 5c.30: record array size for const-generic inference
-                        self.local_array_sizes.insert(name.name.clone(), elems.len() as i64);
+                        self.local.local_array_sizes.insert(name.name.clone(), elems.len() as i64);
                     }
                 }
                 // 5c.30: record Vec element type for local Vec bindings.
                 if let Some(elem) = Self::vec_ctor_elem_type(value) {
-                    self.local_vec_elem.insert(name.name.clone(), elem);
+                    self.local.local_vec_elem.insert(name.name.clone(), elem);
                 } else if let Some(ty) = _ty {
                     if let Some(elem) = Self::vec_elem_from_type_annotation(ty) {
-                        self.local_vec_elem.insert(name.name.clone(), elem);
+                        self.local.local_vec_elem.insert(name.name.clone(), elem);
                     } else {
-                        self.local_vec_elem.remove(&name.name);
+                        self.local.local_vec_elem.remove(&name.name);
                     }
                 } else {
-                    self.local_vec_elem.remove(&name.name);
+                    self.local.local_vec_elem.remove(&name.name);
                 }
                 self.track_boxed_payload_binding(&name.name, value);
                 let (val, val_llvm_ty) = self.compile_expr(value)?;
@@ -64,7 +64,7 @@ impl IrEmitter {
                 let is_bool = matches!(_ty.as_deref(), Some(Type::Named(id, _)) if id.name == "Bool")
                     || matches!(value, Expr::Bool(..))
                     || self.expr_is_bool(value);
-                if is_bool { self.bool_locals.insert(name.name.clone()); } else { self.bool_locals.remove(&name.name); }
+                if is_bool { self.local.bool_locals.insert(name.name.clone()); } else { self.local.bool_locals.remove(&name.name); }
                 if llvm_ty == "void" || val.is_empty() {
                     let alloca = self.fresh_tmp();
                     self.emitln(&format!("  {alloca} = alloca i64"));
@@ -79,37 +79,37 @@ impl IrEmitter {
                 self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}"));
                 self.add_local(&name.name, alloca, &llvm_ty);
                 // Check invariants if the value is a struct with invariants
-                if self.check_contracts {
+                if self.config.check_contracts {
                     self.maybe_check_value_invariants(value, &val);
                 }
             }
             Stmt::Var(name, _ty, value, _) => {
                 // Track array-literal bindings for Expr::Index dispatch
                 if matches!(value, Expr::Array(..)) {
-                    self.array_locals.insert(name.name.clone());
+                    self.local.array_locals.insert(name.name.clone());
                     // 5c-R: record the element LLVM type for typed array indexing (G-11)
                     if let Expr::Array(elems, _) = value {
                         if let Some(first) = elems.first() {
                             let elem_ty = self.infer_llvm_type(first);
                             if elem_ty != "i64" {
-                                self.local_array_elem.insert(name.name.clone(), elem_ty);
+                                self.local.local_array_elem.insert(name.name.clone(), elem_ty);
                             }
                         }
                         // 5c.30: record array size for const-generic inference
-                        self.local_array_sizes.insert(name.name.clone(), elems.len() as i64);
+                        self.local.local_array_sizes.insert(name.name.clone(), elems.len() as i64);
                     }
                 }
                 // 5c.30: record Vec element type for local Vec bindings.
                 if let Some(elem) = Self::vec_ctor_elem_type(value) {
-                    self.local_vec_elem.insert(name.name.clone(), elem);
+                    self.local.local_vec_elem.insert(name.name.clone(), elem);
                 } else if let Some(ty) = _ty {
                     if let Some(elem) = Self::vec_elem_from_type_annotation(ty) {
-                        self.local_vec_elem.insert(name.name.clone(), elem);
+                        self.local.local_vec_elem.insert(name.name.clone(), elem);
                     } else {
-                        self.local_vec_elem.remove(&name.name);
+                        self.local.local_vec_elem.remove(&name.name);
                     }
                 } else {
-                    self.local_vec_elem.remove(&name.name);
+                    self.local.local_vec_elem.remove(&name.name);
                 }
                 self.track_boxed_payload_binding(&name.name, value);
                 let declared_llvm_ty: Option<String> = _ty.as_ref().map(|t| {
@@ -145,7 +145,7 @@ impl IrEmitter {
                 let is_bool = matches!(_ty.as_deref(), Some(Type::Named(id, _)) if id.name == "Bool")
                     || matches!(value, Expr::Bool(..))
                     || self.expr_is_bool(value);
-                if is_bool { self.bool_locals.insert(name.name.clone()); } else { self.bool_locals.remove(&name.name); }
+                if is_bool { self.local.bool_locals.insert(name.name.clone()); } else { self.local.bool_locals.remove(&name.name); }
                 if llvm_ty == "void" || val.is_empty() {
                     let alloca = self.fresh_tmp();
                     self.emitln(&format!("  {alloca} = alloca i64"));
@@ -159,7 +159,7 @@ impl IrEmitter {
                 self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}"));
                 self.add_local(&name.name, alloca, &llvm_ty);
                 // Check invariants if the value is a struct with invariants
-                if self.check_contracts {
+                if self.config.check_contracts {
                     self.maybe_check_value_invariants(value, &val);
                 }
             }
@@ -188,7 +188,7 @@ impl IrEmitter {
                         // value assigned into an i64 slot).
                         let store_val = self.coerce_value(&val, &val_ty, &llvm_ty);
                         self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {ptr}"));
-                    } else if let Some((symbol, llvm_ty)) = self.module_globals.get(&ident.name).cloned() {
+                    } else if let Some((symbol, llvm_ty)) = self.local.module_globals.get(&ident.name).cloned() {
                         // Assignment to a mutable module-level `var`: store into the
                         // real global so the write persists across calls. Checked
                         // BEFORE the unknown-target path so it is never silently
@@ -303,11 +303,11 @@ impl IrEmitter {
                                 let pointee = ptr_ty.trim_end_matches('*').to_string();
                                 if pointee.starts_with("%struct.") {
                                     let type_name = &pointee[8..];
-                        if let Some(field_names) = self.types.get(type_name)
+                        if let Some(field_names) = self.types.types.get(type_name)
                             .or_else(|| {
                                 let suffix = format!(".{type_name}");
-                                self.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
-                                    .and_then(|k| self.types.get(k))
+                                self.types.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                    .and_then(|k| self.types.types.get(k))
                             })
                             .cloned()
                         {
@@ -344,11 +344,11 @@ impl IrEmitter {
                                     obj_ptr.clone()
                                 };
                                 // GEP to field and store (with qualified-name fallback)
-                                if let Some(field_names) = self.types.get(&type_name)
+                                if let Some(field_names) = self.types.types.get(&type_name)
                                     .or_else(|| {
                                         let suffix = format!(".{type_name}");
-                                        self.types.keys().find(|k| k.ends_with(&suffix))
-                                            .and_then(|k| self.types.get(k))
+                                        self.types.types.keys().find(|k| k.ends_with(&suffix))
+                                            .and_then(|k| self.types.types.get(k))
                                     })
                                     .cloned()
                                 {
@@ -371,7 +371,7 @@ impl IrEmitter {
                                         self.emitln(&format!("  store {field_llvm_ty} {store_val}, {field_llvm_ty}* {gep}"));
                                     }
                                 }
-                                let has_invariants = self.type_meta.get(&type_name)
+                                let has_invariants = self.types.type_meta.get(&type_name)
                                     .map(|m| !m.invariants.is_empty())
                                     .unwrap_or(false);
                                 if has_invariants {
@@ -388,21 +388,21 @@ impl IrEmitter {
                 if let Some(e) = expr {
                     // Value sink: use the value's real LLVM type from compile_expr.
                     let (mut val, val_ty) = self.compile_expr(e)?;
-                    let ret_ty = self.current_return_type.clone();
+                    let ret_ty = self.fctx.current_return_type.clone();
                     // Coerce the returned value to the function's declared return
                     // type (int widths, int<->pointer, int<->double, int->struct)
                     // so the `ret` instruction is well-typed.
                     val = self.coerce_value(&val, &val_ty, &ret_ty);
                     // Store result for ensures checks
-                    if let Some(res_ptr) = self.result_ptr.as_ref() {
-                        let ret_ty = self.current_return_type.clone();
+                    if let Some(res_ptr) = self.fctx.result_ptr.as_ref() {
+                        let ret_ty = self.fctx.current_return_type.clone();
                         self.emitln(&format!("  store {ret_ty} {val}, {ret_ty}* {res_ptr}"));
                     }
                     // Check ensures before returning
-                    if !self.current_ensures.is_empty() {
+                    if !self.fctx.current_ensures.is_empty() {
                         self.compile_ensures_checks();
                     }
-                    let ret_ty = self.current_return_type.clone();
+                    let ret_ty = self.fctx.current_return_type.clone();
                     // Decrement recursion depth
                     let depth_dec = self.fresh_tmp();
                     self.emitln(&format!("  {depth_dec} = load i64, i64* @xiom_recursion_counter"));
@@ -411,7 +411,7 @@ impl IrEmitter {
                     self.emitln(&format!("  store i64 {new_depth_dec}, i64* @xiom_recursion_counter"));
                     self.emitln(&format!("  ret {ret_ty} {val}"));
                 } else {
-                    if !self.current_ensures.is_empty() {
+                    if !self.fctx.current_ensures.is_empty() {
                         self.compile_ensures_checks();
                     }
                     // Decrement recursion depth
@@ -555,7 +555,7 @@ impl IrEmitter {
                         })
                         .collect();
                     if !names.is_empty() {
-                        let cands: Vec<String> = self.enum_variants.iter()
+                        let cands: Vec<String> = self.types.enum_variants.iter()
                             .filter(|(_, vars)| names.iter().all(|n| vars.iter().any(|(v, _)| v == n)))
                             .map(|(k, _)| k.clone())
                             .collect();
@@ -880,10 +880,10 @@ impl IrEmitter {
                     // For variant patterns, extract fields before compiling arm body
                     if let Pattern::Variant(variant_ident, fields, _) = &arm.pattern {
                         if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
-                            let field_names_opt = self.types.get(type_name).cloned();
+                            let field_names_opt = self.types.types.get(type_name).cloned();
                             if let Some(field_names) = field_names_opt {
                                 let type_name_clone = type_name.clone();
-                                let variants_opt = self.enum_variants.get(type_name).cloned();
+                                let variants_opt = self.types.enum_variants.get(type_name).cloned();
                                 for (fi, field_ident) in fields.iter().enumerate() {
                                     // First try direct name match
                                     let field_idx_opt = field_names.iter().position(|f| f == &field_ident.name);
@@ -907,9 +907,9 @@ impl IrEmitter {
                                         // 5c.30: resolve the VARIANT's declared payload
                                         // type (type_meta dedups payload fields by name,
                                         // losing per-variant types).
-                                        let payload_xiom_ty: Option<String> = self.enum_variant_field_types.get(&type_name_clone)
+                                        let payload_xiom_ty: Option<String> = self.types.enum_variant_field_types.get(&type_name_clone)
                                             .or_else(|| {
-                                                self.enum_variant_field_types.iter()
+                                                self.types.enum_variant_field_types.iter()
                                                     .find(|(k, _)| k.ends_with(&format!(".{type_name_clone}")))
                                                     .map(|(_, v)| v)
                                             })
@@ -945,10 +945,10 @@ impl IrEmitter {
                                         // it so `items.push(..)` / `items.len()`
                                         // dereference the boxed header and
                                         // mutations alias the original enum.
-                                        self.local_vec_handle.remove(&field_ident.name);
+                                        self.local.local_vec_handle.remove(&field_ident.name);
                                         if let Some(fty) = payload_xiom_ty.as_deref() {
                                             if let Some(inner) = fty.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
-                                                self.local_vec_handle.insert(field_ident.name.clone(), inner.to_string());
+                                                self.local.local_vec_handle.insert(field_ident.name.clone(), inner.to_string());
                                             }
                                         }
                                     }
@@ -960,7 +960,7 @@ impl IrEmitter {
                     // (skip for enum variant names, which are handled by the check block)
                     if let Pattern::Ident(ident) = &arm.pattern {
                         let is_variant = scrutinee_type.as_ref().and_then(|tn| {
-                            self.enum_variants.get(tn)
+                            self.types.enum_variants.get(tn)
                                 .map(|vars| vars.iter().any(|(v, _)| v == &ident.name))
                         }).unwrap_or(false);
                         if !is_variant {
@@ -1002,9 +1002,9 @@ impl IrEmitter {
                                 // Declared payload type from scrutinee tracking
                                 let declared: Option<String> = if let Expr::Ident(sid) = expr_match {
                                     if val_field == 2 {
-                                        self.local_err_payload.get(&sid.name).cloned()
+                                        self.local.local_err_payload.get(&sid.name).cloned()
                                     } else {
-                                        self.local_opt_payload.get(&sid.name).cloned()
+                                        self.local.local_opt_payload.get(&sid.name).cloned()
                                     }
                                 } else { None };
 
@@ -1027,10 +1027,10 @@ impl IrEmitter {
                                 self.add_local(&ident.name, field_alloca, &bind_ty);
                                 // Vec[T] payloads are container HANDLES: register so
                                 // len/push/index dereference the boxed Vec header.
-                                self.local_vec_handle.remove(&ident.name);
+                                self.local.local_vec_handle.remove(&ident.name);
                                 if let Some(decl_ty) = declared.as_deref() {
                                     if let Some(elem) = decl_ty.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
-                                        self.local_vec_handle.insert(ident.name.clone(), elem.to_string());
+                                        self.local.local_vec_handle.insert(ident.name.clone(), elem.to_string());
                                     }
                                 }
                             }
@@ -1040,8 +1040,8 @@ impl IrEmitter {
                         MatchBody::Block(b) => { self.compile_block(b, false)?; }
                         MatchBody::Expr(e) => {
                             let (arm_val, arm_val_ty) = self.compile_expr(e)?;
-                            if let Some(ptr) = self.match_result_ptr.clone() {
-                                let ret_ty = self.match_result_ty.clone().unwrap_or_else(|| self.current_return_type.clone());
+                            if let Some(ptr) = self.fctx.match_result_ptr.clone() {
+                                let ret_ty = self.fctx.match_result_ty.clone().unwrap_or_else(|| self.fctx.current_return_type.clone());
                                 // Coerce the arm value's REAL type to the result slot
                                 // type. An arm producing a bare scalar (e.g. a literal
                                 // wrapped into Option/Result) must be widened into the
@@ -1077,9 +1077,9 @@ impl IrEmitter {
                 };
                 self.emitln(&format!("  br i1 {cond_val}, label %{loop_body}, label %{loop_exit}"));
                 self.emitln(&format!("\n{loop_body}:"));
-                self.loop_stack.push((loop_cond.clone(), loop_exit.clone()));
+                self.local.loop_stack.push((loop_cond.clone(), loop_exit.clone()));
                 self.compile_block(body, false)?;
-                self.loop_stack.pop();
+                self.local.loop_stack.pop();
                 self.emitln(&format!("  br label %{loop_cond}"));
                 self.emitln(&format!("\n{loop_exit}:"));
             }
@@ -1121,14 +1121,14 @@ impl IrEmitter {
                 self.compile_block(body, false)?;
             }
             Stmt::Break(..) => {
-                if let Some((_, break_label)) = self.loop_stack.last().cloned() {
+                if let Some((_, break_label)) = self.local.loop_stack.last().cloned() {
                     self.emitln(&format!("  br label %{break_label}"));
                     let dead = self.fresh_block("after_break");
                     self.emitln(&format!("\n{dead}:"));
                 }
             }
             Stmt::Continue(..) => {
-                if let Some((cont_label, _)) = self.loop_stack.last().cloned() {
+                if let Some((cont_label, _)) = self.local.loop_stack.last().cloned() {
                     self.emitln(&format!("  br label %{cont_label}"));
                     let dead = self.fresh_block("after_continue");
                     self.emitln(&format!("\n{dead}:"));
@@ -1220,7 +1220,7 @@ impl IrEmitter {
             Expr::Ident(ident) => {
                 // `this` keyword in method bodies maps to the receiver `self`.
                 // 5c.30 const-generic: substitute compile-time const value (e.g. N=5)
-                if let Some(val) = self.current_const_map.get(&ident.name) {
+                if let Some(val) = self.mono.current_const_map.get(&ident.name) {
                     return Ok((val.to_string(), "i64".to_string()));
                 }
                 let lookup_name: &str = if ident.name == "this" { "self" } else { &ident.name };
@@ -1231,23 +1231,23 @@ impl IrEmitter {
                     // if `ident` was bound from an Expr::Array, the loaded value
                     // also originates from an array buffer so val_to_struct can
                     // construct a proper Vec from it.
-                    if self.array_locals.contains(&ident.name) {
-                        self.array_value_regs.insert(tmp.clone());
+                    if self.local.array_locals.contains(&ident.name) {
+                        self.local.array_value_regs.insert(tmp.clone());
                     }
                     Ok((tmp, llvm_ty))
-                } else if let Some((symbol, llvm_ty)) = self.module_globals.get(&ident.name).cloned() {
+                } else if let Some((symbol, llvm_ty)) = self.local.module_globals.get(&ident.name).cloned() {
                     // Mutable module-level `var`: load the current value from the
                     // real global. Checked BEFORE enum-variant / constant fallbacks
                     // so a live global is never mistaken for a compile-time literal.
                     let tmp = self.fresh_tmp();
                     self.emitln(&format!("  {tmp} = load {llvm_ty}, {llvm_ty}* @{symbol}"));
                     Ok((tmp, llvm_ty))
-                } else if let Some(enum_key) = self.enum_variants.iter()
+                } else if let Some(enum_key) = self.types.enum_variants.iter()
                     .find(|(_, vars)| vars.iter().any(|(v, _)| v == &ident.name))
                     .map(|(ek, _)| ek)
-                    .filter(|ek| self.types.contains_key(*ek))
+                    .filter(|ek| self.types.types.contains_key(*ek))
                 {
-                    if let Some(vars) = self.enum_variants.get(enum_key) {
+                    if let Some(vars) = self.types.enum_variants.get(enum_key) {
                         if let Some(var_idx) = vars.iter().position(|(v, _)| v == &ident.name) {
                             let struct_ty = self.llvm_type_for(enum_key)?;
                             let alloca = self.fresh_tmp();
@@ -1274,16 +1274,16 @@ impl IrEmitter {
                 } else {
                     // A bare reference to a module/global constant: substitute its
                     // literal value (constants aren't materialized as globals).
-                    if let Some(cval) = self.constants.get(&ident.name).cloned() {
+                    if let Some(cval) = self.local.constants.get(&ident.name).cloned() {
                         return self.compile_expr(&cval);
                     }
                     // Function name used as value (e.g. v.push(add_one)):
                     // resolve to a function pointer via ptrtoint of the IR symbol.
                     // The functions map has both bare names and module-qualified names.
                     let fn_full: Option<(String, String, Vec<String>)> = {
-                        let exact = self.functions.get(&ident.name).map(|(p, r)| (ident.name.clone(), r.clone(), p.clone()));
+                        let exact = self.types.functions.get(&ident.name).map(|(p, r)| (ident.name.clone(), r.clone(), p.clone()));
                         exact.or_else(|| {
-                            self.functions.iter().find(|(k, _)| k.ends_with(&format!(".{}", ident.name)))
+                            self.types.functions.iter().find(|(k, _)| k.ends_with(&format!(".{}", ident.name)))
                                 .map(|(k, (p, r))| (k.clone(), r.clone(), p.clone()))
                         })
                     };
@@ -1298,11 +1298,11 @@ impl IrEmitter {
                     // no `this` usage → no %param_self). Emitting the generic `0`
                     // fallback here produced silent wrong values. Fail loudly with
                     // the fix.
-                    if let Some(recv) = self.current_receiver.clone() {
-                        let fields = self.type_meta.get(&recv)
+                    if let Some(recv) = self.fctx.current_receiver.clone() {
+                        let fields = self.types.type_meta.get(&recv)
                             .or_else(|| {
                                 let suffix = format!(".{recv}");
-                                self.type_meta.iter()
+                                self.types.type_meta.iter()
                                     .find(|(k, _)| k.ends_with(&suffix))
                                     .map(|(_, v)| v)
                             });
@@ -1343,8 +1343,8 @@ impl IrEmitter {
                     // Fix: If inference falls back to i64 (because element types
                     // don't match registered struct), try the function return type.
                     if !struct_ty.starts_with("%struct.") {
-                        if self.current_return_type.starts_with("%struct.") {
-                            struct_ty = self.current_return_type.clone();
+                        if self.fctx.current_return_type.starts_with("%struct.") {
+                            struct_ty = self.fctx.current_return_type.clone();
                         } else {
                             return Ok(("0".to_string(), "i64".to_string()));
                         }
@@ -1509,7 +1509,7 @@ impl IrEmitter {
                         let struct_name = if lt_is_struct { &lt[8..] } else { &rt[8..] };
                         let eq_fn = format!("{}.eq", struct_name);
                         let eq_result = self.fresh_tmp();
-                        if self.functions.contains_key(&eq_fn) {
+                        if self.types.functions.contains_key(&eq_fn) {
                             self.emitln(&format!("  {eq_result} = call i64 @{eq_fn}({lt} {l}, {rt} {r})"));
                         } else {
                             // No derived `.eq` (e.g. builtin Ordering/Option enums):
@@ -1759,11 +1759,11 @@ impl IrEmitter {
                 // Determine if this is Option (2 fields) or Result (3 fields)
                 let is_option = match &**inner {
                     Expr::Some(..) | Expr::None(..) => {
-                        self.used_builtins.insert("Option".to_string());
+                        self.types.used_builtins.insert("Option".to_string());
                         true
                     }
                     Expr::Ok(..) | Expr::Err(..) => {
-                        self.used_builtins.insert("Result".to_string());
+                        self.types.used_builtins.insert("Result".to_string());
                         false
                     }
                     Expr::Ident(id) => {
@@ -1772,13 +1772,13 @@ impl IrEmitter {
                         if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
                             if llvm_ty.starts_with("%struct.") {
                                 let type_name = &llvm_ty[8..];
-                                if let Some(field_names) = self.types.get(type_name) {
+                                if let Some(field_names) = self.types.types.get(type_name) {
                                     opt_like = field_names.len() <= 2;
                                 }
                             }
                         }
-                        if opt_like { self.used_builtins.insert("Option".to_string()); }
-                        else { self.used_builtins.insert("Result".to_string()); }
+                        if opt_like { self.types.used_builtins.insert("Option".to_string()); }
+                        else { self.types.used_builtins.insert("Result".to_string()); }
                         opt_like
                     }
                     Expr::Call(func, _, _) => {
@@ -1790,10 +1790,10 @@ impl IrEmitter {
                         };
                         if let Some(name) = fn_name {
                             // If function is defined and its return type is a struct with ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â°ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¤2 fields
-                            if let Some(field_names) = self.types.get(&name) {
+                            if let Some(field_names) = self.types.types.get(&name) {
                                 let opt_like = field_names.len() <= 2;
-                                if opt_like { self.used_builtins.insert("Option".to_string()); }
-                                else { self.used_builtins.insert("Result".to_string()); }
+                                if opt_like { self.types.used_builtins.insert("Option".to_string()); }
+                                else { self.types.used_builtins.insert("Result".to_string()); }
                                 opt_like
                             } else {
                                 false
@@ -1804,7 +1804,7 @@ impl IrEmitter {
                     }
                     _ => {
                         // Default to Result (backward compat)
-                        self.used_builtins.insert("Result".to_string());
+                        self.types.used_builtins.insert("Result".to_string());
                         false
                     }
                 };
@@ -1823,7 +1823,7 @@ impl IrEmitter {
                     self.emitln(&format!("  {tag_bool} = icmp ne i64 {tag}, 0"));
                     self.emitln(&format!("  br i1 {tag_bool}, label %{some_block}, label %{none_block}"));
                     self.emitln(&format!("\n{none_block}:"));
-                    let ret_ty = self.current_return_type.clone();
+                    let ret_ty = self.fctx.current_return_type.clone();
                     let default_val = if ret_ty.starts_with('%') { "zeroinitializer".to_string() } else { "0".to_string() };
                     self.emitln(&format!("  ret {ret_ty} {default_val}"));
                     self.emitln(&format!("\n{some_block}:"));
@@ -1847,7 +1847,7 @@ impl IrEmitter {
                     self.emitln(&format!("  {tag_bool} = icmp ne i64 {tag}, 0"));
                     self.emitln(&format!("  br i1 {tag_bool}, label %{ok_block}, label %{err_block}"));
                     self.emitln(&format!("\n{err_block}:"));
-                    let ret_ty = self.current_return_type.clone();
+                    let ret_ty = self.fctx.current_return_type.clone();
                     // Propagate the error. When the enclosing function returns a
                     // Result/struct, return the ORIGINAL result value unchanged
                     // (the error variant flows through). Only when the function
@@ -1891,7 +1891,7 @@ impl IrEmitter {
                         _ => { return Ok(("1".to_string(), "i64".to_string())); }
                     };
                     let type_name = &ty[8..];
-                    if let Some(variants) = self.enum_variants.get(type_name) {
+                    if let Some(variants) = self.types.enum_variants.get(type_name) {
                         if let Some((disc, _)) = variants.iter().enumerate()
                             .find(|(_, (v, _))| v == variant_name)
                         {
@@ -1941,7 +1941,7 @@ impl IrEmitter {
                 // constant, substitute its literal value. Constants are keyed by their
                 // bare name, so `simd.SIMD_SSE` resolves via `SIMD_SSE`.
                 if !self.receiver_is_instance(obj) {
-                    if let Some(cval) = self.constants.get(&field.name).cloned() {
+                    if let Some(cval) = self.local.constants.get(&field.name).cloned() {
                         return self.compile_expr(&cval);
                     }
                 }
@@ -1963,11 +1963,11 @@ impl IrEmitter {
                             let pointee = ptr_ty.trim_end_matches('*').to_string();
                             if pointee.starts_with("%struct.") {
                                 let type_name = &pointee[8..];
-                                if let Some(field_names) = self.types.get(type_name)
+                                if let Some(field_names) = self.types.types.get(type_name)
                                     .or_else(|| {
                                         let suffix = format!(".{type_name}");
-                                        self.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
-                                            .and_then(|k| self.types.get(k))
+                                        self.types.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                            .and_then(|k| self.types.types.get(k))
                                     })
                                     .cloned() {
                                     if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
@@ -1990,12 +1990,12 @@ impl IrEmitter {
                         // `opt.unwrap()` of a Vec-of-struct pop/get): typed
                         // inttoptr + GEP field access on the heap box.
                         if llvm_ty == "i64" {
-                            if let Some(tn) = self.local_boxed_struct.get(&obj_ident.name).cloned() {
-                                if let Some(field_names) = self.types.get(&tn)
+                            if let Some(tn) = self.local.local_boxed_struct.get(&obj_ident.name).cloned() {
+                                if let Some(field_names) = self.types.types.get(&tn)
                                     .or_else(|| {
                                         let suffix = format!(".{tn}");
-                                        self.types.keys().find(|k| k.ends_with(&suffix))
-                                            .and_then(|k| self.types.get(k))
+                                        self.types.types.keys().find(|k| k.ends_with(&suffix))
+                                            .and_then(|k| self.types.types.get(k))
                                     })
                                     .cloned()
                                 {
@@ -2022,11 +2022,11 @@ impl IrEmitter {
                         if llvm_ty.ends_with('*') && llvm_ty.starts_with("%struct.") {
                             let pointee = llvm_ty.trim_end_matches('*').to_string();
                             let type_name = &pointee[8..];
-                            if let Some(field_names) = self.types.get(type_name)
+                            if let Some(field_names) = self.types.types.get(type_name)
                                 .or_else(|| {
                                     let suffix = format!(".{type_name}");
-                                    self.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
-                                        .and_then(|k| self.types.get(k))
+                                    self.types.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                        .and_then(|k| self.types.types.get(k))
                                 })
                                 .cloned() {
                                 if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
@@ -2080,11 +2080,11 @@ impl IrEmitter {
                         if llvm_ty.starts_with("%struct.") && !llvm_ty.ends_with('*') {
                             // Find field index
                             let type_name = &llvm_ty[8..];
-                            if let Some(field_names) = self.types.get(type_name)
+                            if let Some(field_names) = self.types.types.get(type_name)
                                 .or_else(|| {
                                     let suffix = format!(".{type_name}");
-                                    self.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
-                                        .and_then(|k| self.types.get(k))
+                                    self.types.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                        .and_then(|k| self.types.types.get(k))
                                 })
                             {
                                 if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
@@ -2109,7 +2109,7 @@ impl IrEmitter {
                 // resolves to the enum type. Emit the discriminant struct (mirrors
                 // the bare-Ident enum-variant construction above).
                 if let Some(enum_key) = self.resolve_enum_for_variant(obj, &field.name) {
-                    if let Some(vars) = self.enum_variants.get(&enum_key) {
+                    if let Some(vars) = self.types.enum_variants.get(&enum_key) {
                         if let Some(var_idx) = vars.iter().position(|(v, _)| v == &field.name) {
                             if let Ok(struct_ty) = self.llvm_type_for(&enum_key) {
                                 let alloca = self.fresh_tmp();
@@ -2159,11 +2159,11 @@ impl IrEmitter {
                             self.emitln(&format!("  {result} = zext i1 {cmp} to i64"));
                             return Ok((result, "i64".to_string()));
                         }
-                        if let Some(field_names) = self.types.get(type_name)
+                        if let Some(field_names) = self.types.types.get(type_name)
                             .or_else(|| {
                                 let suffix = format!(".{type_name}");
-                                self.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
-                                    .and_then(|k| self.types.get(k))
+                                self.types.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                    .and_then(|k| self.types.types.get(k))
                             })
                             .cloned()
                         {
@@ -2196,8 +2196,8 @@ impl IrEmitter {
                     match idx {
                         Expr::Ident(id) => {
                             Self::is_primitive_type_name(&id.name)
-                                || self.types.contains_key(&id.name)
-                                || self.type_meta.contains_key(&id.name)
+                                || self.types.types.contains_key(&id.name)
+                                || self.types.type_meta.contains_key(&id.name)
                                 || (id.name.len() == 1 && id.name.chars().next().map_or(false, |c| c.is_ascii_uppercase()))
                         }
                         Expr::Field(_, _, _) => true,
@@ -2208,8 +2208,8 @@ impl IrEmitter {
                         Expr::Index(base, inner, _) => {
                             matches!(base.as_ref(), Expr::Ident(b) if
                                 Self::is_primitive_type_name(&b.name)
-                                || self.types.contains_key(&b.name)
-                                || self.type_meta.contains_key(&b.name))
+                                || self.types.types.contains_key(&b.name)
+                                || self.types.type_meta.contains_key(&b.name))
                             && matches!(inner.as_ref(), Expr::Ident(i) if
                                 i.name.len() == 1 && i.name.chars().next().map_or(false, |c| c.is_ascii_uppercase()))
                         }
@@ -2278,8 +2278,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                     let recv_ty = self.infer_struct_type_name(recv);
                     if let Some(recv_name) = recv_ty {
                         let variant_key = format!("{}.{}", recv_name, &fn_name);
-                        if self.enum_variants.contains_key(&variant_key)
-                            || self.enum_variants.get(&recv_name)
+                        if self.types.enum_variants.contains_key(&variant_key)
+                            || self.types.enum_variants.get(&recv_name)
                                 .map_or(false, |vars| vars.iter().any(|(v, _)| v == &fn_name))
                         {
                             return self.compile_enum_constructor(&recv_name, &fn_name, args);
@@ -2294,10 +2294,10 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                 if is_contract_method {
                     // Skip contract builtin if a user function with this name exists
                     // in the current module or has already been emitted.
-                    let has_user_fn = self.emitted_fns.contains(fn_name.as_str())
-                        || self.functions.contains_key(fn_name.as_str())
-                        || self.emitted_fns.iter().any(|k| k.ends_with(&format!(".{}", fn_name)))
-                        || self.functions.keys().any(|k| k.ends_with(&format!(".{}", fn_name)));
+                    let has_user_fn = self.mono.emitted_fns.contains(fn_name.as_str())
+                        || self.types.functions.contains_key(fn_name.as_str())
+                        || self.mono.emitted_fns.iter().any(|k| k.ends_with(&format!(".{}", fn_name)))
+                        || self.types.functions.keys().any(|k| k.ends_with(&format!(".{}", fn_name)));
                     if !has_user_fn {
                     let tmp = self.fresh_tmp();
                     if let Some(receiver) = &receiver_expr {
@@ -2386,8 +2386,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                         // Skip static/type-name receivers (e.g. Int.compare(a, b)).
                         let receiver_is_type_name = matches!(&**receiver, Expr::Ident(id)
                             if Self::is_primitive_type_name(&id.name)
-                                || self.types.contains_key(&id.name)
-                                || self.type_meta.contains_key(&id.name));
+                                || self.types.types.contains_key(&id.name)
+                                || self.types.type_meta.contains_key(&id.name));
                         // Builtin interface methods only apply to value instances (e.g.
                         // `x.hash()` or `42.hash()`) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â module-qualified calls like
                         // `hash.hash(42)` must fall through to generic dispatch.
@@ -2526,8 +2526,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                         .and_then(|r| self.infer_struct_type_name(r))
                         .map_or(false, |tn| {
                             let key = format!("{tn}.{fn_name}");
-                            self.functions.contains_key(&key)
-                                || self.functions.keys().any(|k| k.ends_with(&format!(".{key}")))
+                            self.types.functions.contains_key(&key)
+                                || self.types.functions.keys().any(|k| k.ends_with(&format!(".{key}")))
                         });
                 if matches!(fn_name.as_str(), "to_string" | "to_str") && !user_defined_to_str {
                     // Determine the single integer operand (receiver for method form,
@@ -2649,7 +2649,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                             // Layout may be defined as bare "Layout" (from source)
                             // or qualified "xiom.alloc.Layout" (from builtin fallback).
                             // Use the type that actually has a struct definition emitted.
-                            let layout_ty = if self.type_meta.contains_key("Layout") {
+                            let layout_ty = if self.types.type_meta.contains_key("Layout") {
                                 self.llvm_type_for("Layout").unwrap_or_else(|_| "%struct.xiom.alloc.Layout".to_string())
                             } else {
                                 self.llvm_type_for("xiom.alloc.Layout").unwrap_or_else(|_| "%struct.xiom.alloc.Layout".to_string())
@@ -2827,8 +2827,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                         // heap-allocate) and use memcpy to store the struct inline.
                         let is_struct_elem = val_ty.starts_with('%') && {
                             let tn = val_ty.trim_start_matches("%struct.").trim_end_matches('*');
-                            self.types.contains_key(tn)
-                                || self.types.keys().any(|k| k.ends_with(&format!(".{tn}")))
+                            self.types.types.contains_key(tn)
+                                || self.types.types.keys().any(|k| k.ends_with(&format!(".{tn}")))
                         };
                         let val = if !is_struct_elem {
                             self.val_to_i64(&val_raw, &val_ty)
@@ -2940,7 +2940,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                             || self.is_container_vec_field(receiver);
                         if is_vec {
                             let is_insert = fn_name == "insert";
-                            if !is_insert { self.used_builtins.insert("Option".to_string()); }
+                            if !is_insert { self.types.used_builtins.insert("Option".to_string()); }
                             let (hdr, needs_store_back) = self.resolve_vec_receiver_ptr(receiver)?;
                             let (idx_raw, idx_ty) = self.compile_expr(&args[0])?;
                             let idx = self.val_to_i64(&idx_raw, &idx_ty);
@@ -2981,8 +2981,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                                 let (val_raw, val_ty) = self.compile_expr(&args[1])?;
                                 let is_struct_elem = val_ty.starts_with('%') && {
                                     let tn = val_ty.trim_start_matches("%struct.").trim_end_matches('*');
-                                    self.types.contains_key(tn)
-                                        || self.types.keys().any(|k| k.ends_with(&format!(".{tn}")))
+                                    self.types.types.contains_key(tn)
+                                        || self.types.types.keys().any(|k| k.ends_with(&format!(".{tn}")))
                                 };
                                 let val_i64 = if is_struct_elem { val_raw.clone() } else { self.val_to_i64(&val_raw, &val_ty) };
                                 // Grow when len == cap.
@@ -3112,7 +3112,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                         let is_vec = recv_ty == "%struct.Vec" || recv_ty.ends_with(".Vec") || recv_ty.contains("struct.Vec")
                             || self.is_container_vec_field(receiver);
                         if is_vec {
-                            self.used_builtins.insert("Option".to_string());
+                            self.types.used_builtins.insert("Option".to_string());
                             let (recv_val, recv_actual_ty) = self.compile_expr(receiver)?;
                             let (recv_vec, _) = self.resolve_vec_receiver(receiver, &recv_val, &recv_actual_ty);
                             let vec_alloca = self.fresh_tmp();
@@ -3185,7 +3185,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                         let is_vec = recv_ty == "%struct.Vec" || recv_ty.ends_with(".Vec") || recv_ty.contains("struct.Vec")
                             || self.is_container_vec_field(receiver);
                         if is_vec {
-                            self.used_builtins.insert("Option".to_string());
+                            self.types.used_builtins.insert("Option".to_string());
                             let (recv_val, recv_actual_ty) = self.compile_expr(receiver)?;
                             let (recv_vec, _) = self.resolve_vec_receiver(receiver, &recv_val, &recv_actual_ty);
                             let (idx_raw, idx_ty) = self.compile_expr(&args[0])?;
@@ -3578,7 +3578,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                     // check if we're inside a monomorphised Rc/RcInner context
                     // and compute the size of the base struct directly.
                     if ta.is_none() {
-                        if let Some(ref current_fn) = self.current_fn {
+                        if let Some(ref current_fn) = self.fctx.current_fn {
                             if current_fn.contains("RcInner") || current_fn.contains("Rc.new_") || current_fn.contains("Rc.drop_") || current_fn.contains("Weak.drop_") {
                                 let sz = if fn_name == "sizeof" {
                                     self.sizeof_struct("RcInner") as i64
@@ -3643,17 +3643,17 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                 // the proper discriminant + payload struct.
                 if let Some(receiver) = receiver_expr {
                     if let Expr::Ident(type_id) = &**receiver {
-                        let enum_key = self.enum_variants.keys()
+                        let enum_key = self.types.enum_variants.keys()
                             .find(|k| **k == type_id.name || k.ends_with(&format!(".{}", type_id.name)))
                             .cloned();
                         if let Some(ek) = enum_key {
-                            if let Some(variants) = self.enum_variants.get(&ek) {
+                            if let Some(variants) = self.types.enum_variants.get(&ek) {
                                 let var_info: Option<(usize, Vec<String>)> = variants.iter().enumerate()
                                     .find(|(_, (v, _))| v == &fn_name)
                                     .map(|(idx, (_, fields))| (idx, fields.clone()));
                                 if let Some((var_idx, payload_fields)) = var_info {
                                     // Gather parent field layout BEFORE mutating self.
-                                    let parent_field_names = self.types.get(&ek).cloned().unwrap_or_default();
+                                    let parent_field_names = self.types.types.get(&ek).cloned().unwrap_or_default();
                                     if let Ok(struct_ty) = self.llvm_type_for(&ek) {
                                         let alloca = self.fresh_tmp();
                                         self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
@@ -3702,8 +3702,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                             || recv_ty.ends_with(".Result")
                             || recv_ty.contains("Result__"); // concrete Result__X__Y etc.
                         if is_option || is_result {
-                            if is_option { self.used_builtins.insert("Option".to_string()); }
-                            else { self.used_builtins.insert("Result".to_string()); }
+                            if is_option { self.types.used_builtins.insert("Option".to_string()); }
+                            else { self.types.used_builtins.insert("Result".to_string()); }
                             let (recv_val, recv_ty) = self.compile_expr(receiver)?;
                             let struct_ty = recv_ty.clone(); // Use the actual concrete type
                             let alloca = self.fresh_tmp();
@@ -3748,9 +3748,9 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                             if field_ty == "i64" {
                                 let declared: Option<String> = if let Expr::Ident(rid) = receiver.as_ref() {
                                     if fn_name == "unwrap_err" {
-                                        self.local_err_payload.get(&rid.name).cloned()
+                                        self.local.local_err_payload.get(&rid.name).cloned()
                                     } else {
-                                        self.local_opt_payload.get(&rid.name).cloned()
+                                        self.local.local_opt_payload.get(&rid.name).cloned()
                                     }
                                 } else { None };
                                 if let Some(decl_ty) = declared {
@@ -3772,17 +3772,17 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                             // concrete instantiation (e.g. `Option.unwrap[Point] ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ Point`).
                             let struct_type_hint: Option<String> = {
                                 let fn_key = if is_option { "Option.unwrap" } else { "Result.unwrap" };
-                                self.generic_fn_decls.iter().find(|(k, _)| k == fn_key || k.ends_with(&format!(".{}", fn_name)))
+                                self.mono.generic_fn_decls.iter().find(|(k, _)| k == fn_key || k.ends_with(&format!(".{}", fn_name)))
                                     .and_then(|(_, fd)| fd.return_type.as_ref().map(|t| Self::type_from_ast(t)))
                             };
                             if let Some(ref hint) = struct_type_hint {
                                 // hint is the XIOM type name (e.g. "Point" for T=Point).
                                 // Convert to LLVM struct type.
-                                let struct_llvm = if self.types.contains_key(hint) || self.type_meta.contains_key(hint) {
+                                let struct_llvm = if self.types.types.contains_key(hint) || self.types.type_meta.contains_key(hint) {
                                     format!("%struct.{hint}")
                                 } else {
                                     // Check if it resolves via type_meta
-                                    let full_key = self.type_meta.keys().find(|k| k.ends_with(&format!(".{hint}"))).cloned();
+                                    let full_key = self.types.type_meta.keys().find(|k| k.ends_with(&format!(".{hint}"))).cloned();
                                     match full_key {
                                         Some(k) => format!("%struct.{k}"),
                                         None => return Ok((self.val_to_i64(&val, &field_ty), "i64".to_string())),
@@ -3813,7 +3813,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                             _ => String::new(),
                         };
                         if !obj_var_name.is_empty() {
-                            if let Some(concrete) = self.param_concrete_types.get(&obj_var_name) {
+                            if let Some(concrete) = self.mono.param_concrete_types.get(&obj_var_name) {
                                 format!("{}.{}", concrete, fn_name)
                             } else if let Some((_, llvm_ty)) = self.lookup_local(&obj_var_name) {
                                 let ty_name = Self::xiom_type_name_from_llvm(llvm_ty);
@@ -3836,16 +3836,16 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                 // interface (e.g. `Error.description`), search all registered
                 // concrete functions for one that matches `*.method_name` (static
                 // dispatch ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the first matching implementation wins).
-                let fn_key = if !self.functions.contains_key(&fn_key)
-                    && !self.generic_fn_decls.iter().any(|(k, _)| k == &fn_key)
+                let fn_key = if !self.types.functions.contains_key(&fn_key)
+                    && !self.mono.generic_fn_decls.iter().any(|(k, _)| k == &fn_key)
                 {
                     // Extract interface name and method from fn_key ("Error.description").
                     if let Some(dot_pos) = fn_key.find('.') {
                         let iface_name = &fn_key[..dot_pos];
                         let method_name = &fn_key[dot_pos + 1..];
-                        if self.interfaces.contains_key(iface_name) {
+                        if self.types.interfaces.contains_key(iface_name) {
                             let suffix = format!(".{}", method_name);
-                            self.functions.keys()
+                            self.types.functions.keys()
                                 .find(|k| k.ends_with(&suffix) && !k.starts_with(iface_name))
                                 .cloned()
                                 .unwrap_or(fn_key)
@@ -3858,16 +3858,16 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                 } else {
                     fn_key
                 };
-                let is_generic = self.generic_fn_decls.iter().any(|(k, _)| k == &fn_key)
-                    || (!self.functions.contains_key(&fn_key)
-                        && self.generic_fn_decls.iter().any(|(k, _)| k.ends_with(&format!(".{}", fn_key))));
+                let is_generic = self.mono.generic_fn_decls.iter().any(|(k, _)| k == &fn_key)
+                    || (!self.types.functions.contains_key(&fn_key)
+                        && self.mono.generic_fn_decls.iter().any(|(k, _)| k.ends_with(&format!(".{}", fn_key))));
                 if is_generic {
                     // Infer concrete types from argument types
                     let mut concrete_types: Vec<String> = Vec::new();
                     let mut const_values: HashMap<String, i64> = HashMap::new();
                     // Find the generic function declaration
-                    if let Some((_, fd)) = self.generic_fn_decls.iter().find(|(k, _)| k == &fn_key)
-                        .or_else(|| self.generic_fn_decls.iter().find(|(k_2, _)| k_2.ends_with(&format!(".{}", fn_key)))) {
+                    if let Some((_, fd)) = self.mono.generic_fn_decls.iter().find(|(k, _)| k == &fn_key)
+                        .or_else(|| self.mono.generic_fn_decls.iter().find(|(k_2, _)| k_2.ends_with(&format!(".{}", fn_key)))) {
                         let fd = fd.clone();
                         for gp in &fd.generics {
                             // Const-generic params: extract the integer value from the
@@ -3901,7 +3901,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                                             other => other,
                                         };
                                         if let Expr::Ident(id) = inner_expr {
-                                            if let Some(size) = self.local_array_sizes.get(&id.name) {
+                                            if let Some(size) = self.local.local_array_sizes.get(&id.name) {
                                                 const_values.insert(gp.name.name.clone(), *size);
                                                 break;
                                             }
@@ -3923,7 +3923,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                                         Expr::Str(..) => "Str".to_string(),
                                         Expr::Char(..) => "Char".to_string(),
                                         Expr::Ident(id) => {
-                                            if let Some(concrete) = self.param_concrete_types.get(&id.name) {
+                                            if let Some(concrete) = self.mono.param_concrete_types.get(&id.name) {
                                                 concrete.clone()
                                             } else if let Some((_, _llvm_ty)) = self.lookup_local(&id.name) {
                                                 self.resolve_local_xiom_type(&id.name).unwrap_or_else(|| "Int".to_string())
@@ -3978,7 +3978,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                                         Expr::Str(..) => "Str".to_string(),
                                         Expr::Char(..) => "Char".to_string(),
                                         Expr::Ident(id) => {
-                                            if let Some(concrete) = self.param_concrete_types.get(&id.name) {
+                                            if let Some(concrete) = self.mono.param_concrete_types.get(&id.name) {
                                                 concrete.clone()
                                             } else if let Some((_, _llvm_ty)) = self.lookup_local(&id.name) {
                                                 self.resolve_local_xiom_type(&id.name).unwrap_or_else(|| "Int".to_string())
@@ -4011,7 +4011,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                         if concrete_types.is_empty() && fd.generics.is_empty() {
                             for (param, arg_expr) in fd.params.iter().zip(args.iter()) {
                                 let param_name = Self::type_from_ast(&param.ty);
-                                if self.interfaces.contains_key(&param_name) {
+                                if self.types.interfaces.contains_key(&param_name) {
                                     let concrete_ty = match arg_expr {
                                         Expr::Ident(id) => {
                                             if let Some((_, _llvm_ty)) = self.lookup_local(&id.name) {
@@ -4030,18 +4030,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                     if !concrete_types.is_empty() {
                         let specialized_name = self.monomorphised_fn_name(&fn_key, &concrete_types);
                         // Record this instantiation if not already tracked
-                        let already_tracked = self.generic_instantiations.iter()
+                        let already_tracked = self.mono.generic_instantiations.iter()
                             .any(|(f, cts)| f == &fn_key && cts == &concrete_types);
                         if !already_tracked {
-                            self.generic_instantiations.push((fn_key.clone(), concrete_types.clone()));
+                            self.mono.generic_instantiations.push((fn_key.clone(), concrete_types.clone()));
                             if !const_values.is_empty() {
-                                self.const_value_map.insert(specialized_name.clone(), const_values.clone());
+                                self.mono.const_value_map.insert(specialized_name.clone(), const_values.clone());
                             }
                             // Also insert even without const values to avoid repeated lookups
-                            self.const_value_map.entry(specialized_name.clone()).or_insert_with(|| const_values.clone());
+                            self.mono.const_value_map.entry(specialized_name.clone()).or_insert_with(|| const_values.clone());
                         }
                         // Call the specialized version
-                        let (ret_ty, param_types) = if let Some((pts, rt)) = self.functions.get(&specialized_name) {
+                        let (ret_ty, param_types) = if let Some((pts, rt)) = self.types.functions.get(&specialized_name) {
                             (rt.clone(), pts.clone())
                         } else {
                             // Not yet registered - use the generic signature with
@@ -4051,14 +4051,14 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                                 .map(|a| self.infer_llvm_type(a))
                                 .collect();
                             // Check if the generic decl has a self param (receiver)
-                            let has_self = self.generic_fn_decls.iter()
+                            let has_self = self.mono.generic_fn_decls.iter()
                                 .find(|(k, _)| k == &fn_key)
                                 .map(|(_, fd)| fd.receiver.is_some()
                                     && fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self))
                                 .unwrap_or(false);
                             if has_self {
                                 // Prepend the receiver's pointer type
-                                if let Some(recv_name) = self.generic_fn_decls.iter()
+                                if let Some(recv_name) = self.mono.generic_fn_decls.iter()
                                     .find(|(k, _)| k == &fn_key)
                                     .and_then(|(_, fd)| fd.receiver.as_ref())
                                 {
@@ -4068,7 +4068,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                                     inferred_types.insert(0, recv_ptr);
                                 }
                             }
-                            let generic_ret = self.functions.get(&fn_key)
+                            let generic_ret = self.types.functions.get(&fn_key)
                                 .map(|(_, rt)| rt.clone())
                                 .unwrap_or_else(|| "i64".to_string());
                             (generic_ret, inferred_types)
@@ -4089,7 +4089,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                             // declaration has a self param. For non-generic methods
                             // (not in generic_fn_decls), default to true ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the
                             // has_receiver_in_params check above handles the rest.
-                            let generic_has_self = self.generic_fn_decls.iter()
+                            let generic_has_self = self.mono.generic_fn_decls.iter()
                                 .find(|(k, _)| k == &fn_key)
                                 .map(|(_, fd)| fd.params.iter().any(|p| p.name.name == "self"))
                                 .unwrap_or(true);
@@ -4169,14 +4169,14 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                         let recv_type = self.infer_struct_type_name(receiver);
                         if let Some(rt) = recv_type {
                             format!("{}.{}", rt, fn_name)
-                        } else if !self.current_type_map.is_empty() {
+                        } else if !self.mono.current_type_map.is_empty() {
                             // Check if receiver is a generic param being monomorphised
                             let obj_var_name = match &**receiver {
                                 Expr::Ident(id) => id.name.clone(),
                                 _ => String::new(),
                             };
                             if !obj_var_name.is_empty() {
-                                if let Some(concrete_type) = self.param_concrete_types.get(&obj_var_name) {
+                                if let Some(concrete_type) = self.mono.param_concrete_types.get(&obj_var_name) {
                                     format!("{}.{}", concrete_type, fn_name)
                                 } else {
                                     fn_key.clone()
@@ -4199,7 +4199,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                     // Method calls (receiver_expr is Some) may resolve through this path
                     // when the receiver type is i64 (not a named struct), so the bare-call
                     // skip must NOT apply.
-                    if !self.functions.contains_key(&resolved_fn_key) {
+                    if !self.types.functions.contains_key(&resolved_fn_key) {
                         // 5e.3: when resolved_fn_key is Type.method (e.g. "Layout.new"),
                         // try ".Type.method" suffix FIRST so alloc.Layout.new(..)
                         // resolves to xiom.alloc.Layout.new even when Rc.new confuses
@@ -4210,7 +4210,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                         // Pass 1: specific suffix match (e.g. ".Layout.new")
                         if resolved_fn_key.contains('.') {
                             let specific = format!(".{}", resolved_fn_key);
-                            for key in self.functions.keys() {
+                            for key in self.types.functions.keys() {
                                 if key.ends_with(&specific) {
                                     if found.is_empty() { found = key.clone(); }
                                     else if found != *key { found.clear(); break; }
@@ -4219,7 +4219,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                         }
                         // Pass 2: generic suffix match (e.g. ".new")
                         if found.is_empty() {
-                            for key in self.functions.keys() {
+                            for key in self.types.functions.keys() {
                                 if key.ends_with(&suffix) {
                                     if is_bare_call && key.contains('.') { continue; }
                                     if found.is_empty() { found = key.clone(); }
@@ -4239,7 +4239,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                         let is_instance = self.receiver_is_instance(receiver);
                         // Registered callee param types (used to coerce args to the
                         // exact types the callee declares).
-                        let callee_pts = self.functions.get(&resolved_fn_key).map(|(p, _)| p.clone());
+                        let callee_pts = self.types.functions.get(&resolved_fn_key).map(|(p, _)| p.clone());
                         if is_instance {
                             // Value sink: use the receiver's real compiled LLVM type
                             // (from compile_expr) rather than a re-inference.
@@ -4343,11 +4343,11 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                                 resolved_fn_key = isk;
                             }
                         }
-                        let use_registered = self.functions.get(&resolved_fn_key)
+                        let use_registered = self.types.functions.get(&resolved_fn_key)
                             .map(|(pts, _)| pts.len() == compiled_args.len())
                             .unwrap_or(false);
                         if use_registered {
-                            let pts = self.functions[&resolved_fn_key].0.clone();
+                            let pts = self.types.functions[&resolved_fn_key].0.clone();
                             let mut parts: Vec<String> = Vec::new();
                             for (i, (arg_val, arg_ty)) in compiled_args.iter().enumerate() {
                                 let pty = pts[i].clone();
@@ -4366,21 +4366,21 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                         }
                     };
                     let tmp = self.fresh_tmp();
-                    let ret_ty = if let Some((_, rt)) = self.functions.get(&resolved_fn_key) {
+                    let ret_ty = if let Some((_, rt)) = self.types.functions.get(&resolved_fn_key) {
                         rt.clone()
                     } else {
                         // Fallback: try current-module qualified name
                         let mut found = String::new();
-                        if let Some(ref module) = self.current_module {
+                        if let Some(ref module) = self.local.current_module {
                             let qualified = format!("{module}.{resolved_fn_key}");
-                            if let Some((_, rt)) = self.functions.get(&qualified) {
+                            if let Some((_, rt)) = self.types.functions.get(&qualified) {
                                 found = rt.clone();
                             }
                         }
                         // Fallback: search for any key ending with .resolved_fn_key
                         if found.is_empty() {
                             let suffix = format!(".{resolved_fn_key}");
-                            for (k, (_, rt)) in &self.functions {
+                            for (k, (_, rt)) in &self.types.functions {
                                 if k.ends_with(&suffix) && rt.starts_with("%struct.") {
                                     found = rt.clone();
                                     break;
@@ -4395,7 +4395,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                     };
                     let callee_is_fn_ptr = receiver_expr.is_none()
                         && self.lookup_local(&fn_name).is_some()
-                        && self.functions.get(&resolved_fn_key).is_none()
+                        && self.types.functions.get(&resolved_fn_key).is_none()
                         && ret_ty == "i64";
                     if callee_is_fn_ptr {
                         let (alloca_reg, local_llvm_ty) = self.lookup_local(&fn_name).cloned().unwrap();
@@ -4403,7 +4403,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                         self.emitln(&format!("  {fn_ptr_loaded} = load {local_llvm_ty}, {local_llvm_ty}* {alloca_reg}"));
                         let param_types: Vec<String> = args.iter().map(|a| self.infer_llvm_type(a)).collect();
                         let actual_ret_ty = if ret_ty == "i64" {
-                            self.fn_ptr_return_types.get(&fn_name).cloned().unwrap_or_else(|| "i64".to_string())
+                            self.types.fn_ptr_return_types.get(&fn_name).cloned().unwrap_or_else(|| "i64".to_string())
                         } else {
                             ret_ty.clone()
                             };
@@ -4417,10 +4417,10 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                             self.emitln(&format!("  {tmp} = call {actual_ret_ty} {fn_ptr}({args_str})"));
                             Ok((tmp, actual_ret_ty))
                         }
-                    } else if self.hot_reload
-                        && (self.pub_functions.contains(&resolved_fn_key)
+                    } else if self.config.hot_reload
+                        && (self.config.pub_functions.contains(&resolved_fn_key)
                             || resolved_fn_key.rsplitn(2, '.').next()
-                                .map_or(false, |bare| self.pub_functions.contains(bare)))
+                                .map_or(false, |bare| self.config.pub_functions.contains(bare)))
                     {
                         // 5e.5a: hot reload — redirect pub fn calls through thunks
                         let thunk_name = format!("xiom_hot_thunk_{}", resolved_fn_key);
@@ -4468,14 +4468,14 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                 // buffer that wasn't interned as a C string.
                 let is_array_buf = cont_ty == "i8*" && (
                     matches!(container.as_ref(), Expr::Array(..))
-                    || (if let Expr::Ident(ident) = container.as_ref() { self.array_locals.contains(&ident.name) } else { false })
+                    || (if let Expr::Ident(ident) = container.as_ref() { self.local.array_locals.contains(&ident.name) } else { false })
                 );
                 if is_array_buf {
                     let base_ptr = self.fresh_tmp();
                     // 5c-R: use the declared element type for arrays (G-11).
                     // Default to i64 for backward-compat. Tracked via local_array_elem.
                     let arr_elem_ty = if let Expr::Ident(ident) = container.as_ref() {
-                        self.local_array_elem.get(&ident.name).cloned().unwrap_or_else(|| "i64".to_string())
+                        self.local.local_array_elem.get(&ident.name).cloned().unwrap_or_else(|| "i64".to_string())
                     } else { "i64".to_string() };
                     self.emitln(&format!("  {base_ptr} = bitcast i8* {cont_val} to {arr_elem_ty}*"));
                     // Element is at position index+1 (slot 0 is the length).
@@ -4682,11 +4682,11 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                                 } else {
                                     slot
                                 };
-                                if let Some(field_names) = self.types.get(&type_name)
+                                if let Some(field_names) = self.types.types.get(&type_name)
                                     .or_else(|| {
                                         let suffix = format!(".{type_name}");
-                                        self.types.keys().find(|k| k.ends_with(&suffix))
-                                            .and_then(|k| self.types.get(k))
+                                        self.types.types.keys().find(|k| k.ends_with(&suffix))
+                                            .and_then(|k| self.types.types.get(k))
                                     })
                                     .cloned()
                                 {
@@ -4808,7 +4808,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                 self.compile_expr(inner)
             }
             Expr::Some(inner, _) => {
-                self.used_builtins.insert("Option".to_string());
+                self.types.used_builtins.insert("Option".to_string());
                 let (val, inner_ty) = self.compile_expr(inner)?;
                 let store_val = self.val_to_i64(&val, &inner_ty);
                 let opt_ty = "%struct.Option";
@@ -4825,7 +4825,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                 Ok((loaded, opt_ty.to_string()))
             }
             Expr::None(_) => {
-                self.used_builtins.insert("Option".to_string());
+                self.types.used_builtins.insert("Option".to_string());
                 let opt_ty = "%struct.Option";
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {opt_ty}"));
@@ -4840,7 +4840,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                 Ok((loaded, opt_ty.to_string()))
             }
             Expr::Ok(inner, _) => {
-                self.used_builtins.insert("Result".to_string());
+                self.types.used_builtins.insert("Result".to_string());
                 let (val, inner_ty) = self.compile_expr(inner)?;
                 let store_val = self.val_to_i64(&val, &inner_ty);
                 let result_ty = "%struct.Result";
@@ -4860,7 +4860,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                 Ok((loaded, result_ty.to_string()))
             }
             Expr::Err(inner, _) => {
-                self.used_builtins.insert("Result".to_string());
+                self.types.used_builtins.insert("Result".to_string());
                 let (val, inner_ty) = self.compile_expr(inner)?;
                 let store_val = self.val_to_i64(&val, &inner_ty);
                 let result_ty = "%struct.Result";
@@ -4881,7 +4881,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
             }
             Expr::Struct(name, fields, _spread, _span) => {
                 // If `name` is an enum variant (e.g., `Single`), resolve to parent enum type
-                let parent_enum = self.enum_variants.iter()
+                let parent_enum = self.types.enum_variants.iter()
                     .find(|(_, vars)| vars.iter().any(|(v, _)| v == &name.name))
                     .map(|(ek, _)| ek.clone());
                 let struct_ty = if let Some(ref ek) = parent_enum {
@@ -4893,7 +4893,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                 self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
                 if let Some(ref enum_key) = parent_enum {
                     // Set discriminant (field 0) to the variant index
-                    let var_idx = self.enum_variants.get(enum_key)
+                    let var_idx = self.types.enum_variants.get(enum_key)
                         .and_then(|vars| vars.iter().position(|(v, _)| v == &name.name))
                         .unwrap_or(0);
                     let disc_gep = self.fresh_tmp();
@@ -4902,8 +4902,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                     // Map variant fields to their parent enum offsets (after discriminant)
                     // The parent enum stores field names uniquely across all variants,
                     // so we need to look up the actual field index in the parent's field list.
-                    let parent_field_names = self.types.get(enum_key).cloned().unwrap_or_default();
-                    let variant_fields = self.enum_variants.get(enum_key)
+                    let parent_field_names = self.types.types.get(enum_key).cloned().unwrap_or_default();
+                    let variant_fields = self.types.enum_variants.get(enum_key)
                         .and_then(|vars| vars.iter().find(|(v, _)| v == &name.name))
                         .map(|(_, vf)| vf.clone())
                         .unwrap_or_default();
@@ -4975,8 +4975,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                 let loaded = self.fresh_tmp();
                 self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
                 // Emit invariant check after struct creation
-                if self.check_contracts {
-                    if let Some(meta) = self.type_meta.get(&name.name) {
+                if self.config.check_contracts {
+                    if let Some(meta) = self.types.type_meta.get(&name.name) {
                         if !meta.invariants.is_empty() {
                             self.compile_invariant_call(&name.name, &loaded);
                         }
@@ -5015,7 +5015,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                 self.emitln(&format!("  {ptr} = bitcast {elem_llvm_ty}* {buf} to i8*"));
                 // Track this register as originating from an array literal
                 // so val_to_struct can distinguish array-buffer i8* from generic i8*.
-                self.array_value_regs.insert(ptr.clone());
+                self.local.array_value_regs.insert(ptr.clone());
                 Ok((ptr, "i8*".to_string()))
             }
             Expr::Closure(_, _, _, _) | Expr::PipeClosure(_, _, _) => Ok(("0".to_string(), "i64".to_string())),
@@ -5061,7 +5061,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                 };
                 if inner_llvm_ty == "i64" {
                     if let Expr::Ident(id) = inner.as_ref() {
-                        if let Some(concrete) = self.param_concrete_types.get(&id.name) {
+                        if let Some(concrete) = self.mono.param_concrete_types.get(&id.name) {
                             let cty = self.llvm_type_for_fallback(concrete);
                             if cty == "double" {
                                 inner_llvm_ty = "double".to_string();
@@ -5304,14 +5304,14 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                 let result_ty = self.infer_match_llvm_type(arms);
                 let result_alloca = self.fresh_tmp();
                 self.emitln(&format!("  {result_alloca} = alloca {result_ty}"));
-                let saved_ptr = self.match_result_ptr.take();
-                let saved_ty = self.match_result_ty.take();
-                self.match_result_ptr = Some(result_alloca.clone());
-                self.match_result_ty = Some(result_ty.clone());
+                let saved_ptr = self.fctx.match_result_ptr.take();
+                let saved_ty = self.fctx.match_result_ty.take();
+                self.fctx.match_result_ptr = Some(result_alloca.clone());
+                self.fctx.match_result_ty = Some(result_ty.clone());
                 let stmt = Stmt::Match((**scrutinee).clone(), arms.clone(), *span);
                 self.compile_stmt(&stmt)?;
-                self.match_result_ptr = saved_ptr;
-                self.match_result_ty = saved_ty;
+                self.fctx.match_result_ptr = saved_ptr;
+                self.fctx.match_result_ty = saved_ty;
                 let loaded = self.fresh_tmp();
                 self.emitln(&format!("  {loaded} = load {result_ty}, {result_ty}* {result_alloca}"));
                 Ok((loaded, result_ty))
@@ -5341,9 +5341,9 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match &**func {
                 // `module.Type` static path (e.g. `alloc.Layout`) is NOT an instance:
                 // the base is a module (not a value) and the leaf names a known type.
                 if !self.receiver_is_instance(base)
-                    && (self.types.contains_key(&field.name)
-                        || self.type_meta.contains_key(&field.name)
-                        || self.type_meta.keys().any(|k| k.ends_with(&format!(".{}", field.name))))
+                    && (self.types.types.contains_key(&field.name)
+                        || self.types.type_meta.contains_key(&field.name)
+                        || self.types.type_meta.keys().any(|k| k.ends_with(&format!(".{}", field.name))))
                 {
                     return false;
                 }
