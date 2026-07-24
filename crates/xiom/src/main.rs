@@ -238,16 +238,24 @@ fn main() {
         let source = xiom::implicit_main::wrap_implicit_main(&source);
 
         // M10: Check script cache for instant re-run
+        let use_jit = effective.contains(&"--jit");
         if let Some(cached) = xiom::jit::script_cache_get(&source) {
             let output = std::process::Command::new(&cached).output();
             if let Ok(out) = output {
-                if out.status.success() {
+                if out.status.success() && !use_jit {
                     let stdout = String::from_utf8_lossy(&out.stdout);
                     if !stdout.is_empty() { print!("{stdout}"); }
                     return;
                 }
             }
-            // Cache miss or execution failed — fall through to recompile
+        }
+
+        // M10.1d: True JIT execution if --jit flag is set
+        if use_jit {
+            match xiom::jit::jit_execute(&source) {
+                Ok(code) => { eprintln!("  JIT exit code: {code}"); return; }
+                Err(e) => { eprintln!("  JIT error: {e}"); process::exit(1); }
+            }
         }
 
         // Write to temp file, compile, and run
