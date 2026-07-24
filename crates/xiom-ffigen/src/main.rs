@@ -260,7 +260,7 @@ fn output_json(libraries: &[Library]) {
             "functions": json_funcs
         }));
     }
-    println!("{}", serde_json::to_string_pretty(&json_libs).unwrap());
+    println!("{}", serde_json::to_string_pretty(&json_libs).expect("JSON serialization of FFI libraries"));
 }
 
 fn print_usage() {

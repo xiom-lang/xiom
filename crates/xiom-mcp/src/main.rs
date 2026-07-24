@@ -239,7 +239,8 @@ fn tool_check_xiom_syntax(params: &Value) -> Result<Value, String> {
     std::fs::write(&tmp, source).map_err(|e| format!("Failed to write temp file: {e}"))?;
 
     let config = CompileConfig { ..std::default::Default::default() };
-    let result = compile_with_diagnostics(&config, &[tmp.to_str().unwrap().to_string()]);
+    let path_str = tmp.to_str().expect("temp file path must be valid UTF-8").to_string();
+    let result = compile_with_diagnostics(&config, &[path_str]);
     let _ = std::fs::remove_file(&tmp);
 
     let errors: Vec<Value> = result.diagnostics.iter().map(|d| {
@@ -257,7 +258,7 @@ fn tool_format_xiom_code(params: &Value) -> Result<Value, String> {
     let source = params["source"].as_str().ok_or("Missing required parameter: source")?;
     let tmp = std::env::temp_dir().join(format!("xiom_fmt_{}.xi", std::process::id()));
     std::fs::write(&tmp, source).map_err(|e| format!("Failed to write temp file: {e}"))?;
-    let output = Command::new("xiom-fmt").arg(tmp.to_str().unwrap()).output().map_err(|e| format!("Failed to spawn xiom-fmt: {e}"))?;
+    let output = Command::new("xiom-fmt").arg(tmp.to_str().expect("temp file path must be valid UTF-8")).output().map_err(|e| format!("Failed to spawn xiom-fmt: {e}"))?;
     let _ = std::fs::remove_file(&tmp);
     Ok(json!({"success": output.status.success(), "formatted": String::from_utf8_lossy(&output.stdout).to_string(), "changed": source != String::from_utf8_lossy(&output.stdout)}))
 }
@@ -644,7 +645,7 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
         jobs: 0,
         script_mode: false,
     };
-    let result = xiom::compile_with_diagnostics(&check_cfg, &[tmp.to_str().unwrap().to_string()]);
+    let result = xiom::compile_with_diagnostics(&check_cfg, &[tmp.to_str().expect("temp file path must be valid UTF-8").to_string()]);
     let _ = std::fs::remove_file(&tmp);
 
     if result.diagnostics.is_empty() {
