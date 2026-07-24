@@ -84,6 +84,71 @@ pub fn jit_cache_dir() -> PathBuf {
     }
 }
 
+/// Maximum cache size in bytes (100 MB default).
+const MAX_CACHE_SIZE: u64 = 100 * 1024 * 1024;
+
+/// Evict oldest entries if cache exceeds MAX_CACHE_SIZE.
+/// Keeps the most recently accessed entries.
+pub fn cache_evict_if_needed() {
+    let cache_dir = jit_cache_dir();
+    if !cache_dir.is_dir() { return; }
+
+    let mut entries: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
+    let mut total_size: u64 = 0;
+
+    if let Ok(read_dir) = std::fs::read_dir(&cache_dir) {
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Ok(meta) = path.metadata() {
+                    let size = meta.len();
+                    let mtime = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                    total_size += size;
+                    entries.push((mtime, path));
+                }
+            }
+        }
+    }
+
+    if total_size <= MAX_CACHE_SIZE { return; }
+
+    // Sort by modification time (oldest first), evict oldest until under limit
+    entries.sort_by_key(|(mtime, _)| *mtime);
+    for (_, path) in &entries {
+        if total_size <= MAX_CACHE_SIZE { break; }
+        if let Ok(meta) = path.metadata() {
+            total_size = total_size.saturating_sub(meta.len());
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+/// Clean the JIT cache — remove all cached scripts.
+pub fn cache_clean() -> Result<u64, String> {
+    let cache_dir = jit_cache_dir();
+    if !cache_dir.is_dir() { return Ok(0); }
+
+    let mut removed = 0u64;
+    let mut total_bytes = 0u64;
+
+    if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Ok(meta) = path.metadata() {
+                    total_bytes += meta.len();
+                }
+                if std::fs::remove_file(&path).is_ok() {
+                    removed += 1;
+                }
+            }
+        }
+    }
+
+    eprintln!("  Cleaned {removed} cached scripts ({:.1} MB)", total_bytes as f64 / 1_048_576.0);
+    Ok(removed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

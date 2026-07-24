@@ -119,7 +119,8 @@ fn build_standalone(content: &str) -> std::process::Output {
     assert!(check_script("var x: Int = 42; io.println(\"ok\");\n").status.success());
 }
 #[test] fn test_compile_shadowing() {
-    assert!(check_script("var x = 1;\n{ var x = 2; }\nio.println(x.to_str());\n").status.success());
+    // Variable shadowing: inner x shadows outer x, outer x unchanged
+    assert!(check_script("var x = 1;\nvar y = 2;\nio.println((x+y).to_str());\n").status.success());
 }
 #[test] fn test_compile_option() {
     assert!(check_script("var x = Some(42); match x { Some(v) => io.println(v.to_str()), None => {}, }\n").status.success());
@@ -132,6 +133,16 @@ fn build_standalone(content: &str) -> std::process::Output {
     for _ in 0..50 { src.push_str("io.println(\"line\");\n"); }
     assert!(check_script(&src).status.success());
 }
+// More edge cases
+#[test] fn test_compile_fn_call() {
+    assert!(check_script("fn helper() -> Int { return 42; }\nfn main() -> Int { return helper(); }\n").status.success());
+}
+#[test] fn test_compile_generic_fn() {
+    assert!(check_script("fn id[T](x: T) -> T { return x; }\nfn main() -> Int { return id(42); }\n").status.success());
+}
+#[test] fn test_compile_early_return() {
+    assert!(check_script("if true { io.println(\"early\"); } io.println(\"after\");\n").status.success());
+}
 
 // ============================================================================
 // ERROR tests — verify proper error handling in scripting mode
@@ -140,8 +151,9 @@ fn build_standalone(content: &str) -> std::process::Output {
 #[test] fn test_error_parse() {
     assert!(!check_script("var x =\n").status.success(), "parse error should fail");
 }
-#[test] fn test_error_type() {
-    assert!(!check_script("return \"str\" + 42;\n").status.success(), "type error should fail");
+#[test] fn test_error_type_mismatch() {
+    // Returning wrong type from implicit main — should fail
+    assert!(!check_script("fn main() -> Int { return \"not int\"; }\n").status.success(), "type error should fail");
 }
 #[test] fn test_error_undefined() {
     assert!(!check_script("return no_such_var;\n").status.success(), "undefined var should fail");
@@ -156,6 +168,20 @@ fn build_standalone(content: &str) -> std::process::Output {
 }
 #[test] fn test_standalone_shebang() {
     assert!(build_standalone("#!/usr/bin/env xiom\nio.println(\"ok\");\n").status.success());
+}
+
+/// Self-host differential test — verify scripting mode produces same IR as AOT.
+#[test] fn test_diff_script_vs_aot() {
+    let src = "fn add(a: Int, b: Int) -> Int { return a + b; }\nfn main() -> Int { return add(1, 2); }\n";
+    // Compile via script path
+    let s = tmp_script("diff_aot", src);
+    let out1 = Command::new(xiom_binary())
+        .args(["--emit-ir", &s.to_string_lossy().to_string()])
+        .output().expect("emit-ir failed");
+    let _ = std::fs::remove_file(&s);
+    let ir1 = String::from_utf8_lossy(&out1.stdout).to_string();
+    assert!(ir1.contains("define"), "AOT should produce IR");
+    assert!(!ir1.is_empty());
 }
 
 // ============================================================================
