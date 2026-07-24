@@ -1939,3 +1939,104 @@ pub fn incremental_save(source_path: &str, ir: &str) {
         cache.insert(entry);
     }
 }
+
+// ============================================================================
+// Tests — compile_with_diagnostics
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn default_config() -> CompileConfig {
+        CompileConfig::default()
+    }
+
+    fn write_temp_file(name: &str, content: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join("xiom_tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+        path
+    }
+
+    #[test]
+    fn test_compile_simple_program() {
+        let path = write_temp_file("simple.xi", "fn main() -> Int { return 42; }");
+        let config = default_config();
+        let result = compile_with_diagnostics(&config, &[path.to_string_lossy().to_string()]);
+        assert!(result.success, "simple program should compile: {:?}", result.diagnostics);
+        assert!(result.diagnostics.is_empty(), "no diagnostics expected: {:?}", result.diagnostics);
+    }
+
+    #[test]
+    fn test_compile_with_parse_error() {
+        let path = write_temp_file("bad.xi", "fn main() -> Int { return 42; ");
+        let config = default_config();
+        let result = compile_with_diagnostics(&config, &[path.to_string_lossy().to_string()]);
+        assert!(!result.success, "parse error should fail compilation");
+        assert!(!result.diagnostics.is_empty(), "should have parse errors");
+        assert!(result.diagnostics.iter().any(|d| d.message.contains("expected") || d.message.contains("Parse")),
+            "error should mention parse issue: {:?}", result.diagnostics);
+    }
+
+    #[test]
+    fn test_compile_with_type_error() {
+        let path = write_temp_file("type_err.xi", "fn main() -> Int { return \"not an int\"; }");
+        let config = default_config();
+        let result = compile_with_diagnostics(&config, &[path.to_string_lossy().to_string()]);
+        assert!(!result.success, "type error should fail compilation");
+        assert!(!result.diagnostics.is_empty(), "should have type errors");
+    }
+
+    #[test]
+    fn test_compile_emit_ir() {
+        let path = write_temp_file("ir_test.xi", "fn main() -> Int { return 42; }");
+        let mut config = default_config();
+        config.emit_ir = true;
+        let result = compile_with_diagnostics(&config, &[path.to_string_lossy().to_string()]);
+        assert!(result.success);
+        assert!(result.ir.is_some(), "emit_ir should produce IR output");
+        let ir = result.ir.unwrap();
+        assert!(ir.contains("define i64 @main"), "IR should contain main: {}", &ir[..200.min(ir.len())]);
+    }
+
+    #[test]
+    fn test_compile_check_only() {
+        let path = write_temp_file("check_test.xi", "fn main() -> Int { return 42; }");
+        let mut config = default_config();
+        config.check_only = true;
+        let result = compile_with_diagnostics(&config, &[path.to_string_lossy().to_string()]);
+        assert!(result.success);
+    }
+
+    #[test]
+    fn test_compile_diagnostics_json() {
+        let path = write_temp_file("diag_test.xi", "fn main() -> Int { return \"oops\"; }");
+        let mut config = default_config();
+        config.diagnostics_json = true;
+        let result = compile_with_diagnostics(&config, &[path.to_string_lossy().to_string()]);
+        assert!(!result.success);
+        assert!(!result.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_compile_empty_file() {
+        let path = write_temp_file("empty.xi", "");
+        let config = default_config();
+        let result = compile_with_diagnostics(&config, &[path.to_string_lossy().to_string()]);
+        // Empty file should compile (no code = no errors)
+        assert!(result.success || result.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_compile_nonexistent_file() {
+        let path = std::path::PathBuf::from("nonexistent_file_12345.xi");
+        let config = default_config();
+        let result = compile_with_diagnostics(&config, &[path.to_string_lossy().to_string()]);
+        assert!(!result.success, "nonexistent file should fail");
+        assert!(!result.diagnostics.is_empty());
+    }
+}
