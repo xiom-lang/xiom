@@ -356,6 +356,11 @@ fn main() {
     }
 
     if clean_mode {
+        let clean_cache = args.iter().any(|a| a == "--cache");
+        if clean_cache {
+            let _ = xiom::jit::cache_clean();
+            return;
+        }
         let extensions = ["exe", "ll", "obj", "o", "out", "wasm", "pdb", "ilk", "exp", "lib"];
         let mut cleaned = 0usize;
         if let Ok(entries) = std::fs::read_dir(".") {

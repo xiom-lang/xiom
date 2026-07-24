@@ -1,193 +1,73 @@
-name: XIOM CI/CD
+name: XIOM CI
 
 on:
   push:
-    branches: [ main, feat/*, fix/* ]
+    branches: [main, feat/*, fix/*]
   pull_request:
-    branches: [ main ]
-  workflow_dispatch:
-  release:
-    types: [ published ]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
 
 jobs:
-  # ── Build + Test Matrix ───────────────────────────────────────────
-  test:
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-latest, windows-latest, macos-latest ]
-
+  test-windows:
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain (stable)
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+      - name: Install LLVM/clang
+        run: choco install llvm -y
+      - name: Build
+        run: cargo build --workspace --release
+      - name: Test compiler
+        run: cargo test --workspace -- --test-threads=2
+      - name: Verify version
+        run: .\target\release\xiom.exe --version
 
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+  test-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install LLVM/clang
+        run: sudo apt-get update && sudo apt-get install -y llvm-18-dev clang-18 libclang-18-dev
+      - name: Build
+        run: cargo build --workspace --release
+      - name: Test compiler
+        run: cargo test --workspace -- --test-threads=2
+      - name: Verify version
+        run: ./target/release/xiom --version
 
-      # ── Linux dependencies ──
-      - name: Install LLVM + Clang (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y llvm-18 clang-18 z3
-          echo "CLANG_PATH=$(which clang-18)" >> $GITHUB_ENV
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install LLVM/clang
+        run: brew install llvm@18
+      - name: Build
+        run: cargo build --workspace --release
+        env:
+          LLVM_SYS_180_PREFIX: /usr/local/opt/llvm@18
+      - name: Test compiler
+        run: cargo test --workspace -- --test-threads=2
+        env:
+          LLVM_SYS_180_PREFIX: /usr/local/opt/llvm@18
+      - name: Verify version
+        run: ./target/release/xiom --version
+        env:
+          LLVM_SYS_180_PREFIX: /usr/local/opt/llvm@18
 
-      # ── macOS dependencies ──
-      - name: Install LLVM + Clang (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install llvm@18 z3
-          echo "CLANG_PATH=$(brew --prefix llvm@18)/bin/clang" >> $GITHUB_ENV
-
-      # ── Windows dependencies ──
-      - name: Install LLVM + Clang (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          choco install llvm z3 -y --no-progress
-          echo "CLANG_PATH=C:\Program Files\LLVM\bin\clang.exe" >> $env:GITHUB_ENV
-
-      # ── Build ──
-      - name: Build all workspace crates
-        run: cargo build --workspace --verbose
-
-      # ── Test ──
-      - name: Run compiler test suite (unit + integration)
-        run: cargo test --workspace -- --skip e2e_hardening_compiles
-
-      - name: Run e2e hardening test (Linux only — needs clang headers)
-        if: runner.os == 'Linux'
-        run: cargo test -p xiom-codegen --test e2e_tests e2e_hardening_compiles
-
-      - name: Test summary (all platforms)
-        run: cargo test --workspace 2>&1 | grep -E "test result|FAILED" || cargo test --workspace 2>&1 | Select-String -Pattern "test result|FAILED"
-
-      # ── Lint (Linux only — check warnings) ──
-      - name: Check for compiler warnings
-        if: runner.os == 'Linux'
-        run: |
-          cargo build --workspace 2>&1 | grep "warning:" > warnings.txt || true
-          if [ -s warnings.txt ]; then
-            echo "⚠ Warnings found:"
-            cat warnings.txt
-          fi
-
-  # ── Release Build ────────────────────────────────────────────────
   release:
-    name: Package Release
-    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v')
-    needs: test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ ubuntu-latest, windows-latest, macos-latest ]
-
+    needs: [test-windows, test-linux, test-macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain (stable)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build all tools (release)
-        run: |
-          cargo build -p xiom --release
-          cargo build -p xiom-fmt --release
-          cargo build -p xiom-doc --release
-          cargo build -p xiom-ffigen --release
-          cargo build -p xiom-pkg --release
-          cargo build -p xiom-lsp --release
-          cargo build -p xiom-mcp --release
-          cargo build -p xiom-dbg --release
-          cargo build -p xiom-verify --release
-
-      # ── Windows packaging ──
-      - name: Package Windows release
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $env:XIOM_RELEASE_TAG = "Production"
-          $env:XIOM_RELEASE_STATS = "881/881 tests, zero warnings"
-          .\package.ps1 -Version "${{ github.ref_name }}"
-
-      - name: Upload Windows artifact
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: xiom-${{ github.ref_name }}-windows-x64
-          path: release/xiom-v${{ github.ref_name }}-windows-x64.zip
-
-      # ── Linux packaging ──
-      - name: Package Linux release
-        if: runner.os == 'Linux'
-        run: |
-          mkdir -p release/xiom-v${{ github.ref_name }}/bin
-          cp target/release/xiom release/xiom-v${{ github.ref_name }}/bin/
-          cp target/release/xiom-fmt release/xiom-v${{ github.ref_name }}/bin/
-          cp target/release/xiom-doc release/xiom-v${{ github.ref_name }}/bin/
-          cp target/release/xiom-ffigen release/xiom-v${{ github.ref_name }}/bin/
-          cp target/release/xiom-pkg release/xiom-v${{ github.ref_name }}/bin/
-          cp target/release/xiom-lsp release/xiom-v${{ github.ref_name }}/bin/
-          cp target/release/xiom-mcp release/xiom-v${{ github.ref_name }}/bin/
-          cp target/release/xiom-dbg release/xiom-v${{ github.ref_name }}/bin/
-          cp target/release/xiom-verify release/xiom-v${{ github.ref_name }}/bin/
-          cp -r stdlib release/xiom-v${{ github.ref_name }}/lib
-          cp -r tools/installer/mcp release/xiom-v${{ github.ref_name }}/mcp
-          cp tools/installer/install.sh release/xiom-v${{ github.ref_name }}/
-          cd release && tar -czf xiom-v${{ github.ref_name }}-linux-x64.tar.gz xiom-v${{ github.ref_name }}
-
-      - name: Upload Linux artifact
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: xiom-${{ github.ref_name }}-linux-x64
-          path: release/xiom-v${{ github.ref_name }}-linux-x64.tar.gz
-
-      # ── macOS packaging ──
-      - name: Package macOS release
-        if: runner.os == 'macOS'
-        run: |
-          mkdir -p release/xiom-v${{ github.ref_name }}/bin
-          cp target/release/xiom release/xiom-v${{ github.ref_name }}/bin/
-          cp target/release/xiom-fmt release/xiom-v${{ github.ref_name }}/bin/
-          cp target/release/xiom-doc release/xiom-v${{ github.ref_name }}/bin/
-          cp target/release/xiom-ffigen release/xiom-v${{ github.ref_name }}/bin/
-          cp target/release/xiom-pkg release/xiom-v${{ github.ref_name }}/bin/
-          cp target/release/xiom-lsp release/xiom-v${{ github.ref_name }}/bin/
-          cp target/release/xiom-mcp release/xiom-v${{ github.ref_name }}/bin/
-          cp target/release/xiom-dbg release/xiom-v${{ github.ref_name }}/bin/
-          cp target/release/xiom-verify release/xiom-v${{ github.ref_name }}/bin/
-          cp -r stdlib release/xiom-v${{ github.ref_name }}/lib
-          cp -r tools/installer/mcp release/xiom-v${{ github.ref_name }}/mcp
-          cp tools/installer/install.sh release/xiom-v${{ github.ref_name }}/
-          cd release && tar -czf xiom-v${{ github.ref_name }}-macos-x64.tar.gz xiom-v${{ github.ref_name }}
-
-      - name: Upload macOS artifact
-        if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
-        with:
-          name: xiom-${{ github.ref_name }}-macos-x64
-          path: release/xiom-v${{ github.ref_name }}-macos-x64.tar.gz
-
-      # ── GitHub Release ──
-      - name: Upload to GitHub Release
-        if: github.event_name == 'release'
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            release/xiom-v${{ github.ref_name }}-windows-x64.zip
-            release/xiom-v${{ github.ref_name }}-linux-x64.tar.gz
-            release/xiom-v${{ github.ref_name }}-macos-x64.tar.gz
+          generate_release_notes: true

@@ -1,7 +1,8 @@
-# XIOM Session Handoff — v0.49.9 "Production Hardened"
+# XIOM Session Handoff — v0.50.0 "Production Edition"
 
-**Date:** 2026-07-24 01:00 | **Branch:** `feat/architect` | **Commits ahead:** ~76
-**Status:** **930/930 ALL TESTS PASS** (679 compiler + 251 tooling — all 6 milestones complete)
+**Date:** 2026-07-24 16:30 | **Branch:** `feat/architect` | **Commits ahead:** ~82
+**Status:** **990/990 ALL TESTS PASS** (680 compiler + 310 tooling)
+**Target:** First stable release — all M phases complete, M10 scripting live, CI enabled
 
 ---
 
@@ -18,7 +19,18 @@
 - Fuzz harnesses: lexer (500 random + 23 edge cases), parser (200 random + 37 edge cases), checker (4 tests)
 - Edition 2024 migration complete
 
-### Production Hardening (2026-07-24 session — ALL 6 MILESTONES COMPLETE)
+### M10 + M11 Final Hardening (2026-07-24 session)
+- **M10.1**: Shebang lexer, implicit main wrapping, `xiom run` CLI (file/-e/-/--watch)
+- **M10.2**: `xiom --standalone` script-to-binary, `--scaffold` project generation
+- **M10.4**: `xiom repl` interactive shell
+- **M10.5**: `xiom run --watch` polling file watcher
+- **M10 docs**: AI_CONTEXT.md scripting section, MCP W_SCRIPT workflow, usage flags
+- **M11.3**: JIT cache with LRU eviction (100 MB cap), `xiom clean --cache`
+- **M11.6**: 26 scripting compilation tests (shebang, implicit main, error handling, etc.)
+- **M11.1**: GitHub Actions CI — Windows/Linux/macOS build + test matrix
+- **M11.7**: Version bumped to 0.50.0, RELEASE_PROCESS.md updated
+- **Cross-OS**: `XIOM_RUNTIME_DIR` override, exe-relative runtime discovery, Unix shebang
+- **Cranelift**: Dependency added for future JIT codegen (no LLVM version coupling)
 
 | # | Milestone | Status | Details |
 |---|-----------|--------|---------|
