@@ -3,8 +3,9 @@
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
 /// Wrap top-level code in an implicit `fn main()` if no explicit main exists.
-/// Also injects default stdlib imports for scripting ergonomics.
-/// Strips shebang (`#!`) lines before wrapping.
+/// Declarations (type, enum, interface, module, const, use, fn) stay at top level.
+/// Only executable statements go inside `fn main()`.
+/// Also injects default stdlib imports and strips shebangs.
 pub fn wrap_implicit_main(source: &str) -> String {
     // M10: Strip shebang line before any processing
     let source = if source.starts_with("#!") {
@@ -13,7 +14,7 @@ pub fn wrap_implicit_main(source: &str) -> String {
         } else { source }
     } else { source };
 
-    // Already has an explicit main — don't wrap, but add imports if needed
+    // Already has an explicit fn main — don't wrap
     if source.contains("fn main") {
         return add_default_imports(source);
     }
@@ -23,23 +24,54 @@ pub fn wrap_implicit_main(source: &str) -> String {
         return source.to_string();
     }
 
-    // Check if first line is a module declaration
-    if let Some(rest) = trimmed.strip_prefix("module ") {
-        if let Some(newline) = rest.find('\n') {
-            let module_line_len = "module ".len() + rest[..newline].len();
-            let module_line = &trimmed[..module_line_len];
-            let body = &trimmed[module_line_len..];
-            let body_trimmed = body.trim();
-            if body_trimmed.is_empty() {
-                return source.to_string();
-            }
-            return format!("{module_line}\nfn main() {{\n{body}\n}}\n");
+    // Separate declarations from code
+    let decl_keywords = ["type ", "enum ", "interface ", "module ", "const ", "use ", "fn ", "pub "];
+    let mut declarations = Vec::new();
+    let mut code_lines = Vec::new();
+
+    for line in trimmed.lines() {
+        let trimmed_line = line.trim();
+        if trimmed_line.is_empty() { continue; }
+        let is_decl = decl_keywords.iter().any(|kw| trimmed_line.starts_with(kw));
+        if is_decl {
+            declarations.push(trimmed_line.to_string());
+        } else {
+            code_lines.push(trimmed_line.to_string());
         }
     }
 
-    // Wrap entire source in main, with default imports
-    let imports = default_import_block();
-    format!("{imports}\nfn main() {{\n{trimmed}\n}}\n")
+    let mut result = String::new();
+
+    // Add default imports
+    for import in default_imports() {
+        if !declarations.iter().any(|d| d.contains(import)) {
+            result.push_str(import);
+            result.push('\n');
+        }
+    }
+
+    // Add declarations at top level
+    for decl in &declarations {
+        result.push_str(decl);
+        result.push('\n');
+    }
+
+    // Wrap code in main
+    if !code_lines.is_empty() {
+        result.push_str("fn main() {\n");
+        for line in &code_lines {
+            result.push_str(line);
+            result.push('\n');
+        }
+        result.push_str("}\n");
+    }
+
+    result
+}
+
+/// Default imports for scripting mode.
+fn default_imports() -> &'static [&'static str] {
+    &["use xiom.io;"]
 }
 
 /// Add default stdlib imports for scripting convenience.
@@ -104,13 +136,12 @@ mod tests {
     }
 
     #[test]
-    fn test_module_only_no_wrap() {
+    fn test_module_only_declarations() {
+        // Module with only declarations (no executable code) stays at top level
         let src = "module math\npub fn add(a: Int, b: Int) -> Int { return a + b; }";
-        // This has fn main in the source? No. But it has `fn add` which contains `fn`
-        // The check is `contains("fn main")` — this should be wrapped.
         let result = wrap_implicit_main(src);
-        // Since there's no explicit fn main, it should be wrapped
-        assert!(result.contains("fn main()"), "module-only should still get implicit main");
+        assert!(result.contains("module math"));
+        assert!(result.contains("pub fn add"));
     }
 
     #[test]
