@@ -782,6 +782,12 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     let output = config.output_file.as_deref().unwrap_or(default_output);
 
     let ir_path = format!("{output}.ll");
+    // M10: For shared library JIT, add dllexport to main() so it's callable.
+    let llvm_ir = if config.shared_lib && cfg!(windows) {
+        add_dllexport_to_main(&llvm_ir)
+    } else {
+        llvm_ir
+    };
     if let Err(e) = fs::write(&ir_path, &llvm_ir) {
         eprintln!("error: cannot write IR file: {e}");
         return Err(vec!["compilation failed".to_string()]);
@@ -1370,6 +1376,13 @@ pub fn find_runtime_c() -> Option<String> {
         }
     }
     None
+}
+
+/// M10: Add dllexport to the @main function definition for shared library JIT.
+fn add_dllexport_to_main(ir: &str) -> String {
+    // Replace `define i64 @main(` with `define dllexport i64 @main(`
+    ir.replace("define i64 @main(", "define dllexport i64 @main(")
+        .replace("define void @main(", "define dllexport void @main(")
 }
 
 pub fn find_runtime_c_files() -> Vec<String> {

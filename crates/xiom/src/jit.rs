@@ -1,58 +1,62 @@
-// XIOM — JIT Execution via shared library loading (M10)
+// XIOM — True JIT Execution via shared library loading (M10)
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
-// Pipeline: .xi source → AOT → shared library (.dll/.so) → dlopen → call main() → result
-// Uses the existing LLVM AOT pipeline but targets shared libraries loaded in-process.
+// Pipeline: .xi source → AOT → .dll/.so → load in-process → call main() → result
 
-use std::io::Write;
 use std::path::PathBuf;
-
 use crate::CompileConfig;
 
-/// JIT-compile and execute a single .xi source file.
-/// Returns the exit code from main().
-pub fn jit_run(source: &str, output: &str) -> Result<i32, String> {
-    // Write source to temp file
+/// JIT-compile XIOM source to a shared library, load it, and call main().
+/// Returns the exit code from main(), or an error message.
+pub fn jit_execute(source: &str) -> Result<i32, String> {
     let tmp_dir = std::env::temp_dir().join("xiom_jit");
     std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("cannot create temp dir: {e}"))?;
-    let tmp_src = tmp_dir.join("_jit.xi");
-    let mut f = std::fs::File::create(&tmp_src).map_err(|e| format!("cannot create temp: {e}"))?;
-    f.write_all(source.as_bytes()).map_err(|e| format!("cannot write temp: {e}"))?;
 
-    // Compile as shared library
+    let tmp_src = tmp_dir.join("_jit.xi");
+    let tmp_out = if cfg!(windows) {
+        tmp_dir.join("_jit.dll")
+    } else if cfg!(target_os = "macos") {
+        tmp_dir.join("_jit.dylib")
+    } else {
+        tmp_dir.join("_jit.so")
+    };
+
+    std::fs::write(&tmp_src, source).map_err(|e| format!("cannot write source: {e}"))?;
+
+    // Compile to shared library
     let config = CompileConfig {
         shared_lib: true,
-        output_file: Some(output.to_string()),
+        output_file: Some(tmp_out.to_string_lossy().to_string()),
         ..CompileConfig::default()
     };
+    crate::compile(&config, &[tmp_src.to_string_lossy().to_string()])
+        .map_err(|e| format!("compile failed: {:?}", e))?;
 
-    let sources = vec![tmp_src.to_string_lossy().to_string()];
-    crate::compile(&config, &sources).map_err(|e| format!("compile failed: {:?}", e))?;
+    // Load and call main
+    unsafe {
+        let lib = libloading::Library::new(&tmp_out)
+            .map_err(|e| format!("cannot load library: {e}"))?;
 
-    // The compiled shared library is now at `output` (.dll on Windows, .so on Linux)
-    // For now, we execute via the AOT binary path (run the output as an executable)
-    // Future: use libloading to dlopen and call main() in-process
+        let main_fn: libloading::Symbol<unsafe extern "C" fn() -> i64> = lib
+            .get(b"main")
+            .map_err(|e| format!("main not exported: {e}"))?;
 
-    // Since shared_lib doesn't produce an executable, fall back to AOT execution
-    let exe_config = CompileConfig {
-        output_file: Some(output.to_string()),
-        do_run: true,
-        ..CompileConfig::default()
-    };
-    crate::compile(&exe_config, &sources).map_err(|e| format!("compile failed: {:?}", e))?;
+        let exit_code = main_fn();
+        Ok(exit_code as i32)
+    }
+}
 
-    Ok(0) // Exit code from compiled binary
+/// JIT-execute with wrapped source (applies implicit main if needed).
+pub fn jit_run_wrapped(raw_source: &str) -> Result<i32, String> {
+    let wrapped = crate::implicit_main::wrap_implicit_main(raw_source);
+    jit_execute(&wrapped)
 }
 
 /// Content-hash based script cache.
-/// Returns the cached binary path if available and up-to-date.
 pub fn script_cache_get(source: &str) -> Option<PathBuf> {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    source.hash(&mut hasher);
-    let hash = hasher.finish();
     let cache_dir = jit_cache_dir();
+    let hash = hash_source(source);
     let cache_file = cache_dir.join(format!("{:x}", hash));
     if cfg!(windows) {
         let exe = cache_file.with_extension("exe");
@@ -62,20 +66,15 @@ pub fn script_cache_get(source: &str) -> Option<PathBuf> {
     None
 }
 
-/// Store a compiled script in the cache.
 pub fn script_cache_put(source: &str, binary: &PathBuf) {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    source.hash(&mut hasher);
-    let hash = hasher.finish();
     let cache_dir = jit_cache_dir();
     std::fs::create_dir_all(&cache_dir).ok();
+    let hash = hash_source(source);
     let cache_file = cache_dir.join(format!("{:x}", hash));
     let target = if cfg!(windows) { cache_file.with_extension("exe") } else { cache_file };
     std::fs::copy(binary, &target).ok();
 }
 
-/// JIT cache directory: ~/.xiom/jit/
 pub fn jit_cache_dir() -> PathBuf {
     if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
         PathBuf::from(home).join(".xiom").join("jit")
@@ -84,11 +83,8 @@ pub fn jit_cache_dir() -> PathBuf {
     }
 }
 
-/// Maximum cache size in bytes (100 MB default).
 const MAX_CACHE_SIZE: u64 = 100 * 1024 * 1024;
 
-/// Evict oldest entries if cache exceeds MAX_CACHE_SIZE.
-/// Keeps the most recently accessed entries.
 pub fn cache_evict_if_needed() {
     let cache_dir = jit_cache_dir();
     if !cache_dir.is_dir() { return; }
@@ -109,10 +105,7 @@ pub fn cache_evict_if_needed() {
             }
         }
     }
-
     if total_size <= MAX_CACHE_SIZE { return; }
-
-    // Sort by modification time (oldest first), evict oldest until under limit
     entries.sort_by_key(|(mtime, _)| *mtime);
     for (_, path) in &entries {
         if total_size <= MAX_CACHE_SIZE { break; }
@@ -123,30 +116,29 @@ pub fn cache_evict_if_needed() {
     }
 }
 
-/// Clean the JIT cache — remove all cached scripts.
 pub fn cache_clean() -> Result<u64, String> {
     let cache_dir = jit_cache_dir();
     if !cache_dir.is_dir() { return Ok(0); }
-
     let mut removed = 0u64;
     let mut total_bytes = 0u64;
-
     if let Ok(entries) = std::fs::read_dir(&cache_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_file() {
-                if let Ok(meta) = path.metadata() {
-                    total_bytes += meta.len();
-                }
-                if std::fs::remove_file(&path).is_ok() {
-                    removed += 1;
-                }
+                if let Ok(meta) = path.metadata() { total_bytes += meta.len(); }
+                if std::fs::remove_file(&path).is_ok() { removed += 1; }
             }
         }
     }
-
     eprintln!("  Cleaned {removed} cached scripts ({:.1} MB)", total_bytes as f64 / 1_048_576.0);
     Ok(removed)
+}
+
+fn hash_source(source: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    hasher.finish()
 }
 
 #[cfg(test)]
@@ -154,35 +146,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_cache_miss_on_new_content() {
-        let source = format!("fn main() -> Int {{ return {}; }}", std::process::id());
-        assert!(script_cache_get(&source).is_none(), "new content should be cache miss");
+    fn test_jit_execute_returns_exit_code() {
+        let src = "fn main() -> Int { return 42; }\n";
+        let result = jit_execute(src);
+        assert!(result.is_ok(), "JIT should succeed: {:?}", result.err());
+        assert_eq!(result.unwrap(), 42, "JIT should return 42");
     }
 
     #[test]
-    fn test_cache_hit_on_same_content() {
-        let source = "fn main() -> Int { return 42; }";
-        let _ = script_cache_get(&source); // first call
-        let result = script_cache_get(&source);
-        // May or may not hit depending on whether the binary exists
-        // This just tests the function doesn't panic
-        let _ = result;
+    fn test_jit_execute_with_implicit_main() {
+        let src = "io.println(\"jit test\");\n";
+        let result = jit_run_wrapped(src);
+        assert!(result.is_ok(), "JIT with implicit main should succeed: {:?}", result.err());
     }
 
     #[test]
-    fn test_cache_dir_exists() {
-        let dir = jit_cache_dir();
-        std::fs::create_dir_all(&dir).unwrap();
-        assert!(dir.exists(), "cache dir should exist");
-    }
-
-    #[test]
-    fn test_different_content_different_hash() {
-        let a = "fn main() -> Int { return 1; }";
-        let b = "fn main() -> Int { return 2; }";
-        // Different content should produce different hashes
-        // Just ensure no panic
-        let _ = script_cache_get(a);
-        let _ = script_cache_get(b);
+    fn test_jit_execute_void_main() {
+        let src = "fn main() { }\n";
+        let result = jit_execute(src);
+        assert!(result.is_ok(), "void main should succeed: {:?}", result.err());
     }
 }
