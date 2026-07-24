@@ -7,6 +7,7 @@
 pub mod ai;
 pub mod graph_viz;
 pub mod implicit_main;
+pub mod jit;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
