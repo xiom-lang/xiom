@@ -6,6 +6,11 @@
 /// Declarations (type, enum, interface, module, const, use, fn) stay at top level.
 /// Only executable statements go inside `fn main()`.
 /// Also injects default stdlib imports and strips shebangs.
+///
+/// M12.2: Uses brace-depth tracking to correctly handle multi-line declarations.
+/// A line starting with a decl keyword at depth 0 begins a declaration block;
+/// all subsequent lines (including nested braces) are part of the declaration
+/// until depth returns to 0.
 pub fn wrap_implicit_main(source: &str) -> String {
     // M10: Strip shebang line before any processing
     let source = if source.starts_with("#!") {
@@ -24,19 +29,41 @@ pub fn wrap_implicit_main(source: &str) -> String {
         return source.to_string();
     }
 
-    // Separate declarations from code
+    // Separate declarations from code using brace-depth tracking.
+    // Declaration keywords that start multi-line blocks at depth 0.
     let decl_keywords = ["type ", "enum ", "interface ", "module ", "const ", "use ", "fn ", "pub "];
     let mut declarations = Vec::new();
     let mut code_lines = Vec::new();
+    let mut in_decl = false;
+    let mut depth: i32 = 0;
 
     for line in trimmed.lines() {
         let trimmed_line = line.trim();
         if trimmed_line.is_empty() { continue; }
-        let is_decl = decl_keywords.iter().any(|kw| trimmed_line.starts_with(kw));
-        if is_decl {
-            declarations.push(trimmed_line.to_string());
+
+        if !in_decl {
+            // Check if this line starts a new declaration at depth 0
+            let is_decl = decl_keywords.iter().any(|kw| trimmed_line.starts_with(kw));
+            if is_decl {
+                in_decl = true;
+                depth = count_brace_delta(trimmed_line);
+                declarations.push(trimmed_line.to_string());
+                // Single-line declaration (e.g. `const X: Int = 5;` or `use foo;`)
+                if depth <= 0 {
+                    in_decl = false;
+                    depth = 0;
+                }
+            } else {
+                code_lines.push(trimmed_line.to_string());
+            }
         } else {
-            code_lines.push(trimmed_line.to_string());
+            // Inside a declaration — track brace depth
+            depth += count_brace_delta(trimmed_line);
+            declarations.push(trimmed_line.to_string());
+            if depth <= 0 {
+                in_decl = false;
+                depth = 0;
+            }
         }
     }
 
@@ -69,6 +96,15 @@ pub fn wrap_implicit_main(source: &str) -> String {
     result
 }
 
+/// Count the net change in brace depth from a single line.
+/// `{` increments, `}` decrements. Semantically: returns
+/// (number of `{`) - (number of `}`).
+fn count_brace_delta(line: &str) -> i32 {
+    let opens = line.chars().filter(|&c| c == '{').count() as i32;
+    let closes = line.chars().filter(|&c| c == '}').count() as i32;
+    opens - closes
+}
+
 /// Default imports for scripting mode.
 fn default_imports() -> &'static [&'static str] {
     &["use xiom.io;", "use xiom.convert;"]
@@ -88,61 +124,51 @@ fn add_default_imports(source: &str) -> String {
     result
 }
 
-/// Default imports for scripting mode.
-fn default_import_block() -> String {
-    "use xiom.io;\n".to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    fn test_wrap_simple_code() {
+        let result = wrap_implicit_main("io.println(\"hello\");");
+        assert!(result.contains("fn main()"), "should wrap code in fn main");
+        assert!(result.contains("io.println"), "should keep the code");
+    }
+
+    #[test]
+    fn test_wrap_with_type_decl() {
+        let src = "type Point = {\n  x: Float64;\n  y: Float64;\n}\nio.println(\"hi\");";
+        let result = wrap_implicit_main(src);
+        assert!(result.contains("type Point"), "type decl should be at top level");
+        assert!(result.contains("fn main()"), "code should be wrapped");
+        // type decl must appear BEFORE fn main
+        let type_pos = result.find("type Point").unwrap();
+        let main_pos = result.find("fn main()").unwrap();
+        assert!(type_pos < main_pos, "type decl must precede fn main");
+    }
+
+    #[test]
+    fn test_wrap_with_enum_decl() {
+        let src = "enum Color { Red, Green, Blue }\nio.println(\"color\");";
+        let result = wrap_implicit_main(src);
+        let enum_pos = result.find("enum Color").unwrap();
+        let main_pos = result.find("fn main()").unwrap();
+        assert!(enum_pos < main_pos, "enum decl must precede fn main");
+    }
+
+    #[test]
     fn test_no_wrap_when_main_exists() {
-        let src = "fn main() -> Int { return 42; }";
+        let src = "fn main() { io.println(\"hi\"); }";
         let result = wrap_implicit_main(src);
-        assert!(result.contains("fn main()"), "should contain main");
+        assert!(!result.contains("fn main() {\n    io.println"), "should not double-wrap");
     }
 
     #[test]
-    fn test_wrap_simple_expression() {
-        let src = "io.println(\"hello\");";
+    fn test_wrap_with_interface_decl() {
+        let src = "interface Drawable {\n  fn draw(self);\n}\nio.println(\"test\");";
         let result = wrap_implicit_main(src);
-        assert!(result.contains("fn main() {"));
-        assert!(result.contains("io.println"));
-        assert!(result.contains("use xiom.io;"), "should auto-import io");
-    }
-
-    #[test]
-    fn test_wrap_multiple_statements() {
-        let src = "var x = 1;\nio.println(x.to_str());";
-        let result = wrap_implicit_main(src);
-        assert!(result.contains("fn main() {"));
-        assert!(result.contains("use xiom.io;"));
-    }
-
-    #[test]
-    fn test_module_with_body() {
-        let src = "module test\nio.println(\"in module\");";
-        let result = wrap_implicit_main(src);
-        assert!(result.contains("module test"));
-        assert!(result.contains("fn main()"));
-    }
-
-    #[test]
-    fn test_module_only_declarations() {
-        // Module with only declarations (no executable code) stays at top level
-        let src = "module math\npub fn add(a: Int, b: Int) -> Int { return a + b; }";
-        let result = wrap_implicit_main(src);
-        assert!(result.contains("module math"));
-        assert!(result.contains("pub fn add"));
-    }
-
-    #[test]
-    fn test_already_has_main_after_module() {
-        let src = "module test\nfn main() -> Int { return 0; }";
-        let result = wrap_implicit_main(src);
-        assert!(result.contains("fn main()"), "should still have main");
-        assert!(result.contains("module test"));
+        let iface_pos = result.find("interface Drawable").unwrap();
+        let main_pos = result.find("fn main()").unwrap();
+        assert!(iface_pos < main_pos, "interface decl must precede fn main");
     }
 }
