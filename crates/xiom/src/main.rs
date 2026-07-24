@@ -80,10 +80,12 @@ use xiom_parser::Parser;
 use xiom_codegen::sandbox::SafetyAuditor;
 
 /// M10.4: Interactive REPL — compile and execute each line as a script.
+/// State (let/var declarations) persists across lines.
 fn run_repl() {
     use std::io::{self, Write};
-    eprintln!("XIOM REPL v0.49.9 — type :help for commands, :quit to exit");
+    eprintln!("XIOM REPL v0.50.0 — type :help for commands, :quit to exit");
     let mut line_num = 0u64;
+    let mut state: Vec<String> = Vec::new(); // accumulated let/var declarations
 
     loop {
         line_num += 1;
@@ -103,9 +105,16 @@ fn run_repl() {
                 ":help" | ":h" => {
                     eprintln!("  :quit, :q    Exit the REPL");
                     eprintln!("  :help, :h    Show this help");
+                    eprintln!("  :vars        Show accumulated variables");
+                    eprintln!("  :reset       Clear accumulated state");
                     eprintln!("  :type <e>    Show the type of an expression (future)");
                     eprintln!("  Any other input is compiled as a script and executed.");
                 }
+                ":vars" => {
+                    if state.is_empty() { eprintln!("  (no variables)"); }
+                    else { for v in &state { eprintln!("  {v}"); } }
+                }
+                ":reset" => { state.clear(); eprintln!("  State cleared."); }
                 _ if trimmed.starts_with(":type") => {
                     eprintln!("  (type inspection coming in REPL v2)");
                 }
@@ -114,8 +123,22 @@ fn run_repl() {
             continue;
         }
 
-        // Compile and execute the line
-        let source = xiom::implicit_main::wrap_implicit_main(trimmed);
+        // Track let/var declarations for state persistence
+        let is_binding = trimmed.starts_with("let ") || trimmed.starts_with("var ");
+        if is_binding {
+            state.push(trimmed.to_string());
+        }
+
+        // Build source: accumulated state + current input
+        let mut source = String::new();
+        for stmt in &state {
+            source.push_str(stmt);
+            source.push('\n');
+        }
+        source.push_str(trimmed);
+        source.push('\n');
+
+        let source = xiom::implicit_main::wrap_implicit_main(&source);
         let tmp_dir = std::env::temp_dir().join("xiom_repl");
         let _ = std::fs::create_dir_all(&tmp_dir);
         let tmp_src = tmp_dir.join(format!("_repl_{line_num}.xi"));
