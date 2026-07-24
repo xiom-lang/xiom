@@ -101,7 +101,9 @@ $tooling = @(
     @{pkg="xiom-ffigen";   test=$null; label="ffi-gen"},
     @{pkg="xiom-mcp";      test=$null; label="mcp-server"},
     @{pkg="xiom-dbg";      test=$null; label="debugger"},
-    @{pkg="xiom-verify";   test="verifier_tests"; label="verifier"}
+    @{pkg="xiom-verify";   test="verifier_tests"; label="verifier"},
+    @{pkg="xiom";          test="scripting_tests"; label="scripting"},
+    @{pkg="xiom";          test="diff_tests"; label="script-diff"}
 )
 
 $global:totalPassed = 0; $global:totalFailed = 0; $global:totalIgnored = 0
