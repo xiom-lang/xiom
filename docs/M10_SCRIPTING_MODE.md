@@ -2,6 +2,8 @@
 
 **Date:** 2026-07-24 | **Status:** Design Phase | **Target:** v0.50.0 "Scripting Edition"
 **Dependency:** M1-M9 complete. Requires `xiom run` CLI + JIT backend.
+**Implementation standard:** FULL PRODUCTION. No MVP, no shortcuts. Every feature ships
+with complete error handling, documentation, TDD test suite, and self-host differential verification.
 
 ## 1. Motivation
 
@@ -317,17 +319,17 @@ test_jit_selfhost_parser — JIT the selfhost parser, use it to parse a test fil
 test_jit_selfhost_full — JIT the full selfhost compiler, compile a test.xi → run → verify output
 ```
 
-## 7. Phase Schedule
+## 7. Phase Schedule (All Production-Grade)
 
 | Phase | Items | Effort | Dependencies |
 |-------|-------|--------|-------------|
-| **M10.1** Foundation | Shebang lexer + implicit main + `xiom run` CLI (inkwell JIT) | 4d | M9 done |
-| **M10.2** Standalone | `xiom build --standalone` + scaffold + differential tests | 2d | M10.1 |
-| **M10.3** Self-host JIT | JIT the selfhost compiler, full E2E differential testing | 3d | M10.1 + selfhost functional |
-| **M10.4** REPL (deferred) | Interactive xiom repl with state persistence | 2d | M10.1 |
-| **M10.5** Hot reload JIT (deferred) | `xiom run --watch` + hot-reload integration | 2d | M10.1 |
+| **M10.1** Foundation | Shebang lexer + implicit main + `xiom run` CLI (inkwell JIT). Full error handling on JIT failures, stdin/e/file modes, argument passing. | 5d | M9 done |
+| **M10.2** Standalone | `xiom build --standalone` + scaffold. Differential testing: standalone binary IR must match AOT IR byte-for-byte. | 3d | M10.1 |
+| **M10.3** Self-host JIT | JIT the full selfhost compiler. Full E2E differential testing. JIT and AOT must produce identical stdout/stderr/exit code on 100% of the test suite. | 4d | M10.1 + selfhost functional |
+| **M10.4** REPL | Interactive `xiom repl` with persistent JIT session, type inspection (`:type`), variable shadowing across lines, history, readline support. | 3d | M10.1 |
+| **M10.5** Hot reload JIT | `xiom run --watch` file watcher + incremental re-JIT on change. Shares infrastructure with `xiom-codegen` hot-reload system. | 3d | M10.1 |
 
-**Total M10 effort: 9d (phases 1-3) + 4d deferred (phases 4-5)**
+**Total M10 effort: 18d for complete production implementation.**
 
 ## 8. Risks & Mitigations
 
@@ -339,14 +341,22 @@ test_jit_selfhost_full — JIT the full selfhost compiler, compile a test.xi →
 | JIT and AOT produce different results | Trust erosion | Differential testing: JIT and AOT must produce identical stdout/stderr/exit code. Part of CI. |
 | Self-host compiler too large for JIT | OOM, slow | Incremental JIT: compile only called functions. Lazy compilation built into ORC JITv2. |
 
-## 9. Success Criteria
+## 9. Success Criteria (All Mandatory)
 
-1. `echo 'io.println("hello")' | xiom run -` prints "hello" with <50ms wall time
-2. `xiom run selfhost/lexer.xi < test.xi` lexes correctly via JIT
-3. `xiom build --standalone myscript.xi -o mytool.exe` produces a binary that runs identically
-4. All existing 934 tests pass with zero regressions
-5. New test suite: 30+ JIT-specific tests covering implicit main, shebang, JIT execution, standalone build
-6. Self-host differential test: JIT selfhost compiler produces same output as AOT selfhost compiler
+1. `echo 'io.println("hello")' | xiom run -` prints "hello" with <30ms wall time
+2. `xiom run selfhost/lexer.xi < test.xi` lexes correctly via JIT, output byte-identical to AOT
+3. `xiom run selfhost/parser.xi < test.xi` parses correctly via JIT, AST identical to AOT
+4. `xiom run selfhost/checker.xi < test.xi` type-checks correctly via JIT
+5. `xiom run selfhost/codegen.xi < test.xi` emits identical LLVM IR to AOT
+6. `xiom run selfhost/compiler.xi examples/demo_float.xi` produces binary that runs and returns same exit code as AOT-compiled selfhost
+7. `xiom build --standalone myscript.xi -o mytool.exe` produces a binary that runs identically to `xiom run myscript.xi`
+8. `xiom repl` session: define variable, use in expression, shadow it, inspect type — all correct
+9. `xiom run --watch script.xi` re-executes on file save within 50ms
+10. All existing 934 tests pass with zero regressions
+11. New test suite: 50+ JIT-specific tests covering every phase
+12. Shebang scripts: `#!/usr/bin/env xiom` executable scripts work on Linux/macOS
+13. `xiom run -e` inline mode handles multi-statement input correctly
+14. Contract violations in JIT mode trap with the same file/line/message as AOT mode
 
 ## 10. Post-M10 Vision
 

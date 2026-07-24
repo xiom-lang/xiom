@@ -26,7 +26,7 @@ impl Backend {
 
     pub fn publish_diagnostics(&self, uri: &str) -> Vec<serde_json::Value> {
         let text = {
-            let docs = self.documents.lock().unwrap();
+            let docs = self.documents.lock().expect("document store mutex poisoned");
             docs.get(uri).cloned()
         };
         let text = match text {

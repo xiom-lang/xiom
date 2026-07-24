@@ -78,7 +78,7 @@ pub fn handle_did_open(msg: &serde_json::Value, backend: &Backend, responses: &m
     ) {
         let uri = uri.to_string();
         {
-            let mut docs = backend.documents.lock().unwrap();
+            let mut docs = backend.documents.lock().expect("document store mutex poisoned");
             docs.insert(uri.clone(), text.to_string());
         }
         let diagnostics = backend.publish_diagnostics(&uri);
@@ -96,7 +96,7 @@ pub fn handle_did_change(msg: &serde_json::Value, backend: &Backend, responses: 
         let uri = uri.to_string();
         if let Some(changes) = params["contentChanges"].as_array() {
             {
-                let mut docs = backend.documents.lock().unwrap();
+                let mut docs = backend.documents.lock().expect("document store mutex poisoned");
                 let text = docs.entry(uri.clone()).or_default();
                 for change in changes {
                     if change.get("range").and_then(|r| r.as_object()).is_some() {
@@ -125,7 +125,7 @@ pub fn handle_did_change(msg: &serde_json::Value, backend: &Backend, responses: 
 pub fn handle_did_close(msg: &serde_json::Value, backend: &Backend) {
     let params = &msg["params"];
     if let Some(uri) = params["textDocument"]["uri"].as_str() {
-        let mut docs = backend.documents.lock().unwrap();
+        let mut docs = backend.documents.lock().expect("document store mutex poisoned");
         docs.remove(uri);
     }
 }
@@ -142,7 +142,7 @@ pub fn handle_hover(msg: &serde_json::Value, backend: &Backend, responses: &mut 
     let ai_insight = uri.as_ref().and_then(|u| get_ai_insight_for_line(u, line));
 
     let hover = uri.and_then(|u| {
-        let docs = backend.documents.lock().unwrap();
+        let docs = backend.documents.lock().expect("document store mutex poisoned");
         let text = docs.get(&u)?.clone();
         drop(docs);
         let line_str = text.lines().nth(line)?;
@@ -277,7 +277,7 @@ pub fn handle_completion(msg: &serde_json::Value, backend: &Backend, responses: 
     let mut items = Vec::new();
 
     let (word_prefix, is_dot_completion, obj_name, member_prefix) = uri.as_ref().and_then(|u| {
-        let docs = backend.documents.lock().unwrap();
+        let docs = backend.documents.lock().expect("document store mutex poisoned");
         let text = docs.get(u)?;
         let line_str = text.lines().nth(line)?;
         let before_cursor = &line_str[..character.min(line_str.len())];
@@ -364,7 +364,7 @@ pub fn handle_completion(msg: &serde_json::Value, backend: &Backend, responses: 
     }
 
     if let Some(ref u) = uri {
-        let docs = backend.documents.lock().unwrap();
+        let docs = backend.documents.lock().expect("document store mutex poisoned");
         if let Some(text) = docs.get(u) {
             let mut lexer = xiom_lexer::Lexer::new(text);
             let tokens = lexer.tokenize();
@@ -449,7 +449,7 @@ pub fn handle_definition(msg: &serde_json::Value, backend: &Backend, responses: 
 
     if let Some(ref u) = uri {
         let word = {
-            let docs = backend.documents.lock().unwrap();
+            let docs = backend.documents.lock().expect("document store mutex poisoned");
             if let Some(text) = docs.get(u) {
                 let line_str = text.lines().nth(line).unwrap_or("");
                 extract_word(line_str, character)
@@ -457,7 +457,7 @@ pub fn handle_definition(msg: &serde_json::Value, backend: &Backend, responses: 
         };
 
         if !word.is_empty() {
-            let docs = backend.documents.lock().unwrap();
+            let docs = backend.documents.lock().expect("document store mutex poisoned");
             if let Some(text) = docs.get(u) {
                 let mut lexer = xiom_lexer::Lexer::new(text);
                 let tokens = lexer.tokenize();
@@ -489,7 +489,7 @@ pub fn handle_signature_help(msg: &serde_json::Value, backend: &Backend, respons
     let mut signatures = Vec::new();
     let mut active_parameter = 0;
 
-    let docs = backend.documents.lock().unwrap();
+    let docs = backend.documents.lock().expect("document store mutex poisoned");
     if let Some(text) = docs.get(uri) {
         let line_str = text.lines().nth(line).unwrap_or("");
         let before_cursor = &line_str[..character.min(line_str.len())];
@@ -545,7 +545,7 @@ pub fn handle_document_symbols(msg: &serde_json::Value, backend: &Backend, respo
     let mut symbols = Vec::new();
 
     if let Some(ref u) = uri {
-        let docs = backend.documents.lock().unwrap();
+        let docs = backend.documents.lock().expect("document store mutex poisoned");
         if let Some(text) = docs.get(u) {
             let mut lexer = xiom_lexer::Lexer::new(text);
             let tokens = lexer.tokenize();
@@ -570,7 +570,7 @@ pub fn handle_references(msg: &serde_json::Value, backend: &Backend, responses: 
 
     let mut locations = Vec::new();
     if let Some(ident) = find_ident_at(backend, uri, line, col) {
-        let docs = backend.documents.lock().unwrap();
+        let docs = backend.documents.lock().expect("document store mutex poisoned");
         if let Some(text) = docs.get(uri) {
             for (ln, line_text) in text.lines().enumerate() {
                 let mut search_start = 0;
@@ -607,7 +607,7 @@ pub fn handle_rename(msg: &serde_json::Value, backend: &Backend, responses: &mut
     let mut edits = Vec::new();
     if !new_name.is_empty() {
         if let Some(ident) = find_ident_at(backend, uri, line, col) {
-            let mut docs = backend.documents.lock().unwrap();
+            let mut docs = backend.documents.lock().expect("document store mutex poisoned");
             if let Some(text) = docs.get_mut(uri) {
                 let mut text_edits = Vec::new();
                 for (ln, line_text) in text.lines().enumerate() {
@@ -725,7 +725,7 @@ pub fn handle_workspace_symbol(msg: &serde_json::Value, backend: &Backend, respo
     let mut symbols = Vec::new();
 
     {
-        let docs = backend.documents.lock().unwrap();
+        let docs = backend.documents.lock().expect("document store mutex poisoned");
         for (uri, text) in docs.iter() {
             let items = parse_workspace_document(text);
             for item in &items {
