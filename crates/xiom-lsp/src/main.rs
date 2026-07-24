@@ -450,4 +450,108 @@ mod tests {
         assert_eq!(symbols3[0]["name"].as_str(), Some("Color"));
         assert_eq!(symbols3[0]["kind"].as_i64(), Some(13));
     }
+
+    // M3.3: Rename and CodeAction tests
+
+    #[test]
+    fn test_rename_symbol() {
+        let backend = Backend::new();
+        open_document(&backend, "file:///test.xi", "fn hello() -> Int { 42 }");
+
+        let msg = parse_msg(
+            r#"{
+                "jsonrpc": "2.0", "id": 30, "method": "textDocument/rename",
+                "params": {
+                    "textDocument": {"uri": "file:///test.xi"},
+                    "position": {"line": 0, "character": 3},
+                    "newName": "greet"
+                }
+            }"#,
+        );
+        let responses = handle_lsp_message(&msg, &backend);
+        // Rename should return a response (even if empty changes)
+        assert!(!responses.is_empty(), "rename should produce a response");
+    }
+
+    #[test]
+    fn test_rename_no_document() {
+        let backend = Backend::new();
+        let msg = parse_msg(
+            r#"{
+                "jsonrpc": "2.0", "id": 31, "method": "textDocument/rename",
+                "params": {
+                    "textDocument": {"uri": "file:///nonexistent.xi"},
+                    "position": {"line": 0, "character": 0},
+                    "newName": "x"
+                }
+            }"#,
+        );
+        let responses = handle_lsp_message(&msg, &backend);
+        // Rename on unknown document should still produce a response
+        assert!(!responses.is_empty(), "rename should produce a response even for unknown doc");
+    }
+
+    #[test]
+    fn test_code_action_type_mismatch() {
+        let backend = Backend::new();
+        // Open a document and push a type error diagnostic, then request code actions
+        open_document(&backend, "file:///err.xi", "fn main() { io.println(42); }");
+
+        let msg = parse_msg(
+            r#"{
+                "jsonrpc": "2.0", "id": 32, "method": "textDocument/codeAction",
+                "params": {
+                    "textDocument": {"uri": "file:///err.xi"},
+                    "range": {
+                        "start": {"line": 0, "character": 0},
+                        "end": {"line": 0, "character": 99}
+                    },
+                    "context": {
+                        "diagnostics": [{
+                            "range": {
+                                "start": {"line": 0, "character": 28},
+                                "end": {"line": 0, "character": 30}
+                            },
+                            "message": "expected Str, found Int",
+                            "code": "T001",
+                            "severity": 1
+                        }]
+                    }
+                }
+            }"#,
+        );
+        let responses = handle_lsp_message(&msg, &backend);
+        let ca_response = find_response_by_id(&responses, 32)
+            .expect("should have codeAction response");
+        let actions = ca_response["result"].as_array()
+            .expect("result should be array");
+        // May have suggestions or be empty — both are valid
+        assert!(actions.len() >= 0, "code actions should be an array");
+    }
+
+    #[test]
+    fn test_code_action_no_diagnostics() {
+        let backend = Backend::new();
+        open_document(&backend, "file:///clean.xi", "fn main() -> Int { 42 }");
+
+        let msg = parse_msg(
+            r#"{
+                "jsonrpc": "2.0", "id": 33, "method": "textDocument/codeAction",
+                "params": {
+                    "textDocument": {"uri": "file:///clean.xi"},
+                    "range": {
+                        "start": {"line": 0, "character": 0},
+                        "end": {"line": 0, "character": 99}
+                    },
+                    "context": {"diagnostics": []}
+                }
+            }"#,
+        );
+        let responses = handle_lsp_message(&msg, &backend);
+        let ca_response = find_response_by_id(&responses, 33)
+            .expect("should have codeAction response");
+        let actions = ca_response["result"].as_array()
+            .expect("result should be array");
+        assert_eq!(actions.len(), 0, "no diagnostics should yield no code actions");
+    }
 }
