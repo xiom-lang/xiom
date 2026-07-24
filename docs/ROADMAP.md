@@ -385,15 +385,34 @@ Enhance existing diagnostic capabilities:
 
 | Phase | Items | Effort | Depends on |
 |-------|-------|--------|-----------|
-| M13.1 | Stdlib completion catalog | 1d | — |
-| M13.2 | lsp-types adoption | 1.5d | — |
+| M13.1 | Stdlib completion catalog | 1d | -- |
+| M13.2 | lsp-types adoption | 1.5d | -- |
 | M13.3 | Formatting support | 0.5d | M13.2 |
 | M13.4 | Rename/codeAction tests | 0.5d | M13.2 |
 | M13.5 | Playground completion | 1d | M13.1 |
 | M13.6 | REPL :list | 0.5d | M13.1 |
 | M13.7 | Quickfix + links | 0.5d | M13.2 |
+| M13.8 | Workspace index | 1d | M13.1 |
+| M13.9 | Package index | 0.5d | M13.1, M13.8 |
+| M13.10 | Cross-file use resolution | 0.5d | M13.8 |
 
-**Total M13 effort: 5.5d. Target v0.51.0.**
+**Total M13 effort: 7.5d. Target v0.51.0.**
+
+### M13.8 — Workspace Index (1d) — custom modules
+
+Parse all `.xi` files in the workspace at LSP startup. Extract every `pub fn`
+declaration with signatures. Re-index on file save. Enables `use ./utils; utils.`
+completion for project-local modules.
+
+### M13.9 — Package Index (0.5d) — ecosystem packages
+
+Scan `~/.xiom/packages/` for installed packages. Extract `pub fn` exports.
+Refreshed on `xiom pkg install`. Enables `use mypkg; mypkg.` completion.
+
+### M13.10 — Cross-File `use` Resolution (0.5d)
+
+Follow `use` chains transitively. `use ./a;` where `./a.xi` has `use ./b;`
+resolves functions from `b` through `a`.
 
 ---
 
@@ -401,7 +420,7 @@ Enhance existing diagnostic capabilities:
 
 | Version | Date | Tests | Notes |
 |---------|------|-------|-------|
-| **v0.50.0** | 2026-07-24 | **1040** | M10 scripting (xiom run, --standalone, repl, --watch, shebang), M11 hardening (JIT libloading, cache, CI, 15 diff tests, 34 script tests), M4.2/M4.4/M4.5 all DONE. 10/10 production ready. |
+| **v0.50.0** | 2026-07-25 | **1041** | M10-M12 complete, scripting/JIT, libloading, cache, CI, 34 script + 15 diff tests. M4/M9 all done. XIOM v0.50.0 LLVM IR header. Auto stdlib discovery. |
 | v0.49.9 | 2026-07-24 | 934 | M4.1 (IrEmitter split), M4.3 (LSP split), M4.6 (unsafe docs), playground fixes (372 lessons), M9.6 (impl Trait), Node.js registry backend. 11/11 M9 closed. |
 | v0.49.8 | 2026-07-21 | 924 | 10/11 M9 gaps closed, ASCII installer, fuzz harnesses, HTML docs |
 | v0.49.7 | 2026-07-21 | 910 | Phase 8B/M4-M9 complete, preflight audit |
