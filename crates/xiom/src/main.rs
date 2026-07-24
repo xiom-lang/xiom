@@ -24,6 +24,16 @@ use std::process;
 use std::time::Duration;
 
 use xiom::{self, compile, CompileConfig, Target, resolve_source_files};
+
+/// Call compile() and exit on failure — all process::exit calls are confined to this binary.
+fn compile_or_exit(config: &CompileConfig, sources: &[String]) {
+    if let Err(errors) = compile(config, sources) {
+        for e in &errors {
+            eprintln!("error: {e}");
+        }
+        process::exit(1);
+    }
+}
 use xiom_lexer::Lexer;
 use xiom_parser::Parser;
 use xiom_codegen::sandbox::SafetyAuditor;
@@ -323,7 +333,7 @@ fn main() {
     if build_mode && !watch_mode {
         if !source_paths.is_empty() {
             let (resolved, _) = xiom::expand_sources_with_graph(&source_paths);
-            compile(&config, &resolved);
+            compile_or_exit(&config, &resolved);
         } else {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             if let Ok(graph) = xiom_graph::build_project_graph(&cwd) {
@@ -333,7 +343,7 @@ fn main() {
                         let files: Vec<String> = order.iter()
                             .map(|p| p.to_string_lossy().to_string())
                             .collect();
-                        compile(&config, &files);
+                        compile_or_exit(&config, &files);
                     }
                     Err(e) => { eprintln!("error: {e}"); process::exit(1); }
                 }
@@ -422,8 +432,11 @@ fn main() {
             }
         }
 
-        // Initial compile
-        compile(&hot_config, &source_paths);
+        // Initial compile — exit on failure for hot reload
+        if let Err(errors) = compile(&hot_config, &source_paths) {
+            for e in &errors { eprintln!("error: {e}"); }
+            process::exit(1);
+        }
 
         loop {
             std::thread::sleep(std::time::Duration::from_millis(500));
@@ -438,7 +451,7 @@ fn main() {
                     }
                 }
             }
-            if changed { compile(&hot_config, &source_paths); }
+            if changed { if let Err(errors) = compile(&hot_config, &source_paths) { for e in &errors { eprintln!("error: {e}"); } } }
         }
     }
 
@@ -558,7 +571,7 @@ fn main() {
         process::exit(0);
     }
 
-    compile(&config, &source_paths);
+    compile_or_exit(&config, &source_paths);
 }
 
 fn print_usage() {
