@@ -1,516 +1,574 @@
 # XIOM Compiler Architecture
 
-**Version:** v0.50.0 "Production Edition"
-**Date:** 2026-07-25
-**Branch:** `feat/architect`
-**Tests:** 1041/1041 all passing (681 compiler + 360 tooling)
-**Status:** Production-hardened — all M1-M12 phases complete
-
-This document is the authoritative reference for the XIOM compiler architecture,
-pipeline, compilation modes, CLI flags, crate structure, and runtime model.
+**Version:** v0.50.0 | **Date:** 2026-07-25
+**Tests:** 1041/1041 | **Crates:** 17 | **Stdlib:** 40 modules
 
 ---
 
-## 1. Pipeline Overview
+## 1. Pipeline
 
 ```
-                    .xi Source File
-                         │
-                         ▼
-┌──────────────────────────────────────────────────────────────┐
-│                      XIOM COMPILER                           │
-│                                                              │
-│  ┌────────┐   ┌────────┐   ┌─────────┐   ┌───────────────┐ │
-│  │ Lexer  │──▶│ Parser │──▶│ Checker │──▶│ Borrow Checker│ │
-│  │(xiom-  │   │(xiom-  │   │(xiom-   │   │(xiom-check/   │ │
-│  │ lexer) │   │ parser)│   │ check)  │   │ borrow/)       │ │
-│  └────────┘   └────────┘   └─────────┘   └───────┬───────┘ │
-│                                                   │         │
-│                                          ┌────────▼────────┐│
-│                                          │    Codegen       ││
-│                                          │ (xiom-codegen)   ││
-│                                          │ AST → LLVM IR    ││
-│                                          └────────┬────────┘│
-│                                                   │         │
-│                              ┌────────────────────▼───────┐ │
-│                              │  LLVM IR (.ll)             │ │
-│                              │  ; XIOM v0.50.0 LLVM IR   │ │
-│                              └────────────────────┬───────┘ │
-│                                                   │         │
-│  ┌────────────────────────────────────────────────┼───────┐ │
-│  │              COMPILATION TARGETS               │       │ │
-│  │                                                │       │ │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────────┐ │       │ │
-│  │  │ Native   │  │   WASM   │  │  ARM / RISC-V│ │       │ │
-│  │  │ clang →  │  │ clang →  │  │ cross-clang  │ │       │ │
-│  │  │ .exe/.out│  │  .wasm   │  │   → .out     │ │       │ │
-│  │  └──────────┘  └──────────┘  └──────────────┘ │       │ │
-│  └────────────────────────────────────────────────┘       │ │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │              SCRIPTING / JIT MODE (xiom run)         │   │
-│  │  Lex → Parse → Check → IR → clang -shared → .dll    │   │
-│  │  → libloading::Library::new() → main() in-process   │   │
-│  └──────────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────────┘
+.xi Source
+    │
+    ▼
+┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────────┐    ┌───────────┐    ┌──────┐
+│  Lexer   │───▶│  Parser  │───▶│  Checker │───▶│Borrow Checker│───▶│  Codegen  │───▶│clang │──▶ binary
+│xiom-lexer│    │xiom-parser│   │xiom-check│   │ (check crate)│   │xiom-codegen│   │      │
+└──────────┘    └──────────┘    └──────────┘    └──────────────┘    └───────────┘    └──────┘
+     │               │               │                                    │
+     ▼               ▼               ▼                                    ▼
+  TokenStream      Program        Checked              Optional:       LLVM IR (.ll)
+  Vec<Token>     (AST root)      Program           ┌──────────┐    "; XIOM v0.50.0 LLVM IR"
+                                                    │ xiom-    │    target triple = "..."
+                                                    │ verify   │    define i64 @main(...)
+                                                    └────┬─────┘
+                                                         ▼
+                                                    SMT-LIB 2.6
+                                                    (Z3 proof)
 ```
 
-## 2. Compilation Modes
+### What each stage does
 
-### 2.1 Standard AOT (`xiom file.xi`)
-
-Full ahead-of-time compilation. Produces a native binary.
-
-```
-xiom main.xi -o app.exe           # Windows
-xiom main.xi -o app               # Linux/macOS
-xiom main.xi --release            # Optimized build (LLVM -O3)
-xiom main.xi --target wasm        # WASM target
-```
-
-### 2.2 Scripting Mode (`xiom run`)
-
-Zero-boilerplate execution. Auto-wraps top-level code in `fn main()` and adds `use xiom.io;`.
-
-```bash
-xiom run script.xi                # Execute a script file
-xiom run -e "io.println(42)"      # Inline expression
-xiom run -                        # Read from stdin
-xiom run --watch script.xi        # Watch and re-run on changes
-xiom run --jit script.xi          # True JIT via shared library loading
-```
-
-**Implicit main wrapping:**
-```xiom
-// User writes:                       // Compiler treats as:
-io.println("hello");                  use xiom.io;
-                                      fn main() { io.println("hello"); }
-```
-
-**IMPORTANT:** `xiom run` does NOT relax type checking. Only adds `use xiom.io;` and wraps in `fn main()`.
-
-### 2.3 Interactive REPL (`xiom repl`)
-
-```bash
-xiom> var x = 42
-xiom> io.println(x.to_str())
-42
-xiom> :vars                        # Show accumulated state
-  var x = 42
-xiom> :reset                       # Clear state
-xiom> :list io                     # Show module functions (M13)
-xiom> :quit
-```
-
-### 2.4 Check-Only (`xiom --check`)
-
-Type-checks without producing a binary. Used in CI and IDEs.
-
-```bash
-xiom --check file.xi               # Type-check only
-xiom --check --diagnostics-json file.xi  # Machine-readable output
-```
-
-### 2.5 Emit IR (`xiom --emit-ir`)
-
-Prints LLVM IR to stdout. Used for debugging and playground.
-
-```bash
-xiom --emit-ir file.xi             # Print IR to stdout
-xiom --emit-ir --target wasm file.xi  # WASM IR
-```
-
-### 2.6 Standalone Build (`xiom --standalone`)
-
-Converts a script to a production binary. Graduates scripting code to AOT.
-
-```bash
-xiom --standalone script.xi -o mytool.exe
-xiom --standalone --scaffold script.xi   # Also create project structure
-```
-
-### 2.7 Package Manager (`xiom pkg`)
-
-```bash
-xiom pkg install <name>            # Install from registry
-xiom pkg search <query>            # Search packages
-xiom pkg publish                   # Publish to registry
-```
+| Stage | Input | Output | Key logic |
+|-------|-------|--------|-----------|
+| **Lexer** | `.xi` source text | `Vec<Token>` | Character-by-character scan. Identifies keywords, literals, operators. Shebang (`#!`) line skipped. |
+| **Parser** | `Vec<Token>` | `Program` (AST) | LL(1) recursive descent. No backtracking. Builds AST with spans for error reporting. `use` resolution through xiom-graph. |
+| **Checker** | `Program` | Checked `Program` | Type inference, name resolution, interface satisfaction, generic monomorphisation. Module catalog built from stdlib + source dirs. |
+| **Borrow Checker** | Checked `Program` | Validated program | Lexical-scope ownership. Tracks read/write borrows per variable. Errors on use-after-move, double mutable borrow. |
+| **Codegen** | Checked `Program` | LLVM IR text | Walks AST, emits IR. Function definitions, expressions, match, control flow. Contract guards become `@llvm.trap()` calls. |
+| **clang** | LLVM IR + C runtime | Native binary | Compiles `.ll` → `.o`, links with `xiom_runtime.c`. Produces `.exe`/`.out`/`.wasm`. |
 
 ---
 
-## 3. Complete CLI Flags
+## 2. Lexer (`xiom-lexer`)
 
-| Flag | Mode | Description |
-|------|------|-------------|
-| `-o <path>` | All | Output binary path |
-| `--release` | AOT | Optimized build (LLVM -O3) |
-| `--target <t>` | AOT | Target: native (default), wasm, arm, riscv |
-| `--check` | All | Type-check only, no binary |
-| `--emit-ir` | All | Print LLVM IR to stdout |
-| `--emit-tokens` | All | Print token stream (lexer debug) |
-| `--diagnostics-json` | All | JSON-formatted diagnostics |
-| `--standalone` | AOT | Script-to-binary conversion |
-| `--scaffold` | AOT | Create project directory structure |
-| `--watch` | Scripting | File watcher (with `xiom run`) |
-| `--jit` | Scripting | True in-process JIT execution |
-| `--clean` | — | Remove build artifacts |
-| `--clean --cache` | — | Clear JIT script cache |
-| `--verify` | AOT | Generate SMT-LIB for Z3 |
-| `--no-contracts` | AOT | Disable contract runtime checks |
-| `--runtime-contracts` | AOT | Force contracts in release builds |
-| `--sanitize=<type>` | AOT | Enable sanitizer (address, undefined, leak, thread) |
-| `--stack-protector` | AOT | Enable stack canaries |
-| `--shared` | AOT | Produce shared library (.dll/.so) |
-| `--static` | AOT | Produce static library (.lib/.a) |
-| `--hot-reload` | AOT | Generate hot-reload manifest |
-| `--incremental` | AOT | Incremental compilation |
-| `--parallel` | AOT | Parallel compilation |
-| `--jobs <N>` | AOT | Number of parallel jobs |
-| `--max-depth <N>` | AOT | Recursion depth limit (default 2000) |
-| `--strict` | AOT | Strict mode (error on unknown types) |
-| `--debug` | AOT | Compile with debug symbols (-g) |
-| `--time` | All | Print compilation timing |
-| `--verbose` | All | Verbose output |
-| `--explain <code>` | — | Explain error code (e.g. --explain T001) |
-| `--version` | — | Print version |
-| `--help` | — | Print help |
+**File:** `crates/xiom-lexer/src/lib.rs` (503 lines)
 
-### Subcommands
+```
+Source: "fn add(a: Int, b: Int) -> Int { return a + b; }"
+   │
+   ▼
+Tokens: [Fn, Ident("add"), LParen, Ident("a"), Colon, Ident("Int"),
+         Comma, Ident("b"), Colon, Ident("Int"), RParen, Arrow,
+         Ident("Int"), LBrace, Return, Ident("a"), Plus,
+         Ident("b"), Semicolon, RBrace, EOF]
+```
 
-| Command | Description |
-|---------|-------------|
-| `xiom run <file>` | Scripting execution |
-| `xiom run -e "code"` | Inline expression |
-| `xiom run -` | Read from stdin |
-| `xiom run --watch <file>` | Watch and re-run |
-| `xiom run --jit <file>` | True JIT execution |
-| `xiom repl` | Interactive REPL |
-| `xiom pkg install <name>` | Install package |
-| `xiom pkg search <query>` | Search packages |
-| `xiom build <dir>` | Build project (package.xi) |
-| `xiom doctor` | Check toolchain dependencies |
+### Key types
+
+```rust
+pub struct Lexer { source: Vec<char>, pos: usize, line: usize, col: usize }
+
+pub struct Token { pub kind: TokenKind, pub lexeme: String, pub span: Span }
+
+pub enum TokenKind {
+    // Keywords
+    Fn, Let, Var, Return, If, Else, Elif, Match, While, For, In,
+    Module, Use, Pub, Type, Enum, Interface, Derive, Async, Await,
+    Spawn, Unsafe, Extern, Comptime, As, Is, Where, And, Or, Not,
+    // Literals
+    Ident(String), Int(u64), Float(f64), Str(String), Char(char),
+    Bool(bool), Self_, Some, None, Ok_, Err_,
+    // Operators & delimiters
+    Plus, Minus, Star, Slash, Percent, Eq, Neq, Lt, Gt, Le, Ge,
+    AndAnd, OrOr, Bang, Dot, Comma, Colon, Semicolon, Arrow,
+    LParen, RParen, LBrace, RBrace, LBracket, RBracket,
+    // Special
+    Error(String), Eof,
+}
+```
+
+### Design decisions
+
+- **No regex.** Character-by-character matching. Every operator and keyword is matched explicitly.
+- **Shebang support.** If source starts with `#!`, the first line is skipped as a comment.
+- **Span tracking.** Every token carries `(line, col)` for accurate error messages.
+- **No allocation for keywords.** Keywords are matched from a static list, not interned.
 
 ---
 
-## 4. Crate Architecture
+## 3. Parser (`xiom-parser`)
+
+**File:** `crates/xiom-parser/src/lib.rs` (1,851 lines)
+
+### Architecture
 
 ```
-xiom (CLI + Library)
-├── xiom-ast        — AST definitions, types, expressions, statements
-├── xiom-lexer      — Lexer (tokenizer), shebang support
-├── xiom-parser     — LL(1) recursive descent parser
-├── xiom-check      — Type checker, borrow checker, module catalog
-│   ├── borrow/     — Borrow checking (loans, places)
-│   └── compat/     — Compatibility/coercion logic
-├── xiom-codegen    — LLVM IR code generation
-│   ├── context.rs  — CodegenConfig, TypeContext, FunctionContext, MonoContext, LocalContext
-│   ├── call.rs     — Function/method call compilation
-│   ├── stmt.rs     — Statement compilation
-│   ├── expr.rs     — Expression compilation
-│   ├── decl.rs     — Declaration compilation
-│   ├── types.rs    — Type resolution
-│   ├── coerce.rs   — Value coercion
-│   ├── contracts.rs— Contract guard emission
-│   ├── vec_abi.rs  — Vec ABI primitives
-│   ├── enum_ctors.rs— Enum constructor generation
-│   ├── emitter.rs  — IR output helpers
-│   ├── sandbox.rs  — Safety auditor
-│   ├── jit.rs      — JIT via libloading
-│   └── call.rs     — Function call compilation (extracted from expr.rs)
-├── xiom-graph      — Project dependency graph, manifest parsing
-├── xiom-verify     — SMT-LIB generation, Z3 contract verification
-├── xiom-fmt        — XIOM source formatter
-├── xiom-display    — Type/fn signature display utilities
-├── xiom-doc        — Documentation generator
-├── xiom-lsp        — Language Server Protocol (10 modules)
-│   ├── backend     — Document storage + diagnostics
-│   ├── transport   — JSON-RPC I/O
-│   ├── handlers    — LSP method handlers
-│   ├── resolver    — Type resolution, symbol lookup
-│   ├── symbols     — Document/workspace symbols
-│   ├── semantic_tokens — Syntax highlighting
-│   └── uri, diagnostics, ai, text_edit
-├── xiom-mcp        — MCP server (Model Context Protocol)
-├── xiom-pkg        — Package manager (install, search, publish)
-├── xiom-dbg        — Debug adapter protocol server (GDB/CDB backends)
-├── xiom-ffigen     — FFI bindings generator
-├── xiom-wasm       — WASM compiler for playground (browser)
-└── xiom-playground — Playground server (Node.js), 372 lessons
+LL(1) recursive descent — one `parse_*` function per grammar production.
+
+parse_program()          → Vec<TopDecl>
+  parse_top_decl()       → TopDecl
+    parse_fn_decl()      → FnDecl (if peek == Fn)
+    parse_type_decl()    → TypeDecl (if peek == Type)
+    parse_enum_decl()    → EnumDecl (if peek == Enum)
+    parse_interface()    → InterfaceDecl (if peek == Interface)
+    parse_module()       → Module (if peek == Module)
+    parse_use()          → UseDecl (if peek == Use)
+    parse_const()        → ConstDecl (if peek == Const | Pub + Const)
+    parse_extern()       → ExternDecl (if peek == Extern)
+
+parse_expr()             → Expr
+  parse_assignment()     → Assign | CompoundAssign
+  parse_logical_or()     → Or
+  parse_logical_and()    → And
+  parse_comparison()     → Eq | Neq | Lt | Gt | Le | Ge
+  parse_additive()       → Plus | Minus
+  parse_multiplicative() → Star | Slash | Percent
+  parse_unary()          → Neg | Not | Ref | Deref
+  parse_postfix()        → Call | Index | Field | Dot
+  parse_atom()           → Ident | Int | Float | Str | Char | Bool | LParen | LBrace | If | Match
 ```
 
-### Crate Line Counts (v0.50.0)
+### Key types
 
-| Crate | Lines | Rating |
-|-------|-------|--------|
-| xiom-display | 121 | 8.0 |
-| xiom-graph | ~1,800 (7 files) | 8.0 |
-| xiom-ast | 604 | 7.0 |
-| xiom-lexer | 503 | 7.0 |
-| xiom-check | 4,415 (7 files) | 7.0 |
-| xiom-parser | 1,851 | 7.0 |
-| xiom-codegen | ~13,000 (13 files) | 7.0 |
-| xiom | 2,030 + tests | 7.0 |
-| xiom-lsp | 2,850 (10 files) | 7.0 |
-| xiom-fmt | 1,123 | 5.0 |
-| xiom-pkg | 1,102 | 5.0 |
-| xiom-mcp | 1,049 | 5.0 |
-| xiom-dbg | 1,027 | 6.0 |
-| xiom-ffigen | ~400 | 6.0 |
-| xiom-verify | 863 | 5.0 |
-| xiom-wasm | 142 | 6.0 |
-| xiom-doc | ~300 | 5.0 |
+```rust
+pub struct Parser {
+    tokens: Vec<Token>,
+    pos: usize,
+    errors: Vec<ParseError>,
+    in_loop: bool,        // Tracks if inside a loop (for break/continue validation)
+    current_module: Option<String>,
+}
+
+pub enum TopDecl {
+    Fn(FnDecl), Type(TypeDecl), Enum(EnumDecl), Interface(InterfaceDecl),
+    Module(ModuleDecl), Use(UseDecl), Const(ConstDecl), Extern(ExternDecl),
+}
+
+pub enum Expr {
+    Int(u64, Span), Float(f64, Span), Str(String, Span), Bool(bool, Span),
+    Ident(Ident), Binary(Box<Expr>, BinOp, Box<Expr>, Span),
+    Unary(UnaryOp, Box<Expr>, Span), Call(Box<Expr>, Vec<Expr>, Span),
+    Index(Box<Expr>, Box<Expr>, Span), Field(Box<Expr>, Ident, Span),
+    If(Box<Expr>, Block, Vec<(Expr, Block)>, Option<Block>, Span),
+    Match(Box<Expr>, Vec<MatchArm>, Span),
+    Block(Block), Assign(Box<Expr>, Box<Expr>, Span),
+    Closure(FnDecl, Span), Array(Vec<Expr>, Span),
+    Struct(Ident, Vec<(Ident, Expr)>, Span),
+    // ... 20+ variants total
+}
+```
+
+### Error recovery
+
+- Single-error termination. First parse error aborts with span information.
+- Error messages include expected token set: `expected one of: fn, type, enum, ...`
 
 ---
 
-## 5. LLVM IR Codegen Details
+## 4. Type Checker (`xiom-check`)
 
-### Type Mapping
+**File:** `crates/xiom-check/src/lib.rs` (4,415 lines — being split in M14)
 
-| XIOM Type | LLVM IR Type |
-|-----------|-------------|
-| `Int` | `i64` |
-| `Int8`-`Int64` | `i8`-`i64` |
-| `UInt`-`UInt64` | `i64` |
-| `Float32` | `float` |
-| `Float64` | `double` |
-| `Bool` | `i1` (stored as `i64` in structs) |
-| `Str` | `i8*` |
-| `Char` | `i32` |
-| `*T` | `i64` (pointer stored as integer) |
-| `&T` | `i64` |
-| `Option[T]` | `{ i64, i64 }` (discriminant, value) |
-| `Result[T,E]` | `{ i64, i64, i64 }` (discriminant, value, error) |
-| `Vec[T]` | `{ i8*, i64, i64, i64 }` (data ptr, len, cap, elem_size) |
-| `struct` | `%struct.Name { field_types... }` |
-| `enum` | `{ i64, i64 }` (discriminant + payload union as i64) |
-| `fn()` | `i8*` (function pointer) |
-
-### Codegen Architecture (M4.1 — God Object Decomposed)
+### Architecture
 
 ```
-IrEmitter
-├── output: String           # Accumulated LLVM IR text
-├── tmp_counter, block_counter, str_counter
-├── config: CodegenConfig    # Target triple, contract mode, hot-reload
-├── types: TypeContext       # Type registry, interface/enum metadata
-├── fctx: FunctionContext    # Per-function state (locals, params, return)
-├── mono: MonoContext        # Monomorphisation worklist
-└── local: LocalContext      # Variable classification, globals, loop stack
+Checker
+├── types: TypeContext
+│   ├── structs: HashMap<String, Vec<(String, String)>>    // type → fields
+│   ├── functions: HashMap<String, FnSig>                   // fn → signature
+│   ├── interfaces: HashMap<String, InterfaceDef>           // interface → methods
+│   ├── enum_variants: HashMap<String, Vec<Variant>>        // enum → variants
+│   └── impls: HashMap<String, HashSet<String>>             // interface → concrete types
+├── scopes: Vec<Scope>                                     // lexical scopes
+├── current_fn: Option<FnSig>                              // for return type validation
+├── errors: Vec<CheckError>
+└── source_dirs: Vec<String>                               // for module resolution
+
+check_program(program)
+├── register_top_level(program.items)     // Phase 1: collect all declarations
+├── check_module_items(program.items)     // Phase 2: type-check bodies
+├── resolve_imports()                     // Phase 3: resolve use chains
+└── check_interface_satisfaction()        // Phase 4: verify interface impls
+
+check_expr(expr, expected_type)
+├── Int/Float/Bool/Str/Char → literal types
+├── Ident → lookup in scope → return declared type
+├── Binary(lhs, op, rhs) → check lhs, check rhs → op return type
+├── Call(func, args) → resolve func → check args against params
+├── If/Match → unify branch types
+├── Field(obj, name) → resolve obj type → find field
+├── Index(obj, idx) → resolve obj → element type
+└── Struct(name, fields) → resolve struct → check fields
 ```
+
+### Type Compatibility
+
+```rust
+fn types_compatible(found, expected) -> bool {
+    // Exact match
+    if found == expected { return true; }
+    // impl Trait accepts any type (M9.6)
+    if matches!(found/expected, ImplTrait) { return true; }
+    // Numeric coercion: Int8/Int16/... ↔ Int64
+    if both are numeric { return true; }
+    // Struct/Enum name match
+    if both are Named { return name == name; }
+    // Generic substitution
+    if type_map contains generic { substitute and recurse; }
+    // Error propagation
+    if found == Error { return true; }
+    false
+}
+```
+
+### Module Resolution
+
+```
+use xiom.io;        → Check XIOM_STDLIB/xiom/io.xi
+use xiom.math;      → Check XIOM_STDLIB/xiom/math.xi
+use ./utils;        → Check relative to source file
+use mypkg;          → Check ~/.xiom/packages/mypkg/src/
+
+Source dirs (checked in order):
+1. Source file's directory
+2. Stdlib directory (auto-discovered from binary path or XIOM_STDLIB)
+3. Package directories (~/.xiom/packages/*)
+4. Project graph roots (package.xi dependencies)
+```
+
+### Borrow Checker
+
+The borrow checker is a sub-module of `xiom-check`. It uses lexical-scope ownership:
+
+```rust
+pub struct BorrowChecker {
+    loans: HashMap<String, LoanState>,     // per-variable borrow tracking
+    moved: HashSet<String>,                 // variables consumed by move
+}
+
+enum LoanState {
+    None,                                   // not borrowed
+    Read(Vec<Span>),                        // one or more read borrows
+    Write(Span),                            // exactly one write borrow
+}
+```
+
+**Rules enforced:**
+- Use after move → error
+- Write borrow while read borrows active → error
+- Multiple write borrows → error
+- Move on call → old binding invalidated
 
 ---
 
-## 6. Scripting & JIT Architecture
+## 5. Code Generation (`xiom-codegen`)
 
-```
-xiom run script.xi
-        │
-        ▼
-┌───────────────────┐
-│  Shebang strip    │  #!/usr/bin/env xiom → skip line
-│  (xiom-lexer)     │
-└───────┬───────────┘
-        ▼
-┌───────────────────┐
-│  Implicit main    │  Top-level code → fn main() { ... }
-│  wrap             │  Auto-adds use xiom.io;
-│  (implicit_main)  │  Declarations stay at top level
-└───────┬───────────┘
-        ▼
-┌───────────────────┐
-│  Standard compile │  Lex → Parse → Check → IR → clang
-│  pipeline         │
-└───────┬───────────┘
-        ▼
-┌───────────────────┐
-│  JIT: --jit flag  │  clang -shared → .dll/.so
-│                   │  libloading → main() in-process
-│  AOT: default     │  Compile to temp .exe, execute
-│  Cache: automatic │  Content-hash → ~/.xiom/jit/
-└───────────────────┘
+**Files:** 14 source files, ~13,000 lines total
+
+### Architecture (M4.1 — God Object Decomposed)
+
+The IrEmitter struct was decomposed from 86 fields into 5 sub-contexts:
+
+```rust
+pub struct IrEmitter {
+    // Output
+    output: String,             // Accumulated LLVM IR text
+    tmp_counter: u32,           // Unique temp name counter
+    block_counter: u32,         // Unique block label counter
+    str_counter: u32,           // Unique string constant counter
+
+    // Sub-contexts (M4.1)
+    config: CodegenConfig,      // Target triple, check_contracts, strict_mode, hot_reload
+    types: TypeContext,         // Type registry, struct field layouts, function signatures
+    fctx: FunctionContext,      // Current function: locals, params, return type, ensures
+    mono: MonoContext,          // Monomorphisation: generic_fn_decls, type_map, emitted_fns
+    local: LocalContext,        // Variable classification: bool_locals, ptr_locals, loop_stack
+}
 ```
 
-### Script Cache
-
-| Feature | Detail |
-|---------|--------|
-| Location | `~/.xiom/jit/` |
-| Key | Content-hash (SHA-like) of source |
-| Max size | 100 MB (LRU eviction) |
-| Clean | `xiom clean --cache` |
-
----
-
-## 7. LSP Architecture
+### IR Emission Flow
 
 ```
-VS Code / IDE
-     │  JSON-RPC (stdin/stdout)
-     ▼
-┌─────────────────────────────────────────────┐
-│                 xiom-lsp                     │
-│                                              │
-│  ┌──────────┐  ┌──────────┐  ┌───────────┐ │
-│  │ transport│  │ handlers │  │  resolver  │ │
-│  │ (I/O)    │  │(dispatch)│  │(type/sym)  │ │
-│  └──────────┘  └──────────┘  └───────────┘ │
-│                                              │
-│  ┌──────────┐  ┌──────────┐  ┌───────────┐ │
-│  │ backend  │  │ symbols  │  │semantic_   │ │
-│  │(docs,diag)│  │(doc/ws) │  │ tokens     │ │
-│  └──────────┘  └──────────┘  └───────────┘ │
-│                                              │
-│  ┌──────────┐  ┌──────────┐                │
-│  │    ai    │  │  text_   │                │
-│  │(insights)│  │  edit    │                │
-│  └──────────┘  └──────────┘                │
-└─────────────────────────────────────────────┘
-     │
-     ▼
-┌─────────┐
-│  GDB/MI │──→ debugged process
-└─────────┘
+compile_program(program)
+├── compile_module_decls()          // Type/enum/interface declarations
+├── compile_derive_impls()          // derive[Eq, Clone, Display, Hash, Ord]
+├── compile_fn_decls()              // Forward declarations (for mutual recursion)
+├── for each fn:
+│   ├── compile_fn_header()         // define i64 @fn_name(params...)
+│   ├── compile_fn_body()           // allocas, expressions, control flow
+│   │   ├── compile_stmt()          // Let, Var, Assign, Return, If, Match, While, For
+│   │   └── compile_expr()          // Int, Float, Binary, Call, Field, Index, Struct
+│   └── compile_fn_epilogue()       // Return, close block
+├── compile_monomorphised_fns()     // Generic instantiations (two-pass)
+└── emit_module_footer()            // Module-level globals, string constants
 ```
 
-### LSP Capabilities
+### LLVM Type Mapping
 
-| Feature | Status | Tests |
-|---------|--------|-------|
-| Diagnostics (parse + type errors) | ✅ | 11 |
-| Hover (type info, function signatures) | ✅ | — |
-| Completion (keywords, snippets, symbols) | ✅ | — |
-| Go-to-definition | ✅ | — |
-| Signature help | ✅ | — |
-| Document symbols | ✅ | — |
-| Workspace symbols | ✅ | — |
-| References | ✅ | — |
-| Rename | ✅ | — |
-| Semantic tokens | ✅ | — |
-| Code actions (quickfix) | ✅ | — |
-| Stdlib completion | ❌ M13.1 | — |
-| Formatting | ❌ M13.3 | — |
+| XIOM Type | LLVM IR | Notes |
+|-----------|---------|-------|
+| `Int` | `i64` | Default integer |
+| `Int8`-`Int64` | `i8`-`i64` | Explicit width |
+| `Float32` | `float` | |
+| `Float64` | `double` | Default float |
+| `Bool` | `i1` | Stored as `i64` in structs |
+| `Str` | `i8*` | Pointer to UTF-8 buffer |
+| `Char` | `i32` | Unicode code point |
+| `*T` / `&T` | `i64` | Pointers lowered to integer |
+| `Option[T]` | `{ i64, i64 }` | discriminant + value |
+| `Result[T,E]` | `{ i64, i64, i64 }` | discriminant + value + error |
+| `Vec[T]` | `{ i8*, i64, i64, i64 }` | data ptr, len, cap, elem_size |
+| `struct` | `%struct.Name { ... }` | Named LLVM struct |
+| `enum` | `{ i64, i64 }` | discriminant + union payload |
+| `[N]T` | `{ i64, [N x type] }` | length + fixed array |
 
----
-
-## 8. Test Gates (v0.50.0)
-
-| Suite | Count | Status |
-|-------|-------|--------|
-| E2E | 112 | OK |
-| Feature Regression | 268 | OK |
-| Stdlib Execution | 41 | OK |
-| Diff | 25 | OK |
-| Full-Diff | 23 | OK |
-| Fuzz | 24 | OK |
-| Integration | 119 | OK |
-| Robustness | 29 | OK |
-| Stdlib Compilation | 40 | OK |
-| Checker | 123 | OK |
-| Parser | 58 | OK |
-| Formatter | 41 | OK |
-| LSP | 11 | OK |
-| Package Manager | 15 | OK |
-| Doc Generator | 4 | OK |
-| FFI Generator | 18 | OK |
-| MCP Server | 18 | OK |
-| Debugger | 8 | OK |
-| Verifier | 15 | OK |
-| Scripting | 34 | OK |
-| Script Diff | 15 | OK |
-| **TOTAL** | **1041** | **ALL GREEN** |
-
----
-
-## 9. Memory & Safety Model
-
-### Ownership Rules (compile-time enforced)
-
-| Rule | Effect |
-|------|--------|
-| Single owner | Assignment moves ownership. Old binding invalid. |
-| Scope lifetime | Value freed at end of owning scope. |
-| `&T` (read borrow) | Multiple simultaneous. No mutation. |
-| `&mut T` (write borrow) | Exactly one. No other borrows. |
-| `.clone()` | Explicit deep copy. |
-| Move on call | Pass by value moves. Use `&` to borrow. |
-
-### Contract System
+### Contract Codegen
 
 ```xiom
 fn divide(a: Float64, b: Float64) -> Float64
   requires: b != 0.0
-  ensures:  result * b == a
-{ return a / b; }
+  ensures: result * b == a
 ```
 
-| Mode | Behavior |
-|------|----------|
-| Default | Runtime guards — `@llvm.trap()` on violation |
-| `--no-contracts` | Strips all checks |
-| `--verify` | Generates SMT-LIB for Z3 (xiom-verify) |
+Emits:
+
+```llvm
+define double @divide(double %a, double %b) {
+  ; requires guard
+  %req_ok = fcmp une double %b, 0.0
+  br i1 %req_ok, label %body, label %trap
+body:
+  %result = fdiv double %a, %b
+  ; ensures guard
+  %ens_check = fmul double %result, %b
+  %ens_ok = fcmp oeq double %ens_check, %a
+  br i1 %ens_ok, label %return, label %trap
+trap:
+  call void @llvm.trap()
+  unreachable
+return:
+  ret double %result
+}
+```
+
+### Monomorphisation
+
+Two-pass system for generic functions:
+
+```
+Pass 1 (Register): Walk program, collect generic_fn_decls
+Pass 2 (Specialize): For each concrete instantiation:
+  1. Build type_map: { T → Int, U → Str, ... }
+  2. Clone AST with substitutions
+  3. Emit specialized function: fn_name_Int_Str
+  4. Track in emitted_fns to avoid duplicates
+```
 
 ---
 
-## 10. Crate Dependency Graph
+## 6. Compilation Modes
+
+### AOT (Ahead-of-Time)
+
+Standard path. Lex → Parse → Check → Codegen → clang → binary.
+
+```bash
+xiom main.xi -o app.exe
+xiom main.xi --release
+xiom main.xi --target wasm
+```
+
+### Scripting (`xiom run`)
+
+Same pipeline with pre-processing:
 
 ```
-                    xiom (CLI + Library)
-                   /    |     |     |    \
-                  /     |     |     |     \
-         xiom-ast  xiom-lexer xiom-parser xiom-check xiom-codegen
-            |         |         |         |           |
-            └─────────┴─────────┴─────────┴───────────┘
-                              |
-                    xiom-graph xiom-verify xiom-fmt xiom-display
-                              |
-                    xiom-lsp xiom-mcp xiom-pkg xiom-dbg xiom-ffigen xiom-doc xiom-wasm
+1. Shebang strip:         #!/usr/bin/env xiom → skipped
+2. Implicit main wrap:    io.println("hi") → fn main() { io.println("hi") }
+3. Auto-import:           no use xiom.io → use xiom.io; added
+4. Declarations stay:     type/enum/fn/module/use stay at top level
+5. Compile:               Same AOT pipeline
+6. Execute:               Run temp binary (--jit: load as DLL, call main() in-process)
+7. Cache:                 Content-hash → ~/.xiom/jit/ (100 MB LRU eviction)
+```
+
+```bash
+xiom run script.xi
+xiom run -e "io.println(42)"
+xiom run -                                 # stdin
+xiom run --watch script.xi                 # auto re-run on change
+```
+
+### Standalone (`xiom --standalone`)
+
+Graduate a script to a production binary:
+
+```
+Script source → implicit main wrap → compile with --release → standalone binary
+xiom --standalone script.xi -o mytool.exe
+xiom --standalone --scaffold script.xi     # also create project directory
+```
+
+### Check-Only (`xiom --check`)
+
+Type-check without codegen. Used in CI/IDEs:
+
+```
+Lex → Parse → Check → Done (no IR, no binary)
+xiom --check file.xi
+xiom --check --diagnostics-json file.xi
+```
+
+### Emit IR (`xiom --emit-ir`)
+
+Print LLVM IR without linking. Used for debugging and playground:
+
+```
+Lex → Parse → Check → Codegen → Print IR to stdout
+; XIOM v0.50.0 LLVM IR
+; Auto-generated by xiom
+target triple = "x86_64-pc-windows-msvc"
+define i64 @main(...)
+```
+
+### WASM (`--target wasm`)
+
+Same pipeline, different clang target triple:
+
+```
+Lex → Parse → Check → Codegen → clang --target=wasm32-unknown-unknown → .wasm
+```
+
+The playground WASM compiler (`xiom-wasm`) only does Lex→Parse→Check→IR — no clang/linking in browser.
+
+---
+
+## 7. Crate Structure
+
+```
+xiom                    CLI entry point + library API
+├── xiom-ast            AST node definitions (604 lines)
+├── xiom-lexer          Tokenizer (503 lines)
+├── xiom-parser         Recursive descent parser (1,851 lines)
+├── xiom-check          Type checker + borrow checker (4,415 lines, 7 files)
+│   ├── borrow/         Borrow checking (loans, places)
+│   └── compat/         Type compatibility/coercion
+├── xiom-codegen        LLVM IR generation (13,000 lines, 14 files)
+│   ├── context.rs      CodegenConfig, TypeContext, FunctionContext, MonoContext, LocalContext
+│   ├── decl.rs         Function/struct/enum declarations
+│   ├── stmt.rs         Statement compilation (extracted from expr.rs, M4.2)
+│   ├── expr.rs         Expression compilation
+│   ├── call.rs         Function/method call compilation (extracted from expr.rs, M4.2)
+│   ├── types.rs        Type resolution, LLVM type mapping
+│   ├── coerce.rs       Value coercion (inttoptr, bitcast, etc.)
+│   ├── contracts.rs    Contract guard emission
+│   ├── vec_abi.rs      Vec ABI primitives
+│   ├── enum_ctors.rs   Enum constructor generation
+│   ├── emitter.rs      IR output helpers
+│   ├── sandbox.rs      Safety auditor
+│   └── jit.rs          JIT via libloading
+├── xiom-graph          Project dependency graph (7 files)
+├── xiom-verify         SMT-LIB generation for Z3 (863 lines)
+├── xiom-fmt            Source formatter (1,123 lines)
+├── xiom-display        Type/fn signature display (121 lines)
+├── xiom-doc            Documentation generator
+├── xiom-lsp            Language server (10 modules, 2,850 lines)
+│   ├── backend         Document storage + diagnostics
+│   ├── transport       JSON-RPC stdin/stdout I/O
+│   ├── handlers        Method dispatch (hover, completion, definition, etc.)
+│   ├── resolver        Type resolution + symbol lookup
+│   ├── symbols         Document/workspace symbols
+│   └── semantic_tokens, ai, text_edit, uri, diagnostics
+├── xiom-mcp            MCP server (Model Context Protocol)
+├── xiom-pkg            Package manager (install, search)
+├── xiom-dbg            DAP debug server (GDB/MI + CDB backends)
+├── xiom-ffigen         FFI bindings generator
+└── xiom-wasm           WASM compiler for playground (142 lines)
 ```
 
 ---
 
-## Appendix A: M Phase Completion Status
+## 8. LSP Architecture
 
-| Phase | Status | Key Deliverables |
-|-------|--------|-----------------|
-| M1 | ✅ | Quick wins |
-| M2 | ✅ | 113+ stdlib contracts across 10 modules |
-| M3.2-M3.4 | ✅ | 25 AST round-trip tests, compile_with_diagnostics tests |
-| M4.1-M4.7 | ✅ | IrEmitter split, expr.rs split, LSP split, 0 unwraps, 0 exits, SAFETY docs |
-| M5 | ✅ | 22 property-based checker tests |
-| M7 | ✅ | From/Into (16 conversions), Deref/DerefMut, PhantomData, MaybeUninit |
-| M9 | ✅ | 11/11 language gaps closed |
-| M10 | ✅ | Scripting: run, standalone, repl, watch, shebang, JIT, 49 tests |
-| M11 | ✅ | Cache eviction, CI, MCP scripting guide, release prep |
-| M12 | ✅ | script_mode, IR fix, garbled fix, auto stdlib discovery |
+```
+VS Code / Editor
+     │  JSON-RPC (stdin/stdout)
+     ▼
+┌────────────────────────────────────┐
+│            xiom-lsp                 │
+│                                     │
+│  transport.rs  ←→  stdin/stdout     │  I/O layer
+│       │                             │
+│       ▼                             │
+│  main.rs (dispatch)                 │  Routes method → handler
+│       │                             │
+│       ├── initialize               │
+│       ├── shutdown                 │
+│       ├── textDocument/didOpen     │──→ backend.rs (document storage)
+│       ├── textDocument/didChange   │
+│       ├── textDocument/didClose    │
+│       ├── textDocument/hover       │──→ handlers.rs + resolver.rs
+│       ├── textDocument/completion  │──→ handlers.rs + resolver.rs
+│       ├── textDocument/definition  │──→ handlers.rs + symbols.rs
+│       ├── textDocument/signatureHelp│
+│       ├── textDocument/documentSymbol│──→ symbols.rs
+│       ├── textDocument/references  │
+│       ├── textDocument/rename      │
+│       ├── textDocument/semanticTokens│──→ semantic_tokens.rs
+│       ├── textDocument/codeAction  │──→ handlers.rs
+│       └── workspace/symbol        │──→ symbols.rs
+│                                     │
+│  backend.rs                         │  Document store + publishDiagnostics
+│  ai.rs                              │  AI insight integration
+│  text_edit.rs                       │  Incremental text sync
+└────────────────────────────────────┘
+```
 
-### Remaining Phases
+### Completion flow
 
-| Phase | Scope | Effort | Target |
-|-------|-------|--------|--------|
-| M13 | LSP 10/10 (stdlib completion, lsp-types, formatting, workspace index) | 7.5d | v0.51.0 |
-| M14 | Production cleanup (14 file splits, 8 function decompositions, 16 unwrap fixes, 49 docs) | 10d | v0.51.0 |
+```
+User types "io."  →  textDocument/completion
+  1. extract_word() → current prefix
+  2. Detect dot → obj_name = "io", member_prefix = ""
+  3. Keywords + snippets for non-dot completions
+  4. Dot completion:
+     a. resolve_obj_type_text("io") → module
+     b. collect_module_members("io", "") → io functions
+     c. Return: println, print, read_line, read_file, ...
+  5. Future (M13): pre-built stdlib_completions.json catalog
+```
 
 ---
 
-## Appendix B: Key Files Map
+## 9. Standard Library
 
-| File | Purpose |
-|------|---------|
-| `docs/ROADMAP.md` | Full M phase roadmap |
-| `docs/SESSION.md` | Session handoff — current state |
-| `docs/AI_CONTEXT.md` | Language spec (40 stdlib modules, all flags) |
-| `docs/RELEASE_PROCESS.md` | Release packaging instructions |
-| `docs/M10_SCRIPTING_MODE.md` | Scripting/JIT design document |
-| `crates/xiom/src/main.rs` | CLI entry point, all flags and subcommands |
-| `crates/xiom/src/lib.rs` | Library API — compile, compile_with_diagnostics |
-| `crates/xiom/src/implicit_main.rs` | Scripting wrapper |
-| `crates/xiom/src/jit.rs` | JIT via libloading, cache |
-| `crates/xiom-codegen/src/context.rs` | M4.1 sub-contexts |
-| `crates/xiom-codegen/src/call.rs` | Call compilation (extracted from expr.rs) |
-| `crates/xiom-codegen/src/stmt.rs` | Statement compilation (extracted from expr.rs) |
-| `crates/xiom-lsp/src/` | 10 LSP modules |
-| `xiom-playground/server.js` | Playground server |
-| `stdlib/xiom/` | 40-module standard library |
-| `test_summary.ps1` | Full test suite runner |
-| `.github/workflows/ci.yml` | CI for Win/Linux/macOS |
+**Location:** `stdlib/xiom/` — 40 modules, ~113 contracts
+
+### Module Organization
+
+| Category | Modules |
+|----------|---------|
+| **Core Types** | core (Option, Result, Box, interfaces, intrinsics) |
+| **Collections** | collections (Vec, Map, Set, Slice, Queue, Stack, BTreeMap) |
+| **I/O** | io (console, files, process, paths) |
+| **Strings** | string (UTF-8 ops), fmt (formatting) |
+| **Math** | math (sqrt, pow, trig), num (traits, checked ops) |
+| **Memory** | mem (swap, replace, drop), alloc (Layout, Allocator), ptr (raw pointers) |
+| **Concurrency** | sync (Mutex, RwLock, Arc, Atomic, Condvar, Barrier), thread (spawn, JoinHandle), async (Executor, Channel) |
+| **Time** | time (Duration, Instant, SystemTime, DateTime) |
+| **System** | os (platform, process, signals, pipes, file watching), env (environment, directories) |
+| **Network** | net (TCP, UDP, HTTP, DNS, URL) |
+| **Data** | iter (Range, Iterator adapters), array ([N]T operations), hash, char, convert, cmp, error |
+| **Format** | fmt (Display, Formatter), serialize (JSON), encoding (base64, hex) |
+| **Crypto** | crypto (AES, SHA, Ed25519, PBKDF) |
+| **Testing** | test (assert), bench, runner, stats |
+| **Paths** | path (Path, PathBuf) |
+| **Random** | rand (RNG, distributions) |
+| **Logging** | log (levels, formatting) |
+| **Compression** | compress (gzip, deflate) |
+
+### Contract Coverage
+
+| Module | Contract count | Key contracts |
+|--------|---------------|---------------|
+| stats | 13 | Division-by-zero, sqrt domain, array bounds |
+| array | 26 | Zero-size slice safety, rotation bounds, sort post-conditions |
+| mem | 14 | Uninitialized memory safety, ManuallyDrop invariants |
+| fmt | 10 | Formatter write post-conditions |
+| runner | 9 | Integer overflow, division by zero |
+| io | 8 | File path existence, write success |
+| thread | 6 | Non-null thread handles, join invariants |
+| time | 4 | Nanosecond normalization, div-by-zero |
+| path | 4 | Non-empty paths, parent existence |
+| iter | ~8 | nth bounds, count non-negative, sortedness claims |
