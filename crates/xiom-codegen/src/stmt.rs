@@ -1011,7 +1011,7 @@ impl IrEmitter {
                                     }
                                 } else { None };
 
-                                let (bind_val, bind_ty) = match declared.as_deref() {
+                                let (bind_val_inner, bind_ty_inner) = match declared.as_deref() {
                                     Some("Str") if field_ty == "i64" => {
                                         let sptr = self.fresh_tmp();
                                         self.emitln(&format!("  {sptr} = inttoptr i64 {loaded} to i8*"));
@@ -1022,12 +1022,31 @@ impl IrEmitter {
                                         self.emitln(&format!("  {f} = bitcast i64 {loaded} to double"));
                                         (f, "double".to_string())
                                     }
-                                    _ => (loaded.clone(), field_ty.clone()),
+                                    _ => {
+                                        // M12: Handle the case where field_ty is i64 (fallback for unregistered structs)
+                                        // but the actual XIOM type is a pointer (Str, *T, etc.)
+                                        if field_ty == "i64" {
+                                            let xiom_ty = self.field_xiom_type(type_name, val_field as usize);
+                                            if let Some(ref xt) = xiom_ty {
+                                                if xt == "Str" || xt.starts_with('*') {
+                                                    let sptr = self.fresh_tmp();
+                                                    self.emitln(&format!("  {sptr} = inttoptr i64 {loaded} to i8*"));
+                                                    (sptr, "i8*".to_string())
+                                                } else {
+                                                    (loaded.clone(), field_ty.clone())
+                                                }
+                                            } else {
+                                                (loaded.clone(), field_ty.clone())
+                                            }
+                                        } else {
+                                            (loaded.clone(), field_ty.clone())
+                                        }
+                                    },
                                 };
                                 let field_alloca = self.fresh_tmp();
-                                self.emitln(&format!("  {field_alloca} = alloca {bind_ty}"));
-                                self.emitln(&format!("  store {bind_ty} {bind_val}, {bind_ty}* {field_alloca}"));
-                                self.add_local(&ident.name, field_alloca, &bind_ty);
+                                self.emitln(&format!("  {field_alloca} = alloca {bind_ty_inner}"));
+                                self.emitln(&format!("  store {bind_ty_inner} {bind_val_inner}, {bind_ty_inner}* {field_alloca}"));
+                                self.add_local(&ident.name, field_alloca, &bind_ty_inner);
                                 // Vec[T] payloads are container HANDLES: register so
                                 // len/push/index dereference the boxed Vec header.
                                 self.local.local_vec_handle.remove(&ident.name);
