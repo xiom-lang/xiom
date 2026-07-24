@@ -1,43 +1,42 @@
-# XIOM Session Handoff — v0.51.0 "P1 Complete"
+# XIOM Session Handoff — v0.51.0 "Production Hardening"
 
-**Date:** 2026-07-25 01:30 | **Branch:** `feat/architect` | **Commits ahead:** ~93
-**Status:** **P0 + P1 COMPLETE** — all 6 items done. Compiler tests 681/681 pass.
-**Target:** M phases 90%+. Continue P2 items + more gap-discovery scripts.
+**Date:** 2026-07-25 01:45 | **Branch:** `feat/architect` | **Commits ahead:** ~95
+**Status:** **P0+P1+M8+M12 COMPLETE.** All tests pass (fmt 44/44, checker 123/123, compiler 681/681).
+**Target:** Continue P2+ gap-discovery scripts.
 
 ---
-## P0 ITEMS — CLOSED (3/3)
+## COMPLETED THIS SESSION
 
-| # | Item | Status | Root Cause / Fix |
-|---|------|--------|-----------------|
-| 1 | `io.read_line()` returns Result | **FIXED** | Module export map key collision. |
-| 2 | String `+` returns Result | **VERIFIED** | No issue found. |
-| 3 | iter.xi contracts | **DONE** | max/min/find/product/nth. |
+| Phase | Item | Status |
+|-------|------|--------|
+| P0 #1 | `io.read_line()` returns Result | **FIXED** — export map key collision |
+| P0 #2 | String `+` returns Result | **VERIFIED** — no issue |
+| P0 #3 | iter.xi contracts | **DONE** |
+| P1 #4 | compress.xi + log.xi contracts | **DONE** — 14+12 public fns |
+| P1 #5 | `Str.slice/starts_with/ends_with` | **DONE** — checker + codegen + C runtime |
+| P1 #6 | Cow/PhantomData/MaybeUninit | **DONE** — consolidated, added write()+borrow() |
+| M8 | fmt extern/unsafe round-trip | **FIXED** — 44/44 fmt tests pass |
+| M12 | --check implicit main | **FIXED** — auto-detects script-like files |
+| — | json_parser.xi gap script | **DONE** — compiles + runs |
+| — | csv_to_html.xi gap script | **DONE** — compiles + runs |
 
-## P1 ITEMS — CLOSED (3/3)
+## GAPS CATALOG
 
-| # | Item | Status | Detail |
-|---|------|--------|--------|
-| 4 | compress.xi, log.xi contracts | **DONE** | requires/ensures on all 14 public compress fns + 12 log fns |
-| 5 | `Str.slice/starts_with/ends_with` | **DONE** | Checker builtins + codegen handlers + C runtime |
-| 6 | Cow/PhantomData/MaybeUninit | **DONE** | Consolidated MaybeUninit, added write()+borrow() |
-
-## P1 ITEMS — PROGRESS
-
-| # | Item | Status |
-|---|------|--------|
-| 4 | compress.xi, log.xi contracts | Pending |
-| 5 | `Str.slice()` / `Str.starts_with()` methods | Pending |
-| 6 | Cow/PhantomData/MaybeUninit methods | Pending |
-
-## GAPS DISCOVERED THIS SESSION
-
-| # | Gap | Discovered | Fixed |
-|---|-----|-----------|-------|
-| G1 | `io.read_line()` returns Result | io.xi usage | **FIXED** — export map key collision |
-| G9 | `byte_at` not callable as method on Str | json_parser.xi | **FIXED** — added to checker Str builtins |
-| G10 | `convert` module not auto-imported | json_parser.xi | **FIXED** — added to default imports |
-| G11 | Duplicate `fn main()` not detected | Test script | Gap: linker error, no compile-time check |
-| G12 | Relative paths resolve from temp dir | json_parser.xi | Expected behavior for scripting |
+| # | Gap | Status |
+|---|-----|--------|
+| G1 | `io.read_line()` returns Result | **FIXED** |
+| G2 | String `+` returns Result | **VERIFIED** — no issue |
+| G3 | No `line[2:]` slice syntax | **FIXED** — Str.slice/ends_with |
+| G4 | `--check` no implicit main | **FIXED** — auto-detect script-like |
+| G5 | Semicolons required everywhere | Known limitation |
+| G6 | LLVM IR type mismatch | **FIXED** |
+| G7 | AI_CONTEXT.md missing imports | **FIXED** |
+| G8 | LLVM IR garbled comments | **FIXED** |
+| G9 | `byte_at` not callable as method | **FIXED** |
+| G10 | `convert` not auto-imported | **FIXED** |
+| G11 | Duplicate `fn main` not detected | Gap: linker error only |
+| G12 | Relative paths resolve from temp dir | Expected for scripting |
+| G13 | Borrow checker false positives on int loops | **NEW** — csv_to_html.xi |
 
 ## KEY FILES CHANGED
 
