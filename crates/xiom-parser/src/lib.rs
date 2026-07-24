@@ -759,7 +759,7 @@ impl Parser {
         while !self.peek_is(TokenKind::RBrace) && !self.peek().is_eof() {
             self.expect_kind(TokenKind::Fn, "'fn'")?;
             let fn_name = self.parse_ident()?;
-        let mut generics = self.parse_optional_generic_params()?;
+        let generics = self.parse_optional_generic_params()?;
             self.expect_kind(TokenKind::LParen, "'('")?;
             // Parse params manually, handling variadic '...'
             let mut params = Vec::new();
