@@ -1026,4 +1026,40 @@ mod tests {
         let formatted = format_source(src);
         assert!(formatted.contains("for i in [0, 1, 2] {"));
     }
+
+    // ── M3.4: AST round-trip tests ──────────────────────────────────────
+
+    fn parse_program(source: &str) -> xiom_ast::Program {
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize();
+        let mut parser = Parser::new(tokens);
+        parser.parse_program().expect("parse failed")
+    }
+
+    fn assert_round_trip(source: &str) {
+        let prog1 = parse_program(source);
+        let mut f = super::Formatter::new();
+        let formatted = f.format(&prog1);
+        let prog2 = parse_program(&formatted);
+        assert_eq!(prog1.items.len(), prog2.items.len(),
+            "round-trip should preserve item count: {} -> {} -> {}",
+            source.len(), formatted.len(), prog2.items.len());
+        for (a, b) in prog1.items.iter().zip(prog2.items.iter()) {
+            assert_eq!(std::mem::discriminant(a), std::mem::discriminant(b),
+                "item type changed after round-trip");
+        }
+    }
+
+    #[test] fn test_rt_simple_fn() { assert_round_trip("fn add(a: Int, b: Int) -> Int { return a + b; }"); }
+    #[test] fn test_rt_struct() { assert_round_trip("type Point = { x: Float64; y: Float64; } derive[Eq, Clone]"); }
+    #[test] fn test_rt_enum() { assert_round_trip("enum Color { Red, Green, Blue }"); }
+    #[test] fn test_rt_interface() { assert_round_trip("interface Comparable { fn compare(other: &Self) -> Int; }"); }
+    #[test] fn test_rt_module() { assert_round_trip("module math { pub fn add(a: Int, b: Int) -> Int { return a + b; } }"); }
+    #[test] fn test_rt_generic() { assert_round_trip("fn max[T: Comparable](a: T, b: T) -> T { if a > b { return a; } return b; }"); }
+    #[test] fn test_rt_method() { assert_round_trip("pub fn Vec3.dot(other: &Vec3) -> Float32 { return x * other.x + y * other.y; }"); }
+    #[test] fn test_rt_impl_trait() { assert_round_trip("fn get_display() -> impl Display { return 42; }"); }
+    #[test] fn test_rt_const() { assert_round_trip("pub const MAX: Int = 1024;"); }
+    #[test] fn test_rt_contracts() {
+        assert_round_trip("fn divide(a: Float64, b: Float64) -> Float64\n  requires: b != 0.0\n  ensures: result * b == a\n{ return a / b; }");
+    }
 }
