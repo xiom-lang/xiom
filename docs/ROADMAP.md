@@ -153,6 +153,23 @@ All 11 language gaps closed. `impl Trait` was the final one (M9.6), completed 20
 
 ---
 
+### 8B/M10 — Scripting / JIT Mode (DESIGN — 2026-07-24)
+
+Full design: `docs/M10_SCRIPTING_MODE.md`. Summary:
+
+| Phase | Items | Effort | Status |
+|-------|-------|--------|--------|
+| M10.1 Foundation | Shebang lexer, implicit main wrapping, `xiom run` CLI, inkwell JIT backend | 4d | Design |
+| M10.2 Standalone | `xiom build --standalone` script-to-binary, scaffold, differential tests | 2d | Design |
+| M10.3 Self-host JIT | JIT the full selfhost compiler, E2E differential testing (JIT vs AOT must match) | 3d | Design |
+| M10.4 REPL (deferred) | Interactive `xiom repl` with state persistence | 2d | Design |
+| M10.5 Hot reload (deferred) | `xiom run --watch` + hot-reload JIT integration | 2d | Design |
+
+**Total: 9d for MVP (M10.1-3), +4d deferred (M10.4-5).**
+**Success criteria:** 30+ JIT-specific tests. Self-host compiler JIT-executes and produces identical output to AOT.
+
+---
+
 ## 4. PHASE 9 — FIRST PUBLIC RELEASE (v0.50.0)
 
 **Goal:** v0.50.0 — first stable public release with full ecosystem.

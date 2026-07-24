@@ -275,6 +275,34 @@ MCP: explain_error_code {code}.
 3. Contract violations trap — the debugger's exception filter
    "Contract Violations" breaks at the violating check.
 
+## Breakpoints
+Source-level breakpoints are set by file and line number:
+- VS Code: click the gutter next to the line number
+- JSON API: `xiom-dbg --json` → `set-breakpoint main.xi 43`
+- GDB directly: `break main.xi:43`
+- DAP: `setBreakpoints` request with `source.path` and `breakpoints[].line`
+
+Breakpoint features:
+- Source-level: Set at any executable line in a .xi file
+- Function entry: break at function prologue
+- Contract violation: `contractTraps: true` catches requires/ensures/invariant violations
+- Conditional: NOT YET supported (planned Phase 4)
+- Hit-count: NOT YET supported (planned Phase 4)
+
+## Stepping
+| Command | DAP | JSON API | GDB |
+|---------|-----|----------|-----|
+| Continue | continue | continue | c |
+| Step over | next | step | n |
+| Step into | stepIn | step-in | s |
+| Pause | pause | — | Ctrl+C |
+
+## Variable inspection
+- VS Code: hover over variable or use Variables panel
+- JSON API: `variables` (locals), `evaluate "expr"` (any expression)
+- GDB: `info locals`, `print expr`
+- Memory: `xiom-dbg --json` → `memory <addr> <size>` (hex dump)
+
 ## Structured output for tools
 `xiom --diagnostics=json file.xi` — machine-readable diagnostics.
 MCP compile_and_analyze returns the same structure."#;
@@ -370,11 +398,35 @@ launch.json:
 }
 Uses xiom-dbg (DAP) over GDB/MI: breakpoints, step, locals, stack.
 
-## 3. Contract traps
-A violated requires/ensures traps. With contractTraps: true the debugger
-breaks there; the IR carries `; contract:` comments mapping trap → clause.
+## 3. Breakpoints
+- VS Code: click gutter next to line number
+- JSON API: `xiom-dbg --json` → `set-breakpoint main.xi 43`
+- GDB: `break main.xi:43`
+- List: `xiom-dbg --json` → `breakpoints`
+- Delete: `xiom-dbg --json` → `delete-breakpoint <id>`
+Set at any executable .xi line. Function-name breakpoints also work.
 
-## 4. CLI fallback
+## 4. Stepping
+- Continue (F5): resume until next breakpoint
+- Step over (F10): execute current line, next line
+- Step into (F11): enter function call
+- Pause: interrupt running program (GDB: Ctrl+C, WinDbg: .break)
+
+## 5. Contract traps
+A violated requires/ensures traps. With contractTraps: true the debugger
+breaks there; the IR carries `; contract:` comments mapping trap -> clause.
+
+## 6. Variable inspection
+- VS Code: Variables panel, hover evaluation
+- JSON API: `variables` (locals), `evaluate "expr"` (any expression)
+- GDB: `info locals`, `print expr`
+- Memory: `memory <addr> <size>` — hex dump
+
+## 7. Expression evaluation
+Supported in all modes: DAP hover, json evaluate, GDB print.
+Evaluates arbitrary XIOM expressions in the current stack frame.
+
+## 8. CLI fallback
 gdb ./app.exe  (DWARF symbols work in any GDB-compatible debugger)"#;
 
 const W_PACKAGE: &str = r#"# Package & Publish Workflows
