@@ -1062,4 +1062,62 @@ mod tests {
     #[test] fn test_rt_contracts() {
         assert_round_trip("fn divide(a: Float64, b: Float64) -> Float64\n  requires: b != 0.0\n  ensures: result * b == a\n{ return a / b; }");
     }
+
+    // ── Edge cases ──────────────────────────────────────────────────────
+
+    #[test] fn test_rt_match_expr() {
+        assert_round_trip("fn check(x: Option[Int]) -> Int { match x { Some(v) => v, None => 0, } }");
+    }
+
+    #[test] fn test_rt_for_loop() {
+        assert_round_trip("fn main() { for i in [0, 1, 2] { print(i); } }");
+    }
+
+    #[test] fn test_rt_while_loop() {
+        assert_round_trip("fn main() { var x = 5; while x > 0 { x = x - 1; } }");
+    }
+
+    #[test] fn test_rt_if_elif_else() {
+        assert_round_trip("fn test(x: Int) -> Int { if x > 0 { return 1; } elif x < 0 { return -1; } else { return 0; } }");
+    }
+
+    #[test] fn test_rt_closure() {
+        assert_round_trip("fn foo() { var d = fn(x: Int) -> Int { return x * 2; }; }");
+    }
+
+    #[test] fn test_rt_async_fn() {
+        assert_round_trip("async fn fetch(url: Str) -> Str;");
+    }
+
+    #[test] fn test_rt_borrow_mut() {
+        assert_round_trip("fn swap(a: &mut Int, b: &mut Int) { let tmp = a; a = b; b = tmp; }");
+    }
+
+    // NOTE: extern blocks and unsafe blocks are not yet round-trippable
+    // by the formatter. This is a known formatter limitation, not a parser bug.
+    // Tracked as fmt/extern-unsafe-roundtrip.
+
+    #[test] fn test_rt_if_let() {
+        assert_round_trip("fn main() { if let Some(v) = maybe_val { use(v); } }");
+    }
+
+    #[test] fn test_rt_while_let() {
+        assert_round_trip("fn main() { while let Some(v) = next() { process(v); } }");
+    }
+
+    #[test] fn test_rt_nested_module() {
+        assert_round_trip("module outer { module inner { pub fn foo() -> Int { return 1; } } }");
+    }
+
+    #[test] fn test_rt_array_literal() {
+        assert_round_trip("fn main() -> Int { var arr = [1, 2, 3]; return arr[0]; }");
+    }
+
+    #[test] fn test_rt_spawn() {
+        assert_round_trip("fn main() { spawn { io.println(\"async\"); } }");
+    }
+
+    #[test] fn test_rt_error_propagation() {
+        assert_round_trip("fn load(path: Str) -> Result[Config, AppError] { let file = io.read_file(path)?; return Ok(file); }");
+    }
 }
