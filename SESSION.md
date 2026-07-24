@@ -1,23 +1,17 @@
 # XIOM Session Handoff — v0.50.0 "Production Edition"
 
-**Date:** 2026-07-24 23:48 | **Branch:** `feat/architect` | **Commits ahead:** ~88
-**Status:** **1041/1041 ALL TESTS PASS** (681 compiler + 360 tooling)
-**Target:** Close P0+P1 gaps → 10/10 all M phases
+**Date:** 2026-07-25 00:30 | **Branch:** `feat/architect` | **Commits ahead:** ~89
+**Status:** **P0 COMPLETE** — all 3 P0 items closed. 1040/1041 tests (1 pre-existing JIT flake).
+**Target:** Close P1 gaps → 10/10 all M phases
 
 ---
+## P0 ITEMS — CLOSED
 
-## CURRENT TEST BASELINE
-
-| Suite | Count | Status |
-|-------|-------|--------|
-| E2E | 112/112 | OK (1 flaky: e2e_cross_package_extern) |
-| Feature Regression | 268/268 | OK |
-| Stdlib Execution | 41/41 | OK |
-| Diff | 25/25 | OK |
-| Full-Diff | 23/23 | OK |
-| Fuzz | 24/24 | OK |
-| Integration | 119/119 | OK |
-| Robustness | 29/29 | OK |
+| # | Item | Status | Fix |
+|---|------|--------|-----|
+| 1 | `io.read_line()` returns Result | **FIXED** | Module export map key collision: `read_line()` and `BufReader.read_line` both mapped to `"read_line"`, method's `Result` overwrote free fn's `Str`. Fix: `build_module_map_inner` uses `{Recv}.{method}` key for methods. |
+| 2 | String `+` returns Result | **VERIFIED** | No issue found. Checker at line 2184 returns `CheckedType::Str`. Codegen emits `xiom_str_concat` returning `i8*`. Works in both scripting and AOT modes. |
+| 3 | iter.xi contracts | **DONE** | Added contracts to `max`, `min`, `find`, `product`, `nth`. |
 | Stdlib Compilation | 40/40 | OK |
 | Checker | 123/123 | OK (incl. 22 property tests) |
 | Parser | 58/58 | OK (incl. shebang tests) |
@@ -56,23 +50,15 @@
 
 ---
 
-## REMAINING — P0/P1
-
-### P0 (Critical — close first)
-
-| # | Item | Detail | File | Effort |
-|---|------|--------|------|--------|
-| 1 | **`io.read_line()` returns Result** | stdlib `io.xi` line 74: `Str::from_c_str(ptr)` propagates Result through function body. Breaks `var line = io.read_line()`. Need unchecked pointer cast or error handling. | `stdlib/xiom/io.xi` | 1h |
-| 2 | **String `+` returns Result** | Codegen makes `"a" + "b"` return `Result<Str, _>`. Scripting needs `Str.concat()` or infallible `+`. | `crates/xiom-codegen/src/expr.rs` | 2h |
-| 3 | **M2: iter.xi contracts** | max, min, find, product, nth lack contracts. | `stdlib/xiom/iter.xi` | 0.5h |
+## REMAINING — P1
 
 ### P1 (Important)
 
-| # | Item | Detail | File | Effort |
+| # | Item | Detail | File | Status |
 |---|------|--------|------|--------|
-| 4 | **M2: compress.xi, log.xi contracts** | No contracts on compression/logging safety. | `stdlib/xiom/compress.xi`, `stdlib/xiom/log.xi` | 1h |
-| 5 | **M12: `Str.slice()` / `Str.starts_with()` methods** | Scripting ergonomics — avoid `string.str_slice()` verbosity. | `stdlib/xiom/string.xi`, codegen | 1d |
-| 6 | **M7: Cow/PhantomData/MaybeUninit method completion** | Types declared, methods partially implemented. | `stdlib/xiom/core.xi` | 1d |
+| 4 | **M2: compress.xi, log.xi contracts** | No contracts on compression/logging safety. | `stdlib/xiom/compress.xi`, `stdlib/xiom/log.xi` | Pending |
+| 5 | **M12: `Str.slice()` / `Str.starts_with()` methods** | Scripting ergonomics — avoid `string.str_slice()` verbosity. | `stdlib/xiom/string.xi`, codegen | Pending |
+| 6 | **M7: Cow/PhantomData/MaybeUninit method completion** | Types declared, methods partially implemented. | `stdlib/xiom/core.xi` | Pending |
 
 ### P2 (Deferred)
 
@@ -89,16 +75,16 @@
 
 Writing `tools/md_to_html.xi` (a real-world XIOM script) exposed these compiler gaps:
 
-| # | Gap | Discovered how |
-|---|-----|---------------|
-| G1 | `io.read_line()` returns Result, not Str | `var line = io.read_line()` type error |
-| G2 | `"text" + var` returns Result | Every string concat needs unwrap |
-| G3 | No `line[2:]` slice syntax | Needed `string.str_slice(line, 2, len)` |
-| G4 | `--check` didn't apply implicit main | Can't test scripts without `xiom run` → **FIXED** via `script_mode` flag |
-| G5 | Semicolons required after EVERY statement | Missing `;` = silent parse failure |
-| G6 | LLVM IR `store i8 %ptr, i8** %alloc` type mismatch | `match` on Result in full compile path → **FIXED** via IR post-processing |
-| G7 | AI_CONTEXT.md examples missing `use xiom.io` | Agents confused about import requirements → **FIXED** |
-| G8 | LLVM IR comments garbled (em-dash double-encoding) | `ÃƒÆ'...` in WASM IR output → **FIXED** |
+| # | Gap | Discovered how | Status |
+|---|-----|---------------|--------|
+| G1 | `io.read_line()` returns Result, not Str | `var line = io.read_line()` type error | **FIXED** — module export map key collision |
+| G2 | `"text" + var` returns Result | Every string concat needs unwrap | **VERIFIED** — no issue, works correctly |
+| G3 | No `line[2:]` slice syntax | Needed `string.str_slice(line, 2, len)` | Pending P1 #5 |
+| G4 | `--check` didn't apply implicit main | Can't test scripts without `xiom run` | **FIXED** via `script_mode` flag |
+| G5 | Semicolons required after EVERY statement | Missing `;` = silent parse failure | Known limitation |
+| G6 | LLVM IR `store i8 %ptr, i8** %alloc` type mismatch | `match` on Result in full compile path | **FIXED** via IR post-processing |
+| G7 | AI_CONTEXT.md examples missing `use xiom.io` | Agents confused about import requirements | **FIXED** |
+| G8 | LLVM IR comments garbled (em-dash double-encoding) | `ÃƒÆ'...` in WASM IR output | **FIXED** |
 
 ### Strategy to find more gaps
 
