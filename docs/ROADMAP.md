@@ -416,7 +416,123 @@ resolves functions from `b` through `a`.
 
 ---
 
-## 5. Release History
+## 4.7 PHASE M14 — Production Cleanup & Quality Gates (v0.51.0)
+
+Full audit of all 17 compiler crates completed 2026-07-25. This phase addresses
+the gaps found — oversized files, giant functions, dead code, missing docs,
+duplication, and bare unwraps.
+
+### M14.1 — Split Oversized Files (3d)
+
+| File | Current Lines | Target | Split into |
+|------|-------------|--------|-----------|
+| `xiom-check/src/lib.rs` | **4,415** | 800 | `expr.rs`, `stmt.rs`, `borrow.rs`, `tests/` |
+| `xiom-codegen/src/lib.rs` | **3,766** | 800 | `compile_struct.rs`, `compile_impls.rs`, `emit_helpers.rs`, `type_builtins.rs` |
+| `xiom-codegen/src/call.rs` | **2,278** | 800 | `builtins.rs`, `user_call.rs`, `method_dispatch.rs` |
+| `xiom-codegen/src/expr.rs` | **1,948** | 800 | `binary_ops.rs`, `literals.rs`, `control_flow.rs` |
+| `xiom-codegen/src/types.rs` | **1,152** | 800 | `type_resolve.rs`, `type_inference.rs` |
+| `xiom-codegen/src/stmt.rs` | **1,134** | 800 | `let_var.rs`, `match_compile.rs`, `loop.rs`, `return.rs` |
+| `xiom-codegen/src/decl.rs` | **1,066** | 800 | `fn_decl.rs`, `struct_decl.rs`, `enum_decl.rs` |
+| `xiom/src/lib.rs` | **2,030** | 800 | `compile_pipeline.rs`, `contracts.rs`, `incremental.rs`, `linker.rs` |
+| `xiom-parser/src/lib.rs` | **1,851** | 800 | Extract tests to `tests/`, split `parse_postfix_expr` (178 lines) |
+| `xiom-fmt/src/lib.rs` | **1,123** | 800 | `format_expr.rs`, `format_stmt.rs` |
+| `xiom-pkg/src/main.rs` | **1,102** | 800 | `registry.rs`, `install.rs`, `manifest.rs` |
+| `xiom-mcp/src/main.rs` | **1,049** | 800 | `tools/` subdirectory per tool |
+| `xiom-dbg/src/main.rs` | **1,027** | 800 | `gdb.rs`, `cdb.rs`, `dap.rs`, `json_api.rs` |
+| `xiom-verify/src/lib.rs` | 863 | 800 | `smt_gen.rs`, `z3_runner.rs` |
+
+**Total: 14 files over 800 lines ? split into ~40 modules. 3d effort.**
+
+### M14.2 — Split Giant Functions (2d)
+
+Most oversized functions are in `xiom-codegen` and `xiom-check`. Each must be decomposed
+into focused sub-functions with clear boundaries.
+
+| Function | File | Lines | Split plan |
+|----------|------|-------|-----------|
+| `compile_eq_impl` | `lib.rs:2063` | **1,133** | `compile_struct_eq`, `compile_enum_eq`, `compile_interface_eq` |
+| `check_expr` | `xiom-check/lib.rs:2087` | **778** | Extract per-variant handlers |
+| `compile()` | `xiom/lib.rs:537` | **529** | `compile_to_ir()`, `emit_binary()`, `link_with_clang()` |
+| `compile_option_impls` | `lib.rs:3198` | **450** | `compile_option_methods`, `compile_result_methods` |
+| `compile_with_diagnostics` | `xiom/lib.rs:223` | **313** | Merge shared logic with `compile()` |
+| `next_token` | `xiom-lexer/lib.rs:155` | **291** | `lex_number()`, `lex_string()`, `lex_char()`, `lex_operator()` |
+| `handle_request` | `xiom-dbg/main.rs:777` | **167** | Dispatch table pattern |
+| `run_json_mode` | `xiom-dbg/main.rs:558` | **178** | Dispatch table pattern |
+
+### M14.3 — Fix Bare Unwraps + SAFETY Gaps (0.5d)
+
+| Location | Count | Fix |
+|----------|-------|-----|
+| `xiom-check/lib.rs` | **9** remains | `.unwrap()` ? `.expect("invariant message")` |
+| `xiom-ffigen/main.rs:263` | 1 | `serde_json::to_string_pretty` ? `.unwrap_or_default()` |
+| `xiom-mcp/main.rs:242,260,647` | 3 | `.to_str().unwrap()` ? proper error handling |
+| `xiom/main.rs:551` | 1 | `.parent().unwrap()` ? `.expect()` |
+| `xiom/src/lib.rs` | **2 new** | `unsafe { set_var("XIOM_STDLIB") }` needs SAFETY comment |
+| `xiom/src/jit.rs:37` | 1 | `unsafe { libloading }` needs SAFETY comment |
+
+### M14.4 — Remove Dead Code & Deduplication (1d)
+
+| Item | File | Action |
+|------|------|--------|
+| `struct_type_from_expr` duplicated | `lib.rs` + `types.rs` | Remove private copy, use public one |
+| `const_promote_to_float` | `lib.rs:454` | Remove — never called |
+| `try_i64_field_access` | `lib.rs:1215` | Remove — never called |
+| `get_concrete_option_type` | `decl.rs:996` | Remove — never called |
+| `get_concrete_result_type` | `decl.rs:1024` | Remove — never called |
+| `release_borrows_for` | `xiom-check/lib.rs:3603` | Use or remove |
+| `debug_test.rs` | `xiom-parser/src/` | Move to `tests/` or add `#[cfg(test)]` |
+| `recover_to_sync`, `expect` | `xiom-parser/lib.rs` | Use or remove `#[allow(dead_code)]` |
+| Duplicate type_to_string | `xiom/src/lib.rs` | Delegate to `xiom-display` crate |
+
+### M14.5 — Document Public API (1.5d)
+
+| Crate | Undocumented pub items | Priority |
+|-------|----------------------|----------|
+| `xiom-check` | **25** (Checker, check_program, CheckedType, BorrowChecker, ...) | HIGH |
+| `xiom-codegen/types.rs` | **17** (zero_val_for, type_from_ast, llvm_type_for, ...) | HIGH |
+| `xiom-codegen/sandbox.rs` | **7** (SafetyAuditor, to_json, to_text, ...) | MEDIUM |
+| `xiom-ast` | Partial variant docs on Type, Pattern, Stmt | MEDIUM |
+| `xiom-lexer` | `Lexer`, `Token`, `tokenize()` | MEDIUM |
+| `xiom-wasm` | `WasmDiagnostic`, `CompileResult` | LOW |
+| `xiom-display` | `type_to_string`, `format_fn_signature` | LOW |
+
+### M14.6 — Quality Fixes (1d)
+
+| Item | Detail |
+|------|--------|
+| **5 unreachable!() without messages** | `call.rs:156,196,306`, `expr.rs:500`, `stmt.rs:825` — add diagnostic strings |
+| **M13.8 fmt round-trip** | extern/unsafe blocks still not round-trippable (tracked gap) |
+| **`type_to_string` dedup** | `xiom/src/lib.rs` copies from `xiom-display` — delegate instead |
+| **AST variant docs** | Add doc comments to `Type`, `Pattern`, `Stmt` variants in `xiom-ast` |
+
+### M14.7 — LLVM Constants Extraction (1d)
+
+Extract 400+ hardcoded LLVM type strings (`"i64"`, `"double"`, `"i8*"`, `"%struct."`, ...)
+into a `llvm_consts.rs` module. Added benefit: a single place to change LLVM conventions.
+
+| Constant | Used in | Occurrences |
+|----------|---------|-------------|
+| `LLVM_I64` | All codegen files | ~150 |
+| `LLVM_DOUBLE` | expr.rs, call.rs | ~40 |
+| `LLVM_STR_PTR` | call.rs, stmt.rs | ~30 |
+| `LLVM_VOID` | decl.rs, lib.rs | ~20 |
+| `STRUCT_PREFIX` | types.rs, decl.rs | ~60 |
+
+### M14 Schedule
+
+| Phase | Items | Effort |
+|-------|-------|--------|
+| M14.1 | Split 14 oversized files | 3d |
+| M14.2 | Split 8 giant functions | 2d |
+| M14.3 | Fix bare unwraps + SAFETY gaps | 0.5d |
+| M14.4 | Remove dead code + deduplication | 1d |
+| M14.5 | Document public API | 1.5d |
+| M14.6 | Quality fixes (unreachable, round-trip, dedup) | 1d |
+| M14.7 | LLVM constants extraction | 1d |
+
+**Total M14 effort: 10d. Target v0.51.0 (shared with M13/M14).**
+
+---
 
 | Version | Date | Tests | Notes |
 |---------|------|-------|-------|
