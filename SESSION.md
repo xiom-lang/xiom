@@ -1,17 +1,44 @@
-# XIOM Session Handoff — v0.50.0 "Production Edition"
+# XIOM Session Handoff — v0.51.0 "P0 Closed"
 
-**Date:** 2026-07-25 00:30 | **Branch:** `feat/architect` | **Commits ahead:** ~89
-**Status:** **P0 COMPLETE** — all 3 P0 items closed. 1040/1041 tests (1 pre-existing JIT flake).
-**Target:** Close P1 gaps → 10/10 all M phases
+**Date:** 2026-07-25 01:00 | **Branch:** `feat/architect` | **Commits ahead:** ~91
+**Status:** **1041/1041 ALL TESTS PASS** — P0 complete, P1 in progress
+**Target:** P0 items closed. Continue P1 + gap-discovery scripts.
 
 ---
-## P0 ITEMS — CLOSED
+## P0 ITEMS — CLOSED (3/3)
 
-| # | Item | Status | Fix |
-|---|------|--------|-----|
-| 1 | `io.read_line()` returns Result | **FIXED** | Module export map key collision: `read_line()` and `BufReader.read_line` both mapped to `"read_line"`, method's `Result` overwrote free fn's `Str`. Fix: `build_module_map_inner` uses `{Recv}.{method}` key for methods. |
-| 2 | String `+` returns Result | **VERIFIED** | No issue found. Checker at line 2184 returns `CheckedType::Str`. Codegen emits `xiom_str_concat` returning `i8*`. Works in both scripting and AOT modes. |
-| 3 | iter.xi contracts | **DONE** | Added contracts to `max`, `min`, `find`, `product`, `nth`. |
+| # | Item | Status | Root Cause / Fix |
+|---|------|--------|-----------------|
+| 1 | `io.read_line()` returns Result | **FIXED** | Module export map key collision: `read_line()` (free fn, ->Str) and `BufReader.read_line` (method, ->Result) both had `fd.name.name = "read_line"`. `build_module_map_inner` used `fd.name.name` as export key for both; method overwrote free fn. Fix: use receiver-qualified key `{Recv}.{method}` for methods. |
+| 2 | String `+` returns Result | **VERIFIED** | No issue found. Checker line 2184 returns `CheckedType::Str`. Codegen emits `xiom_str_concat` → `i8*`. Works AOT + scripting. |
+| 3 | iter.xi contracts | **DONE** | `max`, `min`, `find`, `product`, `nth` with `ensures` clauses. |
+
+## P1 ITEMS — PROGRESS
+
+| # | Item | Status |
+|---|------|--------|
+| 4 | compress.xi, log.xi contracts | Pending |
+| 5 | `Str.slice()` / `Str.starts_with()` methods | Pending |
+| 6 | Cow/PhantomData/MaybeUninit methods | Pending |
+
+## GAPS DISCOVERED THIS SESSION
+
+| # | Gap | Discovered | Fixed |
+|---|-----|-----------|-------|
+| G1 | `io.read_line()` returns Result | io.xi usage | **FIXED** — export map key collision |
+| G9 | `byte_at` not callable as method on Str | json_parser.xi | **FIXED** — added to checker Str builtins |
+| G10 | `convert` module not auto-imported | json_parser.xi | **FIXED** — added to default imports |
+| G11 | Duplicate `fn main()` not detected | Test script | Gap: linker error, no compile-time check |
+| G12 | Relative paths resolve from temp dir | json_parser.xi | Expected behavior for scripting |
+
+## KEY FILES CHANGED
+
+| File | Change |
+|------|--------|
+| `crates/xiom-check/src/lib.rs` | Fixed export map key collision + added Str builtins (from_c_str, substr, byte_at, char_at) |
+| `crates/xiom/src/implicit_main.rs` | Added `use xiom.convert;` to default imports |
+| `stdlib/xiom/iter.xi` | Contracts on max/min/find/product/nth |
+| `tools/json_parser.xi` | **NEW** — gap-discovery script (compiles & runs) |
 | Stdlib Compilation | 40/40 | OK |
 | Checker | 123/123 | OK (incl. 22 property tests) |
 | Parser | 58/58 | OK (incl. shebang tests) |
@@ -29,24 +56,19 @@
 
 ---
 
-## M PHASES — COMPLETE
+## M PHASES
 
 | Phase | Status | Key Deliverables |
 |-------|--------|-----------------|
 | M1 | DONE | --version on 10 tools, preflight audit |
-| M4.1 | DONE | IrEmitter 86→5 sub-contexts |
-| M4.2 | DONE | expr.rs 5,362→1,961 (Call→call.rs, Stmt→stmt.rs) |
-| M4.3 | DONE | LSP 2,850→10 modules |
-| M4.4 | DONE | 0 production unwraps across all crates |
-| M4.5 | DONE | 0 process::exit in library (compile→Result) |
-| M4.6 | DONE | 2 unsafe blocks documented with SAFETY: |
-| M4.7 | DONE | CodegenConfig extracted |
+| M2 | **90%** | iter.xi contracts done. compress+log pending. |
+| M4.1-M4.7 | DONE | Code health (IrEmitter, expr.rs, LSP split, 0 unwraps, 0 process::exit) |
 | M5 | DONE | 22 property-based checker tests |
-| M7 | DONE | From/Into (16 conversions), Deref/DerefMut/AsRef |
-| M9 | DONE | **11/11** language gaps closed (impl Trait was last) |
+| M7 | **80%** | From/Into (16 conversions), Deref/DerefMut/AsRef. Cow/PhantomData/MaybeUninit methods pending. |
+| M9 | DONE | 11/11 language gaps closed |
 | M10 | DONE | Scripting: run, standalone, repl, watch, shebang, JIT, 49 tests |
 | M11 | DONE | Cache eviction, CI, MCP guide, release docs |
-| M12 | DONE | script_mode flag, IR type mismatch fix, garbled UTF-8 fix, import docs |
+| M12 | **60%** | script_mode flag, IR fix ✅. Str.slice/starts_with + scripting ergonomics pending. |
 
 ---
 
