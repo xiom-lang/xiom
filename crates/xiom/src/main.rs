@@ -47,6 +47,8 @@ fn run_script_watch(path: &str) {
         let current_mtime = get_mtime();
         if current_mtime != last_mtime {
             if current_mtime.is_some() {
+                // Debounce: wait 200ms for the file write to complete
+                std::thread::sleep(std::time::Duration::from_millis(200));
                 eprintln!("\n[WATCH] File changed, re-running...");
                 let source = match std::fs::read_to_string(path) {
                     Ok(s) => s,
