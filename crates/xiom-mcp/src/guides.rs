@@ -442,6 +442,9 @@ xiom run --watch script.xi      # Watch file, re-run on changes
 Scripts can write statements directly at the top level. The compiler
 automatically wraps them in `fn main()` and adds `use xiom.io;`.
 
+**IMPORTANT: xiom run does NOT relax type checking.** io.println() still
+requires Str. Use .to_str() to convert integers: io.println((5+3).to_str()).
+
 ## Shebang support
 xiom scripts can use #!/usr/bin/env xiom as the first line:
 #!/usr/bin/env xiom
