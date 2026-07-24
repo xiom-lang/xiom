@@ -12,6 +12,7 @@ use xiom_ast::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+pub mod call;
 pub mod coerce;
 pub mod context;
 pub mod contracts;
