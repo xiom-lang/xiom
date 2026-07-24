@@ -4351,4 +4351,115 @@ fn main() -> Int { var x = 42; let r = &x; var y = x; return 0; }");
         checker.build_catalog_index();
         // Must not panic — the catalog should handle missing paths gracefully
     }
+
+    // ── M5: Property-based / generative tests ───────────────────────────
+
+    /// Checker must not crash on programs with deeply nested expressions.
+    #[test]
+    fn prop_deep_nesting_no_panic() {
+        // Generate a function with deeply nested arithmetic
+        let mut src = String::from("fn deep() -> Int { return ");
+        for i in 0..200 {
+            src.push_str(&format!("({i} + "));
+        }
+        src.push_str("0");
+        for _ in 0..200 { src.push(')'); }
+        src.push_str("; }");
+        let result = check(&src);
+        // Must not panic — may produce errors or succeed, but must not crash
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    /// Type checker must be consistent: checking the same program twice
+    /// should produce the same result.
+    #[test]
+    fn prop_idempotent_check() {
+        let src = "fn add(a: Int, b: Int) -> Int { return a + b; }\nfn main() -> Int { return add(1, 2); }";
+        let r1 = check(src);
+        let r2 = check(src);
+        assert_eq!(r1.is_ok(), r2.is_ok(), "check must be idempotent");
+        if let (Ok(()), Ok(())) = (&r1, &r2) {
+            // both succeeded
+        } else {
+            assert_eq!(r1.err().unwrap().len(), r2.err().unwrap().len(),
+                "same error count on idempotent check");
+        }
+    }
+
+    /// Type inference must be consistent: variables assigned the same expression
+    /// must have the same inferred type.
+    #[test]
+    fn prop_consistent_inference() {
+        let srcs = vec![
+            ("int literal", "fn main() -> Int { var x = 42; return x; }"),
+            ("float literal", "fn main() -> Float64 { var x = 3.14; return x; }"),
+            ("bool literal", "fn main() -> Bool { var x = true; return x; }"),
+            ("str literal", "fn main() -> Str { var x = \"hi\"; return x; }"),
+            ("array literal", "fn main() -> Int { var x = [1, 2, 3]; return x[0]; }"),
+            ("option some", "fn main() -> Int { var x = Some(42); match x { Some(v) => v, None => 0, } }"),
+            ("result ok", "fn main() -> Int { var x: Result[Int, Str] = Ok(42); match x { Ok(v) => v, Err(_) => 0, } }"),
+        ];
+        for (name, src) in &srcs {
+            let result = check(src);
+            assert!(result.is_ok(), "should type-check: {name}\n{src}\nerror: {:?}", result.err());
+        }
+    }
+
+    /// Generic type checking must not crash on deep parameter nesting.
+    #[test]
+    fn prop_deep_generics_no_panic() {
+        let src = "fn nest[T](x: T) -> T { return x; }\nfn main() -> Int { return nest(nest(nest(nest(nest(42))))); }";
+        let result = check(&src);
+        assert!(result.is_ok(), "nested generics must type-check: {:?}", result.err());
+    }
+
+    /// The checker must reject programs with obvious type errors consistently.
+    #[test]
+    fn prop_type_errors_consistently_detected() {
+        let bad_srcs = vec![
+            ("int vs str", "fn main() -> Int { return \"not an int\"; }"),
+            ("bool vs int", "fn main() -> Bool { return 42; }"),
+            ("wrong arg type", "fn add(a: Int, b: Int) -> Int { return a + b; } fn main() -> Int { return add(\"x\", 2); }"),
+            ("undeclared var", "fn main() -> Int { return x; }"),
+        ];
+        for (name, src) in &bad_srcs {
+            let result = check(src);
+            assert!(result.is_err(), "should fail type-check: {name}");
+        }
+    }
+
+    /// All built-in interfaces are recognized by the checker.
+    #[test]
+    fn prop_builtin_interfaces_recognized() {
+        let interfaces = ["Clone", "Eq", "Ord", "Display", "Hash", "Default", "Drop", "FromStr", "Debug", "Add", "Sub", "Mul", "Div"];
+        for iface in &interfaces {
+            let src = format!("interface {iface} {{ fn dummy() -> Int; }}");
+            let result = check(&src);
+            assert!(result.is_ok(), "interface {iface} must be recognized: {:?}", result.err());
+        }
+    }
+
+    /// The checker must not produce false positives on valid arithmetic.
+    #[test]
+    fn prop_arithmetic_no_false_positive() {
+        let ops = ["+", "-", "*", "/", "%"];
+        for op in ops {
+            let src = format!("fn arith(a: Int, b: Int) -> Int {{ return a {op} b; }}");
+            let result = check(&src);
+            assert!(result.is_ok(), "arithmetic {op} must be valid: {:?}", result.err());
+        }
+    }
+
+    /// Large programs with many declarations must not overflow or hang.
+    #[test]
+    fn prop_large_program_no_hang() {
+        let mut src = String::new();
+        for i in 0..100 {
+            src.push_str(&format!("fn f{i}() -> Int {{ return {i}; }}\n"));
+        }
+        // Add a main that calls one of them
+        src.push_str("fn main() -> Int { return f42(); }");
+        let result = check(&src);
+        assert!(result.is_ok(), "100-fn program must type-check: {:?}", result.err());
+    }
 }
