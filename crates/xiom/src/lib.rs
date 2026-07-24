@@ -783,6 +783,11 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         return Ok(());
     }
 
+    // M12: Fix codegen bug — inttoptr-to-i8* registers stored as i8 instead of i8*
+    // The codegen may emit: %X = inttoptr i64 %Y to i8*; store i8 %X, i8** %A
+    // which is a type mismatch. Fix: store i8* %X, i8** %A.
+    let llvm_ir = fix_inttoptr_store_mismatch(&llvm_ir);
+
     // Stage 6: Compile to binary via clang
     let default_output = match config.target {
         Target::Wasm => "a.wasm",
@@ -798,6 +803,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     } else {
         llvm_ir
     };
+
     if let Err(e) = fs::write(&ir_path, &llvm_ir) {
         eprintln!("error: cannot write IR file: {e}");
         return Err(vec!["compilation failed".to_string()]);
@@ -1393,6 +1399,54 @@ fn add_dllexport_to_main(ir: &str) -> String {
     // Replace `define i64 @main(` with `define dllexport i64 @main(`
     ir.replace("define i64 @main(", "define dllexport i64 @main(")
         .replace("define void @main(", "define dllexport void @main(")
+}
+
+/// M12: Fix IR type mismatch: inttoptr i64 %X to i8* followed by store i8 %X, i8** %Y
+/// Inttoptr produces i8* but codegen may emit store i8 (expecting non-pointer).
+/// Only fix when the store target is i8** (pointer-to-pointer), not i8* (raw byte pointer).
+fn fix_inttoptr_store_mismatch(ir: &str) -> String {
+    use std::collections::HashSet;
+    // Collect all registers defined by inttoptr to i8*
+    let mut i8p_regs: HashSet<String> = HashSet::new();
+    for line in ir.lines() {
+        let trimmed = line.trim();
+        if trimmed.contains("inttoptr i64") && trimmed.contains("to i8*") {
+            if let Some(reg) = trimmed.split('=').next() {
+                let reg = reg.trim().to_string();
+                if reg.starts_with('%') {
+                    i8p_regs.insert(reg);
+                }
+            }
+        }
+    }
+
+    if i8p_regs.is_empty() { return ir.to_string(); }
+
+    // Fix lines: `store i8 %reg, i8** %ptr` → `store i8* %reg, i8** %ptr`
+    // Only when the target is i8** (pointer-to-pointer, from alloca i8*)
+    let mut result = String::with_capacity(ir.len());
+    for line in ir.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("store i8 ") {
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            if parts.len() >= 4 {
+                let src_reg = parts[2].trim_end_matches(',');
+                // Check target type: must be i8** (pointer to pointer), not i8*
+                // Format: store i8 %reg, i8** %ptr  => parts: [store, i8, %reg,, i8**, %ptr]
+                let target_is_ptr_to_ptr = parts.len() >= 4
+                    && parts[3] == "i8**";
+                if i8p_regs.contains(src_reg) && target_is_ptr_to_ptr {
+                    let fixed = line.replacen("store i8 ", "store i8* ", 1);
+                    result.push_str(&fixed);
+                    result.push('\n');
+                    continue;
+                }
+            }
+        }
+        result.push_str(line);
+        result.push('\n');
+    }
+    result.trim_end_matches('\n').to_string()
 }
 
 pub fn find_runtime_c_files() -> Vec<String> {
