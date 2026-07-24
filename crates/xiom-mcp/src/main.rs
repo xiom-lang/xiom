@@ -642,6 +642,7 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
         force: false,
         parallel: false,
         jobs: 0,
+        script_mode: false,
     };
     let result = xiom::compile_with_diagnostics(&check_cfg, &[tmp.to_str().unwrap().to_string()]);
     let _ = std::fs::remove_file(&tmp);
