@@ -65,6 +65,8 @@ pub struct CompileConfig {
     pub link_libs: Vec<String>,
     pub link_paths: Vec<String>,
     pub c_sources: Vec<String>,
+    /// M12: Scripting mode — apply implicit main wrapping if no fn main found
+    pub script_mode: bool,
 }
 
 impl Default for CompileConfig {
@@ -98,6 +100,7 @@ impl Default for CompileConfig {
             link_libs: Vec::new(),
             link_paths: Vec::new(),
             c_sources: Vec::new(),
+            script_mode: false,
         }
     }
 }
@@ -549,6 +552,13 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
 
         let source = fs::read_to_string(source_path)
             .map_err(|e| { eprintln!("error: cannot read '{source_path}': {e}"); vec![format!("cannot read '{source_path}': {e}")] })?;
+
+        // M12: Scripting mode — apply implicit main wrapping
+        let source = if config.script_mode {
+            crate::implicit_main::wrap_implicit_main(&source)
+        } else {
+            source
+        };
 
         let mut lexer = Lexer::new(&source);
         let tokens = lexer.tokenize();
