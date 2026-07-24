@@ -71,20 +71,14 @@ pub fn wrap_implicit_main(source: &str) -> String {
 
 /// Default imports for scripting mode.
 fn default_imports() -> &'static [&'static str] {
-    &["use xiom.io;"]
+    &["use xiom.io;", "use xiom.convert;"]
 }
 
 /// Add default stdlib imports for scripting convenience.
 fn add_default_imports(source: &str) -> String {
-    // Only add imports if they're not already present
     let mut result = String::new();
-    let imports_needed: &[&str] = if source.contains("use xiom.io") {
-        &[]
-    } else {
-        &["use xiom.io;"]
-    };
-
-    for import in imports_needed {
+    let imports = default_imports();
+    for import in imports {
         if !source.contains(import) {
             result.push_str(import);
             result.push('\n');

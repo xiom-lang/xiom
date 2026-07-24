@@ -2424,6 +2424,9 @@ impl Checker {
                             // Codegen emits xiom_str_slice (a runtime concat call);
                             // always infallible for valid bounds.
                             "substr" if prim_ty == CheckedType::Str => return CheckedType::Str,
+                            // M12/P1: byte indexing — returns a single byte at position.
+                            "byte_at" if prim_ty == CheckedType::Str => return CheckedType::UInt8,
+                            "char_at" if prim_ty == CheckedType::Str => return CheckedType::Named("Option".into()),
                             _ => {}
                         }
                     }
