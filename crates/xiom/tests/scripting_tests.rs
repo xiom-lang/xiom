@@ -79,3 +79,47 @@ fn test_script_return_value() {
         "script with return should compile, stderr: {}",
         String::from_utf8_lossy(&output.stderr));
 }
+
+// ── M10.2: Standalone build tests ──────────────────────────────────────
+
+fn build_standalone(content: &str) -> std::process::Output {
+    let script = tmp_script("standalone.xi", content);
+    let out_name = format!("{}_out", script.file_stem().unwrap().to_str().unwrap());
+    let out_path = script.parent().unwrap().join(&out_name);
+    if cfg!(windows) { let _ = std::fs::remove_file(out_path.with_extension("exe")); }
+
+    let output = Command::new(xiom_binary())
+        .args(["--standalone", &script.to_string_lossy().to_string(),
+               "-o", &out_path.with_extension(if cfg!(windows) { "exe" } else { "" }).to_string_lossy()])
+        .output()
+        .expect("xiom --standalone failed");
+    let _ = std::fs::remove_file(&script);
+    output
+}
+
+#[test]
+fn test_standalone_simple() {
+    let output = build_standalone("io.println(\"from standalone\");\n");
+    assert!(output.status.success(),
+        "standalone build should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Standalone binary:") || stdout.contains("compiled:"),
+        "should report binary creation, stdout: {stdout}");
+}
+
+#[test]
+fn test_standalone_with_shebang() {
+    let output = build_standalone("#!/usr/bin/env xiom\nio.println(\"shebang standalone\");\n");
+    assert!(output.status.success(),
+        "shebang standalone should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn test_standalone_explicit_main() {
+    let output = build_standalone("fn main() { io.println(\"explicit\"); }\n");
+    assert!(output.status.success(),
+        "explicit main standalone should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr));
+}

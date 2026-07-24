@@ -34,6 +34,47 @@ fn compile_or_exit(config: &CompileConfig, sources: &[String]) {
         process::exit(1);
     }
 }
+
+/// M10: Watch mode for `xiom run --watch <file>`.
+/// Polls the source file every 500ms and re-runs on changes.
+fn run_script_watch(path: &str) {
+    let get_mtime = || std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
+    let mut last_mtime = get_mtime();
+
+    eprintln!("[WATCH] Monitoring '{path}' — press Ctrl+C to stop");
+
+    loop {
+        let current_mtime = get_mtime();
+        if current_mtime != last_mtime {
+            if current_mtime.is_some() {
+                eprintln!("\n[WATCH] File changed, re-running...");
+                let source = match std::fs::read_to_string(path) {
+                    Ok(s) => s,
+                    Err(e) => { eprintln!("error: cannot read '{path}': {e}"); process::exit(1); }
+                };
+                let wrapped = xiom::implicit_main::wrap_implicit_main(&source);
+                let tmp_dir = std::env::temp_dir().join("xiom_run");
+                let _ = std::fs::create_dir_all(&tmp_dir);
+                let tmp_src = tmp_dir.join("_script_watch.xi");
+                let tmp_out = tmp_dir.join("_script_watch.exe");
+                std::fs::write(&tmp_src, &wrapped).unwrap_or_else(|e| {
+                    eprintln!("error: write temp: {e}"); process::exit(1);
+                });
+                let config = CompileConfig {
+                    output_file: Some(tmp_out.to_string_lossy().to_string()),
+                    do_run: true,
+                    ..CompileConfig::default()
+                };
+                if let Err(errors) = compile(&config, &[tmp_src.to_string_lossy().to_string()]) {
+                    for e in &errors { eprintln!("error: {e}"); }
+                }
+            }
+            last_mtime = current_mtime;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+}
+
 use xiom_lexer::Lexer;
 use xiom_parser::Parser;
 use xiom_codegen::sandbox::SafetyAuditor;
@@ -69,17 +110,22 @@ fn main() {
             eprintln!("usage: xiom run <file.xi>     execute a script");
             eprintln!("       xiom run -e \"<code>\"   execute inline code");
             eprintln!("       xiom run -               read script from stdin");
+            eprintln!("       xiom run --watch <file>  watch and re-run on changes");
             process::exit(1);
         }
 
-        let source = if remaining[0] == "-e" {
+        let watch_mode = remaining.contains(&"--watch");
+        let effective: Vec<&str> = remaining.iter().filter(|&&a| a != "--watch").copied().collect();
+        if effective.is_empty() { process::exit(1); }
+
+        let source = if effective[0] == "-e" {
             // xiom run -e "expr"
-            if remaining.len() < 2 {
+            if effective.len() < 2 {
                 eprintln!("error: -e requires an expression");
                 process::exit(1);
             }
-            remaining[1..].join(" ")
-        } else if remaining[0] == "-" {
+            effective[1..].join(" ")
+        } else if effective[0] == "-" {
             // xiom run -  (read from stdin)
             use std::io::Read;
             let mut buf = String::new();
@@ -88,8 +134,13 @@ fn main() {
             });
             buf
         } else {
-            // xiom run <file.xi>
-            let path = remaining[0];
+            // xiom run <file.xi>  (possibly with --watch)
+            let path = effective[0];
+            if watch_mode {
+                // Watch mode: compile once, then poll for changes
+                run_script_watch(path);
+                return;
+            }
             match std::fs::read_to_string(path) {
                 Ok(s) => s,
                 Err(e) => { eprintln!("error: cannot read '{path}': {e}"); process::exit(1); }
@@ -319,6 +370,63 @@ fn main() {
     }
 
     let source_paths = resolve_source_files(&args);
+
+    // ── M10.2: xiom build --standalone — script-to-binary ──────────
+    let standalone_mode = args.iter().any(|a| a == "--standalone");
+    let scaffold_mode = args.iter().any(|a| a == "--scaffold");
+
+    if standalone_mode && !source_paths.is_empty() {
+        let script_path = &source_paths[0];
+        let source = match std::fs::read_to_string(script_path) {
+            Ok(s) => s,
+            Err(e) => { eprintln!("error: cannot read '{script_path}': {e}"); process::exit(1); }
+        };
+        let wrapped = xiom::implicit_main::wrap_implicit_main(&source);
+        let out_name = output_file.clone().unwrap_or_else(|| {
+            let stem = std::path::Path::new(script_path)
+                .file_stem().and_then(|s| s.to_str()).unwrap_or("script");
+            if cfg!(windows) { format!("{stem}.exe") } else { stem.to_string() }
+        });
+
+        if scaffold_mode {
+            let proj_name = std::path::Path::new(script_path)
+                .file_stem().and_then(|s| s.to_str()).unwrap_or("script");
+            let proj_dir = std::path::Path::new(&proj_name);
+            let src_dir = proj_dir.join("src");
+            std::fs::create_dir_all(&src_dir).unwrap_or_else(|e| {
+                eprintln!("error: cannot create project dir: {e}"); process::exit(1);
+            });
+            std::fs::write(src_dir.join("main.xi"), &wrapped).unwrap_or_else(|e| {
+                eprintln!("error: cannot write main.xi: {e}"); process::exit(1);
+            });
+            std::fs::write(proj_dir.join("package.xi"), format!(
+                "[package]\nname = \"{proj_name}\"\nversion = \"0.1.0\"\n\n[dependencies]\n"
+            )).unwrap_or_else(|e| {
+                eprintln!("error: cannot write package.xi: {e}"); process::exit(1);
+            });
+            eprintln!("  Scaffolded project: {proj_name}/");
+        }
+
+        let config = CompileConfig {
+            output_file: Some(out_name.clone()),
+            release: true,
+            ..CompileConfig::default()
+        };
+        let tmp_src = std::env::temp_dir().join("xiom_standalone").join("_script.xi");
+        let _ = std::fs::create_dir_all(tmp_src.parent().unwrap());
+        std::fs::write(&tmp_src, &wrapped).unwrap_or_else(|e| {
+            eprintln!("error: cannot write temp file: {e}"); process::exit(1);
+        });
+        compile_or_exit(&config, &[tmp_src.to_string_lossy().to_string()]);
+        eprintln!("  Standalone binary: {out_name}");
+        return;
+    }
+
+    if standalone_mode && source_paths.is_empty() {
+        eprintln!("usage: xiom build --standalone [--scaffold] <script.xi> [-o output]");
+        eprintln!("  Converts a script into a standalone production binary.");
+        process::exit(1);
+    }
 
     if source_paths.is_empty() && !test_mode && !build_mode && !graph_mode {
         eprintln!("error: no source file(s) provided");

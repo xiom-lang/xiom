@@ -4,7 +4,15 @@
 
 /// Wrap top-level code in an implicit `fn main()` if no explicit main exists.
 /// Also injects default stdlib imports for scripting ergonomics.
+/// Strips shebang (`#!`) lines before wrapping.
 pub fn wrap_implicit_main(source: &str) -> String {
+    // M10: Strip shebang line before any processing
+    let source = if source.starts_with("#!") {
+        if let Some(newline) = source.find('\n') {
+            &source[newline + 1..]
+        } else { source }
+    } else { source };
+
     // Already has an explicit main — don't wrap, but add imports if needed
     if source.contains("fn main") {
         return add_default_imports(source);
