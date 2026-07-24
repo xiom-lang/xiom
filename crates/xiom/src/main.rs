@@ -150,6 +150,19 @@ fn main() {
         // Apply implicit main wrapping for scripting convenience
         let source = xiom::implicit_main::wrap_implicit_main(&source);
 
+        // M10: Check script cache for instant re-run
+        if let Some(cached) = xiom::jit::script_cache_get(&source) {
+            let output = std::process::Command::new(&cached).output();
+            if let Ok(out) = output {
+                if out.status.success() {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    if !stdout.is_empty() { print!("{stdout}"); }
+                    return;
+                }
+            }
+            // Cache miss or execution failed — fall through to recompile
+        }
+
         // Write to temp file, compile, and run
         let tmp_dir = std::env::temp_dir().join("xiom_run");
         let _ = std::fs::create_dir_all(&tmp_dir);
@@ -183,6 +196,9 @@ fn main() {
 
         let sources = vec![tmp_src.to_string_lossy().to_string()];
         compile_or_exit(&config, &sources);
+
+        // M10: Cache the compiled script for instant re-run
+        xiom::jit::script_cache_put(&source, &tmp_out);
         return;
     }
 
