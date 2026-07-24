@@ -74,29 +74,6 @@ fn http_get_tcp(url: &str) -> Result<String, String> {
     }
 }
 
-fn http_post(url: &str, body: &str) -> Result<String, String> {
-    if let Ok(output) = process::Command::new("curl")
-        .args(["-s", "-L", "-X", "POST", url, "-H", "Content-Type: application/json", "-d", body])
-        .output()
-    {
-        if output.status.success() {
-            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
-        }
-    }
-    #[cfg(windows)]
-    {
-        if let Ok(output) = process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", &format!("(Invoke-WebRequest -Uri '{url}' -Method POST -Body '{body}' -ContentType 'application/json' -UseBasicParsing).Content")])
-            .output()
-        {
-            if output.status.success() {
-                return Ok(String::from_utf8_lossy(&output.stdout).to_string());
-            }
-        }
-    }
-    Err(format!("Cannot POST to {url}: no curl, no powershell"))
-}
-
 // ============================================================================
 // 5e.7b: Remote Registry Client
 // ============================================================================

@@ -990,64 +990,6 @@ impl IrEmitter {
     }
 
     /// Return the LLVM struct type for an `Option<Inner>` with the given
-    /// inner LLVM type.  For scalar payloads uses `%struct.Option`; for
-    /// struct payloads creates a concrete type like `%struct.Option__Point`
-    /// that stores the struct inline (BUG-006 fix).
-    #[allow(dead_code)]
-    pub(crate) fn get_concrete_option_type(&mut self, inner_ty: &str) -> String {
-        if !inner_ty.starts_with('%') {
-            return "%struct.Option".to_string();
-        }
-        let inner_name = inner_ty.trim_start_matches("%struct.");
-        let concrete_name = format!("Option__{inner_name}");
-        if !self.types.type_meta.contains_key(&concrete_name) {
-            self.types.types.insert(concrete_name.clone(), vec!["discriminant".to_string(), "value".to_string()]);
-            self.types.type_meta.insert(concrete_name.clone(), TypeMeta {
-                fields: vec![("discriminant".to_string(), "i64".to_string()), ("value".to_string(), inner_ty.to_string())],
-                derives: vec![],
-                invariants: vec![],
-            });
-            // Defer LLVM type emission until flush_deferred_types()
-            let field_llvm_ty = if inner_ty.starts_with('%') { inner_ty.to_string() }
-                else { self.llvm_type_for(inner_ty).unwrap_or_else(|_| "i64".to_string()) };
-            self.local.deferred_struct_types.push((
-                concrete_name.clone(),
-                format!("{{ i64, {field_llvm_ty} }}"),
-            ));
-        }
-        format!("%struct.{concrete_name}")
-    }
-
-    /// Return the LLVM struct type for a `Result<Ok, Err>` with the given
-    /// concrete inner types.  Same logic as `get_concrete_option_type`
-    /// but for 3-field Result structs.
-    #[allow(dead_code)]
-    pub(crate) fn get_concrete_result_type(&mut self, ok_ty: &str, err_ty: &str) -> String {
-        let ok_struct = ok_ty.starts_with('%');
-        let err_struct = err_ty.starts_with('%');
-        if !ok_struct && !err_struct {
-            return "%struct.Result".to_string();
-        }
-        let ok_name = ok_ty.trim_start_matches("%struct.");
-        let err_name = err_ty.trim_start_matches("%struct.");
-        let concrete_name = format!("Result__{ok_name}__{err_name}");
-        if !self.types.type_meta.contains_key(&concrete_name) {
-            let fields = vec![
-                ("discriminant".to_string(), "i64".to_string()),
-                ("value".to_string(), ok_ty.to_string()),
-                ("error".to_string(), err_ty.to_string()),
-            ];
-            let field_names: Vec<String> = fields.iter().map(|(n, _)| n.clone()).collect();
-            self.types.types.insert(concrete_name.clone(), field_names);
-            self.types.type_meta.insert(concrete_name.clone(), TypeMeta {
-                fields,
-                derives: vec![],
-                invariants: vec![],
-            });
-        }
-        format!("%struct.{concrete_name}")
-    }
-
     /// Collect all variable names referenced through `@pre` in an expression.
     pub(crate) fn collect_atpre_vars(expr: &Expr, vars: &mut HashSet<String>) {
         match expr {

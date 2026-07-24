@@ -17,7 +17,6 @@ use crate::types::{TypeArena, TypeId};
 pub mod types;
 pub mod catalog;
 pub mod borrow;
-pub mod compat;
 
 use types::{CheckedType, FnSig, CheckError};
 use catalog::{ModuleExport, CachedModule, ModuleCatalog};
@@ -3603,21 +3602,6 @@ impl BorrowChecker {
         self.pop_scope();
 
         ExprResult::Value
-    }
-
-    #[allow(dead_code)]
-    fn release_borrows_for(&mut self, name: &str) {
-        let to_release: Vec<(String, BorrowType)> = self.borrow_stack.iter()
-            .flat_map(|scope| scope.iter())
-            .filter(|b| b.var_name == name)
-            .map(|b| (b.var_name.clone(), b.borrow_type))
-            .collect();
-        for (n, ty) in to_release {
-            self.release_borrow(&n, ty);
-        }
-        for borrows in self.borrow_stack.iter_mut() {
-            borrows.retain(|b| b.var_name != name);
-        }
     }
 }
 
