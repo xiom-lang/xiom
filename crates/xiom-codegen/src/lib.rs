@@ -21,6 +21,7 @@ pub mod emitter;
 pub mod enum_ctors;
 pub mod expr;
 pub mod sandbox;
+pub mod stmt;
 pub mod vec_abi;
 
 pub use context::{CodegenConfig, TypeContext, FunctionContext, MonoContext, LocalContext, TypeMeta};
