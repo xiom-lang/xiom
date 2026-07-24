@@ -66,7 +66,7 @@ pub fn extract_obj_expr(line: &str, dot_pos: usize) -> String {
 
 /// Find the identifier at a given line/col position.
 pub fn find_ident_at(backend: &Backend, uri: &str, line: usize, col: usize) -> Option<String> {
-    let docs = backend.documents.lock().unwrap();
+    let docs = backend.documents.lock().expect("document store mutex poisoned");
     let text = docs.get(uri)?;
     let target_line = text.lines().nth(line)?;
 

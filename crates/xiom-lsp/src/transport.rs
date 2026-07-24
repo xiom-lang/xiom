@@ -48,7 +48,7 @@ impl LspReader {
 
 /// Writes an LSP JSON-RPC message to stdout with Content-Length framing.
 pub fn write_lsp_message(body: &serde_json::Value) {
-    let body_str = serde_json::to_string(body).unwrap();
+    let body_str = serde_json::to_string(body).expect("JSON serialization failed");
     let header = format!("Content-Length: {}\r\n\r\n", body_str.len());
     let mut stdout = io::stdout().lock();
     let _ = stdout.write_all(header.as_bytes());
