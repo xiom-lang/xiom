@@ -283,6 +283,7 @@ fn main() {
         let config = CompileConfig {
             output_file: Some(tmp_out.to_string_lossy().to_string()),
             do_run: true,
+            script_mode: true,
             link_paths,
             link_libs,
             c_sources,
@@ -583,6 +584,7 @@ fn main() {
         force: force_recompile,
         parallel,
         jobs,
+        script_mode: false,
     };
 
     // 7F.2: Build graph visualization
@@ -792,6 +794,7 @@ fn main() {
                     sanitize: None,
                     stack_protector: false,
                     runtime_contracts: false,
+                    script_mode: false,
                 };
                 let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
                 let source = std::fs::read_to_string(path).unwrap_or_default();
@@ -837,6 +840,7 @@ fn main() {
                     sanitize: None,
                     stack_protector: false,
                     runtime_contracts: false,
+                    script_mode: false,
                 };
                 let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
                 let source = std::fs::read_to_string(path).unwrap_or_default();
