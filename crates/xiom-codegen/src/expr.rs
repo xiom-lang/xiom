@@ -43,7 +43,7 @@ impl IrEmitter {
                 // round-trip where the value is a heap pointer i64 but the declared
                 // type is a struct).
                 let llvm_ty = if declared_llvm_ty.as_ref().map_or(false, |d| d.starts_with('%')) {
-                    declared_llvm_ty.clone().unwrap()
+                    declared_llvm_ty.clone().expect("declared_llvm_ty is Some when starts_with('%')")
                 } else if val_llvm_ty == "void" || val.is_empty() {
                     declared_llvm_ty.clone().unwrap_or_else(|| "i64".to_string())
                 } else {
@@ -125,7 +125,7 @@ impl IrEmitter {
                     // Declared type is a struct — prefer it over the value's
                     // raw i64 type (handles Option.unwrap() round-trip where
                     // the heap pointer needs inttoptr+load coercion).
-                    declared_llvm_ty.clone().unwrap()
+                    declared_llvm_ty.clone().expect("declared_llvm_ty is Some when starts_with('%')")
                 } else if declared_llvm_ty.as_ref().map_or(false, |d| d == "float")
                     && val_llvm_ty == "double"
                 {
@@ -559,7 +559,7 @@ impl IrEmitter {
                             .map(|(k, _)| k.clone())
                             .collect();
                         if cands.len() == 1 {
-                            let ek = cands.into_iter().next().unwrap();
+                            let ek = cands.into_iter().next().expect("at least one enum key candidate");
                             let struct_ty = format!("%struct.{ek}");
                             let ptr = self.fresh_tmp();
                             self.emitln(&format!("  {ptr} = inttoptr i64 {val} to {struct_ty}*"));
@@ -2865,8 +2865,8 @@ impl IrEmitter {
                     // Integer <-> integer width conversions (e.g. Int<->Char, Int<->Int8/16/32).
                     // Char is i8 and Int is i64, so Int->Char truncs and Char->Int sign-extends.
                     (a, b) if int_width(a).is_some() && int_width(b).is_some() => {
-                        let aw = int_width(a).unwrap();
-                        let bw = int_width(b).unwrap();
+                        let aw = int_width(a).expect("int_width(a) is Some (guarded above)");
+                        let bw = int_width(b).expect("int_width(b) is Some (guarded above)");
                         if bw < aw {
                             self.emitln(&format!("  {tmp} = trunc {a} {val} to {b}"));
                             Ok((tmp, target_llvm_ty.clone()))
