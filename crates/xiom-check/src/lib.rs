@@ -1438,18 +1438,18 @@ impl Checker {
                     map.insert(ed.name.name.clone(), ModuleExport::Type { fields: HashMap::new(), is_pub: ed.is_pub });
                 }
                 TopDecl::Fn(fd) => {
-                    let key = if fd.is_method() {
+                    let map_key = if fd.is_method() {
                         format!("{}.{}", fd.receiver.as_ref().unwrap().name, fd.name.name)
                     } else {
                         fd.name.name.clone()
                     };
-                    let prefixed_key = if prefix.is_empty() { key.clone() } else { format!("{}.{}", prefix, key) };
+                    let prefixed_key = if prefix.is_empty() { map_key.clone() } else { format!("{}.{}", prefix, map_key) };
                     let is_pub = fd.is_pub;
                     // Try self.functions first (populated by register_fn_signature).
                     // Fallback: build FnSig from the FnDecl AST (needed for external modules
                     // loaded via load_external_module before register_fn_signature runs).
                     let sig = self.functions.get(&prefixed_key)
-                        .or_else(|| self.functions.get(&key))
+                        .or_else(|| self.functions.get(&map_key))
                         .cloned()
                         .unwrap_or_else(|| {
                             let params: Vec<(String, CheckedType)> = fd.params.iter().map(|p| {
@@ -1459,7 +1459,7 @@ impl Checker {
                             let generics = fd.generics.iter().map(|g| g.name.name.clone()).collect();
                             FnSig { params, return_type, generics, uses_implicit_this: false }
                         });
-                    map.insert(fd.name.name.clone(), ModuleExport::Function { sig, is_pub });
+                    map.insert(map_key, ModuleExport::Function { sig, is_pub });
                 }
                 TopDecl::Module(md) => {
                     let new_prefix = if prefix.is_empty() { md.name.name.clone() } else { format!("{}.{}", prefix, md.name.name) };
@@ -2413,6 +2413,17 @@ impl Checker {
                             "c_str" if prim_ty == CheckedType::Str => return CheckedType::Named("Ptr".into()),
                             "byte_len" if prim_ty == CheckedType::Str => return CheckedType::Int,
                             "to_str" | "to_string" => return CheckedType::Str,
+                            // M12/P0: Str conversions from C strings / byte buffers.
+                            // These are codegen builtins (call.rs:1210) that reinterpret
+                            // a pointer as a Str at the ABI level — identity transform
+                            // on i8* with no runtime cost. The checker must return Str
+                            // (not Result) so io.read_line() / list_dir() / args() work.
+                            "from_cstring" | "from_c_str" | "from_utf8" | "from_bytes"
+                                if prim_ty == CheckedType::Str => return CheckedType::Str,
+                            // M12/P0: Str.substr(start, end) — substring extraction.
+                            // Codegen emits xiom_str_slice (a runtime concat call);
+                            // always infallible for valid bounds.
+                            "substr" if prim_ty == CheckedType::Str => return CheckedType::Str,
                             _ => {}
                         }
                     }
