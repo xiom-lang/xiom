@@ -1,4 +1,5 @@
 use super::IrEmitter;
+use crate::llvm_consts::*;
 use xiom_ast::*;
 use std::collections::{HashMap, HashSet};
 
@@ -421,7 +422,7 @@ impl IrEmitter {
         }
 
         // i64 @xiom_type_count()
-        self.types.functions.insert("xiom_type_count".to_string(), (vec![], "i64".to_string()));
+        self.types.functions.insert("xiom_type_count".to_string(), (vec![], LLVM_I64.to_string()));
         self.emitln("define i64 @xiom_type_count() {");
         self.emitln("entry:");
         self.emitln(&format!("  ret i64 {n}"));
@@ -429,7 +430,7 @@ impl IrEmitter {
 
         // i8* @xiom_type_name(i64 %id) — name or "unknown" if out of range.
         self.types.functions
-            .insert("xiom_type_name".to_string(), (vec!["i64".to_string()], "i8*".to_string()));
+            .insert("xiom_type_name".to_string(), (vec![LLVM_I64.to_string()], LLVM_STR_PTR.to_string()));
         self.emitln("define i8* @xiom_type_name(i64 %id) {");
         self.emitln("entry:");
         self.emitln("  %lo = icmp slt i64 %id, 0");
@@ -449,7 +450,7 @@ impl IrEmitter {
 
         // i64 @xiom_type_field_count(i64 %id) — 0 if out of range.
         self.types.functions
-            .insert("xiom_type_field_count".to_string(), (vec!["i64".to_string()], "i64".to_string()));
+            .insert("xiom_type_field_count".to_string(), (vec![LLVM_I64.to_string()], LLVM_I64.to_string()));
         self.emitln("define i64 @xiom_type_field_count(i64 %id) {");
         self.emitln("entry:");
         self.emitln("  %lo = icmp slt i64 %id, 0");
@@ -468,7 +469,7 @@ impl IrEmitter {
 
         // i64 @xiom_type_id_by_name(i8* %name) — linear search, -1 if absent.
         self.types.functions
-            .insert("xiom_type_id_by_name".to_string(), (vec!["i8*".to_string()], "i64".to_string()));
+            .insert("xiom_type_id_by_name".to_string(), (vec![LLVM_STR_PTR.to_string()], LLVM_I64.to_string()));
         self.emitln("define i64 @xiom_type_id_by_name(i8* %name) {");
         self.emitln("entry:");
         self.emitln("  br label %loop");
@@ -542,7 +543,7 @@ impl IrEmitter {
 
         // i64 @xiom_contract_fn_count()
         self.types.functions
-            .insert("xiom_contract_fn_count".to_string(), (vec![], "i64".to_string()));
+            .insert("xiom_contract_fn_count".to_string(), (vec![], LLVM_I64.to_string()));
         self.emitln("define i64 @xiom_contract_fn_count() {");
         self.emitln("entry:");
         self.emitln(&format!("  ret i64 {m}"));
@@ -550,7 +551,7 @@ impl IrEmitter {
 
         // i8* @xiom_contract_fn_name(i64 %idx)
         self.types.functions
-            .insert("xiom_contract_fn_name".to_string(), (vec!["i64".to_string()], "i8*".to_string()));
+            .insert("xiom_contract_fn_name".to_string(), (vec![LLVM_I64.to_string()], LLVM_STR_PTR.to_string()));
         self.emitln("define i8* @xiom_contract_fn_name(i64 %idx) {");
         self.emitln("entry:");
         self.emitln("  %lo = icmp slt i64 %idx, 0");
@@ -570,7 +571,7 @@ impl IrEmitter {
 
         // i64 @xiom_contract_pre_count(i64 %idx)
         self.types.functions
-            .insert("xiom_contract_pre_count".to_string(), (vec!["i64".to_string()], "i64".to_string()));
+            .insert("xiom_contract_pre_count".to_string(), (vec![LLVM_I64.to_string()], LLVM_I64.to_string()));
         self.emitln("define i64 @xiom_contract_pre_count(i64 %idx) {");
         self.emitln("entry:");
         self.emitln("  %lo = icmp slt i64 %idx, 0");
@@ -589,7 +590,7 @@ impl IrEmitter {
 
         // i64 @xiom_contract_post_count(i64 %idx)
         self.types.functions
-            .insert("xiom_contract_post_count".to_string(), (vec!["i64".to_string()], "i64".to_string()));
+            .insert("xiom_contract_post_count".to_string(), (vec![LLVM_I64.to_string()], LLVM_I64.to_string()));
         self.emitln("define i64 @xiom_contract_post_count(i64 %idx) {");
         self.emitln("entry:");
         self.emitln("  %lo = icmp slt i64 %idx, 0");

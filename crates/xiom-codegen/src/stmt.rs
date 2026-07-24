@@ -3,6 +3,7 @@
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
 use xiom_ast::*;
+use crate::llvm_consts::*;
 
 use super::IrEmitter;
 
@@ -41,7 +42,7 @@ impl IrEmitter {
                 let (val, val_llvm_ty) = self.compile_expr(value)?;
                 let declared_llvm_ty: Option<String> = _ty.as_ref().map(|t| {
                     let name = Self::type_from_ast(t);
-                    self.llvm_type_for(&name).unwrap_or_else(|_| "i64".to_string())
+                    self.llvm_type_for(&name).unwrap_or_else(|_| LLVM_I64.to_string())
                 });
                 // Use declared struct type when available (handles Option.unwrap
                 // round-trip where the value is a heap pointer i64 but the declared
@@ -49,7 +50,7 @@ impl IrEmitter {
                 let llvm_ty = if declared_llvm_ty.as_ref().map_or(false, |d| d.starts_with('%')) {
                     declared_llvm_ty.clone().expect("declared_llvm_ty is Some when starts_with('%')")
                 } else if val_llvm_ty == "void" || val.is_empty() {
-                    declared_llvm_ty.clone().unwrap_or_else(|| "i64".to_string())
+                    declared_llvm_ty.clone().unwrap_or_else(|| LLVM_I64.to_string())
                 } else {
                     val_llvm_ty.clone()
                 };
@@ -117,14 +118,14 @@ impl IrEmitter {
                 self.track_boxed_payload_binding(&name.name, value);
                 let declared_llvm_ty: Option<String> = _ty.as_ref().map(|t| {
                     let name = Self::type_from_ast(t);
-                    self.llvm_type_for(&name).unwrap_or_else(|_| "i64".to_string())
+                    self.llvm_type_for(&name).unwrap_or_else(|_| LLVM_I64.to_string())
                 });
                 let (val, val_llvm_ty) = self.compile_expr(value)?;
                 let orig_val_ty = val_llvm_ty.clone();
                 let llvm_ty = if val_llvm_ty == "i64" && val == "0" {
                     declared_llvm_ty.clone().unwrap_or(val_llvm_ty)
                 } else if val_llvm_ty == "void" || val.is_empty() {
-                    declared_llvm_ty.clone().unwrap_or_else(|| "i64".to_string())
+                    declared_llvm_ty.clone().unwrap_or_else(|| LLVM_I64.to_string())
                 } else if declared_llvm_ty.as_ref().map_or(false, |d| d.starts_with('%')) {
                     // Declared type is a struct — prefer it over the value's
                     // raw i64 type (handles Option.unwrap() round-trip where
@@ -972,7 +973,7 @@ impl IrEmitter {
                             // must not be stored as i64). Fall back to i64 for a
                             // scalar/empty value.
                             let bind_ty = if scrutinee_llvm_ty.is_empty() || scrutinee_llvm_ty == "void" {
-                                "i64".to_string()
+                                LLVM_I64.to_string()
                             } else {
                                 scrutinee_llvm_ty.clone()
                             };

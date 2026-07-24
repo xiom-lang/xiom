@@ -7,6 +7,7 @@
 //! - [`IrEmitter::infer_struct_type_name`] — resolve struct types from expressions
 
 use xiom_ast::*;
+use crate::llvm_consts::*;
 
 impl crate::IrEmitter {
     pub fn zero_val_for(&self, val: &str, llvm_ty: &str) -> String {
@@ -330,8 +331,8 @@ impl crate::IrEmitter {
                     Self::xiom_to_llvm_type(&id.name).to_string()
                 })
             }
-            Type::Tuple(_) => "i64".to_string(),
-            _ => "i64".to_string(),
+            Type::Tuple(_) => LLVM_I64.to_string(),
+            _ => LLVM_I64.to_string(),
         }
     }
 
@@ -721,7 +722,7 @@ impl crate::IrEmitter {
                         return format!("%struct.{key}");
                     }
                 }
-                "i64".to_string()
+                LLVM_I64.to_string()
             }
         }
     }
@@ -764,7 +765,7 @@ impl crate::IrEmitter {
                 total += 8;
                 continue;
             }
-            let llvm = self.llvm_type_for(fty).unwrap_or_else(|_| "i64".to_string());
+            let llvm = self.llvm_type_for(fty).unwrap_or_else(|_| LLVM_I64.to_string());
             if llvm.starts_with("%struct.") && !llvm.ends_with('*') {
                 let inner = llvm[8..].to_string();
                 total += self.struct_byte_size_depth(&inner, depth + 1);
@@ -810,12 +811,12 @@ impl crate::IrEmitter {
                 // For generic types (Vec[Int], Map[Str,Int]), return i64
                 // to avoid Win64 sret corruption (5c.28 NET crash fix).
                 if ty_name.contains('[') {
-                    return "i64".to_string();
+                    return LLVM_I64.to_string();
                 }
-                return self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
+                return self.llvm_type_for(ty_name).unwrap_or_else(|_| LLVM_I64.to_string());
             }
         }
-        "i64".to_string()
+        LLVM_I64.to_string()
     }
 
     /// Returns the declared XIOM type name of field `field_idx` of `struct_name`
