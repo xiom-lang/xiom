@@ -9,7 +9,7 @@ pub mod graph_viz;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{self, Command};
+use std::process::Command;
 
 use xiom_ast::*;
 use xiom_lexer::Lexer;
@@ -529,7 +529,7 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     result
 }
 
-pub fn compile(config: &CompileConfig, source_paths: &[String]) {
+pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Vec<String>> {
     // Phase 7A: Expand source list using project dependency graph
     let (resolved_sources, graph_source_dirs) = expand_sources_with_graph(source_paths);
     let effective_sources: &[String] = if !resolved_sources.is_empty() {
@@ -546,8 +546,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
         if file_name == "package.xi" { continue; }
 
         let source = fs::read_to_string(source_path)
-            .map_err(|e| format!("cannot read '{source_path}': {e}"))
-            .unwrap_or_else(|e| { eprintln!("error: {e}"); process::exit(1); });
+            .map_err(|e| { eprintln!("error: cannot read '{source_path}': {e}"); vec![format!("cannot read '{source_path}': {e}")] })?;
 
         let mut lexer = Lexer::new(&source);
         let tokens = lexer.tokenize();
@@ -561,7 +560,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
                     render_error("L001", &tok.span, msg, Some(&source), None, None);
                 }
             }
-            process::exit(1);
+            return Err(vec!["compilation failed".to_string()]);
         }
 
         let mut parser = Parser::new(tokens);
@@ -576,14 +575,14 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
                         let (help, note) = diagnostic_for(&e.message);
                         render_error("P001", &e.span, &e.message, Some(&source), help.as_deref(), note.as_deref());
                     }
-                    process::exit(1);
+                    return Err(vec!["compilation failed".to_string()]);
                 }
                 all_programs.push(p);
             }
             Err(e) => {
                 let (help, note) = diagnostic_for(&e.message);
                 render_error("P001", &e.span, &e.message, Some(&source), help.as_deref(), note.as_deref());
-                process::exit(1);
+                return Err(vec!["compilation failed".to_string()]);
             }
         }
     }
@@ -650,16 +649,16 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
             }
         }
         if !is_multi_file {
-            process::exit(1);
+            return Err(vec!["compilation failed".to_string()]);
         }
         eprintln!("note: {} type errors — aborting codegen", errors.len());
-        process::exit(1);
+        return Err(vec!["compilation failed".to_string()]);
     }
 
     if config.dump_contracts {
         let json = dump_contracts_json(&program);
         println!("{json}");
-        return;
+        return Ok(());
     }
 
     if config.verify {
@@ -674,7 +673,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
         if let Ok(_) = std::process::Command::new("z3").arg("-version").output() {
             eprintln!("Z3 found — use 'z3 file.smt2' to verify");
         }
-        return;
+        return Ok(());
     }
 
     let primary_source = effective_sources.first().map(|s| s.as_str()).unwrap_or("<unknown>");
@@ -685,7 +684,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
         } else {
             eprintln!("  Type check PASSED (no errors)");
         }
-        return;
+        return Ok(());
     }
 
     // Stage 4: Borrow Check
@@ -758,18 +757,18 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
             } else {
                 eprintln!("error[C001]: codegen: {e}");
             }
-            process::exit(1);
+            return Err(vec!["compilation failed".to_string()]);
         }
     };
 
     if config.diagnostics_json {
         println!(r#"{{"status":"ok"}}"#);
-        return;
+        return Ok(());
     }
 
     if config.emit_ir || (config.output_file.is_none() && !config.do_run && config.target == Target::Native) {
         println!("{llvm_ir}");
-        return;
+        return Ok(());
     }
 
     // Stage 6: Compile to binary via clang
@@ -783,7 +782,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
     let ir_path = format!("{output}.ll");
     if let Err(e) = fs::write(&ir_path, &llvm_ir) {
         eprintln!("error: cannot write IR file: {e}");
-        process::exit(1);
+        return Err(vec!["compilation failed".to_string()]);
     }
 
     // 7D.4: Generate export manifest for hot reload host
@@ -934,7 +933,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
             const STAGED_IR_NAME: &str = "xiominput.ll";
             if let Err(e) = fs::copy(&ir_path, unique_tmp.join(STAGED_IR_NAME)) {
                 eprintln!("error: cannot stage IR file into temp dir: {e}");
-                process::exit(1);
+                return Err(vec!["compilation failed".to_string()]);
             }
             cmd.args(["-o", &abs_output, STAGED_IR_NAME]);
             if config.target == Target::Native {
@@ -967,7 +966,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
                             Ok(s) => eprintln!("  exit code: {}", s.code().unwrap_or(-1)),
                             Err(e) => {
                                 eprintln!("error: cannot run '{exe}': {e}");
-                                process::exit(1);
+            std::process::exit(1);
                             }
                         }
                     }
@@ -977,6 +976,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
                             eprintln!("  wasm size: {} bytes", meta.len());
                         }
                     }
+                    Ok(())
                 }
                 Ok(out) => {
                     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -988,12 +988,12 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
                         eprintln!("    Or run: .\\install_deps.ps1");
                     }
                     eprintln!("  stderr: {}", stderr.trim());
-                    process::exit(1);
+                    return Err(vec!["compilation failed".to_string()]);
                 }
                 Err(e) => {
                     eprintln!("error: cannot run clang: {e}");
                     eprintln!("note: LLVM IR written to {ir_path}");
-                    process::exit(1);
+                    return Err(vec!["compilation failed".to_string()]);
                 }
             }
         }
@@ -1013,7 +1013,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) {
                     eprintln!("  compile manually: clang -o {output} {ir_path}");
                 }
             }
-            process::exit(1);
+            return Err(vec!["compilation failed".to_string()]);
         }
     }
 }
