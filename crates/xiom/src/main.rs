@@ -280,6 +280,24 @@ fn main() {
         let link_libs: Vec<String> = Vec::new();
         let c_sources: Vec<String> = Vec::new(); // Auto-discovered by compile()
 
+        // M12: Ensure XIOM_STDLIB is set for scripting mode so stdlib types resolve
+        if std::env::var("XIOM_STDLIB").is_err() {
+            // Try to find stdlib relative to the xiom binary
+            let exe = std::env::current_exe().unwrap_or_default();
+            let mut search = exe.parent();
+            for _ in 0..8 {
+                if let Some(dir) = search {
+                    let candidate = dir.join("stdlib");
+                    if candidate.is_dir() {
+                        // SAFETY: set_var is called before any threads are spawned
+                        unsafe { std::env::set_var("XIOM_STDLIB", candidate.to_string_lossy().to_string()); }
+                        break;
+                    }
+                    search = dir.parent();
+                } else { break; }
+            }
+        }
+
         let config = CompileConfig {
             output_file: Some(tmp_out.to_string_lossy().to_string()),
             do_run: true,
