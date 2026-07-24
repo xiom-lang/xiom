@@ -1,3 +1,11 @@
+//! LLVM type system utilities for the XIOM code generator.
+//!
+//! Bridges the XIOM type system and the LLVM IR type system. Key functions:
+//! - [`IrEmitter::type_from_ast`] — XIOM AST types to LLVM type strings
+//! - [`IrEmitter::zero_val_for`] — LLVM zero initializers
+//! - [`IrEmitter::xiom_to_llvm_type`] — XIOM type names to LLVM primitives
+//! - [`IrEmitter::infer_struct_type_name`] — resolve struct types from expressions
+
 use xiom_ast::*;
 
 impl crate::IrEmitter {
@@ -372,6 +380,9 @@ impl crate::IrEmitter {
         }
     }
 
+    /// Convert a XIOM AST [`Type`] to a canonical LLVM type string.
+    /// Handles named types, references, pointers, arrays, tuples, and containers.
+    /// Used during codegen to determine struct layouts and function signatures.
     pub fn type_from_ast(ty: &Type) -> String {
         match ty {
             Type::Named(ident, _) => ident.name.clone(),
