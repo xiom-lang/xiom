@@ -1036,4 +1036,13 @@ mod tests {
         let resp = handle_request(&req);
         assert!(resp.error.is_some(), "Unknown method should error");
     }
+
+    // M10: Scripting tool integration test
+    #[test]
+    fn test_scripting_workflow_guide_accessible() {
+        let guide = guides::workflow_guide("script");
+        assert!(!guide.is_empty(), "scripting guide should not be empty");
+        assert!(guide.contains("xiom run"), "guide should mention xiom run");
+        assert!(guide.contains("shebang") || guide.contains("#!"), "guide should mention shebang");
+    }
 }

@@ -8,32 +8,34 @@
 
 use std::io::Write;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn next_id() -> u64 {
+    TEST_COUNTER.fetch_add(1, Ordering::Relaxed)
+}
 
 fn xiom_binary() -> String {
     std::env::var("XIOM_BIN").unwrap_or_else(|_| {
         let exe = std::env::current_exe().unwrap();
-        let exe_dir = exe.parent().unwrap(); // deps/
-        let debug_dir = exe_dir.parent().unwrap(); // debug/
+        let exe_dir = exe.parent().unwrap();
+        let debug_dir = exe_dir.parent().unwrap();
         let xiom = debug_dir.join("xiom").with_extension(if cfg!(windows) { "exe" } else { "" });
-        if xiom.exists() {
-            return xiom.to_string_lossy().to_string();
-        }
-        // Fallback: check release/
+        if xiom.exists() { return xiom.to_string_lossy().to_string(); }
         let release_dir = debug_dir.parent().unwrap().join("release");
         let xiom_rel = release_dir.join("xiom").with_extension(if cfg!(windows) { "exe" } else { "" });
-        if xiom_rel.exists() {
-            return xiom_rel.to_string_lossy().to_string();
-        }
-        // Last resort: use cargo to find it
+        if xiom_rel.exists() { return xiom_rel.to_string_lossy().to_string(); }
         "xiom".to_string()
     })
 }
 
-/// Unique temp script helper to avoid cross-test collisions.
+/// Unique temp script per test — avoids cross-test file collisions.
 fn tmp_script(prefix: &str, content: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join("xiom_script_tests");
     std::fs::create_dir_all(&dir).unwrap();
-    let name = format!("{}_{}.xi", prefix, std::process::id());
+    let id = next_id();
+    let name = format!("{}_{}_{}.xi", prefix, std::process::id(), id);
     let path = dir.join(&name);
     std::fs::write(&path, content).unwrap();
     path
