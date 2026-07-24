@@ -2223,7 +2223,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         && self.types.functions.get(&resolved_fn_key).is_none()
                         && ret_ty == "i64";
                     if callee_is_fn_ptr {
-                        let (alloca_reg, local_llvm_ty) = self.lookup_local(&fn_name).cloned().unwrap();
+                        let (alloca_reg, local_llvm_ty) = self.lookup_local(&fn_name).cloned().expect("fn_ptr target must be in locals");
                         let fn_ptr_loaded = self.fresh_tmp();
                         self.emitln(&format!("  {fn_ptr_loaded} = load {local_llvm_ty}, {local_llvm_ty}* {alloca_reg}"));
                         let param_types: Vec<String> = args.iter().map(|a| self.infer_llvm_type(a)).collect();
