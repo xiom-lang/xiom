@@ -1373,30 +1373,61 @@ pub fn find_runtime_c() -> Option<String> {
 }
 
 pub fn find_runtime_c_files() -> Vec<String> {
+    // XIOM_RUNTIME_DIR override — production deployments set this explicitly
+    if let Ok(rt_dir) = std::env::var("XIOM_RUNTIME_DIR") {
+        let dir = std::path::Path::new(&rt_dir);
+        if dir.is_dir() {
+            let mut c_files: Vec<String> = Vec::new();
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_file() && p.extension().and_then(|e| e.to_str()) == Some("c") {
+                        c_files.push(p.to_string_lossy().to_string());
+                    }
+                }
+            }
+            if !c_files.is_empty() { c_files.sort(); return c_files; }
+        }
+    }
+
     let mut dir_candidates: Vec<String> = vec![
         "stdlib\\runtime".to_string(),
         "stdlib/runtime".to_string(),
         "runtime".to_string(),
     ];
+
+    // Search relative to the xiom binary location (production installs)
     if let Ok(exe) = std::env::current_exe() {
         if let Some(exe_dir) = exe.parent() {
-            if let Some(parent) = exe_dir.parent() {
-                dir_candidates.push(format!("{}/runtime", parent.display()));
-                dir_candidates.push(format!("{}\\runtime", parent.display()));
-            }
+            // bin/xiom.exe -> ../runtime/ (standard release layout)
+            dir_candidates.push(format!("{}/../runtime", exe_dir.display()));
+            dir_candidates.push(format!("{}\\..\\runtime", exe_dir.display()));
+            // bin/xiom.exe -> ../stdlib/runtime/ (stdlib layout)
             dir_candidates.push(format!("{}/../stdlib/runtime", exe_dir.display()));
-            dir_candidates.push(format!("{}/../../stdlib/runtime", exe_dir.display()));
+            dir_candidates.push(format!("{}\\..\\stdlib\\runtime", exe_dir.display()));
+            // Same directory as binary
+            dir_candidates.push(format!("{}/runtime", exe_dir.display()));
+            dir_candidates.push(format!("{}\\runtime", exe_dir.display()));
+            // Grandparent-based (for `target/debug/xiom.exe` -> `../../runtime/`)
+            if let Some(grandparent) = exe_dir.parent() {
+                dir_candidates.push(format!("{}/runtime", grandparent.display()));
+                dir_candidates.push(format!("{}\\runtime", grandparent.display()));
+                dir_candidates.push(format!("{}/stdlib/runtime", grandparent.display()));
+                dir_candidates.push(format!("{}\\stdlib\\runtime", grandparent.display()));
+            }
         }
     }
-    // CARGO_MANIFEST_DIR-based paths (critical for test/dev environments)
+
+    // CARGO_MANIFEST_DIR-based paths (dev/test environments)
     if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
         let base = std::path::Path::new(&manifest);
-        // cargo test runs from the crate directory, project root is 2-3 levels up
         for depth in 2..5 {
             let mut p = base.to_path_buf();
             for _ in 0..depth { p = p.join(".."); }
             dir_candidates.push(format!("{}/stdlib/runtime", p.display()));
             dir_candidates.push(format!("{}/runtime", p.display()));
+            dir_candidates.push(format!("{}\\stdlib\\runtime", p.display()));
+            dir_candidates.push(format!("{}\\runtime", p.display()));
         }
     }
 

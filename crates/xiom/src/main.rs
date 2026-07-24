@@ -79,6 +79,62 @@ use xiom_lexer::Lexer;
 use xiom_parser::Parser;
 use xiom_codegen::sandbox::SafetyAuditor;
 
+/// M10.4: Interactive REPL — compile and execute each line as a script.
+fn run_repl() {
+    use std::io::{self, Write};
+    eprintln!("XIOM REPL v0.49.9 — type :help for commands, :quit to exit");
+    let mut line_num = 0u64;
+
+    loop {
+        line_num += 1;
+        print!("xiom> ");
+        let _ = io::stdout().flush();
+        let mut line = String::new();
+        if io::stdin().read_line(&mut line).is_err() || line.is_empty() {
+            break;
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+
+        // Special commands
+        if trimmed.starts_with(':') {
+            match trimmed {
+                ":quit" | ":q" => break,
+                ":help" | ":h" => {
+                    eprintln!("  :quit, :q    Exit the REPL");
+                    eprintln!("  :help, :h    Show this help");
+                    eprintln!("  :type <e>    Show the type of an expression (future)");
+                    eprintln!("  Any other input is compiled as a script and executed.");
+                }
+                _ if trimmed.starts_with(":type") => {
+                    eprintln!("  (type inspection coming in REPL v2)");
+                }
+                _ => eprintln!("  Unknown command: {trimmed}. Type :help for commands."),
+            }
+            continue;
+        }
+
+        // Compile and execute the line
+        let source = xiom::implicit_main::wrap_implicit_main(trimmed);
+        let tmp_dir = std::env::temp_dir().join("xiom_repl");
+        let _ = std::fs::create_dir_all(&tmp_dir);
+        let tmp_src = tmp_dir.join(format!("_repl_{line_num}.xi"));
+        let tmp_out = tmp_dir.join(format!("_repl_{line_num}.exe"));
+        std::fs::write(&tmp_src, &source).ok();
+
+        let config = CompileConfig {
+            output_file: Some(tmp_out.to_string_lossy().to_string()),
+            do_run: true,
+            ..CompileConfig::default()
+        };
+        let sources = vec![tmp_src.to_string_lossy().to_string()];
+        if let Err(errors) = compile(&config, &sources) {
+            for e in &errors { eprintln!("error: {e}"); }
+        }
+    }
+    eprintln!("Goodbye.");
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 || args.iter().any(|a| a == "--help") {
@@ -101,6 +157,12 @@ fn main() {
         }
         eprintln!("usage: xiom --explain <code>  (e.g., xiom --explain X0010)");
         process::exit(1);
+    }
+
+    // ── M10.4: xiom repl — interactive scripting shell ──────────────
+    if args.get(1).map_or(false, |a| a == "repl") {
+        run_repl();
+        return;
     }
 
     // ── M10: xiom run — JIT/scripting execution ─────────────────────
