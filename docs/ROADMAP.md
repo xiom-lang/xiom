@@ -234,11 +234,38 @@ Deploy with: `cd registry && docker-compose up -d`
 
 ---
 
+## 4.5 PHASE M12 — Scripting Ergonomics & Compiler Gaps (v0.51.0)
+
+Gaps discovered during scripting-mode testing and real-world usage.
+
+### M12.1 — Scripting Ergonomics (from md_to_html.xi testing)
+
+| Gap | Issue | Fix |
+|-----|-------|-----|
+| `io.read_line()` returns Result | Every script needs `match Ok/Err` for stdin reading | Add `io.read_line_or_panic()` or auto-unwrap in scripting mode |
+| String `+` returns Result | `"a" + "b"` doesn't work inline | Make `+` on Str infallible (it always succeeds) |
+| No `line[2:]` slicing | Need `string.str_slice(line, 2, len)` — verbose | Add `Str.slice(start)` and `Str.slice(start, end)` methods |
+| `--check` no implicit main | Can't test script compilation without `xiom run` | Apply implicit main in `--check` mode when no `fn main` found |
+| No `Str.starts_with()` method | Must use `string.str_starts_with(s, prefix)` | Add `Str.starts_with(prefix)` and `Str.ends_with(suffix)` methods |
+
+### M12.2 — Compiler Robustness
+
+| Gap | Issue | Fix |
+|-----|-------|-----|
+| Declarations in implicit main | type/enum/interface inside fn body = error | Parser-level detection: move declarations to program level |
+| No inline regex | String splitting/parsing requires manual loops | Add `string.str_split(s, delim)` ergonomic wrapper |
+| No `io.print` vs `io.println` clarity | Both exist but `println` adds newline — confusing | Document difference clearly in AI_CONTEXT.md |
+
+**M12 effort: 3d. Target v0.51.0.**
+
+---
+
 ## 5. Release History
 
 | Version | Date | Tests | Notes |
 |---------|------|-------|-------|
-| v0.49.9 | 2026-07-24 | **934** | M4.1 (IrEmitter split), M4.3 (LSP split), M4.6 (unsafe docs), playground fixes (372 lessons), M9.6 (impl Trait), Node.js registry backend. 11/11 M9 closed. |
+| **v0.50.0** | 2026-07-24 | **1040** | M10 scripting (xiom run, --standalone, repl, --watch, shebang), M11 hardening (JIT libloading, cache, CI, 15 diff tests, 34 script tests), M4.2/M4.4/M4.5 all DONE. 10/10 production ready. |
+| v0.49.9 | 2026-07-24 | 934 | M4.1 (IrEmitter split), M4.3 (LSP split), M4.6 (unsafe docs), playground fixes (372 lessons), M9.6 (impl Trait), Node.js registry backend. 11/11 M9 closed. |
 | v0.49.8 | 2026-07-21 | 924 | 10/11 M9 gaps closed, ASCII installer, fuzz harnesses, HTML docs |
 | v0.49.7 | 2026-07-21 | 910 | Phase 8B/M4-M9 complete, preflight audit |
 | v0.49.5 | 2026-07-20 | 871 | Phase 7 complete, installer v2 |
