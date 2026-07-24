@@ -523,7 +523,7 @@ into focused sub-functions with clear boundaries.
 | M14.3 | Fix bare unwraps + SAFETY gaps | 0.5d | **DONE** |
 | M14.4 | Remove dead code + deduplication | 1d | **DONE** |
 | M14.5 | Document public API | 1.5d | **IN PROGRESS** (language docs done) |
-| M14.6 | Quality fixes (unreachable, round-trip, dedup) | 1d | Pending |
+| M14.6 | Quality fixes (unreachable, round-trip, dedup) | 1d | **DONE** |
 | M14.7 | LLVM constants extraction | 1d | Pending |
 
 **Total M14 effort: 10d. Target v0.51.0.**
