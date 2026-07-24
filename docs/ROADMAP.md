@@ -484,8 +484,17 @@ into focused sub-functions with clear boundaries.
 | `recover_to_sync`, `expect` | `xiom-parser/lib.rs` | Use or remove `#[allow(dead_code)]` |
 | Duplicate type_to_string | `xiom/src/lib.rs` | Delegate to `xiom-display` crate |
 
-### M14.5 — Document Public API (1.5d)
+### M14.5 — Document Public API (1.5d, LANGUAGE DOCS DONE — 2026-07-25)
 
+**Language docs (website-ready):**
+| Deliverable | Status |
+|-------------|--------|
+| `docs/language/index.md` | Updated to v0.51.0, 1041 tests, added Scripting Mode + Pattern Matching links |
+| `docs/language/reference.md` | **NEW** — complete language reference (all syntax, types, patterns in one doc) |
+| `docs/language/pattern-matching.md` | **NEW** — match, if let, while let, ? operator, exhaustiveness |
+| 39 stdlib module docs | Existing — covers all modules |
+
+**Rust API docs (remaining):**
 | Crate | Undocumented pub items | Priority |
 |-------|----------------------|----------|
 | `xiom-check` | **25** (Checker, check_program, CheckedType, BorrowChecker, ...) | HIGH |
@@ -501,36 +510,23 @@ into focused sub-functions with clear boundaries.
 | Item | Detail |
 |------|--------|
 | **5 unreachable!() without messages** | `call.rs:156,196,306`, `expr.rs:500`, `stmt.rs:825` — add diagnostic strings |
-| **M13.8 fmt round-trip** | extern/unsafe blocks still not round-trippable (tracked gap) |
+| **M13.8 fmt round-trip** | **DONE** — extern/unsafe blocks now round-trippable (M8, 2026-07-25) |
 | **`type_to_string` dedup** | `xiom/src/lib.rs` copies from `xiom-display` — delegate instead |
 | **AST variant docs** | Add doc comments to `Type`, `Pattern`, `Stmt` variants in `xiom-ast` |
 
-### M14.7 — LLVM Constants Extraction (1d)
-
-Extract 400+ hardcoded LLVM type strings (`"i64"`, `"double"`, `"i8*"`, `"%struct."`, ...)
-into a `llvm_consts.rs` module. Added benefit: a single place to change LLVM conventions.
-
-| Constant | Used in | Occurrences |
-|----------|---------|-------------|
-| `LLVM_I64` | All codegen files | ~150 |
-| `LLVM_DOUBLE` | expr.rs, call.rs | ~40 |
-| `LLVM_STR_PTR` | call.rs, stmt.rs | ~30 |
-| `LLVM_VOID` | decl.rs, lib.rs | ~20 |
-| `STRUCT_PREFIX` | types.rs, decl.rs | ~60 |
-
 ### M14 Schedule
 
-| Phase | Items | Effort |
-|-------|-------|--------|
-| M14.1 | Split 14 oversized files | 3d |
-| M14.2 | Split 8 giant functions | 2d |
-| M14.3 | Fix bare unwraps + SAFETY gaps | 0.5d |
-| M14.4 | Remove dead code + deduplication | 1d |
-| M14.5 | Document public API | 1.5d |
-| M14.6 | Quality fixes (unreachable, round-trip, dedup) | 1d |
-| M14.7 | LLVM constants extraction | 1d |
+| Phase | Items | Effort | Status |
+|-------|-------|--------|--------|
+| M14.1 | Split 14 oversized files | 3d | Pending |
+| M14.2 | Split 8 giant functions | 2d | Pending |
+| M14.3 | Fix bare unwraps + SAFETY gaps | 0.5d | **DONE** |
+| M14.4 | Remove dead code + deduplication | 1d | **DONE** |
+| M14.5 | Document public API | 1.5d | **IN PROGRESS** (language docs done) |
+| M14.6 | Quality fixes (unreachable, round-trip, dedup) | 1d | Pending |
+| M14.7 | LLVM constants extraction | 1d | Pending |
 
-**Total M14 effort: 10d. Target v0.51.0 (shared with M13/M14).**
+**Total M14 effort: 10d. Target v0.51.0.**
 
 ---
 
