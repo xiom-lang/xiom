@@ -2871,14 +2871,14 @@ impl Checker {
 
     fn types_compatible(&self, found: &CheckedType, expected: &CheckedType) -> bool {
         // Phase 7E/Feature: Resolve type aliases so newtypes auto-convert
-        // to their underlying types (e.g. `type VkHandle = Int;` allows
-        // passing VkHandle where Int is expected, and vice versa).
         let found = &self.resolve_alias(found);
         let expected = &self.resolve_alias(expected);
-        // Wildcard type `_` (unresolved generic placeholder returned by Vec[T]
-        // indexing, Option.unwrap(), and field access on generic params) is
-        // compatible with any concrete type.  The codegen resolves the actual
-        // type at monomorphisation time.
+        // M9.6: impl Trait is an opaque return type — any concrete type in the body
+        // is compatible. Full trait-resolution checking is deferred.
+        if matches!(found, CheckedType::ImplTrait(_)) || matches!(expected, CheckedType::ImplTrait(_)) {
+            return true;
+        }
+        // Wildcard type `_` — compatible with any concrete type
         if matches!(found, CheckedType::Named(n) if n == "_") ||
            matches!(expected, CheckedType::Named(n) if n == "_") {
             return true;

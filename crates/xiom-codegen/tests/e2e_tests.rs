@@ -316,6 +316,13 @@ fn e2e_ir_contains_module_fn() {
     assert!(compile_and_check_ir("examples\\phase1_modules.xi", "define i64 @add"));
 }
 
+#[test]
+fn e2e_impl_trait_compiles() {
+    // M9.6: impl Trait return types must compile to valid LLVM IR
+    let status = compile_and_run("examples\\phase1_impl_trait.xi");
+    assert_eq!(status, Some(0));
+}
+
 // ============================================================================
 // E2E: CLI Flags
 // ============================================================================

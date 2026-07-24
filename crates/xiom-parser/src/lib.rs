@@ -1905,4 +1905,47 @@ mod tests {
             let _ = result;
         }
     }
+
+    // M9.6: impl Trait return types
+    #[test] fn test_impl_trait_return() {
+        let src = "fn get_display() -> impl Display { return 42; }";
+        let prog = parse(src).unwrap();
+        match &prog.items[0] {
+            TopDecl::Fn(f) => {
+                let ret = f.return_type.as_ref().expect("should have return type");
+                assert!(matches!(ret, Type::ImplTrait(_)), "expected ImplTrait, got {:?}", ret);
+                if let Type::ImplTrait(traits) = ret {
+                    assert_eq!(traits.len(), 1);
+                    assert_eq!(traits[0].name, "Display");
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test] fn test_impl_trait_multi() {
+        let src = "fn foo() -> impl Display + Debug { return \"hi\"; }";
+        let prog = parse(src).unwrap();
+        match &prog.items[0] {
+            TopDecl::Fn(f) => {
+                if let Some(Type::ImplTrait(traits)) = &f.return_type {
+                    assert_eq!(traits.len(), 2);
+                    assert_eq!(traits[0].name, "Display");
+                    assert_eq!(traits[1].name, "Debug");
+                } else { panic!("expected ImplTrait"); }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test] fn test_impl_trait_method() {
+        let src = "fn Iterator.next() -> impl Option { return None; }";
+        let prog = parse(src).unwrap();
+        match &prog.items[0] {
+            TopDecl::Fn(f) => {
+                assert!(f.return_type.is_some());
+            }
+            _ => panic!("expected function"),
+        }
+    }
 }
