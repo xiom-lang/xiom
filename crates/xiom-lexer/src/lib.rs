@@ -121,7 +121,7 @@ impl Lexer {
         let mut s = String::new();
         while let Some(c) = self.peek() {
             if pred(c) {
-                s.push(self.advance().unwrap());
+                s.push(self.advance().expect("peek guaranteed character available"));
             } else {
                 break;
             }
@@ -195,9 +195,9 @@ impl Lexer {
                     // Handle scientific notation exponent: e308, e-308, E+10
                     let mut exp = String::new();
                     if matches!(self.peek(), Some('e' | 'E')) {
-                        exp.push(self.advance().unwrap()); // 'e' or 'E'
+                        exp.push(self.advance().expect("peek guaranteed character available")); // 'e' or 'E'
                         if matches!(self.peek(), Some('+' | '-')) {
-                            exp.push(self.advance().unwrap());
+                            exp.push(self.advance().expect("peek guaranteed character available"));
                         }
                         let exp_digits = self.advance_while(|c| c.is_ascii_digit());
                         exp.push_str(&exp_digits);
@@ -209,9 +209,9 @@ impl Lexer {
                     // Also handle integer scientific notation: 1e10
                     if matches!(self.peek(), Some('e' | 'E')) {
                         let mut exp = String::from(&int_part);
-                        exp.push(self.advance().unwrap()); // 'e' or 'E'
+                        exp.push(self.advance().expect("peek guaranteed character available")); // 'e' or 'E'
                         if matches!(self.peek(), Some('+' | '-')) {
-                            exp.push(self.advance().unwrap());
+                            exp.push(self.advance().expect("peek guaranteed character available"));
                         }
                         let exp_digits = self.advance_while(|c| c.is_ascii_digit());
                         exp.push_str(&exp_digits);

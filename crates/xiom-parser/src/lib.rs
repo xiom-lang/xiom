@@ -339,7 +339,7 @@ impl Parser {
                 is_file_level: false, source_file: None, span,
             })];
         }
-        current_items.into_iter().next().unwrap()
+        current_items.into_iter().next().expect("brace module has at least one item")
     }
 
     fn parse_top_decl(&mut self) -> Result<TopDecl, ParseError> {
@@ -1470,7 +1470,7 @@ impl Parser {
                                 }
                             }).collect();
                             let args_expr = if type_exprs.len() == 1 {
-                                type_exprs.into_iter().next().unwrap()
+                                type_exprs.into_iter().next().expect("len==1 guaranteed")
                             } else {
                                 Expr::Tuple(type_exprs, self.peek().span)
                             };
@@ -1496,7 +1496,7 @@ impl Parser {
                                 }
                             }).collect();
                             let args_expr = if type_exprs.len() == 1 {
-                                type_exprs.into_iter().next().unwrap()
+                                type_exprs.into_iter().next().expect("len==1 guaranteed")
                             } else {
                                 Expr::Tuple(type_exprs, self.peek().span)
                             };
