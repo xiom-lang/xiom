@@ -21,6 +21,7 @@ pub fn workflow_guide(topic: &str) -> String {
         "compile" => W_COMPILE.into(),
         "test" => W_TEST.into(),
         "debug" => W_DEBUG.into(),
+        "script" => W_SCRIPT.into(),
         "package" => W_PACKAGE.into(),
         "sandbox" => W_SANDBOX.into(),
         _ => W_OVERVIEW.into(),
@@ -428,6 +429,38 @@ Evaluates arbitrary XIOM expressions in the current stack frame.
 
 ## 8. CLI fallback
 gdb ./app.exe  (DWARF symbols work in any GDB-compatible debugger)"#;
+
+const W_SCRIPT: &str = r#"# Scripting & JIT Workflows
+
+## xiom run — execute scripts immediately
+xiom run script.xi              # Execute a .xi script (auto-wraps in fn main())
+xiom run -e "print(42)"         # Execute inline expression
+echo "print(1+1)" | xiom run -  # Execute from stdin
+xiom run --watch script.xi      # Watch file, re-run on changes
+
+## Implicit main — no boilerplate needed
+Scripts can write statements directly at the top level. The compiler
+automatically wraps them in `fn main()` and adds `use xiom.io;`.
+
+## Shebang support
+xiom scripts can use #!/usr/bin/env xiom as the first line:
+#!/usr/bin/env xiom
+io.println("hello from executable script");
+chmod +x script.xi && ./script.xi
+
+## xiom --standalone — script-to-binary
+Converts a script into a production binary with --release optimizations:
+xiom --standalone script.xi -o mytool
+xiom --standalone --scaffold script.xi  # Also create project structure
+
+## Script cache
+Repeated runs of the same script are instant — binaries are content-hash
+cached in ~/.xiom/jit/. No recompilation needed.
+
+## AI agent usage (MCP)
+When generating XIOM code via MCP, use `xiom run -e "code"` for rapid
+testing. The MCP `compile_and_diagnose` tool also accepts scripting-mode
+source (it auto-wraps implicit main)."#;
 
 const W_PACKAGE: &str = r#"# Package & Publish Workflows
 
