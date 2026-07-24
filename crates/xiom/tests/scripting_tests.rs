@@ -143,6 +143,28 @@ fn build_standalone(content: &str) -> std::process::Output {
 #[test] fn test_compile_early_return() {
     assert!(check_script("if true { io.println(\"early\"); } io.println(\"after\");\n").status.success());
 }
+// Declaration tests — verify type/enum/interface/module stay at top level
+#[test] fn test_compile_with_enum_decl() {
+    assert!(check_script("enum Color { Red, Green, Blue }\n").status.success());
+}
+#[test] fn test_compile_with_struct_decl() {
+    assert!(check_script("type Point = { x: Float64; y: Float64; }\nvar p = Point{ x: 1.0; y: 2.0; };\n").status.success());
+}
+#[test] fn test_compile_with_interface_decl() {
+    assert!(check_script("interface Show { fn show() -> Str; }\nfn main() -> Str { return \"ok\"; }\n").status.success());
+}
+#[test] fn test_compile_with_module_decl() {
+    assert!(check_script("module test\npub fn foo() -> Int { return 1; }\n").status.success());
+}
+#[test] fn test_compile_with_type_alias() {
+    assert!(check_script("type Age = Int;\nvar a: Age = 25;\n").status.success());
+}
+#[test] fn test_compile_with_use_decl() {
+    assert!(check_script("use xiom.io;\n").status.success());
+}
+#[test] fn test_compile_with_const_decl() {
+    assert!(check_script("const X: Int = 42;\n").status.success());
+}
 
 // ============================================================================
 // ERROR tests — verify proper error handling in scripting mode
