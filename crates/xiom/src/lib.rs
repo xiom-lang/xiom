@@ -535,6 +535,28 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
 }
 
 pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Vec<String>> {
+    // M12: Auto-discover stdlib from binary path so the C runtime is always found.
+    // This ensures xiom run, playground, MCP, and direct CLI all work without XIOM_STDLIB env var.
+    if std::env::var("XIOM_STDLIB").is_err() {
+        if let Ok(exe) = std::env::current_exe() {
+            let mut search = exe.parent();
+            for _ in 0..8 {
+                if let Some(dir) = search {
+                    let candidate = dir.join("stdlib");
+                    if candidate.is_dir() {
+                        unsafe { std::env::set_var("XIOM_STDLIB", candidate.to_string_lossy().to_string()); }
+                        break;
+                    }
+                    let rt = dir.join("runtime");
+                    if rt.is_dir() && rt.join("xiom_runtime.c").exists() {
+                        unsafe { std::env::set_var("XIOM_STDLIB", dir.to_string_lossy().to_string()); }
+                        break;
+                    }
+                    search = dir.parent();
+                } else { break; }
+            }
+        }
+    }
     // Phase 7A: Expand source list using project dependency graph
     let (resolved_sources, graph_source_dirs) = expand_sources_with_graph(source_paths);
     let effective_sources: &[String] = if !resolved_sources.is_empty() {
