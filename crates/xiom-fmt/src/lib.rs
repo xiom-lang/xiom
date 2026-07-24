@@ -43,7 +43,7 @@ impl Formatter {
             TopDecl::Module(module) => self.format_module(module),
             TopDecl::Use(use_decl) => self.format_use_decl(use_decl),
             TopDecl::Const(const_decl) => self.format_const_decl(const_decl),
-            TopDecl::Extern(_) => {} // skip formatting for now
+            TopDecl::Extern(extern_block) => self.format_extern(extern_block),
         }
     }
 
@@ -107,6 +107,21 @@ impl Formatter {
             self.push_indent();
             self.buf.push('}');
         }
+    }
+
+    fn format_extern(&mut self, eb: &ExternBlock) {
+        self.buf.push_str("extern \"");
+        self.buf.push_str(&eb.linkage);
+        self.buf.push_str("\" {\n");
+        self.indent += 1;
+        for func in &eb.functions {
+            self.push_indent();
+            self.format_fn_decl(func);
+            self.buf.push_str(";\n");
+        }
+        self.indent -= 1;
+        self.push_indent();
+        self.buf.push('}');
     }
 
     fn format_block(&mut self, block: &Block) {
@@ -534,8 +549,12 @@ impl Formatter {
                 }
             }
             Expr::Unsafe(block, _) => {
-                self.buf.push_str("unsafe ");
+                self.buf.push_str("unsafe {\n");
+                self.indent += 1;
                 self.format_block(block);
+                self.indent -= 1;
+                self.push_indent();
+                self.buf.push('}');
             }
             Expr::Match(scrutinee, arms, _) => {
                 self.buf.push_str("match ");
@@ -1093,7 +1112,17 @@ mod tests {
         assert_round_trip("fn swap(a: &mut Int, b: &mut Int) { let tmp = a; a = b; b = tmp; }");
     }
 
-    // NOTE: extern blocks and unsafe blocks are not yet round-trippable
+    // M8: extern and unsafe blocks are now round-trippable
+    #[test] fn test_rt_extern_block() {
+        assert_round_trip("extern \"C\" { fn printf(format: *UInt8, ...) -> Int32; fn malloc(size: UInt) -> *UInt8; }");
+    }
+    #[test] fn test_rt_unsafe_block() {
+        assert_round_trip("fn foo() { unsafe { let ptr = malloc(8); free(ptr); } }");
+    }
+    #[test] fn test_rt_unsafe_expr() {
+        assert_round_trip("fn get_ptr() -> *UInt8 { unsafe { return malloc(16); } }");
+    }
+    // NOTE: extern blocks and unsafe blocks are now round-trippable
     // by the formatter. This is a known formatter limitation, not a parser bug.
     // Tracked as fmt/extern-unsafe-roundtrip.
 
