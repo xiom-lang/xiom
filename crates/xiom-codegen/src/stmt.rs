@@ -822,7 +822,7 @@ impl IrEmitter {
                             let expected_disc: i64 = match &arm.pattern {
                                 Pattern::Some(..) | Pattern::Ok(..) => 1,
                                 Pattern::None(..) | Pattern::Err(..) => 0,
-                                _ => unreachable!(),
+                                _ => unreachable!("match arm pattern is neither Option nor Result discriminant"),
                             };
                             let inner_pat: Option<&Pattern> = match &arm.pattern {
                                 Pattern::Some(inner, _) | Pattern::Ok(inner, _) => Some(inner.as_ref()),

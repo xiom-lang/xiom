@@ -497,7 +497,7 @@ impl IrEmitter {
                     BinOp::Le => (if is_float { float_ty } else { "i64" }, if is_float { "fcmp ole" } else { "icmp sle" }),
                     BinOp::Ge => (if is_float { float_ty } else { "i64" }, if is_float { "fcmp oge" } else { "icmp sge" }),
                     BinOp::Assign => return Ok((r, rt)),
-                    _ => unreachable!(),
+                    _ => unreachable!("binary operation not lowered to LLVM IR"),
                 };
                 // For non-float comparisons, use the actual operand LLVM type
                 // (handles pointer types like i8* for string comparisons)

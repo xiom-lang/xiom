@@ -153,7 +153,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     let val = extra_args.first().cloned().unwrap_or_else(|| "0".to_string());
                                     self.emitln(&format!("  {tmp} = call i64 @xiom_contains(i8* {ptr}, i64 {val})"));
                                 }
-                                _ => unreachable!(),
+                                _ => unreachable!("set method with unexpected argument count"),
                             }
                             return Ok((tmp, "i64".to_string()));
                         }
@@ -193,7 +193,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let val = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
                             self.emitln(&format!("  {tmp} = call i64 @xiom_contains(i8* {ptr}, i64 {val})"));
                         }
-                        _ => unreachable!(),
+                        _ => unreachable!("contains method with unexpected argument count"),
                     }
                     return Ok((tmp, "i64".to_string()));
                 }
@@ -303,7 +303,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 ("gt", false) => "icmp sgt", ("gt", true) => "fcmp ogt",
                                 ("le", false) => "icmp sle", ("le", true) => "fcmp ole",
                                 ("ge", false) => "icmp sge", ("ge", true) => "fcmp oge",
-                                _ => unreachable!(),
+                                _ => unreachable!("unknown comparison operator"),
                             };
                             let cmp = self.fresh_tmp();
                             self.emitln(&format!("  {cmp} = {op} {recv_llvm_ty} {recv_val}, {arg_val}"));
