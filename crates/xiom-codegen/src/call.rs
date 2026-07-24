@@ -3,6 +3,7 @@
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
 use xiom_ast::*;
+use crate::llvm_consts::*;
 use std::collections::HashMap;
 
 use super::IrEmitter;
@@ -92,9 +93,9 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             self.emitln(&format!("  {fn_ptr} = inttoptr i64 {val_i64} to {fn_ptr_ty}"));
                             let tmp = self.fresh_tmp();
                             self.emitln(&format!("  {tmp} = call i64 {fn_ptr}({args_str})"));
-                            return Ok((tmp, "i64".to_string()));
+                            return Ok((tmp, LLVM_I64.to_string()));
                         }
-                        return Ok(("0".to_string(), "i64".to_string()));
+                        return Ok(("0".to_string(), LLVM_I64.to_string()));
                     }
                 };
                 // Enum variant constructor: TypeName.Variant(args)
@@ -155,7 +156,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 }
                                 _ => unreachable!("set method with unexpected argument count"),
                             }
-                            return Ok((tmp, "i64".to_string()));
+                            return Ok((tmp, LLVM_I64.to_string()));
                         }
                     }
                     // Direct form: method(args) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â compile all args
@@ -164,7 +165,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         .collect::<Result<Vec<_>, _>>()?;
                     // Convert first argument to i8* pointer via alloca+bitcast
                     let ptr_val = compiled_args.first().cloned().unwrap_or_else(|| "0".to_string());
-                    let ptr_ty = if let Some(arg) = args.first() { self.infer_llvm_type(arg) } else { "i64".to_string() };
+                    let ptr_ty = if let Some(arg) = args.first() { self.infer_llvm_type(arg) } else { LLVM_I64.to_string() };
                     let ptr = if ptr_ty == "i8*" {
                         ptr_val
                     } else {
@@ -195,7 +196,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                         _ => unreachable!("contains method with unexpected argument count"),
                     }
-                    return Ok((tmp, "i64".to_string()));
+                    return Ok((tmp, LLVM_I64.to_string()));
                 }
                 } // if !has_user_fn ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â contract builtin guard
                 // Primitive interface methods (Ord.compare, Eq.eq/ne, comparison ops,
@@ -231,7 +232,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             && !receiver_is_type_name
                         {
                             let (recv_val, _) = self.compile_expr(receiver)?;
-                            return Ok((recv_val, "i8*".to_string()));
+                            return Ok((recv_val, LLVM_STR_PTR.to_string()));
                         }
                         // Only scalar (integer/float) receivers get inline handling;
                         // structs use derived/user impls, pointers (Str) fall through.
@@ -250,18 +251,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         let cast = self.fresh_tmp();
                                         self.emitln(&format!("  {cast} = bitcast {recv_llvm_ty} {recv_val} to {bits}"));
                                         if bits == "i64" {
-                                            return Ok((cast, "i64".to_string()));
+                                            return Ok((cast, LLVM_I64.to_string()));
                                         }
                                         let ext = self.fresh_tmp();
                                         self.emitln(&format!("  {ext} = sext i32 {cast} to i64"));
-                                        return Ok((ext, "i64".to_string()));
+                                        return Ok((ext, LLVM_I64.to_string()));
                                     }
                                     if recv_llvm_ty == "i64" {
-                                        return Ok((recv_val, "i64".to_string()));
+                                        return Ok((recv_val, LLVM_I64.to_string()));
                                     }
                                     let ext = self.fresh_tmp();
                                     self.emitln(&format!("  {ext} = sext {recv_llvm_ty} {recv_val} to i64"));
-                                    return Ok((ext, "i64".to_string()));
+                                    return Ok((ext, LLVM_I64.to_string()));
                                 }
                                 // "hash" with args (Hash interface method call like
                                 // `value.hash(hasher)` inside a generic body) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â exit
@@ -294,7 +295,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 let res = self.fresh_tmp();
                                 self.emitln(&format!("  {s1} = select i1 {gt}, i64 1, i64 0"));
                                 self.emitln(&format!("  {res} = select i1 {lt}, i64 -1, i64 {s1}"));
-                                return Ok((res, "i64".to_string()));
+                                return Ok((res, LLVM_I64.to_string()));
                             }
                             let op = match (fn_name.as_str(), is_float) {
                                 ("eq", false) => "icmp eq",  ("eq", true) => "fcmp oeq",
@@ -309,7 +310,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             self.emitln(&format!("  {cmp} = {op} {recv_llvm_ty} {recv_val}, {arg_val}"));
                             let res = self.fresh_tmp();
                             self.emitln(&format!("  {res} = zext i1 {cmp} to i64"));
-                            return Ok((res, "i64".to_string()));
+                            return Ok((res, LLVM_I64.to_string()));
                             } // end else (fn_name != "hash")
                         }
                         } // end else (is_value_instance)
@@ -325,7 +326,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     } else {
                         self.emitln(&format!("  {tmp} = call i8* @malloc(i64 0)"));
                     }
-                    return Ok((tmp, "i8*".to_string()));
+                    return Ok((tmp, LLVM_STR_PTR.to_string()));
                 }
                 // ptr.null[T]() / ptr.null_mut[T]() / ptr.dangling[T]() ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â generic
                 // pointer constructors with NO value arguments. The parser discards
@@ -339,7 +340,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     && receiver_expr.map(|r| !self.receiver_is_instance(r)).unwrap_or(true)
                 {
                     let v = if fn_name == "dangling" { "1" } else { "0" };
-                    return Ok((v.to_string(), "i64".to_string()));
+                    return Ok((v.to_string(), LLVM_I64.to_string()));
                 }
                 // to_string(Int) / x.to_str() / x.to_string() on an integer value:
                 // lower to the C runtime `xiom_int_to_string`. The pure-XIOM
@@ -373,7 +374,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let fstr = self.intern_cstring("false");
                             let sel = self.fresh_tmp();
                             self.emitln(&format!("  {sel} = select i1 {cond}, i8* {tstr}, i8* {fstr}"));
-                            return Ok((sel, "i8*".to_string()));
+                            return Ok((sel, LLVM_STR_PTR.to_string()));
                         }
                         // Infer the operand type WITHOUT emitting, so non-integer
                         // receivers (Str, structs) fall through cleanly to normal
@@ -384,7 +385,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let iv = self.val_to_i64(&val, &vty);
                             let tmp = self.fresh_tmp();
                             self.emitln(&format!("  {tmp} = call i8* @xiom_int_to_string(i64 {iv})"));
-                            return Ok((tmp, "i8*".to_string()));
+                            return Ok((tmp, LLVM_STR_PTR.to_string()));
                         }
                     }
                 }
@@ -420,7 +421,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     // return that address so callees receive a valid pointer.
                     let (val, ty) = self.compile_expr(inner_expr)?;
                     if ty == "void" || val.is_empty() {
-                        return Ok(("null".to_string(), "i8*".to_string()));
+                        return Ok(("null".to_string(), LLVM_STR_PTR.to_string()));
                     }
                     let slot = self.fresh_tmp();
                     self.emitln(&format!("  {slot} = alloca {ty}"));
@@ -1141,7 +1142,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         let len_val = self.fresh_tmp();
                         self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 1"));
                         self.emitln(&format!("  {len_val} = load i64, i64* {len_gep}"));
-                        return Ok((len_val, "i64".to_string()));
+                        return Ok((len_val, LLVM_I64.to_string()));
                         }
                     }
                 }
@@ -1153,7 +1154,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let (recv_val, _) = self.compile_expr(receiver)?;
                             let tmp = self.fresh_tmp();
                             self.emitln(&format!("  {tmp} = call i64 @xiom_str_len(i8* {recv_val})"));
-                            return Ok((tmp, "i64".to_string()));
+                            return Ok((tmp, LLVM_I64.to_string()));
                         }
                         // Pointer-typed array references from monomorphised generics
                         // (e.g. &Slice[Int] -> i64*): length is at buf[0].
@@ -1161,7 +1162,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let (recv_val, _) = self.compile_expr(receiver)?;
                             let tmp = self.fresh_tmp();
                             self.emitln(&format!("  {tmp} = load i64, {recv_ty} {recv_val}"));
-                            return Ok((tmp, "i64".to_string()));
+                            return Ok((tmp, LLVM_I64.to_string()));
                         }
                         // Vec/Slice: length is field 1 of the {ptr, len, cap} struct.
                         if recv_ty == "%struct.Vec" || recv_ty.ends_with(".Vec")
@@ -1178,7 +1179,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             self.emitln(&format!("  {gep} = getelementptr {vec_ty}, {vec_ty}* {slot}, i32 0, i32 1"));
                             let lenv = self.fresh_tmp();
                             self.emitln(&format!("  {lenv} = load i64, i64* {gep}"));
-                            return Ok((lenv, "i64".to_string()));
+                            return Ok((lenv, LLVM_I64.to_string()));
                         }
                     }
                 }
@@ -1191,14 +1192,14 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         if fn_name == "c_str" {
                             let (recv_val, recv_ty) = self.compile_expr(receiver)?;
                             let ptr = self.coerce_value(&recv_val, &recv_ty, "i8*");
-                            return Ok((ptr, "i8*".to_string()));
+                            return Ok((ptr, LLVM_STR_PTR.to_string()));
                         } else if is_str {
                             // .len() / .byte_len(): only for Str receivers
                             let (recv_val, recv_ty) = self.compile_expr(receiver)?;
                             let ptr = self.coerce_value(&recv_val, &recv_ty, "i8*");
                             let len_tmp = self.fresh_tmp();
                             self.emitln(&format!("  {len_tmp} = call i64 @strlen(i8* {ptr})"));
-                            return Ok((len_tmp, "i64".to_string()));
+                            return Ok((len_tmp, LLVM_I64.to_string()));
                         }
                     }
                 }
@@ -1212,7 +1213,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 {
                     let (arg_val, arg_ty) = self.compile_expr(&args[0])?;
                     let as_ptr = self.coerce_value(&arg_val, &arg_ty, "i8*");
-                    return Ok((as_ptr, "i8*".to_string()));
+                    return Ok((as_ptr, LLVM_STR_PTR.to_string()));
                 }
                 // M12/P1: Str.slice(start, end) — substring extraction.
                 // Delegates to xiom.string.str_slice via normal function dispatch.
@@ -1225,7 +1226,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         let (end_val, _) = self.compile_expr(&args[1])?;
                         let tmp = self.fresh_tmp();
                         self.emitln(&format!("  {tmp} = call i8* @xiom_str_slice(i8* {recv_ptr}, i64 {start_val}, i64 {end_val})"));
-                        return Ok((tmp, "i8*".to_string()));
+                        return Ok((tmp, LLVM_STR_PTR.to_string()));
                     }
                 }
                 // M12/P1: Str.starts_with(prefix) — prefix check via string.xi.
@@ -1261,7 +1262,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         self.emitln(&format!("  {tmp} = call i32 @puts(i8* {arg})"));
                         return Ok((tmp, "i32".to_string()));
                     }
-                    return Ok(("0".to_string(), "i64".to_string()));
+                    return Ok(("0".to_string(), LLVM_I64.to_string()));
                 }
                 // Extern runtime functions for file I/O
                 if fn_name == "xiom_read_file" {
@@ -1274,7 +1275,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     }
                     let tmp_int = self.fresh_tmp();
                     self.emitln(&format!("  {tmp_int} = ptrtoint i8* {tmp} to i64"));
-                    return Ok((tmp_int, "i64".to_string()));
+                    return Ok((tmp_int, LLVM_I64.to_string()));
                 }
                 if fn_name == "xiom_file_size" {
                     let tmp = self.fresh_tmp();
@@ -1284,7 +1285,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     } else {
                         self.emitln(&format!("  {tmp} = call i64 @xiom_file_size(i8* null)"));
                     }
-                    return Ok((tmp, "i64".to_string()));
+                    return Ok((tmp, LLVM_I64.to_string()));
                 }
                 if fn_name == "xiom_free" {
                     if let Some(ptr_arg) = args.first() {
@@ -1302,14 +1303,14 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     let src_ptr = self.val_to_i8ptr(&src, &src_ty);
                     self.emitln(&format!("  {tmp} = call i8 @xiom_char_at(i8* {src_ptr}, i64 {pos})"));
                     self.emitln(&format!("  {tmp_ext} = zext i8 {tmp} to i64"));
-                    return Ok((tmp_ext, "i64".to_string()));
+                    return Ok((tmp_ext, LLVM_I64.to_string()));
                 }
                 if fn_name == "xiom_str_len" && args.len() >= 1 {
                     let (src, src_ty) = self.compile_expr(&args[0])?;
                     let tmp = self.fresh_tmp();
                     let src_ptr = self.val_to_i8ptr(&src, &src_ty);
                     self.emitln(&format!("  {tmp} = call i64 @xiom_str_len(i8* {src_ptr})"));
-                    return Ok((tmp, "i64".to_string()));
+                    return Ok((tmp, LLVM_I64.to_string()));
                 }
                 // v0.9.4 string-based IR emission externs
                 if fn_name == "xiom_ir_define_s" && args.len() >= 2 {
@@ -1392,7 +1393,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         self.emitln(&format!("  {buf} = bitcast i8* {arg_val} to i64*"));
                         let len_val = self.fresh_tmp();
                         self.emitln(&format!("  {len_val} = load i64, i64* {buf}"));
-                        return Ok((len_val, "i64".to_string()));
+                        return Ok((len_val, LLVM_I64.to_string()));
                     }
                 }
                 // Builtin write(ptr, value): store value through raw pointer.
@@ -1449,8 +1450,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     self.struct_byte_size("RcInner")
                                 };
                                 if sz > 0 {
-                                    if fn_name == "align_of" { return Ok(("8".to_string(), "i64".to_string())); }
-                                    return Ok((sz.to_string(), "i64".to_string()));
+                                    if fn_name == "align_of" { return Ok(("8".to_string(), LLVM_I64.to_string())); }
+                                    return Ok((sz.to_string(), LLVM_I64.to_string()));
                                 }
                             }
                         }
@@ -1494,12 +1495,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             };
                             if fn_name == "align_of" {
                                 let align = if llvm_ty.starts_with("%struct.") { 8 } else { size };
-                                return Ok((align.to_string(), "i64".to_string()));
+                                return Ok((align.to_string(), LLVM_I64.to_string()));
                             }
-                            return Ok((size.to_string(), "i64".to_string()));
+                            return Ok((size.to_string(), LLVM_I64.to_string()));
                         }
                     }
-                    return Ok(("8".to_string(), "i64".to_string()));
+                    return Ok(("8".to_string(), LLVM_I64.to_string()));
                 }
                 // Enum variant constructor: `TypeName.Variant(args)`.
                 // Detects when the call is constructing an enum variant and emits
@@ -1620,7 +1621,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     if decl_ty == "Str" {
                                         let sptr = self.fresh_tmp();
                                         self.emitln(&format!("  {sptr} = inttoptr i64 {val} to i8*"));
-                                        return Ok((sptr, "i8*".to_string()));
+                                        return Ok((sptr, LLVM_STR_PTR.to_string()));
                                     }
                                     if decl_ty == "Float64" {
                                         let f = self.fresh_tmp();
@@ -1648,7 +1649,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     let full_key = self.types.type_meta.keys().find(|k| k.ends_with(&format!(".{hint}"))).cloned();
                                     match full_key {
                                         Some(k) => format!("%struct.{k}"),
-                                        None => return Ok((self.val_to_i64(&val, &field_ty), "i64".to_string())),
+                                        None => return Ok((self.val_to_i64(&val, &field_ty), LLVM_I64.to_string())),
                                     }
                                 };
                                 // The val is a heap pointer (i64). Inttoptr to the struct type, load.
@@ -1659,7 +1660,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 return Ok((loaded, struct_llvm));
                             }
                             let result = self.val_to_i64(&val, &field_ty);
-                            return Ok((result, "i64".to_string()));
+                            return Ok((result, LLVM_I64.to_string()));
                         }
                     }
                 }
@@ -1926,14 +1927,14 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     .and_then(|(_, fd)| fd.receiver.as_ref())
                                 {
                                     let recv_ty = self.llvm_type_for(&recv_name.name)
-                                        .unwrap_or_else(|_| "i64".to_string());
+                                        .unwrap_or_else(|_| LLVM_I64.to_string());
                                     let recv_ptr = if recv_ty.starts_with('%') { format!("{recv_ty}*") } else { recv_ty };
                                     inferred_types.insert(0, recv_ptr);
                                 }
                             }
                             let generic_ret = self.types.functions.get(&fn_key)
                                 .map(|(_, rt)| rt.clone())
-                                .unwrap_or_else(|| "i64".to_string());
+                                .unwrap_or_else(|| LLVM_I64.to_string());
                             (generic_ret, inferred_types)
                         };
                         // Include receiver argument only if it's an actual struct instance
@@ -1976,7 +1977,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 if has_receiver_in_params {
                                     // Receiver type already in param_types, just need the value
                                     all_args.insert(0, recv_val);
-                                    all_arg_types.insert(0, all_param_types.first().cloned().unwrap_or_else(|| "i64".to_string()));
+                                    all_arg_types.insert(0, all_param_types.first().cloned().unwrap_or_else(|| LLVM_I64.to_string()));
                                 } else {
                                     all_param_types.insert(0, recv_llvm_ty.clone());
                                     all_args.insert(0, recv_val);
@@ -1996,7 +1997,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         let args_str = all_args.iter().enumerate()
                             .map(|(i, arg)| {
                                 let pty = all_param_types.get(i).cloned()
-                                    .unwrap_or_else(|| all_arg_types.get(i).cloned().unwrap_or_else(|| "i64".to_string()));
+                                    .unwrap_or_else(|| all_arg_types.get(i).cloned().unwrap_or_else(|| LLVM_I64.to_string()));
                                 let from = all_arg_types.get(i).cloned().unwrap_or_else(|| pty.clone());
                                 let coerced = if i >= arg_offset {
                                     match args.get(i - arg_offset) {
@@ -2024,7 +2025,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             Ok((tmp, ret_ty.clone()))
                         }
                     } else {
-                        Ok(("0".to_string(), "i64".to_string()))
+                        Ok(("0".to_string(), LLVM_I64.to_string()))
                     }
                 } else {
                     // For method calls, resolve the fully qualified function name
@@ -2251,7 +2252,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             }
                         }
                         if found.is_empty() {
-                            "i64".to_string()
+                            LLVM_I64.to_string()
                         } else {
                             found
                         }
@@ -2266,7 +2267,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         self.emitln(&format!("  {fn_ptr_loaded} = load {local_llvm_ty}, {local_llvm_ty}* {alloca_reg}"));
                         let param_types: Vec<String> = args.iter().map(|a| self.infer_llvm_type(a)).collect();
                         let actual_ret_ty = if ret_ty == "i64" {
-                            self.types.fn_ptr_return_types.get(&fn_name).cloned().unwrap_or_else(|| "i64".to_string())
+                            self.types.fn_ptr_return_types.get(&fn_name).cloned().unwrap_or_else(|| LLVM_I64.to_string())
                         } else {
                             ret_ty.clone()
                             };

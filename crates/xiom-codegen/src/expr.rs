@@ -1,4 +1,5 @@
 ﻿use xiom_ast::*;
+use crate::llvm_consts::*;
 
 use super::IrEmitter;
 
@@ -20,7 +21,7 @@ impl IrEmitter {
             let rp = self.val_to_i8ptr(r, rt);
             let res = self.fresh_tmp();
             self.emitln(&format!("  {res} = call i8* @xiom_str_concat(i8* {lp}, i8* {rp})"));
-            return Ok((res, "i8*".to_string()));
+            return Ok((res, LLVM_STR_PTR.to_string()));
         }
         let is_float = lt == "float" || lt == "double" || rt == "float" || rt == "double";
         let float_ty = if lt == "float" || rt == "float" { "float" } else { "double" };
@@ -91,7 +92,7 @@ impl IrEmitter {
                 // `this` keyword in method bodies maps to the receiver `self`.
                 // 5c.30 const-generic: substitute compile-time const value (e.g. N=5)
                 if let Some(val) = self.mono.current_const_map.get(&ident.name) {
-                    return Ok((val.to_string(), "i64".to_string()));
+                    return Ok((val.to_string(), LLVM_I64.to_string()));
                 }
                 let lookup_name: &str = if ident.name == "this" { "self" } else { &ident.name };
                 if let Some((ptr, llvm_ty)) = self.lookup_local(lookup_name).cloned() {
@@ -136,10 +137,10 @@ impl IrEmitter {
                         // `[T]` type args, so these can't be monomorphised and fall back
                         // to 0. Blocks: iter (sum/product), hash (Hash dispatch),
                         // cell/rc/sync (wrapper .get/.clone + nested `mod.Type.new`).
-                        Ok(("0".to_string(), "i64".to_string()))
+                        Ok(("0".to_string(), LLVM_I64.to_string()))
                     }
                 } else {
-                        Ok(("0".to_string(), "i64".to_string()))
+                        Ok(("0".to_string(), LLVM_I64.to_string()))
                     }
                 } else {
                     // A bare reference to a module/global constant: substitute its
@@ -161,7 +162,7 @@ impl IrEmitter {
                         let fpty = format!("{ret_ty} ({})*", param_tys.join(", "));
                         let fp = self.fresh_tmp();
                         self.emitln(&format!("  {fp} = ptrtoint {fpty} @{fn_name} to i64"));
-                        return Ok((fp, "i64".to_string()));
+                        return Ok((fp, LLVM_I64.to_string()));
                     }
                     // G-20: a bare receiver-FIELD reference in a method body with
                     // no receiver slot (no self param, no &T receiver-style param,
@@ -185,21 +186,21 @@ impl IrEmitter {
                             }
                         }
                     }
-                    Ok(("0".to_string(), "i64".to_string()))
+                    Ok(("0".to_string(), LLVM_I64.to_string()))
                 }
             }
             Expr::Int(n, _) => {
-                Ok((format!("{n}"), "i64".to_string()))
+                Ok((format!("{n}"), LLVM_I64.to_string()))
             }
             Expr::Float(f, _) => {
                 Ok((format!("{f:.6}"), "double".to_string()))
             }
             Expr::Bool(b, _) => {
-                Ok((if *b { "1".to_string() } else { "0".to_string() }, "i64".to_string()))
+                Ok((if *b { "1".to_string() } else { "0".to_string() }, LLVM_I64.to_string()))
             }
             Expr::Str(s, _) => {
                 let tmp = self.intern_cstring(s);
-                Ok((tmp, "i8*".to_string()))
+                Ok((tmp, LLVM_STR_PTR.to_string()))
             }
             Expr::Char(c, _) => {
                 Ok((format!("{}", *c as u32), "i8".to_string()))
@@ -216,7 +217,7 @@ impl IrEmitter {
                         if self.fctx.current_return_type.starts_with("%struct.") {
                             struct_ty = self.fctx.current_return_type.clone();
                         } else {
-                            return Ok(("0".to_string(), "i64".to_string()));
+                            return Ok(("0".to_string(), LLVM_I64.to_string()));
                         }
                     }
                     // Parse field types from struct name: %struct.Tuple_Float32_Int →
@@ -253,7 +254,7 @@ impl IrEmitter {
                             return Ok((tmp, inner_ty.clone()));
                         } else {
                             self.emitln(&format!("  {tmp} = sub i64 0, {val}"));
-                            return Ok((tmp, "i64".to_string()));
+                            return Ok((tmp, LLVM_I64.to_string()));
                         }
                     }
                     UnaryOp::Not => {
@@ -266,11 +267,11 @@ impl IrEmitter {
                             val
                         };
                         self.emitln(&format!("  {tmp} = xor i64 {xor_val}, 1"));
-                        return Ok((tmp, "i64".to_string()));
+                        return Ok((tmp, LLVM_I64.to_string()));
                     }
                     UnaryOp::BitNot => {
                         self.emitln(&format!("  {tmp} = xor i64 {val}, -1"));
-                        return Ok((tmp, "i64".to_string()));
+                        return Ok((tmp, LLVM_I64.to_string()));
                     }
                     UnaryOp::Deref => {
                         // `*p`: load through a real pointer. `inner_ty` is e.g. `i64*`
@@ -345,7 +346,7 @@ impl IrEmitter {
                     let rp = self.val_to_i8ptr(&r, &rt);
                     let res = self.fresh_tmp();
                     self.emitln(&format!("  {res} = call i8* @xiom_str_concat(i8* {lp}, i8* {rp})"));
-                    return Ok((res, "i8*".to_string()));
+                    return Ok((res, LLVM_STR_PTR.to_string()));
                 }
                 let is_float = self.is_float_expr(left) || self.is_float_expr(right)
                     || lt == "float" || lt == "double" || rt == "float" || rt == "double";
@@ -367,7 +368,7 @@ impl IrEmitter {
                     let op_name = if is_or { "or" } else { "and" };
                     let result = self.fresh_tmp();
                     self.emitln(&format!("  {result} = {op_name} i64 {lw}, {rw}"));
-                    return Ok((result, "i64".to_string()));
+                    return Ok((result, LLVM_I64.to_string()));
                 }
                 // For struct-typed equality/inequality, call derived eq() instead of icmp.
                 // Exclude pointer-to-struct types (e.g. `%struct.ArcInner*`) which end
@@ -414,9 +415,9 @@ impl IrEmitter {
                         if matches!(op, BinOp::Neq) {
                             let negated = self.fresh_tmp();
                             self.emitln(&format!("  {negated} = xor i64 {eq_result}, 1"));
-                            return Ok((negated, "i64".to_string()));
+                            return Ok((negated, LLVM_I64.to_string()));
                         }
-                        return Ok((eq_result, "i64".to_string()));
+                        return Ok((eq_result, LLVM_I64.to_string()));
                     }
                     // Str == Str / Str != Str: compare by CONTENT via strcmp, not by
                     // pointer identity. A Str is `i8*` at the ABI; a raw `icmp eq i8*`
@@ -442,9 +443,9 @@ impl IrEmitter {
                             if matches!(op, BinOp::Neq) {
                                 let neg = self.fresh_tmp();
                                 self.emitln(&format!("  {neg} = xor i64 {zext}, 1"));
-                                return Ok((neg, "i64".to_string()));
+                                return Ok((neg, LLVM_I64.to_string()));
                             }
-                            return Ok((zext, "i64".to_string()));
+                            return Ok((zext, LLVM_I64.to_string()));
                         }
                         let lp = self.val_to_i8ptr(&l, &lt);
                         let rp = self.val_to_i8ptr(&r, &rt);
@@ -456,7 +457,7 @@ impl IrEmitter {
                         self.emitln(&format!("  {is_eq} = icmp {want} i32 {cmp}, 0"));
                         let ext = self.fresh_tmp();
                         self.emitln(&format!("  {ext} = zext i1 {is_eq} to i64"));
-                        return Ok((ext, "i64".to_string()));
+                        return Ok((ext, LLVM_I64.to_string()));
                     }
                 }
                 // Auto-deref pointer operands for relational comparisons (Lt/Gt/Le/Ge).
@@ -614,7 +615,7 @@ impl IrEmitter {
                 let (result, result_ty) = if inst.starts_with("icmp") || inst.starts_with("fcmp") {
                     let ext = self.fresh_tmp();
                     self.emitln(&format!("  {ext} = zext i1 {tmp} to i64"));
-                    (ext, "i64".to_string())
+                    (ext, LLVM_I64.to_string())
                 } else {
                     (tmp, ty.clone())
                 };
@@ -701,7 +702,7 @@ impl IrEmitter {
                     let some_val = self.fresh_tmp();
                     self.emitln(&format!("  {val_gep} = getelementptr {opt_ty}, {opt_ty}* {opt_alloca}, i32 0, i32 1"));
                     self.emitln(&format!("  {some_val} = load i64, i64* {val_gep}"));
-                    Ok((some_val, "i64".to_string()))
+                    Ok((some_val, LLVM_I64.to_string()))
                 } else {
                     let result_ty = "%struct.Result";
                     let result_alloca = self.fresh_tmp();
@@ -738,7 +739,7 @@ impl IrEmitter {
                     let ok_val = self.fresh_tmp();
                     self.emitln(&format!("  {val_gep} = getelementptr {result_ty}, {result_ty}* {result_alloca}, i32 0, i32 1"));
                     self.emitln(&format!("  {ok_val} = load i64, i64* {val_gep}"));
-                    Ok((ok_val, "i64".to_string()))
+                    Ok((ok_val, LLVM_I64.to_string()))
                 }
             }
             Expr::Imply(left, right, _) => {
@@ -748,7 +749,7 @@ impl IrEmitter {
                 let tmp2 = self.fresh_tmp();
                 self.emitln(&format!("  {tmp1} = xor i64 {l}, 1"));
                 self.emitln(&format!("  {tmp2} = or i64 {tmp1}, {r}"));
-                Ok((tmp2, "i64".to_string()))
+                Ok((tmp2, LLVM_I64.to_string()))
             }
             Expr::Is(expr, pattern, _) => {
                 let (val, ty) = self.compile_expr(expr)?;
@@ -758,7 +759,7 @@ impl IrEmitter {
                         xiom_ast::Pattern::None(..) => "None",
                         xiom_ast::Pattern::Ok(..) => "Ok",
                         xiom_ast::Pattern::Err(..) => "Err",
-                        _ => { return Ok(("1".to_string(), "i64".to_string())); }
+                        _ => { return Ok(("1".to_string(), LLVM_I64.to_string())); }
                     };
                     let type_name = &ty[8..];
                     if let Some(variants) = self.types.enum_variants.get(type_name) {
@@ -777,7 +778,7 @@ impl IrEmitter {
                             self.emitln(&format!("  {cmp} = icmp eq i64 {loaded}, {disc_val}"));
                             let ext = self.fresh_tmp();
                             self.emitln(&format!("  {ext} = zext i1 {cmp} to i64"));
-                            return Ok((ext, "i64".to_string()));
+                            return Ok((ext, LLVM_I64.to_string()));
                         }
                     }
                     // For Option/Result types not registered as enum variants:
@@ -794,16 +795,16 @@ impl IrEmitter {
                         self.emitln(&format!("  {cmp} = icmp ne i64 {loaded}, 0"));
                         let ext = self.fresh_tmp();
                         self.emitln(&format!("  {ext} = zext i1 {cmp} to i64"));
-                        return Ok((ext, "i64".to_string()));
+                        return Ok((ext, LLVM_I64.to_string()));
                     } else {
                         let cmp = self.fresh_tmp();
                         self.emitln(&format!("  {cmp} = icmp eq i64 {loaded}, 0"));
                         let ext = self.fresh_tmp();
                         self.emitln(&format!("  {ext} = zext i1 {cmp} to i64"));
-                        return Ok((ext, "i64".to_string()));
+                        return Ok((ext, LLVM_I64.to_string()));
                     }
                 }
-                Ok(("1".to_string(), "i64".to_string()))
+                Ok(("1".to_string(), LLVM_I64.to_string()))
             }
             Expr::Field(obj, field, _) => {
                 // Module-qualified constant, e.g. `simd.SIMD_SSE`: when the object is
@@ -942,7 +943,7 @@ impl IrEmitter {
                                 }
                                 let result = self.fresh_tmp();
                                 self.emitln(&format!("  {result} = zext i1 {cmp} to i64"));
-                                return Ok((result, "i64".to_string()));
+                                return Ok((result, LLVM_I64.to_string()));
                             }
                         }
                         // Check if it's a (by-value) struct type. Exclude pointer
@@ -1027,7 +1028,7 @@ impl IrEmitter {
                             }
                             let result = self.fresh_tmp();
                             self.emitln(&format!("  {result} = zext i1 {cmp} to i64"));
-                            return Ok((result, "i64".to_string()));
+                            return Ok((result, LLVM_I64.to_string()));
                         }
                         if let Some(field_names) = self.types.types.get(type_name)
                             .or_else(|| {
@@ -1051,7 +1052,7 @@ impl IrEmitter {
                         }
                     }
                 }
-                Ok(("0".to_string(), "i64".to_string()))
+                Ok(("0".to_string(), LLVM_I64.to_string()))
             }
             Expr::Call(func, args, _) => self.compile_call(func, args),
                         Expr::Index(container, index, _) => {
@@ -1076,8 +1077,8 @@ impl IrEmitter {
                     // 5c-R: use the declared element type for arrays (G-11).
                     // Default to i64 for backward-compat. Tracked via local_array_elem.
                     let arr_elem_ty = if let Expr::Ident(ident) = container.as_ref() {
-                        self.local.local_array_elem.get(&ident.name).cloned().unwrap_or_else(|| "i64".to_string())
-                    } else { "i64".to_string() };
+                        self.local.local_array_elem.get(&ident.name).cloned().unwrap_or_else(|| LLVM_I64.to_string())
+                    } else { LLVM_I64.to_string() };
                     self.emitln(&format!("  {base_ptr} = bitcast i8* {cont_val} to {arr_elem_ty}*"));
                     // Element is at position index+1 (slot 0 is the length).
                     let offset = self.fresh_tmp();
@@ -1099,7 +1100,7 @@ impl IrEmitter {
                     self.emitln(&format!("  {ch} = load i8, i8* {elem_ptr}"));
                     let ext = self.fresh_tmp();
                     self.emitln(&format!("  {ext} = zext i8 {ch} to i64"));
-                    return Ok((ext, "i64".to_string()));
+                    return Ok((ext, LLVM_I64.to_string()));
                 }
                 // Str: char access via the raw runtime accessor, returned as i64.
                 if cont_ty == "i8*" {
@@ -1107,7 +1108,7 @@ impl IrEmitter {
                     self.emitln(&format!("  {ch} = call i8 @xiom_char_at(i8* {cont_val}, i64 {idx})"));
                     let ext = self.fresh_tmp();
                     self.emitln(&format!("  {ext} = zext i8 {ch} to i64"));
-                    return Ok((ext, "i64".to_string()));
+                    return Ok((ext, LLVM_I64.to_string()));
                 }
                 // Vec/Slice: element is an i64-wide slot at data[index].
                 let (mut vec_val, mut vec_ty) = self.resolve_vec_value(&cont_val, &cont_ty);
@@ -1179,7 +1180,7 @@ impl IrEmitter {
                             return Ok((d, "double".to_string()));
                         }
                     }
-                    return Ok((elem, "i64".to_string()));
+                    return Ok((elem, LLVM_I64.to_string()));
                 }
                 // Fixed-size stack array [N x T]: use the existing alloca for
                 // Ident containers (no fresh alloca per access) or stash into an
@@ -1208,7 +1209,7 @@ impl IrEmitter {
                     let elem = self.fresh_tmp();
                     self.emitln(&format!("  {elem} = load {inner_ty}, {inner_ty}* {elem_ptr}"));
                     let result = self.val_to_i64(&elem, &inner_ty);
-                    return Ok((result, "i64".to_string()));
+                    return Ok((result, LLVM_I64.to_string()));
                 }
                 // Handle pointer-typed array references from monomorphised generic params.
                 if cont_ty.ends_with('*') && cont_ty != "i8*" {
@@ -1221,10 +1222,10 @@ impl IrEmitter {
                     let elem = self.fresh_tmp();
                     self.emitln(&format!("  {elem} = load {elem_ty}, {elem_ty}* {elem_ptr}"));
                     let result = self.val_to_i64(&elem, &elem_ty);
-                    return Ok((result, "i64".to_string()));
+                    return Ok((result, LLVM_I64.to_string()));
                 }
                 // safe default.
-                Ok(("0".to_string(), "i64".to_string()))
+                Ok(("0".to_string(), LLVM_I64.to_string()))
             }
             Expr::AtPre(inner, _) => {
                 // If inner is `self` or any variable, resolve to its pre-state snapshot
@@ -1549,7 +1550,7 @@ impl IrEmitter {
                             && !field_val_ty.ends_with('*')
                         {
                             field_val = self.emit_box_struct_handle(&field_val, &field_val_ty);
-                            field_val_ty = "i64".to_string();
+                            field_val_ty = LLVM_I64.to_string();
                         } else if field_llvm_ty == "i64" {
                             // For generic types, field_llvm_type may return "i64" for unresolved type params (like T).
                             // Fall back to the field value's actual compiled LLVM type.
@@ -1593,8 +1594,8 @@ impl IrEmitter {
                 let n = elems.len() as i64;
                 let elem_llvm_ty = if let Some(first) = elems.first() {
                     let t = self.infer_llvm_type(first);
-                    if t == "double" || t == "float" || t.starts_with("%struct.") { t } else { "i64".to_string() }
-                } else { "i64".to_string() };
+                    if t == "double" || t == "float" || t.starts_with("%struct.") { t } else { LLVM_I64.to_string() }
+                } else { LLVM_I64.to_string() };
                 let buf = self.fresh_tmp();
                 let alloc_count = n + 1;
                 self.emitln(&format!("  {buf} = alloca {elem_llvm_ty}, i64 {alloc_count}"));
@@ -1617,9 +1618,9 @@ impl IrEmitter {
                 // Track this register as originating from an array literal
                 // so val_to_struct can distinguish array-buffer i8* from generic i8*.
                 self.local.array_value_regs.insert(ptr.clone());
-                Ok((ptr, "i8*".to_string()))
+                Ok((ptr, LLVM_STR_PTR.to_string()))
             }
-            Expr::Closure(_, _, _, _) | Expr::PipeClosure(_, _, _) => Ok(("0".to_string(), "i64".to_string())),
+            Expr::Closure(_, _, _, _) | Expr::PipeClosure(_, _, _) => Ok(("0".to_string(), LLVM_I64.to_string())),
             Expr::As(inner, ty, _) => {
                 // G-44: `&out as *mut UInt8` — Xiom binds `&` with LOWER
                 // precedence than `as`, so the AST is `&(out as *mut UInt8)`.
@@ -1690,7 +1691,7 @@ impl IrEmitter {
                     }
                     ("double", "i64") => {
                         self.emitln(&format!("  {tmp} = fptosi double {val} to i64"));
-                        Ok((tmp, "i64".to_string()))
+                        Ok((tmp, LLVM_I64.to_string()))
                     }
                     (a, b) if a == b => Ok((val, target_llvm_ty.clone())),
                     // 5e.2 G-34: fn-ptr ↔ Int casts.
@@ -1815,7 +1816,7 @@ impl IrEmitter {
                     tmp
                 };
 
-                let result_ty = "i64".to_string();
+                let result_ty = LLVM_I64.to_string();
                 let result_alloca = self.fresh_tmp();
                 self.emitln(&format!("  {result_alloca} = alloca {result_ty}"));
 
@@ -1894,7 +1895,7 @@ impl IrEmitter {
                 // Error-poisoned node: the checker already emitted a diagnostic.
                 // Return a dummy i64 value so compilation continues without
                 // cascading errors (rustc lesson: ErrorGuaranteed).
-                Ok(("0".to_string(), "i64".to_string()))
+                Ok(("0".to_string(), LLVM_I64.to_string()))
             }
             Expr::Match(scrutinee, arms, span) => {
                 // Compile a match-expression by allocating a result slot, running the
