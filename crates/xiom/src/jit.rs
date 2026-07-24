@@ -7,7 +7,6 @@
 
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
 
 use crate::CompileConfig;
 
@@ -77,7 +76,7 @@ pub fn script_cache_put(source: &str, binary: &PathBuf) {
 }
 
 /// JIT cache directory: ~/.xiom/jit/
-fn jit_cache_dir() -> PathBuf {
+pub fn jit_cache_dir() -> PathBuf {
     if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
         PathBuf::from(home).join(".xiom").join("jit")
     } else {
