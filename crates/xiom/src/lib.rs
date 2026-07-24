@@ -575,8 +575,12 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         let source = fs::read_to_string(source_path)
             .map_err(|e| { eprintln!("error: cannot read '{source_path}': {e}"); vec![format!("cannot read '{source_path}': {e}")] })?;
 
-        // M12: Scripting mode — apply implicit main wrapping
+        // M12: Scripting mode — apply implicit main wrapping.
+        // In script_mode (xiom run), always wrap.
+        // In --check mode, wrap only if source has no fn main (script-like).
         let source = if config.script_mode {
+            crate::implicit_main::wrap_implicit_main(&source)
+        } else if config.check_only && !source.contains("fn main") {
             crate::implicit_main::wrap_implicit_main(&source)
         } else {
             source
