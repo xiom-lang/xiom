@@ -2,6 +2,12 @@
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
+//! Type definitions for the XIOM type checker.
+//!
+//! This module defines the canonical type representation used throughout the
+//! checker: [`CheckedType`] for type values, [`FnSig`] for function signatures,
+//! [`CheckError`] for error reporting, and the [`TypeArena`] for type interning.
+
 use xiom_ast::*;
 use std::fmt;
 
@@ -57,6 +63,18 @@ impl TypeArena {
 // ============================================================================
 
 #[derive(Debug, Clone, PartialEq)]
+/// The canonical type representation in the XIOM type system.
+///
+/// Covers all XIOM types: primitives (`Int`, `Bool`, `Str`, ...), compound types
+/// (`Vec`, `Map`, `Option`, `Result`, ...), references (`&T`, `&mut T`), raw pointers
+/// (`*T`), user-defined types (`Named` with optional generics), function types,
+/// interface types, generic parameters, and `impl Trait` opaque types.
+///
+/// Notable variants:
+/// - [`CheckedType::Named`] — user-defined types with optional generic arguments
+/// - [`CheckedType::Error`] — poison type used after a type error to suppress cascading errors
+/// - [`CheckedType::Wildcard`] — the `_` type, compatible with anything
+/// - [`CheckedType::ImplTrait`] — opaque existential return type
 pub enum CheckedType {
     Bool,
     Int, Int8, Int16, Int32, Int64,
@@ -221,6 +239,11 @@ impl CheckedType {
 // ============================================================================
 
 #[derive(Debug, Clone)]
+/// A function signature as resolved by the type checker.
+///
+/// Contains parameter names with their resolved types, the optional return type,
+/// and generic parameters for monomorphisation. Used for call-site validation
+/// and code generation.
 pub struct FnSig {
     pub params: Vec<(String, CheckedType)>,
     pub return_type: Option<CheckedType>,
@@ -268,6 +291,11 @@ impl fmt::Display for TypeCause {
 }
 
 #[derive(Debug, Clone)]
+/// A type error produced by the checker.
+///
+/// Contains a human-readable message, the source span where the error occurred,
+/// and a [`TypeCause`] categorisation for cause-aware diagnostics (e.g. "type
+/// mismatch", "undefined variable", "cannot call method on non-struct type").
 pub struct CheckError {
     pub message: String,
     pub span: Span,

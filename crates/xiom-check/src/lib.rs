@@ -25,6 +25,20 @@ use catalog::{ModuleExport, CachedModule, ModuleCatalog};
 // Type Checker
 // ============================================================================
 
+/// The XIOM type checker. Validates types, resolves function signatures,
+/// enforces interface bounds, and collects errors across an entire compilation unit.
+///
+/// # Workflow
+///
+/// 1. Create with [`Checker::new()`]
+/// 2. Add stdlib sources via [`Checker::add_source_dir()`]
+/// 3. Build the catalog index with [`Checker::build_catalog_index()`]
+/// 4. Run type checking with [`Checker::check_program()`]
+/// 5. Inspect results with [`Checker::has_errors()`] / [`Checker::certify()`]
+///
+/// # Thread Safety
+///
+/// The `Checker` is single-threaded by design. Use a fresh instance per compilation unit.
 pub struct Checker {
     /// Known type names → their field types
     types: HashMap<String, HashMap<String, CheckedType>>,
@@ -112,6 +126,8 @@ impl Checker {
 
     /// Add a directory to search for external .xi module files.
     /// Updates both the legacy source_dirs and the ModuleCatalog.
+    /// Register a directory containing XIOM source files (e.g. the stdlib).
+    /// Source files are loaded lazily via [`build_catalog_index`].
     pub fn add_source_dir(&mut self, dir: String) {
         if !self.source_dirs.contains(&dir) {
             self.source_dirs.push(dir.clone());
@@ -120,6 +136,9 @@ impl Checker {
     }
 
     /// Build the catalog's module_path → file_path index for O(1) lookups.
+    /// Index all source files added via [`add_source_dir`]. Must be called
+    /// before [`check_program`] to populate the catalog of available modules,
+    /// types, and function signatures.
     pub fn build_catalog_index(&mut self) {
         self.catalog.build_index();
     }
@@ -388,6 +407,8 @@ impl Checker {
 
     /// Returns `true` when any error has been emitted so far (enables the
     /// "stop on first error" discipline without checking every return value).
+    /// Returns `true` if any type errors have been collected. Call after
+    /// [`check_program`] to determine whether compilation should proceed.
     pub fn has_errors(&self) -> bool {
         self.error_count > 0
     }
@@ -546,6 +567,13 @@ impl Checker {
         !self.has_errors()
     }
 
+    /// Run full type checking on a parsed program. This is the main entry point
+    /// for external callers (e.g. the compiler driver).
+    ///
+    /// Internally calls [`collect_signatures`] first (two-pass architecture —
+    /// signatures must be known before bodies are checked), then
+    /// [`check_all_bodies`]. Returns `Ok(())` if no type errors were found,
+    /// or `Err(errors)` with all collected errors.
     pub fn check_program(&mut self, program: &Program) -> Result<(), Vec<CheckError>> {
         self.collect_signatures(program);
         self.check_all_bodies(program);
@@ -3041,6 +3069,8 @@ enum ExprResult {
     WriteRef,
 }
 
+/// An error emitted by the borrow checker when ownership or borrowing rules
+/// are violated (e.g. use-after-move, double mutable borrow).
 #[derive(Debug, Clone)]
 pub struct BorrowError {
     pub message: String,
@@ -3053,6 +3083,12 @@ impl std::fmt::Display for BorrowError {
     }
 }
 
+/// The XIOM borrow checker. Enforces ownership, borrowing, and move semantics
+/// across lexical scopes. Runs after type checking succeeds (`certify()`).
+///
+/// Tracks ownership transfers (moves), read borrows (`&T`), and write borrows
+/// (`&mut T`) per variable. Emits [`BorrowError`]s for violations like
+/// use-after-move, double mutable borrow, and borrow-while-moved.
 pub struct BorrowChecker {
     ownership: Vec<HashMap<String, OwnershipInfo>>,
     borrow_stack: Vec<Vec<ScopeBorrow>>,
