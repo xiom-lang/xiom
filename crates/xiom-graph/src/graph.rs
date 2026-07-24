@@ -114,7 +114,7 @@ impl DependencyGraph {
                     let best = matching
                         .into_iter()
                         .max_by_key(|&j| self.nodes[j].module_path.len())
-                        .unwrap();
+                        .expect("at least one matching module found");
                     self.add_edge(i, best);
                 } else if dep_path.contains('.') {
                     // Try loading from external catalog (stdlib, registry packages)

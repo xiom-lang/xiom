@@ -614,8 +614,8 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         checker.add_source_dir(dir.clone());
     }
     let examples_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap()
-        .parent().unwrap()
+        .parent().expect("CARGO_MANIFEST_DIR has parent")
+        .parent().expect("project root has parent")
         .join("examples");
     if examples_root.is_dir() {
         checker.add_source_dir(examples_root.to_string_lossy().to_string());
@@ -710,7 +710,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     if !external_decls.is_empty() {
         fn fn_dedup_key(fd: &xiom_ast::FnDecl) -> String {
             if fd.is_method() {
-                format!("{}.{}", fd.receiver.as_ref().unwrap().name, fd.name.name)
+                format!("{}.{}", fd.receiver.as_ref().expect("method has receiver").name, fd.name.name)
             } else {
                 fd.name.name.clone()
             }
@@ -1232,7 +1232,7 @@ fn parse_package_manifest(path: &str) -> Result<Vec<String>, String> {
             let extract = if let (Some(s), Some(e)) = (bracket_start, bracket_end) {
                 &trimmed[s..=e]
             } else if bracket_start.is_some() {
-                &trimmed[bracket_start.unwrap()..]
+                &trimmed[bracket_start.expect("guarded by is_some above")..]
             } else if bracket_end.is_some() {
                 return Ok(modules);
             } else {

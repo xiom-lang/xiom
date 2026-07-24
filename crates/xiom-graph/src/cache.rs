@@ -98,7 +98,7 @@ impl CacheDb {
 
     /// Save the index to disk.
     fn save_index(&self) {
-        let entries = self.entries.read().unwrap();
+        let entries = self.entries.read().expect("cache RwLock poisoned");
         let index_path = self.cache_dir.join("index.json");
         if let Ok(json) = serde_json::to_string_pretty(&*entries) {
             let _ = std::fs::write(index_path, json);
@@ -108,14 +108,14 @@ impl CacheDb {
     /// Look up a cached entry for a module. Returns `None` if not cached
     /// or if the fingerprint has changed (source modified).
     pub fn get(&self, module_path: &str) -> Option<CacheEntry> {
-        let entries = self.entries.read().unwrap();
+        let entries = self.entries.read().expect("cache RwLock poisoned");
         entries.get(module_path).cloned()
     }
 
     /// Check if a cached entry is still valid by comparing fingerprints.
     /// Also checks transitive dependencies for invalidation.
     pub fn is_valid(&self, module_path: &str, module: &ModuleNode) -> bool {
-        let entries = self.entries.read().unwrap();
+        let entries = self.entries.read().expect("cache RwLock poisoned");
         let entry = match entries.get(module_path) {
             Some(e) => e,
             None => return false,
@@ -144,7 +144,7 @@ impl CacheDb {
         if !self.is_valid(module_path, module) {
             return None;
         }
-        let entries = self.entries.read().unwrap();
+        let entries = self.entries.read().expect("cache RwLock poisoned");
         entries.get(module_path).map(|e| e.tiers)
     }
 
@@ -162,7 +162,7 @@ impl CacheDb {
 
     /// Insert or update a cache entry for a module.
     pub fn insert(&self, entry: CacheEntry) {
-        let mut entries = self.entries.write().unwrap();
+        let mut entries = self.entries.write().expect("cache RwLock poisoned");
 
         // Check if signature changed and invalidate dependents transitively
         if let Some(old) = entries.get(&entry.module_path) {
@@ -216,7 +216,7 @@ impl CacheDb {
 
     /// Remove all entries that reference non-existent source files.
     pub fn purge_stale(&self) {
-        let mut entries = self.entries.write().unwrap();
+        let mut entries = self.entries.write().expect("cache RwLock poisoned");
         entries.retain(|_, entry| {
             Path::new(&entry.file_path).exists()
         });
@@ -226,7 +226,7 @@ impl CacheDb {
 
     /// Garbage collect: remove oldest entries to stay under max_entries.
     fn gc(&self) {
-        let mut entries = self.entries.write().unwrap();
+        let mut entries = self.entries.write().expect("cache RwLock poisoned");
         if entries.len() <= self.max_entries {
             return;
         }
@@ -246,17 +246,17 @@ impl CacheDb {
 
     /// Get the number of cached entries.
     pub fn len(&self) -> usize {
-        self.entries.read().unwrap().len()
+        self.entries.read().expect("cache RwLock poisoned").len()
     }
 
     /// Check if the cache is empty.
     pub fn is_empty(&self) -> bool {
-        self.entries.read().unwrap().is_empty()
+        self.entries.read().expect("cache RwLock poisoned").is_empty()
     }
 
     /// Clear all cache entries and delete cache files from disk.
     pub fn clear(&self) {
-        let mut entries = self.entries.write().unwrap();
+        let mut entries = self.entries.write().expect("cache RwLock poisoned");
         entries.clear();
         drop(entries);
 
