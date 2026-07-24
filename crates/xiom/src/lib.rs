@@ -6,6 +6,7 @@
 
 pub mod ai;
 pub mod graph_viz;
+pub mod implicit_main;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -1374,6 +1375,7 @@ pub fn find_runtime_c_files() -> Vec<String> {
     let mut dir_candidates: Vec<String> = vec![
         "stdlib\\runtime".to_string(),
         "stdlib/runtime".to_string(),
+        "runtime".to_string(),
     ];
     if let Ok(exe) = std::env::current_exe() {
         if let Some(exe_dir) = exe.parent() {
@@ -1381,6 +1383,19 @@ pub fn find_runtime_c_files() -> Vec<String> {
                 dir_candidates.push(format!("{}/runtime", parent.display()));
                 dir_candidates.push(format!("{}\\runtime", parent.display()));
             }
+            dir_candidates.push(format!("{}/../stdlib/runtime", exe_dir.display()));
+            dir_candidates.push(format!("{}/../../stdlib/runtime", exe_dir.display()));
+        }
+    }
+    // CARGO_MANIFEST_DIR-based paths (critical for test/dev environments)
+    if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
+        let base = std::path::Path::new(&manifest);
+        // cargo test runs from the crate directory, project root is 2-3 levels up
+        for depth in 2..5 {
+            let mut p = base.to_path_buf();
+            for _ in 0..depth { p = p.join(".."); }
+            dir_candidates.push(format!("{}/stdlib/runtime", p.display()));
+            dir_candidates.push(format!("{}/runtime", p.display()));
         }
     }
 

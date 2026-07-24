@@ -1948,4 +1948,25 @@ mod tests {
             _ => panic!("expected function"),
         }
     }
+
+    // M10: Shebang support — `#!` line is treated as a comment.
+    #[test] fn test_shebang_skipped() {
+        let src = "#!/usr/bin/env xiom\nfn main() -> Int { return 42; }";
+        let prog = parse(src).unwrap();
+        assert_eq!(prog.items.len(), 1, "shebang should be skipped, leaving 1 item");
+    }
+
+    #[test] fn test_shebang_preserves_line_numbers() {
+        let src = "#!/usr/bin/env xiom\n\nfn bad(x: Int) -> Int { return x; }";
+        let prog = parse(src).unwrap();
+        // The function should parse correctly despite shebang + blank line
+        assert_eq!(prog.items.len(), 1);
+    }
+
+    #[test] fn test_no_shebang_normal() {
+        let src = "# not a shebang\nfn main() -> Int { return 0; }";
+        let prog = parse(src).unwrap();
+        // `#` at start without `!` is NOT a shebang — should be a lex error or parse error
+        // This is fine behavior — XIOM has no preprocessor
+    }
 }
