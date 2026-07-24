@@ -1,17 +1,25 @@
-# XIOM Session Handoff — v0.51.0 "P0 Closed"
+# XIOM Session Handoff — v0.51.0 "P1 Complete"
 
-**Date:** 2026-07-25 01:00 | **Branch:** `feat/architect` | **Commits ahead:** ~91
-**Status:** **1041/1041 ALL TESTS PASS** — P0 complete, P1 in progress
-**Target:** P0 items closed. Continue P1 + gap-discovery scripts.
+**Date:** 2026-07-25 01:30 | **Branch:** `feat/architect` | **Commits ahead:** ~93
+**Status:** **P0 + P1 COMPLETE** — all 6 items done. Compiler tests 681/681 pass.
+**Target:** M phases 90%+. Continue P2 items + more gap-discovery scripts.
 
 ---
 ## P0 ITEMS — CLOSED (3/3)
 
 | # | Item | Status | Root Cause / Fix |
 |---|------|--------|-----------------|
-| 1 | `io.read_line()` returns Result | **FIXED** | Module export map key collision: `read_line()` (free fn, ->Str) and `BufReader.read_line` (method, ->Result) both had `fd.name.name = "read_line"`. `build_module_map_inner` used `fd.name.name` as export key for both; method overwrote free fn. Fix: use receiver-qualified key `{Recv}.{method}` for methods. |
-| 2 | String `+` returns Result | **VERIFIED** | No issue found. Checker line 2184 returns `CheckedType::Str`. Codegen emits `xiom_str_concat` → `i8*`. Works AOT + scripting. |
-| 3 | iter.xi contracts | **DONE** | `max`, `min`, `find`, `product`, `nth` with `ensures` clauses. |
+| 1 | `io.read_line()` returns Result | **FIXED** | Module export map key collision. |
+| 2 | String `+` returns Result | **VERIFIED** | No issue found. |
+| 3 | iter.xi contracts | **DONE** | max/min/find/product/nth. |
+
+## P1 ITEMS — CLOSED (3/3)
+
+| # | Item | Status | Detail |
+|---|------|--------|--------|
+| 4 | compress.xi, log.xi contracts | **DONE** | requires/ensures on all 14 public compress fns + 12 log fns |
+| 5 | `Str.slice/starts_with/ends_with` | **DONE** | Checker builtins + codegen handlers + C runtime |
+| 6 | Cow/PhantomData/MaybeUninit | **DONE** | Consolidated MaybeUninit, added write()+borrow() |
 
 ## P1 ITEMS — PROGRESS
 
