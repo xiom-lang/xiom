@@ -33,7 +33,11 @@ pub fn jit_execute(source: &str) -> Result<i32, String> {
     crate::compile(&config, &[tmp_src.to_string_lossy().to_string()])
         .map_err(|e| format!("compile failed: {:?}", e))?;
 
-    // Load and call main
+    // SAFETY: The compiled DLL is loaded via libloading. The main() symbol
+    // is verified to exist before calling. The DLL is loaded into the current
+    // process and must be a valid XIOM-compiled shared library with a
+    // `fn main() -> Int` entry point. Memory safety is enforced by the
+    // XIOM compiler's type system and borrow checker on the source code.
     unsafe {
         let lib = libloading::Library::new(&tmp_out)
             .map_err(|e| format!("cannot load library: {e}"))?;

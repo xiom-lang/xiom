@@ -544,11 +544,15 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 if let Some(dir) = search {
                     let candidate = dir.join("stdlib");
                     if candidate.is_dir() {
+                        // SAFETY: set_var is called during stdlib discovery, before
+                        // any compilation threads are spawned. No concurrent access.
                         unsafe { std::env::set_var("XIOM_STDLIB", candidate.to_string_lossy().to_string()); }
                         break;
                     }
                     let rt = dir.join("runtime");
                     if rt.is_dir() && rt.join("xiom_runtime.c").exists() {
+                        // SAFETY: set_var is called during single-threaded initialization
+                        // before rayon's thread pool or any parallel work starts.
                         unsafe { std::env::set_var("XIOM_STDLIB", dir.to_string_lossy().to_string()); }
                         break;
                     }
