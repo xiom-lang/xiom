@@ -85,7 +85,7 @@ use xiom_codegen::sandbox::SafetyAuditor;
 /// State (let/var declarations) persists across lines.
 fn run_repl() {
     use std::io::{self, Write};
-    eprintln!("XIOM REPL v0.50.0 — type :help for commands, :quit to exit");
+    eprintln!("XIOM REPL v0.51.0 — type :help for commands, :quit to exit");
     let mut line_num = 0u64;
     let mut state: Vec<String> = Vec::new(); // accumulated let/var declarations
 
@@ -169,7 +169,7 @@ fn main() {
 
     if args.iter().any(|a| a == "--version") {
         let tag = option_env!("XIOM_RELEASE_TAG").unwrap_or("Production");
-        let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("101/101 e2e, deterministic builds");
+        let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("1041/1041 tests, production hardening");
         println!("XIOM Compiler v{} \"{tag}\" - {stats}", env!("CARGO_PKG_VERSION"));
         return;
     }
