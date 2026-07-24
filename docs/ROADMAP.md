@@ -260,6 +260,143 @@ Gaps discovered during scripting-mode testing and real-world usage.
 
 ---
 
+## 4.6 PHASE M13 — LSP 10/10 & IDE Experience (v0.51.0)
+
+Goal: Production-grade LSP with stdlib completion, `lsp-types` adoption, formatting,
+and full IDE integration across VS Code and the playground.
+
+### M13.1 — Stdlib Completion Catalog (1d)
+
+Build a `stdlib_completions.json` catalog by parsing all stdlib modules.
+
+**Script:** `tools/build_completions.ps1` — runs the xiom parser on every stdlib
+file, extracts `pub fn` declarations with signatures, and writes a JSON catalog.
+
+```
+stdlib_completions.json:
+{
+  "xiom.io": {
+    "functions": [
+      {"name": "println", "sig": "fn println(msg: Str)", "detail": "Print line to stdout"},
+      {"name": "read_file", "sig": "fn read_file(path: Str) -> Result[Str, IOError]"},
+      ...
+    ]
+  },
+  "xiom.math": { ... },
+  ...
+}
+```
+
+**Integration:** LSP loads catalog at startup. `handle_completion` checks if dot-target
+matches a known module name, returns catalog entries.
+
+**Tests:** stdlib_completions.json validation (all 40 modules present, valid JSON,
+signature format correct). LSP completion test: `io.` returns `println` in top position.
+
+### M13.2 — Adopt lsp-types Crate (1.5d)
+
+Replace hand-rolled JSON-RPC `serde_json::Value` with typed `lsp-types` structs.
+
+| Before | After |
+|--------|-------|
+| `serde_json::json!({"contents": {"kind": "markdown", "value": ...}})` | `HoverContents::Markup(MarkupContent { kind: MarkupKind::Markdown, value: ... })` |
+| `serde_json::json!({"range": ..., "severity": ...})` | `Diagnostic { range: Range { ... }, severity: Some(DiagnosticSeverity::ERROR), ... }` |
+| Hand-parsed `params["position"]["line"]` | `let pos: Position = params.position;` |
+
+**Benefits:**
+- Type-safe — compiler catches missing fields at build time
+- Spec-compliant — `lsp-types` follows the LSP specification exactly
+- Future-proof — new LSP features are just new struct variants
+
+**Tests:** Existing 11 LSP tests must pass with identical behavior. Add type-safety
+test: deserialize a valid LSP message, verify typed fields.
+
+### M13.3 — textDocument/formatting + rangeFormatting (0.5d)
+
+Wire `xiom-fmt` as the LSP formatter.
+
+```rust
+"textDocument/formatting" => {
+    let formatted = xiom_fmt::format(&text);
+    Ok(Some(vec![TextEdit { range: full_doc_range, new_text: formatted }]))
+}
+"textDocument/rangeFormatting" => {
+    let formatted = xiom_fmt::format_range(&text, range);
+    Ok(Some(vec![TextEdit { range, new_text: formatted }]))
+}
+```
+
+**Tests:** Format a file, verify output is valid XIOM. Round-trip: format ? parse ? format produces identical output.
+
+### M13.4 — Rename/CodeAction Tests (0.5d) — closes M3.3
+
+| Test | What it verifies |
+|------|-----------------|
+| `test_rename_local` | Rename a local variable, verify all occurrences updated |
+| `test_rename_function` | Rename a function, verify call sites updated |
+| `test_rename_cross_file` | Rename across multiple files in workspace |
+| `test_codeaction_quickfix` | Code action suggests fix for type mismatch |
+
+### M13.5 — Playground WASM Completion (1d)
+
+Bundle `stdlib_completions.json` in the WASM module. Register Monaco
+`CompletionItemProvider` that queries the catalog.
+
+```javascript
+monaco.languages.registerCompletionItemProvider('xiom', {
+    provideCompletionItems: (model, position) => {
+        const word = model.getWordUntilPosition(position);
+        // Check if preceded by 'module.'
+        const line = model.getLineContent(position.lineNumber);
+        const before = line.substring(0, position.column - 1);
+        const dotPos = before.lastIndexOf('.');
+        if (dotPos > 0) {
+            const moduleRef = before.substring(0, dotPos).split(/\s+/).pop();
+            return fetchStdlibCompletions(moduleRef);
+        }
+        // ... default completions
+    }
+});
+```
+
+### M13.6 — REPL :list Command (0.5d)
+
+```bash
+xiom> :list io
+  io.println(msg: Str)        Print line to stdout
+  io.print(msg: Str)          Print without newline
+  io.read_line() -> Str       Read line from stdin
+  io.read_file(path: Str) -> Result[Str, IOError]
+
+xiom> :list math
+  math.sqrt(x: Float64) -> Float64
+  math.pow(base: Float64, exp: Float64) -> Float64
+  ...
+```
+
+### M13.7 — Diagnostics Quickfix + Document Links (0.5d)
+
+Enhance existing diagnostic capabilities:
+- Add "Did you mean?" suggestions for undefined variables
+- Add document links for `use` statements (clickable to open imported file)
+- Add folding range support for `{ ... }` blocks
+
+### M13 Schedule
+
+| Phase | Items | Effort | Depends on |
+|-------|-------|--------|-----------|
+| M13.1 | Stdlib completion catalog | 1d | — |
+| M13.2 | lsp-types adoption | 1.5d | — |
+| M13.3 | Formatting support | 0.5d | M13.2 |
+| M13.4 | Rename/codeAction tests | 0.5d | M13.2 |
+| M13.5 | Playground completion | 1d | M13.1 |
+| M13.6 | REPL :list | 0.5d | M13.1 |
+| M13.7 | Quickfix + links | 0.5d | M13.2 |
+
+**Total M13 effort: 5.5d. Target v0.51.0.**
+
+---
+
 ## 5. Release History
 
 | Version | Date | Tests | Notes |
