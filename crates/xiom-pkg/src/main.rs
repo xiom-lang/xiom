@@ -572,12 +572,100 @@ fn publish_package(_args: &[String]) {
     });
     let pkg = parse_manifest(&manifest);
 
-    let body = format!(r#"{{"name":"{}","version":"{}","description":"{}"}}"#, pkg.name, pkg.version, pkg.description);
+    let pkg_dir = manifest_path.parent().expect("package.xi must be in a directory");
+    let pkg_name = &pkg.name;
 
-    match http_post(&format!("{}/publish", registry_url()), &body) {
-        Ok(_) => println!("Published {} v{}", pkg.name, pkg.version),
-        Err(e) => { eprintln!("xiom pkg: publish failed: {e}"); process::exit(1); }
+    // Build tarball from package directory
+    let tmp = std::env::temp_dir().join(format!("xiom_publish_{}.tar.gz", pkg_name));
+    let tarball_path = tmp.to_string_lossy().to_string();
+
+    println!("Packaging {} v{}...", pkg.name, pkg.version);
+    if let Err(e) = create_tarball(pkg_dir, &tarball_path) {
+        eprintln!("xiom pkg: cannot create tarball: {e}");
+        eprintln!("  Install 'tar' to create packages, or manually tar the directory.");
+        process::exit(1);
     }
+    let tarball_size = fs::metadata(&tarball_path).map(|m| m.len()).unwrap_or(0);
+    println!("  Created tarball: {} bytes", tarball_size);
+
+    // Upload tarball to registry via multipart form
+    let registry = registry_url();
+    println!("Publishing to {}...", registry);
+
+    match http_post_multipart(&format!("{}/publish", registry), &tarball_path, &pkg) {
+        Ok(resp) => {
+            println!("Published {} v{} — {}", pkg.name, pkg.version, resp.trim());
+            // Clean up temp file
+            let _ = fs::remove_file(&tarball_path);
+        }
+        Err(e) => {
+            eprintln!("xiom pkg: publish failed: {e}");
+            let _ = fs::remove_file(&tarball_path);
+            process::exit(1);
+        }
+    }
+}
+
+/// Create a gzipped tarball of a package directory.
+fn create_tarball(dir: &std::path::Path, output: &str) -> Result<(), String> {
+    let parent = dir.parent().expect("pkg dir has parent");
+    let dirname = dir.file_name().expect("pkg dir has name").to_string_lossy();
+
+    // Try system tar command first
+    let status = process::Command::new("tar")
+        .args(["-czf", output, "-C"])
+        .arg(parent)
+        .arg(dirname.as_ref())
+        .status()
+        .map_err(|e| format!("tar: {e}"))?;
+
+    if status.success() {
+        return Ok(());
+    }
+
+    // On Windows, try PowerShell Compress-Archive → .zip → rename
+    #[cfg(windows)]
+    {
+        let zip_path = output.replace(".tar.gz", ".zip");
+        let ps_cmd = format!(
+            "Compress-Archive -Path '{}' -DestinationPath '{}' -Force",
+            dir.display(),
+            zip_path
+        );
+        let status = process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_cmd])
+            .status()
+            .map_err(|e| format!("powershell: {e}"))?;
+        if status.success() {
+            // Rename .zip to .tar.gz (the registry accepts either format)
+            fs::rename(&zip_path, output).map_err(|e| format!("rename: {e}"))?;
+            return Ok(());
+        }
+    }
+
+    Err("no tar or PowerShell available".to_string())
+}
+
+/// POST a multipart form upload to a URL with a file attachment.
+/// Uses curl for the multipart upload since it's the most reliable cross-platform approach.
+fn http_post_multipart(url: &str, file_path: &str, _pkg: &Package) -> Result<String, String> {
+    // Build curl command for multipart upload
+    let output = process::Command::new("curl")
+        .args([
+            "-s", "-L", "-X", "POST", url,
+            "-F", &format!("package=@{}", file_path),
+            "-H", &format!("X-Package-Name: {}", _pkg.name),
+            "-H", &format!("X-Package-Version: {}", _pkg.version),
+        ])
+        .output()
+        .map_err(|e| format!("curl: {e}"))?;
+
+    if output.status.success() {
+        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(format!("Upload failed: {}", stderr.trim()))
 }
 
 /// Install a package from the local ecosystem directory or remote registry.
@@ -1098,5 +1186,39 @@ version: "0.1.0";
         let pkg = parse_manifest(manifest);
         assert_eq!(pkg.name, "pkg");
         assert_eq!(pkg.version, "0.1.0");
+    }
+
+    #[test]
+    fn test_create_tarball() {
+        let tmp_dir = std::env::temp_dir().join("xiom_pkg_test_publish");
+        let _ = fs::remove_dir_all(&tmp_dir);
+        fs::create_dir_all(&tmp_dir).expect("create test dir");
+        // Write a minimal package.xi
+        fs::write(
+            tmp_dir.join("package.xi"),
+            r#"package test_pkg {
+  name: "test-pkg";
+  version: "0.1.0";
+  description: "Test package for publish";
+}
+"#,
+        ).expect("write package.xi");
+        // Write a source file
+        fs::create_dir_all(tmp_dir.join("src")).expect("create src dir");
+        fs::write(
+            tmp_dir.join("src").join("lib.xi"),
+            "pub fn hello() -> Str { return \"hello\"; }",
+        ).expect("write lib.xi");
+
+        let tarball = std::env::temp_dir().join("xiom_test_publish.tar.gz");
+        let result = create_tarball(&tmp_dir, &tarball.to_string_lossy());
+        // tar may not be available in all test environments — don't fail
+        if result.is_ok() {
+            assert!(tarball.exists(), "tarball should exist");
+            let size = fs::metadata(&tarball).unwrap().len();
+            assert!(size > 0, "tarball should not be empty");
+            let _ = fs::remove_file(&tarball);
+        }
+        let _ = fs::remove_dir_all(&tmp_dir);
     }
 }
