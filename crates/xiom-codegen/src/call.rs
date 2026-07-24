@@ -1214,6 +1214,44 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     let as_ptr = self.coerce_value(&arg_val, &arg_ty, "i8*");
                     return Ok((as_ptr, "i8*".to_string()));
                 }
+                // M12/P1: Str.slice(start, end) — substring extraction.
+                // Delegates to xiom.string.str_slice via normal function dispatch.
+                // Handled here to short-circuit method resolution for the Str receiver.
+                if fn_name == "slice" && args.len() == 2 {
+                    if let Some(receiver) = receiver_expr {
+                        let (recv_val, recv_ty) = self.compile_expr(receiver)?;
+                        let recv_ptr = self.val_to_i8ptr(&recv_val, &recv_ty);
+                        let (start_val, _) = self.compile_expr(&args[0])?;
+                        let (end_val, _) = self.compile_expr(&args[1])?;
+                        let tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {tmp} = call i8* @xiom_str_slice(i8* {recv_ptr}, i64 {start_val}, i64 {end_val})"));
+                        return Ok((tmp, "i8*".to_string()));
+                    }
+                }
+                // M12/P1: Str.starts_with(prefix) — prefix check via string.xi.
+                if fn_name == "starts_with" && args.len() == 1 {
+                    if let Some(receiver) = receiver_expr {
+                        let (recv_val, recv_ty) = self.compile_expr(receiver)?;
+                        let recv_ptr = self.val_to_i8ptr(&recv_val, &recv_ty);
+                        let (prefix_val, prefix_ty) = self.compile_expr(&args[0])?;
+                        let prefix_ptr = self.val_to_i8ptr(&prefix_val, &prefix_ty);
+                        let tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {tmp} = call i1 @xiom_str_starts_with(i8* {recv_ptr}, i8* {prefix_ptr})"));
+                        return Ok((tmp, "i1".to_string()));
+                    }
+                }
+                // M12/P1: Str.ends_with(suffix) — suffix check.
+                if fn_name == "ends_with" && args.len() == 1 {
+                    if let Some(receiver) = receiver_expr {
+                        let (recv_val, recv_ty) = self.compile_expr(receiver)?;
+                        let recv_ptr = self.val_to_i8ptr(&recv_val, &recv_ty);
+                        let (suffix_val, suffix_ty) = self.compile_expr(&args[0])?;
+                        let suffix_ptr = self.val_to_i8ptr(&suffix_val, &suffix_ty);
+                        let tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {tmp} = call i1 @xiom_str_ends_with(i8* {recv_ptr}, i8* {suffix_ptr})"));
+                        return Ok((tmp, "i1".to_string()));
+                    }
+                }
                 let compiled_args: Vec<(String, String)> = args.iter()
                     .map(|a| self.compile_expr(a))
                     .collect::<Result<Vec<_>, _>>()?;

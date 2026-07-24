@@ -117,6 +117,10 @@ impl IrEmitter {
         self.emitln("declare i32 @strcmp(i8*, i8*)");
         // Runtime string concatenation — used for Str + Str lowering.
         self.emitln("declare i8* @xiom_str_concat(i8*, i8*)");
+        // M12/P1: Runtime string slice/starts_with/ends_with — scripting ergonomics.
+        self.emitln("declare i8* @xiom_str_slice(i8*, i64, i64)");
+        self.emitln("declare i1 @xiom_str_starts_with(i8*, i8*)");
+        self.emitln("declare i1 @xiom_str_ends_with(i8*, i8*)");
         // Runtime integer→string — used for to_string(Int) / Int.to_str().
         self.emitln("declare i8* @xiom_int_to_string(i64)");
         // String interning
@@ -627,6 +631,9 @@ impl IrEmitter {
         s.insert("xiom_char_at".to_string());
         s.insert("xiom_str_len".to_string());
         s.insert("xiom_str_concat".to_string());
+        s.insert("xiom_str_slice".to_string());
+        s.insert("xiom_str_starts_with".to_string());
+        s.insert("xiom_str_ends_with".to_string());
         s.insert("xiom_int_to_string".to_string());
         s.insert("xiom_intern".to_string());
         s.insert("xiom_lookup".to_string());

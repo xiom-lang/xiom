@@ -2427,6 +2427,11 @@ impl Checker {
                             // M12/P1: byte indexing — returns a single byte at position.
                             "byte_at" if prim_ty == CheckedType::Str => return CheckedType::UInt8,
                             "char_at" if prim_ty == CheckedType::Str => return CheckedType::Named("Option".into()),
+                            // M12/P1: scripting ergonomics — slice() and starts_with()
+                            // as methods on Str, avoiding verbose string.str_slice() calls.
+                            "slice" if prim_ty == CheckedType::Str => return CheckedType::Str,
+                            "starts_with" if prim_ty == CheckedType::Str => return CheckedType::Bool,
+                            "ends_with" if prim_ty == CheckedType::Str => return CheckedType::Bool,
                             _ => {}
                         }
                     }
