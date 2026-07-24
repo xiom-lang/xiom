@@ -1175,3 +1175,30 @@ fn e2e_ai_strict_blocks_on_violations() {
 // M10 Scripting tests are in crates/xiom/tests/scripting_tests.rs
 // (separated to avoid parallel C runtime compilation conflicts)
 // ============================================================================
+
+// M12: Regression test for match-on-Result codegen bug
+// The issue: compiling `match io.read_line() { Ok(line) => ... }` produces
+// LLVM IR with type mismatch: `store i8 %tmp, i8** %ptr` instead of `store i8*`
+#[test]
+fn e2e_match_result_codegen() {
+    let src = "fn main() { match io.read_line() { Ok(line) => io.println(line), Err(_) => {}, } }\n";
+    let ir = compile_and_get_ir(src);
+    // Verify the IR doesn't contain the type mismatch pattern
+    let has_bad_store = ir.lines().any(|l| l.contains("store i8 %") && l.contains("i8**"));
+    assert!(!has_bad_store,
+        "match on Result should not produce store i8/i8** type mismatch.\nIR snippet:\n{}",
+        ir.lines().filter(|l| l.contains("store i8") && l.contains("**")).collect::<Vec<_>>().join("\n"));
+}
+
+/// Helper: compile XIOM source to LLVM IR string.
+fn compile_and_get_ir(source: &str) -> String {
+    let tmp = project_root().join("_e2e_match_test.xi");
+    std::fs::write(&tmp, source).expect("write test source");
+    let output = std::process::Command::new(xiom_path())
+        .args(["--emit-ir", &tmp.to_string_lossy().to_string()])
+        .current_dir(project_root())
+        .output()
+        .expect("xiom --emit-ir failed");
+    let _ = std::fs::remove_file(&tmp);
+    String::from_utf8_lossy(&output.stdout).to_string()
+}
