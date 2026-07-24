@@ -1170,3 +1170,8 @@ fn e2e_ai_strict_blocks_on_violations() {
         "--ai-strict --check-only should return non-zero on violations. stdout: {}\nstderr: {}",
         String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
 }
+
+// ============================================================================
+// M10 Scripting tests are in crates/xiom/tests/scripting_tests.rs
+// (separated to avoid parallel C runtime compilation conflicts)
+// ============================================================================

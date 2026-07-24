@@ -62,6 +62,79 @@ fn main() {
         process::exit(1);
     }
 
+    // ── M10: xiom run — JIT/scripting execution ─────────────────────
+    if args.get(1).map_or(false, |a| a == "run") {
+        let remaining: Vec<&str> = args.iter().skip(2).map(|s| s.as_str()).collect();
+        if remaining.is_empty() {
+            eprintln!("usage: xiom run <file.xi>     execute a script");
+            eprintln!("       xiom run -e \"<code>\"   execute inline code");
+            eprintln!("       xiom run -               read script from stdin");
+            process::exit(1);
+        }
+
+        let source = if remaining[0] == "-e" {
+            // xiom run -e "expr"
+            if remaining.len() < 2 {
+                eprintln!("error: -e requires an expression");
+                process::exit(1);
+            }
+            remaining[1..].join(" ")
+        } else if remaining[0] == "-" {
+            // xiom run -  (read from stdin)
+            use std::io::Read;
+            let mut buf = String::new();
+            std::io::stdin().read_to_string(&mut buf).unwrap_or_else(|e| {
+                eprintln!("error reading stdin: {e}"); process::exit(1);
+            });
+            buf
+        } else {
+            // xiom run <file.xi>
+            let path = remaining[0];
+            match std::fs::read_to_string(path) {
+                Ok(s) => s,
+                Err(e) => { eprintln!("error: cannot read '{path}': {e}"); process::exit(1); }
+            }
+        };
+
+        // Apply implicit main wrapping for scripting convenience
+        let source = xiom::implicit_main::wrap_implicit_main(&source);
+
+        // Write to temp file, compile, and run
+        let tmp_dir = std::env::temp_dir().join("xiom_run");
+        let _ = std::fs::create_dir_all(&tmp_dir);
+        let tmp_src = tmp_dir.join("_script.xi");
+        let tmp_out = tmp_dir.join("_script.exe");
+        std::fs::write(&tmp_src, &source).unwrap_or_else(|e| {
+            eprintln!("error: cannot write temp file: {e}"); process::exit(1);
+        });
+
+        // Resolve runtime libraries needed for linking using project discovery
+        let (_, graph_dirs) = xiom::expand_sources_with_graph(&[tmp_src.to_string_lossy().to_string()]);
+        let mut link_paths: Vec<String> = graph_dirs.into_iter().collect();
+        // Add CARGO_MANIFEST_DIR-based runtime path as fallback
+        if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
+            let runtime = std::path::Path::new(&manifest).join("..").join("..").join("runtime");
+            if runtime.is_dir() {
+                link_paths.push(runtime.to_string_lossy().to_string());
+            }
+        }
+        let link_libs: Vec<String> = Vec::new();
+        let c_sources: Vec<String> = Vec::new(); // Auto-discovered by compile()
+
+        let config = CompileConfig {
+            output_file: Some(tmp_out.to_string_lossy().to_string()),
+            do_run: true,
+            link_paths,
+            link_libs,
+            c_sources,
+            ..CompileConfig::default()
+        };
+
+        let sources = vec![tmp_src.to_string_lossy().to_string()];
+        compile_or_exit(&config, &sources);
+        return;
+    }
+
     let emit_ir = args.iter().any(|a| a == "--emit-ir");
     let emit_tokens = args.iter().any(|a| a == "--emit-tokens");
     let do_run = args.iter().any(|a| a == "--run");

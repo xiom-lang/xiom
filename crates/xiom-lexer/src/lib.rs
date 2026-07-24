@@ -130,6 +130,18 @@ impl Lexer {
     }
 
     pub fn tokenize(&mut self) -> Vec<Token> {
+        // M10: Shebang support — skip `#!/usr/bin/env xiom` on line 1.
+        // The shebang line is treated as a comment for line-number preservation.
+        if self.pos == 0 && self.peek() == Some('#') && self.peek_n(1) == Some('!') {
+            self.advance_while(|c| c != '\n');
+            // Advance past the newline if present
+            if self.peek() == Some('\n') {
+                self.advance();
+            }
+            // Re-sync line/col after skipping shebang
+            self.line = 1;
+            self.col = 1;
+        }
         let mut tokens = Vec::new();
         loop {
             let tok = self.next_token();
