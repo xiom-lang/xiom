@@ -3357,6 +3357,27 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
         self.emitln("  %result = load i64, i64* %val_gep");
         self.emitln("  ret i64 %result");
         self.emitln("}\n");
+
+        // Option.len() — B-003 fix: contract ensures clauses like
+        // `result is Some => result.len() > 0` generate `Option.len()`.
+        // Returns strlen of the stored Str when Some, 0 when None.
+        self.emitln(&format!("define i64 @Option.len({opt_ty} %self) {{"));
+        self.emitln("entry:");
+        self.emitln(&format!("  %val = alloca {opt_ty}"));
+        self.emitln(&format!("  store {opt_ty} %self, {opt_ty}* %val"));
+        self.emitln(&format!("  %disc_gep = getelementptr {opt_ty}, {opt_ty}* %val, i32 0, i32 0"));
+        self.emitln("  %is_some = load i64, i64* %disc_gep");
+        self.emitln("  %ok = icmp ne i64 %is_some, 0");
+        self.emitln("  br i1 %ok, label %len_some, label %len_zero");
+        self.emitln("\nlen_zero:");
+        self.emitln("  ret i64 0");
+        self.emitln("\nlen_some:");
+        self.emitln(&format!("  %val_gep = getelementptr {opt_ty}, {opt_ty}* %val, i32 0, i32 1"));
+        self.emitln("  %payload = load i64, i64* %val_gep");
+        self.emitln("  %str_ptr = inttoptr i64 %payload to i8*");
+        self.emitln("  %len_result = call i64 @xiom_str_len(i8* %str_ptr)");
+        self.emitln("  ret i64 %len_result");
+        self.emitln("}\n");
     }
 
     fn compile_result_impls(&mut self) {

@@ -867,6 +867,15 @@ fn e2e_mut_struct() {
         "struct mutation via store_back should propagate to caller");
 }
 
+/// B-003: Option<Str> from method returns with ensures contracts.
+/// Verifies that `result is Some => result.len() > 0` contract does not
+/// crash (was generating undefined `Option.len()` call before fix).
+#[test]
+fn e2e_b003_option_str_method() {
+    assert_eq!(compile_and_run("examples\\e2e\\b003_option_str_method.xi"), Some(0),
+        "Option<Str> method returns with contracts should compile and run correctly");
+}
+
 /// DJB2 hash monomorphized through the Hash interface.
 /// Same input → same hash; different inputs → different hashes.
 #[test]
