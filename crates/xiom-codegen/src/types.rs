@@ -381,6 +381,28 @@ impl crate::IrEmitter {
         }
     }
 
+    /// Returns `true` when `name` is NOT a known primitive/scalar/container —
+    /// i.e., it is a user-defined named struct that needs concrete monomorphisation
+    /// inside Result/Option generic types (B-001).
+    pub fn is_struct_type_name(name: &str) -> bool {
+        const NON_STRUCT: &[&str] = &[
+            "Int", "Str", "Bool", "Char", "Float", "Double",
+            "UInt8", "Int8", "Int16", "UInt16", "Int32", "UInt32",
+            "UInt64", "Int64", "Float32", "Float64", "String",
+            "void", "()", "Option", "Result", "Vec", "Map", "Set",
+            "Self", "CallTrace", "CallFrame",
+            "i1", "i8", "i16", "i32", "i64", "float", "double",
+        ];
+        if NON_STRUCT.contains(&name) { return false; }
+        if name.starts_with('*') || name.starts_with('[') { return false; }
+        if name.contains("__") { return false; }
+        // Generic type parameters are single uppercase letters (T, K, V, E, etc.)
+        if name.len() == 1 && name.chars().next().map_or(false, |c| c.is_uppercase()) {
+            return false;
+        }
+        true
+    }
+
     /// Convert a XIOM AST [`Type`] to a canonical LLVM type string.
     /// Handles named types, references, pointers, arrays, tuples, and containers.
     /// Used during codegen to determine struct layouts and function signatures.

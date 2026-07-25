@@ -871,6 +871,29 @@ impl IrEmitter {
         }
     }
 
+    /// Returns `true` when `name` is NOT a known primitive/scalar/container —
+    /// i.e., it is a user-defined named struct that needs concrete monomorphisation
+    /// inside Result/Option generic types (B-001).
+    fn is_struct_type_name(name: &str) -> bool {
+        // Rust-like primitives and well-known container names.
+        const NON_STRUCT: &[&str] = &[
+            "Int", "Str", "Bool", "Char", "Float", "Double",
+            "UInt8", "Int8", "Int16", "UInt16", "Int32", "UInt32",
+            "UInt64", "Int64", "Float32", "Float64", "String",
+            "void", "()", "Option", "Result", "Vec", "Map", "Set",
+            "Self", "CallTrace", "CallFrame",
+            "i1", "i8", "i16", "i32", "i64", "float", "double",
+        ];
+        if NON_STRUCT.contains(&name) { return false; }
+        if name.starts_with('*') || name.starts_with('[') { return false; }
+        if name.contains("__") { return false; } // already a concrete monomorph
+        // Generic type parameters are single uppercase letters (T, K, V, E, etc.)
+        if name.len() == 1 && name.chars().next().map_or(false, |c| c.is_uppercase()) {
+            return false;
+        }
+        true
+    }
+
     fn type_from_ast(ty: &Type) -> String {
         match ty {
             Type::Named(ident, _) => ident.name.clone(),
@@ -919,7 +942,7 @@ impl IrEmitter {
     }
 
     /// 5c.30: FULL type string including Option/Result payload args
-    /// ("Result[Vec[Int], Str]"). Used ONLY for fn_return_xiom â€” the field
+    /// ("Result[Vec[Int], Str]"). Used ONLY for fn_return_xiom — the field
     /// registration keeps type_from_ast_with_args so Option/Result struct
     /// fields keep their by-value layout.
     fn type_string_full(ty: &Type) -> String {
@@ -929,6 +952,134 @@ impl IrEmitter {
             Type::Vec(inner) => format!("Vec[{}]", Self::type_string_full(inner)),
             Type::Map(k, v) => format!("Map[{},{}]", Self::type_string_full(k), Self::type_string_full(v)),
             Type::Set(inner) => format!("Set[{}]", Self::type_string_full(inner)),
+            other => Self::type_from_ast(other),
+        }
+    }
+
+    // ========================================================================
+    // B-001: Concrete monomorphised Result/Option type helpers
+    // ========================================================================
+
+    /// Resolve a short type name to the key it actually lives under in type_meta
+    /// (handles module-qualified names like "tests.ecosystem.test_json.JsonValue").
+    fn resolve_type_key(&self, short_name: &str) -> String {
+        // Exact match first
+        if self.types.type_meta.contains_key(short_name) || self.types.types.contains_key(short_name) {
+            return short_name.to_string();
+        }
+        // Module-qualified suffix match
+        let suffix = format!(".{}", short_name);
+        for key in self.types.type_meta.keys() {
+            if key.ends_with(&suffix) {
+                return key.clone();
+            }
+        }
+        for key in self.types.types.keys() {
+            if key.ends_with(&suffix) {
+                return key.clone();
+            }
+        }
+        short_name.to_string()
+    }
+
+    /// Create a concrete `Option__T` type in type_meta, duplicating the field
+    /// layout of the base `Option` type but substituting the value field with
+    /// the full struct type `T` so it is not truncated to 8 bytes.
+    fn ensure_concrete_option(&mut self, inner_type_name: &str) {
+        let concrete_name = format!("Option__{}", inner_type_name);
+        if self.types.type_meta.contains_key(&concrete_name) { return; }
+        // Use the fully-qualified type key so the emission loop resolves correctly.
+        let resolved = self.resolve_type_key(inner_type_name);
+        let fields = vec![
+            ("discriminant".to_string(), "Int".to_string()),
+            ("value".to_string(), resolved.clone()),
+        ];
+        let field_names: Vec<String> = fields.iter().map(|(n, _)| n.clone()).collect();
+        self.types.types.insert(concrete_name.clone(), field_names);
+        self.types.type_meta.insert(concrete_name, TypeMeta {
+            fields,
+            derives: vec![],
+            invariants: vec![],
+        });
+    }
+
+    /// Create a concrete `Result__Ok__Err` type in type_meta, duplicating the
+    /// field layout of the base `Result` type but substituting value/error fields
+    /// with the full struct types so neither payload is truncated.
+    fn ensure_concrete_result(&mut self, ok_type_name: &str, err_type_name: &str) {
+        let concrete_name = format!("Result__{}__{}", ok_type_name, err_type_name);
+        if self.types.type_meta.contains_key(&concrete_name) { return; }
+        let resolved_ok = self.resolve_type_key(ok_type_name);
+        let resolved_err = self.resolve_type_key(err_type_name);
+        let fields = vec![
+            ("discriminant".to_string(), "Int".to_string()),
+            ("value".to_string(), resolved_ok),
+            ("error".to_string(), resolved_err),
+        ];
+        let field_names: Vec<String> = fields.iter().map(|(n, _)| n.clone()).collect();
+        self.types.types.insert(concrete_name.clone(), field_names);
+        self.types.type_meta.insert(concrete_name, TypeMeta {
+            fields,
+            derives: vec![],
+            invariants: vec![],
+        });
+    }
+
+    /// Pre-register all concrete Option/Result monomorphs for every struct type
+    /// known after `register_type_layout` completes. Called BEFORE the emission
+    /// loop so every function body sees the correct LLVM type definition.
+    fn pre_register_concrete_types(&mut self) {
+        let struct_names: Vec<String> = self.types.type_meta.keys()
+            .filter(|k| Self::is_struct_type_name(k)
+                // Skip already-concrete monomorphs (they contain "__")
+                && !k.contains("__"))
+            .cloned()
+            .collect();
+        // Option__T for every struct T
+        for t in &struct_names {
+            self.ensure_concrete_option(t);
+        }
+        // Result__A__B for every pair of struct types
+        for a in &struct_names {
+            for b in &struct_names {
+                self.ensure_concrete_result(a, b);
+            }
+        }
+    }
+
+    /// B-001: For a `Result[T, E]` or `Option[T]` AST type, return the concrete
+    /// monomorphised name (`Result__T__E` / `Option__T`) if at least one inner type
+    /// is a user-defined struct. Otherwise returns the base name (`Result`/`Option`).
+    /// This is used by `compile_fn` to select the correct LLVM struct layout.
+    fn concrete_type_for(&mut self, ty: &Type) -> String {
+        match ty {
+            Type::Option(inner) => {
+                let inner_name = Self::type_from_ast(inner);
+                if Self::is_struct_type_name(&inner_name) {
+                    let concrete = format!("Option__{}", inner_name);
+                    // Ensure the concrete type is registered (may not be if
+                    // `pre_register_concrete_types` already handled it).
+                    if !self.types.type_meta.contains_key(&concrete) {
+                        self.ensure_concrete_option(&inner_name);
+                    }
+                    concrete
+                } else {
+                    "Option".to_string()
+                }
+            }
+            Type::Result(ok, err) => {
+                let ok_name = Self::type_from_ast(ok);
+                let err_name = Self::type_from_ast(err);
+                if Self::is_struct_type_name(&ok_name) || Self::is_struct_type_name(&err_name) {
+                    let concrete = format!("Result__{}__{}", ok_name, err_name);
+                    if !self.types.type_meta.contains_key(&concrete) {
+                        self.ensure_concrete_result(&ok_name, &err_name);
+                    }
+                    concrete
+                } else {
+                    "Result".to_string()
+                }
+            }
             other => Self::type_from_ast(other),
         }
     }
@@ -1670,6 +1821,15 @@ impl IrEmitter {
         for item in &program.items {
             self.register_type_layout(item);
         }
+
+        // B-001: Concrete Result/Option types are created on-demand by
+        // `concrete_type_for` during `register_functions` and `compile_fn`.
+        // Pre-registration (O(n^2)) is NOT used because it creates excessive
+        // types that interfere with module-qualified field resolution in the
+        // prologue. Each function that returns Result/Option with struct args
+        // triggers just the concrete types it needs via `ensure_concrete_*`.
+        // Pre-registration is kept as dead code for reference only.
+        // self.pre_register_concrete_types();
 
         // Register function signatures
         for item in &program.items {
@@ -3801,10 +3961,24 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 "i64".to_string()
             }
             Expr::Some(..) | Expr::None(..) => {
-                if self.types.types.contains_key("Option") { "%struct.Option".to_string() } else { "i64".to_string() }
+                // B-001: Use the function's return type when available so
+                // concrete monomorphised types (Option__Point) infer correctly.
+                if self.fctx.current_return_type.starts_with("%struct.") {
+                    self.fctx.current_return_type.clone()
+                } else if self.types.types.contains_key("Option") {
+                    "%struct.Option".to_string()
+                } else {
+                    "i64".to_string()
+                }
             }
             Expr::Ok(..) | Expr::Err(..) => {
-                if self.types.types.contains_key("Result") { "%struct.Result".to_string() } else { "i64".to_string() }
+                if self.fctx.current_return_type.starts_with("%struct.") {
+                    self.fctx.current_return_type.clone()
+                } else if self.types.types.contains_key("Result") {
+                    "%struct.Result".to_string()
+                } else {
+                    "i64".to_string()
+                }
             }
             Expr::Struct(ident, _, _, _) => self.llvm_type_for(&ident.name).unwrap_or_else(|_| "i64".to_string()),
             Expr::Paren(inner, _) => self.infer_llvm_type(inner),
