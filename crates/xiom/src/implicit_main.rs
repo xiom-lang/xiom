@@ -44,15 +44,28 @@ pub fn wrap_implicit_main(source: &str) -> String {
         if !in_decl {
             // Check if this line starts a new declaration at depth 0
             let is_decl = decl_keywords.iter().any(|kw| trimmed_line.starts_with(kw));
-            if is_decl {
-                in_decl = true;
-                depth = count_brace_delta(trimmed_line);
-                declarations.push(trimmed_line.to_string());
-                // Single-line declaration (e.g. `const X: Int = 5;` or `use foo;`)
-                if depth <= 0 {
-                    in_decl = false;
-                    depth = 0;
-                }
+                if is_decl {
+                    in_decl = true;
+                    depth = count_brace_delta(trimmed_line);
+                    // Single-line declaration (e.g. `const X: Int = 5;` or `use foo;`)
+                    if depth <= 0 {
+                        in_decl = false;
+                        depth = 0;
+                        // If the line has additional statements after the
+                        // declaration (e.g., `use xiom.io; io.println("hi")`),
+                        // split at semicolon: decl part stays, rest goes to code.
+                        if let Some(semi_pos) = trimmed_line.find(';') {
+                            declarations.push(trimmed_line[..=semi_pos].to_string());
+                            let rest = trimmed_line[semi_pos + 1..].trim();
+                            if !rest.is_empty() {
+                                code_lines.push(rest.to_string());
+                            }
+                        } else {
+                            declarations.push(trimmed_line.to_string());
+                        }
+                    } else {
+                        declarations.push(trimmed_line.to_string());
+                    }
             } else {
                 code_lines.push(trimmed_line.to_string());
             }
