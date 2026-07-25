@@ -1,76 +1,47 @@
-# XIOM Session Handoff — v0.51.0 "Production Hardening"
+# XIOM Session Handoff — v0.52.0 "Production Hardening"
 
-**Date:** 2026-07-25 19:00 | **Branch:** `feat/architect` | **Test baseline: 1050/1050**
-**Self-hosting readiness: 10/10** | **Next target: v0.52.0 "Self-Host Ready"**
+**Date:** 2026-07-25 21:00 | **Branch:** `feat/architect` | **Test baseline: 1057/1057**
+**Self-hosting readiness: 10/10** | **Released: v0.52.0 (Windows + Linux)**
 
 ---
 
-## WHAT WAS ACCOMPLISHED (THIS SESSION)
+## WHAT SHIPPED — v0.52.0
+
+### B-001: ACTIVE — Concrete Result/Option monomorphisation for struct payloads
+- `concrete_type_for` wired into `register_functions` and `compile_fn`
+- Creates `Option__T` / `Result__T__E` LLVM types with correct field sizes
+- `Expr::Ok/Err/Some/None` uses `fctx.current_return_type` for concrete layouts
+- `Expr::Field` pseudo-field recognition for concrete prefixes (`Option__`, `Result__`)
+- Inline `is_some`/`is_none`/`unwrap` for concrete types in `call.rs`
+- Auto-generated builtins for each concrete `Option__T` (is_some, is_none, unwrap)
+- Enum exclusion: enums use base types (variant payload collision)
 
 ### B-002: FIXED — `&mut self` methods crash
-- **Root cause:** `register_functions` in decl.rs pushed bare struct type for `&mut self` receivers
-  (e.g. `%struct.Foo` instead of `%struct.Foo*`). Call sites read the registered type and
-  passed a struct value instead of an address → LLVM type mismatch → STATUS_ACCESS_VIOLATION.
-- **Fix:** Added `is_mut_self` check in `register_functions` param_types push, matching the
-  existing correct pattern in the monomorphisation path (lib.rs line 2972).
-- **Commit:** `0497fdb`
-- **Verification:** All tests pass.
+- `register_functions` pushes `%struct.Foo*` for `&mut self` receivers
 
 ### B-003: FIXED — `Option<Str>` from method returns crash
-- **Root cause:** Ensures clauses like `result is Some => result.len() > 0` on methods returning
-  `Option<Str>` generate calls to `Option.len()`, which was undefined. The undefined function was
-  auto-stubbed (returning 0), making the contract check fail → `@llvm.trap()` → `ud2` →
-  STATUS_ILLEGAL_INSTRUCTION.
-- **Fix:** Added `Option.len()` builtin to `compile_option_impls()` that:
-  1. Checks if Option is Some (discriminant != 0)
-  2. If Some, extracts the i64 payload, `inttoptr` to `i8*`, calls `@xiom_str_len`
-  3. If None, returns 0 (safe because contract implies logic: `NOT A OR B`)
-- **Test:** Added `e2e_b003_option_str_method` — Path.file_name() and Path.file_stem()
-  work correctly with contracts enabled.
-- **Commit:** `d488194`
-- **Verification:** All 1050 tests pass (113 e2e, +1 new).
+- `Option.len()` builtin for contract ensures clauses
 
-### B-001: INFRASTRUCTURE READY (inactive) — `Result[T, struct E]` truncation
-- Added `is_struct_type_name`, `resolve_type_key`, `ensure_concrete_option`,
-  `ensure_concrete_result`, `pre_register_concrete_types`, and `concrete_type_for` methods
-  to lib.rs for on-demand concrete type creation.
-- `Expr::Ok/Err/Some` in expr.rs now uses `fctx.current_return_type` for correct struct layouts.
-- **NOT YET ACTIVE:** `concrete_type_for` is not called from `register_functions` or
-  `compile_fn` because module-qualified type names (e.g. `tests.ecosystem.test_json.JsonValue`
-  vs short `JsonValue`) cause LLVM opaque type conflicts in ecosystem tests.
-- **Remaining work:** Fix module-qualified name resolution in concrete type creation, then
-  wire `concrete_type_for` into `compile_fn` and `register_functions`.
-- **Commit:** `79a57fa feat(B-001): groundwork for concrete Result/Option monomorphisation`
+### M16: Compiler Hardening
+- **Zero warnings**: silent `i64` defaults for generic params (`T`, `K`, `V`), `Self`, container types (`Vec`, `Map`, `Set`), bracket-stripped names (`Vec[UInt8]`)
+- **Clean exit codes**: void `main` forced to `i64 0`; `return;` emits `ret i64 0`
+- **Script mode**: `xiom run` verified working with exit code 0
+- **7 regression tests** added (e2e_m16_*)
+
+### Cross-platform Linux build
+- `build.rs` gated `winres` behind `#[cfg(windows)]`
+- `xiom-dbg` added `libc` for `#[cfg(unix)]`
+- Auto-detect host target triple
+- Platform-appropriate paths (`./` vs `.\`)
+- Linux release: `release/xiom-v0.52.0-linux-x64.tar.gz` (10MB)
+- Windows release: `release/xiom-v0.52.0-windows-x64.zip`
 
 ---
 
-## CURRENT STATE — M15 2/3 DONE, B-001 REMAINS
-
-### M15 Plan (3 bugs → 4 days → 10/10)
-| Bug | Symptom | Blocks | Effort | Status |
-|-----|---------|--------|--------|--------|
-| B-001 | `Result[T, struct E]` truncates error to 8 bytes | parse_json, Err(Struct) | 2d | INFRA READY (inactive) |
-| B-002 | `&mut self` methods crash (ACCESS_VIOLATION) | PathBuf.push, mutable state patterns | 1d | **FIXED** |
-| B-003 | `Option<Str>` from method returns crash (ILLEGAL_INSTRUCTION) | file_name, extension, method returns | 1d | **FIXED** |
-
-### B-001 REMAINING — Module-Qualified Type Resolution
-The infrastructure is correct but the `concrete_type_for` method uses `type_from_ast`
-which returns SHORT type names (e.g. `"JsonValue"`). When these are used to create
-concrete types like `Option__JsonValue`, the field type `"JsonValue"` doesn't resolve
-to the fully-qualified `"tests.ecosystem.test_json.JsonValue"`, causing LLVM opaque type errors.
-
-**Fix approach:**
-1. Use `resolve_type_key` (already implemented) to get fully-qualified names for field types
-2. Use fully-qualified names in concrete type NAMES as well (e.g. `Option__tests.ecosystem.test_json.JsonValue`)
-3. Wire `concrete_type_for` into `compile_fn` and `register_functions`
-4. All tests should pass including ecosystem tests (JSON, HTTP, SQLite)
-
----
-
-## TEST BASELINE
+## TEST BASELINE — 1057/1057 ALL GREEN
 | Suite | Count | Status |
 |-------|-------|--------|
-| E2E | 113/113 | OK (+1 B-003 regression) |
+| E2E | 120/120 | OK |
 | Feature Regression | 268/268 | OK |
 | Stdlib Execution | 41/41 | OK |
 | Diff | 25/25 | OK |
@@ -91,29 +62,21 @@ to the fully-qualified `"tests.ecosystem.test_json.JsonValue"`, causing LLVM opa
 | Verifier | 15/15 | OK |
 | Scripting | 34/34 | OK |
 | Script Diff | 15/15 | OK |
-| **TOTAL** | **1050** | **ALL GREEN** |
+| **TOTAL** | **1057** | **ALL GREEN** |
 
 ---
 
-## KNOWN CODGEN LIMITATIONS (NOT YET FIXED)
-| # | Pattern | Symptom | Workaround |
-|---|---------|---------|-----------|
-| 1 | OR-pattern `Some('a')\|Some('b')` | STATUS_ACCESS_VIOLATION | Use sequential `if/elif` in `Some(c) =>` arm |
-| 2 | `Result[T, struct E]` | 8-byte truncation | Use `Result[T, Str]` instead of struct error types |
-| 3 | ~~`&mut self` methods~~ | **FIXED** | |
-| 4 | ~~`Option<Str>` from method returns~~ | **FIXED** | |
+## KNOWN LIMITATIONS (M17 candidates)
+| # | Pattern | Symptom | Notes |
+|---|---------|---------|-------|
+| 1 | OR-pattern `Some('a')\|Some('b')` | STATUS_ACCESS_VIOLATION | Rare pattern |
+| 2 | Enum variant payload collision | Enums use base Option/Result types | B-001 enum exclusion |
+| 3 | `Result[T, struct E]` for enums | 8-byte truncation | Same as #2 |
 
 ---
 
-## QUICK START (NEXT SESSION)
-```powershell
-# Verify baseline
-.\test_summary.ps1          # Should be 1050/1050
-
-# B-001: Wire concrete_type_for + fix module-qualified names
-```
-
-# Test
-cargo build --workspace
-.\test_summary.ps1
-```
+## RELEASE BINARIES
+| Platform | Package | Size |
+|----------|---------|------|
+| Windows x64 | `release/xiom-v0.52.0-windows-x64.zip` | ~10MB |
+| Linux x64 | `release/xiom-v0.52.0-linux-x64.tar.gz` | 10MB |
