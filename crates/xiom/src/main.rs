@@ -904,7 +904,7 @@ fn print_usage() {
     eprintln!("OPTIONS:");
     eprintln!("  --help              Show this help message");
     eprintln!("  --version           Print version");
-    eprintln!("  -o <output>         Output binary path (default: a.exe)");
+    eprintln!("  -o <output>         Output binary path (default: a.exe on Windows, a.out on Linux/macOS)");
     eprintln!("  --run               Compile and run, print exit code");
     eprintln!("  --emit-ir           Print LLVM IR to stdout (no compilation)");
     eprintln!("  --target <target>   Target: native (default), wasm, arm, riscv");

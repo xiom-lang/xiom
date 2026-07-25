@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Clone)]
 pub struct CodegenConfig {
-    /// LLVM target triple (default: x86_64-pc-windows-msvc)
+    /// LLVM target triple (default: auto-detected from host OS/arch)
     pub target_triple: String,
     /// Whether to emit contract runtime checks
     pub check_contracts: bool,
@@ -29,8 +29,19 @@ pub struct CodegenConfig {
 
 impl Default for CodegenConfig {
     fn default() -> Self {
+        // Auto-detect host target triple at runtime so Linux/macOS builds
+        // get the correct default without manual --target-triple overrides.
+        let host_triple = if cfg!(target_os = "windows") {
+            "x86_64-pc-windows-msvc".to_string()
+        } else if cfg!(target_os = "linux") {
+            "x86_64-unknown-linux-gnu".to_string()
+        } else if cfg!(target_os = "macos") {
+            "x86_64-apple-darwin".to_string()
+        } else {
+            "x86_64-unknown-linux-gnu".to_string() // fallback
+        };
         Self {
-            target_triple: "x86_64-pc-windows-msvc".to_string(),
+            target_triple: host_triple,
             check_contracts: true,
             strict_mode: false,
             max_recursion_depth: 2000,

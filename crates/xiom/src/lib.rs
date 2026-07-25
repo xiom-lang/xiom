@@ -788,7 +788,12 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         Target::Wasm => "wasm32-unknown-unknown",
         Target::Arm => "aarch64-unknown-linux-gnu",
         Target::RisCv => "riscv64gc-unknown-linux-gnu",
-        Target::Native => "x86_64-pc-windows-msvc",
+        Target::Native => {
+            if cfg!(target_os = "windows") { "x86_64-pc-windows-msvc" }
+            else if cfg!(target_os = "linux") { "x86_64-unknown-linux-gnu" }
+            else if cfg!(target_os = "macos") { "x86_64-apple-darwin" }
+            else { "x86_64-unknown-linux-gnu" }
+        },
     });
     let llvm_ir = match emitter.compile_program(&program) {
         Ok(ir) => ir,
@@ -822,7 +827,9 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     let default_output = match config.target {
         Target::Wasm => "a.wasm",
         Target::Arm | Target::RisCv => "a.out",
-        Target::Native => "a.exe",
+        Target::Native => {
+            if cfg!(windows) { "a.exe" } else { "a.out" }
+        }
     };
     let output = config.output_file.as_deref().unwrap_or(default_output);
 
@@ -846,6 +853,8 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
 
     let opt = find_tool("opt", &[
         "C:\\Program Files\\LLVM\\bin\\opt.exe",
+        "/usr/bin/opt",
+        "/usr/local/bin/opt",
     ]);
 
     if let Some(opt_path) = &opt {
@@ -919,6 +928,8 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
 
     let clang = find_tool("clang", &[
         "C:\\Program Files\\LLVM\\bin\\clang.exe",
+        "/usr/bin/clang",
+        "/usr/local/bin/clang",
     ]);
 
     match clang {
@@ -1013,7 +1024,9 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                         let exe = if output.contains('\\') || output.contains('/') {
                             output.to_string()
                         } else {
-                            format!(".\\{output}")
+                            // Platform-appropriate relative path prefix
+                            if cfg!(windows) { format!(".\\{output}") }
+                            else { format!("./{output}") }
                         };
                         let run_status = Command::new(&exe).status();
                         match run_status {
