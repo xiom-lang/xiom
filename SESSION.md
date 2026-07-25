@@ -1,40 +1,29 @@
 # XIOM Session Handoff — v0.52.0 "Production Hardening"
 
-**Date:** 2026-07-25 21:00 | **Branch:** `feat/architect` | **Test baseline: 1057/1057**
+**Date:** 2026-07-25 22:00 | **Branch:** `feat/architect` | **Test baseline: 1060/1060**
 **Self-hosting readiness: 10/10** | **Released: v0.52.0 (Windows + Linux)**
 
 ---
 
-## WHAT SHIPPED — v0.52.0
+## FINAL STATE — v0.52.0
 
-### B-001: ACTIVE — Concrete Result/Option monomorphisation for struct payloads
-- `concrete_type_for` wired into `register_functions` and `compile_fn`
-- Creates `Option__T` / `Result__T__E` LLVM types with correct field sizes
-- `Expr::Ok/Err/Some/None` uses `fctx.current_return_type` for concrete layouts
-- `Expr::Field` pseudo-field recognition for concrete prefixes (`Option__`, `Result__`)
-- Inline `is_some`/`is_none`/`unwrap` for concrete types in `call.rs`
-- Auto-generated builtins for each concrete `Option__T` (is_some, is_none, unwrap)
-- Enum exclusion: enums use base types (variant payload collision)
+### Test baseline: 1060/1060 ALL GREEN
+| Suite | Count |
+|-------|-------|
+| E2E | 123/123 (+11 from M15 baseline) |
+| All other suites | 937/937 |
+| **Total** | **1060/1060** |
 
-### B-002: FIXED — `&mut self` methods crash
-- `register_functions` pushes `%struct.Foo*` for `&mut self` receivers
+### Key achievements:
+- **B-001**: Concrete `Option__T`/`Result__T__E` for struct payloads (enums excluded, M18)
+- **B-002**: `&mut self` pointer receiver in registered signature
+- **B-003**: `Option.len()` builtin for contract ensures
+- **M16**: Zero warnings, clean exit codes, Linux build
+- **M17**: Struct-icmp safety net, 4 regression tests, enum layout deferred to M18
 
-### B-003: FIXED — `Option<Str>` from method returns crash
-- `Option.len()` builtin for contract ensures clauses
-
-### M16: Compiler Hardening
-- **Zero warnings**: silent `i64` defaults for generic params (`T`, `K`, `V`), `Self`, container types (`Vec`, `Map`, `Set`), bracket-stripped names (`Vec[UInt8]`)
-- **Clean exit codes**: void `main` forced to `i64 0`; `return;` emits `ret i64 0`
-- **Script mode**: `xiom run` verified working with exit code 0
-- **7 regression tests** added (e2e_m16_*)
-
-### Cross-platform Linux build
-- `build.rs` gated `winres` behind `#[cfg(windows)]`
-- `xiom-dbg` added `libc` for `#[cfg(unix)]`
-- Auto-detect host target triple
-- Platform-appropriate paths (`./` vs `.\`)
-- Linux release: `release/xiom-v0.52.0-linux-x64.tar.gz` (10MB)
-- Windows release: `release/xiom-v0.52.0-windows-x64.zip`
+### M18 deferred:
+- Enum variant payload collision (shared "value" field name across variants)
+- Requires per-variant field types with a mapping layer from source names to struct indices
 
 ---
 
