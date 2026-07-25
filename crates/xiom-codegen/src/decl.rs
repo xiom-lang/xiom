@@ -292,7 +292,13 @@ impl IrEmitter {
             // receiver type ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the first param already covers it.
             if has_recv && !is_first_param_self {
                 if let Some(recv) = fd.receiver.as_ref() {
-                    param_types.push(self.llvm_type_for(&recv.name).unwrap_or_else(|_| "i64".to_string()));
+                    let base = self.llvm_type_for(&recv.name).unwrap_or_else(|_| "i64".to_string());
+                    let is_mut = fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self);
+                    if is_mut && base.starts_with('%') {
+                        param_types.push(format!("{base}*"));
+                    } else {
+                        param_types.push(base);
+                    }
                 }
             }
             if is_this_based {
