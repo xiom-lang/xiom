@@ -1097,7 +1097,10 @@ impl IrEmitter {
         match ty {
             Type::Option(inner) => {
                 let inner_name = Self::type_from_ast(inner);
-                if self.is_struct_type_in_registry(&inner_name) {
+                let resolved = self.resolve_type_key(&inner_name);
+                let is_enum = self.types.enum_variants.contains_key(&resolved);
+                if self.is_struct_type_in_registry(&inner_name) && !is_enum
+                {
                     let concrete = format!("Option__{}", inner_name);
                     if !self.types.type_meta.contains_key(&concrete) {
                         self.ensure_concrete_option(&inner_name);
@@ -1110,7 +1113,13 @@ impl IrEmitter {
             Type::Result(ok, err) => {
                 let ok_name = Self::type_from_ast(ok);
                 let err_name = Self::type_from_ast(err);
-                if self.is_struct_type_in_registry(&ok_name) || self.is_struct_type_in_registry(&err_name) {
+                let ok_resolved = self.resolve_type_key(&ok_name);
+                let err_resolved = self.resolve_type_key(&err_name);
+                let ok_struct = self.is_struct_type_in_registry(&ok_name)
+                    && !self.types.enum_variants.contains_key(&ok_resolved);
+                let err_struct = self.is_struct_type_in_registry(&err_name)
+                    && !self.types.enum_variants.contains_key(&err_resolved);
+                if ok_struct || err_struct {
                     let concrete = format!("Result__{}__{}", ok_name, err_name);
                     if !self.types.type_meta.contains_key(&concrete) {
                         self.ensure_concrete_result(&ok_name, &err_name);
