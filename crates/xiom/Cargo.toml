@@ -1,6 +1,6 @@
 [package]
 name = "xiom"
-version = "0.51.1"
+version = "0.52.2"
 edition = "2024"
 
 [lib]
