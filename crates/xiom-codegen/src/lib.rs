@@ -793,9 +793,39 @@ impl IrEmitter {
             "Float64" => "double",
             "Str" => "i8*",
             "()" => "void",
-            // 6A.2: Unknown types must not silently compile as i64.
-            // Log the unknown type so the user can diagnose the issue.
+            // Known container type names — these are struct types resolved
+            // via llvm_type_for/type_meta, not primitives. Silent i64 fallback.
+            "Vec" | "Map" | "Set" | "Option" | "Result" => "i64",
+            // M16: Silent i64 defaults for types that are expected to be
+            // unresolved during generic-compilation passes.
             _ => {
+                // Generic type parameters: T, K, V, E, A, B, etc.
+                if xiom_ty.len() == 1 && xiom_ty.chars().next().map_or(false, |c| c.is_uppercase()) {
+                    return "i64";
+                }
+                // Self-receiver placeholder in type_meta field lists.
+                if xiom_ty == "Self" {
+                    return "i64";
+                }
+                // Bracket-preserving type names (Vec[T], Map[K,V], etc.)
+                // stored by type_from_ast_with_args — strip to base and recurse.
+                if let Some(_stripped) = xiom_ty.strip_prefix("Vec[")
+                    .or_else(|| xiom_ty.strip_prefix("Map["))
+                    .or_else(|| xiom_ty.strip_prefix("Set["))
+                    .or_else(|| xiom_ty.strip_prefix("Option["))
+                    .or_else(|| xiom_ty.strip_prefix("Result["))
+                    .and_then(|rest| rest.strip_suffix(']'))
+                {
+                    let base_name = match xiom_ty {
+                        t if t.starts_with("Vec[") => "Vec",
+                        t if t.starts_with("Map[") => "Map",
+                        t if t.starts_with("Set[") => "Set",
+                        t if t.starts_with("Option[") => "Option",
+                        t if t.starts_with("Result[") => "Result",
+                        _ => xiom_ty,
+                    };
+                    return Self::xiom_to_llvm_type(base_name);
+                }
                 eprintln!("xiom: warning: unknown type '{}' — defaulting to i64. This may produce incorrect code.", xiom_ty);
                 "i64"
             }
@@ -1364,7 +1394,7 @@ impl IrEmitter {
     /// (stored inline via memcpy or as val_to_i64 heap pointer), resolve field
     /// access via inttoptr+GEP on a known struct type. Returns None if no
     fn llvm_type_for(&self, type_name: &str) -> Result<String, String> {
-        // Parse array types like [N x ElementType] ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â used for fixed-size stack arrays.
+        // Parse array types like [N x ElementType] — used for fixed-size stack arrays.
         if type_name.starts_with('[') {
             if let Some(rest) = type_name.strip_prefix('[') {
                 if let Some(x_pos) = rest.find(" x ") {
@@ -1426,6 +1456,14 @@ impl IrEmitter {
         match type_name {
             "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
             | "Bool" | "Float32" | "Float64" | "Str" | "Char" | "()" => return Ok(builtin.to_string()),
+            // Generic type parameters (single uppercase letters: T, K, V, E, etc.)
+            // silently default to i64 — these are expected when monomorphisation
+            // hasn't substituted them yet (e.g. in type_meta field lists).
+            name if name.len() == 1 && name.chars().next().map_or(false, |c| c.is_uppercase()) => {
+                return Ok("i64".to_string());
+            }
+            // "Self" in type_meta field lists is a placeholder — silently default to i64.
+            "Self" => { return Ok("i64".to_string()); }
             _ => {}
         }
         // If type_name is an enum variant (e.g., "Image"), find its parent enum type

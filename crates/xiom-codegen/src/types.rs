@@ -309,7 +309,33 @@ impl crate::IrEmitter {
             "Float64" => "double",
             "Str" => "i8*",
             "()" => "void",
-            _ => "i64", // Default: treat unknown types as i64
+            "Vec" | "Map" | "Set" | "Option" | "Result" => "i64",
+            _ => {
+                // Generic params (T, K, V) and Self — silent i64 defaults.
+                if xiom_ty.len() == 1 && xiom_ty.chars().next().map_or(false, |c| c.is_uppercase()) {
+                    return "i64";
+                }
+                if xiom_ty == "Self" { return "i64"; }
+                // Bracket-preserving type names: strip to base and recurse.
+                if let Some(_stripped) = xiom_ty.strip_prefix("Vec[")
+                    .or_else(|| xiom_ty.strip_prefix("Map["))
+                    .or_else(|| xiom_ty.strip_prefix("Set["))
+                    .or_else(|| xiom_ty.strip_prefix("Option["))
+                    .or_else(|| xiom_ty.strip_prefix("Result["))
+                    .and_then(|rest| rest.strip_suffix(']'))
+                {
+                    let base_name = match xiom_ty {
+                        t if t.starts_with("Vec[") => "Vec",
+                        t if t.starts_with("Map[") => "Map",
+                        t if t.starts_with("Set[") => "Set",
+                        t if t.starts_with("Option[") => "Option",
+                        t if t.starts_with("Result[") => "Result",
+                        _ => xiom_ty,
+                    };
+                    return Self::xiom_to_llvm_type(base_name);
+                }
+                "i64"
+            }
         }
     }
 

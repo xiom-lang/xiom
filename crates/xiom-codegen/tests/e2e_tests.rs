@@ -1211,3 +1211,93 @@ fn compile_and_get_ir(source: &str) -> String {
     let _ = std::fs::remove_file(&tmp);
     String::from_utf8_lossy(&output.stdout).to_string()
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// M16 — Compiler Hardening: zero warnings, clean exit codes
+// ═══════════════════════════════════════════════════════════════════
+
+/// M16: Hello World with stdlib imports must produce ZERO warnings.
+/// Before M16: 5 warnings (T, Vec[UInt8] repeated).
+#[test]
+fn e2e_m16_no_warnings() {
+    let tmp = project_root().join("_e2e_m16_nowarn.xi");
+    // Use the test file from examples/e2e/
+    let output = std::process::Command::new(xiom_path())
+        .args(["--emit-ir", "examples\\e2e\\m16_no_warnings.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("xiom --emit-ir failed");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("warning"), "M16: zero warnings expected, got: {stderr}");
+    assert!(output.status.success(), "compilation should succeed");
+}
+
+/// M16: Void main must return exit code 0 (not garbage like 358914400).
+#[test]
+fn e2e_m16_void_main_exit_zero() {
+    assert_eq!(compile_and_run("examples\\e2e\\m16_void_main.xi"), Some(0),
+        "M16: fn main() without return type must exit 0, not garbage");
+}
+
+/// M16: Concrete Option/Result types with struct payloads work correctly.
+/// The 'J' type name is a single uppercase letter — tests registry-aware
+/// struct detection (was broken: is_struct_type_name rejected single-char names).
+#[test]
+fn e2e_m16_option_struct_payload() {
+    let source = "type J = { k: Int; d: Int; } fn f() -> Option[J] { return Some(J { k: 0; d: 42; }); } fn main() -> Int { let r = f(); if r.is_some { return 0; } return 1; }";
+    let tmp = project_root().join("_e2e_m16_opt.xi");
+    std::fs::write(&tmp, source).expect("write");
+    let result = compile_and_run(&tmp.to_string_lossy());
+    let _ = std::fs::remove_file(&tmp);
+    assert_eq!(result, Some(0), "Option[J] with single-char type name must return is_some=true");
+}
+
+/// M16: Option.is_none on concrete type returns true for None.
+#[test]
+fn e2e_m16_option_none() {
+    let source = "type P = { x: Int; } fn f() -> Option[P] { return None; } fn main() -> Int { let r = f(); if r.is_none { return 0; } return 1; }";
+    let tmp = project_root().join("_e2e_m16_optnone.xi");
+    std::fs::write(&tmp, source).expect("write");
+    let result = compile_and_run(&tmp.to_string_lossy());
+    let _ = std::fs::remove_file(&tmp);
+    assert_eq!(result, Some(0), "Option[P].is_none must return true for None");
+}
+
+/// M16: Result concrete type with struct payload — is_err should work.
+#[test]
+fn e2e_m16_result_struct_err() {
+    let source = "type E = { code: Int; } fn f() -> Result[Int, E] { return Err(E { code: 1; }); } fn main() -> Int { let r = f(); if r.is_err { return 0; } return 1; }";
+    let tmp = project_root().join("_e2e_m16_res.xi");
+    std::fs::write(&tmp, source).expect("write");
+    let result = compile_and_run(&tmp.to_string_lossy());
+    let _ = std::fs::remove_file(&tmp);
+    assert_eq!(result, Some(0), "Result[Int, E].is_err must return true for Err");
+}
+
+/// M16: Scripting mode (xiom run) must produce exit code 0.
+/// Before M16: scripting produced garbage exit codes like 1879443520.
+#[test]
+fn e2e_m16_scripting_exit_zero() {
+    let source = "io.println(\"test\");";
+    let tmp = project_root().join("_e2e_m16_script.xi");
+    std::fs::write(&tmp, source).expect("write");
+    let run_output = std::process::Command::new(xiom_path())
+        .args(["run", &tmp.to_string_lossy()])
+        .current_dir(project_root())
+        .output()
+        .expect("xiom run failed");
+    let _ = std::fs::remove_file(&tmp);
+    let exit_code = run_output.status.code().unwrap_or(-1);
+    assert_eq!(exit_code, 0, "M16: scripting mode must exit 0, got {exit_code}");
+}
+
+/// M16: --run with explicitly typed main must preserve exit code.
+#[test]
+fn e2e_m16_run_exit_code_preserved() {
+    let source = "fn main() -> Int { return 42; }";
+    let tmp = project_root().join("_e2e_m16_run42.xi");
+    std::fs::write(&tmp, source).expect("write");
+    let result = compile_and_run(&tmp.to_string_lossy());
+    let _ = std::fs::remove_file(&tmp);
+    assert_eq!(result, Some(42), "--run must preserve explicit return 42");
+}

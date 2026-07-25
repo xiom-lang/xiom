@@ -610,6 +610,13 @@ impl IrEmitter {
                 self.llvm_type_for(&concrete).unwrap_or_else(|_| "i64".to_string())
             })
             .unwrap_or_else(|| "void".to_string());
+        // M16: The entry point must return i64 (not void) so the process
+        // exit code is well-defined. A void main produces garbage in RAX.
+        let ret_llvm = if fd.name.name == "main" && ret_llvm == "void" {
+            "i64".to_string()
+        } else {
+            ret_llvm
+        };
         self.fctx.current_return_type = ret_llvm.clone();
         self.fctx.current_param_llvm_types = fd.params.iter()
             .map(|p| self.llvm_type_for(&Self::type_from_ast(&p.ty)).unwrap_or_else(|_| "i64".to_string()))
@@ -890,7 +897,7 @@ impl IrEmitter {
         }
         
         // Implicit return
-        if fd.return_type.is_none() {
+        if ret_llvm == "void" {
             // Check ensures before implicit void return
             if !self.fctx.current_ensures.is_empty() {
                 self.compile_ensures_checks();
