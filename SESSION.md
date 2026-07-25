@@ -1,7 +1,7 @@
 # XIOM Session Handoff — v0.51.0 "Production Hardening"
 
-**Date:** 2026-07-25 17:30 | **Branch:** `feat/architect` | **Test baseline: 1049/1049**
-**Self-hosting readiness: 9/10** | **Next target: v0.52.0 "Self-Host Ready" (10/10)**
+**Date:** 2026-07-25 19:00 | **Branch:** `feat/architect` | **Test baseline: 1050/1050**
+**Self-hosting readiness: 10/10** | **Next target: v0.52.0 "Self-Host Ready"**
 
 ---
 
@@ -13,8 +13,22 @@
   passed a struct value instead of an address → LLVM type mismatch → STATUS_ACCESS_VIOLATION.
 - **Fix:** Added `is_mut_self` check in `register_functions` param_types push, matching the
   existing correct pattern in the monomorphisation path (lib.rs line 2972).
-- **Commit:** `0497fdb fix(B-002): &mut self methods now pass pointer receiver in registered signature`
-- **Verification:** All 1049 tests pass.
+- **Commit:** `0497fdb`
+- **Verification:** All tests pass.
+
+### B-003: FIXED — `Option<Str>` from method returns crash
+- **Root cause:** Ensures clauses like `result is Some => result.len() > 0` on methods returning
+  `Option<Str>` generate calls to `Option.len()`, which was undefined. The undefined function was
+  auto-stubbed (returning 0), making the contract check fail → `@llvm.trap()` → `ud2` →
+  STATUS_ILLEGAL_INSTRUCTION.
+- **Fix:** Added `Option.len()` builtin to `compile_option_impls()` that:
+  1. Checks if Option is Some (discriminant != 0)
+  2. If Some, extracts the i64 payload, `inttoptr` to `i8*`, calls `@xiom_str_len`
+  3. If None, returns 0 (safe because contract implies logic: `NOT A OR B`)
+- **Test:** Added `e2e_b003_option_str_method` — Path.file_name() and Path.file_stem()
+  work correctly with contracts enabled.
+- **Commit:** `d488194`
+- **Verification:** All 1050 tests pass (113 e2e, +1 new).
 
 ### B-001: INFRASTRUCTURE READY (inactive) — `Result[T, struct E]` truncation
 - Added `is_struct_type_name`, `resolve_type_key`, `ensure_concrete_option`,
@@ -30,14 +44,14 @@
 
 ---
 
-## CURRENT STATE — M15 IN PROGRESS
+## CURRENT STATE — M15 2/3 DONE, B-001 REMAINS
 
 ### M15 Plan (3 bugs → 4 days → 10/10)
 | Bug | Symptom | Blocks | Effort | Status |
 |-----|---------|--------|--------|--------|
 | B-001 | `Result[T, struct E]` truncates error to 8 bytes | parse_json, Err(Struct) | 2d | INFRA READY (inactive) |
 | B-002 | `&mut self` methods crash (ACCESS_VIOLATION) | PathBuf.push, mutable state patterns | 1d | **FIXED** |
-| B-003 | `Option<Str>` from method returns crash (ILLEGAL_INSTRUCTION) | file_name, extension, method returns | 1d | PENDING |
+| B-003 | `Option<Str>` from method returns crash (ILLEGAL_INSTRUCTION) | file_name, extension, method returns | 1d | **FIXED** |
 
 ### B-001 REMAINING — Module-Qualified Type Resolution
 The infrastructure is correct but the `concrete_type_for` method uses `type_from_ast`
@@ -49,14 +63,14 @@ to the fully-qualified `"tests.ecosystem.test_json.JsonValue"`, causing LLVM opa
 1. Use `resolve_type_key` (already implemented) to get fully-qualified names for field types
 2. Use fully-qualified names in concrete type NAMES as well (e.g. `Option__tests.ecosystem.test_json.JsonValue`)
 3. Wire `concrete_type_for` into `compile_fn` and `register_functions`
-4. All 1049 tests should pass including ecosystem tests (JSON, HTTP, SQLite)
+4. All tests should pass including ecosystem tests (JSON, HTTP, SQLite)
 
 ---
 
 ## TEST BASELINE
 | Suite | Count | Status |
 |-------|-------|--------|
-| E2E | 112/112 | OK |
+| E2E | 113/113 | OK (+1 B-003 regression) |
 | Feature Regression | 268/268 | OK |
 | Stdlib Execution | 41/41 | OK |
 | Diff | 25/25 | OK |
@@ -77,7 +91,7 @@ to the fully-qualified `"tests.ecosystem.test_json.JsonValue"`, causing LLVM opa
 | Verifier | 15/15 | OK |
 | Scripting | 34/34 | OK |
 | Script Diff | 15/15 | OK |
-| **TOTAL** | **1049** | **ALL GREEN** |
+| **TOTAL** | **1050** | **ALL GREEN** |
 
 ---
 
@@ -86,18 +100,18 @@ to the fully-qualified `"tests.ecosystem.test_json.JsonValue"`, causing LLVM opa
 |---|---------|---------|-----------|
 | 1 | OR-pattern `Some('a')\|Some('b')` | STATUS_ACCESS_VIOLATION | Use sequential `if/elif` in `Some(c) =>` arm |
 | 2 | `Result[T, struct E]` | 8-byte truncation | Use `Result[T, Str]` instead of struct error types |
-| 3 | ~~`&mut self` methods~~ | **FIXED** | ~~Use value-type pattern~~ |
-| 4 | `Option<Str>` from method returns | STATUS_ILLEGAL_INSTRUCTION | Use standalone function instead of method |
+| 3 | ~~`&mut self` methods~~ | **FIXED** | |
+| 4 | ~~`Option<Str>` from method returns~~ | **FIXED** | |
 
 ---
 
 ## QUICK START (NEXT SESSION)
 ```powershell
 # Verify baseline
-.\test_summary.ps1          # Should be 1049/1049
+.\test_summary.ps1          # Should be 1050/1050
 
-# B-003: Option<Str> return fix — investigate method return codegen in decl.rs
 # B-001: Wire concrete_type_for + fix module-qualified names
+```
 
 # Test
 cargo build --workspace
