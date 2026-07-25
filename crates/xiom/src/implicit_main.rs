@@ -51,18 +51,24 @@ pub fn wrap_implicit_main(source: &str) -> String {
                     if depth <= 0 {
                         in_decl = false;
                         depth = 0;
-                        // If the line has additional statements after the
-                        // declaration (e.g., `use xiom.io; io.println("hi")`),
-                        // split at semicolon: decl part stays, rest goes to code.
-                        if let Some(semi_pos) = trimmed_line.find(';') {
-                            declarations.push(trimmed_line[..=semi_pos].to_string());
-                            let rest = trimmed_line[semi_pos + 1..].trim();
-                            if !rest.is_empty() {
-                                code_lines.push(rest.to_string());
+                        // M17: if the line has code after a `use` or `const`
+                        // declaration, split at the semicolon suffix.
+                        // e.g. `use xiom.io; io.println("hi")` → decl + code.
+                        // Only applies to `use`/`const` — functions/types
+                        // may contain semicolons in their bodies.
+                        let is_splittable = trimmed_line.starts_with("use ")
+                            || trimmed_line.starts_with("const ");
+                        if is_splittable {
+                            if let Some(semi_pos) = trimmed_line.find(';') {
+                                declarations.push(trimmed_line[..=semi_pos].to_string());
+                                let rest = trimmed_line[semi_pos + 1..].trim();
+                                if !rest.is_empty() {
+                                    code_lines.push(rest.to_string());
+                                }
+                                continue; // already added to declarations
                             }
-                        } else {
-                            declarations.push(trimmed_line.to_string());
                         }
+                        declarations.push(trimmed_line.to_string());
                     } else {
                         declarations.push(trimmed_line.to_string());
                     }

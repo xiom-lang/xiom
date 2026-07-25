@@ -345,7 +345,14 @@ fn call_llm_chat(endpoint: &str, api_key: &str, model: &str, messages: &[serde_j
 
     json["choices"][0]["message"]["content"].as_str()
         .map(|s| s.trim().to_string())
-        .ok_or_else(|| format!("Unexpected API response: {}", serde_json::to_string_pretty(&json).unwrap_or_default()))
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            let raw = serde_json::to_string_pretty(&json).unwrap_or_default();
+            // Log truncated response for debugging
+            if raw.len() > 200 { eprintln!("[AI] LLM response (truncated): {}...", &raw[..200]); }
+            else { eprintln!("[AI] LLM response: {raw}"); }
+            format!("[API] empty or missing content in response")
+        })
 }
 
 fn call_ollama(endpoint: &str, model: &str, prompt: &str, timeout_secs: u32) -> Result<String, String> {

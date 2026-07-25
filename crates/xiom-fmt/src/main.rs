@@ -27,7 +27,7 @@ fn main() {
             "--version" => {
                 eprintln!("xiom-fmt v{} (XIOM v{})",
                     env!("CARGO_PKG_VERSION"),
-                    option_env!("XIOM_RELEASE_VERSION").unwrap_or("0.49.7"));
+                    option_env!("XIOM_RELEASE_TAG").unwrap_or("0.52.0"));
                 return;
             }
             _ => files.push(arg.clone()),
