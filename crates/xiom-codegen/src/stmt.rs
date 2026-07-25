@@ -424,7 +424,15 @@ impl IrEmitter {
                     let new_depth_dec = self.fresh_tmp();
                     self.emitln(&format!("  {new_depth_dec} = sub i64 {depth_dec}, 1"));
                     self.emitln(&format!("  store i64 {new_depth_dec}, i64* @xiom_recursion_counter"));
-                    self.emitln("  ret void");
+                    // M16: `return;` in a void-typed function emits `ret void`,
+                    // but `main` is always lowered to `i64` so the process exit
+                    // code is well-defined.
+                    let ret_ty = self.fctx.current_return_type.clone();
+                    if ret_ty == "void" {
+                        self.emitln("  ret void");
+                    } else {
+                        self.emitln(&format!("  ret {ret_ty} 0"));
+                    }
                 }
             }
             Stmt::Expr(expr, _) => {
