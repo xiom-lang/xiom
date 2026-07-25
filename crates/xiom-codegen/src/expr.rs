@@ -1890,6 +1890,14 @@ impl IrEmitter {
                 let (cond_raw, cond_ty) = self.compile_expr(cond)?;
                 let cond_val = if cond_ty == "i1" {
                     cond_raw
+                } else if cond_ty.starts_with("%struct.") {
+                    // M17: Struct-typed conditions can't be compared with icmp.
+                    // Treat as always-true (the discriminant check already
+                    // handled variant matching). This avoids invalid IR like
+                    // `icmp ne %struct.Vec %val, 0`.
+                    let tmp = self.fresh_tmp();
+                    self.emitln(&format!("  {tmp} = icmp ne i64 1, 0"));
+                    tmp
                 } else {
                     let tmp = self.fresh_tmp();
                     self.emitln(&format!("  {tmp} = icmp ne {cond_ty} {cond_raw}, 0"));
@@ -1926,7 +1934,11 @@ impl IrEmitter {
                 for (i, (econd, eblock)) in elifs.iter().enumerate() {
                     self.emitln(&format!("\n{prev_label}:"));
                     let (ec_raw, ec_ty) = self.compile_expr(econd)?;
-                    let ec_val = if ec_ty == "i1" { ec_raw } else {
+                    let ec_val = if ec_ty == "i1" { ec_raw } else if ec_ty.starts_with("%struct.") {
+                        let tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {tmp} = icmp ne i64 1, 0"));
+                        tmp
+                    } else {
                         let tmp = self.fresh_tmp();
                         self.emitln(&format!("  {tmp} = icmp ne {ec_ty} {ec_raw}, 0"));
                         tmp

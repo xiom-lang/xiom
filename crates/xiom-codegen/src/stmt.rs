@@ -446,6 +446,12 @@ impl IrEmitter {
                     let tmp = self.fresh_tmp();
                     self.emitln(&format!("  {tmp} = icmp ne i64 {cond_raw}, 0"));
                     tmp
+                } else if cond_ty.starts_with("%struct.") {
+                    // M17: Struct-typed conditions use always-true since
+                    // icmp can't compare structs directly.
+                    let tmp = self.fresh_tmp();
+                    self.emitln(&format!("  {tmp} = icmp ne i64 1, 0"));
+                    tmp
                 } else {
                     let tmp1 = self.fresh_tmp();
                     self.emitln(&format!("  {tmp1} = icmp ne {cond_ty} {cond_raw}, 0"));
@@ -1040,7 +1046,7 @@ impl IrEmitter {
                                                 if xt == "Str" || xt.starts_with('*') {
                                                     let sptr = self.fresh_tmp();
                                                     self.emitln(&format!("  {sptr} = inttoptr i64 {loaded} to i8*"));
-                                                    (sptr, "i8*".to_string())
+                                                     (sptr, "i8*".to_string())
                                                 } else {
                                                     (loaded.clone(), field_ty.clone())
                                                 }
