@@ -1423,8 +1423,8 @@ impl IrEmitter {
                 let field_type_1 = self.types.type_meta.get(struct_name)
                     .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
-                let field_llvm_1 = if field_type_1 == "Int" { "i64".to_string() }
-                    else { format!("%struct.{field_type_1}") };
+                let field_llvm_1 = self.llvm_type_for(&field_type_1)
+                    .unwrap_or_else(|_| "i64".to_string());
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {opt_ty}"));
                 let gep0 = self.fresh_tmp();
@@ -1455,8 +1455,8 @@ impl IrEmitter {
                 let field_type_1 = self.types.type_meta.get(struct_name)
                     .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
-                let field_llvm_1 = if field_type_1 == "Int" { "i64".to_string() }
-                    else { format!("%struct.{field_type_1}") };
+                let field_llvm_1 = self.llvm_type_for(&field_type_1)
+                    .unwrap_or_else(|_| "i64".to_string());
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {opt_ty}"));
                 let gep0 = self.fresh_tmp();
@@ -1476,7 +1476,6 @@ impl IrEmitter {
             Expr::Ok(inner, _) => {
                 self.types.used_builtins.insert("Result".to_string());
                 let (val, inner_ty) = self.compile_expr(inner)?;
-                // Use the function's return type for concrete monomorphs (B-001).
                 let result_ty = if self.fctx.current_return_type.starts_with("%struct.") {
                     self.fctx.current_return_type.clone()
                 } else {
@@ -1486,13 +1485,13 @@ impl IrEmitter {
                 let field_type_1 = self.types.type_meta.get(struct_name)
                     .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
-                let field_llvm_1 = if field_type_1 == "Int" { "i64".to_string() }
-                    else { format!("%struct.{field_type_1}") };
+                let field_llvm_1 = self.llvm_type_for(&field_type_1)
+                    .unwrap_or_else(|_| "i64".to_string());
                 let field_type_2 = self.types.type_meta.get(struct_name)
                     .and_then(|m| m.fields.get(2).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
-                let field_llvm_2 = if field_type_2 == "Int" { "i64".to_string() }
-                    else { format!("%struct.{field_type_2}") };
+                let field_llvm_2 = self.llvm_type_for(&field_type_2)
+                    .unwrap_or_else(|_| "i64".to_string());
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {result_ty}"));
                 let gep0 = self.fresh_tmp();
@@ -1530,13 +1529,13 @@ impl IrEmitter {
                 let field_type_1 = self.types.type_meta.get(struct_name)
                     .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
-                let field_llvm_1 = if field_type_1 == "Int" { "i64".to_string() }
-                    else { format!("%struct.{field_type_1}") };
+                let field_llvm_1 = self.llvm_type_for(&field_type_1)
+                    .unwrap_or_else(|_| "i64".to_string());
                 let field_type_2 = self.types.type_meta.get(struct_name)
                     .and_then(|m| m.fields.get(2).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
-                let field_llvm_2 = if field_type_2 == "Int" { "i64".to_string() }
-                    else { format!("%struct.{field_type_2}") };
+                let field_llvm_2 = self.llvm_type_for(&field_type_2)
+                    .unwrap_or_else(|_| "i64".to_string());
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {result_ty}"));
                 let gep0 = self.fresh_tmp();

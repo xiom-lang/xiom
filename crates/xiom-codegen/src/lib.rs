@@ -793,6 +793,7 @@ impl IrEmitter {
             "Float64" => "double",
             "Str" => "i8*",
             "()" => "void",
+            "Unit" => "i64", // Zero-sized type — stored as i64 in Result/Option
             // Known container type names — these are struct types resolved
             // via llvm_type_for/type_meta, not primitives. Silent i64 fallback.
             "Vec" | "Map" | "Set" | "Option" | "Result" => "i64",
@@ -910,7 +911,7 @@ impl IrEmitter {
             "Int", "Str", "Bool", "Char", "Float", "Double",
             "UInt8", "Int8", "Int16", "UInt16", "Int32", "UInt32",
             "UInt64", "Int64", "Float32", "Float64", "String",
-            "void", "()", "Option", "Result", "Vec", "Map", "Set",
+            "void", "()", "Unit", "Option", "Result", "Vec", "Map", "Set",
             "Self", "CallTrace", "CallFrame",
             "i1", "i8", "i16", "i32", "i64", "float", "double",
         ];
