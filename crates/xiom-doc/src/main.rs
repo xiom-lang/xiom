@@ -13,7 +13,7 @@ use xiom_parser::Parser;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn xiom_version() -> &'static str {
-    option_env!("XIOM_RELEASE_VERSION").unwrap_or("0.49.7")
+    option_env!("XIOM_RELEASE_TAG").unwrap_or("0.52.1")
 }
 
 fn main() {
@@ -24,8 +24,8 @@ fn main() {
         return;
     }
     if args.iter().any(|a| a == "--version") {
-        eprintln!("xiom-doc v{} (XIOM v{})", VERSION, xiom_version());
-        return;
+        eprintln!("xiom-doc v{}", env!("CARGO_PKG_VERSION"));
+        process::exit(0);
     }
 
     if args.len() < 2 {

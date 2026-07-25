@@ -28,9 +28,7 @@ fn main() {
         return;
     }
     if args.iter().any(|a| a == "--version") {
-        eprintln!("xiom-ffigen v{} (XIOM v{})",
-            env!("CARGO_PKG_VERSION"),
-            option_env!("XIOM_RELEASE_VERSION").unwrap_or("0.49.7"));
+        eprintln!("xiom-ffigen v{}", env!("CARGO_PKG_VERSION"));
         return;
     }
 
