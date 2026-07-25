@@ -50,13 +50,7 @@ impl IrEmitter {
                 let mut vfields = Vec::new();
                 let mut vftypes = Vec::new();
                 for field in &variant.fields {
-                    let raw_fname = field.name.name.clone();
-                    // M17: Prefix each variant field with the variant name
-                    // so variants with different payload types (Bool, Vec, Map)
-                    // get unique field slots in the flat struct layout.
-                    // Without this, all anonymous payloads share "value" and
-                    // only the first variant's type is registered.
-                    let fname = format!("{vname}_{raw_fname}");
+                    let fname = field.name.name.clone();
                     if !all_fields.contains(&fname) {
                         all_fields.push(fname.clone());
                         all_meta.push((fname.clone(), Self::type_from_ast(&field.ty)));
