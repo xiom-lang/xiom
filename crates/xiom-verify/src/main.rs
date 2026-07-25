@@ -23,9 +23,7 @@ fn main() {
         return;
     }
     if args.iter().any(|a| a == "--version") {
-        eprintln!("xiom-verify v{} (XIOM v{})",
-            env!("CARGO_PKG_VERSION"),
-            option_env!("XIOM_RELEASE_TAG").unwrap_or("0.52.0"));
+        eprintln!("xiom-verify v{}", env!("CARGO_PKG_VERSION"));
         return;
     }
 
