@@ -79,7 +79,7 @@ pub fn load_ai_config(cli_model: Option<String>) -> AiConfig {
 
     // 4. Auto-detect provider from endpoint if not set
     if cfg.provider.is_empty() {
-        cfg.provider = detect_provider(&cfg.endpoint);
+        cfg.provider = detect_provider(&cfg.endpoint, &cfg.model);
     }
 
     // 5. Apply provider defaults if endpoint/key/model still empty
@@ -93,14 +93,21 @@ pub fn load_ai_config(cli_model: Option<String>) -> AiConfig {
     cfg
 }
 
-fn detect_provider(endpoint: &str) -> String {
+fn detect_provider(endpoint: &str, model: &str) -> String {
     let ep = endpoint.to_lowercase();
+    let m = model.to_lowercase();
+    // Auto-detect from endpoint first
     if ep.contains("11434") || ep.contains("ollama") { return "ollama".into(); }
     if ep.contains("deepseek") { return "deepseek".into(); }
     if ep.contains("openai") { return "openai".into(); }
     if ep.contains("openrouter") { return "openrouter".into(); }
     if ep.contains("groq") { return "groq".into(); }
     if ep.contains("api") || ep.contains("v1") { return "openai-compatible".into(); }
+    // Fallback: detect from model name
+    if m.contains("deepseek") { return "deepseek".into(); }
+    if m.contains("gpt") || m.contains("o1") || m.contains("o3") { return "openai".into(); }
+    if m.contains("claude") { return "openrouter".into(); }
+    if m.contains("llama") || m.contains("codellama") || m.contains("mistral") { return "ollama".into(); }
     "ollama".into()
 }
 
@@ -118,7 +125,7 @@ fn default_endpoint(provider: &str) -> String {
 fn default_model(provider: &str) -> String {
     match provider {
         "ollama" => "codellama".into(),
-        "deepseek" => "deepseek-chat".into(),
+        "deepseek" => "deepseek-v4-pro".into(),
         "openai" => "gpt-4o-mini".into(),
         "openrouter" => "anthropic/claude-3.5-sonnet".into(),
         "groq" => "llama-3.1-8b-instant".into(),
