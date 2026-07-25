@@ -218,8 +218,12 @@ fn float_to_string(n: Float64) -> Str {
   var whole = float_to_int(n);
   var frac = float_to_int((n - int_to_float(whole)) * 1000000.0);
   if frac < 0 { frac = -frac; }
-  if frac == 0 { return int_to_str(whole); }
-  return int_to_str(whole) + "." + int_to_str(frac);
+  // Clone `whole` into a temp to avoid the checker's "use of moved value"
+  // on Int (scalars are implicitly Copy, but the checker flags the second
+  // use after a conditional return).
+  var whole_str = int_to_str(whole);
+  if frac == 0 { return whole_str; }
+  return whole_str + "." + int_to_str(frac);
 }
 
 fn int_to_str(n: Int) -> Str {
