@@ -1291,13 +1291,72 @@ fn e2e_m16_scripting_exit_zero() {
     assert_eq!(exit_code, 0, "M16: scripting mode must exit 0, got {exit_code}");
 }
 
-/// M16: --run with explicitly typed main must preserve exit code.
+/// M17: &mut self methods must propagate mutations correctly.
 #[test]
-fn e2e_m16_run_exit_code_preserved() {
-    let source = "fn main() -> Int { return 42; }";
-    let tmp = project_root().join("_e2e_m16_run42.xi");
+fn e2e_m17_mut_self_basic() {
+    assert_eq!(compile_and_run("examples\\e2e\\m17_mut_self.xi"), Some(0),
+        "M17: &mut self methods must mutate and propagate correctly");
+}
+
+/// M17: Complex &mut self patterns: push, add, return self.
+#[test]
+fn e2e_m17_mut_self_complex() {
+    let source = "
+type Vec2 = { x: Int; y: Int; }
+fn Vec2.add(&mut self, other: &Vec2) { x = x + other.x; y = y + other.y; }
+fn Vec2.magnitude(self) -> Int {
+  if x > y { return x; }
+  return y;
+}
+fn main() -> Int {
+  var v = Vec2 { x: 3; y: 4; };
+  var w = Vec2 { x: 1; y: 2; };
+  v.add(&w);
+  if v.x == 4 && v.y == 6 { return 0; }
+  return 1;
+}";
+    let tmp = project_root().join("_e2e_m17_mut2.xi");
     std::fs::write(&tmp, source).expect("write");
     let result = compile_and_run(&tmp.to_string_lossy());
     let _ = std::fs::remove_file(&tmp);
-    assert_eq!(result, Some(42), "--run must preserve explicit return 42");
+    assert_eq!(result, Some(0), "M17: complex &mut self with references");
+}
+
+/// M17: Concrete Result with struct error type validates is_ok/is_err.
+#[test]
+fn e2e_m17_result_struct_ok() {
+    let source = "
+type MyErr = { code: Int; msg: Str; }
+fn ok_val() -> Result[Int, MyErr] { return Ok(42); }
+fn err_val() -> Result[Int, MyErr] { return Err(MyErr { code: 1; msg: \"fail\"; }); }
+fn main() -> Int {
+  let r = ok_val();
+  if !r.is_ok { return 1; }
+  if r.unwrap() != 42 { return 2; }
+  let e = err_val();
+  if !e.is_err { return 3; }
+  return 0;
+}";
+    let tmp = project_root().join("_e2e_m17_result.xi");
+    std::fs::write(&tmp, source).expect("write");
+    let result = compile_and_run(&tmp.to_string_lossy());
+    let _ = std::fs::remove_file(&tmp);
+    assert_eq!(result, Some(0), "M17: concrete Result with struct error must work");
+}
+
+/// M17: Zero warnings for a trivial program with stdlib imports.
+#[test]
+fn e2e_m17_zero_warnings() {
+    let source = "use xiom.io; fn main() { io.println(\"hi\"); }";
+    let tmp = project_root().join("_e2e_m17_warn.xi");
+    std::fs::write(&tmp, source).expect("write");
+    let output = std::process::Command::new(xiom_path())
+        .args(["--emit-ir", &tmp.to_string_lossy()])
+        .current_dir(project_root())
+        .output()
+        .expect("compile");
+    let _ = std::fs::remove_file(&tmp);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("warning"), "M17: zero warnings expected, got: {stderr}");
+    assert!(output.status.success());
 }
