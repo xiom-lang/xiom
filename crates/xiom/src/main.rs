@@ -85,7 +85,7 @@ use xiom_codegen::sandbox::SafetyAuditor;
 /// State (let/var declarations) persists across lines.
 fn run_repl() {
     use std::io::{self, Write};
-    eprintln!("XIOM REPL v0.51.0 — type :help for commands, :quit to exit");
+    eprintln!("XIOM REPL v0.52.0 — type :help for commands, :quit to exit");
     let mut line_num = 0u64;
     let mut state: Vec<String> = Vec::new(); // accumulated let/var declarations
 
@@ -1593,7 +1593,7 @@ fn test_hello() -> Int {{
 
 /// 9A: xiom doctor — check all dependencies and report status.
 fn run_doctor() {
-    println!("XIOM Doctor v0.49.8");
+    println!("XIOM Doctor v0.52.0");
     println!("====================");
     println!();
     println!("  [OK] xiom v{}", option_env!("XIOM_RELEASE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")));

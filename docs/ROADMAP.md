@@ -1,6 +1,6 @@
 # XIOM Compiler — Production Roadmap
 
-**Current:** v0.49.9 — **934/934 all tests** (680 compiler + 254 tooling)
+**Current:** v0.52.0 — **1060/1060 all tests** (692 compiler + 368 tooling)
 **Branch:** `feat/architect`
 **Next:** Phase 9A — Pre-Release Infrastructure (website, playground deployment, package distribution)
 
