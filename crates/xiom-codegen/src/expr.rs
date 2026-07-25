@@ -1412,8 +1412,19 @@ impl IrEmitter {
             Expr::Some(inner, _) => {
                 self.types.used_builtins.insert("Option".to_string());
                 let (val, inner_ty) = self.compile_expr(inner)?;
-                let store_val = self.val_to_i64(&val, &inner_ty);
-                let opt_ty = "%struct.Option";
+                // Use the function's return type so concrete monomorphised
+                // types (Option__Point) get the correct struct layout (B-001).
+                let opt_ty = if self.fctx.current_return_type.starts_with("%struct.") {
+                    self.fctx.current_return_type.clone()
+                } else {
+                    "%struct.Option".to_string()
+                };
+                let struct_name = opt_ty.trim_start_matches("%struct.");
+                let field_type_1 = self.types.type_meta.get(struct_name)
+                    .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
+                    .unwrap_or_else(|| "Int".to_string());
+                let field_llvm_1 = if field_type_1 == "Int" { "i64".to_string() }
+                    else { format!("%struct.{field_type_1}") };
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {opt_ty}"));
                 let gep0 = self.fresh_tmp();
@@ -1421,14 +1432,31 @@ impl IrEmitter {
                 self.emitln(&format!("  store i64 1, i64* {gep0}"));
                 let gep1 = self.fresh_tmp();
                 self.emitln(&format!("  {gep1} = getelementptr {opt_ty}, {opt_ty}* {alloca}, i32 0, i32 1"));
-                self.emitln(&format!("  store i64 {store_val}, i64* {gep1}"));
+                if field_llvm_1 == "i64" {
+                    let store_val = self.val_to_i64(&val, &inner_ty);
+                    self.emitln(&format!("  store i64 {store_val}, i64* {gep1}"));
+                } else {
+                    // Struct-typed value field — store the struct directly
+                    let store_val = self.coerce_value(&val, &inner_ty, &field_llvm_1);
+                    self.emitln(&format!("  store {field_llvm_1} {store_val}, {field_llvm_1}* {gep1}"));
+                }
                 let loaded = self.fresh_tmp();
                 self.emitln(&format!("  {loaded} = load {opt_ty}, {opt_ty}* {alloca}"));
                 Ok((loaded, opt_ty.to_string()))
             }
             Expr::None(_) => {
                 self.types.used_builtins.insert("Option".to_string());
-                let opt_ty = "%struct.Option";
+                let opt_ty = if self.fctx.current_return_type.starts_with("%struct.") {
+                    self.fctx.current_return_type.clone()
+                } else {
+                    "%struct.Option".to_string()
+                };
+                let struct_name = opt_ty.trim_start_matches("%struct.");
+                let field_type_1 = self.types.type_meta.get(struct_name)
+                    .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
+                    .unwrap_or_else(|| "Int".to_string());
+                let field_llvm_1 = if field_type_1 == "Int" { "i64".to_string() }
+                    else { format!("%struct.{field_type_1}") };
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {opt_ty}"));
                 let gep0 = self.fresh_tmp();
@@ -1436,7 +1464,11 @@ impl IrEmitter {
                 self.emitln(&format!("  store i64 0, i64* {gep0}"));
                 let gep1 = self.fresh_tmp();
                 self.emitln(&format!("  {gep1} = getelementptr {opt_ty}, {opt_ty}* {alloca}, i32 0, i32 1"));
-                self.emitln(&format!("  store i64 0, i64* {gep1}"));
+                if field_llvm_1 == "i64" {
+                    self.emitln(&format!("  store i64 0, i64* {gep1}"));
+                } else {
+                    self.emitln(&format!("  store {field_llvm_1} zeroinitializer, {field_llvm_1}* {gep1}"));
+                }
                 let loaded = self.fresh_tmp();
                 self.emitln(&format!("  {loaded} = load {opt_ty}, {opt_ty}* {alloca}"));
                 Ok((loaded, opt_ty.to_string()))
@@ -1444,8 +1476,23 @@ impl IrEmitter {
             Expr::Ok(inner, _) => {
                 self.types.used_builtins.insert("Result".to_string());
                 let (val, inner_ty) = self.compile_expr(inner)?;
-                let store_val = self.val_to_i64(&val, &inner_ty);
-                let result_ty = "%struct.Result";
+                // Use the function's return type for concrete monomorphs (B-001).
+                let result_ty = if self.fctx.current_return_type.starts_with("%struct.") {
+                    self.fctx.current_return_type.clone()
+                } else {
+                    "%struct.Result".to_string()
+                };
+                let struct_name = result_ty.trim_start_matches("%struct.");
+                let field_type_1 = self.types.type_meta.get(struct_name)
+                    .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
+                    .unwrap_or_else(|| "Int".to_string());
+                let field_llvm_1 = if field_type_1 == "Int" { "i64".to_string() }
+                    else { format!("%struct.{field_type_1}") };
+                let field_type_2 = self.types.type_meta.get(struct_name)
+                    .and_then(|m| m.fields.get(2).map(|(_, t)| t.clone()))
+                    .unwrap_or_else(|| "Int".to_string());
+                let field_llvm_2 = if field_type_2 == "Int" { "i64".to_string() }
+                    else { format!("%struct.{field_type_2}") };
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {result_ty}"));
                 let gep0 = self.fresh_tmp();
@@ -1453,10 +1500,20 @@ impl IrEmitter {
                 self.emitln(&format!("  store i64 1, i64* {gep0}"));
                 let gep1 = self.fresh_tmp();
                 self.emitln(&format!("  {gep1} = getelementptr {result_ty}, {result_ty}* {alloca}, i32 0, i32 1"));
-                self.emitln(&format!("  store i64 {store_val}, i64* {gep1}"));
+                if field_llvm_1 == "i64" {
+                    let store_val = self.val_to_i64(&val, &inner_ty);
+                    self.emitln(&format!("  store i64 {store_val}, i64* {gep1}"));
+                } else {
+                    let store_val = self.coerce_value(&val, &inner_ty, &field_llvm_1);
+                    self.emitln(&format!("  store {field_llvm_1} {store_val}, {field_llvm_1}* {gep1}"));
+                }
                 let gep2 = self.fresh_tmp();
                 self.emitln(&format!("  {gep2} = getelementptr {result_ty}, {result_ty}* {alloca}, i32 0, i32 2"));
-                self.emitln(&format!("  store i64 0, i64* {gep2}"));
+                if field_llvm_2 == "i64" {
+                    self.emitln(&format!("  store i64 0, i64* {gep2}"));
+                } else {
+                    self.emitln(&format!("  store {field_llvm_2} zeroinitializer, {field_llvm_2}* {gep2}"));
+                }
                 let loaded = self.fresh_tmp();
                 self.emitln(&format!("  {loaded} = load {result_ty}, {result_ty}* {alloca}"));
                 Ok((loaded, result_ty.to_string()))
@@ -1464,8 +1521,22 @@ impl IrEmitter {
             Expr::Err(inner, _) => {
                 self.types.used_builtins.insert("Result".to_string());
                 let (val, inner_ty) = self.compile_expr(inner)?;
-                let store_val = self.val_to_i64(&val, &inner_ty);
-                let result_ty = "%struct.Result";
+                let result_ty = if self.fctx.current_return_type.starts_with("%struct.") {
+                    self.fctx.current_return_type.clone()
+                } else {
+                    "%struct.Result".to_string()
+                };
+                let struct_name = result_ty.trim_start_matches("%struct.");
+                let field_type_1 = self.types.type_meta.get(struct_name)
+                    .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
+                    .unwrap_or_else(|| "Int".to_string());
+                let field_llvm_1 = if field_type_1 == "Int" { "i64".to_string() }
+                    else { format!("%struct.{field_type_1}") };
+                let field_type_2 = self.types.type_meta.get(struct_name)
+                    .and_then(|m| m.fields.get(2).map(|(_, t)| t.clone()))
+                    .unwrap_or_else(|| "Int".to_string());
+                let field_llvm_2 = if field_type_2 == "Int" { "i64".to_string() }
+                    else { format!("%struct.{field_type_2}") };
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {result_ty}"));
                 let gep0 = self.fresh_tmp();
@@ -1473,10 +1544,20 @@ impl IrEmitter {
                 self.emitln(&format!("  store i64 0, i64* {gep0}"));
                 let gep1 = self.fresh_tmp();
                 self.emitln(&format!("  {gep1} = getelementptr {result_ty}, {result_ty}* {alloca}, i32 0, i32 1"));
-                self.emitln(&format!("  store i64 0, i64* {gep1}"));
+                if field_llvm_1 == "i64" {
+                    self.emitln(&format!("  store i64 0, i64* {gep1}"));
+                } else {
+                    self.emitln(&format!("  store {field_llvm_1} zeroinitializer, {field_llvm_1}* {gep1}"));
+                }
                 let gep2 = self.fresh_tmp();
                 self.emitln(&format!("  {gep2} = getelementptr {result_ty}, {result_ty}* {alloca}, i32 0, i32 2"));
-                self.emitln(&format!("  store i64 {store_val}, i64* {gep2}"));
+                if field_llvm_2 == "i64" {
+                    let store_val = self.val_to_i64(&val, &inner_ty);
+                    self.emitln(&format!("  store i64 {store_val}, i64* {gep2}"));
+                } else {
+                    let store_val = self.coerce_value(&val, &inner_ty, &field_llvm_2);
+                    self.emitln(&format!("  store {field_llvm_2} {store_val}, {field_llvm_2}* {gep2}"));
+                }
                 let loaded = self.fresh_tmp();
                 self.emitln(&format!("  {loaded} = load {result_ty}, {result_ty}* {alloca}"));
                 Ok((loaded, result_ty.to_string()))

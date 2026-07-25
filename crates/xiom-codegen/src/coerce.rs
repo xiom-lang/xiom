@@ -1,5 +1,8 @@
 use super::IrEmitter;
 use xiom_ast::*;
+// B-001: llvm_consts not currently used here, but kept for future
+// concrete type lowering that will need LLVM_STR_PTR etc.
+#[allow(unused_imports)]
 use crate::llvm_consts::*;
 
 impl IrEmitter {
