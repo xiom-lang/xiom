@@ -322,7 +322,11 @@ impl IrEmitter {
                 .collect();
             param_types.extend(explicit_params);
             let ret_type = fd.return_type.as_ref()
-                .map(|t| self.llvm_type_for(&Self::type_from_ast(t)).unwrap_or_else(|_| "i64".to_string()))
+                .map(|t| {
+                    // B-001: Use concrete type for Result/Option with struct payloads
+                    let concrete = self.concrete_type_for(t);
+                    self.llvm_type_for(&concrete).unwrap_or_else(|_| "i64".to_string())
+                })
                 .unwrap_or_else(|| "void".to_string());
             let key = self.fn_key(fd);
             self.types.functions.insert(key.clone(), (param_types.clone(), ret_type.clone()));
@@ -600,7 +604,11 @@ impl IrEmitter {
         self.local.local_vec_handle.clear();
 
         let ret_llvm = fd.return_type.as_ref()
-            .map(|t| self.llvm_type_for(&Self::type_from_ast(t)).unwrap_or_else(|_| "i64".to_string()))
+            .map(|t| {
+                // B-001: Use concrete type for Result/Option with struct payloads
+                let concrete = self.concrete_type_for(t);
+                self.llvm_type_for(&concrete).unwrap_or_else(|_| "i64".to_string())
+            })
             .unwrap_or_else(|| "void".to_string());
         self.fctx.current_return_type = ret_llvm.clone();
         self.fctx.current_param_llvm_types = fd.params.iter()
