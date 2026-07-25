@@ -917,8 +917,8 @@ impl IrEmitter {
                         // (field 0) against the success variant index.
                         if llvm_ty.starts_with("%struct.") && !llvm_ty.ends_with('*') {
                             let type_name = &llvm_ty[8..];
-                            let is_result = type_name.ends_with("Result") || type_name.contains(".Result");
-                            let is_option = type_name.ends_with("Option") || type_name.contains(".Option");
+                            let is_result = type_name.ends_with("Result") || type_name.contains(".Result") || type_name.starts_with("Result__");
+                            let is_option = type_name.ends_with("Option") || type_name.contains(".Option") || type_name.starts_with("Option__");
                             let field_name = &field.name;
                             if (is_result && (field_name == "is_ok" || field_name == "is_err"))
                                 || (is_option && (field_name == "is_some" || field_name == "is_none"))

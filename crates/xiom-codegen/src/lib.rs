@@ -887,9 +887,20 @@ impl IrEmitter {
         if NON_STRUCT.contains(&name) { return false; }
         if name.starts_with('*') || name.starts_with('[') { return false; }
         if name.contains("__") { return false; } // already a concrete monomorph
-        // Generic type parameters are single uppercase letters (T, K, V, E, etc.)
+        true
+    }
+
+    /// Like `is_struct_type_name` but also checks the type registry so
+    /// single-letter names that ARE registered structs (e.g. type J = {...})
+    /// are correctly identified, not mistaken for generic parameters.
+    fn is_struct_type_in_registry(&self, name: &str) -> bool {
+        if !Self::is_struct_type_name(name) { return false; }
+        // Single-char names might be generic params (T, K, V, E) but could
+        // also be real structs (type J = {...}). Check the type registry.
         if name.len() == 1 && name.chars().next().map_or(false, |c| c.is_uppercase()) {
-            return false;
+            return self.resolve_type_key(name) != name
+                || self.types.type_meta.contains_key(name)
+                || self.types.types.contains_key(name);
         }
         true
     }
@@ -1055,10 +1066,8 @@ impl IrEmitter {
         match ty {
             Type::Option(inner) => {
                 let inner_name = Self::type_from_ast(inner);
-                if Self::is_struct_type_name(&inner_name) {
+                if self.is_struct_type_in_registry(&inner_name) {
                     let concrete = format!("Option__{}", inner_name);
-                    // Ensure the concrete type is registered (may not be if
-                    // `pre_register_concrete_types` already handled it).
                     if !self.types.type_meta.contains_key(&concrete) {
                         self.ensure_concrete_option(&inner_name);
                     }
@@ -1070,7 +1079,7 @@ impl IrEmitter {
             Type::Result(ok, err) => {
                 let ok_name = Self::type_from_ast(ok);
                 let err_name = Self::type_from_ast(err);
-                if Self::is_struct_type_name(&ok_name) || Self::is_struct_type_name(&err_name) {
+                if self.is_struct_type_in_registry(&ok_name) || self.is_struct_type_in_registry(&err_name) {
                     let concrete = format!("Result__{}__{}", ok_name, err_name);
                     if !self.types.type_meta.contains_key(&concrete) {
                         self.ensure_concrete_result(&ok_name, &err_name);
@@ -3320,6 +3329,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
 
     fn compile_option_impls(&mut self) {
         let opt_ty = "%struct.Option";
+        // Base Option methods
         self.emitln(&format!("define i64 @Option.is_some({opt_ty} %self) {{"));
         self.emitln("entry:");
         self.emitln(&format!("  %val = alloca {opt_ty}"));
@@ -3329,7 +3339,6 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
         self.emitln("  ret i64 %result");
         self.emitln("}\n");
 
-        // Option.is_none()
         self.emitln(&format!("define i64 @Option.is_none({opt_ty} %self) {{"));
         self.emitln("entry:");
         self.emitln(&format!("  %val = alloca {opt_ty}"));
@@ -3340,7 +3349,6 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
         self.emitln("  ret i64 %result");
         self.emitln("}\n");
 
-        // Option.unwrap()
         self.emitln(&format!("define i64 @Option.unwrap({opt_ty} %self) {{"));
         self.emitln("entry:");
         self.emitln(&format!("  %val = alloca {opt_ty}"));
@@ -3358,9 +3366,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
         self.emitln("  ret i64 %result");
         self.emitln("}\n");
 
-        // Option.len() — B-003 fix: contract ensures clauses like
-        // `result is Some => result.len() > 0` generate `Option.len()`.
-        // Returns strlen of the stored Str when Some, 0 when None.
+        // Option.len()
         self.emitln(&format!("define i64 @Option.len({opt_ty} %self) {{"));
         self.emitln("entry:");
         self.emitln(&format!("  %val = alloca {opt_ty}"));
@@ -3378,6 +3384,61 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
         self.emitln("  %len_result = call i64 @xiom_str_len(i8* %str_ptr)");
         self.emitln("  ret i64 %len_result");
         self.emitln("}\n");
+
+        // B-001: Emit builtins for concrete Option__T types so `.is_some`,
+        // `.is_none`, and `.unwrap` resolve without falling through to
+        // the monomorphisation stub (which returns 0).
+        let concrete_opts: Vec<String> = self.types.type_meta.keys()
+            .filter(|k| k.starts_with("Option__"))
+            .cloned()
+            .collect();
+        for name in &concrete_opts {
+            let cty = format!("%struct.{name}");
+            let field_ty_1 = self.types.type_meta.get(name.as_str())
+                .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
+                .unwrap_or_else(|| "Int".to_string());
+            let llvm1 = if field_ty_1 == "Int" { "i64".to_string() }
+                else { format!("%struct.{field_ty_1}") };
+
+            // is_some
+            self.emitln(&format!("define i64 @{name}.is_some({cty} %self) {{"));
+            self.emitln("entry:");
+            self.emitln(&format!("  %val = alloca {cty}"));
+            self.emitln(&format!("  store {cty} %self, {cty}* %val"));
+            self.emitln(&format!("  %disc = getelementptr {cty}, {cty}* %val, i32 0, i32 0"));
+            self.emitln("  %result = load i64, i64* %disc");
+            self.emitln("  ret i64 %result");
+            self.emitln("}\n");
+
+            // is_none
+            self.emitln(&format!("define i64 @{name}.is_none({cty} %self) {{"));
+            self.emitln("entry:");
+            self.emitln(&format!("  %val = alloca {cty}"));
+            self.emitln(&format!("  store {cty} %self, {cty}* %val"));
+            self.emitln(&format!("  %disc = getelementptr {cty}, {cty}* %val, i32 0, i32 0"));
+            self.emitln("  %is_some = load i64, i64* %disc");
+            self.emitln("  %result = xor i64 %is_some, 1");
+            self.emitln("  ret i64 %result");
+            self.emitln("}\n");
+
+            // unwrap
+            self.emitln(&format!("define {llvm1} @{name}.unwrap({cty} %self) {{"));
+            self.emitln("entry:");
+            self.emitln(&format!("  %val = alloca {cty}"));
+            self.emitln(&format!("  store {cty} %self, {cty}* %val"));
+            self.emitln(&format!("  %disc_gep = getelementptr {cty}, {cty}* %val, i32 0, i32 0"));
+            self.emitln("  %is_some = load i64, i64* %disc_gep");
+            self.emitln("  %ok = icmp ne i64 %is_some, 0");
+            self.emitln("  br i1 %ok, label %unwrap_ok, label %unwrap_fail");
+            self.emitln("\nunwrap_fail:");
+            self.emitln("  call void @llvm.trap()");
+            self.emitln("  unreachable");
+            self.emitln("\nunwrap_ok:");
+            self.emitln(&format!("  %val_gep = getelementptr {cty}, {cty}* %val, i32 0, i32 1"));
+            self.emitln(&format!("  %result = load {llvm1}, {llvm1}* %val_gep"));
+            self.emitln(&format!("  ret {llvm1} %result"));
+            self.emitln("}\n");
+        }
     }
 
     fn compile_result_impls(&mut self) {
