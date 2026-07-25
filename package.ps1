@@ -18,15 +18,15 @@
 .EXAMPLE
     ./package.ps1
 .EXAMPLE
-    ./package.ps1 -Version 0.48.9
+    ./package.ps1 -Version 0.51.0
 .EXAMPLE
-    ./package.ps1 -Version 0.48.9 -Sign -CertificateThumbprint "A1B2C3D4..."
+    ./package.ps1 -Version 0.51.0 -Sign -CertificateThumbprint "A1B2C3D4..."
 .EXAMPLE
-    ./package.ps1 -Version 0.48.9 -Sign -CertificatePath .\xiom_code_sign.pfx -CertificatePassword "secret"
+    ./package.ps1 -Version 0.51.0 -Sign -CertificatePath .\xiom_code_sign.pfx -CertificatePassword "secret"
 #>
 
 param(
-    [string]$Version = "0.49.9",
+    [string]$Version = "0.51.0",
     [switch]$Sign,
     [string]$CertificateThumbprint,
     [string]$CertificatePath,
