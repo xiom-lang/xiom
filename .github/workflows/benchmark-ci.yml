@@ -1,0 +1,66 @@
+name: XIOM Benchmark Chaos CI
+
+on:
+  push:
+    branches: [main, feat/*]
+    paths:
+      - 'xiom-benchmark-chaos/**'
+  pull_request:
+    paths:
+      - 'xiom-benchmark-chaos/**'
+
+defaults:
+  run:
+    working-directory: xiom-benchmark-chaos
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: xiom-benchmark-chaos/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: node --test tests/integration/smoke.test.js
+
+  dashboard:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: xiom-benchmark-chaos/dashboard/package-lock.json
+      - run: npm ci
+        working-directory: xiom-benchmark-chaos/dashboard
+      - run: npx tsc --noEmit
+        working-directory: xiom-benchmark-chaos/dashboard
+      - run: npx vite build
+        working-directory: xiom-benchmark-chaos/dashboard
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: [test, dashboard]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker compose build
+        working-directory: xiom-benchmark-chaos
+      - name: Test health endpoint
+        run: |
+          docker compose up -d
+          sleep 30
+          curl -f http://localhost:8080/api/status || exit 1
+          docker compose down
+        working-directory: xiom-benchmark-chaos
