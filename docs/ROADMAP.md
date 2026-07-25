@@ -527,11 +527,65 @@ into focused sub-functions with clear boundaries.
 | M14.7 | LLVM constants extraction | 1d | **DONE** |
 
 **Total M14 effort: 10d. Target v0.51.0.**
+**M14.1 (file splits) and M14.2 (function splits) DEFERRED — cosmetic, do not affect self-hosting correctness.**
+
+---
+
+### M15 — Self-Hosting Readiness (Target: 10/10, ~4d)
+
+**Current rating: 8/10.** Three codegen bugs prevent certain patterns from working. Fixing these enables the compiler to handle all valid XIOM programs including potentially self-compilation.
+
+| Bug | Symptom | Root Cause | Blocks | Effort |
+|-----|---------|-----------|--------|--------|
+| **B-001** | `Result[T, struct E]` truncates error to 8 bytes | `%struct.Result = {i64,i64,i64}` hardcoded. Needs monomorphization: `Result__JsonValue__SerializeError` with actual field types | `parse_json`, `Err(Struct)`, any `Result` with struct payload | 2d |
+| **B-002** | `&mut self` methods crash (ACCESS_VIOLATION) | LLVM IR for mutable receiver stores wrong pointer | `PathBuf.push`, `Vec.push`, mutable state patterns | 1d |
+| **B-003** | `Option<Str>` from method returns crash (ILLEGAL_INSTRUCTION) | Method return on struct types produces wrong LLVM type for Option discriminant | `file_name`, `extension`, `file_stem`, any method returning `Option<T>` | 1d |
+
+### M15 Approach (Different from failed attempts)
+
+All previous attempts tried to fix the LLVM type *after* the function was compiled. The correct approach:
+1. Pre-register concrete types during `register_type_layout_impl` (when the struct is first seen)
+2. Change `type_from_ast` to return concrete names for `Result[T, E]` with struct args
+3. The existing emission loop already handles both base and concrete types (already split into two passes)
+4. `compile_fn` already pre-resolves the return type — just need to make sure the pre-registration runs
+
+**Key insight from failed attempts:** The AST uses `Type::Named("Result", args)` not `Type::Result(ok, err)`. The pre-registration must handle BOTH forms.
+
+### M15 Verification
+
+After each fix:
+- `json_parse("[1,2,3]")` returns `Ok(...)` (not empty Err)
+- `PathBuf.push("foo")` actually modifies the buffer
+- `Path.file_name()` returns correct `Some("file.txt")`
+- Original smoke tests restored (removing workarounds)
+- Full 1049 test suite passes
+
+### M15 Schedule
+
+| Phase | Items | Effort |
+|-------|-------|--------|
+| M15.1 | Fix B-001: Result struct truncation | 2d |
+| M15.2 | Fix B-002: &mut self methods | 1d |
+| M15.3 | Fix B-003: Option<Str> method returns | 1d |
+| M15.4 | Restore original smoke tests + verify | 0.5d |
+
+**Total M15 effort: 4d. Target v0.52.0 "Self-Host Ready".**
+
+### What M15 does NOT include (deferred cosmetic work)
+
+| Item | Why deferred |
+|------|-------------|
+| M14.1 file splits (11 remaining) | Cosmetic — file length doesn't affect correctness |
+| M14.2 function splits (8 functions) | Cosmetic — function length doesn't affect correctness |
+| LSP lsp-types adoption | Not needed for self-hosting |
+| Formal verification (M5 deferred) | Nice-to-have, not blocking |
 
 ---
 
 | Version | Date | Tests | Notes |
 |---------|------|-------|-------|
+| **v0.52.0** | 2026-07-26 | **~1055** | M15 complete, B-001/B-002/B-003 fixed, self-host ready 10/10 |
+| **v0.51.0** | 2026-07-25 | **1049** | M1-M12 complete, M14.3-M14.7 done, P0+P1 closed, release-ready |
 | **v0.50.0** | 2026-07-25 | **1041** | M10-M12 complete, scripting/JIT, libloading, cache, CI, 34 script + 15 diff tests. M4/M9 all done. XIOM v0.50.0 LLVM IR header. Auto stdlib discovery. |
 | v0.49.9 | 2026-07-24 | 934 | M4.1 (IrEmitter split), M4.3 (LSP split), M4.6 (unsafe docs), playground fixes (372 lessons), M9.6 (impl Trait), Node.js registry backend. 11/11 M9 closed. |
 | v0.49.8 | 2026-07-21 | 924 | 10/11 M9 gaps closed, ASCII installer, fuzz harnesses, HTML docs |
