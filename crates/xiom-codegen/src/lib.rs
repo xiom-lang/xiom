@@ -1097,8 +1097,9 @@ impl IrEmitter {
         match ty {
             Type::Option(inner) => {
                 let inner_name = Self::type_from_ast(inner);
-                // B-001: Enums use base Option types until match-arm codegen
-                // handles struct-typed payload comparisons (icmp on %struct.Vec).
+                // M17: Enums use base Option types until enum layout supports
+                // separate fields per variant (currently all variants share
+                // the same "value" field name, causing payload collisions).
                 let resolved = self.resolve_type_key(&inner_name);
                 let is_enum = self.types.enum_variants.contains_key(&resolved);
                 if self.is_struct_type_in_registry(&inner_name) && !is_enum {
