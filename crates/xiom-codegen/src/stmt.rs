@@ -743,36 +743,25 @@ impl IrEmitter {
                                             self.emitln(&format!("  {disc_val} = load i64, i64* {disc_gep}"));
                                             let disc_check = self.fresh_tmp();
                                             self.emitln(&format!("  {disc_check} = icmp eq i64 {disc_val}, 1"));
-                                            // If inner is a literal, add value check too
-                                            match inner.as_ref() {
-                                                Pattern::Lit(Literal::Char(ch, _)) => {
-                                                    let inner_ok = self.fresh_block("or_inner_ok");
-                                                    self.emitln(&format!("  br i1 {disc_check}, label %{inner_ok}, label %{fail_block}"));
-                                                    self.emitln(&format!("\n{inner_ok}:"));
-                                                    let val_gep = self.fresh_tmp();
-                                                    let val_loaded = self.fresh_tmp();
-                                                    let val_check = self.fresh_tmp();
-                                                    let ch_val = *ch as u32 as i64;
-                                                    self.emitln(&format!("  {val_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 1"));
-                                                    self.emitln(&format!("  {val_loaded} = load i64, i64* {val_gep}"));
-                                                    self.emitln(&format!("  {val_check} = icmp eq i64 {val_loaded}, {ch_val}"));
-                                                    self.emitln(&format!("  br i1 {val_check}, label %{arm_label}, label %{fail_block}"));
-                                                }
-                                                Pattern::Lit(Literal::Int(n, _)) => {
-                                                    let inner_ok = self.fresh_block("or_inner_ok");
-                                                    self.emitln(&format!("  br i1 {disc_check}, label %{inner_ok}, label %{fail_block}"));
-                                                    self.emitln(&format!("\n{inner_ok}:"));
-                                                    let val_gep = self.fresh_tmp();
-                                                    let val_loaded = self.fresh_tmp();
-                                                    let val_check = self.fresh_tmp();
-                                                    self.emitln(&format!("  {val_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 1"));
-                                                    self.emitln(&format!("  {val_loaded} = load i64, i64* {val_gep}"));
-                                                    self.emitln(&format!("  {val_check} = icmp eq i64 {val_loaded}, {n}"));
-                                                    self.emitln(&format!("  br i1 {val_check}, label %{arm_label}, label %{fail_block}"));
-                                                }
-                                                _ => {
-                                                    self.emitln(&format!("  br i1 {disc_check}, label %{arm_label}, label %{fail_block}"));
-                                                }
+                                            // If inner is a literal, add value check too (M18: unified Char+Int)
+                                            let lit_val: Option<i64> = match inner.as_ref() {
+                                                Pattern::Lit(Literal::Char(ch, _)) => Some(*ch as i64),
+                                                Pattern::Lit(Literal::Int(n, _)) => Some(*n as i64),
+                                                _ => None,
+                                            };
+                                            if let Some(v) = lit_val {
+                                                let inner_ok = self.fresh_block("or_inner_ok");
+                                                self.emitln(&format!("  br i1 {disc_check}, label %{inner_ok}, label %{fail_block}"));
+                                                self.emitln(&format!("\n{inner_ok}:"));
+                                                let val_gep = self.fresh_tmp();
+                                                let val_loaded = self.fresh_tmp();
+                                                let val_check = self.fresh_tmp();
+                                                self.emitln(&format!("  {val_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 1"));
+                                                self.emitln(&format!("  {val_loaded} = load i64, i64* {val_gep}"));
+                                                self.emitln(&format!("  {val_check} = icmp eq i64 {val_loaded}, {v}"));
+                                                self.emitln(&format!("  br i1 {val_check}, label %{arm_label}, label %{fail_block}"));
+                                            } else {
+                                                self.emitln(&format!("  br i1 {disc_check}, label %{arm_label}, label %{fail_block}"));
                                             }
                                         } else {
                                             self.emitln(&format!("  br label %{fail_block}"));
