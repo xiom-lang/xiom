@@ -349,6 +349,7 @@ fn main() {
         });
     // 7E.2: Stack protector
     let stack_protector = args.iter().any(|a| a == "--stack-protector");
+    let overflow_checks = args.iter().any(|a| a == "--overflow-checks");
     // 5e.5f: Incremental compilation flags
     let incremental = args.iter().any(|a| a == "--incremental");
     let force_recompile = args.iter().any(|a| a == "--force");
@@ -604,6 +605,7 @@ fn main() {
         sanitize,
         stack_protector,
         runtime_contracts,
+        overflow_checks,
         incremental,
         force: force_recompile,
         parallel,
@@ -818,6 +820,7 @@ fn main() {
                     sanitize: None,
                     stack_protector: false,
                     runtime_contracts: false,
+                    overflow_checks: config.overflow_checks,
                     script_mode: false,
                 };
                 let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
@@ -864,6 +867,7 @@ fn main() {
                     sanitize: None,
                     stack_protector: false,
                     runtime_contracts: false,
+                    overflow_checks: config.overflow_checks,
                     script_mode: false,
                 };
                 let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
@@ -922,6 +926,7 @@ fn print_usage() {
     eprintln!("  --hot-reload-contracts  7D: Verify contracts before hot-swapping function pointers");
     eprintln!("  --sanitize=<type>    7E.1: Enable sanitizer (address, undefined, leak, thread)");
     eprintln!("  --stack-protector    7E.2: Enable stack canaries (-fstack-protector)");
+    eprintln!("  --overflow-checks    Enable integer overflow runtime checks");
     eprintln!("  --graph             7F.2: Output dependency graph (DOT format)");
     eprintln!("  --graph=mermaid     7F.2: Output dependency graph (Mermaid format)");
     eprintln!("  build               7F.1: Build entire project (from xiom.toml)");
