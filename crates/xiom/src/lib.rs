@@ -1157,7 +1157,8 @@ pub fn resolve_source_files(args: &[String]) -> Vec<String> {
             skip_next = false;
             continue;
         }
-        if matches!(arg.as_str(), "-o" | "--target" | "--verify-output" | "--link" | "--link-path" | "--c-source") {
+        if matches!(arg.as_str(), "-o" | "--target" | "--verify-output" | "--link" | "--link-path" | "--c-source"
+            | "--timeout" | "--max-memory-mb" | "--max-depth" | "--jobs" | "--sanitize" | "--ai-model" | "--ai-timeout") {
             skip_next = true;
             continue;
         }
