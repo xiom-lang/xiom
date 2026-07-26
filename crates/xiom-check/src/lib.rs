@@ -3048,6 +3048,7 @@ struct OwnershipInfo {
     state: BorrowState,
     read_borrow_count: u32,
     is_mutable: bool,
+    xiom_type: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -3162,13 +3163,41 @@ impl BorrowChecker {
         None
     }
 
-    fn add_local(&mut self, name: &str, is_mutable: bool) {
+    fn add_local(&mut self, name: &str, is_mutable: bool, xiom_type: &str) {
         if let Some(scope) = self.ownership.last_mut() {
             scope.insert(name.to_string(), OwnershipInfo {
                 state: BorrowState::Owned,
                 read_borrow_count: 0,
                 is_mutable,
+                xiom_type: xiom_type.to_string(),
             });
+        }
+    }
+
+    fn is_copy_type(xiom_type: &str) -> bool {
+        matches!(xiom_type,
+            "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
+            | "Bool" | "Char" | "Str" | "Float32" | "Float64"
+        )
+    }
+
+    fn param_type_name(ty: &xiom_ast::Type) -> String {
+        match ty {
+            xiom_ast::Type::Named(ident, _) => ident.name.clone(),
+            xiom_ast::Type::Ref(inner) => Self::param_type_name(inner),
+            xiom_ast::Type::MutRef(inner) => Self::param_type_name(inner),
+            _ => "Int".to_string(),
+        }
+    }
+
+    fn infer_type_from_expr(expr: &Expr) -> &'static str {
+        match expr {
+            Expr::Str(..) => "Str",
+            Expr::Bool(..) => "Bool",
+            Expr::Float(..) => "Float64",
+            Expr::Char(..) => "Char",
+            Expr::Struct(..) => "Struct",
+            _ => "Int",
         }
     }
 
@@ -3266,6 +3295,11 @@ impl BorrowChecker {
     }
 
     fn move_var(&mut self, name: &str, span: Span) {
+        let is_copy = self.find_var(name)
+            .map(|info| Self::is_copy_type(&info.xiom_type))
+            .unwrap_or(false);
+        if is_copy { return; }
+
         let ok = match self.find_var(name) {
             Some(info) => match info.state {
                 BorrowState::Moved => {
@@ -3321,13 +3355,13 @@ impl BorrowChecker {
         }
         self.push_scope();
         for param in &fd.params {
-            self.add_local(&param.name.name, true);
+            self.add_local(&param.name.name, true, &Self::param_type_name(&param.ty));
         }
         // 5c-E: register const-generic parameters (borrow checker)
         for g in &fd.generics {
             if g.is_const {
                 let gt = g.const_ty.as_ref().map(|t| CheckedType::from_ast_type(t)).unwrap_or(CheckedType::Int);
-                self.add_local(&g.name.name, gt.is_numeric() || gt == CheckedType::Int);
+                self.add_local(&g.name.name, gt.is_numeric() || gt == CheckedType::Int, "Int");
             }
         }
         if let Some(body) = fd.body.as_ref() {
@@ -3348,7 +3382,7 @@ impl BorrowChecker {
 
     fn check_stmt(&mut self, stmt: &Stmt) {
         match stmt {
-            Stmt::Let(name, _, value, _) => {
+            Stmt::Let(name, type_ann, value, _) => {
                 let _ = self.check_expr(value);
                 if let Expr::Ident(ident) = value {
                     if self.param_names.contains(&ident.name) {
@@ -3357,9 +3391,12 @@ impl BorrowChecker {
                         self.move_var(&ident.name, ident.span);
                     }
                 }
-                self.add_local(&name.name, false);
+                let xiom_type = type_ann.as_ref()
+                    .map(|t| Self::param_type_name(t))
+                    .unwrap_or_else(|| Self::infer_type_from_expr(value).to_string());
+                self.add_local(&name.name, false, &xiom_type);
             }
-            Stmt::Var(name, _, value, _) => {
+            Stmt::Var(name, type_ann, value, _) => {
                 let _ = self.check_expr(value);
                 if let Expr::Ident(ident) = value {
                     if self.param_names.contains(&ident.name) {
@@ -3368,7 +3405,10 @@ impl BorrowChecker {
                         self.move_var(&ident.name, ident.span);
                     }
                 }
-                self.add_local(&name.name, true);
+                let xiom_type = type_ann.as_ref()
+                    .map(|t| Self::param_type_name(t))
+                    .unwrap_or_else(|| Self::infer_type_from_expr(value).to_string());
+                self.add_local(&name.name, true, &xiom_type);
             }
             Stmt::Assign(place, value, _) => {
                 let _ = self.check_expr(value);
@@ -3428,7 +3468,7 @@ impl BorrowChecker {
             }
             Stmt::For(var, iter, body, _) => {
                 self.check_expr(iter);
-                self.add_local(&var.name, true);
+                self.add_local(&var.name, true, "Int");
                 self.push_scope();
                 self.check_block(body);
                 self.pop_scope();
@@ -3443,7 +3483,7 @@ impl BorrowChecker {
                     }
                 }
                 for name in names {
-                    self.add_local(&name.name, true);
+                    self.add_local(&name.name, true, "Int");
                 }
             }
             Stmt::Spawn(body, _) => {
@@ -3809,7 +3849,7 @@ fn f(x: Int) -> Int {
 
     #[test]
     fn test_use_after_move() {
-        let result = check_borrow("fn main() { var x = 42; var y = x; let z = x; }");
+        let result = check_borrow("type S = { v: Int; } fn main() { var x = S { v: 42; }; var y = x; let z = x; }");
         assert!(result.is_err(), "expected use-after-move error");
         let errs = result.err().unwrap();
         assert!(errs.iter().any(|e| e.message.contains("use of moved value")));
@@ -3833,7 +3873,7 @@ fn f(x: Int) -> Int {
 
     #[test]
     fn test_move_while_borrowed() {
-        let result = check_borrow("fn main() { var x = 42; let r = &x; var y = x; }");
+        let result = check_borrow("type S = { v: Int; } fn main() { var x = S { v: 42; }; let r = &x; var y = x; }");
         assert!(result.is_err(), "expected move while borrowed error");
         let errs = result.err().unwrap();
         assert!(errs.iter().any(|e| e.message.contains("cannot move") && e.message.contains("while borrowed")));
@@ -3875,7 +3915,7 @@ fn f(x: Int) -> Int {
 
     #[test]
     fn test_function_call_moves() {
-        let result = check_borrow("fn foo(x: Int) -> Int { return x; } fn main() { var a = 42; foo(a); let b = a; }");
+        let result = check_borrow("type S = { v: Int; } fn foo(x: S) -> Int { return x.v; } fn main() { var a = S { v: 42; }; foo(a); let b = a; }");
         assert!(result.is_err(), "expected use-after-move after function call");
         let errs = result.err().unwrap();
         assert!(errs.iter().any(|e| e.message.contains("use of moved value")));
@@ -4274,16 +4314,18 @@ fn main() -> Int { var x = 42; var d = Data{ val: x.clone() }; return d.val; }")
     #[test]
     fn test_use_after_move_in_if_branch() {
         let result = check_borrow("\
-fn consume(x: Int) -> Int { return x; }\n\
-fn main() -> Int { var x = 42; if true { var y = x; } return x; }");
+type S = { v: Int; }\n\
+fn consume(x: S) -> Int { return x.v; }\n\
+fn main() -> Int { var x = S { v: 42; }; if true { var y = x; } return x; }");
         assert!(result.is_err(), "use-after-move after if-branch move should error");
     }
 
     #[test]
     fn test_reassign_after_move_is_error() {
         let result = check_borrow("\
-fn consume(x: Int) -> Int { return x; }\n\
-fn main() -> Int { var x = 42; consume(x); x = 99; return x; }");
+type S = { v: Int; }\n\
+fn consume(x: S) -> Int { return x.v; }\n\
+fn main() -> Int { var x = S { v: 42; }; consume(x); x = 99; return x; }");
         assert!(result.is_err(), "reassign after move should be a borrow error");
     }
 
@@ -4320,7 +4362,7 @@ fn main() -> Int { var x = 42; if true { let r = &x; } return x; }");
     fn test_multiple_borrow_restrictions() {
         let result = check_borrow("\
 type Wrapper = { val: Int; }\n\
-fn main() -> Int { var x = 42; let r = &x; var y = x; return 0; }");
+fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0; }");
         assert!(result.is_err(), "move while borrowed should error");
     }
 
