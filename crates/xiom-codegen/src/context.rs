@@ -21,6 +21,8 @@ pub struct CodegenConfig {
     pub max_recursion_depth: u32,
     /// Hot reload mode: pub fn calls go through @xiom_hot_get_ptr thunks
     pub hot_reload: bool,
+    /// M18: Enable integer overflow checks (llvm.sadd/sub/mul.with.overflow + trap)
+    pub overflow_checks: bool,
     /// Set of pub function keys (for hot reload thunk dispatch)
     pub pub_functions: HashSet<String>,
     /// Globals to save/restore across hot reload: (symbol, llvm_type, byte_size)
@@ -46,6 +48,7 @@ impl Default for CodegenConfig {
             strict_mode: false,
             max_recursion_depth: 2000,
             hot_reload: false,
+            overflow_checks: false, // M18: opt-in, OFF by default
             pub_functions: HashSet::new(),
             xiom_hot_globals: Vec::new(),
         }

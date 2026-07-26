@@ -78,6 +78,30 @@ impl IrEmitter {
             rv = self.extract_scalar_field0(&rv, rt);
         }
         let tmp = self.fresh_tmp();
+        // M18: Integer overflow protection for Add/Sub/Mul on i64.
+        // Use LLVM @llvm.sadd/sub/mul.with.overflow.i64 to trap on overflow.
+        if self.config.overflow_checks && is_add_sub_mul && ty == "i64" {
+            let intrinsic = match op {
+                BinOp::Add => "llvm.sadd.with.overflow.i64",
+                BinOp::Sub => "llvm.ssub.with.overflow.i64",
+                BinOp::Mul => "llvm.smul.with.overflow.i64",
+                _ => unreachable!(),
+            };
+            let ov_struct = self.fresh_tmp();
+            self.emitln(&format!("  {ov_struct} = call {{i64, i1}} @{intrinsic}(i64 {lv}, i64 {rv})"));
+            let result_val = self.fresh_tmp();
+            self.emitln(&format!("  {result_val} = extractvalue {{i64, i1}} {ov_struct}, 0"));
+            let overflow_flag = self.fresh_tmp();
+            self.emitln(&format!("  {overflow_flag} = extractvalue {{i64, i1}} {ov_struct}, 1"));
+            let ok_block = self.fresh_block("ov_ok");
+            let trap_block = self.fresh_block("ov_trap");
+            self.emitln(&format!("  br i1 {overflow_flag}, label %{trap_block}, label %{ok_block}"));
+            self.emitln(&format!("\n{trap_block}:"));
+            self.emitln("  call void @llvm.trap()");
+            self.emitln("  unreachable");
+            self.emitln(&format!("\n{ok_block}:"));
+            return Ok((result_val, ty.to_string()));
+        }
         self.emitln(&format!("  {tmp} = {llvm_op} {ty} {lv}, {rv}"));
         Ok((tmp, ty.to_string()))
     }
@@ -611,6 +635,33 @@ impl IrEmitter {
                 } else {
                     None
                 };
+                // M18: Integer overflow protection for Add/Sub/Mul on i64.
+                if self.config.overflow_checks && !is_float && matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul) && ty == "i64" {
+                    let intrinsic = match op {
+                        BinOp::Add => "llvm.sadd.with.overflow.i64",
+                        BinOp::Sub => "llvm.ssub.with.overflow.i64",
+                        BinOp::Mul => "llvm.smul.with.overflow.i64",
+                        _ => unreachable!(),
+                    };
+                    let ov_struct = self.fresh_tmp();
+                    self.emitln(&format!("  {ov_struct} = call {{i64, i1}} @{intrinsic}(i64 {l}, i64 {r})"));
+                    let result_val = self.fresh_tmp();
+                    self.emitln(&format!("  {result_val} = extractvalue {{i64, i1}} {ov_struct}, 0"));
+                    let overflow_flag = self.fresh_tmp();
+                    self.emitln(&format!("  {overflow_flag} = extractvalue {{i64, i1}} {ov_struct}, 1"));
+                    let ok_block = self.fresh_block("ov_ok");
+                    let trap_block = self.fresh_block("ov_trap");
+                    self.emitln(&format!("  br i1 {overflow_flag}, label %{trap_block}, label %{ok_block}"));
+                    self.emitln(&format!("\n{trap_block}:"));
+                    self.emitln("  call void @llvm.trap()");
+                    self.emitln("  unreachable");
+                    self.emitln(&format!("\n{ok_block}:"));
+                    if let Some(cont) = div_cont {
+                        self.emitln(&format!("  br label %{cont}"));
+                        self.emitln(&format!("\n{cont}:"));
+                    }
+                    return Ok((result_val, "i64".to_string()));
+                }
                 self.emitln(&format!("  {tmp} = {inst} {ty} {l}, {r}"));
                 let (result, result_ty) = if inst.starts_with("icmp") || inst.starts_with("fcmp") {
                     let ext = self.fresh_tmp();
