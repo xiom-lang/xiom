@@ -852,19 +852,13 @@ impl IrEmitter {
                                 self.emitln(&format!("  {disc_check} = icmp eq i64 {disc_val}, {expected_disc}"));
                                 // For Some(inner_lit) / Ok(inner_lit) with a literal
                                 // inner pattern, add a second check on the payload.
-                                if let (1i64, Some(_pat @ Pattern::Lit(Literal::Char(ch, _)))) = (expected_disc, inner_pat) {
-                                    let inner_ok = self.fresh_block("match_inner_ok");
-                                    self.emitln(&format!("  br i1 {disc_check}, label %{inner_ok}, label %{next}"));
-                                    self.emitln(&format!("\n{inner_ok}:"));
-                                    let val_gep = self.fresh_tmp();
-                                    let val_loaded = self.fresh_tmp();
-                                    let val_check = self.fresh_tmp();
-                                    let ch_val = *ch as u32 as i64;
-                                    self.emitln(&format!("  {val_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 1"));
-                                    self.emitln(&format!("  {val_loaded} = load i64, i64* {val_gep}"));
-                                    self.emitln(&format!("  {val_check} = icmp eq i64 {val_loaded}, {ch_val}"));
-                                    self.emitln(&format!("  br i1 {val_check}, label %{arm_label}, label %{next}"));
-                                } else if let (1i64, Some(Pattern::Lit(Literal::Int(n, _)))) = (expected_disc, inner_pat) {
+                                // Handle both Char and Int literals (M18).
+                                let lit_val: Option<i64> = match inner_pat {
+                                    Some(Pattern::Lit(Literal::Char(ch, _))) => Some(*ch as i64),
+                                    Some(Pattern::Lit(Literal::Int(n, _))) => Some(*n as i64),
+                                    _ => None,
+                                };
+                                if let (1i64, Some(val)) = (expected_disc, lit_val) {
                                     let inner_ok = self.fresh_block("match_inner_ok");
                                     self.emitln(&format!("  br i1 {disc_check}, label %{inner_ok}, label %{next}"));
                                     self.emitln(&format!("\n{inner_ok}:"));
@@ -873,7 +867,7 @@ impl IrEmitter {
                                     let val_check = self.fresh_tmp();
                                     self.emitln(&format!("  {val_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 1"));
                                     self.emitln(&format!("  {val_loaded} = load i64, i64* {val_gep}"));
-                                    self.emitln(&format!("  {val_check} = icmp eq i64 {val_loaded}, {n}"));
+                                    self.emitln(&format!("  {val_check} = icmp eq i64 {val_loaded}, {val}"));
                                     self.emitln(&format!("  br i1 {val_check}, label %{arm_label}, label %{next}"));
                                 } else {
                                     self.emitln(&format!("  br i1 {disc_check}, label %{arm_label}, label %{next}"));
