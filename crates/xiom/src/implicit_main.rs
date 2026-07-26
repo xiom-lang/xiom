@@ -47,27 +47,10 @@ pub fn wrap_implicit_main(source: &str) -> String {
                 if is_decl {
                     in_decl = true;
                     depth = count_brace_delta(trimmed_line);
-                    // Single-line declaration (e.g. `const X: Int = 5;` or `use foo;`)
+                    // Single-line declaration — push it and move on.
                     if depth <= 0 {
                         in_decl = false;
                         depth = 0;
-                        // M17: if the line has code after a `use` or `const`
-                        // declaration, split at the semicolon suffix.
-                        // e.g. `use xiom.io; io.println("hi")` → decl + code.
-                        // Only applies to `use`/`const` — functions/types
-                        // may contain semicolons in their bodies.
-                        let is_splittable = trimmed_line.starts_with("use ")
-                            || trimmed_line.starts_with("const ");
-                        if is_splittable {
-                            if let Some(semi_pos) = trimmed_line.find(';') {
-                                declarations.push(trimmed_line[..=semi_pos].to_string());
-                                let rest = trimmed_line[semi_pos + 1..].trim();
-                                if !rest.is_empty() {
-                                    code_lines.push(rest.to_string());
-                                }
-                                continue; // already added to declarations
-                            }
-                        }
                         declarations.push(trimmed_line.to_string());
                     } else {
                         declarations.push(trimmed_line.to_string());
