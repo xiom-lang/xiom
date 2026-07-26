@@ -167,6 +167,12 @@ fn main() {
         process::exit(if args.iter().any(|a| a == "--help") { 0 } else { 1 });
     }
 
+    // Show AI help
+    if args.iter().any(|a| a == "--help-ai") {
+        eprintln!("{}", xiom::ai::ai_help_text());
+        process::exit(0);
+    }
+
     if args.iter().any(|a| a == "--version") {
         let tag = option_env!("XIOM_RELEASE_TAG").unwrap_or("Production");
         let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("1041/1041 tests, production hardening");
@@ -882,12 +888,6 @@ fn main() {
                 }
             }
         }
-    }
-
-    // Show AI help on --help
-    if args.iter().any(|a| a == "--help-ai") {
-        eprintln!("{}", xiom::ai::ai_help_text());
-        process::exit(0);
     }
 
     compile_or_exit(&config, &source_paths);
