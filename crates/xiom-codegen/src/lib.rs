@@ -84,6 +84,10 @@ impl IrEmitter {
         self.config.check_contracts = enabled;
     }
 
+    pub fn set_overflow_checks(&mut self, enabled: bool) {
+        self.config.overflow_checks = enabled;
+    }
+
     pub fn set_max_recursion_depth(&mut self, depth: u32) {
         self.config.max_recursion_depth = depth;
     }

@@ -57,6 +57,7 @@ pub struct CompileConfig {
     pub stack_protector: bool,
     /// 7E.4: force runtime contract checks even in release builds
     pub runtime_contracts: bool,
+    pub overflow_checks: bool,
     pub max_recursion_depth: u32,
     pub dump_contracts: bool,
     pub verify: bool,
@@ -92,6 +93,7 @@ impl Default for CompileConfig {
             sanitize: None,
             stack_protector: false,
             runtime_contracts: false,
+            overflow_checks: false,
             max_recursion_depth: 500,
             dump_contracts: false,
             verify: false,
@@ -498,6 +500,7 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
         Target::Native => {}
     }
     emitter.set_check_contracts(config.check_contracts || config.runtime_contracts);
+    emitter.set_overflow_checks(config.overflow_checks);
     emitter.set_max_recursion_depth(config.max_recursion_depth);
     emitter.set_strict_mode(config.strict_mode);
     emitter.set_hot_reload(config.hot_reload);
@@ -781,6 +784,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     // Stage 5: Codegen
     let mut emitter = IrEmitter::new();
     emitter.set_check_contracts(config.check_contracts || config.runtime_contracts);
+    emitter.set_overflow_checks(config.overflow_checks);
     emitter.set_max_recursion_depth(config.max_recursion_depth);
     emitter.set_strict_mode(config.strict_mode);
     emitter.set_hot_reload(config.hot_reload);
