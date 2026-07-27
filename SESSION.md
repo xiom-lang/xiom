@@ -1,11 +1,12 @@
 # XIOM Session Handoff — v0.52.8 "Production Hardening"
+# XIOM Session Handoff — v0.52.9 "M19 Bugfix"
 
-**Date:** 2026-07-27 17:15 | **Branch:** `feat/architect` | **Test baseline: 1060/1060**
+**Date:** 2026-07-27 17:58 | **Branch:** `feat/architect` | **Test baseline: 1060/1060**
 **Self-hosting readiness: 10/10** | **Latest release: v0.52.8 (Windows + Linux)**
 
 ---
 
-## WHAT SHIPPED — FULL M15-M18 FIXES
+## WHAT SHIPPED — FULL M15-M19 FIXES
 
 ### B-001: Concrete Option/Result monomorphisation
 - `Option__T` / `Result__T__E` LLVM types with correct field sizes for struct payloads
@@ -37,15 +38,35 @@
 - AI_CONTEXT.md → v0.52.7
 - QA-TestGround with 40-test procedure
 
+### M19: io.read_file + Enum variant payload (SHIPPED)
+- **Bug 1** (`io.read_file()` empty string): Three-part root cause:
+  (a) `unwrap()` on concrete `Result__Str__IOError` converted i8* Str pointer to i64
+      via ptrtoint, discarding pointer type info. Fix: return non-i64 field types directly.
+  (b) `ptr.offset(i)` in io.xi had no inline handler → auto-stub returned 0 for all
+      byte reads. Fix: inline handler for raw pointers (getelementptr) and ptrtoint'd
+      i64 pointers (add i64).
+  (c) Deref `*expr` on i64 (ptrtoint'd pointer) was a no-op. Fix: inttoptr→i8*, load i8,
+      zext to i64.
+- **Bug 2** (Enum variant payload collision): When two enum variants share a field name
+  (e.g., `Bool(val)` and `String(val)` both use "val"), only the first variant's type
+  was registered. Fix: force collided field types to Int (i64), with per-variant type
+  decoding via `enum_variant_field_types` + Str payload inttoptr in match extraction.
+
 ---
 
-## KNOWN BUGS (M19)
+## KNOWN BUGS (M20)
 | # | Bug | Details |
 |---|-----|---------|
-| 1 | `io.read_file()` returns empty string | `is_ok`=true, `unwrap()` returns empty. Works for inline `Result[Str,E]`. Bug in stdlib function body (Vec→Str conversion or contract interaction). |
-| 2 | Enum concrete types | Variant field collision — shared "value" name. Needs per-variant field names + translation layer. |
+| — | None critical | 1060/1060 baseline, all priority bugs resolved |
 
 ---
+
+## M19 FIXES SUMMARY
+### Changed files:
+- `crates/xiom-codegen/src/call.rs`: unwrap() non-i64 return, offset() inline handler
+- `crates/xiom-codegen/src/decl.rs`: enum variant field collision → Int type
+- `crates/xiom-codegen/src/expr.rs`: Deref on i64 loads byte via inttoptr
+- `crates/xiom-codegen/src/stmt.rs`: Str payload inttoptr in match extraction
 
 ## TEST BASELINE — 1060/1060 ALL GREEN
 | Suite | Count |
