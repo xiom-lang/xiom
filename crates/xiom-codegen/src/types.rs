@@ -453,7 +453,7 @@ impl crate::IrEmitter {
             Type::Set(_) => "Set".to_string(),
             Type::Tuple(types) => {
                 let parts: Vec<String> = types.iter().map(Self::type_from_ast).collect();
-                format!("Tuple_{}", parts.join("_"))
+                format!("Tuple__{}", parts.join("__"))
             }
             Type::Slice(elem) => Self::type_from_ast(elem), Type::Array(size_expr, elem) => {
                 let elem_name = Self::type_from_ast(elem);

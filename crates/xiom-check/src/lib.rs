@@ -1482,7 +1482,7 @@ impl Checker {
                             let params: Vec<(String, CheckedType)> = fd.params.iter().map(|p| {
                                 (p.name.name.clone(), CheckedType::from_ast_type(&p.ty))
                             }).collect();
-                            let return_type = fd.return_type.as_ref().map(|t| CheckedType::from_ast_type(t));
+                let return_type = fd.return_type.as_ref().map(|t| CheckedType::from_ast_type(t));
                             let generics = fd.generics.iter().map(|g| g.name.name.clone()).collect();
                             FnSig { params, return_type, generics, uses_implicit_this: false }
                         });
