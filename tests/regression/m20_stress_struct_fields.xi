@@ -1,0 +1,2 @@
+type Big = { a:Int; b:Int; c:Int; d:Int; e:Int; f:Int; g:Int; h:Int; i:Int; j:Int; }
+fn main() -> Int { var x = Big{ a:1,b:2,c:3,d:4,e:5,f:6,g:7,h:8,i:9,j:10 }; if x.a != 1 { return 1; } if x.j != 10 { return 2; } if x.e != 5 { return 3; } return 0; }

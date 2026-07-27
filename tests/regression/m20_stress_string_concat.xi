@@ -1,0 +1,1 @@
+fn main() -> Int { var a = "hello"; var b = " "; var c = "world"; var d = a + b + c; if d != "hello world" { return 1; } return 0; }
