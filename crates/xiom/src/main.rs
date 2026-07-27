@@ -909,7 +909,10 @@ fn print_usage() {
     eprintln!("  --help              Show this help message");
     eprintln!("  --version           Print version");
     eprintln!("  -o <output>         Output binary path (default: a.exe on Windows, a.out on Linux/macOS)");
-    eprintln!("  --run               Compile and run, print exit code");
+    eprintln!("  --run               Compile and run (requires fn main())");
+    eprintln!("  run <file.xi>       Execute as script (auto-wraps in fn main())");
+    eprintln!("  run -               Read script from stdin");
+    eprintln!("  run -e \"<code>\"     Execute inline code");
     eprintln!("  --emit-ir           Print LLVM IR to stdout (no compilation)");
     eprintln!("  --target <target>   Target: native (default), wasm, arm, riscv");
     eprintln!("  --no-contracts      Disable contract runtime checks");
