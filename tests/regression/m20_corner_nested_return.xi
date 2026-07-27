@@ -1,0 +1,2 @@
+fn f(x: Int) -> Int { if x < 0 { return -1; } if x == 0 { return 0; } if x > 100 { return 100; } return x; }
+fn main() -> Int { if f(-5)!=-1{return 1;} if f(0)!=0{return 2;} if f(50)!=50{return 3;} if f(200)!=100{return 4;} return 0; }

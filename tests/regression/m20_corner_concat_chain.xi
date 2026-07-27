@@ -1,0 +1,1 @@
+fn main() -> Int { var s = "a" + "b" + "c" + "d" + "e"; if s != "abcde" { return 1; } return 0; }
