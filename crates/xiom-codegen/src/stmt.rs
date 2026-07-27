@@ -935,6 +935,13 @@ impl IrEmitter {
                                                 self.emitln(&format!("  {f} = bitcast i32 {t32} to float"));
                                                 (f, "float".to_string())
                                             }
+                                            // M19: Str payload stored in i64 slot via ptrtoint —
+                                            // convert back to i8* for string operations.
+                                            ("i64", Some("Str")) => {
+                                                let sptr = self.fresh_tmp();
+                                                self.emitln(&format!("  {sptr} = inttoptr i64 {loaded} to i8*"));
+                                                (sptr, LLVM_STR_PTR.to_string())
+                                            }
                                             _ => (loaded.clone(), field_llvm_ty.clone()),
                                         };
                                         let field_alloca = self.fresh_tmp();

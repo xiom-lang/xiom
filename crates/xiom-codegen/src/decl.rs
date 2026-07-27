@@ -54,6 +54,16 @@ impl IrEmitter {
                     if !all_fields.contains(&fname) {
                         all_fields.push(fname.clone());
                         all_meta.push((fname.clone(), Self::type_from_ast(&field.ty)));
+                    } else {
+                        // M19: When a field name collides across variants (e.g.,
+                        // `Bool(val)` and `String(val)`), the LLVM struct slot
+                        // already exists with the first variant's type. Force the
+                        // type_meta entry to Int (i64) so all variant payloads
+                        // are stored as bitcast/ptrtoint and correctly decoded
+                        // via enum_variant_field_types at runtime.
+                        if let Some(existing) = all_meta.iter_mut().find(|(n, _)| n == &fname) {
+                            existing.1 = "Int".to_string();
+                        }
                     }
                     vfields.push(fname);
                     // Keep generic args (Vec[JsonValue]) — 5c.30 handle detection.
