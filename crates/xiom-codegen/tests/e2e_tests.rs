@@ -1401,3 +1401,10 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m20_closure_chain()        { assert_eq!(compile_and_run("tests\\regression\\m20_closure_chain.xi"),         Some(0)); }
 #[test] fn e2e_m20_closure_nested_scope() { assert_eq!(compile_and_run("tests\\regression\\m20_closure_nested_scope.xi"),  Some(0)); }
 #[test] fn e2e_m20_closure_identity()     { assert_eq!(compile_and_run("tests\\regression\\m20_closure_identity.xi"),      Some(0)); }
+
+// M20-A1b: Block-style closure tests
+#[test] fn e2e_m20_block_closure_capture()   { assert_eq!(compile_and_run("tests\\regression\\m20_block_closure_capture.xi"),    Some(0)); }
+#[test] fn e2e_m20_block_closure_multistmt() { assert_eq!(compile_and_run("tests\\regression\\m20_block_closure_multistmt.xi"),  Some(0)); }
+#[test] fn e2e_m20_block_closure_noncapture(){ assert_eq!(compile_and_run("tests\\regression\\m20_block_closure_noncapture.xi"), Some(0)); }
+#[test] fn e2e_m20_block_closure_nested()    { assert_eq!(compile_and_run("tests\\regression\\m20_block_closure_nested.xi"),     Some(0)); }
+#[test] fn e2e_m20_block_closure_void()      { assert_eq!(compile_and_run("tests\\regression\\m20_block_closure_void.xi"),       Some(0)); }

@@ -2026,24 +2026,14 @@ impl IrEmitter {
                 self.block_counter = saved_block;
                 self.fctx.current_return_type = saved_ret;
                 
-                // Emit env struct definition before current function (visible to both
-                // parent and deferred thunk IR)
-                let env_fields: Vec<String> = std::iter::once("i64".to_string())
-                    .chain(captures.iter().map(|(_, t)| t.clone()))
-                    .collect();
-                let env_def = format!("%struct.{env_name} = type {{ {} }}\n", env_fields.join(", "));
-                if let Some(define_pos) = self.output.find("define ") {
-                    self.output.insert_str(define_pos, &env_def);
-                } else {
-                    self.output.insert_str(0, &env_def);
-                }
-                
                 // Create closure value: malloc env, store fn_ptr + captures, return ptr
-                // Emit env struct before current function (must be visible to parent)
                 if captures.is_empty() {
+                    // Non-capturing: minimal env with just fn_ptr
                     let env_def = format!("%struct.{env_name} = type {{ i64 }}\n");
                     if let Some(define_pos) = self.output.find("define ") {
                         self.output.insert_str(define_pos, &env_def);
+                    } else {
+                        self.output.push_str(&env_def);
                     }
                     let env_ptr = self.fresh_tmp(); let mc = self.fresh_tmp();
                     self.emitln(&format!("  {mc} = call i8* @malloc(i64 8)"));
@@ -2058,6 +2048,15 @@ impl IrEmitter {
                 }
                 
                 // Capturing block closure
+                let env_fields: Vec<String> = std::iter::once("i64".to_string())
+                    .chain(captures.iter().map(|(_, t)| t.clone()))
+                    .collect();
+                let env_def = format!("%struct.{env_name} = type {{ {} }}\n", env_fields.join(", "));
+                if let Some(define_pos) = self.output.find("define ") {
+                    self.output.insert_str(define_pos, &env_def);
+                } else {
+                    self.output.push_str(&env_def);
+                }
                 let env_size = 8 * (1 + captures.len());
                 let env_ptr = self.fresh_tmp(); let mc = self.fresh_tmp();
                 self.emitln(&format!("  {mc} = call i8* @malloc(i64 {env_size})"));
