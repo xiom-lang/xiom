@@ -1,8 +1,8 @@
 # XIOM Session Handoff — v0.52.9 "M19 Bugfix + Test Hardening"
 
-**Date:** 2026-07-27 21:10 | **Branch:** `feat/architect` | **Test baseline: 1067/1067**
-**Self-hosting readiness: 10/10** | **Latest release: v0.52.8 (Windows + Linux)**
-**M20 status: ZERO critical bugs | All M phases complete**
+**Date:** 2026-07-27 21:53 | **Branch:** `feat/architect` | **Test baseline: 1067/1067**
+**Self-hosting readiness: 3/10 (honest audit)** | **Latest release: v0.52.9 (Windows + Linux)**
+**M20 status: Self-hosting gaps documented | See docs/AUDIT-SELFHOST.md**
 
 ---
 
@@ -68,10 +68,29 @@
 
 ---
 
-## KNOWN BUGS (M20)
-| # | Bug | Details |
-|---|-----|---------|
-| — | None | 1067/1067 baseline, all priority bugs resolved, regression coverage added |
+## M20: SELF-HOSTING GAPS (from docs/AUDIT-SELFHOST.md)
+
+### Honest Self-Hosting Rating: 3/10
+
+The Rust-hosted compiler (`xiom.exe`) is production-grade (8/10). However, the
+XIOM-written compiler in `selfhost/` depends on ~1800 lines of C runtime code
+for body parsing and LLVM IR emission. True self-hosting requires rewriting
+these components in XIOM.
+
+### Hard Blockers
+| # | Gap | Impact |
+|---|-----|--------|
+| M20-A1 | **Closures compile to constant 0** (expr.rs:1765) | Cannot write AST visitors, combinators, functional patterns |
+| M20-A2 | **No `impl Trait for Type` syntax** | Cannot organize type hierarchies across modules |
+| M20-B2 | **Body parser is in C** (xiom_runtime.c ~1800 lines) | Actual codegen requires C FFI |
+| M20-B3 | **LLVM IR emitter is in C** (same function) | All IR generation is C, not XIOM |
+
+### M20 Task List (see docs/AUDIT-SELFHOST.md for full details)
+| Phase | Tasks | Timeline |
+|-------|-------|----------|
+| M20-A | Language: closures + impl Trait + or-pattern | Weeks 1-2 |
+| M20-B | Selfhost rewrite: parser, IR emitter, checker in XIOM | Weeks 3-6 |
+| M20-C | Bootstrapping: self-compile, round-trip, test parity | Weeks 7-8 |
 
 ---
 
@@ -119,20 +138,25 @@
 ## RELEASE BINARIES
 | Platform | Package |
 |----------|---------|
-| Windows | `release/xiom-v0.52.8-windows-x64.zip` |
-| Linux | `release/xiom-v0.52.5-linux-x64.tar.gz` (needs rebuild — install Ubuntu WSL + run `./package.sh 0.52.9`) |
+| Windows | `release/xiom-v0.52.9-windows-x64.zip` (16.47 MB) |
+| Linux | `release/xiom-v0.52.9-linux-x64.tar.gz` (26.17 MB) |
 
 ## CONTINUATION PROMPT
 ```
-Continue XIOM from SESSION.md. Branch: feat/architect.
-Current state: v0.52.9, 1067/1067 tests pass, M19 complete.
+Continue XIOM M20 phase from SESSION.md. Branch: feat/architect.
+Current state: v0.52.9, 1067/1067 tests, both OS releases built.
+Self-hosting: 3/10 honest. See docs/AUDIT-SELFHOST.md for gaps.
 
-M20: Zero critical bugs. All M phases done.
-Ready for production release / selfhost preparation.
-Next: Linux rebuild via WSL Ubuntu, then v0.53.0 release.
+M20 PRIORITY (from audit):
+  M20-A1: CLOSURES — implement codegen (currently compiles to constant 0)
+  M20-A2: impl Trait for Type syntax
+  M20-B2: Rewrite body parser in XIOM (currently ~1800 lines of C)
+  M20-B3: Rewrite LLVM IR emitter in XIOM (currently in C)
+
+Pre-M20 truth: We tried self-hosting too early (v0.4-v0.11), it backfired.
+Switched to Rust bootstrap. Now targeting true self-hosting in M20.
 
 BUILD: cargo build --workspace
 TEST: .\test_summary.ps1
 QA:   cd QA-TestGround && .\run_qa.ps1
-RELEASE: $env:XIOM_RELEASE_TAG="X"; $env:XIOM_RELEASE_STATS="..."; .\package.ps1 -Version "0.52.X"
 ```
