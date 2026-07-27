@@ -1951,34 +1951,133 @@ impl IrEmitter {
                 Ok((closure_val, LLVM_I64.to_string()))
             }
             Expr::Closure(params, ret_ty, body, _) => {
-                // M20-A1: fn-style closure with block body.
-                // Block compilation is complex with context save/restore.
-                // For the MVP, emit a closure that traps (TODO: full support).
+                // M20-A1: Block-style closure (fn(x) { body; return expr; })
                 let closure_id = self.tmp_counter;
                 self.tmp_counter += 1;
                 let fn_name = format!("__closure_{closure_id}");
+                let env_name = format!("__closure_env_{closure_id}");
                 
                 let ret_llvm = ret_ty.as_ref()
                     .map(|t| self.llvm_type_for(&Self::type_from_ast(t)).unwrap_or_else(|_| "i64".to_string()))
                     .unwrap_or_else(|| "i64".to_string());
                 
+                // Collect free variables from block body
+                let param_names: Vec<String> = params.iter().map(|p| p.name.name.clone()).collect();
+                let captures = self.collect_block_free_vars(body, &param_names);
+                
+                // Build thunk with env + params
+                let saved_output = std::mem::take(&mut self.output);
+                let saved_tmp = self.tmp_counter;
+                let saved_block = self.block_counter;
+                let saved_ret = self.fctx.current_return_type.clone();
+                self.tmp_counter = closure_id * 1000;
+                self.block_counter = closure_id * 1000;
+                self.fctx.current_return_type = ret_llvm.clone();
+                self.push_scope();
+                
+                // Build thunk header: fn(i64 %__env, params...)
                 let param_str: Vec<String> = params.iter().enumerate()
                     .map(|(i, p)| format!("%{}_{}", p.name.name, i))
                     .collect();
+                let all_params = std::iter::once("i64 %__env".to_string())
+                    .chain(param_str.iter().enumerate()
+                        .map(|(_, s)| format!("i64 {}", s)))
+                    .collect::<Vec<_>>().join(", ");
+                self.output.push_str(&format!("define {ret_llvm} @{fn_name}({all_params}) {{\nentry:\n"));
                 
-                let mut closure_ir = format!("define {ret_llvm} @{fn_name}({}) {{\nentry:\n",
-                    param_str.iter().enumerate()
-                        .map(|(i, s)| format!("i64 {}", s))
-                        .collect::<Vec<_>>().join(", "));
-                // TODO: full block body compilation with context save/restore
-                closure_ir.push_str("  call void @llvm.trap()\n");
-                closure_ir.push_str("  unreachable\n}\n");
+                // Load captured variables from env if any
+                if !captures.is_empty() {
+                    self.emitln(&format!("  %__env_ptr = inttoptr i64 %__env to %struct.{env_name}*"));
+                    for (field_idx, (cap_name, cap_llvm_ty)) in captures.iter().enumerate() {
+                        let gep = self.fresh_tmp(); let loaded = self.fresh_tmp();
+                        let alloca = self.fresh_tmp();
+                        let llvm_idx = field_idx + 1;
+                        self.emitln(&format!("  {gep} = getelementptr %struct.{env_name}, %struct.{env_name}* %__env_ptr, i32 0, i32 {llvm_idx}"));
+                        self.emitln(&format!("  {loaded} = load {cap_llvm_ty}, {cap_llvm_ty}* {gep}"));
+                        self.emitln(&format!("  {alloca} = alloca {cap_llvm_ty}"));
+                        self.emitln(&format!("  store {cap_llvm_ty} {loaded}, {cap_llvm_ty}* {alloca}"));
+                        self.add_local(cap_name, alloca, cap_llvm_ty);
+                    }
+                }
                 
+                // Store params as locals
+                for (i, p) in params.iter().enumerate() {
+                    let preg = format!("%{}_{}", p.name.name, i);
+                    let a = format!("%{}_{}_alloca", p.name.name, i);
+                    self.emitln(&format!("  {a} = alloca i64"));
+                    self.emitln(&format!("  store i64 {preg}, i64* {a}"));
+                    self.add_local(&p.name.name, a, "i64");
+                }
+                
+                // Compile block body
+                self.compile_block(body, false)?;
+                
+                // If no return was emitted, add fallback
+                if !self.current_block_terminated() {
+                    self.emitln(&format!("  ret {ret_llvm} 0"));
+                }
+                self.emitln("}");
+                self.pop_scope();
+                
+                let closure_ir = std::mem::take(&mut self.output);
                 self.local.deferred_closure_defs.push(closure_ir);
+                self.output = saved_output;
+                self.tmp_counter = saved_tmp;
+                self.block_counter = saved_block;
+                self.fctx.current_return_type = saved_ret;
                 
-                let fn_ptr = self.fresh_tmp();
-                self.emitln(&format!("  {fn_ptr} = ptrtoint ptr @{fn_name} to i64"));
-                Ok((fn_ptr, LLVM_I64.to_string()))
+                // Emit env struct definition before current function (visible to both
+                // parent and deferred thunk IR)
+                let env_fields: Vec<String> = std::iter::once("i64".to_string())
+                    .chain(captures.iter().map(|(_, t)| t.clone()))
+                    .collect();
+                let env_def = format!("%struct.{env_name} = type {{ {} }}\n", env_fields.join(", "));
+                if let Some(define_pos) = self.output.find("define ") {
+                    self.output.insert_str(define_pos, &env_def);
+                } else {
+                    self.output.insert_str(0, &env_def);
+                }
+                
+                // Create closure value: malloc env, store fn_ptr + captures, return ptr
+                // Emit env struct before current function (must be visible to parent)
+                if captures.is_empty() {
+                    let env_def = format!("%struct.{env_name} = type {{ i64 }}\n");
+                    if let Some(define_pos) = self.output.find("define ") {
+                        self.output.insert_str(define_pos, &env_def);
+                    }
+                    let env_ptr = self.fresh_tmp(); let mc = self.fresh_tmp();
+                    self.emitln(&format!("  {mc} = call i8* @malloc(i64 8)"));
+                    self.emitln(&format!("  {env_ptr} = bitcast i8* {mc} to %struct.{env_name}*"));
+                    let gep0 = self.fresh_tmp(); let fpi = self.fresh_tmp();
+                    self.emitln(&format!("  {gep0} = getelementptr %struct.{env_name}, %struct.{env_name}* {env_ptr}, i32 0, i32 0"));
+                    self.emitln(&format!("  {fpi} = ptrtoint ptr @{fn_name} to i64"));
+                    self.emitln(&format!("  store i64 {fpi}, i64* {gep0}"));
+                    let cv = self.fresh_tmp();
+                    self.emitln(&format!("  {cv} = ptrtoint %struct.{env_name}* {env_ptr} to i64"));
+                    return Ok((cv, LLVM_I64.to_string()));
+                }
+                
+                // Capturing block closure
+                let env_size = 8 * (1 + captures.len());
+                let env_ptr = self.fresh_tmp(); let mc = self.fresh_tmp();
+                self.emitln(&format!("  {mc} = call i8* @malloc(i64 {env_size})"));
+                self.emitln(&format!("  {env_ptr} = bitcast i8* {mc} to %struct.{env_name}*"));
+                let gep0 = self.fresh_tmp(); let fpi = self.fresh_tmp();
+                self.emitln(&format!("  {gep0} = getelementptr %struct.{env_name}, %struct.{env_name}* {env_ptr}, i32 0, i32 0"));
+                self.emitln(&format!("  {fpi} = ptrtoint ptr @{fn_name} to i64"));
+                self.emitln(&format!("  store i64 {fpi}, i64* {gep0}"));
+                for (field_idx, (cap_name, _cap_llvm_ty)) in captures.iter().enumerate() {
+                    let gep = self.fresh_tmp();
+                    self.emitln(&format!("  {gep} = getelementptr %struct.{env_name}, %struct.{env_name}* {env_ptr}, i32 0, i32 {}", field_idx + 1));
+                    if let Some((cap_slot, cap_ty)) = self.lookup_local(cap_name).cloned() {
+                        let ld = self.fresh_tmp();
+                        self.emitln(&format!("  {ld} = load {cap_ty}, {cap_ty}* {cap_slot}"));
+                        self.emitln(&format!("  store {cap_ty} {ld}, {cap_ty}* {gep}"));
+                    }
+                }
+                let cv = self.fresh_tmp();
+                self.emitln(&format!("  {cv} = ptrtoint %struct.{env_name}* {env_ptr} to i64"));
+                Ok((cv, LLVM_I64.to_string()))
             }
             Expr::As(inner, ty, _) => {
                 // G-44: `&out as *mut UInt8` — Xiom binds `&` with LOWER

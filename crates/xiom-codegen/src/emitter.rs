@@ -87,6 +87,26 @@ impl IrEmitter {
         captures
     }
 
+    /// M20-A1: Collect free variables from a block body (for fn-style closures).
+    pub(crate) fn collect_block_free_vars(&self, block: &Block, param_names: &[String]) -> Vec<(String, String)> {
+        let mut used = std::collections::HashSet::new();
+        for stmt in &block.stmts {
+            match stmt {
+                StmtOrExpr::Expr(e) => self.collect_ident_names(e, &mut used),
+                StmtOrExpr::Stmt(s) => self.collect_stmt_names_inner(s, &mut used),
+            }
+        }
+        let mut captures = Vec::new();
+        for name in used {
+            if !param_names.contains(&name) {
+                if let Some((_, llvm_ty)) = self.lookup_local(&name) {
+                    captures.push((name.clone(), llvm_ty.clone()));
+                }
+            }
+        }
+        captures
+    }
+
     /// Recursively collect all identifier names from an expression.
     fn collect_ident_names(&self, expr: &Expr, out: &mut std::collections::HashSet<String>) {
         match expr {
