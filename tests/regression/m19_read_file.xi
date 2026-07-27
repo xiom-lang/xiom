@@ -1,8 +1,11 @@
-// M19-R01: io.read_file() regression test
+// M19-E2E: io.read_file() regression test
 // Verifies: read_file returns correct content, not empty string
 use stdlib.xiom.io;
 
 fn main() -> Int {
+  // Clean up any leftover from previous failed runs
+  var _ = io.remove_file("__m19_read_test.txt");
+  
   // Write test file with known content
   var write_result = io.write_file("__m19_read_test.txt", "M19-PASS-42");
   match write_result {
@@ -21,6 +24,7 @@ fn main() -> Int {
       return 1;
     }
     Err(e) => {
+      var _ = io.remove_file("__m19_read_test.txt");
       io.println("FAIL: read error: " + e.message);
       return 1;
     }
