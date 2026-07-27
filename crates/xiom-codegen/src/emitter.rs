@@ -61,6 +61,15 @@ impl IrEmitter {
         self.output.push('\n');
     }
 
+    /// M20-A1: Emit any deferred closure function definitions.
+    /// Called at the end of compile_fn so closures appear as top-level
+    /// LLVM function definitions after the enclosing function.
+    pub(crate) fn flush_deferred_closures(&mut self) {
+        for def in std::mem::take(&mut self.local.deferred_closure_defs) {
+            self.output.push_str(&def);
+        }
+    }
+
     /// True if the most recently emitted line in the current function body is a
     /// basic-block terminator. Used to decide whether a fallback terminator must
     /// be appended so every block is terminated and the IR stays valid.

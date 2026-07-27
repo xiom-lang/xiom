@@ -1762,7 +1762,93 @@ impl IrEmitter {
                 self.local.array_value_regs.insert(ptr.clone());
                 Ok((ptr, LLVM_STR_PTR.to_string()))
             }
-            Expr::Closure(_, _, _, _) | Expr::PipeClosure(_, _, _) => Ok(("0".to_string(), LLVM_I64.to_string())),
+            Expr::PipeClosure(params, body, _) => {
+                // M20-A1: Non-capturing pipe closure lowered to anonymous function.
+                // Generate a unique function, compile its body into a separate IR
+                // buffer, then queue the function definition for deferred emission.
+                let closure_id = self.tmp_counter;
+                self.tmp_counter += 1;
+                let fn_name = format!("__closure_{closure_id}");
+                
+                // Save context
+                let saved_output = std::mem::take(&mut self.output);
+                let saved_tmp = self.tmp_counter;
+                let saved_block = self.block_counter;
+                self.tmp_counter = closure_id * 1000;
+                self.block_counter = closure_id * 1000;
+                self.push_scope();
+                
+                // Build function header in fresh output
+                let param_str: Vec<String> = params.iter().enumerate()
+                    .map(|(i, p)| format!("%{}_{}", p.name, i))
+                    .collect();
+                let header = format!("define i64 @{fn_name}({}) {{\nentry:\n",
+                    param_str.iter().enumerate()
+                        .map(|(i, s)| format!("i64 {}", s))
+                        .collect::<Vec<_>>().join(", "));
+                self.output.push_str(&header);
+                
+                // Store params in allocas
+                for (i, p) in params.iter().enumerate() {
+                    let preg = format!("%{}_{}", p.name, i);
+                    let a = format!("%{}_{}_alloca", p.name, i);
+                    self.emitln(&format!("  {a} = alloca i64"));
+                    self.emitln(&format!("  store i64 {preg}, i64* {a}"));
+                    self.add_local(&p.name, a, "i64");
+                }
+                
+                // Compile the body into the closure's output
+                let (ret_val, ret_ty) = self.compile_expr(body)?;
+                let result = self.val_to_i64(&ret_val, &ret_ty);
+                self.emitln(&format!("  ret i64 {}", result));
+                self.emitln("}");
+                
+                self.pop_scope();
+                
+                // Capture the closure function IR and queue it
+                let closure_ir = std::mem::take(&mut self.output);
+                self.local.deferred_closure_defs.push(closure_ir);
+                
+                // Restore parent context
+                self.output = saved_output;
+                self.tmp_counter = saved_tmp;
+                self.block_counter = saved_block;
+                
+                // Return function pointer as i64
+                let fn_ptr = self.fresh_tmp();
+                self.emitln(&format!("  {fn_ptr} = ptrtoint ptr @{fn_name} to i64"));
+                Ok((fn_ptr, LLVM_I64.to_string()))
+            }
+            Expr::Closure(params, ret_ty, body, _) => {
+                // M20-A1: fn-style closure with block body.
+                // Block compilation is complex with context save/restore.
+                // For the MVP, emit a closure that traps (TODO: full support).
+                let closure_id = self.tmp_counter;
+                self.tmp_counter += 1;
+                let fn_name = format!("__closure_{closure_id}");
+                
+                let ret_llvm = ret_ty.as_ref()
+                    .map(|t| self.llvm_type_for(&Self::type_from_ast(t)).unwrap_or_else(|_| "i64".to_string()))
+                    .unwrap_or_else(|| "i64".to_string());
+                
+                let param_str: Vec<String> = params.iter().enumerate()
+                    .map(|(i, p)| format!("%{}_{}", p.name.name, i))
+                    .collect();
+                
+                let mut closure_ir = format!("define {ret_llvm} @{fn_name}({}) {{\nentry:\n",
+                    param_str.iter().enumerate()
+                        .map(|(i, s)| format!("i64 {}", s))
+                        .collect::<Vec<_>>().join(", "));
+                // TODO: full block body compilation with context save/restore
+                closure_ir.push_str("  call void @llvm.trap()\n");
+                closure_ir.push_str("  unreachable\n}\n");
+                
+                self.local.deferred_closure_defs.push(closure_ir);
+                
+                let fn_ptr = self.fresh_tmp();
+                self.emitln(&format!("  {fn_ptr} = ptrtoint ptr @{fn_name} to i64"));
+                Ok((fn_ptr, LLVM_I64.to_string()))
+            }
             Expr::As(inner, ty, _) => {
                 // G-44: `&out as *mut UInt8` — Xiom binds `&` with LOWER
                 // precedence than `as`, so the AST is `&(out as *mut UInt8)`.
