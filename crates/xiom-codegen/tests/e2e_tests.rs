@@ -1360,3 +1360,29 @@ fn e2e_m17_zero_warnings() {
     assert!(!stderr.contains("warning"), "M17: zero warnings expected, got: {stderr}");
     assert!(output.status.success());
 }
+
+/// M19-E2E: io.read_file() must return correct file content.
+/// Regression test for the M19 bug where read_file returned empty string
+/// despite is_ok=true (caused by offset() auto-stub + unwrap type corruption).
+#[test]
+fn e2e_m19_read_file_content() {
+    // Uses a dedicated test file that writes known content, reads it back,
+    // and verifies the content matches exactly.
+    assert_eq!(
+        compile_and_run("tests\\regression\\m19_read_file.xi"),
+        Some(0),
+        "M19-E2E: io.read_file() must return correct content"
+    );
+}
+
+/// M19-E2E: Enum variants with same-named fields but different types
+/// must correctly extract payload values. Tests Bool/Str/Float64 payload
+/// access on colliding field names.
+#[test]
+fn e2e_m19_enum_same_field_types() {
+    assert_eq!(
+        compile_and_run("tests\\regression\\m19_enum_fields.xi"),
+        Some(0),
+        "M19-E2E: enum variant same-named fields must extract correct types"
+    );
+}
