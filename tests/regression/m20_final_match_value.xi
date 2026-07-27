@@ -1,0 +1,1 @@
+fn main() -> Int { var x = match 5 { 0 => 1, 5 => 10, _ => 0 }; if x != 10 { return 1; } return 0; }
