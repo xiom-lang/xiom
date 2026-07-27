@@ -538,8 +538,10 @@ impl Checker {
     /// body-check pass (`check_all_bodies`).
     /// (rustc lesson: collect/check split — `compiler/rustc_hir_analysis/src/collect.rs`)
     pub fn collect_signatures(&mut self, program: &Program) {
+        // M20: Expand impl blocks into freestanding functions before registration
+        let expanded = program.expand_impl_blocks();
         // Single pass over items: register types, functions, interfaces, consts
-        for item in &program.items {
+        for item in &expanded.items {
             self.register_type_decl(item);
             self.register_fn_signature(item);
             self.register_interface_decl(item);
@@ -870,10 +872,12 @@ impl Checker {
                 // Track methods separately
                 if let Some(recv) = fd.receiver.as_ref() {
                     let _method_key = format!("{}.{}", recv.name, fd.name.name);
+                    // Use the bare method name (last component) for the method table
+                    let bare_method = fd.name.name.rsplit('.').next().unwrap_or(&fd.name.name);
                     self.methods
                         .entry(recv.name.clone())
                         .or_default()
-                        .insert(fd.name.name.clone(), sig);
+                        .insert(bare_method.to_string(), sig);
                 }
             }
             TopDecl::Module(md) => {

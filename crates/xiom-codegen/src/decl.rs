@@ -570,7 +570,7 @@ impl IrEmitter {
                 self.local.current_module = saved_module;
                 Ok(())
             }
-            TopDecl::Interface(_) | TopDecl::Enum(_) | TopDecl::Const(_) | TopDecl::Type(_) | TopDecl::Use(_) | TopDecl::Extern(_) => Ok(()),
+            TopDecl::Interface(_) | TopDecl::Enum(_) | TopDecl::Const(_) | TopDecl::Type(_) | TopDecl::Use(_) | TopDecl::Extern(_) | TopDecl::Impl(_) => Ok(()),
         }
     }
 

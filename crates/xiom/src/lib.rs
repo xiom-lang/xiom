@@ -433,6 +433,8 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
 
     // Merge programs
     let program = merge_programs(all_programs);
+    // M20: Expand impl blocks into freestanding functions before type checking
+    let program = program.expand_impl_blocks();
 
     // Stage 3: Type Check
     let mut checker = Checker::new();
@@ -634,6 +636,8 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
 
     // Merge all parsed programs into one
     let mut program = merge_programs(all_programs);
+    // M20: Expand impl blocks
+    program = program.expand_impl_blocks();
 
     // Stage 3: Type Check
     let mut checker = Checker::new();

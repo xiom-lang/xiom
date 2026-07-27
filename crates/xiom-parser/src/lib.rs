@@ -58,7 +58,7 @@ impl Parser {
     fn recover_to_sync(&mut self) {
         while !self.peek().is_eof() {
             match self.peek_kind() {
-                TokenKind::Fn | TokenKind::Type | TokenKind::Enum | TokenKind::Interface
+                TokenKind::Fn | TokenKind::Type | TokenKind::Enum | TokenKind::Interface | TokenKind::Impl
                 | TokenKind::Module | TokenKind::Pub | TokenKind::Const | TokenKind::Use
                 | TokenKind::Extern | TokenKind::RBrace => break,
                 TokenKind::Semicolon => { self.advance(); break; }
@@ -96,7 +96,7 @@ impl Parser {
                 }
                 // Stop at fn/type/enum/etc. — likely start of next item
                 TokenKind::Fn | TokenKind::Type | TokenKind::Enum
-                | TokenKind::Interface | TokenKind::Module | TokenKind::Pub
+                | TokenKind::Interface | TokenKind::Impl | TokenKind::Module | TokenKind::Pub
                 | TokenKind::Const | TokenKind::Use | TokenKind::Extern => {
                     if depth <= 0 { break; }
                     self.advance();
@@ -193,8 +193,9 @@ impl Parser {
             TokenKind::Type => 1 << 39,
             TokenKind::Enum => 1 << 40,
             TokenKind::Interface => 1 << 41,
-            TokenKind::Module => 1 << 42,
-            TokenKind::Pub => 1 << 43,
+            TokenKind::Impl => 1 << 42,
+            TokenKind::Module => 1 << 43,
+            TokenKind::Pub => 1 << 44,
             TokenKind::Const => 1 << 44,
             TokenKind::Use => 1 << 45,
             TokenKind::Extern => 1 << 46,
@@ -353,6 +354,7 @@ impl Parser {
             TokenKind::Type => self.parse_type_decl(is_pub),
             TokenKind::Enum => self.parse_enum_decl(is_pub),
             TokenKind::Interface => self.parse_interface_decl(is_pub),
+            TokenKind::Impl => self.parse_impl_decl(),
             TokenKind::Fn => self.parse_fn_decl(is_pub, None),
             TokenKind::Const => {
                 self.parse_const_decl(is_pub)
@@ -588,6 +590,29 @@ impl Parser {
         }
         self.expect_kind(TokenKind::RBrace, "'}'")?;
         Ok(TopDecl::Interface(InterfaceDecl { is_pub, name, generics, members, span: start }))
+    }
+
+    /// Parse impl TraitName for TypeName { fn method(...) { body } ... }
+    fn parse_impl_decl(&mut self) -> Result<TopDecl, ParseError> {
+        let start = self.advance().span; // consume `impl`
+        let trait_name = self.parse_ident()?;
+        self.expect_kind(TokenKind::For, "'for'")?;
+        let type_name = self.parse_ident()?;
+        self.expect_kind(TokenKind::LBrace, "'{'")?;
+        let mut members = Vec::new();
+        while !self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Eof)) {
+            if self.check(|k| matches!(k, TokenKind::Fn)) {
+                let fn_decl = self.parse_fn_decl(false, None)?;
+                match fn_decl {
+                    TopDecl::Fn(f) => members.push(ImplItem::Fn(f)),
+                    _ => return Err(self.error("expected function declaration in impl block")),
+                }
+            } else {
+                return Err(self.error("expected 'fn' in impl block"));
+            }
+        }
+        self.expect_kind(TokenKind::RBrace, "'}'")?;
+        Ok(TopDecl::Impl(ImplDecl { trait_name, type_name, members, span: start }))
     }
 
     /// Parse compiler attributes: #[safety_audit(justification: "...")]
@@ -907,15 +932,13 @@ impl Parser {
         // Skip 'dyn' keyword (dynamic dispatch marker): `dyn Trait` parses as `Trait`.
         if let TokenKind::Ident(s) = self.peek_kind() { if s == "dyn" { self.advance(); } }
         // Parse `impl Trait` as opaque return type (M9.6)
-        if let TokenKind::Ident(s) = self.peek_kind() {
-            if s == "impl" {
-                self.advance();
-                let mut traits = vec![self.parse_ident()?];
-                while self.skip(TokenKind::Plus) {
-                    traits.push(self.parse_ident()?);
-                }
-                return Ok(Type::ImplTrait(traits));
+        if matches!(self.peek_kind(), TokenKind::Ident(s) if s == "impl") || matches!(self.peek_kind(), TokenKind::Impl) {
+            self.advance();
+            let mut traits = vec![self.parse_ident()?];
+            while self.skip(TokenKind::Plus) {
+                traits.push(self.parse_ident()?);
             }
+            return Ok(Type::ImplTrait(traits));
         }
         let peeked = match self.peek_kind() { TokenKind::Ident(s) => Some(s.clone()), _ => None };
         if let Some(ref s) = peeked {

@@ -1413,3 +1413,10 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m20_tuple_two_int()  { assert_eq!(compile_and_run("tests\\regression\\m20_tuple_two_int.xi"),  Some(0)); }
 #[test] fn e2e_m20_tuple_three()    { assert_eq!(compile_and_run("tests\\regression\\m20_tuple_three.xi"),    Some(0)); }
 #[test] fn e2e_m20_tuple_mixed()    { assert_eq!(compile_and_run("tests\\regression\\m20_tuple_mixed.xi"),    Some(0)); }
+
+// M20: impl Trait for Type tests
+#[test] fn e2e_m20_impl_basic()        { assert_eq!(compile_and_run("tests\\regression\\m20_impl_basic.xi"),         Some(0)); }
+#[test] fn e2e_m20_impl_multi()        { assert_eq!(compile_and_run("tests\\regression\\m20_impl_multi.xi"),         Some(0)); }
+#[test] fn e2e_m20_impl_self()         { assert_eq!(compile_and_run("tests\\regression\\m20_impl_self.xi"),          Some(0)); }
+#[test] fn e2e_m20_impl_two_methods()  { assert_eq!(compile_and_run("tests\\regression\\m20_impl_two_methods.xi"),   Some(0)); }
+#[test] fn e2e_m20_impl_generic()      { assert_eq!(compile_and_run("tests\\regression\\m20_impl_generic.xi"),       Some(0)); }

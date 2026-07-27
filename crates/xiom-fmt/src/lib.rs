@@ -49,6 +49,7 @@ impl Formatter {
             TopDecl::Use(use_decl) => self.format_use_decl(use_decl),
             TopDecl::Const(const_decl) => self.format_const_decl(const_decl),
             TopDecl::Extern(extern_block) => self.format_extern(extern_block),
+            TopDecl::Impl(_) => {} // expanded at registration time
         }
     }
 
