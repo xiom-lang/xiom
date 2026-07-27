@@ -4044,3 +4044,84 @@ fn main() -> Int {
         "M19-R05: @offset stub must NOT be called (must be inlined)"
     );
 }
+
+// ============================================================================
+// M20-A1 Regression Tests — Closure Codegen
+// ============================================================================
+
+/// M20-A1-R01: Pipe closure (|x, y| expr) must compile to a function definition
+/// with ptrtoint, not constant 0.
+#[test]
+fn regress_m20a1_r01_pipe_closure_function() {
+    let src = r#"
+fn main() -> Int {
+  var add = |x, y| x + y;
+  return add(2, 3);
+}
+"#;
+    let ir = compile(src).unwrap();
+    // Must define a closure function (not constant 0)
+    assert!(ir.contains("define i64 @__closure_"), "M20-A1: closure fn must be emitted");
+    // Must return function pointer (not constant 0)
+    assert!(ir.contains("ptrtoint ptr @__closure_"), "M20-A1: must return fn ptr");
+    // Must NOT emit the old stub (constant 0)
+    assert!(!ir.contains("store i64 0"), "M20-A1: must not store constant 0 for closure");
+}
+
+/// M20-A1-R02: Single-param pipe closure must work.
+#[test]
+fn regress_m20a1_r02_single_param_closure() {
+    let src = r#"
+fn main() -> Int {
+  var dbl = |x| x * 2;
+  return dbl(21);
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define i64 @__closure_"), "M20-A1: single-param closure");
+    assert!(ir.contains("ptrtoint ptr @__closure_"), "M20-A1: fn ptr for single-param");
+}
+
+/// M20-A1-R03: Multiple closures in same function.
+#[test]
+fn regress_m20a1_r03_multi_closure() {
+    let src = r#"
+fn main() -> Int {
+  var f = |x| x + 1;
+  var g = |x| x * 3;
+  return f(g(10));
+}
+"#;
+    let ir = compile(src).unwrap();
+    // Should have two different closure functions
+    assert!(ir.contains("define i64 @__closure_"), "M20-A1: multi-closure");
+}
+
+/// M20-A1-R04: Closure in let binding.
+#[test]
+fn regress_m20a1_r04_closure_let() {
+    let src = r#"
+fn main() -> Int {
+  let sq = |x| x * x;
+  return sq(7);
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("ptrtoint ptr @__closure_"), "M20-A1: let-bound closure");
+}
+
+/// M20-A1-R05: Closure returning closure (higher-order function pointer).
+#[test]
+fn regress_m20a1_r05_closure_chain() {
+    let src = r#"
+fn make_adder(x: Int) -> Int {
+  var adder = |y| x + y;
+  return adder(10);
+}
+fn main() -> Int {
+  return make_adder(5);
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define i64 @__closure_"), "M20-A1: closure in function");
+}

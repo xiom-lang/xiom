@@ -191,12 +191,21 @@ This is the compiler users actually run (`xiom.exe`). It is production-grade.
 
 ## M20 TASK LIST: PATH TO TRUE SELF-HOSTING (10/10)
 
+### Updated Honest Projection
+| After | Rating | What changes |
+|-------|--------|-------------|
+| **Today** | 3/10 | C-dependent codegen, no closures |
+| **After M20-A** | 5/10 | Closures + impl Trait + Self type unlock functional patterns |
+| **After M20-B** | 8/10 | XIOM-native compiler exists, C runtime removed from codegen |
+| **After M20-C** | **10/10** | Self-compile, round-trip, stdlib compilation, test parity |
+
 ### Phase M20-A: Language Feature Completion (weeks 1-2)
 | # | Task | Priority |
 |---|------|----------|
-| M20-A1 | Implement closure codegen: stack-capturing lambdas (FnOnce semantics), lower to struct + function pointer, emit callable LLVM IR | **CRITICAL** |
-| M20-A2 | Implement `impl Trait for Type` syntax: parser, checker registration, codegen vtable or monomorphised dispatch | HIGH |
-| M20-A3 | Fix or-pattern codegen (stmt.rs TODO) | MEDIUM |
+| M20-A1 | **Closure codegen**: stack-capturing lambdas (FnOnce semantics), lower to struct + function pointer, emit callable LLVM IR. Currently `Expr::Closure` compiles to constant `0` (expr.rs:1765). | **CRITICAL** |
+| M20-A2 | **`impl Trait for Type` syntax**: parser, checker registration, codegen vtable or monomorphised dispatch. Currently interfaces are structural-only (name coincidence). | HIGH |
+| M20-A3 | Fix or-pattern codegen (stmt.rs TODO at line 641) | MEDIUM |
+| M20-A4 | **`Self` type in trait methods**: `fn clone() -> Self` is essential for reusable traits. Without it, every trait method must name the concrete type, making traits non-reusable across types. | HIGH |
 
 ### Phase M20-B: Self-Host Compiler Rewrite (weeks 3-6)
 | # | Task | Priority |
@@ -207,14 +216,79 @@ This is the compiler users actually run (`xiom.exe`). It is production-grade.
 | M20-B4 | Implement semantic analysis: type checker, symbol resolution, scope management | HIGH |
 | M20-B5 | Implement borrow checker in XIOM | MEDIUM |
 | M20-B6 | Remove C runtime dependency for codegen (keep only for system calls) | HIGH |
+| M20-B7 | **Generics + monomorphisation in XIOM**: the current selfhost only handles simple function signatures. True self-hosting requires the XIOM compiler to monomorphise generics (the Rust compiler currently does this). Estimated ~500 lines of additional XIOM code. | HIGH |
 
 ### Phase M20-C: Bootstrapping & Validation (weeks 7-8)
 | # | Task | Priority |
 |---|------|----------|
 | M20-C1 | Self-compile: xiom.exe compiles xiomc.xi → xiomc.exe | **CRITICAL** |
 | M20-C2 | Round-trip: xiomc.exe compiles xiomc.xi → xiomc2.exe, binary identical | **CRITICAL** |
-| M20-C3 | Self-host test suite: xiomc passes all 1067 tests | **CRITICAL** |
+| M20-C3 | Self-host test suite: xiomc passes all test suites | **CRITICAL** |
 | M20-C4 | Performance parity: self-hosted compiler within 2x of Rust compiler | MEDIUM |
+| M20-C5 | **Stdlib self-compilation**: the selfhosted compiler must also compile the stdlib (io.xi, string.xi, collections, etc.) and produce correct binaries. Without this, you have a compiler that can only compile itself, not real programs. | **CRITICAL** |
+
+---
+
+## M20 TEST PLAN: ~50 new tests needed
+
+### Test Gap 1: Differential tests for self-hosted output (20 tests)
+Expand `full_diff_tests.rs` to test EVERY language feature through the selfhost compiler path, comparing output against the Rust compiler.
+
+### Test Gap 2: Closure tests (10 tests)
+| # | Test |
+|---|------|
+| T-A1-1 | Stack-capturing closure (capture by value) |
+| T-A1-2 | Closure as function argument |
+| T-A1-3 | Closure returning value |
+| T-A1-4 | Nested closures |
+| T-A1-5 | Closure in match arms |
+| T-A1-6 | Closure with generic parameters |
+| T-A1-7 | Multiple closures in same scope |
+| T-A1-8 | Closure capturing struct field |
+| T-A1-9 | Closure chain (return closure from function) |
+| T-A1-10 | Pipe closure (`|x, y| expr`) syntax |
+
+### Test Gap 3: `impl Trait` + Self type tests (5 tests)
+| # | Test |
+|---|------|
+| T-A2-1 | Basic `impl Trait for Type` block |
+| T-A2-2 | Multiple impls for same trait |
+| T-A2-3 | Generic impls (`impl[T] Trait for Vec[T]`) |
+| T-A2-4 | Trait bounds on functions (`where T: Trait`) |
+| T-A2-5 | `Self` type resolution in trait methods |
+
+### Test Gap 4: Bootstrap tests (5 tests)
+| # | Test |
+|---|------|
+| T-C1 | `xiom selfhost/xiomc.xi -o xiomc.exe` compiles successfully |
+| T-C2 | `xiomc.exe selfhost/xiomc.xi -o xiomc2.exe` produces identical binary |
+| T-C3 | `xiomc2.exe` passes a subset of the test suite |
+| T-C4 | Selfhost compiles stdlib correctly |
+| T-C5 | Selfhost compiles a real-world program (md_to_html.xi) |
+
+### Test Gap 5: Selfhost regression tests (10 tests)
+Every M19 bug fix re-tested through the selfhost compiler path:
+| # | Test |
+|---|------|
+| T-B-1 | read_file content verification via selfhost |
+| T-B-2 | Enum variant field collision via selfhost |
+| T-B-3 | Result[Str, E].unwrap() via selfhost |
+| T-B-4 | ptr.offset() inline via selfhost |
+| T-B-5 | *deref on ptrtoint'd pointer via selfhost |
+| T-B-6 | Large markdown → HTML via selfhost |
+| T-B-7 | String concatenation heavy load |
+| T-B-8 | Recursive functions |
+| T-B-9 | Generic function monomorphisation |
+| T-B-10 | FFI extern calls via selfhost |
+
+### Projected test count
+| Phase | Current | After |
+|-------|---------|-------|
+| Today | 1067 | — |
+| M20-A complete | 1067 | 1082 (+15: closures + impl Trait) |
+| M20-B complete | 1082 | 1112 (+30: selfhost regression + differential) |
+| M20-C complete | 1112 | 1117 (+5: bootstrap) |
+| **FINAL** | **1067** | **~1117** |
 
 ---
 

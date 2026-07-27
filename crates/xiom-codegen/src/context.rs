@@ -183,6 +183,8 @@ pub struct LocalContext {
     pub deferred_struct_types: Vec<(String, String)>,
     /// Scrutinee info for match arm field extraction
     pub scrutinee_info: Option<(String, String)>,
+    /// M20-A1: Deferred closure function definitions (emitted after current fn)
+    pub deferred_closure_defs: Vec<String>,
 }
 
 // ============================================================================

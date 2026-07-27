@@ -1017,6 +1017,8 @@ impl IrEmitter {
         self.fctx.current_receiver = None;
         self.fctx.current_ensures.clear();
         self.fctx.result_ptr = None;
+        // M20-A1: Emit any deferred closure function definitions
+        self.flush_deferred_closures();
         Ok(())
     }
 

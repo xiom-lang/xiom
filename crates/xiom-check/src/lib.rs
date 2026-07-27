@@ -2689,6 +2689,13 @@ impl Checker {
                     }
                     return *ret_ty.clone();
                 }
+                // M20-A1: Closure call — callee is Named("fn") (non-capturing lambda).
+                // Accept any args and return wildcard since we don't track closure
+                // signatures in the type system yet.
+                if matches!(&callee_ty, CheckedType::Named(n) if n == "fn") {
+                    for arg in args { let _ = self.check_expr(arg); }
+                    return CheckedType::Named("_".into());
+                }
                 // Fallback: could be a method call or unknown function
                 CheckedType::Unit
             }
@@ -2818,8 +2825,14 @@ impl Checker {
                 }
             }
             Expr::Closure(_, _, _, _) => CheckedType::Named("fn".into()),
-            Expr::PipeClosure(_, body, _) => {
+            Expr::PipeClosure(params, body, _) => {
+                // M20-A1: Add closure params to scope before checking body
+                self.push_scope();
+                for p in params {
+                    self.add_local(&p.name, CheckedType::Int);
+                }
                 let _ = self.check_expr(body);
+                self.pop_scope();
                 CheckedType::Named("fn".into())
             }
             Expr::As(inner, ty, span) => {
