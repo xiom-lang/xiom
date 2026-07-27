@@ -2021,6 +2021,16 @@ impl IrEmitter {
     /// Infer the struct type name from an expression (if it produces a struct value).
     fn struct_type_from_expr(&self, expr: &Expr) -> Option<String> {
         match expr {
+            // M18: Inlined Option/Result constructors — return the struct type
+            // so match compilation creates scrutinee alloca for inner value checks.
+            Expr::Some(..) | Expr::None(..) => {
+                if self.types.types.contains_key("Option") { Some("Option".to_string()) }
+                else { None }
+            }
+            Expr::Ok(..) | Expr::Err(..) => {
+                if self.types.types.contains_key("Result") { Some("Result".to_string()) }
+                else { None }
+            }
             Expr::Field(obj, field, _) => {
                 // 5c.29: Enum variant literal `EnumType.Variant` (e.g.
                 // `match DistanceMetric.Cosine { ... }`): the scrutinee type is
