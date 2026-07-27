@@ -1,0 +1,1 @@
+fn main() -> Int { var x = 2147483647; var y = x + 1; if y < x { return 1; } return 0; }

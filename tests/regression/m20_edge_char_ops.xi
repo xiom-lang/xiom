@@ -1,0 +1,1 @@
+fn main() -> Int { var a = 'A'; if a != 65 { return 1; } var b = 'B'; if a >= b { return 2; } return 0; }

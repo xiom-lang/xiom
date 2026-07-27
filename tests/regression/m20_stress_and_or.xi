@@ -1,0 +1,1 @@
+fn main() -> Int { var a = true && false; if a { return 1; } var b = true || false; if !b { return 2; } var c = false || (true && true); if !c { return 3; } return 0; }

@@ -1,0 +1,2 @@
+fn classify(n: Int) -> Int { if n < 0 { return 1; } elif n == 0 { return 2; } elif n < 100 { return 3; } else { return 4; } }
+fn main() -> Int { if classify(-5) != 1 { return 1; } if classify(0) != 2 { return 2; } if classify(50) != 3 { return 3; } if classify(200) != 4 { return 4; } return 0; }

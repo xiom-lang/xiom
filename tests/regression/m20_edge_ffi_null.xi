@@ -1,0 +1,1 @@
+fn main() -> Int { var p: *Int; unsafe { p = 0 as *Int; if p != (0 as *Int) { return 1; } } return 0; }
