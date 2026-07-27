@@ -966,7 +966,7 @@ impl IrEmitter {
             Type::Set(_) => "Set".to_string(),
             Type::Tuple(types) => {
                 let parts: Vec<String> = types.iter().map(Self::type_from_ast).collect();
-                format!("Tuple_{}", parts.join("_"))
+                format!("Tuple__{}", parts.join("__"))
             }
             Type::Array(size_expr, elem) => {
                 let elem_name = Self::type_from_ast(elem);
@@ -1140,6 +1140,21 @@ impl IrEmitter {
                 } else {
                     "Result".to_string()
                 }
+            }
+            Type::Tuple(types) => {
+                let name = Self::type_from_ast(ty);
+                if !self.types.type_meta.contains_key(&name) && !types.is_empty() {
+                    let fields: Vec<(String, String)> = types.iter().enumerate()
+                        .map(|(i, t)| (i.to_string(), Self::type_from_ast(t)))
+                        .collect();
+                    self.types.type_meta.insert(name.clone(), crate::context::TypeMeta {
+                        fields,
+                        derives: vec![],
+                        invariants: vec![],
+                    });
+                    self.types.types.insert(name.clone(), vec!["0".to_string()]);
+                }
+                name
             }
             other => Self::type_from_ast(other),
         }
@@ -3164,7 +3179,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                                 xiom_name
                             }
                         }).collect();
-                        format!("%struct.Tuple_{}", parts.join("_"))
+                        format!("%struct.Tuple__{}", parts.join("__"))
                     }
                     Type::Array(size_expr, elem) => {
                         // Substitute generic params in element type; resolve const size.
@@ -4140,7 +4155,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                         let t = self.infer_llvm_type(i);
                         Self::xiom_type_name_from_llvm(&t)
                     }).collect();
-                    let name = format!("Tuple_{}", parts.join("_"));
+                    let name = format!("Tuple__{}", parts.join("__"));
                     if self.types.types.contains_key(&name) || self.types.type_meta.contains_key(&name) {
                         format!("%struct.{name}")
                     } else {

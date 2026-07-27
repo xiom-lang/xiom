@@ -110,8 +110,12 @@ impl CheckedType {
             Type::Map(_, _) => CheckedType::Named("Map".into()),
             Type::Set(_) => CheckedType::Named("Set".into()),
             Type::Tuple(types) => {
-                // In Phase 0, represent tuples as Named for simplicity
-                CheckedType::Named(format!("Tuple{}", types.len()))
+                // M20: Include element types in tuple name to avoid collisions
+                // (Int, Str) → Tuple__Int__Str, not just Tuple2
+                let elem_names: Vec<String> = types.iter()
+                    .map(|t| CheckedType::from_ast_type(t).name())
+                    .collect();
+                CheckedType::Named(format!("Tuple__{}", elem_names.join("__")))
             }
             Type::Ptr(_) => CheckedType::Named("Ptr".into()),
             Type::Array(_, _) => CheckedType::Named("Array".into()),

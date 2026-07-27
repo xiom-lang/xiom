@@ -1408,3 +1408,8 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m20_block_closure_noncapture(){ assert_eq!(compile_and_run("tests\\regression\\m20_block_closure_noncapture.xi"), Some(0)); }
 #[test] fn e2e_m20_block_closure_nested()    { assert_eq!(compile_and_run("tests\\regression\\m20_block_closure_nested.xi"),     Some(0)); }
 #[test] fn e2e_m20_block_closure_void()      { assert_eq!(compile_and_run("tests\\regression\\m20_block_closure_void.xi"),       Some(0)); }
+
+// M20: Tuple return type tests
+#[test] fn e2e_m20_tuple_two_int()  { assert_eq!(compile_and_run("tests\\regression\\m20_tuple_two_int.xi"),  Some(0)); }
+#[test] fn e2e_m20_tuple_three()    { assert_eq!(compile_and_run("tests\\regression\\m20_tuple_three.xi"),    Some(0)); }
+#[test] fn e2e_m20_tuple_mixed()    { assert_eq!(compile_and_run("tests\\regression\\m20_tuple_mixed.xi"),    Some(0)); }
