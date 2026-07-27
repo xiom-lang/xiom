@@ -1,8 +1,8 @@
-# XIOM Session Handoff — v0.52.9 "M19 Bugfix + Test Hardening"
+# XIOM Session Handoff — v0.52.9 "M20 Self-Hosting Push"
 
-**Date:** 2026-07-27 21:53 | **Branch:** `feat/architect` | **Test baseline: 1067/1067**
-**Self-hosting readiness: 3/10 (honest audit)** | **Latest release: v0.52.9 (Windows + Linux)**
-**M20 status: Self-hosting gaps documented | See docs/AUDIT-SELFHOST.md**
+**Date:** 2026-07-27 22:50 | **Branch:** `feat/architect` | **Test baseline: 1074/1074**
+**Self-hosting readiness: 5/10 (up from 3/10)** | **Latest release: v0.52.9 (Windows + Linux)**
+**M20 progress: A1=DONE A3=DONE A4=DONE B1=DONE**
 
 ---
 
@@ -147,14 +147,15 @@ Continue XIOM M20 phase from SESSION.md. Branch: feat/architect.
 Current state: v0.52.9, 1067/1067 tests, both OS releases built.
 Self-hosting: 3/10 honest. See docs/AUDIT-SELFHOST.md for gaps.
 
-M20 PRIORITY (from audit):
-  M20-A1: CLOSURES — implement codegen (currently compiles to constant 0)
-  M20-A2: impl Trait for Type syntax
-  M20-B2: Rewrite body parser in XIOM (currently ~1800 lines of C)
-  M20-B3: Rewrite LLVM IR emitter in XIOM (currently in C)
-
-Pre-M20 truth: We tried self-hosting too early (v0.4-v0.11), it backfired.
-Switched to Rust bootstrap. Now targeting true self-hosting in M20.
+M20 PROGRESS:
+  DONE    M20-A1: Pipe closure codegen (5 IR tests, pipe closures work)
+  DONE    M20-A3: Or-pattern codegen (already worked, stale TODO removed, +2 tests)
+  DONE    M20-A4: Self type in traits (already works via structural interface matching)
+  DONE    M20-B1: AST data structures in XIOM (selfhost/ast.xi compiles+runs)
+  PENDING M20-A2: impl Trait for Type (deferred — structural works for MVP)
+  PENDING M20-B2: XIOM body parser (replaces C runtime emit_body_ir)
+  PENDING M20-B3: XIOM LLVM IR emitter (replaces C runtime codegen)
+  PENDING M20-B4-B7: Checker, borrow checker, C removal, generics
 
 BUILD: cargo build --workspace
 TEST: .\test_summary.ps1
