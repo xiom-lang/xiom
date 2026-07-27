@@ -1410,6 +1410,29 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         return Ok((String::new(), "void".to_string()));
                     }
                 }
+                // Builtin offset(ptr, idx): pointer arithmetic.
+                // Returns ptr + idx as a byte-offset pointer. Used by stdlib
+                // io.read_file (*(ptr.offset(i))) to index into raw buffers.
+                // Handles both real pointers (i8*) and ptrtoint'd i64 pointers.
+                if fn_name == "offset" && args.len() >= 1 {
+                    if let Some(receiver) = receiver_expr {
+                        let (ptr_val, ptr_ty) = self.compile_expr(receiver)?;
+                        let (idx_val, idx_ty) = self.compile_expr(&args[0])?;
+                        let idx = self.val_to_i64(&idx_val, &idx_ty);
+                        // Case 1: real pointer (i8* or T*)
+                        if ptr_ty.ends_with('*') {
+                            let tmp = self.fresh_tmp();
+                            self.emitln(&format!("  {tmp} = getelementptr i8, {ptr_ty} {ptr_val}, i64 {idx}"));
+                            return Ok((tmp, "i8*".to_string()));
+                        }
+                        // Case 2: ptrtoint'd pointer (i64) — add offset and return as i64
+                        if ptr_ty == "i64" {
+                            let tmp = self.fresh_tmp();
+                            self.emitln(&format!("  {tmp} = add i64 {ptr_val}, {idx}"));
+                            return Ok((tmp, "i64".to_string()));
+                        }
+                    }
+                }
                 // Builtin read(ptr): load value through raw pointer.
                 // ptr.read is generic with the same *T inference issue as write.
                 if fn_name == "read" && args.len() >= 1 {
@@ -1655,6 +1678,15 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         return Ok((f, "double".to_string()));
                                     }
                                 }
+                            }
+                            // M19: For non-struct, non-i64 field types (e.g., i8* for
+                            // Str, double for Float64, float for Float32), return the
+                            // value directly with its actual LLVM type. Previously these
+                            // fell through to val_to_i64 which corrupted the pointer
+                            // (ptrtoint round-trip), causing io.read_file().unwrap() to
+                            // return an empty string (is_ok=true but unwrap=empty).
+                            if field_ty != "i64" {
+                                return Ok((val, field_ty.to_string()));
                             }
                             // When field_ty is i64, the payload may be a heap pointer
                             // from val_to_i64 for struct payloads.  Determine the actual

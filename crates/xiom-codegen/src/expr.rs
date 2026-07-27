@@ -299,15 +299,26 @@ impl IrEmitter {
                     }
                     UnaryOp::Deref => {
                         // `*p`: load through a real pointer. `inner_ty` is e.g. `i64*`
-                        // (from a `*T` value). Load the pointee type. If the operand is
-                        // not a pointer (legacy path where a `*T` erased to i64), return
-                        // it unchanged so no invalid `load` is emitted.
-                        if !inner_ty.ends_with('*') {
-                            return Ok((val, inner_ty));
+                        // (from a `*T` value). Load the pointee type.
+                        if inner_ty.ends_with('*') {
+                            let pointee = inner_ty.trim_end_matches('*').to_string();
+                            self.emitln(&format!("  {tmp} = load {pointee}, {inner_ty} {val}"));
+                            return Ok((tmp, pointee));
                         }
-                        let pointee = inner_ty.trim_end_matches('*').to_string();
-                        self.emitln(&format!("  {tmp} = load {pointee}, {inner_ty} {val}"));
-                        return Ok((tmp, pointee));
+                        // M19: If the operand is i64 (ptrtoint'd pointer from
+                        // ptr.offset()), convert to i8* and load a byte. This
+                        // fixes *(ptr.offset(i)) in stdlib io.read_file.
+                        if inner_ty == "i64" {
+                            let ptr = self.fresh_tmp();
+                            self.emitln(&format!("  {ptr} = inttoptr i64 {val} to i8*"));
+                            let loaded = self.fresh_tmp();
+                            self.emitln(&format!("  {loaded} = load i8, i8* {ptr}"));
+                            let ext = self.fresh_tmp();
+                            self.emitln(&format!("  {ext} = zext i8 {loaded} to i64"));
+                            return Ok((ext, "i64".to_string()));
+                        }
+                        // Legacy path: not a pointer, return unchanged.
+                        return Ok((val, inner_ty));
                     }
                     UnaryOp::Ref | UnaryOp::MutRef => return Ok((val, inner_ty)),
                 }
