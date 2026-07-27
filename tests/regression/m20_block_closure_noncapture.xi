@@ -1,0 +1,1 @@
+fn main() -> Int { var f = (fn(x: Int, y: Int) -> Int { return x * y; }); if f(6, 7) != 42 { return 1; } return 0; }

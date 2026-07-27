@@ -1,0 +1,1 @@
+fn main() -> Int { var x = 5; var f = (fn(y: Int) -> Int { var t = x + y; return t * 2; }); if f(3) != 16 { return 1; } return 0; }

@@ -1,0 +1,1 @@
+fn main() -> Int { var x = 1; var f = (fn() -> Int { return x; }); if f() != 1 { return 1; } return 0; }

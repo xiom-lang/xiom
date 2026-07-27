@@ -1,0 +1,1 @@
+fn main() -> Int { var a = 100; var f = (fn(x: Int) -> Int { return a + x; }); if f(23) != 123 { return 1; } return 0; }
