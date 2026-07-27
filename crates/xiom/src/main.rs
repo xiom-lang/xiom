@@ -384,6 +384,7 @@ fn main() {
     let new_mode = args.iter().any(|a| a == "new");
     let build_mode = args.iter().any(|a| a == "build");
     let doctor_mode = args.iter().any(|a| a == "doctor" || a == "--doctor");
+    let doc_mode = args.iter().any(|a| a == "doc" || a == "--doc");
     let graph_mode = args.iter().any(|a| a == "--graph");
     let graph_format = if args.iter().any(|a| a == "--graph=mermaid" || a == "--graph-format=mermaid") {
         Some("mermaid")
@@ -457,6 +458,11 @@ fn main() {
 
     if doctor_mode {
         run_doctor();
+        return;
+    }
+
+    if doc_mode {
+        run_doc(&args);
         return;
     }
 
@@ -954,6 +960,10 @@ fn print_usage() {
     eprintln!("  --link <name>             Link a native library (repeatable, e.g. vulkan-1)");
     eprintln!("  --link-path <dir>         Add a library search path (repeatable, -L<dir>)");
     eprintln!("  --c-source <file>         Link an extra C/object file (repeatable)");
+    eprintln!();
+    eprintln!("SUBCOMMANDS:");
+    eprintln!("  doc <file.xi>       Generate documentation (Markdown/HTML)");
+    eprintln!("  doctor              Check toolchain dependencies and report status");
     eprintln!();
     eprintln!("DEPENDENCIES:");
     eprintln!("  Required: clang (LLVM) — to compile IR to native binary");
@@ -1622,4 +1632,38 @@ fn run_doctor() {
     let pkgs = std::path::Path::new(&home).join("packages");
     if pkgs.exists() { println!("  [OK] packages directory exists"); }
     else { println!("  [--] No packages (use: xiom pkg install <name>)"); }
+}
+
+/// 9B: xiom doc — generate documentation for XIOM source files.
+/// Delegates to the standalone xiom-doc binary, passing through all args
+/// after the `doc` subcommand.
+fn run_doc(args: &[String]) {
+    // Find the position of "doc" or "--doc" in args, pass everything after it
+    let doc_pos = args.iter().position(|a| a == "doc" || a == "--doc").unwrap_or(0);
+    let doc_args: Vec<&str> = args[doc_pos + 1..].iter().map(|s| s.as_str()).collect();
+
+    let home = std::env::var("XIOM_HOME").unwrap_or_else(|_| {
+        if cfg!(windows) {
+            format!("{}\\xiom", std::env::var("LOCALAPPDATA").unwrap_or_default())
+        } else {
+            format!("{}/xiom", std::env::var("HOME").unwrap_or_default())
+        }
+    });
+    let doc_bin = std::path::Path::new(&home).join("bin")
+        .join(if cfg!(windows) { "xiom-doc.exe" } else { "xiom-doc" });
+
+    if doc_bin.exists() {
+        let mut cmd = std::process::Command::new(&doc_bin);
+        cmd.args(&doc_args);
+        let status = cmd.status().unwrap_or_else(|e| {
+            eprintln!("xiom doc: failed to run xiom-doc: {e}");
+            std::process::exit(1);
+        });
+        std::process::exit(status.code().unwrap_or(1));
+    } else {
+        eprintln!("xiom doc: xiom-doc binary not found at {}", doc_bin.display());
+        eprintln!("  Build it with: cargo build -p xiom-doc --release");
+        eprintln!("  Then copy to: {}", doc_bin.display());
+        std::process::exit(1);
+    }
 }
