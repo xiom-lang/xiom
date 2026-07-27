@@ -1468,5 +1468,27 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m20_stress_string_concat()  { assert_eq!(compile_and_run("tests\\regression\\m20_stress_string_concat.xi"),   Some(0)); }
 #[test] fn e2e_m20_stress_enum_as_param()  { assert_eq!(compile_and_run("tests\\regression\\m20_stress_enum_as_param.xi"),   Some(0)); }
 #[test] fn e2e_m20_stress_result_as_param(){ assert_eq!(compile_and_run("tests\\regression\\m20_stress_result_as_param.xi"), Some(0)); }
+
+// M20: Corner-case tests
+#[test] fn e2e_m20_corner_shadow_var()     { assert_eq!(compile_and_run("tests\\regression\\m20_corner_shadow_var.xi"),      Some(0)); }
+#[test] fn e2e_m20_corner_empty_block()    { assert_eq!(compile_and_run("tests\\regression\\m20_corner_empty_block.xi"),     Some(0)); }
+#[test] fn e2e_m20_corner_nested_return()  { assert_eq!(compile_and_run("tests\\regression\\m20_corner_nested_return.xi"),   Some(0)); }
+#[test] fn e2e_m20_corner_match_default()  { assert_eq!(compile_and_run("tests\\regression\\m20_corner_match_default.xi"),   Some(0)); }
+#[test] fn e2e_m20_corner_enum_return()    { assert_eq!(compile_and_run("tests\\regression\\m20_corner_enum_return.xi"),     Some(0)); }
+#[test] fn e2e_m20_corner_large_literal()  { assert_eq!(compile_and_run("tests\\regression\\m20_corner_large_literal.xi"),   Some(0)); }
+#[test] fn e2e_m20_corner_zero_init()      { assert_eq!(compile_and_run("tests\\regression\\m20_corner_zero_init.xi"),       Some(0)); }
+#[test] fn e2e_m20_corner_if_no_else()     { assert_eq!(compile_and_run("tests\\regression\\m20_corner_if_no_else.xi"),      Some(0)); }
+#[test] fn e2e_m20_corner_while_zero()     { assert_eq!(compile_and_run("tests\\regression\\m20_corner_while_zero.xi"),      Some(0)); }
+#[test] fn e2e_m20_corner_float_neg()      { assert_eq!(compile_and_run("tests\\regression\\m20_corner_float_neg.xi"),       Some(0)); }
+#[test] fn e2e_m20_corner_pub_fn()         { assert_eq!(compile_and_run("tests\\regression\\m20_corner_pub_fn.xi"),          Some(0)); }
+#[test] fn e2e_m20_corner_const()          { assert_eq!(compile_and_run("tests\\regression\\m20_corner_const.xi"),           Some(0)); }
+#[test] fn e2e_m20_corner_method_chain()   { assert_eq!(compile_and_run("tests\\regression\\m20_corner_method_chain.xi"),    Some(0)); }
+#[test] fn e2e_m20_corner_self_method()    { assert_eq!(compile_and_run("tests\\regression\\m20_corner_self_method.xi"),     Some(0)); }
+#[test] fn e2e_m20_corner_mut_param()      { assert_eq!(compile_and_run("tests\\regression\\m20_corner_mut_param.xi"),       Some(0)); }
+#[test] fn e2e_m20_corner_two_types()      { assert_eq!(compile_and_run("tests\\regression\\m20_corner_two_types.xi"),       Some(0)); }
+#[test] fn e2e_m20_corner_unsafe_block()   { assert_eq!(compile_and_run("tests\\regression\\m20_corner_unsafe_block.xi"),    Some(0)); }
+#[test] fn e2e_m20_corner_concat_chain()   { assert_eq!(compile_and_run("tests\\regression\\m20_corner_concat_chain.xi"),    Some(0)); }
+#[test] fn e2e_m20_corner_global_var()     { assert_eq!(compile_and_run("tests\\regression\\m20_corner_global_var.xi"),      Some(0)); }
+#[test] fn e2e_m20_corner_nested_ifelse()  { assert_eq!(compile_and_run("tests\\regression\\m20_corner_nested_ifelse.xi"),   Some(0)); }
 #[test] fn e2e_m20_stress_option_as_param(){ assert_eq!(compile_and_run("tests\\regression\\m20_stress_option_as_param.xi"), Some(0)); }
 #[test] fn e2e_m20_edge_type_alias()      { assert_eq!(compile_and_run("tests\\regression\\m20_edge_type_alias.xi"),       Some(0)); }

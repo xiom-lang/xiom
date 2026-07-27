@@ -1,0 +1,1 @@
+fn main() -> Int { var x = 0; unsafe { x = 42; } if x != 42 { return 1; } return 0; }
