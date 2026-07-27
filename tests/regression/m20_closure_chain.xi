@@ -1,0 +1,1 @@
+fn make_adder(n: Int) -> Int { var f = |x| n + x; return f(5); } fn main() -> Int { if make_adder(10) != 15 { return 1; } return 0; }

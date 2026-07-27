@@ -1,0 +1,1 @@
+fn main() -> Int { var id = |x| x; if id(42) != 42 { return 1; } return 0; }

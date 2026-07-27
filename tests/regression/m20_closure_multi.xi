@@ -1,0 +1,1 @@
+fn main() -> Int { var a = 2; var b = 3; var f = |x| x + a; var g = |x| x * b; if f(g(4)) != 14 { return 1; } return 0; }
