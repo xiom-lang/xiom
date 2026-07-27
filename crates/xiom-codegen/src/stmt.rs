@@ -634,12 +634,6 @@ impl IrEmitter {
                         check_labels.push(self.fresh_block("match_check"));
                     } else if matches!(&arm.pattern, Pattern::Wildcard(_) | Pattern::Ident(_)) {
                         // Wildcard-like binding arm: acts as the default target.
-                        // (Some/None/Ok/Err/Or and non-Int/Bool literal patterns
-                        // are intentionally non-checking AND non-default here,
-                        // matching the emit loop below.)
-                        //
-                        // TODO(or-patterns): compile each alternative of
-                        // `Pattern::Or` as its own check.
                         wildcard_idx = Some(i);
                     }
                 }

@@ -4125,3 +4125,41 @@ fn main() -> Int {
     let ir = compile(src).unwrap();
     assert!(ir.contains("define i64 @__closure_"), "M20-A1: closure in function");
 }
+
+// ============================================================================
+// M20-A3 Regression Tests — Or-Pattern Codegen
+// ============================================================================
+
+/// M20-A3-R01: Integer or-patterns must compile correctly.
+#[test]
+fn regress_m20a3_r01_or_pattern_ints() {
+    let src = r#"
+fn main() -> Int {
+  var x = 1;
+  match x {
+    1 | 2 | 3 => { return 0; }
+    _ => { return 1; }
+  }
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("icmp eq i64"), "M20-A3: or-pattern int comparison");
+}
+
+/// M20-A3-R02: Enum variant or-patterns must compile.
+#[test]
+fn regress_m20a3_r02_or_pattern_enum() {
+    let src = r#"
+enum Color { Red, Green, Blue }
+fn main() -> Int {
+  var c = Color.Red;
+  match c {
+    Red | Green => { return 0; }
+    Blue => { return 1; }
+  }
+}
+"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("icmp"), "M20-A3: or-pattern enum comparison");
+    assert!(ir.contains("Color"), "M20-A3: Color enum type");
+}
