@@ -1,0 +1,1 @@
+fn main() -> Int { var r = (10 + (5 * 3)) - (20 / 4); if r != 20 { return 1; } return 0; }

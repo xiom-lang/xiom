@@ -1,0 +1,1 @@
+fn main() -> Int { if 2+3*4 != 14 { return 1; } if (2+3)*4 != 20 { return 2; } return 0; }

@@ -1,0 +1,1 @@
+fn main() -> Int { var r = Ok(42); match r { Ok(v) => { if v!=42{return 1;} } Err(_) => { return 2; } } return 0; }

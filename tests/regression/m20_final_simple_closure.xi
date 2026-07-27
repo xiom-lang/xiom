@@ -1,0 +1,1 @@
+fn main() -> Int { var dbl = |x| x*2; if dbl(21)!=42{return 1;} return 0; }

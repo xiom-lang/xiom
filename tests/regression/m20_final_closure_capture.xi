@@ -1,0 +1,1 @@
+fn main() -> Int { var n = 100; var add_n = |x| x + n; if add_n(23)!=123{return 1;} return 0; }

@@ -1,0 +1,1 @@
+fn main() -> Int { var x = (((1+2)*3-4)*5+6); if x != 31 { return 1; } return 0; }
