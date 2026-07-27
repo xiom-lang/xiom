@@ -1,0 +1,1 @@
+fn main() -> Int { let base = 100; let adder = |x| base + x; if adder(23) != 123 { return 1; } return 0; }

@@ -1,0 +1,1 @@
+fn main() -> Int { var x = 7; var f = |y| x + y; if f(3) != 10 { return 1; } return 0; }

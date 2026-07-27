@@ -1386,3 +1386,18 @@ fn e2e_m19_enum_same_field_types() {
         "M19-E2E: enum variant same-named fields must extract correct types"
     );
 }
+
+// ============================================================================
+// M20-A1 E2E Tests — Closure Codegen
+// ============================================================================
+
+#[test] fn e2e_m20_closure_capture()      { assert_eq!(compile_and_run("tests\\regression\\m20_closure_capture.xi"),       Some(0)); }
+#[test] fn e2e_m20_closure_as_arg()       { assert_eq!(compile_and_run("tests\\regression\\m20_closure_as_arg.xi"),        Some(0)); }
+#[test] fn e2e_m20_closure_multi()        { assert_eq!(compile_and_run("tests\\regression\\m20_closure_multi.xi"),         Some(0)); }
+#[test] fn e2e_m20_closure_let()          { assert_eq!(compile_and_run("tests\\regression\\m20_closure_let.xi"),           Some(0)); }
+#[test] fn e2e_m20_closure_noncapture()   { assert_eq!(compile_and_run("tests\\regression\\m20_closure_noncapture.xi"),    Some(0)); }
+#[test] fn e2e_m20_closure_multi_capture(){ assert_eq!(compile_and_run("tests\\regression\\m20_closure_multi_capture.xi"), Some(0)); }
+#[test] fn e2e_m20_closure_in_if()        { assert_eq!(compile_and_run("tests\\regression\\m20_closure_in_if.xi"),         Some(0)); }
+#[test] fn e2e_m20_closure_chain()        { assert_eq!(compile_and_run("tests\\regression\\m20_closure_chain.xi"),         Some(0)); }
+#[test] fn e2e_m20_closure_nested_scope() { assert_eq!(compile_and_run("tests\\regression\\m20_closure_nested_scope.xi"),  Some(0)); }
+#[test] fn e2e_m20_closure_identity()     { assert_eq!(compile_and_run("tests\\regression\\m20_closure_identity.xi"),      Some(0)); }
