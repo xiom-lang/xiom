@@ -583,6 +583,25 @@ pub enum TopDecl {
     Fn(FnDecl),
     Const(ConstDecl),
     Extern(ExternBlock),
+    Impl(ImplDecl),
+}
+
+// ============================================================================
+// ImplDecl — impl Trait for Type { ... }
+// ============================================================================
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImplDecl {
+    pub trait_name: Ident,
+    pub type_name: Ident,
+    pub members: Vec<ImplItem>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImplItem {
+    Fn(FnDecl),
+    Const(ConstDecl),
 }
 
 // ============================================================================
@@ -600,5 +619,28 @@ pub struct Program {
 impl Program {
     pub fn new(items: Vec<TopDecl>, span: Span) -> Self {
         Self { items, source_files: Vec::new(), root_dir: None, span }
+    }
+
+    /// M20: Expand impl blocks into freestanding functions.
+    /// `impl Trait for Type { fn m() { body } }` becomes `fn Type.m() { body }`.
+    pub fn expand_impl_blocks(&self) -> Program {
+        let mut items = Vec::new();
+        for item in &self.items {
+            if let TopDecl::Impl(impl_decl) = item {
+                let type_name = impl_decl.type_name.name.clone();
+                for member in &impl_decl.members {
+                    if let ImplItem::Fn(fn_decl) = member {
+                        let mut new_fn = fn_decl.clone();
+                        new_fn.name = Ident { name: format!("{}.{}", type_name, fn_decl.name.name), span: fn_decl.name.span };
+                        // Set the receiver so `self` resolves to the impl type
+                        new_fn.receiver = Some(Ident { name: type_name.clone(), span: impl_decl.type_name.span });
+                        items.push(TopDecl::Fn(new_fn));
+                    }
+                }
+            } else {
+                items.push(item.clone());
+            }
+        }
+        Program { items, source_files: self.source_files.clone(), root_dir: self.root_dir.clone(), span: self.span }
     }
 }

@@ -19,7 +19,7 @@ pub enum TokenKind {
     If, Elif, Else, Match, While, For, In,
     Spawn, Await, Comptime,
     Module, Use, Pub, As,
-    Type, Enum, Interface, Derive,
+    Type, Enum, Interface, Derive, Impl,
     // requires/ensures/invariant are CONTEXTUAL keywords (5c-R: interned symbols,
     // rustc lesson). They are tokenized as regular Ident and only recognized
     // as keywords at specific parser positions — so `var requires = 5;` works.
@@ -474,6 +474,7 @@ impl Lexer {
             "enum"      => TokenKind::Enum,
             "interface" => TokenKind::Interface,
             "derive"    => TokenKind::Derive,
+            "impl"      => TokenKind::Impl,
             // requires/ensures/invariant — contextuel keywords (5c-R).
             // Removed from reserved set; tokenized as regular Ident.
             "true"      => TokenKind::True,
