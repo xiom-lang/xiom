@@ -713,6 +713,11 @@ impl IrEmitter {
         // the function header so they appear at LLVM top level.
         self.flush_deferred_types();
 
+        // M20-A1: Flush any pre-body struct definitions (e.g. closure env structs)
+        // before the function definition so they're visible inside the body.
+        for pre_def in std::mem::take(&mut self.local.deferred_pre_body_defs) {
+            self.output.push_str(&pre_def);
+        }
         self.emitln(&format!("define {ret_llvm} @{name}({}) {{", params_str.join(", ")));
 
         // Recursion depth check

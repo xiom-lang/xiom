@@ -38,6 +38,10 @@ impl IrEmitter {
                 } else {
                     self.local.local_vec_elem.remove(&name.name);
                 }
+                // M20-A1: Track closure bindings for call dispatch
+                if matches!(value, Expr::PipeClosure(..) | Expr::Closure(..)) {
+                    self.local.closure_locals.insert(name.name.clone());
+                }
                 self.track_boxed_payload_binding(&name.name, value);
                 let (val, val_llvm_ty) = self.compile_expr(value)?;
                 let declared_llvm_ty: Option<String> = _ty.as_ref().map(|t| {
@@ -88,6 +92,10 @@ impl IrEmitter {
                 }
             }
             Stmt::Var(name, _ty, value, _) => {
+                // M20-A1: Track closure bindings
+                if matches!(value, Expr::PipeClosure(..) | Expr::Closure(..)) {
+                    self.local.closure_locals.insert(name.name.clone());
+                }
                 // Track array-literal bindings for Expr::Index dispatch
                 if matches!(value, Expr::Array(..)) {
                     self.local.array_locals.insert(name.name.clone());

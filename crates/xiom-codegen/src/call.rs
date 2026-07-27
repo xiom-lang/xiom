@@ -53,6 +53,42 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     Expr::Field(obj, field, _) => (Some(field.name.clone()), Some(obj)),
                     _ => (None, None),
                 };
+                // M20-A1: Closure call detection — if the callee is a local
+                // variable (bare Ident, not a known function), check if it's
+                // a closure and dispatch with env pointer.
+                if receiver_expr.is_none() {
+                    if let Some(ref name) = fn_name_opt {
+                        if self.local.closure_locals.contains(name) {
+                            // Local variable — could be a closure
+                            let compiled_args: Vec<(String, String)> = args.iter()
+                                .map(|a| self.compile_expr(a).map(|(v, t)| (v, t)))
+                                .collect::<Result<Vec<_>, _>>()?;
+                            // Load the closure variable
+                            let (callee_val, _callee_ty) = self.compile_expr(func_unwrapped)?;
+                            let env_ptr_val = self.val_to_i64(&callee_val, &_callee_ty);
+                            // Load fn_ptr from env struct (field 0)
+                            let env_ptr = self.fresh_tmp();
+                            self.emitln(&format!("  {env_ptr} = inttoptr i64 {env_ptr_val} to i64*"));
+                            let loaded_fn = self.fresh_tmp();
+                            self.emitln(&format!("  {loaded_fn} = load i64, i64* {env_ptr}"));
+                            // Build args: env_ptr first, then closure arguments
+                            let mut closure_args = vec![(env_ptr_val, "i64".to_string())];
+                            for a in &compiled_args { closure_args.push(a.clone()); }
+                            let args_str = closure_args.iter()
+                                .map(|(v, t)| format!("{t} {v}"))
+                                .collect::<Vec<_>>().join(", ");
+                            let param_types: Vec<String> = closure_args.iter()
+                                .map(|(_, t)| t.clone())
+                                .collect();
+                            let fn_ptr_ty = format!("i64 ({})*", param_types.join(", "));
+                            let fn_ptr = self.fresh_tmp();
+                            self.emitln(&format!("  {fn_ptr} = inttoptr i64 {loaded_fn} to {fn_ptr_ty}"));
+                            let tmp = self.fresh_tmp();
+                            self.emitln(&format!("  {tmp} = call i64 {fn_ptr}({args_str})"));
+                            return Ok((tmp, LLVM_I64.to_string()));
+                        }
+                    }
+                }
                 // 5c.30: G-10 implicit-self method calls (via receiver_expr
                 // handling below; resolution deferred to compile time)
                 // Capture type args from receiver_expr for `Map[Str,JsonValue].new()`.
@@ -81,16 +117,37 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let compiled_args: Vec<(String, String)> = args.iter()
                                 .map(|a| self.compile_expr(a).map(|(v, t)| (v, t)))
                                 .collect::<Result<Vec<_>, _>>()?;
-                            let args_str = compiled_args.iter()
+                            
+                            // M20-A1: If the callee is a closure (env struct pointer),
+                            // load fn_ptr from field 0 and call through it with env_ptr as first arg.
+                            // Detect closure: the value is an i64 that ptrtoint'd an env struct.
+                            let (call_target, effective_args) = if callee_ty == "i64" {
+                                // Load fn_ptr from the env struct (field 0 is always i64 fn_ptr)
+                                let env_ptr_val = self.val_to_i64(&callee_val, &callee_ty);
+                                let env_ptr = self.fresh_tmp();
+                                self.emitln(&format!("  {env_ptr} = inttoptr i64 {env_ptr_val} to i64*"));
+                                let loaded_fn = self.fresh_tmp();
+                                self.emitln(&format!("  {loaded_fn} = load i64, i64* {env_ptr}"));
+                                let fn_ptr = self.fresh_tmp();
+                                // Build argument list with env_ptr as first hidden arg
+                                let mut closure_args = vec![(env_ptr_val.clone(), "i64".to_string())];
+                                for a in &compiled_args {
+                                    closure_args.push(a.clone());
+                                }
+                                (loaded_fn, closure_args)
+                            } else {
+                                (callee_val.clone(), compiled_args)
+                            };
+                            
+                            let args_str = effective_args.iter()
                                 .map(|(v, t)| format!("{t} {v}"))
                                 .collect::<Vec<_>>().join(", ");
-                            let param_types: Vec<String> = args.iter()
-                                .map(|a| self.infer_llvm_type(a))
+                            let param_types: Vec<String> = effective_args.iter()
+                                .map(|(_, t)| t.clone())
                                 .collect();
                             let fn_ptr_ty = format!("i64 ({})*", param_types.join(", "));
                             let fn_ptr = self.fresh_tmp();
-                            let val_i64 = self.val_to_i64(&callee_val, &callee_ty);
-                            self.emitln(&format!("  {fn_ptr} = inttoptr i64 {val_i64} to {fn_ptr_ty}"));
+                            self.emitln(&format!("  {fn_ptr} = inttoptr i64 {call_target} to {fn_ptr_ty}"));
                             let tmp = self.fresh_tmp();
                             self.emitln(&format!("  {tmp} = call i64 {fn_ptr}({args_str})"));
                             return Ok((tmp, LLVM_I64.to_string()));

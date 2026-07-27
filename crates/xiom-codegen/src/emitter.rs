@@ -70,6 +70,71 @@ impl IrEmitter {
         }
     }
 
+    /// M20-A1: Collect free (captured) variables from a closure body expression.
+    /// Returns Vec of (var_name, llvm_type) for each local variable referenced
+    /// in the body that is NOT in the param list.
+    pub(crate) fn collect_free_vars(&self, expr: &Expr, param_names: &[String]) -> Vec<(String, String)> {
+        let mut used = std::collections::HashSet::new();
+        self.collect_ident_names(expr, &mut used);
+        let mut captures = Vec::new();
+        for name in used {
+            if !param_names.contains(&name) {
+                if let Some((_, llvm_ty)) = self.lookup_local(&name) {
+                    captures.push((name.clone(), llvm_ty.clone()));
+                }
+            }
+        }
+        captures
+    }
+
+    /// Recursively collect all identifier names from an expression.
+    fn collect_ident_names(&self, expr: &Expr, out: &mut std::collections::HashSet<String>) {
+        match expr {
+            Expr::Ident(id) => { out.insert(id.name.clone()); }
+            Expr::Binary(left, _, right, _) => {
+                self.collect_ident_names(left, out);
+                self.collect_ident_names(right, out);
+            }
+            Expr::Call(func, args, _) => {
+                self.collect_ident_names(func, out);
+                for a in args { self.collect_ident_names(a, out); }
+            }
+            Expr::Field(obj, _, _) | Expr::Index(obj, _, _) | Expr::Ref(obj, _) => {
+                self.collect_ident_names(obj, out);
+            }
+            Expr::Unary(_, obj, _) => {
+                self.collect_ident_names(obj, out);
+            }
+            Expr::If(cond, then_block, _elifs, _else_block, _) => {
+                self.collect_ident_names(cond, out);
+                for stmt in &then_block.stmts {
+                    self.collect_stmt_names(stmt, out);
+                }
+            }
+            Expr::PipeClosure(_, inner, _) => {
+                self.collect_ident_names(inner, out);
+            }
+            _ => {}
+        }
+    }
+
+    /// Collect identifier names from a statement-or-expression.
+    fn collect_stmt_names(&self, stmt: &StmtOrExpr, out: &mut std::collections::HashSet<String>) {
+        match stmt {
+            StmtOrExpr::Stmt(s) => self.collect_stmt_names_inner(s, out),
+            StmtOrExpr::Expr(e) => self.collect_ident_names(e, out),
+        }
+    }
+    
+    fn collect_stmt_names_inner(&self, stmt: &Stmt, out: &mut std::collections::HashSet<String>) {
+        match stmt {
+            Stmt::Expr(e, _) => self.collect_ident_names(e, out),
+            Stmt::Let(_, _, e, _) => self.collect_ident_names(e, out),
+            Stmt::Return(Some(e), _) => self.collect_ident_names(e, out),
+            _ => {}
+        }
+    }
+
     /// True if the most recently emitted line in the current function body is a
     /// basic-block terminator. Used to decide whether a fallback terminator must
     /// be appended so every block is terminated and the IR stays valid.
