@@ -532,7 +532,18 @@ impl IrEmitter {
                     BinOp::Gt => (if is_float { float_ty } else { "i64" }, if is_float { "fcmp ogt" } else { "icmp sgt" }),
                     BinOp::Le => (if is_float { float_ty } else { "i64" }, if is_float { "fcmp ole" } else { "icmp sle" }),
                     BinOp::Ge => (if is_float { float_ty } else { "i64" }, if is_float { "fcmp oge" } else { "icmp sge" }),
-                    BinOp::Assign => return Ok((r, rt)),
+                    BinOp::Assign => {
+                        // Compile the RHS value first
+                        let (r_val, r_ty) = (r.clone(), rt.clone());
+                        // Compile the LHS as an lvalue (pointer to the storage location)
+                        if let Some((l_ptr, l_ptr_ty, l_elem_ty)) = self.compile_lvalue(left) {
+                            let store_val = self.coerce_value(&r_val, &r_ty, &l_elem_ty);
+                            self.emitln(&format!("  store {l_elem_ty} {store_val}, {l_ptr_ty} {l_ptr}"));
+                            return Ok((store_val, l_elem_ty));
+                        }
+                        // Fallback: return RHS (simple variable assignment handled by let/var)
+                        return Ok((r_val, r_ty));
+                    }
                     _ => unreachable!("binary operation not lowered to LLVM IR"),
                 };
                 // For non-float comparisons, use the actual operand LLVM type

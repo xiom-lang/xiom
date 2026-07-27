@@ -215,6 +215,16 @@ impl IrEmitter {
                         self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* @{symbol}"));
                     }
                 }
+                // M20: Nested field assignment support via compile_lvalue.
+                // Only fires for field chain assignments (a.b.c = value),
+                // not simple ident, deref, or index assignments.
+                if matches!(place, Expr::Field(..)) {
+                    if let Some((l_ptr, l_ptr_ty, l_elem_ty)) = self.compile_lvalue(place) {
+                        let store_val = self.coerce_value(&val, &val_ty, &l_elem_ty);
+                        self.emitln(&format!("  store {l_elem_ty} {store_val}, {l_ptr_ty} {l_ptr}"));
+                        return Ok(());
+                    }
+                }
                 // Indexed assignment: `container[idx] = value` into a Vec (builtin
                 // {i8*, i64, i64}) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â write an i64-wide slot at data[idx]. Str is
                 // immutable at the ABI, so only Vec/Slice are handled.

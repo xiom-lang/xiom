@@ -70,6 +70,40 @@ impl IrEmitter {
         }
     }
 
+    /// M20: Compile an expression as an lvalue (pointer to its storage).
+    /// Returns Some((pointer_reg, pointer_llvm_ty, element_llvm_ty)) or None.
+    /// Supports: Ident (local variable), Field (struct field chain).
+    pub(crate) fn compile_lvalue(&mut self, expr: &Expr) -> Option<(String, String, String)> {
+        match expr {
+            Expr::Ident(id) => {
+                if let Some((alloca, llvm_ty)) = self.lookup_local(&id.name).cloned() {
+                    let elem_ty = llvm_ty.trim_end_matches('*').to_string();
+                    Some((alloca, llvm_ty, elem_ty))
+                } else { None }
+            }
+            Expr::Field(obj, field, _) => {
+                // Get the object's type and field info
+                let (obj_ptr, obj_ptr_ty, obj_elem_ty) = self.compile_lvalue(obj)?;
+                // Load the struct value to get its type
+                let struct_ty = if obj_elem_ty.starts_with("%struct.") {
+                    obj_elem_ty.clone()
+                } else {
+                    return None;
+                };
+                // Find the field index
+                let type_name = struct_ty.trim_start_matches("%struct.");
+                let field_idx = self.types.types.get(type_name)
+                    .and_then(|fields| fields.iter().position(|f| f == &field.name))?;
+                let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
+                let gep = self.fresh_tmp();
+                self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {obj_ptr}, i32 0, i32 {field_idx}"));
+                let ptr_ty = format!("{field_llvm_ty}*");
+                Some((gep, ptr_ty, field_llvm_ty))
+            }
+            _ => None,
+        }
+    }
+
     /// M20-A1: Collect free (captured) variables from a closure body expression.
     /// Returns Vec of (var_name, llvm_type) for each local variable referenced
     /// in the body that is NOT in the param list.
