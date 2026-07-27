@@ -185,6 +185,11 @@ pub struct LocalContext {
     pub scrutinee_info: Option<(String, String)>,
     /// M20-A1: Deferred closure function definitions (emitted after current fn)
     pub deferred_closure_defs: Vec<String>,
+    /// M20-A1: Deferred env struct type definitions (emitted before fn body)
+    pub deferred_pre_body_defs: Vec<String>,
+    /// M20-A1: Set of local variable names that hold closure values.
+    /// Used by the call dispatch to detect closure calls vs regular function calls.
+    pub closure_locals: HashSet<String>,
 }
 
 // ============================================================================
