@@ -1,17 +1,84 @@
-# XIOM Session Handoff — v0.52.9 "Part A: Bootstrap Compiler Ready"
+# XIOM Session Handoff — v0.52.9 "Production Hardening Phase"
 
-**Date:** 2026-07-27 23:00 | **Branch:** `feat/architect` | **Test baseline: 1074/1074**
-**Part A status: 99% — Rust bootstrap compiler production-grade**
-**Part B: Full self-hosting rewrite — see handoff prompt below**
+**Date:** 2026-07-28 01:34 | **Branch:** `feat/architect` | **Test baseline: 1186**
+**Compiler: 813/818 | Tooling: 368/368 | Pass rate: 99.58%**
 
 ---
 
-## PART A: RUST BOOTSTRAP COMPILER — WHAT SHIPPED
+## SELF-HOSTING STATUS: POSTPONED
 
-### Compiler: 706/706 compiler tests, 1074 total (1 flaky e2e known)
+**Self-hosting is POSTPONED until ~3000 tests are reached (~2000 compiler + ~1000 tooling).**
+
+We are NOT a hobby compiler. We are building a TOP-TIER production compiler
+comparable to Rust/Zig. True self-hosting (Part B) will begin ONLY when the
+Rust bootstrap compiler has proven itself with ~3000 production-grade tests
+covering every language feature, edge case, and stress scenario.
+
+The XIOM-written compiler in `selfhost/` exists (23 files) but its body parser
+and LLVM IR emitter are ~1800 lines of C. Rewriting these in XIOM is a massive
+undertaking that cannot succeed on a shaky foundation. The bootstrap compiler
+MUST be bulletproof first.
+
+**Current honest self-hosting rating: 3/10** (unchanged from M19 audit).
+We are deliberately NOT working toward Part B until Part A hits test targets.
+
+---
+
+## CRITICAL RULE: NO TEST SIMPLIFICATION
+
+**If a test has correct XIOM syntax, we FIX THE COMPILER, not the test.**
+
+Every test failure is a compiler bug. Simplifying tests to make them pass is
+CHEATING and produces a fragile compiler. When a test fails:
+1. Verify the XIOM syntax is correct
+2. If correct → fix the compiler (parser, checker, codegen)
+3. If syntax issue → adjust test to correct XIOM syntax only
+4. NEVER simplify test logic to bypass a compiler gap
+
+---
+
+## WHAT SHIPPED — M15-M20
+
+### M15-M19: Core fixes (details in docs/AUDIT-SELFHOST.md)
+- Concrete Option/Result monomorphisation
+- `io.read_file()` empty string (3-part fix: unwrap, offset, deref)
+- Enum variant payload collision
+- CLI: `xiom doc` + `doctor` in `--help`
+- Releases: Windows + Linux v0.52.9
+
+### M20: Language Features (Part A — PREPARATION for self-hosting)
+| Feature | Tests | Status |
+|---------|-------|--------|
+| Pipe closures (capturing + non-capturing) | 15 | ✓ |
+| Block closures (capturing + non-capturing) | 5 | ✓ |
+| Or-patterns | 2 | ✓ |
+| Tuple return types | 3 | ✓ |
+| `impl Trait for Type` | 5 | ✓ |
+| Nested struct field mutation | 1 | ✓ |
+| Self type in traits | — | ✓ |
+| AST types in XIOM (`selfhost/ast.xi`) | — | ✓ |
+| UInt8/Int8 LLVM types | — | ✓ |
+
+### M20: Production Hardening Tests (+119 from 1067 baseline)
+| Category | Count | Examples |
+|----------|-------|----------|
+| M19 regression | 7 | read_file, enum variants, unwrap, offset, deref |
+| Closures (pipe + block) | 20 | capture, multi, let, non-capture, chain, identity |
+| impl Trait | 5 | basic, multi, self, two-methods, generic |
+| Tuples | 3 | two-int, three, mixed |
+| Hardening (edge) | 9 | recursion, many-variants, nested-struct, while-break, string-ops, generics, match-guard, option-chain, control-flow |
+| Edge cases | 14 | FFI-null, float-precision, deep-pattern, nested-if, result-chain, multi-module, loop-nest, factorial, char-ops, bool-ops, struct-copy, early-return, while-cond, mod-neg, type-alias |
+| Stress | 20 | deep-call, many-locals, big-loop, nested-match, struct-fields, many-params, overflow, bit-ops, shift-ops, negate, ternary, and-or, float-ops, int-div, bool-return, compare, string-concat, enum-as-param, result-as-param, option-as-param |
+| Corner cases | 20 | shadow-var, empty-block, nested-return, match-default, enum-return, large-literal, zero-init, if-no-else, while-zero, float-neg, pub-fn, const, method-chain, self-method, mut-param, two-types, unsafe-block, concat-chain, global-var, nested-ifelse |
+| Final batch | 25 | arith-expr, paren-expr, double-not, chained-cmp, mixed-bool, if-value, match-value, nested-expr, return-void, early-ret-if, loop-if, double-while, struct-default, func-ptr, idempotent, reassign-var, many-returns, deep-arith, simple-closure, closure-capture, closure-chain, option-map, result-handle, tuple-pass, impl-use, multi-impl |
+
+---
+
+## TEST BASELINE — 1186 total
+
 | Suite | Count | Status |
 |-------|-------|--------|
-| E2E | 125 | 124/125 (1 flaky: read_file cleanup race) |
+| E2E | 237 | 232/237 (5 known failures) |
 | Feature Regression | 280 | All green |
 | Stdlib Execution | 41 | All green |
 | Diff | 25 | All green |
@@ -20,141 +87,233 @@
 | Integration | 119 | All green |
 | Robustness | 29 | All green |
 | Stdlib Compilation | 40 | All green |
-| Tooling (12 suites) | 368 | All green |
+| Checker | 123 | All green |
+| Parser | 58 | All green |
+| Formatter | 44 | All green |
+| LSP | 15 | All green |
+| Package Manager | 16 | All green |
+| Doc Generator | 4 | All green |
+| FFI Generator | 18 | All green |
+| MCP Server | 18 | All green |
+| Debugger | 8 | All green |
+| Verifier | 15 | All green |
+| Scripting | 34 | All green |
+| Script Diff | 15 | All green |
+| **TOTAL** | **1186** | |
 
-### Language Features: All blocks removed
-| Feature | Status |
-|---------|--------|
-| Closures (pipe style) | ✓ `|x, y| x + y` — lowered to anonymous LLVM functions |
-| Closures (block style) | Partial — `fn() { body }` traps (deferred) |
-| Or-patterns | ✓ `A \| B \| C` in match arms |
-| Self type in traits | ✓ via structural interface matching |
-| impl Trait for Type | Deferred — structural works for MVP |
-| Tuple return types | Not supported — use wrapper structs |
-| UInt8/Int8 types | ✓ Added to LLVM type map |
+---
 
-### M19 Bug Fixes (shipped earlier this session)
-- `io.read_file()` empty string — 3-part fix (unwrap, offset, deref)
-- Enum variant payload collision — Int(i64) fallback + Str handling
+## TARGET: ~3000 TESTS (Compiler: ~2000 | Tooling: ~1000)
 
-### CLI & Tooling
-- `xiom doc <file>` subcommand wired
-- `xiom doctor` in `--help`
-- `tools/md_to_html.xi` fixed and verified (SESSION.md → 4.6KB HTML)
+### Why ~3000?
+A production-grade compiler needs comprehensive coverage. Comparison:
+- Rust: ~15,000+ tests
+- Zig: ~5,000+ tests
+- TypeScript: ~30,000+ tests
 
-### Releases
+Our target of ~3000 is the MINIMUM for a trusted foundation. Every test is a
+guarantee that a language feature, edge case, or stress scenario works correctly.
+
+### M-Phase Roadmap to ~3000
+
+#### M21: Tooling Hardening — Target +200 tooling tests
+| # | Task | Tests |
+|---|------|-------|
+| M21-1 | Formatter edge cases (nested types, long lines, comments) | +40 |
+| M21-2 | Parser error recovery (malformed input, partial programs) | +40 |
+| M21-3 | Checker edge cases (type inference, generics, traits) | +40 |
+| M21-4 | LSP edge cases (completion, hover, goto-def, diagnostics) | +30 |
+| M21-5 | Package manager edge cases (deps, versions, conflicts) | +30 |
+| M21-6 | FFI generator (complex C headers, structs, unions, enums) | +20 |
+
+#### M22: Compiler Correctness — Target +200 compiler tests
+| # | Task | Tests |
+|---|------|-------|
+| M22-1 | Integer type edge cases (Int8-Int64, UInt8-UInt64, overflow) | +30 |
+| M22-2 | Float edge cases (NaN, Inf, -0, precision, rounding) | +20 |
+| M22-3 | String encoding (Unicode, null bytes, escapes, long strings) | +30 |
+| M22-4 | Enum completeness (payload patterns, nested match, guards) | +30 |
+| M22-5 | Struct completeness (nested init, field reorder, copy semantics) | +30 |
+| M22-6 | Generic completeness (multi-param, constraints, monomorphisation) | +30 |
+| M22-7 | Pattern matching (deep patterns, refutable, irrefutable) | +30 |
+
+#### M23: Standard Library — Target +200 tests
+| # | Task | Tests |
+|---|------|-------|
+| M23-1 | io module (read/write binary, stdin/stdout, directories, paths) | +40 |
+| M23-2 | string module (Unicode, formatting, search, replace, split) | +40 |
+| M23-3 | collections (Vec, Map, Set edge cases, iteration, mutation) | +40 |
+| M23-4 | math module (trig, log, exp, sqrt, random, statistics) | +30 |
+| M23-5 | memory module (alloc, free, realloc, Layout, alignment) | +30 |
+| M23-6 | time module (timestamp, duration, formatting, timezones) | +20 |
+
+#### M24: Stress & Robustness — Target +200 tests
+| # | Task | Tests |
+|---|------|-------|
+| M24-1 | Large file compilation (500+ lines, many functions, complex types) | +30 |
+| M24-2 | Deep recursion (100+ levels, mutual recursion, tail calls) | +30 |
+| M24-3 | Memory stress (many allocations, large arrays, pointer chains) | +30 |
+| M24-4 | Concurrent edge cases (thread interactions, atomic ops, locks) | +20 |
+| M24-5 | FFI stress (complex C interop, callbacks, struct layouts) | +30 |
+| M24-6 | Error recovery (compile invalid programs, verify error messages) | +30 |
+| M24-7 | Regression fuzzing (random valid programs, differential testing) | +30 |
+
+#### M25: Contracts & Verification — Target +150 tests
+| # | Task | Tests |
+|---|------|-------|
+| M25-1 | requires/ensures edge cases (complex pre/post conditions) | +40 |
+| M25-2 | Contract inheritance (interface contracts, derived types) | +30 |
+| M25-3 | Invariant checking (struct invariants, state transitions) | +30 |
+| M25-4 | Z3 verification (SMT solver integration, counterexamples) | +30 |
+| M25-5 | Runtime contract checking (performance, error messages) | +20 |
+
+#### M26: Cross-Platform — Target +150 tests
+| # | Task | Tests |
+|---|------|-------|
+| M26-1 | Windows-specific (path handling, line endings, MSVC linking) | +50 |
+| M26-2 | Linux-specific (ELF, dynamic linking, syscalls, GCC/clang) | +50 |
+| M26-3 | WASM target (browser APIs, memory model, JS interop) | +30 |
+| M26-4 | Cross-compilation (host != target, triple validation) | +20 |
+
+#### M27: Tooling Hardening — Target +200 tooling tests
+| # | Task | Tests |
+|---|------|-------|
+| M27-1 | Debugger edge cases (breakpoints, watch, stack trace, locals) | +50 |
+| M27-2 | MCP server (AI agent interactions, multi-turn, tool calls) | +50 |
+| M27-3 | Doc generator (markdown, HTML, cross-references, search) | +40 |
+| M27-4 | Verifier (complex contracts, multi-function verification) | +40 |
+| M27-5 | xiom run scripting (pipes, redirection, env vars, shebangs) | +20 |
+
+#### M28: Compiler Performance — Target +100 tests
+| # | Task | Tests |
+|---|------|-------|
+| M28-1 | Compile-time benchmarks (large programs, regression tracking) | +40 |
+| M28-2 | Optimization correctness (dead code, constant folding, inlining) | +30 |
+| M28-3 | Memory usage (peak memory, allocation patterns, leak detection) | +30 |
+
+#### M29: Final Edge Cases — Target +100 tests
+| # | Task | Tests |
+|---|------|-------|
+| M29-1 | Language corner cases (every Expr variant, every Stmt variant) | +40 |
+| M29-2 | Type system corner cases (wildcard, never, any, unknown) | +30 |
+| M29-3 | Combinatorial stress (random feature combinations, property tests) | +30 |
+
+#### M30: Release Readiness — Target +100 tests
+| # | Task | Tests |
+|---|------|-------|
+| M30-1 | Self-host preparation (differential tests, bootstrap scaffolding) | +40 |
+| M30-2 | Release validation (binary size, startup time, resource usage) | +30 |
+| M30-3 | Documentation tests (examples compile, tutorials verify) | +30 |
+
+### Projected totals after M30
+| Suite | Current | Target |
+|-------|---------|--------|
+| Compiler | 813 | ~2000 |
+| Tooling | 368 | ~1000 |
+| **TOTAL** | **1186** | **~3000** |
+
+---
+
+## KNOWN ISSUES (not blocking, documented)
+
+| Issue | Severity |
+|-------|----------|
+| Generic Float64 comparison (a > b in generic body) | Med — architectural |
+| e2e_m19_read_file_content flaky | Low — file cleanup race |
+| `|| expr` zero-arg closure | Low — parser treats as OR |
+| `&mut` in method params | Med — limited support |
+| Variable shadowing with `var` in blocks | Low — checker limitation |
+| Float literal `-1.5` unary negation | Low — parser limitation |
+
+---
+
+## RELEASE BINARIES
 | Platform | Package |
 |----------|---------|
 | Windows | `release/xiom-v0.52.9-windows-x64.zip` (16.47 MB) |
 | Linux | `release/xiom-v0.52.9-linux-x64.tar.gz` (26.17 MB) |
 
-### Known Issues (non-blocking for Part A)
-| Issue | Severity |
-|-------|----------|
-| e2e_m19_read_file_content flaky | Low — file cleanup race, not compiler bug |
-| Tuple return `(A, B)` not checker-supported | Med — use wrapper structs |
-| `|| expr` zero-arg closure parses as logical OR | Low — edge case |
-| Block-style `fn() { body }` closures trap | Med — deferred |
-| `Int.to_string()` resolution in complex expressions | Low — use `"" +` concat |
-
 ---
 
-## PART B: FULL SELF-HOSTING REWRITE — HANDOFF PROMPT
+## CONTINUATION PROMPT — M21 Phase (Tooling Hardening)
 
-Copy this prompt into a fresh Kilo session to begin the self-hosting rewrite:
+Copy this into a fresh Kilo session to continue seamlessly:
 
 ```
-Continue XIOM Part B from SESSION.md. Branch: feat/architect.
+Continue XIOM M21 phase from SESSION.md. Branch: feat/architect.
+Current state: v0.52.9, 1186 tests (813 compiler + 368 tooling).
+Target: ~3000 tests (2000 compiler + 1000 tooling).
+Self-hosting POSTPONED until ~3000 test target reached.
 
-CONTEXT: The Rust bootstrap compiler (v0.52.9) is 99% production-ready
-at 1074 tests.  It can compile arbitrary XIOM source including all of
-selfhost/.  The language has closures, enums, generics, pattern matching,
-modules, FFI, Option/Result with ?, and contracts.
+PHASE M21: Tooling Hardening — Target +200 tooling tests
 
-TASK: Write a FULL self-hosting XIOM compiler that matches the Rust
-bootstrap 1:1 — same features, same binary output, all 1074 tests pass.
-This is NOT a minimal bootstrap.  This is the real compiler, rewritten
-in XIOM, targeting identical behavior.  Expected: 50,000+ lines of XIOM.
+TASKS (in priority order):
+1. M21-1: Formatter edge cases (+40 tests)
+   - Nested type definitions with 5+ levels of indentation
+   - Long lines (200+ chars), proper wrapping
+   - Comments in every position (after expr, between params, multiline)
+   - Impl blocks, interface blocks formatting
+   - Trailing commas, semicolons handling
+   - Empty blocks, empty files
+   - Shebang line preservation
+   - Unicode identifiers formatting
+   - Mixed tabs/spaces detection and warning
 
-STRATEGY — Phase by phase, commit each milestone:
+2. M21-2: Parser error recovery (+40 tests)
+   - Malformed expressions (missing operands, extra operators)
+   - Unclosed braces, brackets, parens
+   - Wrong keyword in wrong position
+   - Recovery after parse error (continues to parse rest of file)
+   - Multiple errors in one file
+   - EOF in middle of expression/statement
+   - Garbage input (random bytes, binary data)
 
-PHASE 1: DATA STRUCTURES (selfhost/types.xi)
-  - Token enum (all token kinds: keywords, operators, literals, punctuation)
-  - AST enums (Expr, Stmt, Pattern, Type, TopDecl)
-  - Symbol table structures (Scope, Symbol, FnSig, TypeInfo)
-  - LLVM IR types (Module, Function, BasicBlock, Instruction, Value)
-  - Source location tracking (Span, SourceFile, SourceMap)
+3. M21-3: Checker edge cases (+40 tests)
+   - Recursive types (linked lists, trees)
+   - Deeply nested generic types (A[B[C[D[E]]]])
+   - Type inference with multiple constraints
+   - Ambiguous trait resolution
+   - Circular type definitions
+   - Type alias chains (5+ levels)
 
-PHASE 2: LEXER (selfhost/lexer.xi)
-  - Full tokenizer: keywords, identifiers, numbers, strings, chars, operators
-  - Comment handling (// and /* */)
-  - Error recovery: skip to next token on invalid input
-  - Token stream: peek, advance, expect, location tracking
+4. M21-4: LSP edge cases (+30 tests)
+   - Completion in various contexts
+   - Hover on complex expressions
+   - Goto-def for methods, imports, modules
+   - Diagnostics on open files (real-time checking)
+   - Document symbols, workspace symbols
+   - Code actions (auto-fix suggestions)
 
-PHASE 3: PARSER (selfhost/parser.xi)
-  - Recursive descent parser for ALL XIOM syntax
-  - Expressions: literals, binary ops, calls, field access, index, if-expr,
-    closures, struct literals, array literals, as-casts, ref/deref, try(?)
-  - Statements: let, var, if/elif/else, while, for, return, match, break, continue
-  - Patterns: wildcard, ident, literal, variant, or-pattern, Some/None/Ok/Err
-  - Top-level: fn, type(struct), enum, interface, use, module, extern, const
-  - Error recovery: synchronize on `;`, `}`, `fn`, `type`, `enum`
+5. M21-5: Package manager edge cases (+30 tests)
+   - Version resolution with conflicting deps
+   - Circular dependencies detection
+   - Missing package graceful error
+   - Package with invalid manifest
+   - Publish/install/yank workflows
+   - Git-based dependencies
 
-PHASE 4: TYPE CHECKER (selfhost/check.xi)
-  - Type representation: named, fn-ptr, generic, inferred, error
-  - Expression typing: binary ops, calls, field access, literals, closures
-  - Pattern typing: bind variables, check variant fields
-  - Function typing: param checking, return checking, generic inference
-  - Interface satisfaction: structural matching
-  - Error reporting with source locations
+6. M21-6: FFI generator (+20 tests)
+   - Complex C structs with nested types
+   - Function pointers in struct fields
+   - Union types
+   - Enum types with explicit values
+   - Opaque pointers
+   - Variadic functions
 
-PHASE 5: BORROW CHECKER (selfhost/borrow.xi)
-  - Ownership tracking: move, copy, borrow semantics
-  - Lifetime scopes: function boundaries, block boundaries
-  - Read/write borrow checking
-  - Use-after-move detection
-
-PHASE 6: LLVM IR EMITTER (selfhost/codegen.xi)
-  - Module-level: type definitions, global strings, function declarations
-  - Function-level: SSA builder, basic blocks, PHI nodes
-  - Expression codegen: literals, binary ops, calls, alloca/load/store
-  - Statement codegen: let/var, if/while/for, return, match
-  - Type lowering: XIOM types to LLVM types
-  - Struct/enum layout: GEP field access, discriminant/payload
-  - Generic monomorphisation: concrete type substitution
-  - Contract codegen: requires/ensures checks
-  - Runtime calls: xiom_str_concat, xiom_str_slice, xiom_read_file, etc.
-
-PHASE 7: INTEGRATION (selfhost/xiomc.xi — the main compiler)
-  - Command-line parsing: --run, -o, --emit-ir, --check, --target
-  - Module resolution: `use` imports, file loading, module catalog
-  - Multi-file compilation: collect all sources, resolve deps, compile in order
-  - Output: .ll file, .o via clang, .exe linking
-  - Error handling: collect all errors, report with source locations
-
-PHASE 8: BOOTSTRAPPING
-  - Self-compile: xiom.exe compiles xiomc.xi -> xiomc.exe
-  - Round-trip: xiomc.exe compiles xiomc.xi -> xiomc2.exe (binary identical)
-  - Test parity: xiomc passes all 1074 tests
-  - Toolchain: xiomc integrates with fmt, doc, pkg, lsp, mcp, dbg, verify
+CRITICAL RULES:
+- If a test has correct XIOM syntax, FIX THE COMPILER, never simplify the test
+- Every test failure is a compiler bug
+- Only adjust test syntax if it's genuinely wrong XIOM syntax
+- Use MCP agents to generate tests in parallel for speed
+- Commit after each logical batch of tests
 
 KEY FILES:
-  - Existing selfhost code: selfhost/*.xi (23 files, various stages)
-  - AST types already in XIOM: selfhost/ast.xi (compiles, runs)
-  - Lexer attempts: selfhost/lexer_v2.xi (real file I/O, needs debugging)
-  - Most advanced: selfhost/xiomc_v10.xi (file I/O, C runtime codegen)
-  - C runtime: stdlib/runtime/xiom_runtime.c (reference for codegen patterns)
-  - Rust reference: crates/xiom-codegen/src/*.rs (the code to match 1:1)
-  - Rust AST: crates/xiom-ast/src/lib.rs
-  - Rust checker: crates/xiom-check/src/lib.rs
-  - Tests: crates/xiom-codegen/tests/ (1074 tests)
-
-NOTES:
-  - Use structs for return values, NOT tuples (tuples not checker-supported)
-  - Prefer value-passing over &mut for complex state (fewer codegen edge cases)
-  - Type definitions use `;` separators: `type Foo = { a: Int; b: Str; }`
-  - Struct literals use `,` separators: `Foo{ a: 1, b: "hi" }`
-  - Every sub-file should have a fn main() self-test
+- SESSION.md (this file — current state + roadmap)
+- docs/AUDIT-SELFHOST.md (honest self-hosting assessment)
+- docs/RELEASE_PROCESS.md (release packaging)
+- tests/regression/ (E2E test .xi files — add new tests here)
+- crates/xiom-codegen/tests/e2e_tests.rs (E2E test entries)
+- crates/xiom-codegen/tests/feature_regression_tests.rs (IR tests)
 
 BUILD: cargo build --workspace
 TEST: .\test_summary.ps1
