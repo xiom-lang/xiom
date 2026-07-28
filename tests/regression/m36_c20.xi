@@ -1,0 +1,60 @@
+// M36-C20: Every type alias chain length 1-8 — chains of type aliases resolving through multiple levels
+type L1 = Int;
+type L2 = L1;
+type L3 = L2;
+type L4 = L3;
+type L5 = L4;
+type L6 = L5;
+type L7 = L6;
+type L8 = L7;
+type ChainB1 = Bool;
+type ChainB2 = ChainB1;
+type ChainB3 = ChainB2;
+type ChainB4 = ChainB3;
+type ChainF1 = Float64;
+type ChainF2 = ChainF1;
+type ChainF3 = ChainF2;
+type ChainS1 = Str;
+type ChainS2 = ChainS1;
+type ChainS3 = ChainS2;
+type ChainS4 = ChainS3;
+type ChainP1 = { x: Int; }
+type ChainP2 = ChainP1;
+type ChainP3 = ChainP2;
+fn main() -> Int {
+  var v1: L1 = 10;
+  var v2: L2 = 20;
+  var v3: L3 = 30;
+  var v4: L4 = 40;
+  var v5: L5 = 50;
+  var v6: L6 = 60;
+  var v7: L7 = 70;
+  var v8: L8 = 80;
+  if v1 != 10 { return 1; }
+  if v2 != 20 { return 2; }
+  if v3 != 30 { return 3; }
+  if v4 != 40 { return 4; }
+  if v5 != 50 { return 5; }
+  if v6 != 60 { return 6; }
+  if v7 != 70 { return 7; }
+  if v8 != 80 { return 8; }
+  var b1: ChainB1 = true;
+  var b2: ChainB2 = b1;
+  var b3: ChainB3 = b2;
+  var b4: ChainB4 = b3;
+  if b4 != true { return 9; }
+  var f1: ChainF1 = 2.5;
+  var f2: ChainF2 = f1;
+  var f3: ChainF3 = f2;
+  if f3 < 2.49 || f3 > 2.51 { return 10; }
+  var s1: ChainS1 = "ok";
+  var s2: ChainS2 = s1;
+  var s3: ChainS3 = s2;
+  var s4: ChainS4 = s3;
+  if s4 != "ok" { return 11; }
+  var p1: ChainP1 = ChainP1{ x: 99; };
+  var p2: ChainP2 = p1;
+  var p3: ChainP3 = p2;
+  if p3.x != 99 { return 12; }
+  return 0;
+}
