@@ -1901,3 +1901,182 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m32_x13() { assert_eq!(compile_and_run("tests\\regression\\m32_x13.xi"), Some(0)); }
 #[test] fn e2e_m32_x14() { assert_eq!(compile_and_run("tests\\regression\\m32_x14.xi"), Some(0)); }
 #[test] fn e2e_m32_x15() { assert_eq!(compile_and_run("tests\\regression\\m32_x15.xi"), Some(0)); }
+
+// ── M33-Y: Deep Combinatorial Stress (7+ features per test) ─────────────
+// Each test combines: struct + enum + generic + match + contract + method + module
+// with differential testing (two+ implementations produce the same result).
+#[test] fn e2e_m33_y01() { assert_eq!(compile_and_run("tests\\regression\\m33_y01.xi"), Some(0)); }
+#[test] fn e2e_m33_y02() { assert_eq!(compile_and_run("tests\\regression\\m33_y02.xi"), Some(0)); }
+#[test] fn e2e_m33_y03() { assert_eq!(compile_and_run("tests\\regression\\m33_y03.xi"), Some(0)); }
+#[test] fn e2e_m33_y04() { assert_eq!(compile_and_run("tests\\regression\\m33_y04.xi"), Some(0)); }
+#[test] fn e2e_m33_y05() { assert_eq!(compile_and_run("tests\\regression\\m33_y05.xi"), Some(0)); }
+#[test] fn e2e_m33_y06() { assert_eq!(compile_and_run("tests\\regression\\m33_y06.xi"), Some(0)); }
+#[test] fn e2e_m33_y07() { assert_eq!(compile_and_run("tests\\regression\\m33_y07.xi"), Some(0)); }
+#[test] fn e2e_m33_y08() { assert_eq!(compile_and_run("tests\\regression\\m33_y08.xi"), Some(0)); }
+#[test] fn e2e_m33_y09() { assert_eq!(compile_and_run("tests\\regression\\m33_y09.xi"), Some(0)); }
+#[test] fn e2e_m33_y10() { assert_eq!(compile_and_run("tests\\regression\\m33_y10.xi"), Some(0)); }
+#[test] fn e2e_m33_y11() { assert_eq!(compile_and_run("tests\\regression\\m33_y11.xi"), Some(0)); }
+#[test] fn e2e_m33_y12() { assert_eq!(compile_and_run("tests\\regression\\m33_y12.xi"), Some(0)); }
+#[test] fn e2e_m33_y13() { assert_eq!(compile_and_run("tests\\regression\\m33_y13.xi"), Some(0)); }
+#[test] fn e2e_m33_y14() { assert_eq!(compile_and_run("tests\\regression\\m33_y14.xi"), Some(0)); }
+#[test] fn e2e_m33_y15() { assert_eq!(compile_and_run("tests\\regression\\m33_y15.xi"), Some(0)); }
+#[test] fn e2e_m33_y16() { assert_eq!(compile_and_run("tests\\regression\\m33_y16.xi"), Some(0)); }
+#[test] fn e2e_m33_y17() { assert_eq!(compile_and_run("tests\\regression\\m33_y17.xi"), Some(0)); }
+#[test] fn e2e_m33_y18() { assert_eq!(compile_and_run("tests\\regression\\m33_y18.xi"), Some(0)); }
+#[test] fn e2e_m33_y19() { assert_eq!(compile_and_run("tests\\regression\\m33_y19.xi"), Some(0)); }
+#[test] fn e2e_m33_y20() { assert_eq!(compile_and_run("tests\\regression\\m33_y20.xi"), Some(0)); }
+
+// ── M33-K: Closure / Function Pointer Tests ────────────────────────────
+// Pipe closures, block closures, function pointer types, higher-order,
+// closure chains, generic closures, struct fields, early return,
+// match arms, while loops, compound ops, returning closures
+#[test] fn e2e_m33_k01() { assert_eq!(compile_and_run("tests\\regression\\m33_k01.xi"), Some(0)); }
+#[test] fn e2e_m33_k02() { assert_eq!(compile_and_run("tests\\regression\\m33_k02.xi"), Some(0)); }
+#[test] fn e2e_m33_k03() { assert_eq!(compile_and_run("tests\\regression\\m33_k03.xi"), Some(0)); }
+#[test] fn e2e_m33_k04() { assert_eq!(compile_and_run("tests\\regression\\m33_k04.xi"), Some(0)); }
+#[test] fn e2e_m33_k05() { assert_eq!(compile_and_run("tests\\regression\\m33_k05.xi"), Some(0)); }
+#[test] fn e2e_m33_k06() { assert_eq!(compile_and_run("tests\\regression\\m33_k06.xi"), Some(0)); }
+#[test] fn e2e_m33_k07() { assert_eq!(compile_and_run("tests\\regression\\m33_k07.xi"), Some(0)); }
+#[test] fn e2e_m33_k08() { assert_eq!(compile_and_run("tests\\regression\\m33_k08.xi"), Some(0)); }
+#[test] fn e2e_m33_k09() { assert_eq!(compile_and_run("tests\\regression\\m33_k09.xi"), Some(0)); }
+#[test] fn e2e_m33_k10() { assert_eq!(compile_and_run("tests\\regression\\m33_k10.xi"), Some(0)); }
+#[test] fn e2e_m33_k11() { assert_eq!(compile_and_run("tests\\regression\\m33_k11.xi"), Some(0)); }
+#[test] fn e2e_m33_k12() { assert_eq!(compile_and_run("tests\\regression\\m33_k12.xi"), Some(0)); }
+#[test] fn e2e_m33_k13() { assert_eq!(compile_and_run("tests\\regression\\m33_k13.xi"), Some(0)); }
+#[test] fn e2e_m33_k14() { assert_eq!(compile_and_run("tests\\regression\\m33_k14.xi"), Some(0)); }
+#[test] fn e2e_m33_k15() { assert_eq!(compile_and_run("tests\\regression\\m33_k15.xi"), Some(0)); }
+#[test] fn e2e_m33_k16() { assert_eq!(compile_and_run("tests\\regression\\m33_k16.xi"), Some(0)); }
+#[test] fn e2e_m33_k17() { assert_eq!(compile_and_run("tests\\regression\\m33_k17.xi"), Some(0)); }
+#[test] fn e2e_m33_k18() { assert_eq!(compile_and_run("tests\\regression\\m33_k18.xi"), Some(0)); }
+#[test] fn e2e_m33_k19() { assert_eq!(compile_and_run("tests\\regression\\m33_k19.xi"), Some(0)); }
+#[test] fn e2e_m33_k20() { assert_eq!(compile_and_run("tests\\regression\\m33_k20.xi"), Some(0)); }
+
+#[test] fn e2e_m33_r01() { assert_eq!(compile_and_run("tests\\regression\\m33_r01.xi"), Some(0)); }
+#[test] fn e2e_m33_r02() { assert_eq!(compile_and_run("tests\\regression\\m33_r02.xi"), Some(0)); }
+#[test] fn e2e_m33_r03() { assert_eq!(compile_and_run("tests\\regression\\m33_r03.xi"), Some(0)); }
+#[test] fn e2e_m33_r04() { assert_eq!(compile_and_run("tests\\regression\\m33_r04.xi"), Some(0)); }
+#[test] fn e2e_m33_r05() { assert_eq!(compile_and_run("tests\\regression\\m33_r05.xi"), Some(0)); }
+#[test] fn e2e_m33_r06() { assert_eq!(compile_and_run("tests\\regression\\m33_r06.xi"), Some(0)); }
+#[test] fn e2e_m33_r07() { assert_eq!(compile_and_run("tests\\regression\\m33_r07.xi"), Some(0)); }
+#[test] fn e2e_m33_r08() { assert_eq!(compile_and_run("tests\\regression\\m33_r08.xi"), Some(0)); }
+#[test] fn e2e_m33_r09() { assert_eq!(compile_and_run("tests\\regression\\m33_r09.xi"), Some(0)); }
+#[test] fn e2e_m33_r10() { assert_eq!(compile_and_run("tests\\regression\\m33_r10.xi"), Some(0)); }
+#[test] fn e2e_m33_r11() { assert_eq!(compile_and_run("tests\\regression\\m33_r11.xi"), Some(0)); }
+#[test] fn e2e_m33_r12() { assert_eq!(compile_and_run("tests\\regression\\m33_r12.xi"), Some(0)); }
+#[test] fn e2e_m33_r13() { assert_eq!(compile_and_run("tests\\regression\\m33_r13.xi"), Some(0)); }
+#[test] fn e2e_m33_r14() { assert_eq!(compile_and_run("tests\\regression\\m33_r14.xi"), Some(0)); }
+#[test] fn e2e_m33_r15() { assert_eq!(compile_and_run("tests\\regression\\m33_r15.xi"), Some(0)); }
+#[test] fn e2e_m33_r16() { assert_eq!(compile_and_run("tests\\regression\\m33_r16.xi"), Some(0)); }
+#[test] fn e2e_m33_r17() { assert_eq!(compile_and_run("tests\\regression\\m33_r17.xi"), Some(0)); }
+#[test] fn e2e_m33_r18() { assert_eq!(compile_and_run("tests\\regression\\m33_r18.xi"), Some(0)); }
+#[test] fn e2e_m33_r19() { assert_eq!(compile_and_run("tests\\regression\\m33_r19.xi"), Some(0)); }
+#[test] fn e2e_m33_r20() { assert_eq!(compile_and_run("tests\\regression\\m33_r20.xi"), Some(0)); }
+
+// ── M33-A: Array / Slice Stress Tests ─────────────────────────────────
+// Array creation, indexing, length, Int/Float64/Bool/Str arrays,
+// array in struct, array in function param, array return,
+// multi-dimensional patterns, bounds checking, very large array,
+// array mutation, iteration, array of struct, array of enum,
+// array comparison, array with generic, array with contract
+#[test] fn e2e_m33_a01() { assert_eq!(compile_and_run("tests\\regression\\m33_a01.xi"), Some(0)); }
+#[test] fn e2e_m33_a02() { assert_eq!(compile_and_run("tests\\regression\\m33_a02.xi"), Some(0)); }
+#[test] fn e2e_m33_a03() { assert_eq!(compile_and_run("tests\\regression\\m33_a03.xi"), Some(0)); }
+#[test] fn e2e_m33_a04() { assert_eq!(compile_and_run("tests\\regression\\m33_a04.xi"), Some(0)); }
+#[test] fn e2e_m33_a05() { assert_eq!(compile_and_run("tests\\regression\\m33_a05.xi"), Some(0)); }
+#[test] fn e2e_m33_a06() { assert_eq!(compile_and_run("tests\\regression\\m33_a06.xi"), Some(0)); }
+#[test] fn e2e_m33_a07() { assert_eq!(compile_and_run("tests\\regression\\m33_a07.xi"), Some(0)); }
+#[test] fn e2e_m33_a08() { assert_eq!(compile_and_run("tests\\regression\\m33_a08.xi"), Some(0)); }
+#[test] fn e2e_m33_a09() { assert_eq!(compile_and_run("tests\\regression\\m33_a09.xi"), Some(0)); }
+#[test] fn e2e_m33_a10() { assert_eq!(compile_and_run("tests\\regression\\m33_a10.xi"), Some(0)); }
+#[test] fn e2e_m33_a11() { assert_eq!(compile_and_run("tests\\regression\\m33_a11.xi"), Some(0)); }
+#[test] fn e2e_m33_a12() { assert_eq!(compile_and_run("tests\\regression\\m33_a12.xi"), Some(0)); }
+#[test] fn e2e_m33_a13() { assert_eq!(compile_and_run("tests\\regression\\m33_a13.xi"), Some(0)); }
+#[test] fn e2e_m33_a14() { assert_eq!(compile_and_run("tests\\regression\\m33_a14.xi"), Some(0)); }
+#[test] fn e2e_m33_a15() { assert_eq!(compile_and_run("tests\\regression\\m33_a15.xi"), Some(0)); }
+#[test] fn e2e_m33_a16() { assert_eq!(compile_and_run("tests\\regression\\m33_a16.xi"), Some(0)); }
+#[test] fn e2e_m33_a17() { assert_eq!(compile_and_run("tests\\regression\\m33_a17.xi"), Some(0)); }
+#[test] fn e2e_m33_a18() { assert_eq!(compile_and_run("tests\\regression\\m33_a18.xi"), Some(0)); }
+#[test] fn e2e_m33_a19() { assert_eq!(compile_and_run("tests\\regression\\m33_a19.xi"), Some(0)); }
+#[test] fn e2e_m33_a20() { assert_eq!(compile_and_run("tests\\regression\\m33_a20.xi"), Some(0)); }
+
+// ── M33-U: Unsafe / FFI Stress Tests ─────────────────────────────────
+// unsafe {} block, extern "C" {}, pointer creation/deref/arith,
+// null ptr, ptr to struct, ptr cast, mixed safe/unsafe, ptr chain,
+// ptr to array, ptr with contract
+#[test] fn e2e_m33_u01() { assert_eq!(compile_and_run("tests\\regression\\m33_u01.xi"), Some(0)); }
+#[test] fn e2e_m33_u02() { assert_eq!(compile_and_run("tests\\regression\\m33_u02.xi"), Some(0)); }
+#[test] fn e2e_m33_u03() { assert_eq!(compile_and_run("tests\\regression\\m33_u03.xi"), Some(0)); }
+#[test] fn e2e_m33_u04() { assert_eq!(compile_and_run("tests\\regression\\m33_u04.xi"), Some(0)); }
+#[test] fn e2e_m33_u05() { assert_eq!(compile_and_run("tests\\regression\\m33_u05.xi"), Some(0)); }
+#[test] fn e2e_m33_u06() { assert_eq!(compile_and_run("tests\\regression\\m33_u06.xi"), Some(0)); }
+#[test] fn e2e_m33_u07() { assert_eq!(compile_and_run("tests\\regression\\m33_u07.xi"), Some(0)); }
+#[test] fn e2e_m33_u08() { assert_eq!(compile_and_run("tests\\regression\\m33_u08.xi"), Some(0)); }
+#[test] fn e2e_m33_u09() { assert_eq!(compile_and_run("tests\\regression\\m33_u09.xi"), Some(0)); }
+#[test] fn e2e_m33_u10() { assert_eq!(compile_and_run("tests\\regression\\m33_u10.xi"), Some(0)); }
+#[test] fn e2e_m33_u11() { assert_eq!(compile_and_run("tests\\regression\\m33_u11.xi"), Some(0)); }
+#[test] fn e2e_m33_u12() { assert_eq!(compile_and_run("tests\\regression\\m33_u12.xi"), Some(0)); }
+#[test] fn e2e_m33_u13() { assert_eq!(compile_and_run("tests\\regression\\m33_u13.xi"), Some(0)); }
+#[test] fn e2e_m33_u14() { assert_eq!(compile_and_run("tests\\regression\\m33_u14.xi"), Some(0)); }
+#[test] fn e2e_m33_u15() { assert_eq!(compile_and_run("tests\\regression\\m33_u15.xi"), Some(0)); }
+#[test] fn e2e_m33_u16() { assert_eq!(compile_and_run("tests\\regression\\m33_u16.xi"), Some(0)); }
+#[test] fn e2e_m33_u17() { assert_eq!(compile_and_run("tests\\regression\\m33_u17.xi"), Some(0)); }
+#[test] fn e2e_m33_u18() { assert_eq!(compile_and_run("tests\\regression\\m33_u18.xi"), Some(0)); }
+#[test] fn e2e_m33_u19() { assert_eq!(compile_and_run("tests\\regression\\m33_u19.xi"), Some(0)); }
+#[test] fn e2e_m33_u20() { assert_eq!(compile_and_run("tests\\regression\\m33_u20.xi"), Some(0)); }
+
+// ── M33-B: Borrow & Ownership Stress Tests ───────────────────────────────
+// Read borrow on local, write borrow on local, multiple read borrows,
+// exclusive write borrow, borrow through function param, struct field
+// access through borrow, return a value (move), clone to duplicate,
+// let binding copies, var reassignment, borrow in if scope,
+// borrow in while scope, borrow in match, borrow with generic,
+// immutable let vs mutable var, shadowing with ownership,
+// array borrow, struct borrow, return owned from function, borrow chain
+#[test] fn e2e_m33_b01() { assert_eq!(compile_and_run("tests\\regression\\m33_b01.xi"), Some(0)); }
+#[test] fn e2e_m33_b02() { assert_eq!(compile_and_run("tests\\regression\\m33_b02.xi"), Some(0)); }
+#[test] fn e2e_m33_b03() { assert_eq!(compile_and_run("tests\\regression\\m33_b03.xi"), Some(0)); }
+#[test] fn e2e_m33_b04() { assert_eq!(compile_and_run("tests\\regression\\m33_b04.xi"), Some(0)); }
+#[test] fn e2e_m33_b05() { assert_eq!(compile_and_run("tests\\regression\\m33_b05.xi"), Some(0)); }
+#[test] fn e2e_m33_b06() { assert_eq!(compile_and_run("tests\\regression\\m33_b06.xi"), Some(0)); }
+#[test] fn e2e_m33_b07() { assert_eq!(compile_and_run("tests\\regression\\m33_b07.xi"), Some(0)); }
+#[test] fn e2e_m33_b08() { assert_eq!(compile_and_run("tests\\regression\\m33_b08.xi"), Some(0)); }
+#[test] fn e2e_m33_b09() { assert_eq!(compile_and_run("tests\\regression\\m33_b09.xi"), Some(0)); }
+#[test] fn e2e_m33_b10() { assert_eq!(compile_and_run("tests\\regression\\m33_b10.xi"), Some(0)); }
+#[test] fn e2e_m33_b11() { assert_eq!(compile_and_run("tests\\regression\\m33_b11.xi"), Some(0)); }
+#[test] fn e2e_m33_b12() { assert_eq!(compile_and_run("tests\\regression\\m33_b12.xi"), Some(0)); }
+#[test] fn e2e_m33_b13() { assert_eq!(compile_and_run("tests\\regression\\m33_b13.xi"), Some(0)); }
+#[test] fn e2e_m33_b14() { assert_eq!(compile_and_run("tests\\regression\\m33_b14.xi"), Some(0)); }
+#[test] fn e2e_m33_b15() { assert_eq!(compile_and_run("tests\\regression\\m33_b15.xi"), Some(0)); }
+#[test] fn e2e_m33_b16() { assert_eq!(compile_and_run("tests\\regression\\m33_b16.xi"), Some(0)); }
+#[test] fn e2e_m33_b17() { assert_eq!(compile_and_run("tests\\regression\\m33_b17.xi"), Some(0)); }
+#[test] fn e2e_m33_b18() { assert_eq!(compile_and_run("tests\\regression\\m33_b18.xi"), Some(0)); }
+#[test] fn e2e_m33_b19() { assert_eq!(compile_and_run("tests\\regression\\m33_b19.xi"), Some(0)); }
+#[test] fn e2e_m33_b20() { assert_eq!(compile_and_run("tests\\regression\\m33_b20.xi"), Some(0)); }
+
+// ── M33-P: Large Program Stress Tests ─────────────────────────────────
+// Each file: 500+ lines, 30-fn chain, 20 struct types, 15 enum types,
+// 10 const declarations, 5 modules, deep call chain (fn0→...→fn20),
+// wide function table (50 one-line fns), complex type graph (10+ types),
+// large match expression (20 arms), many local variables (50 per fn),
+// deeply nested blocks (10 levels), interleaved declarations,
+// all primitive types in one struct (20 fields), multi-module cross-ref.
+#[test] fn e2e_m33_p01() { assert_eq!(compile_and_run("tests\\regression\\m33_p01.xi"), Some(0)); }
+#[test] fn e2e_m33_p02() { assert_eq!(compile_and_run("tests\\regression\\m33_p02.xi"), Some(0)); }
+#[test] fn e2e_m33_p03() { assert_eq!(compile_and_run("tests\\regression\\m33_p03.xi"), Some(0)); }
+#[test] fn e2e_m33_p04() { assert_eq!(compile_and_run("tests\\regression\\m33_p04.xi"), Some(0)); }
+#[test] fn e2e_m33_p05() { assert_eq!(compile_and_run("tests\\regression\\m33_p05.xi"), Some(0)); }
+#[test] fn e2e_m33_p06() { assert_eq!(compile_and_run("tests\\regression\\m33_p06.xi"), Some(0)); }
+#[test] fn e2e_m33_p07() { assert_eq!(compile_and_run("tests\\regression\\m33_p07.xi"), Some(0)); }
+#[test] fn e2e_m33_p08() { assert_eq!(compile_and_run("tests\\regression\\m33_p08.xi"), Some(0)); }
+#[test] fn e2e_m33_p09() { assert_eq!(compile_and_run("tests\\regression\\m33_p09.xi"), Some(0)); }
+#[test] fn e2e_m33_p10() { assert_eq!(compile_and_run("tests\\regression\\m33_p10.xi"), Some(0)); }
+#[test] fn e2e_m33_p11() { assert_eq!(compile_and_run("tests\\regression\\m33_p11.xi"), Some(0)); }
+#[test] fn e2e_m33_p12() { assert_eq!(compile_and_run("tests\\regression\\m33_p12.xi"), Some(0)); }
+#[test] fn e2e_m33_p13() { assert_eq!(compile_and_run("tests\\regression\\m33_p13.xi"), Some(0)); }
+#[test] fn e2e_m33_p14() { assert_eq!(compile_and_run("tests\\regression\\m33_p14.xi"), Some(0)); }
+#[test] fn e2e_m33_p15() { assert_eq!(compile_and_run("tests\\regression\\m33_p15.xi"), Some(0)); }
+#[test] fn e2e_m33_p16() { assert_eq!(compile_and_run("tests\\regression\\m33_p16.xi"), Some(0)); }
+#[test] fn e2e_m33_p17() { assert_eq!(compile_and_run("tests\\regression\\m33_p17.xi"), Some(0)); }
+#[test] fn e2e_m33_p18() { assert_eq!(compile_and_run("tests\\regression\\m33_p18.xi"), Some(0)); }
+#[test] fn e2e_m33_p19() { assert_eq!(compile_and_run("tests\\regression\\m33_p19.xi"), Some(0)); }
+#[test] fn e2e_m33_p20() { assert_eq!(compile_and_run("tests\\regression\\m33_p20.xi"), Some(0)); }
