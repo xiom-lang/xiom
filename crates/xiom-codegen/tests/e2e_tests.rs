@@ -1519,3 +1519,25 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m20_corner_nested_ifelse()  { assert_eq!(compile_and_run("tests\\regression\\m20_corner_nested_ifelse.xi"),   Some(0)); }
 #[test] fn e2e_m20_stress_option_as_param(){ assert_eq!(compile_and_run("tests\\regression\\m20_stress_option_as_param.xi"), Some(0)); }
 #[test] fn e2e_m20_edge_type_alias()      { assert_eq!(compile_and_run("tests\\regression\\m20_edge_type_alias.xi"),       Some(0)); }
+
+// ── M22 E2E: Compiler Correctness ─────────────────────────────────────
+// M22-1: Integer type edge cases
+#[test] fn e2e_m22_int8_bounds()          { assert_eq!(compile_and_run("tests\\regression\\m22_int8_bounds.xi"),           Some(0)); }
+#[test] fn e2e_m22_uint8_max()            { assert_eq!(compile_and_run("tests\\regression\\m22_uint8_max.xi"),             Some(0)); }
+#[test] fn e2e_m22_int16_sign()           { assert_eq!(compile_and_run("tests\\regression\\m22_int16_sign.xi"),            Some(0)); }
+#[test] fn e2e_m22_int32_arithmetic()     { assert_eq!(compile_and_run("tests\\regression\\m22_int32_arithmetic.xi"),      Some(0)); }
+#[test] fn e2e_m22_int_casts()            { assert_eq!(compile_and_run("tests\\regression\\m22_int_casts.xi"),             Some(0)); }
+#[test] fn e2e_m22_int_bitwise()          { assert_eq!(compile_and_run("tests\\regression\\m22_int_bitwise.xi"),           Some(0)); }
+#[test] fn e2e_m22_int_cmp()              { assert_eq!(compile_and_run("tests\\regression\\m22_int_cmp.xi"),               Some(0)); }
+// M22-2: Float
+#[test] fn e2e_m22_float_arithmetic()     { assert_eq!(compile_and_run("tests\\regression\\m22_float_arithmetic.xi"),      Some(0)); }
+// M22-3: String
+#[test] fn e2e_m22_str_operations()       { assert_eq!(compile_and_run("tests\\regression\\m22_str_operations.xi"),        Some(0)); }
+// M22-4: Enum
+#[test] fn e2e_m22_enum_payload()         { assert_eq!(compile_and_run("tests\\regression\\m22_enum_payload.xi"),          Some(0)); }
+// M22-5: Struct
+#[test] fn e2e_m22_struct_mutate()        { assert_eq!(compile_and_run("tests\\regression\\m22_struct_mutate.xi"),         Some(99)); }
+// M22-6: Generic
+#[test] fn e2e_m22_generic_identity()     { assert_eq!(compile_and_run("tests\\regression\\m22_generic_identity.xi"),      Some(0)); }
+// M22-7: Pattern
+#[test] fn e2e_m22_pattern_guard()        { assert_eq!(compile_and_run("tests\\regression\\m22_pattern_guard.xi"),         Some(0)); }
