@@ -58,7 +58,14 @@ impl IrEmitter {
         if let (Some(a), Some(b)) = (int_width(from), int_width(to)) {
             let t = self.fresh_tmp();
             if b > a {
-                let op = if from == "i1" || from == "i8" { "zext" } else { "sext" };
+                // M17: Use reg_signed tracking for per-register signedness, falling
+                // back to type-based defaults (zext for i1/i8, sext for i16/i32).
+                // This matches the logic in widen_to_i64.
+                let is_signed = self.local.reg_signed.get(val).copied().unwrap_or_else(|| {
+                    // Default: sext for i8/i16/i32, zext for i1 (Bool).
+                    !matches!(from, "i1")
+                });
+                let op = if is_signed { "sext" } else { "zext" };
                 self.emitln(&format!("  {t} = {op} {from} {val} to {to}"));
             } else {
                 self.emitln(&format!("  {t} = trunc {from} {val} to {to}"));
@@ -268,15 +275,15 @@ impl IrEmitter {
             let bc = self.fresh_tmp();
             self.emitln(&format!("  {bc} = ptrtoint {ty} {val} to i64"));
             bc
-        } else if ty == "i1" || ty == "i8" {
-            // Narrow unsigned integer (Bool/Char/UInt8) -> i64: zero-extend.
+        } else if ty == "i1" || ty == "i8" || ty == "i16" || ty == "i32" {
+            // M17: Use reg_signed tracking for per-register signedness, falling
+            // back to type-based defaults (zext for i1/i8, sext for i16/i32).
+            let is_signed = self.local.reg_signed.get(val).copied().unwrap_or_else(|| {
+                !matches!(ty, "i1")
+            });
+            let op = if is_signed { "sext" } else { "zext" };
             let ext = self.fresh_tmp();
-            self.emitln(&format!("  {ext} = zext {ty} {val} to i64"));
-            ext
-        } else if ty == "i16" || ty == "i32" {
-            // Narrow signed integer (Int16/Int32) -> i64: sign-extend.
-            let ext = self.fresh_tmp();
-            self.emitln(&format!("  {ext} = sext {ty} {val} to i64"));
+            self.emitln(&format!("  {ext} = {op} {ty} {val} to i64"));
             ext
         } else if ty.starts_with('%') {
             // Compute the actual size of the struct type using GEP trick:

@@ -837,6 +837,14 @@ impl IrEmitter {
             self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
             self.emitln(&format!("  store {llvm_ty} %param{param_idx}, {llvm_ty}* {alloca}"));
             self.add_local(&param.name.name, alloca, &llvm_ty);
+            // M17: Track parameter signedness for narrow-int widening.
+            let xiom_ty_name = Self::type_from_ast(&param.ty);
+            self.local.local_xiom_types.insert(param.name.name.clone(), xiom_ty_name.clone());
+            if Self::is_signed_xiom_type(&xiom_ty_name) {
+                self.local.signed_locals.insert(param.name.name.clone());
+            } else {
+                self.local.signed_locals.remove(&param.name.name);
+            }
             // Record raw-pointer params (`*T`/`&T`/`&mut T` over a pointer) so that
             // `param[i]` indexing treats the i64 value as an address (byte buffer).
             if matches!(&param.ty, Type::Ptr(_)) {
