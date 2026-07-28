@@ -1571,3 +1571,8 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m30_diff_gcd()             { assert_eq!(compile_and_run("tests\\regression\\m30_diff_gcd.xi"),              Some(0)); }
 #[test] fn e2e_m30_all_primitives()       { assert_eq!(compile_and_run("tests\\regression\\m30_all_primitives.xi"),        Some(0)); }
 #[test] fn e2e_m30_struct_derive_eq()     { assert_eq!(compile_and_run("tests\\regression\\m30_struct_derive_eq.xi"),      Some(0)); }
+
+// ── M31: Combinatorial stress E2E ─────────────────────────────────────
+#[test] fn e2e_m31_diff_sum()             { assert_eq!(compile_and_run("tests\\regression\\m31_diff_sum.xi"),              Some(0)); }
+#[test] fn e2e_m31_diff_fib()             { assert_eq!(compile_and_run("tests\\regression\\m31_diff_fib.xi"),              Some(0)); }
+#[test] fn e2e_m31_all_types()            { assert_eq!(compile_and_run("tests\\regression\\m31_all_types.xi"),             Some(0)); }
