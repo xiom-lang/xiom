@@ -138,11 +138,13 @@ impl IrEmitter {
                         "i1" => {
                             let wide = self.fresh_tmp();
                             self.emitln(&format!("  {wide} = zext i1 {tmp} to i64"));
+                            self.local.reg_signed.insert(wide.clone(), false);
                             (wide, LLVM_I64.to_string())
                         }
                         "i8" | "i16" | "i32" => {
                             let is_signed = self.is_signed_local(lookup_name);
                             let wide = self.widen_to_i64_signed(&tmp, &llvm_ty, is_signed);
+                            self.local.reg_signed.insert(wide.clone(), is_signed);
                             (wide, LLVM_I64.to_string())
                         }
                         _ => (tmp, llvm_ty),
@@ -2137,22 +2139,30 @@ impl IrEmitter {
                 Ok((cv, LLVM_I64.to_string()))
             }
             Expr::As(inner, ty, _) => {
-                // G-44: `&out as *mut UInt8` — Xiom binds `&` with LOWER
-                // precedence than `as`, so the AST is `&(out as *mut UInt8)`.
-                // The `inner` of `As` is a bare `Expr::Ident("out")` — never
-                // `Expr::Ref`. We must detect the local BEFORE compile_expr
-                // loads the value and produce the alloca address as a typed
-                // pointer. Previously `out` compiled to `load i64 = 7` and
-                // `inttoptr i64 7 to i8*` caused AV on memset write-back.
-                if let Expr::Ident(id) = inner.as_ref() {
-                    let target_llvm_ty = self.llvm_type_for_fallback(&Self::type_from_ast(ty));
-                    if target_llvm_ty.ends_with('*') {
-                        if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
-                            // 5e.3: when the local is already a pointer type
-                            // (e.g. raw: *UInt8 cast to *RcInner[T]), load the
-                            // stored pointer value BEFORE bitcasting. Without this,
-                            // bitcast(i8** -> %RcInner*) corrupts the stack by
-                            // pointing to the alloca slot instead of the heap buf.
+                // G-44 / M17: `&out as *mut UInt8` and similar pointer casts.
+                // With correct parser precedence (M17 fix), the AST is
+                // `As(Ref(ident), *Type)` where `inner` is `Expr::Ref`.
+                // Legacy code (pre-M17 parser) produces `Ref(As(ident, *Type))`
+                // with `inner` as bare `Expr::Ident`. Handle both forms.
+                let target_llvm_ty = self.llvm_type_for_fallback(&Self::type_from_ast(ty));
+                // Extract the local ident from Ref(ident) / MutRef(ident) / bare Ident.
+                let ident_opt: Option<&str> = match inner.as_ref() {
+                    Expr::Ref(id_expr, _) | Expr::MutRef(id_expr, _) => {
+                        if let Expr::Ident(id) = id_expr.as_ref() {
+                            Some(id.name.as_str())
+                        } else { None }
+                    }
+                    Expr::Unary(UnaryOp::Ref, id_expr, _) | Expr::Unary(UnaryOp::MutRef, id_expr, _) => {
+                        if let Expr::Ident(id) = id_expr.as_ref() {
+                            Some(id.name.as_str())
+                        } else { None }
+                    }
+                    Expr::Ident(id) => Some(id.name.as_str()),
+                    _ => None,
+                };
+                if target_llvm_ty.ends_with('*') {
+                    if let Some(name) = ident_opt {
+                        if let Some((slot, slot_ty)) = self.lookup_local(name).cloned() {
                             let ptr_reg = self.fresh_tmp();
                             if slot_ty.ends_with('*') {
                                 let loaded = self.fresh_tmp();
@@ -2256,16 +2266,21 @@ impl IrEmitter {
                         let bw = int_width(b).expect("int_width(b) is Some (guarded above)");
                         if bw < aw {
                             self.emitln(&format!("  {tmp} = trunc {a} {val} to {b}"));
-                            Ok((tmp, target_llvm_ty.clone()))
                         } else {
                             self.emitln(&format!("  {tmp} = sext {a} {val} to {b}"));
-                            Ok((tmp, target_llvm_ty.clone()))
                         }
+                        // M17: Track signedness of the As result based on target XIOM type.
+                        let target_xiom = Self::type_from_ast(ty);
+                        self.local.reg_signed.insert(tmp.clone(), Self::is_signed_xiom_type(&target_xiom));
+                        Ok((tmp, target_llvm_ty.clone()))
                     }
                     // Fallback: coerce the value to the declared target type so the
                     // As expression's reported type always matches the value.
                     _ => {
                         let coerced = self.coerce_value(&val, &inner_llvm_ty, &target_llvm_ty);
+                        // M17: Track signedness of coerced result based on target XIOM type.
+                        let target_xiom = Self::type_from_ast(ty);
+                        self.local.reg_signed.insert(coerced.clone(), Self::is_signed_xiom_type(&target_xiom));
                         Ok((coerced, target_llvm_ty.clone()))
                     }
                 }
