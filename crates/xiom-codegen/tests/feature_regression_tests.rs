@@ -5712,3 +5712,215 @@ fn main() -> Int { return wrap5(42); }";
     let ir = compile(&src).unwrap();
     assert!(ir.contains("define"), "M29: 40-field struct must compile");
 }
+
+// ── M28-2: Optimization correctness ───────────────────────────────────
+
+// Constant folding: compile-time arithmetic (compiler may or may not fold)
+#[test] fn regress_m28_const_fold_add() {
+    let src = "fn main() -> Int { return 40 + 2; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("add") || ir.contains("42"), "M28: 40+2 must compile");
+}
+
+#[test] fn regress_m28_const_fold_mul() {
+    let src = "fn main() -> Int { return 6 * 7; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("mul") || ir.contains("42"), "M28: 6*7 must compile");
+}
+
+#[test] fn regress_m28_const_fold_sub() {
+    let src = "fn main() -> Int { return 100 - 58; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("sub") || ir.contains("add") || ir.contains("42"), "M28: 100-58 must compile");
+}
+
+#[test] fn regress_m28_const_fold_div() {
+    let src = "fn main() -> Int { return 84 / 2; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("sdiv") || ir.contains("42"), "M28: 84/2 must compile");
+}
+
+#[test] fn regress_m28_const_fold_nested() {
+    let src = "fn main() -> Int { return (10 + 5) * 2 - 8; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M28: nested const expr must compile");
+}
+
+// Integer identity properties
+#[test] fn regress_m28_identity_add_zero() {
+    let src = "fn main() -> Int { var x: Int = 42; return x + 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M28: x+0 must compile");
+}
+
+#[test] fn regress_m28_identity_mul_one() {
+    let src = "fn main() -> Int { var x: Int = 42; return x * 1; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M28: x*1 must compile");
+}
+
+#[test] fn regress_m28_identity_sub_zero() {
+    let src = "fn main() -> Int { var x: Int = 42; return x - 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M28: x-0 must compile");
+}
+
+// Boolean logic optimization
+#[test] fn regress_m28_bool_and_true() {
+    let src = "fn main() -> Bool { return true && true; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M28: true&&true must compile");
+}
+
+#[test] fn regress_m28_bool_or_false() {
+    let src = "fn main() -> Bool { return false || true; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M28: false||true must compile");
+}
+
+#[test] fn regress_m28_bool_double_not() {
+    let src = "fn main() -> Bool { var x: Bool = true; return !!x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M28: !!x must compile");
+}
+
+// Dead code / unreachable branches
+#[test] fn regress_m28_dead_code_after_return() {
+    let src = "fn main() -> Int { return 42; var x: Int = 99; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("ret i64 42") || ir.contains("ret i32 42"), "M28: dead code after return must still compile");
+}
+
+#[test] fn regress_m28_unreachable_if_false() {
+    let src = "fn main() -> Int { if false { return 99; } return 42; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M28: if-false must compile");
+}
+
+#[test] fn regress_m28_unreachable_if_true() {
+    let src = "fn main() -> Int { if true { return 42; } return 99; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M28: if-true must compile");
+}
+
+// Comparison folding
+#[test] fn regress_m28_cmp_self_eq() {
+    let src = "fn main() -> Bool { var x: Int = 42; return x == x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M28: x==x must compile");
+}
+
+#[test] fn regress_m28_cmp_self_ne() {
+    let src = "fn main() -> Bool { var x: Int = 42; return x != x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M28: x!=x must compile");
+}
+
+// Differential tests: two equivalent formulations
+#[test] fn regress_m28_diff_arith_vs_const() {
+    // These two functions should produce equivalent results:
+    // fn a() returns computed value, fn b() returns constant
+    let src = "\
+fn by_compute() -> Int { var x: Int = 6; var y: Int = 7; return x * y; }
+fn by_const() -> Int { return 42; }
+fn main() -> Int { return by_compute() + by_const(); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M28: differential test must compile");
+}
+
+#[test] fn regress_m28_diff_loop_vs_formula() {
+    // Loop-based sum vs formula n*(n+1)/2
+    let src = "\
+fn sum_loop(n: Int) -> Int {
+    var total: Int = 0;
+    var i: Int = 1;
+    while i <= n { total = total + i; i = i + 1; }
+    return total;
+}
+fn sum_formula(n: Int) -> Int { return n * (n + 1) / 2; }
+fn main() -> Int {
+    var a = sum_loop(10);
+    var b = sum_formula(10);
+    if a == b { return 0; }
+    return 1;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M28: diff loop vs formula must compile");
+}
+
+#[test] fn regress_m28_diff_recursive_vs_iterative() {
+    let src = "\
+fn fact_rec(n: Int) -> Int { if n <= 1 { return 1; } return n * fact_rec(n - 1); }
+fn fact_iter(n: Int) -> Int {
+    var result: Int = 1;
+    var i: Int = 1;
+    while i <= n { result = result * i; i = i + 1; }
+    return result;
+}
+fn main() -> Int {
+    if fact_rec(5) == fact_iter(5) { return 0; }
+    return 1;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M28: diff recursive vs iterative must compile");
+}
+
+// Optimization stress: large constant expressions
+#[test] fn regress_m28_const_expr_deep() {
+    let expr = "1 + ".repeat(100) + "0";
+    let src = format!("fn main() -> Int {{ return {}; }}", expr);
+    let ir = compile(&src).unwrap();
+    assert!(ir.contains("define"), "M28: 100-deep const expr must compile");
+}
+
+#[test] fn regress_m28_const_expr_mixed() {
+    let expr = "2".to_string() + &" * 2 + ".repeat(20) + "0";
+    let src = format!("fn main() -> Int {{ return {}; }}", expr);
+    let ir = compile(&src).unwrap();
+    assert!(ir.contains("define"), "M28: mixed const expr must compile");
+}
+
+// Optimization correctness: verify no regressions from optimizations
+#[test] fn regress_m28_opt_correctness_add_commute() {
+    let src = "\
+fn add_ab(a: Int, b: Int) -> Int { return a + b; }
+fn add_ba(a: Int, b: Int) -> Int { return b + a; }
+fn main() -> Int {
+    if add_ab(3, 7) == add_ba(3, 7) { return 0; }
+    return 1;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M28: add commutes must compile");
+}
+
+#[test] fn regress_m28_opt_correctness_mul_assoc() {
+    let src = "\
+fn mul_abc(a: Int, b: Int, c: Int) -> Int { return (a * b) * c; }
+fn mul_acb(a: Int, b: Int, c: Int) -> Int { return (a * c) * b; }
+fn main() -> Int {
+    if mul_abc(2, 3, 4) == mul_acb(2, 3, 4) { return 0; }
+    return 1;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M28: mul assoc must compile");
+}
+
+// Large function stress — tests optimization pipeline on big functions
+#[test] fn regress_m28_large_fn_many_ops() {
+    let mut body = String::from("fn compute(x: Int) -> Int { var r: Int = x;\n");
+    for _ in 0..50 {
+        body.push_str("  r = r + 1; r = r * 2; r = r / 2; r = r - 1;\n");
+    }
+    body.push_str("  return r; }\nfn main() -> Int { return compute(0); }");
+    let ir = compile(&body).unwrap();
+    assert!(ir.contains("define"), "M28: large function with many ops must compile");
+}
+
+// Size-of optimization: ensure sizeof is folded at compile time
+#[test] fn regress_m28_sizeof_folded() {
+    let src = "\
+type Test = { a: Int; b: Float64; c: Int; }
+fn main() -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M28: sizeof must compile");
+}

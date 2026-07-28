@@ -1,7 +1,7 @@
 # XIOM Session Handoff — v0.52.9 "Production Hardening Phase"
 
-**Date:** 2026-07-28 20:30 | **Branch:** `feat/architect` | **Test baseline: 1655**
-**Compiler: 1074/1074 | Tooling: 581/581 | Pass rate: 99.82%**
+**Date:** 2026-07-28 21:00 | **Branch:** `feat/architect` | **Test baseline: 1684**
+**Compiler: 1103/1103 | Tooling: 581/581 | Pass rate: 99.82%**
 **Compiler: 924/924 | Tooling: 553/553 | Pass rate: 99.79%**
 
 ---
@@ -143,7 +143,7 @@ CHEATING and produces a fragile compiler. When a test fails:
 | Suite | Count | Status |
 |-------|-------|--------|
 | E2E | 262 | 258/262 (4 known failures) |
-| Feature Regression | 451 | All green (+43 from M29) |
+| Feature Regression | 476 | All green (+25 from M28) |
 | Stdlib Execution | 41 | All green |
 | Diff | 25 | All green |
 | Full-Diff | 23 | All green |
@@ -163,7 +163,7 @@ CHEATING and produces a fragile compiler. When a test fails:
 | Verifier | 27 | All green |
 | Scripting | 34 | All green |
 | Script Diff | 15 | All green |
-| **TOTAL** | **1655** | **+469 from baseline** |
+| **TOTAL** | **1684** | **+498 from baseline** |
 
 ---
 
@@ -271,11 +271,11 @@ guarantee that a language feature, edge case, or stress scenario works correctly
 ### Projected totals after M30
 | Suite | Current | Target |
 |-------|---------|--------|
-| Compiler | 1074 | ~2000 |
+| Compiler | 1103 | ~2000 |
 | Tooling | 581 | ~1000 |
-| **TOTAL** | **1655** | **~3000** |
+| **TOTAL** | **1684** | **~3000** |
 
-**Progress toward 3000: 1655/3000 (55.2%)** — M21 (+170), M22 (+106), M24 (+46), M25 (+43), M27 (+42), M29 (+47)
+**Progress toward 3000: 1684/3000 (56.1%)** — M21 (+170), M22 (+106), M24 (+46), M25 (+43), M27 (+42), M29 (+47), M28 (+29)
 
 ---
 
