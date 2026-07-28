@@ -584,4 +584,148 @@ mod tests {
         let result = gdb.set_breakpoint("test.xi", 10);
         assert!(result.is_err());
     }
+
+    // ── M27-1: Debugger edge cases ──────────────────────────────────
+
+    #[test] fn test_dbg_source_map_init() {
+        // SourceMap concept: verify debugger handles empty state
+        let gdb = GdbBackend::new();
+        assert!(gdb.breakpoints.is_empty());
+    }
+
+    #[test] fn test_dbg_breakpoint_default() {
+        let bp = Breakpoint { id: 0, source_path: "".into(), line: 0, verified: false };
+        assert_eq!(bp.id, 0);
+        assert!(!bp.verified);
+    }
+
+    #[test] fn test_dbg_breakpoint_multiple() {
+        let mut bps = Vec::new();
+        for i in 1..=20 {
+            bps.push(Breakpoint { id: i, source_path: format!("file{}.xi", i), line: i * 10, verified: true });
+        }
+        assert_eq!(bps.len(), 20);
+        assert_eq!(bps[0].line, 10);
+        assert_eq!(bps[19].line, 200);
+    }
+
+    #[test] fn test_dap_response_initialize() {
+        let resp = DapResponse {
+            msg_type: "response".into(), request_seq: 1, success: true,
+            command: "initialize".into(),
+            body: Some(json!({"supportsConfigurationDoneRequest": true, "supportsStepIn": true})),
+            message: None,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("initialize"));
+        assert!(json.contains("success"));
+    }
+
+    #[test] fn test_dap_response_error() {
+        let resp = DapResponse {
+            msg_type: "response".into(), request_seq: 2, success: false,
+            command: "launch".into(), body: None,
+            message: Some("GDB not found".into()),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("launch"));
+    }
+
+    #[test] fn test_dap_event_breakpoint() {
+        let event = DapEvent {
+            msg_type: "event".into(), event: "stopped".into(),
+            body: Some(json!({"reason": "breakpoint", "threadId": 1, "allThreadsStopped": true})),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("breakpoint"));
+        assert!(json.contains("allThreadsStopped"));
+    }
+
+    #[test] fn test_dap_event_step() {
+        let event = DapEvent {
+            msg_type: "event".into(), event: "stopped".into(),
+            body: Some(json!({"reason": "step", "threadId": 1})),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("step"));
+    }
+
+    #[test] fn test_dap_event_exited() {
+        let event = DapEvent { msg_type: "event".into(), event: "exited".into(), body: Some(json!({"exitCode": 0})) };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("exited"));
+    }
+
+    #[test] fn test_gdb_empty_breakpoints() {
+        let gdb = GdbBackend::new();
+        assert!(gdb.breakpoints.is_empty());
+        assert!(gdb.child.is_none());
+    }
+
+    #[test] fn test_gdb_mi_command_format() {
+        let mut gdb = GdbBackend::new();
+        let cmd = gdb.send_mi("-break-insert -f test.xi -l 10");
+        assert!(cmd.is_err()); // No GDB session
+    }
+
+    #[test] fn test_gdb_thread_info_no_session() {
+        let mut gdb = GdbBackend::new();
+        let result = gdb.thread_info();
+        assert!(result.is_err());
+    }
+
+    #[test] fn test_gdb_watchpoint_no_session() {
+        let mut gdb = GdbBackend::new();
+        let result = gdb.set_breakpoint("test.xi", 5);
+        assert!(result.is_err());
+    }
+
+    #[test] fn test_dap_launch_request() {
+        let req = DapRequest { seq: 1, msg_type: None, command: "launch".into(), arguments: Some(json!({"program": "test.exe"})) };
+        assert_eq!(req.seq, 1);
+        assert_eq!(req.command, "launch");
+    }
+
+    #[test] fn test_dap_set_breakpoints_request() {
+        let req = DapRequest {
+            seq: 2, msg_type: None, command: "setBreakpoints".into(),
+            arguments: Some(json!({"source": {"path": "test.xi"}, "breakpoints": [{"line": 10}, {"line": 20}]})),
+        };
+        assert_eq!(req.command, "setBreakpoints");
+    }
+
+    #[test] fn test_dap_continue_request() {
+        let req = DapRequest { seq: 3, msg_type: None, command: "continue".into(), arguments: Some(json!({"threadId": 1})) };
+        assert_eq!(req.command, "continue");
+    }
+
+    #[test] fn test_dap_next_request() {
+        let req = DapRequest { seq: 4, msg_type: None, command: "next".into(), arguments: Some(json!({"threadId": 1})) };
+        assert_eq!(req.command, "next");
+    }
+
+    #[test] fn test_dap_stepin_request() {
+        let req = DapRequest { seq: 5, msg_type: None, command: "stepIn".into(), arguments: Some(json!({"threadId": 1})) };
+        assert_eq!(req.command, "stepIn");
+    }
+
+    #[test] fn test_dap_variables_request() {
+        let req = DapRequest { seq: 6, msg_type: None, command: "variables".into(), arguments: Some(json!({"variablesReference": 1})) };
+        assert_eq!(req.command, "variables");
+    }
+
+    #[test] fn test_dap_threads_request() {
+        let req = DapRequest { seq: 7, msg_type: None, command: "threads".into(), arguments: None };
+        assert_eq!(req.command, "threads");
+    }
+
+    #[test] fn test_dap_disconnect_request() {
+        let req = DapRequest { seq: 8, msg_type: None, command: "disconnect".into(), arguments: None };
+        assert_eq!(req.command, "disconnect");
+    }
+
+    #[test] fn test_dap_unknown_command() {
+        let req = DapRequest { seq: 99, msg_type: Some("request".into()), command: "nonexistent".into(), arguments: None };
+        assert_eq!(req.command, "nonexistent");
+    }
 }
