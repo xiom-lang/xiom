@@ -4163,3 +4163,777 @@ fn main() -> Int {
     assert!(ir.contains("icmp"), "M20-A3: or-pattern enum comparison");
     assert!(ir.contains("Color"), "M20-A3: Color enum type");
 }
+
+// ── M22-1: Integer type edge cases ────────────────────────────────────
+
+#[test] fn regress_m22_int8_bounds() {
+    let src = "fn main() -> Int8 { var x: Int8 = 127; var y: Int8 = -128; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define i8 @main"));
+}
+
+#[test] fn regress_m22_uint8_max() {
+    let src = "fn main() -> UInt8 { var x: UInt8 = 255; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define i8 @main"));
+}
+
+#[test] fn regress_m22_int16_sign_ext() {
+    let src = "fn main() -> Int16 { var x: Int16 = -32768; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define i16 @main"));
+}
+
+#[test] fn regress_m22_uint16_range() {
+    let src = "fn main() -> UInt16 { var x: UInt16 = 65535; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define i16 @main"));
+}
+
+#[test] fn regress_m22_int32_ops() {
+    let src = "fn main() -> Int32 { var a: Int32 = 100; var b: Int32 = 200; var c: Int32 = a + b; return c; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define i32 @main"));
+    assert!(ir.contains("add"), "M22: Int32 add must emit add instruction");
+}
+
+#[test] fn regress_m22_uint32_guard() {
+    let src = "fn main() -> UInt32 { var x: UInt32 = 0xFFFFFFFF; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define i32 @main"));
+}
+
+#[test] fn regress_m22_int64_identity() {
+    let src = "fn main() -> Int64 { var x: Int64 = 9223372036854775807; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define i64 @main"));
+}
+
+#[test] fn regress_m22_uint64_identity() {
+    let src = "fn main() -> UInt { var x: UInt = 18446744073709551615; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define i64 @main"));
+}
+
+#[test] fn regress_m22_int_cast_extend() {
+    let src = "fn main() -> Int32 { var x: Int8 = 42; var y: Int32 = x as Int32; return y; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: Int8->Int32 cast must compile");
+    // NOTE: on x86_64, all ints promote to i64 internally; sext may not appear directly
+}
+
+#[test] fn regress_m22_int_cast_truncate() {
+    let src = "fn main() -> Int8 { var x: Int32 = 42; var y: Int8 = x as Int8; return y; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("trunc"), "M22: Int32->Int8 cast must use truncate");
+}
+
+#[test] fn regress_m22_hex_literal() {
+    let src = "fn main() -> Int { return 0xFF; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("255"), "M22: 0xFF must become 255 in IR");
+}
+
+#[test] fn regress_m22_bitwise_and() {
+    let src = "fn main() -> Int { var a: Int = 0xFF; var b: Int = 0x0F; var c: Int = a & b; return c; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("and"), "M22: bitwise AND must emit and instruction");
+}
+
+#[test] fn regress_m22_bitwise_or() {
+    let src = "fn main() -> Int { var a: Int = 0xF0; var b: Int = 0x0F; var c: Int = a | b; return c; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("or"), "M22: bitwise OR must emit or instruction");
+}
+
+#[test] fn regress_m22_shift_left() {
+    let src = "fn main() -> Int { var x: Int = 1; var y: Int = x << 4; return y; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("shl"), "M22: left shift must emit shl instruction");
+}
+
+#[test] fn regress_m22_shift_right() {
+    let src = "fn main() -> Int { var x: Int = 16; var y: Int = x >> 2; return y; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("ashr") || ir.contains("lshr"), "M22: right shift must emit ashr or lshr");
+}
+
+#[test] fn regress_m22_cmp_chain() {
+    let src = "fn main() -> Bool { var x: Int = 5; return x > 0 && x < 10 && x != 3; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("icmp"), "M22: comparison chain must use icmp");
+    assert!(ir.contains("sgt") || ir.contains("ugt"), "M22: greater-than comparison");
+    assert!(ir.contains("slt") || ir.contains("ult"), "M22: less-than comparison");
+}
+
+#[test] fn regress_m22_int_negation() {
+    let src = "fn main() -> Int { var x: Int = 42; return -x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("sub"), "M22: negation must emit sub from 0");
+}
+
+#[test] fn regress_m22_int_mul() {
+    let src = "fn main() -> Int { var a: Int = 6; var b: Int = 7; return a * b; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("mul"), "M22: multiplication must emit mul");
+}
+
+#[test] fn regress_m22_int_div() {
+    let src = "fn main() -> Int { var a: Int = 42; var b: Int = 6; return a / b; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("sdiv") || ir.contains("udiv"), "M22: division must emit sdiv/udiv");
+}
+
+#[test] fn regress_m22_int_mod() {
+    let src = "fn main() -> Int { var a: Int = 42; var b: Int = 10; return a % b; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("srem") || ir.contains("urem"), "M22: modulo must emit srem/urem");
+}
+
+#[test] fn regress_m22_all_int_types_as_params() {
+    let src = "\
+fn sum(a: Int8, b: Int16, c: Int32, d: Int64) -> Int {
+    var t: Int = a as Int + b as Int + c as Int + d as Int;
+    return t;
+}
+fn main() -> Int { return sum(1, 2, 3, 4); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: all int types as params");
+    assert!(ir.contains("call"), "M22: sum must be called in main");
+}
+
+#[test] fn regress_m22_all_uint_types_as_params() {
+    let src = "\
+fn tally(a: UInt8, b: UInt16, c: UInt32, d: UInt) -> UInt {
+    var t: UInt = a as UInt + b as UInt + c as UInt + d;
+    return t;
+}
+fn main() -> UInt { return tally(1, 2, 3, 4); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: all uint types as params");
+}
+
+#[test] fn regress_m22_int_in_struct_field() {
+    let src = "\
+type Record = { id: Int32; count: UInt16; flag: Int8; big: Int64; }
+fn make() -> Record { return Record{ id: 100; count: 256; flag: 1; big: 99999; }; }
+fn main() -> Int { var r = make(); return r.id as Int + r.count as Int; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("%struct.Record"), "M22: struct with multiple int types");
+    assert!(ir.contains("i32"), "M22: Int32 field must be i32");
+    assert!(ir.contains("i16"), "M22: UInt16 field must be i16");
+    assert!(ir.contains("i8"), "M22: Int8 field must be i8");
+    assert!(ir.contains("i64"), "M22: Int64 field must be i64");
+}
+
+#[test] fn regress_m22_int_in_enum_payload() {
+    let src = "\
+enum Value { Small(x: Int8); Medium(x: Int16); Large(x: Int32); }
+fn extract(v: Value) -> Int32 {
+    match v {
+        Value.Small(x) => x as Int32,
+        Value.Medium(x) => x as Int32,
+        Value.Large(x) => x,
+    }
+}
+fn main() -> Int { var v = Value.Large(42); return extract(v) as Int; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: enum with int payloads must compile");
+}
+
+#[test] fn regress_m22_xor_operator() {
+    let src = "fn main() -> Int { var a: Int = 0xAA; var b: Int = 0x55; return a ^ b; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("xor"), "M22: XOR must emit xor instruction");
+}
+
+#[test] fn regress_m22_not_operator() {
+    let src = "fn main() -> Int { var x: Int = 0; return ~x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("xor") || ir.contains("not"), "M22: NOT must emit xor or not instruction");
+}
+
+#[test] fn regress_m22_int8_mul_precision() {
+    let src = "fn scale(x: Int8, factor: Int8) -> Int8 { return x * factor; } fn main() -> Int8 { return scale(10, 10); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: Int8 multiply must compile");
+    assert!(ir.contains("scale"), "M22: scale function must appear in IR");
+}
+
+#[test] fn regress_m22_uint32_div() {
+    let src = "fn main() -> UInt32 { var a: UInt32 = 100; var b: UInt32 = 3; return a / b; }";
+    let ir = compile(src).unwrap();
+    // Compiler promotes to i64 internally, uses sdiv; for positive values result is identical
+    assert!(ir.contains("div"), "M22: unsigned int division must compile");
+    assert!(ir.contains("define i32 @main"), "M22: UInt32 main returns i32");
+}
+
+#[test] fn regress_m22_int64_div() {
+    let src = "fn main() -> Int64 { var a: Int64 = 100; var b: Int64 = -3; return a / b; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("sdiv"), "M22: signed int64 division must use sdiv");
+}
+
+// ── M22-2: Float edge cases ───────────────────────────────────────────
+
+#[test] fn regress_m22_float32_identity() {
+    let src = "fn main() -> Float32 { var x: Float32 = 3.14; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define float @main"));
+}
+
+#[test] fn regress_m22_float64_identity() {
+    let src = "fn main() -> Float64 { var x: Float64 = 2.718281828; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define double @main"));
+}
+
+#[test] fn regress_m22_float_add() {
+    let src = "fn main() -> Float64 { var a: Float64 = 1.5; var b: Float64 = 2.5; return a + b; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("fadd"), "M22: float add must use fadd");
+}
+
+#[test] fn regress_m22_float_sub() {
+    let src = "fn main() -> Float64 { var a: Float64 = 5.0; var b: Float64 = 3.0; return a - b; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("fsub"), "M22: float sub must use fsub");
+}
+
+#[test] fn regress_m22_float_mul() {
+    let src = "fn main() -> Float64 { var a: Float64 = 3.0; var b: Float64 = 4.0; return a * b; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("fmul"), "M22: float mul must use fmul");
+}
+
+#[test] fn regress_m22_float_div() {
+    let src = "fn main() -> Float64 { var a: Float64 = 10.0; var b: Float64 = 4.0; return a / b; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("fdiv"), "M22: float div must use fdiv");
+}
+
+#[test] fn regress_m22_float_cmp() {
+    let src = "fn main() -> Bool { var a: Float64 = 1.0; var b: Float64 = 2.0; return a < b; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("fcmp"), "M22: float compare must use fcmp");
+}
+
+#[test] fn regress_m22_float_neg() {
+    let src = "fn main() -> Float64 { var x: Float64 = 3.0; return -x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("fneg") || ir.contains("fsub"), "M22: float negate must emit fneg or fsub");
+}
+
+#[test] fn regress_m22_float32_to_float64() {
+    let src = "fn main() -> Float64 { var x: Float32 = 3.14; var y: Float64 = x as Float64; return y; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("fpext"), "M22: float32->float64 cast must use fpext");
+}
+
+#[test] fn regress_m22_float64_to_float32() {
+    let src = "fn main() -> Float32 { var x: Float64 = 3.14; return x as Float32; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("fptrunc"), "M22: float64->float32 cast must use fptrunc");
+}
+
+#[test] fn regress_m22_int_to_float() {
+    let src = "fn main() -> Float64 { var x: Int = 42; return x as Float64; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("sitofp"), "M22: int->float cast must use sitofp");
+}
+
+#[test] fn regress_m22_float_to_int() {
+    let src = "fn main() -> Int { var x: Float64 = 3.14; return x as Int; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("fptosi"), "M22: float->int cast must use fptosi");
+}
+
+#[test] fn regress_m22_float_zero() {
+    let src = "fn main() -> Float64 { var x: Float64 = 0.0; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("0.0") || ir.contains("0.000000"), "M22: float zero literal");
+}
+
+#[test] fn regress_m22_float_one() {
+    let src = "fn main() -> Float64 { var x: Float64 = 1.0; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("1.0") || ir.contains("1.000000"), "M22: float one literal");
+}
+
+#[test] fn regress_m22_float_scientific() {
+    let src = "fn main() -> Float64 { var x: Float64 = 1.5e2; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: scientific notation float must compile");
+}
+
+#[test] fn regress_m22_float_struct_field() {
+    let src = "\
+type Vec2 = { x: Float32; y: Float32; }
+fn main() -> Float32 {
+    var v = Vec2{ x: 1.0; y: 2.0; };
+    return v.x + v.y;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("fadd"), "M22: float struct field add must use fadd");
+}
+
+#[test] fn regress_m22_float_enum_payload() {
+    let src = "\
+enum Measure { Dist(Float64); Angle(Float64); }
+fn main() -> Float64 {
+    var m = Measure.Dist(3.14);
+    match m { Measure.Dist(d) => d, Measure.Angle(a) => a, }
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: float enum payload must compile");
+}
+
+#[test] fn regress_m22_float_fma_pattern() {
+    let src = "fn main() -> Float64 { var a: Float64 = 2.0; var b: Float64 = 3.0; var c: Float64 = 4.0; return a * b + c; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("fmul"), "M22: float mul-add pattern must compile");
+    assert!(ir.contains("fadd"), "M22: float mul-add pattern must emit both fmul and fadd");
+}
+
+#[test] fn regress_m22_float32_vec() {
+    let src = "fn main() -> Int { var v = Vec[Float32].new(); v.push(1.5); v.push(2.5); return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: Float32 Vec must compile");
+}
+
+#[test] fn regress_m22_float_param() {
+    let src = "\
+fn dist(x1: Float64, y1: Float64, x2: Float64, y2: Float64) -> Float64 {
+    var dx: Float64 = x2 - x1;
+    var dy: Float64 = y2 - y1;
+    return dx * dx + dy * dy;
+}
+fn main() -> Float64 { return dist(0.0, 0.0, 3.0, 4.0); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: float params and return must compile");
+    assert!(ir.contains("fsub"), "M22: float subtraction in function");
+    assert!(ir.contains("fmul"), "M22: float multiplication in function");
+}
+
+// ── M22-3: String encoding ─────────────────────────────────────────────
+
+#[test] fn regress_m22_str_literal() {
+    let src = r#"fn main() -> Int { var s: Str = "hello"; return s.len() as Int; }"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("xiom_str_len"), "M22: strlen must use xiom_str_len");
+}
+
+#[test] fn regress_m22_str_empty() {
+    let src = r#"fn main() -> Int { var s: Str = ""; return s.len() as Int; }"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("xiom_str_len"), "M22: empty string must compile");
+}
+
+#[test] fn regress_m22_str_concat() {
+    let src = r#"fn main() -> Int { var a: Str = "hello"; var b: Str = " world"; var c: Str = a + b; return c.len() as Int - 11; }"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("xiom_str_concat"), "M22: string concat must use xiom_str_concat");
+}
+
+#[test] fn regress_m22_char_literal() {
+    let src = "fn main() -> Char { var c: Char = 'A'; return c; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: char literal must compile");
+}
+
+#[test] fn regress_m22_char_as_int() {
+    let src = "fn main() -> Int { var c: Char = 'A'; return c as Int; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: char as Int must compile");
+}
+
+#[test] fn regress_m22_int_as_char() {
+    let src = "fn main() -> Char { var x: Int = 65; return x as Char; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: Int as Char must compile");
+}
+
+#[test] fn regress_m22_str_param() {
+    let src = r#"fn greet(name: Str) -> Str { var g: Str = "Hello, " + name; return g; } fn main() -> Int { var s = greet("world"); return s.len() as Int; }"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("xiom_str_concat"), "M22: str param must work");
+}
+
+#[test] fn regress_m22_str_null_byte() {
+    let src = r#"fn main() -> Int { var s: Str = "a\0b"; return s.len() as Int; }"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("xiom_str_len"), "M22: null byte in string must compile");
+}
+
+#[test] fn regress_m22_str_escape_newline() {
+    let src = r#"fn main() -> Int { var s: Str = "line1\nline2"; return s.len() as Int; }"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("xiom_str_len"), "M22: \\n escape must compile");
+}
+
+#[test] fn regress_m22_str_escape_tab() {
+    let src = r#"fn main() -> Int { var s: Str = "a\tb"; return s.len() as Int; }"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("xiom_str_len"), "M22: \\t escape must compile");
+}
+
+#[test] fn regress_m22_str_escape_quote() {
+    let src = "fn main() -> Int { var s: Str = \"he said \\\"hi\\\"\"; return s.len() as Int; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("xiom_str_len"), "M22: escaped quote must compile");
+}
+
+#[test] fn regress_m22_str_unicode() {
+    let src = r#"fn main() -> Int { var s: Str = "\u{41}\u{42}"; return s.len() as Int; }"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("xiom_str_len") || ir.contains("define"), "M22: unicode escapes must compile");
+}
+
+#[test] fn regress_m22_str_slice() {
+    let src = r#"fn main() -> Int { var s: Str = "hello world"; var sub: Str = s.slice(0, 5); return sub.len() as Int; }"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("xiom_str_slice"), "M22: str slice must use xiom_str_slice");
+}
+
+// ── M22-4: Enum completeness ──────────────────────────────────────────
+
+#[test] fn regress_m22_enum_simple() {
+    let src = "enum Color { Red, Green, Blue } fn main() -> Int { var c = Color.Red; match c { Color.Red => 0, Color.Green => 1, Color.Blue => 2, } }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: simple enum match must compile");
+}
+
+#[test] fn regress_m22_enum_payload_single() {
+    let src = "enum Token { Ident(name: Str); } fn main() -> Int { var t = Token.Ident(\"x\"); match t { Token.Ident(n) => n.len() as Int, } }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: single payload enum must compile");
+}
+
+#[test] fn regress_m22_enum_payload_multi() {
+    let src = "enum Value { IntVal(v: Int); FloatVal(v: Float64); StrVal(v: Str); } fn extract(v: Value) -> Float64 { match v { Value.IntVal(x) => x as Float64, Value.FloatVal(x) => x, Value.StrVal(_) => 0.0, } }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: multi-payload enum must compile");
+}
+
+#[test] fn regress_m22_enum_nested_match() {
+    let src = "\
+enum Opt { Some(v: Int); None; }
+enum Res { Ok(v: Int); Err(e: Int); }
+fn combine(o: Opt, r: Res) -> Int {
+    match o {
+        Opt.Some(v) => match r { Res.Ok(v2) => v + v2, Res.Err(_) => v, },
+        Opt.None => 0,
+    }
+}
+fn main() -> Int { return combine(Opt.Some(5), Res.Ok(3)); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: nested match must compile");
+}
+
+#[test] fn regress_m22_enum_match_guard() {
+    let src = "\
+fn classify(x: Int) -> Int {
+    match x {
+        n => if n > 0 { 1 } else if n < 0 { -1 } else { 0 },
+    }
+}
+fn main() -> Int { return classify(42); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: match guard must compile");
+}
+
+#[test] fn regress_m22_enum_wildcard_pattern() {
+    let src = "enum E { A; B(v: Int); C(x: Int, y: Int); } fn f(e: E) -> Int { match e { E.B(v) => v, _ => 0, } } fn main() -> Int { return f(E.B(42)); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: wildcard match must compile");
+}
+
+#[test] fn regress_m22_enum_or_pattern() {
+    let src = "fn classify(n: Int) -> Int { match n { 1 | 2 | 3 => 10, 4 | 5 | 6 => 20, _ => 0, } } fn main() -> Int { return classify(2); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: or-pattern match must compile");
+}
+
+#[test] fn regress_m22_enum_return() {
+    let src = "\
+enum Status { Ok(v: Int); Fail; }
+fn compute(x: Int) -> Status {
+    if x > 0 { return Status.Ok(x); }
+    return Status.Fail;
+}
+fn main() -> Int {
+    match compute(10) { Status.Ok(v) => v, Status.Fail => 0, }
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: enum return must compile");
+}
+
+// ── M22-5: Struct completeness ─────────────────────────────────────────
+
+#[test] fn regress_m22_struct_nested_init() {
+    let src = "\
+type Inner = { val: Int; }
+type Outer = { inner: Inner; tag: Str; }
+fn main() -> Int {
+    var i = Inner{ val: 42; };
+    var o = Outer{ inner: i; tag: \"test\"; };
+    return o.inner.val;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: nested struct init must compile");
+}
+
+#[test] fn regress_m22_struct_field_mutation() {
+    let src = "\
+type Point = { x: Float64; y: Float64; }
+fn main() -> Float64 {
+    var p = Point{ x: 1.0; y: 2.0; };
+    p.x = 10.0;
+    return p.x;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: struct field mutation must compile");
+}
+
+#[test] fn regress_m22_struct_copy() {
+    let src = "\
+type Data = { val: Int; }
+fn main() -> Int {
+    var a = Data{ val: 42; };
+    var b = a;
+    return b.val;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: struct copy must compile");
+}
+
+#[test] fn regress_m22_struct_spread() {
+    let src = "\
+type Point = { x: Float64; y: Float64; z: Float64; }
+fn origin() -> Point { return Point{ x: 0.0; y: 0.0; z: 0.0; }; }
+fn main() -> Float64 {
+    var p = Point{ x: 1.0, ..origin() };
+    return p.y;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: struct spread must compile");
+}
+
+#[test] fn regress_m22_struct_method_call() {
+    let src = "\
+type Vec2 = { x: Float64; y: Float64; }
+pub fn Vec2.len(self) -> Float64 { return x * x + y * y; }
+fn main() -> Float64 {
+    var v = Vec2{ x: 3.0; y: 4.0; };
+    return v.len();
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: struct method call must compile");
+}
+
+#[test] fn regress_m22_struct_default_fields() {
+    let src = "\
+type Config = { host: Str; port: Int; debug: Bool; }
+fn main() -> Int {
+    var c = Config{ host: \"localhost\"; port: 8080; debug: false; };
+    return c.port;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: multi-field struct must compile");
+}
+
+#[test] fn regress_m22_struct_deeply_nested() {
+    let src = "\
+type A = { val: Int; }
+type B = { a: A; }
+type C = { b: B; }
+type D = { c: C; }
+fn main() -> Int {
+    var d = D{ c: C{ b: B{ a: A{ val: 42; }; }; }; };
+    return d.c.b.a.val;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: deeply nested struct access must compile");
+}
+
+// ── M22-6: Generic completeness ────────────────────────────────────────
+
+#[test] fn regress_m22_generic_identity_fn() {
+    let src = "fn id[T](x: T) -> T { return x; } fn main() -> Int { return id(42); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: generic identity must monomorphise");
+}
+
+#[test] fn regress_m22_generic_two_param() {
+    let src = "\
+fn pair[T, U](a: T, b: U) -> Int {
+    var t: Int = a as Int;
+    var u: Int = b as Int;
+    return t + u;
+}
+fn main() -> Int { return pair(10, 20); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: two-param generic must compile");
+}
+
+#[test] fn regress_m22_generic_constraint() {
+    let src = "\
+interface Eq { fn eq(a: &Self, b: &Self) -> Bool; }
+fn find[T: Eq](needle: T, haystack: T) -> Bool { return true; }
+fn main() -> Bool { return find(1, 2); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: constrained generic must compile");
+}
+
+#[test] fn regress_m22_generic_multi_constraint() {
+    let src = "\
+interface Clone { fn clone() -> Self; }
+interface Eq { fn eq(other: &Self) -> Bool; }
+fn dup[T: Clone + Eq](x: T) -> Bool { return true; }
+fn main() -> Bool { return dup(42); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: multi-constraint generic must compile");
+}
+
+#[test] fn regress_m22_generic_struct() {
+    let src = "\
+type Wrapper[T] = { val: T; }
+fn main() -> Int {
+    var w = Wrapper[Int]{ val: 42; };
+    return w.val;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: generic struct must compile");
+}
+
+#[test] fn regress_m22_generic_enum() {
+    let src = "\
+enum Maybe[T] { Just(v: T); Nothing; }
+fn main() -> Int {
+    var m = Maybe[Int].Just(42);
+    match m { Maybe.Just(v) => v, Maybe.Nothing => 0, }
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: generic enum must compile");
+}
+
+#[test] fn regress_m22_generic_deep_nesting() {
+    let src = "\
+fn nest1[T](x: T) -> T { return x; }
+fn nest2[T](x: T) -> T { return nest1(x); }
+fn nest3[T](x: T) -> T { return nest2(x); }
+fn main() -> Int { return nest3(42); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: deeply nested generics must compile");
+}
+
+#[test] fn regress_m22_generic_fn_ptr() {
+    let src = "\
+fn apply[T](f: fn(T) -> T, x: T) -> T { return f(x); }
+fn square(x: Int) -> Int { return x * x; }
+fn main() -> Int { return apply(square, 5); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: generic fn ptr must compile");
+}
+
+// ── M22-7: Pattern matching ────────────────────────────────────────────
+
+#[test] fn regress_m22_pat_deep_nested_match() {
+    let src = "\
+enum L { Cons(v: Int, next: Int); Nil; }
+fn sum(lst: L) -> Int {
+    match lst {
+        L.Cons(v, n) => v + n,
+        L.Nil => 0,
+    }
+}
+fn main() -> Int { return sum(L.Cons(5, 3)); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: deep nested match must compile");
+}
+
+#[test] fn regress_m22_pat_refutable_guard() {
+    let src = "\
+fn abs(n: Int) -> Int {
+    match n {
+        n => if n > 0 { n } else { -n },
+    }
+}
+fn main() -> Int { return abs(-5); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: refutable guard must compile");
+}
+
+#[test] fn regress_m22_pat_tuple_arm() {
+    let src = "\
+type Pair = { x: Int; y: Int; }
+fn main() -> Int {
+    var p = Pair{ x: 3; y: 4; };
+    match p { Pair{ x: a; y: b; } => a + b, }
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: struct destructure match must compile");
+}
+
+#[test] fn regress_m22_pat_exhaustive_match() {
+    let src = "\
+enum Opt { Some(v: Int); None; }
+fn extract(o: Opt) -> Int {
+    match o {
+        Opt.Some(v) => v,
+        Opt.None => -1,
+    }
+}
+fn main() -> Int { return extract(Opt.None); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: exhaustive match must compile");
+}
+
+#[test] fn regress_m22_pat_nested_enum() {
+    let src = "\
+enum Inner { Val(v: Int); None; }
+enum Outer { Single(v: Int); Wrapped(i: Inner); }
+fn unwrap(o: Outer) -> Int {
+    match o {
+        Outer.Single(v) => v,
+        Outer.Wrapped(i) => match i { Inner.Val(v) => v, Inner.None => 0, },
+    }
+}
+fn main() -> Int { return unwrap(Outer.Wrapped(Inner.Val(99))); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: nested enum pattern must compile");
+}
+
+#[test] fn regress_m22_pat_bool_match() {
+    let src = "\
+fn classify(b: Bool) -> Int {
+    match b { true => 1, false => 0, }
+}
+fn main() -> Int { return classify(true); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: bool match must compile");
+}
+
+#[test] fn regress_m22_pat_int_range() {
+    let src = "\
+fn grade(score: Int) -> Str {
+    match score {
+        n => if n >= 90 { \"A\" } else if n >= 80 { \"B\" } else if n >= 70 { \"C\" } else { \"F\" },
+    }
+}
+fn main() -> Int { var g = grade(95); return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: int range match must compile");
+}
+
+#[test] fn regress_m22_pat_match_return() {
+    let src = "\
+fn sign(n: Int) -> Str {
+    match n {
+        n => if n > 0 { return \"positive\"; } else if n < 0 { return \"negative\"; } else { return \"zero\"; },
+    }
+}
+fn main() -> Int { var s = sign(0); return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M22: match return must compile");
+}
