@@ -481,11 +481,11 @@ impl IrEmitter {
     /// to type-based defaults: zext for i1/i8, sext for i16/i32.
     fn widen_to_i64(&mut self, val: &str, ty: &str) -> String {
         let is_signed = self.local.reg_signed.get(val).copied().unwrap_or_else(|| {
-            // Default based on LLVM type: i1 (Bool) and i8 (could be UInt8/Char)
-            // default to zext; i16/i32 default to sext (Int16/Int32 are primary).
+            // Default: sext for i8/i16/i32 (signed types are the common case for
+            // function returns and intermediate values). zext only for i1 (Bool).
             // The Ident load path and As expression handler provide per-register
-            // overrides via reg_signed for precise control.
-            !matches!(ty, "i1" | "i8")
+            // overrides via reg_signed for unsigned locals.
+            !matches!(ty, "i1")
         });
         self.widen_to_i64_signed(val, ty, is_signed)
     }
