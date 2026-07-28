@@ -749,4 +749,255 @@ mod tests {
     #[test] fn test_rt_error_propagation() {
         assert_round_trip("fn load(path: Str) -> Result[Config, AppError] { let file = io.read_file(path)?; return Ok(file); }");
     }
+
+    // ── M21-1: Formatter edge cases ─────────────────────────────────────
+
+    // Nested type definitions with 5+ levels of indentation
+    #[test] fn test_rt_nested_type_deep() {
+        let src = "type A = { b: B; } type B = { c: C; } type C = { d: D; } type D = { e: E; } type E = { f: Int; }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("type A = {"));
+        assert!(formatted.contains("type B = {"));
+        assert!(formatted.contains("type C = {"));
+        assert!(formatted.contains("type D = {"));
+        assert!(formatted.contains("type E = {"));
+    }
+
+    // Long lines (200+ chars)
+    #[test] fn test_format_long_function_signature() {
+        let src = "fn very_long_function_name_with_many_params(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int, g: Int, h: Int, i: Int, j: Int, k: Int, l: Int, m: Int, n: Int, o: Int) -> Int { return a + b + c + d + e + f + g + h + i + j + k + l + m + n + o; }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("fn very_long_function_name_with_many_params("));
+        assert!(formatted.len() > src.len(), "long line should be properly formatted");
+    }
+
+    #[test] fn test_format_long_return_type_chain() {
+        let src = "fn deep() -> Option[Result[Option[Result[Option[Result[Int, Str]], Str]], Str]] { return None; }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("fn deep()"));
+    }
+
+    // Comments in every position
+    #[test] fn test_format_comment_after_expr() {
+        let src = "fn main() -> Int {\n  return 42; // the answer\n}\n";
+        let formatted = format_source(src);
+        assert!(formatted.contains("return 42;"));
+    }
+
+    #[test] fn test_format_comment_between_params() {
+        let src = "fn add(\n  a: Int, // first param\n  b: Int // second param\n) -> Int { return a + b; }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("fn add("));
+    }
+
+    #[test] fn test_format_multiline_comment() {
+        let src = "/* this is a multiline\n   comment block */\nfn main() -> Int { return 0; }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("fn main()"));
+    }
+
+    // Impl blocks formatting
+    #[test] fn test_format_impl_block() {
+        let src = "impl Display for Point { fn fmt(p: Point) -> Str { return \"\"; } }";
+        let formatted = format_source(src);
+        assert!(!formatted.is_empty(), "impl block formatter should not crash");
+    }
+
+    // Interface blocks formatting
+    #[test] fn test_format_interface_with_methods() {
+        let src = "interface Comparable { fn compare(other: &Self) -> Int; fn equals(other: &Self) -> Bool; }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("interface Comparable {"));
+        assert!(formatted.contains("fn compare("));
+        assert!(formatted.contains("fn equals("));
+    }
+
+    #[test] fn test_format_interface_derive() {
+        let src = "interface Eq { fn eq(a: &Self, b: &Self) -> Bool; } derive[Ord]";
+        let formatted = format_source(src);
+        assert!(!formatted.is_empty(), "interface with derive should not crash formatter");
+    }
+
+    // Trailing commas
+    #[test] fn test_format_trailing_comma_enum() {
+        let src = "enum Color { Red, Green, Blue, }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("Color {"));
+    }
+
+    #[test] fn test_format_trailing_comma_struct() {
+        let src = "type Point = { x: Float64; y: Float64; }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("Point"));
+    }
+
+    #[test] fn test_format_trailing_semicolons() {
+        let src = "fn main() -> Int { return 0;;; }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("fn main"));
+    }
+
+    // Empty blocks and files
+    #[test] fn test_format_empty_fn_body() {
+        let src = "fn nop() { }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("fn nop()"));
+    }
+
+    #[test] fn test_format_empty_module() {
+        let src = "module empty { }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("module empty"));
+    }
+
+    #[test] fn test_format_empty_enum() {
+        let src = "enum Void { }";
+        let formatted = format_source(src);
+        assert!(!formatted.is_empty(), "empty enum should not panic formatter");
+    }
+
+    // Shebang line preservation
+    #[test] fn test_format_shebang() {
+        let src = "#!/usr/bin/env xiom\nfn main() -> Int { return 42; }";
+        let formatted = format_source(src);
+        assert!(!formatted.is_empty(), "shebang file should not crash formatter");
+    }
+
+    // Foreign/extern formatting
+    #[test] fn test_format_extern_block_with_variadic() {
+        let src = "extern \"C\" { fn printf(fmt: *UInt8, ...) -> Int32; fn malloc(size: Int) -> *UInt8; }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("extern \"C\""));
+        assert!(formatted.contains("printf("));
+    }
+
+    // Unsafe block formatting
+    #[test] fn test_format_unsafe_block() {
+        let src = "fn main() { unsafe { let ptr = malloc(8); free(ptr); } }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("unsafe {"));
+    }
+
+    // Generics edge cases
+    #[test] fn test_format_multi_generic_bounded() {
+        let src = "fn complex[K: Eq + Hash, V: Clone + Display](map: BTreeMap[K, V]) -> Option[V] { return None; }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("fn complex["));
+        assert!(formatted.contains("Eq + Hash"));
+    }
+
+    #[test] fn test_format_generic_struct() {
+        let src = "type Pair[T, U] = { first: T; second: U; } derive[Clone]";
+        let formatted = format_source(src);
+        assert!(formatted.contains("type Pair[T, U]"));
+    }
+
+    // Array and slice types
+    #[test] fn test_format_array_type() {
+        let src = "fn sum(items: [3]Int) -> Int { return items[0] + items[1] + items[2]; }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("[3]Int"));
+    }
+
+    #[test] fn test_format_slice_type() {
+        let src = "fn process(data: &Slice[Float64]) { }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("Slice[Float64]"));
+    }
+
+    // Pointer types
+    #[test] fn test_format_ptr_types() {
+        let src = "fn alloc() -> *UInt8 { return null; } fn free_all(ptr: *UInt8) { } fn deref(ptr: *Int) -> Int { return ptr; }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("*UInt8"));
+        assert!(formatted.contains("*Int"));
+    }
+
+    // Option/Result types
+    #[test] fn test_format_option_type() {
+        let src = "fn div(a: Int, b: Int) -> Option[Int] { if b == 0 { return None; } return Some(a / b); }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("Option[Int]"));
+    }
+
+    #[test] fn test_format_result_type() {
+        let src = "fn parse_int(s: Str) -> Result[Int, Str] { return Ok(42); }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("Result[Int, Str]"));
+    }
+
+    // Spawn expression
+    #[test] fn test_format_spawn() {
+        let src = "fn main() { spawn { io.println(\"bg\"); } }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("spawn {"));
+    }
+
+    // `use` with multiple aliases
+    #[test] fn test_format_use_multi_alias() {
+        let src = "use math.vector.Vec3 as V3;\nuse math.vector.Vec4 as V4;";
+        let formatted = format_source(src);
+        assert!(formatted.contains("Vec3 as V3"));
+        assert!(formatted.contains("Vec4 as V4"));
+    }
+
+    // Nested match with complex arms
+    #[test] fn test_format_nested_match() {
+        let src = "fn f(a: Option[Int], b: Option[Int]) -> Int { match a { Some(x) => match b { Some(y) => x + y, None => x, }, None => 0, } }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("match a"));
+        assert!(formatted.contains("match b"));
+    }
+
+    // Pattern match with guard
+    #[test] fn test_format_match_guard() {
+        let src = "fn abs(n: Int) -> Int { match n { 0 => 0, n => if n > 0 { n } else { -n }, } }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("match n"));
+    }
+
+    // Contract formatting with multiple clauses
+    #[test] fn test_format_multi_contract() {
+        let src = "fn sqrt(x: Float64) -> Float64\n  requires: x >= 0.0\n  ensures: result >= 0.0\n  ensures: result * result >= x\n{ return 0.0; }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("requires:"));
+        assert!(formatted.contains("ensures:"));
+    }
+
+    // Boolean operators
+    #[test] fn test_format_bool_ops() {
+        let src = "fn complex(a: Bool, b: Bool, c: Bool) -> Bool { return a && b || c && !a; }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("&&"));
+        assert!(formatted.contains("||"));
+    }
+
+    // Comparison operators
+    #[test] fn test_format_cmp_ops() {
+        let src = "fn range(x: Int, lo: Int, hi: Int) -> Bool { return lo <= x && x <= hi; }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("<="));
+    }
+
+    // Field access chaining
+    #[test] fn test_format_field_chain() {
+        let src = "fn f(p: Point) -> Float64 { return p.nested.inner.deep.value; }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("p.nested.inner.deep.value"));
+    }
+
+    // Method chaining
+    #[test] fn test_format_method_chain() {
+        let src = "fn process() -> Int { return vec.iter().filter().map().sum(); }";
+        let formatted = format_source(src);
+        assert!(formatted.contains("vec.iter()"));
+    }
+
+    // idempotency: formatted output == doubly-formatted output
+    #[test] fn test_format_idempotent_complex() {
+        let src = "fn complex[T: Eq + Clone](input: T, count: Int) -> Option[Vec[T]]\n  requires: count > 0\n{\n  var result = Vec[T].new();\n  var i = 0;\n  while i < count {\n    result.push(input.clone());\n    i = i + 1;\n  }\n  return Some(result);\n}\n";
+        let pass1 = format_source(src);
+        let pass2 = format_source(&pass1);
+        assert_eq!(pass1, pass2, "complex formatting must be idempotent");
+    }
 }

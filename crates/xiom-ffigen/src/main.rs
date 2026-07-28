@@ -545,4 +545,222 @@ library "example" {
         assert!(contracts.contains(&"requires: title != null".to_string()));
         assert!(contracts.contains(&"ensures: result != null".to_string()));
     }
+
+    // ── M21-6: FFI Generator edge cases ─────────────────────────────────
+
+    // Complex C structs with nested types
+    #[test] fn test_parse_struct_spec() {
+        let source = r#"
+library "sdl" {
+  struct Rect { x: i32; y: i32; w: i32; h: i32; }
+  fn get_rect() -> Rect;
+}
+"#;
+        let libraries = parse_spec(source);
+        assert_eq!(libraries.len(), 1);
+        assert_eq!(libraries[0].name, "sdl");
+        assert_eq!(libraries[0].functions.len(), 1);
+        assert_eq!(libraries[0].functions[0].name, "get_rect");
+    }
+
+    #[test] fn test_parse_nested_struct() {
+        let source = r#"
+library "graphics" {
+  struct Point { x: f32; y: f32; }
+  struct Rect { origin: Point; size: Point; }
+  fn is_inside(r: Rect, p: Point) -> bool;
+}
+"#;
+        let libraries = parse_spec(source);
+        assert_eq!(libraries.len(), 1);
+        assert_eq!(libraries[0].functions.len(), 1);
+    }
+
+    // Function pointers in struct fields
+    #[test] fn test_parse_callback_function() {
+        let source = r#"
+library "events" {
+  typedef fn(i32, ptr) -> void callback;
+  fn on_event(cb: callback);
+  fn trigger() -> void;
+}
+"#;
+        let libraries = parse_spec(source);
+        assert_eq!(libraries.len(), 1);
+        // typedef may be skipped; functions should survive
+        assert!(libraries[0].functions.len() >= 1);
+    }
+
+    // Union types
+    #[test] fn test_parse_union_spec() {
+        let source = r#"
+library "data" {
+  union Value { i: i32; f: f32; p: ptr; }
+  fn get_value() -> Value;
+}
+"#;
+        let libraries = parse_spec(source);
+        assert_eq!(libraries.len(), 1);
+        assert!(libraries[0].functions.len() >= 1);
+    }
+
+    // Enum types with explicit values
+    #[test] fn test_parse_c_enum() {
+        let source = r#"
+library "flags" {
+  enum Flag { NONE=0, READ=1, WRITE=2, EXEC=4 }
+  fn has_flag(f: Flag, check: Flag) -> bool;
+}
+"#;
+        let libraries = parse_spec(source);
+        assert_eq!(libraries.len(), 1);
+        assert!(libraries[0].functions.len() >= 1);
+    }
+
+    // Opaque pointers
+    #[test] fn test_parse_opaque_type() {
+        let source = r#"
+library "opaque" {
+  type Handle;
+  fn create() -> Handle;
+  fn destroy(h: Handle);
+}
+"#;
+        let libraries = parse_spec(source);
+        assert_eq!(libraries.len(), 1);
+        assert!(libraries[0].functions.len() >= 1);
+    }
+
+    // Variadic functions (printf-style)
+    #[test] fn test_parse_multiple_variadic() {
+        let source = r#"
+library "fmt" {
+  fn printf(fmt: str, ...) -> i32;
+  fn fprintf(file: ptr, fmt: str, ...) -> i32;
+  fn snprintf(buf: ptr, size: u64, fmt: str, ...) -> i32;
+}
+"#;
+        let libraries = parse_spec(source);
+        assert_eq!(libraries.len(), 1);
+        assert_eq!(libraries[0].functions.len(), 3);
+        for f in &libraries[0].functions {
+            assert!(f.variadic, "{} should be variadic", f.name);
+        }
+    }
+
+    // Type mapping edges
+    #[test] fn test_type_mapping_all_known() {
+        assert_eq!(xiom_type("i8"), "Int8");
+        assert_eq!(xiom_type("u8"), "UInt8");
+        assert_eq!(xiom_type("i16"), "Int16");
+        assert_eq!(xiom_type("u16"), "UInt16");
+        assert_eq!(xiom_type("i32"), "Int32");
+        assert_eq!(xiom_type("u32"), "UInt32");
+        assert_eq!(xiom_type("i64"), "Int64");
+        assert_eq!(xiom_type("u64"), "UInt");
+        assert_eq!(xiom_type("f32"), "Float32");
+        assert_eq!(xiom_type("f64"), "Float64");
+        assert_eq!(xiom_type("str"), "Str");
+        assert_eq!(xiom_type("ptr"), "*UInt8");
+        assert_eq!(xiom_type("bool"), "Bool");
+    }
+
+    // Contract inference for complex types
+    #[test] fn test_contract_for_str_array_param() {
+        let func = Function {
+            name: "exec".into(),
+            params: vec![("argv".into(), "ptr".into()), ("envp".into(), "ptr".into())],
+            return_type: "i32".into(),
+            variadic: false,
+            nullable_return: false,
+        };
+        let contracts = infer_contracts(&func);
+        assert!(contracts.contains(&"requires: argv != null".to_string()));
+        assert!(contracts.contains(&"requires: envp != null".to_string()));
+    }
+
+    #[test] fn test_contract_for_pointer_to_pointer() {
+        let func = Function {
+            name: "alloc_array".into(),
+            params: vec![("count".into(), "i32".into())],
+            return_type: "ptr".into(),
+            variadic: false,
+            nullable_return: false,
+        };
+        let contracts = infer_contracts(&func);
+        assert!(contracts.contains(&"ensures: result != null".to_string()));
+    }
+
+    // Multiple libraries in one spec
+    #[test] fn test_parse_multiple_libraries() {
+        let source = r#"
+library "math" {
+  fn abs(x: i32) -> i32;
+  fn sqrt(x: f64) -> f64;
+}
+library "string" {
+  fn strlen(s: str) -> u64;
+  fn strcmp(a: str, b: str) -> i32;
+}
+"#;
+        let libraries = parse_spec(source);
+        assert_eq!(libraries.len(), 2);
+        assert_eq!(libraries[0].name, "math");
+        assert_eq!(libraries[0].functions.len(), 2);
+        assert_eq!(libraries[1].name, "string");
+        assert_eq!(libraries[1].functions.len(), 2);
+    }
+
+    // Function with many parameters
+    #[test] fn test_parse_function_many_params() {
+        let source = r#"
+library "gfx" {
+  fn draw_rect(x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8, a: u8, filled: bool);
+}
+"#;
+        let libraries = parse_spec(source);
+        assert_eq!(libraries.len(), 1);
+        assert!(!libraries[0].functions.is_empty(), "should parse many-param function");
+        if !libraries[0].functions.is_empty() {
+            let func = &libraries[0].functions[0];
+            assert_eq!(func.name, "draw_rect");
+        }
+    }
+
+    // No-return (void) function
+    #[test] fn test_parse_noreturn_function() {
+        let source = r#"
+library "sys" {
+  fn exit(code: i32) -> void;
+}
+"#;
+        let libraries = parse_spec(source);
+        let func = &libraries[0].functions[0];
+        assert_eq!(func.name, "exit");
+        assert_eq!(func.return_type, "void");
+    }
+
+    // Inline comment handling
+    #[test] fn test_parse_with_inline_comments() {
+        let source = r#"
+# Math library
+library "m" {
+  fn sin(x: f64) -> f64;  # sine function
+  fn cos(x: f64) -> f64;  # cosine function
+}
+"#;
+        let libraries = parse_spec(source);
+        assert_eq!(libraries[0].functions.len(), 2);
+    }
+
+    // Empty library (should not crash)
+    #[test] fn test_parse_empty_library() {
+        let source = r#"
+library "empty" {
+}
+"#;
+        let libraries = parse_spec(source);
+        assert_eq!(libraries.len(), 1);
+        assert!(libraries[0].functions.is_empty());
+    }
 }

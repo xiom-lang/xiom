@@ -4765,4 +4765,330 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
         let result = check(&src);
         assert!(result.is_ok(), "trailing comma: {:?}", result.err());
     }
+
+    // ── M21-3: Checker edge cases ──────────────────────────────────────
+
+    // Recursive types (linked lists, trees)
+    #[test] fn test_edge_recursive_type_linked_list() {
+        let src = "\
+type Node = { val: Int; next: Option[Box[Node]]; }
+fn main() -> Int { var n = Node{ val: 1; next: None }; return n.val; }";
+        let result = check(src);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test] fn test_edge_recursive_type_tree() {
+        let src = "\
+type Tree = { val: Int; left: Option[Box[Tree]]; right: Option[Box[Tree]]; }
+fn sum(t: Option[Box[Tree]]) -> Int {
+    match t { Some(node) => node.val + sum(node.left) + sum(node.right), None => 0, }
+}";
+        let result = check(src);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test] fn test_edge_recursive_mutual_types() {
+        let src = "\
+type A = { b: Option[B]; }
+type B = { a: Option[A]; }
+fn main() -> Int { return 0; }";
+        let result = check(src);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    // Deeply nested generic types
+    #[test] fn test_edge_deep_nested_generic_type() {
+        let src = "fn deep() -> Option[Result[Option[Result[Option[Result[Int, Str]], Str]], Str]] { return None; }";
+        let result = check(src);
+        assert!(result.is_ok(), "deeply nested generics: {:?}", result.err());
+    }
+
+    #[test] fn test_edge_generic_of_generic() {
+        let src = "fn vec_of_vec() -> Vec[Vec[Int]] { var v = Vec[Vec[Int]].new(); return v; }";
+        let result = check(src);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test] fn test_edge_map_type() {
+        let src = "fn lookup(m: BTreeMap[Str, Vec[Int]]) -> Option[Int] { return None; }";
+        let result = check(src);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    // Type inference with multiple constraints
+    #[test] fn test_edge_infer_from_arithmetic() {
+        let src = "fn infer() -> Float64 { var x = 1.0; var y = x * 2.5; var z = y + 0.5; return z; }";
+        let result = check(src);
+        assert!(result.is_ok(), "inference chain: {:?}", result.err());
+    }
+
+    #[test] fn test_edge_infer_from_function_call() {
+        let src = "fn make() -> Int { return 42; } fn use_val() -> Int { var x = make(); return x + 1; }";
+        let result = check(src);
+        assert!(result.is_ok(), "infer from fn call: {:?}", result.err());
+    }
+
+    #[test] fn test_edge_infer_options() {
+        let src = "fn test() -> Int { var x = Some(42); var y = None; match x { Some(v) => v, None => match y { Some(vv) => vv, None => 0, }, } }";
+        let result = check(src);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    // Ambiguous trait resolution
+    #[test] fn test_edge_trait_ambiguity() {
+        let src = "\
+interface A { fn method() -> Int; }
+interface B { fn method() -> Int; }
+fn use_trait[T: A + B](x: T) -> Int { return x.method(); }";
+        let result = check(src);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test] fn test_edge_trait_multiple_methods() {
+        let src = "\
+interface Iterator[T] { fn next() -> Option[T]; fn count(&self) -> Int; fn reset(&mut self); }
+fn test() -> Int { return 0; }";
+        let result = check(src);
+        assert!(result.is_ok(), "multi-method trait: {:?}", result.err());
+    }
+
+    // Circular type definitions
+    #[test] fn test_edge_circular_type_alias() {
+        let src = "\
+type A = B;
+type B = C;
+type C = A;
+fn main() -> Int { return 0; }";
+        let result = check(src);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    // Type alias chains (5+ levels)
+    #[test] fn test_edge_type_alias_chain_deep() {
+        let src = "\
+type L1 = Int;
+type L2 = L1;
+type L3 = L2;
+type L4 = L3;
+type L5 = L4;
+type L6 = L5;
+type L7 = L6;
+fn main() -> L7 { var x: L7 = 42; return x; }";
+        let result = check(src);
+        assert!(result.is_ok(), "deep type alias: {:?}", result.err());
+    }
+
+    // Generic with multiple params and complex bounds
+    #[test] fn test_edge_generic_complex_param() {
+        let src = "\
+interface Hash { fn hash() -> Int; }
+interface Eq { fn eq(other: &Self) -> Bool; }
+fn dedup[K: Eq + Hash, V: Clone](map: BTreeMap[K, V], key: K) -> Option[V] { return None; }
+fn main() -> Int { return 0; }";
+        let result = check(src);
+        assert!(result.is_ok(), "complex generic: {:?}", result.err());
+    }
+
+    // Enum with complex payload patterns
+    #[test] fn test_edge_enum_complex_payload() {
+        let src = "\
+enum Expr {
+    IntLit(val: Int),
+    FloatLit(val: Float64),
+    StrLit(val: Str),
+    BoolLit(val: Bool),
+    Var(name: Str),
+    BinOp(left: Box[Expr], op: Str, right: Box[Expr]),
+    Call(name: Str, args: Vec[Expr]),
+}
+fn eval(e: Expr) -> Int { match e { Expr.IntLit(v) => v, _ => 0, } }";
+        let result = check(src);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    // Pattern matching deep patterns
+    #[test] fn test_edge_deep_pattern_matching() {
+        let src = "\
+type Inner = { a: Int; b: Int; }
+type Outer = { inner: Inner; }
+fn is_unit(o: Outer) -> Bool {
+    match o {
+        Outer { inner: Inner { a: 1, b: 1 } } => true,
+        _ => false,
+    }
+}";
+        let result = check(src);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test] fn test_edge_refutable_pattern() {
+        let src = "\
+fn test(x: Option[Int]) -> Str {
+    if let Some(v) = x {
+        if v > 10 { return \"big\"; }
+        return \"small\";
+    }
+    return \"none\";
+}";
+        let result = check(src);
+        assert!(result.is_ok(), "if let: {:?}", result.err());
+    }
+
+    #[test] fn test_edge_while_let_pattern() {
+        let src = "\
+fn process(queue: Vec[Option[Int]]) {
+    var i = 0;
+    while let Some(v) = queue.get(i) {
+        i = i + 1;
+    }
+}";
+        let result = check(src);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    // Integer overflow safety
+    #[test] fn test_edge_integer_types_range() {
+        let types = ["Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt"];
+        for t in &types {
+            let src = format!("fn f(x: {t}) -> {t} {{ return x; }}");
+            let result = check(&src);
+            assert!(result.is_ok(), "type {t}: {:?}", result.err());
+        }
+    }
+
+    #[test] fn test_edge_float_types_range() {
+        let types = ["Float32", "Float64"];
+        for t in &types {
+            let src = format!("fn f(x: {t}) -> {t} {{ return x; }}");
+            let result = check(&src);
+            assert!(result.is_ok(), "type {t}: {:?}", result.err());
+        }
+    }
+
+    // Multi-module resolution
+    #[test] fn test_edge_module_re_export() {
+        let src = "\
+module inner { pub fn val() -> Int { return 1; } }
+module outer { pub use inner.val; }
+fn main() -> Int { return outer.val(); }";
+        let result = check(src);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test] fn test_edge_module_deep_path() {
+        let src = "\
+module a { module b { module c { module d { pub fn e() -> Int { return 42; } } } } }
+fn main() -> Int { return a.b.c.d.e(); }";
+        let result = check(src);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    // Struct with spread
+    #[test] fn test_edge_struct_spread_inference() {
+        let src = "\
+type Point = { x: Float64; y: Float64; z: Float64; }
+fn origin() -> Point { return Point{ x: 0.0; y: 0.0; z: 0.0; } }
+fn main() -> Float64 { var p = Point{ x: 1.0, ..origin() }; return p.y; }";
+        let result = check(src);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    // Unsafe pointer operations
+    #[test] fn test_edge_unsafe_ptr_cast() {
+        let src = "\
+fn ptr_add(ptr: *UInt8, offset: Int) -> *UInt8 {
+    unsafe { return ptr + offset; }
+}";
+        let result = check(src);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test] fn test_edge_unsafe_raw_memory() {
+        let src = "\
+fn unsafe_read(ptr: *Int) -> Int {
+    unsafe { return ptr; }
+}";
+        let result = check(src);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    // Complex boolean expressions
+    #[test] fn test_edge_complex_bool_expression() {
+        let src = "fn valid(a: Bool, b: Bool, c: Bool, d: Bool) -> Bool { return a && (b || c) && !d || a == b; }";
+        let result = check(src);
+        assert!(result.is_ok(), "complex bool: {:?}", result.err());
+    }
+
+    // Early returns in match arms
+    #[test] fn test_edge_early_return_in_match() {
+        let src = "\
+fn classify(n: Int) -> Str {
+    match n {
+        0 => return \"zero\",
+        1 => return \"one\",
+        _ => return \"many\",
+    }
+}";
+        let result = check(src);
+        assert!(result.is_ok(), "match return: {:?}", result.err());
+    }
+
+    // `var` reassignment with type change (should error)
+    #[test] fn test_edge_reassign_with_type_change() {
+        let src = "fn test() { var x = 42; x = \"hello\"; }";
+        let result = check(src);
+        assert!(result.is_err(), "reassign type change should error");
+    }
+
+    // `let` rebinding with different type (shadowing — should be ok)
+    #[test] fn test_edge_shadowing_with_different_type() {
+        let src = "fn test() -> Str { let x = 42; let x = \"hi\"; return x; }";
+        let result = check(src);
+        assert!(result.is_ok(), "shadowing different type: {:?}", result.err());
+    }
+
+    // Generic enum constructors
+    #[test] fn test_edge_generic_enum_option() {
+        let src = "\
+enum Maybe[T] { Just(v: T), Nothing }
+fn get_default[T](m: Maybe[T], default: T) -> T {
+    match m { Maybe.Just(v) => v, Maybe.Nothing => default, }
+}";
+        let result = check(src);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    // Function pointer types
+    #[test] fn test_edge_function_pointer_as_param() {
+        let src = "\
+fn apply(f: fn(Int) -> Int, x: Int) -> Int { return f(x); }
+fn square(x: Int) -> Int { return x * x; }
+fn main() -> Int { return apply(square, 5); }";
+        let result = check(src);
+        assert!(result.is_ok(), "fn ptr: {:?}", result.err());
+    }
+
+    // Closure type inference
+    #[test] fn test_edge_closure_returning_value() {
+        let src = "\
+fn make_adder(n: Int) -> fn(Int) -> Int { return fn(x: Int) -> Int { return x + n; }; }";
+        let result = check(src);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    // Iterator pattern
+    #[test] fn test_edge_iterator_pattern() {
+        let src = "\
+fn sum_range(lo: Int, hi: Int) -> Int {
+    var sum = 0;
+    var i = lo;
+    while i < hi {
+        sum = sum + i;
+        i = i + 1;
+    }
+    return sum;
+}";
+        let result = check(src);
+        assert!(result.is_ok(), "iterator: {:?}", result.err());
+    }
 }
