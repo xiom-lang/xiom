@@ -1559,3 +1559,9 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m29_loop_control()         { assert_eq!(compile_and_run("tests\\regression\\m29_loop_control.xi"),          Some(0)); }
 #[test] fn e2e_m29_if_expression()        { assert_eq!(compile_and_run("tests\\regression\\m29_if_expression.xi"),         Some(0)); }
 #[test] fn e2e_m29_type_alias()           { assert_eq!(compile_and_run("tests\\regression\\m29_type_alias.xi"),            Some(0)); }
+
+// ── M28: Compiler Performance & Optimization E2E ──────────────────────
+#[test] fn e2e_m28_diff_loop_formula()    { assert_eq!(compile_and_run("tests\\regression\\m28_diff_loop_formula.xi"),     Some(0)); }
+#[test] fn e2e_m28_diff_factorial()       { assert_eq!(compile_and_run("tests\\regression\\m28_diff_factorial.xi"),        Some(0)); }
+#[test] fn e2e_m28_diff_commute()         { assert_eq!(compile_and_run("tests\\regression\\m28_diff_commute.xi"),          Some(0)); }
+#[test] fn e2e_m28_large_chain()          { assert_eq!(compile_and_run("tests\\regression\\m28_large_chain.xi"),           Some(0)); }
