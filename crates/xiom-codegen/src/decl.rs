@@ -10,18 +10,31 @@ impl IrEmitter {
 
     pub(crate) fn register_type_layout_impl(&mut self, item: &TopDecl, prefix: &str) {
         if let TopDecl::Type(td) = item {
-            if td.fields.is_empty() && td.alias.is_some() { return; }
-            let fields: Vec<String> = td.fields.iter()
-                .map(|f| f.name.name.clone())
-                .collect();
             let bare_name = td.name.name.clone();
             let type_name = if prefix.is_empty() { bare_name.clone() } else { format!("{}.{}", prefix, bare_name) };
+            // M36: Register type aliases so codegen can resolve them to concrete types.
+            if td.fields.is_empty() {
+                if let Some(ref alias_ty) = td.alias {
+                    let resolved = Self::type_from_ast(alias_ty);
+                    self.types.type_aliases.insert(type_name.clone(), resolved.clone());
+                    // Also register under bare name for unqualified lookup
+                    if !prefix.is_empty() {
+                        self.types.type_aliases.insert(bare_name.clone(), resolved);
+                    }
+                    return;
+                }
+                // No alias and no fields — forward declaration or marker type; skip.
+                return;
+            }
             // Record generic type names so their methods are skipped from direct
             // (un-monomorphised) emission -- such bodies produce malformed IR.
             if !td.generics.is_empty() {
                 self.types.generic_type_names.insert(bare_name.clone());
                 self.types.generic_type_names.insert(type_name.clone());
             }
+            let fields: Vec<String> = td.fields.iter()
+                .map(|f| f.name.name.clone())
+                .collect();
             let full_fields: Vec<(String, String)> = td.fields.iter()
                 .map(|f| (f.name.name.clone(), Self::type_from_ast_with_args(&f.ty)))
                 .collect();

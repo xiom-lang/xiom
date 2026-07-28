@@ -83,6 +83,10 @@ pub struct TypeContext {
     pub enum_variant_field_types: HashMap<String, Vec<(String, Vec<String>)>>,
     /// Builtin types whose impls have been referenced
     pub used_builtins: HashSet<String>,
+    /// M36: Type alias map — alias name → resolved XIOM type name
+    /// (e.g., "MyResult" → "Result[Int, Str]", "MyInt8" → "Int8").
+    /// Populated during type registration from `type T = Underlying;` declarations.
+    pub type_aliases: HashMap<String, String>,
 }
 
 // ============================================================================
