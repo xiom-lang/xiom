@@ -1,0 +1,10 @@
+// M32: Int16 overflow — mul wraps
+fn main() -> Int {
+  var a: Int16 = 256;
+  var b: Int16 = 128;
+  var prod: Int16 = a * b;
+  if prod == -32768 as Int16 {
+    return 0;
+  }
+  return 1;
+}

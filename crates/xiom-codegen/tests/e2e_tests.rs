@@ -1576,3 +1576,328 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m31_diff_sum()             { assert_eq!(compile_and_run("tests\\regression\\m31_diff_sum.xi"),              Some(0)); }
 #[test] fn e2e_m31_diff_fib()             { assert_eq!(compile_and_run("tests\\regression\\m31_diff_fib.xi"),              Some(0)); }
 #[test] fn e2e_m31_all_types()            { assert_eq!(compile_and_run("tests\\regression\\m31_all_types.xi"),             Some(0)); }
+
+// ── M32: Integer Types Stress Tests ───────────────────────────────────
+// Int8 min/max, arithmetic, overflow
+#[test] fn e2e_m32_int_0001() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0001.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0002() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0002.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0003() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0003.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0004() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0004.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0005() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0005.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0006() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0006.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0007() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0007.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0008() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0008.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0009() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0009.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0010() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0010.xi"), Some(0)); }
+// Int16 min/max, arithmetic, overflow
+#[test] fn e2e_m32_int_0011() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0011.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0012() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0012.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0013() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0013.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0014() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0014.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0015() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0015.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0016() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0016.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0017() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0017.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0018() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0018.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0019() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0019.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0020() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0020.xi"), Some(0)); }
+// Int32 min/max, arithmetic, overflow
+#[test] fn e2e_m32_int_0021() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0021.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0022() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0022.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0023() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0023.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0024() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0024.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0025() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0025.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0026() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0026.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0027() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0027.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0028() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0028.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0029() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0029.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0030() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0030.xi"), Some(0)); }
+// Int64 min/max, arithmetic, operations
+#[test] fn e2e_m32_int_0031() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0031.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0032() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0032.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0033() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0033.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0034() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0034.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0035() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0035.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0036() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0036.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0037() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0037.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0038() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0038.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0039() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0039.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0040() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0040.xi"), Some(0)); }
+// UInt types max, unsigned arithmetic
+#[test] fn e2e_m32_int_0041() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0041.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0042() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0042.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0043() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0043.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0044() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0044.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0045() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0045.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0046() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0046.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0047() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0047.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0048() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0048.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0049() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0049.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0050() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0050.xi"), Some(0)); }
+// Division by zero guards, casts, signed/unsigned conversions
+#[test] fn e2e_m32_int_0051() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0051.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0052() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0052.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0053() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0053.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0054() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0054.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0055() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0055.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0056() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0056.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0057() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0057.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0058() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0058.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0059() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0059.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0060() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0060.xi"), Some(0)); }
+// Bitwise AND/OR/XOR/NOT, shifts on all types
+#[test] fn e2e_m32_int_0061() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0061.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0062() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0062.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0063() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0063.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0064() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0064.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0065() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0065.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0066() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0066.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0067() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0067.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0068() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0068.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0069() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0069.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0070() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0070.xi"), Some(0)); }
+// Comparison chains, unary negation, mixed-type, hex literals
+#[test] fn e2e_m32_int_0071() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0071.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0072() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0072.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0073() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0073.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0074() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0074.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0075() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0075.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0076() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0076.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0077() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0077.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0078() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0078.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0079() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0079.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0080() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0080.xi"), Some(0)); }
+// Struct, enum, generic with integers
+#[test] fn e2e_m32_int_0081() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0081.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0082() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0082.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0083() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0083.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0084() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0084.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0085() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0085.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0086() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0086.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0087() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0087.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0088() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0088.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0089() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0089.xi"), Some(0)); }
+#[test] fn e2e_m32_int_0090() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0090.xi"), Some(0)); }
+
+// ── M32-S: Struct Types Stress Tests ────────────────────────────────────
+// Basic struct, nested structs, field copy, all primitives, array-like,
+// derive[Eq], struct return, struct param, spread, deep nesting,
+// mutation, multi-type interaction, Float64 arithmetic, mixed types, composition
+#[test] fn e2e_m32_s01() { assert_eq!(compile_and_run("tests\\regression\\m32_s01.xi"), Some(0)); }
+#[test] fn e2e_m32_s02() { assert_eq!(compile_and_run("tests\\regression\\m32_s02.xi"), Some(0)); }
+#[test] fn e2e_m32_s03() { assert_eq!(compile_and_run("tests\\regression\\m32_s03.xi"), Some(0)); }
+#[test] fn e2e_m32_s04() { assert_eq!(compile_and_run("tests\\regression\\m32_s04.xi"), Some(0)); }
+#[test] fn e2e_m32_s05() { assert_eq!(compile_and_run("tests\\regression\\m32_s05.xi"), Some(0)); }
+#[test] fn e2e_m32_s06() { assert_eq!(compile_and_run("tests\\regression\\m32_s06.xi"), Some(0)); }
+#[test] fn e2e_m32_s07() { assert_eq!(compile_and_run("tests\\regression\\m32_s07.xi"), Some(0)); }
+#[test] fn e2e_m32_s08() { assert_eq!(compile_and_run("tests\\regression\\m32_s08.xi"), Some(0)); }
+#[test] fn e2e_m32_s09() { assert_eq!(compile_and_run("tests\\regression\\m32_s09.xi"), Some(0)); }
+#[test] fn e2e_m32_s10() { assert_eq!(compile_and_run("tests\\regression\\m32_s10.xi"), Some(0)); }
+#[test] fn e2e_m32_s11() { assert_eq!(compile_and_run("tests\\regression\\m32_s11.xi"), Some(0)); }
+#[test] fn e2e_m32_s12() { assert_eq!(compile_and_run("tests\\regression\\m32_s12.xi"), Some(0)); }
+#[test] fn e2e_m32_s13() { assert_eq!(compile_and_run("tests\\regression\\m32_s13.xi"), Some(0)); }
+#[test] fn e2e_m32_s14() { assert_eq!(compile_and_run("tests\\regression\\m32_s14.xi"), Some(0)); }
+#[test] fn e2e_m32_s15() { assert_eq!(compile_and_run("tests\\regression\\m32_s15.xi"), Some(0)); }
+
+// ── M32: Float Types Stress Tests ────────────────────────────────────
+// Float64 arithmetic
+#[test] fn e2e_m32_f01() { assert_eq!(compile_and_run("tests\\regression\\m32_f01.xi"), Some(0)); }
+// Float64 comparisons
+#[test] fn e2e_m32_f02() { assert_eq!(compile_and_run("tests\\regression\\m32_f02.xi"), Some(0)); }
+// Float32 arithmetic
+#[test] fn e2e_m32_f03() { assert_eq!(compile_and_run("tests\\regression\\m32_f03.xi"), Some(0)); }
+// Float32 comparisons
+#[test] fn e2e_m32_f04() { assert_eq!(compile_and_run("tests\\regression\\m32_f04.xi"), Some(0)); }
+// Float32 to Float64 cast
+#[test] fn e2e_m32_f05() { assert_eq!(compile_and_run("tests\\regression\\m32_f05.xi"), Some(0)); }
+// Float64 to Float32 cast
+#[test] fn e2e_m32_f06() { assert_eq!(compile_and_run("tests\\regression\\m32_f06.xi"), Some(0)); }
+// Float64 to Int conversion
+#[test] fn e2e_m32_f07() { assert_eq!(compile_and_run("tests\\regression\\m32_f07.xi"), Some(0)); }
+// Float32 to Int conversion
+#[test] fn e2e_m32_f08() { assert_eq!(compile_and_run("tests\\regression\\m32_f08.xi"), Some(0)); }
+// Float64 negative values
+#[test] fn e2e_m32_f09() { assert_eq!(compile_and_run("tests\\regression\\m32_f09.xi"), Some(0)); }
+// Float32 negative values
+#[test] fn e2e_m32_f10() { assert_eq!(compile_and_run("tests\\regression\\m32_f10.xi"), Some(0)); }
+// Very small Float64 (0.000001)
+#[test] fn e2e_m32_f11() { assert_eq!(compile_and_run("tests\\regression\\m32_f11.xi"), Some(0)); }
+// Very small Float32 (0.000001)
+#[test] fn e2e_m32_f12() { assert_eq!(compile_and_run("tests\\regression\\m32_f12.xi"), Some(0)); }
+// Very large Float64 (1e308)
+#[test] fn e2e_m32_f13() { assert_eq!(compile_and_run("tests\\regression\\m32_f13.xi"), Some(0)); }
+// Mixed Float32/Float64 casts
+#[test] fn e2e_m32_f14() { assert_eq!(compile_and_run("tests\\regression\\m32_f14.xi"), Some(0)); }
+// Float comparison edge cases
+#[test] fn e2e_m32_f15() { assert_eq!(compile_and_run("tests\\regression\\m32_f15.xi"), Some(0)); }
+
+#[test] fn e2e_m32_e01() { assert_eq!(compile_and_run("tests\\regression\\m32_e01.xi"), Some(0)); }
+#[test] fn e2e_m32_e02() { assert_eq!(compile_and_run("tests\\regression\\m32_e02.xi"), Some(0)); }
+#[test] fn e2e_m32_e03() { assert_eq!(compile_and_run("tests\\regression\\m32_e03.xi"), Some(0)); }
+#[test] fn e2e_m32_e04() { assert_eq!(compile_and_run("tests\\regression\\m32_e04.xi"), Some(0)); }
+#[test] fn e2e_m32_e05() { assert_eq!(compile_and_run("tests\\regression\\m32_e05.xi"), Some(0)); }
+#[test] fn e2e_m32_e06() { assert_eq!(compile_and_run("tests\\regression\\m32_e06.xi"), Some(0)); }
+#[test] fn e2e_m32_e07() { assert_eq!(compile_and_run("tests\\regression\\m32_e07.xi"), Some(0)); }
+#[test] fn e2e_m32_e08() { assert_eq!(compile_and_run("tests\\regression\\m32_e08.xi"), Some(0)); }
+#[test] fn e2e_m32_e09() { assert_eq!(compile_and_run("tests\\regression\\m32_e09.xi"), Some(0)); }
+#[test] fn e2e_m32_e10() { assert_eq!(compile_and_run("tests\\regression\\m32_e10.xi"), Some(0)); }
+#[test] fn e2e_m32_e11() { assert_eq!(compile_and_run("tests\\regression\\m32_e11.xi"), Some(0)); }
+#[test] fn e2e_m32_e12() { assert_eq!(compile_and_run("tests\\regression\\m32_e12.xi"), Some(0)); }
+#[test] fn e2e_m32_e13() { assert_eq!(compile_and_run("tests\\regression\\m32_e13.xi"), Some(0)); }
+#[test] fn e2e_m32_e14() { assert_eq!(compile_and_run("tests\\regression\\m32_e14.xi"), Some(0)); }
+#[test] fn e2e_m32_e15() { assert_eq!(compile_and_run("tests\\regression\\m32_e15.xi"), Some(0)); }
+
+#[test] fn e2e_m32_c01() { assert_eq!(compile_and_run("tests\\regression\\m32_c01.xi"), Some(0)); }
+#[test] fn e2e_m32_c02() { assert_eq!(compile_and_run("tests\\regression\\m32_c02.xi"), Some(0)); }
+#[test] fn e2e_m32_c03() { assert_eq!(compile_and_run("tests\\regression\\m32_c03.xi"), Some(0)); }
+#[test] fn e2e_m32_c04() { assert_eq!(compile_and_run("tests\\regression\\m32_c04.xi"), Some(0)); }
+#[test] fn e2e_m32_c05() { assert_eq!(compile_and_run("tests\\regression\\m32_c05.xi"), Some(0)); }
+#[test] fn e2e_m32_c06() { assert_eq!(compile_and_run("tests\\regression\\m32_c06.xi"), Some(0)); }
+#[test] fn e2e_m32_c07() { assert_eq!(compile_and_run("tests\\regression\\m32_c07.xi"), Some(0)); }
+#[test] fn e2e_m32_c08() { assert_eq!(compile_and_run("tests\\regression\\m32_c08.xi"), Some(0)); }
+#[test] fn e2e_m32_c09() { assert_eq!(compile_and_run("tests\\regression\\m32_c09.xi"), Some(0)); }
+#[test] fn e2e_m32_c10() { assert_eq!(compile_and_run("tests\\regression\\m32_c10.xi"), Some(0)); }
+#[test] fn e2e_m32_c11() { assert_eq!(compile_and_run("tests\\regression\\m32_c11.xi"), Some(0)); }
+#[test] fn e2e_m32_c12() { assert_eq!(compile_and_run("tests\\regression\\m32_c12.xi"), Some(0)); }
+#[test] fn e2e_m32_c13() { assert_eq!(compile_and_run("tests\\regression\\m32_c13.xi"), Some(0)); }
+#[test] fn e2e_m32_c14() { assert_eq!(compile_and_run("tests\\regression\\m32_c14.xi"), Some(0)); }
+#[test] fn e2e_m32_c15() { assert_eq!(compile_and_run("tests\\regression\\m32_c15.xi"), Some(0)); }
+
+#[test] fn e2e_m32_i01() { assert_eq!(compile_and_run("tests\\regression\\m32_i01.xi"), Some(0)); }
+#[test] fn e2e_m32_i02() { assert_eq!(compile_and_run("tests\\regression\\m32_i02.xi"), Some(0)); }
+#[test] fn e2e_m32_i03() { assert_eq!(compile_and_run("tests\\regression\\m32_i03.xi"), Some(0)); }
+#[test] fn e2e_m32_i04() { assert_eq!(compile_and_run("tests\\regression\\m32_i04.xi"), Some(0)); }
+#[test] fn e2e_m32_i05() { assert_eq!(compile_and_run("tests\\regression\\m32_i05.xi"), Some(0)); }
+#[test] fn e2e_m32_i06() { assert_eq!(compile_and_run("tests\\regression\\m32_i06.xi"), Some(0)); }
+#[test] fn e2e_m32_i07() { assert_eq!(compile_and_run("tests\\regression\\m32_i07.xi"), Some(0)); }
+#[test] fn e2e_m32_i08() { assert_eq!(compile_and_run("tests\\regression\\m32_i08.xi"), Some(0)); }
+#[test] fn e2e_m32_i09() { assert_eq!(compile_and_run("tests\\regression\\m32_i09.xi"), Some(0)); }
+#[test] fn e2e_m32_i10() { assert_eq!(compile_and_run("tests\\regression\\m32_i10.xi"), Some(0)); }
+#[test] fn e2e_m32_i11() { assert_eq!(compile_and_run("tests\\regression\\m32_i11.xi"), Some(0)); }
+#[test] fn e2e_m32_i12() { assert_eq!(compile_and_run("tests\\regression\\m32_i12.xi"), Some(0)); }
+#[test] fn e2e_m32_i13() { assert_eq!(compile_and_run("tests\\regression\\m32_i13.xi"), Some(0)); }
+#[test] fn e2e_m32_i14() { assert_eq!(compile_and_run("tests\\regression\\m32_i14.xi"), Some(0)); }
+#[test] fn e2e_m32_i15() { assert_eq!(compile_and_run("tests\\regression\\m32_i15.xi"), Some(0)); }
+
+// ── M32: Control Flow / Loop Tests ───────────────────────────────────
+// while loop sum
+#[test] fn e2e_m32_l01() { assert_eq!(compile_and_run("tests\\regression\\m32_l01.xi"), Some(0)); }
+// while+break at threshold
+#[test] fn e2e_m32_l02() { assert_eq!(compile_and_run("tests\\regression\\m32_l02.xi"), Some(0)); }
+// while+continue skip evens
+#[test] fn e2e_m32_l03() { assert_eq!(compile_and_run("tests\\regression\\m32_l03.xi"), Some(0)); }
+// nested while
+#[test] fn e2e_m32_l04() { assert_eq!(compile_and_run("tests\\regression\\m32_l04.xi"), Some(0)); }
+// for-in over array
+#[test] fn e2e_m32_l05() { assert_eq!(compile_and_run("tests\\regression\\m32_l05.xi"), Some(0)); }
+// while with early return
+#[test] fn e2e_m32_l06() { assert_eq!(compile_and_run("tests\\regression\\m32_l06.xi"), Some(0)); }
+// if-elif-else chain (5 branches)
+#[test] fn e2e_m32_l07() { assert_eq!(compile_and_run("tests\\regression\\m32_l07.xi"), Some(0)); }
+// compound assign in loop
+#[test] fn e2e_m32_l08() { assert_eq!(compile_and_run("tests\\regression\\m32_l08.xi"), Some(0)); }
+// while with complex condition
+#[test] fn e2e_m32_l09() { assert_eq!(compile_and_run("tests\\regression\\m32_l09.xi"), Some(0)); }
+// infinite loop with break guard
+#[test] fn e2e_m32_l10() { assert_eq!(compile_and_run("tests\\regression\\m32_l10.xi"), Some(0)); }
+// loop counter
+#[test] fn e2e_m32_l11() { assert_eq!(compile_and_run("tests\\regression\\m32_l11.xi"), Some(0)); }
+// if-as-expression
+#[test] fn e2e_m32_l12() { assert_eq!(compile_and_run("tests\\regression\\m32_l12.xi"), Some(0)); }
+// nested break
+#[test] fn e2e_m32_l13() { assert_eq!(compile_and_run("tests\\regression\\m32_l13.xi"), Some(0)); }
+// while with counter
+#[test] fn e2e_m32_l14() { assert_eq!(compile_and_run("tests\\regression\\m32_l14.xi"), Some(0)); }
+// for-in with break
+#[test] fn e2e_m32_l15() { assert_eq!(compile_and_run("tests\\regression\\m32_l15.xi"), Some(0)); }
+
+// ── M32: String / Char / Unicode Tests ────────────────────────────────
+// string literal
+#[test] fn e2e_m32_t01() { assert_eq!(compile_and_run("tests\\regression\\m32_t01.xi"), Some(0)); }
+// char literal
+#[test] fn e2e_m32_t02() { assert_eq!(compile_and_run("tests\\regression\\m32_t02.xi"), Some(0)); }
+// string concat
+#[test] fn e2e_m32_t03() { assert_eq!(compile_and_run("tests\\regression\\m32_t03.xi"), Some(0)); }
+// string length
+#[test] fn e2e_m32_t04() { assert_eq!(compile_and_run("tests\\regression\\m32_t04.xi"), Some(0)); }
+// char to int
+#[test] fn e2e_m32_t05() { assert_eq!(compile_and_run("tests\\regression\\m32_t05.xi"), Some(0)); }
+// int to char
+#[test] fn e2e_m32_t06() { assert_eq!(compile_and_run("tests\\regression\\m32_t06.xi"), Some(0)); }
+// empty string
+#[test] fn e2e_m32_t07() { assert_eq!(compile_and_run("tests\\regression\\m32_t07.xi"), Some(0)); }
+// string with spaces
+#[test] fn e2e_m32_t08() { assert_eq!(compile_and_run("tests\\regression\\m32_t08.xi"), Some(0)); }
+// string comparison == and !=
+#[test] fn e2e_m32_t09() { assert_eq!(compile_and_run("tests\\regression\\m32_t09.xi"), Some(0)); }
+// multi-char string
+#[test] fn e2e_m32_t10() { assert_eq!(compile_and_run("tests\\regression\\m32_t10.xi"), Some(0)); }
+// unicode char 'λ'
+#[test] fn e2e_m32_t11() { assert_eq!(compile_and_run("tests\\regression\\m32_t11.xi"), Some(0)); }
+// escaped string with \n \t
+#[test] fn e2e_m32_t12() { assert_eq!(compile_and_run("tests\\regression\\m32_t12.xi"), Some(0)); }
+// string in struct
+#[test] fn e2e_m32_t13() { assert_eq!(compile_and_run("tests\\regression\\m32_t13.xi"), Some(0)); }
+// string in array
+#[test] fn e2e_m32_t14() { assert_eq!(compile_and_run("tests\\regression\\m32_t14.xi"), Some(0)); }
+// string parameter/return
+#[test] fn e2e_m32_t15() { assert_eq!(compile_and_run("tests\\regression\\m32_t15.xi"), Some(0)); }
+
+// ── M32-G: Generic Types & Traits Stress Tests ──────────────────────────
+// Identity generic, two-param generic, generic struct, generic enum,
+// constrained generic, multi-constraint, method on generic, generic return,
+// nested Vec, generic array access, type alias, max comparator,
+// multi-constraint composition, generic enum match, multi-method constraint
+#[test] fn e2e_m32_g01() { assert_eq!(compile_and_run("tests\\regression\\m32_g01.xi"), Some(0)); }
+#[test] fn e2e_m32_g02() { assert_eq!(compile_and_run("tests\\regression\\m32_g02.xi"), Some(0)); }
+#[test] fn e2e_m32_g03() { assert_eq!(compile_and_run("tests\\regression\\m32_g03.xi"), Some(0)); }
+#[test] fn e2e_m32_g04() { assert_eq!(compile_and_run("tests\\regression\\m32_g04.xi"), Some(0)); }
+#[test] fn e2e_m32_g05() { assert_eq!(compile_and_run("tests\\regression\\m32_g05.xi"), Some(0)); }
+#[test] fn e2e_m32_g06() { assert_eq!(compile_and_run("tests\\regression\\m32_g06.xi"), Some(0)); }
+#[test] fn e2e_m32_g07() { assert_eq!(compile_and_run("tests\\regression\\m32_g07.xi"), Some(0)); }
+#[test] fn e2e_m32_g08() { assert_eq!(compile_and_run("tests\\regression\\m32_g08.xi"), Some(0)); }
+#[test] fn e2e_m32_g09() { assert_eq!(compile_and_run("tests\\regression\\m32_g09.xi"), Some(0)); }
+#[test] fn e2e_m32_g10() { assert_eq!(compile_and_run("tests\\regression\\m32_g10.xi"), Some(0)); }
+#[test] fn e2e_m32_g11() { assert_eq!(compile_and_run("tests\\regression\\m32_g11.xi"), Some(0)); }
+#[test] fn e2e_m32_g12() { assert_eq!(compile_and_run("tests\\regression\\m32_g12.xi"), Some(0)); }
+#[test] fn e2e_m32_g13() { assert_eq!(compile_and_run("tests\\regression\\m32_g13.xi"), Some(0)); }
+#[test] fn e2e_m32_g14() { assert_eq!(compile_and_run("tests\\regression\\m32_g14.xi"), Some(0)); }
+#[test] fn e2e_m32_g15() { assert_eq!(compile_and_run("tests\\regression\\m32_g15.xi"), Some(0)); }
+
+// ── M32-M: Module System Tests ──────────────────────────────────────────
+// Module declaration, pub fn visibility, private fn, use module,
+// use type alias, dotted path access, pub const, pub type,
+// nested modules, module exports
+#[test] fn e2e_m32_m01() { assert_eq!(compile_and_run("tests\\regression\\m32_m01.xi"), Some(0)); }
+#[test] fn e2e_m32_m02() { assert_eq!(compile_and_run("tests\\regression\\m32_m02.xi"), Some(0)); }
+#[test] fn e2e_m32_m03() { assert_eq!(compile_and_run("tests\\regression\\m32_m03.xi"), Some(0)); }
+#[test] fn e2e_m32_m04() { assert_eq!(compile_and_run("tests\\regression\\m32_m04.xi"), Some(0)); }
+#[test] fn e2e_m32_m05() { assert_eq!(compile_and_run("tests\\regression\\m32_m05.xi"), Some(0)); }
+#[test] fn e2e_m32_m06() { assert_eq!(compile_and_run("tests\\regression\\m32_m06.xi"), Some(0)); }
+#[test] fn e2e_m32_m07() { assert_eq!(compile_and_run("tests\\regression\\m32_m07.xi"), Some(0)); }
+#[test] fn e2e_m32_m08() { assert_eq!(compile_and_run("tests\\regression\\m32_m08.xi"), Some(0)); }
+#[test] fn e2e_m32_m09() { assert_eq!(compile_and_run("tests\\regression\\m32_m09.xi"), Some(0)); }
+#[test] fn e2e_m32_m10() { assert_eq!(compile_and_run("tests\\regression\\m32_m10.xi"), Some(0)); }
+#[test] fn e2e_m32_m11() { assert_eq!(compile_and_run("tests\\regression\\m32_m11.xi"), Some(0)); }
+#[test] fn e2e_m32_m12() { assert_eq!(compile_and_run("tests\\regression\\m32_m12.xi"), Some(0)); }
+#[test] fn e2e_m32_m13() { assert_eq!(compile_and_run("tests\\regression\\m32_m13.xi"), Some(0)); }
+#[test] fn e2e_m32_m14() { assert_eq!(compile_and_run("tests\\regression\\m32_m14.xi"), Some(0)); }
+#[test] fn e2e_m32_m15() { assert_eq!(compile_and_run("tests\\regression\\m32_m15.xi"), Some(0)); }
+
+// ── M32-X: Combinatorial + Differential Correctness Tests ────────────────
+// Each test mixes struct+enum+match+generic+contract and verifies
+// two equivalent implementations produce the same result.
+#[test] fn e2e_m32_x01() { assert_eq!(compile_and_run("tests\\regression\\m32_x01.xi"), Some(0)); }
+#[test] fn e2e_m32_x02() { assert_eq!(compile_and_run("tests\\regression\\m32_x02.xi"), Some(0)); }
+#[test] fn e2e_m32_x03() { assert_eq!(compile_and_run("tests\\regression\\m32_x03.xi"), Some(0)); }
+#[test] fn e2e_m32_x04() { assert_eq!(compile_and_run("tests\\regression\\m32_x04.xi"), Some(0)); }
+#[test] fn e2e_m32_x05() { assert_eq!(compile_and_run("tests\\regression\\m32_x05.xi"), Some(0)); }
+#[test] fn e2e_m32_x06() { assert_eq!(compile_and_run("tests\\regression\\m32_x06.xi"), Some(0)); }
+#[test] fn e2e_m32_x07() { assert_eq!(compile_and_run("tests\\regression\\m32_x07.xi"), Some(0)); }
+#[test] fn e2e_m32_x08() { assert_eq!(compile_and_run("tests\\regression\\m32_x08.xi"), Some(0)); }
+#[test] fn e2e_m32_x09() { assert_eq!(compile_and_run("tests\\regression\\m32_x09.xi"), Some(0)); }
+#[test] fn e2e_m32_x10() { assert_eq!(compile_and_run("tests\\regression\\m32_x10.xi"), Some(0)); }
+#[test] fn e2e_m32_x11() { assert_eq!(compile_and_run("tests\\regression\\m32_x11.xi"), Some(0)); }
+#[test] fn e2e_m32_x12() { assert_eq!(compile_and_run("tests\\regression\\m32_x12.xi"), Some(0)); }
+#[test] fn e2e_m32_x13() { assert_eq!(compile_and_run("tests\\regression\\m32_x13.xi"), Some(0)); }
+#[test] fn e2e_m32_x14() { assert_eq!(compile_and_run("tests\\regression\\m32_x14.xi"), Some(0)); }
+#[test] fn e2e_m32_x15() { assert_eq!(compile_and_run("tests\\regression\\m32_x15.xi"), Some(0)); }
