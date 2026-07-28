@@ -638,6 +638,239 @@ must be hardened to pass all tests.
 
 ---
 
+## M16.1 STATUS — Partially Complete (2026-07-28)
+
+| Bug | Status |
+|-----|--------|
+| B-004 Binary op widening | ? FIXED (+12 tests, zero regressions) |
+| B-005 BitNot widening | ? FIXED |
+| B-006 Negation after cast | ? FIXED |
+| B-008 Int8 store truncation | ?? DEFERRED — 3 approaches tried, all caused regressions in i64-first ABI |
+| B-007/009-022 | ?? DEFERRED — blocked on narrow-int refactor |
+
+**Key finding:** The i64-first ABI design (all integers stored as i64 in LLVM)
+is the root cause of all remaining narrow-int failures. Point fixes cannot
+resolve this without broader refactoring. See v0.53.0 plan below.
+
+---
+
+## v0.53.0 "Narrow-Int Foundation" — Production Plan
+
+**Target:** First-class LLVM integer types. Every XIOM integer width maps to
+its native LLVM width with correct truncation/extension at boundaries.
+
+**Why this approach, not patching:**
+- 3 point-fix attempts (B-008) all caused regressions
+- The i64-first design is fundamentally incompatible with correct Int8/Int16/Int32 semantics
+- Every other systems language (Rust, Zig, C, Ada) uses native LLVM widths
+- The current design works for 96% of tests only because most code uses `Int` (i64)
+
+### M17 — Narrow-Int Refactor (Option A: First-Class LLVM Types)
+
+**Architecture change:**
+```
+BEFORE (i64-first):          AFTER (native widths):
+  Int   ? i64                  Int   ? i64
+  Int8  ? i64 (lossy!)        Int8  ? i8  + sext/zext on load, trunc on store
+  Int16 ? i64 (lossy!)        Int16 ? i16 + sext on load, trunc on store
+  Int32 ? i64 (lossy!)        Int32 ? i32 + sext on load, trunc on store
+  UInt8 ? i64 (lossy!)        UInt8 ? i8  + zext on load, trunc on store
+  Char  ? i64                 Char  ? i32 (Unicode 32-bit)
+```
+
+**Implementation steps:**
+
+| Step | Task | Effort |
+|------|------|--------|
+| M17.1 | Update `llvm_type_for` to return native widths for all types | 2h |
+| M17.2 | Update `widen_to_i64` to handle all widths with correct sign extension (sext for signed, zext for unsigned, zext for Char) | 2h |
+| M17.3 | Update alloca/store paths in stmt.rs to use declared type widths | 3h |
+| M17.4 | Update function param/return type lowering to native widths | 3h |
+| M17.5 | Update `coerce_value` for all width conversions | 3h |
+| M17.6 | Update struct field type resolution | 2h |
+| M17.7 | Update enum discriminant/payload storage | 3h |
+| M17.8 | Update Vec element storage (vec_abi.rs truncation paths) | 2h |
+| M17.9 | Update derive codegen (Eq/Ord/Hash/Display) for native widths | 3h |
+| M17.10 | Run full 3000+ test suite, fix regressions | 8h |
+| M17.11 | Verify M32 18 remaining integer tests pass | 2h |
+
+**Total M17 effort: ~33h (4-5 days)**
+
+**M17 verification checklist:**
+- [ ] All 240 M32 integer stress tests pass (currently 222/240)
+- [ ] All 1303 E2E tests pass (currently 1282/1303)
+- [ ] `Int8(-128) - Int8(1) == Int8(127)` (wrapping semantics)
+- [ ] `UInt8(255) + UInt8(1) == UInt8(0)` (wrapping semantics)
+- [ ] `Int32(-1)` stored and loaded correctly
+- [ ] All struct fields with narrow int types preserve values
+- [ ] All enum payloads with narrow int types preserve values
+- [ ] Generic functions with Int8/Int16/Int32 type params compile correctly
+- [ ] Compound assignment on narrow int types works
+- [ ] LLVM IR passes `opt --verify` without type errors
+
+---
+
+## v0.53.0 — Spec Review Improvements
+
+The following improvements were identified through external language review and
+are agreed to strengthen XIOM's position as a production systems language.
+
+### M18 — Pattern Guards
+
+| ID | Task | Effort |
+|----|------|--------|
+| M18.1 | Add `if` guard to match arm syntax: `pattern if condition => expr` | 3h |
+| M18.2 | Add guard variables to match arm binding scope | 2h |
+| M18.3 | Codegen: guard as condition before arm body | 2h |
+| M18.4 | Checker: guard expression must be `Bool` | 1h |
+| M18.5 | Parser: `pattern => if cond { body }` desugars to guarded arm | 1h |
+
+**Syntax:**
+```xiom
+match value {
+  Some(v) if v > 10 => process(v),
+  Some(v)           => default_handler(v),
+  None              => {},
+}
+```
+
+**Total M18 effort: ~9h**
+
+### M19 — Default Interface Implementations
+
+| ID | Task | Effort |
+|----|------|--------|
+| M19.1 | Allow method bodies in `interface` declarations | 2h |
+| M19.2 | Default method dispatch: use default if type doesn't provide override | 3h |
+| M19.3 | `Self` type resolution in default method bodies | 2h |
+| M19.4 | Checker: verify default bodies compile against `Self` | 2h |
+| M19.5 | Parser: allow `{ ... }` body after interface method sig | 1h |
+
+**Syntax:**
+```xiom
+interface Comparable {
+  fn compare(other: &Self) -> Int;  // no default — must implement
+  fn lt(other: &Self) -> Bool { return self.compare(other) < 0; }  // default
+}
+```
+
+**Total M19 effort: ~10h**
+
+### M20 — Error Conventions (Soft Convention)
+
+| ID | Task | Effort |
+|----|------|--------|
+| M20.1 | Document recommended `Error` interface in spec (not enforced) | 1h |
+| M20.2 | Add `message() -> Str` method to stdlib `error::Error` interface | 1h |
+| M20.3 | Update code patterns section with canonical error handling examples | 1h |
+| M20.4 | Add `AppError` and `DomainError` standard patterns to docs | 1h |
+
+**Total M20 effort: ~4h (documentation + minor stdlib)**
+
+### M21 — Borrow Checker Activation (Partial)
+
+| ID | Task | Effort |
+|----|------|--------|
+| M21.1 | Fix spec: "Borrow returned from function" ? "Borrow returned from function to stack-local data" | 1h |
+| M21.2 | Activate borrow checker for `&mut` exclusivity (write borrow while read active) | 3h |
+| M21.3 | Activate borrow checker for use-after-move detection | 3h |
+| M21.4 | Allow borrow returns for heap/caller-owned data (stdlib functions like `array.first()`) | 2h |
+| M21.5 | Add borrow-checker test suite: 100+ edge cases | 8h |
+
+**Total M21 effort: ~17h**
+
+---
+
+## v0.53.0 Test Plan
+
+After M17-M21, the following NEW tests will be added:
+
+| Area | Tests | Target |
+|------|-------|--------|
+| Narrow-int exhaustive: all width combinations for all ops | 200 | All pass |
+| Pattern guard combinatorics: every guard shape | 80 | All pass |
+| Default interface impl dispatch: static/dynamic/override | 60 | All pass |
+| Borrow checker activation: move, borrow, mutate edges | 100 | Most pass, some defer |
+| Error convention patterns: real-world error handling | 40 | All pass |
+| Self-host lint: compile the compiler's own source patterns | 50 | All pass |
+| **TOTAL new tests** | **~530** | **3500+ test baseline** |
+
+---
+
+## Honest Self-Hosting Readiness Assessment
+
+**Can XIOM self-host after v0.53.0? — PARTIALLY YES, fully NO.**
+
+### What WILL work (the compiler can compile itself):
+
+| Feature | Status | Compiler needs this? |
+|---------|--------|---------------------|
+| Int arithmetic (narrow-int refactored) | ? After M17 | Yes — heavily |
+| Enums with payloads (AST nodes) | ? Working | Yes — AST is enum |
+| Structs with nested fields | ? Working | Yes — types/diagnostics |
+| Generics and monomorphisation | ? Working | Yes — type system |
+| Match expressions | ? Working | Yes — parser/codegen |
+| Functions/closures | ? Working | Yes — lexer/parser |
+| Modules and visibility | ? Working | Yes — crate system |
+| String operations | ? Working | Yes — lexer |
+| Option/Result/simple contracts | ? Working | Yes — error handling |
+| File I/O | ?? Needs stdlib | Yes — read source files |
+| Derive Eq/Ord/Clone | ?? After fix | Yes — AST comparison |
+
+### What will NOT work yet:
+
+| Feature | Status | Blocked by |
+|---------|--------|------------|
+| Borrow checker (full) | ? Not active | Safety — the compiled compiler would have memory bugs |
+| Thread safety | ? Not active | The compiler is single-threaded, OK for now |
+| Full stdlib (40 modules) | ? ~30% | Compiler doesn't need most modules |
+| Async/await | ? Not active | Not needed |
+
+### The honest answer:
+
+**v0.53.0 can produce a compiler binary that compiles correct XIOM source.**
+The binary won't be safe (no borrow checker) but it will be correct (codegen
+produces right answers). This is sufficient for a "self-host preview" —
+compile the compiler with itself and verify the output compiles the same
+programs identically.
+
+**Full self-hosting (replace Rust bootstrap) requires v0.54.0:**
+- Active borrow checker ? safety
+- Working `derive` ? Eq/Ord for AST comparison
+- File I/O stdlib ? read source files on all platforms
+- Full differential testing: Rust-bootstrap-compiled vs self-compiled IR must match
+
+**Recommendation:** Target v0.53.0 for "self-host preview" (correctness, not safety).
+Target v0.54.0 for "self-host production" (correctness + safety).
+
+---
+
+## v0.53.0 Schedule Summary
+
+| Phase | Contents | Effort |
+|-------|----------|--------|
+| M17 | Narrow-int refactor (Option A: first-class LLVM types) | 33h |
+| M18 | Pattern guards | 9h |
+| M19 | Default interface implementations | 10h |
+| M20 | Error conventions (docs + minor stdlib) | 4h |
+| M21 | Borrow checker activation (partial) | 17h |
+| M22 | Test suite expansion (+530 tests) | 16h |
+| M23 | Fix remaining M32 integer failures from refactor | 4h |
+| M24 | Self-host preview differential testing | 8h |
+| **Total** | **v0.53.0 "Narrow-Int Foundation + Spec Review"** | **~101h (2-3 weeks)** |
+
+### v0.53.0 Target Metrics
+
+| Metric | Current | v0.53.0 Target |
+|--------|---------|----------------|
+| Total test baseline | ~2986 | ~3500 |
+| E2E pass rate | 1282/1303 (98.4%) | 100% |
+| Narrow-int correctness | ? (18 failures) | ? All 240 M32 tests pass |
+| Pattern guards | ? Not implemented | ? Production |
+| Default interface impls | ? Not implemented | ? Production |
+| Borrow checker (partial) | ? Not active | ? Move/exclusivity active |
+| Self-host preview | ? | ? Compiles self, IR matches bootstrap |
+
 | Version | Date | Tests | Notes |
 |---------|------|-------|-------|
 | **v0.52.0** | 2026-07-26 | **~1055** | M15 complete, B-001/B-002/B-003 fixed, self-host ready 10/10 |
