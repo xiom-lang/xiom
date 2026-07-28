@@ -196,6 +196,10 @@ pub struct LocalContext {
     /// M17: XIOM type name for each local. Maps local name → XIOM type string
     /// (e.g. "x" → "Int8", "y" → "UInt16"). Populated from declared type annotations.
     pub local_xiom_types: HashMap<String, String>,
+    /// M17: Tracks which SSA register names hold signed integer values.
+    /// Populated when values are created with known XIOM type (Ident loads,
+    /// As expressions, literals). Consulted by widen_to_i64 to select sext/zext.
+    pub reg_signed: HashMap<String, bool>,
 }
 
 // ============================================================================

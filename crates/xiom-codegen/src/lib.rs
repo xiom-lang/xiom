@@ -477,11 +477,17 @@ impl IrEmitter {
 
     /// Widen a narrow integer value (`i1`/`i8`/`i16`/`i32`) to `i64` so it can
     /// participate in the emitter's i64 integer arithmetic/comparison model.
-    /// `is_signed` determines whether to use `sext` (sign extension for signed
-    /// types like Int8/Int16/Int32) or `zext` (zero extension for unsigned types
-    /// like UInt8/UInt16/UInt32/Char/Bool).
+    /// Consults `self.local.reg_signed` for per-register signedness; falls back
+    /// to type-based defaults: zext for i1/i8, sext for i16/i32.
     fn widen_to_i64(&mut self, val: &str, ty: &str) -> String {
-        self.widen_to_i64_signed(val, ty, false)
+        let is_signed = self.local.reg_signed.get(val).copied().unwrap_or_else(|| {
+            // Default based on LLVM type: i1 (Bool) and i8 (could be UInt8/Char)
+            // default to zext; i16/i32 default to sext (Int16/Int32 are primary).
+            // The Ident load path and As expression handler provide per-register
+            // overrides via reg_signed for precise control.
+            !matches!(ty, "i1" | "i8")
+        });
+        self.widen_to_i64_signed(val, ty, is_signed)
     }
 
     /// Widen with explicit signedness control. `is_signed=true` uses `sext`;

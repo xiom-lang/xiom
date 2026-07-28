@@ -612,6 +612,9 @@ impl IrEmitter {
         self.local.local_opt_payload.clear();
         self.local.local_boxed_struct.clear();
         self.local.local_vec_handle.clear();
+        self.local.signed_locals.clear();
+        self.local.local_xiom_types.clear();
+        self.local.reg_signed.clear();
 
         let ret_llvm = fd.return_type.as_ref()
             .map(|t| {

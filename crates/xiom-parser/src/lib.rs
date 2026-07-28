@@ -1369,17 +1369,24 @@ impl Parser {
     }
 
     fn parse_mul_expr(&mut self) -> Result<Expr, ParseError> {
-        let mut left = self.parse_unary_expr()?;
+        let mut left = self.parse_as_expr()?;
         loop {
             let op = match self.peek_kind() { TokenKind::Star => BinOp::Mul, TokenKind::Slash => BinOp::Div, TokenKind::Percent => BinOp::Rem, TokenKind::Caret => BinOp::BitXor, TokenKind::Ampersand => BinOp::BitAnd, TokenKind::Pipe => BinOp::BitOr, _ => break };
-            self.advance(); let right = self.parse_unary_expr()?; let span = left.span(); left = Expr::Binary(Box::new(left), op, Box::new(right), span);
+            self.advance(); let right = self.parse_as_expr()?; let span = left.span(); left = Expr::Binary(Box::new(left), op, Box::new(right), span);
         }
         Ok(left)
     }
 
     fn parse_unary_expr(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_unary_prefix()?;
-        // Postfix: as Type cast
+        Ok(expr)
+    }
+
+    /// Parse `as` type casts: `expr as Type`.
+    /// `as` has lower precedence than unary operators, so `-128 as Int8`
+    /// parses as `(-128) as Int8`, not `-(128 as Int8)`.
+    fn parse_as_expr(&mut self) -> Result<Expr, ParseError> {
+        let mut expr = self.parse_unary_expr()?;
         while self.skip(TokenKind::As) {
             let ty = self.parse_type()?;
             let span = expr.span();
@@ -1542,7 +1549,10 @@ impl Parser {
                     } else { let inner = self.parse_expr_open()?; self.expect_kind(TokenKind::RBracket, "']'")?; let span = expr.span(); expr = Expr::Index(Box::new(expr), Box::new(inner), span); }
                 }
                 TokenKind::At => { self.advance(); if let TokenKind::Ident(s) = self.peek_kind() { if s == "pre" { self.advance(); let span = expr.span(); expr = Expr::AtPre(Box::new(expr), span); } else { return Err(self.error("expected 'pre' after '@'")); } } else { return Err(self.error("expected 'pre' after '@'")); } }
-                TokenKind::As => { self.advance(); let ty = self.parse_type()?; let span = expr.span(); expr = Expr::As(Box::new(expr), ty, span); }
+                // M17: `as` is handled at the unary level (parse_unary_expr), not
+                // postfix level, so `-128 as Int8` parses as `(-128) as Int8` rather
+                // than `-(128 as Int8)`. This matches Rust/Zig/C precedence where `as`
+                // binds lower than unary operators.
                 TokenKind::Colon if self.peek_ahead(1) == Some(&TokenKind::Colon) => {
                     self.advance(); self.advance(); // consume `::`
                     let method = self.parse_ident()?;
