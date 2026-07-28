@@ -2361,6 +2361,48 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m34_y19() { assert_eq!(compile_and_run("tests\\regression\\m34_y19.xi"), Some(0)); }
 #[test] fn e2e_m34_y20() { assert_eq!(compile_and_run("tests\\regression\\m34_y20.xi"), Some(0)); }
 
+// ── M35-M: Math Function Stress Tests ───────────────────────────────
+// 01: sqrt via Newton method, 02: abs value, 03: min of 2/3/4, 04: max of 2/3/4
+// 05: integer pow, 06: factorial iterative, 07: factorial recursive
+// 08: is-prime trial division, 09: GCD Euclidean, 10: LCM from GCD
+// 11: fibonacci iterative, 12: digital root, 13: perfect number, 14: Armstrong
+// 15: arithmetic series sum, 16: geometric series sum, 17: harmonic number
+// 18: binomial coefficient, 19: Pascal triangle row, 20: Catalan number
+// 21: Collatz sequence, 22: hailstone max, 23: Leibniz pi approx
+// 24: e approximation, 25: log2 integer, 26: is-power-of-2
+// 27: round to nearest, 28: ceil division, 29: triangle area Heron
+// 30: quadratic discriminant + distance
+#[test] fn e2e_m35_m01() { assert_eq!(compile_and_run("tests\\regression\\m35_m01.xi"), Some(0)); }
+#[test] fn e2e_m35_m02() { assert_eq!(compile_and_run("tests\\regression\\m35_m02.xi"), Some(0)); }
+#[test] fn e2e_m35_m03() { assert_eq!(compile_and_run("tests\\regression\\m35_m03.xi"), Some(0)); }
+#[test] fn e2e_m35_m04() { assert_eq!(compile_and_run("tests\\regression\\m35_m04.xi"), Some(0)); }
+#[test] fn e2e_m35_m05() { assert_eq!(compile_and_run("tests\\regression\\m35_m05.xi"), Some(0)); }
+#[test] fn e2e_m35_m06() { assert_eq!(compile_and_run("tests\\regression\\m35_m06.xi"), Some(0)); }
+#[test] fn e2e_m35_m07() { assert_eq!(compile_and_run("tests\\regression\\m35_m07.xi"), Some(0)); }
+#[test] fn e2e_m35_m08() { assert_eq!(compile_and_run("tests\\regression\\m35_m08.xi"), Some(0)); }
+#[test] fn e2e_m35_m09() { assert_eq!(compile_and_run("tests\\regression\\m35_m09.xi"), Some(0)); }
+#[test] fn e2e_m35_m10() { assert_eq!(compile_and_run("tests\\regression\\m35_m10.xi"), Some(0)); }
+#[test] fn e2e_m35_m11() { assert_eq!(compile_and_run("tests\\regression\\m35_m11.xi"), Some(0)); }
+#[test] fn e2e_m35_m12() { assert_eq!(compile_and_run("tests\\regression\\m35_m12.xi"), Some(0)); }
+#[test] fn e2e_m35_m13() { assert_eq!(compile_and_run("tests\\regression\\m35_m13.xi"), Some(0)); }
+#[test] fn e2e_m35_m14() { assert_eq!(compile_and_run("tests\\regression\\m35_m14.xi"), Some(0)); }
+#[test] fn e2e_m35_m15() { assert_eq!(compile_and_run("tests\\regression\\m35_m15.xi"), Some(0)); }
+#[test] fn e2e_m35_m16() { assert_eq!(compile_and_run("tests\\regression\\m35_m16.xi"), Some(0)); }
+#[test] fn e2e_m35_m17() { assert_eq!(compile_and_run("tests\\regression\\m35_m17.xi"), Some(0)); }
+#[test] fn e2e_m35_m18() { assert_eq!(compile_and_run("tests\\regression\\m35_m18.xi"), Some(0)); }
+#[test] fn e2e_m35_m19() { assert_eq!(compile_and_run("tests\\regression\\m35_m19.xi"), Some(0)); }
+#[test] fn e2e_m35_m20() { assert_eq!(compile_and_run("tests\\regression\\m35_m20.xi"), Some(0)); }
+#[test] fn e2e_m35_m21() { assert_eq!(compile_and_run("tests\\regression\\m35_m21.xi"), Some(0)); }
+#[test] fn e2e_m35_m22() { assert_eq!(compile_and_run("tests\\regression\\m35_m22.xi"), Some(0)); }
+#[test] fn e2e_m35_m23() { assert_eq!(compile_and_run("tests\\regression\\m35_m23.xi"), Some(0)); }
+#[test] fn e2e_m35_m24() { assert_eq!(compile_and_run("tests\\regression\\m35_m24.xi"), Some(0)); }
+#[test] fn e2e_m35_m25() { assert_eq!(compile_and_run("tests\\regression\\m35_m25.xi"), Some(0)); }
+#[test] fn e2e_m35_m26() { assert_eq!(compile_and_run("tests\\regression\\m35_m26.xi"), Some(0)); }
+#[test] fn e2e_m35_m27() { assert_eq!(compile_and_run("tests\\regression\\m35_m27.xi"), Some(0)); }
+#[test] fn e2e_m35_m28() { assert_eq!(compile_and_run("tests\\regression\\m35_m28.xi"), Some(0)); }
+#[test] fn e2e_m35_m29() { assert_eq!(compile_and_run("tests\\regression\\m35_m29.xi"), Some(0)); }
+#[test] fn e2e_m35_m30() { assert_eq!(compile_and_run("tests\\regression\\m35_m30.xi"), Some(0)); }
+
 // ── M34-D: Recursive Data Structures Stress Tests ──────────────────────
 // d01: Binary tree — struct with left/right pointers
 #[test] fn e2e_m34_d01() { assert_eq!(compile_and_run("tests\\regression\\m34_d01.xi"), Some(0)); }
@@ -2402,3 +2444,444 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m34_d19() { assert_eq!(compile_and_run("tests\\regression\\m34_d19.xi"), Some(0)); }
 // d20: Recursive invariant + serialization pattern
 #[test] fn e2e_m34_d20() { assert_eq!(compile_and_run("tests\\regression\\m34_d20.xi"), Some(0)); }
+
+// ── M35-S: String Manipulation Algorithms ───────────────────────────────
+// s01: String reverse — manual loop building reversed string
+#[test] fn e2e_m35_s01() { assert_eq!(compile_and_run("tests\\regression\\m35_s01.xi"), Some(0)); }
+// s02: Palindrome check — reverse and compare
+#[test] fn e2e_m35_s02() { assert_eq!(compile_and_run("tests\\regression\\m35_s02.xi"), Some(0)); }
+// s03: Substring search — manual needle-in-haystack check
+#[test] fn e2e_m35_s03() { assert_eq!(compile_and_run("tests\\regression\\m35_s03.xi"), Some(0)); }
+// s04: Count character occurrences — loop and count matching bytes
+#[test] fn e2e_m35_s04() { assert_eq!(compile_and_run("tests\\regression\\m35_s04.xi"), Some(0)); }
+// s05: Remove character — build new string without target char
+#[test] fn e2e_m35_s05() { assert_eq!(compile_and_run("tests\\regression\\m35_s05.xi"), Some(0)); }
+// s06: Replace substring — find and replace first occurrence
+#[test] fn e2e_m35_s06() { assert_eq!(compile_and_run("tests\\regression\\m35_s06.xi"), Some(0)); }
+// s07: String to uppercase — build uppercase via ASCII char mapping
+#[test] fn e2e_m35_s07() { assert_eq!(compile_and_run("tests\\regression\\m35_s07.xi"), Some(0)); }
+// s08: String to lowercase — build lowercase via ASCII char mapping
+#[test] fn e2e_m35_s08() { assert_eq!(compile_and_run("tests\\regression\\m35_s08.xi"), Some(0)); }
+// s09: Trim spaces — remove leading and trailing spaces
+#[test] fn e2e_m35_s09() { assert_eq!(compile_and_run("tests\\regression\\m35_s09.xi"), Some(0)); }
+// s10: Split by delimiter — find delimiter position and extract parts
+#[test] fn e2e_m35_s10() { assert_eq!(compile_and_run("tests\\regression\\m35_s10.xi"), Some(0)); }
+// s11: Join strings — concatenate with delimiter between
+#[test] fn e2e_m35_s11() { assert_eq!(compile_and_run("tests\\regression\\m35_s11.xi"), Some(0)); }
+// s12: String comparison — character-by-character lexicographic order
+#[test] fn e2e_m35_s12() { assert_eq!(compile_and_run("tests\\regression\\m35_s12.xi"), Some(0)); }
+// s13: String prefix check — character-by-character prefix verification
+#[test] fn e2e_m35_s13() { assert_eq!(compile_and_run("tests\\regression\\m35_s13.xi"), Some(0)); }
+// s14: String suffix check — character-by-character suffix verification
+#[test] fn e2e_m35_s14() { assert_eq!(compile_and_run("tests\\regression\\m35_s14.xi"), Some(0)); }
+// s15: Find first occurrence — return index of first match or -1
+#[test] fn e2e_m35_s15() { assert_eq!(compile_and_run("tests\\regression\\m35_s15.xi"), Some(0)); }
+// s16: Find last occurrence — return index of last match or -1
+#[test] fn e2e_m35_s16() { assert_eq!(compile_and_run("tests\\regression\\m35_s16.xi"), Some(0)); }
+// s17: Extract substring — build substring from start to end index
+#[test] fn e2e_m35_s17() { assert_eq!(compile_and_run("tests\\regression\\m35_s17.xi"), Some(0)); }
+// s18: Word count — count spaces to determine word count
+#[test] fn e2e_m35_s18() { assert_eq!(compile_and_run("tests\\regression\\m35_s18.xi"), Some(0)); }
+// s19: Character frequency count — count occurrences of each char
+#[test] fn e2e_m35_s19() { assert_eq!(compile_and_run("tests\\regression\\m35_s19.xi"), Some(0)); }
+// s20: Longest word — find word with maximum length
+#[test] fn e2e_m35_s20() { assert_eq!(compile_and_run("tests\\regression\\m35_s20.xi"), Some(0)); }
+// s21: Shortest word — find word with minimum non-zero length
+#[test] fn e2e_m35_s21() { assert_eq!(compile_and_run("tests\\regression\\m35_s21.xi"), Some(0)); }
+// s22: Capitalize first letter — convert first char to uppercase
+#[test] fn e2e_m35_s22() { assert_eq!(compile_and_run("tests\\regression\\m35_s22.xi"), Some(0)); }
+// s23: Check anagrams — compare character frequency counts
+#[test] fn e2e_m35_s23() { assert_eq!(compile_and_run("tests\\regression\\m35_s23.xi"), Some(0)); }
+// s24: Common prefix — find longest shared prefix between two strings
+#[test] fn e2e_m35_s24() { assert_eq!(compile_and_run("tests\\regression\\m35_s24.xi"), Some(0)); }
+// s25: String compression — run-length encoding
+#[test] fn e2e_m35_s25() { assert_eq!(compile_and_run("tests\\regression\\m35_s25.xi"), Some(0)); }
+// s26: String expansion — expand repeated characters
+#[test] fn e2e_m35_s26() { assert_eq!(compile_and_run("tests\\regression\\m35_s26.xi"), Some(0)); }
+// s27: Rotation check — check if one string is a rotation of another
+#[test] fn e2e_m35_s27() { assert_eq!(compile_and_run("tests\\regression\\m35_s27.xi"), Some(0)); }
+// s28: String distance — Hamming distance between equal-length strings
+#[test] fn e2e_m35_s28() { assert_eq!(compile_and_run("tests\\regression\\m35_s28.xi"), Some(0)); }
+// s29: Wildcard match — match string against pattern with ? and *
+#[test] fn e2e_m35_s29() { assert_eq!(compile_and_run("tests\\regression\\m35_s29.xi"), Some(0)); }
+// s30: Balanced brackets — check (), [], {} balancing via depth counters
+#[test] fn e2e_m35_s30() { assert_eq!(compile_and_run("tests\\regression\\m35_s30.xi"), Some(0)); }
+
+// ── M35-Z: Combinatorial Mega Stress (30 tests) ───────────────────────
+#[test] fn e2e_m35_z01() { assert_eq!(compile_and_run("tests\\regression\\m35_z01.xi"), Some(0)); }
+#[test] fn e2e_m35_z02() { assert_eq!(compile_and_run("tests\\regression\\m35_z02.xi"), Some(0)); }
+#[test] fn e2e_m35_z03() { assert_eq!(compile_and_run("tests\\regression\\m35_z03.xi"), Some(0)); }
+#[test] fn e2e_m35_z04() { assert_eq!(compile_and_run("tests\\regression\\m35_z04.xi"), Some(0)); }
+#[test] fn e2e_m35_z05() { assert_eq!(compile_and_run("tests\\regression\\m35_z05.xi"), Some(0)); }
+#[test] fn e2e_m35_z06() { assert_eq!(compile_and_run("tests\\regression\\m35_z06.xi"), Some(0)); }
+#[test] fn e2e_m35_z07() { assert_eq!(compile_and_run("tests\\regression\\m35_z07.xi"), Some(0)); }
+#[test] fn e2e_m35_z08() { assert_eq!(compile_and_run("tests\\regression\\m35_z08.xi"), Some(0)); }
+#[test] fn e2e_m35_z09() { assert_eq!(compile_and_run("tests\\regression\\m35_z09.xi"), Some(0)); }
+#[test] fn e2e_m35_z10() { assert_eq!(compile_and_run("tests\\regression\\m35_z10.xi"), Some(0)); }
+#[test] fn e2e_m35_z11() { assert_eq!(compile_and_run("tests\\regression\\m35_z11.xi"), Some(0)); }
+#[test] fn e2e_m35_z12() { assert_eq!(compile_and_run("tests\\regression\\m35_z12.xi"), Some(0)); }
+#[test] fn e2e_m35_z13() { assert_eq!(compile_and_run("tests\\regression\\m35_z13.xi"), Some(0)); }
+#[test] fn e2e_m35_z14() { assert_eq!(compile_and_run("tests\\regression\\m35_z14.xi"), Some(0)); }
+#[test] fn e2e_m35_z15() { assert_eq!(compile_and_run("tests\\regression\\m35_z15.xi"), Some(0)); }
+#[test] fn e2e_m35_z16() { assert_eq!(compile_and_run("tests\\regression\\m35_z16.xi"), Some(0)); }
+#[test] fn e2e_m35_z17() { assert_eq!(compile_and_run("tests\\regression\\m35_z17.xi"), Some(0)); }
+#[test] fn e2e_m35_z18() { assert_eq!(compile_and_run("tests\\regression\\m35_z18.xi"), Some(0)); }
+#[test] fn e2e_m35_z19() { assert_eq!(compile_and_run("tests\\regression\\m35_z19.xi"), Some(0)); }
+#[test] fn e2e_m35_z20() { assert_eq!(compile_and_run("tests\\regression\\m35_z20.xi"), Some(0)); }
+#[test] fn e2e_m35_z21() { assert_eq!(compile_and_run("tests\\regression\\m35_z21.xi"), Some(0)); }
+#[test] fn e2e_m35_z22() { assert_eq!(compile_and_run("tests\\regression\\m35_z22.xi"), Some(0)); }
+#[test] fn e2e_m35_z23() { assert_eq!(compile_and_run("tests\\regression\\m35_z23.xi"), Some(0)); }
+#[test] fn e2e_m35_z24() { assert_eq!(compile_and_run("tests\\regression\\m35_z24.xi"), Some(0)); }
+#[test] fn e2e_m35_z25() { assert_eq!(compile_and_run("tests\\regression\\m35_z25.xi"), Some(0)); }
+#[test] fn e2e_m35_z26() { assert_eq!(compile_and_run("tests\\regression\\m35_z26.xi"), Some(0)); }
+#[test] fn e2e_m35_z27() { assert_eq!(compile_and_run("tests\\regression\\m35_z27.xi"), Some(0)); }
+#[test] fn e2e_m35_z28() { assert_eq!(compile_and_run("tests\\regression\\m35_z28.xi"), Some(0)); }
+#[test] fn e2e_m35_z29() { assert_eq!(compile_and_run("tests\\regression\\m35_z29.xi"), Some(0)); }
+#[test] fn e2e_m35_z30() { assert_eq!(compile_and_run("tests\\regression\\m35_z30.xi"), Some(0)); }
+
+// ── M35-V: Vec[DATA] Collection Stress Tests ───────────────────────────
+// Vec[Int] create/push/pop/len, get/set, first/last, is_empty, clear,
+// insert, remove, iteration, resize, Float64, Int16, struct, enum,
+// Option, nested Vec, generic T, Vec param/return, clone, reverse,
+// sort-like, min/max, filter, map, fold/sum, combined mega stress
+#[test] fn e2e_m35_v01() { assert_eq!(compile_and_run("tests\\regression\\m35_v01.xi"), Some(0)); }
+#[test] fn e2e_m35_v02() { assert_eq!(compile_and_run("tests\\regression\\m35_v02.xi"), Some(0)); }
+#[test] fn e2e_m35_v03() { assert_eq!(compile_and_run("tests\\regression\\m35_v03.xi"), Some(0)); }
+#[test] fn e2e_m35_v04() { assert_eq!(compile_and_run("tests\\regression\\m35_v04.xi"), Some(0)); }
+#[test] fn e2e_m35_v05() { assert_eq!(compile_and_run("tests\\regression\\m35_v05.xi"), Some(0)); }
+#[test] fn e2e_m35_v06() { assert_eq!(compile_and_run("tests\\regression\\m35_v06.xi"), Some(0)); }
+#[test] fn e2e_m35_v07() { assert_eq!(compile_and_run("tests\\regression\\m35_v07.xi"), Some(0)); }
+#[test] fn e2e_m35_v08() { assert_eq!(compile_and_run("tests\\regression\\m35_v08.xi"), Some(0)); }
+#[test] fn e2e_m35_v09() { assert_eq!(compile_and_run("tests\\regression\\m35_v09.xi"), Some(0)); }
+#[test] fn e2e_m35_v10() { assert_eq!(compile_and_run("tests\\regression\\m35_v10.xi"), Some(0)); }
+#[test] fn e2e_m35_v11() { assert_eq!(compile_and_run("tests\\regression\\m35_v11.xi"), Some(0)); }
+#[test] fn e2e_m35_v12() { assert_eq!(compile_and_run("tests\\regression\\m35_v12.xi"), Some(0)); }
+#[test] fn e2e_m35_v13() { assert_eq!(compile_and_run("tests\\regression\\m35_v13.xi"), Some(0)); }
+#[test] fn e2e_m35_v14() { assert_eq!(compile_and_run("tests\\regression\\m35_v14.xi"), Some(0)); }
+#[test] fn e2e_m35_v15() { assert_eq!(compile_and_run("tests\\regression\\m35_v15.xi"), Some(0)); }
+#[test] fn e2e_m35_v16() { assert_eq!(compile_and_run("tests\\regression\\m35_v16.xi"), Some(0)); }
+#[test] fn e2e_m35_v17() { assert_eq!(compile_and_run("tests\\regression\\m35_v17.xi"), Some(0)); }
+#[test] fn e2e_m35_v18() { assert_eq!(compile_and_run("tests\\regression\\m35_v18.xi"), Some(0)); }
+#[test] fn e2e_m35_v19() { assert_eq!(compile_and_run("tests\\regression\\m35_v19.xi"), Some(0)); }
+#[test] fn e2e_m35_v20() { assert_eq!(compile_and_run("tests\\regression\\m35_v20.xi"), Some(0)); }
+#[test] fn e2e_m35_v21() { assert_eq!(compile_and_run("tests\\regression\\m35_v21.xi"), Some(0)); }
+#[test] fn e2e_m35_v22() { assert_eq!(compile_and_run("tests\\regression\\m35_v22.xi"), Some(0)); }
+#[test] fn e2e_m35_v23() { assert_eq!(compile_and_run("tests\\regression\\m35_v23.xi"), Some(0)); }
+#[test] fn e2e_m35_v24() { assert_eq!(compile_and_run("tests\\regression\\m35_v24.xi"), Some(0)); }
+#[test] fn e2e_m35_v25() { assert_eq!(compile_and_run("tests\\regression\\m35_v25.xi"), Some(0)); }
+#[test] fn e2e_m35_v26() { assert_eq!(compile_and_run("tests\\regression\\m35_v26.xi"), Some(0)); }
+#[test] fn e2e_m35_v27() { assert_eq!(compile_and_run("tests\\regression\\m35_v27.xi"), Some(0)); }
+#[test] fn e2e_m35_v28() { assert_eq!(compile_and_run("tests\\regression\\m35_v28.xi"), Some(0)); }
+#[test] fn e2e_m35_v29() { assert_eq!(compile_and_run("tests\\regression\\m35_v29.xi"), Some(0)); }
+#[test] fn e2e_m35_v30() { assert_eq!(compile_and_run("tests\\regression\\m35_v30.xi"), Some(0)); }
+
+// ── M35-C: Control Flow Exhaustive Stress Tests ─────────────────────────
+// c01: if without else — single branch
+#[test] fn e2e_m35_c01() { assert_eq!(compile_and_run("tests\\regression\\m35_c01.xi"), Some(0)); }
+// c02: if with else — two branches
+#[test] fn e2e_m35_c02() { assert_eq!(compile_and_run("tests\\regression\\m35_c02.xi"), Some(0)); }
+// c03: if elif else (3+ branches) — three-way branching
+#[test] fn e2e_m35_c03() { assert_eq!(compile_and_run("tests\\regression\\m35_c03.xi"), Some(0)); }
+// c04: if elif elif elif else (5+ branches) — deep multi-way dispatch
+#[test] fn e2e_m35_c04() { assert_eq!(compile_and_run("tests\\regression\\m35_c04.xi"), Some(0)); }
+// c05: nested if 5 deep — cascading conditional logic
+#[test] fn e2e_m35_c05() { assert_eq!(compile_and_run("tests\\regression\\m35_c05.xi"), Some(0)); }
+// c06: while true loop — infinite loop with internal break
+#[test] fn e2e_m35_c06() { assert_eq!(compile_and_run("tests\\regression\\m35_c06.xi"), Some(0)); }
+// c07: while with condition — standard while loop
+#[test] fn e2e_m35_c07() { assert_eq!(compile_and_run("tests\\regression\\m35_c07.xi"), Some(0)); }
+// c08: while with break — early loop termination
+#[test] fn e2e_m35_c08() { assert_eq!(compile_and_run("tests\\regression\\m35_c08.xi"), Some(0)); }
+// c09: while with continue — skip iterations inside loop
+#[test] fn e2e_m35_c09() { assert_eq!(compile_and_run("tests\\regression\\m35_c09.xi"), Some(0)); }
+// c10: while with nested break — inner loop break only
+#[test] fn e2e_m35_c10() { assert_eq!(compile_and_run("tests\\regression\\m35_c10.xi"), Some(0)); }
+// c11: while with return inside — function return from within loop
+#[test] fn e2e_m35_c11() { assert_eq!(compile_and_run("tests\\regression\\m35_c11.xi"), Some(0)); }
+// c12: for-in pattern using while + index
+#[test] fn e2e_m35_c12() { assert_eq!(compile_and_run("tests\\regression\\m35_c12.xi"), Some(0)); }
+// c13: do-while pattern — execute body at least once
+#[test] fn e2e_m35_c13() { assert_eq!(compile_and_run("tests\\regression\\m35_c13.xi"), Some(0)); }
+// c14: infinite loop with break — while true with multiple break conditions
+#[test] fn e2e_m35_c14() { assert_eq!(compile_and_run("tests\\regression\\m35_c14.xi"), Some(0)); }
+// c15: loop with accumulator — building value across iterations
+#[test] fn e2e_m35_c15() { assert_eq!(compile_and_run("tests\\regression\\m35_c15.xi"), Some(0)); }
+// c16: loop with multiple accumulators — tracking several values
+#[test] fn e2e_m35_c16() { assert_eq!(compile_and_run("tests\\regression\\m35_c16.xi"), Some(0)); }
+// c17: loop with early exit — return immediately when condition met
+#[test] fn e2e_m35_c17() { assert_eq!(compile_and_run("tests\\regression\\m35_c17.xi"), Some(0)); }
+// c18: loop with flag — boolean flag controls loop termination
+#[test] fn e2e_m35_c18() { assert_eq!(compile_and_run("tests\\regression\\m35_c18.xi"), Some(0)); }
+// c19: loop with counter — counting iterations
+#[test] fn e2e_m35_c19() { assert_eq!(compile_and_run("tests\\regression\\m35_c19.xi"), Some(0)); }
+// c20: if-expression — let binding with if expression value
+#[test] fn e2e_m35_c20() { assert_eq!(compile_and_run("tests\\regression\\m35_c20.xi"), Some(0)); }
+// c21: match on Int — integer value dispatch
+#[test] fn e2e_m35_c21() { assert_eq!(compile_and_run("tests\\regression\\m35_c21.xi"), Some(0)); }
+// c22: match on Bool — boolean dispatch
+#[test] fn e2e_m35_c22() { assert_eq!(compile_and_run("tests\\regression\\m35_c22.xi"), Some(0)); }
+// c23: match on enum — dispatch through enum variants with payloads
+#[test] fn e2e_m35_c23() { assert_eq!(compile_and_run("tests\\regression\\m35_c23.xi"), Some(0)); }
+// c24: match with guard — if condition inside arm body
+#[test] fn e2e_m35_c24() { assert_eq!(compile_and_run("tests\\regression\\m35_c24.xi"), Some(0)); }
+// c25: match with wildcard — catch-all pattern _
+#[test] fn e2e_m35_c25() { assert_eq!(compile_and_run("tests\\regression\\m35_c25.xi"), Some(0)); }
+// c26: if-let pattern — match on Option as control flow
+#[test] fn e2e_m35_c26() { assert_eq!(compile_and_run("tests\\regression\\m35_c26.xi"), Some(0)); }
+// c27: while-let pattern — loop while match on Option/Result
+#[test] fn e2e_m35_c27() { assert_eq!(compile_and_run("tests\\regression\\m35_c27.xi"), Some(0)); }
+// c28: early return from function — multiple return points
+#[test] fn e2e_m35_c28() { assert_eq!(compile_and_run("tests\\regression\\m35_c28.xi"), Some(0)); }
+// c29: tail call pattern — recursive call in tail position
+#[test] fn e2e_m35_c29() { assert_eq!(compile_and_run("tests\\regression\\m35_c29.xi"), Some(0)); }
+// c30: all-in-one — combined control flow patterns
+#[test] fn e2e_m35_c30() { assert_eq!(compile_and_run("tests\\regression\\m35_c30.xi"), Some(0)); }
+
+// ── M35-A: Algorithm Correctness Stress Tests ────────────────────────────
+// Binary search, linear search, bubble/selection/insertion sort,
+// merge sort, quick sort partition, factorial, fibonacci (3 ways),
+// GCD, LCM, prime check, sum of digits, reverse number, palindrome,
+// power function, int sqrt, factorial rec vs iter, Collatz,
+// count divisors, is perfect square, prime count sieve-like,
+// digit sum recursive, exponent by squaring, max subarray sum,
+// binary conversion, count set bits (Kernighan), rotate array
+#[test] fn e2e_m35_a01() { assert_eq!(compile_and_run("tests\\regression\\m35_a01.xi"), Some(0)); }
+#[test] fn e2e_m35_a02() { assert_eq!(compile_and_run("tests\\regression\\m35_a02.xi"), Some(0)); }
+#[test] fn e2e_m35_a03() { assert_eq!(compile_and_run("tests\\regression\\m35_a03.xi"), Some(0)); }
+#[test] fn e2e_m35_a04() { assert_eq!(compile_and_run("tests\\regression\\m35_a04.xi"), Some(0)); }
+#[test] fn e2e_m35_a05() { assert_eq!(compile_and_run("tests\\regression\\m35_a05.xi"), Some(0)); }
+#[test] fn e2e_m35_a06() { assert_eq!(compile_and_run("tests\\regression\\m35_a06.xi"), Some(0)); }
+#[test] fn e2e_m35_a07() { assert_eq!(compile_and_run("tests\\regression\\m35_a07.xi"), Some(0)); }
+#[test] fn e2e_m35_a08() { assert_eq!(compile_and_run("tests\\regression\\m35_a08.xi"), Some(0)); }
+#[test] fn e2e_m35_a09() { assert_eq!(compile_and_run("tests\\regression\\m35_a09.xi"), Some(0)); }
+#[test] fn e2e_m35_a10() { assert_eq!(compile_and_run("tests\\regression\\m35_a10.xi"), Some(0)); }
+#[test] fn e2e_m35_a11() { assert_eq!(compile_and_run("tests\\regression\\m35_a11.xi"), Some(0)); }
+#[test] fn e2e_m35_a12() { assert_eq!(compile_and_run("tests\\regression\\m35_a12.xi"), Some(0)); }
+#[test] fn e2e_m35_a13() { assert_eq!(compile_and_run("tests\\regression\\m35_a13.xi"), Some(0)); }
+#[test] fn e2e_m35_a14() { assert_eq!(compile_and_run("tests\\regression\\m35_a14.xi"), Some(0)); }
+#[test] fn e2e_m35_a15() { assert_eq!(compile_and_run("tests\\regression\\m35_a15.xi"), Some(0)); }
+#[test] fn e2e_m35_a16() { assert_eq!(compile_and_run("tests\\regression\\m35_a16.xi"), Some(0)); }
+#[test] fn e2e_m35_a17() { assert_eq!(compile_and_run("tests\\regression\\m35_a17.xi"), Some(0)); }
+#[test] fn e2e_m35_a18() { assert_eq!(compile_and_run("tests\\regression\\m35_a18.xi"), Some(0)); }
+#[test] fn e2e_m35_a19() { assert_eq!(compile_and_run("tests\\regression\\m35_a19.xi"), Some(0)); }
+#[test] fn e2e_m35_a20() { assert_eq!(compile_and_run("tests\\regression\\m35_a20.xi"), Some(0)); }
+#[test] fn e2e_m35_a21() { assert_eq!(compile_and_run("tests\\regression\\m35_a21.xi"), Some(0)); }
+#[test] fn e2e_m35_a22() { assert_eq!(compile_and_run("tests\\regression\\m35_a22.xi"), Some(0)); }
+#[test] fn e2e_m35_a23() { assert_eq!(compile_and_run("tests\\regression\\m35_a23.xi"), Some(0)); }
+#[test] fn e2e_m35_a24() { assert_eq!(compile_and_run("tests\\regression\\m35_a24.xi"), Some(0)); }
+#[test] fn e2e_m35_a25() { assert_eq!(compile_and_run("tests\\regression\\m35_a25.xi"), Some(0)); }
+#[test] fn e2e_m35_a26() { assert_eq!(compile_and_run("tests\\regression\\m35_a26.xi"), Some(0)); }
+#[test] fn e2e_m35_a27() { assert_eq!(compile_and_run("tests\\regression\\m35_a27.xi"), Some(0)); }
+#[test] fn e2e_m35_a28() { assert_eq!(compile_and_run("tests\\regression\\m35_a28.xi"), Some(0)); }
+#[test] fn e2e_m35_a29() { assert_eq!(compile_and_run("tests\\regression\\m35_a29.xi"), Some(0)); }
+#[test] fn e2e_m35_a30() { assert_eq!(compile_and_run("tests\\regression\\m35_a30.xi"), Some(0)); }
+
+// ── M35-L: Memory Layout / Pointer Stress Tests ─────────────────────────
+// l01: Struct with Int fields
+#[test] fn e2e_m35_l01() { assert_eq!(compile_and_run("tests\\regression\\m35_l01.xi"), Some(0)); }
+// l02: Struct with Float64 fields
+#[test] fn e2e_m35_l02() { assert_eq!(compile_and_run("tests\\regression\\m35_l02.xi"), Some(0)); }
+// l03: Struct with mixed fields
+#[test] fn e2e_m35_l03() { assert_eq!(compile_and_run("tests\\regression\\m35_l03.xi"), Some(0)); }
+// l04: Struct with Bool
+#[test] fn e2e_m35_l04() { assert_eq!(compile_and_run("tests\\regression\\m35_l04.xi"), Some(0)); }
+// l05: Struct with Char
+#[test] fn e2e_m35_l05() { assert_eq!(compile_and_run("tests\\regression\\m35_l05.xi"), Some(0)); }
+// l06: Struct with Str
+#[test] fn e2e_m35_l06() { assert_eq!(compile_and_run("tests\\regression\\m35_l06.xi"), Some(0)); }
+// l07: Struct with array
+#[test] fn e2e_m35_l07() { assert_eq!(compile_and_run("tests\\regression\\m35_l07.xi"), Some(0)); }
+// l08: Struct with pointer
+#[test] fn e2e_m35_l08() { assert_eq!(compile_and_run("tests\\regression\\m35_l08.xi"), Some(0)); }
+// l09: Struct with nested struct
+#[test] fn e2e_m35_l09() { assert_eq!(compile_and_run("tests\\regression\\m35_l09.xi"), Some(0)); }
+// l10: Struct alignment check
+#[test] fn e2e_m35_l10() { assert_eq!(compile_and_run("tests\\regression\\m35_l10.xi"), Some(0)); }
+// l11: Enum memory pattern
+#[test] fn e2e_m35_l11() { assert_eq!(compile_and_run("tests\\regression\\m35_l11.xi"), Some(0)); }
+// l12: Option size pattern
+#[test] fn e2e_m35_l12() { assert_eq!(compile_and_run("tests\\regression\\m35_l12.xi"), Some(0)); }
+// l13: Result size pattern
+#[test] fn e2e_m35_l13() { assert_eq!(compile_and_run("tests\\regression\\m35_l13.xi"), Some(0)); }
+// l14: Pointer arithmetic
+#[test] fn e2e_m35_l14() { assert_eq!(compile_and_run("tests\\regression\\m35_l14.xi"), Some(0)); }
+// l15: Pointer difference
+#[test] fn e2e_m35_l15() { assert_eq!(compile_and_run("tests\\regression\\m35_l15.xi"), Some(0)); }
+// l16: Pointer comparison
+#[test] fn e2e_m35_l16() { assert_eq!(compile_and_run("tests\\regression\\m35_l16.xi"), Some(0)); }
+// l17: Null pointer check
+#[test] fn e2e_m35_l17() { assert_eq!(compile_and_run("tests\\regression\\m35_l17.xi"), Some(0)); }
+// l18: Pointer to struct
+#[test] fn e2e_m35_l18() { assert_eq!(compile_and_run("tests\\regression\\m35_l18.xi"), Some(0)); }
+// l19: Pointer to array
+#[test] fn e2e_m35_l19() { assert_eq!(compile_and_run("tests\\regression\\m35_l19.xi"), Some(0)); }
+// l20: Pointer to function
+#[test] fn e2e_m35_l20() { assert_eq!(compile_and_run("tests\\regression\\m35_l20.xi"), Some(0)); }
+// l21: Array of pointer
+#[test] fn e2e_m35_l21() { assert_eq!(compile_and_run("tests\\regression\\m35_l21.xi"), Some(0)); }
+// l22: Pointer to pointer
+#[test] fn e2e_m35_l22() { assert_eq!(compile_and_run("tests\\regression\\m35_l22.xi"), Some(0)); }
+// l23: Unsafe block with raw pointer
+#[test] fn e2e_m35_l23() { assert_eq!(compile_and_run("tests\\regression\\m35_l23.xi"), Some(0)); }
+// l24: Pointer cast (Int from pointer)
+#[test] fn e2e_m35_l24() { assert_eq!(compile_and_run("tests\\regression\\m35_l24.xi"), Some(0)); }
+// l25: Stack allocation pattern
+#[test] fn e2e_m35_l25() { assert_eq!(compile_and_run("tests\\regression\\m35_l25.xi"), Some(0)); }
+// l26: Heap allocation pattern (malloc/free extern)
+#[test] fn e2e_m35_l26() { assert_eq!(compile_and_run("tests\\regression\\m35_l26.xi"), Some(0)); }
+// l27: Alignment requirement
+#[test] fn e2e_m35_l27() { assert_eq!(compile_and_run("tests\\regression\\m35_l27.xi"), Some(0)); }
+// l28: Packed struct pattern
+#[test] fn e2e_m35_l28() { assert_eq!(compile_and_run("tests\\regression\\m35_l28.xi"), Some(0)); }
+// l29: Union pattern via pointer cast
+#[test] fn e2e_m35_l29() { assert_eq!(compile_and_run("tests\\regression\\m35_l29.xi"), Some(0)); }
+// l30: Pointer iteration
+#[test] fn e2e_m35_l30() { assert_eq!(compile_and_run("tests\\regression\\m35_l30.xi"), Some(0)); }
+
+// ── M35-D: Data Structure Stress Tests ──────────────────────────────────
+// Stack (push/pop/peek/empty), Queue (enqueue/dequeue/peek/empty),
+// Deque, Priority Queue, Min-Heap, Max-Heap, Hash Set, Hash Map,
+// Linked List, Doubly Linked List, Circular Buffer, Ring Buffer,
+// LRU Cache, Trie, Graph Adjacency List, Tree Traversal, BST,
+// AVL Balance Check, Heap Sort, Topological Sort, Shortest Path,
+// Union-Find, Disjoint Set, Bloom Filter, Skip List, Segment Tree,
+// Fenwick Tree (BIT), Combined Stress
+#[test] fn e2e_m35_d01() { assert_eq!(compile_and_run("tests\\regression\\m35_d01.xi"), Some(0)); }
+#[test] fn e2e_m35_d02() { assert_eq!(compile_and_run("tests\\regression\\m35_d02.xi"), Some(0)); }
+#[test] fn e2e_m35_d03() { assert_eq!(compile_and_run("tests\\regression\\m35_d03.xi"), Some(0)); }
+#[test] fn e2e_m35_d04() { assert_eq!(compile_and_run("tests\\regression\\m35_d04.xi"), Some(0)); }
+#[test] fn e2e_m35_d05() { assert_eq!(compile_and_run("tests\\regression\\m35_d05.xi"), Some(0)); }
+#[test] fn e2e_m35_d06() { assert_eq!(compile_and_run("tests\\regression\\m35_d06.xi"), Some(0)); }
+#[test] fn e2e_m35_d07() { assert_eq!(compile_and_run("tests\\regression\\m35_d07.xi"), Some(0)); }
+#[test] fn e2e_m35_d08() { assert_eq!(compile_and_run("tests\\regression\\m35_d08.xi"), Some(0)); }
+#[test] fn e2e_m35_d09() { assert_eq!(compile_and_run("tests\\regression\\m35_d09.xi"), Some(0)); }
+#[test] fn e2e_m35_d10() { assert_eq!(compile_and_run("tests\\regression\\m35_d10.xi"), Some(0)); }
+#[test] fn e2e_m35_d11() { assert_eq!(compile_and_run("tests\\regression\\m35_d11.xi"), Some(0)); }
+#[test] fn e2e_m35_d12() { assert_eq!(compile_and_run("tests\\regression\\m35_d12.xi"), Some(0)); }
+#[test] fn e2e_m35_d13() { assert_eq!(compile_and_run("tests\\regression\\m35_d13.xi"), Some(0)); }
+#[test] fn e2e_m35_d14() { assert_eq!(compile_and_run("tests\\regression\\m35_d14.xi"), Some(0)); }
+#[test] fn e2e_m35_d15() { assert_eq!(compile_and_run("tests\\regression\\m35_d15.xi"), Some(0)); }
+#[test] fn e2e_m35_d16() { assert_eq!(compile_and_run("tests\\regression\\m35_d16.xi"), Some(0)); }
+#[test] fn e2e_m35_d17() { assert_eq!(compile_and_run("tests\\regression\\m35_d17.xi"), Some(0)); }
+#[test] fn e2e_m35_d18() { assert_eq!(compile_and_run("tests\\regression\\m35_d18.xi"), Some(0)); }
+#[test] fn e2e_m35_d19() { assert_eq!(compile_and_run("tests\\regression\\m35_d19.xi"), Some(0)); }
+#[test] fn e2e_m35_d20() { assert_eq!(compile_and_run("tests\\regression\\m35_d20.xi"), Some(0)); }
+#[test] fn e2e_m35_d21() { assert_eq!(compile_and_run("tests\\regression\\m35_d21.xi"), Some(0)); }
+#[test] fn e2e_m35_d22() { assert_eq!(compile_and_run("tests\\regression\\m35_d22.xi"), Some(0)); }
+#[test] fn e2e_m35_d23() { assert_eq!(compile_and_run("tests\\regression\\m35_d23.xi"), Some(0)); }
+#[test] fn e2e_m35_d24() { assert_eq!(compile_and_run("tests\\regression\\m35_d24.xi"), Some(0)); }
+#[test] fn e2e_m35_d25() { assert_eq!(compile_and_run("tests\\regression\\m35_d25.xi"), Some(0)); }
+#[test] fn e2e_m35_d26() { assert_eq!(compile_and_run("tests\\regression\\m35_d26.xi"), Some(0)); }
+#[test] fn e2e_m35_d27() { assert_eq!(compile_and_run("tests\\regression\\m35_d27.xi"), Some(0)); }
+#[test] fn e2e_m35_d28() { assert_eq!(compile_and_run("tests\\regression\\m35_d28.xi"), Some(0)); }
+#[test] fn e2e_m35_d29() { assert_eq!(compile_and_run("tests\\regression\\m35_d29.xi"), Some(0)); }
+#[test] fn e2e_m35_d30() { assert_eq!(compile_and_run("tests\\regression\\m35_d30.xi"), Some(0)); }
+
+// ── M35-T: Type System Exhaustive Stress Tests ─────────────────────────
+// t01: Bool in every context — var, param, return, struct, enum, array, generic, if, while, match
+#[test] fn e2e_m35_t01() { assert_eq!(compile_and_run("tests\\regression\\m35_t01.xi"), Some(0)); }
+// t02: Int in every context — var, param, return, struct, enum, array, generic, if, while, match
+#[test] fn e2e_m35_t02() { assert_eq!(compile_and_run("tests\\regression\\m35_t02.xi"), Some(0)); }
+// t03: Float64 in every context — var, param, return, struct, enum, array, generic, if, while, match, operators
+#[test] fn e2e_m35_t03() { assert_eq!(compile_and_run("tests\\regression\\m35_t03.xi"), Some(0)); }
+// t04: Char in every context — var, param, return, struct, enum, if, match, array, generic
+#[test] fn e2e_m35_t04() { assert_eq!(compile_and_run("tests\\regression\\m35_t04.xi"), Some(0)); }
+// t05: Str in every context — var, param, return, struct, enum, array, if, match, len
+#[test] fn e2e_m35_t05() { assert_eq!(compile_and_run("tests\\regression\\m35_t05.xi"), Some(0)); }
+// t06: Unit/void returns — functions returning nothing, calling void functions
+#[test] fn e2e_m35_t06() { assert_eq!(compile_and_run("tests\\regression\\m35_t06.xi"), Some(0)); }
+// t07: Array in every context — var, param, return, indexing, vec! literal
+#[test] fn e2e_m35_t07() { assert_eq!(compile_and_run("tests\\regression\\m35_t07.xi"), Some(0)); }
+// t08: Nested arrays 3-deep — Vec[Vec[Vec[Int]]]
+#[test] fn e2e_m35_t08() { assert_eq!(compile_and_run("tests\\regression\\m35_t08.xi"), Some(0)); }
+// t09: Pointers in every context — var, param, return, deref, address-of, *Int, *Bool, *Float64
+#[test] fn e2e_m35_t09() { assert_eq!(compile_and_run("tests\\regression\\m35_t09.xi"), Some(0)); }
+// t10: Struct with all field types — Bool, Int, Int8, Int16, Int32, Int64, Float64, Char, Str
+#[test] fn e2e_m35_t10() { assert_eq!(compile_and_run("tests\\regression\\m35_t10.xi"), Some(0)); }
+// t11: Enum with all variant types — unit, Int, Float64, Bool, Str, struct payload
+#[test] fn e2e_m35_t11() { assert_eq!(compile_and_run("tests\\regression\\m35_t11.xi"), Some(0)); }
+// t12: Generic with all constraints — identity, struct, enum, array, pointer
+#[test] fn e2e_m35_t12() { assert_eq!(compile_and_run("tests\\regression\\m35_t12.xi"), Some(0)); }
+// t13: Type alias for each primitive — Bool, Int, Int8, Int16, Int32, Int64, Float64, Char, Str
+#[test] fn e2e_m35_t13() { assert_eq!(compile_and_run("tests\\regression\\m35_t13.xi"), Some(0)); }
+// t14: Const for each primitive — Bool, Int, Float64, Char, Str
+#[test] fn e2e_m35_t14() { assert_eq!(compile_and_run("tests\\regression\\m35_t14.xi"), Some(0)); }
+// t15: Derive[Eq] on struct — multiple struct types
+#[test] fn e2e_m35_t15() { assert_eq!(compile_and_run("tests\\regression\\m35_t15.xi"), Some(0)); }
+// t16: Method on each type — impl for struct wrapper, enum
+#[test] fn e2e_m35_t16() { assert_eq!(compile_and_run("tests\\regression\\m35_t16.xi"), Some(0)); }
+// t17: Interface on each type — multiple interfaces, cross-type impl
+#[test] fn e2e_m35_t17() { assert_eq!(compile_and_run("tests\\regression\\m35_t17.xi"), Some(0)); }
+// t18: Module exporting each type — Bool, Int, Float64, Char, Str, struct, enum
+#[test] fn e2e_m35_t18() { assert_eq!(compile_and_run("tests\\regression\\m35_t18.xi"), Some(0)); }
+// t19: Bool exhaustive — every context deeply exercised
+#[test] fn e2e_m35_t19() { assert_eq!(compile_and_run("tests\\regression\\m35_t19.xi"), Some(0)); }
+// t20: Int exhaustive — every context with all integer subtypes
+#[test] fn e2e_m35_t20() { assert_eq!(compile_and_run("tests\\regression\\m35_t20.xi"), Some(0)); }
+// t21: Float64 exhaustive — every context: arith, cmp, cast, struct, enum, array, while
+#[test] fn e2e_m35_t21() { assert_eq!(compile_and_run("tests\\regression\\m35_t21.xi"), Some(0)); }
+// t22: Char exhaustive — every context: var, param, return, struct, enum, array, cmp, match
+#[test] fn e2e_m35_t22() { assert_eq!(compile_and_run("tests\\regression\\m35_t22.xi"), Some(0)); }
+// t23: Str exhaustive — every context: var, param, return, struct, enum, array, cmp, match, len
+#[test] fn e2e_m35_t23() { assert_eq!(compile_and_run("tests\\regression\\m35_t23.xi"), Some(0)); }
+// t24: Array exhaustive — every type in arrays, multi-dimensional, nested access patterns
+#[test] fn e2e_m35_t24() { assert_eq!(compile_and_run("tests\\regression\\m35_t24.xi"), Some(0)); }
+// t25: Pointer exhaustive — deref chain, double pointer, in struct, to array, cast
+#[test] fn e2e_m35_t25() { assert_eq!(compile_and_run("tests\\regression\\m35_t25.xi"), Some(0)); }
+// t26: Struct exhaustive — all field types, nested structs, struct array, pointer
+#[test] fn e2e_m35_t26() { assert_eq!(compile_and_run("tests\\regression\\m35_t26.xi"), Some(0)); }
+// t27: Enum exhaustive — payload variants, nested enums, Option, Result patterns
+#[test] fn e2e_m35_t27() { assert_eq!(compile_and_run("tests\\regression\\m35_t27.xi"), Some(0)); }
+// t28: Generic exhaustive — struct, enum, function, multiple params, constraints
+#[test] fn e2e_m35_t28() { assert_eq!(compile_and_run("tests\\regression\\m35_t28.xi"), Some(0)); }
+// t29: Mixed combinators — all types combined in complex expressions
+#[test] fn e2e_m35_t29() { assert_eq!(compile_and_run("tests\\regression\\m35_t29.xi"), Some(0)); }
+// t30: Mega stress test — everything combined: generics, contracts, closures, modules, pointers
+#[test] fn e2e_m35_t30() { assert_eq!(compile_and_run("tests\\regression\\m35_t30.xi"), Some(0)); }
+
+// ── M35-O: Option / Result Combinators Exhaustive Tests ─────────────────
+// o01: Option[Int] create             o02: Option[Float64] create
+// o03: Option[Str] create             o04: Option[Bool] create
+// o05: Option[struct]                 o06: Option[enum]
+// o07: Option unwrap_or               o08: Option map
+// o09: Option and_then                o10: Option filter
+// o11: Option or_else                 o12: Option map_or
+// o13: Option is_some                 o14: Option is_none
+// o15: Option as_ref pattern          o16: Option cloned pattern
+// o17: Option transpose               o18: Option zip
+// o19: Result[Int,Str]                o20: Result map
+// o21: Result map_err                 o22: Result and_then
+// o23: Result or_else                 o24: Result unwrap_or
+// o25: Result expect                  o26: Result[Float64,Int]
+// o27: Result[Bool,Bool]              o28: Option of Result
+// o29: Result of Option               o30: nested Option/Option + Result/Result
+#[test] fn e2e_m35_o01() { assert_eq!(compile_and_run("tests\\regression\\m35_o01.xi"), Some(0)); }
+#[test] fn e2e_m35_o02() { assert_eq!(compile_and_run("tests\\regression\\m35_o02.xi"), Some(0)); }
+#[test] fn e2e_m35_o03() { assert_eq!(compile_and_run("tests\\regression\\m35_o03.xi"), Some(0)); }
+#[test] fn e2e_m35_o04() { assert_eq!(compile_and_run("tests\\regression\\m35_o04.xi"), Some(0)); }
+#[test] fn e2e_m35_o05() { assert_eq!(compile_and_run("tests\\regression\\m35_o05.xi"), Some(0)); }
+#[test] fn e2e_m35_o06() { assert_eq!(compile_and_run("tests\\regression\\m35_o06.xi"), Some(0)); }
+#[test] fn e2e_m35_o07() { assert_eq!(compile_and_run("tests\\regression\\m35_o07.xi"), Some(0)); }
+#[test] fn e2e_m35_o08() { assert_eq!(compile_and_run("tests\\regression\\m35_o08.xi"), Some(0)); }
+#[test] fn e2e_m35_o09() { assert_eq!(compile_and_run("tests\\regression\\m35_o09.xi"), Some(0)); }
+#[test] fn e2e_m35_o10() { assert_eq!(compile_and_run("tests\\regression\\m35_o10.xi"), Some(0)); }
+#[test] fn e2e_m35_o11() { assert_eq!(compile_and_run("tests\\regression\\m35_o11.xi"), Some(0)); }
+#[test] fn e2e_m35_o12() { assert_eq!(compile_and_run("tests\\regression\\m35_o12.xi"), Some(0)); }
+#[test] fn e2e_m35_o13() { assert_eq!(compile_and_run("tests\\regression\\m35_o13.xi"), Some(0)); }
+#[test] fn e2e_m35_o14() { assert_eq!(compile_and_run("tests\\regression\\m35_o14.xi"), Some(0)); }
+#[test] fn e2e_m35_o15() { assert_eq!(compile_and_run("tests\\regression\\m35_o15.xi"), Some(0)); }
+#[test] fn e2e_m35_o16() { assert_eq!(compile_and_run("tests\\regression\\m35_o16.xi"), Some(0)); }
+#[test] fn e2e_m35_o17() { assert_eq!(compile_and_run("tests\\regression\\m35_o17.xi"), Some(0)); }
+#[test] fn e2e_m35_o18() { assert_eq!(compile_and_run("tests\\regression\\m35_o18.xi"), Some(0)); }
+#[test] fn e2e_m35_o19() { assert_eq!(compile_and_run("tests\\regression\\m35_o19.xi"), Some(0)); }
+#[test] fn e2e_m35_o20() { assert_eq!(compile_and_run("tests\\regression\\m35_o20.xi"), Some(0)); }
+#[test] fn e2e_m35_o21() { assert_eq!(compile_and_run("tests\\regression\\m35_o21.xi"), Some(0)); }
+#[test] fn e2e_m35_o22() { assert_eq!(compile_and_run("tests\\regression\\m35_o22.xi"), Some(0)); }
+#[test] fn e2e_m35_o23() { assert_eq!(compile_and_run("tests\\regression\\m35_o23.xi"), Some(0)); }
+#[test] fn e2e_m35_o24() { assert_eq!(compile_and_run("tests\\regression\\m35_o24.xi"), Some(0)); }
+#[test] fn e2e_m35_o25() { assert_eq!(compile_and_run("tests\\regression\\m35_o25.xi"), Some(0)); }
+#[test] fn e2e_m35_o26() { assert_eq!(compile_and_run("tests\\regression\\m35_o26.xi"), Some(0)); }
+#[test] fn e2e_m35_o27() { assert_eq!(compile_and_run("tests\\regression\\m35_o27.xi"), Some(0)); }
+#[test] fn e2e_m35_o28() { assert_eq!(compile_and_run("tests\\regression\\m35_o28.xi"), Some(0)); }
+#[test] fn e2e_m35_o29() { assert_eq!(compile_and_run("tests\\regression\\m35_o29.xi"), Some(0)); }
+#[test] fn e2e_m35_o30() { assert_eq!(compile_and_run("tests\\regression\\m35_o30.xi"), Some(0)); }
