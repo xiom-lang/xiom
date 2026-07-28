@@ -1565,3 +1565,9 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m28_diff_factorial()       { assert_eq!(compile_and_run("tests\\regression\\m28_diff_factorial.xi"),        Some(0)); }
 #[test] fn e2e_m28_diff_commute()         { assert_eq!(compile_and_run("tests\\regression\\m28_diff_commute.xi"),          Some(0)); }
 #[test] fn e2e_m28_large_chain()          { assert_eq!(compile_and_run("tests\\regression\\m28_large_chain.xi"),           Some(0)); }
+
+// ── M30: Release Readiness E2E ────────────────────────────────────────
+#[test] fn e2e_m30_diff_if_match()        { assert_eq!(compile_and_run("tests\\regression\\m30_diff_if_match.xi"),         Some(0)); }
+#[test] fn e2e_m30_diff_gcd()             { assert_eq!(compile_and_run("tests\\regression\\m30_diff_gcd.xi"),              Some(0)); }
+#[test] fn e2e_m30_all_primitives()       { assert_eq!(compile_and_run("tests\\regression\\m30_all_primitives.xi"),        Some(0)); }
+#[test] fn e2e_m30_struct_derive_eq()     { assert_eq!(compile_and_run("tests\\regression\\m30_struct_derive_eq.xi"),      Some(0)); }

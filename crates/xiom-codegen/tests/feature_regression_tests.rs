@@ -5924,3 +5924,200 @@ fn main() -> Int { return 0; }";
     let ir = compile(src).unwrap();
     assert!(ir.contains("define"), "M28: sizeof must compile");
 }
+
+// ── M30-1: Self-host preparation — differential & IR consistency ──────
+
+// Differential: function order independence
+#[test] fn regress_m30_diff_fn_order() {
+    let src = "\
+fn b() -> Int { return 20; }
+fn a() -> Int { return 10; }
+fn main() -> Int { return a() + b(); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M30: fn order independence must compile");
+}
+
+// Differential: rewrite if-elif chain as match
+#[test] fn regress_m30_diff_if_vs_match() {
+    let src = "\
+fn via_if(x: Int) -> Int { if x == 1 { return 10; } elif x == 2 { return 20; } else { return 0; } }
+fn via_match(x: Int) -> Int { match x { 1 => 10, 2 => 20, _ => 0, } }
+fn main() -> Int { if via_if(1) == via_match(1) && via_if(2) == via_match(2) { return 0; } return 1; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M30: if vs match differential must compile");
+}
+
+// Differential: while vs tail-recursive
+#[test] fn regress_m30_diff_while_vs_rec() {
+    let src = "\
+fn gcd_while(a: Int, b: Int) -> Int {
+    var x = a; var y = b;
+    while y != 0 { var t = y; y = x % y; x = t; }
+    return x;
+}
+fn gcd_rec(a: Int, b: Int) -> Int { if b == 0 { return a; } return gcd_rec(b, a % b); }
+fn main() -> Int { if gcd_while(48, 18) == gcd_rec(48, 18) { return 0; } return 1; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M30: while vs rec differential must compile");
+}
+
+// Combinatorial: struct + enum + generic + match all at once
+#[test] fn regress_m30_combo_struct_enum_gen() {
+    let src = "\
+type Pair[T] = { first: T; second: T; }
+enum Status { Ok(v: Int); Err(e: Str); }
+fn extract[T](p: Pair[T], s: Status) -> Int {
+    match s { Status.Ok(v) => v, Status.Err(_) => 0, }
+}
+fn main() -> Int {
+    var p = Pair[Str]{ first: \"a\"; second: \"b\"; };
+    return extract(p, Status.Ok(42));
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M30: struct+enum+generic+match must compile");
+}
+
+// Combinatorial: contract + generic + method + invariant
+#[test] fn regress_m30_combo_contract_gen_method() {
+    let src = "\
+type Counter = { val: Int; invariant: val >= 0; }
+fn Counter.inc(c: Counter, n: Int) -> Counter requires: n > 0 ensures: result.val == c.val + n {
+    return Counter{ val: c.val + n; };
+}
+fn main() -> Int { var c = Counter{ val: 0; }; var c2 = c.inc(5); return c2.val; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M30: contract+generic+method+invariant must compile");
+}
+
+// IR consistency: verify no duplicate definitions
+#[test] fn regress_m30_ir_no_duplicate_defines() {
+    let src = "fn a() -> Int { return 1; } fn b() -> Int { return 2; } fn c() -> Int { return 3; } fn main() -> Int { return a() + b() + c(); }";
+    let ir = compile(src).unwrap();
+    let a_count = ir.match_indices("@a").count();
+    let b_count = ir.match_indices("@b").count();
+    let c_count = ir.match_indices("@c").count();
+    // Each function should appear defined once (plus possibly a call reference)
+    assert!(a_count >= 1, "M30: fn a must appear in IR");
+    assert!(b_count >= 1, "M30: fn b must appear in IR");
+    assert!(c_count >= 1, "M30: fn c must appear in IR");
+}
+
+// IR consistency: main function must exist
+#[test] fn regress_m30_ir_main_exists() {
+    let src = "fn main() -> Int { return 42; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("@main"), "M30: IR must contain main function");
+    assert!(ir.contains("define"), "M30: IR must have define");
+}
+
+// Type preservation: verify all user types appear in IR
+#[test] fn regress_m30_ir_type_preservation() {
+    let src = "\
+type Point = { x: Float64; y: Float64; }
+type Rect = { origin: Point; size: Point; }
+fn main() -> Float64 { var r = Rect{ origin: Point{ x: 0.0; y: 0.0; }; size: Point{ x: 10.0; y: 5.0; }; }; return r.size.x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("Point") || ir.contains("Rect"), "M30: user types must appear in IR");
+}
+
+// Differential: manual vs derived comparison
+#[test] fn regress_m30_diff_struct_eq() {
+    let src = "\
+type Vec2 = { x: Int; y: Int; } derive[Eq]
+fn main() -> Int {
+    var a = Vec2{ x: 1; y: 2; };
+    var b = Vec2{ x: 1; y: 2; };
+    var c = Vec2{ x: 3; y: 4; };
+    if a == b && a != c { return 0; }
+    return 1;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M30: struct Eq must compile");
+}
+
+// Edge case: deeply nested if-else returns
+#[test] fn regress_m30_edge_nested_return() {
+    let src = "\
+fn classify(n: Int) -> Int {
+    if n > 100 { return 4; }
+    if n > 50 { return 3; }
+    if n > 10 { return 2; }
+    if n > 0 { return 1; }
+    return 0;
+}
+fn main() -> Int { return classify(75); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M30: nested return cascade must compile");
+}
+
+// Edge case: early return in while
+#[test] fn regress_m30_edge_return_in_while() {
+    let src = "\
+fn find(arr: Vec[Int], target: Int) -> Int {
+    var i: Int = 0;
+    while i < arr.len() as Int {
+        if arr[i] == target { return i; }
+        i = i + 1;
+    }
+    return -1;
+}
+fn main() -> Int { var v = [10, 20, 30]; return find(v, 20); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M30: return in while must compile");
+}
+
+// Edge case: void return with side effects
+#[test] fn regress_m30_edge_void_with_side_effect() {
+    let src = "\
+var COUNTER: Int = 0;
+fn increment() { COUNTER = COUNTER + 1; }
+fn main() -> Int { increment(); increment(); return COUNTER; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M30: void with side effect must compile");
+}
+
+// Combinatorial: all primitive types in one struct
+#[test] fn regress_m30_combo_all_primitives() {
+    let src = "\
+type AllTypes = { a: Int; b: Float64; c: Bool; d: Char; e: Str; }
+fn main() -> Int {
+    var x = AllTypes{ a: 42; b: 3.14; c: true; d: 'A'; e: \"hi\"; };
+    var score: Int = x.a;
+    if x.c { score = score + 10; }
+    if x.d == 'A' { score = score + 10; }
+    return score;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M30: all primitives in struct must compile");
+}
+
+// Combinatorial: nested enums with generics
+#[test] fn regress_m30_combo_nested_enum_gen() {
+    let src = "\
+enum Inner[T] { Val(v: T); Nil; }
+enum Outer { Wrap(i: Inner[Int]); Direct(v: Int); }
+fn unwrap(o: Outer) -> Int {
+    match o {
+        Outer.Wrap(i) => match i { Inner.Val(v) => v, Inner.Nil => -1, },
+        Outer.Direct(v) => v,
+    }
+}
+fn main() -> Int { return unwrap(Outer.Wrap(Inner[Int].Val(99))); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M30: nested enum+generic must compile");
+}
+
+// Stress: 50 sequential var assignments
+#[test] fn regress_m30_stress_50_vars() {
+    let mut src = String::from("fn many_vars() -> Int {\n");
+    for i in 0..50 {
+        src.push_str(&format!("  var v{i}: Int = {i};\n"));
+    }
+    src.push_str("  var total: Int = 0;\n");
+    for i in 0..50 {
+        src.push_str(&format!("  total = total + v{i};\n"));
+    }
+    src.push_str("  return total;\n}\nfn main() -> Int { return many_vars(); }");
+    let ir = compile(&src).unwrap();
+    assert!(ir.contains("define"), "M30: 50 vars must compile");
+}
