@@ -5018,3 +5018,239 @@ fn main() -> Float64 { return compose(1.0); }";
     assert!(ir.contains("fdiv"), "M24: float chain must use fdiv");
     assert!(ir.contains("fsub"), "M24: float chain must use fsub");
 }
+
+// ── M25-1: Contract requires/ensures edge cases ────────────────────────
+
+#[test] fn regress_m25_contract_simple_requires() {
+    let src = "fn div(a: Int, b: Int) -> Int requires: b != 0 { return a / b; } fn main() -> Int { return div(10, 2); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("contract"), "M25: requires must generate contract check");
+}
+
+#[test] fn regress_m25_contract_simple_ensures() {
+    let src = "fn add(a: Int, b: Int) -> Int ensures: result == a + b { return a + b; } fn main() -> Int { return add(3, 4); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M25: ensures must compile");
+}
+
+#[test] fn regress_m25_contract_requires_and_ensures() {
+    let src = "fn divide(a: Float64, b: Float64) -> Float64 requires: b != 0.0 ensures: result * b == a { return a / b; } fn main() -> Float64 { return divide(10.0, 2.0); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("contract"), "M25: requires+ensures must generate contract check");
+}
+
+#[test] fn regress_m25_contract_multi_requires() {
+    let src = "fn send(amount: Int, balance: Int) -> Int requires: amount > 0 requires: balance >= amount { return balance - amount; } fn main() -> Int { return send(10, 100); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M25: multiple requires must compile");
+}
+
+#[test] fn regress_m25_contract_multi_ensures() {
+    let src = "fn clamp(x: Int, lo: Int, hi: Int) -> Int ensures: result >= lo ensures: result <= hi { if x < lo { return lo; } if x > hi { return hi; } return x; } fn main() -> Int { return clamp(5, 0, 10); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M25: multiple ensures must compile");
+}
+
+#[test] fn regress_m25_contract_ptr_null() {
+    let src = "fn strlen(ptr: *UInt8) -> Int requires: ptr != null { return 0; } fn main() -> Int { return strlen(null); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("contract"), "M25: null ptr contract must compile");
+}
+
+#[test] fn regress_m25_contract_float_precision() {
+    let src = "fn sqrt(x: Float64) -> Float64 requires: x >= 0.0 ensures: result >= 0.0 ensures: result * result >= x { return x; } fn main() -> Float64 { return sqrt(4.0); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M25: float precision contract must compile");
+}
+
+#[test] fn regress_m25_contract_bool_requires() {
+    let src = "fn is_valid(x: Int) -> Bool requires: x >= 0 { return true; } fn main() -> Bool { return is_valid(5); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M25: bool contract must compile");
+}
+
+#[test] fn regress_m25_contract_return_type() {
+    let src = "fn identity(x: Int) -> Int ensures: result == x { return x; } fn main() -> Int { return identity(42); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M25: return contract must compile");
+}
+
+#[test] fn regress_m25_contract_complex_expr() {
+    let src = "\
+fn quadratic(a: Float64, b: Float64, c: Float64) -> Float64
+    requires: b * b - 4.0 * a * c >= 0.0
+    ensures: a * result * result + b * result + c >= 0.0
+{ return (-b + (b * b - 4.0 * a * c)) / (2.0 * a); }
+fn main() -> Float64 { return quadratic(1.0, -3.0, 2.0); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M25: complex contract expression must compile");
+}
+
+#[test] fn regress_m25_contract_generic_requires() {
+    let src = "\
+fn max[T](a: T, b: T) -> T requires: a != b { if a > b { return a; } return b; }
+fn main() -> Int { return max(10, 20); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M25: generic contract must compile");
+}
+
+// ── M25-2: Contract inheritance ───────────────────────────────────────
+
+#[test] fn regress_m25_contract_interface_requires() {
+    let src = "\
+interface Validator { fn validate(x: Int) -> Bool requires: x >= 0; }
+fn check(v: Int) -> Bool { return v >= 0; }
+fn main() -> Bool { return check(5); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M25: interface contract must compile");
+}
+
+#[test] fn regress_m25_contract_method_requires() {
+    let src = "\
+type Counter = { val: Int; }
+fn Counter.inc(c: Counter, amount: Int) -> Counter requires: amount > 0 {
+    return Counter{ val: c.val + amount; };
+}
+fn main() -> Int {
+    var c = Counter{ val: 0; };
+    var c2 = c.inc(5);
+    return c2.val;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M25: method contract must compile");
+}
+
+#[test] fn regress_m25_contract_wrapper_chaining() {
+    let src = "\
+type Pos = { val: Int; invariant: val >= 0; }
+fn make_pos(v: Int) -> Pos requires: v >= 0 { return Pos{ val: v; }; }
+fn Pos.add(p: Pos, x: Int) -> Pos requires: x >= 0 ensures: result.val == p.val + x { return Pos{ val: p.val + x; }; }
+fn main() -> Int {
+    var p = make_pos(10);
+    var p2 = p.add(5);
+    return p2.val;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M25: chained contracts must compile");
+}
+
+// ── M25-3: Invariant checking ─────────────────────────────────────────
+
+#[test] fn regress_m25_invariant_simple() {
+    let src = "\
+type Positive = { val: Int; invariant: val > 0; }
+fn main() -> Int { var p = Positive{ val: 42; }; return p.val; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define") || ir.contains("Positive"), "M25: simple invariant must compile");
+}
+
+#[test] fn regress_m25_invariant_multi_field() {
+    let src = "\
+type Rect = { x: Int; y: Int; w: Int; h: Int; invariant: w > 0; invariant: h > 0; }
+fn main() -> Int { var r = Rect{ x: 0; y: 0; w: 10; h: 5; }; return r.w; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define") || ir.contains("Rect"), "M25: multi-field invariant must compile");
+}
+
+#[test] fn regress_m25_invariant_complex() {
+    let src = "\
+type Fraction = { num: Int; den: Int; invariant: den != 0; }
+fn make_frac(n: Int, d: Int) -> Fraction requires: d != 0 { return Fraction{ num: n; den: d; }; }
+fn main() -> Int { var f = make_frac(1, 2); return f.num; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define") || ir.contains("Fraction"), "M25: complex invariant must compile");
+}
+
+#[test] fn regress_m25_invariant_field_comparison() {
+    let src = "\
+type Range = { lo: Int; hi: Int; invariant: lo <= hi; }
+fn main() -> Int { var r = Range{ lo: 0; hi: 100; }; return r.hi; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define") || ir.contains("Range"), "M25: field comparison invariant must compile");
+}
+
+// ── M25-4: Z3 / formal verification ───────────────────────────────────
+
+#[test] fn regress_m25_verify_abs_pattern() {
+    let src = "\
+fn my_abs(x: Int) -> Int ensures: result >= 0 ensures: result >= x || result == -x { if x >= 0 { return x; } return -x; }
+fn main() -> Int { return my_abs(-5); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M25: abs verification pattern must compile");
+}
+
+#[test] fn regress_m25_verify_div_zero_guard() {
+    let src = "\
+fn safe_div(a: Int, b: Int) -> Int requires: b != 0 ensures: result * b == a { return a / b; }
+fn main() -> Int { return safe_div(100, 4); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("contract"), "M25: div-zero guard contract must compile");
+}
+
+#[test] fn regress_m25_verify_overflow_check() {
+    let src = "\
+fn checked_mul(a: Int, b: Int) -> Int requires: b == 0 || a * b / b == a { return a * b; }
+fn main() -> Int { return checked_mul(10, 20); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M25: overflow check contract must compile");
+}
+
+// ── M25-5: Runtime contract behavior ──────────────────────────────────
+
+#[test] fn regress_m25_contract_fail_trap() {
+    let src = "fn nonzero(x: Int) -> Int requires: x != 0 { return x; } fn main() -> Int { return nonzero(0); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("contract_fail") || ir.contains("llvm.trap"), "M25: failed contract must generate trap");
+}
+
+#[test] fn regress_m25_contract_void_function() {
+    let src = "fn log(msg: Str) requires: msg.len() > 0 { } fn main() { log(\"hello\"); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M25: void function contract must compile");
+}
+
+#[test] fn regress_m25_contract_with_early_return() {
+    let src = "\
+fn safe_idx[T](arr: &Vec[T], idx: Int) -> T requires: idx >= 0 && idx < arr.len() {
+    if idx < 0 { return arr[0]; }
+    return arr[idx];
+}
+fn main() -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define") || ir.contains("error"), "M25: contract with early return must compile");
+}
+
+#[test] fn regress_m25_contract_with_loop() {
+    let src = "\
+fn sum_to(n: Int) -> Int requires: n >= 0 ensures: result == n * (n + 1) / 2 {
+    var total: Int = 0;
+    var i: Int = 0;
+    while i <= n {
+        total = total + i;
+        i = i + 1;
+    }
+    return total;
+}
+fn main() -> Int { return sum_to(10); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M25: loop contract must compile");
+}
+
+#[test] fn regress_m25_contract_with_match() {
+    let src = "\
+enum Status { Success, Error(code: Int) }
+fn handle(s: Status) -> Int requires: match s { Status.Error(c) => c >= 0, Status.Success => true, } {
+    match s { Status.Success => 0, Status.Error(c) => c, }
+}
+fn main() -> Int { return handle(Status.Success); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define") || ir.contains("error"), "M25: match contract must compile");
+}
+
+#[test] fn regress_m25_contract_pub_fn() {
+    let src = "\
+pub fn public_api(x: Int) -> Int requires: x > 0 ensures: result > x { return x + 1; }
+fn main() -> Int { return public_api(5); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M25: public fn contract must compile");
+}

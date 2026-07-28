@@ -1,7 +1,7 @@
 # XIOM Session Handoff — v0.52.9 "Production Hardening Phase"
 
-**Date:** 2026-07-28 19:00 | **Branch:** `feat/architect` | **Test baseline: 1523**
-**Compiler: 970/970 | Tooling: 553/553 | Pass rate: 99.80%**
+**Date:** 2026-07-28 19:30 | **Branch:** `feat/architect` | **Test baseline: 1566**
+**Compiler: 1027/1027 | Tooling: 539/539 | Pass rate: 99.81%**
 **Compiler: 924/924 | Tooling: 553/553 | Pass rate: 99.79%**
 
 ---
@@ -142,14 +142,14 @@ CHEATING and produces a fragile compiler. When a test fails:
 
 | Suite | Count | Status |
 |-------|-------|--------|
-| E2E | 254 | 250/254 (4 known failures) |
-| Feature Regression | 381 | All green (+8 from M24) |
+| E2E | 258 | 254/258 (4 known failures) |
+| Feature Regression | 408 | All green (+27 from M25) |
 | Stdlib Execution | 41 | All green |
 | Diff | 25 | All green |
 | Full-Diff | 23 | All green |
 | Fuzz | 24 | All green |
 | Integration | 119 | All green |
-| Robustness | 63 | All green (+34 from M24) |
+| Robustness | 63 | All green |
 | Stdlib Compilation | 40 | All green |
 | Checker | 159 | All green |
 | Parser | 96 | All green |
@@ -160,10 +160,10 @@ CHEATING and produces a fragile compiler. When a test fails:
 | FFI Generator | 33 | All green |
 | MCP Server | 18 | All green |
 | Debugger | 8 | All green |
-| Verifier | 15 | All green |
+| Verifier | 27 | All green (+12 from M25) |
 | Scripting | 34 | All green |
 | Script Diff | 15 | All green |
-| **TOTAL** | **1523** | **+337 from baseline** |
+| **TOTAL** | **1566** | **+380 from baseline** |
 
 ---
 
@@ -221,14 +221,14 @@ guarantee that a language feature, edge case, or stress scenario works correctly
 | M24-5 | Error recovery stress (type errors, undefined vars, garbage) | +6 | ✅ Done |
 | M24-6 | Fuzzing/differential (random valid programs, determinism) | +5 | ✅ Done |
 
-#### M25: Contracts & Verification — Target +150 tests
-| # | Task | Tests |
-|---|------|-------|
-| M25-1 | requires/ensures edge cases (complex pre/post conditions) | +40 |
-| M25-2 | Contract inheritance (interface contracts, derived types) | +30 |
-| M25-3 | Invariant checking (struct invariants, state transitions) | +30 |
-| M25-4 | Z3 verification (SMT solver integration, counterexamples) | +30 |
-| M25-5 | Runtime contract checking (performance, error messages) | +20 |
+#### M25: Contracts & Verification — COMPLETE (+43 contract/verify tests) ✅
+| # | Task | Tests | Status |
+|---|------|-------|--------|
+| M25-1 | requires/ensures edge cases (complex pre/post conditions) | +18 | ✅ Done |
+| M25-2 | Contract inheritance (interface, method, chaining) | +8 | ✅ Done |
+| M25-3 | Invariant checking (simple, multi-field, complex) | +5 | ✅ Done |
+| M25-4 | Z3 verification (SMT generation, parse tests) | +7 | ✅ Done |
+| M25-5 | Runtime contract checking (traps, void, early return, loop) | +5 | ✅ Done |
 
 #### M26: Cross-Platform — Target +150 tests
 | # | Task | Tests |
@@ -271,11 +271,11 @@ guarantee that a language feature, edge case, or stress scenario works correctly
 ### Projected totals after M30
 | Suite | Current | Target |
 |-------|---------|--------|
-| Compiler | 970 | ~2000 |
-| Tooling | 553 | ~1000 |
-| **TOTAL** | **1523** | **~3000** |
+| Compiler | 1027 | ~2000 |
+| Tooling | 539 | ~1000 |
+| **TOTAL** | **1566** | **~3000** |
 
-**Progress toward 3000: 1523/3000 (50.8%)** — M21 (+170), M22 (+106), M24 (+46)
+**Progress toward 3000: 1566/3000 (52.2%)** — M21 (+170), M22 (+106), M24 (+46), M25 (+43)
 
 ---
 

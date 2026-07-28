@@ -1547,3 +1547,9 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m24_deep_recursion()       { assert_eq!(compile_and_run("tests\\regression\\m24_deep_recursion.xi"),        Some(0)); }
 #[test] fn e2e_m24_type_stress()          { assert_eq!(compile_and_run("tests\\regression\\m24_type_stress.xi"),           Some(0)); }
 #[test] fn e2e_m24_branch_stress()        { assert_eq!(compile_and_run("tests\\regression\\m24_branch_stress.xi"),         Some(0)); }
+
+// ── M25: Contracts & Verification E2E ─────────────────────────────────
+#[test] fn e2e_m25_contract_divide()       { assert_eq!(compile_and_run("tests\\regression\\m25_contract_divide.xi"),        Some(0)); }
+#[test] fn e2e_m25_contract_transfer()     { assert_eq!(compile_and_run("tests\\regression\\m25_contract_transfer.xi"),      Some(0)); }
+#[test] fn e2e_m25_invariant_positive()   { assert_eq!(compile_and_run("tests\\regression\\m25_invariant_positive.xi"),    Some(0)); }
+#[test] fn e2e_m25_contract_clamp()       { assert_eq!(compile_and_run("tests\\regression\\m25_contract_clamp.xi"),        Some(0)); }
