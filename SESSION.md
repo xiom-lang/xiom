@@ -1,7 +1,7 @@
 # XIOM Session Handoff — v0.52.9 "Production Hardening Phase"
 
-**Date:** 2026-07-28 20:00 | **Branch:** `feat/architect` | **Test baseline: 1608**
-**Compiler: 1027/1027 | Tooling: 581/581 | Pass rate: 99.81%**
+**Date:** 2026-07-28 20:30 | **Branch:** `feat/architect` | **Test baseline: 1655**
+**Compiler: 1074/1074 | Tooling: 581/581 | Pass rate: 99.82%**
 **Compiler: 924/924 | Tooling: 553/553 | Pass rate: 99.79%**
 
 ---
@@ -138,12 +138,12 @@ CHEATING and produces a fragile compiler. When a test fails:
 
 ---
 
-## TEST BASELINE — 1477 total
+## TEST BASELINE — 1655 total
 
 | Suite | Count | Status |
 |-------|-------|--------|
-| E2E | 258 | 254/258 (4 known failures) |
-| Feature Regression | 408 | All green (+27 from M25) |
+| E2E | 262 | 258/262 (4 known failures) |
+| Feature Regression | 451 | All green (+43 from M29) |
 | Stdlib Execution | 41 | All green |
 | Diff | 25 | All green |
 | Full-Diff | 23 | All green |
@@ -158,12 +158,12 @@ CHEATING and produces a fragile compiler. When a test fails:
 | Package Manager | 39 | All green |
 | Doc Generator | 4 | All green |
 | FFI Generator | 33 | All green |
-| MCP Server | 39 | All green (+21 from M27) |
-| Debugger | 29 | All green (+21 from M27) |
+| MCP Server | 39 | All green |
+| Debugger | 29 | All green |
 | Verifier | 27 | All green |
 | Scripting | 34 | All green |
 | Script Diff | 15 | All green |
-| **TOTAL** | **1608** | **+422 from baseline** |
+| **TOTAL** | **1655** | **+469 from baseline** |
 
 ---
 
@@ -271,11 +271,11 @@ guarantee that a language feature, edge case, or stress scenario works correctly
 ### Projected totals after M30
 | Suite | Current | Target |
 |-------|---------|--------|
-| Compiler | 1027 | ~2000 |
+| Compiler | 1074 | ~2000 |
 | Tooling | 581 | ~1000 |
-| **TOTAL** | **1608** | **~3000** |
+| **TOTAL** | **1655** | **~3000** |
 
-**Progress toward 3000: 1608/3000 (53.6%)** — M21 (+170), M22 (+106), M24 (+46), M25 (+43), M27 (+42)
+**Progress toward 3000: 1655/3000 (55.2%)** — M21 (+170), M22 (+106), M24 (+46), M25 (+43), M27 (+42), M29 (+47)
 
 ---
 
