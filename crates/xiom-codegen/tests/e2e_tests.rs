@@ -1541,3 +1541,9 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m22_generic_identity()     { assert_eq!(compile_and_run("tests\\regression\\m22_generic_identity.xi"),      Some(0)); }
 // M22-7: Pattern
 #[test] fn e2e_m22_pattern_guard()        { assert_eq!(compile_and_run("tests\\regression\\m22_pattern_guard.xi"),         Some(0)); }
+
+// ── M24: Stress & Robustness E2E ──────────────────────────────────────
+#[test] fn e2e_m24_many_functions()       { assert_eq!(compile_and_run("tests\\regression\\m24_many_functions.xi"),        Some(0)); }
+#[test] fn e2e_m24_deep_recursion()       { assert_eq!(compile_and_run("tests\\regression\\m24_deep_recursion.xi"),        Some(0)); }
+#[test] fn e2e_m24_type_stress()          { assert_eq!(compile_and_run("tests\\regression\\m24_type_stress.xi"),           Some(0)); }
+#[test] fn e2e_m24_branch_stress()        { assert_eq!(compile_and_run("tests\\regression\\m24_branch_stress.xi"),         Some(0)); }

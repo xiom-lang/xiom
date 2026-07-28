@@ -4937,3 +4937,84 @@ fn main() -> Int { var s = sign(0); return 0; }";
     let ir = compile(src).unwrap();
     assert!(ir.contains("define"), "M22: match return must compile");
 }
+
+// ── M24: Stress & Robustness (IR verification) ────────────────────────
+
+#[test] fn regress_m24_stress_large_ir() {
+    let mut src = String::new();
+    for i in 0..60 { src.push_str(&format!("fn f{i}() -> Int {{ return {i}; }}\n")); }
+    src.push_str("fn main() -> Int { return f59(); }");
+    let ir = compile(&src).unwrap();
+    assert!(ir.contains("define"), "M24: large file must generate IR");
+    assert!(ir.contains("@f0"), "M24: all functions must be in IR");
+    assert!(ir.contains("@f59"), "M24: last function must be in IR");
+}
+
+#[test] fn regress_m24_stress_many_structs() {
+    let mut src = String::new();
+    for i in 0..40 { src.push_str(&format!("type S{i} = {{ v{i}: Int; }}\n")); }
+    src.push_str("fn main() -> Int { return 0; }");
+    let ir = compile(&src).unwrap();
+    assert!(ir.contains("define"), "M24: many structs must compile");
+}
+
+#[test] fn regress_m24_stress_many_locals() {
+    let mut src = String::from("fn many() -> Int {\n");
+    for i in 0..60 { src.push_str(&format!("  var v{i}: Int = {i};\n")); }
+    src.push_str("  return v59;\n}\nfn main() -> Int { return many(); }");
+    let ir = compile(&src).unwrap();
+    assert!(ir.contains("alloca"), "M24: many locals must use alloca");
+}
+
+#[test] fn regress_m24_stress_deep_expr() {
+    let expr = (0..30).map(|i| format!("{i} + ", i = i)).collect::<String>() + "0";
+    let src = format!("fn main() -> Int {{ return {}; }}", expr);
+    let ir = compile(&src).unwrap();
+    assert!(ir.contains("define"), "M24: deep expression must compile");
+}
+
+#[test] fn regress_m24_stress_concat_chains() {
+    let src = r#"fn main() -> Int { var a = "a" + "b" + "c" + "d" + "e" + "f" + "g" + "h" + "i" + "j"; return a.len() as Int; }"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("xiom_str_concat"), "M24: chained concat must compile");
+}
+
+#[test] fn regress_m24_stress_generic_depth() {
+    let src = "fn id[T](x: T) -> T { return x; } fn wrap[T](x: T) -> T { return id(x); } fn dbl[T](x: T) -> T { return wrap(x); } fn main() -> Int { return dbl(42); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M24: deep generic chain must monomorphise");
+}
+
+#[test] fn regress_m24_stress_combinatorial_types() {
+    let src = "\
+type A[T] = { val: T; }
+type B[T] = { a: A[T]; }
+type C[U, V] = { b1: B[U]; b2: B[V]; }
+fn main() -> Int {
+    var c = C[Int, Float64]{
+        b1: B[Int]{ a: A[Int]{ val: 10; }; };
+        b2: B[Float64]{ a: A[Float64]{ val: 3.14; }; };
+    };
+    return c.b1.a.val;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M24: combinatorial generic types must compile");
+}
+
+#[test] fn regress_m24_stress_float_chain() {
+    let src = "\
+fn compose(x: Float64) -> Float64 {
+    var a = x * 2.0;
+    var b = a + 1.0;
+    var c = b / 3.0;
+    var d = c - 0.5;
+    var e = d * d;
+    return e;
+}
+fn main() -> Float64 { return compose(1.0); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("fmul"), "M24: float chain must use fmul");
+    assert!(ir.contains("fadd"), "M24: float chain must use fadd");
+    assert!(ir.contains("fdiv"), "M24: float chain must use fdiv");
+    assert!(ir.contains("fsub"), "M24: float chain must use fsub");
+}
