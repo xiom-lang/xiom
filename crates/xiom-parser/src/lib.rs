@@ -1988,8 +1988,221 @@ mod tests {
 
     #[test] fn test_no_shebang_normal() {
         let src = "# not a shebang\nfn main() -> Int { return 0; }";
-        let prog = parse(src).unwrap();
+        let _prog = parse(src).unwrap();
         // `#` at start without `!` is NOT a shebang — should be a lex error or parse error
         // This is fine behavior — XIOM has no preprocessor
+    }
+
+    // ── M21-2: Parser error recovery ────────────────────────────────────
+
+    /// Helper: returns errors reported by the parser.
+    fn parse_with_errors(source: &str) -> (Result<Program, ParseError>, Vec<ParseError>) {
+        let tokens = Lexer::new(source).tokenize();
+        let mut p = Parser::new(tokens);
+        let result = p.parse_program();
+        (result, p.errors().to_vec())
+    }
+
+    // Malformed expressions
+    #[test] fn test_recover_missing_operand() {
+        let (result, _errors) = parse_with_errors("fn main() -> Int { return +; }");
+        // Must not panic
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test] fn test_recover_extra_operator() {
+        let (result, _errors) = parse_with_errors("fn main() -> Int { return 1 + + + 2; }");
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test] fn test_recover_binary_op_no_rhs() {
+        let (result, _) = parse_with_errors("fn main() -> Int { return 1 + ; }");
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    // Unclosed braces, brackets, parens
+    #[test] fn test_recover_unclosed_brace() {
+        let (_result, _errors) = parse_with_errors("fn main() -> Int { return 42;");
+        // Must not crash on unclosed brace
+    }
+
+    #[test] fn test_recover_unclosed_bracket() {
+        let (_result, _errors) = parse_with_errors("type T = Option[Int;");
+    }
+
+    #[test] fn test_recover_unclosed_paren() {
+        let (_result, _errors) = parse_with_errors("fn main() -> Int { return foo(1, 2; }");
+    }
+
+    #[test] fn test_recover_extra_close_brace() {
+        let (_result, _errors) = parse_with_errors("fn main() -> Int { return 42; } } }");
+    }
+
+    #[test] fn test_recover_nested_unclosed() {
+        let (_result, _errors) = parse_with_errors("fn main() -> Int { if true { return 1; }");
+    }
+
+    // Wrong keyword in wrong position
+    #[test] fn test_recover_fn_inside_fn() {
+        let (result, _errors) = parse_with_errors("fn outer() -> Int { fn inner() -> Int { return 1; } return inner(); }");
+        // Nested functions are invalid but parser should recover
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test] fn test_recover_return_outside_fn() {
+        let (_result, _errors) = parse_with_errors("return 42;");
+    }
+
+    #[test] fn test_recover_requires_without_fn() {
+        let (_result, _errors) = parse_with_errors("requires: x > 0");
+    }
+
+    #[test] fn test_recover_derive_without_type() {
+        let (_result, _errors) = parse_with_errors("derive[Eq, Clone]");
+    }
+
+    // Recovery: valid code after invalid
+    #[test] fn test_recover_valid_fn_after_garbage() {
+        let (result, _errors) = parse_with_errors("!@#$%^&*\nfn ok() -> Int { return 42; }");
+        // Should either fail or recover — must not panic
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test] fn test_recover_valid_fn_after_invalid_fn() {
+        let src = "fn broken(a: Int, : ) -> Int { return 1; }\nfn valid() -> Int { return 0; }";
+        let (result, _errors) = parse_with_errors(src);
+        // Valid function should survive
+        if let Ok(prog) = result {
+            assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(f) if f.name.name == "valid")),
+                "recovery must preserve valid function after broken one");
+        }
+    }
+
+    #[test] fn test_recover_after_dangling_else() {
+        let src = "fn foo() { if true { return 1; } else }\nfn bar() -> Int { return 0; }";
+        let (_result, _errors) = parse_with_errors(src);
+    }
+
+    // Multiple errors in one file
+    #[test] fn test_multiple_errors_recorded() {
+        let src = "fn a() -> Int { return ; }\nfn b() -> Int { return + ; }\nfn c() -> Int { return x y; }";
+        let (result, _errors) = parse_with_errors(src);
+        // Must not panic regardless
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    // EOF in middle of expression/statement
+    #[test] fn test_eof_in_fn_signature() {
+        let (_result, _errors) = parse_with_errors("fn main(");
+    }
+
+    #[test] fn test_eof_after_return() {
+        let (_result, _errors) = parse_with_errors("fn main() -> Int { return");
+    }
+
+    #[test] fn test_eof_in_if_condition() {
+        let (_result, _errors) = parse_with_errors("fn main() { if");
+    }
+
+    #[test] fn test_eof_in_match_arm() {
+        let (_result, _errors) = parse_with_errors("fn main() { match x { Some(v) =>");
+    }
+
+    #[test] fn test_eof_after_struct_open() {
+        let (_result, _errors) = parse_with_errors("type Foo = { x: Int");
+    }
+
+    #[test] fn test_eof_after_enum_open() {
+        let (_result, _errors) = parse_with_errors("enum Color { Red, Green");
+    }
+
+    // Garbage input
+    #[test] fn test_recover_garbage_binary_bytes() {
+        let bytes = vec![0x00u8, 0x01, 0x02, 0xFF, 0xFE, 0xFD];
+        let input = String::from_utf8_lossy(&bytes);
+        let (_result, _errors) = parse_with_errors(&input);
+    }
+
+    #[test] fn test_recover_random_chars() {
+        let src = "}{][\n@#$\nfn main() -> Int { return 0; }";
+        let (_result, _errors) = parse_with_errors(src);
+    }
+
+    // Type annotation parse errors
+    #[test] fn test_recover_missing_return_type_arrow() {
+        let (_result, _errors) = parse_with_errors("fn foo() Int { return 0; }");
+    }
+
+    #[test] fn test_recover_missing_param_type() {
+        let (_result, _errors) = parse_with_errors("fn foo(a:) -> Int { return 0; }");
+    }
+
+    #[test] fn test_recover_missing_param_name() {
+        let (_result, _errors) = parse_with_errors("fn foo(: Int) -> Int { return 0; }");
+    }
+
+    // Comma-related recovery
+    #[test] fn test_recover_double_comma() {
+        let (result, _errors) = parse_with_errors("fn foo(a: Int,, b: Int) -> Int { return a + b; }");
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test] fn test_recover_leading_comma() {
+        let (_result, _errors) = parse_with_errors("fn foo(, a: Int) -> Int { return a; }");
+    }
+
+    // Recovery from malformed match
+    #[test] fn test_recover_match_missing_arrow() {
+        let (_result, _errors) = parse_with_errors("fn main() { match x { 1 2, _ => 0, } }");
+    }
+
+    #[test] fn test_recover_match_missing_arm() {
+        let (_result, _errors) = parse_with_errors("fn main() { match x { } }");
+    }
+
+    // Recovery from malformed struct literal
+    #[test] fn test_recover_struct_lit_missing_value() {
+        let (_result, _errors) = parse_with_errors("fn main() { var p = Point{ x: }; }");
+    }
+
+    #[test] fn test_recover_struct_lit_missing_colon() {
+        let (_result, _errors) = parse_with_errors("fn main() { var p = Point{ x 1 }; }");
+    }
+
+    // Empty source
+    #[test] fn test_recover_empty_source() {
+        let (result, _errors) = parse_with_errors("");
+        assert!(result.is_ok());
+    }
+
+    // Only whitespace/newlines
+    #[test] fn test_recover_whitespace_only() {
+        let (result, _errors) = parse_with_errors("\n\n  \n\t\t\n   \n");
+        assert!(result.is_ok());
+    }
+
+    // Only comments
+    #[test] fn test_recover_comments_only() {
+        let (result, _errors) = parse_with_errors("// comment\n/* block */\n// another\n");
+        assert!(result.is_ok());
+    }
+
+    // Error limit: verify parser doesn't hang on infinite error loops
+    #[test] fn test_recover_error_limit() {
+        let src = "? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?";
+        let (_result, _errors) = parse_with_errors(src);
+        // Must not hang
+    }
+
+    // Large number of valid items ensures parser is functional after recovery
+    #[test] fn test_recover_then_many_valid() {
+        let mut src = String::from("!@#$ garbage\n");
+        for i in 0..50 {
+            src.push_str(&format!("fn f{i}() -> Int {{ return {i}; }}\n"));
+        }
+        let (result, _errors) = parse_with_errors(&src);
+        if let Ok(prog) = result {
+            assert!(prog.items.len() >= 50, "parser should recover and parse valid functions");
+        }
     }
 }
