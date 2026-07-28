@@ -582,6 +582,62 @@ After each fix:
 
 ---
 
+## M16 — Compiler Bug Fixing Phase (ACTIVE — 2026-07-28)
+
+**Context:** 41 agents generated 1,015 E2E tests in 5 batches (M32-M36), discovering
+15+ compiler bugs. Total test baseline: ~3,136. All bugs are caused by correct
+XIOM syntax that the compiler mishandles. No test simplification — compiler
+must be hardened to pass all tests.
+
+### M16 Critical Bugs (P0 — LLVM Type Mismatch / Crash)
+
+| Bug ID | Symptom | Root Cause | Trigger | Effort |
+|--------|---------|------------|---------|--------|
+| **B-004** | Int8/Int16/Int32 ops generate i8/i32 LLVM types mixed with i64 | Codegen promotes small ints to i64 but types inconsistently applied at operand boundaries | `var x: Int8 = 5; return x + 1;` | 3h |
+| **B-005** | `~` NOT on Int8/Int16/Int32 crashes | Same as B-004 — trunc/zext missing around NOT operand | `var x: Int32 = 0; return ~x;` | 2h |
+| **B-006** | `-1 as Int8` generates i8 in i64 subtract mismatch | Unary negation on casted value: `sub i64 0, %tmp7` where %tmp7 is i8 | `var x: Int8 = -128;` | 2h |
+| **B-007** | Returning closures ? ACCESS_VIOLATION (0xC0000005) | Closure return type not properly lowered; fn ptr return value mismatch | `fn make_adder(n: Int) -> fn(Int) -> Int { return fn(x) { x + n }; }` | 4h |
+| **B-008** | `&Int` deref crashes at runtime | Pointer deref of stack int produces misaligned load | `var x: Int = 42; var p = &x; return p;` | 2h |
+
+### M16 High Bugs (P1 — Incorrect Codegen / Semantic Bugs)
+
+| Bug ID | Symptom | Root Cause | Trigger | Effort |
+|--------|---------|------------|---------|--------|
+| **B-009** | `derive[Ord]` on structs ? broken LLVM IR (`icmp slt` on struct type) | Ord derive emits icmp on aggregate type instead of field-wise comparison | `type Pair = { x: Int; y: Int; } derive[Ord]` | 3h |
+| **B-010** | Str-derived `Eq` compares pointers, not content | derive[Eq] for structs with Str fields emits ptr compare instead of strcmp | `type Named = { name: Str; } derive[Eq]` | 2h |
+| **B-011** | Display `derive` returns empty string | Auto-derived fmt() generates empty format string | `type T = {} derive[Display]; t.to_str()` | 1h |
+| **B-012** | Nested `Option[Result[...]]` ? getelementptr crash | Nested generic types not properly monomorphised — type layout mismatch | `fn f() -> Option[Result[Int, Str]] { ... }` | 3h |
+| **B-013** | Option-struct field access returns wrong data | Value extracted from `Option[Struct]` via match has incorrect LLVM type for field access | `match opt { Some(s) => s.field, ... }` | 2h |
+| **B-014** | Custom generic enum multi-field payload ? ACCESS_VIOLATION | Enum variant with struct-like payload in generic enum generates wrong GEP indices | `enum Container[T] { Pair(a: T, b: T) }` | 3h |
+| **B-015** | Struct field address-of `&s.field` crashes at runtime | Address-of on struct field through GEP produces invalid pointer | `var p = &point.x;` | 2h |
+
+### M16 Medium Bugs (P2 — Parser/Checker Gaps)
+
+| Bug ID | Symptom | Root Cause | Trigger | Effort |
+|--------|---------|------------|---------|--------|
+| **B-016** | `Bool as Int` / `Int as Bool` rejected by checker (T001) | Checker type system doesn't support Bool?Int casts | `var x: Int = true as Int;` | 1h |
+| **B-017** | `Vec![]` macro not parsed | Parser expects `Vec[T].new()` instead of macro form | `var v = Vec![1, 2, 3];` | 30m |
+| **B-018** | `else if` not supported | Parser only accepts `elif` as chained condition keyword | `if a { } else if b { }` | 30m |
+| **B-019** | `impl Type { }` (without `for Trait`) rejected | Parser expected `impl Trait for Type` but XIOM has `impl Type` + method defs | `impl Counter { fn inc(c: Counter) -> Counter { ... } }` | 1h |
+| **B-020** | Standalone `{ }` blocks not valid at statement level | Parser requires `if/while/etc.` wrapping; bare blocks aren't statements | `{ var x = 5; }` | 30m |
+| **B-021** | Const folding not implemented | `40+2` generates add instruction instead of literal 42 — optimization gap | `return 40 + 2;` | 2h |
+| **B-022** | Negative float literal `-1.5` not parsed | Unary minus on float literal treated as separate token | `var f: Float64 = -1.5;` | 30m |
+
+### M16 Schedule
+
+| Phase | Items | Effort |
+|-------|-------|--------|
+| M16.1 P0 | B-004, B-005, B-006 (Int type mismatch fixes) | 7h |
+| M16.2 P1 | B-007, B-008 (Closure + pointer crash fixes) | 6h |
+| M16.3 P1 | B-009, B-010, B-011 (Derive fixes) | 6h |
+| M16.4 P1 | B-012, B-013, B-014, B-015 (Nested type + enum fixes) | 10h |
+| M16.5 P2 | B-016 through B-022 (Parser/checker gaps) | 5h |
+| M16.6 | Verify all 30 failing M32 tests now pass | 2h |
+
+**Total M16 effort: ~36h. Target v0.53.0 "Hardened Compiler".**
+
+---
+
 | Version | Date | Tests | Notes |
 |---------|------|-------|-------|
 | **v0.52.0** | 2026-07-26 | **~1055** | M15 complete, B-001/B-002/B-003 fixed, self-host ready 10/10 |
