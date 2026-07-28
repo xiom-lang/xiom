@@ -5254,3 +5254,461 @@ fn main() -> Int { return public_api(5); }";
     let ir = compile(src).unwrap();
     assert!(ir.contains("define"), "M25: public fn contract must compile");
 }
+
+// ── M29-1: Language corner cases ──────────────────────────────────────
+
+// Compound assignment operators
+#[test] fn regress_m29_compound_add() {
+    let src = "fn main() -> Int { var x: Int = 10; x += 5; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: compound add must compile");
+}
+
+#[test] fn regress_m29_compound_sub() {
+    let src = "fn main() -> Int { var x: Int = 10; x -= 3; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: compound sub must compile");
+}
+
+#[test] fn regress_m29_compound_mul() {
+    let src = "fn main() -> Int { var x: Int = 5; x *= 4; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: compound mul must compile");
+}
+
+#[test] fn regress_m29_compound_div() {
+    let src = "fn main() -> Int { var x: Int = 20; x /= 4; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: compound div must compile");
+}
+
+#[test] fn regress_m29_compound_mod() {
+    let src = "fn main() -> Int { var x: Int = 17; x %= 5; return x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: compound mod must compile");
+}
+
+#[test] fn regress_m29_compound_all_ops() {
+    let src = "\
+fn ops() -> Int {
+    var x: Int = 10;
+    x += 2; x -= 1; x *= 3; x /= 4; x %= 5;
+    return x;
+}
+fn main() -> Int { return ops(); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: all compound ops must compile");
+}
+
+// If-else as expression
+#[test] fn regress_m29_if_as_expression() {
+    let src = "\
+fn classify(n: Int) -> Str {
+    var label: Str = if n > 0 { \"positive\" } else { \"negative\" };
+    return label;
+}
+fn main() -> Int { var s = classify(5); return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: if as expression must compile");
+}
+
+#[test] fn regress_m29_if_elif_expression() {
+    let src = "\
+fn grade(score: Int) -> Int {
+    var g: Int = if score >= 90 { 4 } elif score >= 80 { 3 } elif score >= 70 { 2 } else { 1 };
+    return g;
+}
+fn main() -> Int { return grade(95); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: if-elif expression must compile");
+}
+
+#[test] fn regress_m29_if_nested_expression() {
+    let src = "\
+fn sign(x: Int) -> Int {
+    return if x > 0 { 1 } else if x < 0 { -1 } else { 0 };
+}
+fn main() -> Int { return sign(-5); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: nested if expression must compile");
+}
+
+// While loops with break/continue
+#[test] fn regress_m29_while_break() {
+    let src = "\
+fn find_first() -> Int {
+    var i: Int = 0;
+    while i < 100 {
+        if i == 42 { break; }
+        i = i + 1;
+    }
+    return i;
+}
+fn main() -> Int { return find_first(); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: while-break must compile");
+}
+
+#[test] fn regress_m29_while_continue() {
+    let src = "\
+fn sum_evens() -> Int {
+    var i: Int = 0;
+    var sum: Int = 0;
+    while i < 20 {
+        i = i + 1;
+        if i % 2 != 0 { continue; }
+        sum = sum + i;
+    }
+    return sum;
+}
+fn main() -> Int { return sum_evens(); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: while-continue must compile");
+}
+
+#[test] fn regress_m29_while_nested() {
+    let src = "\
+fn nested() -> Int {
+    var i: Int = 0;
+    while i < 5 {
+        var j: Int = 0;
+        while j < 5 {
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return i;
+}
+fn main() -> Int { return nested(); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: nested while must compile");
+}
+
+// For-in loops
+#[test] fn regress_m29_for_in_array() {
+    let src = "\
+fn sum_arr() -> Int {
+    var arr = [1, 2, 3, 4, 5];
+    var total: Int = 0;
+    for item in arr {
+        total = total + item;
+    }
+    return total;
+}
+fn main() -> Int { return sum_arr(); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: for-in array must compile");
+}
+
+#[test] fn regress_m29_for_in_string_chars() {
+    let src = r#"
+fn count_chars() -> Int {
+    var s: Str = "hello";
+    var count: Int = 0;
+    var i: Int = 0;
+    while i < s.len() as Int {
+        count = count + 1;
+        i = i + 1;
+    }
+    return count;
+}
+fn main() -> Int { return count_chars(); }"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: string iteration must compile");
+}
+
+// Variable shadowing edge cases
+#[test] fn regress_m29_let_shadow_var() {
+    let src = "\
+fn test() -> Int {
+    var x: Int = 10;
+    { let x: Float64 = 3.14; }
+    return x;
+}
+fn main() -> Int { return test(); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: let shadow var must compile");
+}
+
+#[test] fn regress_m29_var_shadow_var() {
+    let src = "\
+fn test() -> Int {
+    var x: Int = 10;
+    { var x: Str = \"inner\"; }
+    return x;
+}
+fn main() -> Int { return test(); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: var shadow var must compile");
+}
+
+#[test] fn regress_m29_multi_level_shadow() {
+    let src = "\
+fn test() -> Int {
+    var x: Int = 1;
+    {
+        var x: Int = 2;
+        {
+            var x: Int = 3;
+        }
+    }
+    return x;
+}
+fn main() -> Int { return test(); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: multi-level shadow must compile");
+}
+
+// Global variables
+#[test] fn regress_m29_global_var() {
+    let src = "\
+module test
+var COUNTER: Int = 0;
+pub fn inc() -> Int { COUNTER = COUNTER + 1; return COUNTER; }
+";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: global var must compile");
+}
+
+#[test] fn regress_m29_global_const() {
+    let src = "\
+const PI: Float64 = 3.14159;
+const E: Float64 = 2.71828;
+fn area(r: Float64) -> Float64 { return PI * r * r; }
+";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: global const must compile");
+}
+
+// Tail expression returns
+#[test] fn regress_m29_tail_expression_int() {
+    let src = "fn main() -> Int { 42 }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: tail expression Int must compile");
+}
+
+#[test] fn regress_m29_tail_expression_arithmetic() {
+    let src = "fn main() -> Int { 10 + 20 * 3 }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: tail expression arithmetic must compile");
+}
+
+#[test] fn regress_m29_tail_expression_if() {
+    let src = "fn main() -> Int { if true { 1 } else { 2 } }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: tail expression if must compile");
+}
+
+// Void function edge cases
+#[test] fn regress_m29_void_fn_no_return() {
+    let src = "fn log(msg: Str) { var x = msg; } fn main() { log(\"test\"); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: void fn must compile");
+}
+
+#[test] fn regress_m29_void_fn_early_return() {
+    let src = "fn validate(v: Int) { if v < 0 { return; } } fn main() { validate(5); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: void fn early return must compile");
+}
+
+// Nested loops and complex control flow
+#[test] fn regress_m29_loop_if_break_continue() {
+    let src = "\
+fn complex() -> Int {
+    var i: Int = 0;
+    var result: Int = 0;
+    while i < 20 {
+        if i % 3 == 0 { i = i + 1; continue; }
+        if i > 15 { break; }
+        result = result + i;
+        i = i + 1;
+    }
+    return result;
+}
+fn main() -> Int { return complex(); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: complex control flow must compile");
+}
+
+// ── M29-2: Type system corners ────────────────────────────────────────
+
+#[test] fn regress_m29_impl_trait_return() {
+    let src = "fn get_value() -> impl Display { return 42; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: impl Trait return must compile");
+}
+
+#[test] fn regress_m29_type_alias_chain() {
+    let src = "\
+type Id = Int;
+type UserId = Id;
+type SessionId = UserId;
+fn create() -> SessionId { return 42; }
+fn main() -> Int { return create(); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: type alias chain must compile");
+}
+
+#[test] fn regress_m29_type_alias_enum() {
+    let src = "\
+type MyOpt = Option[Int];
+fn get() -> MyOpt { return Some(42); }
+fn main() -> Int { match get() { Some(v) => v, None => 0, } }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: type alias enum must compile");
+}
+
+#[test] fn regress_m29_const_generic_array() {
+    let src = "\
+fn first[T](arr: &[3]T) -> T { return arr[0]; }
+fn main() -> Int { var arr: [3]Int = [10, 20, 30]; return first(&arr); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: const generic array must compile");
+}
+
+#[test] fn regress_m29_tuple_return() {
+    let src = "\
+type Pair = { x: Int; y: Int; }
+fn make_pair() -> Pair { return Pair{ x: 1; y: 2; }; }
+fn main() -> Int { var p = make_pair(); return p.x + p.y; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: tuple return must compile");
+}
+
+#[test] fn regress_m29_method_on_generic_struct() {
+    let src = "\
+type Wrapper[T] = { val: T; }
+fn Wrapper[T].unwrap(self) -> T { return val; }
+fn main() -> Int { var w = Wrapper[Int]{ val: 42; }; return w.unwrap(); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: method on generic struct must compile");
+}
+
+#[test] fn regress_m29_self_type_in_trait() {
+    let src = "\
+interface Clonable { fn clone() -> Self; }
+fn main() -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: Self type in trait must compile");
+}
+
+#[test] fn regress_m29_nested_type_params() {
+    let src = "\
+fn complex() -> Vec[Option[Result[Int, Str]]] {
+    var v = Vec[Option[Result[Int, Str]]].new();
+    return v;
+}
+fn main() -> Int { return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: nested type params must compile");
+}
+
+#[test] fn regress_m29_pub_const_use_site() {
+    let src = "\
+pub const VERSION: Str = \"1.0.0\";
+fn get_version() -> Str { return VERSION; }
+fn main() -> Int { var v = get_version(); return 0; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: pub const use site must compile");
+}
+
+#[test] fn regress_m29_pub_fn_visibility() {
+    let src = "\
+module lib
+pub fn public_api() -> Int { return 42; }
+fn private_impl() -> Int { return 0; }
+fn main() -> Int { return public_api(); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: pub fn visibility must compile");
+}
+
+#[test] fn regress_m29_dotted_type_path() {
+    let src = "\
+module lib
+pub type Data = { val: Int; }
+fn main() -> Int { var d = lib.Data{ val: 10; }; return d.val; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: dotted type path must compile");
+}
+
+#[test] fn regress_m29_use_alias_type() {
+    let src = "\
+module lib
+pub type Vec2 = { x: Float64; y: Float64; }
+use lib.Vec2 as Point;
+fn main() -> Float64 { var p = Point{ x: 1.0; y: 2.0; }; return p.x; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: use alias type must compile");
+}
+
+// ── M29-3: Combinatorial stress ───────────────────────────────────────
+
+#[test] fn regress_m29_stress_mix_all_features() {
+    let src = "\
+type Data[T] = { id: Int; payload: T; }
+enum Status { Ok(v: Int); Fail(e: Str); }
+
+fn process[T](d: Data[T], s: Status) -> Int {
+    match s {
+        Status.Ok(v) => if v > 0 { d.id + v } else { d.id },
+        Status.Fail(_) => 0,
+    }
+}
+fn main() -> Int {
+    var d = Data[Str]{ id: 100; payload: \"test\"; };
+    return process(d, Status.Ok(42));
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: mixed features must compile");
+}
+
+#[test] fn regress_m29_stress_deep_expr_tree() {
+    let expr = (0..15).map(|_| "1 + ").collect::<String>() + "1";
+    let src = format!("fn main() -> Int {{ return {}; }}", expr);
+    let ir = compile(&src).unwrap();
+    assert!(ir.contains("define"), "M29: deep expr tree must compile");
+}
+
+#[test] fn regress_m29_stress_many_match_arms() {
+    let mut arms = String::new();
+    for i in 0..30 {
+        arms.push_str(&format!("{i} => {i},\n"));
+    }
+    arms.push_str("_ => -1,");
+    let src = format!("fn classify(n: Int) -> Int {{ match n {{ {} }} }} fn main() -> Int {{ return classify(15); }}", arms);
+    let ir = compile(&src).unwrap();
+    assert!(ir.contains("define"), "M29: 30 match arms must compile");
+}
+
+#[test] fn regress_m29_stress_generic_depth() {
+    let src = "\
+fn wrap1[T](x: T) -> T { return x; }
+fn wrap2[T](x: T) -> T { return wrap1(x); }
+fn wrap3[T](x: T) -> T { return wrap2(x); }
+fn wrap4[T](x: T) -> T { return wrap3(x); }
+fn wrap5[T](x: T) -> T { return wrap4(x); }
+fn main() -> Int { return wrap5(42); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "M29: deep generic chain must compile");
+}
+
+#[test] fn regress_m29_stress_enum_variants() {
+    let mut variants = String::new();
+    for i in 0..20 {
+        variants.push_str(&format!("V{i}(val: Int), "));
+    }
+    let src = format!(
+        "enum Many {{ {} }} fn extract(e: Many) -> Int {{ match e {{ Many.V10(v) => v, _ => 0, }} }} fn main() -> Int {{ return extract(Many.V10(42)); }}",
+        variants
+    );
+    let ir = compile(&src).unwrap();
+    assert!(ir.contains("define"), "M29: 20 enum variants must compile");
+}
+
+#[test] fn regress_m29_stress_struct_fields_many() {
+    let fields: String = (0..40).map(|i| format!("f{i}: Int; ")).collect();
+    let src = format!("type Big = {{ {} }} fn main() -> Int {{ var b = Big{{ {} }}; return b.f0; }}", fields, (0..40).map(|i| format!("f{i}: {i}, ")).collect::<String>());
+    let ir = compile(&src).unwrap();
+    assert!(ir.contains("define"), "M29: 40-field struct must compile");
+}

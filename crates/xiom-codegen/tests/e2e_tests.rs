@@ -1553,3 +1553,9 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m25_contract_transfer()     { assert_eq!(compile_and_run("tests\\regression\\m25_contract_transfer.xi"),      Some(0)); }
 #[test] fn e2e_m25_invariant_positive()   { assert_eq!(compile_and_run("tests\\regression\\m25_invariant_positive.xi"),    Some(0)); }
 #[test] fn e2e_m25_contract_clamp()       { assert_eq!(compile_and_run("tests\\regression\\m25_contract_clamp.xi"),        Some(0)); }
+
+// ── M29: Final Edge Cases E2E ─────────────────────────────────────────
+#[test] fn e2e_m29_compound_assign()      { assert_eq!(compile_and_run("tests\\regression\\m29_compound_assign.xi"),       Some(0)); }
+#[test] fn e2e_m29_loop_control()         { assert_eq!(compile_and_run("tests\\regression\\m29_loop_control.xi"),          Some(0)); }
+#[test] fn e2e_m29_if_expression()        { assert_eq!(compile_and_run("tests\\regression\\m29_if_expression.xi"),         Some(0)); }
+#[test] fn e2e_m29_type_alias()           { assert_eq!(compile_and_run("tests\\regression\\m29_type_alias.xi"),            Some(0)); }
