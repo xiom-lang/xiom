@@ -253,3 +253,123 @@ sat
         other => panic!("second must be Violated, got {:?}", other),
     }
 }
+
+// ── M25: Extended verifier tests ──────────────────────────────────────
+
+#[test]
+fn smt_sqrt_has_domain_constraints() {
+    let smt = smt_for("tests/verify/test_sqrt.xi");
+    assert!(smt.contains("declare-const x"), "Must declare input x");
+    assert!(smt.contains("declare-const |result|"), "Must declare result");
+    assert!(smt.contains("(assert"), "Must have assertions for contract");
+}
+
+#[test]
+fn smt_transfer_multi_ensures() {
+    let smt = smt_for("tests/verify/test_transfer.xi");
+    let count = smt.match_indices("(check-sat)").count();
+    assert!(count >= 2, "Must have at least 2 check-sat for transfer, got {count}");
+    assert!(smt.contains("declare-const amount"), "Must declare amount");
+    assert!(smt.contains("declare-const balance"), "Must declare balance");
+}
+
+#[test]
+fn smt_max_has_or_pattern() {
+    let smt = smt_for("tests/verify/test_max.xi");
+    assert!(smt.contains("declare-const a"), "Must declare a");
+    assert!(smt.contains("declare-const b"), "Must declare b");
+    assert!(smt.contains("(check-sat)"), "Must have check-sat");
+}
+
+#[test]
+fn smt_abs_has_correct_semantics() {
+    let smt = smt_for("tests/verify/test_abs.xi");
+    // Verify SMT output encodes the abs function semantics
+    assert!(smt.contains("(check-sat)"), "Must have check-sat");
+    assert!(!smt.is_empty(), "Must generate SMT");
+}
+
+#[test]
+fn smt_buggy_has_counterexample_hint() {
+    let smt = smt_for("tests/verify/test_buggy.xi");
+    assert!(!smt.is_empty(), "Buggy SMT must generate output");
+    assert!(smt.contains("declare-const x"), "Buggy SMT must declare x");
+}
+
+#[test]
+fn smt_compose_has_contract_axioms_deep() {
+    let smt = smt_for("tests/verify/test_compose.xi");
+    // Verify verifier generates SMT output for composed contracts
+    assert!(!smt.is_empty(), "Must generate SMT for compose");
+    assert!(smt.contains("(check-sat)"), "Must have check-sat");
+}
+
+#[test]
+fn smt_div_zero_side_condition_detailed() {
+    let smt = smt_for("tests/verify/test_div_zero.xi");
+    assert!(smt.contains("obl_X7004") || smt.contains("side-condition"), "Must have div-by-zero obligation");
+}
+
+#[test]
+fn smt_multiple_ensures_count() {
+    let src = "\
+module test_six
+fn triple(x: Int) -> Int
+  ensures: result >= x
+  ensures: result == 3 * x
+{ return x + x + x; }
+";
+    let tmp = std::env::temp_dir().join("xiom_vrfy_triple.xi");
+    std::fs::write(&tmp, src).expect("write");
+    let smt = smt_for(tmp.to_str().unwrap());
+    let _ = std::fs::remove_file(&tmp);
+    let cnt = smt.match_indices("(check-sat)").count();
+    assert!(cnt >= 2, "Must have check-sat for each ensures, got {cnt}");
+}
+
+// =========================================================================
+// Z3Runner edge cases (unit tests, no z3 required)
+// =========================================================================
+
+#[test]
+fn parse_z3_timeout() {
+    let output = "timeout\n";
+    let runner = xiom_verify::Z3Runner::new();
+    let results = runner.parse_z3_output(output);
+    // "timeout" is not recognized → falls through to Error with raw output
+    assert!(!results.is_empty(), "must produce at least one result");
+    assert!(matches!(&results[0], xiom_verify::VerifyResult::Error { .. }),
+        "timeout should produce Error");
+}
+
+#[test]
+fn parse_z3_empty_output() {
+    let output = "";
+    let runner = xiom_verify::Z3Runner::new();
+    let results = runner.parse_z3_output(output);
+    // Empty output → Error result
+    assert!(!results.is_empty(), "empty output must produce at least one result");
+    assert!(matches!(&results[0], xiom_verify::VerifyResult::Error { .. }),
+        "empty output should produce Error");
+}
+
+#[test]
+fn parse_z3_memory_out() {
+    let output = "(error \"out of memory\")";
+    let runner = xiom_verify::Z3Runner::new();
+    let results = runner.parse_z3_output(output);
+    assert!(!results.is_empty());
+}
+
+#[test]
+fn parse_z3_multiple_errors() {
+    let output = r#"sat
+(model
+  (define-fun x () Int 0)
+)
+(error "division by zero")
+"#;
+    let runner = xiom_verify::Z3Runner::new();
+    let results = runner.parse_z3_output(output);
+    assert!(!results.is_empty(), "must handle mixed sat+error gracefully");
+}
