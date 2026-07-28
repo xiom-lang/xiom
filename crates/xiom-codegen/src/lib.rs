@@ -1572,6 +1572,22 @@ impl IrEmitter {
                         }
                     }
                 }
+                // M36: Before giving up, check if this is a type alias (e.g.,
+                // `type MyInt8 = Int8`, `type MyResult = Result[Int, Str]`).
+                // Follow alias chains with cycle detection.
+                {
+                    let mut resolved = type_name.to_string();
+                    let mut visited = std::collections::HashSet::new();
+                    while let Some(target) = self.types.type_aliases.get(&resolved) {
+                        if !visited.insert(resolved.clone()) {
+                            break; // cycle detected
+                        }
+                        resolved = target.clone();
+                    }
+                    if resolved != type_name {
+                        return self.llvm_type_for(&resolved);
+                    }
+                }
                 Err(format!("unknown type '{}' — not a registered struct, enum, or builtin", type_name))
             }
         }
