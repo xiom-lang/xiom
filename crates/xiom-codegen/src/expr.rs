@@ -277,7 +277,11 @@ impl IrEmitter {
                             self.emitln(&format!("  {tmp} = fneg {inner_ty} {val}"));
                             return Ok((tmp, inner_ty.clone()));
                         } else {
-                            self.emitln(&format!("  {tmp} = sub i64 0, {val}"));
+                            // B-006: Widen narrow int to i64 before negation.
+                            // `-128 as Int8` produces an i8 value; must zext/sext to
+                            // i64 before `sub i64 0, %val`.
+                            let wide = self.widen_to_i64(&val, &inner_ty);
+                            self.emitln(&format!("  {tmp} = sub i64 0, {wide}"));
                             return Ok((tmp, LLVM_I64.to_string()));
                         }
                     }
@@ -294,7 +298,11 @@ impl IrEmitter {
                         return Ok((tmp, LLVM_I64.to_string()));
                     }
                     UnaryOp::BitNot => {
-                        self.emitln(&format!("  {tmp} = xor i64 {val}, -1"));
+                        // B-005: Widen narrow int to i64 before bitwise NOT.
+                        // `~x` where x: Int32 produces an i32 value; must promote
+                        // to i64 before `xor i64 %val, -1`.
+                        let wide = self.widen_to_i64(&val, &inner_ty);
+                        self.emitln(&format!("  {tmp} = xor i64 {wide}, -1"));
                         return Ok((tmp, LLVM_I64.to_string()));
                     }
                     UnaryOp::Deref => {
@@ -514,6 +522,16 @@ impl IrEmitter {
                         r = deref_r;
                         rt = inner.to_string();
                     }
+                }
+                // Widen narrow integer operands (i1/i8/i16/i32) to i64 before
+                // emitting arithmetic, bitwise, shift, or comparison operations.
+                // This prevents LLVM type mismatches when Int8/Int16/Int32 values
+                // flow into binary ops that expect i64 operands. (B-004, B-005, B-006)
+                if !is_float && !lt.contains('*') && !rt.contains('*') {
+                    l = self.widen_to_i64(&l, &lt);
+                    r = self.widen_to_i64(&r, &rt);
+                    lt = "i64".to_string();
+                    rt = "i64".to_string();
                 }
                 let (ty, inst) = match op {
                     BinOp::Add => (if is_float { float_ty } else { "i64" }, if is_float { "fadd" } else { "add" }),
