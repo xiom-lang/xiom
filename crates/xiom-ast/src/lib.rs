@@ -624,15 +624,46 @@ impl Program {
     /// M20: Expand impl blocks into freestanding functions.
     /// `impl Trait for Type { fn m() { body } }` becomes `fn Type.m() { body }`.
     pub fn expand_impl_blocks(&self) -> Program {
+        // M19: Build a map of interface_name -> [(method_name, default_body)]
+        // so we can fill in default methods when an impl doesn't provide them.
+        let mut interface_defaults: std::collections::HashMap<String, Vec<(String, FnDecl)>> = std::collections::HashMap::new();
+        for item in &self.items {
+            if let TopDecl::Interface(id) = item {
+                let mut defaults = Vec::new();
+                for member in &id.members {
+                    if let InterfaceMember::FnSignature(fd) = member {
+                        if fd.body.is_some() {
+                            defaults.push((fd.name.name.clone(), fd.clone()));
+                        }
+                    }
+                }
+                if !defaults.is_empty() {
+                    interface_defaults.insert(id.name.name.clone(), defaults);
+                }
+            }
+        }
+
         let mut items = Vec::new();
         for item in &self.items {
             if let TopDecl::Impl(impl_decl) = item {
                 let type_name = impl_decl.type_name.name.clone();
+                let iface_name = impl_decl.trait_name.name.clone();
+                let mut provided_methods: std::collections::HashSet<String> = std::collections::HashSet::new();
                 for member in &impl_decl.members {
                     if let ImplItem::Fn(fn_decl) = member {
                         let mut new_fn = fn_decl.clone();
                         new_fn.name = Ident { name: format!("{}.{}", type_name, fn_decl.name.name), span: fn_decl.name.span };
-                        // Set the receiver so `self` resolves to the impl type
+                        new_fn.receiver = Some(Ident { name: type_name.clone(), span: impl_decl.type_name.span });
+                        provided_methods.insert(fn_decl.name.name.clone());
+                        items.push(TopDecl::Fn(new_fn));
+                    }
+                }
+                // M19: Fill in default methods from the interface that weren't provided
+                if let Some(defaults) = interface_defaults.get(&iface_name) {
+                    for (method_name, default_fd) in defaults {
+                        if provided_methods.contains(method_name) { continue; }
+                        let mut new_fn = default_fd.clone();
+                        new_fn.name = Ident { name: format!("{}.{}", type_name, method_name), span: impl_decl.span };
                         new_fn.receiver = Some(Ident { name: type_name.clone(), span: impl_decl.type_name.span });
                         items.push(TopDecl::Fn(new_fn));
                     }
