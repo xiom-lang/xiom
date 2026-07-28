@@ -470,18 +470,34 @@ impl IrEmitter {
         }
     }
 
+    /// Returns `true` when `xiom_type` is a signed integer (Int, Int8, Int16, Int32, Int64).
+    fn is_signed_xiom_type(xiom_type: &str) -> bool {
+        matches!(xiom_type, "Int" | "Int8" | "Int16" | "Int32" | "Int64")
+    }
+
     /// Widen a narrow integer value (`i1`/`i8`/`i16`/`i32`) to `i64` so it can
     /// participate in the emitter's i64 integer arithmetic/comparison model.
+    /// `is_signed` determines whether to use `sext` (sign extension for signed
+    /// types like Int8/Int16/Int32) or `zext` (zero extension for unsigned types
+    /// like UInt8/UInt16/UInt32/Char/Bool).
     fn widen_to_i64(&mut self, val: &str, ty: &str) -> String {
+        self.widen_to_i64_signed(val, ty, false)
+    }
+
+    /// Widen with explicit signedness control. `is_signed=true` uses `sext`;
+    /// `is_signed=false` uses `zext`.
+    fn widen_to_i64_signed(&mut self, val: &str, ty: &str, is_signed: bool) -> String {
         match ty {
-            "i1" | "i8" => {
+            "i1" => {
+                // Bool: always zero-extend (false=0, true=1)
                 let ext = self.fresh_tmp();
-                self.emitln(&format!("  {ext} = zext {ty} {val} to i64"));
+                self.emitln(&format!("  {ext} = zext i1 {val} to i64"));
                 ext
             }
-            "i16" | "i32" => {
+            "i8" | "i16" | "i32" => {
                 let ext = self.fresh_tmp();
-                self.emitln(&format!("  {ext} = sext {ty} {val} to i64"));
+                let op = if is_signed { "sext" } else { "zext" };
+                self.emitln(&format!("  {ext} = {op} {ty} {val} to i64"));
                 ext
             }
             // A real pointer used in integer arithmetic (e.g. a `&mut Int` param
@@ -788,17 +804,12 @@ impl IrEmitter {
 
     fn xiom_to_llvm_type(xiom_ty: &str) -> &'static str {
         match xiom_ty {
-            "Int8" | "UInt8" | "Char" => "i8",
+            "Int8" | "UInt8" => "i8",
+            "Char" => "i32",
             "Bool" => "i64",
             "Int16" | "UInt16" => "i16",
             "Int32" | "UInt32" => "i32",
             "Int" | "Int64" | "UInt" | "UInt64" => "i64",
-            "Int32" => "i32",
-            "Int16" => "i16",
-            "Int8" => "i8",
-            "UInt32" => "i32",
-            "UInt16" => "i16",
-            "UInt8" => "i8",
             "Float32" => "float",
             "Float64" => "double",
             "Str" => "i8*",

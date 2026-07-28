@@ -39,6 +39,21 @@ impl IrEmitter {
         None
     }
 
+    /// M17: Returns `true` if the local variable `name` has a signed integer type
+    /// (Int, Int8, Int16, Int32, Int64). Used to choose sext vs zext when widening.
+    pub(crate) fn is_signed_local(&self, name: &str) -> bool {
+        self.local.signed_locals.contains(name)
+    }
+
+    /// M17: Returns the XIOM type name for a local variable, if tracked.
+    /// Prefers the explicit `local_xiom_types` map; falls back to LLVM-type reverse lookup.
+    pub(crate) fn xiom_type_of_local(&self, name: &str) -> Option<String> {
+        if let Some(xiom_ty) = self.local.local_xiom_types.get(name) {
+            return Some(xiom_ty.clone());
+        }
+        self.resolve_local_xiom_type(name)
+    }
+
     /// Resolve a local variable's XIOM type name, with array-element awareness.
     /// For array-literal locals (in `array_locals`), returns the ELEMENT type
     /// (e.g. "Int" for `[5]Int`) instead of the buffer pointer type ("Str").
