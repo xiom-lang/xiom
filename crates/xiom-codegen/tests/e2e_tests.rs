@@ -2080,3 +2080,325 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m33_p18() { assert_eq!(compile_and_run("tests\\regression\\m33_p18.xi"), Some(0)); }
 #[test] fn e2e_m33_p19() { assert_eq!(compile_and_run("tests\\regression\\m33_p19.xi"), Some(0)); }
 #[test] fn e2e_m33_p20() { assert_eq!(compile_and_run("tests\\regression\\m33_p20.xi"), Some(0)); }
+
+// ── M34-N2: Deep Nesting Stress Tests ─────────────────────────────────
+// 01: 10-deep if-else chain
+// 02: 10-deep while-with-while loop (2^10 = 1024 iterations)
+// 03: 20-deep addition expression ((((1+2)+3)...+20) = 210
+// 04: 5-level nested generic type chain L1[T]→L2→L3→L4→L5[T]
+// 05: Nested enum in enum in enum (3 levels)
+// 06: 6-level nested struct S1→S2→S3→S4→S5→S6
+// 07: 4-level nested match E1 inside E2 inside E3 inside E4
+// 08: 10-level nested blocks
+// 09: Array-of-array-of-array via chained vec indexing
+// 10: Function factory pattern — closure returned from function
+// 11: Closure in closure capturing outer scope
+// 12: 5-level nested modules m1→m2→m3→m4→m5
+// 13: Borrow-in-borrow pattern &T → &U chain
+// 14: Multi-contract nesting — requires/ensures chain
+// 15: 8-level type alias chain T0→T1→...→T7
+// 16: 10-deep while-with-if alternating nesting
+// 17: Deep match-with-if interleaved nesting
+// 18: Deep tuple-like nesting via layered struct pairs
+// 19: 20-deep multiplication expression 1*2*...*20 = 20!
+// 20: Deep match nesting with multi-variant enums (3 levels)
+#[test] fn e2e_m34_n2_01() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_01.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_02() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_02.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_03() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_03.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_04() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_04.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_05() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_05.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_06() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_06.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_07() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_07.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_08() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_08.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_09() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_09.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_10() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_10.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_11() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_11.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_12() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_12.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_13() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_13.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_14() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_14.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_15() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_15.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_16() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_16.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_17() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_17.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_18() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_18.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_19() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_19.xi"), Some(0)); }
+#[test] fn e2e_m34_n2_20() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_20.xi"), Some(0)); }
+
+// ── M34-Q: Contract Chain Stress Tests ────────────────────────────────
+// q01: Chained requires chain (fn a requires → fn b requires → fn c)
+#[test] fn e2e_m34_q01() { assert_eq!(compile_and_run("tests\\regression\\m34_q01.xi"), Some(0), "q01: chained requires"); }
+// q02: Chained ensures propagated through call chain
+#[test] fn e2e_m34_q02() { assert_eq!(compile_and_run("tests\\regression\\m34_q02.xi"), Some(0), "q02: chained ensures"); }
+// q03: Contract + generic types
+#[test] fn e2e_m34_q03() { assert_eq!(compile_and_run("tests\\regression\\m34_q03.xi"), Some(0), "q03: contract+generic"); }
+// q04: Contract + methods on struct
+#[test] fn e2e_m34_q04() { assert_eq!(compile_and_run("tests\\regression\\m34_q04.xi"), Some(0), "q04: contract+method"); }
+// q05: Contract + invariant on struct
+#[test] fn e2e_m34_q05() { assert_eq!(compile_and_run("tests\\regression\\m34_q05.xi"), Some(0), "q05: contract+invariant+struct"); }
+// q06: Contract runtime — valid paths pass, contract protects invariants
+#[test] fn e2e_m34_q06() { assert_eq!(compile_and_run("tests\\regression\\m34_q06.xi"), Some(0), "q06: contract runtime"); }
+// q07: Contract with Option types
+#[test] fn e2e_m34_q07() { assert_eq!(compile_and_run("tests\\regression\\m34_q07.xi"), Some(0), "q07: contract+Option"); }
+// q08: Contract with Result types
+#[test] fn e2e_m34_q08() { assert_eq!(compile_and_run("tests\\regression\\m34_q08.xi"), Some(0), "q08: contract+Result"); }
+// q09: Contract with pointer null check
+#[test] fn e2e_m34_q09() { assert_eq!(compile_and_run("tests\\regression\\m34_q09.xi"), Some(0), "q09: contract+pointer null"); }
+// q10: Contract with array bounds
+#[test] fn e2e_m34_q10() { assert_eq!(compile_and_run("tests\\regression\\m34_q10.xi"), Some(0), "q10: contract+array bounds"); }
+// q11: Contract with arithmetic overflow guards
+#[test] fn e2e_m34_q11() { assert_eq!(compile_and_run("tests\\regression\\m34_q11.xi"), Some(0), "q11: contract+overflow"); }
+// q12: Contract with float domain constraints
+#[test] fn e2e_m34_q12() { assert_eq!(compile_and_run("tests\\regression\\m34_q12.xi"), Some(0), "q12: contract+float"); }
+// q13: Contract with boolean preconditions
+#[test] fn e2e_m34_q13() { assert_eq!(compile_and_run("tests\\regression\\m34_q13.xi"), Some(0), "q13: contract+boolean precondition"); }
+// q14: Contract with string length
+#[test] fn e2e_m34_q14() { assert_eq!(compile_and_run("tests\\regression\\m34_q14.xi"), Some(0), "q14: contract+string"); }
+// q15: Multi-function contract chain (8 functions, 5+ with contracts)
+#[test] fn e2e_m34_q15() { assert_eq!(compile_and_run("tests\\regression\\m34_q15.xi"), Some(0), "q15: 8-fn contract chain"); }
+// q16: Contract with external functions
+#[test] fn e2e_m34_q16() { assert_eq!(compile_and_run("tests\\regression\\m34_q16.xi"), Some(0), "q16: contract+extern"); }
+// q17: Contract with recursion
+#[test] fn e2e_m34_q17() { assert_eq!(compile_and_run("tests\\regression\\m34_q17.xi"), Some(0), "q17: contract+recursion"); }
+// q18: Contract with closures
+#[test] fn e2e_m34_q18() { assert_eq!(compile_and_run("tests\\regression\\m34_q18.xi"), Some(0), "q18: contract+closure"); }
+// q19: Contract with modules
+#[test] fn e2e_m34_q19() { assert_eq!(compile_and_run("tests\\regression\\m34_q19.xi"), Some(0), "q19: contract+module"); }
+// q20: Combined mega stress (struct+enum+generic+module+method+closure+recursion+Option+Result+float+array)
+#[test] fn e2e_m34_q20() { assert_eq!(compile_and_run("tests\\regression\\m34_q20.xi"), Some(0), "q20: all patterns combined"); }
+
+// ── M34-O: Error Propagation Chain Tests ───────────────────────────────
+// ? operator on Result[T,E]: simple ? Ok, ? Err, 2-/3-/5-chain,
+// ? in Result fn, Option propagation, mixed with match/if-guard/loop,
+// early return, compound expr, generic result, custom error type,
+// Option chain, map+?, and_then pattern, ? with contract/method/module
+#[test] fn e2e_m34_o01() { assert_eq!(compile_and_run("tests\\regression\\m34_o01.xi"), Some(0)); }
+#[test] fn e2e_m34_o02() { assert_eq!(compile_and_run("tests\\regression\\m34_o02.xi"), Some(0)); }
+#[test] fn e2e_m34_o03() { assert_eq!(compile_and_run("tests\\regression\\m34_o03.xi"), Some(0)); }
+#[test] fn e2e_m34_o04() { assert_eq!(compile_and_run("tests\\regression\\m34_o04.xi"), Some(0)); }
+#[test] fn e2e_m34_o05() { assert_eq!(compile_and_run("tests\\regression\\m34_o05.xi"), Some(0)); }
+#[test] fn e2e_m34_o06() { assert_eq!(compile_and_run("tests\\regression\\m34_o06.xi"), Some(0)); }
+#[test] fn e2e_m34_o07() { assert_eq!(compile_and_run("tests\\regression\\m34_o07.xi"), Some(0)); }
+#[test] fn e2e_m34_o08() { assert_eq!(compile_and_run("tests\\regression\\m34_o08.xi"), Some(0)); }
+#[test] fn e2e_m34_o09() { assert_eq!(compile_and_run("tests\\regression\\m34_o09.xi"), Some(0)); }
+#[test] fn e2e_m34_o10() { assert_eq!(compile_and_run("tests\\regression\\m34_o10.xi"), Some(0)); }
+#[test] fn e2e_m34_o11() { assert_eq!(compile_and_run("tests\\regression\\m34_o11.xi"), Some(0)); }
+#[test] fn e2e_m34_o12() { assert_eq!(compile_and_run("tests\\regression\\m34_o12.xi"), Some(0)); }
+#[test] fn e2e_m34_o13() { assert_eq!(compile_and_run("tests\\regression\\m34_o13.xi"), Some(0)); }
+#[test] fn e2e_m34_o14() { assert_eq!(compile_and_run("tests\\regression\\m34_o14.xi"), Some(0)); }
+#[test] fn e2e_m34_o15() { assert_eq!(compile_and_run("tests\\regression\\m34_o15.xi"), Some(0)); }
+#[test] fn e2e_m34_o16() { assert_eq!(compile_and_run("tests\\regression\\m34_o16.xi"), Some(0)); }
+#[test] fn e2e_m34_o17() { assert_eq!(compile_and_run("tests\\regression\\m34_o17.xi"), Some(0)); }
+#[test] fn e2e_m34_o18() { assert_eq!(compile_and_run("tests\\regression\\m34_o18.xi"), Some(0)); }
+#[test] fn e2e_m34_o19() { assert_eq!(compile_and_run("tests\\regression\\m34_o19.xi"), Some(0)); }
+#[test] fn e2e_m34_o20() { assert_eq!(compile_and_run("tests\\regression\\m34_o20.xi"), Some(0)); }
+
+// ── M34-V: Float Special Values Stress Tests ───────────────────────────
+// Very large/small values, zero/negative-zero, addition/multiplication
+// precision, division, Int-Float boundary, comparisons, epsilon equality,
+// multiply-accumulate, struct field, generic, const, parameter chain,
+// return type, while-loop accumulator, array operations, Float32 coverage
+#[test] fn e2e_m34_v01() { assert_eq!(compile_and_run("tests\\regression\\m34_v01.xi"), Some(0)); }
+#[test] fn e2e_m34_v02() { assert_eq!(compile_and_run("tests\\regression\\m34_v02.xi"), Some(0)); }
+#[test] fn e2e_m34_v03() { assert_eq!(compile_and_run("tests\\regression\\m34_v03.xi"), Some(0)); }
+#[test] fn e2e_m34_v04() { assert_eq!(compile_and_run("tests\\regression\\m34_v04.xi"), Some(0)); }
+#[test] fn e2e_m34_v05() { assert_eq!(compile_and_run("tests\\regression\\m34_v05.xi"), Some(0)); }
+#[test] fn e2e_m34_v06() { assert_eq!(compile_and_run("tests\\regression\\m34_v06.xi"), Some(0)); }
+#[test] fn e2e_m34_v07() { assert_eq!(compile_and_run("tests\\regression\\m34_v07.xi"), Some(0)); }
+#[test] fn e2e_m34_v08() { assert_eq!(compile_and_run("tests\\regression\\m34_v08.xi"), Some(0)); }
+#[test] fn e2e_m34_v09() { assert_eq!(compile_and_run("tests\\regression\\m34_v09.xi"), Some(0)); }
+#[test] fn e2e_m34_v10() { assert_eq!(compile_and_run("tests\\regression\\m34_v10.xi"), Some(0)); }
+#[test] fn e2e_m34_v11() { assert_eq!(compile_and_run("tests\\regression\\m34_v11.xi"), Some(0)); }
+#[test] fn e2e_m34_v12() { assert_eq!(compile_and_run("tests\\regression\\m34_v12.xi"), Some(0)); }
+#[test] fn e2e_m34_v13() { assert_eq!(compile_and_run("tests\\regression\\m34_v13.xi"), Some(0)); }
+#[test] fn e2e_m34_v14() { assert_eq!(compile_and_run("tests\\regression\\m34_v14.xi"), Some(0)); }
+#[test] fn e2e_m34_v15() { assert_eq!(compile_and_run("tests\\regression\\m34_v15.xi"), Some(0)); }
+#[test] fn e2e_m34_v16() { assert_eq!(compile_and_run("tests\\regression\\m34_v16.xi"), Some(0)); }
+#[test] fn e2e_m34_v17() { assert_eq!(compile_and_run("tests\\regression\\m34_v17.xi"), Some(0)); }
+#[test] fn e2e_m34_v18() { assert_eq!(compile_and_run("tests\\regression\\m34_v18.xi"), Some(0)); }
+#[test] fn e2e_m34_v19() { assert_eq!(compile_and_run("tests\\regression\\m34_v19.xi"), Some(0)); }
+#[test] fn e2e_m34_v20() { assert_eq!(compile_and_run("tests\\regression\\m34_v20.xi"), Some(0)); }
+
+// ── M34-N: Derive Operations Stress Tests ─────────────────────────────────
+// Tests: derive[Eq], derive[Clone], derive[Display], derive[Hash],
+// derive[Ord], derive[Debug] with structs, enums, generics, nesting.
+#[test] fn e2e_m34_n01() { assert_eq!(compile_and_run("tests\\regression\\m34_n01.xi"), Some(0)); }
+#[test] fn e2e_m34_n02() { assert_eq!(compile_and_run("tests\\regression\\m34_n02.xi"), Some(0)); }
+#[test] fn e2e_m34_n03() { assert_eq!(compile_and_run("tests\\regression\\m34_n03.xi"), Some(0)); }
+#[test] fn e2e_m34_n04() { assert_eq!(compile_and_run("tests\\regression\\m34_n04.xi"), Some(0)); }
+#[test] fn e2e_m34_n05() { assert_eq!(compile_and_run("tests\\regression\\m34_n05.xi"), Some(0)); }
+#[test] fn e2e_m34_n06() { assert_eq!(compile_and_run("tests\\regression\\m34_n06.xi"), Some(0)); }
+#[test] fn e2e_m34_n07() { assert_eq!(compile_and_run("tests\\regression\\m34_n07.xi"), Some(0)); }
+#[test] fn e2e_m34_n08() { assert_eq!(compile_and_run("tests\\regression\\m34_n08.xi"), Some(0)); }
+#[test] fn e2e_m34_n09() { assert_eq!(compile_and_run("tests\\regression\\m34_n09.xi"), Some(0)); }
+#[test] fn e2e_m34_n10() { assert_eq!(compile_and_run("tests\\regression\\m34_n10.xi"), Some(0)); }
+#[test] fn e2e_m34_n11() { assert_eq!(compile_and_run("tests\\regression\\m34_n11.xi"), Some(0)); }
+#[test] fn e2e_m34_n12() { assert_eq!(compile_and_run("tests\\regression\\m34_n12.xi"), Some(0)); }
+#[test] fn e2e_m34_n13() { assert_eq!(compile_and_run("tests\\regression\\m34_n13.xi"), Some(0)); }
+#[test] fn e2e_m34_n14() { assert_eq!(compile_and_run("tests\\regression\\m34_n14.xi"), Some(0)); }
+#[test] fn e2e_m34_n15() { assert_eq!(compile_and_run("tests\\regression\\m34_n15.xi"), Some(0)); }
+#[test] fn e2e_m34_n16() { assert_eq!(compile_and_run("tests\\regression\\m34_n16.xi"), Some(0)); }
+#[test] fn e2e_m34_n17() { assert_eq!(compile_and_run("tests\\regression\\m34_n17.xi"), Some(0)); }
+#[test] fn e2e_m34_n18() { assert_eq!(compile_and_run("tests\\regression\\m34_n18.xi"), Some(0)); }
+#[test] fn e2e_m34_n19() { assert_eq!(compile_and_run("tests\\regression\\m34_n19.xi"), Some(0)); }
+#[test] fn e2e_m34_n20() { assert_eq!(compile_and_run("tests\\regression\\m34_n20.xi"), Some(0)); }
+
+// ── M34-H: Type Coercion / Casting Edge Cases ──────────────────────────
+// Int8->Int16->Int32->Int64 chain, Int64->Int32->Int16->Int8 truncation,
+// unsigned <-> signed, Float64<->Int, Float<->Float narrowing/widening,
+// Char<->Int, Bool<->Int, cast in expression chain, function call,
+// struct field, enum payload, array index, while condition,
+// cast after arithmetic overflow, cast in generic context
+#[test] fn e2e_m34_h01() { assert_eq!(compile_and_run("tests\\regression\\m34_h01.xi"), Some(0)); }
+#[test] fn e2e_m34_h02() { assert_eq!(compile_and_run("tests\\regression\\m34_h02.xi"), Some(0)); }
+#[test] fn e2e_m34_h03() { assert_eq!(compile_and_run("tests\\regression\\m34_h03.xi"), Some(0)); }
+#[test] fn e2e_m34_h04() { assert_eq!(compile_and_run("tests\\regression\\m34_h04.xi"), Some(0)); }
+#[test] fn e2e_m34_h05() { assert_eq!(compile_and_run("tests\\regression\\m34_h05.xi"), Some(0)); }
+#[test] fn e2e_m34_h06() { assert_eq!(compile_and_run("tests\\regression\\m34_h06.xi"), Some(0)); }
+#[test] fn e2e_m34_h07() { assert_eq!(compile_and_run("tests\\regression\\m34_h07.xi"), Some(0)); }
+#[test] fn e2e_m34_h08() { assert_eq!(compile_and_run("tests\\regression\\m34_h08.xi"), Some(0)); }
+#[test] fn e2e_m34_h09() { assert_eq!(compile_and_run("tests\\regression\\m34_h09.xi"), Some(0)); }
+#[test] fn e2e_m34_h10() { assert_eq!(compile_and_run("tests\\regression\\m34_h10.xi"), Some(0)); }
+#[test] fn e2e_m34_h11() { assert_eq!(compile_and_run("tests\\regression\\m34_h11.xi"), Some(0)); }
+#[test] fn e2e_m34_h12() { assert_eq!(compile_and_run("tests\\regression\\m34_h12.xi"), Some(0)); }
+#[test] fn e2e_m34_h13() { assert_eq!(compile_and_run("tests\\regression\\m34_h13.xi"), Some(0)); }
+#[test] fn e2e_m34_h14() { assert_eq!(compile_and_run("tests\\regression\\m34_h14.xi"), Some(0)); }
+#[test] fn e2e_m34_h15() { assert_eq!(compile_and_run("tests\\regression\\m34_h15.xi"), Some(0)); }
+#[test] fn e2e_m34_h16() { assert_eq!(compile_and_run("tests\\regression\\m34_h16.xi"), Some(0)); }
+#[test] fn e2e_m34_h17() { assert_eq!(compile_and_run("tests\\regression\\m34_h17.xi"), Some(0)); }
+#[test] fn e2e_m34_h18() { assert_eq!(compile_and_run("tests\\regression\\m34_h18.xi"), Some(0)); }
+#[test] fn e2e_m34_h19() { assert_eq!(compile_and_run("tests\\regression\\m34_h19.xi"), Some(0)); }
+#[test] fn e2e_m34_h20() { assert_eq!(compile_and_run("tests\\regression\\m34_h20.xi"), Some(0)); }
+
+// ── M34-J: Cross-Module Stress Tests ──────────────────────────────────
+// Multiple modules in one file, pub fn/type/enum/const, use/use.Type/use as alias,
+// dotted paths, nested modules (3+), re-export, private fn,
+// cross-module type references, generics, contracts, invariants, derive, methods, all combined
+#[test] fn e2e_m34_j01() { assert_eq!(compile_and_run("tests\\regression\\m34_j01.xi"), Some(0)); }
+#[test] fn e2e_m34_j02() { assert_eq!(compile_and_run("tests\\regression\\m34_j02.xi"), Some(0)); }
+#[test] fn e2e_m34_j03() { assert_eq!(compile_and_run("tests\\regression\\m34_j03.xi"), Some(0)); }
+#[test] fn e2e_m34_j04() { assert_eq!(compile_and_run("tests\\regression\\m34_j04.xi"), Some(0)); }
+#[test] fn e2e_m34_j05() { assert_eq!(compile_and_run("tests\\regression\\m34_j05.xi"), Some(0)); }
+#[test] fn e2e_m34_j06() { assert_eq!(compile_and_run("tests\\regression\\m34_j06.xi"), Some(0)); }
+#[test] fn e2e_m34_j07() { assert_eq!(compile_and_run("tests\\regression\\m34_j07.xi"), Some(0)); }
+#[test] fn e2e_m34_j08() { assert_eq!(compile_and_run("tests\\regression\\m34_j08.xi"), Some(0)); }
+#[test] fn e2e_m34_j09() { assert_eq!(compile_and_run("tests\\regression\\m34_j09.xi"), Some(0)); }
+#[test] fn e2e_m34_j10() { assert_eq!(compile_and_run("tests\\regression\\m34_j10.xi"), Some(0)); }
+#[test] fn e2e_m34_j11() { assert_eq!(compile_and_run("tests\\regression\\m34_j11.xi"), Some(0)); }
+#[test] fn e2e_m34_j12() { assert_eq!(compile_and_run("tests\\regression\\m34_j12.xi"), Some(0)); }
+#[test] fn e2e_m34_j13() { assert_eq!(compile_and_run("tests\\regression\\m34_j13.xi"), Some(0)); }
+#[test] fn e2e_m34_j14() { assert_eq!(compile_and_run("tests\\regression\\m34_j14.xi"), Some(0)); }
+#[test] fn e2e_m34_j15() { assert_eq!(compile_and_run("tests\\regression\\m34_j15.xi"), Some(0)); }
+#[test] fn e2e_m34_j16() { assert_eq!(compile_and_run("tests\\regression\\m34_j16.xi"), Some(0)); }
+#[test] fn e2e_m34_j17() { assert_eq!(compile_and_run("tests\\regression\\m34_j17.xi"), Some(0)); }
+#[test] fn e2e_m34_j18() { assert_eq!(compile_and_run("tests\\regression\\m34_j18.xi"), Some(0)); }
+#[test] fn e2e_m34_j19() { assert_eq!(compile_and_run("tests\\regression\\m34_j19.xi"), Some(0)); }
+#[test] fn e2e_m34_j20() { assert_eq!(compile_and_run("tests\\regression\\m34_j20.xi"), Some(0)); }
+
+// ── M34-W: Bitwise/Bit-Level Stress Tests ──────────────────────────────
+// Operators: & | ^ ~ << >> on Int,Int8,Int16,Int32,Int64,UInt,UInt8,UInt16,UInt32
+// w01: AND identity (x & -1 == x) on Int,Int8,Int16,Int32,Int64
+#[test] fn e2e_m34_w01() { assert_eq!(compile_and_run("tests\\regression\\m34_w01.xi"), Some(0)); }
+// w02: OR zero (x | 0 == x) on UInt,UInt8,UInt16,UInt32
+#[test] fn e2e_m34_w02() { assert_eq!(compile_and_run("tests\\regression\\m34_w02.xi"), Some(0)); }
+// w03: XOR self (x ^ x == 0) on Int,Int32,UInt
+#[test] fn e2e_m34_w03() { assert_eq!(compile_and_run("tests\\regression\\m34_w03.xi"), Some(0)); }
+// w04: Double NOT (~~x == x) on all 9 integer types
+#[test] fn e2e_m34_w04() { assert_eq!(compile_and_run("tests\\regression\\m34_w04.xi"), Some(0)); }
+// w05: Shift left by 1 (multiply by 2) on Int,Int32,UInt
+#[test] fn e2e_m34_w05() { assert_eq!(compile_and_run("tests\\regression\\m34_w05.xi"), Some(0)); }
+// w06: Shift right by 1 (divide by 2) on Int,Int32,UInt
+#[test] fn e2e_m34_w06() { assert_eq!(compile_and_run("tests\\regression\\m34_w06.xi"), Some(0)); }
+// w07: Shift by 0 (identity) on Int,Int32,UInt
+#[test] fn e2e_m34_w07() { assert_eq!(compile_and_run("tests\\regression\\m34_w07.xi"), Some(0)); }
+// w08: Bit isolation (mask & value) using hex masks on multiple types
+#[test] fn e2e_m34_w08() { assert_eq!(compile_and_run("tests\\regression\\m34_w08.xi"), Some(0)); }
+// w09: Sign bit manipulation (MSB on signed types)
+#[test] fn e2e_m34_w09() { assert_eq!(compile_and_run("tests\\regression\\m34_w09.xi"), Some(0)); }
+// w10: Bit counting (popcount via while loop)
+#[test] fn e2e_m34_w10() { assert_eq!(compile_and_run("tests\\regression\\m34_w10.xi"), Some(0)); }
+// w11: Power-of-2 check (x & (x-1) == 0)
+#[test] fn e2e_m34_w11() { assert_eq!(compile_and_run("tests\\regression\\m34_w11.xi"), Some(0)); }
+// w12: Bit set/clear/toggle patterns
+#[test] fn e2e_m34_w12() { assert_eq!(compile_and_run("tests\\regression\\m34_w12.xi"), Some(0)); }
+// w13: Byte swap (shift + mask) on UInt32
+#[test] fn e2e_m34_w13() { assert_eq!(compile_and_run("tests\\regression\\m34_w13.xi"), Some(0)); }
+// w14: Bit rotation (rotl/rotr via shift + OR)
+#[test] fn e2e_m34_w14() { assert_eq!(compile_and_run("tests\\regression\\m34_w14.xi"), Some(0)); }
+// w15: Right-shift sign extension (arithmetic shift on signed types)
+#[test] fn e2e_m34_w15() { assert_eq!(compile_and_run("tests\\regression\\m34_w15.xi"), Some(0)); }
+// w16: Unsigned right shift (logical/zero-fill shift on UInt,UInt32)
+#[test] fn e2e_m34_w16() { assert_eq!(compile_and_run("tests\\regression\\m34_w16.xi"), Some(0)); }
+// w17: Hex literal masking (0xFF & x across types)
+#[test] fn e2e_m34_w17() { assert_eq!(compile_and_run("tests\\regression\\m34_w17.xi"), Some(0)); }
+// w18: Bitwise compound patterns (sequential & | ^ and chain expressions)
+#[test] fn e2e_m34_w18() { assert_eq!(compile_and_run("tests\\regression\\m34_w18.xi"), Some(0)); }
+// w19: Cross-type bitwise (Int32 & UInt32 with casts)
+#[test] fn e2e_m34_w19() { assert_eq!(compile_and_run("tests\\regression\\m34_w19.xi"), Some(0)); }
+// w20: Comprehensive bitwise stress (all operators on all 9 integer types)
+#[test] fn e2e_m34_w20() { assert_eq!(compile_and_run("tests\\regression\\m34_w20.xi"), Some(0)); }
+
+// ── M34-Y: Fuzzing-Style Combinatorial Stress Tests ──────────────────
+// Each test randomly combines 5-8 language features in unusual patterns:
+// struct, enum, match, while, if, closures, generics, contracts,
+// arrays, modules, pointers, Result, Option, compound assign, derive, impl, unsafe
+#[test] fn e2e_m34_y01() { assert_eq!(compile_and_run("tests\\regression\\m34_y01.xi"), Some(0)); }
+#[test] fn e2e_m34_y02() { assert_eq!(compile_and_run("tests\\regression\\m34_y02.xi"), Some(0)); }
+#[test] fn e2e_m34_y03() { assert_eq!(compile_and_run("tests\\regression\\m34_y03.xi"), Some(0)); }
+#[test] fn e2e_m34_y04() { assert_eq!(compile_and_run("tests\\regression\\m34_y04.xi"), Some(0)); }
+#[test] fn e2e_m34_y05() { assert_eq!(compile_and_run("tests\\regression\\m34_y05.xi"), Some(0)); }
+#[test] fn e2e_m34_y06() { assert_eq!(compile_and_run("tests\\regression\\m34_y06.xi"), Some(0)); }
+#[test] fn e2e_m34_y07() { assert_eq!(compile_and_run("tests\\regression\\m34_y07.xi"), Some(0)); }
+#[test] fn e2e_m34_y08() { assert_eq!(compile_and_run("tests\\regression\\m34_y08.xi"), Some(0)); }
+#[test] fn e2e_m34_y09() { assert_eq!(compile_and_run("tests\\regression\\m34_y09.xi"), Some(0)); }
+#[test] fn e2e_m34_y10() { assert_eq!(compile_and_run("tests\\regression\\m34_y10.xi"), Some(0)); }
+#[test] fn e2e_m34_y11() { assert_eq!(compile_and_run("tests\\regression\\m34_y11.xi"), Some(0)); }
+#[test] fn e2e_m34_y12() { assert_eq!(compile_and_run("tests\\regression\\m34_y12.xi"), Some(0)); }
+#[test] fn e2e_m34_y13() { assert_eq!(compile_and_run("tests\\regression\\m34_y13.xi"), Some(0)); }
+#[test] fn e2e_m34_y14() { assert_eq!(compile_and_run("tests\\regression\\m34_y14.xi"), Some(0)); }
+#[test] fn e2e_m34_y15() { assert_eq!(compile_and_run("tests\\regression\\m34_y15.xi"), Some(0)); }
+#[test] fn e2e_m34_y16() { assert_eq!(compile_and_run("tests\\regression\\m34_y16.xi"), Some(0)); }
+#[test] fn e2e_m34_y17() { assert_eq!(compile_and_run("tests\\regression\\m34_y17.xi"), Some(0)); }
+#[test] fn e2e_m34_y18() { assert_eq!(compile_and_run("tests\\regression\\m34_y18.xi"), Some(0)); }
+#[test] fn e2e_m34_y19() { assert_eq!(compile_and_run("tests\\regression\\m34_y19.xi"), Some(0)); }
+#[test] fn e2e_m34_y20() { assert_eq!(compile_and_run("tests\\regression\\m34_y20.xi"), Some(0)); }
+
+// ── M34-D: Recursive Data Structures Stress Tests ──────────────────────
+// d01: Binary tree — struct with left/right pointers
+#[test] fn e2e_m34_d01() { assert_eq!(compile_and_run("tests\\regression\\m34_d01.xi"), Some(0)); }
+// d02: Linked list — struct with next pointer
+#[test] fn e2e_m34_d02() { assert_eq!(compile_and_run("tests\\regression\\m34_d02.xi"), Some(0)); }
+// d03: Tree count — recursive count of all nodes
+#[test] fn e2e_m34_d03() { assert_eq!(compile_and_run("tests\\regression\\m34_d03.xi"), Some(0)); }
+// d04: Tree depth — max depth of binary tree
+#[test] fn e2e_m34_d04() { assert_eq!(compile_and_run("tests\\regression\\m34_d04.xi"), Some(0)); }
+// d05: List traversals — multiple recursive traversals
+#[test] fn e2e_m34_d05() { assert_eq!(compile_and_run("tests\\regression\\m34_d05.xi"), Some(0)); }
+// d06: Nested recursive types — two-level struct hierarchy
+#[test] fn e2e_m34_d06() { assert_eq!(compile_and_run("tests\\regression\\m34_d06.xi"), Some(0)); }
+// d07: Mutual recursive types — A→B, B→A
+#[test] fn e2e_m34_d07() { assert_eq!(compile_and_run("tests\\regression\\m34_d07.xi"), Some(0)); }
+// d08: Recursive struct in enum payload
+#[test] fn e2e_m34_d08() { assert_eq!(compile_and_run("tests\\regression\\m34_d08.xi"), Some(0)); }
+// d09: Recursive enum — enum variant with pointer to own type
+#[test] fn e2e_m34_d09() { assert_eq!(compile_and_run("tests\\regression\\m34_d09.xi"), Some(0)); }
+// d10: Deep tree operations — depth 10+ recursion stress
+#[test] fn e2e_m34_d10() { assert_eq!(compile_and_run("tests\\regression\\m34_d10.xi"), Some(0)); }
+// d11: Tree construction from expressions — build and eval on stack
+#[test] fn e2e_m34_d11() { assert_eq!(compile_and_run("tests\\regression\\m34_d11.xi"), Some(0)); }
+// d12: List append/prepend — linked list on stack
+#[test] fn e2e_m34_d12() { assert_eq!(compile_and_run("tests\\regression\\m34_d12.xi"), Some(0)); }
+// d13: Tree fold — accumulation across tree
+#[test] fn e2e_m34_d13() { assert_eq!(compile_and_run("tests\\regression\\m34_d13.xi"), Some(0)); }
+// d14: Tree map — transform tree values
+#[test] fn e2e_m34_d14() { assert_eq!(compile_and_run("tests\\regression\\m34_d14.xi"), Some(0)); }
+// d15: List filter — count/skip nodes by predicate
+#[test] fn e2e_m34_d15() { assert_eq!(compile_and_run("tests\\regression\\m34_d15.xi"), Some(0)); }
+// d16: Tree comparison — structural equality of two trees
+#[test] fn e2e_m34_d16() { assert_eq!(compile_and_run("tests\\regression\\m34_d16.xi"), Some(0)); }
+// d17: List reverse — verify traversal order
+#[test] fn e2e_m34_d17() { assert_eq!(compile_and_run("tests\\regression\\m34_d17.xi"), Some(0)); }
+// d18: Recursive generic types — Tree[T] and List[T]
+#[test] fn e2e_m34_d18() { assert_eq!(compile_and_run("tests\\regression\\m34_d18.xi"), Some(0)); }
+// d19: Diamond-shaped type graph — A→B,C; B,C→D
+#[test] fn e2e_m34_d19() { assert_eq!(compile_and_run("tests\\regression\\m34_d19.xi"), Some(0)); }
+// d20: Recursive invariant + serialization pattern
+#[test] fn e2e_m34_d20() { assert_eq!(compile_and_run("tests\\regression\\m34_d20.xi"), Some(0)); }
