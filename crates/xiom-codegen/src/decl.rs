@@ -412,6 +412,11 @@ impl IrEmitter {
                         .map(|p| Self::type_from_ast(&p.ty))
                         .collect();
                     methods.push((fd.name.name.clone(), param_type_names));
+                    // M19: Store default method bodies for fallback emission.
+                    if fd.body.is_some() {
+                        let key = format!("{}.{}", id.name.name, fd.name.name);
+                        self.types.interface_defaults.insert(key, fd.clone());
+                    }
                 }
             }
             self.types.interfaces.insert(id.name.name.clone(), methods);
@@ -583,7 +588,38 @@ impl IrEmitter {
                 self.local.current_module = saved_module;
                 Ok(())
             }
-            TopDecl::Interface(_) | TopDecl::Enum(_) | TopDecl::Const(_) | TopDecl::Type(_) | TopDecl::Use(_) | TopDecl::Extern(_) | TopDecl::Impl(_) => Ok(()),
+            TopDecl::Impl(id) => {
+                // M19: For each interface method with a default body that the impl
+                // does NOT provide, emit the default as a method on the implementing type.
+                let iface_name = id.trait_name.name.clone();
+                let type_name = id.type_name.name.clone();
+                if let Some(iface_methods) = self.types.interfaces.get(&iface_name).cloned() {
+                    let provided: HashSet<String> = id.members.iter()
+                        .filter_map(|item| match item {
+                            ImplItem::Fn(fd) => Some(fd.name.name.clone()),
+                            _ => None,
+                        })
+                        .collect();
+                    for (method_name, _param_types) in &iface_methods {
+                        if provided.contains(method_name) { continue; }
+                        let default_key = format!("{iface_name}.{method_name}");
+                        if let Some(default_fd) = self.types.interface_defaults.get(&default_key) {
+                            // Monomorphise: substitute Self → type_name in the default body
+                            let mut monomorphised = default_fd.clone();
+                            monomorphised.receiver = Some(Ident::new(&type_name, default_fd.span));
+                            monomorphised.name = Ident::new(
+                                &format!("{type_name}.{method_name}"),
+                                default_fd.name.span,
+                            );
+                            // M19: For simple defaults, no Self substitution needed beyond
+                            // the receiver and name (already set above).
+                            self.compile_fn(&monomorphised)?;
+                        }
+                    }
+                }
+                Ok(())
+            }
+            TopDecl::Interface(_) | TopDecl::Enum(_) | TopDecl::Const(_) | TopDecl::Type(_) | TopDecl::Use(_) | TopDecl::Extern(_) => Ok(()),
         }
     }
 

@@ -87,6 +87,8 @@ pub struct TypeContext {
     /// (e.g., "MyResult" → "Result[Int, Str]", "MyInt8" → "Int8").
     /// Populated during type registration from `type T = Underlying;` declarations.
     pub type_aliases: HashMap<String, String>,
+    /// M19: Default method bodies from interfaces, keyed by "Interface.method".
+    pub interface_defaults: HashMap<String, FnDecl>,
 }
 
 // ============================================================================
