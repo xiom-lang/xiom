@@ -690,8 +690,9 @@ impl IrEmitter {
                     arm_is_checked.push(checked);
                     if checked {
                         check_labels.push(self.fresh_block("match_check"));
-                    } else if matches!(&arm.pattern, Pattern::Wildcard(_) | Pattern::Ident(_)) {
-                        // Wildcard-like binding arm: acts as the default target.
+                    } else if arm.guard.is_none() && matches!(&arm.pattern, Pattern::Wildcard(_) | Pattern::Ident(_)) {
+                        // M18: Only UNGUARDED wildcard/ident arms can serve as the
+                        // catch-all default. Guarded arms need explicit evaluation.
                         wildcard_idx = Some(i);
                     }
                 }
@@ -699,11 +700,26 @@ impl IrEmitter {
                 // Branch to the first check block (or straight to the default
                 // arm / merge block when there are no checks). All indexing is
                 // bounds-guarded.
+                // M18: If there are guarded arms before the wildcard, branch to the
+                // first arm so the guard chain can evaluate. Unguarded wildcards are
+                // only used as the fallback target within guard chains.
+                let has_guard_before_wildcard = arms.iter().any(|a| a.guard.is_some());
                 if let Some(first_check) = check_labels.first() {
                     self.emitln(&format!("  br label %{first_check}"));
                 } else if let Some(wi) = wildcard_idx {
-                    let target = arm_labels.get(wi).cloned().unwrap_or_else(|| merge_label.clone());
-                    self.emitln(&format!("  br label %{target}"));
+                    if has_guard_before_wildcard {
+                        // Branch to first arm; guard failure chains to wildcard
+                        if let Some(first_label) = arm_labels.first() {
+                            self.emitln(&format!("  br label %{first_label}"));
+                        } else {
+                            self.emitln(&format!("  br label %{merge_label}"));
+                        }
+                    } else {
+                        let target = arm_labels.get(wi).cloned().unwrap_or_else(|| merge_label.clone());
+                        self.emitln(&format!("  br label %{target}"));
+                    }
+                } else if let Some(first_label) = arm_labels.first() {
+                    self.emitln(&format!("  br label %{first_label}"));
                 } else {
                     self.emitln(&format!("  br label %{merge_label}"));
                 }
@@ -930,6 +946,49 @@ impl IrEmitter {
                 for (i, arm) in arms.iter().enumerate() {
                     let arm_label = arm_labels.get(i).cloned().unwrap_or_else(|| merge_label.clone());
                     self.emitln(&format!("\n{arm_label}:"));
+                    // M18: For guarded arms, pre-bind Ident patterns so the guard
+                    // can reference the bound variable, then compile the guard.
+                    // On guard failure, skip to the next arm.
+                    if arm.guard.is_some() {
+                        self.push_scope();
+                        // Pre-bind Ident pattern for guard access
+                        if let Pattern::Ident(ident) = &arm.pattern {
+                            let is_variant = scrutinee_type.as_ref().and_then(|tn| {
+                                self.types.enum_variants.get(tn)
+                                    .map(|vars| vars.iter().any(|(v, _)| v == &ident.name))
+                            }).unwrap_or(false);
+                            if !is_variant {
+                                let bind_ty = if scrutinee_llvm_ty.is_empty() || scrutinee_llvm_ty == "void" {
+                                    LLVM_I64.to_string()
+                                } else {
+                                    scrutinee_llvm_ty.clone()
+                                };
+                                let store_val = self.zero_val_for(&val, &bind_ty);
+                                let match_alloca = self.fresh_tmp();
+                                self.emitln(&format!("  {match_alloca} = alloca {bind_ty}"));
+                                self.emitln(&format!("  store {bind_ty} {store_val}, {bind_ty}* {match_alloca}"));
+                                self.add_local(&ident.name, match_alloca, &bind_ty);
+                            }
+                        }
+                        // Compile guard expression and check result
+                        if let Some(ref guard_expr) = arm.guard {
+                            // Determine fallback label
+                            let guard_fail = if i + 1 < arm_labels.len() {
+                                arm_labels[i + 1].clone()
+                            } else {
+                                merge_label.clone()
+                            };
+                            let (guard_val, guard_ty) = self.compile_expr(guard_expr)?;
+                            let guard_i1 = if guard_ty == "i1" { guard_val } else {
+                                let ne = self.fresh_tmp();
+                                self.emitln(&format!("  {ne} = icmp ne i64 {guard_val}, 0"));
+                                ne
+                            };
+                            let guard_ok = self.fresh_block("guard_ok");
+                            self.emitln(&format!("  br i1 {guard_i1}, label %{guard_ok}, label %{guard_fail}"));
+                            self.emitln(&format!("\n{guard_ok}:"));
+                        }
+                    }
                     // For variant patterns, extract fields before compiling arm body
                     if let Pattern::Variant(variant_ident, fields, _) = &arm.pattern {
                         if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
