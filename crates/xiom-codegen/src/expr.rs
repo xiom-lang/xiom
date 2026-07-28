@@ -129,7 +129,25 @@ impl IrEmitter {
                     if self.local.array_locals.contains(&ident.name) {
                         self.local.array_value_regs.insert(tmp.clone());
                     }
-                    Ok((tmp, llvm_ty))
+                    // M17: Widen narrow integer loads to i64 immediately with correct
+                    // sign extension (sext for signed Int8/Int16/Int32, zext for
+                    // unsigned UInt8/UInt16/UInt32/Char/Bool). This ensures the
+                    // arithmetic layer always operates on i64 values while preserving
+                    // correct signedness semantics.
+                    let (result_val, result_ty) = match llvm_ty.as_str() {
+                        "i1" => {
+                            let wide = self.fresh_tmp();
+                            self.emitln(&format!("  {wide} = zext i1 {tmp} to i64"));
+                            (wide, LLVM_I64.to_string())
+                        }
+                        "i8" | "i16" | "i32" => {
+                            let is_signed = self.is_signed_local(lookup_name);
+                            let wide = self.widen_to_i64_signed(&tmp, &llvm_ty, is_signed);
+                            (wide, LLVM_I64.to_string())
+                        }
+                        _ => (tmp, llvm_ty),
+                    };
+                    Ok((result_val, result_ty))
                 } else if let Some((symbol, llvm_ty)) = self.local.module_globals.get(&ident.name).cloned() {
                     // Mutable module-level `var`: load the current value from the
                     // real global. Checked BEFORE enum-variant / constant fallbacks
@@ -522,6 +540,17 @@ impl IrEmitter {
                         r = deref_r;
                         rt = inner.to_string();
                     }
+                }
+                // M17: Extract scalar field 0 from struct operands BEFORE the
+                // widen_to_i64 block below, which resets lt/rt to "i64". When a
+                // struct value (e.g. %struct.Result from a contract's `result`)
+                // is compared with an integer, the struct's discriminant must be
+                // extracted first so the `icmp` operates on a scalar type.
+                if lt.starts_with("%struct.") && !rt.starts_with("%struct.") {
+                    l = self.extract_scalar_field0(&l, &lt);
+                }
+                if rt.starts_with("%struct.") && !lt.starts_with("%struct.") {
+                    r = self.extract_scalar_field0(&r, &rt);
                 }
                 // Widen narrow integer operands (i1/i8/i16/i32) to i64 before
                 // emitting arithmetic, bitwise, shift, or comparison operations.

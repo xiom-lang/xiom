@@ -52,11 +52,33 @@ impl IrEmitter {
                     let name = Self::type_from_ast(t);
                     self.llvm_type_for(&name).unwrap_or_else(|_| LLVM_I64.to_string())
                 });
+                // M17: Track XIOM type and signedness for narrow-int widening.
+                if let Some(ty) = _ty {
+                    let xiom_name = Self::type_from_ast(ty);
+                    self.local.local_xiom_types.insert(name.name.clone(), xiom_name.clone());
+                    if Self::is_signed_xiom_type(&xiom_name) {
+                        self.local.signed_locals.insert(name.name.clone());
+                    } else {
+                        self.local.signed_locals.remove(&name.name);
+                    }
+                }
                 // Use declared struct type when available (handles Option.unwrap
                 // round-trip where the value is a heap pointer i64 but the declared
                 // type is a struct).
+                // M17: Also use declared type for primitive narrow types (i8/i16/i32/float)
+                // so Int8/Int16/Int32/Float32 get properly-sized allocas instead of i64.
                 let llvm_ty = if declared_llvm_ty.as_ref().map_or(false, |d| d.starts_with('%')) {
                     declared_llvm_ty.clone().expect("declared_llvm_ty is Some when starts_with('%')")
+                } else if let Some(ref d) = declared_llvm_ty {
+                    // M17: For primitive declared types, prefer the declared type
+                    // when it differs from the compiled value's LLVM type.
+                    // This ensures Int8→i8, Int16→i16, Int32→i32, Float32→float.
+                    // For i64 declared types where the value is also i64, keep i64.
+                    if d != &val_llvm_ty || val_llvm_ty == "void" || val.is_empty() {
+                        d.clone()
+                    } else {
+                        val_llvm_ty.clone()
+                    }
                 } else if val_llvm_ty == "void" || val.is_empty() {
                     declared_llvm_ty.clone().unwrap_or_else(|| LLVM_I64.to_string())
                 } else {
@@ -134,22 +156,34 @@ impl IrEmitter {
                     let name = Self::type_from_ast(t);
                     self.llvm_type_for(&name).unwrap_or_else(|_| LLVM_I64.to_string())
                 });
+                // M17: Track XIOM type and signedness for narrow-int widening.
+                if let Some(ty) = _ty {
+                    let xiom_name = Self::type_from_ast(ty);
+                    self.local.local_xiom_types.insert(name.name.clone(), xiom_name.clone());
+                    if Self::is_signed_xiom_type(&xiom_name) {
+                        self.local.signed_locals.insert(name.name.clone());
+                    } else {
+                        self.local.signed_locals.remove(&name.name);
+                    }
+                }
                 let (val, val_llvm_ty) = self.compile_expr(value)?;
                 let orig_val_ty = val_llvm_ty.clone();
+                // M17: Use declared type for alloca width when present, falling back
+                // to value type. Special cases preserved for zero-init and float→double.
                 let llvm_ty = if val_llvm_ty == "i64" && val == "0" {
                     declared_llvm_ty.clone().unwrap_or(val_llvm_ty)
                 } else if val_llvm_ty == "void" || val.is_empty() {
                     declared_llvm_ty.clone().unwrap_or_else(|| LLVM_I64.to_string())
-                } else if declared_llvm_ty.as_ref().map_or(false, |d| d.starts_with('%')) {
-                    // Declared type is a struct — prefer it over the value's
-                    // raw i64 type (handles Option.unwrap() round-trip where
-                    // the heap pointer needs inttoptr+load coercion).
-                    declared_llvm_ty.clone().expect("declared_llvm_ty is Some when starts_with('%')")
-                } else if declared_llvm_ty.as_ref().map_or(false, |d| d == "float")
-                    && val_llvm_ty == "double"
-                {
-                    // Fix: var x: Float32 = 0.0 — narrow double literal to float
-                    "float".to_string()
+                } else if let Some(ref d) = declared_llvm_ty {
+                    // M17: When a type annotation exists, prefer the declared type
+                    // for the alloca width. This ensures Int8→i8, Int16→i16, etc.
+                    // Struct types (starts_with '%') and Float32 special case were
+                    // already handled; this generalizes to all declared types.
+                    if d.starts_with('%') || d != &val_llvm_ty {
+                        d.clone()
+                    } else {
+                        val_llvm_ty
+                    }
                 } else {
                     val_llvm_ty
                 };

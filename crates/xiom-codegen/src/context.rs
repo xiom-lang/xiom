@@ -190,6 +190,12 @@ pub struct LocalContext {
     /// M20-A1: Set of local variable names that hold closure values.
     /// Used by the call dispatch to detect closure calls vs regular function calls.
     pub closure_locals: HashSet<String>,
+    /// M17: Set of local variable names whose declared XIOM type is a signed integer
+    /// (Int, Int8, Int16, Int32, Int64). Used by widen_to_i64 to select sext vs zext.
+    pub signed_locals: HashSet<String>,
+    /// M17: XIOM type name for each local. Maps local name → XIOM type string
+    /// (e.g. "x" → "Int8", "y" → "UInt16"). Populated from declared type annotations.
+    pub local_xiom_types: HashMap<String, String>,
 }
 
 // ============================================================================
