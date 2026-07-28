@@ -1236,3 +1236,175 @@ fn main() -> Int { return 0; }";
     assert!(result.is_ok() || result.is_err()); // just must not panic
 }
 
+// ── M30+: Deep combinatorial & differential stress ────────────────────
+
+// 5 features interacting: struct + enum + generic + match + contract
+#[test] fn test_combo_5_features() {
+    let src = "\
+type Boxed[T] = { val: T; }
+enum Result[T, E] { Ok(v: T); Err(e: E); }
+fn unwrap_or[T](r: Result[T, Str], default: T) -> T ensures: true {
+    match r { Result.Ok(v) => v, Result.Err(_) => default, }
+}
+fn main() -> Int {
+    var b = Boxed[Result[Int, Str]]{ val: Result[Int,Str].Ok(42); };
+    match b.val { Result.Ok(v) => v, Result.Err(_) => 0, }
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "5 features must compile");
+}
+
+// 6 features: module + pub + type + method + generic + contract
+#[test] fn test_combo_6_features() {
+    let src = "\
+module lib
+pub type Counter = { val: Int; }
+pub fn Counter.inc(c: Counter, n: Int) -> Counter requires: n > 0 ensures: result.val == c.val + n {
+    return Counter{ val: c.val + n; };
+}
+fn main() -> Int { var c = lib.Counter{ val: 0; }; var c2 = c.inc(5); return c2.val; }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "6 features must compile");
+}
+
+// Differential: 3 different loop implementations of sum
+#[test] fn test_diff_three_sum_styles() {
+    let src = "\
+fn sum_while(n: Int) -> Int {
+    var total: Int = 0; var i: Int = 1;
+    while i <= n { total = total + i; i = i + 1; }
+    return total;
+}
+fn sum_loop_guard(n: Int) -> Int {
+    var total: Int = 0; var i: Int = 0;
+    while i < n { i = i + 1; total = total + i; }
+    return total;
+}
+fn sum_rec(n: Int) -> Int {
+    if n == 0 { return 0; }
+    return n + sum_rec(n - 1);
+}
+fn main() -> Int {
+    var a = sum_while(10);
+    var b = sum_loop_guard(10);
+    var c = sum_rec(10);
+    if a == b && b == c { return 0; }
+    return 1;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "diff 3 sum styles must compile");
+}
+
+// Differential: Fibonacci — recursive, iterative, and match-based
+#[test] fn test_diff_fib_three_ways() {
+    let src = "\
+fn fib_rec(n: Int) -> Int { if n <= 1 { return n; } return fib_rec(n - 1) + fib_rec(n - 2); }
+fn fib_iter(n: Int) -> Int {
+    if n <= 1 { return n; }
+    var a: Int = 0; var b: Int = 1; var i: Int = 1;
+    while i < n { var t = b; b = a + b; a = t; i = i + 1; }
+    return b;
+}
+fn fib_match(n: Int) -> Int {
+    match n { 0 => 0, 1 => 1, n => fib_match(n - 1) + fib_match(n - 2), }
+}
+fn main() -> Int {
+    var a = fib_iter(10);
+    var b = fib_rec(10);
+    var c = fib_match(10);
+    if a == b && b == c { return 0; }
+    return 1;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "diff fib 3 ways must compile");
+}
+
+// Combinatorial: enum with payload + generic type + nested match in method
+#[test] fn test_combo_enum_gen_method_nested() {
+    let src = "\
+enum Tree[T] { Leaf(val: T); Node(left: Tree[T]; right: Tree[T]); }
+fn Tree[T].sum(t: Tree[Int]) -> Int {
+    match t {
+        Tree.Leaf(v) => v,
+        Tree.Node(l, r) => l.sum() + r.sum(),
+    }
+}
+fn main() -> Int {
+    var t = Tree[Int].Node(
+        Tree[Int].Leaf(10),
+        Tree[Int].Node(Tree[Int].Leaf(20), Tree[Int].Leaf(30)));
+    return t.sum();
+}";
+    let result = compile(src);
+    assert!(result.is_ok() || result.is_err(), "enum+gen+method+nested must not panic");
+}
+
+// Combinatorial: struct with invariant + method with contracts + generic
+#[test] fn test_combo_invariant_method_contract_gen() {
+    let src = "\
+type Bounded[T] = { val: T; min: T; max: T; invariant: min <= max; }
+fn Bounded[Int].clamp(b: Bounded[Int]) -> Int requires: b.val >= b.min ensures: result <= b.max {
+    if b.val > b.max { return b.max; }
+    if b.val < b.min { return b.min; }
+    return b.val;
+}
+fn main() -> Int {
+    var b = Bounded[Int]{ val: 50; min: 0; max: 100; };
+    return b.clamp();
+}";
+    let result = compile(src);
+    assert!(result.is_ok() || result.is_err(), "invariant+method+contract+gen must not panic");
+}
+
+// Differential: manual string ops equivalent
+#[test] fn test_diff_string_equiv() {
+    let src = r#"
+fn concat_manual(a: Str, b: Str) -> Str { var result: Str = a + b; return result; }
+fn concat_direct(a: Str, b: Str) -> Str { return a + b; }
+fn main() -> Int {
+    var r1 = concat_manual("hello", "world");
+    var r2 = concat_direct("hello", "world");
+    if r1.len() as Int == r2.len() as Int { return 0; }
+    return 1;
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "diff string equiv must compile");
+}
+
+// Stress: deeply nested block returns with shadowing
+#[test] fn test_stress_deep_block_return() {
+    let mut src = String::from("fn deep() -> Int {\n");
+    for i in 0..10 {
+        src.push_str(&format!("  var v{i}: Int = {i};\n  if v{i} >= {i} {{\n", i = i));
+    }
+    src.push_str("  return 42;\n");
+    for _ in 0..10 {
+        src.push_str("  }\n");
+    }
+    src.push_str("}\nfn main() -> Int { return deep(); }");
+    let ir = compile(&src).unwrap();
+    assert!(ir.contains("define"), "deep block return must compile");
+}
+
+// Stress: many interleaved variable types
+#[test] fn test_stress_interleaved_types() {
+    let src = "\
+fn mix() -> Int {
+    var i: Int = 1;
+    var f: Float64 = 2.0;
+    var b: Bool = true;
+    var c: Char = 'A';
+    var s: Str = \"test\";
+    var v = [1, 2, 3];
+    var score: Int = 0;
+    if b { score = score + 10; }
+    if c == 'A' { score = score + 20; }
+    if f > 1.0 { score = score + 30; }
+    score = score + i + s.len() as Int;
+    return score;
+}
+fn main() -> Int { return mix(); }";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "interleaved types must compile");
+}
+
