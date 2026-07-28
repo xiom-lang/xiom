@@ -970,6 +970,29 @@ impl IrEmitter {
                                 self.add_local(&ident.name, match_alloca, &bind_ty);
                             }
                         }
+                        // M18: Pre-extract Ok/Some/Err payloads for guard access.
+                        // The payload field is loaded from the scrutinee struct's alloca
+                        // and bound as a local so guard expressions can reference it.
+                        let payload_field: Option<(&Pattern, i32)> = match &arm.pattern {
+                            Pattern::Some(inner, _) | Pattern::Ok(inner, _) => Some((inner.as_ref(), 1)),
+                            Pattern::Err(inner, _) => Some((inner.as_ref(), 2)),
+                            _ => None,
+                        };
+                        if let Some((inner_pat, field_idx)) = payload_field {
+                            if let Pattern::Ident(ident) = inner_pat {
+                                if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
+                                    let gep = self.fresh_tmp();
+                                    self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {field_idx}"));
+                                    let field_llvm_ty = self.field_llvm_type(type_name, field_idx as usize);
+                                    let loaded = self.fresh_tmp();
+                                    self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+                                    let inner_alloca = self.fresh_tmp();
+                                    self.emitln(&format!("  {inner_alloca} = alloca {field_llvm_ty}"));
+                                    self.emitln(&format!("  store {field_llvm_ty} {loaded}, {field_llvm_ty}* {inner_alloca}"));
+                                    self.add_local(&ident.name, inner_alloca, &field_llvm_ty);
+                                }
+                            }
+                        }
                         // Compile guard expression and check result
                         if let Some(ref guard_expr) = arm.guard {
                             // Determine fallback label
