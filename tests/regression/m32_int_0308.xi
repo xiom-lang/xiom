@@ -1,0 +1,8 @@
+// M32: UInt16 bitwise OR with high bit set (32768 | 16384 = 49152)
+fn main() -> Int {
+  var a: UInt16 = 32768;
+  var b: UInt16 = 16384;
+  var c: UInt16 = a | b;
+  if c == 49152 as UInt16 { return 0; }
+  return 1;
+}
