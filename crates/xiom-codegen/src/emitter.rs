@@ -92,8 +92,18 @@ impl IrEmitter {
         match expr {
             Expr::Ident(id) => {
                 if let Some((alloca, llvm_ty)) = self.lookup_local(&id.name).cloned() {
-                    let elem_ty = llvm_ty.trim_end_matches('*').to_string();
-                    Some((alloca, llvm_ty, elem_ty))
+                    // For pointer-typed locals (&mut T, &T, *T), load the pointer
+                    // value from the alloca so subsequent GEPs operate on the actual
+                    // pointee address rather than the alloca slot itself.
+                    let (base_ptr, base_ptr_ty) = if llvm_ty.ends_with('*') {
+                        let loaded = self.fresh_tmp();
+                        self.emitln(&format!("  {loaded} = load {llvm_ty}, {llvm_ty}* {alloca}"));
+                        (loaded, llvm_ty)
+                    } else {
+                        (alloca, format!("{llvm_ty}*"))
+                    };
+                    let elem_ty = base_ptr_ty.trim_end_matches('*').to_string();
+                    Some((base_ptr, base_ptr_ty, elem_ty))
                 } else { None }
             }
             Expr::Field(obj, field, _) => {
