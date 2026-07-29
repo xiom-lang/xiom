@@ -1,0 +1,8 @@
+// M32: UInt8 right shift logical: 128 >> 1 = 64
+fn main() -> Int {
+  var a: UInt8 = 128;
+  var b: UInt8 = 1;
+  var c: UInt8 = a >> b;
+  if c == 64 as UInt8 { return 0; }
+  return 1;
+}

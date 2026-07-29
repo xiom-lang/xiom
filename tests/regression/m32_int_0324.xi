@@ -1,0 +1,8 @@
+// M32: Pointer to int cast through Int64 with narrow intermediate
+fn main() -> Int {
+  var x: Int = 42;
+  var p: &Int = &x;
+  var addr: Int = p as Int;
+  if addr == addr { return 0; }
+  return 1;
+}
