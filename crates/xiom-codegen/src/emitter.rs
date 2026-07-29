@@ -108,7 +108,7 @@ impl IrEmitter {
             }
             Expr::Field(obj, field, _) => {
                 // Get the object's type and field info
-                let (obj_ptr, obj_ptr_ty, obj_elem_ty) = self.compile_lvalue(obj)?;
+                let (obj_ptr, _obj_ptr_ty, obj_elem_ty) = self.compile_lvalue(obj)?;
                 // Load the struct value to get its type
                 let struct_ty = if obj_elem_ty.starts_with("%struct.") {
                     obj_elem_ty.clone()

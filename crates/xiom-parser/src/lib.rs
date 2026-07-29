@@ -1378,7 +1378,7 @@ impl Parser {
     }
 
     fn parse_unary_expr(&mut self) -> Result<Expr, ParseError> {
-        let mut expr = self.parse_unary_prefix()?;
+        let expr = self.parse_unary_prefix()?;
         Ok(expr)
     }
 
