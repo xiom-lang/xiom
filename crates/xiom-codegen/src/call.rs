@@ -128,7 +128,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 self.emitln(&format!("  {env_ptr} = inttoptr i64 {env_ptr_val} to i64*"));
                                 let loaded_fn = self.fresh_tmp();
                                 self.emitln(&format!("  {loaded_fn} = load i64, i64* {env_ptr}"));
-                                let fn_ptr = self.fresh_tmp();
+                                let _fn_ptr = self.fresh_tmp();
                                 // Build argument list with env_ptr as first hidden arg
                                 let mut closure_args = vec![(env_ptr_val.clone(), "i64".to_string())];
                                 for a in &compiled_args {
