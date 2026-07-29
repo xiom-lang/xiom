@@ -1,0 +1,21 @@
+module regression.m19_default_0087
+
+interface Computer {
+  fn compute(&self) -> Int {
+    var x = value();
+    var y = x + 1;
+    var z = y * 2;
+    return z;
+  }
+  fn value(&self) -> Int;
+}
+
+type Num = { x: Int; }
+
+fn Num.value(&self) -> Int { return x; }
+
+fn main() -> Int {
+  var n: Num = Num{ x: 5 };
+  if n.value() == 5 && n.compute() == 12 { return 0; }
+  return 1;
+}

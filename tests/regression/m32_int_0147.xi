@@ -1,0 +1,8 @@
+// M32: Int64 shift left (1 << 63 = min)
+fn main() -> Int {
+  var a: Int64 = 1;
+  var b: Int64 = 63;
+  var c: Int64 = a << b;
+  if c < 0 { return 0; }
+  return 1;
+}

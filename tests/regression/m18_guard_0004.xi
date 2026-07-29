@@ -1,0 +1,9 @@
+module regression.m18_guard_0004
+
+fn main() -> Int {
+  var x: Int = -5;
+  match x {
+    v if v < 0 => { return 0; }
+    _ => { return 1; }
+  }
+}

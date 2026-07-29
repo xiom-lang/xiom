@@ -1,0 +1,19 @@
+module regression.m19_default_0005
+
+interface Versioned {
+  fn version(&self) -> Int { return 1; }
+  fn category(&self) -> Str { return "base"; }
+  fn name(&self) -> Str;
+}
+
+type Product = { title: Str; }
+
+fn Product.name(&self) -> Str { return title; }
+
+fn Product.version(&self) -> Int { return 2; }
+
+fn main() -> Int {
+  var p: Product = Product{ title: "gadget" };
+  if p.name() == "gadget" && p.version() == 2 && p.category() == "base" { return 0; }
+  return 1;
+}

@@ -1,0 +1,13 @@
+module m21_deep_expr_003
+pub fn run() -> Int {
+    var a = 1;
+    var b = 2;
+    var c = 3;
+    var d = 4;
+    var e = 5;
+    var result = a + b * c - d / e + a * b + c - d * e + a;
+    if result == 6 { return 0; }
+    return 1;
+  }
+use m21_deep_expr_003.run;
+fn main() -> Int { return run(); }

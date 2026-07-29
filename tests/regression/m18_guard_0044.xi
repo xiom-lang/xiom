@@ -1,0 +1,11 @@
+module regression.m18_guard_0044
+
+type Point = { x: Int; y: Int; }
+
+fn main() -> Int {
+  var p: Point = { x: 10; y: 10; };
+  match p {
+    p if p.x * p.y > 50 => { return 0; }
+    _ => { return 1; }
+  }
+}

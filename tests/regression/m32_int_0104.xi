@@ -1,0 +1,8 @@
+// M32: Int8 div edge with negative (-128 / -1 = -128 due to overflow)
+fn main() -> Int {
+  var a: Int8 = -128 as Int8;
+  var b: Int8 = -1 as Int8;
+  var c: Int8 = a / b;
+  if c == -128 as Int8 { return 0; }
+  return 1;
+}

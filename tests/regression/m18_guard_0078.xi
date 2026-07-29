@@ -1,0 +1,11 @@
+module regression.m18_guard_0078
+
+enum Shape { Circle(r: Float64), Square(s: Float64) }
+
+fn main() -> Int {
+  var s: Shape = Circle(2.5);
+  match s {
+    Circle(r) | Square(r) if r > 1.0 => { return 0; }
+    _ => { return 1; }
+  }
+}

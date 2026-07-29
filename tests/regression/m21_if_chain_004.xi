@@ -1,0 +1,13 @@
+module m21_if_chain_004
+pub fn run() -> Int {
+    var x = 10;
+    var y = 20;
+    if x > 0 {
+      if y > 10 {
+        return 0;
+      }
+    }
+    return 1;
+  }
+use m21_if_chain_004.run;
+fn main() -> Int { return run(); }

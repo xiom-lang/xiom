@@ -1,0 +1,11 @@
+module regression.m18_guard_0027
+
+fn is_valid(n: Int) -> Bool { return n > 0 && n < 100; }
+
+fn main() -> Int {
+  var x: Int = 200;
+  match x {
+    v if is_valid(v) => { return 1; }
+    _ => { return 0; }
+  }
+}

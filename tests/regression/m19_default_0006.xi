@@ -1,0 +1,16 @@
+module regression.m19_default_0006
+
+interface Tagger {
+  fn summary(&self) -> Str { return name() + ":"; }
+  fn name(&self) -> Str;
+}
+
+type Tag = { value: Str; }
+
+fn Tag.name(&self) -> Str { return value; }
+
+fn main() -> Int {
+  var t: Tag = Tag{ value: "urgent" };
+  if t.name() == "urgent" && t.summary() == "urgent:" { return 0; }
+  return 1;
+}

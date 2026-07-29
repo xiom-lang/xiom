@@ -1,0 +1,15 @@
+module regression.m19_default_0060
+
+interface Identifiable {
+  fn id(&self) -> Int { return 0; }
+}
+
+type Custom = { val: Int; }
+
+fn Custom.id(&self) -> Int { return val; }
+
+fn main() -> Int {
+  var c: Custom = Custom{ val: 99 };
+  if c.id() == 99 { return 0; }
+  return 1;
+}

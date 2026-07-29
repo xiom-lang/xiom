@@ -1,0 +1,15 @@
+module m21_borrow_007
+pub fn run() -> Int {
+    var x = 5;
+    {
+      var y = 10;
+      {
+        var rx = &x;
+        var ry = &y;
+        if *rx == 5 && *ry == 10 { return 0; }
+      }
+    }
+    return 1;
+  }
+use m21_borrow_007.run;
+fn main() -> Int { return run(); }

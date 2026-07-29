@@ -1,0 +1,14 @@
+module m21_borrow_017
+pub fn run() -> Int {
+    var x = 100;
+    var flag = true;
+    var r = &x;
+    if flag {
+      if *r == 100 { return 0; }
+    } else {
+      if *r == 100 { return 0; }
+    }
+    return 1;
+  }
+use m21_borrow_017.run;
+fn main() -> Int { return run(); }
