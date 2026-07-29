@@ -1,5 +1,5 @@
 module m21_struct_mut_034
-type Point = { x: Int; y: Int; }
+type Point = Point{ x: Int; y: Int; }
 
   fn make_point(a: Int, b: Int) -> Point {
     return { x: a; y: b; };

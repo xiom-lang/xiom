@@ -1,8 +1,8 @@
 module m21_struct_mut_038
-type Multi = { a: Int; b: Int; c: Int; }
+type Multi = Pair{ a: Int; b: Int; c: Int; }
 
   pub fn run() -> Int {
-    var m: Multi = { a: 1; b: 2; c: 3; };
+    var m: Multi = Pair{ a: 1; b: 2; c: 3; };
     m.a = 10;
     m.b = 20;
     m.c = 30;

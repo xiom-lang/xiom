@@ -1,6 +1,6 @@
 module m21_struct_mut_035
 type A = { val: Int; }
-  type B = { a: A; }
+  type B = Pair{ a: A; }
   type C = { b: B; }
   type D = { c: C; }
   type E = { d: D; }

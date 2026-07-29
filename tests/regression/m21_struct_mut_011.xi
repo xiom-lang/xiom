@@ -1,5 +1,5 @@
 module m21_struct_mut_011
-type Counter = { value: Int; }
+type Counter = Box{ value: Int; }
 
   fn Counter.increment() -> Int {
     self.value = self.value + 1;
@@ -7,7 +7,7 @@ type Counter = { value: Int; }
   }
 
   pub fn run() -> Int {
-    var c: Counter = { value: 0; };
+    var c: Counter = Box{ value: 0; };
     c.increment();
     c.increment();
     if c.value == 2 { return 0; }
