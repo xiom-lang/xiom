@@ -548,10 +548,12 @@ impl IrEmitter {
                 // struct value (e.g. %struct.Result from a contract's `result`)
                 // is compared with an integer, the struct's discriminant must be
                 // extracted first so the `icmp` operates on a scalar type.
-                if lt.starts_with("%struct.") && !rt.starts_with("%struct.") {
+                // Skip pointer types (%struct.X*) — they should be compared as
+                // pointers, not have their fields extracted.
+                if lt.starts_with("%struct.") && !lt.ends_with('*') && !rt.starts_with("%struct.") {
                     l = self.extract_scalar_field0(&l, &lt);
                 }
-                if rt.starts_with("%struct.") && !lt.starts_with("%struct.") {
+                if rt.starts_with("%struct.") && !rt.ends_with('*') && !lt.starts_with("%struct.") {
                     r = self.extract_scalar_field0(&r, &rt);
                 }
                 // Widen narrow integer operands (i1/i8/i16/i32) to i64 before
@@ -619,13 +621,13 @@ impl IrEmitter {
                 if is_float {
                     // A single-scalar-backed struct operand (Option/Ordering etc.)
                     // in a float context: extract its leading i64 field first.
-                    if lt.starts_with("%struct.") {
+                    if lt.starts_with("%struct.") && !lt.ends_with('*') {
                         l = self.extract_scalar_field0(&l, &lt);
                     }
-                    if rt.starts_with("%struct.") {
+                    if rt.starts_with("%struct.") && !rt.ends_with('*') {
                         r = self.extract_scalar_field0(&r, &rt);
                     }
-                    if lt == "i64" || lt.starts_with("%struct.") {
+                    if lt == "i64" || (lt.starts_with("%struct.") && !lt.ends_with('*')) {
                         let conv = self.fresh_tmp();
                         // 5c.29: `opt.unwrap()` returns the float payload as RAW
                         // BITS in an i64 (Some(x) stores via bitcast) â€” so the
@@ -682,10 +684,10 @@ impl IrEmitter {
                     // first field is the i64 discriminant/value) against a plain
                     // integer: extract field 0 so the integer op is well-typed.
                     // Handles idioms like `opt >= 0` / `find(...) < n`.
-                    if lt.starts_with("%struct.") && !rt.starts_with("%struct.") {
+                    if lt.starts_with("%struct.") && !lt.ends_with('*') && !rt.starts_with("%struct.") {
                         l = self.extract_scalar_field0(&l, &lt);
                     }
-                    if rt.starts_with("%struct.") && !lt.starts_with("%struct.") {
+                    if rt.starts_with("%struct.") && !rt.ends_with('*') && !lt.starts_with("%struct.") {
                         r = self.extract_scalar_field0(&r, &rt);
                     }
                     l = self.widen_to_i64(&l, &lt);
