@@ -2184,13 +2184,6 @@ impl IrEmitter {
                 None
             }
             Expr::Tuple(_, _) => None,
-            Expr::Some(_, _) => {
-                // Some(x) produces Option[T] ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â not a struct with user invariants
-                None
-            }
-            Expr::Ok(_, _) | Expr::Err(_, _) => {
-                None
-            }
             _ => None,
         }
     }

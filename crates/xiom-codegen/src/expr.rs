@@ -1852,7 +1852,7 @@ impl IrEmitter {
                         .collect();
                     let header = format!("define i64 @{fn_name}(i64 %__env, {}) {{\nentry:\n",
                         param_str.iter().enumerate()
-                            .map(|(i, s)| format!("i64 {}", s))
+                            .map(|(_i, s)| format!("i64 {}", s))
                             .collect::<Vec<_>>().join(", "));
                     self.output.push_str(&header);
                     
