@@ -1,0 +1,7 @@
+// M32: UInt32 bitwise at max
+fn main() -> Int {
+  var a: UInt32 = 4294967295;
+  var b: UInt32 = a | a;
+  if b == a { return 0; }
+  return 1;
+}

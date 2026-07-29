@@ -1,0 +1,19 @@
+module regression.m19_default_0061
+
+interface Shape {
+  fn perimeter(&self) -> Float64 { return 2.0 * (width() + height()); }
+  fn width(&self) -> Float64;
+  fn height(&self) -> Float64;
+}
+
+type Rect = { w: Float64; h: Float64; }
+
+fn Rect.width(&self) -> Float64 { return w; }
+
+fn Rect.height(&self) -> Float64 { return h; }
+
+fn main() -> Int {
+  var r: Rect = Rect{ w: 3.0, h: 4.0 };
+  if r.width() == 3.0 && r.height() == 4.0 && r.perimeter() == 14.0 { return 0; }
+  return 1;
+}
