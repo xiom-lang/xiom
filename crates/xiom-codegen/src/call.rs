@@ -2228,7 +2228,13 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // loaded value so mutations propagate to the caller.
                             let (recv_val, recv_llvm_ty) = if let Some(p0) = callee_pts.as_ref().and_then(|p| p.first()) {
                                 if p0.ends_with('*') && !recv_llvm_ty.ends_with('*') {
-                                    if let Expr::Ident(id) = &**receiver {
+                                    // Unwrap &x / &mut x to find the underlying lvalue.
+                                    let inner_ident: Option<&Expr> = match &**receiver {
+                                        Expr::Ref(i, _) | Expr::MutRef(i, _) => Some(i.as_ref()),
+                                        Expr::Unary(UnaryOp::Ref, i, _) | Expr::Unary(UnaryOp::MutRef, i, _) => Some(i.as_ref()),
+                                        e => Some(e),
+                                    };
+                                    if let Some(Expr::Ident(id)) = inner_ident {
                                         if let Some((slot, _slot_ty)) = self.lookup_local(&id.name).cloned() {
                                             (slot, format!("{recv_llvm_ty}*"))
                                         } else {
