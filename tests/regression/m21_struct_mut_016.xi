@@ -1,13 +1,11 @@
 module m21_struct_mut_016
 type Slot = { value: Int; active: Bool; }
-
 fn main() -> Int {
-    var s: Slot = { value: 0; active: false; };
-    s.value = 5;
-    s.active = true;
-    var new_s: Slot = { value: s.value + 10; active: false; };
-    if new_s.value == 15 && !new_s.active { return 0; }
-    return 1;
-  }
-use m21_struct_mut_016.run;
-fn main() -> Int { return run(); }
+  var s: Slot = Slot{ value: 0; active: false; };
+  s.value = 5;
+  s.active = true;
+  var new_s: Slot = { value: s.value + 10; active: false; };
+  if new_s.value == 15 && !new_s.active { return 0; }
+  return 1;
+  return 1;
+}
