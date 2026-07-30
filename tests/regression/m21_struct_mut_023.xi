@@ -1,11 +1,15 @@
 module m21_struct_mut_023
-type ColoredPoint = { x: Int; y: Int; color: Color; }
+enum Color { Red, Green, Blue }
+
+  type ColoredPoint = { x: Int; y: Int; color: Color; }
+
 fn main() -> Int {
-  var cp: ColoredPoint = ColoredPoint{ x: 0; y: 0; color: Color.Red; };
-  cp.color = Color.Blue;
-  match cp.color {
-    Color.Blue => return 0,
-    _ => return 1,
+    var cp: ColoredPoint = { x: 0; y: 0; color: Color.Red; };
+    cp.color = Color.Blue;
+    match cp.color {
+      Color.Blue => return 0,
+      _ => return 1,
+    }
   }
-  return 1;
-}
+use m21_struct_mut_023.run;
+fn main() -> Int { return run(); }
