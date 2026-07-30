@@ -247,7 +247,8 @@ impl IrEmitter {
                 Ok((tmp, LLVM_STR_PTR.to_string()))
             }
             Expr::Char(c, _) => {
-                Ok((format!("{}", *c as u32), "i8".to_string()))
+                // M17: Char is i32 (Unicode 32-bit), not i8
+                Ok((format!("{}", *c as u32), "i32".to_string()))
             }
             Expr::Paren(inner, _) => self.compile_expr(inner),
             Expr::Tuple(items, _) => {
