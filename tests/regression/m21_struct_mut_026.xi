@@ -9,7 +9,7 @@ type Pair = { first: Int; second: Int; }
     return result;
   }
 
-  pub fn run() -> Int {
+fn main() -> Int {
     var p: Pair = { first: 10; second: 20; };
     var p2 = swap(p);
     if p2.first == 20 && p2.second == 10 { return 0; }

@@ -1,7 +1,7 @@
 module m21_struct_mut_033
 type Value = { val: Int; flag: Bool; }
 
-  pub fn run() -> Int {
+fn main() -> Int {
     var v: Value = { val: 10; flag: false; };
     if v.val > 5 {
       v.flag = true;

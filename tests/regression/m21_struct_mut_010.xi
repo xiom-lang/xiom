@@ -1,11 +1,9 @@
 module m21_struct_mut_010
-type Holder = Container{ data: Vec[Int]; sum: Int; }
-
-  pub fn run() -> Int {
-    var h: Holder = Container{ data: [10, 20, 30]; sum: 0; };
-    h.sum = h.data.len();
-    if h.sum == 3 { return 0; }
-    return 1;
-  }
-use m21_struct_mut_010.run;
-fn main() -> Int { return run(); }
+type Holder = { data: Vec[Int]; sum: Int; }
+fn main() -> Int {
+  var h: Holder = Holder{ data: Vec[Int].new(); sum: 0; };
+  h.data.push(10); h.data.push(20);
+  h.sum = h.data.len();
+  if h.sum == 2 && h.data[0] == 10 { return 0; }
+  return 1;
+}

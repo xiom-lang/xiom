@@ -1,7 +1,7 @@
 module m21_struct_mut_029
 type Accum = { sum: Int; count: Int; }
 
-  pub fn run() -> Int {
+fn main() -> Int {
     var a: Accum = { sum: 0; count: 0; };
     var i = 0;
     while i < 10 {

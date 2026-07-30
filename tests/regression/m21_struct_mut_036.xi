@@ -1,7 +1,7 @@
 module m21_struct_mut_036
 type Empty = { }
 
-  pub fn run() -> Int {
+fn main() -> Int {
     var e1: Empty = { };
     var e2: Empty = { };
     return 0;

@@ -1,13 +1,13 @@
 module m21_struct_mut_011
-type Counter = Box{ value: Int; }
+type Counter = { value: Int; }
 
   fn Counter.increment() -> Int {
     self.value = self.value + 1;
     return self.value;
   }
 
-  pub fn run() -> Int {
-    var c: Counter = Box{ value: 0; };
+fn main() -> Int {
+    var c: Counter = { value: 0; };
     c.increment();
     c.increment();
     if c.value == 2 { return 0; }

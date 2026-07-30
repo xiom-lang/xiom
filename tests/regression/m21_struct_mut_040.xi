@@ -5,7 +5,7 @@ type Entry = { key: Int; val: Str; }
     return e.key;
   }
 
-  pub fn run() -> Int {
+fn main() -> Int {
     var e: Entry = { key: 42; val: "answer"; };
     var k = get_val(e);
     if k == 42 { return 0; }

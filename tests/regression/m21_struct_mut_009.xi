@@ -1,8 +1,8 @@
 module m21_struct_mut_009
-type Container = List{ items: Vec[Int]; label: Int; }
+type Container = { items: Vec[Int]; label: Int; }
 
-  pub fn run() -> Int {
-    var c: Container = List{ items: []; label: 0; };
+fn main() -> Int {
+    var c: Container = { items: []; label: 0; };
     c.items.push(1);
     c.items.push(2);
     c.items.push(3);

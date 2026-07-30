@@ -1,5 +1,5 @@
 module m21_struct_mut_013
-type Wrapper = Container{ data: Int; }
+type Wrapper = { data: Int; }
 
   fn Wrapper.set(v: Int) -> Wrapper {
     self.data = v;
@@ -11,8 +11,8 @@ type Wrapper = Container{ data: Int; }
     return self;
   }
 
-  pub fn run() -> Int {
-    var w: Wrapper = Container{ data: 5; };
+fn main() -> Int {
+    var w: Wrapper = { data: 5; };
     w.set(10).double();
     if w.data == 20 { return 0; }
     return 1;

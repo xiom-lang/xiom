@@ -1,11 +1,8 @@
 module m21_struct_mut_005
-type Record = Pair{ a: Int8; b: Int8; }
-
-  pub fn run() -> Int {
-    var r: Record = Pair{ a: 1i8; b: 2i8; };
-    r.a = 100i8;
-    if r.a == 100i8 && r.b == 2i8 { return 0; }
-    return 1;
-  }
-use m21_struct_mut_005.run;
-fn main() -> Int { return run(); }
+type Record = { a: Int8; b: Int8; }
+fn main() -> Int {
+  var r: Record = Record{ a: 1 as Int8; b: 2 as Int8; };
+  r.a = 100 as Int8;
+  if r.a == 100 as Int8 && r.b == 2 as Int8 { return 0; }
+  return 1;
+}

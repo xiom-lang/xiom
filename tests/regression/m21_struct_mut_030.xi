@@ -1,7 +1,7 @@
 module m21_struct_mut_030
 type Score = { val: Int; grade: Int; }
 
-  pub fn run() -> Int {
+fn main() -> Int {
     var s: Score = { val: 0; grade: 0; };
     var threshold = 50;
     if threshold > 40 {
