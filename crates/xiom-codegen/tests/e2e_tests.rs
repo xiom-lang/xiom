@@ -1983,6 +1983,24 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m21_struct_mut_005() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_005.xi"), Some(0)); }
 #[test] fn e2e_m21_struct_mut_008() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_008.xi"), Some(0)); }
 #[test] fn e2e_m21_struct_mut_010() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_010.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_003() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_003.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_006() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_006.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_007() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_007.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_009() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_009.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_011() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_011.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_012() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_012.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_013() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_013.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_014() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_014.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_020() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_020.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_021() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_021.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_022() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_022.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_024() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_024.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_025() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_025.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_029() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_029.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_030() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_030.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_031() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_031.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_033() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_033.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_038() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_038.xi"), Some(0)); }
 
 // â”€â”€ M32-S: Struct Types Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Basic struct, nested structs, field copy, all primitives, array-like,

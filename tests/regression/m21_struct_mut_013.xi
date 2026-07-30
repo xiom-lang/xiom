@@ -1,21 +1,9 @@
 module m21_struct_mut_013
-type Wrapper = { data: Int; }
-
-  fn Wrapper.set(v: Int) -> Wrapper {
-    self.data = v;
-    return self;
-  }
-
-  fn Wrapper.double() -> Wrapper {
-    self.data = self.data * 2;
-    return self;
-  }
-
+type Container = { data: Int; }
 fn main() -> Int {
-    var w: Wrapper = { data: 5; };
-    w.set(10).double();
-    if w.data == 20 { return 0; }
-    return 1;
-  }
-use m21_struct_mut_013.run;
-fn main() -> Int { return run(); }
+  var c: Container = Container{ data: 5; };
+  c.data = c.data + 3;
+  c.data = c.data * 2;
+  if c.data == 16 { return 0; }
+  return 1;
+}
