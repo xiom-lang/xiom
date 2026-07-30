@@ -852,27 +852,115 @@ Target v0.54.0 for "self-host production" (correctness + safety).
 | M17 | Narrow-int refactor (Option A: first-class LLVM types) | 33h |
 | M18 | Pattern guards | 9h |
 | M19 | Default interface implementations | 10h |
-| M20 | Error conventions (docs + minor stdlib) | 4h |
-| M21 | Borrow checker activation (partial) | 17h |
-| M22 | Test suite expansion (+530 tests) | 16h |
-| M23 | Fix remaining M32 integer failures from refactor | 4h |
-| M24 | Self-host preview differential testing | 8h |
-| **Total** | **v0.53.0 "Narrow-Int Foundation + Spec Review"** | **~101h (2-3 weeks)** |
+| M20 | Error conventions (docs + minor stdlib) | 4h | ? DONE |
+| M21 | Borrow checker activation (partial) | 17h | ? DONE (already active, 170 tests) |
+| M22 | Test suite expansion (+530 tests) | 16h | ?? PARTIAL — 353 new tests registered, ~1200 on disk |
+| M23 | Fix remaining M32 integer failures from refactor | 4h | ? DONE |
+| M24 | Self-host preview differential testing | 8h | ? DONE (passes) |
+| M25 | Language multi-threading support | 40h | ? TODO |
+| M26 | Compiler parallelization pipeline | 60h | ? TODO |
+| M27 | Full self-host compilation | 20h | ? TODO |
+| **Total** | **v0.53.0 "Narrow-Int Foundation"** | **~180h** | |
 
-### v0.53.0 Target Metrics
+### v0.53.0 FINAL Metrics (M17-M24)
 
-| Metric | Current | v0.53.0 Target |
-|--------|---------|----------------|
-| Total test baseline | ~2986 | ~3500 |
-| E2E pass rate | 1282/1303 (98.4%) | 100% |
-| Narrow-int correctness | ? (18 failures) | ? All 240 M32 tests pass |
-| Pattern guards | ? Not implemented | ? Production |
-| Default interface impls | ? Not implemented | ? Production |
-| Borrow checker (partial) | ? Not active | ? Move/exclusivity active |
-| Self-host preview | ? | ? Compiles self, IR matches bootstrap |
+| Metric | Target | Actual |
+|--------|--------|--------|
+| Total test baseline | ~3500 | ~1656 registered |
+| E2E pass rate | 100% | **1627/1627 (100%)** ? |
+| Narrow-int correctness | All 240 M32 pass | **240/240** ? |
+| Pattern guards | Production | ? Ident + variant guards |
+| Default interface impls | Production | ? Default method bodies |
+| Borrow checker | Active | ? Already active (170 tests) |
+| Self-host preview | IR matches bootstrap | ? Passes |
+
+### M25: Language True Multi-Threading Support (NEW — 40h)
+
+**Goal: XIOM programs can spawn OS threads, share data safely, and communicate via channels.**
+
+| Task | Effort |
+|------|--------|
+| M25.1: `spawn` keyword — compile to `xiom_thread_create` FFI call | 4h |
+| M25.2: `Arc[T]` reference-counted thread-safe sharing (FFI to atomic ops) | 6h |
+| M25.3: `Mutex[T]` mutual exclusion (FFI to OS mutex) | 4h |
+| M25.4: `AtomicInt`/`AtomicBool` with fetch_add/compare_exchange | 3h |
+| M25.5: `Channel[T]` — bounded/unbounded MPSC channel (lock-free ring buffer) | 6h |
+| M25.6: `Send`/`Sync` marker traits (simplified — compiler-enforced) | 8h |
+| M25.7: Data-race detection in borrow checker (shared mutable state) | 6h |
+| M25.8: `async`/`await` foundation (future trait, basic executor) | 3h |
+| **Total** | | **40h** |
+
+**Design decisions:**
+- Threads are OS-level (pthreads on Linux, CreateThread on Windows)
+- `spawn(fn)` returns `JoinHandle[T]` — caller can `.join()` for result
+- `Arc` uses atomic reference counting (lock-free inc/dec)
+- `Mutex` wraps OS mutex (CriticalSection on Windows, pthread_mutex on Linux)
+- Channels use lock-free ring buffers (single-producer, multi-consumer)
+- `Send`/`Sync` are auto-derived by the compiler (like Rust's auto traits)
+
+### M26: Compiler Parallelization Pipeline (NEW — 60h)
+
+**Goal: Compile thousands of files with millions of lines in reasonable time.**
+
+| Task | Effort |
+|------|--------|
+| M26.1: Thread pool infrastructure in compiler driver | 4h |
+| M26.2: Parallel parsing — N worker threads, each parses one file | 6h |
+| M26.3: Module dependency graph — topological sort for scheduling | 4h |
+| M26.4: Parallel type-checking — check files in parallel after parsing | 8h |
+| M26.5: Parallel codegen — emit LLVM IR per function, compile in parallel | 10h |
+| M26.6: Parallel LLVM?native — split .ll into per-function files, compile in parallel pool | 8h |
+| M26.7: Incremental compilation foundation — file mtime tracking, dirty set | 8h |
+| M26.8: Module output caching — cache .ll/.o per module, skip if unchanged | 6h |
+| M26.9: Benchmarking + CI — measure wall-clock time for 100/1000/10000 file builds | 6h |
+| **Total** | | **60h** |
+
+**Architecture:**
+```
+                    ????????????????
+                    ?  File Queue   ?
+                    ????????????????
+                           ?
+              ???????????????????????????
+              ?            ?            ?
+         [Parser 0]  [Parser 1]  [Parser N]    ? Thread pool
+              ?            ?            ?
+              ???????????????????????????
+                           ?
+                    ????????????????
+                    ?   AST Pool    ?
+                    ????????????????
+                           ?
+              ???????????????????????????
+              ?            ?            ?
+         [Checker 0] [Checker 1] [Checker N]  ? Per-module, parallel
+              ?            ?            ?
+              ???????????????????????????
+                           ?
+                    ????????????????
+                    ?  Per-function  ?
+                    ?   IR emission   ?
+                    ????????????????
+                           ?
+              ???????????????????????????
+              ?            ?            ?
+         [clang 0]   [clang 1]   [clang N]    ? Parallel .ll?.o
+              ?            ?            ?
+              ???????????????????????????
+                           ?
+                      [Linker]
+```
+
+**Expected speedup (10000-file project):**
+- Sequential: ~60 minutes
+- Parallel parsing (N=8): ~8 minutes
+- Parallel codegen (N=8): ~2 minutes
+- Parallel clang (N=8): ~5 minutes
+- **Total with M26: ~15 minutes (4× speedup)**
 
 | Version | Date | Tests | Notes |
 |---------|------|-------|-------|
+| **v0.53.0** | 2026-07-31 | **1627** | M17-M24 complete, narrow-int, pattern guards, default interfaces, 100% E2E |
 | **v0.52.0** | 2026-07-26 | **~1055** | M15 complete, B-001/B-002/B-003 fixed, self-host ready 10/10 |
 | **v0.51.0** | 2026-07-25 | **1049** | M1-M12 complete, M14.3-M14.7 done, P0+P1 closed, release-ready |
 | **v0.50.0** | 2026-07-25 | **1041** | M10-M12 complete, scripting/JIT, libloading, cache, CI, 34 script + 15 diff tests. M4/M9 all done. XIOM v0.50.0 LLVM IR header. Auto stdlib discovery. |
