@@ -1,8 +1,8 @@
-// M32: Struct with UInt8 field and cross-boundary field access
-type Rec = { id: UInt8; score: UInt16; }
+// M32: Struct with Int8 field and cross-boundary field access
+type Rec = { id: Int8; score: Int16; }
 fn main() -> Int {
-  var r: Rec = Rec{ id: 200; score: 50000 };
+  var r: Rec = Rec{ id: -50 as Int8; score: -200 as Int16; };
   var sum: Int = r.id as Int + r.score as Int;
-  if sum == 50200 { return 0; }
+  if sum == -250 { return 0; }
   return 1;
 }
