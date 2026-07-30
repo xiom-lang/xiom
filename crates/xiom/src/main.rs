@@ -1,4 +1,4 @@
-// XIOM Programming Language
+﻿// XIOM Programming Language
 // -----------------------------------------------------------------------
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
@@ -25,7 +25,7 @@ use std::time::Duration;
 
 use xiom::{self, compile, CompileConfig, Target, resolve_source_files};
 
-/// Call compile() and exit on failure — all process::exit calls are confined to this binary.
+/// Call compile() and exit on failure â€” all process::exit calls are confined to this binary.
 fn compile_or_exit(config: &CompileConfig, sources: &[String]) {
     if let Err(errors) = compile(config, sources) {
         for e in &errors {
@@ -41,7 +41,7 @@ fn run_script_watch(path: &str) {
     let get_mtime = || std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
     let mut last_mtime = get_mtime();
 
-    eprintln!("[WATCH] Monitoring '{path}' — press Ctrl+C to stop");
+    eprintln!("[WATCH] Monitoring '{path}' â€” press Ctrl+C to stop");
 
     loop {
         let current_mtime = get_mtime();
@@ -81,11 +81,11 @@ use xiom_lexer::Lexer;
 use xiom_parser::Parser;
 use xiom_codegen::sandbox::SafetyAuditor;
 
-/// M10.4: Interactive REPL — compile and execute each line as a script.
+/// M10.4: Interactive REPL â€” compile and execute each line as a script.
 /// State (let/var declarations) persists across lines.
 fn run_repl() {
     use std::io::{self, Write};
-    eprintln!("XIOM REPL v0.53.0 — type :help for commands, :quit to exit");
+    eprintln!("XIOM REPL v0.53.0 â€” type :help for commands, :quit to exit");
     let mut line_num = 0u64;
     let mut state: Vec<String> = Vec::new(); // accumulated let/var declarations
 
@@ -175,7 +175,7 @@ fn main() {
 
     if args.iter().any(|a| a == "--version") {
         let tag = option_env!("XIOM_RELEASE_TAG").unwrap_or("Narrow-Int Foundation");
-        let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("2736 tests, 99.8% pass");
+        let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("1604/1604 E2E, 100% pass");
         println!("XIOM Compiler v{} \"{tag}\" - {stats}", env!("CARGO_PKG_VERSION"));
         return;
     }
@@ -190,13 +190,13 @@ fn main() {
         process::exit(1);
     }
 
-    // ── M10.4: xiom repl — interactive scripting shell ──────────────
+    // â”€â”€ M10.4: xiom repl â€” interactive scripting shell â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if args.get(1).map_or(false, |a| a == "repl") {
         run_repl();
         return;
     }
 
-    // ── M10: xiom run — JIT/scripting execution ─────────────────────
+    // â”€â”€ M10: xiom run â€” JIT/scripting execution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if args.get(1).map_or(false, |a| a == "run") {
         let remaining: Vec<&str> = args.iter().skip(2).map(|s| s.as_str()).collect();
         if remaining.is_empty() {
@@ -519,7 +519,7 @@ fn main() {
 
     let source_paths = resolve_source_files(&args);
 
-    // ── M10.2: xiom build --standalone — script-to-binary ──────────
+    // â”€â”€ M10.2: xiom build --standalone â€” script-to-binary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     let standalone_mode = args.iter().any(|a| a == "--standalone");
     let scaffold_mode = args.iter().any(|a| a == "--scaffold");
 
@@ -763,7 +763,7 @@ fn main() {
             }
         }
 
-        // Initial compile — exit on failure for hot reload
+        // Initial compile â€” exit on failure for hot reload
         if let Err(errors) = compile(&hot_config, &source_paths) {
             for e in &errors { eprintln!("error: {e}"); }
             process::exit(1);
@@ -799,7 +799,7 @@ fn main() {
         eprintln!("[AI] Provider: {}, Model: {}",
             ai_config.provider, ai_config.model);
 
-        // 5f.3e: Batch mode — collect diagnostics from all files into single output
+        // 5f.3e: Batch mode â€” collect diagnostics from all files into single output
         if _ai_batch {
             let mut all_diagnostics: Vec<xiom::Diagnostic> = Vec::new();
             let mut all_sources: Vec<(String, String)> = Vec::new(); // (path, source)
@@ -840,14 +840,14 @@ fn main() {
                 let z3_models = xiom::ai::run_z3_for_contract_errors(&all_diagnostics, &all_sources);
                 match xiom::ai::run_ai_pipeline_batch(&ai_config, &all_sources, &all_diagnostics, &z3_models) {
                     Ok(output) if !ai_silent => {
-                        eprintln!("xiom --ai --batch: {} hints → .xiom_ai.json ({} API, {} cached, {} Z3 models)",
+                        eprintln!("xiom --ai --batch: {} hints â†’ .xiom_ai.json ({} API, {} cached, {} Z3 models)",
                             output.total_hints, output.api_calls, output.cached_hints, z3_models.len());
                     }
                     Err(e) => eprintln!("[AI] {e}"),
                     _ => {}
                 }
             } else {
-                eprintln!("[AI] All sources compile cleanly — no diagnostics.");
+                eprintln!("[AI] All sources compile cleanly â€” no diagnostics.");
             }
         } else {
             // Single-file mode (existing behavior)
@@ -887,14 +887,14 @@ fn main() {
                 if !result.diagnostics.is_empty() {
                     match xiom::ai::run_ai_pipeline(&ai_config, &source, path, &result.diagnostics, &z3_models) {
                         Ok(output) if !ai_silent => {
-                            eprintln!("xiom --ai: {} hints → .xiom_ai.json ({} API, {} cached, {} Z3 models)",
+                            eprintln!("xiom --ai: {} hints â†’ .xiom_ai.json ({} API, {} cached, {} Z3 models)",
                                 output.total_hints, output.api_calls, output.cached_hints, z3_models.len());
                         }
                         Err(e) => eprintln!("[AI] {e}"),
                         _ => {}
                     }
                 } else {
-                    eprintln!("[AI] No diagnostics — source compiles cleanly.");
+                    eprintln!("[AI] No diagnostics â€” source compiles cleanly.");
                 }
             }
         }
@@ -905,7 +905,7 @@ fn main() {
 
 fn print_usage() {
         let tag = option_env!("XIOM_RELEASE_TAG").unwrap_or("Narrow-Int Foundation");
-        let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("2736 tests, 99.8% pass");
+        let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("1604/1604 E2E, 100% pass");
         eprintln!("XIOM Compiler v{} \"{tag}\" -- {stats}", env!("CARGO_PKG_VERSION"));
     eprintln!();
     eprintln!("USAGE:");
@@ -939,11 +939,11 @@ fn print_usage() {
     eprintln!("  --graph             7F.2: Output dependency graph (DOT format)");
     eprintln!("  --graph=mermaid     7F.2: Output dependency graph (Mermaid format)");
     eprintln!("  build               7F.1: Build entire project (from xiom.toml)");
-    eprintln!("  build --watch       7F.1: Build daemon — watch and rebuild on changes");
+    eprintln!("  build --watch       7F.1: Build daemon â€” watch and rebuild on changes");
     eprintln!("  --runtime-contracts  7E.4: Force runtime contract checks (even in release mode)");
     eprintln!("  --no-contracts       Disable all contract checks (faster, less safe)");
     eprintln!("  --incremental       5e.5f: Cache compiled IR, skip unchanged sources");
-    eprintln!("  --force             5e.5f: Force recompile — ignore all caches");
+    eprintln!("  --force             5e.5f: Force recompile â€” ignore all caches");
     eprintln!("  --parallel          7C: Enable parallel lex+parse (rayon thread pool)");
     eprintln!("  --sequential        7C: Force sequential compilation (disable parallel)");
     eprintln!("  --jobs <N>          7C: Number of parallel compile jobs (default: num CPUs)");
@@ -966,9 +966,9 @@ fn print_usage() {
     eprintln!("  doctor              Check toolchain dependencies and report status");
     eprintln!();
     eprintln!("DEPENDENCIES:");
-    eprintln!("  Required: clang (LLVM) — to compile IR to native binary");
-    eprintln!("  Optional: opt (LLVM) — IR optimization pass (-O1)");
-    eprintln!("  Optional: nasm — hardware-accelerated crypto/memcpy (stdlib)");
+    eprintln!("  Required: clang (LLVM) â€” to compile IR to native binary");
+    eprintln!("  Optional: opt (LLVM) â€” IR optimization pass (-O1)");
+    eprintln!("  Optional: nasm â€” hardware-accelerated crypto/memcpy (stdlib)");
     eprintln!();
     eprintln!("EXAMPLES:");
     eprintln!("  xiom --run examples/demo_float.xi");
@@ -1129,7 +1129,7 @@ fn run_xiom_tests(args: &[String]) {
     if failed > 0 { std::process::exit(1); }
 }
 
-// ── Phase 5d: Package Manager ──────────────────────────────────────────
+// â”€â”€ Phase 5d: Package Manager â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 fn handle_install(_args: &[String], pkg_name: Option<&str>, registry_url: &str, _update: bool) {
     let home = dirs_next().unwrap_or_else(|| ".".into());
@@ -1563,7 +1563,7 @@ tests: [
         std::fs::write(&manifest_path, &manifest).ok();
     }
 
-    let main_xi = format!(r#"// {name} — entry point
+    let main_xi = format!(r#"// {name} â€” entry point
 module {name}
 
 fn main() -> Int {{
@@ -1575,7 +1575,7 @@ fn main() -> Int {{
         std::fs::write(&main_path, &main_xi).ok();
     }
 
-    let test_xi = format!(r#"// {name} — tests
+    let test_xi = format!(r#"// {name} â€” tests
 module {name}_test
 
 fn test_hello() -> Int {{
@@ -1596,20 +1596,20 @@ fn test_hello() -> Int {{
     eprintln!("  Created project '{name}' in {dir}/");
     eprintln!("  ");
     eprintln!("  {dir}/");
-    eprintln!("  ├── package.xi       ← project manifest");
-    eprintln!("  ├── src/main.xi      ← entry point");
-    eprintln!("  ├── tests/");
-    eprintln!("  │   └── test_main.xi ← tests");
-    eprintln!("  └── .gitignore");
+    eprintln!("  â”œâ”€â”€ package.xi       â† project manifest");
+    eprintln!("  â”œâ”€â”€ src/main.xi      â† entry point");
+    eprintln!("  â”œâ”€â”€ tests/");
+    eprintln!("  â”‚   â””â”€â”€ test_main.xi â† tests");
+    eprintln!("  â””â”€â”€ .gitignore");
     eprintln!("  ");
     eprintln!("  Next steps:");
     eprintln!("    cd {dir}");
-    eprintln!("    xiom check         ← type-check your project");
-    eprintln!("    xiom src/main.xi --run   ← compile and run");
-    eprintln!("    xiom test          ← run test suite");
+    eprintln!("    xiom check         â† type-check your project");
+    eprintln!("    xiom src/main.xi --run   â† compile and run");
+    eprintln!("    xiom test          â† run test suite");
 }
 
-/// 9A: xiom doctor — check all dependencies and report status.
+/// 9A: xiom doctor â€” check all dependencies and report status.
 fn run_doctor() {
     println!("XIOM Doctor v0.53.0");
     println!("====================");
@@ -1634,7 +1634,7 @@ fn run_doctor() {
     else { println!("  [--] No packages (use: xiom pkg install <name>)"); }
 }
 
-/// 9B: xiom doc — generate documentation for XIOM source files.
+/// 9B: xiom doc â€” generate documentation for XIOM source files.
 /// Delegates to the standalone xiom-doc binary, passing through all args
 /// after the `doc` subcommand.
 fn run_doc(args: &[String]) {
