@@ -2001,6 +2001,36 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m21_struct_mut_031() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_031.xi"), Some(0)); }
 #[test] fn e2e_m21_struct_mut_033() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_033.xi"), Some(0)); }
 #[test] fn e2e_m21_struct_mut_038() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_038.xi"), Some(0)); }
+#[test] fn e2e_m21_while_001() { assert_eq!(compile_and_run("tests\\regression\\m21_while_001.xi"), Some(0)); }
+#[test] fn e2e_m21_while_002() { assert_eq!(compile_and_run("tests\\regression\\m21_while_002.xi"), Some(0)); }
+#[test] fn e2e_m21_while_003() { assert_eq!(compile_and_run("tests\\regression\\m21_while_003.xi"), Some(0)); }
+#[test] fn e2e_m21_while_004() { assert_eq!(compile_and_run("tests\\regression\\m21_while_004.xi"), Some(0)); }
+#[test] fn e2e_m21_while_005() { assert_eq!(compile_and_run("tests\\regression\\m21_while_005.xi"), Some(0)); }
+#[test] fn e2e_m21_while_006() { assert_eq!(compile_and_run("tests\\regression\\m21_while_006.xi"), Some(0)); }
+#[test] fn e2e_m21_while_007() { assert_eq!(compile_and_run("tests\\regression\\m21_while_007.xi"), Some(0)); }
+#[test] fn e2e_m21_while_008() { assert_eq!(compile_and_run("tests\\regression\\m21_while_008.xi"), Some(0)); }
+#[test] fn e2e_m21_while_009() { assert_eq!(compile_and_run("tests\\regression\\m21_while_009.xi"), Some(0)); }
+#[test] fn e2e_m21_while_010() { assert_eq!(compile_and_run("tests\\regression\\m21_while_010.xi"), Some(0)); }
+#[test] fn e2e_m21_while_011() { assert_eq!(compile_and_run("tests\\regression\\m21_while_011.xi"), Some(0)); }
+#[test] fn e2e_m21_while_012() { assert_eq!(compile_and_run("tests\\regression\\m21_while_012.xi"), Some(0)); }
+#[test] fn e2e_m21_while_013() { assert_eq!(compile_and_run("tests\\regression\\m21_while_013.xi"), Some(0)); }
+#[test] fn e2e_m21_while_014() { assert_eq!(compile_and_run("tests\\regression\\m21_while_014.xi"), Some(0)); }
+#[test] fn e2e_m21_while_015() { assert_eq!(compile_and_run("tests\\regression\\m21_while_015.xi"), Some(0)); }
+// m21_string passing tests
+#[test] fn e2e_m21_string_001() { assert_eq!(compile_and_run("tests\\regression\\m21_string_001.xi"), Some(0)); }
+#[test] fn e2e_m21_string_002() { assert_eq!(compile_and_run("tests\\regression\\m21_string_002.xi"), Some(0)); }
+#[test] fn e2e_m21_string_006() { assert_eq!(compile_and_run("tests\\regression\\m21_string_006.xi"), Some(0)); }
+#[test] fn e2e_m21_string_008() { assert_eq!(compile_and_run("tests\\regression\\m21_string_008.xi"), Some(0)); }
+#[test] fn e2e_m21_string_009() { assert_eq!(compile_and_run("tests\\regression\\m21_string_009.xi"), Some(0)); }
+#[test] fn e2e_m21_string_011() { assert_eq!(compile_and_run("tests\\regression\\m21_string_011.xi"), Some(0)); }
+#[test] fn e2e_m21_string_012() { assert_eq!(compile_and_run("tests\\regression\\m21_string_012.xi"), Some(0)); }
+#[test] fn e2e_m21_string_013() { assert_eq!(compile_and_run("tests\\regression\\m21_string_013.xi"), Some(0)); }
+#[test] fn e2e_m21_string_014() { assert_eq!(compile_and_run("tests\\regression\\m21_string_014.xi"), Some(0)); }
+#[test] fn e2e_m21_string_015() { assert_eq!(compile_and_run("tests\\regression\\m21_string_015.xi"), Some(0)); }
+#[test] fn e2e_m21_string_016() { assert_eq!(compile_and_run("tests\\regression\\m21_string_016.xi"), Some(0)); }
+#[test] fn e2e_m21_string_017() { assert_eq!(compile_and_run("tests\\regression\\m21_string_017.xi"), Some(0)); }
+#[test] fn e2e_m21_string_018() { assert_eq!(compile_and_run("tests\\regression\\m21_string_018.xi"), Some(0)); }
+#[test] fn e2e_m21_string_019() { assert_eq!(compile_and_run("tests\\regression\\m21_string_019.xi"), Some(0)); }
 
 // â”€â”€ M32-S: Struct Types Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Basic struct, nested structs, field copy, all primitives, array-like,
