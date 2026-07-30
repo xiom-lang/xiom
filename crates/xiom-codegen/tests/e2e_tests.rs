@@ -1978,6 +1978,11 @@ fn e2e_m19_enum_same_field_types() {
 #[test] fn e2e_m32_int_0398() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0398.xi"), Some(0)); }
 #[test] fn e2e_m32_int_0399() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0399.xi"), Some(0)); }
 #[test] fn e2e_m32_int_0400() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0400.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_001() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_001.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_002() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_002.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_005() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_005.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_008() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_008.xi"), Some(0)); }
+#[test] fn e2e_m21_struct_mut_010() { assert_eq!(compile_and_run("tests\\regression\\m21_struct_mut_010.xi"), Some(0)); }
 
 // â”€â”€ M32-S: Struct Types Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Basic struct, nested structs, field copy, all primitives, array-like,

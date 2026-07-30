@@ -1,7 +1,7 @@
 module m21_struct_mut_025
 type Operation = { status: Result[Int, Int]; id: Int; }
 
-  pub fn run() -> Int {
+fn main() -> Int {
     var op: Operation = { status: Err(-1); id: 0; };
     op.status = Ok(200);
     op.id = 7;

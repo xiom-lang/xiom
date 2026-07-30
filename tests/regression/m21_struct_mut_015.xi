@@ -8,7 +8,7 @@ type Data = { val: Int; }
     }
   }
 
-  pub fn run() -> Int {
+fn main() -> Int {
     var opt: Option[Data] = Some({ val: 42; });
     var d = maybe_get(opt);
     d.val = 99;

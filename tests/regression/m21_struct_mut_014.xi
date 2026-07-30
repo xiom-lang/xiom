@@ -9,7 +9,7 @@ type Num = { val: Int; }
     self.val = self.val * n;
   }
 
-  pub fn run() -> Int {
+fn main() -> Int {
     var x: Num = { val: 3; };
     x.add(7);
     x.mul(2);

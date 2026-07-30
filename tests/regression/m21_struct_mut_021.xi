@@ -1,7 +1,7 @@
 module m21_struct_mut_021
 type Flag = { active: Bool; ready: Bool; }
 
-  pub fn run() -> Int {
+fn main() -> Int {
     var f: Flag = { active: false; ready: false; };
     f.active = true;
     f.ready = true;

@@ -6,7 +6,7 @@ type Counter = { val: Int; }
     return self.val;
   }
 
-  pub fn run() -> Int {
+fn main() -> Int {
     var c: Counter = { val: 0; };
     var a = c.inc_and_get();
     var b = c.inc_and_get();

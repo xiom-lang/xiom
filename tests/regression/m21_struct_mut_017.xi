@@ -1,7 +1,7 @@
 module m21_struct_mut_017
 type Entry = { key: Int; val: Int; }
 
-  pub fn run() -> Int {
+fn main() -> Int {
     var res: Result[Entry, Int] = Ok({ key: 1; val: 100; });
     match res {
       Ok(e) => {
