@@ -2220,6 +2220,58 @@ impl IrEmitter {
                         self.emitln(&format!("  {tmp} = fptosi double {val} to i64"));
                         Ok((tmp, LLVM_I64.to_string()))
                     }
+                    // M39: Float ↔ narrow int / float width conversions
+                    ("double", "i32") | ("float", "i32") => {
+                        self.emitln(&format!("  {tmp} = fptosi {inner_llvm_ty} {val} to i32"));
+                        Ok((tmp, "i32".to_string()))
+                    }
+                    ("double", "i8") | ("float", "i8") | ("double", "i16") | ("float", "i16") => {
+                        // Float → narrow int: fptosi to i64 then trunc to target width
+                        let mid = self.fresh_tmp();
+                        self.emitln(&format!("  {mid} = fptosi {inner_llvm_ty} {val} to i64"));
+                        self.emitln(&format!("  {tmp} = trunc i64 {mid} to {target_llvm_ty}"));
+                        Ok((tmp, target_llvm_ty.to_string()))
+                    }
+                    ("i8", "double") | ("i16", "double") => {
+                        // Narrow int → float: sext to i64 then sitofp
+                        let mid = self.fresh_tmp();
+                        self.emitln(&format!("  {mid} = sext {inner_llvm_ty} {val} to i64"));
+                        self.emitln(&format!("  {tmp} = sitofp i64 {mid} to double"));
+                        Ok((tmp, "double".to_string()))
+                    }
+                    ("i8", "float") | ("i16", "float") => {
+                        let mid = self.fresh_tmp();
+                        self.emitln(&format!("  {mid} = sext {inner_llvm_ty} {val} to i64"));
+                        let mid2 = self.fresh_tmp();
+                        self.emitln(&format!("  {mid2} = sitofp i64 {mid} to double"));
+                        self.emitln(&format!("  {tmp} = fptrunc double {mid2} to float"));
+                        Ok((tmp, "float".to_string()))
+                    }
+                    ("i32", "double") => {
+                        self.emitln(&format!("  {tmp} = sitofp i32 {val} to double"));
+                        Ok((tmp, "double".to_string()))
+                    }
+                    ("i32", "float") | ("i64", "float") => {
+                        let intermediate = if inner_llvm_ty == "i64" {
+                            let mid = self.fresh_tmp();
+                            self.emitln(&format!("  {mid} = trunc i64 {val} to i32"));
+                            mid
+                        } else { val.clone() };
+                        self.emitln(&format!("  {tmp} = sitofp i32 {intermediate} to float"));
+                        Ok((tmp, "float".to_string()))
+                    }
+                    ("double", "float") => {
+                        self.emitln(&format!("  {tmp} = fptrunc double {val} to float"));
+                        Ok((tmp, "float".to_string()))
+                    }
+                    ("float", "double") => {
+                        self.emitln(&format!("  {tmp} = fpext float {val} to double"));
+                        Ok((tmp, "double".to_string()))
+                    }
+                    ("float", "i64") => {
+                        self.emitln(&format!("  {tmp} = fptosi float {val} to i64"));
+                        Ok((tmp, LLVM_I64.to_string()))
+                    }
                     (a, b) if a == b => Ok((val, target_llvm_ty.clone())),
                     // 5e.2 G-34: fn-ptr ↔ Int casts.
                     (inner_ty, target_fn_ptr) if target_fn_ptr.contains('(')
@@ -2257,8 +2309,20 @@ impl IrEmitter {
                                 }
                             }
                         }
-                        // Fallback
-                        self.emitln(&format!("  {tmp} = sext {a} {val} to {b}"));
+                        // Fallback: use fptosi for float→int, sitofp for int→float,
+                        // sext/trunc for integer width changes.
+                        let op = if (a == "double" || a == "float") && int_width(b).is_some() {
+                            "fptosi"
+                        } else if int_width(a).is_some() && (b == "double" || b == "float") {
+                            "sitofp"
+                        } else if int_width(a).is_some() && int_width(b).is_some() {
+                            let aw = int_width(a).unwrap_or(64);
+                            let bw = int_width(b).unwrap_or(64);
+                            if bw < aw { "trunc" } else { "sext" }
+                        } else {
+                            "sext"
+                        };
+                        self.emitln(&format!("  {tmp} = {op} {a} {val} to {b}"));
                         Ok((tmp, target_llvm_ty.clone()))
                     }
                     // Integer <-> integer width conversions (e.g. Int<->Char, Int<->Int8/16/32).

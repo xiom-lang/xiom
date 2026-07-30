@@ -1,7 +1,7 @@
-// M32: Bool as Int (should be 0 or 1, not arbitrary values)
+// M32: Bool-casting alternatives (no Bool->Int cast in XIOM)
 fn main() -> Int {
   var b: Bool = true;
-  var n: Int = b as Int;
-  if n == 1 { return 0; }
+  var as_int: Int = if b { 1 } else { 0 };
+  if as_int == 1 { return 0; }
   return 1;
 }
