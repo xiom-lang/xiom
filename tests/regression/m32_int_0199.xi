@@ -1,5 +1,5 @@
 // M32: Struct with UInt8 field
-type Color = { r: UInt8; g: UInt8; b: UInt8 };
+type Color = { r: UInt8; g: UInt8; b: UInt8; }
 fn main() -> Int {
   var c: Color = Color{ r: 255, g: 255, b: 255 };
   var sum: UInt8 = c.r + c.g;

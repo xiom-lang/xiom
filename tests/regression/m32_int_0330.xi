@@ -1,7 +1,7 @@
-// M32: UInt8 0 to Bool is false
+// M32: UInt8 to Bool with nonzero
 fn main() -> Int {
-  var a: UInt8 = 0;
-  var b: Bool = a as Bool;
-  if !b { return 0; }
+  var u: UInt8 = 5 as UInt8;
+  var as_bool: Bool = u != 0 as UInt8;
+  if as_bool == true { return 0; }
   return 1;
 }
