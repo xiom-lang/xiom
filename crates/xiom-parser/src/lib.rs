@@ -1142,6 +1142,39 @@ impl Parser {
         Ok(Expr::Struct(Ident::new(type_name.to_string(), span), fields, spread, span))
     }
 
+    /// Parse integer suffix: "42i8" → Int8, "255u8" → UInt8, etc.
+    /// Returns Some(Type) if the lexeme has a valid suffix, None otherwise.
+    fn parse_int_suffix(lexeme: &str) -> Option<Type> {
+        if let Some(pos) = lexeme.find(|c: char| c == 'i' || c == 'u') {
+            let suffix = &lexeme[pos..];
+            return match suffix {
+                "i8" => Some(Type::Named(Ident::new("Int8".to_string(), Span::new(0, 0)), vec![])),
+                "i16" => Some(Type::Named(Ident::new("Int16".to_string(), Span::new(0, 0)), vec![])),
+                "i32" => Some(Type::Named(Ident::new("Int32".to_string(), Span::new(0, 0)), vec![])),
+                "i64" => Some(Type::Named(Ident::new("Int64".to_string(), Span::new(0, 0)), vec![])),
+                "u8" => Some(Type::Named(Ident::new("UInt8".to_string(), Span::new(0, 0)), vec![])),
+                "u16" => Some(Type::Named(Ident::new("UInt16".to_string(), Span::new(0, 0)), vec![])),
+                "u32" => Some(Type::Named(Ident::new("UInt32".to_string(), Span::new(0, 0)), vec![])),
+                "u64" => Some(Type::Named(Ident::new("UInt64".to_string(), Span::new(0, 0)), vec![])),
+                _ => None,
+            };
+        }
+        None
+    }
+
+    /// Parse float suffix: "3.14f32" → Float32, "1.0f64" → Float64
+    fn parse_float_suffix(lexeme: &str) -> Option<Type> {
+        if let Some(pos) = lexeme.find('f') {
+            let suffix = &lexeme[pos..];
+            return match suffix {
+                "f32" => Some(Type::Named(Ident::new("Float32".to_string(), Span::new(0, 0)), vec![])),
+                "f64" => Some(Type::Named(Ident::new("Float64".to_string(), Span::new(0, 0)), vec![])),
+                _ => None,
+            };
+        }
+        None
+    }
+
     fn parse_destructure(&mut self, span: Span) -> Result<Stmt, ParseError> {
         self.advance();
         let mut names = Vec::new(); names.push(self.parse_ident()?);
@@ -1665,8 +1698,8 @@ impl Parser {
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
         let span = self.peek().span;
         match self.peek_kind().clone() {
-            TokenKind::Int(n) => { self.advance(); Ok(Expr::Int(n, span)) }
-            TokenKind::Float(f) => { self.advance(); Ok(Expr::Float(f, span)) }
+            TokenKind::Int(n) => { let tok = self.advance(); let suffix_type = Self::parse_int_suffix(&tok.lexeme); if let Some(ty) = suffix_type { Ok(Expr::As(Box::new(Expr::Int(n, span)), ty, span)) } else { Ok(Expr::Int(n, span)) } }
+            TokenKind::Float(f) => { let tok = self.advance(); let suffix_type = Self::parse_float_suffix(&tok.lexeme); if let Some(ty) = suffix_type { Ok(Expr::As(Box::new(Expr::Float(f, span)), ty, span)) } else { Ok(Expr::Float(f, span)) } }
             TokenKind::Str(s) => { self.advance(); Ok(Expr::Str(s, span)) }
             TokenKind::Char(c) => { self.advance(); Ok(Expr::Char(c, span)) }
             TokenKind::True => { self.advance(); Ok(Expr::Bool(true, span)) }
