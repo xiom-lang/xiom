@@ -169,6 +169,16 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                     }
                 }
+                // M22: Bare enum variant constructor: `Data(args)` (no TypeName. prefix).
+                // Search all registered enum variants for a matching constructor name.
+                if receiver_expr.is_none() {
+                    let enum_key_opt = self.types.enum_variants.iter()
+                        .find(|(_, vars)| vars.iter().any(|(v, _)| v == &fn_name))
+                        .map(|(ek, _)| ek.clone());
+                    if let Some(enum_key) = enum_key_opt {
+                        return self.compile_enum_constructor(&enum_key, &fn_name, args);
+                    }
+                }
                 // Check for contract collection methods ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â only intercept when
                 // there is no user-defined function with the same name; otherwise
                 // a regular `fn is_sorted(arr: &Vec[Int]) -> Bool` gets hijacked
