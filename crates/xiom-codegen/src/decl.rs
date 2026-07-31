@@ -489,7 +489,10 @@ impl IrEmitter {
             } else {
                 recv_name.name.clone()
             };
-            format!("{}.{}", recv_type, fd.name.name)
+            // Strip receiver prefix from the name to avoid doubling
+            // (e.g. "Company" + "Company.greet" -> "Company.Company.greet").
+            let bare_method = fd.name.name.rsplit('.').next().unwrap_or(&fd.name.name);
+            format!("{}.{}", recv_type, bare_method)
         } else {
             fd.name.name.clone()
         }

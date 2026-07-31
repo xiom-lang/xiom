@@ -891,7 +891,9 @@ impl Program {
                                 if already_emitted.contains(&fn_name) { continue; }
                                 let dummy_span = Span::new(0, 0);
                                 let mut new_fn = default_fd.clone();
-                                new_fn.name = Ident { name: fn_name, span: dummy_span };
+                                // Use the type-qualified name (matching explicit impl expansion).
+                                // fn_key strips the receiver prefix to avoid doubling.
+                                new_fn.name = Ident { name: format!("{}.{}", type_name, method_name), span: dummy_span };
                                 new_fn.receiver = Some(Ident { name: type_name.clone(), span: dummy_span });
                                 // Rewrite bare method calls to self.method() in the default body
                                 // Build set of all interface method names for rewriting
