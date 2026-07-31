@@ -1680,10 +1680,11 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 }
 
                 // Inline Option.unwrap() / Result.unwrap() / Result.unwrap_err()
+                // and Option.unwrap_or() / Result.unwrap_or()
                 // when called as a method on a known Option/Result value.
-                // Avoids relying on the hardcoded @Option.unwrap stub which may
-                // not be emitted if used_builtins wasn't set via ?/is_some/is_none.
-                if (fn_name == "unwrap" || fn_name == "unwrap_err") && args.is_empty() {
+                let is_unwrap_like = (fn_name == "unwrap" || fn_name == "unwrap_err") && args.is_empty();
+                let is_unwrap_or = fn_name == "unwrap_or" && args.len() == 1;
+                if is_unwrap_like || is_unwrap_or {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
                         let is_option = recv_ty == "%struct.Option"
@@ -1714,6 +1715,23 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 let fail_block = self.fresh_block("unwrap_fail");
                                 self.emitln(&format!("  br i1 {ok}, label %{ok_block}, label %{fail_block}"));
                                 self.emitln(&format!("\n{fail_block}:"));
+                                if fn_name == "unwrap_or" {
+                                    // Return the default arg (unwrap_or fallback)
+                                    let (default_val, _) = self.compile_expr(&args[0])?;
+                                    let done_label = format!("{}_done", fail_block);
+                                    self.emitln(&format!("  br label %{done_label}"));
+                                    self.emitln(&format!("\n{ok_block}:"));
+                                    let val_field = 1;
+                                    let val_gep = self.fresh_tmp();
+                                    self.emitln(&format!("  {val_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {val_field}"));
+                                    let payload = self.fresh_tmp();
+                                    self.emitln(&format!("  {payload} = load i64, i64* {val_gep}"));
+                                    self.emitln(&format!("  br label %{done_label}"));
+                                    self.emitln(&format!("\n{done_label}:"));
+                                    let phi = self.fresh_tmp();
+                                    self.emitln(&format!("  {phi} = phi i64 [ {default_val}, %{fail_block} ], [ {payload}, %{ok_block} ]"));
+                                    return Ok((phi, LLVM_I64.to_string()));
+                                }
                                 self.emitln("  call void @llvm.trap()");
                                 self.emitln("  unreachable");
                                 self.emitln(&format!("\n{ok_block}:"));
