@@ -921,6 +921,22 @@ impl IrEmitter {
                             self.emitln(&format!("  {loaded} = load i64, i64* {gep}"));
                             let cmp = self.fresh_tmp();
                             self.emitln(&format!("  {cmp} = icmp eq i64 {loaded}, {disc_val}"));
+                            // M18: Bind pattern variable (e.g. Some(n) → bind n)
+                            if let xiom_ast::Pattern::Some(inner, _)
+                                | xiom_ast::Pattern::Ok(inner, _)
+                                | xiom_ast::Pattern::Err(inner, _) = &pattern
+                            {
+                                if let xiom_ast::Pattern::Ident(id) = inner.as_ref() {
+                                    let payload_gep = self.fresh_tmp();
+                                    self.emitln(&format!("  {payload_gep} = getelementptr {ty}, {ty}* {alloca}, i32 0, i32 1"));
+                                    let payload_loaded = self.fresh_tmp();
+                                    self.emitln(&format!("  {payload_loaded} = load i64, i64* {payload_gep}"));
+                                    let inner_alloca = self.fresh_tmp();
+                                    self.emitln(&format!("  {inner_alloca} = alloca i64"));
+                                    self.emitln(&format!("  store i64 {payload_loaded}, i64* {inner_alloca}"));
+                                    self.add_local(&id.name, inner_alloca, "i64");
+                                }
+                            }
                             let ext = self.fresh_tmp();
                             self.emitln(&format!("  {ext} = zext i1 {cmp} to i64"));
                             return Ok((ext, LLVM_I64.to_string()));
@@ -935,6 +951,25 @@ impl IrEmitter {
                     self.emitln(&format!("  {gep} = getelementptr {ty}, {ty}* {alloca}, i32 0, i32 0"));
                     let loaded = self.fresh_tmp();
                     self.emitln(&format!("  {loaded} = load i64, i64* {gep}"));
+                    // M18: Bind pattern variable before the return
+                    let bind_payload = |emitter: &mut Self, pat: &xiom_ast::Pattern, struct_alloca: &str, struct_ty: &str| {
+                        if let xiom_ast::Pattern::Some(inner, _)
+                            | xiom_ast::Pattern::Ok(inner, _)
+                            | xiom_ast::Pattern::Err(inner, _) = pat
+                        {
+                            if let xiom_ast::Pattern::Ident(id) = inner.as_ref() {
+                                let payload_gep = emitter.fresh_tmp();
+                                emitter.emitln(&format!("  {payload_gep} = getelementptr {struct_ty}, {struct_ty}* {struct_alloca}, i32 0, i32 1"));
+                                let payload_loaded = emitter.fresh_tmp();
+                                emitter.emitln(&format!("  {payload_loaded} = load i64, i64* {payload_gep}"));
+                                let inner_alloca = emitter.fresh_tmp();
+                                emitter.emitln(&format!("  {inner_alloca} = alloca i64"));
+                                emitter.emitln(&format!("  store i64 {payload_loaded}, i64* {inner_alloca}"));
+                                emitter.add_local(&id.name, inner_alloca, "i64");
+                            }
+                        }
+                    };
+                    bind_payload(self, &pattern, &alloca, &ty);
                     if variant_name == "Some" || variant_name == "Ok" {
                         let cmp = self.fresh_tmp();
                         self.emitln(&format!("  {cmp} = icmp ne i64 {loaded}, 0"));

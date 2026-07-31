@@ -275,6 +275,35 @@ impl Checker {
         }
     }
 
+    /// M18: Bind pattern variables from `is` expressions.
+    /// `x is Some(n)` binds `n` with the inner type of `Option`.
+    fn bind_is_pattern(&mut self, pattern: &Pattern, span: Span) {
+        match pattern {
+            Pattern::Ident(id) => {
+                // Don't bind if it's an enum variant name
+                let is_variant = self.enum_variants.contains_key(&id.name)
+                    || self.enum_variants.keys().any(|k| k.ends_with(&format!(".{}", id.name)));
+                if !is_variant {
+                    self.add_local(&id.name, CheckedType::Named("_".into()));
+                }
+            }
+            Pattern::Some(inner, _) | Pattern::Ok(inner, _) | Pattern::Err(inner, _) => {
+                self.bind_is_pattern(inner, span);
+            }
+            Pattern::Variant(_, fields, _) => {
+                for field in fields {
+                    self.add_local(&field.name, CheckedType::Named("_".into()));
+                }
+            }
+            Pattern::Or(alts, _) => {
+                for alt in alts {
+                    self.bind_is_pattern(alt, span);
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn lookup_local(&self, name: &str) -> Option<&CheckedType> {
         for scope in self.locals.iter().rev() {
             if let Some(ty) = scope.get(name) {
@@ -1356,7 +1385,11 @@ impl Checker {
                 Expr::Binary(a, _, b, _) | Expr::Imply(a, b, _) => {
                     collect_expr_names(a, out); collect_expr_names(b, out);
                 }
-                Expr::Is(e, _, _) => collect_expr_names(e, out),
+                Expr::Is(e, pattern, _) => {
+                    collect_expr_names(e, out);
+                    // Collect pattern-bound variable names for the is-expression
+                    collect_pattern_names(pattern, out);
+                }
                 Expr::Struct(id, fields, base, _) => {
                     out.insert(id.name.clone());
                     for (_, v) in fields { collect_expr_names(v, out); }
@@ -1399,6 +1432,23 @@ impl Checker {
             match d {
                 TopDecl::Fn(fd) => fn_candidates.push(fd),
                 other => kept.push(other),
+            }
+        }
+
+        /// Collect variable names bound in a pattern (for `is` expressions).
+        fn collect_pattern_names(pattern: &Pattern, out: &mut HashSet<String>) {
+            match pattern {
+                Pattern::Ident(id) => { out.insert(id.name.clone()); }
+                Pattern::Some(inner, _) | Pattern::Ok(inner, _) | Pattern::Err(inner, _) => {
+                    collect_pattern_names(inner, out);
+                }
+                Pattern::Variant(_, fields, _) => {
+                    for f in fields { out.insert(f.name.clone()); }
+                }
+                Pattern::Or(alts, _) => {
+                    for alt in alts { collect_pattern_names(alt, out); }
+                }
+                _ => {}
             }
         }
 
@@ -2259,7 +2309,12 @@ impl Checker {
                 }
             }
             Expr::Imply(_, _, _) => CheckedType::Bool,
-            Expr::Is(_, _, _) => CheckedType::Bool,
+            Expr::Is(_, pattern, span) => {
+                // M18: Bind pattern variables so guards like
+                // `x is Some(n) && n > 10` can reference `n`.
+                self.bind_is_pattern(pattern, *span);
+                CheckedType::Bool
+            }
             Expr::Field(obj, field, span) => {
                 // Module-qualified access: module.Type or module.sub.Type
                 if let Some(ty) = self.check_module_field_access(obj, field) {
