@@ -334,10 +334,30 @@ impl IrEmitter {
                             self.emitln(&format!("  {tmp} = load {pointee}, {inner_ty} {val}"));
                             return Ok((tmp, pointee));
                         }
-                        // M19: If the operand is i64 (ptrtoint'd pointer from
-                        // ptr.offset()), convert to i8* and load a byte. This
-                        // fixes *(ptr.offset(i)) in stdlib io.read_file.
+                        // inner_ty is i64: the value might be a ptrtoint'd pointer
+                        // (ptr.offset() byte pointer) or a reference to a scalar
+                        // (&Int stored as i64-value). Try to determine the pointee
+                        // type from the XIOM type system, falling back to i8 for
+                        // byte-pointer compat.
                         if inner_ty == "i64" {
+                            // Check if inner is a local with a &T XIOM type
+                            let pointee_llvm = if let Expr::Ident(id) = inner.as_ref() {
+                                self.local.local_xiom_types.get(&id.name)
+                                    .and_then(|xiom_ty| {
+                                        if xiom_ty.starts_with('&') {
+                                            let pointee = &xiom_ty[1..]; // strip &
+                                            self.llvm_type_for(pointee).ok()
+                                        } else { None }
+                                    })
+                            } else { None };
+                            if let Some(pointee) = pointee_llvm {
+                                // &Int → inttoptr to i64* and load i64
+                                let ptr = self.fresh_tmp();
+                                self.emitln(&format!("  {ptr} = inttoptr i64 {val} to {pointee}*"));
+                                self.emitln(&format!("  {tmp} = load {pointee}, {pointee}* {ptr}"));
+                                return Ok((tmp, pointee));
+                            }
+                            // M19: Legacy byte-pointer path (ptr.offset() compat)
                             let ptr = self.fresh_tmp();
                             self.emitln(&format!("  {ptr} = inttoptr i64 {val} to i8*"));
                             let loaded = self.fresh_tmp();
@@ -1521,14 +1541,23 @@ impl IrEmitter {
                     self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {vec_alloca}"));
                     return Ok((loaded, struct_ty.to_string()));
                 }
-                // Compile the inner expression and return a pointer to the value.
-                // For struct-typed idents, use the alloca pointer directly so
-                // this-based methods receive a proper pointer receiver.
-                // coerce_value handles both directions (structÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Âpointer) for safety.
+                // &x: return a pointer to x's storage.
+                // For struct-typed idents, return the alloca pointer directly
+                // (this-based methods receive a proper pointer receiver).
+                // For scalar/handle idents, ptrtoint the alloca to i64 so
+                // *r can inttoptr back and load through the pointer.
+                // This fixes ACCESS_VIOLATION on &Int → *Int deref patterns.
                 if let Expr::Ident(id) = inner.as_ref() {
                     if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
                         if slot_ty.starts_with("%struct.") {
                             return Ok((slot, format!("{slot_ty}*")));
+                        }
+                        // Only ptrtoint when the ident refers to a non-self local.
+                        // Method receivers and `this` use the struct path above.
+                        if id.name != "self" && id.name != "this" {
+                            let ptr_val = self.fresh_tmp();
+                            self.emitln(&format!("  {ptr_val} = ptrtoint {slot_ty}* {slot} to i64"));
+                            return Ok((ptr_val, "i64".to_string()));
                         }
                     }
                 }
