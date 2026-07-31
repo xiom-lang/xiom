@@ -2251,7 +2251,14 @@ impl Checker {
                     }
                     UnaryOp::Ref | UnaryOp::MutRef => inner_ty, // reference keeps the type
                     UnaryOp::BitNot => inner_ty, // bitwise not preserves integer type
-                    UnaryOp::Deref => inner_ty, // deref preserves type
+                    UnaryOp::Deref => {
+                        // *p: strip pointer type — *Ptr[T] → T, *Ptr → Int
+                        if inner_ty == CheckedType::Named("Ptr".into()) {
+                            CheckedType::Int
+                        } else {
+                            inner_ty
+                        }
+                    }
                 }
             }
             Expr::Binary(left, op, right, span) => {
