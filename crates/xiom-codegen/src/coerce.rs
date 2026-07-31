@@ -334,20 +334,32 @@ impl IrEmitter {
         let type_name = &struct_ty[8..];
         let is_vec = type_name == "Vec" || type_name.ends_with(".Vec");
         if is_vec && val_ty == "i8*" && self.local.array_value_regs.contains(val) {
-            // (existing array-buffer-to-Vec code, unchanged)
+            // Array-buffer-to-Vec conversion.
             let len_slot = self.fresh_tmp();
             self.emitln(&format!("  {len_slot} = bitcast i8* {val} to i64*"));
             let len_val = self.fresh_tmp();
             self.emitln(&format!("  {len_val} = load i64, i64* {len_slot}"));
             let byte_count = self.fresh_tmp();
             self.emitln(&format!("  {byte_count} = mul i64 {len_val}, 8"));
+            // 5c-E: malloc(0) may return NULL on Windows. Ensure at least 1 byte.
+            let safe_count = self.fresh_tmp();
+            self.emitln(&format!("  {safe_count} = or i64 {byte_count}, 1"));
             let heap_copy = self.fresh_tmp();
-            self.emitln(&format!("  {heap_copy} = call i8* @malloc(i64 {byte_count})"));
+            self.emitln(&format!("  {heap_copy} = call i8* @malloc(i64 {safe_count})"));
+            // 5c-E: malloc(0) may return NULL on some platforms (Windows).
+            // Only trap on NULL when length > 0; zero-length Vecs use NULL.
+            let is_empty = self.fresh_tmp();
+            self.emitln(&format!("  {is_empty} = icmp eq i64 {len_val}, 0"));
+            let is_null = self.fresh_tmp();
+            self.emitln(&format!("  {is_null} = icmp eq i8* {heap_copy}, null"));
+            // Trap: null AND NOT empty (i.e., allocation failed for non-zero size)
+            let not_empty = self.fresh_tmp();
+            self.emitln(&format!("  {not_empty} = xor i1 {is_empty}, true"));
+            let trap_cond = self.fresh_tmp();
+            self.emitln(&format!("  {trap_cond} = and i1 {is_null}, {not_empty}"));
             let ok = self.fresh_block("arr_to_vec_ok");
             let fail = self.fresh_block("arr_to_vec_fail");
-            let chk = self.fresh_tmp();
-            self.emitln(&format!("  {chk} = icmp eq i8* {heap_copy}, null"));
-            self.emitln(&format!("  br i1 {chk}, label %{fail}, label %{ok}"));
+            self.emitln(&format!("  br i1 {trap_cond}, label %{fail}, label %{ok}"));
             self.emitln(&format!("\n{fail}:"));
             self.emitln("  call void @llvm.trap()");
             self.emitln("  unreachable");
@@ -363,7 +375,12 @@ impl IrEmitter {
             self.emitln(&format!("  store i64 {len_val}, i64* {g1}"));
             let g2 = self.fresh_tmp();
             self.emitln(&format!("  {g2} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 2"));
-            self.emitln(&format!("  store i64 {len_val}, i64* {g2}"));
+            // Ensure minimum capacity of 4 for empty arrays (push needs cap > len)
+            let cap_needs_min = self.fresh_tmp();
+            self.emitln(&format!("  {cap_needs_min} = icmp slt i64 {len_val}, 4"));
+            let cap_val = self.fresh_tmp();
+            self.emitln(&format!("  {cap_val} = select i1 {cap_needs_min}, i64 4, i64 {len_val}"));
+            self.emitln(&format!("  store i64 {cap_val}, i64* {g2}"));
             let g3 = self.fresh_tmp();
             self.emitln(&format!("  {g3} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 3"));
             self.emitln(&format!("  store i64 8, i64* {g3}"));
