@@ -1331,6 +1331,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         return Ok((tmp, "i1".to_string()));
                     }
                 }
+                // M21: Str.concat(other) — string concatenation via xiom_str_concat.
+                if fn_name == "concat" && args.len() == 1 {
+                    if let Some(receiver) = receiver_expr {
+                        let (recv_val, recv_ty) = self.compile_expr(receiver)?;
+                        let recv_ptr = self.val_to_i8ptr(&recv_val, &recv_ty);
+                        let (other_val, other_ty) = self.compile_expr(&args[0])?;
+                        let other_ptr = self.val_to_i8ptr(&other_val, &other_ty);
+                        let tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {tmp} = call i8* @xiom_str_concat(i8* {recv_ptr}, i8* {other_ptr})"));
+                        return Ok((tmp, LLVM_STR_PTR.to_string()));
+                    }
+                }
                 let compiled_args: Vec<(String, String)> = args.iter()
                     .map(|a| self.compile_expr(a))
                     .collect::<Result<Vec<_>, _>>()?;

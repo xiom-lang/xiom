@@ -11,6 +11,13 @@ impl IrEmitter {
     pub(crate) fn compile_stmt_impl(&mut self, stmt: &Stmt) -> Result<(), String> {
         match stmt {
             Stmt::Let(name, _ty, value, _) => {
+                // 5c.30: Empty array `[]` assigned to a Vec-typed variable — emit
+                // proper Vec initialization instead of coercing i8* to %struct.Vec.
+                let is_empty_array_to_vec = matches!(value, Expr::Array(elems, _) if elems.is_empty())
+                    && _ty.as_ref().map_or(false, |t| {
+                        let type_name = Self::type_from_ast(t);
+                        type_name == "Vec" || type_name.ends_with(".Vec")
+                    });
                 // Track array-literal bindings for Expr::Index dispatch
                 if matches!(value, Expr::Array(..)) {
                     self.local.array_locals.insert(name.name.clone());
@@ -47,6 +54,43 @@ impl IrEmitter {
                     self.local.closure_locals.insert(name.name.clone());
                 }
                 self.track_boxed_payload_binding(&name.name, value);
+                // 5c.30: Empty array `[]` assigned to Vec-typed variable — emit
+                // proper Vec initialization to avoid i8* → %struct.Vec coercion.
+                if is_empty_array_to_vec {
+                    let elem_size: i64 = 8; // default
+                    let initial_cap: i64 = 16;
+                    let alloc_size = initial_cap * elem_size;
+                    let struct_alloca = self.fresh_tmp();
+                    self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
+                    let data_ptr = self.fresh_tmp();
+                    self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 {alloc_size})"));
+                    let null_check = self.fresh_tmp();
+                    let ok_block = self.fresh_block("vec_init_ok");
+                    let trap_block = self.fresh_block("vec_init_trap");
+                    self.emitln(&format!("  {null_check} = icmp eq i8* {data_ptr}, null"));
+                    self.emitln(&format!("  br i1 {null_check}, label %{trap_block}, label %{ok_block}"));
+                    self.emitln(&format!("\n{trap_block}:"));
+                    self.emitln("  call void @llvm.trap()");
+                    self.emitln("  unreachable");
+                    self.emitln(&format!("\n{ok_block}:"));
+                    let data_gep = self.fresh_tmp();
+                    self.emitln(&format!("  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 0"));
+                    self.emitln(&format!("  store i8* {data_ptr}, i8** {data_gep}"));
+                    let len_gep = self.fresh_tmp();
+                    self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 1"));
+                    self.emitln(&format!("  store i64 0, i64* {len_gep}"));
+                    let cap_gep = self.fresh_tmp();
+                    self.emitln(&format!("  {cap_gep} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 2"));
+                    self.emitln(&format!("  store i64 {initial_cap}, i64* {cap_gep}"));
+                    let esz_gep = self.fresh_tmp();
+                    self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 3"));
+                    self.emitln(&format!("  store i64 {elem_size}, i64* {esz_gep}"));
+                    let loaded = self.emit_vec_load_fields(&struct_alloca);
+                    self.add_local(&name.name, struct_alloca, &"%struct.Vec".to_string());
+                    // Mark as Vec local for indexing
+                    self.local.local_vec_elem.insert(name.name.clone(), "Int".to_string());
+                    return Ok(());
+                }
                 let (val, val_llvm_ty) = self.compile_expr(value)?;
                 let declared_llvm_ty: Option<String> = _ty.as_ref().map(|t| {
                     let name = Self::type_from_ast(t);
@@ -152,6 +196,42 @@ impl IrEmitter {
                     self.local.local_vec_elem.remove(&name.name);
                 }
                 self.track_boxed_payload_binding(&name.name, value);
+                // 5c.30: Empty array `[]` assigned to Vec-typed variable — emit
+                // proper Vec initialization.
+                let is_empty_array_to_vec_var = matches!(value, Expr::Array(elems, _) if elems.is_empty())
+                    && _ty.as_ref().map_or(false, |t| {
+                        let type_name = Self::type_from_ast(t);
+                        type_name == "Vec" || type_name.ends_with(".Vec")
+                    });
+                if is_empty_array_to_vec_var {
+                    let elem_size: i64 = 8;
+                    let initial_cap: i64 = 16;
+                    let struct_alloca = self.fresh_tmp();
+                    self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
+                    let data_ptr = self.fresh_tmp();
+                    self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 {})", initial_cap * elem_size));
+                    let null_check = self.fresh_tmp();
+                    let ok_block = self.fresh_block("vec_var_ok");
+                    let trap_block = self.fresh_block("vec_var_trap");
+                    self.emitln(&format!("  {null_check} = icmp eq i8* {data_ptr}, null"));
+                    self.emitln(&format!("  br i1 {null_check}, label %{trap_block}, label %{ok_block}"));
+                    self.emitln(&format!("\n{trap_block}:"));
+                    self.emitln("  call void @llvm.trap()");
+                    self.emitln("  unreachable");
+                    self.emitln(&format!("\n{ok_block}:"));
+                    let dg = self.fresh_tmp(); self.emitln(&format!("  {dg} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 0"));
+                    self.emitln(&format!("  store i8* {data_ptr}, i8** {dg}"));
+                    let lg = self.fresh_tmp(); self.emitln(&format!("  {lg} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 1"));
+                    self.emitln(&format!("  store i64 0, i64* {lg}"));
+                    let cg = self.fresh_tmp(); self.emitln(&format!("  {cg} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 2"));
+                    self.emitln(&format!("  store i64 {initial_cap}, i64* {cg}"));
+                    let eg = self.fresh_tmp(); self.emitln(&format!("  {eg} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 3"));
+                    self.emitln(&format!("  store i64 {elem_size}, i64* {eg}"));
+                    let loaded = self.emit_vec_load_fields(&struct_alloca);
+                    self.add_local(&name.name, struct_alloca, &"%struct.Vec".to_string());
+                    self.local.local_vec_elem.insert(name.name.clone(), "Int".to_string());
+                    return Ok(());
+                }
                 let declared_llvm_ty: Option<String> = _ty.as_ref().map(|t| {
                     let name = Self::type_from_ast(t);
                     self.llvm_type_for(&name).unwrap_or_else(|_| LLVM_I64.to_string())
