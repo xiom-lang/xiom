@@ -775,6 +775,35 @@ impl IrEmitter {
 
                     match &arm.pattern {
                         Pattern::Or(alternatives, _) => {
+                            // For or-patterns with guards that bind variables,
+                            // pre-create a shared alloca BEFORE the check blocks
+                            // so it dominates all or_bind blocks and the guard can
+                            // load from it regardless of which alternative matched.
+                            let shared_slot: Option<(String, String, String)> = if arm.guard.is_some() {
+                                alternatives.iter().find_map(|alt| {
+                                    if let Pattern::Variant(vn, fields, _) = alt {
+                                        if !fields.is_empty() && scrutinee_alloca_info.is_some() {
+                                            let (_, type_name, _) = scrutinee_alloca_info.as_ref().unwrap();
+                                            let leaf = vn.name.rsplit('.').next().unwrap_or(&vn.name);
+                                            self.types.enum_variants.get(type_name)
+                                                .and_then(|vars| vars.iter().find(|(v, _)| v == leaf || v == &vn.name))
+                                                .and_then(|(_, vfs)| vfs.first())
+                                                .and_then(|canonical| {
+                                                    self.types.types.get(type_name)
+                                                        .and_then(|fns| fns.iter().position(|f| f == canonical))
+                                                })
+                                                .map(|fi| {
+                                                    let llvm_ty = self.field_llvm_type(type_name, fi);
+                                                    let alloca = self.fresh_tmp();
+                                                    self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
+                                                    let var_name = fields[0].name.clone();
+                                                    self.add_local(&var_name, alloca.clone(), &llvm_ty);
+                                                    (alloca, llvm_ty, var_name)
+                                                })
+                                        } else { None }
+                                    } else { None }
+                                })
+                            } else { None };
                             for (ai, alt) in alternatives.iter().enumerate() {
                                 let is_last = ai == alternatives.len() - 1;
                                 let fail_block = if is_last {
@@ -798,8 +827,60 @@ impl IrEmitter {
                                     Pattern::Ident(id) => {
                                         self.emit_variant_discriminant_check(&id.name, &scrutinee_alloca_info, &val, &arm_label, &fail_block);
                                     }
-                                    Pattern::Variant(vn, _, _) => {
-                                        self.emit_variant_discriminant_check(&vn.name, &scrutinee_alloca_info, &val, &arm_label, &fail_block);
+                                    Pattern::Variant(vn, fields, _) => {
+                                        // For or-patterns with guards, bind the payload BEFORE
+                                        // jumping to the shared arm so the guard sees the correct value.
+                                        let mut did_bind = false;
+                                        if arm.guard.is_some() && !fields.is_empty() && scrutinee_alloca_info.is_some() {
+                                            let (alloca, type_name, struct_ty) = scrutinee_alloca_info.as_ref().unwrap();
+                                            let leaf = vn.name.rsplit('.').next().unwrap_or(&vn.name).to_string();
+                                            // Collect all info before mutating self
+                                            let variant_idx_opt = self.types.enum_variants.get(type_name)
+                                                .and_then(|vars| vars.iter().position(|(vn2, _)| vn2 == &leaf || vn2 == &vn.name));
+                                            let canonical_opt = variant_idx_opt.and_then(|vi| {
+                                                self.types.enum_variants.get(type_name)
+                                                    .and_then(|vars| vars.get(vi))
+                                                    .and_then(|(_, vfs)| vfs.first().cloned())
+                                            });
+                                            let fi_opt = canonical_opt.as_ref().and_then(|canonical| {
+                                                self.types.types.get(type_name)
+                                                    .and_then(|fns| fns.iter().position(|f| f == canonical))
+                                            });
+                                            if let (Some(variant_idx), Some(fi)) = (variant_idx_opt, fi_opt) {
+                                                let field_llvm_ty = self.field_llvm_type(type_name, fi);
+                                                let field_ident = fields[0].clone();
+                                                let alloca_c = alloca.clone();
+                                                let struct_ty_c = struct_ty.clone();
+                                                let disc_gep = self.fresh_tmp();
+                                                let disc_val = self.fresh_tmp();
+                                                self.emitln(&format!("  {disc_gep} = getelementptr {struct_ty_c}, {struct_ty_c}* {alloca_c}, i32 0, i32 0"));
+                                                self.emitln(&format!("  {disc_val} = load i64, i64* {disc_gep}"));
+                                                let check = self.fresh_tmp();
+                                                self.emitln(&format!("  {check} = icmp eq i64 {disc_val}, {variant_idx}"));
+                                                let bind_block = self.fresh_block("or_bind");
+                                                self.emitln(&format!("  br i1 {check}, label %{bind_block}, label %{fail_block}"));
+                                                self.emitln(&format!("\n{bind_block}:"));
+                                                let gep = self.fresh_tmp();
+                                                self.emitln(&format!("  {gep} = getelementptr {struct_ty_c}, {struct_ty_c}* {alloca_c}, i32 0, i32 {fi}"));
+                                                let loaded = self.fresh_tmp();
+                                                self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+                                                // Use shared alloca from pre-loop, or create one if not available
+                                                let (shared_alloca, shared_ty) = if let Some((ref sa, ref st, _)) = shared_slot {
+                                                    (sa.clone(), st.clone())
+                                                } else {
+                                                    let sa = self.fresh_tmp();
+                                                    self.emitln(&format!("  {sa} = alloca {field_llvm_ty}"));
+                                                    (sa, field_llvm_ty.clone())
+                                                };
+                                                self.emitln(&format!("  store {shared_ty} {loaded}, {shared_ty}* {shared_alloca}"));
+                                                self.add_local(&field_ident.name, shared_alloca, &shared_ty);
+                                                self.emitln(&format!("  br label %{arm_label}"));
+                                                did_bind = true;
+                                            }
+                                        }
+                                        if !did_bind {
+                                            self.emit_variant_discriminant_check(&vn.name, &scrutinee_alloca_info, &val, &arm_label, &fail_block);
+                                        }
                                     }
                                     Pattern::Some(inner, _) | Pattern::Ok(inner, _) => {
                                         // OR alternative with Some/Ok: check discriminant == 1,
