@@ -1213,14 +1213,25 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                     }
                 }
-                // Str.len(s) / Vec.len / Slice.len ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â method call
+                // Str.len(s) / Vec.len / Slice.len — method call
                 if fn_name == "len" && args.is_empty() {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
-                        if recv_ty == "i8*" || recv_ty == "ptr" {
+                        // Check XIOM type: Str.len() should use xiom_str_len even when
+                        // the receiver is i64 (Str pointers stored as i64 in ABI).
+                        let is_str_type = if let Expr::Ident(id) = &**receiver {
+                            self.local.local_xiom_types.get(&id.name)
+                                .map_or(false, |t| t == "Str")
+                        } else { false };
+                        if recv_ty == "i8*" || recv_ty == "ptr" || recv_ty == "i64" || is_str_type {
                             let (recv_val, _) = self.compile_expr(receiver)?;
+                            let str_ptr = if recv_ty == "i64" {
+                                let tmp = self.fresh_tmp();
+                                self.emitln(&format!("  {tmp} = inttoptr i64 {recv_val} to i8*"));
+                                tmp
+                            } else { recv_val };
                             let tmp = self.fresh_tmp();
-                            self.emitln(&format!("  {tmp} = call i64 @xiom_str_len(i8* {recv_val})"));
+                            self.emitln(&format!("  {tmp} = call i64 @xiom_str_len(i8* {str_ptr})"));
                             return Ok((tmp, LLVM_I64.to_string()));
                         }
                         // Pointer-typed array references from monomorphised generics
