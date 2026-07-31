@@ -8,6 +8,9 @@ interface FullName {
 
 type Person = { f: Str; l: Str; }
 
+fn Person.full_name(self) -> Str { return self.first() + " " + self.last(); }
+
+
 fn Person.first(&self) -> Str { return f; }
 fn Person.last(&self) -> Str { return l; }
 

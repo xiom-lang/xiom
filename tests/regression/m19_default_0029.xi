@@ -7,6 +7,9 @@ interface ThresholdCheck {
 
 type Sensor = { reading: Int8; }
 
+fn Sensor.threshold(self) -> Int8 { return 100i8; }
+
+
 fn Sensor.value(&self) -> Int8 { return reading; }
 
 fn main() -> Int {

@@ -8,6 +8,11 @@ interface Scalable {
 
 type Num = { x: Int; }
 
+fn Num.double(self) -> Int { return self.value() * 2; }
+
+fn Num.quadruple(self) -> Int { return self.double() * 2; }
+
+
 fn Num.value(&self) -> Int { return x; }
 
 fn main() -> Int {

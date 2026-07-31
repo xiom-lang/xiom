@@ -7,6 +7,9 @@ interface Revealable {
 
 type Data = { secret: Int; }
 
+fn Data.reveal(self) -> Int { return self.get() + 10; }
+
+
 fn Data.get(&self) -> Int { return secret; }
 
 fn main() -> Int {

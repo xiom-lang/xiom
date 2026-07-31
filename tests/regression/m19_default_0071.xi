@@ -7,6 +7,9 @@ interface Tagger {
 
 type Entry = { id: Str; }
 
+fn Entry.tagged(self) -> Str { return "[" + self.key() + "]"; }
+
+
 fn Entry.key(&self) -> Str { return id; }
 
 fn main() -> Int {

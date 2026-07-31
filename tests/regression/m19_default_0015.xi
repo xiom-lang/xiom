@@ -7,6 +7,9 @@ interface Named {
 
 type Person = { tag: Str; }
 
+fn Person.greet(self) -> Str { return "Hello, " + self.name(); }
+
+
 fn Person.name(&self) -> Str { return tag; }
 
 type Company = { brand: Str; }

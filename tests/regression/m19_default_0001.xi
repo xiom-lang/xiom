@@ -7,6 +7,9 @@ interface Greeter {
 
 type Person = { tag: Str; }
 
+fn Person.greet(self) -> Str { return "hello"; }
+
+
 fn Person.name(&self) -> Str { return tag; }
 
 fn main() -> Int {

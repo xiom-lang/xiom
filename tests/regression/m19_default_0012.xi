@@ -7,6 +7,9 @@ interface Doubler {
 
 type Number = { n: Int; }
 
+fn Number.double(self) -> Int { return self.value() * 2; }
+
+
 fn Number.value(&self) -> Int { return n; }
 
 fn main() -> Int {

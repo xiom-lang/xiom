@@ -8,6 +8,9 @@ interface Shape {
 
 type Rect = { w: Float64; h: Float64; }
 
+fn Rect.perimeter(self) -> Float64 { return 2.0 * (self.width() + self.height()); }
+
+
 fn Rect.width(&self) -> Float64 { return w; }
 
 fn Rect.height(&self) -> Float64 { return h; }

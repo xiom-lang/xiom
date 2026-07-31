@@ -7,6 +7,9 @@ interface PiProvider {
 
 type Circle = { label: Str; }
 
+fn Circle.pi(self) -> Float64 { return 3.14159; }
+
+
 fn Circle.describe(&self) -> Str { return label; }
 
 fn main() -> Int {

@@ -13,6 +13,9 @@ interface Arithmetic {
 
 type Values = { v1: Int; v2: Int; v3: Int; v4: Int; v5: Int; v6: Int; v7: Int; }
 
+fn Values.calc(self) -> Int { return self.a() + self.b() * self.c() - self.d() / self.e() + self.f() % self.g(); }
+
+
 fn Values.a(&self) -> Int { return v1; }
 
 fn Values.b(&self) -> Int { return v2; }

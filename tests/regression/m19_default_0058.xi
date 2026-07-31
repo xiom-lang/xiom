@@ -8,6 +8,11 @@ interface Calculator {
 
 type Number = { val: Int; }
 
+fn Number.double(self) -> Int { return self.a() * 2; }
+
+fn Number.triple(self) -> Int { return self.a() * 3; }
+
+
 fn Number.a(&self) -> Int { return val; }
 
 fn main() -> Int {

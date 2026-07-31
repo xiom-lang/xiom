@@ -7,6 +7,9 @@ interface Incrementable {
 
 type Counter = { count: Int; }
 
+fn Counter.inc(self) -> Int { return self.value() + 1; }
+
+
 fn Counter.value(&self) -> Int { return count; }
 
 fn main() -> Int {

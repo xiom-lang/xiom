@@ -8,6 +8,9 @@ interface Readiness {
 
 type Inventory = { cnt: Int; min: Int; }
 
+fn Inventory.ready(self) -> Bool { return self.count() >= self.threshold(); }
+
+
 fn Inventory.count(&self) -> Int { return cnt; }
 
 fn Inventory.threshold(&self) -> Int { return min; }

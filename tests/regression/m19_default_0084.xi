@@ -10,6 +10,12 @@ interface Applicable {
 
 type Num = { x: Int; }
 
+fn Num.apply(self) -> Int {
+    var f = |x| x * 2;
+    return f(self.value());
+  }
+
+
 fn Num.value(&self) -> Int { return x; }
 
 fn main() -> Int {

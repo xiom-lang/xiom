@@ -10,6 +10,17 @@ interface Chain {
 
 type Node = {}
 
+fn Node.a(self) -> Int { return 1; }
+
+fn Node.b(self) -> Int { return self.a() * 2; }
+
+fn Node.c(self) -> Int { return self.b() * 3; }
+
+fn Node.d(self) -> Int { return self.c() * 4; }
+
+fn Node.e(self) -> Int { return self.d() * 5; }
+
+
 fn main() -> Int {
   var n: Node = Node{};
   if n.a() != 1 { return 1; }

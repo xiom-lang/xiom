@@ -8,6 +8,9 @@ interface Priced {
 
 type Item = { price_val: Int; tax_val: Int; }
 
+fn Item.total(self) -> Int { return self.price() + self.tax(); }
+
+
 fn Item.price(&self) -> Int { return price_val; }
 
 fn Item.tax(&self) -> Int { return tax_val; }

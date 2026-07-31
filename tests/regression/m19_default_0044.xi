@@ -8,6 +8,9 @@ interface Descriptor {
 
 type Widget = { name: Str; label: Str; }
 
+fn Widget.describe(self) -> Str { return self.get_name() + ":" + self.get_label(); }
+
+
 fn Widget.get_name(&self) -> Str { return name; }
 
 fn Widget.get_label(&self) -> Str { return label; }

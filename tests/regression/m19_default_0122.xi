@@ -8,6 +8,11 @@ interface Constants {
 
 type Item = { tag: Str; }
 
+fn Item.is_always(self) -> Bool { return true; }
+
+fn Item.is_never(self) -> Bool { return false; }
+
+
 fn Item.label(&self) -> Str { return tag; }
 
 fn main() -> Int {

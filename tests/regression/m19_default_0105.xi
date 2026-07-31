@@ -7,6 +7,9 @@ interface Int8Fit {
 
 type Data = { x: Int16; }
 
+fn Data.fits_in_int8(self) -> Bool { var v = self.value(); return v >= -128i16 && v <= 127i16; }
+
+
 fn Data.value(&self) -> Int16 { return x; }
 
 fn main() -> Int {

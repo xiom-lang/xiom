@@ -8,6 +8,9 @@ interface Introducible {
 
 type Resident = { who: Str; where: Str; }
 
+fn Resident.intro(self) -> Str { return "I am " + self.name() + " from " + self.place(); }
+
+
 fn Resident.name(&self) -> Str { return who; }
 
 fn Resident.place(&self) -> Str { return where; }

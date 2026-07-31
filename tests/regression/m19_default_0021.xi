@@ -9,6 +9,13 @@ interface TripleDefault {
 
 type Triple = { data: Str; }
 
+fn Triple.a(self) -> Int { return 1; }
+
+fn Triple.b(self) -> Str { return "B"; }
+
+fn Triple.c(self) -> Bool { return true; }
+
+
 fn Triple.d(&self) -> Str { return data; }
 
 fn main() -> Int {

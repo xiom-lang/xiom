@@ -7,6 +7,9 @@ interface Validatable {
 
 type Metric = { val: Int; }
 
+fn Metric.is_valid(self) -> Bool { return self.value() > 0; }
+
+
 fn Metric.value(&self) -> Int { return val; }
 
 fn main() -> Int {

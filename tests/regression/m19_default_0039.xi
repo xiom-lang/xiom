@@ -10,6 +10,9 @@ interface Stats {
 
 type Dataset = { lo: Int; hi: Int; mid: Int; total: Int; }
 
+fn Dataset.stats(self) -> Int { return self.min() + self.max() + self.avg() + self.sum(); }
+
+
 fn Dataset.min(&self) -> Int { return lo; }
 
 fn Dataset.max(&self) -> Int { return hi; }

@@ -12,6 +12,12 @@ interface RangeCheck {
 
 type Range = { v: Int; lo: Int; hi: Int; }
 
+fn Range.in_range(self) -> Bool {
+    var v = self.value();
+    return v > self.min() && v < self.max() || v == -1;
+  }
+
+
 fn Range.value(&self) -> Int { return v; }
 
 fn Range.min(&self) -> Int { return lo; }

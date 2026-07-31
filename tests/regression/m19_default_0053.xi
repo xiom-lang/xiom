@@ -7,6 +7,9 @@ interface Cloneable {
 
 type Number = { n: Int; }
 
+fn Number.clone_value(self) -> Int { return self.value(); }
+
+
 fn Number.value(&self) -> Int { return n; }
 
 fn main() -> Int {

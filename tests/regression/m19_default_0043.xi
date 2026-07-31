@@ -9,6 +9,13 @@ interface Chained {
 
 type Num = { x: Int; }
 
+fn Num.triple(self) -> Int { return self.value() * 3; }
+
+fn Num.double_triple(self) -> Int { return self.triple() * 2; }
+
+fn Num.hex(self) -> Int { return self.double_triple(); }
+
+
 fn Num.value(&self) -> Int { return x; }
 
 fn main() -> Int {

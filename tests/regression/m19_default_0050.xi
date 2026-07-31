@@ -7,6 +7,9 @@ interface Steppable {
 
 type Counter = { count: Int; }
 
+fn Counter.next(self) -> Int { return self.value() + 1; }
+
+
 fn Counter.value(&self) -> Int { return count; }
 
 fn main() -> Int {

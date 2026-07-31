@@ -7,6 +7,9 @@ interface Taggable {
 
 type Data = { k: Int; }
 
+fn Data.tag(self) -> Char { return '?'; }
+
+
 fn Data.kind(&self) -> Int { return k; }
 
 fn main() -> Int {

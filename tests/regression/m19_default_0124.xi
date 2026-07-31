@@ -17,6 +17,11 @@ interface C {
 
 type Type1 = { tag: Str; }
 
+fn Type1.b(self) -> Int { return 2; }
+
+fn Type1.c(self) -> Int { return 3; }
+
+
 fn Type1.name(&self) -> Str { return tag; }
 fn Type1.a(&self) -> Int { return 10; }
 

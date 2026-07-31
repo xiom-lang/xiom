@@ -12,6 +12,14 @@ interface Compute {
 
 type Data = { val: Int; }
 
+fn Data.compute(self) -> Int {
+    var a = self.value();
+    var b = a * 2;
+    var c = b + 10;
+    return c;
+  }
+
+
 fn Data.value(&self) -> Int { return val; }
 
 fn main() -> Int {

@@ -7,6 +7,9 @@ interface Accessor {
 
 type Cell = { x: Int; }
 
+fn Cell.clone_val(self) -> Int { return self.value(); }
+
+
 fn Cell.value(&self) -> Int { return x; }
 
 fn main() -> Int {

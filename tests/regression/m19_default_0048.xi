@@ -10,6 +10,12 @@ interface Rangable {
 
 type Check = { val: Int; }
 
+fn Check.in_range(self) -> Bool {
+    var v = self.value();
+    return v > 0 && v < 100 || v == -1;
+  }
+
+
 fn Check.value(&self) -> Int { return val; }
 
 fn main() -> Int {

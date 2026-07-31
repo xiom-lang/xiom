@@ -7,6 +7,9 @@ interface Reporter {
 
 type Container = { len: Int; }
 
+fn Container.report(self) -> Int { return self.size() * 2; }
+
+
 fn Container.size(&self) -> Int { return len; }
 
 fn main() -> Int {

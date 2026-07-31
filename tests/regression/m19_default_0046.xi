@@ -8,6 +8,11 @@ interface AllDefaults {
 
 type Empty = { }
 
+fn Empty.one(self) -> Int { return 1; }
+
+fn Empty.two(self) -> Int { return 2; }
+
+
 fn Empty.three(&self) -> Int { return 33; }
 
 fn main() -> Int {

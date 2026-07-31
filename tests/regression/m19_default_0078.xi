@@ -7,6 +7,9 @@ interface Override {
 
 type Num = { x: Int; }
 
+fn Num.b(self) -> Int { return self.a() * 2; }
+
+
 fn Num.a(&self) -> Int { return x; }
 
 fn main() -> Int {

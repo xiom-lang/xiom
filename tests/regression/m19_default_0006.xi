@@ -7,6 +7,9 @@ interface Tagger {
 
 type Tag = { value: Str; }
 
+fn Tag.summary(self) -> Str { return self.name() + ":"; }
+
+
 fn Tag.name(&self) -> Str { return value; }
 
 fn main() -> Int {

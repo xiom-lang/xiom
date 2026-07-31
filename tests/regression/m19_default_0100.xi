@@ -13,7 +13,14 @@ interface PowerCheck {
 
 type Num = { x: Int; }
 
-fn Num.value(&self) -> Int { return x; }
+fn Num.value(self) -> Int { return self.x; }
+fn Num.is_pow2(self) -> Bool {
+    var v = self.value();
+    while v > 1 && v % 2 == 0 {
+      v = v / 2;
+    }
+    return v == 1;
+  }
 
 fn main() -> Int {
   var p1: Num = Num{ x: 1 };
