@@ -644,12 +644,9 @@ impl Program {
                         }
                     }
                     TopDecl::Module(md) => {
-                        // Recurse into module to collect nested interface defaults
                         let nested = collect_interface_defaults(&md.items);
                         for (k, v) in nested {
-                            if !defaults.contains_key(&k) {
-                                defaults.insert(k, v);
-                            }
+                            if !defaults.contains_key(&k) { defaults.insert(k, v); }
                         }
                     }
                     _ => {}
@@ -658,14 +655,79 @@ impl Program {
             defaults
         }
 
+        // Helper: collect interface REQUIRED methods (those WITHOUT body).
+        fn collect_interface_required(items: &[TopDecl]) -> std::collections::HashMap<String, Vec<String>> {
+            let mut required: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+            for item in items {
+                match item {
+                    TopDecl::Interface(id) => {
+                        let methods: Vec<String> = id.members.iter()
+                            .filter_map(|m| if let InterfaceMember::FnSignature(fd) = m {
+                                if fd.body.is_none() { Some(fd.name.name.clone()) } else { None }
+                            } else { None })
+                            .collect();
+                        if !methods.is_empty() {
+                            required.insert(id.name.name.clone(), methods);
+                        }
+                    }
+                    TopDecl::Module(md) => {
+                        let nested = collect_interface_required(&md.items);
+                        for (k, v) in nested {
+                            if !required.contains_key(&k) { required.insert(k, v); }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            required
+        }
+
+        // Helper: collect inherent methods per type from fn items with receivers.
+        // `fn TypeName.method(...)` has receiver TypeName and name `TypeName.method`
+        // or just `method`. Extract the bare method name (after any dot).
+        fn collect_inherent_methods(items: &[TopDecl]) -> std::collections::HashMap<String, std::collections::HashSet<String>> {
+            let mut methods: std::collections::HashMap<String, std::collections::HashSet<String>> = std::collections::HashMap::new();
+            for item in items {
+                match item {
+                    TopDecl::Fn(fd) => {
+                        if let Some(ref receiver) = fd.receiver {
+                            let type_name = receiver.name.clone();
+                            let method_name = fd.name.name.rsplit('.').next().unwrap_or(&fd.name.name).to_string();
+                            methods.entry(type_name).or_default().insert(method_name);
+                        }
+                    }
+                    TopDecl::Module(md) => {
+                        let nested = collect_inherent_methods(&md.items);
+                        for (k, v) in nested {
+                            methods.entry(k).or_default().extend(v);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            methods
+        }
+
+        let interface_defaults = collect_interface_defaults(&self.items);
+        let interface_required = collect_interface_required(&self.items);
+        let inherent_methods = collect_inherent_methods(&self.items);
+
         // Helper: expand impl blocks in a list of items, recursing into modules.
-        fn expand_items(items: &[TopDecl], interface_defaults: &std::collections::HashMap<String, Vec<(String, FnDecl)>>) -> Vec<TopDecl> {
+        // Also auto-detects types that satisfy interfaces through inherent methods.
+        fn expand_items(
+            items: &[TopDecl],
+            interface_defaults: &std::collections::HashMap<String, Vec<(String, FnDecl)>>,
+            interface_required: &std::collections::HashMap<String, Vec<String>>,
+            inherent_methods: &std::collections::HashMap<String, std::collections::HashSet<String>>,
+        ) -> Vec<TopDecl> {
             let mut out = Vec::new();
+            let mut seen_impls: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
             for item in items {
                 match item {
                     TopDecl::Impl(impl_decl) => {
                         let type_name = impl_decl.type_name.name.clone();
                         let iface_name = impl_decl.trait_name.name.clone();
+                        seen_impls.insert((type_name.clone(), iface_name.clone()));
                         let mut provided_methods: std::collections::HashSet<String> = std::collections::HashSet::new();
                         for member in &impl_decl.members {
                             if let ImplItem::Fn(fn_decl) = member {
@@ -689,14 +751,11 @@ impl Program {
                     }
                     TopDecl::Module(md) => {
                         // M22: Recurse into module to expand nested impl blocks
-                        let expanded_items = expand_items(&md.items, interface_defaults);
+                        let expanded_items = expand_items(&md.items, interface_defaults, interface_required, inherent_methods);
                         out.push(TopDecl::Module(ModuleDecl {
-                            name: md.name.clone(),
-                            path: md.path.clone(),
-                            items: expanded_items,
-                            is_file_level: md.is_file_level,
-                            source_file: md.source_file.clone(),
-                            span: md.span,
+                            name: md.name.clone(), path: md.path.clone(),
+                            items: expanded_items, is_file_level: md.is_file_level,
+                            source_file: md.source_file.clone(), span: md.span,
                         }));
                     }
                     other => {
@@ -704,11 +763,52 @@ impl Program {
                     }
                 }
             }
+            // Auto-detect: for each interface, find types with inherent methods
+            // matching all required methods, and expand default methods.
+            // Collect already-emitted function names (recursing into modules)
+            // to prevent duplicates when expand_impl_blocks is called multiple times.
+            fn collect_fn_names(items: &[TopDecl]) -> std::collections::HashSet<String> {
+                let mut names = std::collections::HashSet::new();
+                for item in items {
+                    match item {
+                        TopDecl::Fn(fd) => { names.insert(fd.name.name.clone()); }
+                        TopDecl::Module(md) => { names.extend(collect_fn_names(&md.items)); }
+                        _ => {}
+                    }
+                }
+                names
+            }
+            let already_emitted = collect_fn_names(&out);
+            for (iface_name, required_methods) in interface_required {
+                for (type_name, type_methods) in inherent_methods {
+                    // Skip if explicit impl already exists
+                    if seen_impls.contains(&(type_name.clone(), iface_name.clone())) { continue; }
+                    // Check if type has ALL required methods as inherent methods
+                    let all_required_present = required_methods.iter()
+                        .all(|rm| type_methods.contains(rm));
+                    if all_required_present {
+                        // Auto-expand default methods for this type+interface pair
+                        if let Some(defaults) = interface_defaults.get(iface_name) {
+                            for (method_name, default_fd) in defaults {
+                                // Skip if type already has this method
+                                if type_methods.contains(method_name) { continue; }
+                                let fn_name = format!("{}.{}", type_name, method_name);
+                                // Skip if already emitted (e.g. from previous expand_impl_blocks call)
+                                if already_emitted.contains(&fn_name) { continue; }
+                                let dummy_span = Span::new(0, 0);
+                                let mut new_fn = default_fd.clone();
+                                new_fn.name = Ident { name: fn_name, span: dummy_span };
+                                new_fn.receiver = Some(Ident { name: type_name.clone(), span: dummy_span });
+                                out.push(TopDecl::Fn(new_fn));
+                            }
+                        }
+                    }
+                }
+            }
             out
         }
 
-        let interface_defaults = collect_interface_defaults(&self.items);
-        let items = expand_items(&self.items, &interface_defaults);
+        let items = expand_items(&self.items, &interface_defaults, &interface_required, &inherent_methods);
         Program { items, source_files: self.source_files.clone(), root_dir: self.root_dir.clone(), span: self.span }
     }
 }
