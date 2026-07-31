@@ -8,7 +8,8 @@ fn sum_arr(arr: Vec[Int], n: Int) -> Int {
   return sum;
 }
 fn main() -> Int {
-  var arr = vec![1, 2, 3, 4, 5];
+  var arr: Vec[Int] = Vec[Int].new();
+  arr.push(1); arr.push(2); arr.push(3); arr.push(4); arr.push(5);
   if sum_arr(arr, 5) != 15 { return 1; }
   return 0;
 }

@@ -11,7 +11,8 @@ enum Color {
   Blue
 }
 
-fn Color.kind(&self) -> Str { return "color"; }
+fn Color.kind(self) -> Str { return "color"; }
+fn Color.describe(self) -> Str { return "enum"; }
 
 fn main() -> Int {
   var c: Color = Color.Red;
