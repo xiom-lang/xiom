@@ -990,6 +990,10 @@ impl IrEmitter {
                                     self.emitln(&format!("  {inner_alloca} = alloca {field_llvm_ty}"));
                                     self.emitln(&format!("  store {field_llvm_ty} {loaded}, {field_llvm_ty}* {inner_alloca}"));
                                     self.add_local(&ident.name, inner_alloca, &field_llvm_ty);
+                                    // Track XIOM type for method dispatch (e.g. Str.len())
+                                    if let Some(xiom_ty) = self.field_xiom_type(type_name, field_idx as usize) {
+                                        self.local.local_xiom_types.insert(ident.name.clone(), xiom_ty);
+                                    }
                                 }
                             }
                         }
