@@ -625,6 +625,96 @@ impl Program {
     /// `impl Trait for Type { fn m() { body } }` becomes `fn Type.m() { body }`.
     /// M22: Recurse into modules so impl blocks inside `module { ... }` are expanded.
     pub fn expand_impl_blocks(&self) -> Program {
+        // Helper: rewrite bare method calls (e.g. `value()`) to `self.value()`
+        // in interface default bodies. This ensures the expanded inherent method
+        // uses proper self.method() syntax for calls to other interface methods.
+        fn rewrite_bare_calls(block: &mut Block, iface_methods: &std::collections::HashSet<String>, span: Span) {
+            for se in &mut block.stmts {
+                match se {
+                    StmtOrExpr::Stmt(s) => rewrite_stmt(s, iface_methods, span),
+                    StmtOrExpr::Expr(e) => rewrite_expr(e, iface_methods, span),
+                }
+            }
+        }
+        fn rewrite_stmt(stmt: &mut Stmt, iface_methods: &std::collections::HashSet<String>, span: Span) {
+            match stmt {
+                Stmt::Expr(e, _) | Stmt::Return(Some(e), _) => rewrite_expr(e, iface_methods, span),
+                Stmt::Var(_, _, e, _) | Stmt::Let(_, _, e, _) => rewrite_expr(e, iface_methods, span),
+                Stmt::Assign(_, e, _) => rewrite_expr(e, iface_methods, span),
+                Stmt::While(cond, body, _, _) => { rewrite_expr(cond, iface_methods, span); rewrite_bare_calls(body, iface_methods, span); }
+                Stmt::If(cond, tb, elifs, eb, _) => {
+                    rewrite_expr(cond, iface_methods, span);
+                    rewrite_bare_calls(tb, iface_methods, span);
+                    for (ec, eb2) in elifs { rewrite_expr(ec, iface_methods, span); rewrite_bare_calls(eb2, iface_methods, span); }
+                    if let Some(eb3) = eb { rewrite_bare_calls(eb3, iface_methods, span); }
+                }
+                Stmt::Match(sc, arms, _) => {
+                    rewrite_expr(sc, iface_methods, span);
+                    for arm in arms {
+                        if let Some(ref mut g) = arm.guard { rewrite_expr(g, iface_methods, span); }
+                        match &mut arm.body {
+                            MatchBody::Block(b) => rewrite_bare_calls(b, iface_methods, span),
+                            MatchBody::Expr(e) => rewrite_expr(e, iface_methods, span),
+                        }
+                    }
+                }
+                Stmt::For(_, iter, body, _) => { rewrite_expr(iter, iface_methods, span); rewrite_bare_calls(body, iface_methods, span); }
+                Stmt::Spawn(body, _) => rewrite_bare_calls(body, iface_methods, span),
+                _ => {}
+            }
+        }
+        fn rewrite_expr(expr: &mut Expr, iface_methods: &std::collections::HashSet<String>, span: Span) {
+            match expr {
+                Expr::Call(func, args, _) => {
+                    // Rewrite bare `method()` to `self.method()`
+                    if let Expr::Ident(id) = func.as_ref() {
+                        if iface_methods.contains(&id.name) && id.name != "self" {
+                            *func = Box::new(Expr::Field(
+                                Box::new(Expr::Ident(Ident { name: "self".to_string(), span })),
+                                Ident { name: id.name.clone(), span }, span,
+                            ));
+                        }
+                    }
+                    rewrite_expr(func, iface_methods, span);
+                    for arg in args { rewrite_expr(arg, iface_methods, span); }
+                }
+                Expr::Binary(a, _, b, _) | Expr::Imply(a, b, _) => {
+                    rewrite_expr(a, iface_methods, span); rewrite_expr(b, iface_methods, span);
+                }
+                Expr::Unary(_, e, _) | Expr::Ref(e, _) | Expr::MutRef(e, _)
+                | Expr::Paren(e, _) | Expr::Try(e, _) | Expr::AtPre(e, _)
+                | Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _)
+                | Expr::As(e, _, _) => rewrite_expr(e, iface_methods, span),
+                Expr::Field(obj, _, _) => rewrite_expr(obj, iface_methods, span),
+                Expr::Index(arr, idx, _) => { rewrite_expr(arr, iface_methods, span); rewrite_expr(idx, iface_methods, span); }
+                Expr::Struct(_, fields, base, _) => {
+                    for (_, v) in fields { rewrite_expr(v, iface_methods, span); }
+                    if let Some(b) = base { rewrite_expr(b, iface_methods, span); }
+                }
+                Expr::If(c, t, elifs, els, _) => {
+                    rewrite_expr(c, iface_methods, span);
+                    rewrite_bare_calls(t, iface_methods, span);
+                    for (ec, eb) in elifs { rewrite_expr(ec, iface_methods, span); rewrite_bare_calls(eb, iface_methods, span); }
+                    if let Some(eb) = els { rewrite_bare_calls(eb, iface_methods, span); }
+                }
+                Expr::Match(sc, arms, _) => {
+                    rewrite_expr(sc, iface_methods, span);
+                    for arm in arms {
+                        if let Some(ref mut g) = arm.guard { rewrite_expr(g, iface_methods, span); }
+                        match &mut arm.body {
+                            MatchBody::Block(b) => rewrite_bare_calls(b, iface_methods, span),
+                            MatchBody::Expr(e) => rewrite_expr(e, iface_methods, span),
+                        }
+                    }
+                }
+                Expr::Is(e, _, _) => rewrite_expr(e, iface_methods, span),
+                Expr::Array(items, _) => for e in items { rewrite_expr(e, iface_methods, span); },
+                Expr::Closure(_, _, body, _) => {
+                    // Don't recurse into closures — they have their own scope
+                }
+                _ => {}
+            }
+        }
         // Helper: collect interface defaults recursively (including inside modules).
         fn collect_interface_defaults(items: &[TopDecl]) -> std::collections::HashMap<String, Vec<(String, FnDecl)>> {
             let mut defaults: std::collections::HashMap<String, Vec<(String, FnDecl)>> = std::collections::HashMap::new();
@@ -799,6 +889,18 @@ impl Program {
                                 let mut new_fn = default_fd.clone();
                                 new_fn.name = Ident { name: fn_name, span: dummy_span };
                                 new_fn.receiver = Some(Ident { name: type_name.clone(), span: dummy_span });
+                                // Rewrite bare method calls to self.method() in the default body
+                                // Build set of all interface method names for rewriting
+                                let mut all_iface_methods: std::collections::HashSet<String> = std::collections::HashSet::new();
+                                if let Some(req) = interface_required.get(iface_name) {
+                                    for m in req { all_iface_methods.insert(m.clone()); }
+                                }
+                                if let Some(defs) = interface_defaults.get(iface_name) {
+                                    for (m, _) in defs { all_iface_methods.insert(m.clone()); }
+                                }
+                                if let Some(ref mut body) = new_fn.body {
+                                    rewrite_bare_calls(body, &all_iface_methods, dummy_span);
+                                }
                                 out.push(TopDecl::Fn(new_fn));
                             }
                         }
