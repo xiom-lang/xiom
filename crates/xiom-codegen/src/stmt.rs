@@ -1079,28 +1079,35 @@ impl IrEmitter {
                             }
                         }
                         // M18: Pre-extract custom enum variant payloads for guard access.
-                        // For patterns like `Data(v) if v > 10`, the payload field
-                        // must be bound BEFORE the guard expression is evaluated.
+                        // For patterns like `Data(v) if v > 10` or `P(x, y) if x+y > 10`,
+                        // all payload fields must be bound BEFORE the guard is evaluated.
                         if let Pattern::Variant(variant_ident, fields, _) = &arm.pattern {
-                            if fields.len() == 1 {
-                                let field_ident = &fields[0];
+                            if !fields.is_empty() {
+                                // Clone field names to avoid borrow conflicts
+                                let field_names_clone: Vec<String> = fields.iter().map(|f| f.name.clone()).collect();
+                                let variant_name_clone = variant_ident.name.clone();
                                 if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
-                                    let leaf_variant = variant_ident.name.rsplit('.').next().unwrap_or(&variant_ident.name);
-                                    if let Some(variants) = self.types.enum_variants.get(type_name) {
-                                        if let Some((_, vfields)) = variants.iter().find(|(vn, _)| vn == leaf_variant || vn == &variant_ident.name) {
-                                            if let Some(canonical) = vfields.first() {
-                                                if let Some(field_names) = self.types.types.get(type_name) {
-                                                    if let Some(fi) = field_names.iter().position(|f| f == canonical) {
-                                                        let field_llvm_ty = self.field_llvm_type(type_name, fi);
-                                                        let gep = self.fresh_tmp();
-                                                        self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {fi}"));
-                                                        let loaded = self.fresh_tmp();
-                                                        self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
-                                                        let inner_alloca = self.fresh_tmp();
-                                                        self.emitln(&format!("  {inner_alloca} = alloca {field_llvm_ty}"));
-                                                        self.emitln(&format!("  store {field_llvm_ty} {loaded}, {field_llvm_ty}* {inner_alloca}"));
-                                                        self.add_local(&field_ident.name, inner_alloca, &field_llvm_ty);
-                                                    }
+                                    let leaf_variant = variant_name_clone.rsplit('.').next().unwrap_or(&variant_name_clone).to_string();
+                                    let variant_info = self.types.enum_variants.get(type_name)
+                                        .and_then(|vars| vars.iter().find(|(vn, _)| vn == &leaf_variant || vn == &variant_name_clone))
+                                        .map(|(_, vfs)| vfs.clone());
+                                    let field_name_map = self.types.types.get(type_name).cloned();
+                                    if let (Some(vfields), Some(field_names)) = (variant_info, field_name_map) {
+                                        let alloca_c = alloca.clone();
+                                        let struct_ty_c = struct_ty.clone();
+                                        let type_name_c = type_name.clone();
+                                        for (field_idx, canonical) in vfields.iter().enumerate() {
+                                            if field_idx < field_names_clone.len() {
+                                                if let Some(fi) = field_names.iter().position(|f| f == canonical) {
+                                                    let field_llvm_ty = self.field_llvm_type(&type_name_c, fi);
+                                                    let gep = self.fresh_tmp();
+                                                    self.emitln(&format!("  {gep} = getelementptr {struct_ty_c}, {struct_ty_c}* {alloca_c}, i32 0, i32 {fi}"));
+                                                    let loaded = self.fresh_tmp();
+                                                    self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+                                                    let inner_alloca = self.fresh_tmp();
+                                                    self.emitln(&format!("  {inner_alloca} = alloca {field_llvm_ty}"));
+                                                    self.emitln(&format!("  store {field_llvm_ty} {loaded}, {field_llvm_ty}* {inner_alloca}"));
+                                                    self.add_local(&field_names_clone[field_idx], inner_alloca, &field_llvm_ty);
                                                 }
                                             }
                                         }
