@@ -1055,7 +1055,9 @@ impl Parser {
         let name = self.parse_ident()?;
         let ty = if self.skip(TokenKind::Colon) { Some(Box::new(self.parse_type()?)) } else { None };
         // Allow `let x: T;` without initializer (defaults to zero); assigned later.
-        let value = if self.skip(TokenKind::Eq) { self.parse_expr()? } else { Expr::Int(0, span) };
+        let value = if self.skip(TokenKind::Eq) {
+            self.parse_init_expr(ty.as_deref(), span)?
+        } else { Expr::Int(0, span) };
         self.expect_kind(TokenKind::Semicolon, "';'")?;
         Ok(Stmt::Let(name, ty, value, span))
     }
@@ -1066,9 +1068,78 @@ impl Parser {
         let name = self.parse_ident()?;
         let ty = if self.skip(TokenKind::Colon) { Some(Box::new(self.parse_type()?)) } else { None };
         // Allow `var x: Type;` without explicit initialization (defaults to zero)
-        let value = if self.skip(TokenKind::Eq) { self.parse_expr()? } else { Expr::Int(0, span) };
+        let value = if self.skip(TokenKind::Eq) {
+            self.parse_init_expr(ty.as_deref(), span)?
+        } else { Expr::Int(0, span) };
         self.expect_kind(TokenKind::Semicolon, "';'")?;
         Ok(Stmt::Var(name, ty, value, span))
+    }
+
+    /// Parse an initializer expression, potentially using the declared type
+    /// to disambiguate bare `{ field: value; }` as a struct literal.
+    /// When `var x: TypeName = { field: value; };` is written, the parser
+    /// uses the `TypeName` annotation to parse `{ ... }` as `TypeName{ ... }`.
+    fn parse_init_expr(&mut self, declared_ty: Option<&Type>, span: Span) -> Result<Expr, ParseError> {
+        if let Some(ty) = declared_ty {
+            if let Some(type_name) = Self::extract_struct_type_name(ty) {
+                if self.peek_kind() == &TokenKind::LBrace {
+                    return self.parse_struct_literal_body(&type_name, span);
+                }
+            }
+        }
+        self.parse_expr()
+    }
+
+    /// Extract a type name suitable for struct literal construction.
+    /// Returns `Some("Point")` for `Type::Named("Point", [])`,
+    /// `Some("Point")` for `Type::Ref(Type::Named("Point", []))`,
+    /// `None` for builtins like `Option`, `Result`, `Vec`, `Int`, etc.
+    fn extract_struct_type_name(ty: &Type) -> Option<String> {
+        let builtins = &["Option", "Result", "Vec", "Slice", "Map", "Set",
+                          "Bool", "Int", "Int8", "Int16", "Int32", "Int64",
+                          "UInt8", "UInt16", "UInt32", "UInt64",
+                          "Float32", "Float64", "Char", "Str", "String",
+                          "Rc", "Arc", "Cell", "RefCell", "Box", "Ptr"];
+        match ty {
+            Type::Named(id, _) => {
+                let name = id.name.as_str();
+                if builtins.contains(&name) || name.chars().next().map_or(true, |c| !c.is_uppercase()) {
+                    None
+                } else {
+                    Some(id.name.clone())
+                }
+            }
+            Type::Ref(inner) | Type::MutRef(inner) => {
+                Self::extract_struct_type_name(inner)
+            }
+            _ => None,
+        }
+    }
+
+    /// Parse `{ field: value; field2: value2; }` as a struct literal body,
+    /// prefixing with the given type_name to produce `Expr::Struct(type_name, fields, ...)`.
+    fn parse_struct_literal_body(&mut self, type_name: &str, span: Span) -> Result<Expr, ParseError> {
+        self.expect_kind(TokenKind::LBrace, "'{'")?;
+        let mut fields = Vec::new();
+        while !self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Dot | TokenKind::Eof)) {
+            let fname = self.parse_ident()?;
+            if self.skip(TokenKind::Colon) {
+                let fval = self.parse_expr()?;
+                fields.push((fname, fval));
+            } else {
+                // Shorthand: `{ field }` means `{ field: field }`
+                fields.push((fname.clone(), Expr::Ident(fname)));
+            }
+            self.skip(TokenKind::Comma);
+            self.skip(TokenKind::Semicolon);
+        }
+        let spread = if self.skip(TokenKind::Dot) {
+            self.expect_kind(TokenKind::Dot, "'.' for spread")?;
+            let s = self.parse_expr()?;
+            Some(Box::new(s))
+        } else { None };
+        self.expect_kind(TokenKind::RBrace, "'}'")?;
+        Ok(Expr::Struct(Ident::new(type_name.to_string(), span), fields, spread, span))
     }
 
     fn parse_destructure(&mut self, span: Span) -> Result<Stmt, ParseError> {
@@ -1607,6 +1678,31 @@ impl Parser {
             TokenKind::Err_ => { self.advance(); self.expect_kind(TokenKind::LParen, "'('")?; let inner = self.parse_expr_open()?; self.expect_kind(TokenKind::RParen, "')'")?; Ok(Expr::Err(Box::new(inner), span)) }
             TokenKind::Await => { self.advance(); let inner = self.parse_expr()?; Ok(Expr::Await(Box::new(inner), span)) }
             TokenKind::Comptime => { self.advance(); if matches!(self.peek_kind(), TokenKind::Dot | TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace) { Ok(Expr::Ident(Ident::new("comptime".to_string(), span))) } else { let inner = self.parse_expr()?; Ok(Expr::Comptime(Box::new(inner), span)) } }
+            TokenKind::LBrace => {
+                // M22: Bare `{ field: value; }` as anonymous struct literal.
+                // Only parse as struct when content looks like fields and we're
+                // not in a restricted context (struct literals allowed).
+                if self.restrict_struct {
+                    return Err(self.error("unexpected '{' in this context"));
+                }
+                let after_brace = self.peek_ahead(1);
+                let looks_like_struct = match after_brace {
+                    Some(TokenKind::RBrace) => true,
+                    Some(TokenKind::Ident(_)) => {
+                        let third = self.peek_ahead(2);
+                        matches!(third, Some(TokenKind::Colon) | Some(TokenKind::Comma)
+                            | Some(TokenKind::Semicolon) | Some(TokenKind::RBrace))
+                    }
+                    Some(TokenKind::Dot) => self.peek_ahead(2) == Some(&TokenKind::Dot),
+                    _ => false,
+                };
+                if looks_like_struct {
+                    // Anonymous struct — type resolved by checker from context
+                    self.parse_struct_literal_body("_", span)
+                } else {
+                    Err(self.error("expected expression, found '{'"))
+                }
+            }
             TokenKind::Unsafe => { self.advance(); let block = self.parse_block()?; Ok(Expr::Unsafe(block, span)) }
             TokenKind::If => { self.advance(); let cond = self.parse_cond()?; let then_block = self.parse_block()?; let mut elifs = Vec::new(); while self.skip(TokenKind::Elif) { let econd = self.parse_cond()?; let eblock = self.parse_block()?; elifs.push((econd, eblock)); } let else_block = if self.skip(TokenKind::Else) { Some(self.parse_block()?) } else { None }; Ok(Expr::If(Box::new(cond), then_block, elifs, else_block, span)) }
             TokenKind::Match => {

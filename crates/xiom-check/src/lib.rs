@@ -2749,6 +2749,12 @@ impl Checker {
                 CheckedType::Named("Result".into())
             }
             Expr::Struct(name, fields, _spread, span) => {
+                // M22: Anonymous struct `{ field: value; }` — type inferred from context.
+                // Return wildcard `_` and let the caller (var/return/arg) validate.
+                if name.name == "_" {
+                    for (_, fval) in fields { let _ = self.check_expr(fval); }
+                    return CheckedType::Named("_".into());
+                }
                 let struct_fields = self.get_type(&name.name).cloned();
                 let variant_fields_map = if struct_fields.is_none() {
                     self.variant_fields.get(&name.name).or_else(|| {
