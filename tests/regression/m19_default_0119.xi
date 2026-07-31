@@ -7,6 +7,9 @@ interface Counter {
 
 type Type1 = { a: Int; }
 
+fn Type1.describe(self) -> Int { return self.count(); }
+
+
 fn Type1.count(&self) -> Int { return 1; }
 
 type Type2 = { a: Int; b: Int; c: Int; }

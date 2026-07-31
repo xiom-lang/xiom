@@ -8,6 +8,9 @@ interface Counter {
 
 type Accumulator = { c: Int; inc: Int; }
 
+fn Accumulator.next_count(self) -> Int { return self.count() + self.step(); }
+
+
 fn Accumulator.count(&self) -> Int { return c; }
 
 fn Accumulator.step(&self) -> Int { return inc; }

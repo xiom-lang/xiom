@@ -9,6 +9,13 @@ interface Predicates {
 
 type Num = { n: Int; }
 
+fn Num.is_pos(self) -> Bool { return self.val() > 0; }
+
+fn Num.is_even(self) -> Bool { return self.val() % 2 == 0; }
+
+fn Num.is_valid(self) -> Bool { return self.is_pos() && self.is_even(); }
+
+
 fn Num.val(&self) -> Int { return n; }
 
 fn main() -> Int {

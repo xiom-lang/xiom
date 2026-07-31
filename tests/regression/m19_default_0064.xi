@@ -7,6 +7,9 @@ interface Calc {
 
 type Default = { val: Int; }
 
+fn Default.b(self) -> Int { return self.a() * 2; }
+
+
 fn Default.a(&self) -> Int { return val; }
 
 type Override = { val: Int; }

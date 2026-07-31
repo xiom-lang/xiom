@@ -8,6 +8,9 @@ interface Area {
 
 type Rect = { w: Int; h: Int; }
 
+fn Rect.area(self) -> Int { return self.width() * self.height(); }
+
+
 fn Rect.width(&self) -> Int { return w; }
 
 fn Rect.height(&self) -> Int { return h; }

@@ -17,6 +17,11 @@ interface Describable {
 
 type Person = { n: Str; }
 
+fn Person.id(self) -> Str { return self.name(); }
+
+fn Person.desc(self) -> Str { return "[" + self.name() + "]"; }
+
+
 fn Person.name(&self) -> Str { return n; }
 
 fn Person.greet(&self) -> Str { return "Hi " + name(); }

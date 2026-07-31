@@ -7,6 +7,9 @@ interface Incrementer {
 
 type Entity = { uid: Int; }
 
+fn Entity.next_id(self) -> Int { return self.id() + 1; }
+
+
 fn Entity.id(&self) -> Int { return uid; }
 
 fn main() -> Int {

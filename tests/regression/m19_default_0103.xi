@@ -7,6 +7,9 @@ interface Area {
 
 type Circle = { r: Float64; }
 
+fn Circle.circle_area(self) -> Float64 { return 3.14159 * self.radius() * self.radius(); }
+
+
 fn Circle.radius(&self) -> Float64 { return r; }
 
 fn main() -> Int {

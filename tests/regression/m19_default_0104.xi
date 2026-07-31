@@ -7,6 +7,9 @@ interface ByteCheck {
 
 type Data = { x: Int8; }
 
+fn Data.is_byte(self) -> Bool { var v = self.value(); return v >= 0i8 && v <= 127i8; }
+
+
 fn Data.value(&self) -> Int8 { return x; }
 
 fn main() -> Int {

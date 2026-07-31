@@ -12,6 +12,14 @@ interface Computer {
 
 type Num = { x: Int; }
 
+fn Num.compute(self) -> Int {
+    var x = self.value();
+    var y = x + 1;
+    var z = y * 2;
+    return z;
+  }
+
+
 fn Num.value(&self) -> Int { return x; }
 
 fn main() -> Int {

@@ -9,6 +9,13 @@ interface Multiplier {
 
 type Number = { n: Int; }
 
+fn Number.double(self) -> Int { return self.value() * 2; }
+
+fn Number.triple(self) -> Int { return self.value() * 3; }
+
+fn Number.sum_all(self) -> Int { return self.value() + self.double() + self.triple(); }
+
+
 fn Number.value(&self) -> Int { return n; }
 
 fn main() -> Int {

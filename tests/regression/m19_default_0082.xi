@@ -8,6 +8,13 @@ interface AllDefaults {
 
 type Empty = {}
 
+fn Empty.a(self) -> Int { return 1; }
+
+fn Empty.b(self) -> Int { return 2; }
+
+fn Empty.c(self) -> Int { return 3; }
+
+
 fn main() -> Int {
   var e: Empty = Empty{};
   if e.a() == 1 && e.b() == 2 && e.c() == 3 { return 0; }

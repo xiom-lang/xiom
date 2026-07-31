@@ -12,6 +12,11 @@ interface Described {
 
 type Entity = { n: Str; }
 
+fn Entity.formal(self) -> Str { return "Mr. " + self.name(); }
+
+fn Entity.description(self) -> Str { return "[" + self.label() + "]"; }
+
+
 fn Entity.name(&self) -> Str { return n; }
 
 fn Entity.label(&self) -> Str { return n; }

@@ -17,6 +17,13 @@ interface Describable {
 
 type Person = { tag: Str; }
 
+fn Person.id(self) -> Str { return self.name() + "#" + self.key().to_str(); }
+
+fn Person.greet(self) -> Str { return "Hi " + self.name(); }
+
+fn Person.desc(self) -> Str { return "[" + self.id() + "]: " + self.greet(); }
+
+
 fn Person.name(&self) -> Str { return tag; }
 fn Person.key(&self) -> Int { return 42; }
 

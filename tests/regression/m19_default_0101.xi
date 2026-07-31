@@ -12,6 +12,11 @@ interface B {
 
 type Foo = { tag: Str; }
 
+fn Foo.a(self) -> Int { return 1; }
+
+fn Foo.b(self) -> Int { return 2; }
+
+
 fn Foo.name(&self) -> Str { return tag; }
 
 fn main() -> Int {

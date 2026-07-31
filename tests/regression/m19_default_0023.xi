@@ -7,6 +7,9 @@ interface AgeCheck {
 
 type Profile = { years: Int; }
 
+fn Profile.is_teen(self) -> Bool { return self.age() >= 13 && self.age() <= 19; }
+
+
 fn Profile.age(&self) -> Int { return years; }
 
 fn main() -> Int {

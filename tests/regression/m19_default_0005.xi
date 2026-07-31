@@ -8,6 +8,9 @@ interface Versioned {
 
 type Product = { title: Str; }
 
+fn Product.category(self) -> Str { return "base"; }
+
+
 fn Product.name(&self) -> Str { return title; }
 
 fn Product.version(&self) -> Int { return 2; }

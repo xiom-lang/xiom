@@ -17,6 +17,13 @@ interface Mover {
 
 type Entity = { tag: Str; }
 
+fn Entity.greet(self) -> Str { return "Hi " + self.name(); }
+
+fn Entity.print(self) -> Str { return "[" + self.label() + "]"; }
+
+fn Entity.move(self) -> Str { return "-> " + self.pos(); }
+
+
 fn Entity.name(&self) -> Str { return tag; }
 fn Entity.label(&self) -> Str { return tag; }
 fn Entity.pos(&self) -> Str { return tag; }

@@ -9,6 +9,9 @@ interface Total {
 
 type Triple = { x: Int; y: Int; z: Int; }
 
+fn Triple.total(self) -> Int { return self.a() + self.b() + self.c(); }
+
+
 fn Triple.a(&self) -> Int { return x; }
 
 fn Triple.b(&self) -> Int { return y; }

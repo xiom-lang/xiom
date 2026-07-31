@@ -7,6 +7,9 @@ interface Bit32Check {
 
 type Data = { x: Int64; }
 
+fn Data.is_32bit(self) -> Bool { var v = self.value(); return v >= -2147483648i64 && v <= 2147483647i64; }
+
+
 fn Data.value(&self) -> Int64 { return x; }
 
 fn main() -> Int {

@@ -7,6 +7,11 @@ interface Doubles {
 
 type T1 = {}
 
+fn T1.a(self) -> Int { return 1; }
+
+fn T1.b(self) -> Int { return 2; }
+
+
 type T2 = {}
 
 fn T2.a(&self) -> Int { return 10; }

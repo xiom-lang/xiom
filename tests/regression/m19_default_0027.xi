@@ -7,6 +7,9 @@ interface Incrementable {
 
 type Number = { n: Int; }
 
+fn Number.inc(self) -> Int { return self.value() + 1; }
+
+
 fn Number.value(&self) -> Int { return n; }
 
 fn main() -> Int {

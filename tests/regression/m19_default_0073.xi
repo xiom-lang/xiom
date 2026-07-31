@@ -7,6 +7,9 @@ interface MaxCheck {
 
 type Number = { val: Int; }
 
+fn Number.is_max(self) -> Bool { return self.value() == 9223372036854775807; }
+
+
 fn Number.value(&self) -> Int { return val; }
 
 fn main() -> Int {

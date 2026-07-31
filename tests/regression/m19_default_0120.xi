@@ -9,6 +9,13 @@ interface Arithmetic {
 
 type Num = { n: Int; }
 
+fn Num.x2(self) -> Int { return self.val() * 2; }
+
+fn Num.x3(self) -> Int { return self.val() * 3; }
+
+fn Num.sum(self) -> Int { return self.val() + self.x2() + self.x3(); }
+
+
 fn Num.val(&self) -> Int { return n; }
 
 fn main() -> Int {

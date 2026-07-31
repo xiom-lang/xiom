@@ -8,6 +8,9 @@ interface Bounded {
 
 type Buf = { data: Int; max: Int; }
 
+fn Buf.is_valid(self) -> Bool { var v = self.value(); return v >= 0 && v < self.limit(); }
+
+
 fn Buf.value(&self) -> Int { return data; }
 fn Buf.limit(&self) -> Int { return max; }
 

@@ -11,6 +11,9 @@ interface Typed {
 
 type Item = { n: Str; k: Str; }
 
+fn Item.label(self) -> Str { return self.name() + ":" + self.kind(); }
+
+
 fn Item.name(&self) -> Str { return n; }
 
 fn Item.kind(&self) -> Str { return k; }

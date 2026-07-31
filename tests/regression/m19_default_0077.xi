@@ -9,6 +9,13 @@ interface DeepChain {
 
 type Num = { x: Int; }
 
+fn Num.x2(self) -> Int { return self.val() * 2; }
+
+fn Num.x4(self) -> Int { return self.x2() * 2; }
+
+fn Num.x8(self) -> Int { return self.x4() * 2; }
+
+
 fn Num.val(&self) -> Int { return x; }
 
 fn main() -> Int {

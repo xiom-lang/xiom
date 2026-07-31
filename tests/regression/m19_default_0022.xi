@@ -7,6 +7,9 @@ interface Sizable {
 
 type Buffer = { len: Int; }
 
+fn Buffer.is_empty(self) -> Bool { return self.size() == 0; }
+
+
 fn Buffer.size(&self) -> Int { return len; }
 
 fn main() -> Int {

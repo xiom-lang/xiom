@@ -11,6 +11,13 @@ interface Math {
 
 type Triple = { v1: Int; v2: Int; v3: Int; }
 
+fn Triple.x(self) -> Int { return self.a() + self.b(); }
+
+fn Triple.y(self) -> Int { return self.b() + self.c(); }
+
+fn Triple.z(self) -> Int { return self.a() + self.b() + self.c(); }
+
+
 fn Triple.a(&self) -> Int { return v1; }
 
 fn Triple.b(&self) -> Int { return v2; }

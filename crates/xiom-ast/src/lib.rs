@@ -623,55 +623,92 @@ impl Program {
 
     /// M20: Expand impl blocks into freestanding functions.
     /// `impl Trait for Type { fn m() { body } }` becomes `fn Type.m() { body }`.
+    /// M22: Recurse into modules so impl blocks inside `module { ... }` are expanded.
     pub fn expand_impl_blocks(&self) -> Program {
-        // M19: Build a map of interface_name -> [(method_name, default_body)]
-        // so we can fill in default methods when an impl doesn't provide them.
-        let mut interface_defaults: std::collections::HashMap<String, Vec<(String, FnDecl)>> = std::collections::HashMap::new();
-        for item in &self.items {
-            if let TopDecl::Interface(id) = item {
-                let mut defaults = Vec::new();
-                for member in &id.members {
-                    if let InterfaceMember::FnSignature(fd) = member {
-                        if fd.body.is_some() {
-                            defaults.push((fd.name.name.clone(), fd.clone()));
+        // Helper: collect interface defaults recursively (including inside modules).
+        fn collect_interface_defaults(items: &[TopDecl]) -> std::collections::HashMap<String, Vec<(String, FnDecl)>> {
+            let mut defaults: std::collections::HashMap<String, Vec<(String, FnDecl)>> = std::collections::HashMap::new();
+            for item in items {
+                match item {
+                    TopDecl::Interface(id) => {
+                        let mut methods = Vec::new();
+                        for member in &id.members {
+                            if let InterfaceMember::FnSignature(fd) = member {
+                                if fd.body.is_some() {
+                                    methods.push((fd.name.name.clone(), fd.clone()));
+                                }
+                            }
+                        }
+                        if !methods.is_empty() {
+                            defaults.insert(id.name.name.clone(), methods);
                         }
                     }
-                }
-                if !defaults.is_empty() {
-                    interface_defaults.insert(id.name.name.clone(), defaults);
+                    TopDecl::Module(md) => {
+                        // Recurse into module to collect nested interface defaults
+                        let nested = collect_interface_defaults(&md.items);
+                        for (k, v) in nested {
+                            if !defaults.contains_key(&k) {
+                                defaults.insert(k, v);
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
+            defaults
         }
 
-        let mut items = Vec::new();
-        for item in &self.items {
-            if let TopDecl::Impl(impl_decl) = item {
-                let type_name = impl_decl.type_name.name.clone();
-                let iface_name = impl_decl.trait_name.name.clone();
-                let mut provided_methods: std::collections::HashSet<String> = std::collections::HashSet::new();
-                for member in &impl_decl.members {
-                    if let ImplItem::Fn(fn_decl) = member {
-                        let mut new_fn = fn_decl.clone();
-                        new_fn.name = Ident { name: format!("{}.{}", type_name, fn_decl.name.name), span: fn_decl.name.span };
-                        new_fn.receiver = Some(Ident { name: type_name.clone(), span: impl_decl.type_name.span });
-                        provided_methods.insert(fn_decl.name.name.clone());
-                        items.push(TopDecl::Fn(new_fn));
+        // Helper: expand impl blocks in a list of items, recursing into modules.
+        fn expand_items(items: &[TopDecl], interface_defaults: &std::collections::HashMap<String, Vec<(String, FnDecl)>>) -> Vec<TopDecl> {
+            let mut out = Vec::new();
+            for item in items {
+                match item {
+                    TopDecl::Impl(impl_decl) => {
+                        let type_name = impl_decl.type_name.name.clone();
+                        let iface_name = impl_decl.trait_name.name.clone();
+                        let mut provided_methods: std::collections::HashSet<String> = std::collections::HashSet::new();
+                        for member in &impl_decl.members {
+                            if let ImplItem::Fn(fn_decl) = member {
+                                let mut new_fn = fn_decl.clone();
+                                new_fn.name = Ident { name: format!("{}.{}", type_name, fn_decl.name.name), span: fn_decl.name.span };
+                                new_fn.receiver = Some(Ident { name: type_name.clone(), span: impl_decl.type_name.span });
+                                provided_methods.insert(fn_decl.name.name.clone());
+                                out.push(TopDecl::Fn(new_fn));
+                            }
+                        }
+                        // M19: Fill in default methods from the interface that weren't provided
+                        if let Some(defaults) = interface_defaults.get(&iface_name) {
+                            for (method_name, default_fd) in defaults {
+                                if provided_methods.contains(method_name) { continue; }
+                                let mut new_fn = default_fd.clone();
+                                new_fn.name = Ident { name: format!("{}.{}", type_name, method_name), span: impl_decl.span };
+                                new_fn.receiver = Some(Ident { name: type_name.clone(), span: impl_decl.type_name.span });
+                                out.push(TopDecl::Fn(new_fn));
+                            }
+                        }
+                    }
+                    TopDecl::Module(md) => {
+                        // M22: Recurse into module to expand nested impl blocks
+                        let expanded_items = expand_items(&md.items, interface_defaults);
+                        out.push(TopDecl::Module(ModuleDecl {
+                            name: md.name.clone(),
+                            path: md.path.clone(),
+                            items: expanded_items,
+                            is_file_level: md.is_file_level,
+                            source_file: md.source_file.clone(),
+                            span: md.span,
+                        }));
+                    }
+                    other => {
+                        out.push(other.clone());
                     }
                 }
-                // M19: Fill in default methods from the interface that weren't provided
-                if let Some(defaults) = interface_defaults.get(&iface_name) {
-                    for (method_name, default_fd) in defaults {
-                        if provided_methods.contains(method_name) { continue; }
-                        let mut new_fn = default_fd.clone();
-                        new_fn.name = Ident { name: format!("{}.{}", type_name, method_name), span: impl_decl.span };
-                        new_fn.receiver = Some(Ident { name: type_name.clone(), span: impl_decl.type_name.span });
-                        items.push(TopDecl::Fn(new_fn));
-                    }
-                }
-            } else {
-                items.push(item.clone());
             }
+            out
         }
+
+        let interface_defaults = collect_interface_defaults(&self.items);
+        let items = expand_items(&self.items, &interface_defaults);
         Program { items, source_files: self.source_files.clone(), root_dir: self.root_dir.clone(), span: self.span }
     }
 }

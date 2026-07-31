@@ -8,6 +8,11 @@ interface Accumulator {
 
 type Counter = { n: Int; }
 
+fn Counter.double(self) -> Int { return self.get() * 2; }
+
+fn Counter.triple(self) -> Int { return self.get() * 3; }
+
+
 fn Counter.get(&self) -> Int { return n; }
 
 fn main() -> Int {

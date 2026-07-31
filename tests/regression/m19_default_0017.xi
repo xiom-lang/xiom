@@ -12,6 +12,11 @@ interface Printer {
 
 type Entity = { id: Str; }
 
+fn Entity.greet(self) -> Str { return "Hello"; }
+
+fn Entity.print(self) -> Str { return "[" + self.name() + "]"; }
+
+
 fn Entity.name(&self) -> Str { return id; }
 
 fn main() -> Int {

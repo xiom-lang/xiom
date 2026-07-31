@@ -7,6 +7,9 @@ interface Labelled {
 
 type Apple = { variety: Str; }
 
+fn Apple.label(self) -> Str { return "item"; }
+
+
 fn Apple.name(&self) -> Str { return variety; }
 
 type Orange = { variety: Str; }

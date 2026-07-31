@@ -7,6 +7,9 @@ interface QnA {
 
 type Thinker = { query: Str; }
 
+fn Thinker.answer(self) -> Int { return 42; }
+
+
 fn Thinker.question(&self) -> Str { return query; }
 
 fn main() -> Int {

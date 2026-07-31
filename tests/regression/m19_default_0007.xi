@@ -7,6 +7,9 @@ interface Friendly {
 
 type User = { nick: Str; }
 
+fn User.greet(self) -> Str { return "Hello, " + self.name(); }
+
+
 fn User.name(&self) -> Str { return nick; }
 
 fn main() -> Int {

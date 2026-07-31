@@ -7,6 +7,9 @@ interface Displayable {
 
 type Box = { text: Str; }
 
+fn Box.display(self) -> Str { return "[" + self.label() + "]"; }
+
+
 fn Box.label(&self) -> Str { return text; }
 
 fn main() -> Int {

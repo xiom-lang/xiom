@@ -8,6 +8,9 @@ interface Summable {
 
 type Pair = { x: Int; y: Int; }
 
+fn Pair.sum(self) -> Int { return self.a() + self.b(); }
+
+
 fn Pair.a(&self) -> Int { return x; }
 
 fn Pair.b(&self) -> Int { return y; }

@@ -8,6 +8,11 @@ interface MultiDefault {
 
 type Item = { name: Str; }
 
+fn Item.first(self) -> Int { return 10; }
+
+fn Item.second(self) -> Str { return "ten"; }
+
+
 fn Item.label(&self) -> Str { return name; }
 
 fn main() -> Int {

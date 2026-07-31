@@ -8,6 +8,9 @@ interface Meta {
 
 type App = { n: Str; ver: Str; }
 
+fn App.meta(self) -> Str { return self.name() + " v" + self.version(); }
+
+
 fn App.name(&self) -> Str { return n; }
 
 fn App.version(&self) -> Str { return ver; }
