@@ -993,6 +993,36 @@ impl IrEmitter {
                                 }
                             }
                         }
+                        // M18: Pre-extract custom enum variant payloads for guard access.
+                        // For patterns like `Data(v) if v > 10`, the payload field
+                        // must be bound BEFORE the guard expression is evaluated.
+                        if let Pattern::Variant(variant_ident, fields, _) = &arm.pattern {
+                            if fields.len() == 1 {
+                                let field_ident = &fields[0];
+                                if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
+                                    let leaf_variant = variant_ident.name.rsplit('.').next().unwrap_or(&variant_ident.name);
+                                    if let Some(variants) = self.types.enum_variants.get(type_name) {
+                                        if let Some((_, vfields)) = variants.iter().find(|(vn, _)| vn == leaf_variant || vn == &variant_ident.name) {
+                                            if let Some(canonical) = vfields.first() {
+                                                if let Some(field_names) = self.types.types.get(type_name) {
+                                                    if let Some(fi) = field_names.iter().position(|f| f == canonical) {
+                                                        let field_llvm_ty = self.field_llvm_type(type_name, fi);
+                                                        let gep = self.fresh_tmp();
+                                                        self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {fi}"));
+                                                        let loaded = self.fresh_tmp();
+                                                        self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+                                                        let inner_alloca = self.fresh_tmp();
+                                                        self.emitln(&format!("  {inner_alloca} = alloca {field_llvm_ty}"));
+                                                        self.emitln(&format!("  store {field_llvm_ty} {loaded}, {field_llvm_ty}* {inner_alloca}"));
+                                                        self.add_local(&field_ident.name, inner_alloca, &field_llvm_ty);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         // Compile guard expression and check result
                         if let Some(ref guard_expr) = arm.guard {
                             // Determine fallback label
