@@ -898,14 +898,15 @@ impl IrEmitter {
             }
             Expr::Is(expr, pattern, _) => {
                 let (val, ty) = self.compile_expr(expr)?;
+                // Determine which variant we're checking (common to all paths)
+                let variant_name = match &pattern {
+                    xiom_ast::Pattern::Some(..) => "Some",
+                    xiom_ast::Pattern::None(..) => "None",
+                    xiom_ast::Pattern::Ok(..) => "Ok",
+                    xiom_ast::Pattern::Err(..) => "Err",
+                    _ => { return Ok(("1".to_string(), LLVM_I64.to_string())); }
+                };
                 if ty.starts_with("%struct.") {
-                    let variant_name = match &pattern {
-                        xiom_ast::Pattern::Some(..) => "Some",
-                        xiom_ast::Pattern::None(..) => "None",
-                        xiom_ast::Pattern::Ok(..) => "Ok",
-                        xiom_ast::Pattern::Err(..) => "Err",
-                        _ => { return Ok(("1".to_string(), LLVM_I64.to_string())); }
-                    };
                     let type_name = &ty[8..];
                     if let Some(variants) = self.types.enum_variants.get(type_name) {
                         if let Some((disc, _)) = variants.iter().enumerate()
@@ -979,6 +980,45 @@ impl IrEmitter {
                     } else {
                         let cmp = self.fresh_tmp();
                         self.emitln(&format!("  {cmp} = icmp eq i64 {loaded}, 0"));
+                        let ext = self.fresh_tmp();
+                        self.emitln(&format!("  {ext} = zext i1 {cmp} to i64"));
+                        return Ok((ext, LLVM_I64.to_string()));
+                    }
+                }
+                // M18: Handle `is` on i64 values (nested is-expressions, match-bound payloads).
+                // When `inner` was bound from `x is Some(inner)`, it's stored as i64.
+                // Interpret it as a pointer to a 2-field struct (disc, payload) and
+                // check the discriminant directly.
+                if ty == "i64" && matches!(variant_name, "Some" | "None" | "Ok" | "Err") {
+                    let ptr = self.fresh_tmp();
+                    self.emitln(&format!("  {ptr} = inttoptr i64 {val} to i64*"));
+                    let disc = self.fresh_tmp();
+                    self.emitln(&format!("  {disc} = load i64, i64* {ptr}"));
+                    // Bind payload if pattern has variable
+                    if let xiom_ast::Pattern::Some(inner, _)
+                        | xiom_ast::Pattern::Ok(inner, _)
+                        | xiom_ast::Pattern::Err(inner, _) = &pattern
+                    {
+                        if let xiom_ast::Pattern::Ident(id) = inner.as_ref() {
+                            let payload_ptr = self.fresh_tmp();
+                            self.emitln(&format!("  {payload_ptr} = getelementptr i64, i64* {ptr}, i64 1"));
+                            let payload = self.fresh_tmp();
+                            self.emitln(&format!("  {payload} = load i64, i64* {payload_ptr}"));
+                            let inner_alloca = self.fresh_tmp();
+                            self.emitln(&format!("  {inner_alloca} = alloca i64"));
+                            self.emitln(&format!("  store i64 {payload}, i64* {inner_alloca}"));
+                            self.add_local(&id.name, inner_alloca, "i64");
+                        }
+                    }
+                    if variant_name == "Some" || variant_name == "Ok" {
+                        let cmp = self.fresh_tmp();
+                        self.emitln(&format!("  {cmp} = icmp ne i64 {disc}, 0"));
+                        let ext = self.fresh_tmp();
+                        self.emitln(&format!("  {ext} = zext i1 {cmp} to i64"));
+                        return Ok((ext, LLVM_I64.to_string()));
+                    } else {
+                        let cmp = self.fresh_tmp();
+                        self.emitln(&format!("  {cmp} = icmp eq i64 {disc}, 0"));
                         let ext = self.fresh_tmp();
                         self.emitln(&format!("  {ext} = zext i1 {cmp} to i64"));
                         return Ok((ext, LLVM_I64.to_string()));
