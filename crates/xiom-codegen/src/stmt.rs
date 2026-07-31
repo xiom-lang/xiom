@@ -930,7 +930,7 @@ impl IrEmitter {
                                             self.emitln(&format!("  br label %{fail_block}"));
                                         }
                                     }
-                                    _ => { self.emitln(&format!("  br label %{fail_block}")); }
+                                    _ => { self.emitln(&format!("  br label %{arm_label}")); }
                                 }
                                 if !is_last {
                                     self.emitln(&format!("\n{fail_block}:"));
