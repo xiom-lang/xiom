@@ -1026,6 +1026,12 @@ impl Parser {
             TokenKind::While => { let stmt = self.parse_while_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::For => { let stmt = self.parse_for_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::Spawn if self.peek_ahead(1) == Some(&TokenKind::LBrace) => { let stmt = self.parse_spawn_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
+            TokenKind::LBrace => {
+                // Bare block expression: `{ stmt; ... }` as a statement or expression
+                let block = self.parse_block()?;
+                let span = block.span;
+                Ok(StmtOrExpr::Expr(xiom_ast::Expr::BlockExpr(block, span)))
+            }
             TokenKind::Ident(s) if s == "loop" && self.peek_ahead(1) == Some(&TokenKind::LBrace) => {
                 let span = self.advance().span; // consume 'loop'
                 let body = self.parse_block()?;

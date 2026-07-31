@@ -2458,7 +2458,7 @@ impl IrEmitter {
             }
             Expr::Await(inner, _) => self.compile_expr(inner),
             Expr::Comptime(inner, _) => self.compile_expr(inner),
-            Expr::Unsafe(block, _) => {
+            Expr::Unsafe(block, _) | Expr::BlockExpr(block, _) => {
                 // An `unsafe { ... }` block is an expression whose value is its
                 // tail. Compile every statement (Let/Var/Assign/Return/ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦) and
                 // return the value of the final expression, so

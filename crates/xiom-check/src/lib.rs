@@ -818,7 +818,7 @@ impl Checker {
                         xiom_ast::MatchBody::Expr(e) => Self::expr_uses_this(e),
                     })
             }
-            xiom_ast::Expr::Unsafe(b, _) => Self::block_uses_this(b),
+            xiom_ast::Expr::Unsafe(b, _) | xiom_ast::Expr::BlockExpr(b, _) => Self::block_uses_this(b),
             _ => false,
         }
     }
@@ -1415,7 +1415,7 @@ impl Checker {
                         }
                     }
                 }
-                Expr::Unsafe(b, _) => collect_block_names(b, out),
+                Expr::Unsafe(b, _) | Expr::BlockExpr(b, _) => collect_block_names(b, out),
                 _ => {}
             }
         }
@@ -2000,7 +2000,7 @@ impl Checker {
 
     fn expr_always_returns(expr: &Expr) -> bool {
         match expr {
-            Expr::Unsafe(block, _) => Self::block_always_returns(block),
+            Expr::Unsafe(block, _) | Expr::BlockExpr(block, _) => Self::block_always_returns(block),
             Expr::Paren(inner, _) => Self::expr_always_returns(inner),
             Expr::If(_, then_b, elifs, Some(else_b), _) => {
                 Self::block_always_returns(then_b)
@@ -2943,7 +2943,7 @@ impl Checker {
             }
             Expr::Await(inner, _) => self.check_expr(inner),
             Expr::Comptime(inner, _) => self.check_expr(inner),
-            Expr::Unsafe(block, _) => { self.check_block(block, None).unwrap_or(CheckedType::Unit) }
+            Expr::Unsafe(block, _) | Expr::BlockExpr(block, _) => { self.check_block(block, None).unwrap_or(CheckedType::Unit) }
             // 5c-R: Error-poisoned nodes carry an ErrorGuaranteed proof token.
             // Skip silently — a diagnostic was already emitted for this subtree.
             Expr::Error(_guarantee, _span) => CheckedType::Error,
@@ -3695,7 +3695,7 @@ impl BorrowChecker {
             Expr::Closure(_, _, _, _) | Expr::PipeClosure(_, _, _) => ExprResult::Value,
             Expr::Await(inner, _) => self.check_expr(inner),
             Expr::Comptime(inner, _) => self.check_expr(inner),
-            Expr::Unsafe(block, _) => { self.check_block(block); ExprResult::Value }
+            Expr::Unsafe(b, _) | Expr::BlockExpr(b, _) => { self.check_block(b); ExprResult::Value }
             Expr::As(inner, _, _) => {
                 self.check_expr(inner);
                 ExprResult::Value
