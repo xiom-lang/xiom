@@ -2538,6 +2538,8 @@ impl Checker {
                             "slice" if prim_ty == CheckedType::Str => return CheckedType::Str,
                             "starts_with" if prim_ty == CheckedType::Str => return CheckedType::Bool,
                             "ends_with" if prim_ty == CheckedType::Str => return CheckedType::Bool,
+                            // M21: Str.concat(other) — string concatenation method
+                            "concat" if prim_ty == CheckedType::Str => return CheckedType::Str,
                             _ => {}
                         }
                     }
