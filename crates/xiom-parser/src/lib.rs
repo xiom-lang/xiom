@@ -361,6 +361,12 @@ impl Parser {
             }
             TokenKind::Var => self.parse_module_var(),
             TokenKind::Extern => self.parse_extern_block(),
+            TokenKind::Spawn => {
+                // Module-level `spawn { ... }` statement (M21). Parse as a
+                // top-level declaration so it can appear in module bodies.
+                if is_pub { self.advance(); return Err(self.error("'pub' not valid on spawn declarations")); }
+                self.parse_spawn_top_decl()
+            }
             // `async` is a contextual keyword: when followed by `fn`, it
             // triggers async-fn parsing (delegated to parse_fn_decl).
             TokenKind::Ident(s) if s == "async" && self.peek_ahead(1) == Some(&TokenKind::Fn) => {
@@ -1322,6 +1328,12 @@ impl Parser {
     }
     fn parse_for_stmt(&mut self) -> Result<Stmt, ParseError> { let span = self.advance().span; let var = self.parse_ident()?; self.expect_kind(TokenKind::In, "'in'")?; let iter = self.parse_cond()?; let body = self.parse_block()?; Ok(Stmt::For(var, iter, body, span)) }
     fn parse_spawn_stmt(&mut self) -> Result<Stmt, ParseError> { let span = self.advance().span; let body = self.parse_block()?; Ok(Stmt::Spawn(body, span)) }
+    /// M21: Parse module-level `spawn { ... }` as a top-level declaration.
+    fn parse_spawn_top_decl(&mut self) -> Result<TopDecl, ParseError> {
+        let span = self.advance().span;
+        let body = self.parse_block()?;
+        Ok(TopDecl::Spawn(body, span))
+    }
 
     fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
         let span = self.peek().span;

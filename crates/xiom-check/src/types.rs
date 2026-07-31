@@ -117,7 +117,12 @@ impl CheckedType {
                     .collect();
                 CheckedType::Named(format!("Tuple__{}", elem_names.join("__")))
             }
-            Type::Ptr(_) => CheckedType::Named("Ptr".into()),
+            Type::Ptr(inner) => {
+                // Encode *T as "*Tname" to preserve pointee type for deref resolution.
+                // Previously this was always "Ptr", losing the target struct type.
+                let inner_name = CheckedType::from_ast_type(inner).name();
+                CheckedType::Named(format!("*{}", inner_name))
+            },
             Type::Array(_, _) => CheckedType::Named("Array".into()),
             Type::Fn(params, ret) => CheckedType::Fn(
                 params.iter().map(CheckedType::from_ast_type).collect(),
@@ -169,6 +174,12 @@ impl CheckedType {
             CheckedType::UInt | CheckedType::UInt8 | CheckedType::UInt16 |
             CheckedType::UInt32 | CheckedType::UInt64
         )
+    }
+
+    /// Return true if this is a pointer-like type: the generic `Ptr` or
+    /// a specific `*T` encoded as `"*Tname"`.
+    pub fn as_ptr_like(&self) -> bool {
+        matches!(self, CheckedType::Named(s) if s == "Ptr" || s.starts_with('*'))
     }
 
     pub fn name(&self) -> String {

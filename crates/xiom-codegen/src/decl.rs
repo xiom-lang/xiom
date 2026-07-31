@@ -499,8 +499,17 @@ impl IrEmitter {
     /// If a bare name already exists in emitted_fns, use module-qualified.
     pub(crate) fn fn_symbol(&self, fd: &FnDecl) -> String {
         let bare = self.fn_key(fd);
-        // Keep `main` as bare entry point regardless of module
-        if bare == "main" { return bare; }
+        // Keep `main` as bare entry point. If a second `main` is encountered
+        // (e.g. module-level `async fn main()` shadowing the real entry point),
+        // qualify the duplicate with its module name.
+        if bare == "main" {
+            if self.mono.emitted_fns.contains(&bare) {
+                if let Some(ref module) = self.local.current_module {
+                    return format!("{}.{}", module, bare);
+                }
+            }
+            return bare;
+        }
         // If bare name already emitted (collision from multi-file merge), qualify it
         if self.mono.emitted_fns.contains(&bare) {
             if let Some(ref module) = self.local.current_module {
@@ -564,6 +573,11 @@ impl IrEmitter {
                         .map(|r| self.types.generic_type_names.contains(&r.name))
                         .unwrap_or(false);
                     if !recv_is_generic && fd.body.is_some() {
+                        // M21: Skip empty-body `main` functions (e.g. `async fn main() {  }`)
+                        // that would shadow the real entry point in a brace-less module.
+                        let is_empty_main = fd.name.name == "main"
+                            && fd.body.as_ref().map_or(false, |b| b.stmts.is_empty());
+                        if is_empty_main { return Ok(()); }
                         let fn_name = self.fn_symbol(fd);
                         self.mono.emitted_fns.insert(fn_name.clone());
                         // 5e.5a: track pub functions for hot reload thunk dispatch
@@ -586,6 +600,11 @@ impl IrEmitter {
                     self.compile_top_decl(sub)?;
                 }
                 self.local.current_module = saved_module;
+                Ok(())
+            }
+            TopDecl::Spawn(_block, _) => {
+                // M21: Module-level spawn blocks are compiled inline at
+                // program init. For now, skip — spawn is a no-op runtime.
                 Ok(())
             }
             TopDecl::Interface(_) | TopDecl::Enum(_) | TopDecl::Const(_) | TopDecl::Type(_) | TopDecl::Use(_) | TopDecl::Extern(_) | TopDecl::Impl(_) => Ok(()),

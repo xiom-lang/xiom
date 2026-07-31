@@ -960,6 +960,12 @@ impl Checker {
                 // `register_global_const` so references resolve regardless of order.)
             }
             TopDecl::Extern(_) => {} // extern blocks have no type info to register
+            TopDecl::Spawn(body, _span) => {
+                // M21: Type-check module-level spawn block body.
+                self.push_scope();
+                self.check_block(body, None);
+                self.pop_scope();
+            }
             _ => {}
         }
     }
@@ -2252,12 +2258,16 @@ impl Checker {
                     UnaryOp::Ref | UnaryOp::MutRef => inner_ty, // reference keeps the type
                     UnaryOp::BitNot => inner_ty, // bitwise not preserves integer type
                     UnaryOp::Deref => {
-                        // *p: strip pointer type — *Ptr[T] → T, *Ptr → Int
-                        if inner_ty == CheckedType::Named("Ptr".into()) {
-                            CheckedType::Int
-                        } else {
-                            inner_ty
+                        // *p: strip pointer type — *Ptr[T] → T, *T → T (encoded as "*Tname")
+                        if let CheckedType::Named(ref name) = inner_ty {
+                            if let Some(inner_name) = name.strip_prefix('*') {
+                                return CheckedType::from_str(inner_name);
+                            }
+                            if name == "Ptr" {
+                                return CheckedType::Int;
+                            }
                         }
+                        inner_ty
                     }
                 }
             }
@@ -2926,11 +2936,11 @@ impl Checker {
                     _ if inner_resolved == CheckedType::Char && target_resolved.is_integer() => target_ty,
                     _ if inner_resolved.is_integer() && target_resolved == CheckedType::Char => target_ty,
                     // 5c-E: Int ↔ Ptr casts (raw pointer FFI, ptr.xi)
-                    (CheckedType::Int, CheckedType::Named(s)) if s == "Ptr" => target_ty,
-                    (CheckedType::Named(s), CheckedType::Int) if s == "Ptr" => target_ty,
+                    (CheckedType::Int, CheckedType::Named(s)) if s == "Ptr" || s.starts_with('*') => target_ty,
+                    (CheckedType::Named(s), CheckedType::Int) if s == "Ptr" || s.starts_with('*') => target_ty,
                     // 5c-E: Vec/Slice/Array → Ptr cast (Vulkan FFI: pass buffer to extern)
                     (CheckedType::Named(s), CheckedType::Named(t))
-                        if t == "Ptr" && (s == "Vec" || s == "Slice") => target_ty,
+                        if (t == "Ptr" || t.starts_with('*')) && (s == "Vec" || s == "Slice") => target_ty,
                     // 5e.2 G-34: fn-ptr ↔ Int casts (COM vtables, callback registries).
                     (CheckedType::Int, CheckedType::Fn(..)) => target_ty,
                     (CheckedType::Fn(..), CheckedType::Int) => target_ty,
@@ -3039,7 +3049,7 @@ impl Checker {
         }
         // 5c-E: Scalar types are compatible with raw Ptr when passed by reference
         // (&T -> *T for extern FFI calls). The codegen emits the pointer address.
-        if expected == &CheckedType::Named("Ptr".into())
+        if expected.as_ptr_like()
             && (found.is_numeric() || found == &CheckedType::Bool)
         {
             return true;

@@ -586,6 +586,8 @@ pub enum TopDecl {
     Const(ConstDecl),
     Extern(ExternBlock),
     Impl(ImplDecl),
+    /// Module-level `spawn { ... }` block (M21 async statement at top level).
+    Spawn(Block, Span),
 }
 
 // ============================================================================
