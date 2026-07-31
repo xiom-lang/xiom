@@ -129,6 +129,21 @@ impl Lexer {
         s
     }
 
+    /// Parse a numeric literal suffix: i8, i16, i32, i64, u8, u16, u32, u64, f32, f64.
+    /// Returns the suffix string if found, empty string otherwise.
+    fn parse_numeric_suffix(&mut self) -> String {
+        let saved = self.pos;
+        let prefix = match self.peek() {
+            Some('i') | Some('u') => self.advance().unwrap().to_string(),
+            Some('f') => { self.advance(); "f".to_string() }
+            _ => return String::new(),
+        };
+        let width = self.advance_while(|c| c.is_ascii_digit());
+        let suffix = format!("{prefix}{width}");
+        let valid = matches!(suffix.as_str(), "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "f32" | "f64");
+        if valid { suffix } else { self.pos = saved; String::new() }
+    }
+
     pub fn tokenize(&mut self) -> Vec<Token> {
         // M10: Shebang support — skip `#!/usr/bin/env xiom` on line 1.
         // The shebang line is treated as a comment for line-number preservation.
@@ -198,7 +213,9 @@ impl Lexer {
                     self.advance(); // consume 'x' or 'X'
                     let hex = self.advance_while(|c| c.is_ascii_hexdigit() || c == '_');
                     let num: u64 = u64::from_str_radix(&hex.replace('_', ""), 16).unwrap_or(0);
-                    return Token::new(TokenKind::Int(num), start, format!("0x{hex}"));
+                    let suffix = self.parse_numeric_suffix();
+                    let lexeme = if suffix.is_empty() { format!("0x{hex}") } else { format!("0x{hex}{suffix}") };
+                    return Token::new(TokenKind::Int(num), start, lexeme);
                 }
                 let int_part = self.advance_while(|c| c.is_ascii_digit() || c == '_');
                 if self.peek() == Some('.') && self.peek_n(1).map_or(false, |c| c.is_ascii_digit()) {
@@ -216,7 +233,9 @@ impl Lexer {
                     }
                     let full = format!("{int_part}.{frac}{exp}");
                     let num: f64 = full.parse().unwrap_or(0.0);
-                    Token::new(TokenKind::Float(num), start, full)
+                    let suffix = self.parse_numeric_suffix();
+                    let lexeme = if suffix.is_empty() { full } else { format!("{full}{suffix}") };
+                    Token::new(TokenKind::Float(num), start, lexeme)
                 } else {
                     // Also handle integer scientific notation: 1e10
                     if matches!(self.peek(), Some('e' | 'E')) {
@@ -228,10 +247,14 @@ impl Lexer {
                         let exp_digits = self.advance_while(|c| c.is_ascii_digit());
                         exp.push_str(&exp_digits);
                         let num: f64 = exp.parse().unwrap_or(0.0);
-                        return Token::new(TokenKind::Float(num), start, exp);
+                        let suffix = self.parse_numeric_suffix();
+                        let lexeme = if suffix.is_empty() { exp } else { format!("{exp}{suffix}") };
+                        return Token::new(TokenKind::Float(num), start, lexeme);
                     }
                     let num: u64 = int_part.replace('_', "").parse().unwrap_or(0);
-                    Token::new(TokenKind::Int(num), start, int_part)
+                    let suffix = self.parse_numeric_suffix();
+                    let lexeme = if suffix.is_empty() { int_part } else { format!("{int_part}{suffix}") };
+                    Token::new(TokenKind::Int(num), start, lexeme)
                 }
             }
 
