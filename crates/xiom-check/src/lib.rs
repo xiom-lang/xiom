@@ -333,7 +333,7 @@ impl Checker {
         self.types.contains_key(name)
     }
 
-    fn add_pattern_bindings(&mut self, pattern: &Pattern) {
+    fn add_pattern_bindings(&mut self, pattern: &Pattern, scrutinee_type: &CheckedType) {
         if let Pattern::Variant(_name, _, _) = pattern {
         }
         match pattern {
@@ -342,9 +342,8 @@ impl Checker {
                 if self.enum_variants.contains_key(&name.name) || self.resolve_enum_variant(&name.name).is_some() {
                     return;
                 }
-                // Use Error type to suppress cascade errors — interface dispatch
-                // in the Call handler resolves the actual type on demand.
-                self.add_local(&name.name, CheckedType::Error);
+                // Use scrutinee type for proper guard/binding resolution
+                self.add_local(&name.name, scrutinee_type.clone());
             }
             Pattern::Variant(name, fields, _) => {
                 // Look up variant field types for correct binding types.
@@ -396,12 +395,12 @@ impl Checker {
                         self.add_local(&name.name, CheckedType::Named("_".into()));
                     }
                 } else {
-                    self.add_pattern_bindings(inner);
+                    self.add_pattern_bindings(inner, scrutinee_type);
                 }
             }
             Pattern::Or(alts, _) => {
                 for alt in alts {
-                    self.add_pattern_bindings(alt);
+                    self.add_pattern_bindings(alt, scrutinee_type);
                 }
             }
             Pattern::Wildcard(_) | Pattern::None(_) | Pattern::Lit(_) => {}
@@ -2126,7 +2125,11 @@ impl Checker {
                 for arm in arms {
                     self.push_scope();
                     // Add pattern bindings to scope
-                    self.add_pattern_bindings(&arm.pattern);
+                    self.add_pattern_bindings(&arm.pattern, &matched_ty);
+                    // Check guard expression if present
+                    if let Some(ref guard) = arm.guard {
+                        self.check_expr(guard);
+                    }
                     match &arm.body {
                         MatchBody::Block(b) => { self.check_block(b, None); }
                         MatchBody::Expr(e) => { self.check_expr(e); }
@@ -2953,14 +2956,17 @@ impl Checker {
                 }
             }
             Expr::Match(scrutinee, arms, _) => {
-                self.check_expr(scrutinee);
+                let scr_ty = self.check_expr(scrutinee);
                 // The value of a match-expression is the type of its arm bodies.
                 // Return the first arm's body type (or Unit for an empty match).
                 let mut result_ty = CheckedType::Unit;
                 let mut first = true;
                 for arm in arms {
                     self.push_scope();
-                    self.add_pattern_bindings(&arm.pattern);
+                    self.add_pattern_bindings(&arm.pattern, &scr_ty);
+                    if let Some(ref guard) = arm.guard {
+                        self.check_expr(guard);
+                    }
                     let arm_ty = match &arm.body {
                         MatchBody::Block(b) => self.check_block(b, None).unwrap_or(CheckedType::Unit),
                         MatchBody::Expr(e) => self.check_expr(e),
