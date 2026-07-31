@@ -1695,6 +1695,56 @@ impl Parser {
                     self.pos = saved;
                     break;
                 }
+                TokenKind::LBrace if !self.restrict_struct => {
+                    // Qualified struct literal: `Shape.Circle { r: 5.0 }`
+                    // `Path.Type { field: value }` or `Enum.Variant { field: value }`
+                    let looks_like_struct = {
+                        let after_brace = self.peek_ahead(1);
+                        match after_brace {
+                            Some(TokenKind::RBrace) => true,
+                            Some(TokenKind::Ident(_)) => {
+                                let third = self.peek_ahead(2);
+                                matches!(third, Some(TokenKind::Colon) | Some(TokenKind::Comma)
+                                    | Some(TokenKind::Semicolon) | Some(TokenKind::RBrace))
+                            }
+                            _ => false,
+                        }
+                    };
+                    if looks_like_struct {
+                        let path_name = match &expr {
+                            Expr::Ident(id) => id.name.clone(),
+                            Expr::Field(obj, field, _) => {
+                                let mut name = String::new();
+                                fn collect_path(expr: &Expr, out: &mut String) {
+                                    match expr {
+                                        Expr::Ident(id) => { if !out.is_empty() { out.push('.'); } out.push_str(&id.name); }
+                                        Expr::Field(base, field, _) => { collect_path(base, out); out.push('.'); out.push_str(&field.name); }
+                                        _ => {}
+                                    }
+                                }
+                                collect_path(&obj, &mut name);
+                                if !name.is_empty() { name.push('.'); }
+                                name.push_str(&field.name);
+                                name
+                            }
+                            _ => return Err(self.error("expected type name before '{'")),
+                        };
+                        self.advance(); // consume '{'
+                        let mut fields = Vec::new();
+                        while !self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Dot | TokenKind::Eof)) {
+                            let fname = self.parse_ident()?;
+                            if self.skip(TokenKind::Colon) { let fval = self.parse_expr()?; fields.push((fname, fval)); }
+                            else { fields.push((fname.clone(), Expr::Ident(fname))); }
+                            self.skip(TokenKind::Comma); self.skip(TokenKind::Semicolon);
+                        }
+                        let spread = if self.skip(TokenKind::Dot) { self.expect_kind(TokenKind::Dot, "'.' for spread")?; let s = self.parse_expr()?; Some(Box::new(s)) } else { None };
+                        self.expect_kind(TokenKind::RBrace, "'}'")?;
+                        let span = expr.span();
+                        expr = Expr::Struct(Ident::new(path_name, span), fields, spread, span);
+                        continue;
+                    }
+                    break;
+                }
                 _ => break,
             }
         }
