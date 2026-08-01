@@ -985,6 +985,30 @@ impl Parser {
             let ret = if self.skip(TokenKind::Arrow) { self.parse_type()? } else { Type::Named(Ident::new("Unit", Span::new(0, 0)), vec![]) };
             return Ok(Type::Fn(param_types, Box::new(ret)));
         }
+        // 5c.33: Anonymous struct type `{ field: Type; field: Type; }` —
+        // used in generic function signatures like `fn f(p: {a: A; b: B}) -> {c: C}`.
+        // Encoded as a named type with a synthetic name based on field signature.
+        if self.peek_kind() == &TokenKind::LBrace {
+            let start = self.advance().span;
+            let mut field_names = Vec::new();
+            let mut field_type_names = Vec::new();
+            loop {
+                if self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Eof)) { break; }
+                let fname = self.parse_ident()?;
+                self.expect_kind(TokenKind::Colon, "':'")?;
+                let fty = self.parse_type()?;
+                field_names.push(fname.name.clone());
+                field_type_names.push(match &fty { Type::Named(id, _) => id.name.clone(), _ => format!("{:?}", fty) });
+                if !self.skip(TokenKind::Semicolon) && !self.skip(TokenKind::Comma) { break; }
+            }
+            self.expect_kind(TokenKind::RBrace, "'}'")?;
+            // Build synthetic name: _Anon__field1_Type1__field2_Type2
+            let parts: Vec<String> = field_names.iter().zip(&field_type_names)
+                .map(|(n, t)| format!("{n}_{t}"))
+                .collect();
+            let anon_name = format!("_Anon__{}", parts.join("__"));
+            return Ok(Type::Named(Ident::new(anon_name, start), vec![]));
+        }
         let mut name = self.parse_ident()?;
         while self.skip(TokenKind::Dot) {
             let next = self.parse_ident()?;
