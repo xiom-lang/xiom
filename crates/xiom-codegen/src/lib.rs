@@ -1431,6 +1431,10 @@ impl IrEmitter {
         None
     }
 
+    pub(crate) fn should_store_back_method(&self, fn_key: &str) -> bool {
+        self.types.by_value_self_methods.contains(fn_key)
+    }
+
     fn resolve_vec_elem_type(&self, container: &Expr) -> Option<String> {
         // 5c.30: local Vec bindings (`var v = Vec[Point2D].new()`): the elem
         // type was recorded at the let/var binding. Only struct element types

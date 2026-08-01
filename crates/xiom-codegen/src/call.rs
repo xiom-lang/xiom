@@ -2493,15 +2493,28 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         if ret_ty == "void" {
                             self.emitln(&format!("  call void @{thunk_name}({args_str})"));
                             Ok((String::new(), "void".to_string()))
-                        } else {
-                            self.emitln(&format!("  {tmp} = call {ret_ty} @{thunk_name}({args_str})"));
-                            Ok((tmp, ret_ty.clone()))
+                    } else {
+                        self.emitln(&format!("  {tmp} = call {ret_ty} @{thunk_name}({args_str})"));
+                        // Store result back to receiver for by-value self methods
+                        // (Counter.inc(self) pattern). &self (reference) methods
+                        // mutate through the pointer and don't need store-back.
+                        if let Some(receiver) = receiver_expr {
+                            if ret_ty.starts_with("%struct.") && self.should_store_back_method(&resolved_fn_key) {
+                                self.store_back_to_receiver(receiver, &tmp, &ret_ty);
+                            }
                         }
+                        Ok((tmp, ret_ty.clone()))
+                    }
                     } else if ret_ty == "void" {
                         self.emitln(&format!("  call void @{resolved_fn_key}({args_str})"));
                         Ok((String::new(), "void".to_string()))
                     } else {
                         self.emitln(&format!("  {tmp} = call {ret_ty} @{resolved_fn_key}({args_str})"));
+                        if let Some(receiver) = receiver_expr {
+                            if ret_ty.starts_with("%struct.") && self.should_store_back_method(&resolved_fn_key) {
+                                self.store_back_to_receiver(receiver, &tmp, &ret_ty);
+                            }
+                        }
                         Ok((tmp, ret_ty.clone()))
                     }
                 }

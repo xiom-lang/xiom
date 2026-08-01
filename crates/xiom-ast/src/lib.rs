@@ -385,6 +385,8 @@ pub struct Param {
     pub span: Span,
     /// `true` when this param was declared as `&mut self` (mutable receiver).
     pub is_mut_self: bool,
+    /// `true` when this param was declared as `&self` (ref receiver).
+    pub is_ref_self: bool,
 }
 
 // ============================================================================

@@ -360,6 +360,17 @@ impl IrEmitter {
                 .unwrap_or_else(|| "void".to_string());
             let key = self.fn_key(fd);
             self.types.functions.insert(key.clone(), (param_types.clone(), ret_type.clone()));
+            // Track by-value self methods (not &self) for store_back.
+            // A by-value self method has a self param that is NOT &self/&mut self/*self.
+            if fd.receiver.is_some() {
+                let is_by_value_self = fd.params.iter().any(|p| {
+                    p.name.name == "self" && !p.is_ref_self && !p.is_mut_self
+                        && !matches!(&p.ty, Type::Ref(_) | Type::MutRef(_) | Type::Ptr(_))
+                });
+                if is_by_value_self {
+                    self.types.by_value_self_methods.insert(key.clone());
+                }
+            }
             // 5c.30: keep the declared XIOM return type WITH generic args so
             // Option/Result payload types survive LLVM erasure.
             if let Some(rt) = fd.return_type.as_ref() {
