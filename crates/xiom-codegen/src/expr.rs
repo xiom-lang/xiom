@@ -335,9 +335,9 @@ impl IrEmitter {
                         .collect();
                     let name = format!("Tuple__{}", elem_types.join("__"));
                     if !self.types.type_meta.contains_key(&name) {
-                        let field_names: Vec<String> = (0..elem_types.len()).map(|i| format!("{i}")).collect();
+                        let field_names: Vec<String> = (0..elem_types.len()).map(|i| format!("_{i}")).collect();
                         let field_llvm: Vec<(String, String)> = elem_types.iter().enumerate()
-                            .map(|(i, tn)| (format!("{i}"), tn.clone()))
+                            .map(|(i, tn)| (format!("_{i}"), tn.clone()))
                             .collect();
                         self.types.types.insert(name.clone(), field_names);
                         self.types.type_meta.entry(name.clone()).or_insert_with(|| TypeMeta {
@@ -1151,15 +1151,17 @@ impl IrEmitter {
                             let pointee = ptr_ty.trim_end_matches('*').to_string();
                             if pointee.starts_with("%struct.") {
                                 let type_name = &pointee[8..];
-                                if let Some(field_names) = self.types.types.get(type_name)
-                                    .or_else(|| {
-                                        let suffix = format!(".{type_name}");
-                                        self.types.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
-                                            .and_then(|k| self.types.types.get(k))
-                                    })
-                                    .cloned() {
-                                    if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
-                                        let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
+                            if let Some(field_names) = self.types.types.get(type_name)
+                                .or_else(|| {
+                                    let suffix = format!(".{type_name}");
+                                    self.types.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                        .and_then(|k| self.types.types.get(k))
+                                })
+                            {
+                                // DEBUG: log field lookup
+                                eprintln!("FIELD_LOOKUP type={type_name} field={} names={field_names:?}", field.name);
+                                if let Some(field_idx) = IrEmitter::resolve_field_index(&field_names, &field.name) {
+                                    let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
                                         let gep = self.fresh_tmp();
                                         let loaded = self.fresh_tmp();
                                         self.emitln(&format!("  {gep} = getelementptr {pointee}, {ptr_ty} {ptr_val}, i32 0, i32 {field_idx}"));
@@ -1268,6 +1270,7 @@ impl IrEmitter {
                         if llvm_ty.starts_with("%struct.") && !llvm_ty.ends_with('*') {
                             // Find field index
                             let type_name = &llvm_ty[8..];
+                            eprintln!("FIELD_ACCESS type={type_name} field={} in_types={}", field.name, self.types.types.contains_key(type_name));
                             if let Some(field_names) = self.types.types.get(type_name)
                                 .or_else(|| {
                                     let suffix = format!(".{type_name}");
