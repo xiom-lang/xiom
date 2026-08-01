@@ -802,9 +802,32 @@ impl Program {
             methods
         }
 
+        // Collect ALL declared type names (TypeDecl + EnumDecl), recursing into
+        // modules, so the auto-detect pass knows about types with zero inherent
+        // methods (e.g. `type Cat = {}` that should still receive interface defaults).
+        fn collect_declared_types(items: &[TopDecl]) -> Vec<String> {
+            let mut names = Vec::new();
+            for item in items {
+                match item {
+                    TopDecl::Type(td) => { names.push(td.name.name.clone()); }
+                    TopDecl::Enum(ed) => { names.push(ed.name.name.clone()); }
+                    TopDecl::Module(md) => {
+                        names.extend(collect_declared_types(&md.items));
+                    }
+                    _ => {}
+                }
+            }
+            names
+        }
+
         let interface_defaults = collect_interface_defaults(&self.items);
         let interface_required = collect_interface_required(&self.items);
-        let inherent_methods = collect_inherent_methods(&self.items);
+        let mut inherent_methods = collect_inherent_methods(&self.items);
+        // Merge bare type declarations (types with NO inherent methods) into
+        // the map so auto-detect considers them for interface defaults.
+        for type_name in collect_declared_types(&self.items) {
+            inherent_methods.entry(type_name).or_default();
+        }
 
         // Helper: expand impl blocks in a list of items, recursing into modules.
         // Also auto-detects types that satisfy interfaces through inherent methods.
@@ -873,7 +896,11 @@ impl Program {
                 names
             }
             let already_emitted = collect_fn_names(&out);
-            for (iface_name, required_methods) in interface_required {
+            // Auto-detect: iterate over all interfaces that have defaults.
+            // Interfaces with only default methods (no required) still need
+            // expansion for every type (e.g. `interface Greeter { fn greet() -> Str { return "hello"; } }`).
+            for (iface_name, defaults) in interface_defaults.iter() {
+                let required_methods = interface_required.get(iface_name).cloned().unwrap_or_default();
                 for (type_name, type_methods) in inherent_methods {
                     // Skip if explicit impl already exists
                     if seen_impls.contains(&(type_name.clone(), iface_name.clone())) { continue; }
