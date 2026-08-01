@@ -2149,6 +2149,12 @@ impl IrEmitter {
                                 for (fname, ftype) in &meta.fields {
                                     if fname == &field.name {
                                         let clean = ftype.trim_start_matches('*');
+                                        // 5c.31: Skip primitive types (Int, Bool, etc.)
+                                        // — `%struct.Int` is not a valid LLVM type.
+                                        // Primitive field matches use plain values.
+                                        if Self::is_primitive_type_name(clean) {
+                                            return None;
+                                        }
                                         if self.types.type_meta.contains_key(clean) {
                                             return Some(clean.to_string());
                                         }
