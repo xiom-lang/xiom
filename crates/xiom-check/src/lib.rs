@@ -2317,10 +2317,13 @@ impl Checker {
                         CheckedType::Bool
                     }
                     UnaryOp::Ref | UnaryOp::MutRef => {
-                        // 5c.32: &expr produces a pointer type *InnerType
+                        // 5c.32: &expr produces a pointer type *InnerType for
+                        // known struct types. Generic params (T, K, V) stay bare.
                         let inner_name = inner_ty.name();
-                        if inner_name.starts_with('*') {
-                            inner_ty // already a pointer
+                        let is_generic = inner_name.len() == 1
+                            && inner_name.chars().next().map_or(false, |c| c.is_ascii_uppercase());
+                        if is_generic || inner_name.starts_with('*') {
+                            inner_ty
                         } else {
                             CheckedType::Named(format!("*{}", inner_name))
                         }
@@ -2881,11 +2884,15 @@ impl Checker {
             }
             Expr::AtPre(inner, _) => self.check_expr(inner),
             Expr::Ref(inner, _) | Expr::MutRef(inner, _) => {
-                // 5c.32: &expr produces a pointer type *InnerType
+                // 5c.32: &expr produces a pointer type *InnerType for known
+                // struct types. Generic params (single uppercase letters like
+                // T, K, V) are left bare — the concrete type isn't known yet.
                 let inner_ty = self.check_expr(inner);
                 let inner_name = inner_ty.name();
-                if inner_name.starts_with('*') {
-                    inner_ty // already a pointer
+                let is_generic = inner_name.len() == 1
+                    && inner_name.chars().next().map_or(false, |c| c.is_ascii_uppercase());
+                if is_generic || inner_name.starts_with('*') {
+                    inner_ty // generic or already a pointer — leave as-is
                 } else {
                     CheckedType::Named(format!("*{}", inner_name))
                 }
