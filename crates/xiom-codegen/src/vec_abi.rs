@@ -105,6 +105,53 @@ impl IrEmitter {
         prev
     }
 
+    /// Compile an array literal `[e1, e2, ...]` into a proper `%struct.Vec`
+    /// value, handling malloc + per-element copy. Used when an array literal
+    /// appears in a context that expects a Vec (e.g., `Some([1,2,3])`).
+    pub(crate) fn compile_array_as_vec(&mut self, elems: &[xiom_ast::Expr], elem_xiom_type: &str) -> Result<(String, String), String> {
+        let n = elems.len() as i64;
+        let elem_size: i64 = 8; // TODO: infer from elem type
+        let initial_cap = n.max(16);
+        let alloc_size = initial_cap * elem_size;
+        // Allocate Vec struct on stack
+        let vec_alloca = self.fresh_tmp();
+        self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
+        // malloc data buffer
+        let data_ptr = self.fresh_tmp();
+        self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 {alloc_size})"));
+        let null_check = self.fresh_tmp();
+        let ok_block = self.fresh_block("arr2vec_ok");
+        let trap_block = self.fresh_block("arr2vec_trap");
+        self.emitln(&format!("  {null_check} = icmp eq i8* {data_ptr}, null"));
+        self.emitln(&format!("  br i1 {null_check}, label %{trap_block}, label %{ok_block}"));
+        self.emitln(&format!("\n{trap_block}:"));
+        self.emitln("  call void @llvm.trap()");
+        self.emitln("  unreachable");
+        self.emitln(&format!("\n{ok_block}:"));
+        // Store data ptr, len, cap, elem_size
+        let dg = self.fresh_tmp(); self.emitln(&format!("  {dg} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 0"));
+        self.emitln(&format!("  store i8* {data_ptr}, i8** {dg}"));
+        let lg = self.fresh_tmp(); self.emitln(&format!("  {lg} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 1"));
+        self.emitln(&format!("  store i64 {n}, i64* {lg}"));
+        let cg = self.fresh_tmp(); self.emitln(&format!("  {cg} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 2"));
+        self.emitln(&format!("  store i64 {initial_cap}, i64* {cg}"));
+        let eg = self.fresh_tmp(); self.emitln(&format!("  {eg} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 3"));
+        self.emitln(&format!("  store i64 {elem_size}, i64* {eg}"));
+        // Copy elements into buffer
+        for (i, e) in elems.iter().enumerate() {
+            let (ev, ety) = self.compile_expr(e)?;
+            let ev_i64 = self.val_to_i64(&ev, &ety);
+            let offset = i as i64 * elem_size;
+            let dest = self.fresh_tmp();
+            self.emitln(&format!("  {dest} = getelementptr i8, i8* {data_ptr}, i64 {offset}"));
+            let dest_i64 = self.fresh_tmp();
+            self.emitln(&format!("  {dest_i64} = bitcast i8* {dest} to i64*"));
+            self.emitln(&format!("  store i64 {ev_i64}, i64* {dest_i64}"));
+        }
+        let loaded = self.emit_vec_load_fields(&vec_alloca);
+        Ok((loaded, "%struct.Vec".to_string()))
+    }
+
     /// Returns true if `container` is a field access on a struct and the
     /// field's type in type_meta is a generic container (Vec[..], Map[..], etc.)
     pub(crate) fn is_container_vec_field(&self, container: &Expr) -> bool {

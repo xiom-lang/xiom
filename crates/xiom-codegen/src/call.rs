@@ -674,7 +674,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         } else {
                         let (recv_val, recv_actual_ty) = self.compile_expr(receiver)?;
                         let (recv_vec, _) = self.resolve_vec_receiver(receiver, &recv_val, &recv_actual_ty);
-                        let (val_raw, val_ty) = self.compile_expr(&args[0])?;
+                        // Convert array literals → Vec structs for push arguments
+                        let (val_raw, val_ty) = if let Expr::Array(elems, _) = &args[0] {
+                            self.compile_array_as_vec(elems, "Int")?
+                        } else {
+                            self.compile_expr(&args[0])?
+                        };
                         // G4: Float64->Float32 coercion for Vec[Float32] push.
                         // val_to_i64 bitcasts double→i64 preserving all 64 bits,
                         // but emit_elem_store truncates to i32 for 4-byte slots,
