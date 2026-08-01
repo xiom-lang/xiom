@@ -1767,9 +1767,13 @@ impl IrEmitter {
                 } else {
                     self.compile_expr(inner)?
                 };
-                // Use the function's return type so concrete monomorphised
-                // types (Option__Point) get the correct struct layout (B-001).
-                let opt_ty = if self.fctx.current_return_type.starts_with("%struct.") {
+                // Use the function's return type for concrete monomorphised
+                // Option types (Option__Point). Only applies when the return
+                // type actually IS an Option variant; for non-Option returns
+                // (e.g. a struct wrapping Option fields), use the default.
+                // 5c.35: Check that current_return_type is an Option-like struct.
+                let ret_is_option = self.fctx.current_return_type.contains("Option");
+                let opt_ty = if ret_is_option && self.fctx.current_return_type.starts_with("%struct.") {
                     self.fctx.current_return_type.clone()
                 } else {
                     "%struct.Option".to_string()

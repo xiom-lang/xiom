@@ -3271,8 +3271,16 @@ impl IrEmitter {
                         } else {
                             id.name.clone()
                         };
-                        if struct_types.contains(&raw) {
-                            format!("%struct.{raw}")
+                        // 5c.35: Check both bare and module-qualified struct names.
+                        // `struct_types` may contain "module.Type" while `raw` is "Type".
+                        let is_struct = struct_types.contains(&raw)
+                            || struct_types.iter().any(|k| k.ends_with(&format!(".{}", raw)));
+                        if is_struct {
+                            let qualified = struct_types.iter()
+                                .find(|k| **k == raw || k.ends_with(&format!(".{}", raw)))
+                                .cloned()
+                                .unwrap_or(raw);
+                            format!("%struct.{qualified}")
                         } else {
                             Self::xiom_to_llvm_type(&raw).to_string()
                         }
