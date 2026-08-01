@@ -4255,6 +4255,17 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 if then_ty == "double" || else_ty == "double" { "double".to_string() } else { "i64".to_string() }
             }
             Expr::Match(_scrutinee, arms, _) => self.infer_match_llvm_type(arms),
+            Expr::Index(container, _, _) => {
+                // For indexed Vec elements, return the element's struct type.
+                if let Some(elem_type_name) = self.resolve_vec_elem_type(container) {
+                    return format!("%struct.{elem_type_name}");
+                }
+                let cont_ty = self.infer_llvm_type(container);
+                if cont_ty == "%struct.Vec" || cont_ty.contains("struct.Vec") {
+                    return "%struct.Vec".to_string();
+                }
+                "i64".to_string()
+            }
             _ => "i64".to_string(),
         }
     }
