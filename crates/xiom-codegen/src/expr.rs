@@ -1640,7 +1640,13 @@ impl IrEmitter {
             }
             Expr::Some(inner, _) => {
                 self.types.used_builtins.insert("Option".to_string());
-                let (val, inner_ty) = self.compile_expr(inner)?;
+                // If the inner expression is an array literal, convert it to a Vec
+                // struct so the Option payload is a proper Vec, not a raw buffer.
+                let (val, inner_ty) = if let Expr::Array(elems, _) = inner.as_ref() {
+                    self.compile_array_as_vec(elems, "Int")?
+                } else {
+                    self.compile_expr(inner)?
+                };
                 // Use the function's return type so concrete monomorphised
                 // types (Option__Point) get the correct struct layout (B-001).
                 let opt_ty = if self.fctx.current_return_type.starts_with("%struct.") {
