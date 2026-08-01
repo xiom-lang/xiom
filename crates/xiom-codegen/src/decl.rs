@@ -291,6 +291,11 @@ impl IrEmitter {
             for p in &fd.params {
                 self.ensure_tuple_type_registered(&p.ty);
             }
+            // 5c.33: Register anonymous struct types so field access works
+            fd.return_type.as_ref().map(|t| self.register_anon_struct_from_ast(t));
+            for p in &fd.params {
+                self.register_anon_struct_from_ast(&p.ty);
+            }
             let mut param_types: Vec<String> = Vec::new();
             // Detect self param: either named "self" OR receiver-style first
             // param. G-20 fix: receiver-style `fn T.method(h: &T, ...)` applies

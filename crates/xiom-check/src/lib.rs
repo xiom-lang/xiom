@@ -832,6 +832,45 @@ impl Checker {
         }
     }
 
+    /// 5c.33: Register anonymous struct types encountered in function
+    /// signatures so field access works correctly. Walks an AST Type tree
+    /// and registers any `AnonStruct` variants in `self.types`.
+    fn register_anon_struct_from_ast(&mut self, ty: &Type) {
+        match ty {
+            // Anonymous struct: register the field types under the synthetic name
+            Type::AnonStruct(fields) => {
+                let parts: Vec<String> = fields.iter()
+                    .map(|f| format!("{}_{}", f.name.name, CheckedType::from_ast_type(&f.ty).name()))
+                    .collect();
+                let anon_name = format!("_Anon__{}", parts.join("__"));
+                if !self.types.contains_key(&anon_name) {
+                    let field_map: HashMap<String, CheckedType> = fields.iter()
+                        .map(|f| (f.name.name.clone(), CheckedType::from_ast_type(&f.ty)))
+                        .collect();
+                    self.types.insert(anon_name, field_map);
+                }
+            }
+            // Walk nested type constructs that may contain anonymous structs
+            Type::Ref(inner) | Type::MutRef(inner) | Type::Ptr(inner)
+            | Type::Option(inner) | Type::Vec(inner) | Type::Slice(inner)
+            | Type::Set(inner) => self.register_anon_struct_from_ast(inner),
+            Type::Result(ok, err) => {
+                self.register_anon_struct_from_ast(ok);
+                self.register_anon_struct_from_ast(err);
+            }
+            Type::Map(k, v) => {
+                self.register_anon_struct_from_ast(k);
+                self.register_anon_struct_from_ast(v);
+            }
+            Type::Tuple(types) | Type::Fn(types, _) => {
+                for t in types { self.register_anon_struct_from_ast(t); }
+            }
+            Type::Array(_, elem) => self.register_anon_struct_from_ast(elem),
+            // Named, ImplTrait — no recursive anonymous structs
+            _ => {}
+        }
+    }
+
     /// Return true when any expression in the tree references the implicit
     /// receiver keyword `this`.  Used to distinguish `this`-based methods from
     /// plain constructors during signature registration.
@@ -933,7 +972,11 @@ impl Checker {
                 // self — otherwise its first real argument aligns to the phantom self
                 // and every call mis-reports "expected Self".
                 for p in &fd.params {
+                    self.register_anon_struct_from_ast(&p.ty);
                     params.push((p.name.name.clone(), CheckedType::from_ast_type(&p.ty)));
+                }
+                if let Some(ref ret) = fd.return_type {
+                    self.register_anon_struct_from_ast(ret);
                 }
                 let return_type = fd.return_type.as_ref().map(|t| CheckedType::from_ast_type(t));
                 let bare_key = if let Some(recv) = fd.receiver.as_ref() {
