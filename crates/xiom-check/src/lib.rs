@@ -285,6 +285,12 @@ impl Checker {
             generics: vec![],
             uses_implicit_this: false,
         });
+        self.methods.entry("Vec".to_string()).or_default().insert("sort".to_string(), FnSig {
+            params: vec![("self".to_string(), CheckedType::Named("Vec".into()))],
+            return_type: Some(CheckedType::Named("void".into())),
+            generics: vec![],
+            uses_implicit_this: false,
+        });
         self.methods.entry("Vec".to_string()).or_default().insert("new".to_string(), FnSig {
             params: vec![],
             return_type: Some(CheckedType::Named("Vec".into())),
