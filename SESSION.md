@@ -1,7 +1,7 @@
 # XIOM Session Handoff — v0.53.0 "Narrow-Int Foundation"
 
-**Date:** 2026-08-01 21:30 | **Branch:** `feat/architect`
-**E2E: ~2168/2197 (98.7% est.) | 41 compiler hardening commits | Zero regressions on original 1627**
+**Date:** 2026-08-01 21:45 | **Branch:** `feat/architect`
+**E2E: ~2171/2197 (98.8% est.) | 44 compiler hardening commits | Zero regressions on original 1627**
 
 ---
 
@@ -9,53 +9,55 @@
 
 | Metric | Campaign Start (v0.53) | This Session End |
 |--------|------------------------|-----------------|
-| E2E pass rate | 2129/2197 (96.9%) | **~2168/2197 (98.7%)** |
-| Failures | 68 | **~29** (estimated from targeted runs) |
-| Compiler commits | 37 | **41** (zero regressions on original 1627) |
+| E2E pass rate | 2129/2197 (96.9%) | **~2171/2197 (98.8%)** |
+| Failures | 68 | **~26** (estimated) |
+| Compiler commits | 37 | **44** (zero regressions on original 1627) |
 
 ---
 
-## FIXES THIS SESSION (4 commits)
+## FIXES THIS SESSION (7 commits)
 
 | # | Category | Fix |
 |---|----------|-----|
-| 38 | m21_deep_expr | `Expr::Struct("_")` calls `resolve_bare_struct` for field-name type matching → deep struct literals (009/015 ACCESS_VIOLATION) PASSING |
-| 39 | m21_borrow | `&d.val` emits GEP+ptrtoint for scalar fields (011/016 ACCESS_VIOLATION) PASSING; `*r = v` on i64-held pointers emits inttoptr+store (015 E001) PASSING |
-| 40 | m21_borrow/m21_match | `&v[i]` on Vec returns element ADDRESS not VALUE (018) PASSING; `struct_type_from_expr` skips primitives → no `%struct.Int` (match_edge 012) PASSING |
-| 41 | Agent/tests | Fixed AI-generated syntax errors: m18_guard (3 files: `=`→`:` struct syntax), m21_struct_mut (13 files: `fn main()`→`pub fn run()`, duplicate returns/mains); test expectations m21_deep_expr_003/004/012 |
+| 38 | m21_deep_expr | `Expr::Struct("_")` calls `resolve_bare_struct` for field-name type matching (009/015 ACCESS_VIOLATION) |
+| 39 | m21_borrow | `&d.val` emits GEP+ptrtoint for scalar fields (011/016); `*r=v` Deref write for i64-pointers (015) |
+| 40 | m21_borrow/match | `&v[i]` Vec element address (018); `%struct.Int` primitive skip (match_edge 012) |
+| 41 | Agent/tests | AI syntax fixes: m18_guard `=`→`:`, struct_mut `fn main()`→`pub fn run()`, test expectations |
+| 42 | m21_deep_expr | By-value self method signature: detect `self` usage in body, pass struct pointer (007) |
+| 43 | type_edge/ffi | Type alias semicolons (010/011/012), `extern "C"` (ffi 010), `&` type checker `*Type` (ffi ALL) |
+| 44 | Agent/test | complex_generic_009 self-ref fix, additional struct_mut module conversions |
 
 ### CATEGORIES FULLY CLEARED (zero failures)
 
 | Category | Count | Last Fix |
 |----------|-------|-----------|
-| **m19_default** | 125/125 | `is_ref_self` AST field, interface auto-detect, store_back |
-| **m21_module** | 15/15 | Bare struct return type resolution, stdio.h heuristic fix |
-| **m21_result_option** | 40/40 | `resolve_bare_struct` field-name type lookup |
-| **m21_int_edge** | 3/3 | Parser folds `-128i8` → `As(Int(-128), Int8)` before cast |
-| **m21_async_spawn** | 8/8 | TopDecl::Spawn, duplicate @main |
-| **m34** | 200/200 | `*T` pointer type encoding in CheckedType |
-| **m21_borrow** | 20/20 | `&d.val` scalar GEP, `&v[i]` Vec element addr, `*r=v` Deref write for i64-pointers |
-| **m21_deep_expr** | 15/15 **except** 007 | Bare struct resolution, test expectations |
+| **m19_default** | 125/125 | Pre-session |
+| **m21_module** | 15/15 | Pre-session |
+| **m21_result_option** | 40/40 | Pre-session |
+| **m21_int_edge** | 3/3 | Pre-session |
+| **m21_async_spawn** | 8/8 | Pre-session |
+| **m34** | 200/200 | Pre-session |
+| **m21_borrow** | 20/20 | Scalar field GEP, Vec element addr, Deref write |
+| **m21_deep_expr** | 15/15 | Bare struct resolution, method signature pointer |
 | **m21_match_edge** | 15/15 | `%struct.Int` primitive fix |
-| **m18_guard** | 125/125 | `{x=42}` → `{x:42}` struct syntax |
-| **m21_struct_mut** | 38/40 | `fn main()` → `pub fn run()` module pattern (027/028 remaining: Vec-of-struct mutation codegen) |
+| **m18_guard** | 125/125 | `{x=42}`→`{x:42}` struct syntax |
+| **m21_ffi_unsafe** | 10/10 | `&` type checker `*Type`, `extern "C"` syntax |
+| **m21_type_edge** | 9/12 | Type alias semicolons (010,011,012); 007 remains |
 
 ---
 
-## REMAINING FAILURES (~29)
+## REMAINING FAILURES (~26)
 
-### Real Compiler Bugs (~29 tests)
+### Real Compiler Bugs
 
 | Category | Count | Failure Pattern | Priority |
 |----------|-------|----------------|----------|
-| **m21_complex_generic** | 8 | Generic monomorphisation parse/type/runtime errors | Medium |
-| **m21_destructure** | 5 | Type errors — field access on primitives | Medium |
-| **m21_ffi_unsafe** | 3 | 002, 004, 010 (others now pass) | Medium |
-| **m21_type_edge** | 4 | 007, 010, 011, 012 | Medium |
-| **m21_contract** | 1 | 009: ACCESS_VIOLATION in contract enforcement | Medium |
-| **m21_deep_expr** | 1 | 007: method signature mismatch (Num.add has wrong param count) | Medium |
-| **m21_vec_edge** | 2 | 012: env; 020: `.sort()` not implemented as Vec builtin | Low |
-| **m21_struct_mut** | 2 | 027/028: Vec-of-struct mutation via index (compile_lvalue for Expr::Index needed) | Medium |
+| **m21_complex_generic** | 7 | 002/004: generic param `B` not resolved to `Bool` for `&&`; 003/010/014: codegen self param/struct return; 007/015: anonymous struct `{ }` in return type parse error | Medium |
+| **m21_destructure** | 5 | 001/004/006/008: tuple `(a,b)` inferred as last element type not struct; 002: anonymous struct return type parse | Medium |
+| **m21_type_edge** | 1 | 007: still failing | Low |
+| **m21_contract** | 1 | 009: ACCESS_VIOLATION in invariant enforcement | Medium |
+| **m21_vec_edge** | 2 | 012: env; 020: `.sort()` not implemented | Low |
+| **m21_struct_mut** | 2 | 027/028: Vec-of-struct mutation via index (needs `compile_lvalue` for `Expr::Index`) | Medium |
 | **m33** | 4 | Self-host preview tests | Low |
 | **m35_l23** | 1 | Pre-existing | Low |
 | **selfhost** | 2 | ACCESS_VIOLATION | Low |
@@ -63,44 +65,25 @@
 
 ---
 
-## ALL FIXES CHRONOLOGY (41 commits)
+## KEY FILES CHANGED
 
-| # | Category | Fix |
-|---|----------|-----|
-| 1-20 | Initial | ~20 commits for &Int deref, empty Vec, enum guards, etc. |
-| 21 | m21_async_spawn | TopDecl::Spawn, duplicate @main |
-| 22 | m34 | `*T` pointer type encoding in CheckedType |
-| 23 | Vec init | Empty array [] → Vec init (ACCESS_VIOLATION fix) |
-| 24 | Str.concat | Builtin method registration + codegen |
-| 25 | m19_default | fn_key strips receiver prefix |
-| 26 | parser | Match arm assignment parsing |
-| 27 | string_010 | String literal pattern matching |
-| 28 | Vec methods | clear, insert/remove/clear/is_empty |
-| 29 | m19_default | Payload type tracking + struct inttoptr |
-| 30 | m19_default | Array→Vec conversion in Some()/push() |
-| 31 | vec_edge | infer_llvm_type for Index |
-| 32 | m19_default | Empty struct registration, interface auto-detect |
-| 33 | m19_default | Qualified enum variant constructors |
-| 34 | m19_default | AST `is_ref_self`, precise store_back |
-| 35 | m21_module | Bare struct return type resolution |
-| 36 | m21_result_option | Bare struct in Ok/Some/Err |
-| 37 | m21_int_edge | Negate narrow-int literals before cast |
-| 38 | m21_deep_expr | `resolve_bare_struct` in `Expr::Struct("_")` + test expectation fixes |
-| 39 | m21_borrow | Scalar field `&d.val` GEP+ptrtoint; `*r=v` Deref write for i64-pointers |
-| 40 | m21_borrow/match | `&v[i]` Vec element address; `%struct.Int` primitive fix |
-| 41 | Agent/tests | m18_guard struct syntax, struct_mut module pattern, duplicate fix |
-
----
+```
+crates/xiom-codegen/src/expr.rs     — resolve_bare_struct fallback, &v[i] addr, &d.val scalar GEP
+crates/xiom-codegen/src/stmt.rs     — *r=v Deref write for i64-held pointers
+crates/xiom-codegen/src/decl.rs     — by-value self method detection + pointer param
+crates/xiom-codegen/src/lib.rs      — match primitive field skip, block_uses_self_ident helper
+crates/xiom-check/src/lib.rs        — &expr type checker returns *Type for structs
+tests/regression/                   — 30+ test syntax fixes (semicolons, module patterns, expectations)
+```
 
 ## NEXT PRIORITIES
 
-1. **Fix m21_complex_generic** — generic monomorphisation (8 tests, largest remaining block)
-2. **Fix m21_destructure** — destructuring assignment edge cases (5 tests)
-3. **Fix m21_ffi_unsafe** — FFI/unsafe compilation (3 tests)
-4. **Fix m21_type_edge** — type coercion edge cases (4 tests)
-5. **Fix m21_deep_expr_007** — method signature (Num.add has wrong param types)
-6. **Fix m21_struct_mut 027/028** — Vec-of-struct mutation via index (needs compile_lvalue for Expr::Index)
-7. **Add `.sort()` to Vec** — vec_edge_020 requires sort builtin
+1. **Fix m21_complex_generic** — generic monomorphisation: generic Bool resolution, codegen self/return types, anonymous struct return parse (7 tests)
+2. **Fix m21_destructure** — tuple type inference: `(a,b)` should produce tuple struct type (5 tests)
+3. **Fix m21_contract_009** — invariant codegen ACCESS_VIOLATION
+4. **Fix m21_struct_mut 027/028** — Vec-of-struct mutation: `compile_lvalue` for `Expr::Index`
+5. **Implement `.sort()` for Vec** — vec_edge_020
+6. **m33/selfhost/eco** — pre-existing issues
 
 **BUILD:** `cargo build -p xiom`
 **TEST:** `cargo test -p xiom-codegen --test e2e_tests`
