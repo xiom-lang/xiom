@@ -1552,7 +1552,19 @@ impl Parser {
         let span = self.peek().span;
         match self.peek_kind() {
             TokenKind::Bang => { self.advance(); let inner = self.parse_unary_expr()?; Ok(Expr::Unary(UnaryOp::Not, Box::new(inner), span)) }
-            TokenKind::Minus => { self.advance(); let inner = self.parse_unary_expr()?; Ok(Expr::Unary(UnaryOp::Neg, Box::new(inner), span)) }
+            TokenKind::Minus => { self.advance(); let inner = self.parse_unary_expr()?; 
+                // Fold `-128i8` → `As(Int(-128), Int8)` so the negation is computed
+                // at the literal level before the narrow-int cast, not after.
+                if let Expr::As(ref base, ref ty, ref ispan) = inner {
+                    if let Expr::Int(n, ref ispan2) = **base {
+                        let neg_n = (0u64).wrapping_sub(n); // i64 negation via u64 wrapping
+                        return Ok(Expr::As(Box::new(Expr::Int(neg_n, *ispan2)), ty.clone(), *ispan));
+                    }
+                    if let Expr::Float(f, ref ispan2) = **base {
+                        return Ok(Expr::As(Box::new(Expr::Float(-f, *ispan2)), ty.clone(), *ispan));
+                    }
+                }
+                Ok(Expr::Unary(UnaryOp::Neg, Box::new(inner), span)) }
             TokenKind::Star => { self.advance(); let inner = self.parse_unary_expr()?; Ok(Expr::Unary(UnaryOp::Deref, Box::new(inner), span)) }
             TokenKind::Tilde => { self.advance(); let inner = self.parse_unary_expr()?; Ok(Expr::Unary(UnaryOp::BitNot, Box::new(inner), span)) }
             TokenKind::Ampersand => { self.advance(); let mutable = match self.peek_kind() { TokenKind::Ident(s) if s == "mut" => { self.advance(); true } _ => false }; let inner = self.parse_unary_expr()?; if mutable { Ok(Expr::MutRef(Box::new(inner), span)) } else { Ok(Expr::Ref(Box::new(inner), span)) } }
