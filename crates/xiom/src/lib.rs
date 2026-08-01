@@ -946,6 +946,8 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             if config.target == Target::Native { cmd.arg("-maes"); }
             if asm_objects.is_empty() { cmd.arg("-DXIOM_NO_ASM"); }
             if config.debug_symbols { cmd.arg("-g"); }
+            // Suppress MSVC deprecation warnings (fopen, etc.) in the runtime C code.
+            cmd.arg("-D_CRT_SECURE_NO_WARNINGS");
             // 7E.1: Sanitizer flags
             if let Some(ref sanitizer) = config.sanitize {
                 cmd.arg(&format!("-fsanitize={}", sanitizer));
@@ -1056,7 +1058,10 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 Ok(out) => {
                     let stderr = String::from_utf8_lossy(&out.stderr);
                     eprintln!("error: clang failed with exit code {}", out.status.code().unwrap_or(-1));
-                    if stderr.contains("stdio.h") || stderr.contains("fatal error") {
+                    // Only show the "missing stdio.h" hint when clang actually
+                    // reports a fatal error about it (not when it appears in
+                    // diagnostic notes alongside other errors like invalid IR).
+                    if stderr.contains("fatal error:") && stderr.contains("stdio.h") {
                         eprintln!("  -> Missing C standard library headers (stdio.h).");
                         eprintln!("  -> Install Visual Studio 2022 Build Tools with 'Desktop development with C++':");
                         eprintln!("      winget install Microsoft.VisualStudio.2022.BuildTools");

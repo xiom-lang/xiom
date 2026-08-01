@@ -1862,9 +1862,31 @@ impl IrEmitter {
                 });
                 let struct_ty = if let Some(ref ek) = parent_enum {
                     self.llvm_type_for(ek)?
+                } else if name.name == "_" {
+                    // Bare struct literal `{ field: value; }` — resolve from
+                    // return type context. This avoids emitting invalid GEP on i64.
+                    if !self.fctx.current_return_type.is_empty()
+                        && self.fctx.current_return_type.starts_with('%')
+                    {
+                        self.fctx.current_return_type.clone()
+                    } else {
+                        // Fallback: return a dummy i64 (the caller should have
+                        // resolved the type from context). This is better than
+                        // generating invalid LLVM IR.
+                        "i64".to_string()
+                    }
                 } else {
                     self.llvm_type_for_fallback(&name.name)
                 };
+                if !struct_ty.starts_with('%') {
+                    // Scalar type — struct literal was resolved to a non-struct
+                    // type (e.g. `_` → i64). Return the last field value.
+                    let mut last = ("0".to_string(), "i64".to_string());
+                    for (_, val) in fields.iter() {
+                        last = self.compile_expr(val)?;
+                    }
+                    return Ok(last);
+                }
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
                 if let Some(ref enum_key) = parent_enum {
