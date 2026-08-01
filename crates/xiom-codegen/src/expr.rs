@@ -2857,6 +2857,13 @@ impl IrEmitter {
                 let result_ty = self.infer_match_llvm_type(arms);
                 let result_alloca = self.fresh_tmp();
                 self.emitln(&format!("  {result_alloca} = alloca {result_ty}"));
+                // 5c.37: Initialize match result slot to prevent uninitialized
+                // reads when all arms return/exit (no fallthrough store).
+                if result_ty.starts_with("%struct.") {
+                    self.emitln(&format!("  store {result_ty} zeroinitializer, {result_ty}* {result_alloca}"));
+                } else {
+                    self.emitln(&format!("  store {result_ty} 0, {result_ty}* {result_alloca}"));
+                }
                 let saved_ptr = self.fctx.match_result_ptr.take();
                 let saved_ty = self.fctx.match_result_ty.take();
                 self.fctx.match_result_ptr = Some(result_alloca.clone());

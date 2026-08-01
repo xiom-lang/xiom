@@ -1660,25 +1660,33 @@ impl IrEmitter {
             }
             return Ok(format!("{inner_llvm}*"));
         }
+        // 5c.37: Strip generic type arguments (Vec[Int] → Vec) before lookup.
+        // type_from_ast_with_args preserves them for element type resolution,
+        // but llvm_type_for needs the base struct name.
+        let clean_name = if let Some(bracket) = type_name.find('[') {
+            &type_name[..bracket]
+        } else {
+            type_name
+        };
         // Try current module's qualified name first (e.g., "types.Person")
         if let Some(ref module) = self.local.current_module {
-            let qualified = format!("{}.{}", module, type_name);
+            let qualified = format!("{}.{}", module, clean_name);
             if self.types.types.contains_key(&qualified) || self.types.type_meta.contains_key(&qualified) {
                 return Ok(format!("%struct.{qualified}"));
             }
         }
         // Try exact match
-        if self.types.types.contains_key(type_name) || self.types.type_meta.contains_key(type_name) {
-            return Ok(format!("%struct.{type_name}"));
+        if self.types.types.contains_key(clean_name) || self.types.type_meta.contains_key(clean_name) {
+            return Ok(format!("%struct.{clean_name}"));
         }
-        // Search for any module-qualified variant ending with .type_name
+        // Search for any module-qualified variant ending with .clean_name
         for (key, _) in &self.types.type_meta {
-            if key.ends_with(&format!(".{type_name}")) {
+            if key.ends_with(&format!(".{clean_name}")) {
                 return Ok(format!("%struct.{key}"));
             }
         }
         // Check builtin types first (match known xiom type names, NOT the default i64 fallback)
-        let builtin = Self::xiom_to_llvm_type(type_name);
+        let builtin = Self::xiom_to_llvm_type(clean_name);
         match type_name {
             "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
             | "Bool" | "Float32" | "Float64" | "Str" | "Char" | "()" => return Ok(builtin.to_string()),
@@ -1879,10 +1887,15 @@ impl IrEmitter {
             });
         if let Some(meta) = meta {
             if let Some((_, ty_name)) = meta.fields.get(field_idx) {
-                // For generic types (Vec[Int], Map[Str,Int]), return i64
-                // to avoid Win64 sret corruption (5c.28 NET crash fix).
+                // 5c.37: For generic types (Vec[Int], Map[Str,Int]), extract the
+                // base type name and resolve to the known struct type. Previously
+                // returned i64 to avoid Win64 sret corruption, but that broke
+                // struct layouts and field access (contract invariants, GEP).
                 if ty_name.contains('[') {
-                    return "i64".to_string();
+                    if let Some(bracket) = ty_name.find('[') {
+                        return self.llvm_type_for(&ty_name[..bracket])
+                            .unwrap_or_else(|_| "i64".to_string());
+                    }
                 }
                 return self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
             }
