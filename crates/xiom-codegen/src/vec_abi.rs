@@ -178,9 +178,24 @@ impl IrEmitter {
     /// Compile an array literal `[e1, e2, ...]` into a proper `%struct.Vec`
     /// value, handling malloc + per-element copy. Used when an array literal
     /// appears in a context that expects a Vec (e.g., `Some([1,2,3])`).
-    pub(crate) fn compile_array_as_vec(&mut self, elems: &[xiom_ast::Expr], _elem_xiom_type: &str) -> Result<(String, String), String> {
+    pub(crate) fn compile_array_as_vec(&mut self, elems: &[xiom_ast::Expr], elem_xiom_type: &str) -> Result<(String, String), String> {
         let n = elems.len() as i64;
-        let elem_size: i64 = 8; // TODO: infer from elem type
+        // 5c.39: Resolve the element's LLVM type and byte size from the type
+        // annotation, falling back to i64 (8 bytes) for unknown types.
+        let elem_llvm_ty = self.llvm_type_for(elem_xiom_type).unwrap_or_else(|_| "i64".to_string());
+        let elem_size: i64 = if elem_llvm_ty.starts_with("%struct.") {
+            let struct_name = &elem_llvm_ty[8..]; // strip "%struct." prefix (8 chars)
+            self.struct_byte_size(struct_name) as i64
+        } else {
+            // Scalar types: i64=8, double=8, float=4, i32=4, i16=2, i8=1
+            match elem_llvm_ty.as_str() {
+                "double" | "i64" => 8,
+                "float" | "i32" => 4,
+                "i16" => 2,
+                "i8" | "i1" => 1,
+                _ => 8,
+            }
+        };
         let initial_cap = n.max(16);
         let alloc_size = initial_cap * elem_size;
         // Allocate Vec struct on stack
@@ -210,13 +225,22 @@ impl IrEmitter {
         // Copy elements into buffer
         for (i, e) in elems.iter().enumerate() {
             let (ev, ety) = self.compile_expr(e)?;
-            let ev_i64 = self.val_to_i64(&ev, &ety);
             let offset = i as i64 * elem_size;
             let dest = self.fresh_tmp();
             self.emitln(&format!("  {dest} = getelementptr i8, i8* {data_ptr}, i64 {offset}"));
-            let dest_i64 = self.fresh_tmp();
-            self.emitln(&format!("  {dest_i64} = bitcast i8* {dest} to i64*"));
-            self.emitln(&format!("  store i64 {ev_i64}, i64* {dest_i64}"));
+            // 5c.39: For struct elements, memcpy the full struct value.
+            // For scalar elements, store as i64 via val_to_i64.
+            if elem_llvm_ty.starts_with("%struct.") {
+                let dest_typed = self.fresh_tmp();
+                self.emitln(&format!("  {dest_typed} = bitcast i8* {dest} to {elem_llvm_ty}*"));
+                let store_val = self.coerce_value(&ev, &ety, &elem_llvm_ty);
+                self.emitln(&format!("  store {elem_llvm_ty} {store_val}, {elem_llvm_ty}* {dest_typed}"));
+            } else {
+                let ev_i64 = self.val_to_i64(&ev, &ety);
+                let dest_i64 = self.fresh_tmp();
+                self.emitln(&format!("  {dest_i64} = bitcast i8* {dest} to i64*"));
+                self.emitln(&format!("  store i64 {ev_i64}, i64* {dest_i64}"));
+            }
         }
         let loaded = self.emit_vec_load_fields(&vec_alloca);
         Ok((loaded, "%struct.Vec".to_string()))
