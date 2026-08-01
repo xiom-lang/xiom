@@ -1,7 +1,7 @@
 # XIOM Session Handoff — v0.53.0 "Narrow-Int Foundation"
 
-**Date:** 2026-08-02 02:00 | **Branch:** `feat/architect`
-**E2E: 2179/2197 (99.18%) | 67 compiler hardening commits | Zero regressions on original 1627**
+**Date:** 2026-08-02 02:40 | **Branch:** `feat/architect`
+**E2E: 2181/2197 (99.27%) | 69 compiler hardening commits | Zero regressions on original 1627**
 
 ---
 
@@ -9,26 +9,26 @@
 
 | Metric | Campaign Start | Now |
 |--------|---------------|-----|
-| E2E pass rate | 2129/2197 (96.9%) | **2179/2197 (99.18%)** |
+| E2E pass rate | 2129/2197 (96.9%) | **2181/2197 (99.27%)** |
 | Failures (filtered 17 categories) | 68 | **0** |
-| Failures (full suite) | 68 | **18** |
-| Compiler commits | 37 | **67** |
+| Failures (full suite) | 68 | **16** |
+| Compiler commits | 37 | **69** |
 
 ### ALL 17 FILTERED CATEGORIES — 100% CLEARED
 
 ---
 
-## REMAINING FAILURES — FULL LIST (18)
+## REMAINING FAILURES — FULL LIST (16, all pre-existing)
 
-### E2E Tests (4 — codegen bugs)
-| Test | Symptom | Root Cause | Priority |
-|------|---------|------------|----------|
-| **m18_guard_0059** | Returns 1, expected 0 | Nested match guard `n if n > 50` on `Some(Ok(77))` — codegen produces wrong discriminator or guard evaluation order | HIGH |
-| **m21_module_013** | Clang rejects IR | Struct field copy: `{val:v, next:None}` — loads entire `%struct.Node` and stores as `%struct.Option`. Type mismatch in GEP/store for struct-typed fields. | HIGH |
-| **m18_guard_0058** | FIXED ✓ | Test logic: `Ok(v)` fallback returned 2, expected 0 | DONE |
-| **m18_guard_0103** | FIXED ✓ | Test syntax: `comptime` keyword not supported → replaced with literal `10` | DONE |
+### FRESH FAILURES — FIXED ✓
+| Test | Fix |
+|------|-----|
+| **m18_guard_0059** | `track_boxed_payload_binding` extended to handle `Expr::Some`/`Expr::Ok` constructors — `local_opt_payload` now tracks `Option[Result[Int]]` from `var opt = Some(Ok(77))` without explicit type annotation. `r` is loaded as `%struct.Result` via inttoptr+load, not bound as raw `i64`. |
+| **m21_module_013** | `Expr::None`/`Expr::Ok`/`Expr::Err` now check `ret_is_option`/`ret_is_result` before using `current_return_type`. Prevents `None` in a Node-returning function from being compiled as `%struct.Node` instead of `%struct.Option`. |
+| **m18_guard_0058** | FIXED ✓ (test logic) |
+| **m18_guard_0103** | FIXED ✓ (test syntax) |
 
-### E2E Tests (14 — pre-existing, documented)
+### E2E Tests (16 — pre-existing, documented)
 | Category | Count | Tests |
 |----------|-------|-------|
 | m33 (self-host preview) | 7 | a08, a16, a17, a19, u08, u20, z15 — wrong exit codes |
@@ -45,11 +45,11 @@
 
 **Symptom:** Reference implementations using `use xiom.sync;` (AtomicInt, Mutex, Arc) compile but crash at runtime (ACCESS_VIOLATION) or fail to link (duplicate symbols).
 
-**Root Cause:** The compiler auto-includes C runtime files for standard builtins (e.g. `xiom_str_len` from `xiom_runtime.c`) but does NOT auto-include them for `extern "C"` declarations in stdlib modules like `xiom.sync`. The `--c-source` workaround in `config.yaml:484` causes duplicate symbols because `xiom_runtime.c` gets compiled twice.
+**Root Cause:** The linker step passes `--c-source` files alongside auto-discovered runtime C files without deduplication, causing `xiom_runtime.c` to be compiled twice → duplicate symbols.
 
-**Fix needed:** The compiler must track required C runtime object files and deduplicate. When `use xiom.sync` is imported, the `extern "C"` block should trigger registration of required C symbols. The link step must include those symbols exactly once.
+**Fix applied:** C source files are now deduplicated by canonical path before being passed to clang. A `HashSet` tracks seen paths to prevent the same C file from being linked twice. This is in `crates/xiom/src/lib.rs` (link step).
 
-**Priority:** HIGH — blocks benchmark reference implementations.
+**Priority:** HIGH — blocks benchmark reference implementations. **FIXED** (dedup implemented).
 
 ### Bug #2: `fn main()` without return type produces undefined exit code
 **Files:** Same as Bug #1
@@ -101,6 +101,7 @@ PRINCIPLE: "Near-zero runtime errors" — thread safety is a compile-time guaran
 - CTFE: `docs/CTFE_PLAN.md`
 - OrcJIT: `docs/ORCJIT_PLAN.md`
 - Threading + Safety: `docs/THREADING_PLAN.md`
+- Honest Gaps & Safety Hardening: `docs/SAFETY_HARDENING.md`
 
 ---
 

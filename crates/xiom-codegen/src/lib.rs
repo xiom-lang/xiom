@@ -1676,6 +1676,17 @@ impl IrEmitter {
         None
     }
 
+    /// M33: Given an Expr (typically Expr::Index), resolve the Vec element
+    /// struct type if the index is into a Vec with struct elements. Used when
+    /// field access on a vec index needs to dereference boxed struct pointers.
+    /// Returns the XIOM type name of the element struct, or None.
+    pub(crate) fn resolve_vec_elem_type_for_index(&self, expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Index(container, _, _) => self.resolve_vec_elem_type(container),
+            _ => None,
+        }
+    }
+
     /// FIELD-I64: When obj_val is an i64 from a Vec index of a struct element
     /// (stored inline via memcpy or as val_to_i64 heap pointer), resolve field
     /// access via inttoptr+GEP on a known struct type. Returns None if no
