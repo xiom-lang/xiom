@@ -178,7 +178,7 @@ impl IrEmitter {
     /// Compile an array literal `[e1, e2, ...]` into a proper `%struct.Vec`
     /// value, handling malloc + per-element copy. Used when an array literal
     /// appears in a context that expects a Vec (e.g., `Some([1,2,3])`).
-    pub(crate) fn compile_array_as_vec(&mut self, elems: &[xiom_ast::Expr], elem_xiom_type: &str) -> Result<(String, String), String> {
+    pub(crate) fn compile_array_as_vec(&mut self, elems: &[xiom_ast::Expr], _elem_xiom_type: &str) -> Result<(String, String), String> {
         let n = elems.len() as i64;
         let elem_size: i64 = 8; // TODO: infer from elem type
         let initial_cap = n.max(16);
