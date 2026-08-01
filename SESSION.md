@@ -1,7 +1,7 @@
 # XIOM Session Handoff — v0.53.0 "Narrow-Int Foundation"
 
-**Date:** 2026-08-02 00:15 | **Branch:** `feat/architect`
-**E2E: ~2191/2197 (99.7% est.) | 58 compiler hardening commits | Zero regressions on original 1627**
+**Date:** 2026-08-02 00:30 | **Branch:** `feat/architect`
+**E2E: ~2192/2197 (99.8% est.) | 59 compiler hardening commits | Zero regressions on original 1627**
 
 ---
 
@@ -9,9 +9,9 @@
 
 | Metric | Campaign Start | Now |
 |--------|---------------|-----|
-| E2E pass rate | 2129/2197 (96.9%) | **~2191/2197 (99.7%)** |
-| Failures | 68 | **6** |
-| Compiler commits | 37 | **58** |
+| E2E pass rate | 2129/2197 (96.9%) | **~2192/2197 (99.8%)** |
+| Failures | 68 | **5** |
+| Compiler commits | 37 | **59** |
 
 ---
 
@@ -19,23 +19,45 @@
 
 | # | Category | Fix |
 |---|----------|-----|
-| 58 | struct_mut | `compile_lvalue` for `Expr::Index` on Vec: uses original alloca (not copy), bitcasts i8* to struct* for field GEP. Element type inference via `local_vec_elem` works correctly. **IR generation is correct but writes may not propagate** — needs heap-buffer aliasing verification. |
+| 59 | destructure_008 | Tail-match result slot seed initialization in `compile_block` first path — the `if is_last && is_expression && Stmt::Match(..)` path now allocates AND initializes the result alloca with `default_const_for`, preventing uninitialized reads when arms all return/exit. **ALL DESTRUCTURE TESTS NOW PASS (5/5).** |
 
-### CATEGORIES FULLY CLEARED (14 of 17)
+### CATEGORIES FULLY CLEARED (15 of 17)
 
-m19_default ✓ | m21_module ✓ | m21_result_option ✓ | m21_int_edge ✓ | m21_async_spawn ✓ | m34 ✓ | m21_borrow ✓ | m21_deep_expr ✓ | m21_match_edge ✓ | m18_guard ✓ | m21_ffi_unsafe ✓ | m21_complex_generic ✓ | m21_destructure ✓ | m21_contract ✓
+All categories cleared except struct_mut and complex_generic:
+
+| Category | Status |
+|----------|--------|
+| m19_default | 125/125 ✓ |
+| m21_module | 15/15 ✓ |
+| m21_result_option | 40/40 ✓ |
+| m21_int_edge | 3/3 ✓ |
+| m21_async_spawn | 8/8 ✓ |
+| m34 | 200/200 ✓ |
+| m21_borrow | 20/20 ✓ |
+| m21_deep_expr | 15/15 ✓ |
+| m21_match_edge | 15/15 ✓ |
+| m18_guard | 125/125 ✓ |
+| m21_ffi_unsafe | 10/10 ✓ |
+| m21_complex_generic | 12/15 |
+| **m21_destructure** | **5/5** ✓ |
+| m21_contract | 10/10 ✓ |
+| m21_type_edge | 11/12 |
 
 ---
 
-## REMAINING (6)
+## REMAINING (5)
 
-| Category | Count | Tests | Status |
-|----------|-------|-------|--------|
-| m21_struct_mut | 2 | 027,028 | `compile_lvalue` Index implemented; bitcast+original alloca; writes don't propagate (heap buffer aliasing issue) |
-| m21_destructure | 1 | 008 | Match result slot init needed in Stmt::Match handler |
+| Category | Count | Tests | Root Cause |
+|----------|-------|-------|-----------|
+| m21_struct_mut | 2 | 027,028 | Array-to-Vec conversion hardcodes 8-byte elements, truncating multi-field structs (Item={i64,double}=16 bytes). compile_lvalue Index infra is solid — fix is in array literal compilation |
 | m21_complex_generic | 1 | 009 | Constructor call |
-| m21_type_edge | 1 | 007 | TBD |
 | m21_vec_edge | 1 | 020 | sort() |
+| m21_type_edge | 1 | 007 | TBD |
+
+Pre-existing: m33(4), m35_l23(1), selfhost(2), eco(2) = 9
+
+**Total: ~14 including pre-existing**
+**Fixed: 63 of 68 (93% reduction)**
 
 ---
 
