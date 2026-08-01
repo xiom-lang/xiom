@@ -2316,7 +2316,15 @@ impl Checker {
                         }
                         CheckedType::Bool
                     }
-                    UnaryOp::Ref | UnaryOp::MutRef => inner_ty, // reference keeps the type
+                    UnaryOp::Ref | UnaryOp::MutRef => {
+                        // 5c.32: &expr produces a pointer type *InnerType
+                        let inner_name = inner_ty.name();
+                        if inner_name.starts_with('*') {
+                            inner_ty // already a pointer
+                        } else {
+                            CheckedType::Named(format!("*{}", inner_name))
+                        }
+                    }
                     UnaryOp::BitNot => inner_ty, // bitwise not preserves integer type
                     UnaryOp::Deref => {
                         // *p: strip pointer type — *Ptr[T] → T, *T → T (encoded as "*Tname")
@@ -2872,7 +2880,16 @@ impl Checker {
                 }
             }
             Expr::AtPre(inner, _) => self.check_expr(inner),
-            Expr::Ref(inner, _) | Expr::MutRef(inner, _) => self.check_expr(inner),
+            Expr::Ref(inner, _) | Expr::MutRef(inner, _) => {
+                // 5c.32: &expr produces a pointer type *InnerType
+                let inner_ty = self.check_expr(inner);
+                let inner_name = inner_ty.name();
+                if inner_name.starts_with('*') {
+                    inner_ty // already a pointer
+                } else {
+                    CheckedType::Named(format!("*{}", inner_name))
+                }
+            }
             Expr::Some(inner, _) => {
                 let _ = self.check_expr(inner);
                 CheckedType::Named("Option".into())
