@@ -2352,11 +2352,18 @@ impl Checker {
             Expr::Bool(_, _) => CheckedType::Bool,
             Expr::Paren(inner, _) => self.check_expr(inner),
             Expr::Tuple(items, _) => {
-                let mut last = CheckedType::Unit;
-                for item in items {
-                    last = self.check_expr(item);
+                // 5c.36: Multi-element tuples produce a tuple type.
+                // Single-element is a parenthesized expression (element type).
+                if items.len() > 1 {
+                    let elem_types: Vec<String> = items.iter()
+                        .map(|item| self.check_expr(item).name())
+                        .collect();
+                    CheckedType::Named(format!("Tuple__{}", elem_types.join("__")))
+                } else if let Some(item) = items.first() {
+                    self.check_expr(item)
+                } else {
+                    CheckedType::Unit
                 }
-                last
             }
             Expr::Unary(op, inner, span) => {
                 let inner_ty = self.check_expr(inner);
