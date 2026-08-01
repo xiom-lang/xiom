@@ -131,14 +131,24 @@ impl IrEmitter {
             Expr::Index(container, index, _) => {
                 let (idx_val, idx_ty) = self.compile_expr(index).ok()?;
                 let idx_i64 = self.val_to_i64(&idx_val, &idx_ty);
-                let (cont_val, _cont_ty) = self.compile_expr(container).ok()?;
-                // Alloca + store to get a stable pointer for field GEP on Vec fields
-                let vslot = self.fresh_tmp();
                 let vty = "%struct.Vec";
-                self.emitln(&format!("  {vslot} = alloca {vty}"));
-                self.emitln(&format!("  {vslot}_i8 = bitcast {vty}* {vslot} to i8*"));
-                self.emitln(&format!("  call void @llvm.memset.p0i8.i64(i8* {vslot}_i8, i8 0, i64 32, i1 false)"));
-                self.emit_vec_store_fields(&cont_val, &vslot);
+                // 5c.38: For Ident containers, use the original alloca so writes
+                // mutate the real Vec. For non-Ident, create a temporary copy.
+                let vslot = if let Expr::Ident(cont_id) = container.as_ref() {
+                    if let Some((slot, _)) = self.lookup_local(&cont_id.name).cloned() {
+                        slot
+                    } else {
+                        return None;
+                    }
+                } else {
+                    let (cont_val, _) = self.compile_expr(container).ok()?;
+                    let tmp = self.fresh_tmp();
+                    self.emitln(&format!("  {tmp} = alloca {vty}"));
+                    self.emitln(&format!("  {tmp}_i8 = bitcast {vty}* {tmp} to i8*"));
+                    self.emitln(&format!("  call void @llvm.memset.p0i8.i64(i8* {tmp}_i8, i8 0, i64 32, i1 false)"));
+                    self.emit_vec_store_fields(&cont_val, &tmp);
+                    tmp
+                };
                 // Get data pointer and elem_size from Vec struct
                 let dp_gep = self.fresh_tmp();
                 let dp_val = self.fresh_tmp();
@@ -154,9 +164,17 @@ impl IrEmitter {
                 let elem_ptr = self.fresh_tmp();
                 self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {dp_val}, i64 {byte_off}"));
                 // Infer element LLVM type. For struct element access,
-                // the caller will GEP into the element with the correct type.
+                // bitcast the i8* element pointer to the correct struct pointer
+                // so the caller can GEP into the struct's fields.
                 let elem_ty = self.infer_vec_elem_llvm_type(container);
-                Some((elem_ptr, format!("{elem_ty}*"), elem_ty))
+                let typed_ptr = if elem_ty.starts_with("%struct.") || elem_ty.ends_with('*') {
+                    let cast = self.fresh_tmp();
+                    self.emitln(&format!("  {cast} = bitcast i8* {elem_ptr} to {elem_ty}*"));
+                    cast
+                } else {
+                    elem_ptr
+                };
+                Some((typed_ptr, format!("{elem_ty}*"), elem_ty))
             }
             _ => None,
         }
