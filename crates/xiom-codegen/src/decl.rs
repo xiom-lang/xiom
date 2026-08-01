@@ -115,10 +115,10 @@ impl IrEmitter {
             Type::Tuple(elems) => {
                 let name = Self::type_from_ast(ty);
                 if self.types.type_meta.contains_key(&name) { return; }
-                let field_names: Vec<String> = (0..elems.len()).map(|i| format!("_{i}")).collect();
+                let field_names: Vec<String> = (0..elems.len()).map(|i| format!("{i}")).collect();
                 let field_types: Vec<(String, String)> = elems.iter()
                     .enumerate()
-                    .map(|(i, t)| (format!("_{i}"), Self::type_from_ast(t)))
+                    .map(|(i, t)| (format!("{i}"), Self::type_from_ast(t)))
                     .collect();
                 self.types.types.insert(name.clone(), field_names);
                 self.types.type_meta.insert(name, TypeMeta {
@@ -1229,9 +1229,9 @@ impl IrEmitter {
                     .collect();
                 let name = format!("Tuple__{}", elem_types.join("__"));
                 if !types.type_meta.contains_key(&name) {
-                    let field_names: Vec<String> = (0..elem_types.len()).map(|i| format!("_{i}")).collect();
+                    let field_names: Vec<String> = (0..elem_types.len()).map(|i| format!("{i}")).collect();
                     let field_meta: Vec<(String, String)> = elem_types.iter().enumerate()
-                        .map(|(i, tn)| (format!("_{i}"), tn.clone()))
+                        .map(|(i, tn)| (format!("{i}"), tn.clone()))
                         .collect();
                     types.types.insert(name.clone(), field_names);
                     types.type_meta.entry(name).or_insert_with(|| TypeMeta {

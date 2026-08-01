@@ -335,9 +335,9 @@ impl IrEmitter {
                         .collect();
                     let name = format!("Tuple__{}", elem_types.join("__"));
                     if !self.types.type_meta.contains_key(&name) {
-                        let field_names: Vec<String> = (0..elem_types.len()).map(|i| format!("_{i}")).collect();
+                        let field_names: Vec<String> = (0..elem_types.len()).map(|i| format!("{i}")).collect();
                         let field_llvm: Vec<(String, String)> = elem_types.iter().enumerate()
-                            .map(|(i, tn)| (format!("_{i}"), tn.clone()))
+                            .map(|(i, tn)| (format!("{i}"), tn.clone()))
                             .collect();
                         self.types.types.insert(name.clone(), field_names);
                         self.types.type_meta.entry(name.clone()).or_insert_with(|| TypeMeta {

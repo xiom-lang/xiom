@@ -978,14 +978,21 @@ impl IrEmitter {
         }
     }
 
-    /// 5c.36: Resolve field index by name, with tuple numeric→_N fallback.
+    /// 5c.36: Resolve field index by name, with tuple numeric/underscore fallback.
+    /// Accepts both `0` and `_0` for tuple field names.
     pub(crate) fn resolve_field_index(field_names: &[String], field_name: &str) -> Option<usize> {
         if let Some(idx) = field_names.iter().position(|f| f == field_name) {
             return Some(idx);
         }
+        // Numeric name → try with underscore prefix (legacy _N format)
         if field_name.chars().all(|c| c.is_ascii_digit()) {
             let alt = format!("_{field_name}");
-            return field_names.iter().position(|f| f == &alt);
+            if let Some(idx) = field_names.iter().position(|f| f == &alt) { return Some(idx); }
+        }
+        // Underscore-prefixed name → try bare numeric (new N format)
+        if field_name.starts_with('_') && field_name[1..].chars().all(|c| c.is_ascii_digit()) {
+            let bare = &field_name[1..];
+            if let Some(idx) = field_names.iter().position(|f| f == bare) { return Some(idx); }
         }
         None
     }
