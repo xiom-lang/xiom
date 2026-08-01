@@ -69,28 +69,38 @@
 ```
 v0.53 ──► v0.54 ──► v0.55 ──► v0.56 ──► SELFHOST
   NOW      │         │         │
-           │         │         └── Hot Reload + Lazy Compilation
-           │         └── OrcJIT MVP + C Runtime Shared Lib
-           └── CTFE Phase A + Binary Cache (--run --cache)
+           │         │         └── Parallel Codegen + Send/Sync + Channel[T] + Deadlock Detection
+           │         └── OrcJIT MVP + Parallel Check + Spawn Codegen + Move Semantics
+           └── CTFE Phase A + Binary Cache + Parallel Parse + Thread-Safe Registry
+
+PRINCIPLE: "Near-zero runtime errors" — thread safety is a compile-time guarantee.
+           Send/Sync auto-derived from field composition. Data races = compile error.
 ```
 
-### v0.54: CTFE + Binary Cache
+### v0.54: CTFE + Cache + Parallel Frontend
 - `const` declarations, `const {}` blocks, `sizeof`/`align_of` builtins
 - `--run --cache`: binary caching by source hash → **500ms → 5ms cached**
+- Parallel file parsing via rayon + dependency graph
+- Thread-safe type/function registries (DashMap)
 
-### v0.55: OrcJIT MVP
+### v0.55: OrcJIT + Spawn Codegen + Parallel Check
 - `--jit`: in-process LLVM JIT → **500ms → ~120ms uncached**
-- `xiom build-runtime`: C runtime as shared library
-- Eliminates clang spawn + linker — entire pipeline in-process
+- `spawn { ... }` → `xiom_thread_spawn` runtime call (real OS threads)
+- Thread-local storage (`#[thread_local]`, recursion counter per-thread)
+- Move semantics for spawn captures
+- Parallel type-checking within dependency levels
 
-### v0.56: Lazy + Hot Reload
-- `--jit --lazy`: compile only called functions → **~80ms scripting**
-- `--jit --watch`: hot reload on file change
-- `--jit --opt`: -O2 optimization passes
+### v0.56: Send/Sync + Channel + Deadlock Detection
+- Auto-derived `Send`/`Sync` traits — data races = compile error
+- `Channel[T]` with ring buffer + mutex + condvar
+- Deadlock detection via lock-ordering analysis
+- Hot reload (`--jit --watch`) + lazy compilation
+- Thread pool with work-stealing scheduler
 
 **Full plans:**
 - CTFE: `docs/CTFE_PLAN.md`
 - OrcJIT: `docs/ORCJIT_PLAN.md`
+- Threading + Safety: `docs/THREADING_PLAN.md`
 
 ---
 

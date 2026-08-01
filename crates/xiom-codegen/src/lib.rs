@@ -1405,6 +1405,27 @@ impl IrEmitter {
         self.local.local_boxed_struct.remove(name);
         self.local.local_vec_handle.remove(name);
         self.local.local_err_payload.remove(name);
+
+        // M18: Detect struct payload types from inline `Some(..)` and `Ok(..)`
+        // constructors. When `var opt = Some(Ok(77))` has no type annotation,
+        // the codegen still needs to know that the Option payload is a boxed
+        // Result struct so that subsequent `match opt { Some(r) => ... }` can
+        // load `r` as %struct.Result rather than as a raw i64 pointer.
+        // Without this, nested match guards on extracted payloads see stale
+        // zero values because the intermediate matches have no scrutinee alloca.
+        if let Some(payload_type) = Self::struct_ctor_type_name(value) {
+            let stored = self.types.types.keys()
+                .find(|k| k.ends_with(&format!(".{payload_type}")) || k.as_str() == payload_type)
+                .cloned()
+                .unwrap_or_else(|| payload_type.clone());
+            self.local.local_opt_payload.insert(name.to_string(), stored);
+            return;
+        }
+        if let Some(err_type) = Self::err_ctor_type_name(value) {
+            self.local.local_err_payload.insert(name.to_string(), err_type);
+            return;
+        }
+
         if let Expr::Call(func, _, _) = value {
             if let Expr::Field(recv, method, _) = func.as_ref() {
                 match method.name.as_str() {
@@ -1450,6 +1471,45 @@ impl IrEmitter {
                     self.local.local_err_payload.insert(name.to_string(), err_payload);
                 }
             }
+        }
+    }
+
+    /// M18: Determine the XIOM struct type name for the payload of a `Some(..)`
+    /// or `Ok(..)` constructor expression. Returns the type name if the inner
+    /// expression is a struct-producing expression, otherwise `None`.
+    /// E.g. `Some(Ok(77))` → `Some("Result")` because the Some payload is
+    /// an `Ok(77)` which produces a `Result` struct.
+    fn struct_ctor_type_name(expr: &Expr) -> Option<String> {
+        match expr {
+            // Some(inner): the payload type is the type of `inner`
+            // E.g. Some(Ok(77)) → payload is Result struct
+            //      Some(42)     → payload is Int (not a struct) → None
+            Expr::Some(inner, _) => Self::inner_payload_type(inner),
+            // Ok(inner): the payload type is whatever `inner` produces
+            Expr::Ok(inner, _) => Self::inner_payload_type(inner),
+            _ => None,
+        }
+    }
+
+    /// M18: Given the inner expression of a Some/Ok constructor, determine
+    /// if it produces a struct type. Returns the XIOM type name or None.
+    fn inner_payload_type(inner: &Expr) -> Option<String> {
+        match inner {
+            // Any Ok/Err constructor always produces a Result struct
+            Expr::Ok(..) | Expr::Err(..) => Some("Result".to_string()),
+            // Some produces an Option — recurse if the inner payload is a struct
+            Expr::Some(sub, _) => Self::inner_payload_type(sub),
+            // Named struct literal `TypeName { field: val; }`
+            Expr::Struct(name, _, _, _) if name.name != "_" => Some(name.name.clone()),
+            _ => None,
+        }
+    }
+
+    /// M18: Determine the XIOM error type name for an `Err(..)` constructor.
+    fn err_ctor_type_name(expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Err(inner, _) => Self::inner_payload_type(inner),
+            _ => None,
         }
     }
 

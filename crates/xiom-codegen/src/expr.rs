@@ -1213,8 +1213,6 @@ impl IrEmitter {
                                         .and_then(|k| self.types.types.get(k))
                                 })
                             {
-                                // DEBUG: log field lookup
-                                eprintln!("FIELD_LOOKUP type={type_name} field={} names={field_names:?}", field.name);
                                 if let Some(field_idx) = IrEmitter::resolve_field_index(&field_names, &field.name) {
                                     let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
                                         let gep = self.fresh_tmp();
@@ -1889,7 +1887,12 @@ impl IrEmitter {
             }
             Expr::None(_) => {
                 self.types.used_builtins.insert("Option".to_string());
-                let opt_ty = if self.fctx.current_return_type.starts_with("%struct.") {
+                // 5c.35: Check that current_return_type is an Option-like struct.
+                // Without this guard, a function returning a non-Option struct
+                // (e.g. Node { val:Int, next:Option[Int] }) would compile None as
+                // %struct.Node instead of %struct.Option, producing type-mismatched IR.
+                let ret_is_option = self.fctx.current_return_type.contains("Option");
+                let opt_ty = if ret_is_option && self.fctx.current_return_type.starts_with("%struct.") {
                     self.fctx.current_return_type.clone()
                 } else {
                     "%struct.Option".to_string()
@@ -1918,7 +1921,9 @@ impl IrEmitter {
             }
             Expr::Ok(inner, _) => {
                 self.types.used_builtins.insert("Result".to_string());
-                let result_ty = if self.fctx.current_return_type.starts_with("%struct.") {
+                // 5c.35: Check that current_return_type is a Result-like struct.
+                let ret_is_result = self.fctx.current_return_type.contains("Result");
+                let result_ty = if ret_is_result && self.fctx.current_return_type.starts_with("%struct.") {
                     self.fctx.current_return_type.clone()
                 } else {
                     "%struct.Result".to_string()
@@ -1979,7 +1984,9 @@ impl IrEmitter {
                 } else {
                     self.compile_expr(inner)?
                 };
-                let result_ty = if self.fctx.current_return_type.starts_with("%struct.") {
+                // 5c.35: Check that current_return_type is a Result-like struct.
+                let ret_is_result = self.fctx.current_return_type.contains("Result");
+                let result_ty = if ret_is_result && self.fctx.current_return_type.starts_with("%struct.") {
                     self.fctx.current_return_type.clone()
                 } else {
                     "%struct.Result".to_string()
