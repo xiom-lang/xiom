@@ -47,22 +47,11 @@ impl IrEmitter {
                     // or resolve from function call return types.
                     let inherited = match value {
                         Expr::Ident(id) => self.local.local_vec_elem.get(&id.name).cloned(),
-                        Expr::Call(func, _, _) => {
-                            let fn_name = if let Expr::Ident(fid) = func.as_ref() {
-                                Some(fid.name.clone())
-                            } else if let Expr::Field(obj, method, _) = func.as_ref() {
-                                if let Expr::Ident(obj_id) = obj.as_ref() {
-                                    Some(format!("{}.{}", obj_id.name, method.name))
-                                } else { None }
-                            } else { None };
-                            fn_name.and_then(|name| {
-                                let key = self.types.functions.keys()
-                                    .find(|k| k.ends_with(&format!(".{}", name)) || k.as_str() == name)?
-                                    .clone();
-                                let (_, ret_xiom) = self.types.functions.get(&key)?;
-                                if ret_xiom.starts_with("Vec[") {
-                                    let elem = ret_xiom.trim_start_matches("Vec[").trim_end_matches(']').to_string();
-                                    Some(elem)
+                        Expr::Call(_, args, _) => {
+                            // Inherit from first argument's Vec element type
+                            args.first().and_then(|a| {
+                                if let Expr::Ident(id) = a {
+                                    self.local.local_vec_elem.get(&id.name).cloned()
                                 } else { None }
                             })
                         }
@@ -248,26 +237,13 @@ impl IrEmitter {
                         self.local.local_vec_elem.remove(&name.name);
                     }
                 } else {
-                    // 5c.39: Inherit Vec element type from source local
-                    // or resolve from function call return types.
+                    // 5c.39: Inherit Vec element type for Var binding
                     let inherited = match value {
                         Expr::Ident(id) => self.local.local_vec_elem.get(&id.name).cloned(),
-                        Expr::Call(func, _, _) => {
-                            let fn_name = if let Expr::Ident(fid) = func.as_ref() {
-                                Some(fid.name.clone())
-                            } else if let Expr::Field(obj, method, _) = func.as_ref() {
-                                if let Expr::Ident(obj_id) = obj.as_ref() {
-                                    Some(format!("{}.{}", obj_id.name, method.name))
-                                } else { None }
-                            } else { None };
-                            fn_name.and_then(|name| {
-                                let key = self.types.functions.keys()
-                                    .find(|k| k.ends_with(&format!(".{}", name)) || k.as_str() == name)?
-                                    .clone();
-                                let (_, ret_xiom) = self.types.functions.get(&key)?;
-                                if ret_xiom.starts_with("Vec[") {
-                                    let elem = ret_xiom.trim_start_matches("Vec[").trim_end_matches(']').to_string();
-                                    Some(elem)
+                        Expr::Call(_, args, _) => {
+                            args.first().and_then(|a| {
+                                if let Expr::Ident(id) = a {
+                                    self.local.local_vec_elem.get(&id.name).cloned()
                                 } else { None }
                             })
                         }
