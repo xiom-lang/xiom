@@ -228,7 +228,16 @@ impl IrEmitter {
                         self.local.local_vec_elem.remove(&name.name);
                     }
                 } else {
-                    self.local.local_vec_elem.remove(&name.name);
+                    // 5c.39: Inherit Vec element type from source local
+                    let inherited = match value {
+                        Expr::Ident(id) => self.local.local_vec_elem.get(&id.name).cloned(),
+                        _ => None,
+                    };
+                    if let Some(elem) = inherited {
+                        self.local.local_vec_elem.insert(name.name.clone(), elem);
+                    } else {
+                        self.local.local_vec_elem.remove(&name.name);
+                    }
                 }
                 self.track_boxed_payload_binding(&name.name, value);
                 // Track Option/Result payload types from the type annotation
