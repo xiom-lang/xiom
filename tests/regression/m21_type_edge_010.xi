@@ -1,5 +1,5 @@
 module m21_type_edge_010
-type MyResult = Result[Int, Str]
+type MyResult = Result[Int, Str];
 
   pub fn run() -> Int {
     var r: MyResult = Ok(42);

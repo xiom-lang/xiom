@@ -1,5 +1,5 @@
 module m21_ffi_unsafe_010
-extern {
+extern "C" {
     fn strlen(s: *UInt8) -> Int;
   }
 

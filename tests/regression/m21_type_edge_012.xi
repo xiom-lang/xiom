@@ -1,7 +1,7 @@
 module m21_type_edge_012
 type Box[T] = { val: T; }
-  type IntBox = Box[Int]
-  type StrBox = Box[Str]
+  type IntBox = Box[Int];
+  type StrBox = Box[Str];
 
   pub fn run() -> Int {
     var ib: IntBox = { val: 42; };

@@ -17,7 +17,7 @@ type Stack[T] = { items: Vec[T]; }
   }
 
   pub fn run() -> Int {
-    var s: Stack[Int] = s.new();
+    var s: Stack[Int] = Stack[Int].new();
     s.push(1);
     s.push(2);
     var top = s.top();

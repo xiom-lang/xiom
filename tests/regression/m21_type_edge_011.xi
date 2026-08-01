@@ -1,5 +1,5 @@
 module m21_type_edge_011
-type MyOpt = Option[Int]
+type MyOpt = Option[Int];
 
   pub fn run() -> Int {
     var o: MyOpt = Some(7);
