@@ -2218,11 +2218,6 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             Ok((String::new(), "void".to_string()))
                         } else {
                             self.emitln(&format!("  {tmp} = call {ret_ty} @{specialized_name}({args_str})"));
-                            if let Some(receiver) = receiver_expr {
-                                if ret_ty.starts_with("%struct.") {
-                                    self.store_back_to_receiver(receiver, &tmp, &ret_ty);
-                                }
-                            }
                             Ok((tmp, ret_ty.clone()))
                         }
                     } else {
@@ -2500,11 +2495,6 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             Ok((String::new(), "void".to_string()))
                         } else {
                             self.emitln(&format!("  {tmp} = call {ret_ty} @{thunk_name}({args_str})"));
-                            if let Some(receiver) = receiver_expr {
-                                if ret_ty.starts_with("%struct.") {
-                                    self.store_back_to_receiver(receiver, &tmp, &ret_ty);
-                                }
-                            }
                             Ok((tmp, ret_ty.clone()))
                         }
                     } else if ret_ty == "void" {
@@ -2512,14 +2502,6 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         Ok((String::new(), "void".to_string()))
                     } else {
                         self.emitln(&format!("  {tmp} = call {ret_ty} @{resolved_fn_key}({args_str})"));
-                        // Store result back to receiver variable for mutating methods
-                        // (by-value semantics: callee receives a copy; store the
-                        // returned struct so caller sees the mutation).
-                        if let Some(receiver) = receiver_expr {
-                            if ret_ty.starts_with("%struct.") {
-                                self.store_back_to_receiver(receiver, &tmp, &ret_ty);
-                            }
-                        }
                         Ok((tmp, ret_ty.clone()))
                     }
                 }

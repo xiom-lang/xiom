@@ -187,6 +187,33 @@ impl IrEmitter {
                         Ok(("0".to_string(), LLVM_I64.to_string()))
                     }
                 } else {
+                    // In a method body, a bare identifier might be a field
+                    // of the implicit `self` receiver (e.g. `return Point{ x: x }`
+                    // where `x` is self.x). Look up the field and GEP+load it.
+                    if let Some(ref recv) = self.fctx.current_receiver {
+                        let recv_clone = recv.clone();
+                        // Try to find the field index in the receiver's struct type
+                        let struct_key = self.types.types.keys()
+                            .find(|k| k.ends_with(&format!(".{recv_clone}")) || k.as_str() == &recv_clone)
+                            .cloned();
+                        if let Some(ref sk) = struct_key {
+                            let field_names = self.types.types.get(sk).cloned();
+                            if let Some(field_names) = field_names {
+                                if let Some(fi) = field_names.iter().position(|f| f == &ident.name) {
+                                    // Look up `self` in locals
+                                    if let Some((self_ptr, _)) = self.lookup_local("self").cloned() {
+                                        let gep = self.fresh_tmp();
+                                        let struct_ty_actual = self.llvm_type_for(sk).unwrap_or_else(|_| format!("%struct.{sk}"));
+                                        self.emitln(&format!("  {gep} = getelementptr {struct_ty_actual}, {struct_ty_actual}* {self_ptr}, i32 0, i32 {fi}"));
+                                        let loaded = self.fresh_tmp();
+                                        let field_ty = self.field_llvm_type(sk, fi);
+                                        self.emitln(&format!("  {loaded} = load {field_ty}, {field_ty}* {gep}"));
+                                        return Ok((loaded, field_ty));
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // A bare reference to a module/global constant: substitute its
                     // literal value (constants aren't materialized as globals).
                     if let Some(cval) = self.local.constants.get(&ident.name).cloned() {
@@ -1797,10 +1824,42 @@ impl IrEmitter {
                 Ok((loaded, result_ty.to_string()))
             }
             Expr::Struct(name, fields, _spread, _span) => {
-                // If `name` is an enum variant (e.g., `Single`), resolve to parent enum type
-                let parent_enum = self.types.enum_variants.iter()
-                    .find(|(_, vars)| vars.iter().any(|(v, _)| v == &name.name))
-                    .map(|(ek, _)| ek.clone());
+                // If `name` is an enum variant (e.g., `Circle` or `Shape.Circle`),
+                // resolve to parent enum type. Qualified variant names need splitting.
+                let (base_name, leaf_variant) = match name.name.rfind('.') {
+                    Some(dot) => {
+                        let enum_name = &name.name[..dot];
+                        let variant = &name.name[dot + 1..];
+                        (Some(enum_name.to_string()), variant.to_string())
+                    }
+                    None => (None, name.name.clone()),
+                };
+                let parent_enum = if let Some(ref ek) = base_name {
+                    // Qualified: look up the enum by name
+                    if self.types.enum_variants.contains_key(ek) {
+                        Some(ek.clone())
+                    } else {
+                        // Try module-qualified
+                        self.types.enum_variants.keys()
+                            .find(|k| k.ends_with(&format!(".{ek}")))
+                            .cloned()
+                    }
+                } else {
+                    // Bare variant: search all enums
+                    self.types.enum_variants.iter()
+                        .find(|(_, vars)| vars.iter().any(|(v, _)| v == &leaf_variant))
+                        .map(|(ek, _)| ek.clone())
+                };
+                // Verify the variant exists in the resolved enum
+                let parent_enum = parent_enum.and_then(|ek| {
+                    if self.types.enum_variants.get(&ek)
+                        .map_or(false, |vars| vars.iter().any(|(v, _)| v == &leaf_variant))
+                    {
+                        Some(ek)
+                    } else {
+                        None
+                    }
+                });
                 let struct_ty = if let Some(ref ek) = parent_enum {
                     self.llvm_type_for(ek)?
                 } else {
@@ -1811,7 +1870,7 @@ impl IrEmitter {
                 if let Some(ref enum_key) = parent_enum {
                     // Set discriminant (field 0) to the variant index
                     let var_idx = self.types.enum_variants.get(enum_key)
-                        .and_then(|vars| vars.iter().position(|(v, _)| v == &name.name))
+                        .and_then(|vars| vars.iter().position(|(v, _)| v == &leaf_variant))
                         .unwrap_or(0);
                     let disc_gep = self.fresh_tmp();
                     self.emitln(&format!("  {disc_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
@@ -1821,7 +1880,7 @@ impl IrEmitter {
                     // so we need to look up the actual field index in the parent's field list.
                     let parent_field_names = self.types.types.get(enum_key).cloned().unwrap_or_default();
                     let variant_fields = self.types.enum_variants.get(enum_key)
-                        .and_then(|vars| vars.iter().find(|(v, _)| v == &name.name))
+                        .and_then(|vars| vars.iter().find(|(v, _)| v == &leaf_variant))
                         .map(|(_, vf)| vf.clone())
                         .unwrap_or_default();
                     for (i, (_, val)) in fields.iter().enumerate() {
