@@ -4,7 +4,7 @@ fn main() -> Int {
   var r: Result[Int, Str] = Ok(42);
   match r {
     Ok(v) if v > 100 => { return 1; }
-    Ok(v) => { return 2; }
-    Err(e) => { return 0; }
+    Ok(_) => { return 0; }
+    Err(_) => { return 2; }
   }
 }
