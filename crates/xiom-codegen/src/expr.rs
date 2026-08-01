@@ -1367,12 +1367,30 @@ impl IrEmitter {
                     }
                 }
                 // General struct field access on a computed value (e.g.
-                // `data.get(i).value` ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â a Field over a Call result). The object
+                // `data.get(i).value` or `items[i].val`). The object
                 // isn't a bound local, so compile it and GEP the field by index.
                 // Without this, such accesses fell through to the `0` default,
                 // silently discarding Option payloads passed as call arguments.
                 {
-                    let (obj_val, ov_ty) = self.compile_expr(obj)?;
+                    let (mut obj_val, mut ov_ty) = self.compile_expr(obj)?;
+                    // M33: When the base is an array/vec index that
+                    // returns an i64 handle (pointer to boxed struct),
+                    // inttoptr+load the struct before field access.
+                    // E.g. `items[i].val` where items is a Vec of
+                    // Container structs stored as heap pointers.
+                    if ov_ty == "i64" {
+                        if let Some(elem_type_name) = self.resolve_vec_elem_type_for_index(obj) {
+                            let sty = format!("%struct.{elem_type_name}");
+                            if sty.starts_with('%') {
+                                let sp = self.fresh_tmp();
+                                self.emitln(&format!("  {sp} = inttoptr i64 {obj_val} to {sty}*"));
+                                let sload = self.fresh_tmp();
+                                self.emitln(&format!("  {sload} = load {sty}, {sty}* {sp}"));
+                                obj_val = sload;
+                                ov_ty = sty;
+                            }
+                        }
+                    }
                     if ov_ty.starts_with("%struct.") {
                         let type_name = &ov_ty[8..];
                         // Handle .is_ok / .is_some / .is_err / .is_none pseudo-fields
@@ -1520,9 +1538,9 @@ impl IrEmitter {
                     let elem_ptr = self.fresh_tmp();
                     self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
                     // For struct elements with a known element type, load the
-                    // struct directly from Vec data via memcpy, bypassing the
-                    // ptrtoint/inttoptr chain of emit_elem_load+val_to_struct.
-                    // (5c.28 ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â counter pattern fix)
+                    // struct from the Vec. When the Vec stores boxed pointers
+                    // (elem_size != struct size), dereference via inttoptr+load.
+                    // Otherwise, memcpy the inline struct from the Vec buffer.
                     if let Some(elem_type_name) = self.resolve_vec_elem_type(container) {
                         let struct_ty = format!("%struct.{elem_type_name}");
                         let struct_alloca = self.fresh_tmp();
@@ -1530,6 +1548,26 @@ impl IrEmitter {
                         let dst_i8 = self.fresh_tmp();
                         self.emitln(&format!("  {dst_i8} = bitcast {struct_ty}* {struct_alloca} to i8*"));
                         self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {dst_i8}, i8* {elem_ptr}, i64 {esz_val}, i1 false)"));
+                        // M33: If the Vec stores i64 pointers to boxed structs
+                        // (elem_size == 8 < sizeof(struct)), the memcpy only
+                        // copies the pointer. Dereference it to get the actual
+                        // struct value. This happens when array literals box
+                        // struct elements on the heap (e.g. `[Container{...}]`).
+                        let struct_size = self.struct_byte_size(&elem_type_name);
+                        if struct_size as i64 != 8 {
+                            // elem_size is %esz_val (a runtime value), but since
+                            // array-literal Vecs always use elem_size=8 for
+                            // boxed pointers, compare struct_size against 8.
+                            let handle_ptr = self.fresh_tmp();
+                            let handle = self.fresh_tmp();
+                            self.emitln(&format!("  {handle_ptr} = bitcast {struct_ty}* {struct_alloca} to i64*"));
+                            self.emitln(&format!("  {handle} = load i64, i64* {handle_ptr}"));
+                            let sptr = self.fresh_tmp();
+                            self.emitln(&format!("  {sptr} = inttoptr i64 {handle} to {struct_ty}*"));
+                            let loaded = self.fresh_tmp();
+                            self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {sptr}"));
+                            return Ok((loaded, struct_ty));
+                        }
                         let loaded = self.fresh_tmp();
                         self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {struct_alloca}"));
                         return Ok((loaded, struct_ty));

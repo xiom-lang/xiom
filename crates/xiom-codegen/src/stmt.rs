@@ -31,6 +31,17 @@ impl IrEmitter {
                         }
                         // 5c.30: record array size for const-generic inference
                         self.local.local_array_sizes.insert(name.name.clone(), elems.len() as i64);
+                        // M33: When an array literal of struct elements is
+                        // converted to a Vec, record the element type so that
+                        // `resolve_vec_elem_type` finds it later. Without this,
+                        // `items[i].val` loads the raw i64 handle and field
+                        // access returns 0 instead of dereferencing the boxed
+                        // struct (affects m33_a08, m33_a16, m33_a17, m35_l07, etc.)
+                        if let Some(elem_xiom) = elems.first()
+                            .and_then(|e| self.infer_struct_type_name(e))
+                        {
+                            self.local.local_vec_elem.insert(name.name.clone(), elem_xiom);
+                        }
                     }
                 }
                 // 5c.30: record Vec element type for local Vec bindings.
@@ -225,6 +236,12 @@ impl IrEmitter {
                         }
                         // 5c.30: record array size for const-generic inference
                         self.local.local_array_sizes.insert(name.name.clone(), elems.len() as i64);
+                        // M33: track Vec element type for array-literal-to-Vec conversion
+                        if let Some(elem_xiom) = elems.first()
+                            .and_then(|e| self.infer_struct_type_name(e))
+                        {
+                            self.local.local_vec_elem.insert(name.name.clone(), elem_xiom);
+                        }
                     }
                 }
                 // 5c.30: record Vec element type for local Vec bindings.
@@ -335,8 +352,16 @@ impl IrEmitter {
                 let (val, val_llvm_ty) = if let Expr::Array(elems, _) = value {
                     // 5c.39: Non-empty array literal assigned to a Vec-typed
                     // variable — convert to Vec via compile_array_as_vec.
+                    // M33: Infer element type from first element for struct
+                    // arrays when no type annotation is present. Defaults to
+                    // "Int" for scalar elements. This ensures struct elements
+                    // are stored inline (correct elem_size) rather than boxed
+                    // as i64 pointers on the heap.
                     let elem_ty = _ty.as_ref()
                         .and_then(|t| Self::vec_elem_from_type_annotation(t))
+                        .or_else(|| {
+                            elems.first().and_then(|e| self.infer_struct_type_name(e))
+                        })
                         .unwrap_or_else(|| "Int".to_string());
                     self.compile_array_as_vec(elems, &elem_ty)?
                 } else {
