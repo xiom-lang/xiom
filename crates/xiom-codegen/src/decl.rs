@@ -115,10 +115,10 @@ impl IrEmitter {
             Type::Tuple(elems) => {
                 let name = Self::type_from_ast(ty);
                 if self.types.type_meta.contains_key(&name) { return; }
-                let field_names: Vec<String> = (0..elems.len()).map(|i| format!("{i}")).collect();
+                let field_names: Vec<String> = (0..elems.len()).map(|i| format!("_{i}")).collect();
                 let field_types: Vec<(String, String)> = elems.iter()
                     .enumerate()
-                    .map(|(i, t)| (format!("{i}"), Self::type_from_ast(t)))
+                    .map(|(i, t)| (format!("_{i}"), Self::type_from_ast(t)))
                     .collect();
                 self.types.types.insert(name.clone(), field_names);
                 self.types.type_meta.insert(name, TypeMeta {
@@ -1221,27 +1221,28 @@ impl IrEmitter {
     }
 
     fn scan_expr_for_tuples(types: &mut TypeContext, expr: &Expr) {
-        match expr {
-            // Register tuple types from expression-level tuples
-            Expr::Tuple(items, _) if items.len() > 1 => {
+        // Register tuple types from expression-level tuples
+        if let Expr::Tuple(items, _) = expr {
+            if items.len() > 1 {
                 let elem_types: Vec<String> = items.iter()
                     .map(|i| Self::infer_expr_type_name(i))
                     .collect();
                 let name = format!("Tuple__{}", elem_types.join("__"));
                 if !types.type_meta.contains_key(&name) {
-                    let field_names: Vec<String> = (0..elem_types.len()).map(|i| format!("{i}")).collect();
+                    let field_names: Vec<String> = (0..elem_types.len()).map(|i| format!("_{i}")).collect();
                     let field_meta: Vec<(String, String)> = elem_types.iter().enumerate()
-                        .map(|(i, tn)| (format!("{i}"), tn.clone()))
+                        .map(|(i, tn)| (format!("_{i}"), tn.clone()))
                         .collect();
                     types.types.insert(name.clone(), field_names);
-                    types.type_meta.entry(name).or_insert_with(|| TypeMeta {
+                    types.type_meta.entry(name.clone()).or_insert_with(|| TypeMeta {
                         fields: field_meta,
                         derives: vec![],
                         invariants: vec![],
                     });
                 }
             }
-            // Recurse into sub-expressions
+        }
+        match expr {
             Expr::Tuple(items, _) => { for item in items { Self::scan_expr_for_tuples(types, item); } }
             Expr::Call(func, args, _) => { Self::scan_expr_for_tuples(types, func); for a in args { Self::scan_expr_for_tuples(types, a); } }
             Expr::Binary(a, _, b, _) => { Self::scan_expr_for_tuples(types, a); Self::scan_expr_for_tuples(types, b); }
