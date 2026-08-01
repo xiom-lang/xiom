@@ -3404,6 +3404,11 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
             // with NO `self` param is a static constructor ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â no receiver argument.
             let has_self_param = fd.params.iter().any(|p| p.name.name == "self");
             let is_mut_self = fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self);
+            // 5c.34: Detect by-value self usage in generic method bodies
+            // (same fix as compile_fn for non-generic methods).
+            let body_uses_self = !has_self_param
+                && fd.receiver.is_some()
+                && fd.body.as_ref().map_or(false, |b| IrEmitter::block_uses_self_ident(b));
             let self_llvm_ty = if let (true, Some(r)) = (has_self_param, fd.receiver.as_ref()) {
                 let base = self.llvm_type_for(&r.name).unwrap_or_else(|_| {
                     let search = format!(".{}", r.name);
@@ -3413,6 +3418,17 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                     "i64".to_string()
                 });
                 Some(if is_mut_self && base.starts_with('%') { format!("{base}*") } else { base })
+            } else if body_uses_self {
+                // 5c.34: By-value self in generic method — pass pointer so
+                // mutations propagate to caller (matches compile_fn behavior).
+                let base = fd.receiver.as_ref().and_then(|r| {
+                    self.llvm_type_for(&r.name).ok().or_else(|| {
+                        let search = format!(".{}", r.name);
+                        self.types.type_meta.keys().find(|k| k.ends_with(&search))
+                            .map(|k| format!("%struct.{k}"))
+                    })
+                }).unwrap_or_else(|| "i64".to_string());
+                Some(if base.starts_with('%') { format!("{base}*") } else { base })
             } else {
                 None
             };

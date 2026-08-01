@@ -2115,16 +2115,22 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let mut inferred_types: Vec<String> = args.iter()
                                 .map(|a| self.infer_llvm_type(a))
                                 .collect();
-                            // Check if the generic decl has a self param (receiver)
-                            let has_self = self.mono.generic_fn_decls.iter()
-                                .find(|(k, _)| k == &fn_key)
-                                .map(|(_, fd)| fd.receiver.is_some()
-                                    && fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self))
-                                .unwrap_or(false);
-                            if has_self {
-                                // Prepend the receiver's pointer type
-                                if let Some(recv_name) = self.mono.generic_fn_decls.iter()
-                                    .find(|(k, _)| k == &fn_key)
+                            // 5c.34: Check if the generic decl body uses `self`
+                            // (by-value self method). If so, prepend the receiver
+                            // struct pointer type so the call matches the monomorphised
+                            // function's actual signature.
+                            let generic_fd = self.mono.generic_fn_decls.iter()
+                                .find(|(k, _)| k == &fn_key);
+                            let body_uses_self = generic_fd.map_or(false, |(_, fd)| {
+                                fd.body.as_ref().map_or(false, |b| IrEmitter::block_uses_self_ident(b))
+                            });
+                            let has_self = generic_fd.map_or(false, |(_, fd)| {
+                                fd.receiver.is_some()
+                                    && fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self)
+                            });
+                            if has_self || body_uses_self {
+                                // Prepend the receiver's pointer/struct type
+                                if let Some(recv_name) = generic_fd
                                     .and_then(|(_, fd)| fd.receiver.as_ref())
                                 {
                                     let recv_ty = self.llvm_type_for(&recv_name.name)
