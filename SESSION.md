@@ -64,21 +64,33 @@
 
 ---
 
-## ROADMAP — v0.54
+## ROADMAP — v0.54 → v0.56 → SELFHOST
 
-### CTFE (Compile-Time Function Evaluation)
-Full plan: `docs/CTFE_PLAN.md`
+```
+v0.53 ──► v0.54 ──► v0.55 ──► v0.56 ──► SELFHOST
+  NOW      │         │         │
+           │         │         └── Hot Reload + Lazy Compilation
+           │         └── OrcJIT MVP + C Runtime Shared Lib
+           └── CTFE Phase A + Binary Cache (--run --cache)
+```
 
-**Phase A — Const Evaluator (v0.54-target):**
-- `const` declarations and `const {}` blocks
-- Arithmetic, conditionals, builtins (`sizeof`, `align_of`, `type_id`)
-- AST-level constant folding before codegen
-- New crate: `crates/xiom-ctfe/`
+### v0.54: CTFE + Binary Cache
+- `const` declarations, `const {}` blocks, `sizeof`/`align_of` builtins
+- `--run --cache`: binary caching by source hash → **500ms → 5ms cached**
 
-**Phase B — Full Interpreter (v0.55-target):**
-- Stack-based bytecode VM with arena allocator
-- Purity analysis for CTFE eligibility
-- `@comptime` annotation, result caching
+### v0.55: OrcJIT MVP
+- `--jit`: in-process LLVM JIT → **500ms → ~120ms uncached**
+- `xiom build-runtime`: C runtime as shared library
+- Eliminates clang spawn + linker — entire pipeline in-process
+
+### v0.56: Lazy + Hot Reload
+- `--jit --lazy`: compile only called functions → **~80ms scripting**
+- `--jit --watch`: hot reload on file change
+- `--jit --opt`: -O2 optimization passes
+
+**Full plans:**
+- CTFE: `docs/CTFE_PLAN.md`
+- OrcJIT: `docs/ORCJIT_PLAN.md`
 
 ---
 
