@@ -54,6 +54,19 @@ impl IrEmitter {
                     self.local.closure_locals.insert(name.name.clone());
                 }
                 self.track_boxed_payload_binding(&name.name, value);
+                // Track Option/Result payload types from the type annotation
+                // so nested match dispatch works.
+                if let Some(ty) = _ty {
+                    if let Some(opt_inner) = Self::option_type_param(ty, "Option") {
+                        self.local.local_opt_payload.entry(name.name.clone()).or_insert(opt_inner);
+                    }
+                    if let Some(res_val) = Self::option_type_param(ty, "Result") {
+                        self.local.local_opt_payload.entry(name.name.clone()).or_insert(res_val);
+                    }
+                    if let Some(err_val) = Self::result_err_type_param(ty) {
+                        self.local.local_err_payload.entry(name.name.clone()).or_insert(err_val);
+                    }
+                }
                 // 5c.30: Empty array `[]` assigned to Vec-typed variable — emit
                 // proper Vec initialization to avoid i8* → %struct.Vec coercion.
                 if is_empty_array_to_vec {
@@ -196,6 +209,19 @@ impl IrEmitter {
                     self.local.local_vec_elem.remove(&name.name);
                 }
                 self.track_boxed_payload_binding(&name.name, value);
+                // Track Option/Result payload types from the type annotation
+                // so nested match dispatch works.
+                if let Some(ty) = _ty {
+                    if let Some(opt_inner) = Self::option_type_param(ty, "Option") {
+                        self.local.local_opt_payload.entry(name.name.clone()).or_insert(opt_inner);
+                    }
+                    if let Some(res_val) = Self::option_type_param(ty, "Result") {
+                        self.local.local_opt_payload.entry(name.name.clone()).or_insert(res_val);
+                    }
+                    if let Some(err_val) = Self::result_err_type_param(ty) {
+                        self.local.local_err_payload.entry(name.name.clone()).or_insert(err_val);
+                    }
+                }
                 // 5c.30: Empty array `[]` assigned to Vec-typed variable — emit
                 // proper Vec initialization.
                 let is_empty_array_to_vec_var = matches!(value, Expr::Array(elems, _) if elems.is_empty())
@@ -1378,6 +1404,23 @@ impl IrEmitter {
                                         let f = self.fresh_tmp();
                                         self.emitln(&format!("  {f} = bitcast i64 {loaded} to double"));
                                         (f, "double".to_string())
+                                    }
+                                    // Struct payload: the i64 is a heap pointer to a
+                                    // boxed struct (Option/Result/enum). Load the struct
+                                    // so nested match dispatch works.
+                                    Some(decl) if field_ty == "i64" && !decl.starts_with("Vec[") => {
+                                        let s_ty = self.llvm_type_for(decl).unwrap_or_else(|_| format!("%struct.{decl}"));
+                                        if s_ty.starts_with('%') {
+                                            let sptr = self.fresh_tmp();
+                                            self.emitln(&format!("  {sptr} = inttoptr i64 {loaded} to {s_ty}*"));
+                                            let sload = self.fresh_tmp();
+                                            self.emitln(&format!("  {sload} = load volatile {s_ty}, {s_ty}* {sptr}"));
+                                            // Track inner variable's struct type for subsequent matches
+                                            self.local.local_boxed_struct.insert(ident.name.clone(), decl.to_string());
+                                            (sload, s_ty)
+                                        } else {
+                                            (loaded.clone(), field_ty.clone())
+                                        }
                                     }
                                     _ => {
                                         // M12: Handle the case where field_ty is i64 (fallback for unregistered structs)

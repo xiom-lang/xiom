@@ -1367,6 +1367,31 @@ impl IrEmitter {
         None
     }
 
+    /// Extract the inner type parameter from an Option[T] or Result[T, E] annotation.
+    /// Returns T for Option[T]; returns T (the value type) for Result[T, E].
+    pub fn option_type_param(ty: &Type, container: &str) -> Option<String> {
+        match ty {
+            Type::Option(inner) if container == "Option" => Some(Self::type_from_ast(inner)),
+            Type::Result(t, _) if container == "Option" => Some(Self::type_from_ast(t)),
+            Type::Result(_, e) if container == "Result" => Some(Self::type_from_ast(e)),
+            Type::Named(ident, type_args) if ident.name == container => {
+                type_args.first().map(|t| Self::type_from_ast(t))
+            }
+            _ => None,
+        }
+    }
+
+    /// Extract the error type parameter from a Result[T, E] annotation.
+    pub fn result_err_type_param(ty: &Type) -> Option<String> {
+        match ty {
+            Type::Result(_, e) => Some(Self::type_from_ast(e)),
+            Type::Named(ident, type_args) if ident.name == "Result" => {
+                type_args.get(1).map(|t| Self::type_from_ast(t))
+            }
+            _ => None,
+        }
+    }
+
     /// 5c.29: If `container` is a struct-field access whose declared type is a
     /// float container (Vec[Float32] / Vec[Float64]), return the float LLVM
     /// type. Float Vec elements are stored as RAW BITS (val_to_i64 bitcast),
