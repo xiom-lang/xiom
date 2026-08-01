@@ -23,7 +23,14 @@ impl IrEmitter {
                     }
                     return;
                 }
-                // No alias and no fields — forward declaration or marker type; skip.
+                // Empty struct (no fields, no alias) — still register as a type
+                // so it resolves in LLVM type lookups. Uses a sentinel field.
+                self.types.types.entry(type_name.clone()).or_insert(vec!["__xiom_empty".to_string()]);
+                self.types.type_meta.entry(type_name).or_insert_with(|| TypeMeta {
+                    fields: vec![("__xiom_empty".to_string(), "Int".to_string())],
+                    derives: vec![],
+                    invariants: vec![],
+                });
                 return;
             }
             // Record generic type names so their methods are skipped from direct
