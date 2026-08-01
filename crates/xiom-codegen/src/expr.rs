@@ -1,5 +1,6 @@
 ﻿use xiom_ast::*;
 use crate::llvm_consts::*;
+use crate::context::TypeMeta;
 
 use super::IrEmitter;
 
@@ -324,6 +325,33 @@ impl IrEmitter {
                 if items.is_empty() {
                     Ok(("0".to_string(), "void".to_string()))
                 } else {
+                    // 5c.36: Register tuple type dynamically before inference
+                    // so expression-level tuples like (x, y) get proper struct types.
+                    let elem_types: Vec<String> = items.iter()
+                        .map(|i| {
+                            let t = self.infer_llvm_type(i);
+                            IrEmitter::xiom_type_name_from_llvm(&t)
+                        })
+                        .collect();
+                    let name = format!("Tuple__{}", elem_types.join("__"));
+                    if !self.types.type_meta.contains_key(&name) {
+                        let field_names: Vec<String> = (0..elem_types.len()).map(|i| format!("_{i}")).collect();
+                        let field_llvm: Vec<(String, String)> = elem_types.iter().enumerate()
+                            .map(|(i, tn)| (format!("_{i}"), tn.clone()))
+                            .collect();
+                        self.types.types.insert(name.clone(), field_names);
+                        self.types.type_meta.entry(name.clone()).or_insert_with(|| TypeMeta {
+                            fields: field_llvm,
+                            derives: vec![],
+                            invariants: vec![],
+                        });
+                        // 5c.36: Emit struct definition immediately so it's
+                        // defined before the alloca below.
+                        let field_llvm_types: Vec<String> = elem_types.iter()
+                            .map(|tn| self.llvm_type_for(tn).unwrap_or_else(|_| "i64".to_string()))
+                            .collect();
+                        self.emitln(&format!("%struct.{name} = type {{ {} }}", field_llvm_types.join(", ")));
+                    }
                     let mut struct_ty = self.infer_llvm_type(expr);
                     // Fix: If inference falls back to i64 (because element types
                     // don't match registered struct), try the function return type.

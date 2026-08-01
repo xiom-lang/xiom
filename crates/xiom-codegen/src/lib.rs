@@ -958,7 +958,7 @@ impl IrEmitter {
         }
     }
 
-    fn xiom_type_name_from_llvm(llvm_ty: &str) -> String {
+    pub(crate) fn xiom_type_name_from_llvm(llvm_ty: &str) -> String {
         // Check pointer types before stripping `*` — `i8*` is Str, not Int8.
         if llvm_ty == "i8*" { return "Str".to_string(); }
         let base = llvm_ty
@@ -976,6 +976,18 @@ impl IrEmitter {
             "i1" => "Bool".to_string(),
             _ => base.to_string(),
         }
+    }
+
+    /// 5c.36: Resolve field index by name, with tuple numeric→_N fallback.
+    pub(crate) fn resolve_field_index(field_names: &[String], field_name: &str) -> Option<usize> {
+        if let Some(idx) = field_names.iter().position(|f| f == field_name) {
+            return Some(idx);
+        }
+        if field_name.chars().all(|c| c.is_ascii_digit()) {
+            let alt = format!("_{field_name}");
+            return field_names.iter().position(|f| f == &alt);
+        }
+        None
     }
 
     /// Extract the name of each type argument from a Type AST node.
@@ -2108,6 +2120,12 @@ impl IrEmitter {
         // Register function signatures
         for item in &program.items {
             self.register_functions(item);
+        }
+
+        // 5c.36: Pre-register expression-level tuple types from function bodies
+        // so their struct definitions are emitted at module level.
+        for item in &program.items {
+            self.register_expr_tuple_types(item);
         }
 
         // 5e.7f: Const evaluation pass — fold const expressions after all

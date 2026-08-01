@@ -1,4 +1,5 @@
 ﻿use super::{IrEmitter, TypeMeta};
+use crate::context::TypeContext;
 use xiom_ast::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -1161,6 +1162,124 @@ impl IrEmitter {
         }
         if !self.local.deferred_struct_types.is_empty() {
             self.emitln("");
+        }
+    }
+
+    // ========================================================================
+    // 5c.36: Pre-register expression-level tuple types
+    // ========================================================================
+
+    /// Scan function bodies for `Expr::Tuple` with 2+ elements and register
+    /// the corresponding `Tuple__Type1__Type2` struct types so their LLVM
+    /// definitions are emitted at module level before any function bodies.
+    pub(crate) fn register_expr_tuple_types(&mut self, item: &TopDecl) {
+        match item {
+            TopDecl::Fn(fd) => {
+                if let Some(ref body) = fd.body {
+                    Self::scan_block_for_tuples(&mut self.types, body);
+                }
+            }
+            TopDecl::Module(md) => {
+                for item in &md.items {
+                    self.register_expr_tuple_types(item);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn scan_block_for_tuples(types: &mut TypeContext, block: &Block) {
+        for stmt in &block.stmts {
+            match stmt {
+                StmtOrExpr::Stmt(s) => Self::scan_stmt_for_tuples(types, s),
+                StmtOrExpr::Expr(e) => Self::scan_expr_for_tuples(types, e),
+            }
+        }
+    }
+
+    fn scan_stmt_for_tuples(types: &mut TypeContext, stmt: &Stmt) {
+        match stmt {
+            Stmt::Let(_, _, init, _) | Stmt::Var(_, _, init, _) => Self::scan_expr_for_tuples(types, init),
+            Stmt::Assign(lhs, rhs, _) => { Self::scan_expr_for_tuples(types, lhs); Self::scan_expr_for_tuples(types, rhs); }
+            Stmt::If(cond, then_b, elifs, else_b, _) => {
+                Self::scan_expr_for_tuples(types, cond);
+                Self::scan_block_for_tuples(types, then_b);
+                for (c, b) in elifs { Self::scan_expr_for_tuples(types, c); Self::scan_block_for_tuples(types, b); }
+                if let Some(b) = else_b { Self::scan_block_for_tuples(types, b); }
+            }
+            Stmt::While(cond, body, _, _) => { Self::scan_expr_for_tuples(types, cond); Self::scan_block_for_tuples(types, body); }
+            Stmt::For(_, iter, body, _) => { Self::scan_expr_for_tuples(types, iter); Self::scan_block_for_tuples(types, body); }
+            Stmt::Match(scrut, arms, _) => {
+                Self::scan_expr_for_tuples(types, scrut);
+                for arm in arms {
+                    match &arm.body { MatchBody::Block(b) => Self::scan_block_for_tuples(types, b), MatchBody::Expr(e) => Self::scan_expr_for_tuples(types, e) }
+                }
+            }
+            Stmt::Return(Some(e), _) | Stmt::Expr(e, _) => Self::scan_expr_for_tuples(types, e),
+            _ => {}
+        }
+    }
+
+    fn scan_expr_for_tuples(types: &mut TypeContext, expr: &Expr) {
+        match expr {
+            // Register tuple types from expression-level tuples
+            Expr::Tuple(items, _) if items.len() > 1 => {
+                let elem_types: Vec<String> = items.iter()
+                    .map(|i| Self::infer_expr_type_name(i))
+                    .collect();
+                let name = format!("Tuple__{}", elem_types.join("__"));
+                if !types.type_meta.contains_key(&name) {
+                    let field_names: Vec<String> = (0..elem_types.len()).map(|i| format!("_{i}")).collect();
+                    let field_meta: Vec<(String, String)> = elem_types.iter().enumerate()
+                        .map(|(i, tn)| (format!("_{i}"), tn.clone()))
+                        .collect();
+                    types.types.insert(name.clone(), field_names);
+                    types.type_meta.entry(name).or_insert_with(|| TypeMeta {
+                        fields: field_meta,
+                        derives: vec![],
+                        invariants: vec![],
+                    });
+                }
+            }
+            // Recurse into sub-expressions
+            Expr::Tuple(items, _) => { for item in items { Self::scan_expr_for_tuples(types, item); } }
+            Expr::Call(func, args, _) => { Self::scan_expr_for_tuples(types, func); for a in args { Self::scan_expr_for_tuples(types, a); } }
+            Expr::Binary(a, _, b, _) => { Self::scan_expr_for_tuples(types, a); Self::scan_expr_for_tuples(types, b); }
+            Expr::Unary(_, e, _) | Expr::Paren(e, _) | Expr::Ref(e, _) | Expr::MutRef(e, _) | Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _) | Expr::As(e, _, _) | Expr::Try(e, _) => Self::scan_expr_for_tuples(types, e),
+            Expr::Field(obj, _, _) => Self::scan_expr_for_tuples(types, obj),
+            Expr::Index(arr, idx, _) => { Self::scan_expr_for_tuples(types, arr); Self::scan_expr_for_tuples(types, idx); }
+            Expr::If(cond, then_b, elifs, else_b, _) => {
+                Self::scan_expr_for_tuples(types, cond); Self::scan_block_for_tuples(types, then_b);
+                for (c, b) in elifs { Self::scan_expr_for_tuples(types, c); Self::scan_block_for_tuples(types, b); }
+                if let Some(b) = else_b { Self::scan_block_for_tuples(types, b); }
+            }
+            Expr::Match(scrut, arms, _) => {
+                Self::scan_expr_for_tuples(types, scrut);
+                for arm in arms { match &arm.body { MatchBody::Block(b) => Self::scan_block_for_tuples(types, b), MatchBody::Expr(e) => Self::scan_expr_for_tuples(types, e) } }
+            }
+            Expr::Array(elems, _) => { for e in elems { Self::scan_expr_for_tuples(types, e); } }
+            Expr::Struct(_, elems, _, _) => { for (_, e) in elems { Self::scan_expr_for_tuples(types, e); } }
+            _ => {}
+        }
+    }
+
+    /// Infer a type name from an expression for pre-registration purposes.
+    /// Falls back to "Int" for unknown types.
+    fn infer_expr_type_name(expr: &Expr) -> String {
+        match expr {
+            Expr::Int(..) => "Int".to_string(),
+            Expr::Float(..) => "Float64".to_string(),
+            Expr::Bool(..) => "Bool".to_string(),
+            Expr::Str(..) => "Str".to_string(),
+            Expr::Char(..) => "Char".to_string(),
+            Expr::Ident(id) => {
+                if id.name.chars().next().map_or(false, |c| c.is_ascii_uppercase()) && id.name.len() == 1 {
+                    id.name.clone()
+                } else {
+                    "Int".to_string()
+                }
+            }
+            _ => "Int".to_string(),
         }
     }
 
