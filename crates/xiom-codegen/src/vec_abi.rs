@@ -436,4 +436,97 @@ impl IrEmitter {
         self.emitln(&format!("  {loaded} = load i64, i64* {result_slot}"));
         loaded
     }
+
+    /// 5c.39: In-place insertion sort for Vec[Int]. Sorts the Vec's data buffer
+    /// by comparing i64 element values. Stores back to receiver.
+    pub(crate) fn emit_vec_sort(&mut self, receiver: &Expr, _recv_ty: String) -> Result<(), String> {
+        let (recv_val, recv_actual_ty) = self.compile_expr(receiver)?;
+        let (recv_vec, _) = self.resolve_vec_receiver(receiver, &recv_val, &recv_actual_ty);
+        let vec_alloca = self.fresh_tmp();
+        self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
+        self.emit_vec_store_fields(&recv_vec, &vec_alloca);
+        let dg = self.fresh_tmp(); let dp = self.fresh_tmp();
+        self.emitln(&format!("  {dg} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 0"));
+        self.emitln(&format!("  {dp} = load i8*, i8** {dg}"));
+        let lg = self.fresh_tmp(); let lv = self.fresh_tmp();
+        self.emitln(&format!("  {lg} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 1"));
+        self.emitln(&format!("  {lv} = load i64, i64* {lg}"));
+        let eszg = self.fresh_tmp(); let eszv = self.fresh_tmp();
+        self.emitln(&format!("  {eszg} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 3"));
+        self.emitln(&format!("  {eszv} = load i64, i64* {eszg}"));
+        // Skip sort if len <= 1
+        let skip = self.fresh_block("sort_skip");
+        let sort = self.fresh_block("sort_start");
+        let c0 = self.fresh_tmp();
+        self.emitln(&format!("  {c0} = icmp sle i64 {lv}, 1"));
+        self.emitln(&format!("  br i1 {c0}, label %{skip}, label %{sort}"));
+        self.emitln(&format!("\n{sort}:"));
+        // Insertion sort
+        let i_slot = self.fresh_tmp();
+        self.emitln(&format!("  {i_slot} = alloca i64"));
+        self.emitln(&format!("  store i64 1, i64* {i_slot}"));
+        let oh = self.fresh_block("sort_outer");
+        let ob = self.fresh_block("sort_ob");
+        let od = self.fresh_block("sort_od");
+        self.emitln(&format!("  br label %{oh}"));
+        self.emitln(&format!("\n{oh}:"));
+        let iv = self.fresh_tmp();
+        self.emitln(&format!("  {iv} = load i64, i64* {i_slot}"));
+        let ic = self.fresh_tmp();
+        self.emitln(&format!("  {ic} = icmp slt i64 {iv}, {lv}"));
+        self.emitln(&format!("  br i1 {ic}, label %{ob}, label %{od}"));
+        self.emitln(&format!("\n{ob}:"));
+        // key = data[i]
+        let ko = self.fresh_tmp();
+        self.emitln(&format!("  {ko} = mul i64 {iv}, {eszv}"));
+        let kp = self.fresh_tmp(); self.emitln(&format!("  {kp} = getelementptr i8, i8* {dp}, i64 {ko}"));
+        let kpi = self.fresh_tmp(); self.emitln(&format!("  {kpi} = bitcast i8* {kp} to i64*"));
+        let kv = self.fresh_tmp(); self.emitln(&format!("  {kv} = load i64, i64* {kpi}"));
+        // j = i - 1
+        let js = self.fresh_tmp(); self.emitln(&format!("  {js} = alloca i64"));
+        let ji = self.fresh_tmp();
+        self.emitln(&format!("  {ji} = sub i64 {iv}, 1"));
+        self.emitln(&format!("  store i64 {ji}, i64* {js}"));
+        let ih = self.fresh_block("sort_inner");
+        let ib = self.fresh_block("sort_ib");
+        let id = self.fresh_block("sort_id");
+        self.emitln(&format!("  br label %{ih}"));
+        self.emitln(&format!("\n{ih}:"));
+        let jv = self.fresh_tmp(); self.emitln(&format!("  {jv} = load i64, i64* {js}"));
+        let jo = self.fresh_tmp(); self.emitln(&format!("  {jo} = icmp sge i64 {jv}, 0"));
+        self.emitln(&format!("  br i1 {jo}, label %{ib}, label %{id}"));
+        self.emitln(&format!("\n{ib}:"));
+        let joff = self.fresh_tmp(); self.emitln(&format!("  {joff} = mul i64 {jv}, {eszv}"));
+        let jptr = self.fresh_tmp(); self.emitln(&format!("  {jptr} = getelementptr i8, i8* {dp}, i64 {joff}"));
+        let jpi = self.fresh_tmp(); self.emitln(&format!("  {jpi} = bitcast i8* {jptr} to i64*"));
+        let je = self.fresh_tmp(); self.emitln(&format!("  {je} = load i64, i64* {jpi}"));
+        let cmp = self.fresh_tmp(); self.emitln(&format!("  {cmp} = icmp sgt i64 {je}, {kv}"));
+        let shift = self.fresh_block("sort_shift");
+        self.emitln(&format!("  br i1 {cmp}, label %{shift}, label %{id}"));
+        self.emitln(&format!("\n{shift}:"));
+        let jp1 = self.fresh_tmp(); self.emitln(&format!("  {jp1} = add i64 {jv}, 1"));
+        let jp1o = self.fresh_tmp(); self.emitln(&format!("  {jp1o} = mul i64 {jp1}, {eszv}"));
+        let jp1p = self.fresh_tmp(); self.emitln(&format!("  {jp1p} = getelementptr i8, i8* {dp}, i64 {jp1o}"));
+        let jp1pi = self.fresh_tmp(); self.emitln(&format!("  {jp1pi} = bitcast i8* {jp1p} to i64*"));
+        self.emitln(&format!("  store i64 {je}, i64* {jp1pi}"));
+        let jd = self.fresh_tmp(); self.emitln(&format!("  {jd} = sub i64 {jv}, 1"));
+        self.emitln(&format!("  store i64 {jd}, i64* {js}"));
+        self.emitln(&format!("  br label %{ih}"));
+        self.emitln(&format!("\n{id}:"));
+        let jd2 = self.fresh_tmp(); self.emitln(&format!("  {jd2} = load i64, i64* {js}"));
+        let jd21 = self.fresh_tmp(); self.emitln(&format!("  {jd21} = add i64 {jd2}, 1"));
+        let jd21o = self.fresh_tmp(); self.emitln(&format!("  {jd21o} = mul i64 {jd21}, {eszv}"));
+        let jd21p = self.fresh_tmp(); self.emitln(&format!("  {jd21p} = getelementptr i8, i8* {dp}, i64 {jd21o}"));
+        let jd21pi = self.fresh_tmp(); self.emitln(&format!("  {jd21pi} = bitcast i8* {jd21p} to i64*"));
+        self.emitln(&format!("  store i64 {kv}, i64* {jd21pi}"));
+        let ii = self.fresh_tmp(); self.emitln(&format!("  {ii} = add i64 {iv}, 1"));
+        self.emitln(&format!("  store i64 {ii}, i64* {i_slot}"));
+        self.emitln(&format!("  br label %{oh}"));
+        self.emitln(&format!("\n{od}:"));
+        self.emitln(&format!("  br label %{skip}"));
+        self.emitln(&format!("\n{skip}:"));
+        let vec_back = self.emit_vec_load_fields(&vec_alloca);
+        self.store_back_to_receiver(receiver, &vec_back, "%struct.Vec");
+        Ok(())
+    }
 }

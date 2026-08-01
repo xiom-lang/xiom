@@ -1093,6 +1093,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                     }
                 }
+                // 5c.39: Vec.sort() — in-place insertion sort.
+                if fn_name == "sort" && args.is_empty() {
+                    if let Some(receiver) = receiver_expr {
+                        let recv_ty = self.infer_llvm_type(receiver);
+                        let is_vec = recv_ty == "%struct.Vec" || recv_ty.ends_with(".Vec") || recv_ty.contains("struct.Vec")
+                            || self.is_container_vec_field(receiver);
+                        if is_vec {
+                            self.emit_vec_sort(receiver, recv_ty)?;
+                            return Ok(("0".to_string(), "void".to_string()));
+                        }
+                    }
+                }
                 // Vec.get(vec, idx) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â method call on Vec. Returns Option[T]: None
                 // when idx is out of range (discriminant 0), else Some(data[idx])
                 // (discriminant 1, value = element). Mirrors the pop lowering.
