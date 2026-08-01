@@ -1583,14 +1583,23 @@ impl IrEmitter {
                                 {
                                     if let Some(fi) = field_names.iter().position(|f| f == &field_name_expr.name) {
                                         let field_llvm_ty = self.field_llvm_type(&type_name, fi);
-                                        // Only take the GEP path for struct-typed
-                                        // fields; scalar/handle fields keep the
-                                        // by-value fallback below.
+                                        // Struct-typed fields: return GEP pointer.
                                         if field_llvm_ty.starts_with("%struct.") && !field_llvm_ty.ends_with('*') {
                                             let gep = self.fresh_tmp();
                                             self.emitln(&format!("  {gep} = getelementptr {base_ty}, {base_ty}* {base_ptr}, i32 0, i32 {fi}"));
                                             return Ok((gep, format!("{field_llvm_ty}*")));
                                         }
+                                        // 5c.31: Scalar-typed fields (i64, i8, etc.)
+                                        // must also return the field ADDRESS, not the
+                                        // value. Emit GEP + ptrtoint to i64 so the
+                                        // caller can inttoptr + load through the
+                                        // pointer (matching &ident semantics for
+                                        // scalars). Fixes ACCESS_VIOLATION on &d.val.
+                                        let gep = self.fresh_tmp();
+                                        self.emitln(&format!("  {gep} = getelementptr {base_ty}, {base_ty}* {base_ptr}, i32 0, i32 {fi}"));
+                                        let ptr_val = self.fresh_tmp();
+                                        self.emitln(&format!("  {ptr_val} = ptrtoint {field_llvm_ty}* {gep} to i64"));
+                                        return Ok((ptr_val, LLVM_I64.to_string()));
                                     }
                                 }
                             }
@@ -1930,16 +1939,25 @@ impl IrEmitter {
                     self.llvm_type_for(ek)?
                 } else if name.name == "_" {
                     // Bare struct literal `{ field: value; }` — resolve from
-                    // return type context. This avoids emitting invalid GEP on i64.
+                    // return type context, or via field-name-based type lookup.
                     if !self.fctx.current_return_type.is_empty()
                         && self.fctx.current_return_type.starts_with('%')
                     {
                         self.fctx.current_return_type.clone()
                     } else {
-                        // Fallback: return a dummy i64 (the caller should have
-                        // resolved the type from context). This is better than
-                        // generating invalid LLVM IR.
-                        "i64".to_string()
+                        // 5c.31: Try resolve_bare_struct to match field names
+                        // against registered types (e.g. `{ v: 42 }` → L1,
+                        // `{ l6: { ... } }` → L7). This fixes deep struct
+                        // literal chains where the inner struct is a bare `_`
+                        // literal whose type cannot be inferred from context.
+                        match resolve_bare_struct(self, fields) {
+                            Ok((val, ty)) if ty.starts_with('%') => {
+                                return Ok((val, ty));
+                            }
+                            _ => {
+                                "i64".to_string()
+                            }
+                        }
                     }
                 } else {
                     self.llvm_type_for_fallback(&name.name)
