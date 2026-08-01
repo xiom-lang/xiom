@@ -125,6 +125,39 @@ impl IrEmitter {
                 let ptr_ty = format!("{field_llvm_ty}*");
                 Some((gep, ptr_ty, field_llvm_ty))
             }
+            // 5c.38: `container[i]` — compute the element address within a
+            // Vec/Slice data buffer so field mutations (e.g. `items[0].x = v`)
+            // can store through the resulting lvalue pointer.
+            Expr::Index(container, index, _) => {
+                let (idx_val, idx_ty) = self.compile_expr(index).ok()?;
+                let idx_i64 = self.val_to_i64(&idx_val, &idx_ty);
+                let (cont_val, _cont_ty) = self.compile_expr(container).ok()?;
+                // Alloca + store to get a stable pointer for field GEP on Vec fields
+                let vslot = self.fresh_tmp();
+                let vty = "%struct.Vec";
+                self.emitln(&format!("  {vslot} = alloca {vty}"));
+                self.emitln(&format!("  {vslot}_i8 = bitcast {vty}* {vslot} to i8*"));
+                self.emitln(&format!("  call void @llvm.memset.p0i8.i64(i8* {vslot}_i8, i8 0, i64 32, i1 false)"));
+                self.emit_vec_store_fields(&cont_val, &vslot);
+                // Get data pointer and elem_size from Vec struct
+                let dp_gep = self.fresh_tmp();
+                let dp_val = self.fresh_tmp();
+                self.emitln(&format!("  {dp_gep} = getelementptr {vty}, {vty}* {vslot}, i32 0, i32 0"));
+                self.emitln(&format!("  {dp_val} = load i8*, i8** {dp_gep}"));
+                let esz_gep = self.fresh_tmp();
+                let esz_val = self.fresh_tmp();
+                self.emitln(&format!("  {esz_gep} = getelementptr {vty}, {vty}* {vslot}, i32 0, i32 3"));
+                self.emitln(&format!("  {esz_val} = load i64, i64* {esz_gep}"));
+                // Compute element byte offset
+                let byte_off = self.fresh_tmp();
+                self.emitln(&format!("  {byte_off} = mul i64 {idx_i64}, {esz_val}"));
+                let elem_ptr = self.fresh_tmp();
+                self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {dp_val}, i64 {byte_off}"));
+                // Infer element LLVM type. For struct element access,
+                // the caller will GEP into the element with the correct type.
+                let elem_ty = self.infer_vec_elem_llvm_type(container);
+                Some((elem_ptr, format!("{elem_ty}*"), elem_ty))
+            }
             _ => None,
         }
     }
