@@ -1718,8 +1718,9 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             self.emitln(&format!("  {disc_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
                             let disc = self.fresh_tmp();
                             self.emitln(&format!("  {disc} = load i64, i64* {disc_gep}"));
-                            if fn_name == "unwrap_err" || is_option {
+                            if fn_name == "unwrap_err" || is_option || fn_name == "unwrap_or" {
                                 // unwrap: expect disc != 0 (Some/Ok); unwrap_err: expect disc == 0 (Err)
+                                // unwrap_or: same as unwrap (disc != 0) but with phi-fallback
                                 let ok_cond = if fn_name == "unwrap_err" { "eq" } else { "ne" };
                                 let ok = self.fresh_tmp();
                                 self.emitln(&format!("  {ok} = icmp {ok_cond} i64 {disc}, 0"));
