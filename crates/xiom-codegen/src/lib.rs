@@ -657,6 +657,75 @@ impl IrEmitter {
         Self::block_mentions_any_ident(body, &candidates)
     }
 
+    /// 5c.32: Returns true if the block contains any reference to the `self`
+    /// identifier (e.g. `self.val`). Used to detect by-value self methods where
+    /// the parser stores the receiver but does not inject `self` into fd.params.
+    pub(crate) fn block_uses_self_ident(block: &Block) -> bool {
+        Self::block_mentions_self(block)
+    }
+
+    fn block_mentions_self(block: &Block) -> bool {
+        block.stmts.iter().any(|s| match s {
+            StmtOrExpr::Stmt(stmt) => Self::stmt_mentions_self(stmt),
+            StmtOrExpr::Expr(expr) => Self::expr_mentions_self(expr),
+        })
+    }
+
+    fn stmt_mentions_self(stmt: &Stmt) -> bool {
+        match stmt {
+            Stmt::Expr(e, _) | Stmt::Return(Some(e), _) => Self::expr_mentions_self(e),
+            Stmt::Let(_, _, init, _) | Stmt::Var(_, _, init, _) => Self::expr_mentions_self(init),
+            Stmt::Assign(lhs, rhs, _) => Self::expr_mentions_self(lhs) || Self::expr_mentions_self(rhs),
+            Stmt::If(cond, then_b, elifs, else_b, _) => {
+                Self::expr_mentions_self(cond) || Self::block_mentions_self(then_b)
+                    || elifs.iter().any(|(c, b)| Self::expr_mentions_self(c) || Self::block_mentions_self(b))
+                    || else_b.as_ref().map_or(false, |b| Self::block_mentions_self(b))
+            }
+            Stmt::While(cond, body, _, _) => Self::expr_mentions_self(cond) || Self::block_mentions_self(body),
+            Stmt::For(_, iter, body, _) => Self::expr_mentions_self(iter) || Self::block_mentions_self(body),
+            Stmt::Match(scrut, arms, _) => {
+                Self::expr_mentions_self(scrut)
+                    || arms.iter().any(|arm| match &arm.body {
+                        MatchBody::Block(b) => Self::block_mentions_self(b),
+                        MatchBody::Expr(e) => Self::expr_mentions_self(e),
+                    })
+            }
+            _ => false,
+        }
+    }
+
+    fn expr_mentions_self(expr: &Expr) -> bool {
+        match expr {
+            Expr::Ident(id) => id.name == "self",
+            Expr::Paren(e, _) | Expr::Unary(_, e, _) | Expr::Try(e, _)
+            | Expr::Ref(e, _) | Expr::MutRef(e, _)
+            | Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _)
+            | Expr::As(e, _, _) => Self::expr_mentions_self(e),
+            Expr::Field(obj, _, _) => Self::expr_mentions_self(obj),
+            Expr::Binary(a, _, b, _) => Self::expr_mentions_self(a) || Self::expr_mentions_self(b),
+            Expr::Call(func, args, _) => Self::expr_mentions_self(func) || args.iter().any(|a| Self::expr_mentions_self(a)),
+            Expr::Index(arr, idx, _) => Self::expr_mentions_self(arr) || Self::expr_mentions_self(idx),
+            Expr::If(cond, then_b, elifs, else_b, _) => {
+                Self::expr_mentions_self(cond) || Self::block_mentions_self(then_b)
+                    || elifs.iter().any(|(c, b)| Self::expr_mentions_self(c) || Self::block_mentions_self(b))
+                    || else_b.as_ref().map_or(false, |b| Self::block_mentions_self(b))
+            }
+            Expr::Match(scrut, arms, _) => {
+                Self::expr_mentions_self(scrut)
+                    || arms.iter().any(|arm| match &arm.body {
+                        MatchBody::Block(b) => Self::block_mentions_self(b),
+                        MatchBody::Expr(e) => Self::expr_mentions_self(e),
+                    })
+            }
+            Expr::Array(elems, _) | Expr::Tuple(elems, _) => elems.iter().any(|e| Self::expr_mentions_self(e)),
+            Expr::Struct(_, fields, base, _) => {
+                fields.iter().any(|(_, v)| Self::expr_mentions_self(v))
+                    || base.as_ref().map_or(false, |b| Self::expr_mentions_self(b))
+            }
+            _ => false,
+        }
+    }
+
     /// Collect every name bound by let/var/for/match-patterns in a block
     /// (recursively). Conservative shadow set for body_uses_receiver_state.
     fn collect_bound_names(block: &Block, out: &mut std::collections::HashSet<String>) {
