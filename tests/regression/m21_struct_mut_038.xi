@@ -7,5 +7,4 @@ fn main() -> Int {
   m.c = 30;
   if m.a == 10 && m.b == 20 && m.c == 30 { return 0; }
   return 1;
-  return 1;
 }

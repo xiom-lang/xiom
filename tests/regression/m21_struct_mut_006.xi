@@ -5,5 +5,4 @@ fn main() -> Int {
   r.b = 32767 as Int16;
   if r.a == 1 as Int16 && r.b == 32767 as Int16 { return 0; }
   return 1;
-  return 1;
 }

@@ -1694,6 +1694,40 @@ impl IrEmitter {
                     self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {vec_alloca}"));
                     return Ok((loaded, struct_ty.to_string()));
                 }
+                // 5c.31: `&v[i]` on a Vec — return the ADDRESS of element i
+                // within the Vec's data buffer, not the element VALUE.
+                // Computes data_ptr + i * elem_size and ptrtoint to i64.
+                if let Expr::Index(container, index, _) = inner.as_ref() {
+                    let (cont_val, cont_ty) = self.compile_expr(container)?;
+                    let (vec_val, vec_ty) = self.resolve_vec_receiver(container, &cont_val, &cont_ty);
+                    let is_vec = vec_ty == "%struct.Vec" || vec_ty.ends_with(".Vec")
+                        || vec_ty.contains("struct.Vec")
+                        || vec_ty == "%struct.Slice" || vec_ty.contains("struct.Slice");
+                    if is_vec {
+                        let (idx_raw, idx_ty) = self.compile_expr(index)?;
+                        let idx = self.val_to_i64(&idx_raw, &idx_ty);
+                        let vslot = self.fresh_tmp();
+                        self.emitln(&format!("  {vslot} = alloca %struct.Vec"));
+                        self.emitln(&format!("  {vslot}_i8 = bitcast %struct.Vec* {vslot} to i8*"));
+                        self.emitln(&format!("  call void @llvm.memset.p0i8.i64(i8* {vslot}_i8, i8 0, i64 32, i1 false)"));
+                        self.emit_vec_store_fields(&vec_val, &vslot);
+                        let esz_gep = self.fresh_tmp();
+                        let esz_val = self.fresh_tmp();
+                        self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {vslot}, i32 0, i32 3"));
+                        self.emitln(&format!("  {esz_val} = load i64, i64* {esz_gep}"));
+                        let data_gep = self.fresh_tmp();
+                        let data_ptr = self.fresh_tmp();
+                        self.emitln(&format!("  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {vslot}, i32 0, i32 0"));
+                        self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
+                        let byte_off = self.fresh_tmp();
+                        self.emitln(&format!("  {byte_off} = mul i64 {idx}, {esz_val}"));
+                        let elem_ptr = self.fresh_tmp();
+                        self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
+                        let ptr_val = self.fresh_tmp();
+                        self.emitln(&format!("  {ptr_val} = ptrtoint i8* {elem_ptr} to i64"));
+                        return Ok((ptr_val, LLVM_I64.to_string()));
+                    }
+                }
                 // &x: return a pointer to x's storage.
                 // For struct-typed idents, return the alloca pointer directly
                 // (this-based methods receive a proper pointer receiver).

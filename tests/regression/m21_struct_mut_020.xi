@@ -7,5 +7,4 @@ fn main() -> Int {
   s.avg = 50;
   if s.min == 5 && s.max == 95 && s.avg == 50 { return 0; }
   return 1;
-  return 1;
 }

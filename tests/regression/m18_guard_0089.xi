@@ -7,7 +7,7 @@ fn Box.double(&self) -> Int {
 }
 
 fn main() -> Int {
-  var b: Box = { val = 51; };
+  var b: Box = Box{ val: 51 };
   match b {
     v if v.double() > 100 => { return 0; }
     _ => { return 1; }
