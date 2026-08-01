@@ -762,6 +762,17 @@ impl IrEmitter {
                 }
             }
             Stmt::Match(expr_match, arms, _) => {
+                // 5c.37: Initialize match result slot when called from Expr::Match
+                // wrapper. The wrapper allocates the slot before dispatching here.
+                if let (Some(ptr), Some(ty)) = (self.fctx.match_result_ptr.clone(), self.fctx.match_result_ty.clone()) {
+                    if ty.starts_with("%struct.") {
+                        self.emitln(&format!("  store {ty} zeroinitializer, {ty}* {ptr}"));
+                    } else if ty.ends_with('*') {
+                        self.emitln(&format!("  store {ty} null, {ty}* {ptr}"));
+                    } else {
+                        self.emitln(&format!("  store {ty} 0, {ty}* {ptr}"));
+                    }
+                }
                 let (mut val, mut scrutinee_llvm_ty) = self.compile_expr(expr_match)?;
                 let merge_label = self.fresh_block("match_merge");
 
