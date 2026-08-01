@@ -1357,14 +1357,13 @@ impl IrEmitter {
 
     /// Extract the element type name from a `Vec[T]` type annotation.
     pub fn vec_elem_from_type_annotation(ty: &Type) -> Option<String> {
-        if let Type::Named(ident, type_args) = ty {
-            if ident.name == "Vec" {
-                if let Some(first) = type_args.first() {
-                    return Some(Self::type_from_ast(first));
-                }
+        match ty {
+            Type::Vec(inner) => Some(Self::type_from_ast(inner)),
+            Type::Named(ident, type_args) if ident.name == "Vec" => {
+                type_args.first().map(|t| Self::type_from_ast(t))
             }
+            _ => None,
         }
-        None
     }
 
     /// Extract the inner type parameter from an Option[T] or Result[T, E] annotation.

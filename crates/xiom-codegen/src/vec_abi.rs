@@ -19,6 +19,34 @@ impl IrEmitter {
             self.emitln(&format!("  {boxp} = inttoptr i64 {recv_val} to %struct.Vec*"));
             return Ok((boxp, false));
         }
+        // 5c.30: Indexed Vec element (e.g. outer[0] where outer: Vec[Vec[Int]]).
+        // The index returns a loaded struct. For mutation (push), we need a pointer
+        // into the outer Vec's data buffer so changes persist.
+        if recv_ty == "i64" {
+            if let Expr::Index(container, _, _) = receiver {
+                let cont_ty = self.infer_llvm_type(container);
+                if cont_ty == "%struct.Vec" || cont_ty.ends_with(".Vec") || cont_ty.contains("struct.Vec") {
+                    let vp = self.fresh_tmp();
+                    self.emitln(&format!("  {vp} = inttoptr i64 {recv_val} to %struct.Vec*"));
+                    return Ok((vp, false));
+                }
+            }
+        }
+        // 5c.30: Struct-typed indexed element (compiled as %struct.Vec via memcpy).
+        // We need a pointer to the element IN the data buffer, not the stack copy.
+        if recv_ty == "%struct.Vec" {
+            if let Expr::Index(container, idx, _) = receiver {
+                let cont_ty = self.infer_llvm_type(container);
+                if cont_ty == "%struct.Vec" || cont_ty.ends_with(".Vec") || cont_ty.contains("struct.Vec") {
+                    // Re-resolve the element pointer for mutation
+                    if let Some(elem_ptr) = self.resolve_index_elem_ptr(container, idx) {
+                        let vp = self.fresh_tmp();
+                        self.emitln(&format!("  {vp} = bitcast i8* {elem_ptr} to %struct.Vec*"));
+                        return Ok((vp, false)); // mutations go directly to buffer
+                    }
+                }
+            }
+        }
         let (vec_val, _) = self.resolve_vec_value(&recv_val, &recv_ty);
         let slot = self.fresh_tmp();
         self.emitln(&format!("  {slot} = alloca %struct.Vec"));
@@ -78,6 +106,19 @@ impl IrEmitter {
             self.emitln(&format!("  {vl} = load volatile %struct.Vec, %struct.Vec* {vp}"));
             return (vl, "%struct.Vec".to_string());
         }
+        // 5c.30: Indexed Vec element — inttoptr + load the struct.
+        if t == "i64" {
+            if let Expr::Index(container, _, _) = receiver {
+                let cont_ty = self.infer_llvm_type(container);
+                if cont_ty == "%struct.Vec" || cont_ty.ends_with(".Vec") || cont_ty.contains("struct.Vec") {
+                    let vp = self.fresh_tmp();
+                    self.emitln(&format!("  {vp} = inttoptr i64 {v} to %struct.Vec*"));
+                    let vl = self.fresh_tmp();
+                    self.emitln(&format!("  {vl} = load volatile %struct.Vec, %struct.Vec* {vp}"));
+                    return (vl, "%struct.Vec".to_string());
+                }
+            }
+        }
         (v, t)
     }
 
@@ -103,6 +144,35 @@ impl IrEmitter {
             prev = vi;
         }
         prev
+    }
+
+    /// Resolve the raw element pointer for `container[idx]` where container
+    /// is a Vec. Returns an `i8*` pointing to the element data IN the buffer
+    /// (no struct loading). Used by mutation operations (push/insert/remove)
+    /// on indexed Vec elements so changes persist in the outer Vec.
+    pub(crate) fn resolve_index_elem_ptr(&mut self, container: &Expr, idx: &Expr) -> Option<String> {
+        // Compile the container to get its Vec struct
+        let (cont_val, _) = self.compile_expr(container).ok()?;
+        let slot = self.fresh_tmp();
+        self.emitln(&format!("  {slot} = alloca %struct.Vec"));
+        self.emit_vec_store_fields(&cont_val, slot.as_str());
+        // Load elem_size
+        let esz_gep = self.fresh_tmp();
+        let esz = self.fresh_tmp();
+        self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {slot}, i32 0, i32 3"));
+        self.emitln(&format!("  {esz} = load i64, i64* {esz_gep}"));
+        // Load data ptr
+        let data_gep = self.fresh_tmp();
+        let data_ptr = self.fresh_tmp();
+        self.emitln(&format!("  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {slot}, i32 0, i32 0"));
+        self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
+        // Compute element offset
+        let (idx_val, _) = self.compile_expr(idx).ok()?;
+        let byte_off = self.fresh_tmp();
+        self.emitln(&format!("  {byte_off} = mul i64 {idx_val}, {esz}"));
+        let elem_ptr = self.fresh_tmp();
+        self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
+        Some(elem_ptr)
     }
 
     /// Compile an array literal `[e1, e2, ...]` into a proper `%struct.Vec`

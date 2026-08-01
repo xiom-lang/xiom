@@ -70,7 +70,17 @@ impl IrEmitter {
                 // 5c.30: Empty array `[]` assigned to Vec-typed variable — emit
                 // proper Vec initialization to avoid i8* → %struct.Vec coercion.
                 if is_empty_array_to_vec {
-                    let elem_size: i64 = 8; // default
+                    let elem_size: i64 = _ty.as_ref()
+                        .and_then(|t| Self::vec_elem_from_type_annotation(t))
+                        .and_then(|elem| {
+                            // Compute struct size for known types
+                            let sname = self.types.types.keys()
+                                .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
+                                .cloned()
+                                .unwrap_or(elem.to_string());
+                            Some(self.struct_byte_size(&sname) as i64)
+                        })
+                        .unwrap_or(8);
                     let initial_cap: i64 = 16;
                     let alloc_size = initial_cap * elem_size;
                     let struct_alloca = self.fresh_tmp();
@@ -100,8 +110,11 @@ impl IrEmitter {
                     self.emitln(&format!("  store i64 {elem_size}, i64* {esz_gep}"));
                     let loaded = self.emit_vec_load_fields(&struct_alloca);
                     self.add_local(&name.name, struct_alloca, &"%struct.Vec".to_string());
-                    // Mark as Vec local for indexing
-                    self.local.local_vec_elem.insert(name.name.clone(), "Int".to_string());
+                    // Use declared element type, not hardcoded Int
+                    let elem_ty = _ty.as_ref()
+                        .and_then(|t| Self::vec_elem_from_type_annotation(t))
+                        .unwrap_or_else(|| "Int".to_string());
+                    self.local.local_vec_elem.insert(name.name.clone(), elem_ty);
                     return Ok(());
                 }
                 let (val, val_llvm_ty) = self.compile_expr(value)?;
@@ -230,7 +243,16 @@ impl IrEmitter {
                         type_name == "Vec" || type_name.ends_with(".Vec")
                     });
                 if is_empty_array_to_vec_var {
-                    let elem_size: i64 = 8;
+                    let elem_size: i64 = _ty.as_ref()
+                        .and_then(|t| Self::vec_elem_from_type_annotation(t))
+                        .and_then(|elem| {
+                            let sname = self.types.types.keys()
+                                .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
+                                .cloned()
+                                .unwrap_or(elem.to_string());
+                            Some(self.struct_byte_size(&sname) as i64)
+                        })
+                        .unwrap_or(8);
                     let initial_cap: i64 = 16;
                     let struct_alloca = self.fresh_tmp();
                     self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
@@ -255,7 +277,11 @@ impl IrEmitter {
                     self.emitln(&format!("  store i64 {elem_size}, i64* {eg}"));
                     let loaded = self.emit_vec_load_fields(&struct_alloca);
                     self.add_local(&name.name, struct_alloca, &"%struct.Vec".to_string());
-                    self.local.local_vec_elem.insert(name.name.clone(), "Int".to_string());
+                    // Use the declared element type if available, not hardcoded Int
+                    let elem_ty = _ty.as_ref()
+                        .and_then(|t| Self::vec_elem_from_type_annotation(t))
+                        .unwrap_or_else(|| "Int".to_string());
+                    self.local.local_vec_elem.insert(name.name.clone(), elem_ty);
                     return Ok(());
                 }
                 let declared_llvm_ty: Option<String> = _ty.as_ref().map(|t| {

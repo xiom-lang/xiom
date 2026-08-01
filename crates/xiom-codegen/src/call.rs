@@ -1247,7 +1247,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             self.local.local_xiom_types.get(&id.name)
                                 .map_or(false, |t| t == "Str")
                         } else { false };
-                        if recv_ty == "i8*" || recv_ty == "ptr" || recv_ty == "i64" || is_str_type {
+                        // 5c.30: Indexed Vec elements (e.g. outer[1] from Vec[Vec[Int]])
+                        // return i64 but are NOT strings — exclude them from the Str.len() path.
+                        let is_vec_index = matches!(&**receiver, Expr::Index(..));
+                        if (recv_ty == "i8*" || recv_ty == "ptr" || (recv_ty == "i64" && !is_vec_index) || is_str_type)
+                            && !is_vec_index
+                        {
                             let (recv_val, _) = self.compile_expr(receiver)?;
                             let str_ptr = if recv_ty == "i64" {
                                 let tmp = self.fresh_tmp();
@@ -1271,6 +1276,11 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             || recv_ty == "%struct.Slice" || recv_ty.ends_with(".Slice")
                             || recv_ty.contains("struct.Vec") || recv_ty.contains("struct.Slice")
                             || self.is_container_vec_field(receiver)
+                            || (recv_ty == "i64" && matches!(&**receiver, Expr::Index(container, _, _)
+                                if {
+                                    let ct = self.infer_llvm_type(container);
+                                    ct == "%struct.Vec" || ct.ends_with(".Vec") || ct.contains("struct.Vec")
+                                }))
                         {
                             let (recv_val, rty) = self.compile_expr(receiver)?;
                             let (recv_vec, vec_ty) = self.resolve_vec_receiver(receiver, &recv_val, &rty);

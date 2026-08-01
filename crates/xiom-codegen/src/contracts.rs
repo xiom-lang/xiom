@@ -161,6 +161,16 @@ impl super::IrEmitter {
                 }
             }
         }
+        // Case 3: Index expression (e.g. outer[0].push(x)) — store the
+        // modified struct back to the element position in the buffer.
+        if let Expr::Index(container, idx, _) = receiver {
+            if let Some(elem_ptr) = self.resolve_index_elem_ptr(container, idx) {
+                let vp = self.fresh_tmp();
+                self.emitln(&format!("  {vp} = bitcast i8* {elem_ptr} to {ty}*"));
+                self.emitln(&format!("  store {ty} {val}, {ty}* {vp}"));
+                return;
+            }
+        }
         // Case 2: struct field access — GEP into the base struct and store.
         if let Expr::Field(base, field_expr, _) = receiver {
             if let Expr::Ident(base_id) = &**base {
