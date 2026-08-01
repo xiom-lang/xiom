@@ -10,5 +10,4 @@ fn main() -> Int {
   }
   if a.sum == 45 && a.count == 10 { return 0; }
   return 1;
-  return 1;
 }

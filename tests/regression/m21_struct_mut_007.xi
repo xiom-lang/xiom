@@ -5,5 +5,4 @@ fn main() -> Int {
   r.a = 2147483647 as Int32;
   if r.a == 2147483647 as Int32 && r.b == 2 as Int32 { return 0; }
   return 1;
-  return 1;
 }

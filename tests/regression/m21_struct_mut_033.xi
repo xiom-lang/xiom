@@ -8,5 +8,4 @@ fn main() -> Int {
   }
   if v.flag && v.val == 20 { return 0; }
   return 1;
-  return 1;
 }

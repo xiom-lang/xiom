@@ -361,8 +361,28 @@ impl IrEmitter {
                         self.emitln(&format!("  store {pointee} {store_val}, {ptr_ty} {ptr_val}"));
                         return Ok(());
                     }
-                    // Not a real pointer (legacy erased-to-i64 path): fall through so
-                    // the value is still evaluated for side effects; nothing stored.
+                    // 5c.31: Legacy erased-to-i64 path — the pointer value is
+                    // held as an i64 (e.g. from `&mut x` ptrtoint). Resolve the
+                    // pointee type from the inner expression's XIOM type and
+                    // emit inttoptr + store through the real pointer.
+                    if ptr_ty == "i64" {
+                        let pointee_llvm = if let Expr::Ident(id) = inner.as_ref() {
+                            self.local.local_xiom_types.get(&id.name)
+                                .and_then(|xiom_ty| {
+                                    let stripped = xiom_ty.trim_start_matches("&mut ")
+                                        .trim_start_matches('&')
+                                        .trim_start_matches('*');
+                                    self.llvm_type_for(stripped).ok()
+                                })
+                        } else { None };
+                        let pointee = pointee_llvm.unwrap_or_else(|| LLVM_I64.to_string());
+                        let (val, val_ty) = self.compile_expr(value)?;
+                        let real_ptr = self.fresh_tmp();
+                        self.emitln(&format!("  {real_ptr} = inttoptr i64 {ptr_val} to {pointee}*"));
+                        let store_val = self.coerce_value(&val, &val_ty, &pointee);
+                        self.emitln(&format!("  store {pointee} {store_val}, {pointee}* {real_ptr}"));
+                        return Ok(());
+                    }
                 }
                 let (val, val_ty) = self.compile_expr(value)?;
                 if let Expr::Ident(ident) = place {

@@ -7,7 +7,7 @@ fn Num.is_gt(&self, n: Int) -> Bool {
 }
 
 fn main() -> Int {
-  var v: Num = { val = 42; };
+  var v: Num = Num{ val: 42 };
   match v {
     v if v.is_gt(10) => { return 0; }
     _ => { return 1; }
