@@ -5,5 +5,12 @@ type Entry = { key: Int; val: Str; }
     return e.key;
   }
 
+  pub fn run() -> Int {
+    var e: Entry = { key: 7; val: "test"; };
+    var k = get_val(e);
+    if k == 7 { return 0; }
+    return 1;
+  }
+
 use m21_struct_mut_040.run;
 fn main() -> Int { return run(); }

@@ -5,7 +5,7 @@ type Record = { a: Int; b: Int; }
     return r.a;
   }
 
-fn main() -> Int {
+pub fn run() -> Int {
     var r: Record = { a: 5; b: 10; };
     var x = consume_a(r);
     if x == 5 { return 0; }
