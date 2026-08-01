@@ -291,6 +291,23 @@ impl Checker {
             generics: vec![],
             uses_implicit_this: false,
         });
+        // Register additional Vec methods that have inline codegen support.
+        for (method, ret, param) in &[
+            ("insert", CheckedType::Unit, vec![("self", CheckedType::Named("Vec".into())), ("idx", CheckedType::Int), ("val", CheckedType::Named("T".into()))]),
+            ("remove", CheckedType::Named("T".into()), vec![("self", CheckedType::Named("Vec".into())), ("idx", CheckedType::Int)]),
+            ("clear", CheckedType::Unit, vec![("self", CheckedType::Named("Vec".into()))]),
+            ("is_empty", CheckedType::Bool, vec![("self", CheckedType::Named("Vec".into()))]),
+        ] {
+            let sig = FnSig {
+                params: param.iter().map(|(n, t)| (n.to_string(), t.clone())).collect(),
+                return_type: Some(ret.clone()),
+                generics: vec!["T".to_string()],
+                uses_implicit_this: false,
+            };
+            let fn_key = format!("Vec.{}", method);
+            self.functions.entry(fn_key).or_insert_with(|| sig.clone());
+            self.methods.entry("Vec".to_string()).or_default().insert(method.to_string(), sig);
+        }
     }
 
     fn push_scope(&mut self) {
