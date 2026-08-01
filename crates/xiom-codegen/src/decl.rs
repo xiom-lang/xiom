@@ -318,8 +318,12 @@ impl IrEmitter {
             // a real receiver slot instead of reading garbage.)
             let is_this_based = fd.receiver.is_some() && !has_self_param
                 && self.body_uses_receiver_state(fd);
-            // If first param IS the self (type matches receiver), don't add
-            // receiver type ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the first param already covers it.
+            // 5c.32: by-value self methods where body uses `self` but it's not
+            // in fd.params (parser stores receiver separately). Detect and add
+            // the struct type to the signature so call-site dispatch matches.
+            let is_by_value_self = fd.receiver.is_some() && !has_self_param
+                && !self.body_uses_receiver_state(fd)
+                && fd.body.as_ref().map_or(false, |b| IrEmitter::block_uses_self_ident(b));
             if has_recv && !is_first_param_self {
                 if let Some(recv) = fd.receiver.as_ref() {
                     let base = self.llvm_type_for(&recv.name).unwrap_or_else(|_| "i64".to_string());
@@ -338,6 +342,18 @@ impl IrEmitter {
                         param_types.push(format!("{recv_ty}*"));
                     } else {
                         param_types.push(recv_ty);
+                    }
+                }
+            }
+            if is_by_value_self {
+                if let Some(recv) = fd.receiver.as_ref() {
+                    let base = self.llvm_type_for(&recv.name).unwrap_or_else(|_| "i64".to_string());
+                    // 5c.32: use pointer type so call-site passes alloca address
+                    // and callee can write through it (by-value mutating self).
+                    if base.starts_with('%') {
+                        param_types.push(format!("{base}*"));
+                    } else {
+                        param_types.push(base);
                     }
                 }
             }
@@ -738,6 +754,12 @@ impl IrEmitter {
         // reads are correct instead of garbage. Must match registration.
         let is_this_based = fd.receiver.is_some() && !has_self_param && !is_first_param_self
             && self.body_uses_receiver_state(fd);
+        // 5c.32: by-value self methods — `fn Type.method(params) { self.field = ... }`
+        // The parser stores the receiver but does NOT add `self` to fd.params.
+        // Detect self usage in the body so the LLVM signature gets the struct param.
+        let body_uses_self = fd.receiver.is_some() && !has_self_param && !is_first_param_self
+            && !self.body_uses_receiver_state(fd)
+            && fd.body.as_ref().map_or(false, |b| Self::block_uses_self_ident(b));
         let self_llvm_ty = if has_self_param {
             fd.receiver.as_ref().map(|r| {
                 let base = self.llvm_type_for(&r.name).unwrap_or_else(|_| "i64".to_string());
@@ -747,6 +769,15 @@ impl IrEmitter {
         } else if is_this_based {
             // `this`-based methods: allocate a pointer-typed self slot so
             // the body can access receiver fields through `this`/`self`.
+            fd.receiver.as_ref().map(|r| {
+                let base = self.llvm_type_for(&r.name).unwrap_or_else(|_| "i64".to_string());
+                if base.starts_with('%') { format!("{base}*") } else { base }
+            })
+        } else if body_uses_self {
+            // 5c.32: by-value self method — body uses `self` variable.
+            // Pass the struct by POINTER so mutations propagate to the
+            // caller's storage. The callee loads from the pointer into
+            // its alloca and stores back through the pointer on return.
             fd.receiver.as_ref().map(|r| {
                 let base = self.llvm_type_for(&r.name).unwrap_or_else(|_| "i64".to_string());
                 if base.starts_with('%') { format!("{base}*") } else { base }
