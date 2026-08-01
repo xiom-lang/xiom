@@ -3852,6 +3852,10 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                         let ret_ty = &self.fctx.current_return_type.clone();
                         let result_alloca = self.fresh_tmp();
                         self.emitln(&format!("  {result_alloca} = alloca {ret_ty}"));
+                        // 5c.37: Seed with default so paths without an explicit store
+                        // (e.g. guard fall-through) don't load garbage.
+                        let seed = Self::default_const_for(ret_ty);
+                        self.emitln(&format!("  store {ret_ty} {seed}, {ret_ty}* {result_alloca}"));
                         self.fctx.match_result_ptr = Some(result_alloca.clone());
                         self.compile_stmt(stmt)?;
                         self.fctx.match_result_ptr = None;
