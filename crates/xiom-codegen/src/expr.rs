@@ -3,7 +3,49 @@ use crate::llvm_consts::*;
 
 use super::IrEmitter;
 
+/// Resolve a bare struct literal `{ field: value; }` (name = `_`) to a
+/// registered type whose field names match. Returns the compiled struct value.
+fn resolve_bare_struct(
+    emitter: &mut IrEmitter,
+    fields: &[(Ident, Expr)],
+) -> Result<(String, String), String> {
+    let field_names: Vec<String> = fields.iter().map(|(n,_)| n.name.clone()).collect();
+    let resolved = emitter.types.types.iter()
+        .find(|(_, fnames)| fnames.len() == field_names.len()
+            && fnames.iter().zip(&field_names).all(|(a, b)| a == b))
+        .map(|(tn, _)| tn.clone());
+    if let Some(type_name) = resolved {
+        emitter.compile_struct_literal(&type_name, fields, false)
+    } else {
+        // Fallback: compile each field and return the last value (scalar).
+        let mut last = ("0".to_string(), "i64".to_string());
+        for (_, val) in fields.iter() {
+            last = emitter.compile_expr(val)?;
+        }
+        Ok(last)
+    }
+}
+
 impl IrEmitter {
+    /// Compile a struct literal with a KNOWN type name. Used when the type
+    /// was resolved from context (e.g. `Ok({ x: 1 })` where `Ok` expects `T`).
+    pub(crate) fn compile_struct_literal(&mut self, type_name: &str, fields: &[(Ident, Expr)], is_enum_variant: bool) -> Result<(String, String), String> {
+        let struct_ty = self.llvm_type_for(type_name)?;
+        let alloca = self.fresh_tmp();
+        self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
+        for (i, (_, val)) in fields.iter().enumerate() {
+            let (field_val, field_val_ty) = self.compile_expr(val)?;
+            let field_llvm_ty = self.field_llvm_type(type_name, i);
+            let store_val = self.coerce_value(&field_val, &field_val_ty, &field_llvm_ty);
+            let gep = self.fresh_tmp();
+            self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {i}"));
+            self.emitln(&format!("  store {field_llvm_ty} {store_val}, {field_llvm_ty}* {gep}"));
+        }
+        let loaded = self.fresh_tmp();
+        self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
+        Ok((loaded, struct_ty))
+    }
+
     pub(crate) fn compile_stmt(&mut self, stmt: &Stmt) -> Result<(), String> {
         self.compile_stmt_impl(stmt)
     }
@@ -1669,8 +1711,16 @@ impl IrEmitter {
                 self.types.used_builtins.insert("Option".to_string());
                 // If the inner expression is an array literal, convert it to a Vec
                 // struct so the Option payload is a proper Vec, not a raw buffer.
+                // Also resolve bare struct literal `{ field: value; }` from
+                // field-name-based type lookup.
                 let (val, inner_ty) = if let Expr::Array(elems, _) = inner.as_ref() {
                     self.compile_array_as_vec(elems, "Int")?
+                } else if let Expr::Struct(name, fields, _, _) = inner.as_ref() {
+                    if name.name == "_" {
+                        resolve_bare_struct(self, fields)?
+                    } else {
+                        self.compile_expr(inner)?
+                    }
                 } else {
                     self.compile_expr(inner)?
                 };
@@ -1737,7 +1787,6 @@ impl IrEmitter {
             }
             Expr::Ok(inner, _) => {
                 self.types.used_builtins.insert("Result".to_string());
-                let (val, inner_ty) = self.compile_expr(inner)?;
                 let result_ty = if self.fctx.current_return_type.starts_with("%struct.") {
                     self.fctx.current_return_type.clone()
                 } else {
@@ -1747,6 +1796,15 @@ impl IrEmitter {
                 let field_type_1 = self.types.type_meta.get(struct_name)
                     .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
+                let (val, inner_ty) = if let Expr::Struct(ref name, ref fields, _, _) = **inner {
+                    if name.name == "_" {
+                        resolve_bare_struct(self, fields)?
+                    } else {
+                        self.compile_expr(inner)?
+                    }
+                } else {
+                    self.compile_expr(inner)?
+                };
                 let field_llvm_1 = self.llvm_type_for(&field_type_1)
                     .unwrap_or_else(|_| "i64".to_string());
                 let field_type_2 = self.types.type_meta.get(struct_name)
@@ -1781,7 +1839,15 @@ impl IrEmitter {
             }
             Expr::Err(inner, _) => {
                 self.types.used_builtins.insert("Result".to_string());
-                let (val, inner_ty) = self.compile_expr(inner)?;
+                let (val, inner_ty) = if let Expr::Struct(ref name, ref fields, _, _) = **inner {
+                    if name.name == "_" {
+                        resolve_bare_struct(self, fields)?
+                    } else {
+                        self.compile_expr(inner)?
+                    }
+                } else {
+                    self.compile_expr(inner)?
+                };
                 let result_ty = if self.fctx.current_return_type.starts_with("%struct.") {
                     self.fctx.current_return_type.clone()
                 } else {
