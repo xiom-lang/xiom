@@ -815,6 +815,25 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                     }
                 }
+                // Vec.clear() — reset length to zero (inline builtin).
+                if fn_name == "clear" && args.is_empty() {
+                    if let Some(receiver) = receiver_expr {
+                        let recv_ty = self.infer_llvm_type(receiver);
+                        let is_vec = recv_ty == "%struct.Vec" || recv_ty.ends_with(".Vec") || recv_ty.contains("struct.Vec")
+                            || self.is_container_vec_field(receiver);
+                        if is_vec {
+                            let (hdr, needs_store_back) = self.resolve_vec_receiver_ptr(receiver)?;
+                            let len_gep = self.fresh_tmp();
+                            self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {hdr}, i32 0, i32 1"));
+                            self.emitln(&format!("  store i64 0, i64* {len_gep}"));
+                            if needs_store_back {
+                                let loaded = self.emit_vec_load_fields(&hdr);
+                                self.store_back_to_receiver(receiver, &loaded, "%struct.Vec");
+                            }
+                            return Ok(("0".to_string(), "void".to_string()));
+                        }
+                    }
+                }
                 // Vec.pop(vec) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â method call on Vec. Returns Option[T]: None when
                 // empty (discriminant 0), else Some(last element) (discriminant 1,
                 // value = element). A Vec is the builtin {i8*, i64, i64}; elements
