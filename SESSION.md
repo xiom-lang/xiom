@@ -1,7 +1,7 @@
 # XIOM Session Handoff — v0.53.0 "Narrow-Int Foundation"
 
-**Date:** 2026-08-01 19:45 | **Branch:** `feat/architect`
-**E2E: ~2113/2197 (~96.2%) | 31 compiler hardening commits | Zero regressions on original 1627**
+**Date:** 2026-08-01 20:15 | **Branch:** `feat/architect`
+**E2E: ~2117/2197 (~96.4%) | 32 compiler hardening commits | Zero regressions on original 1627**
 
 ---
 
@@ -9,40 +9,50 @@
 
 | Metric | Campaign Start | Previous Session | Current |
 |--------|---------------|-----------------|---------|
-| E2E pass rate | 1282/1303 (98.4%) | 2109/2197 (96.0%) | **~2113/2197 (~96.2%)** |
-| Failures | 21 | 88 | **~84** (-4 this session) |
-| Compiler commits | 0 | 30 | **31** (zero regressions) |
+| E2E pass rate | 1282/1303 (98.4%) | ~2113/2197 (~96.2%) | **~2117/2197 (~96.4%)** |
+| Failures | 21 | ~84 | **~80** (-4 this session) |
+| Compiler commits | 0 | 31 | **32** (zero regressions) |
 
 ---
 
-## THIS SESSION'S COMMIT
+## THIS SESSION'S COMMITS (2 commits)
 
 | # | Commit | Fix |
 |---|--------|-----|
-| 31 | `0f240a05` | Indexed Vec element dispatch: struct element loading via memcpy, correct element size from type annotation, Str.len guard excluding Vec indices |
+| 32a | `774116fa` | `infer_llvm_type` for Index expressions returns struct type for Vec elements (vec_edge 019) |
+| 32b | `719d0bbb` | Bare type names without generics in parser, empty struct registration, interface auto-detect for default-only interfaces (m19_default 0057/0070/0095) |
 
 ### Fix Details:
 
-1. **Indexed Vec element dispatch (vec_edge 018, + partial 019)**:
-   - `vec_elem_from_type_annotation` now handles `Type::Vec(inner)` (not just `Type::Named("Vec", args)`) — returns correct element type from annotation
-   - Empty-array-to-Vec init computes `elem_size` from type annotation instead of hardcoding 8 (fixes Vec[Vec[Int]] having wrong elem_size=8 instead of 32)
-   - `resolve_vec_receiver`/`resolve_vec_receiver_ptr` handle Index receivers: inttoptr for i64, resolve_index_elem_ptr for %struct.Vec
-   - `store_back_to_receiver` handles Index expressions via `resolve_index_elem_ptr` → bitcast → store
-   - `len` handler: indexed Vec elements excluded from Str.len() path (`is_vec_index` guard)
-   - `len` handler: Vec path extended to include indexed receivers
+1. **vec_edge 019 — indexed Vec mutation (1 test)**:
+   - `infer_llvm_type_impl` had no `Expr::Index` arm — catch-all returned `"i64"` 
+   - Push handler saw `i64` → skipped inline Vec path → called `@Vec.push` as external stub
+   - Added Index case: returns `%struct.Vec` when element type is a known struct; also checks container type
+   - One-line fix that unblocked the entire mutation persistence path
 
-2. **Previously fixed (this session)**: m21_vec_edge 021 (insert), 022 (remove), 023 (clear) — Vec method builtin registration + codegen
+2. **m19_default 0057 — interface method body parsing (1 test)**:
+   - Parser's `parse_type_base`: `Vec`, `Option`, etc. unconditionally tried to parse `<T>` after the name
+   - Bare `Vec` (without type params) caused "expected '<'" error
+   - Added `peek_ahead` check: only consume + parse generics if `[` or `<` follows; otherwise fall through to `Named` type path
+
+3. **m19_default 0070/0095 — empty struct type registration + interface auto-detect (2 tests)**:
+   - `register_type_layout_impl` skipped empty structs (`type Dog = {}`) — treated as forward declarations
+   - Fix: register empty structs with a sentinel field (`__xiom_empty`)
+   - `collect_inherent_methods` only gathered types with methods — `Cat` with zero methods never considered for interface defaults
+   - Added `collect_declared_types`: gathers ALL type/enum declarations, merged into inherent_methods
+   - Interface auto-detect iterated over `interface_required` only — interfaces with only default methods (no required) were never expanded
+   - Fix: iterate over `interface_defaults` (outer loop), get required methods via `.get(iface_name).unwrap_or_default()`
 
 ---
 
-## REMAINING FAILURES (~84)
+## REMAINING FAILURES (~80)
 
-| Category | Count | Root Cause |
-|----------|-------|-----------|
+| Category | Count | Notes |
+|----------|-------|-------|
 | m18_guard | 7 | Agent-generated syntax errors |
-| m19_default | 5 | Interface default edge cases |
+| m19_default | 2 | 0094 (enum variant constructor), 0107 (runtime: position method) |
 | m21_borrow | 5 | Runtime ACCESS_VIOLATIONs |
-| m21_complex_generic | 8 | Various (parse, type, C compilation) |
+| m21_complex_generic | 8 | Various |
 | m21_contract | 2 | C compilation + ACCESS_VIOLATION |
 | m21_deep_expr | 6 | Runtime/codegen errors |
 | m21_destructure | 5 | Type errors |
@@ -50,10 +60,10 @@
 | m21_int_edge | 3 | Runtime exit 1 |
 | m21_match_edge | 1 | IR staging bug |
 | m21_module | 6 | Environment: clang missing stdio.h |
-| m21_result_option | 2 | 004/008 env issue (clang missing stdio.h) |
+| m21_result_option | 2 | 004/008 env issue |
 | m21_struct_mut | 14 | Agent syntax errors |
 | m21_type_edge | 5 | Various |
-| m21_vec_edge | 4 | 012/027 env issue, 019 mutation persistence, 020 sort not API |
+| m21_vec_edge | 3 | 012/027 env issue, 020 sort not API |
 | m33 | 4 | Self-host preview |
 | m35_l23 | 1 | Pre-existing |
 | selfhost | 2 | ACCESS_VIOLATION |
@@ -65,25 +75,25 @@
 
 ```
 Continue XIOM v0.53.0 from SESSION.md. Branch: feat/architect.
-~2113/2197 E2E (~96.2%). ZERO regressions on original 1627.
-31 compiler hardening commits. ~84 remaining failures.
+~2117/2197 E2E (~96.4%). ZERO regressions on original 1627.
+32 compiler hardening commits. ~80 remaining failures.
 
 FIXED THIS SESSION (~4 tests):
-- Indexed Vec element struct loading (vec_edge 018)
-- Vec insert/remove/clear builtins (vec_edge 021/022/023)
-- Correct elem_size computation from type annotations
+- vec_edge 019: infer_llvm_type for Index expressions
+- m19_default 0057: bare type names without generics in parser
+- m19_default 0070/0095: empty struct registration + interface auto-detect
+- m19_default 0057/0070/0095: multiple fixes for interface default method expansion
 
 NEXT PRIORITIES:
-1. Fix vec_edge 019 — mutation persistence for indexed Vec elements (outer[0].push())
-2. Fix m19_default remaining (5 tests)
-3. Fix m21_deep_expr/int_edge runtime errors
+1. Fix m19_default 0094 — enum variant constructor type resolution (Shape.Circle)
+2. Fix m19_default 0107 — inherent method body field access
+3. Address remaining REAL compiler bugs
 
 KEY FILES:
-- crates/xiom-codegen/src/vec_abi.rs (resolve_index_elem_ptr, resolve_vec_receiver_ptr, resolve_vec_receiver)
-- crates/xiom-codegen/src/stmt.rs (elem_size from annotation, element type tracking)
-- crates/xiom-codegen/src/call.rs (Str.len guard, Vec.len Index path)
-- crates/xiom-codegen/src/contracts.rs (store_back_to_receiver Index case)
-- crates/xiom-codegen/src/lib.rs (vec_elem_from_type_annotation Type::Vec)
+- crates/xiom-parser/src/lib.rs (parse_type_base: peek_ahead for container types)
+- crates/xiom-codegen/src/lib.rs (infer_llvm_type_impl: Expr::Index case)
+- crates/xiom-codegen/src/decl.rs (register_type_layout_impl: empty structs)
+- crates/xiom-ast/src/lib.rs (collect_declared_types, auto-detect loop over defaults)
 
 BUILD: cargo build -p xiom
 TEST: cargo test -p xiom-codegen --test e2e_tests
