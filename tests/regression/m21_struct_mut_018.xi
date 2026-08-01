@@ -7,7 +7,7 @@ type Pos = { x: Int; y: Int; }
     return result;
   }
 
-fn main() -> Int {
+pub fn run() -> Int {
     var p: Pos = { x: 10; y: 5; };
     var p2 = shiftX(p, 7);
     if p2.x == 17 && p2.y == 5 { return 0; }

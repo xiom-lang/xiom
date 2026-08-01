@@ -3,7 +3,7 @@ enum Color { Red, Green, Blue }
 
   type ColoredPoint = { x: Int; y: Int; color: Color; }
 
-fn main() -> Int {
+pub fn run() -> Int {
     var cp: ColoredPoint = { x: 0; y: 0; color: Color.Red; };
     cp.color = Color.Blue;
     match cp.color {

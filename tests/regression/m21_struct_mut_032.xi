@@ -9,7 +9,7 @@ type Pair = { a: Int; b: Int; }
     return result;
   }
 
-fn main() -> Int {
+pub fn run() -> Int {
     var p: Pair = { a: 5; b: 9; };
     var swapped = swap_fields(p);
     if swapped.a == 9 && swapped.b == 5 { return 0; }

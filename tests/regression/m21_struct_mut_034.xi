@@ -5,7 +5,7 @@ type Point = { x: Int; y: Int; }
     return { x: a; y: b; };
   }
 
-fn main() -> Int {
+pub fn run() -> Int {
     var p: Point = make_point(1, 2);
     p.x = 99;
     if p.x == 99 && p.y == 2 { return 0; }
