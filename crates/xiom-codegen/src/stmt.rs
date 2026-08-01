@@ -43,7 +43,16 @@ impl IrEmitter {
                         self.local.local_vec_elem.remove(&name.name);
                     }
                 } else {
-                    self.local.local_vec_elem.remove(&name.name);
+                    // 5c.39: Inherit Vec element type from source local
+                    let inherited = match value {
+                        Expr::Ident(id) => self.local.local_vec_elem.get(&id.name).cloned(),
+                        _ => None,
+                    };
+                    if let Some(elem) = inherited {
+                        self.local.local_vec_elem.insert(name.name.clone(), elem);
+                    } else {
+                        self.local.local_vec_elem.remove(&name.name);
+                    }
                 }
                 // M20-A1: Track closure bindings (also through parens)
                 let is_closure = |e: &Expr| -> bool {
@@ -298,7 +307,16 @@ impl IrEmitter {
                         self.local.signed_locals.remove(&name.name);
                     }
                 }
-                let (val, val_llvm_ty) = self.compile_expr(value)?;
+                let (val, val_llvm_ty) = if let Expr::Array(elems, _) = value {
+                    // 5c.39: Non-empty array literal assigned to a Vec-typed
+                    // variable — convert to Vec via compile_array_as_vec.
+                    let elem_ty = _ty.as_ref()
+                        .and_then(|t| Self::vec_elem_from_type_annotation(t))
+                        .unwrap_or_else(|| "Int".to_string());
+                    self.compile_array_as_vec(elems, &elem_ty)?
+                } else {
+                    self.compile_expr(value)?
+                };
                 let orig_val_ty = val_llvm_ty.clone();
                 // M17: Use declared type for alloca width when present, falling back
                 // to value type. Special cases preserved for zero-init and float→double.
