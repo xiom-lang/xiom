@@ -1776,7 +1776,8 @@ impl IrEmitter {
     /// and caused an out-of-bounds panic.
     fn pattern_needs_check(&self, pattern: &Pattern, scrutinee_type: &Option<String>) -> bool {
         match pattern {
-            Pattern::Lit(Literal::Int(..)) | Pattern::Lit(Literal::Bool(..)) => true,
+            Pattern::Lit(Literal::Int(..)) | Pattern::Lit(Literal::Bool(..))
+            | Pattern::Lit(Literal::Str(..)) | Pattern::Lit(Literal::Char(..)) => true,
             Pattern::Variant(..) => true,
             Pattern::Some(..) | Pattern::None(..) | Pattern::Ok(..) | Pattern::Err(..) => true,
             Pattern::Ident(ident) => self.ident_is_enum_variant(scrutinee_type, &ident.name),

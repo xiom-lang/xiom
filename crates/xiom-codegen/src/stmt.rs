@@ -904,6 +904,14 @@ impl IrEmitter {
                                         self.emitln(&format!("  {c} = icmp eq i64 {val}, {bv}"));
                                         self.emitln(&format!("  br i1 {c}, label %{arm_label}, label %{fail_block}"));
                                     }
+                                    Pattern::Lit(Literal::Str(s, _)) => {
+                                        let cstr = self.intern_cstring(s);
+                                        let cmp = self.fresh_tmp();
+                                        self.emitln(&format!("  {cmp} = call i32 @strcmp(i8* {val}, i8* {cstr})"));
+                                        let eq = self.fresh_tmp();
+                                        self.emitln(&format!("  {eq} = icmp eq i32 {cmp}, 0"));
+                                        self.emitln(&format!("  br i1 {eq}, label %{arm_label}, label %{fail_block}"));
+                                    }
                                     Pattern::Ident(id) => {
                                         self.emit_variant_discriminant_check(&id.name, &scrutinee_alloca_info, &val, &arm_label, &fail_block);
                                     }
@@ -1027,6 +1035,14 @@ impl IrEmitter {
                             let bval = if *b { "1" } else { "0" };
                             self.emitln(&format!("  {check} = icmp eq i64 {val}, {bval}"));
                             self.emitln(&format!("  br i1 {check}, label %{arm_label}, label %{next}"));
+                        }
+                        Pattern::Lit(Literal::Str(s, _)) => {
+                            let cstr = self.intern_cstring(s);
+                            let cmp = self.fresh_tmp();
+                            self.emitln(&format!("  {cmp} = call i32 @strcmp(i8* {val}, i8* {cstr})"));
+                            let eq = self.fresh_tmp();
+                            self.emitln(&format!("  {eq} = icmp eq i32 {cmp}, 0"));
+                            self.emitln(&format!("  br i1 {eq}, label %{arm_label}, label %{next}"));
                         }
                         Pattern::Variant(variant_name, _, _) => {
                             self.emit_variant_discriminant_check(
