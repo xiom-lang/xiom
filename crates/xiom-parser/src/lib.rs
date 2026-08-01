@@ -1266,7 +1266,12 @@ impl Parser {
         else if self.check(|k| matches!(k, TokenKind::If | TokenKind::Return | TokenKind::Match | TokenKind::While | TokenKind::For)) {
             let stmt = self.parse_arm_stmt()?; self.skip(TokenKind::Comma); self.skip(TokenKind::Semicolon);
             MatchBody::Block(Block { stmts: vec![StmtOrExpr::Stmt(stmt)], span })
-        } else { let expr = self.parse_expr()?; self.skip(TokenKind::Comma); self.skip(TokenKind::Semicolon); MatchBody::Expr(expr) };
+        } else {
+            let expr_result = self.parse_expr_or_assign()?;
+            self.skip(TokenKind::Comma);
+            self.skip(TokenKind::Semicolon);
+            expr_result
+        };
         Ok(MatchArm { pattern, guard, body, span })
     }
 
@@ -1279,6 +1284,32 @@ impl Parser {
             TokenKind::For => self.parse_for_stmt(),
             _ => Err(self.error("expected statement in match arm")),
         }
+    }
+
+    /// Parse an expression in a match arm body, also handling assignment
+    /// (`lhs = rhs`) as a statement block.  Assignment is a statement-level
+    /// construct in XIOM, not a binary operator, so it must be detected here
+    /// when used in expression position (match arm bodies, if-expression
+    /// branches, etc.).
+    fn parse_expr_or_assign(&mut self) -> Result<MatchBody, ParseError> {
+        let span = self.peek().span;
+        let expr = self.parse_expr()?;
+        // Check for compound assignment: +=, -=, *=, etc.
+        if let Some(rhs) = self.try_compound_assign(&expr) {
+            return Ok(MatchBody::Block(Block {
+                stmts: vec![StmtOrExpr::Stmt(Stmt::Assign(expr, rhs, span))],
+                span,
+            }));
+        }
+        // Simple assignment: `lhs = rhs`
+        if self.skip(TokenKind::Eq) {
+            let rhs = self.parse_expr()?;
+            return Ok(MatchBody::Block(Block {
+                stmts: vec![StmtOrExpr::Stmt(Stmt::Assign(expr, rhs, span))],
+                span,
+            }));
+        }
+        Ok(MatchBody::Expr(expr))
     }
 
     fn parse_while_stmt(&mut self) -> Result<Stmt, ParseError> {

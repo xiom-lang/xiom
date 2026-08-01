@@ -259,6 +259,38 @@ impl Checker {
             generics: vec!["T".to_string()],
             uses_implicit_this: false,
         });
+
+        // Register Vec methods in the method table so wildcard lookup
+        // finds them for expressions whose type resolves to generic T
+        // (e.g. v[i] where v is Vec[Vec[Int]] → indexed type is T → needs
+        // method lookup to find Vec.push/Vec.len/etc.).
+        self.methods.entry("Vec".to_string()).or_default().insert("push".to_string(), FnSig {
+            params: vec![
+                ("self".to_string(), CheckedType::Named("Vec".into())),
+                ("val".to_string(), CheckedType::Named("T".into())),
+            ],
+            return_type: Some(CheckedType::Unit),
+            generics: vec!["T".to_string()],
+            uses_implicit_this: false,
+        });
+        self.methods.entry("Vec".to_string()).or_default().insert("len".to_string(), FnSig {
+            params: vec![("self".to_string(), CheckedType::Named("Vec".into()))],
+            return_type: Some(CheckedType::Int),
+            generics: vec![],
+            uses_implicit_this: false,
+        });
+        self.methods.entry("Vec".to_string()).or_default().insert("pop".to_string(), FnSig {
+            params: vec![("self".to_string(), CheckedType::Named("Vec".into()))],
+            return_type: Some(CheckedType::Named("Option".into())),
+            generics: vec![],
+            uses_implicit_this: false,
+        });
+        self.methods.entry("Vec".to_string()).or_default().insert("new".to_string(), FnSig {
+            params: vec![],
+            return_type: Some(CheckedType::Named("Vec".into())),
+            generics: vec![],
+            uses_implicit_this: false,
+        });
     }
 
     fn push_scope(&mut self) {
@@ -331,6 +363,18 @@ impl Checker {
             }
         }
         self.types.contains_key(name)
+    }
+
+    /// Strip element-type bracket from an encoded container name.
+    /// `"Vec[Int]"` → `("Vec", Some("Int"))`, `"Vec"` → `("Vec", None)`.
+    fn container_base<'a>(name: &'a str) -> (&'a str, Option<&'a str>) {
+        if let Some(bracket) = name.find('[') {
+            let base = &name[..bracket];
+            let inner = &name[bracket + 1..name.len() - 1]; // strip trailing ']'
+            (base, Some(inner))
+        } else {
+            (name, None)
+        }
     }
 
     fn add_pattern_bindings(&mut self, pattern: &Pattern, scrutinee_type: &CheckedType) {
@@ -2804,7 +2848,7 @@ impl Checker {
                 let _ = self.check_expr(idx);
                 match &arr_ty {
                     CheckedType::Named(name) if name == "Vec" => {
-                        // Vec[T][i] -> T (use Vec as placeholder, actual type inferred from usage)
+                        // Vec[T][i] -> T (use generic placeholder, actual type from usage)
                         CheckedType::Named("T".into())
                     }
                     _ => CheckedType::Int,
