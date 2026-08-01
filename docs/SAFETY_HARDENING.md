@@ -1,452 +1,356 @@
 # XIOM — Honest Gaps & Safety Hardening
 
 **Version:** v0.54 → v0.56 (Pre-Selfhost)
-**Date:** 2026-08-02
+**Date:** 2026-08-02 (revised after full audit)
 **Status:** Planning
-**Principle:** _A language that refuses to crash at runtime must be strict at compile time._
+**Principle:** _SAFEST and EASIEST with less tokens — designed for AI agents to write correct code._
 
 ---
 
-## 1. THE HONEST GAPS
+## 0. AUDIT FINDINGS — What Already Exists
 
-After analyzing XIOM against Rust, Zig, and C++ for production systems programming,
-these are the genuine gaps that matter — not features for features' sake, but
-things that prevent real bugs and make safe code the path of least resistance:
+Full audit of 10 areas against the codebase revealed XIOM is much further along
+than initially assessed. **7 of 10 are fully implemented** with production-grade quality:
 
-| # | Gap | Impact | Rust Has? | Zig Has? |
-|---|-----|--------|-----------|----------|
-| 1 | **`?` operator** — error propagation sugar | Makes error handling 5x less verbose. Without it, programmers skip error checks. | ✓ | `try` |
-| 2 | **Debug overflow + bounds checks** — UB prevention | Prevents integer overflow CVEs and buffer overruns. #1 source of security bugs. | ✓ | ✓ |
-| 3 | **Match exhaustiveness** — compiler verifies all cases | Prevents "forgot to handle error" bugs. | ✓ | ✓ |
-| 4 | **Never type (`!`)** — divergent functions | Makes exhaustiveness checking sound. `exit()` should be known to never return. | ✓ | ✓ |
-| 5 | **`defer` / scope guard** | Prevents resource leaks. Cleanup code lives next to allocation. | `Drop` | `defer` |
+| # | Area | Status | Reality |
+|---|------|--------|---------|
+| 1 | Stdlib | **EXISTS** | 56 modules. TCP/UDP/HTTP/DNS, filesystem, JSON, regex, random, datetime, HashMap, HashSet, BTreeMap, Deque, PriorityQueue, string formatting, crypto (SHA, AES, Ed25519, PBKDF), SIMD, async primitives, contracts |
+| 2 | Build System | **EXISTS** | `xiom build`, `xiom-pkg` crate with registry, lockfile, `package.xi` manifest |
+| 3 | Error Handling | **EXISTS** | `?` operator already parsed (`TokenKind::Question` → `Expr::Try`). Result/Option full pipeline. |
+| 4 | Generics | **EXISTS** | Full monomorphisation. Interface bounds `[T: Ord]`. Default method expansion. |
+| 5 | Sanitizers | **EXISTS** | `--sanitize=address|undefined|leak|thread`. Tests covering all 4 types. |
+| 6 | Doc Generator | **EXISTS** | `xiom-doc` crate. Markdown + CSS-styled HTML. Contracts in output. |
+| 7 | FFI | **EXISTS** | `extern "C"`, `xiom-ffigen` bindgen crate. C→XIOM type mapping. |
+| 8 | Debug Info | **PARTIAL** | DAP debug server exists. But no DWARF/PDB emission in codegen. |
+| 9 | **Inline Asm** | **MISSING** | No `asm!()` support. Standalone `.asm` files compiled separately. |
+| 10 | **LTO** | **MISSING** | No link-time optimization. No `-flto` flag. |
+
+**Takeaway:** The 3 genuine gaps are **Inline Asm**, **LTO**, and **Debug Info emission**.
+Everything else from the original assessment already exists and works.
 
 ---
 
-## 2. IMPROVEMENT 1: `?` OPERATOR — Error Propagation Sugar
+## 1. GENUINE GAP #1: INLINE ASSEMBLY (`asm!()`)
 
-### 2.1 The Problem
+### 1.1 Why It Matters
+
+For a systems language, inline assembly is non-negotiable. It's needed for:
+- CPU-specific instructions (SIMD, AES-NI, SHA-NI, RDRAND)
+- Context switching (green threads, fibers)
+- Accessing control registers (CR0-CR4, MSRs)
+- Performance-critical hot loops
+- Interrupt handlers and syscall trampolines
+
+Without `asm!()`, XIOM must rely on separately compiled `.asm` files and `extern "C"` FFI.
+This works but is fragile, non-portable, and opaque to the compiler's optimizer.
+
+### 1.2 Proposed Syntax
 
 ```xiom
-// CURRENT: every Result return requires explicit match — 8 lines of boilerplate
-fn read_config() -> Result[Config, Error] {
-    var file = match open_file("config.json") {
-        Ok(f) => f,
-        Err(e) => return Err(e),  // boilerplate
-    };
-    var data = match read_all(file) {
-        Ok(d) => d,
-        Err(e) => return Err(e),  // boilerplate
-    };
-    var config = match parse_json(data) {
-        Ok(c) => c,
-        Err(e) => return Err(e),  // boilerplate
-    };
-    return Ok(config);
-}
+// Basic: output-only (produces a value)
+var timestamp: Int = asm!("rdtsc" : "={rax}"(result));
 
-// TARGET: ? operator — 3 lines, zero boilerplate
-fn read_config() -> Result[Config, Error] {
-    var file = open_file("config.json")?;
-    var data = read_all(file)?;
-    var config = parse_json(data)?;
-    return Ok(config);
+// With inputs and clobbers
+asm!("cpuid"
+    : "={rax}"(eax), "={rbx}"(ebx), "={rcx}"(ecx), "={rdx}"(edx)
+    : "{rax}"(leaf)
+    : "memory", "cc"
+);
+
+// Volatile (prevent optimization across the asm)
+asm! volatile ("int $$0x80"
+    :
+    : "{rax}"(syscall_nr), "{rdi}"(arg1)
+    : "rcx", "r11", "memory"
+);
+
+// Multiple instructions
+asm!(
+    "mov rax, rdi",
+    "add rax, rsi",
+    : "={rax}"(sum)
+    : "{rdi}"(a), "{rsi}"(b)
+    : "cc"
+);
+```
+
+### 1.3 Implementation
+
+**Parser:** Add `TokenKind::Asm` keyword, parse the format string, output/input/clobber
+constraints, and optional `volatile` modifier.
+
+**AST:**
+```rust
+pub struct AsmBlock {
+    pub template: String,           // assembly template string
+    pub outputs: Vec<AsmOperand>,   // output constraints
+    pub inputs: Vec<AsmOperand>,    // input constraints
+    pub clobbers: Vec<String>,      // clobbered registers
+    pub volatile: bool,             // volatile flag
+    pub span: Span,
+}
+pub struct AsmOperand {
+    pub constraint: String,         // e.g. "={rax}", "{rdi}"
+    pub expr: Expr,                 // the XIOM expression bound to this operand
 }
 ```
 
-### 2.2 Semantics
+**Codegen:** Forward to LLVM's `call i64 asm "..."` or use LLVM's `InlineAsm` API
+through the C API.
 
-```xiom
-expr?
-// Desugars to:
-match expr {
-    Ok(v) => v,
-    Err(e) => return Err(e.into()),  // .into() converts error types if needed
-}
+```llvm
+; Generated LLVM IR for: var x = asm!("mov rax, 42" : "={rax}"(result))
+%result = call i64 asm "mov rax, 42", "={rax}"
 ```
 
-`?` only works inside functions returning `Result[T, E]` or `Option[T]`.
-The compiler rejects `?` in functions returning non-Result types — compile error.
+**Safety:** All inline assembly is implicitly `unsafe`. The compiler cannot verify
+constraints or clobbers — that's the programmer's responsibility.
 
-### 2.3 Implementation
+---
 
-**Parser:** Add `TokenKind::Question` handling in expression parsing. The `?` is
-a postfix operator with the same precedence as `.` field access.
+## 2. GENUINE GAP #2: LINK-TIME OPTIMIZATION (LTO)
 
-**AST:** No new AST node needed — desugar during parsing or early in the checker.
+### 2.1 Why It Matters
+
+LTO enables cross-module optimization that is impossible with separate compilation:
+- **Inlining across crate boundaries** (stdlib functions inlined into user code)
+- **Dead code elimination** (unused stdlib functions stripped from binary)
+- **Constant propagation** across module boundaries
+- **Devirtualization** of interface method calls
+
+Without LTO, every function call across a module boundary is an indirect call through
+a function pointer. With LTO, the optimizer sees the whole program and can specialize.
+
+### 2.2 Implementation
+
+Add a `--lto` flag that passes `-flto=thin` to the linker:
+
+```
+xiom build --release --lto app.xi
+```
+
+**ThinLTO vs Full LTO:** Use LLVM's ThinLTO — it scales to large programs without the
+memory explosion of full LTO. ThinLTO compiles each module separately with summary
+data, then does a lightweight cross-module optimization pass at link time.
 
 ```rust
-// In parser, after parsing an expression:
-if self.peek(TokenKind::Question) {
-    self.advance();
-    // Desugar expr? to match { Ok(v) => v, Err(e) => return Err(e) }
-    let ok_ident = Ident::new("__ok", span);
-    let err_ident = Ident::new("__err", span);
-    let ret_stmt = Stmt::Return(
-        Some(Expr::Err(Box::new(Expr::Ident(err_ident.clone())), span)),
-        span,
+// In CompileConfig:
+pub struct CompileConfig {
+    pub lto: bool,                    // --lto flag
+    pub lto_type: Option<String>,     // "thin" or "full" (default: "thin")
+    // ...
+}
+
+// In codegen, when LTO is enabled:
+// 1. Emit LLVM bitcode (.bc) instead of object files (.o)
+// 2. Pass -flto=thin to the linker
+// 3. The linker invokes LLVM's LTO plugin automatically
+```
+
+**Expected impact:**
+- Binary size: 20-40% smaller (DCE across modules)
+- Runtime: 5-15% faster (cross-module inlining)
+- Compile time: +10-20% (ThinLTO is parallel)
+
+---
+
+## 3. GENUINE GAP #3: EMBEDDED DEBUG INFO EMISSION
+
+### 3.1 Current State
+
+XIOM has a DAP debug server that connects to GDB/CDB and provides breakpoints,
+step-through, stack traces, and variable inspection. But it relies entirely on
+DWARF/PDB emitted by the system linker — not XIOM-embedded metadata.
+
+This means:
+- No source-level mapping for XIOM code (LLVM sees generated IR, not .xi source)
+- Variable names may not match XIOM source names
+- Line numbers may point to IR file, not .xi file
+- No XIOM-specific debug info (type information, generics, contracts)
+
+### 3.2 Implementation
+
+Use LLVM's `DIBuilder` API to emit DWARF debug info directly from the codegen:
+
+```rust
+// In xiom-codegen, after generating IR for each function:
+fn emit_debug_info(&mut self, fn_decl: &FnDecl) {
+    // 1. Create compilation unit (points to .xi source file)
+    let cu = self.di_builder.create_compile_unit(
+        language::XIOM,
+        &fn_decl.source_file,
+        &fn_decl.source_dir,
+        "xiom v0.54",
+        false,  // not optimized
+        "",     // no flags
+        0,      // runtime version
     );
-    let match_expr = Expr::Match(
-        Box::new(expr),
-        vec![
-            MatchArm {
-                pattern: Pattern::Enum("Ok", vec![Pattern::Bind(ok_ident)]),
-                guard: None,
-                body: MatchBody::Expr(Expr::Ident(ok_ident)),
-            },
-            MatchArm {
-                pattern: Pattern::Enum("Err", vec![Pattern::Bind(err_ident)]),
-                guard: None,
-                body: MatchBody::Block(Block { stmts: vec![StmtOrExpr::Stmt(ret_stmt)] }),
-            },
-        ],
-        span,
+
+    // 2. Create function debug info
+    let fn_di = self.di_builder.create_function(
+        &cu,
+        &fn_decl.name.name,
+        &fn_decl.mangled_name,
+        &fn_decl.source_file,
+        fn_decl.line_number,
+        fn_type_di,
+        false,  // not local to unit
+        true,   // definition
+        fn_decl.line_number,
     );
-    return self.parse_expr_continue(match_expr);
+
+    // 3. For each statement, emit location info
+    self.di_builder.set_current_location(
+        line_number,
+        column_number,
+        &fn_di.scope,
+    );
+
+    // ... emit instructions with source location attached ...
 }
 ```
 
-**Checker:** Verify that the enclosing function returns `Result[T, E]` or `Option[T]`.
-If the function returns `Int`, `?` is a compile error: "`?` operator requires function to return Result or Option."
+This requires:
+- Tracking source file paths, line numbers, and column numbers through the pipeline
+- Emitting LLVM debug metadata alongside IR instructions
+- Preserving XIOM type names and variable names in debug info
 
-**Codegen:** The desugaring produces standard `match` + `return Err(...)` that goes
-through existing match compilation. No new codegen needed.
+**Expected impact:**
+- GDB/LLDB: `break main.xi:42` works directly
+- `info locals` shows XIOM variable names
+- `print x` works with XIOM types
+- Stack traces show `.xi` file locations
 
-### 2.4 Error Type Conversion
+---
 
-When `?` propagates an error from `fn a() -> Result[T, E1]` through `fn b() -> Result[U, E2]`,
-the compiler needs to convert `E1` to `E2`. This follows Rust's `From` trait pattern:
+## 4. SAFETY HARDENING — 5 Improvements
+
+These are the items from the original plan that are NOT yet implemented and
+genuinely matter for XIOM's "safest language" mission:
+
+| # | Improvement | Status | Effort |
+|---|------------|--------|--------|
+| S1 | **Debug overflow + bounds + null checks** | MISSING | 3 days |
+| S2 | **Match exhaustiveness checking** | MISSING | 2 days |
+| S3 | **Never type (`!`)** | MISSING | 3 days |
+| S4 | **`defer` statement** | MISSING | 2 days |
+| S5 | **`?` operator propagation** | **EXISTS** | — |
+
+### S1: Debug Safety Checks
+
+Insert LLVM overflow intrinsics, bounds checks, and null checks in debug mode.
+Release mode removes them. Already detailed in the original plan — no changes needed.
+
+### S2: Match Exhaustiveness
+
+The checker doesn't verify that `match` on `Result`, `Option`, or `Bool` covers
+all cases. Add exhaustiveness analysis. Already detailed — no changes needed.
+
+### S3: Never Type (`!`)
+
+Functions that diverge (`exit`, `panic`, infinite loops) should have type `!`,
+which coerces to any type. This makes exhaustiveness sound and eliminates
+"missing return" false positives.
+
+### S4: `defer` Statement
+
+`defer { cleanup() }` executes the block when the enclosing scope exits.
+Guarantees resource cleanup even on early return or `?`. Multiple defers
+execute LIFO. Already detailed — no changes needed.
+
+---
+
+## 5. AI AGENT DESIGN — "Safest and Easiest with Less Tokens"
+
+XIOM's target audience includes AI agents that generate code. This imposes
+additional design constraints beyond human ergonomics:
+
+### 5.1 Design Principles for AI-Generated Code
+
+| Principle | Implementation |
+|-----------|---------------|
+| **Minimal syntax surface** | Fewer ways to do the same thing. No 3 ways to declare a variable. |
+| **Predictable semantics** | No hidden control flow. No operator overloading surprises. |
+| **Compile-time errors over runtime panics** | Catch mistakes at generation time, not execution time. |
+| **Clear error messages** | AI agents parse compiler output. Point to exact token + suggest fix. |
+| **Deterministic formatting** | `xiom fmt` produces canonical output. AI can learn the pattern. |
+| **No implicit conversions** | `Int` to `Float64` must be explicit. Prevents subtle bugs. |
+| **Fail-fast by default** | Out-of-bounds → panic. Null pointer → panic. The AI gets clear feedback. |
+
+### 5.2 Token Efficiency
+
+XIOM is already more token-efficient than Rust for common patterns:
 
 ```xiom
-// Auto-implemented by the compiler for error conversion:
-// If E1 can be converted to E2 (same type or explicit From impl), allow ?.
-fn b() -> Result[U, E2] {
-    var v = a()?;  // ok if E1 == E2 or From<E1, E2> exists
-}
+// XIOM: 12 tokens
+fn double(x: Int) -> Int { return x * 2; }
+
+// Rust: 14 tokens (pub + semicolon)
+pub fn double(x: i64) -> i64 { x * 2 }
+```
+
+```xiom
+// XIOM: 8 tokens
+var items: Vec[Int] = [1, 2, 3];
+
+// Rust: 12 tokens
+let mut items: Vec<i64> = vec![1, 2, 3];
+```
+
+The `?` operator, `defer`, and match exhaustiveness further reduce token count
+for safe code — the AI writes less code to achieve the same correctness guarantee.
+
+### 5.3 AI-Specific Compiler Hints
+
+```xiom
+// When the AI is uncertain about a type:
+var x = complex_expression() as Int;  // explicit type assertion
+
+// When the AI wants the compiler to verify an invariant:
+debug_assert!(x > 0);  // checked in debug mode, stripped in release
+
+// When the AI wants to express "this can't fail":
+var file = open_file("config.json").unwrap();  // panic on error — clear feedback
 ```
 
 ---
 
-## 3. IMPROVEMENT 2: DEBUG SAFETY CHECKS
+## 6. FINAL GAP ASSESSMENT
 
-### 3.1 The Problem
-
-C/C++ have **undefined behavior** on integer overflow, out-of-bounds access,
-and null pointer dereference. These cause **millions of CVEs**. XIOM must
-eliminate UB entirely.
-
-```c
-// C code — UNDEFINED BEHAVIOR, no error, silently corrupts memory:
-int x = INT_MAX + 1;     // signed overflow = UB
-int arr[10];
-arr[20] = 42;            // out-of-bounds = UB
-int* p = NULL;
-*p = 42;                 // null deref = UB
-```
-
-```xiom
-// XIOM — guaranteed behavior:
-// Debug mode: panics with clear error message + stack trace
-// Release mode: wraps (for Int), saturates (for Vec index), traps (for null)
-var x: Int = 2147483647 + 1;  // Debug: PANIC "integer overflow at main.xi:42"
-                               // Release: wraps to -2147483648
-var arr = [1, 2, 3];
-var y = arr[20];               // Debug: PANIC "index 20 out of bounds (len=3)"
-                                // Release: traps
-```
-
-### 3.2 Check Generation
-
-**Overflow checks:** Insert `llvm.sadd.with.overflow` / `llvm.uadd.with.overflow`
-intrinsics in debug mode. In release mode, use plain `add` with wrapping semantics.
-
-```llvm
-; Debug mode: checked arithmetic
-%tmp = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %a, i64 %b)
-%val = extractvalue { i64, i1 } %tmp, 0
-%ovf = extractvalue { i64, i1 } %tmp, 1
-br i1 %ovf, label %overflow_trap, label %ok
-
-overflow_trap:
-  call void @xiom_panic(i8* "integer overflow at main.xi:42")
-  unreachable
-
-ok:
-  ; continue with %val
-```
-
-```llvm
-; Release mode: plain arithmetic
-%val = add i64 %a, %b
-```
-
-**Bounds checks:** For every `arr[idx]`, insert a bounds check in debug mode.
-
-```llvm
-; Debug mode:
-%in_bounds = icmp ult i64 %idx, %arr_len
-br i1 %in_bounds, label %ok, label %oob_trap
-
-oob_trap:
-  call void @xiom_panic(i8* "index %idx out of bounds (len=%arr_len)")
-  unreachable
-```
-
-**Null checks:** For every raw pointer dereference, insert a null check.
-
-```rust
-// Codegen for *p where p: *T:
-if debug_mode {
-    self.emitln(format!("  %is_null = icmp eq {ptr_ty} %{p}, null"));
-    self.emitln(format!("  br i1 %is_null, label %null_trap, label %ok"));
-    // null_trap: xiom_panic("null pointer dereference")
-}
-```
-
-### 3.3 CLI Integration
-
-```
-xiom --debug file.xi       # debug mode: all checks enabled
-xiom --release file.xi     # release mode: checks removed, wrapping semantics
-xiom --release-safe file.xi # release mode: bounds + null checks, no overflow checks
-```
+| # | Gap | Priority | v0.54 | v0.55 | v0.56 |
+|---|-----|----------|-------|-------|-------|
+| G1 | Inline Assembly | HIGH | Design | Implement | Test |
+| G2 | LTO (ThinLTO) | MEDIUM | — | Implement | Test |
+| G3 | Debug Info Emission | MEDIUM | — | — | Implement |
+| S1 | Debug overflow/bounds/null | HIGH | Implement | Test | — |
+| S2 | Match exhaustiveness | HIGH | Implement | Test | — |
+| S3 | Never type (`!`) | MEDIUM | — | Implement | Test |
+| S4 | `defer` statement | MEDIUM | — | Implement | Test |
+| S5 | `?` operator | **DONE** | ✓ | — | — |
 
 ---
 
-## 4. IMPROVEMENT 3: MATCH EXHAUSTIVENESS
-
-### 4.1 The Problem
-
-```xiom
-// CURRENT: no exhaustiveness check — missing arm silently compiles:
-fn describe(result: Result[Int, Str]) -> Str {
-    match result {
-        Ok(v) => "success",   // missing Err arm — no error!
-    }
-    // returns void, undefined behavior at call site
-}
-
-// TARGET: compile error
-// Error: non-exhaustive match — missing pattern: Err(_)
-```
-
-### 4.2 Implementation
-
-The checker already knows the scrutinee type and the list of patterns. Add an
-exhaustiveness check after processing all match arms:
-
-```rust
-fn check_match_exhaustiveness(
-    scrutinee_ty: &CheckedType,
-    arms: &[MatchArm],
-    span: Span,
-) -> Result<(), CheckError> {
-    match scrutinee_ty {
-        // Result[T, E] requires Ok and Err
-        CheckedType::Named(name) if name == "Result" => {
-            let has_ok = arms.iter().any(|a| matches!(a.pattern, Pattern::Enum("Ok", _)));
-            let has_err = arms.iter().any(|a| matches!(a.pattern, Pattern::Enum("Err", _)));
-            if !has_ok || !has_err {
-                let missing = if !has_ok { "Ok(_)" } else { "Err(_)" };
-                return Err(CheckError::NonExhaustiveMatch {
-                    missing: missing.to_string(),
-                    span,
-                });
-            }
-        }
-        // Option[T] requires Some and None
-        CheckedType::Named(name) if name == "Option" => {
-            let has_some = arms.iter().any(|a| matches!(a.pattern, Pattern::Enum("Some", _)));
-            let has_none = arms.iter().any(|a| matches!(a.pattern, Pattern::Enum("None", _)));
-            if !has_some || !has_none {
-                let missing = if !has_some { "Some(_)" } else { "None" };
-                return Err(CheckError::NonExhaustiveMatch { missing: missing.to_string(), span });
-            }
-        }
-        // Bool requires true and false
-        CheckedType::Bool => {
-            let has_true = arms.iter().any(|a| matches!(a.pattern, Pattern::Bool(true)));
-            let has_false = arms.iter().any(|a| matches!(a.pattern, Pattern::Bool(false)));
-            // A wildcard _ covers both
-            let has_wildcard = arms.iter().any(|a| matches!(a.pattern, Pattern::Wildcard));
-            if !has_wildcard && (!has_true || !has_false) {
-                return Err(CheckError::NonExhaustiveMatch { ... });
-            }
-        }
-        _ => {} // integers, strings, etc. — can't check exhaustiveness
-    }
-    Ok(())
-}
-```
-
----
-
-## 5. IMPROVEMENT 4: NEVER TYPE (`!`)
-
-### 5.1 The Problem
-
-```xiom
-fn exit_process(code: Int) -> ! {   // diverges — never returns
-    unsafe { xiom_exit(code); }
-    // without ! type, compiler complains about missing return
-}
-
-fn main() -> Int {
-    var x = if config.is_valid() {
-        0
-    } else {
-        exit_process(1);  // ! coerces to any type — no type error
-    };
-    return x;
-}
-```
-
-The `!` type (called "never" or "bottom") represents computations that never
-produce a value. It coerces to any type, making it useful for:
-- `exit()`, `panic()`, `abort()` — functions that diverge
-- Infinite loops: `loop { ... }` has type `!`
-- Exhaustiveness: `match` on `!` has zero arms (unreachable)
-
-### 5.2 Implementation
-
-```rust
-// In the type checker:
-pub enum CheckedType {
-    // ... existing variants ...
-    Never,  // NEW: the ! type
-}
-
-// Coercion rule: ! coerces to any type
-fn types_compatible(&self, from: &CheckedType, to: &CheckedType) -> bool {
-    if matches!(from, CheckedType::Never) { return true; }
-    // ... existing rules ...
-}
-```
-
----
-
-## 6. IMPROVEMENT 5: `defer` STATEMENT
-
-### 6.1 The Problem
-
-```xiom
-// CURRENT: cleanup code is far from allocation — easy to forget:
-fn process_file(path: Str) -> Result[Data, Error] {
-    var file = open_file(path)?;
-    var data = parse_data(file)?;
-    close_file(file);   // easy to forget if there's an early return
-    return Ok(data);
-}
-
-// TARGET: defer — cleanup at allocation site, guaranteed to run:
-fn process_file(path: Str) -> Result[Data, Error] {
-    var file = open_file(path)?;
-    defer { close_file(file); }  // runs on scope exit, even if error
-    var data = parse_data(file)?;
-    return Ok(data);
-}
-```
-
-### 6.2 Semantics
-
-`defer { ... }` executes the block when the enclosing scope exits — whether by
-return, `?`, or falling off the end. Multiple `defer` statements execute in
-LIFO order (last declared, first executed). This matches Go's `defer` and Zig's `defer`.
-
-```xiom
-fn example() {
-    defer { io.println("third"); }
-    defer { io.println("second"); }
-    defer { io.println("first"); }
-}
-// Prints: first, second, third
-```
-
-### 6.3 Implementation
-
-**AST:** Add `Stmt::Defer(Block, Span)`.
-
-**Codegen:** At each return point in the scope, insert the deferred blocks in LIFO order:
-
-```rust
-fn compile_defer_scope(&mut self, body: &Block, defers: &[Block]) {
-    // Save current defers
-    let saved = self.local.deferred_blocks.clone();
-    self.local.deferred_blocks.extend(defers.iter().cloned());
-
-    // Compile body — any return/? will be intercepted
-    self.compile_block(body)?;
-
-    // Compile deferred blocks at scope exit (LIFO)
-    for defer_block in self.local.deferred_blocks.iter().rev() {
-        self.compile_block(defer_block)?;
-    }
-
-    // Restore
-    self.local.deferred_blocks = saved;
-}
-```
-
-For early returns, the codegen intercepts `ret` instructions and inserts defer
-execution before them:
-
-```llvm
-; Before (simple ret):
-;   ret i64 %val
-
-; After (with defer):
-;   ; execute defer blocks
-;   call void @close_file(i8* %file)
-;   ret i64 %val
-```
-
----
-
-## 7. ROADMAP INTEGRATION
-
-These five improvements slot into the existing roadmap:
+## 7. ROADMAP UPDATE
 
 ```
 v0.54 ──► v0.55 ──► v0.56 ──► SELFHOST
 
-v0.54:  CTFE Phase A + Binary Cache + Parallel Parse
-        + ? operator + Debug overflow checks + Match exhaustiveness
+v0.54:  CTFE Phase A + Binary Cache + Parallel Parse + Thread-Safe Registry
+        + Debug overflow/bounds/null checks (S1)
+        + Match exhaustiveness (S2)
+        + Inline assembly design (G1)
 
-v0.55:  OrcJIT MVP + Spawn codegen + Parallel Check
-        + Never type (!) + defer statement
+v0.55:  OrcJIT MVP + Spawn codegen + Move semantics + Parallel Check
+        + Never type (!) (S3)
+        + defer statement (S4)
+        + Inline assembly implementation (G1)
 
 v0.56:  Send/Sync + Channel + Deadlock detection + Hot reload
-        + Error type conversion (From trait) + Lifetime elision
+        + LTO (G2)
+        + Debug info emission (G3)
 ```
 
 ---
 
-## 8. IMPACT MATRIX
-
-| Improvement | Prevents | Complexity | Rust Has? |
-|-------------|----------|------------|-----------|
-| `?` operator | Skipped error checks | Low — desugaring | ✓ |
-| Debug overflow checks | Integer overflow CVEs | Low — LLVM intrinsics | ✓ |
-| Match exhaustiveness | Missing arm bugs | Medium — checker | ✓ |
-| Never type (`!`) | Wrong return types | Medium — type system | ✓ |
-| `defer` statement | Resource leaks | Low — scope hook | Drop trait |
-
----
-
-## 9. WHY THESE MATTER
-
-XIOM's mission is **near-zero runtime errors**. The languages that achieve this
-(Rust, Zig) do so through a combination of:
-
-1. **Compile-time checks** (ownership, Send/Sync, exhaustiveness)
-2. **Safe defaults** (overflow checks in debug, bounds checks always)
-3. **Ergonomic error handling** (`?` — if it's painful, programmers skip it)
-4. **Guaranteed cleanup** (`defer` / `Drop` — resources must be freed)
-
-These five improvements close XIOM's gap with Rust/Zig on all four dimensions.
-They don't add complexity for complexity's sake — each one eliminates a real
-class of bugs that plague C/C++ codebases.
-
----
-
-**Status:** APPROVED for v0.54 → v0.56 roadmap.
+**Status:** APPROVED. All known gaps documented. 7 of 10 original concerns already
+implemented. 3 genuine gaps + 4 safety improvements remain.

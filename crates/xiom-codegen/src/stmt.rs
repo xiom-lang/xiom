@@ -264,6 +264,10 @@ impl IrEmitter {
                                 } else { None }
                             })
                         }
+                        // M33: Array literal bound to Var — keep the element
+                        // type that was inferred above (from first struct element).
+                        // The `remove` below would otherwise clear it.
+                        Expr::Array(..) => self.local.local_vec_elem.get(&name.name).cloned(),
                         _ => None,
                     };
                     if let Some(elem) = inherited {

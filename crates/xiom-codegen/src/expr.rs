@@ -1538,9 +1538,8 @@ impl IrEmitter {
                     let elem_ptr = self.fresh_tmp();
                     self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
                     // For struct elements with a known element type, load the
-                    // struct from the Vec. When the Vec stores boxed pointers
-                    // (elem_size != struct size), dereference via inttoptr+load.
-                    // Otherwise, memcpy the inline struct from the Vec buffer.
+                    // struct directly from Vec data via memcpy, bypassing the
+                    // ptrtoint/inttoptr chain of emit_elem_load+val_to_struct.
                     if let Some(elem_type_name) = self.resolve_vec_elem_type(container) {
                         let struct_ty = format!("%struct.{elem_type_name}");
                         let struct_alloca = self.fresh_tmp();
@@ -1548,26 +1547,6 @@ impl IrEmitter {
                         let dst_i8 = self.fresh_tmp();
                         self.emitln(&format!("  {dst_i8} = bitcast {struct_ty}* {struct_alloca} to i8*"));
                         self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {dst_i8}, i8* {elem_ptr}, i64 {esz_val}, i1 false)"));
-                        // M33: If the Vec stores i64 pointers to boxed structs
-                        // (elem_size == 8 < sizeof(struct)), the memcpy only
-                        // copies the pointer. Dereference it to get the actual
-                        // struct value. This happens when array literals box
-                        // struct elements on the heap (e.g. `[Container{...}]`).
-                        let struct_size = self.struct_byte_size(&elem_type_name);
-                        if struct_size as i64 != 8 {
-                            // elem_size is %esz_val (a runtime value), but since
-                            // array-literal Vecs always use elem_size=8 for
-                            // boxed pointers, compare struct_size against 8.
-                            let handle_ptr = self.fresh_tmp();
-                            let handle = self.fresh_tmp();
-                            self.emitln(&format!("  {handle_ptr} = bitcast {struct_ty}* {struct_alloca} to i64*"));
-                            self.emitln(&format!("  {handle} = load i64, i64* {handle_ptr}"));
-                            let sptr = self.fresh_tmp();
-                            self.emitln(&format!("  {sptr} = inttoptr i64 {handle} to {struct_ty}*"));
-                            let loaded = self.fresh_tmp();
-                            self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {sptr}"));
-                            return Ok((loaded, struct_ty));
-                        }
                         let loaded = self.fresh_tmp();
                         self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {struct_alloca}"));
                         return Ok((loaded, struct_ty));
