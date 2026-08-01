@@ -131,6 +131,14 @@ impl CheckedType {
             Type::ImplTrait(traits) => CheckedType::ImplTrait(
                 traits.iter().map(|t| t.name.clone()).collect(),
             ),
+            Type::AnonStruct(fields) => {
+                // 5c.33: Encode as a synthetic named type using field signature.
+                // The checker registers this in the type table when first seen.
+                let parts: Vec<String> = fields.iter()
+                    .map(|f| format!("{}_{}", f.name.name, CheckedType::from_ast_type(&f.ty).name()))
+                    .collect();
+                CheckedType::Named(format!("_Anon__{}", parts.join("__")))
+            },
         }
     }
 

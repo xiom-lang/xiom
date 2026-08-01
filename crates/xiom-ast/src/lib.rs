@@ -100,6 +100,9 @@ pub enum Type {
     Fn(Vec<Type>, Box<Type>),
     /// `impl Trait` — opaque return type (existential)
     ImplTrait(Vec<Ident>),
+    /// Anonymous struct type `{ field: Type; ... }` — used in generic
+    /// function signatures where the struct has no standalone name.
+    AnonStruct(Vec<FieldDecl>),
 }
 
 // ============================================================================

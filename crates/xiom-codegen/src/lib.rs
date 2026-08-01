@@ -1069,6 +1069,12 @@ impl IrEmitter {
                 }
             }
             Type::Slice(elem) => Self::type_from_ast(elem),
+            Type::AnonStruct(fields) => {
+                let parts: Vec<String> = fields.iter()
+                    .map(|f| format!("{}_{}", f.name.name, Self::type_from_ast(&f.ty)))
+                    .collect();
+                format!("_Anon__{}", parts.join("__"))
+            }
             _ => "Int".to_string(),
         }
     }
@@ -1097,6 +1103,50 @@ impl IrEmitter {
             Type::Map(k, v) => format!("Map[{},{}]", Self::type_string_full(k), Self::type_string_full(v)),
             Type::Set(inner) => format!("Set[{}]", Self::type_string_full(inner)),
             other => Self::type_from_ast(other),
+        }
+    }
+
+    /// 5c.33: Register anonymous struct types encountered in AST type
+    /// annotations so `llvm_type_for` can resolve them and field access
+    /// (Expr::Field) can GEP into the correct struct layout.
+    pub(crate) fn register_anon_struct_from_ast(&mut self, ty: &Type) {
+        match ty {
+            Type::AnonStruct(fields) => {
+                let parts: Vec<String> = fields.iter()
+                    .map(|f| format!("{}_{}", f.name.name, Self::type_from_ast(&f.ty)))
+                    .collect();
+                let anon_name = format!("_Anon__{}", parts.join("__"));
+                if !self.types.types.contains_key(&anon_name) {
+                    let field_names: Vec<String> = fields.iter()
+                        .map(|f| f.name.name.clone())
+                        .collect();
+                    let field_meta: Vec<(String, String)> = fields.iter()
+                        .map(|f| (f.name.name.clone(), Self::type_from_ast_with_args(&f.ty)))
+                        .collect();
+                    self.types.types.insert(anon_name.clone(), field_names);
+                    self.types.type_meta.entry(anon_name).or_insert_with(|| TypeMeta {
+                        fields: field_meta,
+                        invariants: vec![],
+                        derives: vec![],
+                    });
+                }
+            }
+            Type::Ref(inner) | Type::MutRef(inner) | Type::Ptr(inner)
+            | Type::Option(inner) | Type::Vec(inner) | Type::Slice(inner)
+            | Type::Set(inner) => self.register_anon_struct_from_ast(inner),
+            Type::Result(ok, err) => {
+                self.register_anon_struct_from_ast(ok);
+                self.register_anon_struct_from_ast(err);
+            }
+            Type::Map(k, v) => {
+                self.register_anon_struct_from_ast(k);
+                self.register_anon_struct_from_ast(v);
+            }
+            Type::Tuple(types) | Type::Fn(types, _) => {
+                for t in types { self.register_anon_struct_from_ast(t); }
+            }
+            Type::Array(_, elem) => self.register_anon_struct_from_ast(elem),
+            _ => {}
         }
     }
 

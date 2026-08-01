@@ -1836,6 +1836,12 @@ fn type_to_string(ty: &Type) -> String {
             let names: Vec<String> = traits.iter().map(|t| t.name.clone()).collect();
             format!("impl {}", names.join(" + "))
         }
+        Type::AnonStruct(fields) => {
+            let parts: Vec<String> = fields.iter()
+                .map(|f| format!("{}: {}", f.name.name, type_to_string(&f.ty)))
+                .collect();
+            format!("{{ {} }}", parts.join("; "))
+        }
     }
 }
 
