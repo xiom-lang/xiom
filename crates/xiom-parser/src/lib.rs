@@ -803,7 +803,7 @@ impl Parser {
                 self.expect_kind(TokenKind::Colon, "':'")?;
                 let pty = self.parse_type()?;
                 let pspan = pname.span;
-                params.push(xiom_ast::Param { name: pname, ty: pty, span: pspan, is_mut_self: false });
+                params.push(xiom_ast::Param { name: pname, ty: pty, span: pspan, is_mut_self: false, is_ref_self: false });
                 if !self.peek_is(TokenKind::RParen) {
                     self.expect_kind(TokenKind::Comma, "','")?;
                 }
@@ -856,22 +856,22 @@ impl Parser {
             self.advance();
             let is_mut = if self.peek().lexeme == "mut" { self.advance(); true } else { false };
             let name = self.parse_ident()?;
-            return Ok(Param { name, ty: Type::Named(Ident::new("Self", span), vec![]), span, is_mut_self: is_mut });
+            return Ok(Param { name, ty: Type::Named(Ident::new("Self", span), vec![]), span, is_mut_self: is_mut, is_ref_self: true });
         }
         if self.peek_kind() == &TokenKind::Self_ {
             let name = self.parse_ident()?;
-            return Ok(Param { name, ty: Type::Named(Ident::new("Self", span), vec![]), span, is_mut_self: false });
+            return Ok(Param { name, ty: Type::Named(Ident::new("Self", span), vec![]), span, is_mut_self: false, is_ref_self: false });
         }
         let name = self.parse_ident()?;
         if name.name == "mut" {
             let name = self.parse_ident()?;
             self.expect_kind(TokenKind::Colon, "':'")?;
             let ty = self.parse_type()?;
-            Ok(Param { name, ty, span, is_mut_self: false })
+            Ok(Param { name, ty, span, is_mut_self: false, is_ref_self: false })
         } else {
             self.expect_kind(TokenKind::Colon, "':'")?;
             let ty = self.parse_type()?;
-            Ok(Param { name, ty, span, is_mut_self: false })
+            Ok(Param { name, ty, span, is_mut_self: false, is_ref_self: false })
         }
     }
 

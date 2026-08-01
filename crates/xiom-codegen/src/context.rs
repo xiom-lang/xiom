@@ -77,6 +77,8 @@ pub struct TypeContext {
     pub interfaces: HashMap<String, Vec<(String, Vec<String>)>>,
     /// Concrete types that implement each interface
     pub interface_impls: HashMap<String, HashSet<String>>,
+    /// Method keys that take `self` by value (not `&self`) — need store_back
+    pub by_value_self_methods: HashSet<String>,
     /// Enum variants registry: name -> vec of (variant_name, field_names)
     pub enum_variants: HashMap<String, Vec<(String, Vec<String>)>>,
     /// Per-variant payload field TYPE names
