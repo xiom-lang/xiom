@@ -2102,9 +2102,17 @@ impl Checker {
                         self.add_local(&name.name, annot_ty);
                         return;
                     }
+                    // 5c.32: &expr coerces to *T for raw pointer assignments
+                    let is_ref_coercion = matches!(value, Expr::Ref(..) | Expr::MutRef(..))
+                        && {
+                            let val_name = val_ty.name();
+                            let annot_name = annot_ty.name();
+                            annot_name.starts_with('*') && annot_name[1..] == val_name
+                        };
                     if !self.types_compatible(&val_ty, &annot_ty)
                         && val_ty != CheckedType::Error
                         && !matches!(&val_ty, CheckedType::Named(n) if n == "_")
+                        && !is_ref_coercion
                     {
                         self.error(
                             format!("type mismatch in let: annotated {}, found {}", annot_ty.name(), val_ty.name()),
@@ -2128,9 +2136,17 @@ impl Checker {
                         self.add_local(&name.name, annot_ty);
                         return;
                     }
+                    // 5c.32: &expr coerces to *T for raw pointer assignments
+                    let is_ref_coercion = matches!(value, Expr::Ref(..) | Expr::MutRef(..))
+                        && {
+                            let val_name = val_ty.name();
+                            let annot_name = annot_ty.name();
+                            annot_name.starts_with('*') && annot_name[1..] == val_name
+                        };
                     if !self.types_compatible(&val_ty, &annot_ty)
                         && val_ty != CheckedType::Error
                         && !matches!(&val_ty, CheckedType::Named(n) if n == "_")
+                        && !is_ref_coercion
                     {
                         self.error(
                             format!("type mismatch in var: annotated {}, found {}", annot_ty.name(), val_ty.name()),
@@ -2316,18 +2332,7 @@ impl Checker {
                         }
                         CheckedType::Bool
                     }
-                    UnaryOp::Ref | UnaryOp::MutRef => {
-                        // 5c.32: &expr produces a pointer type *InnerType for
-                        // known struct types. Generic params (T, K, V) stay bare.
-                        let inner_name = inner_ty.name();
-                        let is_generic = inner_name.len() == 1
-                            && inner_name.chars().next().map_or(false, |c| c.is_ascii_uppercase());
-                        if is_generic || inner_name.starts_with('*') {
-                            inner_ty
-                        } else {
-                            CheckedType::Named(format!("*{}", inner_name))
-                        }
-                    }
+                    UnaryOp::Ref | UnaryOp::MutRef => inner_ty, // & keeps the type; *T coercion at use-site
                     UnaryOp::BitNot => inner_ty, // bitwise not preserves integer type
                     UnaryOp::Deref => {
                         // *p: strip pointer type — *Ptr[T] → T, *T → T (encoded as "*Tname")
@@ -2884,18 +2889,10 @@ impl Checker {
             }
             Expr::AtPre(inner, _) => self.check_expr(inner),
             Expr::Ref(inner, _) | Expr::MutRef(inner, _) => {
-                // 5c.32: &expr produces a pointer type *InnerType for known
-                // struct types. Generic params (single uppercase letters like
-                // T, K, V) are left bare — the concrete type isn't known yet.
-                let inner_ty = self.check_expr(inner);
-                let inner_name = inner_ty.name();
-                let is_generic = inner_name.len() == 1
-                    && inner_name.chars().next().map_or(false, |c| c.is_ascii_uppercase());
-                if is_generic || inner_name.starts_with('*') {
-                    inner_ty // generic or already a pointer — leave as-is
-                } else {
-                    CheckedType::Named(format!("*{}", inner_name))
-                }
+                // 5c.32: &expr preserves the inner type. Coercion to *T for
+                // raw pointer assignments is handled at the assignment/argument
+                // site (see types_compatible_for_ref).
+                self.check_expr(inner)
             }
             Expr::Some(inner, _) => {
                 let _ = self.check_expr(inner);
