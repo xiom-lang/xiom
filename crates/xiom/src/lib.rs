@@ -978,9 +978,20 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             }
             if config.target != Target::Wasm {
                 let runtime_c_files = find_runtime_c_files();
+                // M21: Deduplicate C sources by canonical path to prevent duplicate
+                // symbols when --c-source overlaps with auto-discovered runtime files.
+                let mut seen_c_sources: std::collections::HashSet<String> = std::collections::HashSet::new();
+                let mut add_c_source = |cmd: &mut Command, path: &str| {
+                    let canonical = std::path::Path::new(path).canonicalize()
+                        .unwrap_or_else(|_| std::path::PathBuf::from(path));
+                    let key = canonical.to_string_lossy().to_lowercase();
+                    if seen_c_sources.insert(key) {
+                        cmd.arg(path);
+                    }
+                };
                 if runtime_c_files.is_empty() {
                     if let Some(rt) = find_runtime_c() {
-                        cmd.arg(&rt);
+                        add_c_source(&mut cmd, &rt);
                     }
                 } else {
                     for rt in &runtime_c_files {
@@ -989,11 +1000,11 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                         } else {
                             std::env::current_dir().unwrap_or_default().join(rt).to_string_lossy().to_string()
                         };
-                        cmd.arg(abs_rt);
+                        add_c_source(&mut cmd, &abs_rt);
                     }
                 }
                 for cs in &config.c_sources {
-                    cmd.arg(cs);
+                    add_c_source(&mut cmd, cs);
                 }
             }
             let cwd0 = std::env::current_dir().unwrap_or_default();
