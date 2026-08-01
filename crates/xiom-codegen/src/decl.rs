@@ -919,6 +919,11 @@ impl IrEmitter {
             self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
             self.emitln(&format!("  store {llvm_ty} %param{param_idx}, {llvm_ty}* {alloca}"));
             self.add_local(&param.name.name, alloca, &llvm_ty);
+            // 5c.39: Track Vec element type for function parameters so
+            // downstream local bindings (var x = param) can inherit it.
+            if let Some(elem) = Self::vec_elem_from_type_annotation(&param.ty) {
+                self.local.local_vec_elem.insert(param.name.name.clone(), elem);
+            }
             // M17: Track parameter signedness for narrow-int widening.
             let xiom_ty_name = Self::type_from_ast(&param.ty);
             self.local.local_xiom_types.insert(param.name.name.clone(), xiom_ty_name.clone());
