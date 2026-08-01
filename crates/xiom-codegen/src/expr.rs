@@ -35,8 +35,19 @@ impl IrEmitter {
         let alloca = self.fresh_tmp();
         self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
         for (i, (_, val)) in fields.iter().enumerate() {
-            let (field_val, field_val_ty) = self.compile_expr(val)?;
             let field_llvm_ty = self.field_llvm_type(type_name, i);
+            // 5c.39: Empty array `[]` in a Vec-typed struct field — compile as
+            // a proper empty Vec (heap-allocated buffer) instead of a raw i8*
+            // array buffer that would be inttoptr'd to a 32-byte Vec struct.
+            let (field_val, field_val_ty) = if let Expr::Array(elems, _) = val {
+                if elems.is_empty() && (field_llvm_ty == "%struct.Vec" || field_llvm_ty.ends_with(".Vec")) {
+                    self.compile_empty_vec_for_field(type_name, i)?
+                } else {
+                    self.compile_expr(val)?
+                }
+            } else {
+                self.compile_expr(val)?
+            };
             let store_val = self.coerce_value(&field_val, &field_val_ty, &field_llvm_ty);
             let gep = self.fresh_tmp();
             self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {i}"));
@@ -45,6 +56,50 @@ impl IrEmitter {
         let loaded = self.fresh_tmp();
         self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
         Ok((loaded, struct_ty))
+    }
+
+    /// 5c.39: Compile an empty Vec for struct field initialization. Returns a
+    /// properly initialized Vec struct (insertvalue chain), not a raw i8*.
+    fn compile_empty_vec_for_field(&mut self, type_name: &str, field_idx: usize) -> Result<(String, String), String> {
+        let elem_size: i64 = self.resolve_vec_field_elem_size(type_name, field_idx).unwrap_or(8);
+        let initial_cap: i64 = 16;
+        let data_ptr = self.fresh_tmp();
+        self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 {})", initial_cap * elem_size));
+        let ok = self.fresh_block("empty_vec_ok");
+        let tr = self.fresh_block("empty_vec_trap");
+        let nc = self.fresh_tmp();
+        self.emitln(&format!("  {nc} = icmp eq i8* {data_ptr}, null"));
+        self.emitln(&format!("  br i1 {nc}, label %{tr}, label %{ok}"));
+        self.emitln(&format!("\n{tr}:"));
+        self.emitln("  call void @llvm.trap()");
+        self.emitln("  unreachable");
+        self.emitln(&format!("\n{ok}:"));
+        let v1 = self.fresh_tmp();
+        self.emitln(&format!("  {v1} = insertvalue %struct.Vec undef, i8* {data_ptr}, 0"));
+        let v2 = self.fresh_tmp();
+        self.emitln(&format!("  {v2} = insertvalue %struct.Vec {v1}, i64 0, 1"));
+        let v3 = self.fresh_tmp();
+        self.emitln(&format!("  {v3} = insertvalue %struct.Vec {v2}, i64 {initial_cap}, 2"));
+        let v4 = self.fresh_tmp();
+        self.emitln(&format!("  {v4} = insertvalue %struct.Vec {v3}, i64 {elem_size}, 3"));
+        Ok((v4, "%struct.Vec".to_string()))
+    }
+
+    fn resolve_vec_field_elem_size(&self, type_name: &str, field_idx: usize) -> Option<i64> {
+        let meta = self.types.type_meta.get(type_name)
+            .or_else(|| {
+                self.types.type_meta.iter()
+                    .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
+                    .map(|(_, v)| v)
+            })?;
+        let ftype = meta.fields.get(field_idx).map(|(_, t)| t.as_str())?;
+        let elem_name = ftype.strip_prefix("Vec[")?.strip_suffix(']')?;
+        let struct_key = self.types.type_meta.keys()
+            .find(|k| k.ends_with(&format!(".{elem_name}")) || k.as_str() == elem_name)
+            .cloned()
+            .unwrap_or(elem_name.to_string());
+        let sz = self.struct_byte_size(&struct_key);
+        if sz > 0 { Some(sz) } else { Some(8) }
     }
 
     pub(crate) fn compile_stmt(&mut self, stmt: &Stmt) -> Result<(), String> {
@@ -2080,16 +2135,30 @@ impl IrEmitter {
                         self.emitln(&format!("  store {field_llvm_ty} {store_val}, {field_llvm_ty}* {gep}"));
                     }
                 } else {
+                    // 5c.39: Use resolved struct type name for field lookups,
+                    // not the bare `_` name from the struct literal.
+                    let resolved_name = struct_ty.trim_start_matches("%struct.");
                     for (i, (_, val)) in fields.iter().enumerate() {
-                        let (mut field_val, mut field_val_ty) = self.compile_expr(val)?;
-                        let mut field_llvm_ty = self.field_llvm_type(&name.name, i);
+                        // 5c.39: Empty array `[]` in Vec-typed field → compile as
+                        // proper empty Vec, not raw i8* array buffer.
+                        let (mut field_val, mut field_val_ty) = if let Expr::Array(elems, _) = val {
+                            let fllvm = self.field_llvm_type(resolved_name, i);
+                            if elems.is_empty() && (fllvm == "%struct.Vec" || fllvm.ends_with(".Vec")) {
+                                self.compile_empty_vec_for_field(resolved_name, i)?
+                            } else {
+                                self.compile_expr(val)?
+                            }
+                        } else {
+                            self.compile_expr(val)?
+                        };
+                        let mut field_llvm_ty = self.field_llvm_type(resolved_name, i);
                         // 5c.29: Generic container fields (Vec[Int], ...) are i64
                         // HANDLES (5c.28h). A by-value container header must be
                         // BOXED on the heap and the pointer stored as the handle;
                         // storing the 32-byte %struct.Vec into the 8-byte i64 slot
                         // corrupted the stack and broke every handle reader.
                         let is_generic_container_field = self
-                            .field_xiom_type(&name.name, i)
+                            .field_xiom_type(resolved_name, i)
                             .map_or(false, |t| t.contains('['));
                         if field_llvm_ty == "i64"
                             && is_generic_container_field
