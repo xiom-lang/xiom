@@ -2355,10 +2355,23 @@ impl Checker {
                 // 5c.36: Multi-element tuples produce a tuple type.
                 // Single-element is a parenthesized expression (element type).
                 if items.len() > 1 {
-                    let elem_types: Vec<String> = items.iter()
-                        .map(|item| self.check_expr(item).name())
+                    // 5c.36: Collect checked types once, build tuple type name,
+                    // and register in checker's type registry for field access.
+                    let item_types: Vec<CheckedType> = items.iter()
+                        .map(|item| self.check_expr(item))
                         .collect();
-                    CheckedType::Named(format!("Tuple__{}", elem_types.join("__")))
+                    let elem_types: Vec<String> = item_types.iter()
+                        .map(|ty| ty.name())
+                        .collect();
+                    let tuple_name = format!("Tuple__{}", elem_types.join("__"));
+                    if !self.types.contains_key(&tuple_name) {
+                        let field_map: HashMap<String, CheckedType> = item_types.iter()
+                            .enumerate()
+                            .map(|(i, ty)| (format!("_{i}"), ty.clone()))
+                            .collect();
+                        self.types.insert(tuple_name.clone(), field_map);
+                    }
+                    CheckedType::Named(tuple_name)
                 } else if let Some(item) = items.first() {
                     self.check_expr(item)
                 } else {

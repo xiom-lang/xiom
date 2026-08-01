@@ -1268,18 +1268,19 @@ impl IrEmitter {
     /// Falls back to "Int" for unknown types.
     fn infer_expr_type_name(expr: &Expr) -> String {
         match expr {
-            Expr::Int(..) => "Int".to_string(),
-            Expr::Float(..) => "Float64".to_string(),
-            Expr::Bool(..) => "Bool".to_string(),
+            Expr::Int(..) | Expr::Bool(..) => "Int".to_string(),
             Expr::Str(..) => "Str".to_string(),
             Expr::Char(..) => "Char".to_string(),
             Expr::Ident(id) => {
-                if id.name.chars().next().map_or(false, |c| c.is_ascii_uppercase()) && id.name.len() == 1 {
+                // Generic params (single uppercase) stay as-is
+                if id.name.len() == 1 && id.name.chars().next().map_or(false, |c| c.is_ascii_uppercase()) {
                     id.name.clone()
                 } else {
                     "Int".to_string()
                 }
             }
+            Expr::Some(..) | Expr::None(_) => "Option".to_string(),
+            Expr::Ok(..) | Expr::Err(..) => "Result".to_string(),
             _ => "Int".to_string(),
         }
     }

@@ -1268,9 +1268,7 @@ impl IrEmitter {
                         // Check if it's a (by-value) struct type. Exclude pointer
                         // types (handled above) so `%struct.X*` never takes this path.
                         if llvm_ty.starts_with("%struct.") && !llvm_ty.ends_with('*') {
-                            // Find field index
                             let type_name = &llvm_ty[8..];
-                            eprintln!("FIELD_ACCESS type={type_name} field={} in_types={}", field.name, self.types.types.contains_key(type_name));
                             if let Some(field_names) = self.types.types.get(type_name)
                                 .or_else(|| {
                                     let suffix = format!(".{type_name}");
