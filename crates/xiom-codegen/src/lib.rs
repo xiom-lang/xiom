@@ -4188,6 +4188,26 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
         self.infer_llvm_type_impl(expr)
     }
 
+    /// 5c.38: Infer the LLVM element type for Vec/Slice index operations.
+    /// For struct elements like `Vec[Item]`, returns `%struct.Item`.
+    /// For scalar elements like `Vec[Int]`, returns `i64`.
+    fn infer_vec_elem_llvm_type(&self, expr: &Expr) -> String {
+        if let Expr::Ident(id) = expr {
+            if let Some(ref elem_xiom) = self.local.local_vec_elem.get(&id.name) {
+                return self.llvm_type_for(elem_xiom).unwrap_or_else(|_| "i64".to_string());
+            }
+            // Try checking the local's XIOM type for concrete type info
+            if let Some(xiom_ty) = self.local.local_xiom_types.get(&id.name) {
+                // Type might be "Vec[Item]" — extract element
+                if let Some(bracket) = xiom_ty.find('[') {
+                    let elem_name = &xiom_ty[bracket+1..xiom_ty.len()-1];
+                    return self.llvm_type_for(elem_name).unwrap_or_else(|_| "i64".to_string());
+                }
+            }
+        }
+        "i64".to_string()
+    }
+
     /// Parse field LLVM types from a tuple struct name.
     /// `%struct.Tuple_Float32_Float32` → `["float", "float"]`
     /// `%struct.Tuple_Int_Float64` → `["i64", "double"]`
