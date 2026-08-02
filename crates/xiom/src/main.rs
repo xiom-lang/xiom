@@ -208,7 +208,9 @@ fn main() {
         }
 
         let watch_mode = remaining.contains(&"--watch");
-        let effective: Vec<&str> = remaining.iter().filter(|&&a| a != "--watch").copied().collect();
+        let effective: Vec<&str> = remaining.iter()
+            .filter(|&&a| a != "--watch" && a != "--cache" && a != "--no-cache" && a != "--jit")
+            .copied().collect();
         if effective.is_empty() { process::exit(1); }
 
         let source = if effective[0] == "-e" {
@@ -245,13 +247,16 @@ fn main() {
 
         // M10: Check script cache for instant re-run
         let use_jit = effective.contains(&"--jit");
-        if let Some(cached) = xiom::jit::script_cache_get(&source) {
-            let output = std::process::Command::new(&cached).output();
-            if let Ok(out) = output {
-                if out.status.success() && !use_jit {
-                    let stdout = String::from_utf8_lossy(&out.stdout);
-                    if !stdout.is_empty() { print!("{stdout}"); }
-                    return;
+        let no_cache = effective.contains(&"--no-cache");
+        if !no_cache {
+            if let Some(cached) = xiom::jit::script_cache_get(&source) {
+                let output = std::process::Command::new(&cached).output();
+                if let Ok(out) = output {
+                    if out.status.success() && !use_jit {
+                        let stdout = String::from_utf8_lossy(&out.stdout);
+                        if !stdout.is_empty() { print!("{stdout}"); }
+                        return;
+                    }
                 }
             }
         }
@@ -318,7 +323,9 @@ fn main() {
         compile_or_exit(&config, &sources);
 
         // M10: Cache the compiled script for instant re-run
-        xiom::jit::script_cache_put(&source, &tmp_out);
+        if !no_cache {
+            xiom::jit::script_cache_put(&source, &tmp_out);
+        }
         return;
     }
 
@@ -351,6 +358,8 @@ fn main() {
     let stack_protector = args.iter().any(|a| a == "--stack-protector");
     let overflow_checks = args.iter().any(|a| a == "--overflow-checks");
     let strict_exhaustive = args.iter().any(|a| a == "--strict-exhaustive");
+    // v0.54: Binary cache — cache compiled binary by SHA-256 source hash
+    let use_cache = args.iter().any(|a| a == "--cache");
     // 5e.5f: Incremental compilation flags
     let incremental = args.iter().any(|a| a == "--incremental");
     let force_recompile = args.iter().any(|a| a == "--force");
@@ -619,6 +628,7 @@ fn main() {
         parallel,
         jobs,
         script_mode: false,
+        cache: use_cache,
     };
 
     // 7F.2: Build graph visualization
@@ -831,6 +841,7 @@ fn main() {
                     overflow_checks: config.overflow_checks,
                     strict_exhaustive: config.strict_exhaustive,
                     script_mode: false,
+                    cache: false,
                 };
                 let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
                 let source = std::fs::read_to_string(path).unwrap_or_default();
@@ -879,6 +890,7 @@ fn main() {
                     overflow_checks: config.overflow_checks,
                     strict_exhaustive: config.strict_exhaustive,
                     script_mode: false,
+                    cache: false,
                 };
                 let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
                 let source = std::fs::read_to_string(path).unwrap_or_default();

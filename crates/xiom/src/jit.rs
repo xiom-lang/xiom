@@ -57,11 +57,13 @@ pub fn jit_run_wrapped(raw_source: &str) -> Result<i32, String> {
     jit_execute(&wrapped)
 }
 
-/// Content-hash based script cache.
+/// Content-hash based script cache using SHA-256 for strong identity.
+/// Cached binaries live in `~/.xiom/jit/<sha256hex>`.
+/// Returns the cached binary path if it exists and is valid.
 pub fn script_cache_get(source: &str) -> Option<PathBuf> {
     let cache_dir = jit_cache_dir();
     let hash = hash_source(source);
-    let cache_file = cache_dir.join(format!("{:x}", hash));
+    let cache_file = cache_dir.join(&hash);
     if cfg!(windows) {
         let exe = cache_file.with_extension("exe");
         if exe.exists() { return Some(exe); }
@@ -70,13 +72,19 @@ pub fn script_cache_get(source: &str) -> Option<PathBuf> {
     None
 }
 
+/// Store a compiled binary in the script cache keyed by SHA-256 of the source.
 pub fn script_cache_put(source: &str, binary: &PathBuf) {
     let cache_dir = jit_cache_dir();
     std::fs::create_dir_all(&cache_dir).ok();
     let hash = hash_source(source);
-    let cache_file = cache_dir.join(format!("{:x}", hash));
+    let cache_file = cache_dir.join(&hash);
     let target = if cfg!(windows) { cache_file.with_extension("exe") } else { cache_file };
     std::fs::copy(binary, &target).ok();
+}
+
+/// Check if a cached binary exists for the given source (without returning path).
+pub fn script_cache_has(source: &str) -> bool {
+    script_cache_get(source).is_some()
 }
 
 pub fn jit_cache_dir() -> PathBuf {
@@ -138,11 +146,13 @@ pub fn cache_clean() -> Result<u64, String> {
     Ok(removed)
 }
 
-fn hash_source(source: &str) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    source.hash(&mut hasher);
-    hasher.finish()
+/// Hash source text with SHA-256 for strong cache identity.
+/// Returns the hex digest as a string for use as a cache key/filename.
+fn hash_source(source: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(source.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 #[cfg(test)]
