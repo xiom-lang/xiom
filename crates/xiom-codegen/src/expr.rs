@@ -3021,6 +3021,10 @@ impl IrEmitter {
                 self.emitln(&format!("  {loaded} = load {result_ty}, {result_ty}* {result_alloca}"));
                 Ok((loaded, result_ty))
             }
+            Expr::ConstBlock(inner, _) => {
+                let evaluated = self.evaluate_const_init(inner);
+                self.compile_expr(&evaluated)
+            }
             Expr::Error(_guarantee, _span) => {
                 // Error-poisoned node: the checker already emitted a diagnostic.
                 // Return a dummy i64 value so compilation continues without

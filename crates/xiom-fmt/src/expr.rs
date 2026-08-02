@@ -257,6 +257,11 @@ impl crate::Formatter {
                 self.push_indent();
                 self.buf.push('}');
             }
+            Expr::ConstBlock(inner, _) => {
+                self.buf.push_str("const { ");
+                self.format_expr(inner);
+                self.buf.push_str(" }");
+            }
             Expr::Error(_, _) => self.buf.push_str("<error>"),
         }
     }
