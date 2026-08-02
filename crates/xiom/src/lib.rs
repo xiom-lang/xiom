@@ -58,6 +58,8 @@ pub struct CompileConfig {
     /// 7E.4: force runtime contract checks even in release builds
     pub runtime_contracts: bool,
     pub overflow_checks: bool,
+    /// S2: Promote non-exhaustive match warnings to hard errors
+    pub strict_exhaustive: bool,
     pub max_recursion_depth: u32,
     pub dump_contracts: bool,
     pub verify: bool,
@@ -94,6 +96,7 @@ impl Default for CompileConfig {
             stack_protector: false,
             runtime_contracts: false,
             overflow_checks: false,
+            strict_exhaustive: false,
             max_recursion_depth: 500,
             dump_contracts: false,
             verify: false,
@@ -438,6 +441,7 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
 
     // Stage 3: Type Check
     let mut checker = Checker::new();
+    checker.set_strict_exhaustive(config.strict_exhaustive);
     if let Some(primary) = effective_sources.first() {
         let file_path = Path::new(primary);
         // Add the file's parent directory (e.g. examples/)
@@ -641,6 +645,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
 
     // Stage 3: Type Check
     let mut checker = Checker::new();
+    checker.set_strict_exhaustive(config.strict_exhaustive);
     if let Some(primary) = effective_sources.first() {
         let file_path = Path::new(primary);
         if let Some(parent) = file_path.parent() {
