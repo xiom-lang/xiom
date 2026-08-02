@@ -152,6 +152,9 @@ pub enum Expr {
     Field(Box<Expr>, Ident, Span),
     /// `expr(args)` — function call
     Call(Box<Expr>, Vec<Expr>, Span),
+    /// v0.54: `expr::<Type>(args)` — turbofish call (generic type arguments).
+    /// Stores the parsed type for CTFE builtins: align_of, type_id, field_offset.
+    GenericCall(Box<Expr>, Type, Vec<Expr>, Span),
     /// `expr[index]` — index
     Index(Box<Expr>, Box<Expr>, Span),
     /// `expr@pre` — pre-state (in contracts)
@@ -226,7 +229,7 @@ impl Expr {
             Expr::Ident(i) => i.span,
             Expr::Int(_, s) | Expr::Float(_, s) | Expr::Str(_, s) | Expr::Char(_, s) | Expr::Bool(_, s) => *s,
             Expr::Paren(_, s) | Expr::Unary(_, _, s) | Expr::Binary(_, _, _, s) | Expr::Try(_, s) => *s,
-            Expr::Imply(_, _, s) | Expr::Is(_, _, s) | Expr::Field(_, _, s) | Expr::Call(_, _, s) => *s,
+            Expr::Imply(_, _, s) | Expr::Is(_, _, s) | Expr::Field(_, _, s) | Expr::Call(_, _, s) | Expr::GenericCall(_, _, _, s) => *s,
             Expr::Index(_, _, s) | Expr::AtPre(_, s) | Expr::Ref(_, s) | Expr::MutRef(_, s) => *s,
             Expr::Some(_, s) | Expr::None(s) | Expr::Ok(_, s) | Expr::Err(_, s) => *s,
             Expr::Struct(_, _, _, s) | Expr::Array(_, s) | Expr::BlockExpr(_, s) | Expr::ConstBlock(_, s) | Expr::Closure(_, _, _, s) | Expr::PipeClosure(_, _, s) => *s,

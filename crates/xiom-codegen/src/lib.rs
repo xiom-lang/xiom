@@ -541,7 +541,7 @@ impl IrEmitter {
     /// result carries float payloads as RAW BITS (Some(x) boxes via bitcast),
     /// so float-context conversions must bit-reinterpret rather than sitofp.
     fn expr_is_unwrap_call(e: &Expr) -> bool {
-        if let Expr::Call(func, _, _) = e {
+        if let Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) = e {
             if let Expr::Field(_, f, _) = func.as_ref() {
                 return matches!(f.name.as_str(), "unwrap" | "unwrap_or" | "unwrap_err");
             }
@@ -557,7 +557,7 @@ impl IrEmitter {
             | Expr::As(e, _, _) => Self::expr_uses_this(e),
             Expr::Binary(a, _, b, _) => Self::expr_uses_this(a) || Self::expr_uses_this(b),
             Expr::Field(obj, _, _) => Self::expr_uses_this(obj),
-            Expr::Call(func, args, _) => Self::expr_uses_this(func) || args.iter().any(|a| Self::expr_uses_this(a)),
+            Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => Self::expr_uses_this(func) || args.iter().any(|a| Self::expr_uses_this(a)),
             Expr::Index(arr, idx, _) => Self::expr_uses_this(arr) || Self::expr_uses_this(idx),
             Expr::If(cond, then_b, elifs, else_b, _) => {
                 Self::expr_uses_this(cond)
@@ -703,7 +703,7 @@ impl IrEmitter {
             | Expr::As(e, _, _) => Self::expr_mentions_self(e),
             Expr::Field(obj, _, _) => Self::expr_mentions_self(obj),
             Expr::Binary(a, _, b, _) => Self::expr_mentions_self(a) || Self::expr_mentions_self(b),
-            Expr::Call(func, args, _) => Self::expr_mentions_self(func) || args.iter().any(|a| Self::expr_mentions_self(a)),
+            Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => Self::expr_mentions_self(func) || args.iter().any(|a| Self::expr_mentions_self(a)),
             Expr::Index(arr, idx, _) => Self::expr_mentions_self(arr) || Self::expr_mentions_self(idx),
             Expr::If(cond, then_b, elifs, else_b, _) => {
                 Self::expr_mentions_self(cond) || Self::block_mentions_self(then_b)
@@ -844,7 +844,7 @@ impl IrEmitter {
             // obj.FIELD: the field NAME is not a bare ident — only scan the object.
             Expr::Field(obj, _, _) => Self::expr_mentions_any_ident(obj, names),
             Expr::Binary(a, _, b, _) => Self::expr_mentions_any_ident(a, names) || Self::expr_mentions_any_ident(b, names),
-            Expr::Call(func, args, _) => Self::expr_mentions_any_ident(func, names) || args.iter().any(|a| Self::expr_mentions_any_ident(a, names)),
+            Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => Self::expr_mentions_any_ident(func, names) || args.iter().any(|a| Self::expr_mentions_any_ident(a, names)),
             Expr::Index(arr, idx, _) => Self::expr_mentions_any_ident(arr, names) || Self::expr_mentions_any_ident(idx, names),
             Expr::Unsafe(block, _) => Self::block_mentions_any_ident(block, names),
             Expr::If(cond, then_b, elifs, else_b, _) => {
@@ -1426,7 +1426,7 @@ impl IrEmitter {
             return;
         }
 
-        if let Expr::Call(func, _, _) = value {
+        if let Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) = value {
             if let Expr::Field(recv, method, _) = func.as_ref() {
                 match method.name.as_str() {
                     // Only the INLINE builtins that box struct payloads.
@@ -1516,7 +1516,7 @@ impl IrEmitter {
     /// 5c.30: If `expr` is a `Vec[T].new()` / `Vec[T].with_capacity(..)` call,
     /// return the element type name `T` (from the explicit type argument).
     fn vec_ctor_elem_type(expr: &Expr) -> Option<String> {
-        if let Expr::Call(func, _, _) = expr {
+        if let Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) = expr {
             if let Expr::Field(obj, method, _) = func.as_ref() {
                 if matches!(method.name.as_str(), "new" | "with_capacity") {
                     if let Expr::Index(base, idx, _) = obj.as_ref() {
@@ -1943,6 +1943,92 @@ impl IrEmitter {
             }
         }
         if total == 0 { 8 } else { total }
+    }
+
+    /// v0.54: Compute alignment of a type in bytes. For built-in types,
+    /// returns the natural alignment; for structs, returns max field alignment.
+    pub(crate) fn align_of_type(&self, type_name: &str) -> u64 {
+        match type_name {
+            "Int" | "Int64" | "UInt64" => 8,
+            "Int32" | "UInt32" | "Float32" => 4,
+            "Int16" | "UInt16" => 2,
+            "Int8" | "UInt8" | "Bool" => 1,
+            "Float64" | "Str" => 8,
+            "Char" => 4,
+            _ => {
+                // For struct types, alignment = max field alignment
+                if let Some(meta) = self.types.type_meta.get(type_name) {
+                    let mut max_align = 1u64;
+                    for (_, fty) in meta.fields.iter() {
+                        let fa = self.align_of_type(fty);
+                        if fa > max_align { max_align = fa; }
+                    }
+                    max_align
+                } else {
+                    // Try qualified lookup
+                    if let Some(meta) = self.types.type_meta.iter()
+                        .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
+                        .map(|(_, v)| v)
+                    {
+                        let mut max_align = 1u64;
+                        for (_, fty) in meta.fields.iter() {
+                            let fa = self.align_of_type(fty);
+                            if fa > max_align { max_align = fa; }
+                        }
+                        return max_align;
+                    }
+                    8 // default pointer alignment
+                }
+            }
+        }
+    }
+
+    /// v0.54: Compute a stable numeric type ID from the type name.
+    /// Uses FNV-1a hash for deterministic cross-platform results.
+    pub(crate) fn type_id_of(type_name: &str) -> u64 {
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for byte in type_name.bytes() {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash
+    }
+
+    /// v0.54: Compute byte offset of a named field within a struct type.
+    /// Returns 0 for the first field, sizeof(field0) for the second, etc.
+    pub(crate) fn field_offset_of(&self, type_name: &str, field_name: &str) -> u64 {
+        let meta = self.types.type_meta.get(type_name)
+            .or_else(|| {
+                self.types.type_meta.iter()
+                    .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
+                    .map(|(_, v)| v)
+            });
+        let Some(meta) = meta else { return 0 };
+        let mut offset = 0u64;
+        for (fname, fty) in meta.fields.iter() {
+            if fname == field_name { return offset; }
+            // Estimate field size: for simple types use alignment as size
+            offset += self.size_of_type(fty);
+        }
+        0 // field not found
+    }
+
+    /// Helper: estimate size of a type name in bytes.
+    fn size_of_type(&self, type_name: &str) -> u64 {
+        match type_name {
+            "Int" | "Int64" | "UInt64" | "Float64" => 8,
+            "Int32" | "UInt32" | "Float32" | "Char" => 4,
+            "Int16" | "UInt16" => 2,
+            "Int8" | "UInt8" | "Bool" => 1,
+            "Str" => 8,
+            _ => {
+                if let Some(_meta) = self.types.type_meta.get(type_name) {
+                    self.struct_byte_size(type_name) as u64
+                } else {
+                    8
+                }
+            }
+        }
     }
 
     fn field_llvm_type(&self, struct_name: &str, field_idx: usize) -> String {
@@ -2420,7 +2506,7 @@ impl IrEmitter {
                 }
                 None
             }
-            Expr::Call(func, _, _) => {
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
                 let fn_name = match &**func {
                     Expr::Ident(name) => Some(name.name.clone()),
                     Expr::Field(obj, field, _) => {
@@ -4238,7 +4324,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 }
                 self.infer_struct_type_name(obj.as_ref())
             }
-            Expr::Call(func, _, _) => {
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
                 // Infer type from the return type of a method/function call
                 let fn_key = if let Expr::Field(obj, field, _) = func.as_ref() {
                     // Try module-qualified resolution first (e.g. iter.range ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ xiom.iter.range)
@@ -4441,7 +4527,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 }
                 "i64".to_string()
             }
-            Expr::Call(func, _, _) => {
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
                 // Check for Vec.new() first
                 if let Expr::Field(obj, field, _) = func.as_ref() {
                     if let Expr::Ident(id) = obj.as_ref() {
@@ -4618,7 +4704,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 false
             }
             Expr::As(_, ty, _) => Self::type_from_ast(ty) == "Float64" || Self::type_from_ast(ty) == "Float32",
-            Expr::Call(_, _, _) | Expr::If(..) => {
+            Expr::Call(_, _, _) | Expr::GenericCall(_, _, _, _) | Expr::If(..) => {
                 let ty = self.infer_llvm_type(expr);
                 ty == "double" || ty == "float"
             },

@@ -129,7 +129,7 @@ impl crate::IrEmitter {
     /// result carries float payloads as RAW BITS (Some(x) boxes via bitcast),
     /// so float-context conversions must bit-reinterpret rather than sitofp.
     pub fn expr_is_unwrap_call(e: &Expr) -> bool {
-        if let Expr::Call(func, _, _) = e {
+        if let Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) = e {
             if let Expr::Field(_, f, _) = func.as_ref() {
                 return matches!(f.name.as_str(), "unwrap" | "unwrap_or" | "unwrap_err");
             }
@@ -145,7 +145,7 @@ impl crate::IrEmitter {
             | Expr::As(e, _, _) => Self::expr_uses_this(e),
             Expr::Binary(a, _, b, _) => Self::expr_uses_this(a) || Self::expr_uses_this(b),
             Expr::Field(obj, _, _) => Self::expr_uses_this(obj),
-            Expr::Call(func, args, _) => Self::expr_uses_this(func) || args.iter().any(|a| Self::expr_uses_this(a)),
+            Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => Self::expr_uses_this(func) || args.iter().any(|a| Self::expr_uses_this(a)),
             Expr::Index(arr, idx, _) => Self::expr_uses_this(arr) || Self::expr_uses_this(idx),
             Expr::If(cond, then_b, elifs, else_b, _) => {
                 Self::expr_uses_this(cond)
@@ -265,7 +265,7 @@ impl crate::IrEmitter {
             Expr::Binary(a, _, b, _) => Self::expr_mentions_any_ident(a, names) || Self::expr_mentions_any_ident(b, names),
             // obj.FIELD: the field NAME is not a bare ident — only scan the object.
             Expr::Field(obj, _, _) => Self::expr_mentions_any_ident(obj, names),
-            Expr::Call(func, args, _) => Self::expr_mentions_any_ident(func, names) || args.iter().any(|a| Self::expr_mentions_any_ident(a, names)),
+            Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => Self::expr_mentions_any_ident(func, names) || args.iter().any(|a| Self::expr_mentions_any_ident(a, names)),
             Expr::Index(arr, idx, _) => Self::expr_mentions_any_ident(arr, names) || Self::expr_mentions_any_ident(idx, names),
             Expr::Unsafe(block, _) => Self::block_mentions_any_ident(block, names),
             Expr::If(cond, then_b, elifs, else_b, _) => {
@@ -523,7 +523,7 @@ impl crate::IrEmitter {
     /// 5c.30: If `expr` is a `Vec[T].new()` / `Vec[T].with_capacity(..)` call,
     /// return the element type name `T` (from the explicit type argument).
     pub fn vec_ctor_elem_type(expr: &Expr) -> Option<String> {
-        if let Expr::Call(func, _, _) = expr {
+        if let Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) = expr {
             if let Expr::Field(obj, method, _) = func.as_ref() {
                 if matches!(method.name.as_str(), "new" | "with_capacity") {
                     if let Expr::Index(base, idx, _) = obj.as_ref() {
@@ -1114,7 +1114,7 @@ impl crate::IrEmitter {
                 }
                 self.infer_struct_type_name(obj.as_ref())
             }
-            Expr::Call(func, _, _) => {
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
                 // Infer type from the return type of a method/function call
                 let fn_key = if let Expr::Field(obj, field, _) = func.as_ref() {
                     // Try module-qualified resolution first (e.g. iter.range — xiom.iter.range)

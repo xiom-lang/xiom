@@ -926,7 +926,8 @@ impl Checker {
             xiom_ast::Expr::Binary(a, _, b, _)
             | xiom_ast::Expr::Imply(a, b, _) => Self::expr_uses_this(a) || Self::expr_uses_this(b),
             xiom_ast::Expr::Field(obj, _, _) => Self::expr_uses_this(obj),
-            xiom_ast::Expr::Call(func, args, _) => {
+            xiom_ast::Expr::Call(func, args, _)
+            | xiom_ast::Expr::GenericCall(func, _, args, _) => {
                 Self::expr_uses_this(func) || args.iter().any(Self::expr_uses_this)
             }
             xiom_ast::Expr::Index(arr, idx, _) => Self::expr_uses_this(arr) || Self::expr_uses_this(idx),
@@ -1515,7 +1516,8 @@ impl Checker {
             match expr {
                 Expr::Ident(id) => { out.insert(id.name.clone()); }
                 Expr::Field(b, f, _) => { collect_expr_names(b, out); out.insert(f.name.clone()); }
-                Expr::Call(f, args, _) => {
+                Expr::Call(f, args, _)
+                | Expr::GenericCall(f, _, args, _) => {
                     collect_expr_names(f, out);
                     for a in args { collect_expr_names(a, out); }
                 }
@@ -2558,6 +2560,9 @@ impl Checker {
                         *span,
                     ),
                 }
+            }
+            Expr::GenericCall(func, _ty, args, span) => {
+                self.check_expr(&Expr::Call(func.clone(), args.clone(), *span))
             }
             Expr::Call(func, args, span) => {
                 // Method call or module-qualified call: receiver.method(args) or module.func(args)
@@ -3883,6 +3888,9 @@ impl BorrowChecker {
             }
             Expr::Field(obj, _, _) => {
                 self.check_expr(obj)
+            }
+            Expr::GenericCall(func, _ty, args, span) => {
+                self.check_call(func, args, *span)
             }
             Expr::Call(func, args, span) => {
                 self.check_call(func, args, *span)

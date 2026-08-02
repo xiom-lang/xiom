@@ -536,7 +536,7 @@ impl SMTGenerator {
                     _ => self.translate_expr(inner),
                 }
             }
-            Expr::Call(func, args, _) => {
+            Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => {
                 // Function call — translate as uninterpreted function application
                 self.buf.push('(');
                 self.translate_expr(func);

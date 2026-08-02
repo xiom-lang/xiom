@@ -83,6 +83,17 @@ impl crate::Formatter {
                 }
                 self.buf.push(')');
             }
+            Expr::GenericCall(func, ty, args, _) => {
+                self.format_expr(func);
+                self.buf.push_str("::<");
+                self.format_type(ty);
+                self.buf.push_str(">(");
+                for (i, a) in args.iter().enumerate() {
+                    if i > 0 { self.buf.push_str(", "); }
+                    self.format_expr(a);
+                }
+                self.buf.push(')');
+            }
             Expr::Field(obj, field, _) => {
                 self.format_expr(obj);
                 self.buf.push('.');

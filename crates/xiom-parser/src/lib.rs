@@ -1606,6 +1606,27 @@ impl Parser {
         }
         loop {
             match self.peek_kind() {
+                TokenKind::ColonColon => {
+                    // v0.54: Turbofish — expr::<Type>(args) for builtins
+                    // (align_of::<Int>(), type_id::<T>(), field_offset::<Point>(x))
+                    self.advance(); // consume ::
+                    self.expect_kind(TokenKind::Lt, "'<'")?;
+                    let ty = self.parse_type()?;
+                    self.expect_kind(TokenKind::Gt, "'>'")?;
+                    if self.peek_kind() == &TokenKind::LParen {
+                        self.advance();
+                        let args = if self.check(|k| matches!(k, TokenKind::RParen)) {
+                            self.advance();
+                            Vec::new()
+                        } else {
+                            let a = self.parse_arg_list()?;
+                            self.expect_kind(TokenKind::RParen, "')'")?;
+                            a
+                        };
+                        let span = expr.span();
+                        expr = Expr::GenericCall(Box::new(expr), ty, args, span);
+                    }
+                }
                 TokenKind::Dot => {
                     self.advance();
                     if let TokenKind::Int(n) = self.peek_kind() { let idx = *n; self.advance(); let span = expr.span(); let field_id = Ident::new(format!("_{idx}"), span); expr = Expr::Field(Box::new(expr), field_id, span); }
