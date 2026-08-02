@@ -1154,7 +1154,7 @@ impl IrEmitter {
             }
             Expr::Binary(l, _, r, _) => { Self::collect_atpre_vars(l, vars); Self::collect_atpre_vars(r, vars); }
             Expr::Unary(_, e, _) => Self::collect_atpre_vars(e, vars),
-            Expr::Call(f, args, _) => { Self::collect_atpre_vars(f, vars); for a in args { Self::collect_atpre_vars(a, vars); } }
+            Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => { Self::collect_atpre_vars(f, vars); for a in args { Self::collect_atpre_vars(a, vars); } }
             Expr::Field(e, _, _) | Expr::Index(e, _, _) => Self::collect_atpre_vars(e, vars),
             Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _) => Self::collect_atpre_vars(e, vars),
             _ => {}
@@ -1252,7 +1252,7 @@ impl IrEmitter {
         }
         match expr {
             Expr::Tuple(items, _) => { for item in items { Self::scan_expr_for_tuples(types, item); } }
-            Expr::Call(func, args, _) => { Self::scan_expr_for_tuples(types, func); for a in args { Self::scan_expr_for_tuples(types, a); } }
+            Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => { Self::scan_expr_for_tuples(types, func); for a in args { Self::scan_expr_for_tuples(types, a); } }
             Expr::Binary(a, _, b, _) => { Self::scan_expr_for_tuples(types, a); Self::scan_expr_for_tuples(types, b); }
             Expr::Unary(_, e, _) | Expr::Paren(e, _) | Expr::Ref(e, _) | Expr::MutRef(e, _) | Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _) | Expr::As(e, _, _) | Expr::Try(e, _) => Self::scan_expr_for_tuples(types, e),
             Expr::Field(obj, _, _) => Self::scan_expr_for_tuples(types, obj),

@@ -249,7 +249,8 @@ impl IrEmitter {
                 }
             }
             // sizeof::<T>() call — resolve via type system
-            Expr::Call(func, _, _) => {
+            Expr::Call(func, _, _)
+            | Expr::GenericCall(func, _, _, _) => {
                 if let Expr::Field(base, field, _) = func.as_ref() {
                     // T.sizeof() method form: Container.sizeof()
                     if field.name == "sizeof" {
@@ -257,6 +258,28 @@ impl IrEmitter {
                             let ty_name = &id.name;
                             let size = self.struct_byte_size(ty_name) as u64;
                             return Expr::Int(size, Span::new(0, 0));
+                        }
+                    }
+                }
+                // v0.54: CTFE builtins via turbofish syntax
+                if let Expr::GenericCall(f, ty, args, span) = expr {
+                    if let Expr::Ident(id) = f.as_ref() {
+                        let type_name = crate::IrEmitter::type_from_ast(ty);
+                        if id.name == "align_of" {
+                            let align = self.align_of_type(&type_name);
+                            return Expr::Int(align, *span);
+                        }
+                        if id.name == "type_id" {
+                            let id_val = Self::type_id_of(&type_name);
+                            return Expr::Int(id_val, *span);
+                        }
+                        if id.name == "field_offset" {
+                            if let Some(arg) = args.first() {
+                                if let Expr::Ident(field_id) = arg {
+                                    let offset = self.field_offset_of(&type_name, &field_id.name);
+                                    return Expr::Int(offset, *span);
+                                }
+                            }
                         }
                     }
                 }
@@ -1014,7 +1037,8 @@ impl IrEmitter {
                         else { self.types.used_builtins.insert("Result".to_string()); }
                         opt_like
                     }
-                    Expr::Call(func, _, _) => {
+                    Expr::Call(func, _, _)
+                    | Expr::GenericCall(func, _, _, _) => {
                         // Check return type from function signatures
                         let fn_name = match &**func {
                             Expr::Ident(name) => Some(name.name.clone()),
@@ -1508,6 +1532,7 @@ impl IrEmitter {
                 }
                 Ok(("0".to_string(), LLVM_I64.to_string()))
             }
+            Expr::GenericCall(func, _ty, args, _) => self.compile_call(func, args),
             Expr::Call(func, args, _) => self.compile_call(func, args),
                         Expr::Index(container, index, _) => {
                 // Index into a Vec (builtin {i8*, i64, i64}) or a Str (i8*).
@@ -3093,7 +3118,7 @@ impl IrEmitter {
                 self.receiver_is_instance(base) || self.infer_struct_type_name(receiver).is_some()
             }
             // Calls / indexing / parens evaluate to values.
-            Expr::Call(..) | Expr::Index(..) | Expr::Paren(..) => true,
+            Expr::Call(..) | Expr::GenericCall(..) | Expr::Index(..) | Expr::Paren(..) => true,
             // Any other receiver form evaluates to a value ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â preserve the prior
             // "complex receiver is an instance" behavior (only the Ident type-name
             // and Field module-path shapes above are treated as non-instances).

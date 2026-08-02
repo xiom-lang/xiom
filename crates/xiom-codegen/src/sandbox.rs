@@ -222,7 +222,7 @@ impl SafetyAuditor {
             }
             Expr::Binary(left, _, right, _) => { self.audit_expr(left, report); self.audit_expr(right, report); }
             Expr::Unary(_, inner, _) => self.audit_expr(inner, report),
-            Expr::Call(func, args, _) => { self.audit_expr(func, report); for a in args { self.audit_expr(a, report); } }
+            Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => { self.audit_expr(func, report); for a in args { self.audit_expr(a, report); } }
             Expr::Field(obj, _, _) | Expr::Index(obj, _, _) => self.audit_expr(obj, report),
             Expr::As(inner, _, _) | Expr::Ref(inner, _) | Expr::MutRef(inner, _) => self.audit_expr(inner, report),
             Expr::Struct(_, fields, _, _) => { for (_, v) in fields { self.audit_expr(v, report); } }
@@ -275,7 +275,7 @@ impl SafetyAuditor {
 
     fn scan_expr_for_unsafe(&self, expr: &Expr, ec: &mut bool, pa: &mut bool, dr: &mut bool, tc: &mut bool) {
         match expr {
-            Expr::Call(func, _, _) => {
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
                 if let Expr::Ident(id) = func.as_ref() {
                     if id.name.starts_with("xvk_") || id.name.starts_with("glfw") || id.name.starts_with("vk") { *ec = true; }
                 }

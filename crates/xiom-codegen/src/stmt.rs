@@ -58,7 +58,7 @@ impl IrEmitter {
                     // or resolve from function call return types.
                     let inherited = match value {
                         Expr::Ident(id) => self.local.local_vec_elem.get(&id.name).cloned(),
-                        Expr::Call(_, args, _) => {
+                        Expr::Call(_, args, _) | Expr::GenericCall(_, _, args, _) => {
                             // Inherit from first argument's Vec element type
                             args.first().and_then(|a| {
                                 if let Expr::Ident(id) = a {
@@ -271,7 +271,7 @@ impl IrEmitter {
                     // 5c.39: Inherit Vec element type for Var binding
                     let inherited = match value {
                         Expr::Ident(id) => self.local.local_vec_elem.get(&id.name).cloned(),
-                        Expr::Call(_, args, _) => {
+                        Expr::Call(_, args, _) | Expr::GenericCall(_, _, args, _) => {
                             args.first().and_then(|a| {
                                 if let Expr::Ident(id) = a {
                                     self.local.local_vec_elem.get(&id.name).cloned()

@@ -224,7 +224,7 @@ pub fn expr_to_str(e: &Expr) -> String {
         }
         Expr::Binary(l, op, r, _) => format!("{} {} {}", expr_to_str(l), op, expr_to_str(r)),
         Expr::Field(obj, field, _) => format!("{}.{}", expr_to_str(obj), field.name),
-        Expr::Call(f, args, _) => format!("{}({})", expr_to_str(f), args.iter().map(expr_to_str).collect::<Vec<_>>().join(", ")),
+        Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => format!("{}({})", expr_to_str(f), args.iter().map(expr_to_str).collect::<Vec<_>>().join(", ")),
         Expr::Index(obj, idx, _) => format!("{}[{}]", expr_to_str(obj), expr_to_str(idx)),
         Expr::Is(inner, pat, _) => format!("{} is {}", expr_to_str(inner), pattern_to_str(pat)),
         Expr::Imply(l, r, _) => format!("{} => {}", expr_to_str(l), expr_to_str(r)),

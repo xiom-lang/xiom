@@ -246,7 +246,7 @@ impl IrEmitter {
                 self.collect_ident_names(left, out);
                 self.collect_ident_names(right, out);
             }
-            Expr::Call(func, args, _) => {
+            Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => {
                 self.collect_ident_names(func, out);
                 for a in args { self.collect_ident_names(a, out); }
             }

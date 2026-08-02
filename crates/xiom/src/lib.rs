@@ -1807,7 +1807,7 @@ fn contract_expr_to_string(expr: &Expr) -> String {
         Expr::Field(obj, field, _) => {
             format!("{}.{}", contract_expr_to_string(obj), field.name)
         }
-        Expr::Call(func, args, _) => {
+        Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => {
             let a: Vec<String> = args.iter().map(|a| contract_expr_to_string(a)).collect();
             format!("{}({})", contract_expr_to_string(func), a.join(", "))
         }

@@ -35,7 +35,7 @@ pub enum TokenKind {
     Char(char),
 
     // --- Operators / Punctuation ---
-    Dot, Comma, Semicolon, Colon,
+    Dot, Comma, Semicolon, Colon, ColonColon,
     LParen, RParen, LBrace, RBrace, LBracket, RBracket,
     At, Arrow, FatArrow, Question,
     Plus, Minus, Star, Slash, Percent, Caret, Tilde,
@@ -342,7 +342,15 @@ impl Lexer {
             '.' => { self.advance(); Token::new(TokenKind::Dot, start, ".") }
             ',' => { self.advance(); Token::new(TokenKind::Comma, start, ",") }
             ';' => { self.advance(); Token::new(TokenKind::Semicolon, start, ";") }
-            ':' => { self.advance(); Token::new(TokenKind::Colon, start, ":") }
+            ':' => {
+                self.advance();
+                if self.peek() == Some(':') {
+                    self.advance();
+                    Token::new(TokenKind::ColonColon, start, "::")
+                } else {
+                    Token::new(TokenKind::Colon, start, ":")
+                }
+            }
             '(' => { self.advance(); Token::new(TokenKind::LParen, start, "(") }
             ')' => { self.advance(); Token::new(TokenKind::RParen, start, ")") }
             '{' => { self.advance(); Token::new(TokenKind::LBrace, start, "{") }

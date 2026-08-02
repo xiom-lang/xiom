@@ -203,7 +203,7 @@ fn expr_to_string(expr: &Expr) -> String {
             use xiom_display::unary_op_to_str;
             format!("{}{}", unary_op_to_str(op), expr_to_string(inner))
         }
-        Expr::Call(func, args, _) => {
+        Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => {
             let args: Vec<String> = args.iter().map(expr_to_string).collect();
             format!("{}({})", expr_to_string(func), args.join(", "))
         }
