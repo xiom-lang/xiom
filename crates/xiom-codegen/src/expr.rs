@@ -1529,6 +1529,27 @@ impl IrEmitter {
                     let esz_val = self.fresh_tmp();
                     self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {vslot}, i32 0, i32 3"));
                     self.emitln(&format!("  {esz_val} = load i64, i64* {esz_gep}"));
+                    // S1: Bounds check — trap on out-of-bounds Vec indexing
+                    // when overflow checks are enabled.
+                    if self.config.overflow_checks {
+                        let len_gep = self.fresh_tmp();
+                        let len_val = self.fresh_tmp();
+                        self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {vslot}, i32 0, i32 1"));
+                        self.emitln(&format!("  {len_val} = load i64, i64* {len_gep}"));
+                        let idx_ge0 = self.fresh_tmp();
+                        self.emitln(&format!("  {idx_ge0} = icmp sge i64 {idx}, 0"));
+                        let idx_lt_len = self.fresh_tmp();
+                        self.emitln(&format!("  {idx_lt_len} = icmp slt i64 {idx}, {len_val}"));
+                        let in_bounds = self.fresh_tmp();
+                        self.emitln(&format!("  {in_bounds} = and i1 {idx_ge0}, {idx_lt_len}"));
+                        let ok_block = self.fresh_block("bounds_ok");
+                        let trap_block = self.fresh_block("bounds_trap");
+                        self.emitln(&format!("  br i1 {in_bounds}, label %{ok_block}, label %{trap_block}"));
+                        self.emitln(&format!("\n{trap_block}:"));
+                        self.emitln("  call void @llvm.trap()");
+                        self.emitln("  unreachable");
+                        self.emitln(&format!("\n{ok_block}:"));
+                    }
                     let data_gep = self.fresh_tmp();
                     self.emitln(&format!("  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {vslot}, i32 0, i32 0"));
                     let data_ptr = self.fresh_tmp();
