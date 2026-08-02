@@ -70,6 +70,9 @@ pub struct CompileConfig {
     pub c_sources: Vec<String>,
     /// M12: Scripting mode — apply implicit main wrapping if no fn main found
     pub script_mode: bool,
+    /// v0.54: Binary cache — hash source with SHA-256, cache compiled binary
+    /// for instant re-execution (~500ms → ~5ms). Applies to --run mode.
+    pub cache: bool,
 }
 
 impl Default for CompileConfig {
@@ -106,6 +109,7 @@ impl Default for CompileConfig {
             link_paths: Vec::new(),
             c_sources: Vec::new(),
             script_mode: false,
+            cache: false,
         }
     }
 }
@@ -544,6 +548,30 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
 }
 
 pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Vec<String>> {
+    // v0.54: Binary cache — check for cached binary before compilation.
+    // When --run --cache is used, skip the full compile pipeline if the
+    // source hasn't changed since the last compilation.
+    if config.cache && config.do_run && source_paths.len() == 1 {
+        let source_path = &source_paths[0];
+        if let Ok(source) = fs::read_to_string(source_path) {
+            let lookup_source = if config.script_mode {
+                crate::implicit_main::wrap_implicit_main(&source)
+            } else {
+                source
+            };
+            if let Some(cached) = crate::jit::script_cache_get(&lookup_source) {
+                let run_status = Command::new(&cached).status();
+                match run_status {
+                    Ok(s) => {
+                        eprintln!("  cached run exit code: {}", s.code().unwrap_or(-1));
+                        return Ok(());
+                    }
+                    Err(_) => { /* stale cache entry or binary removed — proceed */ }
+                }
+            }
+        }
+    }
+
     // M12: Auto-discover stdlib from binary path so the C runtime is always found.
     // This ensures xiom run, playground, MCP, and direct CLI all work without XIOM_STDLIB env var.
     if std::env::var("XIOM_STDLIB").is_err() {
@@ -1045,6 +1073,20 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 Ok(out) if out.status.success() => {
                     let _ = fs::remove_file(&ir_path);
                     eprintln!("  compiled: {output}");
+
+                    // v0.54: Binary cache — store compiled binary keyed by SHA-256 of source.
+                    // Subsequent runs with --run --cache skip the entire compile pipeline.
+                    if config.cache && source_paths.len() == 1 {
+                        let source_path = &source_paths[0];
+                        if let Ok(source) = fs::read_to_string(source_path) {
+                            let cache_source = if config.script_mode {
+                                crate::implicit_main::wrap_implicit_main(&source)
+                            } else {
+                                source
+                            };
+                            crate::jit::script_cache_put(&cache_source, &PathBuf::from(&abs_output));
+                        }
+                    }
 
                     if config.do_run && config.target == Target::Native {
                         let exe = if output.contains('\\') || output.contains('/') {
