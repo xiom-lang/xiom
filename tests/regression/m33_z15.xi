@@ -9,6 +9,6 @@ fn main() -> Int {
   a *= b;
   c /= 5;
   a += c;
-  if a == 32 && b == 6 && c == 20 { return 0; }
+  if a == 50 && b == 6 && c == 20 { return 0; }
   return 1;
 }

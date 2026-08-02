@@ -132,32 +132,53 @@ impl IrEmitter {
                 let (idx_val, idx_ty) = self.compile_expr(index).ok()?;
                 let idx_i64 = self.val_to_i64(&idx_val, &idx_ty);
                 let vty = "%struct.Vec";
-                // 5c.38: For Ident containers, use the original alloca so writes
-                // mutate the real Vec. For non-Ident, create a temporary copy.
-                let vslot = if let Expr::Ident(cont_id) = container.as_ref() {
-                    if let Some((slot, _)) = self.lookup_local(&cont_id.name).cloned() {
-                        slot
+                // M33: For compound containers (field access through &mut),
+                // resolve the container to an lvalue first so the Vec data
+                // pointer is loaded from the ORIGINAL struct field, not a
+                // temp copy. store_back_to_receiver then writes through
+                // the correct element pointer.
+                let (dp_val, esz_val) = if let Some((lv_ptr, lv_ptr_ty, _)) = self.compile_lvalue(container) {
+                    if lv_ptr_ty == "%struct.Vec*" || lv_ptr_ty.ends_with(".Vec*") || lv_ptr_ty == "%struct.Slice*" || lv_ptr_ty.ends_with(".Slice*") {
+                        // Load data ptr and elem size from the original Vec field
+                        let dp = self.fresh_tmp();
+                        let esz = self.fresh_tmp();
+                        let dp_gep = self.fresh_tmp();
+                        let esz_gep = self.fresh_tmp();
+                        self.emitln(&format!("  {dp_gep} = getelementptr %struct.Vec, {lv_ptr_ty} {lv_ptr}, i32 0, i32 0"));
+                        self.emitln(&format!("  {dp} = load i8*, i8** {dp_gep}"));
+                        self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, {lv_ptr_ty} {lv_ptr}, i32 0, i32 3"));
+                        self.emitln(&format!("  {esz} = load i64, i64* {esz_gep}"));
+                        (dp, esz)
                     } else {
                         return None;
                     }
                 } else {
-                    let (cont_val, _) = self.compile_expr(container).ok()?;
-                    let tmp = self.fresh_tmp();
-                    self.emitln(&format!("  {tmp} = alloca {vty}"));
-                    self.emitln(&format!("  {tmp}_i8 = bitcast {vty}* {tmp} to i8*"));
-                    self.emitln(&format!("  call void @llvm.memset.p0i8.i64(i8* {tmp}_i8, i8 0, i64 32, i1 false)"));
-                    self.emit_vec_store_fields(&cont_val, &tmp);
-                    tmp
+                    // Fallback: Ident or temp copy
+                    let vslot = if let Expr::Ident(cont_id) = container.as_ref() {
+                        if let Some((slot, _)) = self.lookup_local(&cont_id.name).cloned() {
+                            slot
+                        } else {
+                            return None;
+                        }
+                    } else {
+                        let (cont_val, _) = self.compile_expr(container).ok()?;
+                        let tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {tmp} = alloca {vty}"));
+                        self.emitln(&format!("  {tmp}_i8 = bitcast {vty}* {tmp} to i8*"));
+                        self.emitln(&format!("  call void @llvm.memset.p0i8.i64(i8* {tmp}_i8, i8 0, i64 32, i1 false)"));
+                        self.emit_vec_store_fields(&cont_val, &tmp);
+                        tmp
+                    };
+                    let dp_gep = self.fresh_tmp();
+                    let dp_val = self.fresh_tmp();
+                    self.emitln(&format!("  {dp_gep} = getelementptr {vty}, {vty}* {vslot}, i32 0, i32 0"));
+                    self.emitln(&format!("  {dp_val} = load i8*, i8** {dp_gep}"));
+                    let esz_gep = self.fresh_tmp();
+                    let esz_val = self.fresh_tmp();
+                    self.emitln(&format!("  {esz_gep} = getelementptr {vty}, {vty}* {vslot}, i32 0, i32 3"));
+                    self.emitln(&format!("  {esz_val} = load i64, i64* {esz_gep}"));
+                    (dp_val, esz_val)
                 };
-                // Get data pointer and elem_size from Vec struct
-                let dp_gep = self.fresh_tmp();
-                let dp_val = self.fresh_tmp();
-                self.emitln(&format!("  {dp_gep} = getelementptr {vty}, {vty}* {vslot}, i32 0, i32 0"));
-                self.emitln(&format!("  {dp_val} = load i8*, i8** {dp_gep}"));
-                let esz_gep = self.fresh_tmp();
-                let esz_val = self.fresh_tmp();
-                self.emitln(&format!("  {esz_gep} = getelementptr {vty}, {vty}* {vslot}, i32 0, i32 3"));
-                self.emitln(&format!("  {esz_val} = load i64, i64* {esz_gep}"));
                 // Compute element byte offset
                 let byte_off = self.fresh_tmp();
                 self.emitln(&format!("  {byte_off} = mul i64 {idx_i64}, {esz_val}"));

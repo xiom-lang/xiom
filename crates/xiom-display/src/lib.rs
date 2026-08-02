@@ -33,6 +33,10 @@ pub fn type_to_string(ty: &Type) -> String {
             let inner: Vec<String> = types.iter().map(|t| type_to_string(t)).collect();
             format!("({})", inner.join(", "))
         }
+        Type::AnonStruct(fields) => {
+            let inner: Vec<String> = fields.iter().map(|f| format!("{}: {}", f.name.name, type_to_string(&f.ty))).collect();
+            format!("{{ {} }}", inner.join("; "))
+        }
     }
 }
 

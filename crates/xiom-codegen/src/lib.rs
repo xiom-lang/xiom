@@ -1912,12 +1912,18 @@ impl IrEmitter {
         };
         let mut total = 0i64;
         for (_, fty) in meta.fields.iter() {
-            // Generic containers are i64 handles (5c.28h).
-            if fty.contains('[') && !fty.starts_with('[') {
+            // Generic type parameters (T, V, K) that represent unresolved
+            // container types are stored as i64 handles (pointers to boxed
+            // structs). Concrete generic types like Vec[Int] are full inline
+            // structs whose size is computed via recursive lookup.
+            // Distinguish: single-char uppercase = type param (i64 handle);
+            // named types with brackets (Vec[Int]) = concrete types (full struct).
+            let is_type_param = fty.len() == 1
+                && fty.chars().next().map_or(false, |c| c.is_ascii_uppercase());
+            if is_type_param {
                 total += 8;
                 continue;
             }
-            // Fixed-size arrays `[N x T]`: N Ã— 8.
             if fty.starts_with('[') {
                 if let Some(x_pos) = fty.find(" x ") {
                     if let Ok(n) = fty[1..x_pos].trim().parse::<i64>() {
@@ -4267,6 +4273,11 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
     /// For struct elements like `Vec[Item]`, returns `%struct.Item`.
     /// For scalar elements like `Vec[Int]`, returns `i64`.
     fn infer_vec_elem_llvm_type(&self, expr: &Expr) -> String {
+        // M33: Resolve via the Vec element type infrastructure first,
+        // which handles compound expressions (field access through &mut).
+        if let Some(elem_name) = self.resolve_vec_elem_type(expr) {
+            return self.llvm_type_for(&elem_name).unwrap_or_else(|_| "i64".to_string());
+        }
         if let Expr::Ident(id) = expr {
             if let Some(ref elem_xiom) = self.local.local_vec_elem.get(&id.name) {
                 return self.llvm_type_for(elem_xiom).unwrap_or_else(|_| "i64".to_string());
@@ -4397,7 +4408,25 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 "i64".to_string()
             }
             Expr::Field(obj, field, _) => {
-                // Resolve the LLVM type of a struct field access (e.g. r.w where r is Rect{w: Float64, ...})
+                // Resolve the LLVM type of a struct field access.
+                // Handle both simple (obj.x) and compound (a.b[idx].x) bases.
+                let obj_ty = self.infer_llvm_type(obj);
+                if obj_ty.starts_with("%struct.") && !obj_ty.ends_with('*') {
+                    let type_name = &obj_ty[8..]; // strip "%struct."
+                    if let Some(meta) = self.types.type_meta.get(type_name)
+                        .or_else(|| {
+                            let suffix = format!(".{type_name}");
+                            self.types.type_meta.keys()
+                                .find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                .and_then(|k| self.types.type_meta.get(k))
+                        })
+                    {
+                        if let Some((_, ty_name)) = meta.fields.iter().find(|(name, _)| name == &field.name) {
+                            return self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
+                        }
+                    }
+                }
+                // Fallback: try by looking up the base's ident (legacy path)
                 if let Expr::Ident(obj_ident) = obj.as_ref() {
                     if let Some((_, llvm_ty)) = self.lookup_local(&obj_ident.name) {
                         if llvm_ty.starts_with("%struct.") {
@@ -4546,9 +4575,14 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 if let Some(elem_type_name) = self.resolve_vec_elem_type(container) {
                     return format!("%struct.{elem_type_name}");
                 }
+                // M33: For scalar elements (Int, Float, etc.), return i64,
+                // not the container's type. Previously this returned "%struct.Vec"
+                // which caused `id(arr[0])` to be monomorphised as id_Vec instead
+                // of id_Int, leading to inttoptr+load of the element value as a
+                // Vec pointer → ACCESS_VIOLATION.
                 let cont_ty = self.infer_llvm_type(container);
                 if cont_ty == "%struct.Vec" || cont_ty.contains("struct.Vec") {
-                    return "%struct.Vec".to_string();
+                    return "i64".to_string();
                 }
                 "i64".to_string()
             }

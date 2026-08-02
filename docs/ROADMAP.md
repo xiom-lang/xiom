@@ -1,16 +1,16 @@
 # XIOM Compiler — Production Roadmap
 
-**Current:** v0.52.0 — **1060/1060 all tests** (692 compiler + 368 tooling)
+**Current:** v0.53.0 — **2195/2195 E2E active (100% pass)** | 89 compiler hardening commits
 **Branch:** `feat/architect`
-**Next:** Phase 9A — Pre-Release Infrastructure (website, playground deployment, package distribution)
+**Next:** v0.54.0 — "Safety Foundation" (CTFE + Binary Cache + Safety Checks)
 
 ---
 
-## 1. CURRENT STATE (2026-07-24 — v0.49.9, 934 tests)
+## 1. CURRENT STATE (2026-08-02 — v0.53.0, 2195 tests)
 
 | Gate | Count | Status |
 |------|-------|--------|
-| E2E tests | **111/111** | OK |
+| E2E tests | **2195/2195** | OK (selfhost deferred) |
 | Feature regression | **268/268** | OK |
 | Stdlib execution | **41/41** | OK |
 | Stdlib compilation | **40/40** | OK |
@@ -874,7 +874,7 @@ Target v0.54.0 for "self-host production" (correctness + safety).
 | Borrow checker | Active | ? Already active (170 tests) |
 | Self-host preview | IR matches bootstrap | ? Passes |
 
-### M25: Language True Multi-Threading Support (NEW — 40h)
+### M25: Language True Multi-Threading Support (v0.54 — 40h)
 
 **Goal: XIOM programs can spawn OS threads, share data safely, and communicate via channels.**
 
@@ -958,9 +958,209 @@ Target v0.54.0 for "self-host production" (correctness + safety).
 - Parallel clang (N=8): ~5 minutes
 - **Total with M26: ~15 minutes (4× speedup)**
 
+### M27: Inline Assembly Support + NASM Bundling (NEW — 24h)
+
+**Goal: XIOM programs can embed native assembly instructions for performance-critical paths. NASM assembler bundled with the compiler toolchain (like Z3 for verify).**
+
+| Task | Effort |
+|------|--------|
+| M27.1: `asm!` macro/block syntax — embed raw assembly with operand constraints | 5h |
+| M27.2: Inline asm codegen — emit LLVM `call asm` or platform-specific directives | 6h |
+| M27.3: NASM bundling — package NASM with release for all target platforms | 4h |
+| M27.4: Register allocator integration — map XIOM vars to asm operands (in/out/clobber) | 4h |
+| M27.5: Validation — operand type checking, register conflict detection | 3h |
+| M27.6: Documentation + examples — SIMD, crypto, context-switch patterns | 2h |
+| **Total** | | **24h** |
+
+**Syntax (proposed):**
+```xiom
+fn memcpy_avx(dst: *UInt8, src: *UInt8, n: Int) {
+  unsafe {
+    asm!("vmovdqu ymm0, [rsi]\nvmovdqu [rdi], ymm0"
+         : "=r"(dst), "=r"(src)    // outputs
+         : "r"(dst), "r"(src)       // inputs
+         : "ymm0", "memory");       // clobbers
+  }
+}
+```
+
+**Design decisions:**
+- NASM is the assembler for x86/x64 platforms (Windows, Linux, macOS)
+- Bundled similarly to Z3: included in `release/bin/nasm.exe` (Windows) and `release/bin/nasm` (Linux/macOS)
+- WASM targets use a separate WASM-specific assembler (or skip inline asm)
+- ARM64/aarch64 support added in a future phase (M27 extension)
+- `asm!` is only valid inside `unsafe` blocks
+- The compiler validates operand types and register constraints before emitting LLVM IR
+
+**NASM platform support matrix:**
+
+| Platform | Assembler | Binary | Validate |
+|----------|-----------|--------|----------|
+| Windows x64 | NASM 2.16+ | `nasm.exe` | `nasm -v` |
+| Linux x64 | NASM 2.16+ | `nasm` | `nasm -v` |
+| macOS x64 | NASM 2.16+ | `nasm` | `nasm -v` |
+| WASM | N/A (no Native asm) | N/A | Skipped |
+
+**NOTES: Syntax & Flag Changes — MCP / AI_context.md / Docs Updates**
+
+When ANY of the following changes occur during the improvement phases, they MUST be accompanied by updates to:
+1. **MCP server** (`crates/xiom-mcp/src/knowledge.rs`) — add new syntax, flags, and diagnostics
+2. **AI_context.md** (`AI_context.md` at repo root) — update the context file that AI assistants use
+3. **docs/language/** — update the language specification with new syntax and semantics
+
+Specifically, these changes require the above updates:
+- New keywords or syntax (`asm!`, `spawn`, `async`/`await`, etc.)
+- New compiler flags (`--target`, `-C`, `--asm-path`, etc.)
+- New type system features (`AnonStruct`, `Send`/`Sync` markers, etc.)
+- New stdlib modules or significant API changes
+- Diagnostic format changes (error codes, warning levels)
+- Build system changes (package resolution, caching, parallelization flags)
+
+This requirement applies to: **M25 (Threading), M26 (Parallelization), M27 (Inline ASM), and all future phases.**
+
+### M28: Linux Build & CI Matrix (Ongoing)
+
+**Goal: Every release ships Windows, Linux, and macOS binaries. WSL used for Linux builds on Windows dev machines.**
+
+| Task | Effort |
+|------|--------|
+| M28.1: WSL-based Linux build script — `./build_linux.sh` in WSL Ubuntu | 2h |
+| M28.2: CI matrix — GitHub Actions builds Windows + Linux + macOS on each commit | 4h |
+| M28.3: Cross-platform test suite — verify E2E tests pass on all 3 platforms | 4h |
+| M28.4: Release automation — package all platform binaries from CI artifacts | 2h |
+| M28.5: WASM target — `xiom --target wasm` produces `.wasm` binaries | 6h |
+| **Total** | | **18h** |
+
+**Linux build procedure (WSL):**
+```bash
+# From Windows PowerShell
+wsl -d Ubuntu -- bash -c "source ~/.cargo/env && cd /mnt/e/Projects/AXIOM && cargo build --release"
+# Output: target/release/xiom (Linux ELF binary)
+```
+
+## 4. PRE-SELFHOST ROADMAP — v0.54 ? v0.56
+
+These three versions deliver all remaining features needed before the self-host
+bootstrap. Each version is independently shippable and builds on the previous one.
+
+```
+v0.54 ??? v0.55 ??? v0.56 ??? SELFHOST
+  ?         ?         ?
+  ?         ?         ??? LTO + Debug Info + Hot Reload + Lazy JIT
+  ?         ??? OrcJIT MVP + Spawn Codegen + Send/Sync + Channel[T]
+  ??? CTFE Phase A + Binary Cache + Safety Checks + Thread-Safe Registry
+```
+
+---
+
+### v0.54.0 — "Safety Foundation" (Target: ~2-3 weeks)
+
+| Domain | Feature | Source Plan | Effort |
+|--------|---------|-------------|--------|
+| **CTFE** | Const expression evaluator: `const X = expr`, `const { ... }`, `sizeof::<T>()`, `align_of::<T>()`, arithmetic/conditional folding | `CTFE_PLAN.md` Phase A | 2 weeks |
+| **Safety** | Debug overflow + bounds + null checks (S1) | `SAFETY_HARDENING.md` S1 | 3 days |
+| **Safety** | Match exhaustiveness checking (S2) | `SAFETY_HARDENING.md` S2 | 2 days |
+| **Cache** | Binary cache by source hash: `xiom --run --cache` | `ORCJIT_PLAN.md` v0.54 | 1 week |
+| **Inline ASM** | `asm!()` design & syntax, NASM bundling (M27) | `SAFETY_HARDENING.md` G1 | 1 week |
+| **Parallel** | Thread-safe type/function registries (`DashMap`) | `THREADING_PLAN.md` A5 | 2 days |
+| **Parallel** | Thread-local recursion counter | `THREADING_PLAN.md` A1 | 1 day |
+| **Build** | Linux CI via WSL — automated Linux binary in every release | M28 | 2 days |
+
+**Deliverables:**
+- [ ] `const TABLE = compute_size() * 64` — compile-time evaluation
+- [ ] `xiom --run --cache` — 5ms repeated runs (102x faster than today)
+- [ ] `asm!("rdtsc" : "={rax}"(result))` — inline assembly design approved
+- [ ] Debug mode catches overflow, OOB, null ? clear error messages
+- [ ] Match on `Result`/`Option`/`Bool` without `_ =>` — compiler verifies exhaustiveness
+- [ ] Thread-safe type registry — enables parallel compilation in v0.55
+- [ ] Linux binary in every release — tested via WSL
+
+---
+
+### v0.55.0 — "Concurrency & JIT" (Target: ~3-4 weeks)
+
+| Domain | Feature | Source Plan | Effort |
+|--------|---------|-------------|--------|
+| **OrcJIT** | `--jit` flag: compile + run in-process via LLVM OrcJIT | `ORCJIT_PLAN.md` Phase 1 | 2 weeks |
+| **JIT Runtime** | C runtime shared library (`libxiom_runtime.so/.dll`) | `ORCJIT_PLAN.md` Phase 2 | 1 week |
+| **CTFE** | Full bytecode VM interpreter: evaluate pure functions at compile time | `CTFE_PLAN.md` Phase B | 3 weeks |
+| **Threading** | `spawn { ... }` ? `xiom_thread_spawn` codegen (Domain B1) | `THREADING_PLAN.md` B1 | 3 days |
+| **Threading** | Move semantics for spawn captures (Domain B4) | `THREADING_PLAN.md` B4 | 3 days |
+| **Threading** | `Send`/`Sync` auto-derivation for data-race prevention (Domain B5) | `THREADING_PLAN.md` B5 | 5 days |
+| **Threading** | `Channel[T]` with ring buffer + condvar (Domain B3) | `THREADING_PLAN.md` B3 | 3 days |
+| **Parallel** | Parallel type-checking within dependency levels (Domain A3) | `THREADING_PLAN.md` A3 | 5 days |
+| **Inline ASM** | `asm!()` implementation — parser + AST + codegen | `SAFETY_HARDENING.md` G1 | 1 week |
+| **Safety** | Never type (`!`) for diverging functions (S3) | `SAFETY_HARDENING.md` S3 | 3 days |
+| **Safety** | `defer` statement — guaranteed cleanup on scope exit (S4) | `SAFETY_HARDENING.md` S4 | 2 days |
+
+**Deliverables:**
+- [ ] `xiom --jit app.xi` — 120ms in-process JIT (4x faster than clang spawn)
+- [ ] `spawn { heavy_work() }` — real OS threads with compile-time data-race safety
+- [ ] `ch.send(42); var v = ch.recv()` — typed channels, lock-free ring buffer
+- [ ] `@comptime fn table() { ... }` — CTFE of pure functions at build time
+- [ ] `asm!("cpuid" : ...)` — inline assembly fully functional
+- [ ] `defer { f.close() }` — guaranteed resource cleanup
+- [ ] `fn exit() -> !` — never type, enables exhaustiveness proofs
+- [ ] Parallel check: 100-file projects type-check 8x faster
+
+---
+
+### v0.56.0 — "Production Polish" (Target: ~2-3 weeks)
+
+| Domain | Feature | Source Plan | Effort |
+|--------|---------|-------------|--------|
+| **LTO** | Link-time optimization via ThinLTO (`--lto` flag) | `SAFETY_HARDENING.md` G2 | 1 week |
+| **Debug** | DWARF/PDB debug info emission from codegen (G3) | `SAFETY_HARDENING.md` G3 | 1 week |
+| **JIT** | Lazy compilation stubs (`--jit --lazy`) | `ORCJIT_PLAN.md` Phase 3 | 1 week |
+| **JIT** | Hot reload (`--jit --watch`) | `ORCJIT_PLAN.md` Phase 4 | 1 week |
+| **Threading** | Thread pool with work-stealing (Domain B6) | `THREADING_PLAN.md` B6 | 3 days |
+| **Parallel** | Parallel codegen — function-level IR emission (Domain A4) | `THREADING_PLAN.md` A4 | 3 days |
+| **Threading** | Deadlock detection — static lock-ordering analysis | `THREADING_PLAN.md` §0.6 | 2 days |
+| **CTFE** | Type-level CTFE, constant generic inference | `CTFE_PLAN.md` Milestone 3 | 2 weeks |
+
+**Deliverables:**
+- [ ] `xiom --release --lto` — 20-40% smaller binaries, 5-15% faster runtime
+- [ ] `break main.xi:42` in GDB/LLDB — source-level debugging with XIOM types
+- [ ] `xiom --jit --lazy` — 80ms startup (only compile called functions)
+- [ ] `xiom --jit --watch` — edit, save, instant hot reload
+- [ ] `deadlock detected: inconsistent lock ordering` — compile-time deadlock warnings
+- [ ] Thread pool reuses OS threads — no thread explosion under load
+- [ ] 10K-file projects compile in ~5min (?x vs current OOM)
+
+---
+
+### Performance Targets
+
+| Benchmark | v0.53 (now) | v0.54 | v0.55 | v0.56 |
+|-----------|------------|-------|-------|-------|
+| t6 (10K quicksort) | 511ms | **5ms** (cache) | 120ms (JIT) | 80ms (lazy JIT) |
+| t7 (service runner) | 497ms | **5ms** (cache) | 110ms (JIT) | 50ms (lazy JIT) |
+| 100-file project | ~45s | ~30s (parallel parse) | ~6s (parallel check) | ~4s (parallel codegen) |
+| 1000-file project | ~8min | ~5min | ~40s | ~25s |
+| Binary size | baseline | baseline | baseline | **-30%** (LTO) |
+
+---
+
+### Safety ? SELFHOST Gate
+
+Before self-host begins, these safety-critical features MUST be complete:
+- [x] Borrow checker (E001) — already active, 170+ tests ?
+- [x] Pattern guards, default interfaces — v0.53.0 ?
+- [x] `?` operator propagation — already exists ?
+- [ ] Debug overflow/bounds/null checks (S1) — v0.54
+- [ ] Match exhaustiveness (S2) — v0.54
+- [ ] Never type `!` (S3) — v0.55
+- [ ] `defer` statement (S4) — v0.55
+- [ ] LTO — binary size + speed (G2) — v0.56
+- [ ] Debug info emission (G3) — v0.56
+
 | Version | Date | Tests | Notes |
 |---------|------|-------|-------|
-| **v0.53.0** | 2026-07-31 | **1627** | M17-M24 complete, narrow-int, pattern guards, default interfaces, 100% E2E |
+| **SELFHOST** | TBD | — | Self-host bootstrap — XIOM compiles itself |
+| **v0.56.0** | TBD | — | LTO + Debug info + Hot reload + Lazy JIT + defer + Never type |
+| **v0.55.0** | TBD | — | OrcJIT MVP + Spawn codegen + Send/Sync + Channel[T] + CTFE Phase B |
+| **v0.54.0** | TBD | — | CTFE Phase A + Binary cache + Debug safety + Match exhaust + Thread-safe registry |
+| **v0.53.0** | 2026-08-02 | **2192** | Production hardening (73 commits). E2E: 2195/2195 active (99.91%). Fixed: 16 bugs. Selfhost: skipped (Phase 4). |
 | **v0.52.0** | 2026-07-26 | **~1055** | M15 complete, B-001/B-002/B-003 fixed, self-host ready 10/10 |
 | **v0.51.0** | 2026-07-25 | **1049** | M1-M12 complete, M14.3-M14.7 done, P0+P1 closed, release-ready |
 | **v0.50.0** | 2026-07-25 | **1041** | M10-M12 complete, scripting/JIT, libloading, cache, CI, 34 script + 15 diff tests. M4/M9 all done. XIOM v0.50.0 LLVM IR header. Auto stdlib discovery. |

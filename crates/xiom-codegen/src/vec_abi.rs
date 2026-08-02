@@ -119,6 +119,15 @@ impl IrEmitter {
                 }
             }
         }
+        // M33: Handle i64 returned from Result.unwrap() — inttoptr+load
+        // the boxed Vec struct so the caller can use it as a Vec.
+        if t == "i64" && self.receiver_is_unwrap_of_vec(receiver) {
+            let vp = self.fresh_tmp();
+            self.emitln(&format!("  {vp} = inttoptr i64 {v} to %struct.Vec*"));
+            let vl = self.fresh_tmp();
+            self.emitln(&format!("  {vl} = load volatile %struct.Vec, %struct.Vec* {vp}"));
+            return (vl, "%struct.Vec".to_string());
+        }
         (v, t)
     }
 
@@ -266,6 +275,23 @@ impl IrEmitter {
                             }
                         }
                         break;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// M33: Check if a method-call receiver is the result of `.unwrap()`
+    /// on a Result/Option containing a Vec-type payload.
+    pub(crate) fn receiver_is_unwrap_of_vec(&self, receiver: &Expr) -> bool {
+        if let Expr::Call(func, _, _) = receiver {
+            if let Expr::Field(base, field, _) = func.as_ref() {
+                if field.name == "unwrap" || field.name == "unwrap_or" {
+                    if let Expr::Ident(id) = base.as_ref() {
+                        if let Some(t) = self.local.local_opt_payload.get(&id.name) {
+                            return t.starts_with("Vec[") || t.contains(".Vec");
+                        }
                     }
                 }
             }

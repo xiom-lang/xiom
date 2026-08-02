@@ -227,6 +227,23 @@ impl super::IrEmitter {
                     }
                 }
             }
+            // M33: Compound field access through &mut (e.g. tree.nodes[idx].keys).
+            // When the base of a field access is NOT a simple Ident (it's an Index,
+            // another Field, or a chain), use compile_lvalue to compute the GEP
+            // pointer. This handles `tree.nodes[idx].keys.insert(key)` where the
+            // receiver spans a Vec index + struct field through a &mut reference.
+            if let Some((l_ptr, l_ptr_ty, _l_elem_ty)) = self.compile_lvalue(receiver) {
+                if l_ptr_ty.ends_with('*') && ty == l_ptr_ty.trim_end_matches('*') {
+                    self.emitln(&format!("  store {ty} {val}, {l_ptr_ty} {l_ptr}"));
+                    return;
+                }
+                // Handle pointer-type match: the lvalue gave us a pointer,
+                // store through it.
+                if l_ptr_ty.ends_with('*') {
+                    self.emitln(&format!("  store {ty} {val}, {l_ptr_ty} {l_ptr}"));
+                    return;
+                }
+            }
         }
     }
 

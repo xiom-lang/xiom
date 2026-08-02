@@ -50,6 +50,14 @@ impl Formatter {
             TopDecl::Const(const_decl) => self.format_const_decl(const_decl),
             TopDecl::Extern(extern_block) => self.format_extern(extern_block),
             TopDecl::Impl(_) => {} // expanded at registration time
+            TopDecl::Spawn(block, _) => {
+                self.buf.push_str("spawn {\n");
+                self.indent += 1;
+                self.format_block(block);
+                self.indent -= 1;
+                self.push_indent();
+                self.buf.push('}');
+            }
         }
     }
 
@@ -276,6 +284,17 @@ impl Formatter {
                     if i > 0 { self.buf.push_str(" + "); }
                     self.buf.push_str(&t.name);
                 }
+            }
+            Type::AnonStruct(fields) => {
+                self.buf.push('{');
+                for (i, f) in fields.iter().enumerate() {
+                    if i > 0 { self.buf.push(' '); }
+                    self.buf.push_str(&f.name.name);
+                    self.buf.push_str(": ");
+                    self.format_type(&f.ty);
+                    self.buf.push(';');
+                }
+                self.buf.push_str(" }");
             }
         }
     }

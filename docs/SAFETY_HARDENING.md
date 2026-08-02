@@ -354,3 +354,8 @@ v0.56:  Send/Sync + Channel + Deadlock detection + Hot reload
 
 **Status:** APPROVED. All known gaps documented. 7 of 10 original concerns already
 implemented. 3 genuine gaps + 4 safety improvements remain.
+
+
+
+
+**A Critical Architectural Warning:** for Your JourneySince you are using Z3, look out for the "Decidability Trap."When AI writes arbitrary code and complex loop invariants, the mathematical formulas sent to Z3 can become non-linear or infinitely recursive. When this happens, Z3 will either timeout or return "Unknown."Your Solution: To ensure your "near-zero runtime errors" claim holds up, XIOM must have a deterministic fallback. If Z3 returns "Unknown" or times out during static analysis, XIOM's compiler must automatically inject a runtime contract check at that specific boundary instead of failing to compile. This guarantees safety even when the math gets too heavy for the solver.
