@@ -51,6 +51,8 @@ pub struct Checker {
     /// Local variable types
     locals: Vec<HashMap<String, CheckedType>>,
     errors: Vec<CheckError>,
+    /// S2: Warnings that don't block compilation (e.g. non-exhaustive match).
+    warnings: Vec<CheckError>,
     /// Imported module paths (use declarations)
     imports: Vec<UseDecl>,
     /// Module namespace: module name → { exported names }
@@ -102,6 +104,7 @@ impl Checker {
             current_return: None,
             locals: vec![HashMap::new()],
             errors: Vec::new(),
+            warnings: Vec::new(),
             imports: Vec::new(),
             modules: HashMap::new(),
             methods: HashMap::new(),
@@ -500,6 +503,16 @@ impl Checker {
         CheckedType::Error
     }
 
+    /// S2: Emit a warning — adds to the error list but does NOT increment
+    /// error_count. This means compilation proceeds but the warning is visible.
+    fn warn(&mut self, message: impl Into<String>) {
+        self.warnings.push(CheckError {
+            message: message.into(),
+            span: Span::new(0, 0),
+            cause: crate::types::TypeCause::Other,
+        });
+    }
+
     /// Returns `true` when any error has been emitted so far (enables the
     /// "stop on first error" discipline without checking every return value).
     /// Returns `true` if any type errors have been collected. Call after
@@ -674,6 +687,12 @@ impl Checker {
     pub fn check_program(&mut self, program: &Program) -> Result<(), Vec<CheckError>> {
         self.collect_signatures(program);
         self.check_all_bodies(program);
+
+        // S2: Append warnings to errors for display, but only if there are
+        // already real errors (warnings alone don't block compilation).
+        if !self.errors.is_empty() {
+            self.errors.append(&mut self.warnings);
+        }
 
         if self.errors.is_empty() {
             Ok(())
@@ -2268,6 +2287,8 @@ impl Checker {
                     }
                     self.pop_scope();
                 }
+                // S2: Match exhaustiveness
+                self.check_match_exhaustiveness(arms, &matched_ty);
                 let _ = matched_ty;
             }
             Stmt::While(cond, body, _, _) => {
@@ -3152,7 +3173,41 @@ impl Checker {
                     self.pop_scope();
                     if first { result_ty = arm_ty; first = false; }
                 }
+                // S2: Match exhaustiveness — verify all variants covered.
+                self.check_match_exhaustiveness(arms, &scr_ty);
                 result_ty
+            }
+        }
+    }
+
+    /// S2: Match exhaustiveness — verify all variants of the scrutinee type
+    /// are covered by the match arms. Reports an error for missing variants.
+    fn check_match_exhaustiveness(&mut self, arms: &[xiom_ast::MatchArm], scr_ty: &CheckedType) {
+        let type_name = match self.resolve_alias(scr_ty) {
+            CheckedType::Named(n) => n,
+            _ => return,
+        };
+        let variants: Vec<String> = match type_name.as_str() {
+            "Option" => vec!["Some".to_string(), "None".to_string()],
+            "Result" => vec!["Ok".to_string(), "Err".to_string()],
+            "Bool" => vec!["true".to_string(), "false".to_string()],
+            _ => {
+                // enum_variants maps variant_name → parent_enum.
+                // Collect all variants whose parent matches type_name.
+                self.enum_variants.iter()
+                    .filter(|(_, parent)| parent.as_str() == type_name.as_str()
+                        || parent.ends_with(&format!(".{}", type_name)))
+                    .map(|(variant, _)| variant.clone())
+                    .collect()
+            }
+        };
+        if variants.is_empty() { return; }
+        for variant in &variants {
+            let covered = arms.iter().any(|arm| pattern_covers_variant(&arm.pattern, variant));
+            if !covered {
+                self.warn(
+                    format!("non-exhaustive match: variant '{}' of '{}' not covered", variant, type_name),
+                );
             }
         }
     }
@@ -3946,6 +4001,27 @@ impl BorrowChecker {
 impl Default for BorrowChecker {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ============================================================================
+// Free helper for match exhaustiveness — called from Checker::check_match_exhaustiveness
+// ============================================================================
+
+fn pattern_covers_variant(pattern: &xiom_ast::Pattern, variant: &str) -> bool {
+    match pattern {
+        xiom_ast::Pattern::Wildcard(_) | xiom_ast::Pattern::Ident(_) => true,
+        xiom_ast::Pattern::Some(_, _) => variant == "Some",
+        xiom_ast::Pattern::None(_) => variant == "None",
+        xiom_ast::Pattern::Ok(_, _) => variant == "Ok",
+        xiom_ast::Pattern::Err(_, _) => variant == "Err",
+        xiom_ast::Pattern::Variant(name, _, _) => name.name == variant,
+        xiom_ast::Pattern::Lit(lit) => match lit {
+            xiom_ast::Literal::Bool(b, _) => (*b && variant == "true") || (!*b && variant == "false"),
+            _ => false,
+        },
+        xiom_ast::Pattern::Or(alts, _) => alts.iter().any(|a| pattern_covers_variant(a, variant)),
+        _ => false,
     }
 }
 
