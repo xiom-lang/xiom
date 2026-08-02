@@ -3145,6 +3145,7 @@ impl Checker {
             Expr::Await(inner, _) => self.check_expr(inner),
             Expr::Comptime(inner, _) => self.check_expr(inner),
             Expr::Unsafe(block, _) | Expr::BlockExpr(block, _) => { self.check_block(block, None).unwrap_or(CheckedType::Unit) }
+            Expr::ConstBlock(inner, _) => self.check_expr(inner),
             // 5c-R: Error-poisoned nodes carry an ErrorGuaranteed proof token.
             // Skip silently — a diagnostic was already emitted for this subtree.
             Expr::Error(_guarantee, _span) => CheckedType::Error,
@@ -3965,6 +3966,7 @@ impl BorrowChecker {
                 }
                 ExprResult::Value
             }
+            Expr::ConstBlock(inner, _) => self.check_expr(inner),
             // 5c-R: Error-poisoned nodes carry an ErrorGuaranteed proof.
             // Already diagnosed — skip borrow checking for this subtree.
             Expr::Error(_, _) => ExprResult::Value,

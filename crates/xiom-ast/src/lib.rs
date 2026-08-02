@@ -174,6 +174,9 @@ pub enum Expr {
     Array(Vec<Expr>, Span),
     /// `{ stmt; ... }` — bare block expression
     BlockExpr(Block, Span),
+    /// v0.54: `const { expr }` — compile-time constant block expression.
+    /// Evaluated by CTFE Phase A; the result replaces the node before codegen.
+    ConstBlock(Box<Expr>, Span),
     /// `fn(params) -> RetType { ... }` — closure
     Closure(Vec<Param>, Option<Box<Type>>, Block, Span),
     /// `|x, y| expr` — pipe closure
@@ -226,7 +229,7 @@ impl Expr {
             Expr::Imply(_, _, s) | Expr::Is(_, _, s) | Expr::Field(_, _, s) | Expr::Call(_, _, s) => *s,
             Expr::Index(_, _, s) | Expr::AtPre(_, s) | Expr::Ref(_, s) | Expr::MutRef(_, s) => *s,
             Expr::Some(_, s) | Expr::None(s) | Expr::Ok(_, s) | Expr::Err(_, s) => *s,
-            Expr::Struct(_, _, _, s) | Expr::Array(_, s) | Expr::BlockExpr(_, s) | Expr::Closure(_, _, _, s) | Expr::PipeClosure(_, _, s) => *s,
+            Expr::Struct(_, _, _, s) | Expr::Array(_, s) | Expr::BlockExpr(_, s) | Expr::ConstBlock(_, s) | Expr::Closure(_, _, _, s) | Expr::PipeClosure(_, _, s) => *s,
             Expr::Await(_, s) | Expr::Comptime(_, s) | Expr::As(_, _, s) | Expr::Tuple(_, s) | Expr::If(_, _, _, _, s) | Expr::Unsafe(_, s) => *s,
             Expr::Match(_, _, s) => *s,
             Expr::Error(_, s) => *s,

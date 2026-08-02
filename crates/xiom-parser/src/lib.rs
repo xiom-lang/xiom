@@ -1893,6 +1893,13 @@ impl Parser {
                 let args = if self.check(|k| matches!(k, TokenKind::RParen)) { self.advance(); Vec::new() } else { let mut a = vec![self.parse_expr()?]; while self.skip(TokenKind::Comma) { a.push(self.parse_expr()?); } self.expect_kind(TokenKind::RParen, "')'")?; a };
                 Ok(Expr::Call(Box::new(Expr::Ident(fn_name)), args, at_span))
             }
+            TokenKind::Const => {
+                self.advance();
+                self.expect_kind(TokenKind::LBrace, "'{'")?;
+                let inner = self.parse_expr()?;
+                self.expect_kind(TokenKind::RBrace, "'}'")?;
+                Ok(Expr::ConstBlock(Box::new(inner), span))
+            }
             _ => {
                 let name = self.parse_ident()?;
                 if !self.restrict_struct && self.check(|k| matches!(k, TokenKind::LBrace)) {
