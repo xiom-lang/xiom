@@ -125,6 +125,7 @@ pub fn type_to_string(ty: &xiom_ast::Type) -> String {
             let names: Vec<String> = traits.iter().map(|t| t.name.clone()).collect();
             format!("impl {}", names.join(" + "))
         }
+        xiom_ast::Type::AnonStruct(_fields) => "(anonymous struct)".to_string(),
     }
 }
 

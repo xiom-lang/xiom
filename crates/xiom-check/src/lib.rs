@@ -3097,6 +3097,11 @@ impl Checker {
                     // 5c-E: Vec/Slice/Array → Ptr cast (Vulkan FFI: pass buffer to extern)
                     (CheckedType::Named(s), CheckedType::Named(t))
                         if (t == "Ptr" || t.starts_with('*')) && (s == "Vec" || s == "Slice") => target_ty,
+                    // M33: Pointer-to-pointer cast (`*T as *U`): allows byte-level
+                    // reinterpretation in unsafe code (e.g. `pi as *UInt8` for raw
+                    // memory access). Both sides must be pointer types.
+                    (CheckedType::Named(s), CheckedType::Named(t))
+                        if s.starts_with('*') && t.starts_with('*') => target_ty,
                     // 5e.2 G-34: fn-ptr ↔ Int casts (COM vtables, callback registries).
                     (CheckedType::Int, CheckedType::Fn(..)) => target_ty,
                     (CheckedType::Fn(..), CheckedType::Int) => target_ty,

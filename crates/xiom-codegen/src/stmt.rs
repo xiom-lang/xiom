@@ -146,7 +146,21 @@ impl IrEmitter {
                     self.local.local_vec_elem.insert(name.name.clone(), elem_ty);
                     return Ok(());
                 }
-                let (val, val_llvm_ty) = self.compile_expr(value)?;
+                let (val, val_llvm_ty) = if let Expr::Array(elems, _) = value {
+                    // M33: Non-empty array literal assigned to a Let binding
+                    // — convert to Vec so `&arr` produces a proper Vec pointer
+                    // instead of an i8* buffer pointer. Fixes ACCESS_VIOLATION
+                    // on `binary_search(&arr, ...)` where arr is a let-bound array.
+                    let elem_ty = _ty.as_ref()
+                        .and_then(|t| Self::vec_elem_from_type_annotation(t))
+                        .or_else(|| {
+                            elems.first().and_then(|e| self.infer_struct_type_name(e))
+                        })
+                        .unwrap_or_else(|| "Int".to_string());
+                    self.compile_array_as_vec(elems, &elem_ty)?
+                } else {
+                    self.compile_expr(value)?
+                };
                 let declared_llvm_ty: Option<String> = _ty.as_ref().map(|t| {
                     let name = Self::type_from_ast(t);
                     self.llvm_type_for(&name).unwrap_or_else(|_| LLVM_I64.to_string())

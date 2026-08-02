@@ -1228,13 +1228,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                     }
                 }
-                // Vec.len(vec) â€” method call on Vec
+                // Vec.len(vec)
                 if fn_name == "len" && args.is_empty() {
                     if let Some(receiver) = receiver_expr {
-                        if self.infer_llvm_type(receiver) != "%struct.Vec"
-                            && !self.is_container_vec_field(receiver)
+                        let recv_ty = self.infer_llvm_type(receiver);
+                        let is_container = self.is_container_vec_field(receiver);
+                        // M33: Detect Vec handles from Result.unwrap().
+                        // result.unwrap() returns i64 handle to boxed Vec.
+                        let is_unwrap_vec = !is_container && recv_ty == "i64"
+                            && self.receiver_is_unwrap_of_vec(receiver);
+                        if recv_ty != "%struct.Vec" && !is_container && !is_unwrap_vec
                         {
-                            // Not a Vec receiver â€” fall through to general method dispatch
+                            // Not a Vec receiver
                         } else {
                         let (recv_raw, recv_raw_ty) = self.compile_expr(receiver)?;
                         let (recv_val, _) = self.resolve_vec_receiver(receiver, &recv_raw, &recv_raw_ty);

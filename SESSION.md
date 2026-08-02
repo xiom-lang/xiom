@@ -1,7 +1,7 @@
 # XIOM Session Handoff — v0.53.0 "Narrow-Int Foundation"
 
-**Date:** 2026-08-02 02:40 | **Branch:** `feat/architect`
-**E2E: 2181/2197 (99.27%) | 69 compiler hardening commits | Zero regressions on original 1627**
+**Date:** 2026-08-02 03:45 | **Branch:** `feat/architect`
+**E2E: 2186/2197 (99.50%) | 73 compiler hardening commits | Zero regressions on original 1627**
 
 ---
 
@@ -9,16 +9,22 @@
 
 | Metric | Campaign Start | Now |
 |--------|---------------|-----|
-| E2E pass rate | 2129/2197 (96.9%) | **2181/2197 (99.27%)** |
+| E2E pass rate | 2129/2197 (96.9%) | **2186/2197 (99.50%)** |
 | Failures (filtered 17 categories) | 68 | **0** |
-| Failures (full suite) | 68 | **16** |
-| Compiler commits | 37 | **69** |
+| Failures (full suite) | 68 | **11** |
+| Compiler commits | 37 | **73** |
 
 ### ALL 17 FILTERED CATEGORIES — 100% CLEARED
 
 ---
 
-## REMAINING FAILURES — FULL LIST (16, all pre-existing)
+## REMAINING FAILURES — FULL LIST (11, all pre-existing)
+
+### ADDITIONAL FIXES APPLIED (M33 Array/Vec struct element tracking)
+| Test | Root Cause | Fix |
+|------|-----------|-----|
+| **m33_a08, a16, a17** | Array-literal-to-Vec stored structs as boxed heap pointers (elem_size=8) instead of inline. `local_vec_elem` tracking was set but then cleared by the `remove` step in Var handler. Indexing used `emit_elem_load` which loads only 8 bytes. | (1) `compile_array_as_vec` now infers struct element type from first array element, enabling inline storage with correct elem_size=16. (2) Var handler's `Expr::Array` case preserves the element type across the inheriting step. |
+| **m35_l07, l29** | Same Array/Vec struct element tracking bug | Same fix |
 
 ### FRESH FAILURES — FIXED ✓
 | Test | Fix |
@@ -28,11 +34,11 @@
 | **m18_guard_0058** | FIXED ✓ (test logic) |
 | **m18_guard_0103** | FIXED ✓ (test syntax) |
 
-### E2E Tests (16 — pre-existing, documented)
+### E2E Tests (11 — pre-existing, documented)
 | Category | Count | Tests |
 |----------|-------|-------|
-| m33 (self-host preview) | 7 | a08, a16, a17, a19, u08, u20, z15 — wrong exit codes |
-| m35 | 3 | l07, l23, l29 |
+| m33 | 4 | a19 (ACCESS_VIOLATION, generic fn+array), u08, u20 (unsafe/FFI), z15 (compound ops return 1) |
+| m35 | 1 | l23 (unsafe block with raw pointer) |
 | selfhost | 2 | v10, v11 — ACCESS_VIOLATION |
 | eco | 4 | algo_89, crypto_23, db_18, vector_32 |
 

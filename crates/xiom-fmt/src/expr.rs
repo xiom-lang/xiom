@@ -249,6 +249,14 @@ impl crate::Formatter {
                 self.push_indent();
                 self.buf.push('}');
             }
+            Expr::BlockExpr(block, _) => {
+                self.buf.push_str("{\n");
+                self.indent += 1;
+                self.format_block(block);
+                self.indent -= 1;
+                self.push_indent();
+                self.buf.push('}');
+            }
             Expr::Error(_, _) => self.buf.push_str("<error>"),
         }
     }

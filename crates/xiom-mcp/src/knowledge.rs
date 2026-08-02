@@ -200,6 +200,7 @@ pub fn type_to_str(t: &Type) -> String {
         Type::Array(_, inner) => format!("[N]{}", type_to_str(inner)),
         Type::Fn(params, ret) => format!("fn({}) -> {}", params.iter().map(type_to_str).collect::<Vec<_>>().join(", "), type_to_str(ret)),
         Type::ImplTrait(traits) => format!("impl {}", traits.iter().map(|t| t.name.clone()).collect::<Vec<_>>().join(" + ")),
+        Type::AnonStruct(_fields) => "(anonymous struct)".to_string(),
     }
 }
 
