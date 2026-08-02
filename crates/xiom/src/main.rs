@@ -350,6 +350,7 @@ fn main() {
     // 7E.2: Stack protector
     let stack_protector = args.iter().any(|a| a == "--stack-protector");
     let overflow_checks = args.iter().any(|a| a == "--overflow-checks");
+    let strict_exhaustive = args.iter().any(|a| a == "--strict-exhaustive");
     // 5e.5f: Incremental compilation flags
     let incremental = args.iter().any(|a| a == "--incremental");
     let force_recompile = args.iter().any(|a| a == "--force");
@@ -612,6 +613,7 @@ fn main() {
         stack_protector,
         runtime_contracts,
         overflow_checks,
+        strict_exhaustive,
         incremental,
         force: force_recompile,
         parallel,
@@ -827,6 +829,7 @@ fn main() {
                     stack_protector: false,
                     runtime_contracts: false,
                     overflow_checks: config.overflow_checks,
+                    strict_exhaustive: config.strict_exhaustive,
                     script_mode: false,
                 };
                 let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
@@ -874,6 +877,7 @@ fn main() {
                     stack_protector: false,
                     runtime_contracts: false,
                     overflow_checks: config.overflow_checks,
+                    strict_exhaustive: config.strict_exhaustive,
                     script_mode: false,
                 };
                 let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);

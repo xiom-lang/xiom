@@ -53,6 +53,8 @@ pub struct Checker {
     errors: Vec<CheckError>,
     /// S2: Warnings that don't block compilation (e.g. non-exhaustive match).
     warnings: Vec<CheckError>,
+    /// S2: When true, non-exhaustive match warnings become hard errors.
+    strict_exhaustive: bool,
     /// Imported module paths (use declarations)
     imports: Vec<UseDecl>,
     /// Module namespace: module name → { exported names }
@@ -105,6 +107,7 @@ impl Checker {
             locals: vec![HashMap::new()],
             errors: Vec::new(),
             warnings: Vec::new(),
+            strict_exhaustive: false,
             imports: Vec::new(),
             modules: HashMap::new(),
             methods: HashMap::new(),
@@ -519,6 +522,12 @@ impl Checker {
     /// [`check_program`] to determine whether compilation should proceed.
     pub fn has_errors(&self) -> bool {
         self.error_count > 0
+    }
+
+    /// S2: Enable strict exhaustiveness — non-exhaustive match warnings
+    /// become hard errors that block compilation.
+    pub fn set_strict_exhaustive(&mut self, enabled: bool) {
+        self.strict_exhaustive = enabled;
     }
 
     // ── Type interning helpers (5c-R) ────────────────────────────────────
@@ -3205,9 +3214,16 @@ impl Checker {
         for variant in &variants {
             let covered = arms.iter().any(|arm| pattern_covers_variant(&arm.pattern, variant));
             if !covered {
-                self.warn(
-                    format!("non-exhaustive match: variant '{}' of '{}' not covered", variant, type_name),
-                );
+                if self.strict_exhaustive {
+                    self.error(
+                        format!("non-exhaustive match: variant '{}' of '{}' not covered", variant, type_name),
+                        xiom_ast::Span::new(0, 0),
+                    );
+                } else {
+                    self.warn(
+                        format!("non-exhaustive match: variant '{}' of '{}' not covered", variant, type_name),
+                    );
+                }
             }
         }
     }
