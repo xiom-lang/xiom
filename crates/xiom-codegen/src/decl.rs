@@ -283,7 +283,10 @@ impl IrEmitter {
                 // Record module/global constants so a bare reference can be substituted
                 // with its literal value (constants are not emitted as globals). Last
                 // definition wins; both bare and module-qualified names are keyed.
-                self.local.constants.insert(cd.name.name.clone(), cd.value.clone());
+                // M33/CTFE: evaluate the init expression at compile time and store
+                // the literal result instead of the raw expression tree.
+                let evaluated = self.evaluate_const_init(&cd.value);
+                self.local.constants.insert(cd.name.name.clone(), evaluated);
             }
         }
         if let TopDecl::Fn(fd) = item {

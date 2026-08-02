@@ -204,6 +204,71 @@ impl IrEmitter {
         Ok((tmp, ty.to_string()))
     }
 
+    /// CTFE Phase A: Evaluate a const-init expression at compile time.
+    /// Handles integer literals, binary ops (+ - * / %), unary negation,
+    /// `sizeof::<T>()` calls, and parenthesized expressions.
+    /// Returns the original expression unchanged if evaluation fails.
+    pub(crate) fn evaluate_const_init(&self, expr: &Expr) -> Expr {
+        match expr {
+            // Literal integers — already evaluated
+            Expr::Int(..) | Expr::Float(..) | Expr::Bool(..) => expr.clone(),
+            // Unary negation: -X
+            Expr::Unary(op, inner, span) if *op == UnaryOp::Neg => {
+                let inner = self.evaluate_const_init(inner);
+                if let Expr::Int(v, _) = inner { return Expr::Int(v.wrapping_neg(), *span); }
+                if let Expr::Float(v, _) = inner { return Expr::Float(-v, *span); }
+                expr.clone()
+            }
+            // Binary ops on integer and float literals
+            Expr::Binary(lhs, op, rhs, span) => {
+                let l = self.evaluate_const_init(lhs);
+                let r = self.evaluate_const_init(rhs);
+                match (&l, &r, op) {
+                    (Expr::Int(a, _), Expr::Int(b, _), _) => {
+                        let result = match op {
+                            BinOp::Add => a.wrapping_add(*b),
+                            BinOp::Sub => a.wrapping_sub(*b),
+                            BinOp::Mul => a.wrapping_mul(*b),
+                            BinOp::Div => if *b != 0 { a / b } else { return expr.clone(); },
+                            BinOp::Rem => if *b != 0 { a % b } else { return expr.clone(); },
+                            _ => return expr.clone(),
+                        };
+                        Expr::Int(result, *span)
+                    }
+                    (Expr::Float(a, _), Expr::Float(b, _), _) => {
+                        let result = match op {
+                            BinOp::Add => a + b,
+                            BinOp::Sub => a - b,
+                            BinOp::Mul => a * b,
+                            BinOp::Div => if *b != 0.0 { a / b } else { return expr.clone(); },
+                            _ => return expr.clone(),
+                        };
+                        Expr::Float(result, *span)
+                    }
+                    _ => expr.clone(),
+                }
+            }
+            // sizeof::<T>() call — resolve via type system
+            Expr::Call(func, _, _) => {
+                if let Expr::Field(base, field, _) = func.as_ref() {
+                    // T.sizeof() method form: Container.sizeof()
+                    if field.name == "sizeof" {
+                        if let Expr::Ident(id) = base.as_ref() {
+                            let ty_name = &id.name;
+                            let size = self.struct_byte_size(ty_name) as u64;
+                            return Expr::Int(size, Span::new(0, 0));
+                        }
+                    }
+                }
+                expr.clone()
+            }
+            // Parenthesized expressions
+            Expr::Paren(inner, _) => self.evaluate_const_init(inner),
+            // Everything else: return unchanged
+            _ => expr.clone(),
+        }
+    }
+
     pub(crate) fn compile_expr(&mut self, expr: &Expr) -> Result<(String, String), String> {
         // Flush any concrete struct types that were registered during
         // compilation (e.g. %struct.Option__Point) so they appear before
