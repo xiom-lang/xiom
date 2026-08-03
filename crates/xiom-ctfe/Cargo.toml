@@ -1,0 +1,8 @@
+[package]
+name = "xiom-ctfe"
+version = "0.1.0"
+edition = "2024"
+description = "XIOM Compile-Time Function Evaluation — Phase B bytecode interpreter"
+
+[dependencies]
+xiom-ast = { path = "../xiom-ast" }

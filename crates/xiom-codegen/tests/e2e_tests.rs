@@ -1423,6 +1423,16 @@ fn e2e_ctfe_builtins_struct() {
     );
 }
 
+/// CTFE-B: Function evaluation — factorial, fibonacci, loops, branching
+#[test]
+fn e2e_ctfe_phase_b_functions() {
+    assert_eq!(
+        compile_and_run("tests\\regression\\ctfe_phase_b.xi"),
+        Some(0),
+        "CTFE-B: pure function CTFE evaluation must pass"
+    );
+}
+
 // ============================================================================
 // M20-A1 E2E Tests â€” Closure Codegen
 // ============================================================================

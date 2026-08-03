@@ -441,8 +441,18 @@ impl IrEmitter {
                             let leaf_key = format!("{}.{}", leaf, key);
                             if leaf_key != key {
                                 self.mono.generic_fn_decls.push((leaf_key, fd.clone()));
-                            }
-                        }
+            }
+            // v0.54 Phase B: Register function body for CTFE evaluation.
+            // Skip methods (self-receiver) and generic functions.
+            if fd.receiver.is_none() && fd.generics.is_empty() {
+                if let Some(ref body) = fd.body {
+                    let params: Vec<String> = fd.params.iter()
+                        .map(|p| p.name.name.clone())
+                        .collect();
+                    self.ctfe.borrow_mut().register_function(&fd.name.name, params, &body.stmts);
+                }
+            }
+        }
                     }
                 }
             }
