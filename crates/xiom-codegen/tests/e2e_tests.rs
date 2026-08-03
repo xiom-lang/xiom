@@ -1399,6 +1399,31 @@ fn e2e_m19_enum_same_field_types() {
 }
 
 // ============================================================================
+// CTFE Phase A E2E Tests — Compile-Time Function Evaluation
+// ============================================================================
+
+/// CTFE-A: Comprehensive const evaluation — arithmetic, comparison, boolean,
+/// unary, const refs, if/else folding, builtins, const blocks.
+#[test]
+fn e2e_ctfe_phase_a_full() {
+    assert_eq!(
+        compile_and_run("tests\\regression\\ctfe_phase_a.xi"),
+        Some(0),
+        "CTFE-A: all const evaluation categories must pass"
+    );
+}
+
+/// CTFE-A: Builtins with struct types — sizeof, align_of, field_offset
+#[test]
+fn e2e_ctfe_builtins_struct() {
+    assert_eq!(
+        compile_and_run("tests\\regression\\ctfe_builtins_struct.xi"),
+        Some(0),
+        "CTFE-A: struct builtins (sizeof/align_of/field_offset) must pass"
+    );
+}
+
+// ============================================================================
 // M20-A1 E2E Tests â€” Closure Codegen
 // ============================================================================
 

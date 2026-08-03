@@ -204,54 +204,130 @@ impl IrEmitter {
     }
 
     /// CTFE Phase A: Evaluate a const-init expression at compile time.
-    /// Handles integer literals, binary ops (+ - * / %), unary negation,
-    /// `sizeof::<T>()` calls, and parenthesized expressions.
+    /// Handles:
+    ///   - Literals (Int, Float, Bool)
+    ///   - Unary ops (negation `-`, boolean not `!`, bitwise not `~`)
+    ///   - Binary ops: arithmetic (+ - * / %), comparison (== != < > <= >=),
+    ///     boolean (and, or)
+    ///   - Const variable references — resolve through self.local.constants
+    ///   - `sizeof::<T>()`, `align_of::<T>()`, `type_id::<T>()`,
+    ///     `field_offset::<T>(name)` builtins
+    ///   - `const { expr }` blocks (via Expr::ConstBlock)
+    ///   - Parenthesized expressions
+    ///   - `if`/`match` on compile-time-known conditions
     /// Returns the original expression unchanged if evaluation fails.
     pub(crate) fn evaluate_const_init(&self, expr: &Expr) -> Expr {
         match expr {
-            // Literal integers — already evaluated
+            // Literals — already evaluated
             Expr::Int(..) | Expr::Float(..) | Expr::Bool(..) => expr.clone(),
-            // Unary negation: -X
-            Expr::Unary(op, inner, span) if *op == UnaryOp::Neg => {
-                let inner = self.evaluate_const_init(inner);
-                if let Expr::Int(v, _) = inner { return Expr::Int(v.wrapping_neg(), *span); }
-                if let Expr::Float(v, _) = inner { return Expr::Float(-v, *span); }
+
+            // Const variable reference — substitute from self.local.constants
+            Expr::Ident(ident) => {
+                if let Some(val) = self.local.constants.get(&ident.name) {
+                    return self.evaluate_const_init(val);
+                }
                 expr.clone()
             }
-            // Binary ops on integer and float literals
+
+            // Unary negation: -X, !X (boolean not), ~X (bitwise not)
+            Expr::Unary(op, inner, span) => {
+                let inner = self.evaluate_const_init(inner);
+                match op {
+                    UnaryOp::Neg => {
+                        if let Expr::Int(v, _) = inner { return Expr::Int(v.wrapping_neg(), *span); }
+                        if let Expr::Float(v, _) = inner { return Expr::Float(-v, *span); }
+                    }
+                    UnaryOp::Not => {
+                        // Boolean not: `!true` → `false`, `!false` → `true`
+                        if let Expr::Bool(v, _) = inner { return Expr::Bool(!v, *span); }
+                    }
+                    UnaryOp::BitNot => {
+                        // Bitwise not: `~expr` — only for integer expressions
+                        if let Expr::Int(v, _) = inner { return Expr::Int(!v, *span); }
+                    }
+                    _ => {}
+                }
+                expr.clone()
+            }
+
+            // Binary ops: arithmetic, comparison, boolean
             Expr::Binary(lhs, op, rhs, span) => {
                 let l = self.evaluate_const_init(lhs);
                 let r = self.evaluate_const_init(rhs);
-                match (&l, &r, op) {
-                    (Expr::Int(a, _), Expr::Int(b, _), _) => {
-                        let result = match op {
-                            BinOp::Add => a.wrapping_add(*b),
-                            BinOp::Sub => a.wrapping_sub(*b),
-                            BinOp::Mul => a.wrapping_mul(*b),
-                            BinOp::Div => if *b != 0 { a / b } else { return expr.clone(); },
-                            BinOp::Rem => if *b != 0 { a % b } else { return expr.clone(); },
-                            _ => return expr.clone(),
-                        };
-                        Expr::Int(result, *span)
-                    }
-                    (Expr::Float(a, _), Expr::Float(b, _), _) => {
-                        let result = match op {
-                            BinOp::Add => a + b,
-                            BinOp::Sub => a - b,
-                            BinOp::Mul => a * b,
-                            BinOp::Div => if *b != 0.0 { a / b } else { return expr.clone(); },
-                            _ => return expr.clone(),
-                        };
-                        Expr::Float(result, *span)
-                    }
-                    _ => expr.clone(),
+
+                // --- Integer pairs ---
+                if let (Expr::Int(a, _), Expr::Int(b, _)) = (&l, &r) {
+                    let result: Expr = match op {
+                        // Arithmetic
+                        BinOp::Add => Expr::Int(a.wrapping_add(*b), *span),
+                        BinOp::Sub => Expr::Int(a.wrapping_sub(*b), *span),
+                        BinOp::Mul => Expr::Int(a.wrapping_mul(*b), *span),
+                        BinOp::Div => if *b != 0 { Expr::Int(a / b, *span) } else { return expr.clone(); },
+                        BinOp::Rem => if *b != 0 { Expr::Int(a % b, *span) } else { return expr.clone(); },
+                        // Comparison (integer)
+                        BinOp::Eq  => Expr::Bool(a == b, *span),
+                        BinOp::Neq => Expr::Bool(a != b, *span),
+                        BinOp::Lt  => Expr::Bool(a < b, *span),
+                        BinOp::Gt  => Expr::Bool(a > b, *span),
+                        BinOp::Le  => Expr::Bool(a <= b, *span),
+                        BinOp::Ge  => Expr::Bool(a >= b, *span),
+                        // Bitwise
+                        BinOp::Shl => Expr::Int(a.wrapping_shl(*b as u32), *span),
+                        BinOp::Shr => Expr::Int(a.wrapping_shr(*b as u32), *span),
+                        BinOp::BitAnd => Expr::Int(a & b, *span),
+                        BinOp::BitOr  => Expr::Int(a | b, *span),
+                        BinOp::BitXor => Expr::Int(a ^ b, *span),
+                        _ => return expr.clone(),
+                    };
+                    return result;
                 }
+
+                // --- Float pairs ---
+                if let (Expr::Float(a, _), Expr::Float(b, _)) = (&l, &r) {
+                    let result: Expr = match op {
+                        BinOp::Add => Expr::Float(a + b, *span),
+                        BinOp::Sub => Expr::Float(a - b, *span),
+                        BinOp::Mul => Expr::Float(a * b, *span),
+                        BinOp::Div => if *b != 0.0 { Expr::Float(a / b, *span) } else { return expr.clone(); },
+                        BinOp::Eq  => Expr::Bool(a == b, *span),
+                        BinOp::Neq => Expr::Bool(a != b, *span),
+                        BinOp::Lt  => Expr::Bool(a < b, *span),
+                        BinOp::Gt  => Expr::Bool(a > b, *span),
+                        BinOp::Le  => Expr::Bool(a <= b, *span),
+                        BinOp::Ge  => Expr::Bool(a >= b, *span),
+                        _ => return expr.clone(),
+                    };
+                    return result;
+                }
+
+                // --- Bool pairs (and, or) ---
+                if let (Expr::Bool(a, _), Expr::Bool(b, _)) = (&l, &r) {
+                    let result: Expr = match op {
+                        BinOp::And => Expr::Bool(*a && *b, *span),
+                        BinOp::Or  => Expr::Bool(*a || *b, *span),
+                        BinOp::Eq  => Expr::Bool(a == b, *span),
+                        BinOp::Neq => Expr::Bool(a != b, *span),
+                        _ => return expr.clone(),
+                    };
+                    return result;
+                }
+
+                // --- String comparisons ---
+                if let (Expr::Str(a, _), Expr::Str(b, _)) = (&l, &r) {
+                    match op {
+                        BinOp::Eq  => return Expr::Bool(a == b, *span),
+                        BinOp::Neq => return Expr::Bool(a != b, *span),
+                        _ => return expr.clone(),
+                    }
+                }
+
+                expr.clone()
             }
-            // sizeof::<T>() call — resolve via type system
+
+            // sizeof::<T>() / builtins via turbofish
             Expr::Call(func, _, _)
             | Expr::GenericCall(func, _, _, _) => {
                 if let Expr::Field(base, field, _) = func.as_ref() {
-                    // T.sizeof() method form: Container.sizeof()
                     if field.name == "sizeof" {
                         if let Expr::Ident(id) = base.as_ref() {
                             let ty_name = &id.name;
@@ -260,10 +336,13 @@ impl IrEmitter {
                         }
                     }
                 }
-                // v0.54: CTFE builtins via turbofish syntax
                 if let Expr::GenericCall(f, ty, args, span) = expr {
                     if let Expr::Ident(id) = f.as_ref() {
                         let type_name = crate::IrEmitter::type_from_ast(ty);
+                        if id.name == "sizeof" {
+                            let size = self.struct_byte_size(&type_name) as u64;
+                            return Expr::Int(size, *span);
+                        }
                         if id.name == "align_of" {
                             let align = self.align_of_type(&type_name);
                             return Expr::Int(align, *span);
@@ -274,8 +353,14 @@ impl IrEmitter {
                         }
                         if id.name == "field_offset" {
                             if let Some(arg) = args.first() {
-                                if let Expr::Ident(field_id) = arg {
-                                    let offset = self.field_offset_of(&type_name, &field_id.name);
+                                // Accept both string literal ("x") and unquoted ident (x)
+                                let field_name: String = match arg {
+                                    Expr::Str(s, _) => s.clone(),
+                                    Expr::Ident(id) => id.name.clone(),
+                                    _ => String::new(),
+                                };
+                                if !field_name.is_empty() {
+                                    let offset = self.field_offset_of(&type_name, &field_name);
                                     return Expr::Int(offset, *span);
                                 }
                             }
@@ -284,11 +369,54 @@ impl IrEmitter {
                 }
                 expr.clone()
             }
+
             // Parenthesized expressions
             Expr::Paren(inner, _) => self.evaluate_const_init(inner),
-            // Everything else: return unchanged
+
+            // if/else expression — evaluate condition and pick branch
+            Expr::If(cond, then_block, elifs, else_block, span) => {
+                let cond_val = self.evaluate_const_init(cond);
+                // Evaluate the condition to a Bool literal
+                if let Expr::Bool(true, _) = cond_val {
+                    return self.eval_block_last(&then_block.stmts, *span);
+                }
+                if let Expr::Bool(false, _) = cond_val {
+                    for (elif_cond, elif_block) in elifs {
+                        let ec = self.evaluate_const_init(elif_cond);
+                        if let Expr::Bool(true, _) = ec {
+                            return self.eval_block_last(&elif_block.stmts, *span);
+                        }
+                    }
+                    if let Some(else_block) = else_block {
+                        return self.eval_block_last(&else_block.stmts, *span);
+                    }
+                }
+                expr.clone()
+            }
+
+            // Everything else: return unchanged (non-const-evaluable)
             _ => expr.clone(),
         }
+    }
+
+    /// Evaluate the last expression in a block for CTFE if/else folding.
+    /// Only handles simple cases; returns Int(0) sentinel for unsupported blocks.
+    fn eval_block_last(&self, stmts: &[xiom_ast::StmtOrExpr], span: Span) -> Expr {
+        for stmt in stmts.iter().rev() {
+            match stmt {
+                xiom_ast::StmtOrExpr::Expr(e) => {
+                    return self.evaluate_const_init(e);
+                }
+                xiom_ast::StmtOrExpr::Stmt(s) => {
+                    if let xiom_ast::Stmt::Expr(e, _) = s {
+                        return self.evaluate_const_init(e);
+                    }
+                    // Other statement types (let, var, return, etc.) — skip
+                    continue;
+                }
+            }
+        }
+        Expr::Int(0, span) // empty block → 0
     }
 
     pub(crate) fn compile_expr(&mut self, expr: &Expr) -> Result<(String, String), String> {
