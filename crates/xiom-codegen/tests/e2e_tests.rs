@@ -1473,6 +1473,28 @@ fn e2e_spawn_basic() {
 // Chaos Benchmark E2E Tests
 // ============================================================================
 
+/// Chaos t1: Buddy allocator — 1M Vec elements + buddy splitting/coalescing
+/// Regression test for R4 (dynamic alloca in Vec::push) and R5 (recursion counter leak)
+#[test]
+fn e2e_chaos_t1_allocator() {
+    assert_eq!(
+        compile_and_run("xiom-benchmark-chaos\\reference\\systems\\t1-allocator.xi"),
+        Some(0),
+        "Chaos t1: buddy memory allocator must pass (R4+R5 regression)"
+    );
+}
+
+/// Chaos t2: SPSC concurrent queue — 1M enqueue/dequeue + AtomicInt ops
+/// Regression test for R4 (dynamic alloca in Vec::push) and R5 (recursion counter leak)
+#[test]
+fn e2e_chaos_t2_queue() {
+    assert_eq!(
+        compile_and_run("xiom-benchmark-chaos\\reference\\systems\\t2-queue.xi"),
+        Some(0),
+        "Chaos t2: SPSC atomic queue must pass (R4+R5 regression)"
+    );
+}
+
 /// Chaos t3: Hot-reload module loader — 1000 load/call/reload cycles
 #[test]
 fn e2e_chaos_t3_hot_reload() {
