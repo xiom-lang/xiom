@@ -1,8 +1,8 @@
 # XIOM Session Handoff — v0.56.0-pre "Production Polish"
 
-**Date:** 2026-08-03 22:15 | **Branch:** `feat/architect`
-**E2E: 23/23 passing (11 eco + 3 CTFE + 1 ASM + 1 Never + 1 Spawn + 5 Chaos + 1 Parallel) | 109+ compiler hardening commits**
-**Selfhost Gate: ALL 16 GATES CLEARED**
+**Date:** 2026-08-03 22:40 | **Branch:** `feat/architect`
+**E2E: 24/24 passing (11 eco + 3 CTFE + 1 ASM + 1 Never + 2 Spawn + 5 Chaos + 1 Parallel) | 111+ compiler hardening commits**
+**Selfhost Gate: ALL 17 GATES CLEARED**
 
 ---
 
@@ -50,6 +50,7 @@
 | Recursion counter integrity (R5) | `lib.rs` | ✅ |
 | Vec::push alloca fix (R4) | `call.rs`, `vec_abi.rs` | ✅ |
 | Parallel codegen (I2) | `lib.rs`, `context.rs`, `Cargo.toml` | ✅ |
+| Spawn capture + move semantics (R2) | `stmt.rs`, `lib.rs` (check), parser, lexer, AST, fmt | ✅ |
 
 ---
 
@@ -128,7 +129,8 @@ e2f4f69b chore: update Cargo.lock (file watcher deps) and session ID
 | Recursion counter integrity (R5) | v0.56 | ✅ |
 | Vec push alloca fix (R4) | v0.56 | ✅ |
 | Parallel codegen (I2) | v0.56 | ✅ |
-| **ALL 16 GATES: CLEARED** | | |
+| Spawn move semantics (R2) | v0.56 | ✅ |
+| **ALL 17 GATES: CLEARED** | | |
 
 ---
 
@@ -138,7 +140,7 @@ e2f4f69b chore: update Cargo.lock (file watcher deps) and session ID
 | # | Task | Effort | Details |
 |---|------|--------|---------|
 | R1 | Accurate DI emission for .xi source | 1 week | DWARF from .xi source, not LLVM IR |
-| R2 | Move semantics for spawn captures | 4 days | Move vs copy analysis for spawn closures |
+| R2 | Move semantics for spawn captures | 4 days | ✅ IMPLEMENTED — capture analysis, env struct forwarding, move-after-spawn prevention |
 
 ### High (Phase B — should fix before selfhost boot)
 | # | Task | Effort | Details |
