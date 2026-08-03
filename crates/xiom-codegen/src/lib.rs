@@ -2338,6 +2338,9 @@ impl IrEmitter {
         self.emitln("declare i64 @xiom_channel_send(ptr, i64)");
         self.emitln("declare i64 @xiom_channel_recv(ptr)");
         self.emitln("declare i64 @xiom_channel_try_recv(ptr, ptr)");
+        // v0.56: Thread pool functions
+        self.emitln("declare void @xiom_threadpool_init(i64)");
+        self.emitln("declare void @xiom_threadpool_spawn(ptr, ptr)");
         self.emitln("");
 
         // Emit builtin struct types FIRST so user types can reference them.

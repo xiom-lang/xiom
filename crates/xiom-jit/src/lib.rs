@@ -95,14 +95,15 @@ pub struct JitEngine {
     active_module: Option<JitModule>,
     /// Incremental cache: source hash → compiled DLL path
     cache: HashMap<String, PathBuf>,
-    /// Whether incremental compilation is enabled
+    /// Whether incremental compilation is enabled (--lazy flag)
     incremental: bool,
 }
 
 impl JitEngine {
-    /// Create a new JIT engine.
-    /// `output_dir` — directory for compiled .dll files
-    pub fn new(output_dir: PathBuf) -> Result<Self, String> {
+    /// Create a new JIT engine with incremental/lazy mode.
+    /// When `lazy` is true, the engine caches compiled DLLs by source hash
+    /// and skips recompilation for unchanged sources.
+    pub fn new(output_dir: PathBuf, lazy: bool) -> Result<Self, String> {
         let clang_path = find_clang()?;
         let runtime_lib = find_runtime_lib();
 
@@ -115,7 +116,7 @@ impl JitEngine {
             output_dir,
             active_module: None,
             cache: HashMap::new(),
-            incremental: true,
+            incremental: lazy,
         })
     }
 
@@ -550,7 +551,7 @@ mod tests {
     #[test]
     fn test_jit_engine_new() {
         let tmp = std::env::temp_dir().join("xiom_jit_test");
-        let engine = JitEngine::new(tmp.clone());
+        let engine = JitEngine::new(tmp.clone(), false);
         assert!(engine.is_ok(), "engine creation: {:?}", engine.err());
         let _ = std::fs::remove_dir_all(&tmp);
     }
