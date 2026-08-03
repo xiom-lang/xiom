@@ -896,6 +896,11 @@ impl IrEmitter {
             // M16: Silent i64 defaults for types that are expected to be
             // unresolved during generic-compilation passes.
             _ => {
+                // Underscore placeholder — wildcard/inferred type that should
+                // never produce a diagnostic. Silently default to i64.
+                if xiom_ty == "_" {
+                    return "i64";
+                }
                 // Generic type parameters: T, K, V, E, A, B, etc.
                 if xiom_ty.len() == 1 && xiom_ty.chars().next().map_or(false, |c| c.is_uppercase()) {
                     return "i64";

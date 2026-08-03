@@ -1607,24 +1607,33 @@ impl Parser {
         loop {
             match self.peek_kind() {
                 TokenKind::ColonColon => {
-                    // v0.54: Turbofish — expr::<Type>(args) for builtins
-                    // (align_of::<Int>(), type_id::<T>(), field_offset::<Point>(x))
+                    // v0.54: `::` has two meanings:
+                    //   1. Turbofish: expr::<Type>(args) — builtins (align_of, type_id, field_offset)
+                    //   2. Static method: Type::method — associated item access
                     self.advance(); // consume ::
-                    self.expect_kind(TokenKind::Lt, "'<'")?;
-                    let ty = self.parse_type()?;
-                    self.expect_kind(TokenKind::Gt, "'>'")?;
-                    if self.peek_kind() == &TokenKind::LParen {
-                        self.advance();
-                        let args = if self.check(|k| matches!(k, TokenKind::RParen)) {
+                    if self.peek_kind() == &TokenKind::Lt {
+                        // Turbofish: ::<Type>(args)
+                        self.advance(); // consume <
+                        let ty = self.parse_type()?;
+                        self.expect_kind(TokenKind::Gt, "'>'")?;
+                        if self.peek_kind() == &TokenKind::LParen {
                             self.advance();
-                            Vec::new()
-                        } else {
-                            let a = self.parse_arg_list()?;
-                            self.expect_kind(TokenKind::RParen, "')'")?;
-                            a
-                        };
+                            let args = if self.check(|k| matches!(k, TokenKind::RParen)) {
+                                self.advance();
+                                Vec::new()
+                            } else {
+                                let a = self.parse_arg_list()?;
+                                self.expect_kind(TokenKind::RParen, "')'")?;
+                                a
+                            };
+                            let span = expr.span();
+                            expr = Expr::GenericCall(Box::new(expr), ty, args, span);
+                        }
+                    } else {
+                        // Static method: Type::method
+                        let method = self.parse_ident()?;
                         let span = expr.span();
-                        expr = Expr::GenericCall(Box::new(expr), ty, args, span);
+                        expr = Expr::Field(Box::new(expr), method, span);
                     }
                 }
                 TokenKind::Dot => {
@@ -1755,13 +1764,11 @@ impl Parser {
                 // postfix level, so `-128 as Int8` parses as `(-128) as Int8` rather
                 // than `-(128 as Int8)`. This matches Rust/Zig/C precedence where `as`
                 // binds lower than unary operators.
-                TokenKind::Colon if self.peek_ahead(1) == Some(&TokenKind::Colon) => {
-                    self.advance(); self.advance(); // consume `::`
-                    let method = self.parse_ident()?;
-                    // Treat `Type::method` as a static-method / associated-item access.
-                    // The following `(` call (if any) is handled by the LParen arm.
-                    let span = expr.span();
-                    expr = Expr::Field(Box::new(expr), method, span);
+                TokenKind::Colon => {
+                    // Single colon: break from postfix loop so the outer
+                    // parse_unary_expr can consume it (named args, type annotations).
+                    // Double colon `::` is handled by TokenKind::ColonColon above.
+                    break;
                 }
                 TokenKind::Lt if matches!(&expr, Expr::Ident(n) if n.name.chars().next().map_or(false, |c| c.is_uppercase())) => {
                     // Speculative generic type args in expression position, e.g.
