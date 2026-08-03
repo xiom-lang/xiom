@@ -100,6 +100,14 @@ impl IrEmitter {
         self.config.parallel_codegen = enabled;
     }
 
+    pub fn set_debug_symbols(&mut self, enabled: bool) {
+        self.config.debug_symbols = enabled;
+    }
+
+    pub fn set_source_file(&mut self, path: String) {
+        self.config.source_file = path;
+    }
+
     pub fn set_max_recursion_depth(&mut self, depth: u32) {
         self.config.max_recursion_depth = depth;
     }
@@ -2389,6 +2397,9 @@ impl IrEmitter {
         }
 
         self.emit_builtin_declares();
+
+        // R1: Emit DWARF debug metadata for .xi source-level debugging
+        self.emit_debug_metadata();
 
         // Emit declares for user-defined extern "C" functions
         // (skips names already in self.mono.already_declared, e.g. malloc)

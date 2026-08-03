@@ -97,6 +97,10 @@ pub struct CodegenConfig {
     pub xiom_hot_globals: Vec<(String, String, usize)>,
     /// I2: Enable parallel codegen (rayon-based per-function IR emission)
     pub parallel_codegen: bool,
+    /// R1: Enable DWARF debug info emission from .xi source
+    pub debug_symbols: bool,
+    /// R1: Source file path for DWARF DIFile metadata
+    pub source_file: String,
 }
 
 impl Default for CodegenConfig {
@@ -122,6 +126,8 @@ impl Default for CodegenConfig {
             pub_functions: HashSet::new(),
             xiom_hot_globals: Vec::new(),
             parallel_codegen: false,
+            debug_symbols: false,
+            source_file: "unknown.xi".to_string(),
         }
     }
 }
@@ -281,6 +287,8 @@ pub struct LocalContext {
     pub spawn_declared: bool,
     /// v0.55: Counter for unique spawn function names
     pub spawn_counter: u32,
+    /// R1: Counter for DWARF debug info metadata node numbering
+    pub di_node_counter: u32,
 }
 
 // ============================================================================
