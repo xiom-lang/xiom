@@ -1457,6 +1457,16 @@ fn e2e_never_type() {
     );
 }
 
+/// Spawn: OS thread creation, separate function compilation
+#[test]
+fn e2e_spawn_basic() {
+    assert_eq!(
+        compile_and_run("tests\\regression\\spawn_basic.xi"),
+        Some(0),
+        "Spawn: must compile spawn body as separate function and link runtime"
+    );
+}
+
 // ============================================================================
 // M20-A1 E2E Tests â€” Closure Codegen
 // ============================================================================

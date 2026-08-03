@@ -292,6 +292,12 @@ impl Checker {
             uses_implicit_this: false,
         });
 
+        // v0.55: Send + Sync marker interfaces for thread safety.
+        // No methods — auto-derived by the compiler based on field types.
+        // All primitives (Int, Float, Bool, Str, Char) implement Send+Sync.
+        self.interfaces.insert("Send".to_string(), vec![]);
+        self.interfaces.insert("Sync".to_string(), vec![]);
+
         // Register Vec methods in the method table so wildcard lookup
         // finds them for expressions whose type resolves to generic T
         // (e.g. v[i] where v is Vec[Vec[Int]] → indexed type is T → needs

@@ -482,6 +482,12 @@ impl IrEmitter {
                 !defined.contains(name)
                     && !declared.contains(name)
                     && !name.starts_with("llvm.")
+                    // v0.55: Skip C runtime functions provided by external linkage
+                    && name != "xiom_thread_spawn"
+                    && name != "xiom_channel_create"
+                    && name != "xiom_channel_send"
+                    && name != "xiom_channel_recv"
+                    && name != "xiom_channel_try_recv"
             })
             .collect();
         if missing.is_empty() {
