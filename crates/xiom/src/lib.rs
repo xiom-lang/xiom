@@ -521,6 +521,10 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     emitter.set_max_recursion_depth(config.max_recursion_depth);
     emitter.set_strict_mode(config.strict_mode);
     emitter.set_hot_reload(config.hot_reload);
+    emitter.set_debug_symbols(config.debug_symbols);
+    if !effective_sources.is_empty() {
+        emitter.set_source_file(effective_sources[0].clone());
+    }
 
     match emitter.compile_program(&program) {
         Ok(ir) => {
@@ -829,9 +833,14 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     let mut emitter = IrEmitter::new();
     emitter.set_check_contracts(config.check_contracts || config.runtime_contracts);
     emitter.set_overflow_checks(config.overflow_checks);
+    emitter.set_parallel_codegen(config.parallel_codegen);
     emitter.set_max_recursion_depth(config.max_recursion_depth);
     emitter.set_strict_mode(config.strict_mode);
     emitter.set_hot_reload(config.hot_reload);
+    emitter.set_debug_symbols(config.debug_symbols);
+    if !effective_sources.is_empty() {
+        emitter.set_source_file(effective_sources[0].clone());
+    }
     emitter.set_target_triple(match config.target {
         Target::Wasm => "wasm32-unknown-unknown",
         Target::Arm => "aarch64-unknown-linux-gnu",

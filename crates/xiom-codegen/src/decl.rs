@@ -828,7 +828,19 @@ impl IrEmitter {
         for pre_def in std::mem::take(&mut self.local.deferred_pre_body_defs) {
             self.output.push_str(&pre_def);
         }
-        self.emitln(&format!("define {ret_llvm} @{name}({}) {{", params_str.join(", ")));
+        // R1: Emit DWARF subprogram metadata BEFORE the define line
+        // (LLVM requires metadata nodes to be defined before they are referenced)
+        let dbg_attach = if self.config.debug_symbols {
+            let di_node = self.local.di_node_counter;
+            self.local.di_node_counter += 1;
+            let line = fd.name.span.line.max(1);
+            // Emit the DISubprogram metadata inline, right before the define
+            self.emitln(&format!("!{} = distinct !DISubprogram(name: \"{name}\", linkageName: \"{name}\", scope: !4, file: !4, line: {line}, type: !{{}}, spFlags: DISPFlagDefinition, unit: !0)", di_node));
+            format!(" !dbg !{}", di_node)
+        } else {
+            String::new()
+        };
+        self.emitln(&format!("define {ret_llvm} @{name}({}){}{{", params_str.join(", "), dbg_attach));
 
         // Recursion depth check
         let entry_block = self.fresh_block("entry");

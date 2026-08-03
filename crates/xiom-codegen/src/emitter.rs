@@ -415,6 +415,41 @@ impl IrEmitter {
         self.emitln("");
     }
 
+    /// R1: Emit DWARF debug info metadata for .xi source-level debugging.
+    /// Emits !llvm.dbg.cu, !llvm.module.flags, !DIFile, and !DICompileUnit
+    /// at the LLVM IR module level. Functions then attach !dbg !{subprogram}
+    /// to their define lines for source-level breakpoints in GDB/LLDB.
+    pub(crate) fn emit_debug_metadata(&mut self) {
+        if !self.config.debug_symbols {
+            return;
+        }
+        // Module flags for DWARF version and debug info version
+        self.emitln("!llvm.dbg.cu = !{!0}");
+        self.emitln("!llvm.module.flags = !{!1, !2, !3}");
+        self.emitln("!1 = !{i32 2, !\"Dwarf Version\", i32 4}");
+        self.emitln("!2 = !{i32 2, !\"Debug Info Version\", i32 3}");
+        self.emitln("!3 = !{i32 1, !\"wchar_size\", i32 2}");
+
+        // DIFile: source file name and directory
+        let source = &self.config.source_file;
+        let dir = std::path::Path::new(source)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| ".".to_string());
+        let filename = std::path::Path::new(source)
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unknown.xi".to_string());
+        self.emitln(&format!("!4 = !DIFile(filename: \"{}\", directory: \"{}\")", filename, dir));
+
+        // DICompileUnit: language = DW_LANG_C99 (0x000c), producer = "XIOM"
+        self.emitln("!0 = distinct !DICompileUnit(language: DW_LANG_C99, file: !4, producer: \"XIOM v0.56\", isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug)");
+        self.emitln("");
+
+        // Track DI node counter for function subprograms
+        self.local.di_node_counter = 5; // 0-4 used above
+    }
+
     /// Emit `define` stubs for any `@symbol` that is *called* in the emitted IR
     /// but never `define`d or `declare`d. LLVM/clang rejects such references, but
     /// they legitimately occur in erased-generic dead code (method bodies that
