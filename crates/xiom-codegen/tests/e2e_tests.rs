@@ -1487,6 +1487,26 @@ fn e2e_spawn_capture() {
     );
 }
 
+/// I1: Send enforcement — Int captures are Send (must compile and run)
+#[test]
+fn e2e_send_capture_ok() {
+    assert_eq!(
+        compile_and_run("tests\\regression\\send_capture_ok.xi"),
+        Some(0),
+        "Send enforcement: Int implements Send, spawn capture must be allowed"
+    );
+}
+
+/// I1: Send enforcement — struct with primitives is Send (must compile and run)
+#[test]
+fn e2e_send_struct_ok() {
+    assert_eq!(
+        compile_and_run("tests\\regression\\send_struct_ok.xi"),
+        Some(0),
+        "Send enforcement: struct with only primitive fields is Send"
+    );
+}
+
 // ============================================================================
 // Chaos Benchmark E2E Tests
 // ============================================================================
