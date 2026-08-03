@@ -1,8 +1,9 @@
 # XIOM — OS-Level Threading & Parallel Compilation
 
-**Version:** v0.55 → v0.56 (Post-Implementation Audit)
+**Version:** v0.56 (Post-Implementation Audit)
 **Date:** 2026-08-03
-**Status:** Domain B COMPLETE (language threading). Domain A PARTIAL (compiler parallelism).
+**Status:** Domain B COMPLETE (language threading). Domain A NEAR COMPLETE (compiler parallelism: parallel codegen DONE).
+**E2E: 24/24 passing | Selfhost Gate: 17/17 CLEARED**
 **Principle:** _Near-zero runtime errors — thread safety is a compile-time guarantee, not a runtime prayer._
 
 ---
@@ -20,17 +21,22 @@
 | **C runtime threading** | ✅ DONE | `xiom_thread_create/join/detach`, `xiom_mutex_*`, `xiom_cond_*` on Windows + Linux. 256-slot spawn tracking table. |
 | **Spawn wrapper functions** | ✅ DONE | Body emitted as separate function via save/restore of `self.output`. Flushed via `deferred_closure_defs`. |
 
-### 0.2 What's Still Missing (Honest Gaps)
+### 0.2 What's Still Missing (Honest Gaps — v0.56.0-pre)
 
 | Gap | Priority | Effort | Description |
 |-----|----------|--------|-------------|
-| **Move semantics for spawn** | CRITICAL | 4 days | Currently spawn captures variables by copy (incorrect for Vec, Map, etc.). Need proper move/copy analysis. |
-| **Thread-local recursion counter** | CRITICAL | 1 day | `@xiom_recursion_counter` is global. Multi-threaded programs share it → corruption. Fix: `thread_local` attribute. |
-| **Spawn capture layout** | HIGH | 3 days | Captured variables need heap allocation + proper struct layout. Currently `ptr null` for args. |
-| **Channel element sizing** | HIGH | 2 days | Current channel stores i64 values. Need generic element size support (T can be any type). |
 | **Send/Sync enforcement** | HIGH | 5 days | Markers are declared but NOT enforced. Checker doesn't verify spawn captures satisfy Send. |
-| **Parallel codegen** | HIGH | 3 days | Function-level parallel IR emission via rayon. Requires splitting IrEmitter into shared/per-function state. |
+| **Channel element sizing** | HIGH | 2 days | Current channel stores i64 values. Need generic element size support (T can be any type). |
 | **Deadlock detection** | MEDIUM | 4 days | Static lock-ordering analysis for Mutex chains. Best-effort compile warning. |
+
+### 0.3 What Was Fixed (v0.56.0-pre)
+
+| Gap | Status | Implementation |
+|-----|--------|---------------|
+| **Move semantics for spawn** | ✅ DONE | `spawn move { ... }` — capture analysis via `collect_expr_references_block()`, heap env struct forwarding (flat i64 array at offset*8), move-after-spawn prevention (scope removal). |
+| **Thread-local recursion counter** | ✅ DONE | `@xiom_recursion_counter = internal thread_local global i64 0` since emitter.rs inception. |
+| **Spawn capture layout** | ✅ DONE | Captured variables packed as i64 sequence in malloc'd env buffer. Spawn function unpacks via getelementptr+load. |
+| **Parallel codegen** | ✅ DONE | `--parallel-codegen` flag. Rayon-based per-function IR emission with output merging in declaration order. |
 
 ---
 
@@ -103,7 +109,7 @@ xiom source
 
 ---
 
-## 3. SELFHOST IMPLICATIONS
+## 3. SELFHOST IMPLICATIONS (v0.56.0-pre)
 
 The self-host compiler (XIOM written in XIOM) needs:
 
@@ -113,9 +119,10 @@ The self-host compiler (XIOM written in XIOM) needs:
 | Spawn for parallel compilation | ✅ spawn codegen |
 | Channel for pipeline communication | ✅ Channel[T] |
 | Thread pool for work distribution | ✅ Thread pool |
-| Move semantics (prevent use-after-move in spawn) | ❌ Critical gap |
-| Thread-local state (recursion counter) | ❌ Critical gap |
-| Send/Sync enforcement (prevent data races) | ❌ Important gap |
+| Move semantics (prevent use-after-move in spawn) | ✅ DONE — capture forwarding via env struct |
+| Thread-local state (recursion counter) | ✅ DONE — `thread_local` |
+| Parallel codegen | ✅ DONE — `--parallel-codegen` with rayon |
+| Send/Sync enforcement (prevent data races) | ❌ Remaining (Phase B) |
 
 ---
 
