@@ -363,6 +363,8 @@ fn main() {
     let hot_reload_contracts = args.iter().any(|a| a == "--hot-reload-contracts");
     // v0.55: OrcJIT — in-process JIT compilation via clang DLL loading
     let use_jit = args.iter().any(|a| a == "--jit");
+    // v0.56: LTO — ThinLTO link-time optimization
+    let use_lto = args.iter().any(|a| a == "--lto");
     // 7E.1: Sanitizer flags
     let sanitize: Option<String> = args.iter().position(|a| a == "--sanitize" || a.starts_with("--sanitize="))
         .and_then(|i| {
@@ -647,6 +649,7 @@ fn main() {
         jobs,
         script_mode: false,
         cache: use_cache,
+        lto: use_lto,
     };
 
     // 7F.2: Build graph visualization
@@ -860,6 +863,7 @@ fn main() {
                     strict_exhaustive: config.strict_exhaustive,
                     script_mode: false,
                     cache: false,
+                    lto: false,
                 };
                 let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
                 let source = std::fs::read_to_string(path).unwrap_or_default();
@@ -909,6 +913,7 @@ fn main() {
                     strict_exhaustive: config.strict_exhaustive,
                     script_mode: false,
                     cache: false,
+                    lto: false,
                 };
                 let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
                 let source = std::fs::read_to_string(path).unwrap_or_default();

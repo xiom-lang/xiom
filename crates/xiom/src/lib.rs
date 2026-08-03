@@ -73,6 +73,8 @@ pub struct CompileConfig {
     /// v0.54: Binary cache — hash source with SHA-256, cache compiled binary
     /// for instant re-execution (~500ms → ~5ms). Applies to --run mode.
     pub cache: bool,
+    /// v0.56: ThinLTO link-time optimization (--lto flag)
+    pub lto: bool,
 }
 
 impl Default for CompileConfig {
@@ -110,6 +112,7 @@ impl Default for CompileConfig {
             c_sources: Vec::new(),
             script_mode: false,
             cache: false,
+            lto: false,
         }
     }
 }
@@ -979,6 +982,8 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             if config.target == Target::Native { cmd.arg("-maes"); }
             if asm_objects.is_empty() { cmd.arg("-DXIOM_NO_ASM"); }
             if config.debug_symbols { cmd.arg("-g"); }
+            // v0.56: ThinLTO for 20-40% smaller/faster binaries
+            if config.lto { cmd.arg("-flto=thin"); }
             // Suppress MSVC deprecation warnings (fopen, etc.) in the runtime C code.
             cmd.arg("-D_CRT_SECURE_NO_WARNINGS");
             // 7E.1: Sanitizer flags
