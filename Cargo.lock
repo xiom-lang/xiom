@@ -1618,6 +1618,7 @@ dependencies = [
  "cranelift-jit",
  "cranelift-module",
  "cranelift-native",
+ "rayon",
  "target-lexicon 0.12.16",
  "toml 0.8.23",
  "xiom",
