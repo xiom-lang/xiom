@@ -285,6 +285,12 @@ impl Checker {
             generics: vec!["T".to_string()],
             uses_implicit_this: false,
         });
+        self.functions.insert("is_signed".to_string(), FnSig {
+            params: vec![],
+            return_type: Some(CheckedType::Bool),
+            generics: vec!["T".to_string()],
+            uses_implicit_this: false,
+        });
 
         // Register Vec methods in the method table so wildcard lookup
         // finds them for expressions whose type resolves to generic T

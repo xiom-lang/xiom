@@ -458,14 +458,14 @@ impl IrEmitter {
 
     /// 5e.7f: Evaluate all registered constants in-place. Run after
     /// register_functions so cross-references between consts resolve.
+    /// v0.54: uses evaluate_const_init (full CTFE with builtins, comparison,
+    /// boolean ops, if/else folding) instead of the limited const_eval.
     fn evaluate_all_consts(&mut self) {
-        // Clone all keys first (can't iterate and mutate simultaneously)
         let keys: Vec<String> = self.local.constants.keys().cloned().collect();
         for name in keys {
             if let Some(expr) = self.local.constants.get(&name).cloned() {
-                if let Some(evaluated) = Self::const_eval(&expr, &self.local.constants, 0) {
-                    self.local.constants.insert(name, evaluated);
-                }
+                let evaluated = self.evaluate_const_init(&expr);
+                self.local.constants.insert(name, evaluated);
             }
         }
     }

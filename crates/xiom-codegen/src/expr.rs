@@ -219,7 +219,22 @@ impl IrEmitter {
     pub(crate) fn evaluate_const_init(&self, expr: &Expr) -> Expr {
         match expr {
             // Literals — already evaluated
-            Expr::Int(..) | Expr::Float(..) | Expr::Bool(..) => expr.clone(),
+            Expr::Int(..) | Expr::Float(..) | Expr::Bool(..) | Expr::Str(..) => expr.clone(),
+
+            // Enum constructors — evaluate inner expression
+            Expr::Some(inner, span) => {
+                let v = self.evaluate_const_init(inner);
+                Expr::Some(Box::new(v), *span)
+            }
+            Expr::None(span) => Expr::None(*span),
+            Expr::Ok(inner, span) => {
+                let v = self.evaluate_const_init(inner);
+                Expr::Ok(Box::new(v), *span)
+            }
+            Expr::Err(inner, span) => {
+                let v = self.evaluate_const_init(inner);
+                Expr::Err(Box::new(v), *span)
+            }
 
             // Const variable reference — substitute from self.local.constants
             Expr::Ident(ident) => {
@@ -343,6 +358,10 @@ impl IrEmitter {
                             let size = self.struct_byte_size(&type_name) as u64;
                             return Expr::Int(size, *span);
                         }
+                        if id.name == "is_signed" {
+                            let signed = Self::is_signed_xiom_type(&type_name);
+                            return Expr::Bool(signed, *span);
+                        }
                         if id.name == "align_of" {
                             let align = self.align_of_type(&type_name);
                             return Expr::Int(align, *span);
@@ -376,7 +395,6 @@ impl IrEmitter {
             // if/else expression — evaluate condition and pick branch
             Expr::If(cond, then_block, elifs, else_block, span) => {
                 let cond_val = self.evaluate_const_init(cond);
-                // Evaluate the condition to a Bool literal
                 if let Expr::Bool(true, _) = cond_val {
                     return self.eval_block_last(&then_block.stmts, *span);
                 }
@@ -394,13 +412,32 @@ impl IrEmitter {
                 expr.clone()
             }
 
+            // match expression — evaluate scrutinee, match against literal patterns
+            Expr::Match(scrutinee, arms, span) => {
+                let val = self.evaluate_const_init(scrutinee);
+                for arm in arms {
+                    let mut bindings: std::collections::HashMap<String, Expr> = std::collections::HashMap::new();
+                    if self.pattern_matches_const_with_bindings(&arm.pattern, &val, &mut bindings) {
+                        return match &arm.body {
+                            xiom_ast::MatchBody::Block(block) => {
+                                self.eval_block_last(&block.stmts, *span)
+                            }
+                            xiom_ast::MatchBody::Expr(e) => {
+                                self.evaluate_const_init_with_bindings(e, &bindings)
+                            }
+                        };
+                    }
+                }
+                expr.clone()
+            }
+
             // Everything else: return unchanged (non-const-evaluable)
             _ => expr.clone(),
         }
     }
 
-    /// Evaluate the last expression in a block for CTFE if/else folding.
-    /// Only handles simple cases; returns Int(0) sentinel for unsupported blocks.
+    /// Evaluate the last expression in a block for CTFE if/match folding.
+    /// Walks statements in reverse to find the final expression.
     fn eval_block_last(&self, stmts: &[xiom_ast::StmtOrExpr], span: Span) -> Expr {
         for stmt in stmts.iter().rev() {
             match stmt {
@@ -411,12 +448,77 @@ impl IrEmitter {
                     if let xiom_ast::Stmt::Expr(e, _) = s {
                         return self.evaluate_const_init(e);
                     }
-                    // Other statement types (let, var, return, etc.) — skip
                     continue;
                 }
             }
         }
-        Expr::Int(0, span) // empty block → 0
+        Expr::Int(0, span)
+    }
+
+    /// Check whether a compile-time pattern matches a const-evaluated literal,
+    /// collecting named bindings (e.g. `Some(v)` binds `v` to the inner value).
+    /// Returns true if the pattern matches.
+    fn pattern_matches_const_with_bindings(
+        &self,
+        pattern: &xiom_ast::Pattern,
+        value: &Expr,
+        bindings: &mut std::collections::HashMap<String, Expr>,
+    ) -> bool {
+        match pattern {
+            xiom_ast::Pattern::Wildcard(_) => true,
+            xiom_ast::Pattern::Ident(id) => {
+                bindings.insert(id.name.clone(), value.clone());
+                true
+            }
+            xiom_ast::Pattern::Lit(lit) => {
+                match (lit, value) {
+                    (xiom_ast::Literal::Bool(a, _), Expr::Bool(b, _)) => a == b,
+                    (xiom_ast::Literal::Int(a, _), Expr::Int(b, _)) => a == b,
+                    (xiom_ast::Literal::Float(a, _), Expr::Float(b, _)) => (a - b).abs() < 1e-15,
+                    (xiom_ast::Literal::Str(a, _), Expr::Str(b, _)) => a == b,
+                    (xiom_ast::Literal::Char(a, _), Expr::Char(b, _)) => a == b,
+                    _ => false,
+                }
+            }
+            xiom_ast::Pattern::Some(inner, _) => {
+                match value {
+                    Expr::Some(v, _) => self.pattern_matches_const_with_bindings(inner, v, bindings),
+                    _ => false,
+                }
+            }
+            xiom_ast::Pattern::None(_) => matches!(value, Expr::None(_)),
+            xiom_ast::Pattern::Ok(inner, _) => {
+                match value {
+                    Expr::Ok(v, _) => self.pattern_matches_const_with_bindings(inner, v, bindings),
+                    _ => false,
+                }
+            }
+            xiom_ast::Pattern::Err(inner, _) => {
+                match value {
+                    Expr::Err(v, _) => self.pattern_matches_const_with_bindings(inner, v, bindings),
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// Evaluate an expression with pattern binding substitutions.
+    /// Replaces `Expr::Ident(name)` with the bound value if present.
+    fn evaluate_const_init_with_bindings(
+        &self,
+        expr: &Expr,
+        bindings: &std::collections::HashMap<String, Expr>,
+    ) -> Expr {
+        match expr {
+            Expr::Ident(id) => {
+                if let Some(val) = bindings.get(&id.name) {
+                    return self.evaluate_const_init(val);
+                }
+                self.evaluate_const_init(expr)
+            }
+            _ => self.evaluate_const_init(expr),
+        }
     }
 
     pub(crate) fn compile_expr(&mut self, expr: &Expr) -> Result<(String, String), String> {
