@@ -935,6 +935,11 @@ impl Parser {
     }
 
     fn parse_type_base(&mut self) -> Result<Type, ParseError> {
+        // v0.55: Never type — `!` as bottom type
+        if self.peek_kind() == &TokenKind::Bang {
+            let _ = self.advance();
+            return Ok(Type::Never);
+        }
         // Skip 'dyn' keyword (dynamic dispatch marker): `dyn Trait` parses as `Trait`.
         if let TokenKind::Ident(s) = self.peek_kind() { if s == "dyn" { self.advance(); } }
         // Parse `impl Trait` as opaque return type (M9.6)
@@ -1049,6 +1054,8 @@ impl Parser {
             TokenKind::For => { let stmt = self.parse_for_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             // v0.55: asm("template" : outputs : inputs : clobbers);
             TokenKind::Asm => { let stmt = self.parse_asm_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
+            // v0.55: defer { ... } or defer expr;
+            TokenKind::Defer => { let stmt = self.parse_defer_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::Spawn if self.peek_ahead(1) == Some(&TokenKind::LBrace) => { let stmt = self.parse_spawn_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::LBrace => {
                 // Bare block expression: `{ stmt; ... }` as a statement or expression
@@ -1376,6 +1383,20 @@ impl Parser {
         Ok(Stmt::While(Expr::Bool(true, while_span), inner_block, None, while_span))
     }
     fn parse_for_stmt(&mut self) -> Result<Stmt, ParseError> { let span = self.advance().span; let var = self.parse_ident()?; self.expect_kind(TokenKind::In, "'in'")?; let iter = self.parse_cond()?; let body = self.parse_block()?; Ok(Stmt::For(var, iter, body, span)) }
+    /// v0.55: Parse `defer { ... }` or `defer expr;`
+    fn parse_defer_stmt(&mut self) -> Result<Stmt, ParseError> {
+        let span = self.advance().span;
+        if self.peek_kind() == &TokenKind::LBrace {
+            let block = self.parse_block()?;
+            Ok(Stmt::Defer(block, span))
+        } else {
+            let expr = self.parse_expr()?;
+            self.skip(TokenKind::Semicolon);
+            let block = Block { stmts: vec![StmtOrExpr::Expr(expr)], span };
+            Ok(Stmt::Defer(block, span))
+        }
+    }
+
     fn parse_spawn_stmt(&mut self) -> Result<Stmt, ParseError> { let span = self.advance().span; let body = self.parse_block()?; Ok(Stmt::Spawn(body, span)) }
 
     /// v0.55: Parse `asm("template" [: outputs [: inputs [: clobbers]]]);`

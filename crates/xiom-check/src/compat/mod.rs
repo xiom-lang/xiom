@@ -11,6 +11,11 @@ pub(crate) fn types_compatible(
     expected: &CheckedType,
     interfaces: &HashMap<String, Vec<(String, Vec<String>, Option<String>)>>,
 ) -> bool {
+    // v0.55: Never type (!) is the bottom type — compatible with everything.
+    // Functions returning ! never return; match arms with ! bodies are exhaustive.
+    if matches!(found, CheckedType::Never) || matches!(expected, CheckedType::Never) {
+        return true;
+    }
     // Wildcard `_` is compatible with everything
     if matches!(found, CheckedType::Named(n) if n == "_") ||
        matches!(expected, CheckedType::Named(n) if n == "_") {

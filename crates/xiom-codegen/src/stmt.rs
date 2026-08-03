@@ -1724,6 +1724,14 @@ impl IrEmitter {
                     asm_str, clobber_part
                 ));
             }
+            xiom_ast::Stmt::Defer(block, _) => {
+                for soe in &block.stmts {
+                    match soe {
+                        xiom_ast::StmtOrExpr::Stmt(s) => self.compile_stmt(s)?,
+                        xiom_ast::StmtOrExpr::Expr(e) => { self.compile_expr(e)?; }
+                    }
+                }
+            }
         }
         Ok(())
     }

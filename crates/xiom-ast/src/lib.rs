@@ -103,6 +103,10 @@ pub enum Type {
     /// Anonymous struct type `{ field: Type; ... }` — used in generic
     /// function signatures where the struct has no standalone name.
     AnonStruct(Vec<FieldDecl>),
+    /// v0.55: `!` — the Never type (bottom type). Functions returning `!`
+    /// never return (infinite loop, exit, panic). Enables exhaustiveness
+    /// proofs in match expressions.
+    Never,
 }
 
 // ============================================================================
@@ -355,6 +359,8 @@ pub enum Stmt {
     Continue(Option<Ident>, Span),
     /// v0.55: `asm("...")` — inline assembly statement
     Asm(AsmBlock),
+    /// v0.55: `defer { expr }` — guaranteed scope-exit execution
+    Defer(Block, Span),
 }
 
 /// v0.55: Inline assembly block — `asm("template" : outputs : inputs : clobbers)`
