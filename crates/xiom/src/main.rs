@@ -190,6 +190,22 @@ fn main() {
         process::exit(1);
     }
 
+    // v0.55: xiom build-runtime — pre-compile C runtime shared library for OrcJIT
+    if args.get(1).map_or(false, |a| a == "build-runtime") {
+        let output_dir = xiom::jit::jit_cache_dir();
+        match xiom_jit::build_runtime_library(&output_dir) {
+            Ok(path) => {
+                eprintln!("  Runtime library built: {}", path.display());
+                eprintln!("  OrcJIT ready: use --jit flag for in-process compilation.");
+            }
+            Err(e) => {
+                eprintln!("error: runtime build failed: {e}");
+                process::exit(1);
+            }
+        }
+        return;
+    }
+
     // â”€â”€ M10.4: xiom repl â€” interactive scripting shell â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if args.get(1).map_or(false, |a| a == "repl") {
         run_repl();
@@ -345,6 +361,8 @@ fn main() {
     let watch_mode = args.iter().any(|a| a == "--watch");
     let hot_reload = args.iter().any(|a| a == "--hot-reload");
     let hot_reload_contracts = args.iter().any(|a| a == "--hot-reload-contracts");
+    // v0.55: OrcJIT — in-process JIT compilation via clang DLL loading
+    let use_jit = args.iter().any(|a| a == "--jit");
     // 7E.1: Sanitizer flags
     let sanitize: Option<String> = args.iter().position(|a| a == "--sanitize" || a.starts_with("--sanitize="))
         .and_then(|i| {
