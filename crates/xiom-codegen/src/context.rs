@@ -4,6 +4,74 @@
 
 use xiom_ast::*;
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, RwLock};
+use std::hash::Hash;
+
+// ============================================================================
+// v0.54: SyncRegistry — Thread-safe HashMap wrapper for parallel compilation.
+//
+// Wraps an Arc<RwLock<HashMap<K,V>>> and provides a HashMap-like API where
+// .get() returns Option<V> (cloned). Multiple readers can access concurrently;
+// writers acquire an exclusive lock. Enables parallel type-checking and
+// codegen in v0.55 without invasive call-site changes.
+// ============================================================================
+
+pub struct SyncRegistry<K: Eq + Hash, V> {
+    inner: Arc<RwLock<HashMap<K, V>>>,
+}
+
+impl<K: Eq + Hash, V> Clone for SyncRegistry<K, V> {
+    fn clone(&self) -> Self { Self { inner: Arc::clone(&self.inner) } }
+}
+
+impl<K: Eq + Hash, V> Default for SyncRegistry<K, V> {
+    fn default() -> Self { Self { inner: Arc::new(RwLock::new(HashMap::new())) } }
+}
+
+impl<K: Eq + Hash + Clone, V: Clone> SyncRegistry<K, V> {
+    /// Thread-safe read access — clones the value.
+    pub fn get(&self, key: &K) -> Option<V> {
+        self.inner.read().unwrap().get(key).cloned()
+    }
+
+    /// Thread-safe write access — inserts a value, returns the old value if any.
+    pub fn insert(&self, key: K, value: V) -> Option<V> {
+        self.inner.write().unwrap().insert(key, value)
+    }
+
+    /// Thread-safe contains check.
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.inner.read().unwrap().contains_key(key)
+    }
+
+    /// Thread-safe get-or-insert: if key exists, returns the existing value;
+    /// otherwise inserts the value produced by `f` and returns it.
+    pub fn or_insert_with(&self, key: K, f: impl FnOnce() -> V) -> V {
+        let mut map = self.inner.write().unwrap();
+        if let Some(v) = map.get(&key) {
+            return v.clone();
+        }
+        let v = f();
+        map.insert(key, v.clone());
+        v
+    }
+
+    /// Returns a snapshot of all keys (for iteration patterns).
+    pub fn keys(&self) -> Vec<K> {
+        self.inner.read().unwrap().keys().cloned().collect()
+    }
+
+    /// Returns a snapshot of all key-value pairs (for iteration patterns).
+    pub fn entries(&self) -> Vec<(K, V)> {
+        self.inner.read().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+    }
+
+    /// Returns the number of entries.
+    #[allow(dead_code)]
+    pub fn len(&self) -> usize {
+        self.inner.read().unwrap().len()
+    }
+}
 
 // ============================================================================
 // CodegenConfig — Compilation flags and target configuration
@@ -62,35 +130,33 @@ impl Default for CodegenConfig {
 #[derive(Clone, Default)]
 pub struct TypeContext {
     /// Known type structures: name -> field names
-    pub types: HashMap<String, Vec<String>>,
+    pub types: SyncRegistry<String, Vec<String>>,
     /// Full type metadata: name -> TypeMeta
-    pub type_meta: HashMap<String, TypeMeta>,
+    pub type_meta: SyncRegistry<String, TypeMeta>,
     /// Names of types declared with generic params
     pub generic_type_names: HashSet<String>,
     /// Known function signatures: name -> (param_llvm_types, return_llvm_type_or_empty)
-    pub functions: HashMap<String, (Vec<String>, String)>,
+    pub functions: SyncRegistry<String, (Vec<String>, String)>,
     /// Declared XIOM return type per function key
-    pub fn_return_xiom: HashMap<String, String>,
+    pub fn_return_xiom: SyncRegistry<String, String>,
     /// Maps function pointer parameter names to their LLVM return types
-    pub fn_ptr_return_types: HashMap<String, String>,
+    pub fn_ptr_return_types: SyncRegistry<String, String>,
     /// Interface registry: name -> vec of (method_name, param_type_names)
-    pub interfaces: HashMap<String, Vec<(String, Vec<String>)>>,
+    pub interfaces: SyncRegistry<String, Vec<(String, Vec<String>)>>,
     /// Concrete types that implement each interface
-    pub interface_impls: HashMap<String, HashSet<String>>,
+    pub interface_impls: SyncRegistry<String, HashSet<String>>,
     /// Method keys that take `self` by value (not `&self`) — need store_back
     pub by_value_self_methods: HashSet<String>,
     /// Enum variants registry: name -> vec of (variant_name, field_names)
-    pub enum_variants: HashMap<String, Vec<(String, Vec<String>)>>,
+    pub enum_variants: SyncRegistry<String, Vec<(String, Vec<String>)>>,
     /// Per-variant payload field TYPE names
-    pub enum_variant_field_types: HashMap<String, Vec<(String, Vec<String>)>>,
+    pub enum_variant_field_types: SyncRegistry<String, Vec<(String, Vec<String>)>>,
     /// Builtin types whose impls have been referenced
     pub used_builtins: HashSet<String>,
     /// M36: Type alias map — alias name → resolved XIOM type name
-    /// (e.g., "MyResult" → "Result[Int, Str]", "MyInt8" → "Int8").
-    /// Populated during type registration from `type T = Underlying;` declarations.
-    pub type_aliases: HashMap<String, String>,
+    pub type_aliases: SyncRegistry<String, String>,
     /// M19: Default method bodies from interfaces, keyed by "Interface.method".
-    pub interface_defaults: HashMap<String, FnDecl>,
+    pub interface_defaults: SyncRegistry<String, FnDecl>,
 }
 
 // ============================================================================

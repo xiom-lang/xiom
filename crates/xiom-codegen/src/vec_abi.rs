@@ -266,8 +266,8 @@ impl IrEmitter {
         if let Expr::Field(base, field_expr, _) = container {
             if let Some(base_ty) = self.infer_struct_type_name(base) {
                 for key in self.types.type_meta.keys() {
-                    if key.ends_with(&base_ty) || key == &base_ty {
-                        if let Some(meta) = self.types.type_meta.get(key) {
+                    if key.ends_with(&base_ty) || key == base_ty {
+                        if let Some(meta) = self.types.type_meta.get(&key) {
                             for (fname, ftype) in &meta.fields {
                                 if fname == &field_expr.name {
                                     return ftype.contains('[');

@@ -117,7 +117,7 @@ impl IrEmitter {
                 };
                 // Find the field index
                 let type_name = struct_ty.trim_start_matches("%struct.");
-                let field_idx = self.types.types.get(type_name)
+                let field_idx = self.types.types.get(&type_name.to_string())
                     .and_then(|fields| fields.iter().position(|f| f == &field.name))?;
                 let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
                 let gep = self.fresh_tmp();
@@ -591,12 +591,11 @@ impl IrEmitter {
         // compiler's builtin/synthetic types. The type id is the index here.
         let mut names: Vec<String> = self
             .types.type_meta
-            .keys()
-            .filter(|n| {
+            .keys().into_iter()
+     .filter(|n| {
                 let n = n.as_str();
                 n != "Option" && n != "Result" && n != "Vec" && n != "Tuple" && !n.starts_with("Tuple_")
             })
-            .cloned()
             .collect();
         names.sort();
         let n = names.len();

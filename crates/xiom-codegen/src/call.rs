@@ -172,8 +172,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 // M22: Bare enum variant constructor: `Data(args)` (no TypeName. prefix).
                 // Search all registered enum variants for a matching constructor name.
                 if receiver_expr.is_none() {
-                    let enum_key_opt = self.types.enum_variants.iter()
-                        .find(|(_, vars)| vars.iter().any(|(v, _)| v == &fn_name))
+                    let enum_key_opt = self.types.enum_variants.entries().into_iter()
+    .find(|(_, vars)| vars.iter().any(|(v, _)| v == &fn_name))
                         .map(|(ek, _)| ek.clone());
                     if let Some(enum_key) = enum_key_opt {
                         return self.compile_enum_constructor(&enum_key, &fn_name, args);
@@ -188,9 +188,9 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     // Skip contract builtin if a user function with this name exists
                     // in the current module or has already been emitted.
                     let has_user_fn = self.mono.emitted_fns.contains(fn_name.as_str())
-                        || self.types.functions.contains_key(fn_name.as_str())
+                        || self.types.functions.contains_key(&fn_name.to_string())
                         || self.mono.emitted_fns.iter().any(|k| k.ends_with(&format!(".{}", fn_name)))
-                        || self.types.functions.keys().any(|k| k.ends_with(&format!(".{}", fn_name)));
+                        || self.types.functions.keys().into_iter().any(|k| k.ends_with(&format!(".{}", fn_name)));
                     if !has_user_fn {
                     let tmp = self.fresh_tmp();
                     if let Some(receiver) = &receiver_expr {
@@ -420,7 +420,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         .map_or(false, |tn| {
                             let key = format!("{tn}.{fn_name}");
                             self.types.functions.contains_key(&key)
-                                || self.types.functions.keys().any(|k| k.ends_with(&format!(".{key}")))
+                                || self.types.functions.keys().into_iter().any(|k| k.ends_with(&format!(".{key}")))
                         });
                 if matches!(fn_name.as_str(), "to_string" | "to_str") && !user_defined_to_str {
                     // Determine the single integer operand (receiver for method form,
@@ -542,7 +542,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // Layout may be defined as bare "Layout" (from source)
                             // or qualified "xiom.alloc.Layout" (from builtin fallback).
                             // Use the type that actually has a struct definition emitted.
-                            let layout_ty = if self.types.type_meta.contains_key("Layout") {
+                            let layout_ty = if self.types.type_meta.contains_key(&"Layout".to_string()) {
                                 self.llvm_type_for("Layout").unwrap_or_else(|_| "%struct.xiom.alloc.Layout".to_string())
                             } else {
                                 self.llvm_type_for("xiom.alloc.Layout").unwrap_or_else(|_| "%struct.xiom.alloc.Layout".to_string())
@@ -725,8 +725,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // heap-allocate) and use memcpy to store the struct inline.
                         let is_struct_elem = val_ty.starts_with('%') && {
                             let tn = val_ty.trim_start_matches("%struct.").trim_end_matches('*');
-                            self.types.types.contains_key(tn)
-                                || self.types.types.keys().any(|k| k.ends_with(&format!(".{tn}")))
+                            self.types.types.contains_key(&tn.to_string())
+                                || self.types.types.keys().into_iter().any(|k| k.ends_with(&format!(".{tn}")))
                         };
                         let val = if !is_struct_elem {
                             self.val_to_i64(&val_raw, &val_ty)
@@ -898,8 +898,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 let (val_raw, val_ty) = self.compile_expr(&args[1])?;
                                 let is_struct_elem = val_ty.starts_with('%') && {
                                     let tn = val_ty.trim_start_matches("%struct.").trim_end_matches('*');
-                                    self.types.types.contains_key(tn)
-                                        || self.types.types.keys().any(|k| k.ends_with(&format!(".{tn}")))
+                                    self.types.types.contains_key(&tn.to_string())
+                                        || self.types.types.keys().into_iter().any(|k| k.ends_with(&format!(".{tn}")))
                                 };
                                 let val_i64 = if is_struct_elem { val_raw.clone() } else { self.val_to_i64(&val_raw, &val_ty) };
                                 // Grow when len == cap.
@@ -1671,9 +1671,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 // the proper discriminant + payload struct.
                 if let Some(receiver) = receiver_expr {
                     if let Expr::Ident(type_id) = &**receiver {
-                        let enum_key = self.types.enum_variants.keys()
-                            .find(|k| **k == type_id.name || k.ends_with(&format!(".{}", type_id.name)))
-                            .cloned();
+                        let enum_key = self.types.enum_variants.keys().into_iter()
+    .find(|k| *k == type_id.name || k.ends_with(&format!(".{}", type_id.name)));
                         if let Some(ek) = enum_key {
                             if let Some(variants) = self.types.enum_variants.get(&ek) {
                                 let var_info: Option<(usize, Vec<String>)> = variants.iter().enumerate()
@@ -1681,7 +1680,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     .map(|(idx, (_, fields))| (idx, fields.clone()));
                                 if let Some((var_idx, payload_fields)) = var_info {
                                     // Gather parent field layout BEFORE mutating self.
-                                    let parent_field_names = self.types.types.get(&ek).cloned().unwrap_or_default();
+                                    let parent_field_names = self.types.types.get(&ek).unwrap_or_default();
                                     if let Ok(struct_ty) = self.llvm_type_for(&ek) {
                                         let alloca = self.fresh_tmp();
                                         self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
@@ -1860,11 +1859,11 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             if let Some(ref hint) = struct_type_hint {
                                 // hint is the XIOM type name (e.g. "Point" for T=Point).
                                 // Convert to LLVM struct type.
-                                let struct_llvm = if self.types.types.contains_key(hint) || self.types.type_meta.contains_key(hint) {
+                                let struct_llvm = if self.types.types.contains_key(&hint.to_string()) || self.types.type_meta.contains_key(&hint.to_string()) {
                                     format!("%struct.{hint}")
                                 } else {
                                     // Check if it resolves via type_meta
-                                    let full_key = self.types.type_meta.keys().find(|k| k.ends_with(&format!(".{hint}"))).cloned();
+                                    let full_key = self.types.type_meta.keys().into_iter().find(|k| k.ends_with(&format!(".{hint}")));
                                     match full_key {
                                         Some(k) => format!("%struct.{k}"),
                                         None => return Ok((self.val_to_i64(&val, &field_ty), LLVM_I64.to_string())),
@@ -1925,11 +1924,10 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     if let Some(dot_pos) = fn_key.find('.') {
                         let iface_name = &fn_key[..dot_pos];
                         let method_name = &fn_key[dot_pos + 1..];
-                        if self.types.interfaces.contains_key(iface_name) {
+                        if self.types.interfaces.contains_key(&iface_name.to_string()) {
                             let suffix = format!(".{}", method_name);
-                            self.types.functions.keys()
-                                .find(|k| k.ends_with(&suffix) && !k.starts_with(iface_name))
-                                .cloned()
+                            self.types.functions.keys().into_iter()
+    .find(|k| k.ends_with(&suffix) && !k.starts_with(iface_name))
                                 .unwrap_or(fn_key)
                         } else {
                             fn_key
@@ -2436,7 +2434,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             .map(|(pts, _)| pts.len() == compiled_args.len())
                             .unwrap_or(false);
                         if use_registered {
-                            let pts = self.types.functions[&resolved_fn_key].0.clone();
+                            let pts = self.types.functions.get(&resolved_fn_key).unwrap().0.clone();
                             let mut parts: Vec<String> = Vec::new();
                             for (i, (arg_val, arg_ty)) in compiled_args.iter().enumerate() {
                                 let pty = pts[i].clone();
@@ -2469,7 +2467,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // Fallback: search for any key ending with .resolved_fn_key
                         if found.is_empty() {
                             let suffix = format!(".{resolved_fn_key}");
-                            for (k, (_, rt)) in &self.types.functions {
+                            for (k, (_, rt)) in self.types.functions.entries() {
                                 if k.ends_with(&suffix) && rt.starts_with("%struct.") {
                                     found = rt.clone();
                                     break;
@@ -2487,12 +2485,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         && self.types.functions.get(&resolved_fn_key).is_none()
                         && ret_ty == "i64";
                     if callee_is_fn_ptr {
-                        let (alloca_reg, local_llvm_ty) = self.lookup_local(&fn_name).cloned().expect("fn_ptr target must be in locals");
+                        let (alloca_reg, local_llvm_ty) = self.lookup_local(&fn_name).expect("fn_ptr target must be in locals").clone();
                         let fn_ptr_loaded = self.fresh_tmp();
                         self.emitln(&format!("  {fn_ptr_loaded} = load {local_llvm_ty}, {local_llvm_ty}* {alloca_reg}"));
                         let param_types: Vec<String> = args.iter().map(|a| self.infer_llvm_type(a)).collect();
                         let actual_ret_ty = if ret_ty == "i64" {
-                            self.types.fn_ptr_return_types.get(&fn_name).cloned().unwrap_or_else(|| LLVM_I64.to_string())
+                            self.types.fn_ptr_return_types.get(&fn_name).unwrap_or_else(|| LLVM_I64.to_string())
                         } else {
                             ret_ty.clone()
                             };
