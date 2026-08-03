@@ -4052,6 +4052,12 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                             self.compile_ensures_checks();
                         }
                         let ret_ty = &self.fctx.current_return_type.clone();
+                        // R5: Decrement recursion depth before tail-return
+                        let depth_dec = self.fresh_tmp();
+                        self.emitln(&format!("  {depth_dec} = load i64, i64* @xiom_recursion_counter"));
+                        let new_depth = self.fresh_tmp();
+                        self.emitln(&format!("  {new_depth} = sub i64 {depth_dec}, 1"));
+                        self.emitln(&format!("  store i64 {new_depth}, i64* @xiom_recursion_counter"));
                         self.emitln(&format!("  ret {ret_ty} {loaded}"));
                         last_result = Some(loaded);
                     } else if is_last && is_expression && matches!(stmt, Stmt::If(..)) {
@@ -4086,6 +4092,12 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                             if !self.fctx.current_ensures.is_empty() {
                                 self.compile_ensures_checks();
                             }
+                            // R5: Decrement recursion depth before tail-return
+                            let depth_dec = self.fresh_tmp();
+                            self.emitln(&format!("  {depth_dec} = load i64, i64* @xiom_recursion_counter"));
+                            let new_depth = self.fresh_tmp();
+                            self.emitln(&format!("  {new_depth} = sub i64 {depth_dec}, 1"));
+                            self.emitln(&format!("  store i64 {new_depth}, i64* @xiom_recursion_counter"));
                             self.emitln(&format!("  ret {ret_ty} {loaded}"));
                             last_result = Some(loaded);
                         }
@@ -4128,6 +4140,12 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                             if !self.fctx.current_ensures.is_empty() {
                                 self.compile_ensures_checks();
                             }
+                            // R5: Decrement recursion depth before tail-return
+                            let depth_dec = self.fresh_tmp();
+                            self.emitln(&format!("  {depth_dec} = load i64, i64* @xiom_recursion_counter"));
+                            let new_depth = self.fresh_tmp();
+                            self.emitln(&format!("  {new_depth} = sub i64 {depth_dec}, 1"));
+                            self.emitln(&format!("  store i64 {new_depth}, i64* @xiom_recursion_counter"));
                             self.emitln(&format!("  ret {ret_ty} {ret_val}"));
                         }
                     }
