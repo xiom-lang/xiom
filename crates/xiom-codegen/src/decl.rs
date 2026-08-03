@@ -657,7 +657,7 @@ impl IrEmitter {
                 self.local.current_module = saved_module;
                 Ok(())
             }
-            TopDecl::Spawn(_block, _) => {
+            TopDecl::Spawn(_block, _, _move) => {
                 // M21: Module-level spawn blocks are compiled inline at
                 // program init. For now, skip — spawn is a no-op runtime.
                 Ok(())

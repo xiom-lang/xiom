@@ -3,6 +3,7 @@
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
 use xiom_ast::*;
+use std::collections::HashSet;
 use crate::llvm_consts::*;
 
 use super::IrEmitter;
@@ -1679,38 +1680,112 @@ impl IrEmitter {
                     }
                 }
             }
-            Stmt::Spawn(body, _span) => {
-                // v0.55: Spawn — compile body as separate function, call xiom_thread_spawn.
-                // Module-level declare (emitted before function body).
-                if !self.local.spawn_declared {
-                    self.local.spawn_declared = true;
-                    self.local.deferred_pre_body_defs.push(
-                        "declare i64 @xiom_thread_spawn(ptr, ptr)\n".to_string()
-                    );
-                }
+            Stmt::Spawn(body, _span, _move) => {
+                // v0.55/R2: Spawn — compile body as separate function, call xiom_thread_spawn.
+                // (xiom_thread_spawn is already declared at module level in compile_program)
                 let spawn_id = self.local.spawn_counter;
                 self.local.spawn_counter += 1;
                 let fn_name = format!("_xiom_spawn_{spawn_id}");
 
-                // Compile spawn body into a separate function IR string.
-                // Save/restore output to avoid polluting current function.
+                // R2: Collect captured variables — names used in body that are
+                // declared in outer scopes (not inside the spawn block itself).
+                let captures: Vec<String> = self.collect_spawn_captures(body);
+
                 let saved_output = std::mem::take(&mut self.output);
-                self.emitln(&format!("\ndefine void @{fn_name}(i8* %_xiom_spawn_arg) {{"));
-                self.emitln("entry:");
+                let saved_tmp = self.tmp_counter;
+                let saved_block = self.block_counter;
+                self.tmp_counter = 0;
+                self.block_counter = 0;
+
+                // Push fresh scope for spawn function locals (capture alloca
+                // registrations must not pollute the parent function's locals).
+                self.push_scope();
+
+                // Emit spawn function header and capture unpacking
+                if captures.is_empty() {
+                    self.emitln(&format!("\ndefine void @{fn_name}(i8* %_xiom_spawn_arg) {{"));
+                    self.emitln("entry:");
+                } else {
+                    self.emitln(&format!("\ndefine void @{fn_name}(i8* %_xiom_spawn_arg) {{"));
+                    self.emitln("entry:");
+                    for (i, cap) in captures.iter().enumerate() {
+                        let offset = i as i64 * 8;
+                        let ptr = self.fresh_tmp();
+                        let val = self.fresh_tmp();
+                        let alloca = self.fresh_tmp();
+                        if offset == 0 {
+                            self.emitln(&format!("  {ptr} = bitcast i8* %_xiom_spawn_arg to i64*"));
+                        } else {
+                            self.emitln(&format!("  {ptr} = getelementptr i8, i8* %_xiom_spawn_arg, i64 {offset}"));
+                            self.emitln(&format!("  {ptr} = bitcast i8* {ptr} to i64*"));
+                        }
+                        self.emitln(&format!("  {val} = load i64, i64* {ptr}"));
+                        self.emitln(&format!("  {alloca} = alloca i64"));
+                        self.emitln(&format!("  store i64 {val}, i64* {alloca}"));
+                        self.add_local(cap, alloca, "i64");
+                    }
+                }
+
+                // Bump counters past capture unpacking to avoid name conflicts with body
+                self.tmp_counter = 1000;
+                self.block_counter = 1000;
                 self.compile_block(body, false)?;
                 self.emitln("  ret void");
                 self.emitln("}");
+                self.pop_scope(); // R2: pop the spawn function's scope
                 let spawn_fn_ir = std::mem::take(&mut self.output);
                 self.output = saved_output;
+                self.tmp_counter = saved_tmp;
+                self.block_counter = saved_block;
 
                 // Append spawn function at end of module
                 self.local.deferred_closure_defs.push(spawn_fn_ir);
 
-                // Call xiom_thread_spawn with pointer to spawn wrapper
-                let handle = self.fresh_tmp();
-                self.emitln(&format!(
-                    "  {handle} = call i64 @xiom_thread_spawn(ptr @{fn_name}, ptr null)"
-                ));
+                if captures.is_empty() {
+                    let handle = self.fresh_tmp();
+                    self.emitln(&format!(
+                        "  {handle} = call i64 @xiom_thread_spawn(ptr @{fn_name}, ptr null)"
+                    ));
+                } else {
+                    // Allocate env buffer and store captures
+                    let env_size = captures.len() as i64 * 8;
+                    let env_ptr = self.fresh_tmp();
+                    self.emitln(&format!("  {env_ptr} = call i8* @malloc(i64 {env_size})"));
+                    // Null check
+                    let null_ok = self.fresh_tmp();
+                    let ok_block = self.fresh_block("spawn_env_ok");
+                    let trap_block = self.fresh_block("spawn_env_trap");
+                    self.emitln(&format!("  {null_ok} = icmp eq i8* {env_ptr}, null"));
+                    self.emitln(&format!("  br i1 {null_ok}, label %{trap_block}, label %{ok_block}"));
+                    self.emitln(&format!("\n{trap_block}:"));
+                    self.emitln("  call void @llvm.trap()");
+                    self.emitln("  unreachable");
+                    self.emitln(&format!("\n{ok_block}:"));
+                    // Store each capture into env
+                    for (i, cap) in captures.iter().enumerate() {
+                        // Load the captured variable's value directly using its name.
+                        // The variable is already in scope and its alloca is accessible.
+                        let val = self.fresh_tmp();
+                        let offset = i as i64 * 8;
+                        let dst = self.fresh_tmp();
+                        // Look up the alloca via the local variable registry
+                        let alloca_name = self.lookup_local(cap)
+                            .map(|(a, _)| a.clone())
+                            .unwrap_or_else(|| format!("%_missing_{cap}"));
+                        self.emitln(&format!("  {val} = load i64, i64* {alloca_name}"));
+                        if offset == 0 {
+                            self.emitln(&format!("  {dst} = bitcast i8* {env_ptr} to i64*"));
+                        } else {
+                            self.emitln(&format!("  {dst} = getelementptr i8, i8* {env_ptr}, i64 {offset}"));
+                            self.emitln(&format!("  {dst} = bitcast i8* {dst} to i64*"));
+                        }
+                        self.emitln(&format!("  store i64 {val}, i64* {dst}"));
+                    }
+                    let handle = self.fresh_tmp();
+                    self.emitln(&format!(
+                        "  {handle} = call i64 @xiom_thread_spawn(ptr @{fn_name}, ptr {env_ptr})"
+                    ));
+                }
             }
             Stmt::Break(..) => {
                 if let Some((_, break_label)) = self.local.loop_stack.last().cloned() {
@@ -1764,5 +1839,103 @@ impl IrEmitter {
             }
         }
         Ok(())
+    }
+
+    /// R2: Collect variable names captured by a spawn block — names referenced
+    /// inside the body that are available in the current scope (not declared
+    /// within the spawn block itself).
+    fn collect_spawn_captures(&self, body: &Block) -> Vec<String> {
+        let mut refs = HashSet::new();
+        Self::collect_block_var_refs(body, &mut refs);
+        // Filter: only keep names that exist in the current locals scope
+        let captures: Vec<String> = refs.into_iter()
+            .filter(|name| self.lookup_local(name).is_some())
+            .collect();
+        captures
+    }
+
+    fn collect_block_var_refs(block: &Block, refs: &mut HashSet<String>) {
+        for se in &block.stmts {
+            match se {
+                StmtOrExpr::Stmt(s) => Self::collect_stmt_var_refs(s, refs),
+                StmtOrExpr::Expr(e) => Self::collect_expr_var_refs(e, refs),
+            }
+        }
+    }
+
+    fn collect_stmt_var_refs(stmt: &Stmt, refs: &mut HashSet<String>) {
+        match stmt {
+            Stmt::Let(_, _, e, _) | Stmt::Var(_, _, e, _) => Self::collect_expr_var_refs(e, refs),
+            Stmt::Assign(a, b, _) => { Self::collect_expr_var_refs(a, refs); Self::collect_expr_var_refs(b, refs); }
+            Stmt::Return(Some(e), _) => Self::collect_expr_var_refs(e, refs),
+            Stmt::Return(None, _) => {}
+            Stmt::Expr(e, _) => Self::collect_expr_var_refs(e, refs),
+            Stmt::If(c, t, elifs, els, _) => {
+                Self::collect_expr_var_refs(c, refs);
+                Self::collect_block_var_refs(t, refs);
+                for (ec, eb) in elifs { Self::collect_expr_var_refs(ec, refs); Self::collect_block_var_refs(eb, refs); }
+                if let Some(eb) = els { Self::collect_block_var_refs(eb, refs); }
+            }
+            Stmt::While(c, b, _, _) => { Self::collect_expr_var_refs(c, refs); Self::collect_block_var_refs(b, refs); }
+            Stmt::For(_, e, b, _) => { Self::collect_expr_var_refs(e, refs); Self::collect_block_var_refs(b, refs); }
+            Stmt::Spawn(b, _, _) => Self::collect_block_var_refs(b, refs),
+            Stmt::Match(e, arms, _) => {
+                Self::collect_expr_var_refs(e, refs);
+                for arm in arms {
+                    if let Some(g) = &arm.guard { Self::collect_expr_var_refs(g, refs); }
+                    match &arm.body {
+                        MatchBody::Block(b) => Self::collect_block_var_refs(b, refs),
+                        MatchBody::Expr(e) => Self::collect_expr_var_refs(e, refs),
+                    }
+                }
+            }
+            Stmt::Destructure(_, e, _) => Self::collect_expr_var_refs(e, refs),
+            Stmt::Break(..) | Stmt::Continue(..) | Stmt::Asm(_) | Stmt::Defer(_, _) => {}
+        }
+    }
+
+    fn collect_expr_var_refs(expr: &Expr, refs: &mut HashSet<String>) {
+        match expr {
+            Expr::Ident(id) => { refs.insert(id.name.clone()); }
+            Expr::Field(b, _, _) => Self::collect_expr_var_refs(b, refs),
+            Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => {
+                Self::collect_expr_var_refs(f, refs);
+                for a in args { Self::collect_expr_var_refs(a, refs); }
+            }
+            Expr::Index(a, b, _) => { Self::collect_expr_var_refs(a, refs); Self::collect_expr_var_refs(b, refs); }
+            Expr::Binary(a, _, b, _) | Expr::Imply(a, b, _) => {
+                Self::collect_expr_var_refs(a, refs); Self::collect_expr_var_refs(b, refs);
+            }
+            Expr::Unary(_, e, _) | Expr::Paren(e, _) | Expr::Try(e, _) | Expr::Ref(e, _)
+            | Expr::MutRef(e, _) | Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _)
+            | Expr::Comptime(e, _) | Expr::As(e, _, _) => Self::collect_expr_var_refs(e, refs),
+            Expr::Struct(_, fields, base, _) => {
+                for (_, v) in fields { Self::collect_expr_var_refs(v, refs); }
+                if let Some(b) = base { Self::collect_expr_var_refs(b, refs); }
+            }
+            Expr::Array(elems, _) | Expr::Tuple(elems, _) => {
+                for e in elems { Self::collect_expr_var_refs(e, refs); }
+            }
+            Expr::If(c, t, elifs, els, _) => {
+                Self::collect_expr_var_refs(c, refs);
+                Self::collect_block_var_refs(t, refs);
+                for (ec, eb) in elifs { Self::collect_expr_var_refs(ec, refs); Self::collect_block_var_refs(eb, refs); }
+                if let Some(eb) = els { Self::collect_block_var_refs(eb, refs); }
+            }
+            Expr::Match(e, arms, _) => {
+                Self::collect_expr_var_refs(e, refs);
+                for arm in arms {
+                    if let Some(g) = &arm.guard { Self::collect_expr_var_refs(g, refs); }
+                    match &arm.body {
+                        MatchBody::Block(b) => Self::collect_block_var_refs(b, refs),
+                        MatchBody::Expr(e) => Self::collect_expr_var_refs(e, refs),
+                    }
+                }
+            }
+            Expr::Is(e, _, _) => Self::collect_expr_var_refs(e, refs),
+            Expr::Closure(_, _, b, _) | Expr::BlockExpr(b, _) => Self::collect_block_var_refs(b, refs),
+            Expr::PipeClosure(_, e, _) => Self::collect_expr_var_refs(e, refs),
+            _ => {}
+        }
     }
 }

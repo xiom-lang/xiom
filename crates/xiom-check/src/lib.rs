@@ -1013,7 +1013,7 @@ impl Checker {
                         xiom_ast::MatchBody::Expr(e) => Self::expr_uses_this(e),
                     })
             }
-            xiom_ast::Stmt::Spawn(b, _) => Self::block_uses_this(b),
+            xiom_ast::Stmt::Spawn(b, _, _move) => Self::block_uses_this(b),
             _ => false,
         }
     }
@@ -1023,6 +1023,98 @@ impl Checker {
             xiom_ast::StmtOrExpr::Stmt(stmt) => Self::stmt_uses_this(stmt),
             xiom_ast::StmtOrExpr::Expr(expr) => Self::expr_uses_this(expr),
         })
+    }
+
+    /// R2: Collect all variable references from a block (excluding declarations).
+    fn collect_expr_references_block(block: &Block) -> HashSet<String> {
+        let mut refs = HashSet::new();
+        Self::collect_expr_references_block_into(block, &mut refs);
+        refs
+    }
+
+    fn collect_expr_references_block_into(block: &Block, refs: &mut HashSet<String>) {
+        for se in &block.stmts {
+            match se {
+                StmtOrExpr::Expr(e) => Self::collect_expr_references(e, refs),
+                StmtOrExpr::Stmt(s) => Self::collect_stmt_references(s, refs),
+            }
+        }
+    }
+
+    fn collect_stmt_references(stmt: &Stmt, refs: &mut HashSet<String>) {
+        match stmt {
+            Stmt::Let(_, _, e, _) | Stmt::Var(_, _, e, _) => Self::collect_expr_references(e, refs),
+            Stmt::Assign(a, b, _) => { Self::collect_expr_references(a, refs); Self::collect_expr_references(b, refs); }
+            Stmt::Return(Some(e), _) => Self::collect_expr_references(e, refs),
+            Stmt::Return(None, _) => {}
+            Stmt::Expr(e, _) => Self::collect_expr_references(e, refs),
+            Stmt::If(c, t, elifs, els, _) => {
+                Self::collect_expr_references(c, refs);
+                Self::collect_expr_references_block_into(t, refs);
+                for (ec, eb) in elifs { Self::collect_expr_references(ec, refs); Self::collect_expr_references_block_into(eb, refs); }
+                if let Some(eb) = els { Self::collect_expr_references_block_into(eb, refs); }
+            }
+            Stmt::While(c, b, _, _) => { Self::collect_expr_references(c, refs); Self::collect_expr_references_block_into(b, refs); }
+            Stmt::For(_, e, b, _) => { Self::collect_expr_references(e, refs); Self::collect_expr_references_block_into(b, refs); }
+            Stmt::Spawn(b, _, _) => Self::collect_expr_references_block_into(b, refs),
+            Stmt::Match(e, arms, _) => {
+                Self::collect_expr_references(e, refs);
+                for arm in arms {
+                    if let Some(g) = &arm.guard { Self::collect_expr_references(g, refs); }
+                    match &arm.body {
+                        MatchBody::Block(b) => Self::collect_expr_references_block_into(b, refs),
+                        MatchBody::Expr(e) => Self::collect_expr_references(e, refs),
+                    }
+                }
+            }
+            Stmt::Destructure(_, e, _) => Self::collect_expr_references(e, refs),
+            Stmt::Break(..) | Stmt::Continue(..) | Stmt::Asm(_) | Stmt::Defer(_, _) => {}
+        }
+    }
+
+    fn collect_expr_references(expr: &Expr, refs: &mut HashSet<String>) {
+        match expr {
+            Expr::Ident(id) => { refs.insert(id.name.clone()); }
+            Expr::Field(b, _, _) => Self::collect_expr_references(b, refs),
+            Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => {
+                Self::collect_expr_references(f, refs);
+                for a in args { Self::collect_expr_references(a, refs); }
+            }
+            Expr::Index(a, b, _) => { Self::collect_expr_references(a, refs); Self::collect_expr_references(b, refs); }
+            Expr::Binary(a, _, b, _) | Expr::Imply(a, b, _) => {
+                Self::collect_expr_references(a, refs); Self::collect_expr_references(b, refs);
+            }
+            Expr::Unary(_, e, _) | Expr::Paren(e, _) | Expr::Try(e, _) | Expr::Ref(e, _)
+            | Expr::MutRef(e, _) | Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _)
+            | Expr::Comptime(e, _) | Expr::As(e, _, _) => Self::collect_expr_references(e, refs),
+            Expr::Struct(_, fields, base, _) => {
+                for (_, v) in fields { Self::collect_expr_references(v, refs); }
+                if let Some(b) = base { Self::collect_expr_references(b, refs); }
+            }
+            Expr::Array(elems, _) | Expr::Tuple(elems, _) => {
+                for e in elems { Self::collect_expr_references(e, refs); }
+            }
+            Expr::If(c, t, elifs, els, _) => {
+                Self::collect_expr_references(c, refs);
+                Self::collect_expr_references_block_into(t, refs);
+                for (ec, eb) in elifs { Self::collect_expr_references(ec, refs); Self::collect_expr_references_block_into(eb, refs); }
+                if let Some(eb) = els { Self::collect_expr_references_block_into(eb, refs); }
+            }
+            Expr::Match(e, arms, _) => {
+                Self::collect_expr_references(e, refs);
+                for arm in arms {
+                    if let Some(g) = &arm.guard { Self::collect_expr_references(g, refs); }
+                    match &arm.body {
+                        MatchBody::Block(b) => Self::collect_expr_references_block_into(b, refs),
+                        MatchBody::Expr(e) => Self::collect_expr_references(e, refs),
+                    }
+                }
+            }
+            Expr::Is(e, _, _) => Self::collect_expr_references(e, refs),
+            Expr::Closure(_, _, b, _) | Expr::BlockExpr(b, _) => Self::collect_expr_references_block_into(b, refs),
+            Expr::PipeClosure(_, e, _) => Self::collect_expr_references(e, refs),
+            _ => {} // Int, Float, Bool, Str, Char, None, Wildcard, etc.
+        }
     }
 
     fn register_fn_signature(&mut self, item: &TopDecl) {
@@ -1132,7 +1224,7 @@ impl Checker {
                 // `register_global_const` so references resolve regardless of order.)
             }
             TopDecl::Extern(_) => {} // extern blocks have no type info to register
-            TopDecl::Spawn(body, _span) => {
+            TopDecl::Spawn(body, _span, _move) => {
                 // M21: Type-check module-level spawn block body.
                 self.push_scope();
                 self.check_block(body, None);
@@ -1540,7 +1632,7 @@ impl Checker {
                 }
                 Stmt::While(c, b, _, _) => { collect_expr_names(c, out); collect_block_names(b, out); }
                 Stmt::For(_, e, b, _) => { collect_expr_names(e, out); collect_block_names(b, out); }
-                Stmt::Spawn(b, _) => collect_block_names(b, out),
+                Stmt::Spawn(b, _, _move) => collect_block_names(b, out),
                 Stmt::Destructure(_, e, _) => collect_expr_names(e, out),
                 Stmt::Break(..) | Stmt::Continue(..) => {},
                 Stmt::Asm(_) => {},
@@ -2355,8 +2447,39 @@ impl Checker {
                     self.add_local(&name.name, val_ty.clone());
                 }
             }
-            Stmt::Spawn(body, _) => {
+            Stmt::Spawn(body, _, is_move) => {
+                // R2: Move semantics — analyze captures and mark as moved.
+                let outer_locals: HashSet<String> = self.locals.iter()
+                    .flat_map(|scope| scope.keys())
+                    .cloned()
+                    .collect();
+                // Push a new scope so variables declared inside spawn are tracked separately
+                self.push_scope();
                 self.check_block(body, None);
+                let inner_locals: HashSet<String> = self.locals.last()
+                    .map(|scope| scope.keys().cloned().collect())
+                    .unwrap_or_default();
+                self.pop_scope();
+
+                // Find captured variables: referenced in body but not declared inside spawn
+                let refs = Self::collect_expr_references_block(body);
+                let captures: HashSet<String> = refs.difference(&inner_locals)
+                    .filter(|name| outer_locals.contains(*name))
+                    .cloned()
+                    .collect();
+
+                if !captures.is_empty() && !is_move {
+                    // Non-move spawn with captures: warning or error
+                    // For now, spawn without `move` still works but captures are implicit
+                }
+
+                // Mark captures as moved — they cannot be used after spawn
+                for cap in &captures {
+                    // Remove from all scopes to prevent post-spawn use
+                    for scope in self.locals.iter_mut().rev() {
+                        scope.remove(cap);
+                    }
+                }
             }
             Stmt::Break(..) => {}
             Stmt::Continue(..) => {}
@@ -3862,7 +3985,7 @@ impl BorrowChecker {
                     self.add_local(&name.name, true, "Int");
                 }
             }
-            Stmt::Spawn(body, _) => {
+            Stmt::Spawn(body, _, _move) => {
                 self.push_scope();
                 self.check_block(body);
                 self.pop_scope();

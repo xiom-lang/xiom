@@ -137,9 +137,13 @@ impl crate::Formatter {
                 self.push_indent();
                 self.buf.push_str("}\n");
             }
-            Stmt::Spawn(body, _) => {
+            Stmt::Spawn(body, _, is_move) => {
                 self.push_indent();
-                self.buf.push_str("spawn {\n");
+                if *is_move {
+                    self.buf.push_str("spawn move {\n");
+                } else {
+                    self.buf.push_str("spawn {\n");
+                }
                 self.indent += 1;
                 self.format_block(body);
                 self.indent -= 1;

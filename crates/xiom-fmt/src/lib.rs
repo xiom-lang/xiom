@@ -50,8 +50,12 @@ impl Formatter {
             TopDecl::Const(const_decl) => self.format_const_decl(const_decl),
             TopDecl::Extern(extern_block) => self.format_extern(extern_block),
             TopDecl::Impl(_) => {} // expanded at registration time
-            TopDecl::Spawn(block, _) => {
-                self.buf.push_str("spawn {\n");
+            TopDecl::Spawn(block, _, is_move) => {
+                if *is_move {
+                    self.buf.push_str("spawn move {\n");
+                } else {
+                    self.buf.push_str("spawn {\n");
+                }
                 self.indent += 1;
                 self.format_block(block);
                 self.indent -= 1;
