@@ -692,8 +692,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         } else {
                             (val_raw, val_ty)
                         };
-                        let vec_alloca = self.fresh_tmp();
-                        self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
+                        // R4 fix: Use the receiver's original alloca for in-place
+                        // mutation instead of creating a per-call scratch alloca.
+                        // The old `alloca %struct.Vec` leaked 32 bytes of stack per
+                        // push iteration when called inside a loop, causing unbounded
+                        // stack growth and ACCESS_VIOLATION (>100K iterations).
+                        let (vec_alloca, needs_store_back) = self.resolve_vec_push_ptr(receiver)?;
                         // Store Vec via extractvalue+individual stores to prevent
                         // LLVM SROA from decomposing the struct write (5c.28).
                         let vec_data = self.fresh_tmp();
@@ -815,7 +819,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // Write the mutated Vec back to the receiver variable so the
                         // updated len/cap/data persist (value semantics: `v.push(x)`
                         // must be observable via `v` afterwards).
-                        self.store_back_to_receiver(receiver, &loaded, "%struct.Vec");
+                        // R4 fix: Skip store-back when working directly on the
+                        // receiver's original alloca (resolve_vec_push_ptr returned
+                        // needs_store_back=false) — the mutation is already in-place.
+                        if needs_store_back {
+                            self.store_back_to_receiver(receiver, &loaded, "%struct.Vec");
+                        }
                         return Ok((loaded, "%struct.Vec".to_string()));
                         }
                     }
@@ -1034,6 +1043,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let (recv_vec, _) = self.resolve_vec_receiver(receiver, &recv_val, &recv_actual_ty);
                             let vec_alloca = self.fresh_tmp();
                             self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
+                            self.emit_vec_store_fields(&recv_vec, &vec_alloca);
                             self.emit_vec_store_fields(&recv_vec, &vec_alloca);
                             let len_gep = self.fresh_tmp();
                             self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 1"));
