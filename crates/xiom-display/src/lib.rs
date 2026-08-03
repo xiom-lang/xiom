@@ -37,6 +37,7 @@ pub fn type_to_string(ty: &Type) -> String {
             let inner: Vec<String> = fields.iter().map(|f| format!("{}: {}", f.name.name, type_to_string(&f.ty))).collect();
             format!("{{ {} }}", inner.join("; "))
         }
+        Type::Never => "!".to_string(),
     }
 }
 

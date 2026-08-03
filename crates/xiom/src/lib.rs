@@ -1900,6 +1900,7 @@ fn type_to_string(ty: &Type) -> String {
                 .collect();
             format!("{{ {} }}", parts.join("; "))
         }
+        Type::Never => "!".to_string(),
     }
 }
 

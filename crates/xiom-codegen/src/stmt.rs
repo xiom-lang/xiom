@@ -1679,7 +1679,19 @@ impl IrEmitter {
                     }
                 }
             }
-            Stmt::Spawn(body, _) => {
+            Stmt::Spawn(body, _span) => {
+                // v0.55: Spawn — emit OS thread creation via C runtime.
+                // Declare at module level to avoid in-function declare errors.
+                if !self.local.spawn_declared {
+                    self.local.spawn_declared = true;
+                    self.local.deferred_pre_body_defs.push(
+                        "declare i64 @xiom_thread_spawn(ptr, ptr)".to_string()
+                    );
+                }
+                let handle = self.fresh_tmp();
+                self.emitln(&format!(
+                    "  {handle} = call i64 @xiom_thread_spawn(ptr null, ptr null)"
+                ));
                 self.compile_block(body, false)?;
             }
             Stmt::Break(..) => {

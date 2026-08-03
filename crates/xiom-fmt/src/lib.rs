@@ -296,6 +296,9 @@ impl Formatter {
                 }
                 self.buf.push_str(" }");
             }
+            Type::Never => {
+                self.buf.push('!');
+            }
         }
     }
 
