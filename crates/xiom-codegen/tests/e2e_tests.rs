@@ -1582,6 +1582,16 @@ fn e2e_i2_parallel_codegen() {
     }
 }
 
+/// Systems-arena t8: Safety probe — must compile + output valid JSON
+#[test]
+fn e2e_safety_probe() {
+    assert_eq!(
+        compile_and_run("xiom-benchmark-chaos\\reference\\systems-arena\\t8-safety-probe.xi"),
+        Some(0),
+        "Safety probe: must compile, run, and output JSON (no crash)"
+    );
+}
+
 // ============================================================================
 // M20-A1 E2E Tests — Closure Codegen
 // ============================================================================
