@@ -59,7 +59,7 @@ impl super::IrEmitter {
 
     /// Generate an invariant check function for a struct type.
     pub(crate) fn compile_invariant_check(&mut self, type_name: &str) -> Result<(), String> {
-        let invariants = match self.types.type_meta.get(type_name) {
+        let invariants = match self.types.type_meta.get(&type_name.to_string()) {
             Some(m) => m.invariants.clone(),
             None => return Ok(()),
         };
@@ -67,7 +67,7 @@ impl super::IrEmitter {
             return Ok(());
         }
         // Look up field names for this type
-        let field_names = match self.types.types.get(type_name) {
+        let field_names = match self.types.types.get(&type_name.to_string()) {
             Some(f) => f.clone(),
             None => return Ok(()),
         };
@@ -119,7 +119,7 @@ impl super::IrEmitter {
     pub(crate) fn maybe_check_value_invariants(&mut self, value: &Expr, val_reg: &str) {
         let type_name = self.struct_type_from_expr(value);
         if let Some(ref tn) = type_name {
-            if self.types.type_meta.get(tn).map(|m| !m.invariants.is_empty()).unwrap_or(false) {
+            if self.types.type_meta.get(&tn.to_string()).map(|m| !m.invariants.is_empty()).unwrap_or(false) {
                 self.compile_invariant_call(tn, val_reg);
             }
         }
@@ -183,10 +183,10 @@ impl super::IrEmitter {
                     };
                     let clean_name = sty[8..].trim_end_matches('*').to_string();
                     if let Some(field_names) = self.types.types.get(&clean_name)
-                        .or_else(|| self.types.types.keys()
-                            .find(|k| k.ends_with(&format!(".{clean_name}")))
-                            .and_then(|k| self.types.types.get(k)))
-                        .cloned()
+                        .or_else(|| self.types.types.keys().into_iter()
+    .find(|k| k.ends_with(&format!(".{clean_name}")))
+                            .and_then(|k|self.types.types.get(&k)))
+                        
                     {
                         if let Some(fi) = field_names.iter().position(|f| f == &field_expr.name) {
                             let sty_clean = format!("%struct.{clean_name}");
@@ -248,7 +248,7 @@ impl super::IrEmitter {
     }
 
     pub(crate) fn compile_invariant_call(&mut self, type_name: &str, struct_val_reg: &str) {
-        let meta = match self.types.type_meta.get(type_name) {
+        let meta = match self.types.type_meta.get(&type_name.to_string()) {
             Some(m) => m,
             None => return,
         };

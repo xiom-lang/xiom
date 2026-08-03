@@ -103,9 +103,8 @@ impl IrEmitter {
                         .and_then(|t| Self::vec_elem_from_type_annotation(t))
                         .and_then(|elem| {
                             // Compute struct size for known types
-                            let sname = self.types.types.keys()
-                                .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
-                                .cloned()
+                            let sname = self.types.types.keys().into_iter()
+    .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
                                 .unwrap_or(elem.to_string());
                             Some(self.struct_byte_size(&sname) as i64)
                         })
@@ -315,9 +314,8 @@ impl IrEmitter {
                     let elem_size: i64 = _ty.as_ref()
                         .and_then(|t| Self::vec_elem_from_type_annotation(t))
                         .and_then(|elem| {
-                            let sname = self.types.types.keys()
-                                .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
-                                .cloned()
+                            let sname = self.types.types.keys().into_iter()
+    .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
                                 .unwrap_or(elem.to_string());
                             Some(self.struct_byte_size(&sname) as i64)
                         })
@@ -603,13 +601,13 @@ impl IrEmitter {
                                 let pointee = ptr_ty.trim_end_matches('*').to_string();
                                 if pointee.starts_with("%struct.") {
                                     let type_name = &pointee[8..];
-                        if let Some(field_names) = self.types.types.get(type_name)
+                        if let Some(field_names) = self.types.types.get(&type_name.to_string())
                             .or_else(|| {
                                 let suffix = format!(".{type_name}");
-                                self.types.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
-                                    .and_then(|k| self.types.types.get(k))
+                                self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                    .and_then(|k|self.types.types.get(&k))
                             })
-                            .cloned()
+                            
                         {
                                         if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
                                             let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
@@ -647,10 +645,10 @@ impl IrEmitter {
                                 if let Some(field_names) = self.types.types.get(&type_name)
                                     .or_else(|| {
                                         let suffix = format!(".{type_name}");
-                                        self.types.types.keys().find(|k| k.ends_with(&suffix))
-                                            .and_then(|k| self.types.types.get(k))
+                                        self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix))
+                                            .and_then(|k|self.types.types.get(&k))
                                     })
-                                    .cloned()
+                                    
                                 {
                                     if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
                                         let field_llvm_ty = self.field_llvm_type(&type_name, field_idx);
@@ -880,8 +878,8 @@ impl IrEmitter {
                         })
                         .collect();
                     if !names.is_empty() {
-                        let cands: Vec<String> = self.types.enum_variants.iter()
-                            .filter(|(_, vars)| names.iter().all(|n| vars.iter().any(|(v, _)| v == n)))
+                        let cands: Vec<String> = self.types.enum_variants.entries().into_iter()
+    .filter(|(_, vars)| names.iter().all(|n| vars.iter().any(|(v, _)| v == n)))
                             .map(|(k, _)| k.clone())
                             .collect();
                         if cands.len() == 1 {
@@ -1034,12 +1032,12 @@ impl IrEmitter {
                                         if !fields.is_empty() && scrutinee_alloca_info.is_some() {
                                             let (_, type_name, _) = scrutinee_alloca_info.as_ref().unwrap();
                                             let leaf = vn.name.rsplit('.').next().unwrap_or(&vn.name);
-                                            self.types.enum_variants.get(type_name)
-                                                .and_then(|vars| vars.iter().find(|(v, _)| v == leaf || v == &vn.name))
-                                                .and_then(|(_, vfs)| vfs.first())
+                                            self.types.enum_variants.get(&type_name.to_string())
+                                                .and_then(|vars| vars.into_iter().find(|(v, _)| v == leaf || v == &vn.name))
+                                                    .and_then(|(_, vfs)| vfs.first().cloned())
                                                 .and_then(|canonical| {
-                                                    self.types.types.get(type_name)
-                                                        .and_then(|fns| fns.iter().position(|f| f == canonical))
+                                                    self.types.types.get(&type_name.to_string())
+                                                    .and_then(|fns| fns.iter().position(|f| f == &canonical))
                                                 })
                                                 .map(|fi| {
                                                     let llvm_ty = self.field_llvm_type(type_name, fi);
@@ -1092,15 +1090,15 @@ impl IrEmitter {
                                             let (alloca, type_name, struct_ty) = scrutinee_alloca_info.as_ref().unwrap();
                                             let leaf = vn.name.rsplit('.').next().unwrap_or(&vn.name).to_string();
                                             // Collect all info before mutating self
-                                            let variant_idx_opt = self.types.enum_variants.get(type_name)
+                                            let variant_idx_opt = self.types.enum_variants.get(&type_name.to_string())
                                                 .and_then(|vars| vars.iter().position(|(vn2, _)| vn2 == &leaf || vn2 == &vn.name));
                                             let canonical_opt = variant_idx_opt.and_then(|vi| {
-                                                self.types.enum_variants.get(type_name)
-                                                    .and_then(|vars| vars.get(vi))
-                                                    .and_then(|(_, vfs)| vfs.first().cloned())
+                                                self.types.enum_variants.get(&type_name.to_string())
+                                                    .and_then(|vars| vars.get(vi).cloned())
+                                                .and_then(|(_, vfs)| vfs.first().cloned())
                                             });
-                                            let fi_opt = canonical_opt.as_ref().and_then(|canonical| {
-                                                self.types.types.get(type_name)
+                                               let fi_opt = canonical_opt.as_ref().and_then(|canonical| {
+                                                self.types.types.get(&type_name.to_string())
                                                     .and_then(|fns| fns.iter().position(|f| f == canonical))
                                             });
                                             if let (Some(variant_idx), Some(fi)) = (variant_idx_opt, fi_opt) {
@@ -1300,7 +1298,7 @@ impl IrEmitter {
                         // Pre-bind Ident pattern for guard access
                         if let Pattern::Ident(ident) = &arm.pattern {
                             let is_variant = scrutinee_type.as_ref().and_then(|tn| {
-                                self.types.enum_variants.get(tn)
+                                self.types.enum_variants.get(&tn.to_string())
                                     .map(|vars| vars.iter().any(|(v, _)| v == &ident.name))
                             }).unwrap_or(false);
                             if !is_variant {
@@ -1353,10 +1351,10 @@ impl IrEmitter {
                                 let variant_name_clone = variant_ident.name.clone();
                                 if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
                                     let leaf_variant = variant_name_clone.rsplit('.').next().unwrap_or(&variant_name_clone).to_string();
-                                    let variant_info = self.types.enum_variants.get(type_name)
-                                        .and_then(|vars| vars.iter().find(|(vn, _)| vn == &leaf_variant || vn == &variant_name_clone))
+                                    let variant_info = self.types.enum_variants.get(&type_name.to_string())
+                                        .and_then(|vars| vars.into_iter().find(|(vn, _)| vn == &leaf_variant || vn == &variant_name_clone))
                                         .map(|(_, vfs)| vfs.clone());
-                                    let field_name_map = self.types.types.get(type_name).cloned();
+                                    let field_name_map = self.types.types.get(&type_name.to_string());
                                     if let (Some(vfields), Some(field_names)) = (variant_info, field_name_map) {
                                         let alloca_c = alloca.clone();
                                         let struct_ty_c = struct_ty.clone();
@@ -1402,10 +1400,10 @@ impl IrEmitter {
                     // For variant patterns, extract fields before compiling arm body
                     if let Pattern::Variant(variant_ident, fields, _) = &arm.pattern {
                         if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
-                            let field_names_opt = self.types.types.get(type_name).cloned();
+                            let field_names_opt = self.types.types.get(&type_name.to_string());
                             if let Some(field_names) = field_names_opt {
                                 let type_name_clone = type_name.clone();
-                                let variants_opt = self.types.enum_variants.get(type_name).cloned();
+                                let variants_opt = self.types.enum_variants.get(&type_name.to_string());
                                 for (fi, field_ident) in fields.iter().enumerate() {
                                     // First try direct name match
                                     let field_idx_opt = field_names.iter().position(|f| f == &field_ident.name);
@@ -1431,13 +1429,12 @@ impl IrEmitter {
                                         // losing per-variant types).
                                         let payload_xiom_ty: Option<String> = self.types.enum_variant_field_types.get(&type_name_clone)
                                             .or_else(|| {
-                                                self.types.enum_variant_field_types.iter()
-                                                    .find(|(k, _)| k.ends_with(&format!(".{type_name_clone}")))
+                                                self.types.enum_variant_field_types.entries().into_iter()
+    .find(|(k, _)| k.ends_with(&format!(".{type_name_clone}")))
                                                     .map(|(_, v)| v)
                                             })
-                                            .and_then(|vft| vft.iter().find(|(vn, _)| vn == &leaf_variant || vn == &variant_ident.name))
-                                            .and_then(|(_, ftypes)| ftypes.get(fi))
-                                            .cloned();
+                                            .and_then(|vft| vft.into_iter().find(|(vn, _)| vn == &leaf_variant || vn == &variant_ident.name))
+                                            .and_then(|(_, ftypes)| ftypes.get(fi).cloned());
                                         // Float payloads are RAW BITS in the i64 slot:
                                         // bind them as real floats via bitcast so
                                         // downstream math never sitofp's bit patterns
@@ -1489,7 +1486,7 @@ impl IrEmitter {
                     // (skip for enum variant names, which are handled by the check block)
                     if let Pattern::Ident(ident) = &arm.pattern {
                         let is_variant = scrutinee_type.as_ref().and_then(|tn| {
-                            self.types.enum_variants.get(tn)
+                            self.types.enum_variants.get(&tn.to_string())
                                 .map(|vars| vars.iter().any(|(v, _)| v == &ident.name))
                         }).unwrap_or(false);
                         if !is_variant {

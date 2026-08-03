@@ -25,7 +25,7 @@ pub mod sandbox;
 pub mod stmt;
 pub mod vec_abi;
 
-pub use context::{CodegenConfig, TypeContext, FunctionContext, MonoContext, LocalContext, TypeMeta};
+pub use context::{CodegenConfig, TypeContext, FunctionContext, MonoContext, LocalContext, TypeMeta, SyncRegistry};
 
 // ============================================================================
 // LLVM IR Emitter (M4.1: decomposed from 86-field god object into 5 sub-contexts)
@@ -110,7 +110,7 @@ impl IrEmitter {
     }
 
     /// 5e.5c: byte size of an LLVM type for state serialization.
-    pub(crate) fn llvm_type_byte_size(llvm_ty: &str, type_meta: &HashMap<String, TypeMeta>) -> usize {
+    pub(crate) fn llvm_type_byte_size(llvm_ty: &str, type_meta: &SyncRegistry<String, TypeMeta>) -> usize {
         match llvm_ty {
             "i1" | "i8" => 1,
             "i16" => 2,
@@ -118,8 +118,8 @@ impl IrEmitter {
             "i64" | "double" => 8,
             ty if ty.starts_with("%struct.") => {
                 let inner = &ty[8..];
-                let meta = type_meta.get(inner)
-                    .or_else(|| type_meta.iter().find(|(k,_)| k.ends_with(&format!(".{inner}"))).map(|(_,v)| v));
+                let meta = type_meta.get(&inner.to_string())
+                    .or_else(|| type_meta.entries().into_iter().find(|(k,_)| k.ends_with(&format!(".{inner}"))).map(|(_,v)| v));
                 match meta {
                     Some(m) => {
                         let mut total: usize = 0;
@@ -626,17 +626,17 @@ impl IrEmitter {
         let types_fields = self.types.types.get(&recv.name)
             .or_else(|| {
                 let suffix = format!(".{}", recv.name);
-                self.types.types.keys().find(|k| k.ends_with(&suffix)).and_then(|k| self.types.types.get(k))
+                self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix)).and_then(|k|self.types.types.get(&k))
             })
-            .cloned();
+            ;
         let fields: Option<Vec<String>> = types_fields.or_else(|| {
             self.types.type_meta.get(&recv.name).map(|m| {
                 m.fields.iter().map(|(n, _)| n.clone()).collect()
             })
         }).or_else(|| {
             let suffix = format!(".{}", recv.name);
-            self.types.type_meta.keys().find(|k| k.ends_with(&suffix)).and_then(|k| {
-                self.types.type_meta.get(k).map(|m| {
+            self.types.type_meta.keys().into_iter().find(|k| k.ends_with(&suffix)).and_then(|k| {
+                self.types.type_meta.get(&k).map(|m| {
                     m.fields.iter().map(|(n, _)| n.clone()).collect()
                 })
             })
@@ -1056,8 +1056,8 @@ impl IrEmitter {
         // also be real structs (type J = {...}). Check the type registry.
         if name.len() == 1 && name.chars().next().map_or(false, |c| c.is_uppercase()) {
             return self.resolve_type_key(name) != name
-                || self.types.type_meta.contains_key(name)
-                || self.types.types.contains_key(name);
+                || self.types.type_meta.contains_key(&name.to_string())
+                || self.types.types.contains_key(&name.to_string());
         }
         true
     }
@@ -1148,7 +1148,7 @@ impl IrEmitter {
                         .map(|f| (f.name.name.clone(), Self::type_from_ast_with_args(&f.ty)))
                         .collect();
                     self.types.types.insert(anon_name.clone(), field_names);
-                    self.types.type_meta.entry(anon_name).or_insert_with(|| TypeMeta {
+                    self.types.type_meta.or_insert_with(anon_name, || TypeMeta {
                         fields: field_meta,
                         invariants: vec![],
                         derives: vec![],
@@ -1182,7 +1182,7 @@ impl IrEmitter {
     /// (handles module-qualified names like "tests.ecosystem.test_json.JsonValue").
     fn resolve_type_key(&self, short_name: &str) -> String {
         // Exact match first
-        if self.types.type_meta.contains_key(short_name) || self.types.types.contains_key(short_name) {
+        if self.types.type_meta.contains_key(&short_name.to_string()) || self.types.types.contains_key(&short_name.to_string()) {
             return short_name.to_string();
         }
         // Module-qualified suffix match
@@ -1247,11 +1247,10 @@ impl IrEmitter {
     /// known after `register_type_layout` completes. Called BEFORE the emission
     /// loop so every function body sees the correct LLVM type definition.
     fn pre_register_concrete_types(&mut self) {
-        let struct_names: Vec<String> = self.types.type_meta.keys()
-            .filter(|k| Self::is_struct_type_name(k)
+        let struct_names: Vec<String> = self.types.type_meta.keys().into_iter()
+     .filter(|k| Self::is_struct_type_name(k)
                 // Skip already-concrete monomorphs (they contain "__")
                 && !k.contains("__"))
-            .cloned()
             .collect();
         // Option__T for every struct T
         for t in &struct_names {
@@ -1386,17 +1385,17 @@ impl IrEmitter {
             return Some(rt.clone());
         }
         let suffix = format!(".{leaf}");
-        let mut found: Option<&String> = None;
-        for (k, v) in self.types.fn_return_xiom.iter() {
+        let mut found: Option<String> = None;
+        for (k, v) in self.types.fn_return_xiom.entries() {
             if k.ends_with(&suffix) {
-                match found {
+                match &found {
                     None => found = Some(v),
-                    Some(prev) if prev == v => {}
+                    Some(prev) if *prev == v => {}
                     _ => return None, // ambiguous with different types
                 }
             }
         }
-        found.cloned()
+        found
     }
 
     /// 5c.30: Track boxed-struct payload flow for a `let`/`var` binding.
@@ -1419,9 +1418,8 @@ impl IrEmitter {
         // Without this, nested match guards on extracted payloads see stale
         // zero values because the intermediate matches have no scrutinee alloca.
         if let Some(payload_type) = Self::struct_ctor_type_name(value) {
-            let stored = self.types.types.keys()
-                .find(|k| k.ends_with(&format!(".{payload_type}")) || k.as_str() == payload_type)
-                .cloned()
+            let stored = self.types.types.keys().into_iter()
+    .find(|k| k.ends_with(&format!(".{payload_type}")) || k.as_str() == payload_type)
                 .unwrap_or_else(|| payload_type.clone());
             self.local.local_opt_payload.insert(name.to_string(), stored);
             return;
@@ -1464,9 +1462,8 @@ impl IrEmitter {
                     let stored = if payload.contains('[') {
                         payload
                     } else {
-                        self.types.types.keys()
-                            .find(|k| k.ends_with(&format!(".{payload}")) || k.as_str() == payload)
-                            .cloned()
+                        self.types.types.keys().into_iter()
+    .find(|k| k.ends_with(&format!(".{payload}")) || k.as_str() == payload)
                             .unwrap_or(payload)
                     };
                     self.local.local_opt_payload.insert(name.to_string(), stored);
@@ -1615,8 +1612,8 @@ impl IrEmitter {
         if let Expr::Field(base, field_expr, _) = container {
             let base_ty = self.infer_struct_type_name(base)?;
             for key in self.types.type_meta.keys() {
-                if key.ends_with(&base_ty) || key == &base_ty {
-                    if let Some(meta) = self.types.type_meta.get(key) {
+                if key.ends_with(&base_ty) || key == base_ty {
+                    if let Some(meta) = self.types.type_meta.get(&key) {
                         for (fname, ftype) in &meta.fields {
                             if fname == &field_expr.name {
                                 return match ftype.as_str() {
@@ -1648,24 +1645,22 @@ impl IrEmitter {
             if matches!(elem.as_str(), "Int" | "Bool" | "Str" | "Float64" | "Float32" | "UInt8" | "Int8" | "Int16" | "Int32" | "UInt16" | "UInt32" | "Char" | "Float") {
                 return None;
             }
-            return self.types.types.keys()
-                .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
-                .cloned();
+            return self.types.types.keys().into_iter()
+    .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem);
         }
         if let Expr::Field(base, field_expr, _) = container {
             let base_ty = self.infer_struct_type_name(base)?;
             for key in self.types.type_meta.keys() {
-                if key.ends_with(&base_ty) || key == &base_ty {
-                    if let Some(meta) = self.types.type_meta.get(key) {
+                if key.ends_with(&base_ty) || key == base_ty {
+                    if let Some(meta) = self.types.type_meta.get(&key) {
                         for (fname, ftype) in &meta.fields {
                             if fname == &field_expr.name {
                                 if let Some(inner) = ftype.strip_prefix("Vec[") {
                                     if let Some(bare_name) = inner.strip_suffix(']') {
                                         // Only return if this is a known struct type
                                         // (not a primitive like Int, Str, Bool, etc.)
-                                        if let Some(qualified) = self.types.types.keys()
-                                            .find(|k| k.ends_with(&format!(".{}", bare_name)) || k.as_str() == bare_name)
-                                            .cloned()
+                                        if let Some(qualified) = self.types.types.keys().into_iter()
+    .find(|k| k.ends_with(&format!(".{}", bare_name)) || k.as_str() == bare_name)
                                         {
                                             return Some(qualified);
                                         }
@@ -1752,11 +1747,11 @@ impl IrEmitter {
             }
         }
         // Try exact match
-        if self.types.types.contains_key(clean_name) || self.types.type_meta.contains_key(clean_name) {
+        if self.types.types.contains_key(&clean_name.to_string()) || self.types.type_meta.contains_key(&clean_name.to_string()) {
             return Ok(format!("%struct.{clean_name}"));
         }
         // Search for any module-qualified variant ending with .clean_name
-        for (key, _) in &self.types.type_meta {
+        for (key, _) in self.types.type_meta.entries() {
             if key.ends_with(&format!(".{clean_name}")) {
                 return Ok(format!("%struct.{key}"));
             }
@@ -1777,7 +1772,7 @@ impl IrEmitter {
             _ => {}
         }
         // If type_name is an enum variant (e.g., "Image"), find its parent enum type
-        for (enum_key, variants) in &self.types.enum_variants {
+        for (enum_key, variants) in self.types.enum_variants.entries() {
             if variants.iter().any(|(v, _)| v == type_name) {
                 return Ok(format!("%struct.{enum_key}"));
             }
@@ -1789,7 +1784,7 @@ impl IrEmitter {
         // `i64` fallback while `infer_llvm_type` resolves it to `%struct.Name`,
         // producing store/return/arg type mismatches. Match exact, module-qualified,
         // then suffix ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â mirroring the struct lookup above.
-        if self.types.enum_variants.contains_key(type_name) {
+        if self.types.enum_variants.contains_key(&type_name.to_string()) {
             return Ok(format!("%struct.{type_name}"));
         }
         if let Some(ref module) = self.local.current_module {
@@ -1906,10 +1901,10 @@ impl IrEmitter {
         if depth > 8 {
             return 8;
         }
-        let meta = self.types.type_meta.get(type_name)
+        let meta = self.types.type_meta.get(&type_name.to_string())
             .or_else(|| {
-                self.types.type_meta.iter()
-                    .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
+                self.types.type_meta.entries().into_iter()
+    .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
                     .map(|(_, v)| v)
             });
         let Some(meta) = meta else {
@@ -1962,7 +1957,7 @@ impl IrEmitter {
             "Char" => 4,
             _ => {
                 // For struct types, alignment = max field alignment
-                if let Some(meta) = self.types.type_meta.get(type_name) {
+                if let Some(meta) = self.types.type_meta.get(&type_name.to_string()) {
                     let mut max_align = 1u64;
                     for (_, fty) in meta.fields.iter() {
                         let fa = self.align_of_type(fty);
@@ -1971,8 +1966,8 @@ impl IrEmitter {
                     max_align
                 } else {
                     // Try qualified lookup
-                    if let Some(meta) = self.types.type_meta.iter()
-                        .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
+                    if let Some(meta) = self.types.type_meta.entries().into_iter()
+    .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
                         .map(|(_, v)| v)
                     {
                         let mut max_align = 1u64;
@@ -2002,10 +1997,10 @@ impl IrEmitter {
     /// v0.54: Compute byte offset of a named field within a struct type.
     /// Returns 0 for the first field, sizeof(field0) for the second, etc.
     pub(crate) fn field_offset_of(&self, type_name: &str, field_name: &str) -> u64 {
-        let meta = self.types.type_meta.get(type_name)
+        let meta = self.types.type_meta.get(&type_name.to_string())
             .or_else(|| {
-                self.types.type_meta.iter()
-                    .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
+                self.types.type_meta.entries().into_iter()
+    .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
                     .map(|(_, v)| v)
             });
         let Some(meta) = meta else { return 0 };
@@ -2027,7 +2022,7 @@ impl IrEmitter {
             "Int8" | "UInt8" | "Bool" => 1,
             "Str" => 8,
             _ => {
-                if let Some(_meta) = self.types.type_meta.get(type_name) {
+                if let Some(_meta) = self.types.type_meta.get(&type_name.to_string()) {
                     self.struct_byte_size(type_name) as u64
                 } else {
                     8
@@ -2037,7 +2032,7 @@ impl IrEmitter {
     }
 
     fn field_llvm_type(&self, struct_name: &str, field_idx: usize) -> String {
-        let meta = self.types.type_meta.get(struct_name)
+        let meta = self.types.type_meta.get(&struct_name.to_string())
             .or_else(|| {
                 // Try current module's qualified name first (deterministic)
                 if let Some(ref module) = self.local.current_module {
@@ -2049,8 +2044,8 @@ impl IrEmitter {
             })
             .or_else(|| {
                 // Fallback: search all qualified keys
-                self.types.type_meta.iter()
-                    .find(|(k, _)| k.ends_with(&format!(".{struct_name}")))
+                self.types.type_meta.entries().into_iter()
+    .find(|(k, _)| k.ends_with(&format!(".{struct_name}")))
                     .map(|(_, v)| v)
             });
         if let Some(meta) = meta {
@@ -2076,8 +2071,8 @@ impl IrEmitter {
     /// Returns 0 for unknown types. Used for C FFI malloc/offsetof.
     pub(crate) fn sizeof_struct(&self, type_name: &str) -> usize {
         let suffix = format!(".{type_name}");
-        let meta = self.types.type_meta.get(type_name)
-            .or_else(|| self.types.type_meta.iter().find(|(k, _)| k.ends_with(&suffix)).map(|(_, v)| v));
+        let meta = self.types.type_meta.get(&type_name.to_string())
+            .or_else(|| self.types.type_meta.entries().into_iter().find(|(k, _)| k.ends_with(&suffix)).map(|(_, v)| v));
         let Some(meta) = meta else { return 0 };
         meta.fields.iter().map(|(_, ty_name)| {
             if ty_name.contains('[') { return 8; }
@@ -2099,10 +2094,10 @@ impl IrEmitter {
             // enum qualifier â€” compare the LEAF segment. Also tolerate
             // qualified/unqualified enum keys.
             let leaf = name.rsplit('.').next().unwrap_or(name);
-            let variants = self.types.enum_variants.get(type_name)
+            let variants = self.types.enum_variants.get(&type_name.to_string())
                 .or_else(|| {
-                    self.types.enum_variants.iter()
-                        .find(|(k, _)| {
+                    self.types.enum_variants.entries().into_iter()
+    .find(|(k, _)| {
                             k.ends_with(&format!(".{type_name}"))
                                 || type_name.ends_with(&format!(".{}", k.as_str()))
                         })
@@ -2153,10 +2148,10 @@ impl IrEmitter {
             // carry the enum qualifier in the name â€” compare against the LEAF
             // segment. Also tolerate qualified/unqualified enum keys.
             let leaf = variant_name.rsplit('.').next().unwrap_or(variant_name);
-            let variants = self.types.enum_variants.get(type_name)
+            let variants = self.types.enum_variants.get(&type_name.to_string())
                 .or_else(|| {
-                    self.types.enum_variants.iter()
-                        .find(|(k, _)| {
+                    self.types.enum_variants.entries().into_iter()
+    .find(|(k, _)| {
                             k.ends_with(&format!(".{type_name}"))
                                 || type_name.ends_with(&format!(".{}", k.as_str()))
                         })
@@ -2187,7 +2182,7 @@ impl IrEmitter {
 
     pub fn compile_program(&mut self, program: &Program) -> Result<String, String> {
         // Register builtin types for Option and Result
-        if !self.types.types.contains_key("Option") {
+        if !self.types.types.contains_key(&"Option".to_string()) {
             self.types.types.insert("Option".to_string(), vec!["discriminant".to_string(), "value".to_string()]);
             self.types.type_meta.insert("Option".to_string(), TypeMeta {
                 fields: vec![("discriminant".to_string(), "Int".to_string()), ("value".to_string(), "Int".to_string())],
@@ -2195,7 +2190,7 @@ impl IrEmitter {
                 invariants: vec![],
             });
         }
-        if !self.types.types.contains_key("Result") {
+        if !self.types.types.contains_key(&"Result".to_string()) {
             self.types.types.insert("Result".to_string(), vec!["discriminant".to_string(), "value".to_string(), "error".to_string()]);
             self.types.type_meta.insert("Result".to_string(), TypeMeta {
                 fields: vec![
@@ -2207,7 +2202,7 @@ impl IrEmitter {
                 invariants: vec![],
             });
         }
-        if !self.types.enum_variants.contains_key("Result") {
+        if !self.types.enum_variants.contains_key(&"Result".to_string()) {
             self.types.enum_variants.insert("Result".to_string(), vec![
                 ("Err".to_string(), vec!["error".to_string()]),
                 ("Ok".to_string(), vec!["value".to_string()]),
@@ -2229,16 +2224,18 @@ impl IrEmitter {
             ];
             self.types.types.insert("Vec".to_string(), fields);
             // Ensure type_meta has a Vec entry so the struct is emitted
-            self.types.type_meta.entry("Vec".to_string()).or_insert_with(|| TypeMeta {
+            self.types.type_meta.or_insert_with("Vec".to_string(), || TypeMeta {
                 fields: full_fields.clone(),
                 derives: Vec::new(),
                 invariants: Vec::new(),
             });
             for key in &["xiom.collections.Vec".to_string()] {
-                if let Some(meta) = self.types.type_meta.get_mut(key) {
+                let meta_opt = self.types.type_meta.get(key);
+                if let Some(mut meta) = meta_opt {
                     if meta.fields.len() < 4 {
                         meta.fields.push(("elem_size".to_string(), "Int".to_string()));
                     }
+                    self.types.type_meta.insert(key.clone(), meta);
                 }
             }
             // Map[K, V]: register with keys and values fields (both are %struct.Vec).
@@ -2250,7 +2247,7 @@ impl IrEmitter {
                 ("values".to_string(), "Vec".to_string()),
             ];
             self.types.types.insert("Map".to_string(), map_fields);
-            self.types.type_meta.entry("Map".to_string()).or_insert_with(|| TypeMeta {
+            self.types.type_meta.or_insert_with("Map".to_string(), || TypeMeta {
                 fields: map_full_fields,
                 derives: Vec::new(),
                 invariants: Vec::new(),
@@ -2261,7 +2258,7 @@ impl IrEmitter {
         // ({i64, i64}) is emitted even when alloc.xi is not compiled directly.
         // The Layout.new constructor is inlined in expr.rs; this ensures the
         // type definition exists for the emitted insertvalue instructions.
-        if !self.types.type_meta.contains_key("xiom.alloc.Layout") {
+        if !self.types.type_meta.contains_key(&"xiom.alloc.Layout".to_string()) {
             self.types.type_meta.insert("xiom.alloc.Layout".to_string(), TypeMeta {
                 fields: vec![
                     ("size".to_string(), "Int".to_string()),
@@ -2276,7 +2273,7 @@ impl IrEmitter {
         // 5e.3: Register RcInner as a builtin type so size_of[RcInner[T]]()
         // resolves inside monomorphised generic bodies (e.g. Rc.new_Int).
         // RcInner has 3 i64-wide fields: strong, weak, value = 24 bytes.
-        if !self.types.type_meta.contains_key("xiom.rc.RcInner") {
+        if !self.types.type_meta.contains_key(&"xiom.rc.RcInner".to_string()) {
             self.types.type_meta.insert("xiom.rc.RcInner".to_string(), TypeMeta {
                 fields: vec![
                     ("strong".to_string(), "Int".to_string()),
@@ -2336,7 +2333,7 @@ impl IrEmitter {
         self.emitln("");
 
         // Emit struct type definitions using actual field types from type_meta
-        for (name, meta) in &self.types.type_meta.clone() {
+        for (name, meta) in self.types.type_meta.entries() {
             let struct_ref = format!("%struct.{name}");
             let field_types: Vec<String> = meta.fields.iter()
                 .map(|(_, ty_name)| {
@@ -2346,7 +2343,7 @@ impl IrEmitter {
                 .collect();
             self.emitln(&format!("%struct.{name} = type {{ {} }}", field_types.join(", ")));
         }
-        if !self.types.types.is_empty() {
+        if !self.types.types.len() == 0 {
             self.emitln("");
         }
 
@@ -2441,11 +2438,11 @@ impl IrEmitter {
             // M18: Inlined Option/Result constructors — return the struct type
             // so match compilation creates scrutinee alloca for inner value checks.
             Expr::Some(..) | Expr::None(..) => {
-                if self.types.types.contains_key("Option") { Some("Option".to_string()) }
+                if self.types.types.contains_key(&"Option".to_string()) { Some("Option".to_string()) }
                 else { None }
             }
             Expr::Ok(..) | Expr::Err(..) => {
-                if self.types.types.contains_key("Result") { Some("Result".to_string()) }
+                if self.types.types.contains_key(&"Result".to_string()) { Some("Result".to_string()) }
                 else { None }
             }
             Expr::Field(obj, field, _) => {
@@ -2454,8 +2451,8 @@ impl IrEmitter {
                 // the enum itself. Without this, bare-ident match arms were
                 // treated as bindings and dispatch fell through to the last arm.
                 if let Expr::Ident(base_id) = obj.as_ref() {
-                    for (ek, vars) in self.types.enum_variants.iter() {
-                        if (ek == &base_id.name || ek.ends_with(&format!(".{}", base_id.name)))
+                    for (ek, vars) in self.types.enum_variants.entries() {
+                        if (ek == base_id.name || ek.ends_with(&format!(".{}", base_id.name)))
                             && vars.iter().any(|(v, _)| v == &field.name)
                         {
                             return Some(ek.clone());
@@ -2469,8 +2466,8 @@ impl IrEmitter {
                 // scrutinee type, not `Agent`.
                 if let Some(base_type) = self.infer_struct_type_name(obj.as_ref()) {
                     for key in self.types.type_meta.keys() {
-                        if key.ends_with(&base_type) || key == &base_type {
-                            if let Some(meta) = self.types.type_meta.get(key) {
+                        if key.ends_with(&base_type) || key == base_type {
+                            if let Some(meta) = self.types.type_meta.get(&key) {
                                 for (fname, ftype) in &meta.fields {
                                     if fname == &field.name {
                                         let clean = ftype.trim_start_matches('*');
@@ -2480,7 +2477,7 @@ impl IrEmitter {
                                         if Self::is_primitive_type_name(clean) {
                                             return None;
                                         }
-                                        if self.types.type_meta.contains_key(clean) {
+                                        if self.types.type_meta.contains_key(&clean.to_string()) {
                                             return Some(clean.to_string());
                                         }
                                         for mk in self.types.type_meta.keys() {
@@ -3142,7 +3139,7 @@ impl IrEmitter {
         let mut h = self.fresh_tmp();
         self.emitln(&format!("  {h} = mul i64 {d}, 31"));
         // Hash payload slots (indices 1..N) using content-aware hashing
-        let field_count = self.types.types.get(type_name).map(|f| f.len()).unwrap_or(1);
+        let field_count = self.types.types.get(&type_name.to_string()).map(|f| f.len()).unwrap_or(1);
         for fi in 1..field_count {
             let fv = self.fresh_tmp();
             self.emitln(&format!("  {fv} = extractvalue {struct_ty} %self, {fi}"));
@@ -3468,7 +3465,7 @@ impl IrEmitter {
                 self.ensure_concrete_tuple_type_registered(&p.ty, &type_map);
             }
             // Register the specialized function signature
-            let struct_types: HashSet<String> = self.types.types.keys().cloned().collect();
+            let struct_types: HashSet<String> = self.types.types.keys().into_iter().collect();
             let subst_type = |t: &Type| -> String {
                 match t {
                     Type::Named(id, _) => {
@@ -3638,7 +3635,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 let base = fd.receiver.as_ref().and_then(|r| {
                     self.llvm_type_for(&r.name).ok().or_else(|| {
                         let search = format!(".{}", r.name);
-                        self.types.type_meta.keys().find(|k| k.ends_with(&search))
+                        self.types.type_meta.keys().into_iter().find(|k| k.ends_with(&search))
                             .map(|k| format!("%struct.{k}"))
                     })
                 }).unwrap_or_else(|| "i64".to_string());
@@ -3699,24 +3696,24 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                     self.add_local("self", loaded_ptr.clone(), struct_ty);
                     // Register fields via GEP on the loaded pointer
                     let recv_type_name = &recv.name;
-                    let names_opt = self.types.types.get(recv_type_name).cloned()
+                    let names_opt = self.types.types.get(&recv_type_name.to_string())
                         .or_else(|| {
                             if let Some(ref module) = self.local.current_module {
                                 let qualified = format!("{}.{}", module, recv_type_name);
-                                self.types.types.get(&qualified).cloned()
+                                self.types.types.get(&qualified)
                             } else {
-                                self.types.types.keys().find(|k| k.ends_with(&format!(".{recv_type_name}"))).and_then(|k| self.types.types.get(k).cloned())
+                                self.types.types.keys().into_iter().find(|k| k.ends_with(&format!(".{recv_type_name}"))).and_then(|k|self.types.types.get(&k))
                             }
                         });
                     if let Some(names) = names_opt {
-                        let type_key = self.types.types.get(recv_type_name).map(|_| recv_type_name.clone())
+                        let type_key = self.types.types.get(&recv_type_name.to_string()).map(|_| recv_type_name.clone())
                             .or_else(|| {
                                 if let Some(ref module) = self.local.current_module {
                                     let q = format!("{}.{}", module, recv_type_name);
                                     if self.types.types.contains_key(&q) { Some(q) } else { None }
                                 } else { None }
                             })
-                            .or_else(|| self.types.types.keys().find(|k| k.ends_with(&format!(".{recv_type_name}"))).cloned())
+                            .or_else(|| self.types.types.keys().into_iter().find(|k| k.ends_with(&format!(".{recv_type_name}"))))
                             .unwrap_or_else(|| recv_type_name.clone());
                         for (idx, field_name) in names.iter().enumerate() {
                             let field_llvm_ty = self.field_llvm_type(&type_key, idx);
@@ -3729,24 +3726,24 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                     self.add_local("self", self_alloca.clone(), st);
                     // Register each struct field as a local (bare name access like `items`)
                     let recv_type_name = &recv.name;
-                    let names_opt = self.types.types.get(recv_type_name).cloned()
+                    let names_opt = self.types.types.get(&recv_type_name.to_string())
                         .or_else(|| {
                             if let Some(ref module) = self.local.current_module {
                                 let qualified = format!("{}.{}", module, recv_type_name);
-                                self.types.types.get(&qualified).cloned()
+                                self.types.types.get(&qualified)
                             } else {
-                                self.types.types.iter().find(|(k, _)| k.ends_with(&format!(".{recv_type_name}"))).map(|(_, v)| v.clone())
+                                self.types.types.entries().into_iter().find(|(k, _)| k.ends_with(&format!(".{recv_type_name}"))).map(|(_, v)| v.clone())
                             }
                         });
                     if let Some(names) = names_opt {
-                        let type_key = self.types.types.get(recv_type_name).map(|_| recv_type_name.clone())
+                        let type_key = self.types.types.get(&recv_type_name.to_string()).map(|_| recv_type_name.clone())
                             .or_else(|| {
                                 if let Some(ref module) = self.local.current_module {
                                     let q = format!("{}.{}", module, recv_type_name);
                                     if self.types.types.contains_key(&q) { Some(q) } else { None }
                                 } else { None }
                             })
-                            .or_else(|| self.types.types.keys().find(|k| k.ends_with(&format!(".{recv_type_name}"))).cloned())
+                            .or_else(|| self.types.types.keys().into_iter().find(|k| k.ends_with(&format!(".{recv_type_name}"))))
                             .unwrap_or_else(|| recv_type_name.clone());
                         for (idx, field_name) in names.iter().enumerate() {
                             let field_llvm_ty = self.field_llvm_type(&type_key, idx);
@@ -3892,13 +3889,12 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
         // B-001: Emit builtins for concrete Option__T types so `.is_some`,
         // `.is_none`, and `.unwrap` resolve without falling through to
         // the monomorphisation stub (which returns 0).
-        let concrete_opts: Vec<String> = self.types.type_meta.keys()
-            .filter(|k| k.starts_with("Option__"))
-            .cloned()
+        let concrete_opts: Vec<String> = self.types.type_meta.keys().into_iter()
+     .filter(|k| k.starts_with("Option__"))
             .collect();
         for name in &concrete_opts {
             let cty = format!("%struct.{name}");
-            let field_ty_1 = self.types.type_meta.get(name.as_str())
+            let field_ty_1 = self.types.type_meta.get(name)
                 .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
                 .unwrap_or_else(|| "Int".to_string());
             let llvm1 = if field_ty_1 == "Int" { "i64".to_string() }
@@ -4208,7 +4204,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
             }
         }
         // Module-qualified enum key ending in `.type_seg` (e.g. `xiom.log.LogLevel`).
-        for (enum_key, vars) in &self.types.enum_variants {
+        for (enum_key, vars) in self.types.enum_variants.entries() {
             if enum_key.ends_with(&format!(".{type_seg}"))
                 && vars.iter().any(|(v, _)| v == variant)
             {
@@ -4299,14 +4295,14 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 if let Some(base_struct) = self.infer_struct_type_name(obj.as_ref()) {
                     // Try module-qualified type lookup first
                     for key in self.types.type_meta.keys() {
-                        if key.ends_with(&base_struct) || key == &base_struct {
-                            if let Some(meta) = self.types.type_meta.get(key) {
+                        if key.ends_with(&base_struct) || key == base_struct {
+                            if let Some(meta) = self.types.type_meta.get(&key) {
                                 for (fname, ftype) in &meta.fields {
                                     if fname == &field.name {
                                         // Strip leading `*` from pointer types (e.g. `*SqliteRow`).
                                         let clean = ftype.trim_start_matches('*');
-                                        if self.types.type_meta.contains_key(clean)
-                                            || self.types.types.contains_key(clean)
+                                        if self.types.type_meta.contains_key(&clean.to_string())
+                                            || self.types.types.contains_key(&clean.to_string())
                                             || clean == "Vec" || clean == "Option"
                                             || clean == "Result" || clean == "Map"
                                             || clean == "Set" || clean == "Str" {
@@ -4427,14 +4423,14 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
     }
 
     fn field_xiom_type(&self, struct_name: &str, field_idx: usize) -> Option<String> {
-        let meta = self.types.type_meta.get(struct_name)
+        let meta = self.types.type_meta.get(&struct_name.to_string())
             .or_else(|| {
                 self.local.current_module.as_ref()
                     .and_then(|m| self.types.type_meta.get(&format!("{m}.{struct_name}")))
             })
             .or_else(|| {
-                self.types.type_meta.iter()
-                    .find(|(k, _)| k.ends_with(&format!(".{struct_name}")))
+                self.types.type_meta.entries().into_iter()
+    .find(|(k, _)| k.ends_with(&format!(".{struct_name}")))
                     .map(|(_, v)| v)
             })?;
         meta.fields.get(field_idx).map(|(_, t)| t.clone())
@@ -4490,8 +4486,8 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                     return llvm_ty.clone();
                 }
                 // If the ident is an enum variant name (e.g., DivByZero), return the parent enum's struct type
-                if let Some(enum_key) = self.types.enum_variants.iter()
-                    .find(|(_, vars)| vars.iter().any(|(v, _)| v == &ident.name))
+                if let Some(enum_key) = self.types.enum_variants.entries().into_iter()
+    .find(|(_, vars)| vars.iter().any(|(v, _)| v == &ident.name))
                     .map(|(ek, _)| ek)
                 {
                     return format!("%struct.{enum_key}");
@@ -4504,12 +4500,12 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 let obj_ty = self.infer_llvm_type(obj);
                 if obj_ty.starts_with("%struct.") && !obj_ty.ends_with('*') {
                     let type_name = &obj_ty[8..]; // strip "%struct."
-                    if let Some(meta) = self.types.type_meta.get(type_name)
+                    if let Some(meta) = self.types.type_meta.get(&type_name.to_string())
                         .or_else(|| {
                             let suffix = format!(".{type_name}");
-                            self.types.type_meta.keys()
-                                .find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
-                                .and_then(|k| self.types.type_meta.get(k))
+                            self.types.type_meta.keys().into_iter()
+    .find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                .and_then(|k|self.types.type_meta.get(&k))
                         })
                     {
                         if let Some((_, ty_name)) = meta.fields.iter().find(|(name, _)| name == &field.name) {
@@ -4522,7 +4518,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                     if let Some((_, llvm_ty)) = self.lookup_local(&obj_ident.name) {
                         if llvm_ty.starts_with("%struct.") {
                             let type_name = &llvm_ty[8..];
-                            if let Some(meta) = self.types.type_meta.get(type_name) {
+                            if let Some(meta) = self.types.type_meta.get(&type_name.to_string()) {
                                 if let Some((_, ty_name)) = meta.fields.iter().find(|(name, _)| name == &field.name) {
                                     return self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
                                 }
@@ -4577,7 +4573,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                     // Fallback: search for any key ending with .name that returns a struct
                     {
                         let suffix = format!(".{name}");
-                        for (k, (_, rt)) in &self.types.functions {
+                        for (k, (_, rt)) in self.types.functions.entries() {
                             if k.ends_with(&suffix) && rt.starts_with("%struct.") {
                                 return rt.clone();
                             }
@@ -4598,7 +4594,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 // concrete monomorphised types (Option__Point) infer correctly.
                 if self.fctx.current_return_type.starts_with("%struct.") {
                     self.fctx.current_return_type.clone()
-                } else if self.types.types.contains_key("Option") {
+                } else if self.types.types.contains_key(&"Option".to_string()) {
                     "%struct.Option".to_string()
                 } else {
                     "i64".to_string()
@@ -4607,7 +4603,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
             Expr::Ok(..) | Expr::Err(..) => {
                 if self.fctx.current_return_type.starts_with("%struct.") {
                     self.fctx.current_return_type.clone()
-                } else if self.types.types.contains_key("Result") {
+                } else if self.types.types.contains_key(&"Result".to_string()) {
                     "%struct.Result".to_string()
                 } else {
                     "i64".to_string()
@@ -4698,7 +4694,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                     if let Some((_, llvm_ty)) = self.lookup_local(&obj_ident.name) {
                         if llvm_ty.starts_with("%struct.") {
                             let type_name = &llvm_ty[8..];
-                            if let Some(meta) = self.types.type_meta.get(type_name) {
+                            if let Some(meta) = self.types.type_meta.get(&type_name.to_string()) {
                                 if let Some((_, ty_name)) = meta.fields.iter().find(|(name, _)| name == &field.name) {
                                     return ty_name == "Float64" || ty_name == "Float32";
                                 }

@@ -221,7 +221,7 @@ impl IrEmitter {
         }
         // Empty (zero-sized) structs have no field 0 — GEP would be invalid.
         let type_name = &struct_ty[8..];
-        let is_empty = self.types.type_meta.get(type_name).map(|m| m.fields.is_empty()).unwrap_or(false);
+        let is_empty = self.types.type_meta.get(&type_name.to_string()).map(|m| m.fields.is_empty()).unwrap_or(false);
         if is_empty {
             return "0".to_string();
         }
@@ -242,7 +242,7 @@ impl IrEmitter {
             return val.to_string();
         }
         let type_name = &struct_ty[8..];
-        let is_empty = self.types.type_meta.get(type_name).map(|m| m.fields.is_empty()).unwrap_or(false);
+        let is_empty = self.types.type_meta.get(&type_name.to_string()).map(|m| m.fields.is_empty()).unwrap_or(false);
         if is_empty {
             return "0".to_string();
         }
@@ -417,11 +417,11 @@ impl IrEmitter {
         } else if val_ty == "i64" {
             // For multi-field structs loaded from Vec (heap pointer from val_to_i64),
             // memcpy the full struct from the heap instead of storing a single i64.
-            let num_fields = self.types.types.get(type_name)
+            let num_fields = self.types.types.get(&type_name.to_string())
                 .or_else(|| {
                     let suffix = format!(".{}", type_name);
-                    self.types.types.keys().find(|k| k.ends_with(&suffix))
-                        .and_then(|k| self.types.types.get(k))
+                    self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix))
+                        .and_then(|k|self.types.types.get(&k))
                 })
                 .map(|f| f.len())
                 .unwrap_or(1);

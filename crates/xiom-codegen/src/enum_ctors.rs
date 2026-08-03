@@ -11,7 +11,7 @@ impl IrEmitter {
         self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
 
         // Set discriminant (field 0) to variant index
-        let var_idx = self.types.enum_variants.get(enum_name)
+        let var_idx = self.types.enum_variants.get(&enum_name.to_string())
             .and_then(|vars| vars.iter().position(|(v, _)| v == variant_name))
             .unwrap_or(0) as i64;
         let disc_gep = self.fresh_tmp();
@@ -19,9 +19,9 @@ impl IrEmitter {
         self.emitln(&format!("  store i64 {var_idx}, i64* {disc_gep}"));
 
         // Get the variant's field names and the parent enum's field list
-        let parent_fields = self.types.types.get(enum_name).cloned().unwrap_or_default();
-        let variant_fields = self.types.enum_variants.get(enum_name)
-            .and_then(|vars| vars.iter().find(|(v, _)| v == variant_name))
+        let parent_fields = self.types.types.get(&enum_name.to_string()).unwrap_or_default();
+        let variant_fields = self.types.enum_variants.get(&enum_name.to_string())
+            .and_then(|vars| vars.into_iter().find(|(v, _)| v == variant_name))
             .map(|(_, vf)| vf.clone())
             .unwrap_or_default();
 

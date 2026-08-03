@@ -212,7 +212,7 @@ impl crate::IrEmitter {
         let fields = self.types.types.get(&recv.name)
             .or_else(|| {
                 let suffix = format!(".{}", recv.name);
-                self.types.types.keys().find(|k| k.ends_with(&suffix)).and_then(|k| self.types.types.get(k))
+                self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix)).and_then(|k|self.types.types.get(&k))
             });
         let Some(fields) = fields else { return false };
         let param_names: std::collections::HashSet<&str> =
@@ -610,8 +610,8 @@ impl crate::IrEmitter {
             if matches!(elem.as_str(), "Int" | "Bool" | "Str" | "Float64" | "Float32" | "UInt8" | "Int8" | "Int16" | "Int32" | "UInt16" | "UInt32" | "Char" | "Float") {
                 return None;
             }
-            return self.types.types.keys()
-                .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
+            return self.types.types.keys().into_iter()
+    .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
                 .cloned();
         }
         if let Expr::Field(base, field_expr, _) = container {
@@ -625,8 +625,8 @@ impl crate::IrEmitter {
                                     if let Some(bare_name) = inner.strip_suffix(']') {
                                         // Only return if this is a known struct type
                                         // (not a primitive like Int, Str, Bool, etc.)
-                                        if let Some(qualified) = self.types.types.keys()
-                                            .find(|k| k.ends_with(&format!(".{}", bare_name)) || k.as_str() == bare_name)
+                                        if let Some(qualified) = self.types.types.keys().into_iter()
+    .find(|k| k.ends_with(&format!(".{}", bare_name)) || k.as_str() == bare_name)
                                             .cloned()
                                         {
                                             return Some(qualified);
@@ -692,11 +692,11 @@ impl crate::IrEmitter {
             }
         }
         // Try exact match
-        if self.types.types.contains_key(type_name) || self.types.type_meta.contains_key(type_name) {
+        if self.types.types.contains_key(&type_name.to_string()) || self.types.type_meta.contains_key(&type_name.to_string()) {
             return Ok(format!("%struct.{type_name}"));
         }
         // Search for any module-qualified variant ending with .type_name
-        for (key, _) in &self.types.type_meta {
+        for (key, _) in self.types.type_meta.entries() {
             if key.ends_with(&format!(".{type_name}")) {
                 return Ok(format!("%struct.{key}"));
             }
@@ -709,7 +709,7 @@ impl crate::IrEmitter {
             _ => {}
         }
         // If type_name is an enum variant (e.g., "Image"), find its parent enum type
-        for (enum_key, variants) in &self.types.enum_variants {
+        for (enum_key, variants) in self.types.enum_variants.entries() {
             if variants.iter().any(|(v, _)| v == type_name) {
                 return Ok(format!("%struct.{enum_key}"));
             }
@@ -721,7 +721,7 @@ impl crate::IrEmitter {
         // `i64` fallback while `infer_llvm_type` resolves it to `%struct.Name`,
         // producing store/return/arg type mismatches. Match exact, module-qualified,
         // then suffix — mirroring the struct lookup above.
-        if self.types.enum_variants.contains_key(type_name) {
+        if self.types.enum_variants.contains_key(&type_name.to_string()) {
             return Ok(format!("%struct.{type_name}"));
         }
         if let Some(ref module) = self.local.current_module {
@@ -789,10 +789,10 @@ impl crate::IrEmitter {
         if depth > 8 {
             return 8;
         }
-        let meta = self.types.type_meta.get(type_name)
+        let meta = self.types.type_meta.get(&type_name.to_string())
             .or_else(|| {
-                self.types.type_meta.iter()
-                    .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
+                self.types.type_meta.entries().into_iter()
+    .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
                     .map(|(_, v)| v)
             });
         let Some(meta) = meta else { return 8 };
@@ -826,7 +826,7 @@ impl crate::IrEmitter {
     }
 
     pub fn field_llvm_type(&self, struct_name: &str, field_idx: usize) -> String {
-        let meta = self.types.type_meta.get(struct_name)
+        let meta = self.types.type_meta.get(&struct_name.to_string())
             .or_else(|| {
                 // Try current module's qualified name first (deterministic)
                 if let Some(ref module) = self.local.current_module {
@@ -851,8 +851,8 @@ impl crate::IrEmitter {
             })
             .or_else(|| {
                 // Fallback: search all qualified keys
-                self.types.type_meta.iter()
-                    .find(|(k, _)| k.ends_with(&format!(".{struct_name}")))
+                self.types.type_meta.entries().into_iter()
+    .find(|(k, _)| k.ends_with(&format!(".{struct_name}")))
                     .map(|(_, v)| v)
             });
         if let Some(meta) = meta {
@@ -872,14 +872,14 @@ impl crate::IrEmitter {
     /// from type_meta (e.g. "Vec[Int]"), using the same qualified-name fallbacks
     /// as `field_llvm_type`.
     pub fn field_xiom_type(&self, struct_name: &str, field_idx: usize) -> Option<String> {
-        let meta = self.types.type_meta.get(struct_name)
+        let meta = self.types.type_meta.get(&struct_name.to_string())
             .or_else(|| {
                 self.local.current_module.as_ref()
                     .and_then(|m| self.types.type_meta.get(&format!("{m}.{struct_name}")))
             })
             .or_else(|| {
-                self.types.type_meta.iter()
-                    .find(|(k, _)| k.ends_with(&format!(".{struct_name}")))
+                self.types.type_meta.entries().into_iter()
+    .find(|(k, _)| k.ends_with(&format!(".{struct_name}")))
                     .map(|(_, v)| v)
             })?;
         meta.fields.get(field_idx).map(|(_, t)| t.clone())
@@ -922,10 +922,10 @@ impl crate::IrEmitter {
             // enum qualifier — compare the LEAF segment. Also tolerate
             // qualified/unqualified enum keys.
             let leaf = name.rsplit('.').next().unwrap_or(name);
-            let variants = self.types.enum_variants.get(type_name)
+            let variants = self.types.enum_variants.get(&type_name.to_string())
                 .or_else(|| {
-                    self.types.enum_variants.iter()
-                        .find(|(k, _)| {
+                    self.types.enum_variants.entries().into_iter()
+    .find(|(k, _)| {
                             k.ends_with(&format!(".{type_name}"))
                                 || type_name.ends_with(&format!(".{}", k.as_str()))
                         })
@@ -976,10 +976,10 @@ impl crate::IrEmitter {
             // carry the enum qualifier in the name — compare against the LEAF
             // segment. Also tolerate qualified/unqualified enum keys.
             let leaf = variant_name.rsplit('.').next().unwrap_or(variant_name);
-            let variants = self.types.enum_variants.get(type_name)
+            let variants = self.types.enum_variants.get(&type_name.to_string())
                 .or_else(|| {
-                    self.types.enum_variants.iter()
-                        .find(|(k, _)| {
+                    self.types.enum_variants.entries().into_iter()
+    .find(|(k, _)| {
                             k.ends_with(&format!(".{type_name}"))
                                 || type_name.ends_with(&format!(".{}", k.as_str()))
                         })

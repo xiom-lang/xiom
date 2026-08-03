@@ -1,5 +1,5 @@
 ﻿use super::{IrEmitter, TypeMeta};
-use crate::context::TypeContext;
+use crate::context::{TypeContext, SyncRegistry};
 use xiom_ast::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -26,8 +26,8 @@ impl IrEmitter {
                 }
                 // Empty struct (no fields, no alias) — still register as a type
                 // so it resolves in LLVM type lookups. Uses a sentinel field.
-                self.types.types.entry(type_name.clone()).or_insert(vec!["__xiom_empty".to_string()]);
-                self.types.type_meta.entry(type_name).or_insert_with(|| TypeMeta {
+                self.types.types.or_insert_with(type_name.clone(), || vec!["__xiom_empty".to_string()]);
+                self.types.type_meta.or_insert_with(type_name, || TypeMeta {
                     fields: vec![("__xiom_empty".to_string(), "Int".to_string())],
                     derives: vec![],
                     invariants: vec![],
@@ -46,11 +46,11 @@ impl IrEmitter {
             let full_fields: Vec<(String, String)> = td.fields.iter()
                 .map(|f| (f.name.name.clone(), Self::type_from_ast_with_args(&f.ty)))
                 .collect();
-            self.types.types.entry(type_name.clone()).or_insert(fields);
+            self.types.types.or_insert_with(type_name.clone(), || fields);
             // Use or_insert_with so manual pre-registrations (e.g. Map with
             // resolved Vec type names) are not overwritten by the generic
             // type definition (which uses Vec[K] with unresolved generics).
-            self.types.type_meta.entry(type_name).or_insert_with(|| TypeMeta {
+            self.types.type_meta.or_insert_with(type_name, || TypeMeta {
                 fields: full_fields,
                 derives: td.derives.clone(),
                 invariants: td.invariants.clone(),
@@ -496,12 +496,12 @@ impl IrEmitter {
     /// interface if, for every method in the interface, there is a function
     /// registered as `TypeName.methodName` in self.types.functions.
     pub(crate) fn scan_interface_impls(&mut self) {
-        for (iface_name, methods) in self.types.interfaces.clone().iter() {
-            for type_name in self.types.types.keys().cloned().collect::<Vec<_>>().iter() {
+        for (iface_name, methods) in self.types.interfaces.entries() {
+            for type_name in self.types.types.keys() {
                 // Skip builtin types (Option, Result, Vec, etc.)
                 if ["Option", "Result", "Vec", "Slice", "Map", "Set"].contains(&type_name.as_str()) { continue; }
                 let mut all_implemented = true;
-                for (method_name, _) in methods {
+                for (method_name, _) in &methods {
                     let fn_key = format!("{}.{}", type_name, method_name);
                     let leaf_parts: Vec<&str> = type_name.rsplitn(2, '.').collect();
                     let leaf_key = if leaf_parts.len() > 1 {
@@ -515,8 +515,7 @@ impl IrEmitter {
                     }
                 }
                 if all_implemented {
-                    self.types.interface_impls.entry(iface_name.clone())
-                        .or_insert_with(HashSet::new)
+                    self.types.interface_impls.or_insert_with(iface_name.clone(), HashSet::new)
                         .insert(type_name.clone());
                 }
             }
@@ -688,7 +687,7 @@ impl IrEmitter {
         self.push_scope();
         self.block_counter = 0;
         self.tmp_counter = 0;
-        self.types.fn_ptr_return_types.clear();
+        self.types.fn_ptr_return_types = SyncRegistry::default();
         self.local.bool_locals.clear();
         self.local.ptr_locals.clear();
         self.local.local_vec_elem.clear();
@@ -858,10 +857,10 @@ impl IrEmitter {
                 let types_fields = self.types.types.get(&recv.name)
                     .or_else(|| {
                         let suffix = format!(".{}", recv.name);
-                        self.types.types.keys().find(|k| k.ends_with(&suffix))
-                            .and_then(|k| self.types.types.get(k))
+                        self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix))
+                            .and_then(|k|self.types.types.get(&k))
                     })
-                    .cloned();
+                    ;
                 let fields: Option<Vec<String>> = types_fields.or_else(|| {
                     self.types.type_meta.get(&recv.name).map(|m| {
                         m.fields.iter().map(|(n, _)| n.clone()).collect()
@@ -882,9 +881,9 @@ impl IrEmitter {
                 let types_fields = self.types.types.get(&recv.name)
                     .or_else(|| {
                         let suffix = format!(".{}", recv.name);
-                        self.types.types.keys().find(|k| k.ends_with(&suffix)).and_then(|k| self.types.types.get(k))
+                        self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix)).and_then(|k|self.types.types.get(&k))
                     })
-                    .cloned();
+                    ;
                 let fields: Option<Vec<String>> = types_fields.or_else(|| {
                     self.types.type_meta.get(&recv.name).map(|m| {
                         m.fields.iter().map(|(n, _)| n.clone()).collect()
@@ -1242,7 +1241,7 @@ impl IrEmitter {
                         .map(|(i, tn)| (format!("_{i}"), tn.clone()))
                         .collect();
                     types.types.insert(name.clone(), field_names);
-                    types.type_meta.entry(name.clone()).or_insert_with(|| TypeMeta {
+                    types.type_meta.or_insert_with(name.clone(), || TypeMeta {
                         fields: field_meta,
                         derives: vec![],
                         invariants: vec![],

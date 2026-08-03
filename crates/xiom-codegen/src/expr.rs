@@ -11,7 +11,7 @@ fn resolve_bare_struct(
     fields: &[(Ident, Expr)],
 ) -> Result<(String, String), String> {
     let field_names: Vec<String> = fields.iter().map(|(n,_)| n.name.clone()).collect();
-    let resolved = emitter.types.types.iter()
+    let resolved = emitter.types.types.entries().into_iter()
         .find(|(_, fnames)| fnames.len() == field_names.len()
             && fnames.iter().zip(&field_names).all(|(a, b)| a == b))
         .map(|(tn, _)| tn.clone());
@@ -86,17 +86,16 @@ impl IrEmitter {
     }
 
     fn resolve_vec_field_elem_size(&self, type_name: &str, field_idx: usize) -> Option<i64> {
-        let meta = self.types.type_meta.get(type_name)
+        let meta = self.types.type_meta.get(&type_name.to_string())
             .or_else(|| {
-                self.types.type_meta.iter()
-                    .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
+                self.types.type_meta.entries().into_iter()
+    .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
                     .map(|(_, v)| v)
             })?;
         let ftype = meta.fields.get(field_idx).map(|(_, t)| t.as_str())?;
         let elem_name = ftype.strip_prefix("Vec[")?.strip_suffix(']')?;
-        let struct_key = self.types.type_meta.keys()
-            .find(|k| k.ends_with(&format!(".{elem_name}")) || k.as_str() == elem_name)
-            .cloned()
+        let struct_key = self.types.type_meta.keys().into_iter()
+    .find(|k| k.ends_with(&format!(".{elem_name}")) || k.as_str() == elem_name)
             .unwrap_or(elem_name.to_string());
         let sz = self.struct_byte_size(&struct_key);
         if sz > 0 { Some(sz) } else { Some(8) }
@@ -343,14 +342,14 @@ impl IrEmitter {
                     let tmp = self.fresh_tmp();
                     self.emitln(&format!("  {tmp} = load {llvm_ty}, {llvm_ty}* @{symbol}"));
                     Ok((tmp, llvm_ty))
-                } else if let Some(enum_key) = self.types.enum_variants.iter()
-                    .find(|(_, vars)| vars.iter().any(|(v, _)| v == &ident.name))
+                } else if let Some(enum_key) = self.types.enum_variants.entries().into_iter()
+    .find(|(_, vars)| vars.iter().any(|(v, _)| v == &ident.name))
                     .map(|(ek, _)| ek)
-                    .filter(|ek| self.types.types.contains_key(*ek))
+                    .filter(|ek| self.types.types.contains_key(ek))
                 {
-                    if let Some(vars) = self.types.enum_variants.get(enum_key) {
+                    if let Some(vars) = self.types.enum_variants.get(&enum_key) {
                         if let Some(var_idx) = vars.iter().position(|(v, _)| v == &ident.name) {
-                            let struct_ty = self.llvm_type_for(enum_key)?;
+                            let struct_ty = self.llvm_type_for(&enum_key)?;
                             let alloca = self.fresh_tmp();
                             self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
                             let disc_gep = self.fresh_tmp();
@@ -379,11 +378,10 @@ impl IrEmitter {
                     if let Some(ref recv) = self.fctx.current_receiver {
                         let recv_clone = recv.clone();
                         // Try to find the field index in the receiver's struct type
-                        let struct_key = self.types.types.keys()
-                            .find(|k| k.ends_with(&format!(".{recv_clone}")) || k.as_str() == &recv_clone)
-                            .cloned();
+                        let struct_key = self.types.types.keys().into_iter()
+    .find(|k| k.ends_with(&format!(".{recv_clone}")) || k.as_str() == &recv_clone);
                         if let Some(ref sk) = struct_key {
-                            let field_names = self.types.types.get(sk).cloned();
+                            let field_names = self.types.types.get(sk);
                             if let Some(field_names) = field_names {
                                 if let Some(fi) = field_names.iter().position(|f| f == &ident.name) {
                                     // Look up `self` in locals
@@ -411,7 +409,7 @@ impl IrEmitter {
                     let fn_full: Option<(String, String, Vec<String>)> = {
                         let exact = self.types.functions.get(&ident.name).map(|(p, r)| (ident.name.clone(), r.clone(), p.clone()));
                         exact.or_else(|| {
-                            self.types.functions.iter().find(|(k, _)| k.ends_with(&format!(".{}", ident.name)))
+                            self.types.functions.entries().into_iter().find(|(k, _)| k.ends_with(&format!(".{}", ident.name)))
                                 .map(|(k, (p, r))| (k.clone(), r.clone(), p.clone()))
                         })
                     };
@@ -430,8 +428,8 @@ impl IrEmitter {
                         let fields = self.types.type_meta.get(&recv)
                             .or_else(|| {
                                 let suffix = format!(".{recv}");
-                                self.types.type_meta.iter()
-                                    .find(|(k, _)| k.ends_with(&suffix))
+                                self.types.type_meta.entries().into_iter()
+    .find(|(k, _)| k.ends_with(&suffix))
                                     .map(|(_, v)| v)
                             });
                         if let Some(meta) = fields {
@@ -483,7 +481,7 @@ impl IrEmitter {
                             .map(|(i, tn)| (format!("_{i}"), tn.clone()))
                             .collect();
                         self.types.types.insert(name.clone(), field_names);
-                        self.types.type_meta.entry(name.clone()).or_insert_with(|| TypeMeta {
+                        self.types.type_meta.or_insert_with(name.clone(), || TypeMeta {
                             fields: field_llvm,
                             derives: vec![],
                             invariants: vec![],
@@ -1028,7 +1026,7 @@ impl IrEmitter {
                         if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
                             if llvm_ty.starts_with("%struct.") {
                                 let type_name = &llvm_ty[8..];
-                                if let Some(field_names) = self.types.types.get(type_name) {
+                                if let Some(field_names) = self.types.types.get(&type_name.to_string()) {
                                     opt_like = field_names.len() <= 2;
                                 }
                             }
@@ -1149,7 +1147,7 @@ impl IrEmitter {
                 };
                 if ty.starts_with("%struct.") {
                     let type_name = &ty[8..];
-                    if let Some(variants) = self.types.enum_variants.get(type_name) {
+                    if let Some(variants) = self.types.enum_variants.get(&type_name.to_string()) {
                         if let Some((disc, _)) = variants.iter().enumerate()
                             .find(|(_, (v, _))| v == variant_name)
                         {
@@ -1295,11 +1293,11 @@ impl IrEmitter {
                             let pointee = ptr_ty.trim_end_matches('*').to_string();
                             if pointee.starts_with("%struct.") {
                                 let type_name = &pointee[8..];
-                            if let Some(field_names) = self.types.types.get(type_name)
+                            if let Some(field_names) = self.types.types.get(&type_name.to_string())
                                 .or_else(|| {
                                     let suffix = format!(".{type_name}");
-                                    self.types.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
-                                        .and_then(|k| self.types.types.get(k))
+                                    self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                        .and_then(|k|self.types.types.get(&k))
                                 })
                             {
                                 if let Some(field_idx) = IrEmitter::resolve_field_index(&field_names, &field.name) {
@@ -1326,10 +1324,10 @@ impl IrEmitter {
                                 if let Some(field_names) = self.types.types.get(&tn)
                                     .or_else(|| {
                                         let suffix = format!(".{tn}");
-                                        self.types.types.keys().find(|k| k.ends_with(&suffix))
-                                            .and_then(|k| self.types.types.get(k))
+                                        self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix))
+                                            .and_then(|k|self.types.types.get(&k))
                                     })
-                                    .cloned()
+                                    
                                 {
                                     if let Some(fi) = field_names.iter().position(|f| f == &field.name) {
                                         let sty = format!("%struct.{tn}");
@@ -1354,13 +1352,13 @@ impl IrEmitter {
                         if llvm_ty.ends_with('*') && llvm_ty.starts_with("%struct.") {
                             let pointee = llvm_ty.trim_end_matches('*').to_string();
                             let type_name = &pointee[8..];
-                            if let Some(field_names) = self.types.types.get(type_name)
+                            if let Some(field_names) = self.types.types.get(&type_name.to_string())
                                 .or_else(|| {
                                     let suffix = format!(".{type_name}");
-                                    self.types.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
-                                        .and_then(|k| self.types.types.get(k))
+                                    self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                        .and_then(|k|self.types.types.get(&k))
                                 })
-                                .cloned() {
+                                 {
                                 if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
                                     let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
                                     let ptr_val = self.fresh_tmp();
@@ -1411,11 +1409,11 @@ impl IrEmitter {
                         // types (handled above) so `%struct.X*` never takes this path.
                         if llvm_ty.starts_with("%struct.") && !llvm_ty.ends_with('*') {
                             let type_name = &llvm_ty[8..];
-                            if let Some(field_names) = self.types.types.get(type_name)
+                            if let Some(field_names) = self.types.types.get(&type_name.to_string())
                                 .or_else(|| {
                                     let suffix = format!(".{type_name}");
-                                    self.types.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
-                                        .and_then(|k| self.types.types.get(k))
+                                    self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                        .and_then(|k|self.types.types.get(&k))
                                 })
                             {
                                 if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
@@ -1508,13 +1506,13 @@ impl IrEmitter {
                             self.emitln(&format!("  {result} = zext i1 {cmp} to i64"));
                             return Ok((result, LLVM_I64.to_string()));
                         }
-                        if let Some(field_names) = self.types.types.get(type_name)
+                        if let Some(field_names) = self.types.types.get(&type_name.to_string())
                             .or_else(|| {
                                 let suffix = format!(".{type_name}");
-                                self.types.types.keys().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
-                                    .and_then(|k| self.types.types.get(k))
+                                self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                    .and_then(|k|self.types.types.get(&k))
                             })
-                            .cloned()
+                            
                         {
                             if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
                                 let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
@@ -1786,10 +1784,10 @@ impl IrEmitter {
                                 if let Some(field_names) = self.types.types.get(&type_name)
                                     .or_else(|| {
                                         let suffix = format!(".{type_name}");
-                                        self.types.types.keys().find(|k| k.ends_with(&suffix))
-                                            .and_then(|k| self.types.types.get(k))
+                                        self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix))
+                                            .and_then(|k|self.types.types.get(&k))
                                     })
-                                    .cloned()
+                                    
                                 {
                                     if let Some(fi) = field_names.iter().position(|f| f == &field_name_expr.name) {
                                         let field_llvm_ty = self.field_llvm_type(&type_name, fi);
@@ -1989,7 +1987,7 @@ impl IrEmitter {
                     "%struct.Option".to_string()
                 };
                 let struct_name = opt_ty.trim_start_matches("%struct.");
-                let field_type_1 = self.types.type_meta.get(struct_name)
+                let field_type_1 = self.types.type_meta.get(&struct_name.to_string())
                     .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
                 let field_llvm_1 = self.llvm_type_for(&field_type_1)
@@ -2026,7 +2024,7 @@ impl IrEmitter {
                     "%struct.Option".to_string()
                 };
                 let struct_name = opt_ty.trim_start_matches("%struct.");
-                let field_type_1 = self.types.type_meta.get(struct_name)
+                let field_type_1 = self.types.type_meta.get(&struct_name.to_string())
                     .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
                 let field_llvm_1 = self.llvm_type_for(&field_type_1)
@@ -2057,7 +2055,7 @@ impl IrEmitter {
                     "%struct.Result".to_string()
                 };
                 let struct_name = result_ty.trim_start_matches("%struct.");
-                let field_type_1 = self.types.type_meta.get(struct_name)
+                let field_type_1 = self.types.type_meta.get(&struct_name.to_string())
                     .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
                 let (val, inner_ty) = if let Expr::Struct(ref name, ref fields, _, _) = **inner {
@@ -2071,7 +2069,7 @@ impl IrEmitter {
                 };
                 let field_llvm_1 = self.llvm_type_for(&field_type_1)
                     .unwrap_or_else(|_| "i64".to_string());
-                let field_type_2 = self.types.type_meta.get(struct_name)
+                let field_type_2 = self.types.type_meta.get(&struct_name.to_string())
                     .and_then(|m| m.fields.get(2).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
                 let field_llvm_2 = self.llvm_type_for(&field_type_2)
@@ -2120,12 +2118,12 @@ impl IrEmitter {
                     "%struct.Result".to_string()
                 };
                 let struct_name = result_ty.trim_start_matches("%struct.");
-                let field_type_1 = self.types.type_meta.get(struct_name)
+                let field_type_1 = self.types.type_meta.get(&struct_name.to_string())
                     .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
                 let field_llvm_1 = self.llvm_type_for(&field_type_1)
                     .unwrap_or_else(|_| "i64".to_string());
-                let field_type_2 = self.types.type_meta.get(struct_name)
+                let field_type_2 = self.types.type_meta.get(&struct_name.to_string())
                     .and_then(|m| m.fields.get(2).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
                 let field_llvm_2 = self.llvm_type_for(&field_type_2)
@@ -2172,14 +2170,13 @@ impl IrEmitter {
                         Some(ek.clone())
                     } else {
                         // Try module-qualified
-                        self.types.enum_variants.keys()
-                            .find(|k| k.ends_with(&format!(".{ek}")))
-                            .cloned()
+                        self.types.enum_variants.keys().into_iter()
+    .find(|k| k.ends_with(&format!(".{ek}")))
                     }
                 } else {
                     // Bare variant: search all enums
-                    self.types.enum_variants.iter()
-                        .find(|(_, vars)| vars.iter().any(|(v, _)| v == &leaf_variant))
+                    self.types.enum_variants.entries().into_iter()
+    .find(|(_, vars)| vars.iter().any(|(v, _)| v == &leaf_variant))
                         .map(|(ek, _)| ek.clone())
                 };
                 // Verify the variant exists in the resolved enum
@@ -2241,9 +2238,9 @@ impl IrEmitter {
                     // Map variant fields to their parent enum offsets (after discriminant)
                     // The parent enum stores field names uniquely across all variants,
                     // so we need to look up the actual field index in the parent's field list.
-                    let parent_field_names = self.types.types.get(enum_key).cloned().unwrap_or_default();
+                    let parent_field_names = self.types.types.get(enum_key).unwrap_or_default();
                     let variant_fields = self.types.enum_variants.get(enum_key)
-                        .and_then(|vars| vars.iter().find(|(v, _)| v == &leaf_variant))
+                        .and_then(|vars| vars.into_iter().find(|(v, _)| v == &leaf_variant))
                         .map(|(_, vf)| vf.clone())
                         .unwrap_or_default();
                     for (i, (_, val)) in fields.iter().enumerate() {
@@ -3111,7 +3108,7 @@ impl IrEmitter {
                 if !self.receiver_is_instance(base)
                     && (self.types.types.contains_key(&field.name)
                         || self.types.type_meta.contains_key(&field.name)
-                        || self.types.type_meta.keys().any(|k| k.ends_with(&format!(".{}", field.name))))
+                        || self.types.type_meta.keys().into_iter().any(|k| k.ends_with(&format!(".{}", field.name))))
                 {
                     return false;
                 }
