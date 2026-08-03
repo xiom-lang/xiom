@@ -1,8 +1,8 @@
 # XIOM Session Handoff — v0.56.0-pre "Production Polish"
 
-**Date:** 2026-08-03 22:00 | **Branch:** `feat/architect`
-**E2E: 22/22 passing (11 eco + 3 CTFE + 1 ASM + 1 Never + 1 Spawn + 5 Chaos) | 107+ compiler hardening commits**
-**Selfhost Gate: ALL 15 GATES CLEARED**
+**Date:** 2026-08-03 22:15 | **Branch:** `feat/architect`
+**E2E: 23/23 passing (11 eco + 3 CTFE + 1 ASM + 1 Never + 1 Spawn + 5 Chaos + 1 Parallel) | 109+ compiler hardening commits**
+**Selfhost Gate: ALL 16 GATES CLEARED**
 
 ---
 
@@ -47,6 +47,9 @@
 | Thread-local recursion counter | `decl.rs`, `emitter.rs`, `stmt.rs` | ✅ |
 | Vec::push alloca fix (R4) | `call.rs`, `vec_abi.rs` | ✅ |
 | Safety probe benchmark wiring | `xiom-benchmark-chaos/` | ✅ |
+| Recursion counter integrity (R5) | `lib.rs` | ✅ |
+| Vec::push alloca fix (R4) | `call.rs`, `vec_abi.rs` | ✅ |
+| Parallel codegen (I2) | `lib.rs`, `context.rs`, `Cargo.toml` | ✅ |
 
 ---
 
@@ -124,7 +127,8 @@ e2f4f69b chore: update Cargo.lock (file watcher deps) and session ID
 | Thread-local recursion counter | v0.56 | ✅ |
 | Recursion counter integrity (R5) | v0.56 | ✅ |
 | Vec push alloca fix (R4) | v0.56 | ✅ |
-| **ALL 15 GATES: CLEARED** | | |
+| Parallel codegen (I2) | v0.56 | ✅ |
+| **ALL 16 GATES: CLEARED** | | |
 
 ---
 
@@ -140,8 +144,8 @@ e2f4f69b chore: update Cargo.lock (file watcher deps) and session ID
 | # | Task | Effort | Details |
 |---|------|--------|---------|
 | I1 | Send/Sync enforcement in checker | 5 days | Verify spawn captures satisfy Send |
-| I2 | Parallel codegen | 3 days | Rayon-based per-function IR emission |
 | I3 | Deadlock detection | 4 days | Static lock-ordering analysis |
+| ~~I2~~ | ~~Parallel codegen~~ | ~~3 days~~ | ✅ IMPLEMENTED — rayon-based per-function IR emission with --parallel-codegen flag |
 
 ---
 
@@ -151,8 +155,14 @@ e2f4f69b chore: update Cargo.lock (file watcher deps) and session ID
 crates/xiom-codegen/src/vec_abi.rs    — +resolve_vec_push_ptr() (R4 fix)
 crates/xiom-codegen/src/call.rs       — Vec::push uses resolve_vec_push_ptr (R4 fix)
 crates/xiom-codegen/src/lib.rs        — R5: recursion counter decrement in tail-returns
-crates/xiom-codegen/tests/e2e_tests.rs — +t1/t2 chaos E2E tests (22/22)
-crates/xiom*/                            — 0 warnings on all 6 crates (Windows + Linux)
+                                      — I2: compile_functions_parallel() + rayon
+crates/xiom-codegen/src/context.rs    — +parallel_codegen config flag
+crates/xiom-codegen/Cargo.toml        — +rayon dependency
+crates/xiom-ctfe/src/lib.rs           — +Clone for CtfeEngine, CtfeArena
+crates/xiom/src/lib.rs                — +parallel_codegen in CompileConfig
+crates/xiom/src/main.rs               — +--parallel-codegen CLI flag
+crates/xiom-codegen/tests/e2e_tests.rs — +t1/t2 chaos + I2 parallel E2E tests (23/23)
+crates/xiom*/                            — 0 warnings on all crates (Windows + Linux)
 ```
 
 ## BUILD & TEST
@@ -161,11 +171,14 @@ crates/xiom*/                            — 0 warnings on all 6 crates (Windows
 # Build
 cargo build -p xiom
 
-# E2E tests (22/22)
-cargo test -p xiom-codegen --test e2e_tests -- eco_ ctfe e2e_asm e2e_never_type e2e_spawn_basic chaos
+# E2E tests (23/23)
+cargo test -p xiom-codegen --test e2e_tests -- eco_ ctfe e2e_asm e2e_never_type e2e_spawn_basic chaos e2e_i2
 
 # JIT tests (5/5)
 cargo test -p xiom-jit
+
+# Parallel codegen (--parallel-codegen flag)
+./target/debug/xiom --parallel-codegen --run source.xi
 
 # Linux build (WSL)
 wsl -d Ubuntu -- bash -c 'source ~/.cargo/env; cd /mnt/e/Projects/AXIOM && cargo build -p xiom'
