@@ -1047,6 +1047,8 @@ impl Parser {
             TokenKind::Match => { let stmt = self.parse_match_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::While => { let stmt = self.parse_while_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::For => { let stmt = self.parse_for_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
+            // v0.55: asm("template" : outputs : inputs : clobbers);
+            TokenKind::Asm => { let stmt = self.parse_asm_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::Spawn if self.peek_ahead(1) == Some(&TokenKind::LBrace) => { let stmt = self.parse_spawn_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::LBrace => {
                 // Bare block expression: `{ stmt; ... }` as a statement or expression
@@ -1375,6 +1377,82 @@ impl Parser {
     }
     fn parse_for_stmt(&mut self) -> Result<Stmt, ParseError> { let span = self.advance().span; let var = self.parse_ident()?; self.expect_kind(TokenKind::In, "'in'")?; let iter = self.parse_cond()?; let body = self.parse_block()?; Ok(Stmt::For(var, iter, body, span)) }
     fn parse_spawn_stmt(&mut self) -> Result<Stmt, ParseError> { let span = self.advance().span; let body = self.parse_block()?; Ok(Stmt::Spawn(body, span)) }
+
+    /// v0.55: Parse `asm("template" [: outputs [: inputs [: clobbers]]]);`
+    fn parse_asm_stmt(&mut self) -> Result<Stmt, ParseError> {
+        let span = self.advance().span; // consume 'asm'
+        self.expect_kind(TokenKind::LParen, "'(' after asm")?;
+
+        // Parse template string
+        let template = match &self.advance().kind {
+            TokenKind::Str(s) => s.clone(),
+            _ => return Err(self.error("expected string literal as asm template")),
+        };
+        let mut outputs = Vec::new();
+        let mut inputs = Vec::new();
+        let mut clobbers = Vec::new();
+
+        // Optional output constraints
+        if self.peek_kind() == &TokenKind::Colon {
+            self.advance();
+            while self.peek_kind() != &TokenKind::Colon
+                && self.peek_kind() != &TokenKind::RParen
+                && self.peek_kind() != &TokenKind::Semicolon
+                && self.peek_kind() != &TokenKind::Eof
+            {
+                let constraint = match &self.advance().kind {
+                    TokenKind::Str(s) => s.clone(),
+                    _ => return Err(self.error("expected constraint string in asm outputs")),
+                };
+                self.expect_kind(TokenKind::LParen, "'(' after constraint")?;
+                let var = self.parse_ident()?;
+                self.expect_kind(TokenKind::RParen, "')' after asm output")?;
+                outputs.push((constraint, var));
+                self.skip(TokenKind::Comma);
+            }
+        }
+
+        // Optional input constraints
+        if self.peek_kind() == &TokenKind::Colon {
+            self.advance();
+            while self.peek_kind() != &TokenKind::Colon
+                && self.peek_kind() != &TokenKind::RParen
+                && self.peek_kind() != &TokenKind::Semicolon
+                && self.peek_kind() != &TokenKind::Eof
+            {
+                let constraint = match &self.advance().kind {
+                    TokenKind::Str(s) => s.clone(),
+                    _ => return Err(self.error("expected constraint string in asm inputs")),
+                };
+                self.expect_kind(TokenKind::LParen, "'(' after constraint")?;
+                let expr = self.parse_expr()?;
+                self.expect_kind(TokenKind::RParen, "')' after asm input")?;
+                inputs.push((constraint, expr));
+                self.skip(TokenKind::Comma);
+            }
+        }
+
+        // Optional clobbers
+        if self.peek_kind() == &TokenKind::Colon {
+            self.advance();
+            while self.peek_kind() != &TokenKind::RParen
+                && self.peek_kind() != &TokenKind::Semicolon
+                && self.peek_kind() != &TokenKind::Eof
+            {
+                let clobber = match &self.advance().kind {
+                    TokenKind::Str(s) => s.clone(),
+                    _ => return Err(self.error("expected clobber string in asm")),
+                };
+                clobbers.push(clobber);
+                self.skip(TokenKind::Comma);
+            }
+        }
+
+        self.expect_kind(TokenKind::RParen, "')' after asm")?;
+        self.skip(TokenKind::Semicolon);
+
+        Ok(Stmt::Asm(AsmBlock { template, outputs, inputs, clobbers, span }))
+    }
     /// M21: Parse module-level `spawn { ... }` as a top-level declaration.
     fn parse_spawn_top_decl(&mut self) -> Result<TopDecl, ParseError> {
         let span = self.advance().span;

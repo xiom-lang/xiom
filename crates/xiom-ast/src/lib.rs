@@ -353,6 +353,23 @@ pub enum Stmt {
     Break(Option<Ident>, Span),
     /// `continue;` or `continue 'label;`
     Continue(Option<Ident>, Span),
+    /// v0.55: `asm("...")` — inline assembly statement
+    Asm(AsmBlock),
+}
+
+/// v0.55: Inline assembly block — `asm("template" : outputs : inputs : clobbers)`
+#[derive(Debug, Clone, PartialEq)]
+pub struct AsmBlock {
+    /// Assembly template string (Intel syntax)
+    pub template: String,
+    /// Output constraints: ("=r", var_name)
+    pub outputs: Vec<(String, Ident)>,
+    /// Input constraints: ("r", expression)
+    pub inputs: Vec<(String, Expr)>,
+    /// Clobbered registers: ["rax", "rcx", "memory"]
+    pub clobbers: Vec<String>,
+    /// Span for diagnostics
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]

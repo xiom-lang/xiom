@@ -493,12 +493,15 @@ pub fn build_runtime_library(output_dir: &Path) -> Result<PathBuf, String> {
     cmd.arg("-shared").arg("-O2");
     if !cfg!(windows) {
         cmd.arg("-fPIC");
-    } else {
-        // Windows: suppress fopen deprecation warnings
+    }
+    // AES-NI intrinsics (required by xiom_runtime.c crypto functions)
+    cmd.arg("-maes");
+    // Use C software stubs (no NASM assembly available)
+    cmd.arg("-DXIOM_NO_ASM");
+    // Suppress deprecation warnings on Windows
+    if cfg!(windows) {
         cmd.arg("-Wno-deprecated-declarations");
     }
-    // Required for AES-NI intrinsics in xiom_runtime.c
-    cmd.arg("-maes");
     cmd.arg("-o").arg(&output_path);
     for src in &existing_srcs {
         cmd.arg(src);

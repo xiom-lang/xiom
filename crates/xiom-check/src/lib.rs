@@ -1535,7 +1535,8 @@ impl Checker {
                 Stmt::For(_, e, b, _) => { collect_expr_names(e, out); collect_block_names(b, out); }
                 Stmt::Spawn(b, _) => collect_block_names(b, out),
                 Stmt::Destructure(_, e, _) => collect_expr_names(e, out),
-                Stmt::Break(..) | Stmt::Continue(..) => {}
+                Stmt::Break(..) | Stmt::Continue(..) => {},
+                Stmt::Asm(_) => {},
             }
         }
         fn collect_expr_names(expr: &Expr, out: &mut HashSet<String>) {
@@ -2351,6 +2352,7 @@ impl Checker {
             }
             Stmt::Break(..) => {}
             Stmt::Continue(..) => {}
+            Stmt::Asm(_) => {}, // asm is valid in unsafe context
         }
     }
 
@@ -3858,6 +3860,7 @@ impl BorrowChecker {
             }
             Stmt::Break(..) => {}
             Stmt::Continue(..) => {}
+            Stmt::Asm(_) => {}, // asm is valid in unsafe context
         }
     }
 
