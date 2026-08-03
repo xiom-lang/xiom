@@ -1447,6 +1447,16 @@ fn e2e_asm_basic() {
     );
 }
 
+/// Never: diverging functions, bottom type compatibility
+#[test]
+fn e2e_never_type() {
+    assert_eq!(
+        compile_and_run("tests\\regression\\never_type.xi"),
+        Some(0),
+        "Never: ! type must parse, type-check, and run"
+    );
+}
+
 // ============================================================================
 // M20-A1 E2E Tests â€” Closure Codegen
 // ============================================================================

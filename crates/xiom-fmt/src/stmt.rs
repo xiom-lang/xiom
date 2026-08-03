@@ -170,6 +170,7 @@ impl crate::Formatter {
                 self.buf.push_str(&ab.template);
                 self.buf.push_str("\");\n");
             }
+            Stmt::Defer(_, _) => todo!(),
         }
     }
 }
