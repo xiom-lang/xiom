@@ -2548,6 +2548,12 @@ impl IrEmitter {
                 *emitter.ctfe.borrow_mut() = (*ctfe_snapshot).clone();
                 emitter.local.constants = (*local_constants).clone();
                 emitter.local.current_module = if prefix.is_empty() { None } else { Some(prefix.clone()) };
+                // I2 fix: Prevent global string name collisions across parallel
+                // emitters by offsetting each emitter's str_counter into a unique
+                // range (each function gets 1000 string slots).
+                emitter.str_counter = (*idx as u32) * 1000;
+                emitter.tmp_counter = (*idx as u32) * 10000;
+                emitter.block_counter = (*idx as u32) * 10000;
 
                 let fn_name = emitter.fn_symbol(fd);
                 emitter.mono.emitted_fns.insert(fn_name.clone());
