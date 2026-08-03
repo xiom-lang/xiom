@@ -360,17 +360,28 @@ impl IrEmitter {
     /// stores as i64. For elem_size < 8, truncates to the matching integer width
     /// to avoid overwriting adjacent elements.
     pub(crate) fn emit_elem_store(&mut self, val: &str, dest: &str, esz_val: &str) {
-        // 5c.29: real 1/2/4/8-byte stores. The old code truncated EVERY
-        // non-8 width to i8, destroying 4-byte elements (Float32 raw bits,
-        // Int32/UInt32) and 2-byte elements (Int16/UInt16).
+        // 5c.29: real 1/2/4/8-byte stores. Uses if/else chain instead of
+        // switch i64 to avoid LLVM -O0 codegen bugs (ACCESS_VIOLATION with
+        // large Vecs on Windows).
         let s1 = self.fresh_block("elem_store1");
         let s2 = self.fresh_block("elem_store2");
         let s4 = self.fresh_block("elem_store4");
         let s8 = self.fresh_block("elem_store8");
         let done = self.fresh_block("elem_store_done");
-        self.emitln(&format!(
-            "  switch i64 {esz_val}, label %{s8} [ i64 1, label %{s1}\n    i64 2, label %{s2}\n    i64 4, label %{s4} ]"
-        ));
+
+        // if/else chain instead of switch i64 (avoids -O0 codegen bugs)
+        let c1 = self.fresh_tmp();
+        let c2 = self.fresh_tmp();
+        let c4 = self.fresh_tmp();
+        self.emitln(&format!("  {c1} = icmp eq i64 {esz_val}, 1"));
+        self.emitln(&format!("  br i1 {c1}, label %{s1}, label %{s2}_chk"));
+        self.emitln(&format!("\n{s2}_chk:"));
+        self.emitln(&format!("  {c2} = icmp eq i64 {esz_val}, 2"));
+        self.emitln(&format!("  br i1 {c2}, label %{s2}, label %{s4}_chk"));
+        self.emitln(&format!("\n{s4}_chk:"));
+        self.emitln(&format!("  {c4} = icmp eq i64 {esz_val}, 4"));
+        self.emitln(&format!("  br i1 {c4}, label %{s4}, label %{s8}"));
+
         // 1-byte path (UInt8/Int8/Char/Bool)
         self.emitln(&format!("\n{s1}:"));
         let t1 = self.fresh_tmp();

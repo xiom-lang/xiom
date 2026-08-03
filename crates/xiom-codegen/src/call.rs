@@ -755,7 +755,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         let cap_ok_check = self.fresh_tmp();
                         let cap_ok_cont = self.fresh_block("vec_cap_ok");
                         let cap_trap_block = self.fresh_block("vec_cap_trap");
-                        self.emitln(&format!("  {cap_ok_check} = icmp ule i64 {new_cap}, 1048576"));
+                            self.emitln(&format!("  {cap_ok_check} = icmp ule i64 {new_cap}, 16777216"));
                         self.emitln(&format!("  br i1 {cap_ok_check}, label %{cap_ok_cont}, label %{cap_trap_block}"));
                         self.emitln(&format!("\n{cap_trap_block}:"));
                         self.emitln("  call void @llvm.trap()");
