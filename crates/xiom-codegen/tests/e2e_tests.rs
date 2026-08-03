@@ -30,6 +30,11 @@ fn project_root() -> &'static Path {
 
 /// Compile an XIOM source file to a native binary and return the exit code
 fn compile_and_run(source_path: &str) -> Option<i32> {
+    compile_and_run_with_flags(source_path, &[])
+}
+
+/// Compile with extra flags (e.g. --parallel-codegen) and return exit code
+fn compile_and_run_with_flags(source_path: &str, extra_args: &[&str]) -> Option<i32> {
     let source = Path::new(source_path);
     let exe_suffix = if cfg!(target_os = "windows") { ".exe" } else { "" };
     let exe_name = format!("e2e_{}{}", source.file_stem()?.to_str()?, exe_suffix);
@@ -37,8 +42,11 @@ fn compile_and_run(source_path: &str) -> Option<i32> {
     let bin_path = xiom_path();
 
     // Compile
+    let mut args = vec!["-o", &exe_name];
+    args.extend(extra_args);
+    args.push(source_path);
     let compile = Command::new(&bin_path)
-        .args(["-o", &exe_name, source_path])
+        .args(&args)
         .current_dir(project_root())
         .output()
         .unwrap_or_else(|e| panic!("failed to spawn '{bin_path}': {e}"));
@@ -1525,8 +1533,27 @@ fn e2e_chaos_t5_btree() {
     );
 }
 
+/// I2: Parallel codegen — verify all 5 chaos tasks compile correctly with --parallel-codegen
+#[test]
+fn e2e_i2_parallel_codegen() {
+    let tasks = [
+        "xiom-benchmark-chaos\\reference\\systems\\t1-allocator.xi",
+        "xiom-benchmark-chaos\\reference\\systems\\t2-queue.xi",
+        "xiom-benchmark-chaos\\reference\\systems\\t3-hot-reload.xi",
+        "xiom-benchmark-chaos\\reference\\systems\\t4-packet.xi",
+        "xiom-benchmark-chaos\\reference\\systems\\t5-btree.xi",
+    ];
+    for task in &tasks {
+        assert_eq!(
+            compile_and_run_with_flags(task, &["--parallel-codegen"]),
+            Some(0),
+            "Parallel codegen: {task} must pass"
+        );
+    }
+}
+
 // ============================================================================
-// M20-A1 E2E Tests â€” Closure Codegen
+// M20-A1 E2E Tests — Closure Codegen
 // ============================================================================
 
 #[test] fn e2e_m20_closure_capture()      { assert_eq!(compile_and_run("tests\\regression\\m20_closure_capture.xi"),       Some(0)); }

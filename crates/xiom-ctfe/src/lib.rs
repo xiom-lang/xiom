@@ -66,6 +66,7 @@ impl CtfeValue {
 
 const ARENA_SIZE: usize = 256 * 1024 * 1024; // 256MB
 
+#[derive(Clone)]
 pub struct CtfeArena {
     data: Vec<u8>,
     offset: usize,
@@ -161,6 +162,7 @@ pub enum CtfeError {
 // CTFE Engine — top-level evaluator
 // ============================================================================
 
+#[derive(Clone)]
 pub struct CtfeEngine {
     /// Arena for compile-time allocations
     pub arena: CtfeArena,

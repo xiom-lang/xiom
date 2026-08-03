@@ -387,6 +387,8 @@ fn main() {
     let force_recompile = args.iter().any(|a| a == "--force");
     // 7C: Parallel compilation flags
     let parallel = args.iter().any(|a| a == "--parallel") && !args.iter().any(|a| a == "--sequential");
+    // I2: Parallel codegen — rayon-based per-function IR emission
+    let parallel_codegen = args.iter().any(|a| a == "--parallel-codegen");
     let jobs: usize = parse_flag_value(&args, "--jobs")
         .and_then(|v| v.parse().ok()).unwrap_or(0);
     // 5g AI Pipeline flags
@@ -652,6 +654,7 @@ fn main() {
         script_mode: false,
         cache: use_cache,
         lto: use_lto,
+        parallel_codegen,
     };
 
     // 7F.2: Build graph visualization
@@ -866,6 +869,7 @@ fn main() {
                     script_mode: false,
                     cache: false,
                     lto: false,
+                    parallel_codegen: false,
                 };
                 let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
                 let source = std::fs::read_to_string(path).unwrap_or_default();
@@ -916,6 +920,7 @@ fn main() {
                     script_mode: false,
                     cache: false,
                     lto: false,
+                    parallel_codegen: false,
                 };
                 let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
                 let source = std::fs::read_to_string(path).unwrap_or_default();
