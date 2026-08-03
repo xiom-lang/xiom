@@ -1468,6 +1468,40 @@ fn e2e_spawn_basic() {
 }
 
 // ============================================================================
+// Chaos Benchmark E2E Tests
+// ============================================================================
+
+/// Chaos t3: Hot-reload module loader — 1000 load/call/reload cycles
+#[test]
+fn e2e_chaos_t3_hot_reload() {
+    assert_eq!(
+        compile_and_run("xiom-benchmark-chaos\\reference\\systems\\t3-hot-reload.xi"),
+        Some(0),
+        "Chaos t3: hot-reload module loader must pass"
+    );
+}
+
+/// Chaos t4: TCP packet parser — 1M packet updates
+#[test]
+fn e2e_chaos_t4_packet() {
+    assert_eq!(
+        compile_and_run("xiom-benchmark-chaos\\reference\\systems\\t4-packet.xi"),
+        Some(0),
+        "Chaos t4: TCP packet parser must pass"
+    );
+}
+
+/// Chaos t5: B-tree file index — 50K inserts + 20K lookups
+#[test]
+fn e2e_chaos_t5_btree() {
+    assert_eq!(
+        compile_and_run("xiom-benchmark-chaos\\reference\\systems\\t5-btree.xi"),
+        Some(0),
+        "Chaos t5: B-tree file index must pass"
+    );
+}
+
+// ============================================================================
 // M20-A1 E2E Tests â€” Closure Codegen
 // ============================================================================
 
