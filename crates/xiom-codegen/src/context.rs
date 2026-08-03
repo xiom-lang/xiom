@@ -274,6 +274,8 @@ pub struct LocalContext {
     /// Populated when values are created with known XIOM type (Ident loads,
     /// As expressions, literals). Consulted by widen_to_i64 to select sext/zext.
     pub reg_signed: HashMap<String, bool>,
+    /// v0.55: Whether @xiom_thread_spawn has been declared in this module
+    pub spawn_declared: bool,
 }
 
 // ============================================================================

@@ -126,6 +126,7 @@ pub fn type_to_string(ty: &xiom_ast::Type) -> String {
             format!("impl {}", names.join(" + "))
         }
         xiom_ast::Type::AnonStruct(_fields) => "(anonymous struct)".to_string(),
+        xiom_ast::Type::Never => "!".to_string(),
     }
 }
 
