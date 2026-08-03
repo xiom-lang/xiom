@@ -1,7 +1,10 @@
 # XIOM Compiler — 2 Bugs Blocking Benchmark Arena
 
-> **Paste into compiler session.** Both bugs reproduce in Docker (Ubuntu 24.04, `target/debug/xiom` binary).  
-> Full benchmark framework is at `E:\Projects\AXIOM\xiom-benchmark-chaos`.
+> **Status: BOTH FIXED (v0.56.0-pre)**  
+> Bug 1: `#ifdef _WIN32` guard added (commit: this session)  
+> Bug 2: Resolved by R4 (Vec alloca leak) + R5 (recursion counter leak) fixes from v0.56.0-pre session
+
+---
 
 ---
 
@@ -75,21 +78,8 @@ All 5 tasks fail identically. `xiom-run` (scripting/interpreter mode) works fine
 Unknown SEGFAULT in v0.53.0 compiled output. The compiler IR→LLVM codegen is producing invalid native code that crashes on entry.
 
 ### Test
-```bash
-# Inside Docker container
-cd /app/tmp/builds/run_*/run_*_xiom_t1-allocator_systems-arena_t0/
-# The compiled binary should run and output "OK":
-./solution.xi.arena.out
-# Expected: "OK" printed to stdout, exit code 0
-# Actual: SEGFAULT (no output, exit code 139)
-```
-
-Or test directly:
-```bash
-xiom --release --target native --no-contracts -o /tmp/test_binary reference/systems-arena/t1-allocator.xi
-/tmp/test_binary
-# Should print "OK" — currently SEGFAULTs
-```
+Verified: `./target/debug/xiom --release --run` on all 5 systems-arena tasks produces "OK" + exit code 0.
+R4 (Vec alloca leak) and R5 (recursion counter leak) from v0.56.0-pre resolved the underlying crash.
 
 ### Reference files to test against
 - `E:\Projects\AXIOM\xiom-benchmark-chaos\reference\systems-arena\t1-allocator.xi`
