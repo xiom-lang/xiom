@@ -201,8 +201,14 @@ compile_program():
 
 compile_stmt_impl():
   + Stmt::Asm     → call void asm sideeffect "..." "~{...}"()
-  + Stmt::Spawn   → compile body as @_xiom_spawn_N, call xiom_thread_spawn
+  + Stmt::Spawn   → R2: capture analysis + env forwarding + compile body as @_xiom_spawn_N
   + Stmt::Defer   → emit cleanup block inline
+
+Parallel Codegen (I2 — v0.56):
+  + --parallel-codegen flag → rayon::par_iter() across function bodies
+  + Each function gets own IrEmitter clone with shared TypeContext
+  + Outputs merged in declaration order after all tasks complete
+  + Maps to XIOM selfhost pattern: spawn + Channel[T] collect
 
 LLVM Type Mapping:
   + Never (!)     → i64 (return register, unreachable after call)
@@ -220,22 +226,36 @@ Generated IR:
   call void asm sideeffect "mov $0, 42", "~{dirflag},~{fpsr},~{flags}"()
 ```
 
-### Spawn Codegen
+### Spawn Codegen (v0.55 → v0.56 R2)
 
 ```
-Source:
+Source (v0.55):
   spawn { heavy_work(); }
 
-Generated IR:
+Source (v0.56 R2 — move semantics):
+  spawn move { heavy_work(); }
+  var x = 42;
+  spawn move { var result = x + 1; }   // x captured by value
+
+Generated IR (v0.56 with captures):
   ; Spawn wrapper function (emitted via deferred_closure_defs)
   define void @_xiom_spawn_0(i8* %_xiom_spawn_arg) {
   entry:
+    ; Unpack captures from env buffer (flat i64 array at offset i*8)
+    %cap0_ptr = bitcast i8* %_xiom_spawn_arg to i64*
+    %cap0_val = load i64, i64* %cap0_ptr
+    %cap0_alloca = alloca i64
+    store i64 %cap0_val, i64* %cap0_alloca  ; x is now available as local
     ; body IR
     ret void
   }
 
   ; In calling function:
-  %handle = call i64 @xiom_thread_spawn(ptr @_xiom_spawn_0, ptr null)
+  %env = call i8* @malloc(i64 N)          ; allocate env for N captures
+  ; Null check + trap if OOM
+  %x_val = load i64, i64* %x_alloca
+  store i64 %x_val, i64* (bitcast %env to i64*)
+  %handle = call i64 @xiom_thread_spawn(ptr @_xiom_spawn_0, ptr %env)
 ```
 
 ---
