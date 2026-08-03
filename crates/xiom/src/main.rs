@@ -85,7 +85,7 @@ use xiom_codegen::sandbox::SafetyAuditor;
 /// State (let/var declarations) persists across lines.
 fn run_repl() {
     use std::io::{self, Write};
-    eprintln!("XIOM REPL v0.53.0 â€” type :help for commands, :quit to exit");
+    eprintln!("XIOM REPL v0.56.0-pre — type :help for commands, :quit to exit");
     let mut line_num = 0u64;
     let mut state: Vec<String> = Vec::new(); // accumulated let/var declarations
 
@@ -174,8 +174,8 @@ fn main() {
     }
 
     if args.iter().any(|a| a == "--version") {
-        let tag = option_env!("XIOM_RELEASE_TAG").unwrap_or("Narrow-Int Foundation");
-        let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("1604/1604 E2E, 100% pass");
+        let tag = option_env!("XIOM_RELEASE_TAG").unwrap_or("Production Polish");
+        let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("27/27 E2E, 100% pass, 19/19 gates");
         println!("XIOM Compiler v{} \"{tag}\" - {stats}", env!("CARGO_PKG_VERSION"));
         return;
     }
@@ -950,8 +950,8 @@ fn main() {
 }
 
 fn print_usage() {
-        let tag = option_env!("XIOM_RELEASE_TAG").unwrap_or("Narrow-Int Foundation");
-        let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("1604/1604 E2E, 100% pass");
+        let tag = option_env!("XIOM_RELEASE_TAG").unwrap_or("Production Polish");
+        let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("27/27 E2E, 100% pass, 19/19 gates");
         eprintln!("XIOM Compiler v{} \"{tag}\" -- {stats}", env!("CARGO_PKG_VERSION"));
     eprintln!();
     eprintln!("USAGE:");
@@ -1657,7 +1657,7 @@ fn test_hello() -> Int {{
 
 /// 9A: xiom doctor â€” check all dependencies and report status.
 fn run_doctor() {
-    println!("XIOM Doctor v0.53.0");
+    println!("XIOM Doctor v0.56.0-pre");
     println!("====================");
     println!();
     println!("  [OK] xiom v{}", option_env!("XIOM_RELEASE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")));
