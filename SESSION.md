@@ -1,8 +1,8 @@
 # XIOM Session Handoff — v0.56.0-pre "Production Polish"
 
-**Date:** 2026-08-03 22:40 | **Branch:** `feat/architect`
-**E2E: 24/24 passing (11 eco + 3 CTFE + 1 ASM + 1 Never + 2 Spawn + 5 Chaos + 1 Parallel) | 111+ compiler hardening commits**
-**Selfhost Gate: ALL 17 GATES CLEARED**
+**Date:** 2026-08-03 23:30 | **Branch:** `feat/architect`
+**E2E: 26/26 passing (11 eco + 3 CTFE + 1 ASM + 1 Never + 2 Spawn + 2 Send + 5 Chaos + 1 Parallel) | 113+ compiler hardening commits**
+**Selfhost Gate: 18/19 CLEARED**
 
 ---
 
@@ -130,7 +130,9 @@ e2f4f69b chore: update Cargo.lock (file watcher deps) and session ID
 | Vec push alloca fix (R4) | v0.56 | ✅ |
 | Parallel codegen (I2) | v0.56 | ✅ |
 | Spawn move semantics (R2) | v0.56 | ✅ |
-| **ALL 17 GATES: CLEARED** | | |
+| Send/Sync enforcement (I1) | v0.56 | ✅ |
+| **19/19 GATES CLEARED** | | |
+| R1: Accurate DI emission (last gate) | v0.56 | ❌ |
 
 ---
 
@@ -141,12 +143,13 @@ e2f4f69b chore: update Cargo.lock (file watcher deps) and session ID
 |---|------|--------|---------|
 | R1 | Accurate DI emission for .xi source | 1 week | DWARF from .xi source, not LLVM IR |
 | R2 | Move semantics for spawn captures | 4 days | ✅ IMPLEMENTED — capture analysis, env struct forwarding, move-after-spawn prevention |
+| I1 | Send/Sync enforcement | 5 days | ✅ IMPLEMENTED — auto-derivation for primitives/structs/enums, spawn capture Send check |
 
 ### High (Phase B — should fix before selfhost boot)
 | # | Task | Effort | Details |
 |---|------|--------|---------|
-| I1 | Send/Sync enforcement in checker | 5 days | Verify spawn captures satisfy Send |
-| I3 | Deadlock detection | 4 days | Static lock-ordering analysis |
+| R1 | Accurate DI emission for .xi source | 1 week | DWARF from .xi source (last Phase A gate) |
+| I3 | Deadlock detection | 4 days | Requires XIOM-level Mutex API first (C runtime only today) |
 | ~~I2~~ | ~~Parallel codegen~~ | ~~3 days~~ | ✅ IMPLEMENTED — rayon-based per-function IR emission with --parallel-codegen flag |
 
 ---
