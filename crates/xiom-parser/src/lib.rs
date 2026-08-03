@@ -1056,7 +1056,10 @@ impl Parser {
             TokenKind::Asm => { let stmt = self.parse_asm_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             // v0.55: defer { ... } or defer expr;
             TokenKind::Defer => { let stmt = self.parse_defer_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
-            TokenKind::Spawn if self.peek_ahead(1) == Some(&TokenKind::LBrace) => { let stmt = self.parse_spawn_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
+            TokenKind::Spawn if {
+                let next = self.peek_ahead(1);
+                next == Some(&TokenKind::LBrace) || next == Some(&TokenKind::Move)
+            } => { let stmt = self.parse_spawn_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::LBrace => {
                 // Bare block expression: `{ stmt; ... }` as a statement or expression
                 let block = self.parse_block()?;
@@ -1397,7 +1400,17 @@ impl Parser {
         }
     }
 
-    fn parse_spawn_stmt(&mut self) -> Result<Stmt, ParseError> { let span = self.advance().span; let body = self.parse_block()?; Ok(Stmt::Spawn(body, span)) }
+    fn parse_spawn_stmt(&mut self) -> Result<Stmt, ParseError> {
+        let span = self.advance().span; // consume 'spawn'
+        let is_move = if self.peek().kind == TokenKind::Move {
+            self.advance();
+            true
+        } else {
+            false
+        };
+        let body = self.parse_block()?;
+        Ok(Stmt::Spawn(body, span, is_move))
+    }
 
     /// v0.55: Parse `asm("template" [: outputs [: inputs [: clobbers]]]);`
     fn parse_asm_stmt(&mut self) -> Result<Stmt, ParseError> {
@@ -1476,9 +1489,15 @@ impl Parser {
     }
     /// M21: Parse module-level `spawn { ... }` as a top-level declaration.
     fn parse_spawn_top_decl(&mut self) -> Result<TopDecl, ParseError> {
-        let span = self.advance().span;
+        let span = self.advance().span; // consume 'spawn'
+        let is_move = if self.peek().kind == TokenKind::Move {
+            self.advance();
+            true
+        } else {
+            false
+        };
         let body = self.parse_block()?;
-        Ok(TopDecl::Spawn(body, span))
+        Ok(TopDecl::Spawn(body, span, is_move))
     }
 
     fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {

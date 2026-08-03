@@ -349,8 +349,8 @@ pub enum Stmt {
     While(Expr, Block, Option<Expr>, Span),
     /// `for ident in expr block`
     For(Ident, Expr, Block, Span),
-    /// `spawn block`
-    Spawn(Block, Span),
+    /// `spawn [move] { block }`
+    Spawn(Block, Span, /* move */ bool),
     /// `var (a, b) = expr;` / `let (a, b) = expr;`
     Destructure(Vec<Ident>, Expr, Span),
     /// `break;` or `break 'label;`
@@ -620,8 +620,8 @@ pub enum TopDecl {
     Const(ConstDecl),
     Extern(ExternBlock),
     Impl(ImplDecl),
-    /// Module-level `spawn { ... }` block (M21 async statement at top level).
-    Spawn(Block, Span),
+    /// Module-level `spawn [move] { ... }` block (M21 async statement at top level).
+    Spawn(Block, Span, /* move */ bool),
 }
 
 // ============================================================================
@@ -697,7 +697,7 @@ impl Program {
                     }
                 }
                 Stmt::For(_, iter, body, _) => { rewrite_expr(iter, iface_methods, span); rewrite_bare_calls(body, iface_methods, span); }
-                Stmt::Spawn(body, _) => rewrite_bare_calls(body, iface_methods, span),
+                Stmt::Spawn(body, _, _move) => rewrite_bare_calls(body, iface_methods, span),
                 _ => {}
             }
         }

@@ -194,7 +194,7 @@ impl SafetyAuditor {
                 self.audit_expr(scrut, report);
                 for arm in arms { self.audit_match_body(&arm.body, report); }
             }
-            Stmt::Spawn(body, _) => self.audit_block(body, report),
+            Stmt::Spawn(body, _, _move) => self.audit_block(body, report),
             _ => {}
         }
     }

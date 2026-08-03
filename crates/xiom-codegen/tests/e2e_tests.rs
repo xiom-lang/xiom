@@ -1477,6 +1477,16 @@ fn e2e_spawn_basic() {
     );
 }
 
+/// R2: Spawn capture — outer variables forwarded via heap-allocated env struct
+#[test]
+fn e2e_spawn_capture() {
+    assert_eq!(
+        compile_and_run("tests\\regression\\spawn_capture.xi"),
+        Some(0),
+        "Spawn capture: must forward captured variables via env struct"
+    );
+}
+
 // ============================================================================
 // Chaos Benchmark E2E Tests
 // ============================================================================

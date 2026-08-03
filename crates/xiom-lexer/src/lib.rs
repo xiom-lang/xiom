@@ -18,6 +18,7 @@ pub enum TokenKind {
     Break, Continue,
     If, Elif, Else, Match, While, For, In,
     Spawn, Await, Comptime, Asm, Defer,
+    Move,
     Module, Use, Pub, As,
     Type, Enum, Interface, Derive, Impl,
     // requires/ensures/invariant are CONTEXTUAL keywords (5c-R: interned symbols,
@@ -496,6 +497,7 @@ impl Lexer {
             "comptime"  => TokenKind::Comptime,
             "asm"       => TokenKind::Asm,
             "defer"     => TokenKind::Defer,
+            "move"      => TokenKind::Move,
             "module"    => TokenKind::Module,
             "use"       => TokenKind::Use,
             "and"       => TokenKind::AndAnd,   // 8B/M9: boolean operator keyword aliases
