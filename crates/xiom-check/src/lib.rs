@@ -257,10 +257,30 @@ impl Checker {
         });
         // 5e.1 G-18: sizeof[T]() compiler intrinsic for C FFI byte sizes.
         // Returns the LLVM byte size of type T (struct, primitive, or extern).
-        // Codegen emits a compile-time constant via sizeof_struct().
-        // Registered same pattern as size_of/align_of: zero-arg generic.
+        // Codegen emits a compile-time constant via struct_byte_size().
         self.functions.insert("sizeof".to_string(), FnSig {
             params: vec![],
+            return_type: Some(CheckedType::Int),
+            generics: vec!["T".to_string()],
+            uses_implicit_this: false,
+        });
+
+        // v0.54: CTFE builtins registered as zero-arg generic intrinsics.
+        // Evaluated at compile time by evaluate_const_init() in codegen.
+        self.functions.insert("align_of".to_string(), FnSig {
+            params: vec![],
+            return_type: Some(CheckedType::Int),
+            generics: vec!["T".to_string()],
+            uses_implicit_this: false,
+        });
+        self.functions.insert("type_id".to_string(), FnSig {
+            params: vec![],
+            return_type: Some(CheckedType::Int),
+            generics: vec!["T".to_string()],
+            uses_implicit_this: false,
+        });
+        self.functions.insert("field_offset".to_string(), FnSig {
+            params: vec![("field_name".to_string(), CheckedType::Str)],
             return_type: Some(CheckedType::Int),
             generics: vec!["T".to_string()],
             uses_implicit_this: false,
