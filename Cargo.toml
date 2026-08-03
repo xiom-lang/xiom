@@ -18,4 +18,5 @@ members = [
     "crates/xiom-display",
     "crates/xiom-graph",
     "crates/xiom-wasm",
+    "crates/xiom-ctfe",
 ]

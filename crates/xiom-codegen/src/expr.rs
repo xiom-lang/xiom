@@ -386,6 +386,30 @@ impl IrEmitter {
                         }
                     }
                 }
+                // v0.54 Phase B: CTFE function call evaluation
+                if let Expr::Call(func, args, _) = expr {
+                    if let Expr::Ident(fid) = func.as_ref() {
+                        let mut arg_vals: Vec<xiom_ctfe::CtfeValue> = Vec::new();
+                        let mut all_const = true;
+                        for a in args.iter() {
+                            let ev = self.evaluate_const_init(a);
+                            match ev {
+                                Expr::Int(n, _) => arg_vals.push(xiom_ctfe::CtfeValue::Int(n as i64)),
+                                Expr::Float(f, _) => arg_vals.push(xiom_ctfe::CtfeValue::Float(f)),
+                                Expr::Bool(b, _) => arg_vals.push(xiom_ctfe::CtfeValue::Bool(b)),
+                                Expr::Str(s, _) => arg_vals.push(xiom_ctfe::CtfeValue::Str(s)),
+                                _ => { all_const = false; break; }
+                            }
+                        }
+                        if all_const && arg_vals.len() == args.len() {
+                            if let Ok(result) = self.ctfe.borrow_mut().eval_function(
+                                &fid.name, &arg_vals, 0,
+                            ) {
+                                return xiom_ctfe::CtfeEngine::to_expr(&result);
+                            }
+                        }
+                    }
+                }
                 expr.clone()
             }
 

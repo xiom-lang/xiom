@@ -9,8 +9,10 @@
 //! let/var bindings, structs, function calls.
 
 use xiom_ast::*;
+use xiom_ctfe::CtfeEngine;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::cell::RefCell;
 
 pub mod call;
 pub mod llvm_consts;
@@ -53,6 +55,9 @@ pub struct IrEmitter {
     pub mono: MonoContext,
     /// Local variable classification, module-level globals, loop stack
     pub local: LocalContext,
+    /// v0.54 Phase B: CTFE engine for compile-time function evaluation.
+    /// Populated during register_functions; used by evaluate_const_init.
+    pub ctfe: RefCell<CtfeEngine>,
 }
 
 
@@ -73,6 +78,7 @@ impl IrEmitter {
             },
             mono: MonoContext::default(),
             local: LocalContext::default(),
+            ctfe: RefCell::new(CtfeEngine::new()),
         }
     }
 
