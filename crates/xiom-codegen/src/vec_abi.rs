@@ -12,6 +12,11 @@ impl IrEmitter {
     /// second tuple element is false). Otherwise the header value is copied
     /// into a fresh alloca and the caller must store the mutated header back
     /// via `store_back_to_receiver` (second tuple element is true).
+    ///
+    /// For simple local-variable Ident receivers, this creates a new alloca
+    /// each call — which leaks stack space when called in loops (R4 fix).
+    /// Prefer `resolve_vec_push_ptr` for push/in-place mutating operations
+    /// that may execute inside loops.
     pub(crate) fn resolve_vec_receiver_ptr(&mut self, receiver: &Expr) -> Result<(String, bool), String> {
         let (recv_val, recv_ty) = self.compile_expr(receiver)?;
         if recv_ty == "i64" && self.is_container_vec_field(receiver) {
@@ -52,6 +57,37 @@ impl IrEmitter {
         self.emitln(&format!("  {slot} = alloca %struct.Vec"));
         self.emit_vec_store_fields(&vec_val, &slot);
         Ok((slot, true))
+    }
+
+    /// R4 fix: Resolve a Vec receiver to a %struct.Vec* pointer for push/in-place
+    /// mutation WITHOUT creating a per-call scratch alloca. For simple local
+    /// variables (Ident), returns the local's original alloca directly — avoiding
+    /// the dynamic-alloca-in-loop stack bloat that caused ACCESS_VIOLATION for
+    /// large Vec push loops (>100K iterations).
+    ///
+    /// Returns (pointer_to_vec, needs_store_back). When needs_store_back is false,
+    /// the caller is already working on the authoritative storage and no
+    /// store_back_to_receiver call is needed.
+    pub(crate) fn resolve_vec_push_ptr(&mut self, receiver: &Expr) -> Result<(String, bool), String> {
+        // For simple local variables, use the receiver's original alloca directly.
+        // This is the critical fix: avoids creating a new 32-byte alloca every
+        // push iteration, which accumulates unbounded stack usage in loops.
+        if let Expr::Ident(id) = receiver {
+            if let Some((alloca, llvm_ty)) = self.lookup_local(&id.name).cloned() {
+                // If the local is a direct %struct.Vec alloca, use it as-is.
+                if llvm_ty == "%struct.Vec" {
+                    // The local's alloca already stores a %struct.Vec value.
+                    // Push modifies it in-place — no copy needed, no store-back needed.
+                    return Ok((alloca, false));
+                }
+                // If the local is a pointer to Vec (&mut Vec[T]), we need to
+                // load the pointer and work through it. Delegate to the full path.
+            }
+        }
+        // For complex receivers (container fields, indexed elements, struct
+        // fields), fall back to the existing resolve_vec_receiver_ptr which
+        // correctly handles heap-boxed and buffer-inlined Vecs.
+        self.resolve_vec_receiver_ptr(receiver)
     }
 
     /// 5c.30: Load a Vec element as an i64 Option payload. Scalars load
