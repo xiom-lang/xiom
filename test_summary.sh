@@ -17,14 +17,16 @@ run_suite() {
     local pkg="$1"
     local test_file="$2"
     local label="$3"
+    shift 3
+    local extra_args=("$@")
 
     printf "  %-22s " "${label}"
 
     local output
-    if [ -z "${test_file}" ]; then
-        output=$(cargo test -p "$pkg" 2>&1) || true
+    if [ -z "${test_file}" ] || [ "${test_file}" = "_" ]; then
+        output=$(cargo test -p "$pkg" "${extra_args[@]}" 2>&1) || true
     else
-        output=$(cargo test -p "$pkg" --test "$test_file" 2>&1) || true
+        output=$(cargo test -p "$pkg" --test "$test_file" "${extra_args[@]}" 2>&1) || true
     fi
 
     if echo "$output" | grep -q 'test result:'; then
@@ -73,18 +75,32 @@ echo -e "${YELLOW}COMPILER${NC}"
 
 TOTAL_PASSED=0; TOTAL_FAILED=0; TOTAL_IGNORED=0
 for suite in \
-    "xiom-codegen e2e_tests e2e" \
-    "xiom-codegen feature_regression_tests feature-regression" \
-    "xiom-codegen stdlib_execution_tests stdlib-execution" \
-    "xiom-codegen diff_tests diff" \
-    "xiom-codegen full_diff_tests full-diff" \
-    "xiom-codegen fuzz_tests fuzz" \
-    "xiom-codegen integration_tests integration" \
-    "xiom-codegen robustness_tests robustness" \
-    "xiom-codegen stdlib_tests stdlib-compile"
+    "xiom-codegen e2e_tests                e2e                _" \
+    "xiom-codegen feature_regression_tests  feature-regression _" \
+    "xiom-codegen stdlib_execution_tests    stdlib-execution   _" \
+    "xiom-codegen stdlib_tests              stdlib-compile     _" \
+    "xiom-codegen integration_tests         integration        _" \
+    "xiom-codegen diff_tests                diff               _" \
+    "xiom-codegen full_diff_tests           full-diff          _" \
+    "xiom-codegen fuzz_tests                fuzz               _" \
+    "xiom-codegen robustness_tests          robustness         _" \
+    "xiom-codegen _                         codegen-unit       _" \
+    "xiom-lexer   _                         lexer              _" \
+    "xiom-parser  _                         parser             -- --test-threads=2" \
+    "xiom-check   _                         checker            -- --test-threads=2" \
+    "xiom-ctfe    _                         ctfe               _" \
+    "xiom-graph   _                         graph              _" \
+    "xiom-verify  verifier_tests            verifier           _" \
+    "xiom-jit     _                         jit                _" \
+    "xiom         scripting_tests           scripting          _" \
+    "xiom         diff_tests                script-diff        _"
 do
-    read -r pkg test label <<< "$suite"
-    run_suite "$pkg" "$test" "$label"
+    read -r pkg test label extra <<< "$suite"
+    if [ "$extra" = "_" ]; then
+        run_suite "$pkg" "$test" "$label"
+    else
+        run_suite "$pkg" "$test" "$label" "$extra" "--test-threads=2"
+    fi
 done
 COMPILER_PASSED=$TOTAL_PASSED
 COMPILER_FAILED=$TOTAL_FAILED
@@ -99,16 +115,14 @@ echo -e "${YELLOW}TOOLING${NC}"
 
 TOTAL_PASSED=0; TOTAL_FAILED=0; TOTAL_IGNORED=0
 for suite in \
-    "xiom-check  _ checker" \
-    "xiom-parser _ parser" \
-    "xiom-fmt    _ formatter" \
-    "xiom-lsp    _ lsp" \
-    "xiom-pkg    _ package-mgr" \
-    "xiom-doc    _ doc-gen" \
-    "xiom-ffigen _ ffi-gen" \
-    "xiom-mcp    _ mcp-server" \
-    "xiom-dbg    _ debugger" \
-    "xiom-verify _ verifier"
+    "xiom-fmt     _ formatter" \
+    "xiom-lsp     _ lsp" \
+    "xiom-pkg     _ package-mgr" \
+    "xiom-doc     _ doc-gen" \
+    "xiom-ffigen  _ ffi-gen" \
+    "xiom-mcp     _ mcp-server" \
+    "xiom-dbg     _ debugger" \
+    "xiom-display _ display"
 do
     read -r pkg _ label <<< "$suite"
     run_suite "$pkg" "" "$label"
@@ -116,8 +130,6 @@ done
 TOOLING_PASSED=$TOTAL_PASSED
 TOOLING_FAILED=$TOTAL_FAILED
 TOOLING_IGNORED=$TOTAL_IGNORED
-# Display totals count runnable tests (passed+failed) — consistent with the
-# per-suite "OK (passed/total)" lines. Ignored tests excluded from the ratio.
 TOOLING_TOTAL=$((TOOLING_PASSED + TOOLING_FAILED))
 
 # ============================================================================
