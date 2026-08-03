@@ -95,6 +95,13 @@ pub struct Checker {
     /// Used by types_compatible to auto-coerce newtypes to their underlying types
     /// for seamless FFI calls and ecosystem wrapper ergonomics.
     aliases: HashMap<String, CheckedType>,
+    /// I1: Set of type names that implement Send + Sync marker interfaces.
+    /// Auto-populated for primitives and derived for composite types.
+    pub send_sync_types: HashSet<String>,
+    /// I1: Struct field types for Send/Sync derivation: struct_name → [(field_name, field_type)]
+    pub struct_field_types: HashMap<String, Vec<(String, String)>>,
+    /// I1: Enum variant field types for Send/Sync: enum_name → [(variant_name, [field_type_names])]
+    pub enum_field_types: HashMap<String, Vec<(String, Vec<String>)>>,
 }
 
 impl Checker {
@@ -124,6 +131,9 @@ impl Checker {
             error_count: 0,
             type_arena: TypeArena::new(),
             aliases: HashMap::new(),
+            send_sync_types: HashSet::new(),
+            struct_field_types: HashMap::new(),
+            enum_field_types: HashMap::new(),
         };
         // Register built-in types
         checker.register_builtins();
@@ -183,9 +193,7 @@ impl Checker {
                     .or_insert(exports);
             }
         }
-            self.flatten_submodules(&cached.program.items);
-            self.flatten_submodules(&cached.program.items);
-        }
+    }
 
     fn register_builtins(&mut self) {
         // All primitive types are known
@@ -297,6 +305,15 @@ impl Checker {
         // All primitives (Int, Float, Bool, Str, Char) implement Send+Sync.
         self.interfaces.insert("Send".to_string(), vec![]);
         self.interfaces.insert("Sync".to_string(), vec![]);
+
+        // I1: Register all primitive types as Send + Sync implementors.
+        // These are the foundational types from which composite types derive.
+        for prim in &["Int", "Float64", "Bool", "Str", "Char", "String", "Float32", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"] {
+            self.register_send_sync_impl(prim);
+        }
+        // Re-export commonly-used type aliases
+        self.register_send_sync_impl("Int");  // alias for Int64
+        self.register_send_sync_impl("Float"); // alias for Float64
 
         // Register Vec methods in the method table so wildcard lookup
         // finds them for expressions whose type resolves to generic T
@@ -803,6 +820,11 @@ impl Checker {
                     self.types.entry(bare_key).or_insert(fields);
                 }
                 self.visibility.insert(td.name.name.clone(), td.is_pub);
+                // I1: Track struct field types for Send/Sync auto-derivation
+                let field_types: Vec<(String, String)> = td.fields.iter()
+                    .map(|f| (f.name.name.clone(), CheckedType::from_ast_type(&f.ty).name()))
+                    .collect();
+                self.struct_field_types.insert(key.clone(), field_types);
             }
             TopDecl::Enum(ed) => {
                 let key = if module_path.is_empty() { ed.name.name.clone() } else { format!("{}.{}", module_path, ed.name.name) };
@@ -851,6 +873,16 @@ impl Checker {
                         self.variant_fields.entry(variant.name.name.clone()).or_insert(vfields);
                     }
                 }
+                // I1: Track enum variant field types for Send/Sync auto-derivation
+                let enum_field_types: Vec<(String, Vec<String>)> = ed.variants.iter()
+                    .map(|v| {
+                        let types: Vec<String> = v.fields.iter()
+                            .map(|f| CheckedType::from_ast_type(&f.ty).name())
+                            .collect();
+                        (v.name.name.clone(), types)
+                    })
+                    .collect();
+                self.enum_field_types.insert(key.clone(), enum_field_types);
             }
             TopDecl::Module(md) => {
                 let new_path = if module_path.is_empty() { md.name.name.clone() } else { format!("{}.{}", module_path, md.name.name) };
@@ -1114,6 +1146,81 @@ impl Checker {
             Expr::Closure(_, _, b, _) | Expr::BlockExpr(b, _) => Self::collect_expr_references_block_into(b, refs),
             Expr::PipeClosure(_, e, _) => Self::collect_expr_references(e, refs),
             _ => {} // Int, Float, Bool, Str, Char, None, Wildcard, etc.
+        }
+    }
+
+    // ====================================================================
+    // I1: Send/Sync enforcement — auto-derivation + spawn capture checking
+    // ====================================================================
+
+    /// Register a concrete type as implementing both Send and Sync.
+    fn register_send_sync_impl(&mut self, type_name: &str) {
+        self.interfaces.entry("Send".to_string())
+            .or_default();
+        self.interfaces.entry("Sync".to_string())
+            .or_default();
+        // Store implementation in a separate set for fast lookup
+        self.send_sync_types.insert(type_name.to_string());
+    }
+
+    /// Check if a type implements Send (safe to transfer between threads).
+    /// Auto-derived: primitives are Send; structs are Send if all fields are Send;
+    /// generic containers (Option, Result, Vec) are Send if type params are Send.
+    fn is_send(&self, type_name: &str) -> bool {
+        // Directly registered types (primitives + explicitly marked)
+        if self.send_sync_types.contains(type_name) {
+            return true;
+        }
+        // Structs: check if all field types are Send
+        if let Some(fields) = self.struct_field_types.get(type_name) {
+            return fields.iter().all(|(_, ft)| self.is_send(ft));
+        }
+        // Enum types: all variant field types must be Send
+        if let Some(variants) = self.enum_field_types.get(type_name) {
+            return variants.iter().all(|(_, fields)| {
+                fields.iter().all(|ft| self.is_send(ft))
+            });
+        }
+        // Generic containers: Option[T], Result[T,E], Vec[T] — assume Send
+        // for now (they own their data). Full generic analysis deferred.
+        if let Some((base, _params)) = Self::parse_generic_type(type_name) {
+            match base.as_str() {
+                "Option" | "Result" | "Vec" | "Map" | "Set" | "Deque"
+                | "HashMap" | "HashSet" | "BTreeMap" | "PriorityQueue"
+                | "Channel" | "Arc" | "AtomicInt" | "AtomicBool"
+                | "Mutex" | "RwLock" => return true,
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// Parse "Vec[Int]" → ("Vec", ["Int"]), "Option[Result[Int,Str]]" → ("Option", ["Result[Int,Str]"])
+    fn parse_generic_type(name: &str) -> Option<(String, Vec<String>)> {
+        if let Some(bracket) = name.find('[') {
+            let base = name[..bracket].to_string();
+            let inner = &name[bracket + 1..name.len() - 1];
+            // Split by top-level commas only
+            let mut params = Vec::new();
+            let mut depth = 0;
+            let mut current = String::new();
+            for ch in inner.chars() {
+                match ch {
+                    '[' => { depth += 1; current.push(ch); }
+                    ']' => { depth -= 1; current.push(ch); }
+                    ',' if depth == 0 => {
+                        params.push(current.trim().to_string());
+                        current.clear();
+                    }
+                    _ => current.push(ch),
+                }
+            }
+            if !current.is_empty() {
+                params.push(current.trim().to_string());
+            }
+            Some((base, params))
+        } else {
+            None
         }
     }
 
@@ -2471,6 +2578,24 @@ impl Checker {
                 if !captures.is_empty() && !is_move {
                     // Non-move spawn with captures: warning or error
                     // For now, spawn without `move` still works but captures are implicit
+                }
+
+                // I1: Send/Sync enforcement — verify every captured variable's type
+                // implements Send before allowing the spawn capture.
+                for cap in &captures {
+                    if let Some(cap_ty) = self.lookup_local(cap) {
+                        let type_name = cap_ty.name();
+                        if !self.is_send(&type_name) {
+                            self.error(
+                                format!(
+                                    "spawn capture '{}' of type '{}' does not implement Send; \
+                                     only Send types can be moved across thread boundaries.",
+                                    cap, type_name
+                                ),
+                                body.stmts.first().map(|_| Span::new(0, 0)).unwrap_or(Span::new(0, 0)),
+                            );
+                        }
+                    }
                 }
 
                 // Mark captures as moved — they cannot be used after spawn
