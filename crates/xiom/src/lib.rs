@@ -982,6 +982,8 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             if config.target == Target::Native { cmd.arg("-maes"); }
             if asm_objects.is_empty() { cmd.arg("-DXIOM_NO_ASM"); }
             if config.debug_symbols { cmd.arg("-g"); }
+            // v0.56: Apply optimization level to clang (same as opt passes)
+            if config.release { cmd.arg("-O3"); } else { cmd.arg("-O1"); }
             // v0.56: ThinLTO for 20-40% smaller/faster binaries
             if config.lto { cmd.arg("-flto=thin"); }
             // Suppress MSVC deprecation warnings (fopen, etc.) in the runtime C code.
@@ -1010,7 +1012,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 }
                 Target::Native => {
                     if cfg!(target_os = "windows") {
-                        cmd.args(["-Xlinker", "/SUBSYSTEM:CONSOLE", "-Xlinker", "/STACK:2097152,2097152", "-Xlinker", "/Brepro"]);
+                        cmd.args(["-Xlinker", "/SUBSYSTEM:CONSOLE", "-Xlinker", "/STACK:8388608,8388608", "-Xlinker", "/Brepro"]);
                     }
                 }
             }
