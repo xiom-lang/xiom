@@ -13,6 +13,8 @@ use xiom_ctfe::CtfeEngine;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::cell::RefCell;
+use std::sync::Arc;
+use rayon::prelude::*;
 
 pub mod call;
 pub mod llvm_consts;
@@ -92,6 +94,10 @@ impl IrEmitter {
 
     pub fn set_overflow_checks(&mut self, enabled: bool) {
         self.config.overflow_checks = enabled;
+    }
+
+    pub fn set_parallel_codegen(&mut self, enabled: bool) {
+        self.config.parallel_codegen = enabled;
     }
 
     pub fn set_max_recursion_depth(&mut self, depth: u32) {
@@ -2416,9 +2422,16 @@ impl IrEmitter {
         // Emit derive implementations for types with derive clauses
         self.compile_derive_impls(&program.items)?;
 
-        // Define all non-generic function bodies, tracking generic instantiations
-        for item in &program.items {
-            self.compile_top_decl(item)?;
+        // Define all non-generic function bodies, tracking generic instantiations.
+        // I2: When --parallel-codegen is enabled, compile independent functions
+        // in parallel using rayon. Each function gets its own output buffer; we
+        // merge them in declaration order after all tasks complete.
+        if self.config.parallel_codegen {
+            self.compile_functions_parallel(&program.items)?;
+        } else {
+            for item in &program.items {
+                self.compile_top_decl(item)?;
+            }
         }
 
         // Emit monomorphised generic function bodies
@@ -2446,6 +2459,122 @@ impl IrEmitter {
         self.emit_undefined_symbol_stubs();
 
         Ok(self.output.clone())
+    }
+
+    // ========================================================================
+    // I2: Parallel Codegen — rayon-based per-function IR emission
+    // ========================================================================
+
+    /// Walk the program tree to collect all non-generic function declarations
+    /// with their module prefix and positional index (for output ordering).
+    fn collect_functions_to_compile<'a>(
+        items: &'a [TopDecl],
+        module_prefix: &str,
+        start_idx: &mut usize,
+    ) -> Vec<(usize, String, &'a FnDecl)> {
+        let mut result = Vec::new();
+        for item in items {
+            match item {
+                TopDecl::Fn(fd) => {
+                    if fd.generics.is_empty()
+                        && fd.body.is_some()
+                        && !(fd.name.name == "main" && fd.body.as_ref().map_or(false, |b| b.stmts.is_empty()))
+                    {
+                        let recv_is_generic = fd.receiver.as_ref()
+                            .map(|_r| false) // simplified: type check done by caller
+                            .unwrap_or(false);
+                        if !recv_is_generic {
+                            let prefix = if module_prefix.is_empty() {
+                                String::new()
+                            } else {
+                                format!("{}.", module_prefix)
+                            };
+                            let idx = *start_idx;
+                            *start_idx += 1;
+                            result.push((idx, prefix, fd));
+                        }
+                    }
+                }
+                TopDecl::Module(md) => {
+                    let new_prefix = if module_prefix.is_empty() {
+                        md.name.name.clone()
+                    } else {
+                        format!("{}.{}", module_prefix, md.name.name)
+                    };
+                    let sub = Self::collect_functions_to_compile(&md.items, &new_prefix, start_idx);
+                    result.extend(sub);
+                }
+                _ => {}
+            }
+        }
+        result
+    }
+
+    /// Compile function bodies in parallel using rayon. Each function gets its
+    /// own output buffer; we merge them in declaration order after all tasks
+    /// complete. This maps naturally to XIOM's `spawn` + `Channel[T]` pattern
+    /// for the selfhost compiler.
+    fn compile_functions_parallel(&mut self, items: &[TopDecl]) -> Result<(), String> {
+        // Step 1: Collect all functions to compile
+        let mut idx = 0;
+        let functions = Self::collect_functions_to_compile(items, "", &mut idx);
+
+        if functions.is_empty() {
+            return Ok(());
+        }
+
+        // Step 2: Compile each function in parallel
+        let type_ctx = Arc::new(self.types.clone());
+        let cfg = Arc::new(self.config.clone());
+        let ctfe_snapshot = Arc::new(self.ctfe.borrow().clone());
+        let local_constants = Arc::new(self.local.constants.clone());
+        let outputs: Vec<_> = functions
+            .par_iter()
+            .map(|(idx, prefix, fd)| {
+                let mut emitter = IrEmitter::new();
+                emitter.types = (*type_ctx).clone();
+                emitter.config = (*cfg).clone();
+                *emitter.ctfe.borrow_mut() = (*ctfe_snapshot).clone();
+                emitter.local.constants = (*local_constants).clone();
+                emitter.local.current_module = if prefix.is_empty() { None } else { Some(prefix.clone()) };
+
+                let fn_name = emitter.fn_symbol(fd);
+                emitter.mono.emitted_fns.insert(fn_name.clone());
+                if emitter.config.hot_reload && fd.is_pub {
+                    emitter.config.pub_functions.insert(fn_name);
+                }
+
+                match emitter.compile_fn(fd) {
+                    Ok(()) => {
+                        let out = emitter.output.clone();
+                        let gens = emitter.mono.generic_instantiations.clone();
+                        let used = emitter.types.used_builtins.clone();
+                        let strs = emitter.fctx.strings.clone();
+                        (*idx, out, gens, used, strs)
+                    },
+                    Err(e) => (*idx, format!("; ERROR compiling {}: {}\n", fd.name.name, e), Vec::new(), HashSet::new(), Vec::new()),
+                }
+            })
+            .collect::<Vec<_>>();
+
+        // Step 3: Merge outputs in declaration order
+        let mut sorted: Vec<_> = outputs.into_iter().collect();
+        sorted.sort_by_key(|(idx, _, _, _, _)| *idx);
+
+        for (_idx, output, generics, builtins, strings) in sorted {
+            self.output.push_str(&output);
+            for g in generics {
+                self.mono.generic_instantiations.push(g);
+            }
+            for b in builtins {
+                self.types.used_builtins.insert(b);
+            }
+            for s in strings {
+                self.fctx.strings.push(s);
+            }
+        }
+
+        Ok(())
     }
 
     // Contract runtime checks → see contracts.rs

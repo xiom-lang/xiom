@@ -75,6 +75,8 @@ pub struct CompileConfig {
     pub cache: bool,
     /// v0.56: ThinLTO link-time optimization (--lto flag)
     pub lto: bool,
+    /// I2: Parallel codegen — rayon-based per-function IR emission (--parallel-codegen)
+    pub parallel_codegen: bool,
 }
 
 impl Default for CompileConfig {
@@ -113,6 +115,7 @@ impl Default for CompileConfig {
             script_mode: false,
             cache: false,
             lto: false,
+            parallel_codegen: false,
         }
     }
 }
@@ -514,6 +517,7 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     }
     emitter.set_check_contracts(config.check_contracts || config.runtime_contracts);
     emitter.set_overflow_checks(config.overflow_checks);
+    emitter.set_parallel_codegen(config.parallel_codegen);
     emitter.set_max_recursion_depth(config.max_recursion_depth);
     emitter.set_strict_mode(config.strict_mode);
     emitter.set_hot_reload(config.hot_reload);

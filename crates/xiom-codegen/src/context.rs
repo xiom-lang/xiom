@@ -95,6 +95,8 @@ pub struct CodegenConfig {
     pub pub_functions: HashSet<String>,
     /// Globals to save/restore across hot reload: (symbol, llvm_type, byte_size)
     pub xiom_hot_globals: Vec<(String, String, usize)>,
+    /// I2: Enable parallel codegen (rayon-based per-function IR emission)
+    pub parallel_codegen: bool,
 }
 
 impl Default for CodegenConfig {
@@ -119,6 +121,7 @@ impl Default for CodegenConfig {
             overflow_checks: false, // M18: opt-in, OFF by default
             pub_functions: HashSet::new(),
             xiom_hot_globals: Vec::new(),
+            parallel_codegen: false,
         }
     }
 }

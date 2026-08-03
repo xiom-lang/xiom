@@ -11,6 +11,7 @@ cranelift-module = "0.116"
 cranelift-jit = "0.116"
 cranelift-native = "0.116"
 target-lexicon = "0.12"
+rayon = "1"
 
 [dev-dependencies]
 xiom-lexer = { path = "../xiom-lexer" }
