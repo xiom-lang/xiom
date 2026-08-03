@@ -349,6 +349,7 @@ impl IrEmitter {
     /// const references and folding arithmetic. Returns `Some(Expr)` on full
     /// evaluation, `None` if the expression cannot be const-evaluated.
     /// `depth` tracks recursion depth for cycle detection (max 128).
+    #[allow(dead_code)]
     pub(crate) fn const_eval(
         expr: &Expr,
         constants: &HashMap<String, Expr>,
@@ -388,6 +389,7 @@ impl IrEmitter {
     }
 
     /// Fold a binary operation on two literal const expressions.
+    #[allow(dead_code)]
     fn const_fold_binary(lhs: &Expr, op: &BinOp, rhs: &Expr) -> Option<Expr> {
         let s = Span::new(0, 0);
         match (lhs, rhs) {
@@ -1252,6 +1254,7 @@ impl IrEmitter {
     /// Pre-register all concrete Option/Result monomorphs for every struct type
     /// known after `register_type_layout` completes. Called BEFORE the emission
     /// loop so every function body sees the correct LLVM type definition.
+    #[allow(dead_code)]
     fn pre_register_concrete_types(&mut self) {
         let struct_names: Vec<String> = self.types.type_meta.keys().into_iter()
      .filter(|k| Self::is_struct_type_name(k)

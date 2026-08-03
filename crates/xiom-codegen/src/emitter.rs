@@ -47,6 +47,7 @@ impl IrEmitter {
 
     /// M17: Returns the XIOM type name for a local variable, if tracked.
     /// Prefers the explicit `local_xiom_types` map; falls back to LLVM-type reverse lookup.
+    #[allow(dead_code)]
     pub(crate) fn xiom_type_of_local(&self, name: &str) -> Option<String> {
         if let Some(xiom_ty) = self.local.local_xiom_types.get(name) {
             return Some(xiom_ty.clone());

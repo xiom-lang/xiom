@@ -428,6 +428,7 @@ impl Checker {
 
     /// Strip element-type bracket from an encoded container name.
     /// `"Vec[Int]"` → `("Vec", Some("Int"))`, `"Vec"` → `("Vec", None)`.
+    #[allow(dead_code)]
     fn container_base<'a>(name: &'a str) -> (&'a str, Option<&'a str>) {
         if let Some(bracket) = name.find('[') {
             let base = &name[..bracket];
@@ -4085,7 +4086,6 @@ fn pattern_covers_variant(pattern: &xiom_ast::Pattern, variant: &str) -> bool {
             _ => false,
         },
         xiom_ast::Pattern::Or(alts, _) => alts.iter().any(|a| pattern_covers_variant(a, variant)),
-        _ => false,
     }
 }
 
