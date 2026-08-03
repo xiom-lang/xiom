@@ -362,9 +362,9 @@ fn main() {
     let hot_reload = args.iter().any(|a| a == "--hot-reload");
     let hot_reload_contracts = args.iter().any(|a| a == "--hot-reload-contracts");
     // v0.55: OrcJIT — in-process JIT compilation via clang DLL loading
-    let use_jit = args.iter().any(|a| a == "--jit");
+    let _use_jit = args.iter().any(|a| a == "--jit");
     // v0.56: Lazy JIT — incremental recompilation (only with --jit)
-    let lazy_jit = args.iter().any(|a| a == "--lazy");
+    let _lazy_jit = args.iter().any(|a| a == "--lazy");
     // v0.56: LTO — ThinLTO link-time optimization
     let use_lto = args.iter().any(|a| a == "--lto");
     // 7E.1: Sanitizer flags

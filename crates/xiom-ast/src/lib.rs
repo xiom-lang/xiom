@@ -747,7 +747,7 @@ impl Program {
                 }
                 Expr::Is(e, _, _) => rewrite_expr(e, iface_methods, span),
                 Expr::Array(items, _) => for e in items { rewrite_expr(e, iface_methods, span); },
-                Expr::Closure(_, _, body, _) => {
+                Expr::Closure(_, _, _body, _) => {
                     // Don't recurse into closures — they have their own scope
                 }
                 _ => {}
@@ -933,7 +933,7 @@ impl Program {
             // Auto-detect: iterate over all interfaces that have defaults.
             // Interfaces with only default methods (no required) still need
             // expansion for every type (e.g. `interface Greeter { fn greet() -> Str { return "hello"; } }`).
-            for (iface_name, defaults) in interface_defaults.iter() {
+            for (iface_name, _defaults) in interface_defaults.iter() {
                 let required_methods = interface_required.get(iface_name).cloned().unwrap_or_default();
                 for (type_name, type_methods) in inherent_methods {
                     // Skip if explicit impl already exists

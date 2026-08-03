@@ -209,8 +209,8 @@ impl CtfeEngine {
         }
 
         // Save old locals and restore after (for recursion)
-        let saved_depth = ctx.depth;
-        let mut result = self.eval_block(&body, &mut ctx)?;
+        let _saved_depth = ctx.depth;
+        let result = self.eval_block(&body, &mut ctx)?;
         Ok(result)
     }
 
@@ -223,7 +223,6 @@ impl CtfeEngine {
             Expr::Bool(b, _) => Ok(CtfeValue::Bool(*b)),
             Expr::Str(s, _) => Ok(CtfeValue::Str(s.clone())),
             Expr::Char(c, _) => Ok(CtfeValue::Char(*c)),
-            _ => Ok(CtfeValue::Unit), // BlockExpr, etc. — Unit sentinel
 
             Expr::Ident(id) => {
                 if let Some(val) = ctx.locals.get(&id.name) {
@@ -384,7 +383,7 @@ impl CtfeEngine {
                 }
                 Ok(CtfeValue::Unit)
             }
-            Stmt::For(ident, iter, body, _) => {
+            Stmt::For(_ident, iter, body, _) => {
                 // Very basic for-loop: iterate over array literal range
                 // For CTFE we only support simple integer range-like patterns
                 let _iter_val = self.eval_expr(iter, ctx)?;

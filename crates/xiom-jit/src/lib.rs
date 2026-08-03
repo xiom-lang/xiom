@@ -12,10 +12,8 @@
 // Performance: 500ms → ~120ms (cold), ~5ms (warm cache)
 
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::process::Command;
 use sha2::{Digest, Sha256};
 
 // ============================================================================
@@ -52,7 +50,7 @@ impl JitModule {
     }
 
     /// Look up a function symbol by name. Caches the result.
-    pub fn get_fn<T>(&mut self, name: &str) -> Result<libloading::Symbol<T>, String> {
+    pub fn get_fn<T>(&mut self, name: &str) -> Result<libloading::Symbol<'_, T>, String> {
         // SAFETY: Symbol lookup is safe; the type T must match the actual function
         // signature. Callers must ensure T matches the compiled function.
         unsafe {
@@ -211,7 +209,7 @@ impl JitEngine {
     }
 
     /// Look up a function symbol in the active module.
-    pub fn lookup_fn<T>(&mut self, name: &str) -> Result<libloading::Symbol<T>, String> {
+    pub fn lookup_fn<T>(&mut self, name: &str) -> Result<libloading::Symbol<'_, T>, String> {
         self.active_module
             .as_mut()
             .ok_or_else(|| "no active module".to_string())?

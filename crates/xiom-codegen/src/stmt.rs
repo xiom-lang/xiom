@@ -136,7 +136,7 @@ impl IrEmitter {
                     let esz_gep = self.fresh_tmp();
                     self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 3"));
                     self.emitln(&format!("  store i64 {elem_size}, i64* {esz_gep}"));
-                    let loaded = self.emit_vec_load_fields(&struct_alloca);
+                    let _loaded = self.emit_vec_load_fields(&struct_alloca);
                     self.add_local(&name.name, struct_alloca, &"%struct.Vec".to_string());
                     // Use declared element type, not hardcoded Int
                     let elem_ty = _ty.as_ref()
@@ -342,7 +342,7 @@ impl IrEmitter {
                     self.emitln(&format!("  store i64 {initial_cap}, i64* {cg}"));
                     let eg = self.fresh_tmp(); self.emitln(&format!("  {eg} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 3"));
                     self.emitln(&format!("  store i64 {elem_size}, i64* {eg}"));
-                    let loaded = self.emit_vec_load_fields(&struct_alloca);
+                    let _loaded = self.emit_vec_load_fields(&struct_alloca);
                     self.add_local(&name.name, struct_alloca, &"%struct.Vec".to_string());
                     // Use the declared element type if available, not hardcoded Int
                     let elem_ty = _ty.as_ref()
@@ -1679,7 +1679,7 @@ impl IrEmitter {
                     }
                 }
             }
-            Stmt::Spawn(body, span) => {
+            Stmt::Spawn(body, _span) => {
                 // v0.55: Spawn — compile body as separate function, call xiom_thread_spawn.
                 // Module-level declare (emitted before function body).
                 if !self.local.spawn_declared {

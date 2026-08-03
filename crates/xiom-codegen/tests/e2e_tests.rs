@@ -7,13 +7,14 @@ use std::path::Path;
 
 /// Path to the compiled xiomc binary
 fn xiom_path() -> String {
+    let exe_name = if cfg!(target_os = "windows") { "xiom.exe" } else { "xiom" };
     let mut path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent().unwrap().parent().unwrap()
-        .join("target").join("debug").join("xiom.exe");
+        .join("target").join("debug").join(exe_name);
     if !path.exists() {
         path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent().unwrap().parent().unwrap()
-            .join("target").join("release").join("xiom.exe");
+            .join("target").join("release").join(exe_name);
     }
     path.to_str().unwrap().to_string()
 }
@@ -30,7 +31,8 @@ fn project_root() -> &'static Path {
 /// Compile an XIOM source file to a native binary and return the exit code
 fn compile_and_run(source_path: &str) -> Option<i32> {
     let source = Path::new(source_path);
-    let exe_name = format!("e2e_{}.exe", source.file_stem()?.to_str()?);
+    let exe_suffix = if cfg!(target_os = "windows") { ".exe" } else { "" };
+    let exe_name = format!("e2e_{}{}", source.file_stem()?.to_str()?, exe_suffix);
 
     let bin_path = xiom_path();
 
@@ -1231,7 +1233,7 @@ fn compile_and_get_ir(source: &str) -> String {
 /// Before M16: 5 warnings (T, Vec[UInt8] repeated).
 #[test]
 fn e2e_m16_no_warnings() {
-    let tmp = project_root().join("_e2e_m16_nowarn.xi");
+    let _tmp = project_root().join("_e2e_m16_nowarn.xi");
     // Use the test file from examples/e2e/
     let output = std::process::Command::new(xiom_path())
         .args(["--emit-ir", "examples\\e2e\\m16_no_warnings.xi"])

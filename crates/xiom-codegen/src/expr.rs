@@ -30,7 +30,7 @@ fn resolve_bare_struct(
 impl IrEmitter {
     /// Compile a struct literal with a KNOWN type name. Used when the type
     /// was resolved from context (e.g. `Ok({ x: 1 })` where `Ok` expects `T`).
-    pub(crate) fn compile_struct_literal(&mut self, type_name: &str, fields: &[(Ident, Expr)], is_enum_variant: bool) -> Result<(String, String), String> {
+    pub(crate) fn compile_struct_literal(&mut self, type_name: &str, fields: &[(Ident, Expr)], _is_enum_variant: bool) -> Result<(String, String), String> {
         let struct_ty = self.llvm_type_for(type_name)?;
         let alloca = self.fresh_tmp();
         self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
