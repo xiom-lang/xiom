@@ -1,8 +1,8 @@
 # XIOM Session Handoff — v0.56.0-pre "Production Polish"
 
-**Date:** 2026-08-03 21:10 | **Branch:** `feat/architect`
-**E2E: 20/20 passing (11 eco + 3 CTFE + 1 ASM + 1 Never + 1 Spawn + 3 Chaos) | 105+ compiler hardening commits**
-**Selfhost Gate: ALL 13 GATES CLEARED**
+**Date:** 2026-08-03 22:00 | **Branch:** `feat/architect`
+**E2E: 22/22 passing (11 eco + 3 CTFE + 1 ASM + 1 Never + 1 Spawn + 5 Chaos) | 107+ compiler hardening commits**
+**Selfhost Gate: ALL 15 GATES CLEARED**
 
 ---
 
@@ -50,15 +50,21 @@
 
 ---
 
-## CHAOS BENCHMARK — R4 FIX COMPLETE ✅
+## CHAOS BENCHMARK — R4 + R5 FIXES COMPLETE ✅
 
-### Root Cause #5 Found
+### Root Cause #5 Found (this session)
 
 | # | Root Cause | Fix | File |
 |---|-----------|-----|------|
-| 5 | `alloca %struct.Vec` in Vec::push loop body leaked 32 bytes of stack per iteration. 300K iterations × 32B = 9.6MB, exceeding the 8MB `/STACK` limit. | Reuse receiver's original alloca via `resolve_vec_push_ptr()` — zero per-call stack allocation for simple local receivers. | `call.rs`, `vec_abi.rs` |
+| 5 | Tail-expression `ret` in Match/If/Expr paths emitted `ret` without decrementing `@xiom_recursion_counter`. Non-void methods like `AtomicInt.store` leaked +1 per call, trapping at depth 500 (STATUS_ILLEGAL_INSTRUCTION). | Added load/sub/store decrement before `ret` at all 3 tail-return sites in `compile_block`. | `lib.rs` |
 
-### Root Causes 1-4 (previous session)
+### Root Cause #4 Found (previous session)
+
+| # | Root Cause | Fix | File |
+|---|-----------|-----|------|
+| 4 | `alloca %struct.Vec` in Vec::push loop body leaked 32 bytes of stack per iteration. 300K iterations × 32B = 9.6MB, exceeding the 8MB `/STACK` limit. | Reuse receiver's original alloca via `resolve_vec_push_ptr()` — zero per-call stack allocation for simple local receivers. | `call.rs`, `vec_abi.rs` |
+
+### Root Causes 1-3 (previous session)
 
 | # | Root Cause | Fix | File |
 |---|-----------|-----|------|
@@ -69,45 +75,31 @@
 
 ### Results
 
-| Task | Before | After R4 Fix |
+| Task | Before | After Fixes |
 |------|--------|-------------|
-| t1-allocator | SEGFAULT | ✅ **PASS** (verified: 5 Vecs up to 1M elements, all pass) |
-| t2-queue | SEGFAULT | ✅ **PASS** (same fix — Vec::push loop no longer leaks stack) |
-| t3-hot-reload | ✅ PASS (after fixes 1-4) | ✅ PASS |
-| t4-packet | ✅ PASS (after fixes 1-4) | ✅ PASS |
-| t5-btree | ✅ PASS (after fixes 1-4) | ✅ PASS |
+| t1-allocator | SEGFAULT | ✅ **PASS** (R4: Vec alloca fix) |
+| t2-queue | ILLEGAL_INSTRUCTION | ✅ **PASS** (R5: recursion counter fix) |
+| t3-hot-reload | ✅ PASS (after fixes 1-3) | ✅ PASS |
+| t4-packet | ✅ PASS (after fixes 1-3) | ✅ PASS |
+| t5-btree | ✅ PASS (after fixes 1-3) | ✅ PASS |
 
-### Diagnostic Verification
+### E2E Tests Added
 
-```
-$ xiom run _diag_vec_cap.xi
-start
-v1 created (100K)
-pushed v1 (100K)
-v2 created (200K)
-pushed v2 (200K)
-v3 created (300K)
-pushed v3 (300K)
-v4 created (500K)
-pushed v4 (500K)
-v5 created (1M)
-pushed v5 (1M)
-ALL PASS
-exit code: 0
-```
+| Test | Description |
+|------|-------------|
+| `e2e_chaos_t1_allocator` | Buddy allocator: 1M Vec elements + buddy splitting/coalescing |
+| `e2e_chaos_t2_queue` | SPSC atomic queue: 1M enqueue/dequeue + AtomicInt ops |
 
 ---
 
 ## RECENT COMMITS (most recent first)
 
 ```
+05912d43 fix(codegen): R5 — recursion counter leak in tail-expression returns + E2E t1/t2
+5454bae3 refactor: fix all compiler warnings across 6 crates — 0 warnings on Windows + Linux
 9705a2db fix(codegen): R4 — eliminate dynamic alloca in Vec::push loop (ACCESS_VIOLATION fix)
 e2f4f69b chore: update Cargo.lock (file watcher deps) and session ID
 1ae25273 feat(benchmark): wire safety probe t8 into orchestrator, dashboard, and registry
-b62275cd docs: SESSION.md — v0.56.0-pre handoff, 20/20 E2E, 13/13 gates, chaos benchmark findings, clean prompt
-723386d6 feat: Phase 1 safety probe — 48 reference files, 8-probe harness across 10 languages
-2d04e756 test(e2e): chaos benchmark t3/t4/t5 — hot-reload, packet parser, btree
-9cc08a86 fix(codegen): Vec element store switch→if/else, stack 2MB→8MB, cap limit 1M→16M, clang -O1
 ```
 
 ---
@@ -130,7 +122,9 @@ b62275cd docs: SESSION.md — v0.56.0-pre handoff, 20/20 E2E, 13/13 gates, chaos
 | LTO | v0.56 | ✅ |
 | Debug info | v0.56 | ✅ |
 | Thread-local recursion counter | v0.56 | ✅ |
-| **ALL 14 GATES: CLEARED** | | |
+| Recursion counter integrity (R5) | v0.56 | ✅ |
+| Vec push alloca fix (R4) | v0.56 | ✅ |
+| **ALL 15 GATES: CLEARED** | | |
 
 ---
 
@@ -141,8 +135,6 @@ b62275cd docs: SESSION.md — v0.56.0-pre handoff, 20/20 E2E, 13/13 gates, chaos
 |---|------|--------|---------|
 | R1 | Accurate DI emission for .xi source | 1 week | DWARF from .xi source, not LLVM IR |
 | R2 | Move semantics for spawn captures | 4 days | Move vs copy analysis for spawn closures |
-| ~~R3~~ | ~~Thread-local recursion counter~~ | ~~1 day~~ | ✅ Already implemented — `thread_local` on `@xiom_recursion_counter` since emitter.rs inception |
-| ~~R4~~ | ~~t1/t2 chaos benchmark crash~~ | ~~2 days~~ | ✅ FIXED — dynamic alloca in Vec::push loop eliminated |
 
 ### High (Phase B — should fix before selfhost boot)
 | # | Task | Effort | Details |
@@ -158,9 +150,9 @@ b62275cd docs: SESSION.md — v0.56.0-pre handoff, 20/20 E2E, 13/13 gates, chaos
 ```
 crates/xiom-codegen/src/vec_abi.rs    — +resolve_vec_push_ptr() (R4 fix)
 crates/xiom-codegen/src/call.rs       — Vec::push uses resolve_vec_push_ptr (R4 fix)
-xiom-benchmark-chaos/src/tasks/arena.js       — safety probe evaluator
-xiom-benchmark-chaos/src/benchmark/orchestrator.js — safety_index tracking
-xiom-benchmark-chaos/config.yaml              — t8-safety-probe task + profiles
+crates/xiom-codegen/src/lib.rs        — R5: recursion counter decrement in tail-returns
+crates/xiom-codegen/tests/e2e_tests.rs — +t1/t2 chaos E2E tests (22/22)
+crates/xiom*/                            — 0 warnings on all 6 crates (Windows + Linux)
 ```
 
 ## BUILD & TEST
@@ -169,11 +161,14 @@ xiom-benchmark-chaos/config.yaml              — t8-safety-probe task + profile
 # Build
 cargo build -p xiom
 
-# E2E tests (20/20)
+# E2E tests (22/22)
 cargo test -p xiom-codegen --test e2e_tests -- eco_ ctfe e2e_asm e2e_never_type e2e_spawn_basic chaos
 
 # JIT tests (5/5)
 cargo test -p xiom-jit
+
+# Linux build (WSL)
+wsl -d Ubuntu -- bash -c 'source ~/.cargo/env; cd /mnt/e/Projects/AXIOM && cargo build -p xiom'
 
 # Build runtime for JIT
 cargo build -p xiom --release && ./target/release/xiom build-runtime
@@ -187,13 +182,17 @@ Copy and paste this into the next session:
 
 ```
 Continue XIOM v0.56.0-pre from SESSION.md. Branch: feat/architect.
-E2E: 20/20 passing. 105+ compiler hardening commits. Selfhost gate CLEARED (14/14).
+E2E: 22/22 passing. 107+ compiler hardening commits. Selfhost gate CLEARED (15/15).
+0 warnings on all crates (Windows + Linux).
 
 CURRENT STATE:
 - All v0.54 + v0.55 features complete (CTFE, JIT, ASM, Never, defer, spawn, Channel, Send/Sync, thread pool).
 - v0.56: LTO, debug info, lazy JIT, thread pool, thread-local recursion counter, safety probe wired.
-- Chaos benchmark: ALL 5 TASKS PASS (t1-t5). R4 fix: dynamic alloca in Vec::push loop eliminated.
+- R4 FIXED: dynamic alloca in Vec::push loop eliminated — chaos t1/t2 now pass.
+- R5 FIXED: recursion counter leak in tail-expression returns — AtomicInt ops safe at scale.
+- All 5 chaos tasks pass with E2E regression tests (t1-t5).
 - All 6 plan docs audited and updated to reflect implementation state.
+- 0 compiler warnings across all crates.
 
 CRITICAL REMAINING (Phase A — pre-selfhost):
 R1: Accurate DI emission for .xi source (DWARF from .xi, not LLVM IR) — 1 week
@@ -204,8 +203,10 @@ I1: Send/Sync enforcement in checker — 5 days
 I2: Parallel codegen (rayon per-function IR) — 3 days
 I3: Deadlock detection (static lock ordering) — 4 days
 
-KEY FILES: crates/xiom-codegen/src/vec_abi.rs (resolve_vec_push_ptr),
-call.rs (Vec::push uses receiver's original alloca), SESSION.md (handoff)
+KEY FILES: crates/xiom-codegen/src/vec_abi.rs (R4 resolve_vec_push_ptr),
+crates/xiom-codegen/src/lib.rs (R5 tail-return counter fix),
+crates/xiom-codegen/src/call.rs (R4 Vec::push uses original alloca),
+crates/xiom-codegen/tests/e2e_tests.rs (22/22 E2E)
 
 PRINCIPLE: Production-grade only. No workarounds. Every feature gated by E2E tests.
 Near-zero runtime errors — if it compiles, it must run correctly.
