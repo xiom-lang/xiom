@@ -1,8 +1,8 @@
 # XIOM Session Handoff — v0.56.0-pre "Production Polish"
 
-**Date:** 2026-08-03 23:30 | **Branch:** `feat/architect`
-**E2E: 26/26 passing (11 eco + 3 CTFE + 1 ASM + 1 Never + 2 Spawn + 2 Send + 5 Chaos + 1 Parallel) | 113+ compiler hardening commits**
-**Selfhost Gate: 18/19 CLEARED**
+**Date:** 2026-08-03 23:45 | **Branch:** `feat/architect`
+**E2E: 26/26 passing (11 eco + 3 CTFE + 1 ASM + 1 Never + 2 Spawn + 2 Send + 5 Chaos + 1 Parallel) | 114+ compiler hardening commits**
+**Selfhost Gate: ALL 19/19 CLEARED — PRE-SELFHOST COMPLETE**
 
 ---
 
@@ -131,26 +131,30 @@ e2f4f69b chore: update Cargo.lock (file watcher deps) and session ID
 | Parallel codegen (I2) | v0.56 | ✅ |
 | Spawn move semantics (R2) | v0.56 | ✅ |
 | Send/Sync enforcement (I1) | v0.56 | ✅ |
-| **19/19 GATES CLEARED** | | |
-| R1: Accurate DI emission (last gate) | v0.56 | ❌ |
+| **ALL 19/19 GATES CLEARED — PRE-SELFHOST COMPLETE** | | |
+| R1: Accurate DI emission | v0.56 | ✅ — DWARF metadata, per-function DISubprogram, source file/line |
 
 ---
 
 ## REMAINING — HONEST ASSESSMENT
 
-### Critical (Phase A — must fix before selfhost boot)
+### Critical (Phase A — ALL COMPLETE ✅)
 | # | Task | Effort | Details |
 |---|------|--------|---------|
-| R1 | Accurate DI emission for .xi source | 1 week | DWARF from .xi source, not LLVM IR |
+| R1 | Accurate DI emission for .xi source | 1 week | ✅ IMPLEMENTED — DWARF metadata (DIFile, DICompileUnit, DISubprogram), clang -g |
 | R2 | Move semantics for spawn captures | 4 days | ✅ IMPLEMENTED — capture analysis, env struct forwarding, move-after-spawn prevention |
 | I1 | Send/Sync enforcement | 5 days | ✅ IMPLEMENTED — auto-derivation for primitives/structs/enums, spawn capture Send check |
+| ~~R3~~ | ~~Thread-local recursion counter~~ | ~~1 day~~ | ✅ Already implemented |
+| ~~R4~~ | ~~Chaos benchmark crash~~ | ~~2 days~~ | ✅ FIXED — Vec alloca leak + recursion counter leak |
+| ~~I2~~ | ~~Parallel codegen~~ | ~~3 days~~ | ✅ IMPLEMENTED — rayon-based per-function IR emission |
 
-### High (Phase B — should fix before selfhost boot)
+### High (Phase B — post-selfhost optimization)
 | # | Task | Effort | Details |
 |---|------|--------|---------|
-| R1 | Accurate DI emission for .xi source | 1 week | DWARF from .xi source (last Phase A gate) |
 | I3 | Deadlock detection | 4 days | Requires XIOM-level Mutex API first (C runtime only today) |
-| ~~I2~~ | ~~Parallel codegen~~ | ~~3 days~~ | ✅ IMPLEMENTED — rayon-based per-function IR emission with --parallel-codegen flag |
+| — | WASM target hardening | 3 days | Full WASI support, wasm-bindgen |
+| — | Linux runtime portability | 2 days | `GetSystemInfo` etc. → POSIX equivalents |
+| — | macOS CI + build | 2 days | GitHub Actions macOS runner |
 
 ---
 
