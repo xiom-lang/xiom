@@ -276,6 +276,8 @@ pub struct LocalContext {
     pub reg_signed: HashMap<String, bool>,
     /// v0.55: Whether @xiom_thread_spawn has been declared in this module
     pub spawn_declared: bool,
+    /// v0.55: Counter for unique spawn function names
+    pub spawn_counter: u32,
 }
 
 // ============================================================================

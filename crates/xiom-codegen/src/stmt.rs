@@ -1679,20 +1679,38 @@ impl IrEmitter {
                     }
                 }
             }
-            Stmt::Spawn(body, _span) => {
-                // v0.55: Spawn — emit OS thread creation via C runtime.
-                // Declare at module level to avoid in-function declare errors.
+            Stmt::Spawn(body, span) => {
+                // v0.55: Spawn — compile body as separate function, call xiom_thread_spawn.
+                // Module-level declare (emitted before function body).
                 if !self.local.spawn_declared {
                     self.local.spawn_declared = true;
                     self.local.deferred_pre_body_defs.push(
-                        "declare i64 @xiom_thread_spawn(ptr, ptr)".to_string()
+                        "declare i64 @xiom_thread_spawn(ptr, ptr)\n".to_string()
                     );
                 }
+                let spawn_id = self.local.spawn_counter;
+                self.local.spawn_counter += 1;
+                let fn_name = format!("_xiom_spawn_{spawn_id}");
+
+                // Compile spawn body into a separate function IR string.
+                // Save/restore output to avoid polluting current function.
+                let saved_output = std::mem::take(&mut self.output);
+                self.emitln(&format!("\ndefine void @{fn_name}(i8* %_xiom_spawn_arg) {{"));
+                self.emitln("entry:");
+                self.compile_block(body, false)?;
+                self.emitln("  ret void");
+                self.emitln("}");
+                let spawn_fn_ir = std::mem::take(&mut self.output);
+                self.output = saved_output;
+
+                // Append spawn function at end of module
+                self.local.deferred_closure_defs.push(spawn_fn_ir);
+
+                // Call xiom_thread_spawn with pointer to spawn wrapper
                 let handle = self.fresh_tmp();
                 self.emitln(&format!(
-                    "  {handle} = call i64 @xiom_thread_spawn(ptr null, ptr null)"
+                    "  {handle} = call i64 @xiom_thread_spawn(ptr @{fn_name}, ptr null)"
                 ));
-                self.compile_block(body, false)?;
             }
             Stmt::Break(..) => {
                 if let Some((_, break_label)) = self.local.loop_stack.last().cloned() {
