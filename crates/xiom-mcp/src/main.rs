@@ -647,6 +647,7 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
         script_mode: false,
         strict_exhaustive: false,
         cache: false,
+        lto: false,
     };
     let result = xiom::compile_with_diagnostics(&check_cfg, &[tmp.to_str().expect("temp file path must be valid UTF-8").to_string()]);
     let _ = std::fs::remove_file(&tmp);
