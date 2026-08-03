@@ -1434,6 +1434,20 @@ fn e2e_ctfe_phase_b_functions() {
 }
 
 // ============================================================================
+// v0.55 Inline ASM E2E Tests
+// ============================================================================
+
+/// ASM: Basic inline assembly — nop, mov, constraints, clobbers
+#[test]
+fn e2e_asm_basic() {
+    assert_eq!(
+        compile_and_run("tests\\regression\\asm_basic.xi"),
+        Some(0),
+        "ASM: basic inline assembly must pass"
+    );
+}
+
+// ============================================================================
 // M20-A1 E2E Tests â€” Closure Codegen
 // ============================================================================
 

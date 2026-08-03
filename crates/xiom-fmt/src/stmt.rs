@@ -164,6 +164,12 @@ impl crate::Formatter {
                 self.push_indent();
                 self.buf.push_str("continue;\n");
             }
+            Stmt::Asm(ab) => {
+                self.push_indent();
+                self.buf.push_str("asm(\"");
+                self.buf.push_str(&ab.template);
+                self.buf.push_str("\");\n");
+            }
         }
     }
 }

@@ -1696,6 +1696,34 @@ impl IrEmitter {
                     self.emitln(&format!("\n{dead}:"));
                 }
             }
+            xiom_ast::Stmt::Asm(ab) => {
+                // Emit inline assembly as LLVM IR call void asm sideeffect
+                let asm_str = ab.template.replace('\n', "\\0A");
+                let mut constraints = String::new();
+                for (c, _) in &ab.outputs {
+                    if !constraints.is_empty() { constraints.push(','); }
+                    constraints.push_str(c);
+                }
+                for (c, _) in &ab.inputs {
+                    if !constraints.is_empty() { constraints.push(','); }
+                    constraints.push_str(c);
+                }
+                let clobber_part = if ab.clobbers.is_empty() {
+                    "~{dirflag},~{fpsr},~{flags}".to_string()
+                } else {
+                    let mut c = ab.clobbers.clone();
+                    // Always include default clobbers
+                    for d in &["dirflag", "fpsr", "flags"] {
+                        let s = d.to_string();
+                        if !c.contains(&s) { c.push(s); }
+                    }
+                    c.join(",")
+                };
+                self.emitln(&format!(
+                    "  call void asm sideeffect \"{}\", \"~{{{}}}\"()",
+                    asm_str, clobber_part
+                ));
+            }
         }
         Ok(())
     }
