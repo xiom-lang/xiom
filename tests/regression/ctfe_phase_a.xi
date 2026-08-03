@@ -68,6 +68,40 @@ const IF_ELIF: Int = if false { 0 } elif true { 42 } else { 0 };
 const BLOCK_ADD: Int = const { 40 + 2 };
 const BLOCK_MUL: Int = const { 6 * 7 };
 
+// ---- is_signed builtin ----
+const SIGNED_INT: Bool = is_signed::<Int>();
+const SIGNED_INT8: Bool = is_signed::<Int8>();
+const SIGNED_INT16: Bool = is_signed::<Int16>();
+const SIGNED_INT32: Bool = is_signed::<Int32>();
+const SIGNED_INT64: Bool = is_signed::<Int64>();
+const SIGNED_UINT8: Bool = is_signed::<UInt8>();
+const SIGNED_UINT32: Bool = is_signed::<UInt32>();
+const SIGNED_BOOL: Bool = is_signed::<Bool>();
+const SIGNED_FLOAT64: Bool = is_signed::<Float64>();
+const SIGNED_STR: Bool = is_signed::<Str>();
+
+// ---- Match folding (compile-time pattern matching) ----
+const MATCH_INT: Int = match 42 {
+  42 => 100,
+  _ => 0,
+};
+const MATCH_BOOL: Int = match true {
+  true => 1,
+  false => 0,
+};
+const MATCH_OPT: Int = match Some(42) {
+  Some(v) => v,
+  None => 0,
+};
+const MATCH_OK: Int = match Ok(42) {
+  Ok(v) => v,
+  Err(_) => 0,
+};
+const MATCH_ERR: Int = match Err(99) {
+  Ok(_) => 0,
+  Err(v) => v,
+};
+
 fn main() -> Int {
   // Verify all arithmetic consts
   if ADD_INT != 42 { return 1; }
@@ -130,5 +164,24 @@ fn main() -> Int {
   if BLOCK_ADD != 42 { return 38; }
   if BLOCK_MUL != 42 { return 39; }
 
-  return 0; // all passed
+  // Verify is_signed builtin (use const values, not runtime calls)
+  if not SIGNED_INT { return 40; }
+  if not SIGNED_INT8 { return 41; }
+  if not SIGNED_INT16 { return 42; }
+  if not SIGNED_INT32 { return 43; }
+  if not SIGNED_INT64 { return 44; }
+  if SIGNED_UINT8 { return 45; }
+  if SIGNED_UINT32 { return 46; }
+  if SIGNED_BOOL { return 47; }
+  if SIGNED_FLOAT64 { return 48; }
+  if SIGNED_STR { return 49; }
+
+  // Verify match folding (use const values)
+  if MATCH_INT != 100 { return 50; }
+  if MATCH_BOOL != 1 { return 51; }
+  if MATCH_OPT != 42 { return 52; }
+  if MATCH_OK != 42 { return 53; }
+  if MATCH_ERR != 99 { return 54; }
+
+  return 0;
 }
