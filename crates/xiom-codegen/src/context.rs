@@ -122,7 +122,7 @@ impl Default for CodegenConfig {
             strict_mode: false,
             max_recursion_depth: 2000,
             hot_reload: false,
-            overflow_checks: false, // M18: opt-in, OFF by default
+            overflow_checks: true, // v0.56: ON by default (AI-safe systems compiler)
             pub_functions: HashSet::new(),
             xiom_hot_globals: Vec::new(),
             parallel_codegen: false,

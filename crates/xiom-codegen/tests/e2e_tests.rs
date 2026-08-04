@@ -1617,6 +1617,8 @@ fn e2e_safety_probe() {
 #[test] fn e2e_parallel_multi_fn()   { assert_eq!(compile_and_run("tests\\regression\\parallel_multi_fn.xi"),   Some(0)); }
 /// DI emission: compile with --debug, verify exits correctly
 #[test] fn e2e_di_emission()         { assert_eq!(compile_and_run("tests\\regression\\di_emission.xi"),         Some(17)); } // add(mul(3,4),5)=17
+/// CTFE comprehensive: 14 const assertions (arithmetic, logic, if-folding)
+#[test] fn e2e_ctfe_comprehensive()  { assert_eq!(compile_and_run("tests\\regression\\ctfe_comprehensive.xi"),  Some(0)); }
 #[test] fn e2e_m20_closure_in_if()        { assert_eq!(compile_and_run("tests\\regression\\m20_closure_in_if.xi"),         Some(0)); }
 #[test] fn e2e_m20_closure_chain()        { assert_eq!(compile_and_run("tests\\regression\\m20_closure_chain.xi"),         Some(0)); }
 #[test] fn e2e_m20_closure_nested_scope() { assert_eq!(compile_and_run("tests\\regression\\m20_closure_nested_scope.xi"),  Some(0)); }
