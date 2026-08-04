@@ -4318,3 +4318,6 @@ fn e2e_safety_probe() {
 }
 #[test] fn e2e_p2_field_borrow() { assert_eq!(compile_and_run("tests\\e2e_p2_field_borrow.xi"), Some(0)); }
 
+// P0-4 Performance Test: Math builtin interception (v0.56)
+#[test] fn e2e_p0_math_builtin() { assert_eq!(compile_and_run("tests\\e2e_p0_math_builtin.xi"), Some(0)); }
+

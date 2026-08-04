@@ -4,12 +4,13 @@
 type Data = { value: Int; }
 
 fn take(s: Data) {
-    // just consume the value
+    var _ = s;
 }
 
 fn main() -> Int {
     var x = Data { value: 42 };
     take(x);  // move x
-    // use of moved value 'x' — should trigger E001
-    return x.value;
+    // x is now moved — using it triggers E001
+    var _ = x;  // E001: use of moved value
+    return 0;
 }
