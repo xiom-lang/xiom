@@ -1,9 +1,9 @@
 # XIOM Session Handoff — v0.56.0-pre "Production Polish"
 
-**Date:** 2026-08-04 01:00 | **Branch:** `feat/architect`
-**E2E: 27/27 passing | 253+ verified unit tests passing | 118+ compiler hardening commits**
-**Version: v0.56.0-pre "Production Polish" | Selfhost Gate: ALL 19/19 CLEARED**
-**0 warnings — all 6 crates (Windows + Linux) | Linux build + compile + run verified**
+**Date:** 2026-08-04 21:30 | **Branch:** `feat/architect`
+**E2E: 20/20 core gates | 543 verified unit tests | 30+ compiler hardening commits**
+**Version: v0.56.0-pre "Production Polish" | Selfhost Gate: 19/19 CLEARED**
+**COMPREHENSIVE COMPILER AUDIT COMPLETE — see docs/PRE_SELFHOST_GAPS.md**
 
 ### All Systems-Arena Tasks: PASS ✅
 | Task | Status | Test |
@@ -249,4 +249,42 @@ crates/xiom-codegen/tests/e2e_tests.rs (22/22 E2E)
 
 PRINCIPLE: Production-grade only. No workarounds. Every feature gated by E2E tests.
 Near-zero runtime errors — if it compiles, it must run correctly.
-```
+
+---
+
+## COMPREHENSIVE AUDIT — 2026-08-04
+
+Full compiler audit against AI_CONTEXT.md spec completed. 4 parallel agents audited:
+types+memory+borrow, control flow+patterns+errors, generics+interfaces+modules+contracts,
+and stdlib vs builtins.
+
+### Audit Results Summary
+
+**19 gaps found** (6 P0-BROKEN, 7 P1-MISSING, 6 P2-PARTIAL, 4 P3-COSMETIC, 3 P4-DEFERRED)
+
+P0 BROKEN (compile but produce wrong behavior):
+- `for...in` loops: body runs once, no iteration
+- `defer` statement: executes immediately, not at scope exit
+- Labeled break/continue: labels parsed but ignored in codegen
+
+P1 MISSING (spec says it works, no implementation):
+- Struct patterns in match (Point{ x, y })
+- Tuple patterns in match ((a, b))
+- Float literal patterns (3.14)
+- Contract collection methods (.is_sorted, .all, .none, .contains)
+
+P2 PARTIAL (works in some cases):
+- `?` operator: checker doesn't validate enclosing fn returns Result/Option
+- Borrow errors (E001): warnings, not hard errors
+- Field-granular borrows: place model compiled but not wired in
+- Never type (!): LLVM lowers to i64, not bottom type
+- Interface bounds: enforced at mono time, not check time
+- Turbofish: single type arg only
+
+Full details: `docs/PRE_SELFHOST_GAPS.md`
+
+### Docs Updated This Session
+- `docs/PRE_SELFHOST_GAPS.md` — NEW: comprehensive gap list with priorities
+- `docs/language/compiler.md` — UPDATED: all v0.56 flags, pipeline, features
+- `docs/AI_CONTEXT.md` — needs update: `move` keyword, overflow default, parallel-codegen
+
