@@ -848,7 +848,10 @@ impl IrEmitter {
         } else {
             String::new()
         };
-        self.emitln(&format!("define {ret_llvm} @{name}({}){}{{", params_str.join(", "), dbg_attach));
+        // P0-4: Mark functions alwaysinline so clang/LLVM can eliminate
+        // call overhead for small hot functions (e.g., read_u16_be called 17M times).
+        let inline_attr = " alwaysinline";
+        self.emitln(&format!("define {ret_llvm} @{name}({}){}{inline_attr} {{", params_str.join(", "), dbg_attach));
 
         // Recursion depth check
         let entry_block = self.fresh_block("entry");
