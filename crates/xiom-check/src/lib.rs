@@ -3151,9 +3151,9 @@ impl Checker {
                             // Common wrapper accessors (Cell/Rc/Arc/Mutex/Box/Reverse).
                             ("Cell" | "Rc" | "Arc" | "Mutex" | "Box" | "Reverse" | "RefCell", "get" | "clone" | "lock" | "borrow" | "borrow_mut")
                                 => return CheckedType::Named("_".into()),
-                            // P2-5: Clone is available on all concrete types (checked at
-                            // monomorphisation time). This allows `T: Clone` generic code.
-                            (_, "clone") if prim_ty != CheckedType::Named("_".into()) => return prim_ty.clone(),
+                            // P2-5: clone() returns the receiver type for generic/
+                            // non-container types. Codegen resolves concrete impl.
+                            (_, "clone") => return obj_ty.clone(),
                             _ => {}
                         }
                     }
