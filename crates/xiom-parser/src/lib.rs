@@ -586,6 +586,13 @@ impl Parser {
                     TopDecl::Fn(f) => members.push(InterfaceMember::FnSignature(f)),
                     _ => unreachable!(),
                 }
+            } else if self.peek_kind() == &TokenKind::Type {
+                // Associated type declaration `type Name;`
+                self.advance(); // consume 'type'
+                let at_name = self.parse_ident()?;
+                self.expect_kind(TokenKind::Semicolon, "';'")?;
+                // Stored as a field with '_assoc_type' sentinel type
+                members.push(InterfaceMember::Field(FieldDecl { name: at_name, ty: Type::Named(Ident::new("_assoc_type", start), vec![]), span: start }));
             } else {
                 let fname = self.parse_ident()?;
                 self.expect_kind(TokenKind::Colon, "':'")?;
