@@ -725,6 +725,12 @@ impl IrEmitter {
             ret_llvm
         };
         self.fctx.current_return_type = ret_llvm.clone();
+        // P2-4: Reset Never-return flag (may persist from previous function).
+        // Set early so that Return statements inside the body emit unreachable.
+        self.fctx.is_never_return = fd.return_type.as_ref().map_or(false, |t| {
+            let type_str = Self::type_from_ast(t);
+            type_str == "!"
+        });
         self.fctx.current_param_llvm_types = fd.params.iter()
             .map(|p| self.llvm_type_for(&Self::type_from_ast(&p.ty)).unwrap_or_else(|_| "i64".to_string()))
             .collect();
@@ -1054,18 +1060,25 @@ impl IrEmitter {
             if !self.fctx.current_ensures.is_empty() {
                 self.compile_ensures_checks();
             }
-            // P0-2: Emit deferred cleanups before return
-            self.compile_deferred_cleanups()?;
-            // Decrement recursion depth
-            let depth_dec = self.fresh_tmp();
-            self.emitln(&format!("  {depth_dec} = load i64, i64* @xiom_recursion_counter"));
-            let new_depth_dec = self.fresh_tmp();
-            self.emitln(&format!("  {new_depth_dec} = sub i64 {depth_dec}, 1"));
-            self.emitln(&format!("  store i64 {new_depth_dec}, i64* @xiom_recursion_counter"));
-            self.emitln("  ret void");
+            if self.fctx.is_never_return {
+                // P2-4: Never-returning functions must not emit `ret`.
+                self.emitln("  unreachable");
+            } else {
+                // P0-2: Emit deferred cleanups before return
+                self.compile_deferred_cleanups()?;
+                // Decrement recursion depth
+                let depth_dec = self.fresh_tmp();
+                self.emitln(&format!("  {depth_dec} = load i64, i64* @xiom_recursion_counter"));
+                let new_depth_dec = self.fresh_tmp();
+                self.emitln(&format!("  {new_depth_dec} = sub i64 {depth_dec}, 1"));
+                self.emitln(&format!("  store i64 {new_depth_dec}, i64* @xiom_recursion_counter"));
+                self.emitln("  ret void");
+            }
         } else if !self.current_block_terminated() {
-            // P0-2: Emit deferred cleanups before return
-            self.compile_deferred_cleanups()?;
+            // P2-4: Never-returning functions — emit unreachable instead of ret
+            if self.fctx.is_never_return {
+                self.emitln("  unreachable");
+            } else {
             // A4 fix: the function declares a return type but control reached the
             // end of the body without a terminator ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the body ends in a loop, an
             // `if` without `else`, or a trailing statement, so no tail `ret` was
@@ -1080,6 +1093,7 @@ impl IrEmitter {
             self.emitln(&format!("  store i64 {new_depth_dec}, i64* @xiom_recursion_counter"));
             let zero = Self::default_const_for(&ret_llvm);
             self.emitln(&format!("  ret {ret_llvm} {zero}"));
+            } // close is_never else block
         }
 
         self.emitln("}\n");

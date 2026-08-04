@@ -36,9 +36,9 @@ Full audit of the XIOM compiler against the language specification (`docs/AI_CON
 | # | Feature | Gap | Location | Test |
 |---|---------|-----|----------|------|
 | P2-1 | **`?` operator — missing return-type check** | Checker validates operand is Result/Option but does NOT check that the enclosing function returns Result/Option. Spec says `?` only in Result/Option functions; you can write `?` in a function returning `Int`. | `xiom-check/src/lib.rs:2781-2795` | Needs checker test |
-| P2-2 | **Borrow errors are warnings, not errors** | E001 "use after move" / "borrow conflict" are emitted as `warning[E001]` and do NOT block compilation. The code compiles but produces binary that SEGFAULTs at runtime. Spec says ownership violations are compile errors (Section 4.3). | `xiom/src/lib.rs:784-799` | Needs `--strict` mode |
-| P2-3 | **Place-level (field-granular) borrows** | `place.rs` and `loans.rs` are compiled and tested but NOT wired into the active borrow checker. Only bare-variable borrows work. `&a.x` and `&mut a.y` both mark `a` as borrowed, triggering a false conflict. | `xiom-check/src/borrow/` (wired-in but not active) | Needs integration |
-| P2-4 | **Never type (!) LLVM lowering** | `!` parses/type-checks correctly but lowers to `i64` in LLVM IR (not a true bottom type). Exhaustiveness proofs not encoded at IR level. `fn abort() -> !` compiles to `define i64 @abort()` — valid but misses the semantics. | `xiom-codegen/src/types.rs:313-339` | Needs LLVM fix |
+| P2-2 | **Borrow errors are warnings, not errors** | ~~E001 "use after move" / "borrow conflict" are emitted as `warning[E001]` and do NOT block compilation.~~ **FIXED v0.56** — With `--strict` flag, borrow errors are promoted to hard errors (`error[E001]`) and abort compilation. Without `--strict`, they remain warnings for backward compatibility. | `xiom/src/lib.rs:784-810` | `tests/e2e_p2_strict_borrow.xi` ✅ |
+| P2-3 | **Place-level (field-granular) borrows** | ~~`place.rs` and `loans.rs` are compiled and tested but NOT wired into the active borrow checker.~~ **FIXED v0.56** — `expr_to_place` builds `Place` from `Expr::Ident`/`Field`/`Index` chains. `borrow_place_read`/`borrow_place_write` use `active_loans.grant()` for place-level conflict detection. All four borrow sites (UnaryOp::Ref/MutRef, Expr::Ref/MutRef) updated to use place-aware checking. Disjoint field borrows (e.g., `&a.x` + `&a.y`) no longer falsely conflict. | `xiom-check/src/lib.rs` (BorrowChecker impl), `xiom-check/src/borrow/` (place.rs, loans.rs) | `tests/e2e_p2_field_borrow.xi` ✅ |
+| P2-4 | **Never type (!) LLVM lowering** | ~~`!` parses/type-checks correctly but lowers to `i64` in LLVM IR.~~ **FIXED v0.56** — `type_from_ast` maps `Type::Never` to `"!"`. `xiom_to_llvm_type` maps `"!"` to `"void"`. `llvm_type_for` recognizes `"!"` as a primitive. `is_never_return` flag in `FunctionContext` prevents `ret` emission for Never functions — fallthrough and explicit return paths emit `unreachable`. Functions returning `!` now lower to `define void @fn()` with `unreachable` terminators. | `xiom-codegen/src/lib.rs` (type_from_ast, xiom_to_llvm_type, llvm_type_for), `xiom-codegen/src/decl.rs` (compile_fn), `xiom-codegen/src/context.rs` (FunctionContext.is_never_return), `xiom-codegen/src/stmt.rs` (Return handler) | `tests/regression/never_type.xi` ✅ |
 | P2-5 | **Interface bounds enforcement** | Checked at monomorphisation time only (not at use-site). Users get errors late in pipeline (codegen phase), not at type-check time. Deliberate design decision per `lib.rs:4819-4821`. | `xiom-check/src/lib.rs:3045-3075` | Move to checker |
 | P2-6 | **Turbofish single type arg only** | `Expr::GenericCall` stores a single `Type`, not `Vec<Type>`. `parse::<Int>("42")` works; `foo::<Int, Str>()` fails. | `xiom-ast/src/lib.rs:159-161` | Needs multi-type support |
 
@@ -103,12 +103,12 @@ These features are FULLY IMPLEMENTED and PRODUCTION-GRADE:
 12. Fix P1-4: Contract collection methods (2 days)
 
 ### Following Session (P2)
-13. Fix P2-1: `?` return-type check (1 day)
-14. Fix P2-2: Borrow errors as hard errors (1 day)
-15. Fix P2-3: Wire place-level borrows (3 days)
-16. Fix P2-4: Never type LLVM lowering (1 day)
-17. Fix P2-5: Move interface bounds to checker (2 days)
-18. Fix P2-6: Multi-type turbofish (1 day)
+13. ~~Fix P2-1: `?` return-type check (1 day)~~ DEPRIORITIZED (benchmarks)
+14. ~~Fix P2-2: Borrow errors as hard errors (1 day)~~ ✅ DONE v0.56
+15. ~~Fix P2-3: Wire place-level borrows (3 days)~~ ✅ DONE v0.56
+16. ~~Fix P2-4: Never type LLVM lowering (1 day)~~ ✅ DONE v0.56
+17. Fix P2-5: Move interface bounds to checker (2 days) — DEPRIORITIZED
+18. Fix P2-6: Multi-type turbofish (1 day) — DEPRIORITIZED
 
 ### Post-Selfhost (P3 + P4)
 19. P3 items, P4 items, optimization, ecosystem

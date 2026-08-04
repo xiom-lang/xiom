@@ -196,6 +196,9 @@ pub struct FunctionContext {
     pub match_result_ptr: Option<String>,
     /// LLVM type used when storing an arm body into match_result_ptr
     pub match_result_ty: Option<String>,
+    /// v0.56/P2-4: Whether the current function returns `!` (Never type).
+    /// When true, fallthrough/return paths emit `unreachable` instead of `ret`.
+    pub is_never_return: bool,
 }
 
 // ============================================================================
