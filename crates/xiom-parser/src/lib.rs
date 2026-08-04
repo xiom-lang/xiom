@@ -1793,9 +1793,12 @@ impl Parser {
                     //   2. Static method: Type::method — associated item access
                     self.advance(); // consume ::
                     if self.peek_kind() == &TokenKind::Lt {
-                        // Turbofish: ::<Type>(args)
+                        // P2-6: Turbofish with multiple type args: ::<Type1, Type2>(args)
                         self.advance(); // consume <
-                        let ty = self.parse_type()?;
+                        let mut types = vec![self.parse_type()?];
+                        while self.skip(TokenKind::Comma) {
+                            types.push(self.parse_type()?);
+                        }
                         self.expect_kind(TokenKind::Gt, "'>'")?;
                         if self.peek_kind() == &TokenKind::LParen {
                             self.advance();
@@ -1808,7 +1811,7 @@ impl Parser {
                                 a
                             };
                             let span = expr.span();
-                            expr = Expr::GenericCall(Box::new(expr), ty, args, span);
+                            expr = Expr::GenericCall(Box::new(expr), types, args, span);
                         }
                     } else {
                         // Static method: Type::method

@@ -112,7 +112,7 @@ parse_type_base() additions:
 ```
 Expr:
   ├── ConstBlock(Box<Expr>)     — const { expr }
-  ├── GenericCall(func, Type, args, span) — turbofish: align_of::<Int>()
+  ├── GenericCall(func, Vec<Type>, args, span) — turbofish: align_of::<Int>()
   │
 Type:
   └── Never                      — ! (bottom type)

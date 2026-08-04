@@ -156,9 +156,9 @@ pub enum Expr {
     Field(Box<Expr>, Ident, Span),
     /// `expr(args)` — function call
     Call(Box<Expr>, Vec<Expr>, Span),
-    /// v0.54: `expr::<Type>(args)` — turbofish call (generic type arguments).
-    /// Stores the parsed type for CTFE builtins: align_of, type_id, field_offset.
-    GenericCall(Box<Expr>, Type, Vec<Expr>, Span),
+    /// v0.56/P2-6: `expr::<Type1, Type2>(args)` — turbofish call (multiple generic type args).
+    /// Stores the parsed types for CTFE builtins and generic specialization.
+    GenericCall(Box<Expr>, Vec<Type>, Vec<Expr>, Span),
     /// `expr[index]` — index
     Index(Box<Expr>, Box<Expr>, Span),
     /// `expr@pre` — pre-state (in contracts)

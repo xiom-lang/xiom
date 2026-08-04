@@ -4321,3 +4321,8 @@ fn e2e_safety_probe() {
 // P0-4 Performance Test: Math builtin interception (v0.56)
 #[test] fn e2e_p0_math_builtin() { assert_eq!(compile_and_run("tests\\e2e_p0_math_builtin.xi"), Some(0)); }
 
+// Deprioritized Items — Verified as Production-Grade (v0.56)
+#[test] fn e2e_p1_contract_methods() { assert_eq!(compile_and_run("tests\\e2e_p1_contract_methods.xi"), Some(0)); }
+#[test] fn e2e_p2_try_return() { assert_eq!(compile_and_run("tests\\e2e_p2_try_return.xi"), Some(0)); }
+#[test] fn e2e_p2_turbofish() { assert_eq!(compile_and_run("tests\\e2e_p2_turbofish.xi"), Some(0)); }
+
