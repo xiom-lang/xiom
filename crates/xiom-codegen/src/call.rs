@@ -1417,6 +1417,30 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 }
                 // v0.56 I3: Mutex builtins for thread synchronization
                 let is_mutex_fn = matches!(fn_name.as_str(), "Mutex.new" | "Mutex.lock" | "Mutex.unlock" | "Mutex.destroy");
+                // v0.56: Numeric conversion builtins — to_float (sitofp) and to_int (fptosi)
+                if fn_name == "to_float" && compiled_args.len() == 1 {
+                    let (arg, arg_ty) = (&compiled_args[0].0, &compiled_args[0].1);
+                    let arg_w = self.widen_to_i64(arg, arg_ty);
+                    let tmp = self.fresh_tmp();
+                    self.emitln(&format!("  {tmp} = sitofp i64 {arg_w} to double"));
+                    return Ok((tmp, "double".to_string()));
+                }
+                if fn_name == "to_int" && compiled_args.len() == 1 {
+                    let (arg, _) = (&compiled_args[0].0, &compiled_args[0].1);
+                    let tmp = self.fresh_tmp();
+                    self.emitln(&format!("  {tmp} = fptosi double {arg} to i64"));
+                    return Ok((tmp, LLVM_I64.to_string()));
+                }
+                if fn_name == "to_int_from_char" && compiled_args.len() == 1 {
+                    // Char → Int: identity (already i64 in XIOM)
+                    let (arg, _) = (&compiled_args[0].0, &compiled_args[0].1);
+                    return Ok((arg.clone(), LLVM_I64.to_string()));
+                }
+                if fn_name == "to_char" && compiled_args.len() == 1 {
+                    // Int → Char: identity (already i64 in XIOM)
+                    let (arg, _) = (&compiled_args[0].0, &compiled_args[0].1);
+                    return Ok((arg.clone(), LLVM_I64.to_string()));
+                }
                 if is_mutex_fn && fn_name == "Mutex.new" {
                     let tmp = self.fresh_tmp();
                     let size_val = self.fresh_tmp();
