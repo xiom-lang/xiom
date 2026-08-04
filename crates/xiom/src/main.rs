@@ -1027,6 +1027,7 @@ fn print_usage() {
 fn parse_target(args: &[String]) -> Target {
     match parse_flag_value(args, "--target").as_deref() {
         Some("wasm") => Target::Wasm,
+        Some("wasi") => Target::Wasi,
         Some("arm") => Target::Arm,
         Some("riscv") => Target::RisCv,
         _ => Target::Native,

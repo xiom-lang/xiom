@@ -265,7 +265,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     }
                     return Ok((tmp, LLVM_I64.to_string()));
                 }
-                } // if !has_user_fn ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â contract builtin guard
+                } // if !has_user_fn — contract builtin guard
                 // Primitive interface methods (Ord.compare, Eq.eq/ne, comparison ops,
                 // Hash.hash, Clone.clone) are emitted inline for scalar receivers, so
                 // primitives satisfy Ord/Eq/Hash/Clone bounds without a user method.
@@ -1414,6 +1414,24 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         return Ok((tmp, "i32".to_string()));
                     }
                     return Ok(("0".to_string(), LLVM_I64.to_string()));
+                }
+                // v0.56 I3: Mutex builtins for thread synchronization
+                let is_mutex_fn = matches!(fn_name.as_str(), "Mutex.new" | "Mutex.lock" | "Mutex.unlock" | "Mutex.destroy");
+                if is_mutex_fn && fn_name == "Mutex.new" {
+                    let tmp = self.fresh_tmp();
+                    let size_val = self.fresh_tmp();
+                    self.emitln(&format!("  {tmp} = call i8* @malloc(i64 64)"));
+                    self.emitln(&format!("  call void @xiom_mutex_init(i8* {tmp})"));
+                    return Ok((tmp, "i8*".to_string()));
+                } else if is_mutex_fn {
+                    let ptr = compiled_args.first().map(|(v, _)| v.clone()).unwrap_or_else(|| "null".to_string());
+                    let fn_impl = match fn_name.as_str() {
+                        "Mutex.lock" => "xiom_mutex_lock",
+                        "Mutex.unlock" => "xiom_mutex_unlock",
+                        _ => "xiom_mutex_destroy",
+                    };
+                    self.emitln(&format!("  call void @{fn_impl}(i8* {ptr})"));
+                    return Ok((String::new(), "void".to_string()));
                 }
                 // Extern runtime functions for file I/O
                 if fn_name == "xiom_read_file" {
