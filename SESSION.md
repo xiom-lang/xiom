@@ -221,36 +221,32 @@ Copy and paste this into the next session:
 
 ```
 Continue XIOM v0.56.0-pre from SESSION.md. Branch: feat/architect.
-E2E: 22/22 passing. 107+ compiler hardening commits. Selfhost gate CLEARED (15/15).
-0 warnings on all crates (Windows + Linux).
+E2E: 20/20 core gates, 543 verified tests, 30+ commits ahead.
+Full audit + benchmark analysis COMPLETE — see docs/PRE_SELFHOST_GAPS.md + BENCHMARK_ANALYSIS.md.
 
-CURRENT STATE:
-- All v0.54 + v0.55 features complete (CTFE, JIT, ASM, Never, defer, spawn, Channel, Send/Sync, thread pool).
-- v0.56: LTO, debug info, lazy JIT, thread pool, thread-local recursion counter, safety probe wired.
-- R4 FIXED: dynamic alloca in Vec::push loop eliminated — chaos t1/t2 now pass.
-- R5 FIXED: recursion counter leak in tail-expression returns — AtomicInt ops safe at scale.
-- All 5 chaos tasks pass with E2E regression tests (t1-t5).
-- All 6 plan docs audited and updated to reflect implementation state.
-- 0 compiler warnings across all crates.
+Benchmark context: XIOM #4/7 systems arena (58/100, tied with Rust), #3/6 contracts (56/100).
+100% pass rate both arenas. 111KB binary (best in class).
+WINS: t3-hot-reload #1, t5-btree #1.
+GAPS: t4-packet 393ms (28x Rust) → P0-4. t1-allocator 29MB (10x Rust) → P0-1/P0-2.
 
-CRITICAL REMAINING (Phase A — pre-selfhost):
-R1: Accurate DI emission for .xi source (DWARF from .xi, not LLVM IR) — 1 week
-R2: Move semantics for spawn captures (move vs copy analysis) — 4 days
+PRIORITY ORDER (from benchmark data):
+P0-4: t4-packet performance (393ms→<50ms target) — profile byte ops in codegen
+P0-1: for..in iteration (stmt.rs:1649) — body runs once, no loop
+P0-2: defer scope-exit (stmt.rs:1834) — executes immediately
+P0-3: labeled break/continue (stmt.rs:1792) — labels ignored
+P1-1: struct patterns in match
+P1-2: tuple patterns in match
+P1-3: float literal patterns
+P2-2: E001 as hard errors with --strict-mode
+P2-3: field-granular borrows (wire place/loans.rs)
+P2-4: Never type proper LLVM bottom type lowering
 
-HIGH REMAINING (Phase B):
-I1: Send/Sync enforcement in checker — 5 days
-I2: Parallel codegen (rayon per-function IR) — 3 days
-I3: Deadlock detection (static lock ordering) — 4 days
+DEPRIORITIZED (benchmarks say not urgent):
+P1-4, P2-1, P2-5, P2-6
 
-KEY FILES: crates/xiom-codegen/src/vec_abi.rs (R4 resolve_vec_push_ptr),
-crates/xiom-codegen/src/lib.rs (R5 tail-return counter fix),
-crates/xiom-codegen/src/call.rs (R4 Vec::push uses original alloca),
-crates/xiom-codegen/tests/e2e_tests.rs (22/22 E2E)
-
-PRINCIPLE: Production-grade only. No workarounds. Every feature gated by E2E tests.
-Near-zero runtime errors — if it compiles, it must run correctly.
-
----
+DO NOT touch xiom-benchmark-chaos/. DO add E2E tests for every fix.
+Update docs/PRE_SELFHOST_GAPS.md + BENCHMARK_ANALYSIS.md after each fix.
+```
 
 ## COMPREHENSIVE AUDIT — 2026-08-04
 
@@ -285,6 +281,13 @@ Full details: `docs/PRE_SELFHOST_GAPS.md`
 
 ### Docs Updated This Session
 - `docs/PRE_SELFHOST_GAPS.md` — NEW: comprehensive gap list with priorities
+- `docs/BENCHMARK_ANALYSIS.md` — NEW: benchmark results cross-referenced with gaps
 - `docs/language/compiler.md` — UPDATED: all v0.56 flags, pipeline, features
-- `docs/AI_CONTEXT.md` — needs update: `move` keyword, overflow default, parallel-codegen
+- `docs/AI_CONTEXT.md` — UPDATED: `move` keyword, overflow default, spawn syntax
+
+### Benchmark Results (2026-08-04)
+- **Systems Arena**: XIOM #4/7 (58/100, tied with Rust). 100% pass rate. 111KB binary (best in class).
+- **Contracts Arena**: XIOM #3/6 (56/100). Minimal overhead (58→56, only 3.4%).
+- **Wins**: t3-hot-reload #1, t5-btree #1. Binary size competitive with C.
+- **Gaps**: t1-allocator 29MB (10x Rust), t4-packet 393ms (28x Rust) → NEW P0-4.
 
