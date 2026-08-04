@@ -299,6 +299,31 @@ impl Checker {
             generics: vec!["T".to_string()],
             uses_implicit_this: false,
         });
+        // v0.56: Numeric conversion builtins
+        self.functions.insert("to_float".to_string(), FnSig {
+            params: vec![("n".to_string(), CheckedType::Int)],
+            return_type: Some(CheckedType::Float64),
+            generics: vec![],
+            uses_implicit_this: false,
+        });
+        self.functions.insert("to_int".to_string(), FnSig {
+            params: vec![("f".to_string(), CheckedType::Float64)],
+            return_type: Some(CheckedType::Int),
+            generics: vec![],
+            uses_implicit_this: false,
+        });
+        self.functions.insert("to_int_from_char".to_string(), FnSig {
+            params: vec![("c".to_string(), CheckedType::Char)],
+            return_type: Some(CheckedType::Int),
+            generics: vec![],
+            uses_implicit_this: false,
+        });
+        self.functions.insert("to_char".to_string(), FnSig {
+            params: vec![("n".to_string(), CheckedType::Int)],
+            return_type: Some(CheckedType::Char),
+            generics: vec![],
+            uses_implicit_this: false,
+        });
 
         // v0.56 I3: Mutex builtins for deadlock detection
         self.functions.insert("Mutex.new".to_string(), FnSig {
