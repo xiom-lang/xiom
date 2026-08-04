@@ -2490,6 +2490,36 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             found
                         }
                     };
+                    // P0-4: Intercept math bitwise/shift builtins and emit native LLVM
+                    // instructions. The stdlib math.xi provides per-bit software loops
+                    // (O(n) with modulo/division per iteration); native LLVM and/or/xor/
+                    // shl/ashr are single CPU instructions.
+                    // Resolved names may be bare (shl) or qualified (xiom.math.shl).
+                    let is_math_builtin = resolved_fn_key == "shl" || resolved_fn_key.ends_with(".shl")
+                        || resolved_fn_key == "shr" || resolved_fn_key.ends_with(".shr")
+                        || resolved_fn_key == "bit_and" || resolved_fn_key.ends_with(".bit_and")
+                        || resolved_fn_key == "bit_or" || resolved_fn_key.ends_with(".bit_or")
+                        || resolved_fn_key == "bit_xor" || resolved_fn_key.ends_with(".bit_xor")
+                        || resolved_fn_key == "bit_not" || resolved_fn_key.ends_with(".bit_not");
+                    if is_math_builtin {
+                        let lv = self.widen_to_i64(&compiled_args[0].0, &compiled_args[0].1);
+                        let result = self.fresh_tmp();
+                        if resolved_fn_key == "bit_not" || resolved_fn_key.ends_with(".bit_not") {
+                            self.emitln(&format!("  {result} = xor i64 {lv}, -1"));
+                        } else if compiled_args.len() >= 2 {
+                            let rv = self.widen_to_i64(&compiled_args[1].0, &compiled_args[1].1);
+                            let inst = if resolved_fn_key == "bit_and" || resolved_fn_key.ends_with(".bit_and") { "and" }
+                                else if resolved_fn_key == "bit_or" || resolved_fn_key.ends_with(".bit_or") { "or" }
+                                else if resolved_fn_key == "bit_xor" || resolved_fn_key.ends_with(".bit_xor") { "xor" }
+                                else if resolved_fn_key == "shl" || resolved_fn_key.ends_with(".shl") { "shl" }
+                                else { "ashr" };
+                            self.emitln(&format!("  {result} = {inst} i64 {lv}, {rv}"));
+                        } else {
+                            // Insufficient args — fall through to normal call
+                            self.emitln(&format!("  {result} = add i64 {lv}, 0"));
+                        }
+                        return Ok((result, LLVM_I64.to_string()));
+                    }
                     let callee_is_fn_ptr = receiver_expr.is_none()
                         && self.lookup_local(&fn_name).is_some()
                         && self.types.functions.get(&resolved_fn_key).is_none()
