@@ -23,7 +23,10 @@ use xiom_verify::SMTGenerator;
 #[derive(PartialEq, Clone, Copy)]
 pub enum Target {
     Native,
+    /// wasm32-unknown-unknown (bare WASM, no WASI)
     Wasm,
+    /// wasm32-wasi (WASI preview2, with I/O and filesystem)
+    Wasi,
     Arm,
     RisCv,
 }
@@ -511,6 +514,7 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     let mut emitter = IrEmitter::new();
     match config.target {
         Target::Wasm => emitter.set_target_triple("wasm32-unknown-unknown"),
+        Target::Wasi => emitter.set_target_triple("wasm32-wasi"),
         Target::Arm => emitter.set_target_triple("aarch64-unknown-linux-gnu"),
         Target::RisCv => emitter.set_target_triple("riscv64-unknown-linux-gnu"),
         Target::Native => {}
@@ -864,6 +868,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     }
     emitter.set_target_triple(match config.target {
         Target::Wasm => "wasm32-unknown-unknown",
+        Target::Wasi => "wasm32-wasi",
         Target::Arm => "aarch64-unknown-linux-gnu",
         Target::RisCv => "riscv64gc-unknown-linux-gnu",
         Target::Native => {
@@ -903,7 +908,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
 
     // Stage 6: Compile to binary via clang
     let default_output = match config.target {
-        Target::Wasm => "a.wasm",
+        Target::Wasm | Target::Wasi => "a.wasm",
         Target::Arm | Target::RisCv => "a.out",
         Target::Native => {
             if cfg!(windows) { "a.exe" } else { "a.out" }
@@ -1038,6 +1043,9 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 Target::Wasm => {
                     cmd.args(["--target=wasm32-unknown-unknown", "-nostdlib", "-Wl,--no-entry", "-Wl,--export-all"]);
                 }
+                Target::Wasi => {
+                    cmd.args(["--target=wasm32-wasi", "-nostdlib", "-Wl,--no-entry", "-Wl,--export-all"]);
+                }
                 Target::Arm => {
                     cmd.args(["--target=aarch64-unknown-linux-gnu"]);
                 }
@@ -1050,7 +1058,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                     }
                 }
             }
-            if config.target != Target::Wasm {
+            if config.target != Target::Wasm && config.target != Target::Wasi {
                 let runtime_c_files = find_runtime_c_files();
                 // M21: Deduplicate C sources by canonical path to prevent duplicate
                 // symbols when --c-source overlaps with auto-discovered runtime files.
@@ -1099,7 +1107,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             if config.target == Target::Native {
                 for obj in &asm_objects { cmd.arg(obj); }
             }
-            if config.target != Target::Wasm {
+            if config.target != Target::Wasm && config.target != Target::Wasi {
                 for lp in &config.link_paths {
                     cmd.arg(&format!("-L{lp}"));
                 }
@@ -1147,7 +1155,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                         }
                     }
 
-                    if config.target == Target::Wasm {
+                    if config.target == Target::Wasm || config.target == Target::Wasi {
                         if let Ok(meta) = fs::metadata(output) {
                             eprintln!("  wasm size: {} bytes", meta.len());
                         }
@@ -1181,6 +1189,9 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             match config.target {
                 Target::Wasm => {
                     eprintln!("  compile manually: clang --target=wasm32-unknown-unknown -nostdlib -Wl,--no-entry -Wl,--export-all -o {output} {ir_path}");
+                }
+                Target::Wasi => {
+                    eprintln!("  compile manually: clang --target=wasm32-wasi -nostdlib -Wl,--no-entry -Wl,--export-all -o {output} {ir_path}");
                 }
                 Target::Arm => {
                     eprintln!("  compile manually: clang --target=aarch64-unknown-linux-gnu -o {output} {ir_path}");

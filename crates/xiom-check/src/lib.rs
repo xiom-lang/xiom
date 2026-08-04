@@ -300,6 +300,32 @@ impl Checker {
             uses_implicit_this: false,
         });
 
+        // v0.56 I3: Mutex builtins for deadlock detection
+        self.functions.insert("Mutex.new".to_string(), FnSig {
+            params: vec![],
+            return_type: Some(CheckedType::Int),
+            generics: vec![],
+            uses_implicit_this: false,
+        });
+        self.functions.insert("Mutex.lock".to_string(), FnSig {
+            params: vec![("self".to_string(), CheckedType::Int)],
+            return_type: Some(CheckedType::Int),
+            generics: vec![],
+            uses_implicit_this: true,
+        });
+        self.functions.insert("Mutex.unlock".to_string(), FnSig {
+            params: vec![("self".to_string(), CheckedType::Int)],
+            return_type: Some(CheckedType::Int),
+            generics: vec![],
+            uses_implicit_this: true,
+        });
+        self.functions.insert("Mutex.destroy".to_string(), FnSig {
+            params: vec![("self".to_string(), CheckedType::Int)],
+            return_type: Some(CheckedType::Int),
+            generics: vec![],
+            uses_implicit_this: true,
+        });
+
         // v0.55: Send + Sync marker interfaces for thread safety.
         // No methods — auto-derived by the compiler based on field types.
         // All primitives (Int, Float, Bool, Str, Char) implement Send+Sync.
