@@ -113,7 +113,7 @@ impl crate::Formatter {
                 self.push_indent();
                 self.buf.push_str("}\n");
             }
-            Stmt::While(cond, body, _, _) => {
+            Stmt::While(cond, body, _, _, _) => {
                 self.push_indent();
                 self.buf.push_str("while ");
                 self.format_expr(cond);
@@ -124,7 +124,7 @@ impl crate::Formatter {
                 self.push_indent();
                 self.buf.push_str("}\n");
             }
-            Stmt::For(ident, iter, body, _) => {
+            Stmt::For(ident, iter, body, _, _) => {
                 self.push_indent();
                 self.buf.push_str("for ");
                 self.buf.push_str(&ident.name);

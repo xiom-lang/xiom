@@ -367,7 +367,7 @@ impl CtfeEngine {
                 }
                 Ok(CtfeValue::Unit)
             }
-            Stmt::While(cond, body, _, _) => {
+            Stmt::While(cond, body, _, _, _) => {
                 while self.eval_expr(cond, ctx)?.as_bool() {
                     self.eval_block(&body.stmts, ctx)?;
                 }
@@ -385,7 +385,7 @@ impl CtfeEngine {
                 }
                 Ok(CtfeValue::Unit)
             }
-            Stmt::For(_ident, iter, body, _) => {
+            Stmt::For(_ident, iter, body, _, _) => {
                 // Very basic for-loop: iterate over array literal range
                 // For CTFE we only support simple integer range-like patterns
                 let _iter_val = self.eval_expr(iter, ctx)?;

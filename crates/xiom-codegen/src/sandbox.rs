@@ -188,8 +188,8 @@ impl SafetyAuditor {
                 for (c, b) in elifs { self.audit_expr(c, report); self.audit_block(b, report); }
                 if let Some(b) = else_b { self.audit_block(b, report); }
             }
-            Stmt::While(cond, body, _, _) => { self.audit_expr(cond, report); self.audit_block(body, report); }
-            Stmt::For(_, iter, body, _) => { self.audit_expr(iter, report); self.audit_block(body, report); }
+            Stmt::While(cond, body, _, _, _) => { self.audit_expr(cond, report); self.audit_block(body, report); }
+            Stmt::For(_, iter, body, _, _) => { self.audit_expr(iter, report); self.audit_block(body, report); }
             Stmt::Match(scrut, arms, _) => {
                 self.audit_expr(scrut, report);
                 for arm in arms { self.audit_match_body(&arm.body, report); }

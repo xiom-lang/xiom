@@ -18,9 +18,9 @@ Full audit of the XIOM compiler against the language specification (`docs/AI_CON
 
 | # | Feature | Bug | Location | Test |
 |---|---------|-----|----------|------|
-| P0-1 | **`for...in` loops** | Body executes exactly ONCE. No iteration over arrays/Vecs/ranges. The spec's `for item in items { process(item); }` is non-functional. | `xiom-codegen/src/stmt.rs:1649-1652` | Needs E2E test |
-| P0-2 | **`defer` statement** | Executes IMMEDIATELY where written, not at scope exit. Multiple defers run inline, not LIFO. Spec says "guaranteed scope-exit execution" — completely broken. | `xiom-codegen/src/stmt.rs:1834-1841` | Needs E2E test |
-| P0-3 | **Labeled break/continue** | Parser accepts `break @outer` / `continue @outer` but codegen IGNORES the label. Always targets nearest loop only. Breaking from nested loop to outer loop produces incorrect IR. | `xiom-codegen/src/stmt.rs:1792-1804` | Needs E2E test |
+| P0-1 | **`for...in` loops** | ~~Body executes exactly ONCE. No iteration over arrays/Vecs/ranges.~~ **FIXED v0.56** — Direct Range iteration via {start,end} field manipulation with proper loop structure (cond/body/exit blocks), break/continue support, and loop_label passthrough. | `xiom-codegen/src/stmt.rs:1649-1730` | `tests/e2e_p0_forin.xi` ✅ |
+| P0-2 | **`defer` statement** | ~~Executes IMMEDIATELY where written, not at scope exit.~~ **FIXED v0.56** — LIFO defer stack emits deferred blocks at every `ret` point (compile_block tail-returns, Stmt::Return handler, fallback ret in compile_fn). Stack cleared per-function. | `xiom-codegen/src/stmt.rs` (defer handler + compile_deferred_cleanups), `decl.rs` (compile_fn start), `lib.rs` (compile_block ret sites) | `tests/e2e_p0_defer.xi` ✅ |
+| P0-3 | **Labeled break/continue** | ~~Parser accepts `break @outer` / `continue @outer` but codegen IGNORES the label.~~ **FIXED v0.56** — loop_stack stores `(Option<String>, label, exit)`. Break/Continue search stack (top-down) for matching label; fallback to innermost if no match. Parser supports `@label: while/for` prefix. | `xiom-codegen/src/stmt.rs` (Break/Continue/While handlers), `xiom-parser/src/lib.rs` (parse_stmt_or_expr), `xiom-ast/src/lib.rs` (Stmt::While, Stmt::For) | `tests/e2e_p0_labeled.xi` ✅ |
 
 ## 🟠 P1 — MISSING (Spec says it works, no implementation)
 
@@ -94,9 +94,9 @@ These features are FULLY IMPLEMENTED and PRODUCTION-GRADE:
 5. **Write clean handoff prompt** for next session
 
 ### Next Session (P0 + P1)
-6. Fix P0-1: `for...in` iteration (3 days)
-7. Fix P0-2: `defer` scope-exit execution (2 days)
-8. Fix P0-3: Labeled break/continue (1 day)
+6. ~~Fix P0-1: `for...in` iteration (3 days)~~ ✅ DONE v0.56
+7. ~~Fix P0-2: `defer` scope-exit execution (2 days)~~ ✅ DONE v0.56
+8. ~~Fix P0-3: Labeled break/continue (1 day)~~ ✅ DONE v0.56
 9. Fix P1-1: Struct patterns in match (2 days)
 10. Fix P1-2: Tuple patterns in match (1 day)
 11. Fix P1-3: Float literal patterns (0.5 day)

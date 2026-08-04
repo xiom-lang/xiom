@@ -218,7 +218,7 @@ fn find_variable_type_in_stmt(stmt: &xiom_ast::Stmt, var_name: &str) -> Option<S
                 if let Some(ty) = find_variable_type_in_block(eb, var_name) { return Some(ty); }
             }
         }
-        xiom_ast::Stmt::While(_, body, _, _) => {
+        xiom_ast::Stmt::While(_, body, _, _, _) => {
             if let Some(ty) = find_variable_type_in_block(body, var_name) { return Some(ty); }
         }
         xiom_ast::Stmt::Match(_, arms, _) => {
@@ -228,7 +228,7 @@ fn find_variable_type_in_stmt(stmt: &xiom_ast::Stmt, var_name: &str) -> Option<S
                 }
             }
         }
-        xiom_ast::Stmt::For(_, _, body, _) => {
+        xiom_ast::Stmt::For(_, _, body, _, _) => {
             if let Some(ty) = find_variable_type_in_block(body, var_name) { return Some(ty); }
         }
         xiom_ast::Stmt::Spawn(body, _, _move) => {
