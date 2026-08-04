@@ -83,10 +83,13 @@ impl crate::Formatter {
                 }
                 self.buf.push(')');
             }
-            Expr::GenericCall(func, ty, args, _) => {
+            Expr::GenericCall(func, types, args, _) => {
                 self.format_expr(func);
                 self.buf.push_str("::<");
-                self.format_type(ty);
+                for (i, t) in types.iter().enumerate() {
+                    if i > 0 { self.buf.push_str(", "); }
+                    self.format_type(t);
+                }
                 self.buf.push_str(">(");
                 for (i, a) in args.iter().enumerate() {
                     if i > 0 { self.buf.push_str(", "); }

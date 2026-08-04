@@ -2811,6 +2811,19 @@ impl Checker {
                 // value extraction and early-return on error propagation.
                 match &inner_ty {
                     CheckedType::Named(n) if n == "Result" || n == "Option" => {
+                        // P2-1: Validate that the enclosing function returns Result/Option.
+                        let fn_returns_result_or_option = self.current_return.as_ref()
+                            .map_or(false, |ret| match ret {
+                                CheckedType::Named(rn) => rn == "Result" || rn == "Option",
+                                _ => false,
+                            });
+                        if !fn_returns_result_or_option {
+                            self.error(
+                                format!("'?' operator used in function that returns '{}' — must return Result or Option",
+                                    self.current_return.as_ref().map_or("void".to_string(), |r| r.name())),
+                                *_span,
+                            );
+                        }
                         CheckedType::Named("_".into())
                     }
                     _ => self.error(
@@ -3045,10 +3058,26 @@ impl Checker {
                     if let CheckedType::Named(tn) = &obj_ty {
                         let base = tn.rsplit('.').next().unwrap_or(tn);
                         for arg in args { let _ = self.check_expr(arg); }
+                        // P2-5: Before builtin match, check if the concrete type has
+                        // the method registered. This catches user-defined method calls
+                        // at checker time instead of deferring to codegen.
+                        let method_key = format!("{}.{}", tn, method.name);
+                        if self.functions.contains_key(&method_key) {
+                            return CheckedType::Named("_".into());
+                        }
+                        let method_key_base = format!("{}.{}", base, method.name);
+                        if method_key_base != method_key && self.functions.contains_key(&method_key_base) {
+                            return CheckedType::Named("_".into());
+                        }
                         match (base, method.name.as_str()) {
                             ("Vec" | "Slice" | "Array" | "Str" | "Map" | "Set", "len")
                                 => return CheckedType::Int,
                             ("Vec" | "Slice" | "Array" | "Str", "is_empty") => return CheckedType::Bool,
+                            // P1-4: Contract collection methods — returns Bool for ensures/requires uses.
+                            ("Vec" | "Slice" | "Array", "is_sorted") => return CheckedType::Bool,
+                            ("Vec" | "Slice" | "Array", "all") => return CheckedType::Bool,
+                            ("Vec" | "Slice" | "Array", "none") => return CheckedType::Bool,
+                            ("Vec" | "Slice" | "Array", "contains") => return CheckedType::Bool,
                             // G-36: container clone returns the same container type.
                             ("Vec" | "Slice" | "Map" | "Set", "clone") => return obj_ty.clone(),
                             // Option/Result payload accessors — inner type is erased,

@@ -351,36 +351,38 @@ impl IrEmitter {
                         }
                     }
                 }
-                if let Expr::GenericCall(f, ty, args, span) = expr {
-                    if let Expr::Ident(id) = f.as_ref() {
-                        let type_name = crate::IrEmitter::type_from_ast(ty);
-                        if id.name == "sizeof" {
-                            let size = self.struct_byte_size(&type_name) as u64;
-                            return Expr::Int(size, *span);
-                        }
-                        if id.name == "is_signed" {
-                            let signed = Self::is_signed_xiom_type(&type_name);
-                            return Expr::Bool(signed, *span);
-                        }
-                        if id.name == "align_of" {
-                            let align = self.align_of_type(&type_name);
-                            return Expr::Int(align, *span);
-                        }
-                        if id.name == "type_id" {
-                            let id_val = Self::type_id_of(&type_name);
-                            return Expr::Int(id_val, *span);
-                        }
-                        if id.name == "field_offset" {
-                            if let Some(arg) = args.first() {
-                                // Accept both string literal ("x") and unquoted ident (x)
-                                let field_name: String = match arg {
-                                    Expr::Str(s, _) => s.clone(),
-                                    Expr::Ident(id) => id.name.clone(),
-                                    _ => String::new(),
-                                };
-                                if !field_name.is_empty() {
-                                    let offset = self.field_offset_of(&type_name, &field_name);
-                                    return Expr::Int(offset, *span);
+                if let Expr::GenericCall(f, types, args, span) = expr {
+                    if !types.is_empty() {
+                        if let Expr::Ident(id) = f.as_ref() {
+                            let type_name = crate::IrEmitter::type_from_ast(&types[0]);
+                            if id.name == "sizeof" {
+                                let size = self.struct_byte_size(&type_name) as u64;
+                                return Expr::Int(size, *span);
+                            }
+                            if id.name == "is_signed" {
+                                let signed = Self::is_signed_xiom_type(&type_name);
+                                return Expr::Bool(signed, *span);
+                            }
+                            if id.name == "align_of" {
+                                let align = self.align_of_type(&type_name);
+                                return Expr::Int(align, *span);
+                            }
+                            if id.name == "type_id" {
+                                let id_val = Self::type_id_of(&type_name);
+                                return Expr::Int(id_val, *span);
+                            }
+                            if id.name == "field_offset" {
+                                if let Some(arg) = args.first() {
+                                    // Accept both string literal ("x") and unquoted ident (x)
+                                    let field_name: String = match arg {
+                                        Expr::Str(s, _) => s.clone(),
+                                        Expr::Ident(id) => id.name.clone(),
+                                        _ => String::new(),
+                                    };
+                                    if !field_name.is_empty() {
+                                        let offset = self.field_offset_of(&type_name, &field_name);
+                                        return Expr::Int(offset, *span);
+                                    }
                                 }
                             }
                         }
