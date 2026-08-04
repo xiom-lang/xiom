@@ -26,9 +26,9 @@ Full audit of the XIOM compiler against the language specification (`docs/AI_CON
 
 | # | Feature | Gap | Location | Test |
 |---|---------|-----|----------|------|
-| P1-1 | **Struct patterns in match** | `match point { Point{ x, y } => ... }` — AST has no `Pattern::Struct` variant. Parser never parses `TypeName{ field, ... }` syntax. AI_CONTEXT.md line 152 shows `AgentState.Patrolling(route)` (variant pattern, works) but struct destructuring is missing. | `xiom-ast/src/lib.rs` (Pattern enum), `xiom-parser/src/lib.rs` (parse_pattern_single) | Needs E2E test |
-| P1-2 | **Tuple patterns in match** | `match pair { (a, b) => ... }` — AST has no `Pattern::Tuple` variant. Parser only supports `()` (unit) and `(pattern)` (parenthesized). Multi-field tuple destructuring missing. | Same as above | Needs E2E test |
-| P1-3 | **Float literal patterns** | `match x { 3.14 => ... }` — Only Int/Bool/Str/Char literal patterns exist in parser. Float literals not handled in `parse_pattern_single`. | `xiom-parser/src/lib.rs:1523-1527` | Needs E2E test |
+| P1-1 | **Struct patterns in match** | ~~`match point { Point{ x, y } => ... }` — AST has Pattern::Struct variant but no implementation.~~ **FIXED v0.56** — Added `Pattern::Struct(Ident, Vec<(Ident, Pattern)>, Span)` to AST. Parser parses `TypeName { field, field: pat }` syntax. Checker resolves field types via `get_type()`. Codegen emits struct field extraction (GEP/load/bind) in match arms. | `xiom-ast/src/lib.rs` (Pattern enum), `xiom-parser/src/lib.rs` (parse_pattern_single), `xiom-check/src/lib.rs` (add_pattern_bindings), `xiom-codegen/src/stmt.rs` (match arm compilation) | `tests/e2e_p1_struct_pattern.xi` ✅ |
+| P1-2 | **Tuple patterns in match** | ~~`match pair { (a, b) => ... }` — AST has Pattern::Tuple variant but no implementation.~~ **FIXED v0.56** — Added `Pattern::Tuple(Vec<Pattern>, Span)` to AST. Parser parses `(a, b, c)` in pattern position. Checker binds each element. Codegen emits tuple field extraction. | Same as P1-1 | `tests/e2e_p1_tuple_pattern.xi` ✅ |
+| P1-3 | **Float literal patterns** | ~~`match x { 3.14 => ... }` — Only Int/Bool/Str/Char literal patterns exist.~~ **FIXED v0.56** — Added `TokenKind::Float` case to `parse_pattern_single`. Codegen emits `fcmp oeq double` with `sitofp` conversion for i64 scrutinees. Updated `pattern_needs_check` in both lib.rs and types.rs. | `xiom-parser/src/lib.rs:1562`, `xiom-codegen/src/stmt.rs` (check blocks), `xiom-codegen/src/lib.rs:2148` (pattern_needs_check) | `tests/e2e_p1_float_pattern.xi` ✅ |
 | P1-4 | **Contract collection methods** | `.is_sorted()`, `.all()`, `.none()`, `.contains()` — listed in spec Section 5.4 table as contract predicates. Zero implementation across parser/checker/codegen. | Nowhere | Needs implementation |
 
 ## 🟡 P2 — PARTIAL (Works in some cases, fails in others)
@@ -97,9 +97,9 @@ These features are FULLY IMPLEMENTED and PRODUCTION-GRADE:
 6. ~~Fix P0-1: `for...in` iteration (3 days)~~ ✅ DONE v0.56
 7. ~~Fix P0-2: `defer` scope-exit execution (2 days)~~ ✅ DONE v0.56
 8. ~~Fix P0-3: Labeled break/continue (1 day)~~ ✅ DONE v0.56
-9. Fix P1-1: Struct patterns in match (2 days)
-10. Fix P1-2: Tuple patterns in match (1 day)
-11. Fix P1-3: Float literal patterns (0.5 day)
+9. ~~Fix P1-1: Struct patterns in match (2 days)~~ ✅ DONE v0.56
+10. ~~Fix P1-2: Tuple patterns in match (1 day)~~ ✅ DONE v0.56
+11. ~~Fix P1-3: Float literal patterns (0.5 day)~~ ✅ DONE v0.56
 12. Fix P1-4: Contract collection methods (2 days)
 
 ### Following Session (P2)

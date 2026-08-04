@@ -1560,15 +1560,25 @@ impl Parser {
             TokenKind::Int(n) => { let n = *n; let span = self.advance().span; Ok(Pattern::Lit(Literal::Int(n, span))) }
             TokenKind::Str(s) => { let s = s.clone(); let span = self.advance().span; Ok(Pattern::Lit(Literal::Str(s, span))) }
             TokenKind::Char(c) => { let c = *c; let span = self.advance().span; Ok(Pattern::Lit(Literal::Char(c, span))) }
+            TokenKind::Float(f) => { let f = *f; let span = self.advance().span; Ok(Pattern::Lit(Literal::Float(f, span))) }
             TokenKind::LParen => {
                 let span = self.advance().span;
                 if self.skip(TokenKind::RParen) {
                     // Unit pattern `()` — treat as wildcard (unit has a single value)
                     return Ok(Pattern::Wildcard(span));
                 }
-                let inner = self.parse_pattern()?;
+                let first = self.parse_pattern()?;
+                // P1-2: If comma follows, it's a tuple pattern (a, b, c)
+                if self.skip(TokenKind::Comma) {
+                    let mut items = vec![first, self.parse_pattern()?];
+                    while self.skip(TokenKind::Comma) {
+                        items.push(self.parse_pattern()?);
+                    }
+                    self.expect_kind(TokenKind::RParen, "')'")?;
+                    return Ok(Pattern::Tuple(items, span));
+                }
                 self.expect_kind(TokenKind::RParen, "')'")?;
-                Ok(inner)
+                Ok(first)
             }
             _ => {
                 // `ref` / `ref mut` in patterns are binding modifiers.
@@ -1610,6 +1620,24 @@ impl Parser {
                     }
                     self.expect_kind(TokenKind::RParen, "')'")?;
                     Ok(Pattern::Variant(name, fields, span))
+                } else if self.peek_kind() == &TokenKind::LBrace {
+                    // P1-1: Struct pattern `TypeName { field1, field2: pat2 }`
+                    self.advance(); // consume '{'
+                    let span = name.span;
+                    let mut fields: Vec<(Ident, Pattern)> = Vec::new();
+                    while !self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Eof)) {
+                        let fname = self.parse_ident()?;
+                        let fpat = if self.skip(TokenKind::Colon) {
+                            self.parse_pattern()?
+                        } else {
+                            // Shorthand: `{ field }` means `{ field: field }`
+                            Pattern::Ident(fname.clone())
+                        };
+                        fields.push((fname, fpat));
+                        self.skip(TokenKind::Comma);
+                    }
+                    self.expect_kind(TokenKind::RBrace, "'}'")?;
+                    Ok(Pattern::Struct(name, fields, span))
                 } else { Ok(Pattern::Ident(name)) }
             }
         }

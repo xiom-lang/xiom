@@ -523,6 +523,41 @@ impl IrEmitter {
                     _ => false,
                 }
             }
+            xiom_ast::Pattern::Struct(name, fields, _) => {
+                match value {
+                    Expr::Struct(s_name, s_fields, _, _) => {
+                        if name.name != s_name.name { return false; }
+                        for (field_name, field_pat) in fields {
+                            let field_val = s_fields.iter()
+                                .find(|(n, _)| &n.name == &field_name.name)
+                                .map(|(_, v)| v);
+                            if let Some(fv) = field_val {
+                                if !self.pattern_matches_const_with_bindings(field_pat, fv, bindings) {
+                                    return false;
+                                }
+                            } else {
+                                return false;
+                            }
+                        }
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            xiom_ast::Pattern::Tuple(elements, _) => {
+                match value {
+                    Expr::Tuple(items, _) => {
+                        if elements.len() != items.len() { return false; }
+                        for (elem, item) in elements.iter().zip(items.iter()) {
+                            if !self.pattern_matches_const_with_bindings(elem, item, bindings) {
+                                return false;
+                            }
+                        }
+                        true
+                    }
+                    _ => false,
+                }
+            }
             _ => false,
         }
     }

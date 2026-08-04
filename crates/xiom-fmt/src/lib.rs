@@ -197,6 +197,25 @@ impl Formatter {
                     self.format_pattern(alt);
                 }
             }
+            Pattern::Struct(name, fields, _) => {
+                self.buf.push_str(&name.name);
+                self.buf.push_str(" { ");
+                for (i, (field, sub_pat)) in fields.iter().enumerate() {
+                    if i > 0 { self.buf.push_str(", "); }
+                    self.buf.push_str(&field.name);
+                    self.buf.push_str(": ");
+                    self.format_pattern(sub_pat);
+                }
+                self.buf.push_str(" }");
+            }
+            Pattern::Tuple(patterns, _) => {
+                self.buf.push('(');
+                for (i, p) in patterns.iter().enumerate() {
+                    if i > 0 { self.buf.push_str(", "); }
+                    self.format_pattern(p);
+                }
+                self.buf.push(')');
+            }
         }
     }
 

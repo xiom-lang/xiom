@@ -610,6 +610,36 @@ impl CtfeEngine {
                     _ => Ok(false),
                 }
             }
+            Pattern::Struct(name, fields, _) => {
+                match value {
+                    CtfeValue::Struct(v_name, v_fields) if v_name == &name.name => {
+                        for (field_name, field_pat) in fields {
+                            let field_val = v_fields.iter()
+                                .find(|(n, _)| n == &field_name.name)
+                                .map(|(_, v)| v);
+                            if let Some(fv) = field_val {
+                                self.pattern_matches(field_pat, fv, ctx)?;
+                            } else {
+                                return Ok(false);
+                            }
+                        }
+                        Ok(true)
+                    }
+                    _ => Ok(false),
+                }
+            }
+            Pattern::Tuple(elements, _) => {
+                match value {
+                    CtfeValue::Struct(_, v_fields) => {
+                        if v_fields.len() != elements.len() { return Ok(false); }
+                        for (i, elem) in elements.iter().enumerate() {
+                            self.pattern_matches(elem, &v_fields[i].1, ctx)?;
+                        }
+                        Ok(true)
+                    }
+                    _ => Ok(false),
+                }
+            }
             _ => Ok(false),
         }
     }

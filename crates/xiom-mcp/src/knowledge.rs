@@ -252,5 +252,12 @@ fn pattern_to_str(p: &Pattern) -> String {
         Pattern::Ok(inner, _) => format!("Ok({})", pattern_to_str(inner)),
         Pattern::Err(inner, _) => format!("Err({})", pattern_to_str(inner)),
         Pattern::Or(alts, _) => alts.iter().map(pattern_to_str).collect::<Vec<_>>().join(" | "),
+        Pattern::Struct(name, fields, _) => {
+            if fields.is_empty() { name.name.clone() }
+            else { format!("{} {{{}}}", name.name, fields.iter().map(|(f, p)| format!("{}: {}", f.name, pattern_to_str(p))).collect::<Vec<_>>().join(", ")) }
+        }
+        Pattern::Tuple(patterns, _) => {
+            format!("({})", patterns.iter().map(pattern_to_str).collect::<Vec<_>>().join(", "))
+        }
     }
 }

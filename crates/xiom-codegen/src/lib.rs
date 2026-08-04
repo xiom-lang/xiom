@@ -822,6 +822,12 @@ impl IrEmitter {
             Pattern::Or(alts, _) => {
                 for a in alts { Self::pattern_collect_bound(a, out); }
             }
+            Pattern::Struct(_, fields, _) => {
+                for (_, sub) in fields { Self::pattern_collect_bound(sub, out); }
+            }
+            Pattern::Tuple(elements, _) => {
+                for e in elements { Self::pattern_collect_bound(e, out); }
+            }
             _ => {}
         }
     }
@@ -2141,12 +2147,14 @@ impl IrEmitter {
     /// and caused an out-of-bounds panic.
     fn pattern_needs_check(&self, pattern: &Pattern, scrutinee_type: &Option<String>) -> bool {
         match pattern {
-            Pattern::Lit(Literal::Int(..)) | Pattern::Lit(Literal::Bool(..))
+            Pattern::Lit(Literal::Int(..)) | Pattern::Lit(Literal::Float(..)) | Pattern::Lit(Literal::Bool(..))
             | Pattern::Lit(Literal::Str(..)) | Pattern::Lit(Literal::Char(..)) => true,
             Pattern::Variant(..) => true,
             Pattern::Some(..) | Pattern::None(..) | Pattern::Ok(..) | Pattern::Err(..) => true,
             Pattern::Ident(ident) => self.ident_is_enum_variant(scrutinee_type, &ident.name),
             Pattern::Or(alternatives, _) => alternatives.iter().any(|a| self.pattern_needs_check(a, scrutinee_type)),
+            Pattern::Struct(..) => true,
+            Pattern::Tuple(..) => true,
             _ => false,
         }
     }
