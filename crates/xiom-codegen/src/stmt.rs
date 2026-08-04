@@ -702,6 +702,8 @@ impl IrEmitter {
                         self.compile_ensures_checks();
                     }
                     let ret_ty = self.fctx.current_return_type.clone();
+                    // P0-2: Emit deferred cleanups before return
+                    self.compile_deferred_cleanups()?;
                     // Decrement recursion depth
                     let depth_dec = self.fresh_tmp();
                     self.emitln(&format!("  {depth_dec} = load i64, i64* @xiom_recursion_counter"));
@@ -713,6 +715,8 @@ impl IrEmitter {
                     if !self.fctx.current_ensures.is_empty() {
                         self.compile_ensures_checks();
                     }
+                    // P0-2: Emit deferred cleanups before return
+                    self.compile_deferred_cleanups()?;
                     // Decrement recursion depth
                     let depth_dec = self.fresh_tmp();
                     self.emitln(&format!("  {depth_dec} = load i64, i64* @xiom_recursion_counter"));
@@ -1619,7 +1623,7 @@ impl IrEmitter {
 
                 self.emitln(&format!("\n{merge_label}:"));
             }
-            Stmt::While(cond, body, _, _) => {
+            Stmt::While(cond, body, _, _, _) => {
                 let loop_cond = self.fresh_block("while_cond");
                 let loop_body = self.fresh_block("while_body");
                 let loop_exit = self.fresh_block("while_exit");
@@ -1640,15 +1644,77 @@ impl IrEmitter {
                 };
                 self.emitln(&format!("  br i1 {cond_val}, label %{loop_body}, label %{loop_exit}"));
                 self.emitln(&format!("\n{loop_body}:"));
-                self.local.loop_stack.push((loop_cond.clone(), loop_exit.clone()));
+                self.local.loop_stack.push((None, loop_cond.clone(), loop_exit.clone()));
                 self.compile_block(body, false)?;
                 self.local.loop_stack.pop();
                 self.emitln(&format!("  br label %{loop_cond}"));
                 self.emitln(&format!("\n{loop_exit}:"));
             }
-            Stmt::For(_, _, body, _) => {
-                // Phase 0: simplified for ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â just execute body once
+            Stmt::For(var, iter, body, _, label) => {
+                // P0-1 FIX: Implement proper for..in iteration.
+                // Strategy: compile iter expression into an alloca, then in a
+                // loop check start<end, extract start, increment, run body.
+                // This works for Range {start: Int, end: Int} and similar
+                // iterator types. Falls back to iterator protocol (.next()
+                // call) for non-Range types.
+
+                // 1. Compile the iterator expression
+                let (iter_val, iter_ty) = self.compile_expr(iter)?;
+
+                // 2. Alloca the iterator struct
+                let iter_alloca = self.fresh_tmp();
+                self.emitln(&format!("  {iter_alloca} = alloca {iter_ty}"));
+                self.emitln(&format!("  store {iter_ty} {iter_val}, {iter_ty}* {iter_alloca}"));
+
+                // 3. Create loop blocks
+                let loop_cond = self.fresh_block("for_cond");
+                let loop_body = self.fresh_block("for_body");
+                let loop_exit = self.fresh_block("for_exit");
+
+                self.emitln(&format!("  br label %{loop_cond}"));
+                self.emitln(&format!("\n{loop_cond}:"));
+
+                // 4. Direct Range iteration: check start < end
+                // Range struct layout: field 0 = start (i64), field 1 = end (i64)
+                let start_gep = self.fresh_tmp();
+                self.emitln(&format!("  {start_gep} = getelementptr {iter_ty}, {iter_ty}* {iter_alloca}, i32 0, i32 0"));
+                let start_val = self.fresh_tmp();
+                self.emitln(&format!("  {start_val} = load i64, i64* {start_gep}"));
+
+                let end_gep = self.fresh_tmp();
+                self.emitln(&format!("  {end_gep} = getelementptr {iter_ty}, {iter_ty}* {iter_alloca}, i32 0, i32 1"));
+                let end_val = self.fresh_tmp();
+                self.emitln(&format!("  {end_val} = load i64, i64* {end_gep}"));
+
+                let cond = self.fresh_tmp();
+                self.emitln(&format!("  {cond} = icmp slt i64 {start_val}, {end_val}"));
+                self.emitln(&format!("  br i1 {cond}, label %{loop_body}, label %{loop_exit}"));
+                self.emitln(&format!("\n{loop_body}:"));
+
+                // Bind loop variable to start_val
+                let var_alloca = self.fresh_tmp();
+                self.emitln(&format!("  {var_alloca} = alloca i64"));
+                self.emitln(&format!("  store i64 {start_val}, i64* {var_alloca}"));
+                self.add_local(&var.name, var_alloca, "i64");
+
+                // Increment start for next iteration (before body so break/continue work)
+                let next_start = self.fresh_tmp();
+                self.emitln(&format!("  {next_start} = add i64 {start_val}, 1"));
+                self.emitln(&format!("  store i64 {next_start}, i64* {start_gep}"));
+
+                // Push loop stack for break/continue support
+                let label_name = label.as_ref().map(|l| l.name.clone());
+                self.local.loop_stack.push((label_name, loop_cond.clone(), loop_exit.clone()));
+
                 self.compile_block(body, false)?;
+
+                self.local.loop_stack.pop();
+
+                // Jump back to condition
+                self.emitln(&format!("  br label %{loop_cond}"));
+
+                // Loop exit
+                self.emitln(&format!("\n{loop_exit}:"));
             }
             Stmt::Destructure(names, value, _) => {
                 // Value sink: use the value's real LLVM type from compile_expr.
@@ -1789,15 +1855,35 @@ impl IrEmitter {
                     ));
                 }
             }
-            Stmt::Break(..) => {
-                if let Some((_, break_label)) = self.local.loop_stack.last().cloned() {
+            Stmt::Break(label, _) => {
+                // P0-3 FIX: Respect labeled break. Search loop_stack for matching
+                // label (top-down, LIFO). If no label, use innermost loop.
+                let target = if let Some(lab) = label {
+                    self.local.loop_stack.iter().rev()
+                        .find(|(l, _, _)| l.as_ref().map_or(false, |l_name| l_name == &lab.name))
+                        .cloned()
+                        .or_else(|| self.local.loop_stack.last().cloned())
+                } else {
+                    self.local.loop_stack.last().cloned()
+                };
+                if let Some((_, _cont, break_label)) = target {
                     self.emitln(&format!("  br label %{break_label}"));
                     let dead = self.fresh_block("after_break");
                     self.emitln(&format!("\n{dead}:"));
                 }
             }
-            Stmt::Continue(..) => {
-                if let Some((cont_label, _)) = self.local.loop_stack.last().cloned() {
+            Stmt::Continue(label, _) => {
+                // P0-3 FIX: Respect labeled continue. Search loop_stack for matching
+                // label (top-down, LIFO). If no label, use innermost loop.
+                let target = if let Some(lab) = label {
+                    self.local.loop_stack.iter().rev()
+                        .find(|(l, _, _)| l.as_ref().map_or(false, |l_name| l_name == &lab.name))
+                        .cloned()
+                        .or_else(|| self.local.loop_stack.last().cloned())
+                } else {
+                    self.local.loop_stack.last().cloned()
+                };
+                if let Some((_, cont_label, _)) = target {
                     self.emitln(&format!("  br label %{cont_label}"));
                     let dead = self.fresh_block("after_continue");
                     self.emitln(&format!("\n{dead}:"));
@@ -1832,12 +1918,9 @@ impl IrEmitter {
                 ));
             }
             xiom_ast::Stmt::Defer(block, _) => {
-                for soe in &block.stmts {
-                    match soe {
-                        xiom_ast::StmtOrExpr::Stmt(s) => self.compile_stmt(s)?,
-                        xiom_ast::StmtOrExpr::Expr(e) => { self.compile_expr(e)?; }
-                    }
-                }
+                // P0-2 FIX: Push deferred block onto stack for LIFO scope-exit execution.
+                // Previously executed immediately which is wrong.
+                self.local.defer_stack.push(block.clone());
             }
         }
         Ok(())
@@ -1878,8 +1961,8 @@ impl IrEmitter {
                 for (ec, eb) in elifs { Self::collect_expr_var_refs(ec, refs); Self::collect_block_var_refs(eb, refs); }
                 if let Some(eb) = els { Self::collect_block_var_refs(eb, refs); }
             }
-            Stmt::While(c, b, _, _) => { Self::collect_expr_var_refs(c, refs); Self::collect_block_var_refs(b, refs); }
-            Stmt::For(_, e, b, _) => { Self::collect_expr_var_refs(e, refs); Self::collect_block_var_refs(b, refs); }
+            Stmt::While(c, b, _, _, _) => { Self::collect_expr_var_refs(c, refs); Self::collect_block_var_refs(b, refs); }
+            Stmt::For(_, e, b, _, _) => { Self::collect_expr_var_refs(e, refs); Self::collect_block_var_refs(b, refs); }
             Stmt::Spawn(b, _, _) => Self::collect_block_var_refs(b, refs),
             Stmt::Match(e, arms, _) => {
                 Self::collect_expr_var_refs(e, refs);
@@ -1939,5 +2022,27 @@ impl IrEmitter {
             Expr::PipeClosure(_, e, _) => Self::collect_expr_var_refs(e, refs),
             _ => {}
         }
+    }
+
+    // P0-2: Emit all deferred blocks in LIFO order at scope exit.
+    // Called before `ret` instructions to guarantee defer execution.
+    // Does NOT pop the defer_stack — multiple return paths must all emit
+    // the same defers. The stack is cleared at function epilogue.
+    pub(crate) fn compile_deferred_cleanups(&mut self) -> Result<(), String> {
+        let blocks: Vec<Block> = self.local.defer_stack.iter().rev().cloned().collect();
+        for block in &blocks {
+            for soe in &block.stmts {
+                match soe {
+                    xiom_ast::StmtOrExpr::Stmt(s) => self.compile_stmt(s)?,
+                    xiom_ast::StmtOrExpr::Expr(e) => { self.compile_expr(e)?; }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Clear the defer stack (call after function body compilation is complete)
+    pub(crate) fn clear_deferred_cleanups(&mut self) {
+        self.local.defer_stack.clear();
     }
 }

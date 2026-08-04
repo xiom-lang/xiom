@@ -613,7 +613,7 @@ impl IrEmitter {
                     || elifs.iter().any(|(c, b)| Self::expr_uses_this(c) || Self::block_uses_this(b))
                     || else_b.as_ref().map_or(false, |b| Self::block_uses_this(b))
             }
-            Stmt::While(cond, body, _, _) => Self::expr_uses_this(cond) || Self::block_uses_this(body),
+            Stmt::While(cond, body, _, _, _) => Self::expr_uses_this(cond) || Self::block_uses_this(body),
             Stmt::Match(scrut, arms, _) => {
                 Self::expr_uses_this(scrut)
                     || arms.iter().any(|arm| match &arm.body {
@@ -703,8 +703,8 @@ impl IrEmitter {
                     || elifs.iter().any(|(c, b)| Self::expr_mentions_self(c) || Self::block_mentions_self(b))
                     || else_b.as_ref().map_or(false, |b| Self::block_mentions_self(b))
             }
-            Stmt::While(cond, body, _, _) => Self::expr_mentions_self(cond) || Self::block_mentions_self(body),
-            Stmt::For(_, iter, body, _) => Self::expr_mentions_self(iter) || Self::block_mentions_self(body),
+            Stmt::While(cond, body, _, _, _) => Self::expr_mentions_self(cond) || Self::block_mentions_self(body),
+            Stmt::For(_, iter, body, _, _) => Self::expr_mentions_self(iter) || Self::block_mentions_self(body),
             Stmt::Match(scrut, arms, _) => {
                 Self::expr_mentions_self(scrut)
                     || arms.iter().any(|arm| match &arm.body {
@@ -770,8 +770,8 @@ impl IrEmitter {
                 for (_, b) in elifs { Self::collect_bound_names(b, out); }
                 if let Some(b) = else_b { Self::collect_bound_names(b, out); }
             }
-            Stmt::While(_, body, _, _) => Self::collect_bound_names(body, out),
-            Stmt::For(binder, _, body, _) => {
+            Stmt::While(_, body, _, _, _) => Self::collect_bound_names(body, out),
+            Stmt::For(binder, _, body, _, _) => {
                 out.insert(binder.name.clone());
                 Self::collect_bound_names(body, out);
             }
@@ -843,8 +843,8 @@ impl IrEmitter {
                     || elifs.iter().any(|(c, b)| Self::expr_mentions_any_ident(c, names) || Self::block_mentions_any_ident(b, names))
                     || else_b.as_ref().map_or(false, |b| Self::block_mentions_any_ident(b, names))
             }
-            Stmt::While(cond, body, _, _) => Self::expr_mentions_any_ident(cond, names) || Self::block_mentions_any_ident(body, names),
-            Stmt::For(_, iter, body, _) => Self::expr_mentions_any_ident(iter, names) || Self::block_mentions_any_ident(body, names),
+            Stmt::While(cond, body, _, _, _) => Self::expr_mentions_any_ident(cond, names) || Self::block_mentions_any_ident(body, names),
+            Stmt::For(_, iter, body, _, _) => Self::expr_mentions_any_ident(iter, names) || Self::block_mentions_any_ident(body, names),
             Stmt::Match(scrut, arms, _) => {
                 Self::expr_mentions_any_ident(scrut, names)
                     || arms.iter().any(|arm| match &arm.body {
@@ -3947,17 +3947,24 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
             self.mono.current_const_map = const_map.clone();
             self.mono.current_type_map = type_map.clone();
 
+            // P0-2: Clear deferred cleanup stack at function start
+            self.clear_deferred_cleanups();
+
             // Compile body
             if let Some(body) = fd.body.as_ref() {
                 self.compile_block(body, fd.return_type.is_some())?;
             }
+            // P0-2: Clear deferred cleanup stack after function body is done
+            self.clear_deferred_cleanups();
 
             // Clear type substitution state
             self.mono.current_type_map.clear();
             self.mono.param_concrete_types.clear();
             if fd.return_type.is_none() {
+                self.compile_deferred_cleanups()?;
                 self.emitln("  ret void");
             } else if !self.current_block_terminated() {
+                self.compile_deferred_cleanups()?;
                 // A4 fix (generic monomorphisation path): a value-returning body
                 // fell through without a terminator (ends in a loop / if-without-
                 // else / statement). Append a safe fallback return so the block is
@@ -4198,6 +4205,8 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                             self.compile_ensures_checks();
                         }
                         let ret_ty = &self.fctx.current_return_type.clone();
+                        // P0-2: Emit deferred cleanups before return
+                        self.compile_deferred_cleanups()?;
                         // R5: Decrement recursion depth before tail-return
                         let depth_dec = self.fresh_tmp();
                         self.emitln(&format!("  {depth_dec} = load i64, i64* @xiom_recursion_counter"));
@@ -4238,6 +4247,8 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                             if !self.fctx.current_ensures.is_empty() {
                                 self.compile_ensures_checks();
                             }
+                            // P0-2: Emit deferred cleanups before return
+                            self.compile_deferred_cleanups()?;
                             // R5: Decrement recursion depth before tail-return
                             let depth_dec = self.fresh_tmp();
                             self.emitln(&format!("  {depth_dec} = load i64, i64* @xiom_recursion_counter"));
@@ -4286,6 +4297,8 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                             if !self.fctx.current_ensures.is_empty() {
                                 self.compile_ensures_checks();
                             }
+                            // P0-2: Emit deferred cleanups before return
+                            self.compile_deferred_cleanups()?;
                             // R5: Decrement recursion depth before tail-return
                             let depth_dec = self.fresh_tmp();
                             self.emitln(&format!("  {depth_dec} = load i64, i64* @xiom_recursion_counter"));

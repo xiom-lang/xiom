@@ -285,7 +285,7 @@ impl IrEmitter {
             Stmt::Var(_, _, e, _) => self.collect_ident_names(e, out),
             Stmt::Return(Some(e), _) => self.collect_ident_names(e, out),
             Stmt::If(cond, _, _, _, _) => self.collect_ident_names(cond, out),
-            Stmt::While(cond, _, _, _) => self.collect_ident_names(cond, out),
+            Stmt::While(cond, _, _, _, _) => self.collect_ident_names(cond, out),
             _ => {}
         }
     }

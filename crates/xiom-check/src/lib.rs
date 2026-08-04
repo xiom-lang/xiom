@@ -1035,7 +1035,7 @@ impl Checker {
                     || elifs.iter().any(|(c, b)| Self::expr_uses_this(c) || Self::block_uses_this(b))
                     || else_b.as_ref().map_or(false, |b| Self::block_uses_this(b))
             }
-            xiom_ast::Stmt::While(cond, body, _, _) | xiom_ast::Stmt::For(_, cond, body, _) => {
+            xiom_ast::Stmt::While(cond, body, _, _, _) | xiom_ast::Stmt::For(_, cond, body, _, _) => {
                 Self::expr_uses_this(cond) || Self::block_uses_this(body)
             }
             xiom_ast::Stmt::Match(scrut, arms, _) => {
@@ -1086,8 +1086,8 @@ impl Checker {
                 for (ec, eb) in elifs { Self::collect_expr_references(ec, refs); Self::collect_expr_references_block_into(eb, refs); }
                 if let Some(eb) = els { Self::collect_expr_references_block_into(eb, refs); }
             }
-            Stmt::While(c, b, _, _) => { Self::collect_expr_references(c, refs); Self::collect_expr_references_block_into(b, refs); }
-            Stmt::For(_, e, b, _) => { Self::collect_expr_references(e, refs); Self::collect_expr_references_block_into(b, refs); }
+            Stmt::While(c, b, _, _, _) => { Self::collect_expr_references(c, refs); Self::collect_expr_references_block_into(b, refs); }
+            Stmt::For(_, e, b, _, _) => { Self::collect_expr_references(e, refs); Self::collect_expr_references_block_into(b, refs); }
             Stmt::Spawn(b, _, _) => Self::collect_expr_references_block_into(b, refs),
             Stmt::Match(e, arms, _) => {
                 Self::collect_expr_references(e, refs);
@@ -1737,13 +1737,13 @@ impl Checker {
                         }
                     }
                 }
-                Stmt::While(c, b, _, _) => { collect_expr_names(c, out); collect_block_names(b, out); }
-                Stmt::For(_, e, b, _) => { collect_expr_names(e, out); collect_block_names(b, out); }
+                Stmt::While(c, b, _, _, _) => { collect_expr_names(c, out); collect_block_names(b, out); }
+                Stmt::For(_, e, b, _, _) => { collect_expr_names(e, out); collect_block_names(b, out); }
                 Stmt::Spawn(b, _, _move) => collect_block_names(b, out),
                 Stmt::Destructure(_, e, _) => collect_expr_names(e, out),
                 Stmt::Break(..) | Stmt::Continue(..) => {},
                 Stmt::Asm(_) => {},
-                Stmt::Defer(_, _) => todo!(),
+                Stmt::Defer(b, _) => collect_block_names(b, out),
             }
         }
         fn collect_expr_names(expr: &Expr, out: &mut HashSet<String>) {
@@ -2536,14 +2536,14 @@ impl Checker {
                 self.check_match_exhaustiveness(arms, &matched_ty);
                 let _ = matched_ty;
             }
-            Stmt::While(cond, body, _, _) => {
+            Stmt::While(cond, body, _, _, _) => {
                 let cond_ty = self.check_expr(cond);
                 if cond_ty.name() != "Bool" && cond_ty != CheckedType::Error {
                     self.error(format!("while condition must be Bool, found {}", cond_ty.name()), cond.span());
                 }
                 self.check_block(body, None);
             }
-            Stmt::For(var, iter, body, _) => {
+            Stmt::For(var, iter, body, _, _) => {
                 let _iter_ty = self.check_expr(iter);
                 self.add_local(&var.name, CheckedType::Int); // simplified
                 self.check_block(body, None);
@@ -2609,7 +2609,7 @@ impl Checker {
             Stmt::Break(..) => {}
             Stmt::Continue(..) => {}
             Stmt::Asm(_) => {}, // asm is valid in unsafe context
-            Stmt::Defer(_, _) => todo!(),
+            Stmt::Defer(b, _) => { self.check_block(b, None); }
         }
     }
 
@@ -4084,13 +4084,13 @@ impl BorrowChecker {
                     }
                 }
             }
-            Stmt::While(cond, body, _, _) => {
+            Stmt::While(cond, body, _, _, _) => {
                 self.check_expr(cond);
                 self.push_scope();
                 self.check_block(body);
                 self.pop_scope();
             }
-            Stmt::For(var, iter, body, _) => {
+            Stmt::For(var, iter, body, _, _) => {
                 self.check_expr(iter);
                 self.add_local(&var.name, true, "Int");
                 self.push_scope();
@@ -4118,7 +4118,7 @@ impl BorrowChecker {
             Stmt::Break(..) => {}
             Stmt::Continue(..) => {}
             Stmt::Asm(_) => {}, // asm is valid in unsafe context
-            Stmt::Defer(_, _) => todo!(),
+            Stmt::Defer(b, _) => { self.check_block(b); }
         }
     }
 

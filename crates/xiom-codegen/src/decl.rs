@@ -707,6 +707,8 @@ impl IrEmitter {
         self.local.signed_locals.clear();
         self.local.local_xiom_types.clear();
         self.local.reg_signed.clear();
+        // P0-2: Clear deferred cleanup stack at function start
+        self.clear_deferred_cleanups();
 
         let ret_llvm = fd.return_type.as_ref()
             .map(|t| {
@@ -1052,6 +1054,8 @@ impl IrEmitter {
             if !self.fctx.current_ensures.is_empty() {
                 self.compile_ensures_checks();
             }
+            // P0-2: Emit deferred cleanups before return
+            self.compile_deferred_cleanups()?;
             // Decrement recursion depth
             let depth_dec = self.fresh_tmp();
             self.emitln(&format!("  {depth_dec} = load i64, i64* @xiom_recursion_counter"));
@@ -1060,6 +1064,8 @@ impl IrEmitter {
             self.emitln(&format!("  store i64 {new_depth_dec}, i64* @xiom_recursion_counter"));
             self.emitln("  ret void");
         } else if !self.current_block_terminated() {
+            // P0-2: Emit deferred cleanups before return
+            self.compile_deferred_cleanups()?;
             // A4 fix: the function declares a return type but control reached the
             // end of the body without a terminator ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the body ends in a loop, an
             // `if` without `else`, or a trailing statement, so no tail `ret` was
@@ -1236,8 +1242,8 @@ impl IrEmitter {
                 for (c, b) in elifs { Self::scan_expr_for_tuples(types, c); Self::scan_block_for_tuples(types, b); }
                 if let Some(b) = else_b { Self::scan_block_for_tuples(types, b); }
             }
-            Stmt::While(cond, body, _, _) => { Self::scan_expr_for_tuples(types, cond); Self::scan_block_for_tuples(types, body); }
-            Stmt::For(_, iter, body, _) => { Self::scan_expr_for_tuples(types, iter); Self::scan_block_for_tuples(types, body); }
+            Stmt::While(cond, body, _, _, _) => { Self::scan_expr_for_tuples(types, cond); Self::scan_block_for_tuples(types, body); }
+            Stmt::For(_, iter, body, _, _) => { Self::scan_expr_for_tuples(types, iter); Self::scan_block_for_tuples(types, body); }
             Stmt::Match(scrut, arms, _) => {
                 Self::scan_expr_for_tuples(types, scrut);
                 for arm in arms {
@@ -1331,7 +1337,7 @@ impl IrEmitter {
             S::Let(_, _, e, _) | S::Var(_, _, e, _) | S::Return(Some(e), _)
             | S::Expr(e, _) | S::Assign(_, e, _) => Self::expr_contains_unsafe(e),
             S::If(c, t, _, _, _) => Self::expr_contains_unsafe(c) || Self::block_contains_unsafe(t),
-            S::While(c, b, _, _) => Self::expr_contains_unsafe(c) || Self::block_contains_unsafe(b),
+            S::While(c, b, _, _, _) => Self::expr_contains_unsafe(c) || Self::block_contains_unsafe(b),
             S::Match(e, arms, _) => Self::expr_contains_unsafe(e) || arms.iter().any(|a| match &a.body {
                 xiom_ast::MatchBody::Block(b) => Self::block_contains_unsafe(b),
                 xiom_ast::MatchBody::Expr(e) => Self::expr_contains_unsafe(e),

@@ -1032,6 +1032,25 @@ impl Parser {
     }
 
     fn parse_stmt_or_expr(&mut self) -> Result<StmtOrExpr, ParseError> {
+        // P0-3: Support `@label: stmt` for labeled loops
+        let loop_label = if self.peek_kind() == &TokenKind::At {
+            let ahead = self.peek_ahead(1);
+            if let Some(TokenKind::Ident(_)) = ahead {
+                self.advance(); // consume '@'
+                let label = self.parse_ident().ok();
+                if self.peek_kind() == &TokenKind::Colon {
+                    self.advance(); // consume ':'
+                    label
+                } else {
+                    label // don't consume colon if missing (tolerate)
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         match self.peek_kind() {
             TokenKind::Let => { let stmt = self.parse_let_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::Var => { let stmt = self.parse_var_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
@@ -1050,8 +1069,24 @@ impl Parser {
             TokenKind::Continue => { let span = self.advance().span; let label = self.parse_optional_label(); self.skip(TokenKind::Semicolon); Ok(StmtOrExpr::Stmt(Stmt::Continue(label, span))) }
             TokenKind::If => { let stmt = self.parse_if_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::Match => { let stmt = self.parse_match_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
-            TokenKind::While => { let stmt = self.parse_while_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
-            TokenKind::For => { let stmt = self.parse_for_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
+            TokenKind::While => {
+                let mut stmt = self.parse_while_stmt()?;
+                if let Some(ref label) = loop_label {
+                    if let Stmt::While(cond, body, inv, span, _) = stmt {
+                        stmt = Stmt::While(cond, body, inv, span, Some(label.clone()));
+                    }
+                }
+                Ok(StmtOrExpr::Stmt(stmt))
+            }
+            TokenKind::For => {
+                let mut stmt = self.parse_for_stmt()?;
+                if let Some(ref label) = loop_label {
+                    if let Stmt::For(var, iter, body, span, _) = stmt {
+                        stmt = Stmt::For(var, iter, body, span, Some(label.clone()));
+                    }
+                }
+                Ok(StmtOrExpr::Stmt(stmt))
+            }
             // v0.55: asm("template" : outputs : inputs : clobbers);
             TokenKind::Asm => { let stmt = self.parse_asm_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             // v0.55: defer { ... } or defer expr;
@@ -1070,7 +1105,7 @@ impl Parser {
                 let span = self.advance().span; // consume 'loop'
                 let body = self.parse_block()?;
                 // Desugar `loop { ... }` to `while true { ... }`
-                Ok(StmtOrExpr::Stmt(Stmt::While(Expr::Bool(true, span), body, None, span)))
+                Ok(StmtOrExpr::Stmt(Stmt::While(Expr::Bool(true, span), body, None, span, None)))
             }
             _ => {
                 let expr = self.parse_expr()?;
@@ -1356,7 +1391,7 @@ impl Parser {
             None
         };
         let body = self.parse_block()?;
-        Ok(Stmt::While(cond, body, invariant, span))
+        Ok(Stmt::While(cond, body, invariant, span, None))
     }
 
     /// 8B/M9: Parse `while let pattern = expr { ... }`
@@ -1383,9 +1418,9 @@ impl Parser {
             span: while_span,
         };
 
-        Ok(Stmt::While(Expr::Bool(true, while_span), inner_block, None, while_span))
+        Ok(Stmt::While(Expr::Bool(true, while_span), inner_block, None, while_span, None))
     }
-    fn parse_for_stmt(&mut self) -> Result<Stmt, ParseError> { let span = self.advance().span; let var = self.parse_ident()?; self.expect_kind(TokenKind::In, "'in'")?; let iter = self.parse_cond()?; let body = self.parse_block()?; Ok(Stmt::For(var, iter, body, span)) }
+    fn parse_for_stmt(&mut self) -> Result<Stmt, ParseError> { let span = self.advance().span; let var = self.parse_ident()?; self.expect_kind(TokenKind::In, "'in'")?; let iter = self.parse_cond()?; let body = self.parse_block()?; Ok(Stmt::For(var, iter, body, span, None)) }
     /// v0.55: Parse `defer { ... }` or `defer expr;`
     fn parse_defer_stmt(&mut self) -> Result<Stmt, ParseError> {
         let span = self.advance().span;
@@ -2186,7 +2221,7 @@ mod tests {
     #[test] fn test_if_elif_else() { let prog = parse("fn test(x: Int) -> Int { if x > 0 { return 1; } elif x < 0 { return -1; } else { return 0; } }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { let body = f.body.as_ref().unwrap(); if let StmtOrExpr::Stmt(Stmt::If(_, _, elifs, else_block, _)) = &body.stmts[0] { assert_eq!(elifs.len(), 1); assert!(else_block.is_some()); } else { panic!("expected if stmt"); } } _ => panic!("expected function"), } }
     #[test] fn test_match_expr() { let prog = parse("fn check(x: Option[Int]) -> Int { match x { Some(v) => v, None => 0, } }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { let body = f.body.as_ref().unwrap(); if let StmtOrExpr::Stmt(Stmt::Match(_, arms, _)) = &body.stmts[0] { assert_eq!(arms.len(), 2); } else { panic!("expected match stmt"); } } _ => panic!("expected function"), } }
     #[test] fn test_interface() { let prog = parse("interface Comparable { fn compare(other: &Self) -> Int; }").unwrap(); match &prog.items[0] { TopDecl::Interface(_) => {} _ => panic!("expected interface"), } }
-    #[test] fn test_for_in_loop() { let prog = parse("fn main() { for i in [0, 1, 2] { print(i); } }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { let body = f.body.as_ref().unwrap(); assert!(matches!(&body.stmts[0], StmtOrExpr::Stmt(Stmt::For(_, _, _, _)))); } _ => panic!("expected function"), } }
+    #[test] fn test_for_in_loop() { let prog = parse("fn main() { for i in [0, 1, 2] { print(i); } }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { let body = f.body.as_ref().unwrap();         assert!(matches!(&body.stmts[0], StmtOrExpr::Stmt(Stmt::For(_, _, _, _, _)))); } _ => panic!("expected function"), } }
     #[test] fn test_async_fn() { let prog = parse("async fn fetch(url: Str) -> Str;").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => assert!(f.is_async), _ => panic!("expected async function"), } }
     #[test] fn test_borrow_syntax() { let prog = parse("fn test(x: &Int) -> Int { return x; }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => assert!(matches!(f.params[0].ty, Type::Ref(_))), _ => panic!("expected function"), } }
     #[test] fn test_while_with_param_rhs() { let result = parse("fn test(n: Int) { var i = 0; while i < n { i = i + 1; } }"); assert!(result.is_ok(), "{:?}", result.err()); }

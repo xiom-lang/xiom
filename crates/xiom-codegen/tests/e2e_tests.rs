@@ -4297,3 +4297,8 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m33_z19() { assert_eq!(compile_and_run("tests\\regression\\m33_z19.xi"), Some(0)); }
 #[test] fn e2e_m33_z20() { assert_eq!(compile_and_run("tests\\regression\\m33_z20.xi"), Some(0)); }
 
+// P0 Fix Verification Tests (v0.56)
+#[test] fn e2e_p0_forin() { assert_eq!(compile_and_run("tests\\e2e_p0_forin.xi"), Some(0)); }
+#[test] fn e2e_p0_defer() { assert_eq!(compile_and_run("tests\\e2e_p0_defer.xi"), Some(0)); }
+#[test] fn e2e_p0_labeled() { assert_eq!(compile_and_run("tests\\e2e_p0_labeled.xi"), Some(0)); }
+

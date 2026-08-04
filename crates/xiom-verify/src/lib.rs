@@ -338,7 +338,7 @@ impl SMTGenerator {
                     self.encode_block(else_body, f);
                 }
             }
-            Stmt::While(cond, body, invariant, _span) => {
+            Stmt::While(cond, body, invariant, _span, _) => {
                 if let Some(inv) = invariant {
                     // Loop invariant present — emit as assertion (P1: full VC generation
                     // with entry check + preservation + exit hypothesis)

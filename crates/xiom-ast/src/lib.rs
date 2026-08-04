@@ -345,10 +345,10 @@ pub enum Stmt {
     If(Expr, Block, Vec<(Expr, Block)>, Option<Block>, Span),
     /// `match expr { arms }`
     Match(Expr, Vec<MatchArm>, Span),
-    /// `while expr [invariant: expr] block`
-    While(Expr, Block, Option<Expr>, Span),
-    /// `for ident in expr block`
-    For(Ident, Expr, Block, Span),
+    /// `while expr [invariant: expr] block` — optional loop label for break/continue targeting
+    While(Expr, Block, Option<Expr>, Span, Option<Ident>),
+    /// `for ident in expr block` — optional loop label for break/continue targeting
+    For(Ident, Expr, Block, Span, Option<Ident>),
     /// `spawn [move] { block }`
     Spawn(Block, Span, /* move */ bool),
     /// `var (a, b) = expr;` / `let (a, b) = expr;`
@@ -679,7 +679,7 @@ impl Program {
                 Stmt::Expr(e, _) | Stmt::Return(Some(e), _) => rewrite_expr(e, iface_methods, span),
                 Stmt::Var(_, _, e, _) | Stmt::Let(_, _, e, _) => rewrite_expr(e, iface_methods, span),
                 Stmt::Assign(_, e, _) => rewrite_expr(e, iface_methods, span),
-                Stmt::While(cond, body, _, _) => { rewrite_expr(cond, iface_methods, span); rewrite_bare_calls(body, iface_methods, span); }
+                Stmt::While(cond, body, _, _, _) => { rewrite_expr(cond, iface_methods, span); rewrite_bare_calls(body, iface_methods, span); }
                 Stmt::If(cond, tb, elifs, eb, _) => {
                     rewrite_expr(cond, iface_methods, span);
                     rewrite_bare_calls(tb, iface_methods, span);
@@ -696,7 +696,7 @@ impl Program {
                         }
                     }
                 }
-                Stmt::For(_, iter, body, _) => { rewrite_expr(iter, iface_methods, span); rewrite_bare_calls(body, iface_methods, span); }
+                Stmt::For(_, iter, body, _, _) => { rewrite_expr(iter, iface_methods, span); rewrite_bare_calls(body, iface_methods, span); }
                 Stmt::Spawn(body, _, _move) => rewrite_bare_calls(body, iface_methods, span),
                 _ => {}
             }

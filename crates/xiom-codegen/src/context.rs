@@ -252,8 +252,10 @@ pub struct LocalContext {
     pub local_vec_handle: HashMap<String, String>,
     /// ERROR payload type of locals holding Result[T, E] values
     pub local_err_payload: HashMap<String, String>,
-    /// Stack of active loop labels: (continue_label, break_label)
-    pub loop_stack: Vec<(String, String)>,
+    /// Stack of active loop labels: (optional_label, continue_label, break_label)
+    pub loop_stack: Vec<(Option<String>, String, String)>,
+    /// v0.56/P0-2: Deferred blocks to execute at scope exit (LIFO order)
+    pub defer_stack: Vec<Block>,
     /// Module/global const values
     pub constants: HashMap<String, Expr>,
     /// Mutable module-level var globals: name -> (llvm_symbol, llvm_type)
