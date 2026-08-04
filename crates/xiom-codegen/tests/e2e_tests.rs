@@ -4307,3 +4307,14 @@ fn e2e_safety_probe() {
 #[test] fn e2e_p1_tuple_pattern() { assert_eq!(compile_and_run("tests\\e2e_p1_tuple_pattern.xi"), Some(0)); }
 #[test] fn e2e_p1_float_pattern() { assert_eq!(compile_and_run("tests\\e2e_p1_float_pattern.xi"), Some(0)); }
 
+// P2 Verification Tests (v0.56)
+#[test] fn e2e_p2_strict_borrow() {
+    // Without --strict: compiles (warnings only), returns Some(0)
+    // With --strict: compilation fails (returns None)
+    assert_eq!(compile_and_run("tests\\e2e_p2_strict_borrow.xi"), Some(0),
+        "P2-2: Without --strict, borrow warnings should not block compilation");
+    assert_eq!(compile_and_run_with_flags("tests\\e2e_p2_strict_borrow.xi", &["--strict"]), None,
+        "P2-2: With --strict, borrow errors must block compilation");
+}
+#[test] fn e2e_p2_field_borrow() { assert_eq!(compile_and_run("tests\\e2e_p2_field_borrow.xi"), Some(0)); }
+

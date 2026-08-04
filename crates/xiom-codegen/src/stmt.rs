@@ -684,7 +684,14 @@ impl IrEmitter {
                 }
             }
             Stmt::Return(expr, _) => {
-                if let Some(e) = expr {
+                if self.fctx.is_never_return {
+                    // P2-4: Never-returning functions — compile the expression
+                    // (which may itself be a !-returning call), then unreachable.
+                    if let Some(e) = expr {
+                        let _ = self.compile_expr(e)?;
+                    }
+                    self.emitln("  unreachable");
+                } else if let Some(e) = expr {
                     // Value sink: use the value's real LLVM type from compile_expr.
                     let (mut val, val_ty) = self.compile_expr(e)?;
                     let ret_ty = self.fctx.current_return_type.clone();

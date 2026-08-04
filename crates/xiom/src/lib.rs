@@ -783,17 +783,38 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     // Stage 4: Borrow Check
     let mut borrow_checker = BorrowChecker::new();
     if let Err(errors) = borrow_checker.check_program(&program) {
-        if config.diagnostics_json {
-            let parts: Vec<String> = errors.iter().map(|err| {
-                format!(
-                    r#"{{"kind":"borrow_error","code":"E001","message":"{}","location":{{"file":"{}","line":{},"col":{}}}}}"#,
-                    escape_json(&err.message), escape_json(primary_source), err.span.line, err.span.col
-                )
-            }).collect();
-            println!("[{}]", parts.join(","));
+        if config.strict_mode {
+            // P2-2: In strict mode, borrow errors are hard errors (not warnings).
+            // This enforces ownership rules at compile time.
+            if config.diagnostics_json {
+                let parts: Vec<String> = errors.iter().map(|err| {
+                    format!(
+                        r#"{{"kind":"borrow_error","code":"E001","message":"{}","location":{{"file":"{}","line":{},"col":{}}}}}"#,
+                        escape_json(&err.message), escape_json(primary_source), err.span.line, err.span.col
+                    )
+                }).collect();
+                println!("[{}]", parts.join(","));
+            } else {
+                for err in &errors {
+                    eprintln!("error[E001]: {l}:{c}: {m}", l = err.span.line, c = err.span.col, m = err.message);
+                }
+            }
+            eprintln!("note: {} borrow errors — aborting compilation (--strict mode)", errors.len());
+            eprintln!("  = help: Fix ownership violations or remove --strict to treat as warnings.");
+            return Err(vec!["compilation failed".to_string()]);
         } else {
-            for err in &errors {
-                eprintln!("warning[E001]: {l}:{c}: {m}", l = err.span.line, c = err.span.col, m = err.message);
+            if config.diagnostics_json {
+                let parts: Vec<String> = errors.iter().map(|err| {
+                    format!(
+                        r#"{{"kind":"borrow_warning","code":"E001","message":"{}","location":{{"file":"{}","line":{},"col":{}}}}}"#,
+                        escape_json(&err.message), escape_json(primary_source), err.span.line, err.span.col
+                    )
+                }).collect();
+                println!("[{}]", parts.join(","));
+            } else {
+                for err in &errors {
+                    eprintln!("warning[E001]: {l}:{c}: {m}", l = err.span.line, c = err.span.col, m = err.message);
+                }
             }
         }
     }

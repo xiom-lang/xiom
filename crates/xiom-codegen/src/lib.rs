@@ -917,6 +917,8 @@ impl IrEmitter {
             "Float64" => "double",
             "Str" => "i8*",
             "()" => "void",
+            // v0.56/P2-4: Never type (!) — bottom type, never returns a value.
+            "!" => "void",
             "Unit" => "i64", // Zero-sized type — stored as i64 in Result/Option
             // Known container type names — these are struct types resolved
             // via llvm_type_for/type_meta, not primitives. Silent i64 fallback.
@@ -1121,6 +1123,8 @@ impl IrEmitter {
                 }
             }
             Type::Slice(elem) => Self::type_from_ast(elem),
+            // v0.56/P2-4: Never type (!) — bottom type, never produces a value.
+            Type::Never => "!".to_string(),
             Type::AnonStruct(fields) => {
                 let parts: Vec<String> = fields.iter()
                     .map(|f| format!("{}_{}", f.name.name, Self::type_from_ast(&f.ty)))
@@ -1789,7 +1793,7 @@ impl IrEmitter {
         let builtin = Self::xiom_to_llvm_type(clean_name);
         match type_name {
             "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
-            | "Bool" | "Float32" | "Float64" | "Str" | "Char" | "()" => return Ok(builtin.to_string()),
+            | "Bool" | "Float32" | "Float64" | "Str" | "Char" | "()" | "!" => return Ok(builtin.to_string()),
             // Generic type parameters (single uppercase letters: T, K, V, E, etc.)
             // silently default to i64 — these are expected when monomorphisation
             // hasn't substituted them yet (e.g. in type_meta field lists).

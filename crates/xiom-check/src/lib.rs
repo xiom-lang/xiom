@@ -3943,6 +3943,57 @@ impl BorrowChecker {
         }
     }
 
+    /// P2-3: Build a Place from a borrow expression (bare ident, field, or index chain).
+    fn expr_to_place(expr: &Expr) -> Option<crate::borrow::Place> {
+        match expr {
+            Expr::Ident(id) => Some(crate::borrow::Place::from_local(&id.name)),
+            Expr::Field(obj, field, _) => {
+                Self::expr_to_place(obj).map(|p| p.field(&field.name))
+            }
+            Expr::Index(obj, _, _) => {
+                Self::expr_to_place(obj).map(|p| p.index())
+            }
+            _ => None,
+        }
+    }
+
+    /// P2-3: Attempt a read borrow on a place (field-granular check).
+    fn borrow_place_read(&mut self, expr: &Expr, span: Span) {
+        // Always check bare-variable state for the root local.
+        if let Some(place) = Self::expr_to_place(expr) {
+            // Check and grant the loan
+            match self.active_loans.grant(crate::borrow::Loan::read(place)) {
+                crate::borrow::LoanResult::Granted => {},
+                crate::borrow::LoanResult::Conflict(msg) => {
+                    self.error(msg, span);
+                }
+            }
+        }
+        // Also track bare-variable state for the root
+        if let Expr::Ident(id) = expr {
+            self.read_borrow(&id.name, span);
+        } else if let Some(place) = Self::expr_to_place(expr) {
+            self.read_borrow(&place.local, span);
+        }
+    }
+
+    /// P2-3: Attempt a write (mutable) borrow on a place (field-granular check).
+    fn borrow_place_write(&mut self, expr: &Expr, span: Span) {
+        if let Some(place) = Self::expr_to_place(expr) {
+            match self.active_loans.grant(crate::borrow::Loan::write(place)) {
+                crate::borrow::LoanResult::Granted => {},
+                crate::borrow::LoanResult::Conflict(msg) => {
+                    self.error(msg, span);
+                }
+            }
+        }
+        if let Expr::Ident(id) = expr {
+            self.write_borrow(&id.name, span);
+        } else if let Some(place) = Self::expr_to_place(expr) {
+            self.write_borrow(&place.local, span);
+        }
+    }
+
     fn move_var(&mut self, name: &str, span: Span) {
         let is_copy = self.find_var(name)
             .map(|info| Self::is_copy_type(&info.xiom_type))
@@ -4165,16 +4216,12 @@ impl BorrowChecker {
                 match op {
                     UnaryOp::Ref => {
                         let _ = self.check_expr(inner);
-                        if let Expr::Ident(ident) = inner.as_ref() {
-                            self.read_borrow(&ident.name, *span);
-                        }
+                        self.borrow_place_read(inner, *span);
                         ExprResult::ReadRef
                     }
                     UnaryOp::MutRef => {
                         let _ = self.check_expr(inner);
-                        if let Expr::Ident(ident) = inner.as_ref() {
-                            self.write_borrow(&ident.name, *span);
-                        }
+                        self.borrow_place_write(inner, *span);
                         ExprResult::WriteRef
                     }
                     _ => {
@@ -4215,16 +4262,12 @@ impl BorrowChecker {
             Expr::AtPre(inner, _) => self.check_expr(inner),
             Expr::Ref(inner, _) => {
                 self.check_expr(inner);
-                if let Expr::Ident(ident) = inner.as_ref() {
-                    self.read_borrow(&ident.name, expr.span());
-                }
+                self.borrow_place_read(inner, expr.span());
                 ExprResult::ReadRef
             }
             Expr::MutRef(inner, _) => {
                 self.check_expr(inner);
-                if let Expr::Ident(ident) = inner.as_ref() {
-                    self.write_borrow(&ident.name, expr.span());
-                }
+                self.borrow_place_write(inner, expr.span());
                 ExprResult::WriteRef
             }
             Expr::Some(inner, _) => {
