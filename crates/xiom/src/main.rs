@@ -175,7 +175,7 @@ fn main() {
 
     if args.iter().any(|a| a == "--version") {
         let tag = option_env!("XIOM_RELEASE_TAG").unwrap_or("Production Polish");
-        let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("27/27 E2E, 100% pass, 19/19 gates");
+        let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("27/27 E2E core, 516+ unit tests, 19/19 gates");
         println!("XIOM Compiler v{} \"{tag}\" - {stats}", env!("CARGO_PKG_VERSION"));
         return;
     }
@@ -951,7 +951,7 @@ fn main() {
 
 fn print_usage() {
         let tag = option_env!("XIOM_RELEASE_TAG").unwrap_or("Production Polish");
-        let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("27/27 E2E, 100% pass, 19/19 gates");
+        let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("27/27 E2E core, 516+ unit tests, 19/19 gates");
         eprintln!("XIOM Compiler v{} \"{tag}\" -- {stats}", env!("CARGO_PKG_VERSION"));
     eprintln!();
     eprintln!("USAGE:");
