@@ -2010,7 +2010,18 @@ impl Checker {
             return;
         }
 
-        let module_name = &ud.path[0].name;
+        // v0.56: Strip 'stdlib' prefix — it's a filesystem directory, not a module.
+        // `use stdlib.xiom.io` should resolve as `use xiom.io` via source_dirs.
+        let effective_path: Vec<Ident> = if ud.path.len() > 1 && ud.path[0].name == "stdlib" {
+            ud.path[1..].to_vec()
+        } else {
+            ud.path.clone()
+        };
+        if effective_path.is_empty() {
+            return;
+        }
+
+        let module_name = &effective_path[0].name;
         // Clone the exports map to avoid borrow conflicts with self.modules.insert below
         let exports = match self.modules.get(module_name).cloned() {
             Some(e) => e,
@@ -2018,7 +2029,7 @@ impl Checker {
                 // First segment not in modules (e.g. "xiom" from `use xiom.async`
                 // when no standalone xiom.xi exists). Load the full path from catalog
                 // and build a parent module entry containing the submodule.
-                let full_path: Vec<String> = ud.path.iter().map(|p| p.name.clone()).collect();
+                let full_path: Vec<String> = effective_path.iter().map(|p| p.name.clone()).collect();
                 if let Some(cached) = self.catalog.find_owned(&full_path) {
                     // Register function signatures from the loaded module so
                     // method resolution works (e.g. Vec.insert, Map.contains).
@@ -2031,7 +2042,7 @@ impl Checker {
                     let sub_exports = self.build_module_map(&cached.program.items);
                     let mut parent = HashMap::new();
                     // Extract the short submodule name from the last path segment
-                    let short = ud.path.last().map(|p| p.name.clone()).unwrap_or_default();
+                    let short = effective_path.last().map(|p| p.name.clone()).unwrap_or_default();
                     parent.insert(short, ModuleExport::SubModule(sub_exports));
                     self.modules.insert(module_name.clone(), parent.clone());
                     parent
@@ -2043,8 +2054,8 @@ impl Checker {
 
         // Walk through intermediate path segments (submodules)
         let mut current = exports;
-        for i in 1..ud.path.len() - 1 {
-            let seg = &ud.path[i].name;
+        for i in 1..effective_path.len() - 1 {
+            let seg = &effective_path[i].name;
             match current.get(seg) {
                 Some(ModuleExport::SubModule(sub)) => {
                     current = sub.clone();
@@ -2094,14 +2105,14 @@ impl Checker {
             }
         } else {
             // `use module.item;` or `use module.item as alias;`
-            let item_name = &ud.path.last().unwrap().name;
+            let item_name = &effective_path.last().unwrap().name;
             let export = match current.get(item_name) {
                 Some(e) => e.clone(),
                 None => {
                     // Not found in current module — try loading the full dotted
                     // path from catalog (e.g. "xiom.async" when the parent module
                     // "xiom" is incomplete or the submodule wasn't pre-indexed).
-                    let full_path: Vec<String> = ud.path.iter().map(|p| p.name.clone()).collect();
+                    let full_path: Vec<String> = effective_path.iter().map(|p| p.name.clone()).collect();
                     if let Some(cached) = self.catalog.find_owned(&full_path) {
                         let module_exports = self.build_module_map(&cached.program.items);
                         let local_name = ud.alias.as_ref()
@@ -3115,6 +3126,9 @@ impl Checker {
                             // Common wrapper accessors (Cell/Rc/Arc/Mutex/Box/Reverse).
                             ("Cell" | "Rc" | "Arc" | "Mutex" | "Box" | "Reverse" | "RefCell", "get" | "clone" | "lock" | "borrow" | "borrow_mut")
                                 => return CheckedType::Named("_".into()),
+                            // P2-5: Clone is available on all concrete types (checked at
+                            // monomorphisation time). This allows `T: Clone` generic code.
+                            (_, "clone") if prim_ty != CheckedType::Named("_".into()) => return prim_ty.clone(),
                             _ => {}
                         }
                     }

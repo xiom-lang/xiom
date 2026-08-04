@@ -16,31 +16,30 @@ function Run-Suite($pkg, $test, $label, $extraArgs) {
     if ($test) { $args += "--test", $test }
     if ($extraArgs) { $args += $extraArgs }
 
-    $passed = 0; $failed = 0; $ignored = 0; $finished = 0
+    $passed = 0; $failed = 0; $finished = 0
     $total = 0
-    $lastLine = ""
     $lineCount = 0
+    $testCountKnown = $false
 
-    # Run cargo test with line-by-line output streaming
+    # Run cargo test, capture output to temp file
     $stdoutFile = "$env:TEMP\xiom_test_stdout.txt"
     $stderrFile = "$env:TEMP\xiom_test_stderr.txt"
     Remove-Item $stdoutFile, $stderrFile -ErrorAction SilentlyContinue
     $process = Start-Process -FilePath "cargo" -ArgumentList $args -NoNewWindow -PassThru -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
     
     $lastUpdate = 0
-    $testCountKnown = $false
     
     while (-not $process.HasExited) {
-        Start-Sleep -Milliseconds 200
+        Start-Sleep -Milliseconds 300
         if (Test-Path $stdoutFile) {
             $lines = Get-Content $stdoutFile -ErrorAction SilentlyContinue
             $totalLines = $lines.Count
-            # Only count NEW lines since last poll
+            # Only count NEW lines since last poll; strict regex for test lines only
             for ($i = $lineCount; $i -lt $totalLines; $i++) {
                 $line = $lines[$i]
-                if ($line -match '^test .*\.\.\. ok$') { $passed++ }
-                if ($line -match '^test .*\.\.\. FAILED$') { $failed++ }
-                if (-not $testCountKnown -and $line -match 'running (\d+) tests?') {
+                if ($line -match '^test (?!result:)\S+ \.\.\. ok\s*$') { $passed++ }
+                elseif ($line -match '^test (?!result:)\S+ \.\.\. FAILED\s*$') { $failed++ }
+                if (-not $testCountKnown -and $line -match '^running (\d+) tests?') {
                     $total = [int]$Matches[1]
                     $testCountKnown = $true
                 }

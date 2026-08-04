@@ -1024,7 +1024,10 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             // v0.56: Apply optimization level to clang (same as opt passes)
             if config.release { cmd.arg("-O3"); } else { cmd.arg("-O1"); }
             // v0.56: ThinLTO for 20-40% smaller/faster binaries
-            if config.lto { cmd.arg("-flto=thin"); }
+            if config.lto {
+                cmd.arg("-flto=thin");
+                cmd.arg("-fuse-ld=lld");
+            }
             // Suppress MSVC deprecation warnings (fopen, etc.) in the runtime C code.
             cmd.arg("-D_CRT_SECURE_NO_WARNINGS");
             // 7E.1: Sanitizer flags
