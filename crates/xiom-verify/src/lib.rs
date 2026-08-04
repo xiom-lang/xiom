@@ -656,6 +656,7 @@ impl Z3Runner {
     pub fn verify(&self, smt: &str) -> Vec<VerifyResult> {
         let output = match Command::new(&self.z3_path)
             .arg("-in")
+            .arg(format!("-T:{}", self.timeout_ms))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())

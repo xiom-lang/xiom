@@ -3,8 +3,20 @@
 
 use std::process::Command;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static SMT_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn unique_temp_name(prefix: &str) -> std::path::PathBuf {
+    let id = SMT_COUNTER.fetch_add(1, Ordering::SeqCst);
+    std::env::temp_dir().join(format!("xiom_vrfy_{}_{}.smt2", prefix, id))
+}
 
 fn verify_path() -> String {
+    // Rebuild to ensure binary matches source (fixes stale binary tests)
+    let _ = Command::new("cargo")
+        .args(["build", "-p", "xiom-verify"])
+        .status();
     let mut path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent().unwrap().parent().unwrap()
         .join("target").join("debug").join("xiom-verify.exe");
@@ -17,19 +29,8 @@ fn verify_path() -> String {
 }
 
 fn z3_path() -> Option<String> {
-    let candidates = [
-        r"C:\Users\lefte\AppData\Local\Temp\z3.exe",
-        r"E:\repos\z3\build\Release\z3.exe",
-    ];
-    for c in &candidates {
-        if Path::new(c).exists() {
-            let out = Command::new(c).arg("--version").output();
-            if out.map_or(false, |o| o.status.success()) {
-                return Some(c.to_string());
-            }
-        }
-    }
-    None
+    // Use the same discovery logic as the library (handles Z3_PATH env var, bundled, PATH)
+    xiom_verify::Z3Runner::find_z3()
 }
 
 fn project_root() -> std::path::PathBuf {
@@ -48,7 +49,7 @@ fn verify_with_z3(file: &str) -> std::process::Output {
 }
 
 fn smt_for(file: &str) -> String {
-    let tmp = std::env::temp_dir().join(format!("xiom_vrfy_{}.smt2", file.replace(['/', '\\', '.'], "_")));
+    let tmp = unique_temp_name("smt_for");
     let output = Command::new(verify_path())
         .args([file, "-o", tmp.to_str().unwrap()])
         .current_dir(project_root())
@@ -97,7 +98,7 @@ fn check_types(a: Int32, b: Float64, c: Bool) -> Int32
     ensures: result > a
 { return a + 1; }
 "#;
-    let tmp = std::env::temp_dir().join("xiom_vrfy_types.xi");
+    let tmp = unique_temp_name("types");
     std::fs::write(&tmp, src).expect("write test file");
     let smt = smt_for(tmp.to_str().unwrap());
     let _ = std::fs::remove_file(&tmp);
@@ -116,7 +117,7 @@ fn clamp(x: Int, lo: Int, hi: Int) -> Int
     ensures: result <= hi
 { if x < lo { return lo; } if x > hi { return hi; } return x; }
 "#;
-    let tmp = std::env::temp_dir().join("xiom_vrfy_multi.xi");
+    let tmp = unique_temp_name("multi");
     std::fs::write(&tmp, src).expect("write test file");
     let smt = smt_for(tmp.to_str().unwrap());
     let _ = std::fs::remove_file(&tmp);
@@ -319,7 +320,7 @@ fn triple(x: Int) -> Int
   ensures: result == 3 * x
 { return x + x + x; }
 ";
-    let tmp = std::env::temp_dir().join("xiom_vrfy_triple.xi");
+    let tmp = unique_temp_name("triple");
     std::fs::write(&tmp, src).expect("write");
     let smt = smt_for(tmp.to_str().unwrap());
     let _ = std::fs::remove_file(&tmp);
