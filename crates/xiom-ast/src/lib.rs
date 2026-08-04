@@ -311,7 +311,11 @@ pub enum Pattern {
     Ident(Ident),
     /// `Variant(field1, field2)` — enum variant pattern
     Variant(Ident, Vec<Ident>, Span),
-    /// Literal pattern
+    /// v0.56/P1-1: `TypeName { field1, field2: pat2 }` — struct destructure pattern
+    Struct(Ident, Vec<(Ident, Pattern)>, Span),
+    /// v0.56/P1-2: `(a, b, c)` — tuple destructure pattern
+    Tuple(Vec<Pattern>, Span),
+    /// Literal pattern (Int, Float, Bool, Str, Char)
     Lit(Literal),
     /// `Some(pattern)`
     Some(Box<Pattern>, Span),

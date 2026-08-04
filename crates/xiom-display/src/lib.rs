@@ -82,6 +82,13 @@ pub fn pattern_to_string(pat: &Pattern) -> String {
         Pattern::None(_) => "None".to_string(),
         Pattern::Ok(inner, _) => format!("Ok({})", pattern_to_string(inner)),
         Pattern::Err(inner, _) => format!("Err({})", pattern_to_string(inner)),
+        Pattern::Struct(name, fields, _) => {
+            if fields.is_empty() { name.name.clone() }
+            else { format!("{} {{{}}}", name.name, fields.iter().map(|(f, p)| format!("{}: {}", f.name, pattern_to_string(p))).collect::<Vec<_>>().join(", ")) }
+        }
+        Pattern::Tuple(patterns, _) => {
+            format!("({})", patterns.iter().map(pattern_to_string).collect::<Vec<_>>().join(", "))
+        }
         _ => format!("<pat:{pat:?}>"),
     }
 }

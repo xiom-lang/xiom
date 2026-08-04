@@ -1070,6 +1070,23 @@ impl IrEmitter {
                                         self.emitln(&format!("  {c} = icmp eq i64 {val}, {n}"));
                                         self.emitln(&format!("  br i1 {c}, label %{arm_label}, label %{fail_block}"));
                                     }
+                                    Pattern::Lit(Literal::Float(f, _)) => {
+                                        let fval = if scrutinee_llvm_ty == "double" || scrutinee_llvm_ty == "float" {
+                                            val.clone()
+                                        } else {
+                                            let conv = self.fresh_tmp();
+                                            self.emitln(&format!("  {conv} = sitofp i64 {val} to double"));
+                                            conv
+                                        };
+                                        let c = self.fresh_tmp();
+                                        self.emitln(&format!("  {c} = fcmp oeq double {fval}, {f:.16e}"));
+                                        self.emitln(&format!("  br i1 {c}, label %{arm_label}, label %{fail_block}"));
+                                    }
+                                    Pattern::Lit(Literal::Char(cv, _)) => {
+                                        let c = self.fresh_tmp();
+                                        self.emitln(&format!("  {c} = icmp eq i64 {val}, {}", *cv as i64));
+                                        self.emitln(&format!("  br i1 {c}, label %{arm_label}, label %{fail_block}"));
+                                    }
                                     Pattern::Lit(Literal::Bool(b, _)) => {
                                         let c = self.fresh_tmp();
                                         let bv = if *b { "1" } else { "0" };
@@ -1190,6 +1207,13 @@ impl IrEmitter {
                                             self.emitln(&format!("  br label %{fail_block}"));
                                         }
                                     }
+                                    Pattern::Struct(..) | Pattern::Tuple(..) => {
+                                        if let Some((_alloca, _type_name, _struct_ty)) = &scrutinee_alloca_info {
+                                            self.emitln(&format!("  br label %{arm_label}"));
+                                        } else {
+                                            self.emitln(&format!("  br label %{fail_block}"));
+                                        }
+                                    }
                                     _ => { self.emitln(&format!("  br label %{arm_label}")); }
                                 }
                                 if !is_last {
@@ -1200,6 +1224,24 @@ impl IrEmitter {
                         Pattern::Lit(Literal::Int(n, _)) => {
                             let check = self.fresh_tmp();
                             self.emitln(&format!("  {check} = icmp eq i64 {val}, {n}"));
+                            self.emitln(&format!("  br i1 {check}, label %{arm_label}, label %{next}"));
+                        }
+                        Pattern::Lit(Literal::Float(f, _)) => {
+                            // P1-3: Float literal pattern — use fcmp for double-precision comparison.
+                            let fval = if scrutinee_llvm_ty == "double" || scrutinee_llvm_ty == "float" {
+                                val.clone()
+                            } else {
+                                let conv = self.fresh_tmp();
+                                self.emitln(&format!("  {conv} = sitofp i64 {val} to double"));
+                                conv
+                            };
+                            let check = self.fresh_tmp();
+                            self.emitln(&format!("  {check} = fcmp oeq double {fval}, {f:.16e}"));
+                            self.emitln(&format!("  br i1 {check}, label %{arm_label}, label %{next}"));
+                        }
+                        Pattern::Lit(Literal::Char(c, _)) => {
+                            let check = self.fresh_tmp();
+                            self.emitln(&format!("  {check} = icmp eq i64 {val}, {}", *c as i64));
                             self.emitln(&format!("  br i1 {check}, label %{arm_label}, label %{next}"));
                         }
                         Pattern::Lit(Literal::Bool(b, _)) => {
@@ -1278,6 +1320,24 @@ impl IrEmitter {
                                 } else {
                                     self.emitln(&format!("  br i1 {disc_check}, label %{arm_label}, label %{next}"));
                                 }
+                            } else {
+                                self.emitln(&format!("  br label %{arm_label}"));
+                            }
+                        }
+                        Pattern::Struct(name, _, _) => {
+                            if let Some((_alloca, type_name, _struct_ty)) = &scrutinee_alloca_info {
+                                if type_name == &name.name {
+                                    self.emitln(&format!("  br label %{arm_label}"));
+                                } else {
+                                    self.emitln(&format!("  br label %{next}"));
+                                }
+                            } else {
+                                self.emitln(&format!("  br label %{arm_label}"));
+                            }
+                        }
+                        Pattern::Tuple(..) => {
+                            if scrutinee_alloca_info.is_some() {
+                                self.emitln(&format!("  br label %{arm_label}"));
                             } else {
                                 self.emitln(&format!("  br label %{arm_label}"));
                             }
@@ -1383,6 +1443,47 @@ impl IrEmitter {
                                 }
                             }
                         }
+                        // Pre-extract struct destructure fields for guard access
+                        if let Pattern::Struct(_, fields, _) = &arm.pattern {
+                            if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
+                                let field_names_opt = self.types.types.get(&type_name.to_string());
+                                if let Some(field_names) = field_names_opt {
+                                    for (field_name, field_pat) in fields {
+                                        if let Some(field_idx) = field_names.iter().position(|f| f == &field_name.name) {
+                                            let gep = self.fresh_tmp();
+                                            self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {field_idx}"));
+                                            let loaded = self.fresh_tmp();
+                                            let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
+                                            self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+                                            let field_alloca = self.fresh_tmp();
+                                            self.emitln(&format!("  {field_alloca} = alloca {field_llvm_ty}"));
+                                            self.emitln(&format!("  store {field_llvm_ty} {loaded}, {field_llvm_ty}* {field_alloca}"));
+                                            if let Pattern::Ident(ident) = field_pat {
+                                                self.add_local(&ident.name, field_alloca, &field_llvm_ty);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // Pre-extract tuple elements for guard access
+                        if let Pattern::Tuple(elements, _) = &arm.pattern {
+                            if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
+                                for (i, elem) in elements.iter().enumerate() {
+                                    let gep = self.fresh_tmp();
+                                    self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {i}"));
+                                    let loaded = self.fresh_tmp();
+                                    let field_llvm_ty = self.field_llvm_type(type_name, i);
+                                    self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+                                    let field_alloca = self.fresh_tmp();
+                                    self.emitln(&format!("  {field_alloca} = alloca {field_llvm_ty}"));
+                                    self.emitln(&format!("  store {field_llvm_ty} {loaded}, {field_llvm_ty}* {field_alloca}"));
+                                    if let Pattern::Ident(ident) = elem {
+                                        self.add_local(&ident.name, field_alloca, &field_llvm_ty);
+                                    }
+                                }
+                            }
+                        }
                         // Compile guard expression and check result
                         if let Some(ref guard_expr) = arm.guard {
                             // Determine fallback label
@@ -1483,6 +1584,47 @@ impl IrEmitter {
                                             }
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                    // Struct destructure: extract fields from struct alloca
+                    if let Pattern::Struct(_, fields, _) = &arm.pattern {
+                        if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
+                            let field_names_opt = self.types.types.get(&type_name.to_string());
+                            if let Some(field_names) = field_names_opt {
+                                for (field_name, field_pat) in fields {
+                                    if let Some(field_idx) = field_names.iter().position(|f| f == &field_name.name) {
+                                        let gep = self.fresh_tmp();
+                                        self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {field_idx}"));
+                                        let loaded = self.fresh_tmp();
+                                        let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
+                                        self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+                                        let field_alloca = self.fresh_tmp();
+                                        self.emitln(&format!("  {field_alloca} = alloca {field_llvm_ty}"));
+                                        self.emitln(&format!("  store {field_llvm_ty} {loaded}, {field_llvm_ty}* {field_alloca}"));
+                                        if let Pattern::Ident(ident) = field_pat {
+                                            self.add_local(&ident.name, field_alloca, &field_llvm_ty);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Tuple destructure: extract elements from tuple alloca
+                    if let Pattern::Tuple(elements, _) = &arm.pattern {
+                        if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
+                            for (i, elem) in elements.iter().enumerate() {
+                                let gep = self.fresh_tmp();
+                                self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {i}"));
+                                let loaded = self.fresh_tmp();
+                                let field_llvm_ty = self.field_llvm_type(type_name, i);
+                                self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+                                let field_alloca = self.fresh_tmp();
+                                self.emitln(&format!("  {field_alloca} = alloca {field_llvm_ty}"));
+                                self.emitln(&format!("  store {field_llvm_ty} {loaded}, {field_llvm_ty}* {field_alloca}"));
+                                if let Pattern::Ident(ident) = elem {
+                                    self.add_local(&ident.name, field_alloca, &field_llvm_ty);
                                 }
                             }
                         }

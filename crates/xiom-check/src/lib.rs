@@ -526,6 +526,25 @@ impl Checker {
                     self.add_pattern_bindings(alt, scrutinee_type);
                 }
             }
+            Pattern::Struct(type_name, fields, _) => {
+                // P1-1: Bind each field with its type from the struct definition.
+                // Clone the field map to avoid borrow conflict with add_pattern_bindings.
+                let field_map = self.get_type(&type_name.name)
+                    .map(|fm| fm.clone());
+                for (field_name, sub_pat) in fields {
+                    let field_ty = field_map.as_ref()
+                        .and_then(|fm| fm.get(&field_name.name))
+                        .cloned()
+                        .unwrap_or(CheckedType::Int);
+                    self.add_pattern_bindings(sub_pat, &field_ty);
+                }
+            }
+            Pattern::Tuple(elements, _) => {
+                // P1-2: Bind each element as Int (simplified). 
+                for elem in elements {
+                    self.add_pattern_bindings(elem, &CheckedType::Int);
+                }
+            }
             Pattern::Wildcard(_) | Pattern::None(_) | Pattern::Lit(_) => {}
         }
     }
@@ -1826,6 +1845,12 @@ impl Checker {
                 }
                 Pattern::Or(alts, _) => {
                     for alt in alts { collect_pattern_names(alt, out); }
+                }
+                Pattern::Struct(_, fields, _) => {
+                    for (_, sub_pat) in fields { collect_pattern_names(sub_pat, out); }
+                }
+                Pattern::Tuple(elements, _) => {
+                    for elem in elements { collect_pattern_names(elem, out); }
                 }
                 _ => {}
             }
@@ -4334,6 +4359,7 @@ fn pattern_covers_variant(pattern: &xiom_ast::Pattern, variant: &str) -> bool {
             _ => false,
         },
         xiom_ast::Pattern::Or(alts, _) => alts.iter().any(|a| pattern_covers_variant(a, variant)),
+        xiom_ast::Pattern::Struct(..) | xiom_ast::Pattern::Tuple(..) => false,
     }
 }
 

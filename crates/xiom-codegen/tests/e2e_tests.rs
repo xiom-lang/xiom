@@ -4302,3 +4302,8 @@ fn e2e_safety_probe() {
 #[test] fn e2e_p0_defer() { assert_eq!(compile_and_run("tests\\e2e_p0_defer.xi"), Some(0)); }
 #[test] fn e2e_p0_labeled() { assert_eq!(compile_and_run("tests\\e2e_p0_labeled.xi"), Some(0)); }
 
+// P1 Pattern Verification Tests (v0.56)
+#[test] fn e2e_p1_struct_pattern() { assert_eq!(compile_and_run("tests\\e2e_p1_struct_pattern.xi"), Some(0)); }
+#[test] fn e2e_p1_tuple_pattern() { assert_eq!(compile_and_run("tests\\e2e_p1_tuple_pattern.xi"), Some(0)); }
+#[test] fn e2e_p1_float_pattern() { assert_eq!(compile_and_run("tests\\e2e_p1_float_pattern.xi"), Some(0)); }
+
