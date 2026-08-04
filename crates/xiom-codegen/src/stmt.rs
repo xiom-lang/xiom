@@ -1716,8 +1716,9 @@ impl IrEmitter {
                         if offset == 0 {
                             self.emitln(&format!("  {ptr} = bitcast i8* %_xiom_spawn_arg to i64*"));
                         } else {
-                            self.emitln(&format!("  {ptr} = getelementptr i8, i8* %_xiom_spawn_arg, i64 {offset}"));
-                            self.emitln(&format!("  {ptr} = bitcast i8* {ptr} to i64*"));
+                            let gep = self.fresh_tmp();
+                            self.emitln(&format!("  {gep} = getelementptr i8, i8* %_xiom_spawn_arg, i64 {offset}"));
+                            self.emitln(&format!("  {ptr} = bitcast i8* {gep} to i64*"));
                         }
                         self.emitln(&format!("  {val} = load i64, i64* {ptr}"));
                         self.emitln(&format!("  {alloca} = alloca i64"));
@@ -1776,8 +1777,9 @@ impl IrEmitter {
                         if offset == 0 {
                             self.emitln(&format!("  {dst} = bitcast i8* {env_ptr} to i64*"));
                         } else {
-                            self.emitln(&format!("  {dst} = getelementptr i8, i8* {env_ptr}, i64 {offset}"));
-                            self.emitln(&format!("  {dst} = bitcast i8* {dst} to i64*"));
+                            let gep = self.fresh_tmp();
+                            self.emitln(&format!("  {gep} = getelementptr i8, i8* {env_ptr}, i64 {offset}"));
+                            self.emitln(&format!("  {dst} = bitcast i8* {gep} to i64*"));
                         }
                         self.emitln(&format!("  store i64 {val}, i64* {dst}"));
                     }
