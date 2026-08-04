@@ -1602,6 +1602,21 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m20_closure_let()          { assert_eq!(compile_and_run("tests\\regression\\m20_closure_let.xi"),           Some(0)); }
 #[test] fn e2e_m20_closure_noncapture()   { assert_eq!(compile_and_run("tests\\regression\\m20_closure_noncapture.xi"),    Some(0)); }
 #[test] fn e2e_m20_closure_multi_capture(){ assert_eq!(compile_and_run("tests\\regression\\m20_closure_multi_capture.xi"), Some(0)); }
+
+// ============================================================================
+// v0.56 E2E Tests — Production Polish
+// ============================================================================
+
+/// Spawn with multiple captures (3 Int vars forwarded via env struct)
+#[test] fn e2e_spawn_multi_capture() { assert_eq!(compile_and_run("tests\\regression\\spawn_multi_capture.xi"), Some(0)); }
+/// Spawn from helper function with captured params
+#[test] fn e2e_spawn_from_fn()       { assert_eq!(compile_and_run("tests\\regression\\spawn_from_fn.xi"),       Some(0)); }
+/// Send enforcement: nested struct with all-Send primitive fields
+#[test] fn e2e_send_nested_struct()  { assert_eq!(compile_and_run("tests\\regression\\send_nested_struct.xi"),  Some(0)); }
+/// Parallel codegen: 5 independent functions
+#[test] fn e2e_parallel_multi_fn()   { assert_eq!(compile_and_run("tests\\regression\\parallel_multi_fn.xi"),   Some(0)); }
+/// DI emission: compile with --debug, verify exits correctly
+#[test] fn e2e_di_emission()         { assert_eq!(compile_and_run("tests\\regression\\di_emission.xi"),         Some(17)); } // add(mul(3,4),5)=17
 #[test] fn e2e_m20_closure_in_if()        { assert_eq!(compile_and_run("tests\\regression\\m20_closure_in_if.xi"),         Some(0)); }
 #[test] fn e2e_m20_closure_chain()        { assert_eq!(compile_and_run("tests\\regression\\m20_closure_chain.xi"),         Some(0)); }
 #[test] fn e2e_m20_closure_nested_scope() { assert_eq!(compile_and_run("tests\\regression\\m20_closure_nested_scope.xi"),  Some(0)); }
