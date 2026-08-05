@@ -6477,3 +6477,31 @@ fn main() -> Int {
     // Verify the core push operations are present (len increment, store)
     assert!(ir.contains("add i64") && ir.contains("store i64"), "OPT-R5: push must emit len++ and store len");
 }
+
+// =====================================================================
+// OPT-R6: emit_elem_load phi-node optimisation — replaces alloca+store+load
+// with a direct phi node, saving 3 instructions per Vec element read.
+// =====================================================================
+
+#[test]
+fn regress_opt_r6_vec_elem_load_phi_node() {
+    let src = "\
+fn sum_elements(v: &Vec[Int]) -> Int {
+    var total: Int = 0;
+    var i: Int = 0;
+    while i < v.len() {
+        total = total + v[i];
+        i = i + 1;
+    }
+    return total;
+}
+fn main() -> Int {
+    var vec: Vec[Int] = Vec[Int].with_capacity(10);
+    vec.push(1); vec.push(2); vec.push(3);
+    return sum_elements(&vec);
+}";
+    let ir = compile_checked(src).unwrap();
+    assert!(ir.contains("define"), "OPT-R6: Vec elem load via phi must compile");
+    // Verify phi instruction exists (not alloca+store+load)
+    assert!(ir.contains("phi i64"), "OPT-R6: must use phi node, not alloca pattern");
+}
