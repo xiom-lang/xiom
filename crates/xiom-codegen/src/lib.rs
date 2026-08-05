@@ -3713,14 +3713,14 @@ let inner_llvm = match &inner_subst {
                                 format!("{elem_ty}*")
                             }
                             Type::Slice(elem) => {
-let subst_elem = Self::substitute_type(t, elem, &type_map);
-                                let elem_name = Self::type_from_ast(&subst_elem);
-                                let elem_ty = if struct_types.contains(&elem_name) {
-                                    format!("%struct.{elem_name}")
-                                } else {
-                                    Self::xiom_to_llvm_type(&elem_name).to_string()
-                                };
-                                format!("{elem_ty}*")
+                                // &Slice[T] must produce %struct.Vec (not just a
+                                // data pointer) so the function body can access
+                                // .len() and [i] on the Slice parameter. Without
+                                // this, is_sorted/contains receive i64* and read
+                                // the first element as the length, producing
+                                // incorrect results (stdlib_exec_core_runs).
+                                let _subst_elem = Self::substitute_type(t, elem, &type_map);
+                                "%struct.Vec".to_string()
                             }
                             _ => {
                                 let name = Self::type_from_ast(&inner_subst);
