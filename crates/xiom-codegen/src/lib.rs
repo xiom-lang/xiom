@@ -4604,7 +4604,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
                 "Int" | "Bool" | "Int32" | "UInt32" | "UInt64" | "Int64" | "Int8" | "UInt8" | "Int16" | "UInt16" => "i64",
                 "Float64" => "double",
                 "Float32" => "float",
-                "Char" => "i8",
+                "Char" => "i32",
                 "Str" => "i8*",
                 _ => "i64", // default for unknown/custom types
             };
@@ -4687,7 +4687,7 @@ let subst_elem = Self::substitute_type(t, elem, &type_map);
             Expr::Int(_, _) | Expr::Bool(_, _) => "i64".to_string(),
             Expr::Float(_, _) => "double".to_string(),
             Expr::Str(_, _) => "i8*".to_string(),
-            Expr::Char(_, _) => "i8".to_string(),
+            Expr::Char(_, _) => "i32".to_string(),
             Expr::Ident(ident) => {
                 if let Some((_, llvm_ty)) = self.lookup_local(&ident.name) {
                     if llvm_ty == "double" { return "double".to_string(); }
