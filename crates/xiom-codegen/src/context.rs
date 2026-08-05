@@ -3,6 +3,7 @@
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
 use xiom_ast::*;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use std::hash::Hash;
@@ -261,6 +262,10 @@ pub struct LocalContext {
     pub defer_stack: Vec<Block>,
     /// Module/global const values
     pub constants: HashMap<String, Expr>,
+    /// Cycle detection stack for const evaluation — tracks which constants
+    /// are currently being resolved. Prevents infinite recursion on cycles
+    /// like `const A = B; const B = A;`.
+    pub const_eval_stack: RefCell<HashSet<String>>,
     /// Mutable module-level var globals: name -> (llvm_symbol, llvm_type)
     pub module_globals: HashMap<String, (String, String)>,
     /// Ordered list of module-global definitions to emit
