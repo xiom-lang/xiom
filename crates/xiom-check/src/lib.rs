@@ -231,6 +231,18 @@ impl Checker {
             generics: vec![],
             uses_implicit_this: false,
         });
+        self.functions.insert("Map.new".to_string(), FnSig {
+            params: vec![],
+            return_type: Some(CheckedType::Named("Map".into())),
+            generics: vec![],
+            uses_implicit_this: false,
+        });
+        self.functions.insert("Set.new".to_string(), FnSig {
+            params: vec![],
+            return_type: Some(CheckedType::Named("Set".into())),
+            generics: vec![],
+            uses_implicit_this: false,
+        });
         // 5c-R: Vec.with_capacity(n) — pre-allocate internal buffer
         self.functions.insert("Vec.with_capacity".to_string(), FnSig {
             params: vec![("capacity".to_string(), CheckedType::Int)],
@@ -1396,12 +1408,18 @@ impl Checker {
             TopDecl::Const(cd) => {
                 let val_ty = self.check_expr(&cd.value);
                 let decl_ty = CheckedType::from_ast_type(&cd.ty);
+                // v0.56: Skip type check for zero-initialized globals of complex types
+                // (Array, Map, Vec, etc.) — the zero is a placeholder, not the real type.
+                let is_zero_default = matches!(&cd.value, Expr::Int(0, _) | Expr::Float(_, _));
+                let is_complex_type = matches!(&decl_ty, CheckedType::Named(n) if n == "Array" || n == "Map" || n == "Vec" || n == "Set");
                 if val_ty != CheckedType::Error && decl_ty != CheckedType::Error {
-                    if !self.types_compatible(&val_ty, &decl_ty) {
-                        self.error(
-                            format!("const type mismatch: declared {}, found {}", decl_ty.name(), val_ty.name()),
-                            cd.span,
-                        );
+                    if !is_zero_default || !is_complex_type {
+                        if !self.types_compatible(&val_ty, &decl_ty) {
+                            self.error(
+                                format!("const type mismatch: declared {}, found {}", decl_ty.name(), val_ty.name()),
+                                cd.span,
+                            );
+                        }
                     }
                 }
                 // (Registration into global_consts happens in the pre-pass
