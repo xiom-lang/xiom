@@ -1832,20 +1832,32 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 self.emitln(&format!("\n{fail_block}:"));
                                 if fn_name == "unwrap_or" {
                                     // Return the default arg (unwrap_or fallback)
-                                    let (default_val, _) = self.compile_expr(&args[0])?;
+                                    let (default_val, default_ty) = self.compile_expr(&args[0])?;
                                     let done_label = format!("{}_done", fail_block);
                                     self.emitln(&format!("  br label %{done_label}"));
                                     self.emitln(&format!("\n{ok_block}:"));
                                     let val_field = 1;
+                                    let type_name = struct_ty.trim_start_matches("%struct.");
+                                    let field_ty = self.field_llvm_type(type_name, val_field);
                                     let val_gep = self.fresh_tmp();
                                     self.emitln(&format!("  {val_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {val_field}"));
                                     let payload = self.fresh_tmp();
-                                    self.emitln(&format!("  {payload} = load i64, i64* {val_gep}"));
+                                    self.emitln(&format!("  {payload} = load {field_ty}, {field_ty}* {val_gep}"));
+                                    // Coerce default_val to match the payload type if needed
+                                    let default_val = if default_ty != field_ty && (default_ty == "i64" || field_ty == "i64") {
+                                        let coerced = self.fresh_tmp();
+                                        if field_ty == "i64" { 
+                                            self.emitln(&format!("  {coerced} = ptrtoint {default_ty} {default_val} to i64"));
+                                        } else {
+                                            self.emitln(&format!("  {coerced} = inttoptr i64 {default_val} to {field_ty}"));
+                                        }
+                                        coerced
+                                    } else { default_val };
                                     self.emitln(&format!("  br label %{done_label}"));
                                     self.emitln(&format!("\n{done_label}:"));
                                     let phi = self.fresh_tmp();
-                                    self.emitln(&format!("  {phi} = phi i64 [ {default_val}, %{fail_block} ], [ {payload}, %{ok_block} ]"));
-                                    return Ok((phi, LLVM_I64.to_string()));
+                                    self.emitln(&format!("  {phi} = phi {field_ty} [ {default_val}, %{fail_block} ], [ {payload}, %{ok_block} ]"));
+                                    return Ok((phi, field_ty.to_string()));
                                 }
                                 self.emitln("  call void @llvm.trap()");
                                 self.emitln("  unreachable");
