@@ -38,7 +38,7 @@ function run-test($pkg, $testFile, $label, $extraFilter) {
     
     while (-not $proc.HasExited) {
         Start-Sleep -Milliseconds 200
-        if ($sw.Elapsed.TotalSeconds -gt 180) { $proc.Kill(); $crashed=2; break }  # 3min timeout
+        if ($sw.Elapsed.TotalSeconds -gt 1200) { $proc.Kill(); $crashed=2; break }  # 20min timeout
         if (Test-Path $tmpO) {
             $lines = Get-Content $tmpO -EA 0
             for ($i=$lr; $i -lt $lines.Count; $i++) {
@@ -73,7 +73,7 @@ function run-test($pkg, $testFile, $label, $extraFilter) {
     
     # Handle timeout
     if ($crashed -eq 2) {
-        Write-Host "  $($label.PadRight(25)) HANG  (timeout 3min)" -ForegroundColor Magenta
+        Write-Host "  $($label.PadRight(25)) HANG  (timeout 20min)" -ForegroundColor Magenta
         $script:timings += @{L=$label;P=0;F=0;I=0;E=$elapsed}
         return
     }

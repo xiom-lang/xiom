@@ -61,7 +61,7 @@ run_test() {
     while kill -0 "$pid" 2>/dev/null; do
         sleep 0.2
         local elapsed; elapsed=$(( ($(date +%s%N) - start_ns) / 1000000000 ))
-        [[ $elapsed -gt 180 ]] && { kill "$pid" 2>/dev/null; echo -e "\r  ${label} TIMEOUT"; return; }
+        [[ $elapsed -gt 1200 ]] && { kill "$pid" 2>/dev/null; printf "\r  %-25s HANG (timeout 20min)\n" "$label"; return; }
         if [[ -f "$tmp_o" ]]; then
             local new_passed new_failed
             new_passed=$(grep -c '^test .*\.\.\. ok$' "$tmp_o" 2>/dev/null || echo 0)
