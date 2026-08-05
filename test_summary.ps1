@@ -98,7 +98,7 @@ Write-Host "===============" -ForegroundColor Magenta
 Write-Host ""
 Write-Host "BUILD (parallel)..." -ForegroundColor Yellow -NoNewline
 $sw=[System.Diagnostics.Stopwatch]::StartNew()
-cargo test --workspace --no-run --target-dir .test_build 2>&1 | Out-Null
+cargo test --workspace --no-run 2>&1 | Out-Null
 $sw.Stop()
 if ($LASTEXITCODE) { Write-Host " FAILED" -ForegroundColor Red; exit 1 }
 Write-Host " OK ($([math]::Round($sw.Elapsed.TotalSeconds,1))s)" -ForegroundColor Green
