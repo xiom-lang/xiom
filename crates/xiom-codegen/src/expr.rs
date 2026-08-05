@@ -1895,30 +1895,25 @@ impl IrEmitter {
                     || vec_ty.contains("struct.Vec")
                     || vec_ty == "%struct.Slice" || vec_ty.contains("struct.Slice");
                 if is_vec {
-                    let vslot = self.fresh_tmp();
-                    self.emitln(&format!("  {vslot} = alloca %struct.Vec"));
-                    // Zero-init the Vec alloca to prevent stale stack data
-                    // from prior function calls when LLVM SROA skips stores.
-                    let vslot_i8 = self.fresh_tmp();
-                    self.emitln(&format!("  {vslot_i8} = bitcast %struct.Vec* {vslot} to i8*"));
-                    self.emitln(&format!("  call void @llvm.memset.p0i8.i64(i8* {vslot_i8}, i8 0, i64 32, i1 false)"));
-                    self.emit_vec_store_fields(&vec_val, &vslot);
-                    // Load elem_size from field 3
-                    let esz_gep = self.fresh_tmp();
+                    // OPT-R7: Use extractvalue directly from the SSA struct value
+                    // instead of creating a fresh alloca+memset+store+GEP+load cycle.
+                    // The old code leaked 32 bytes of stack per index access when
+                    // called inside a loop (alloca %struct.Vec + memset + 4 stores +
+                    // 3 GEP-loads = ~14 redundant LLVM instructions per access).
+                    // Extract fields 0/1/3 directly (data, len, elem_size).
+                    let data_ptr = self.fresh_tmp();
+                    let len_tmp = self.fresh_tmp();
                     let esz_val = self.fresh_tmp();
-                    self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {vslot}, i32 0, i32 3"));
-                    self.emitln(&format!("  {esz_val} = load i64, i64* {esz_gep}"));
+                    self.emitln(&format!("  {data_ptr} = extractvalue %struct.Vec {vec_val}, 0"));
+                    self.emitln(&format!("  {len_tmp} = extractvalue %struct.Vec {vec_val}, 1"));
+                    self.emitln(&format!("  {esz_val} = extractvalue %struct.Vec {vec_val}, 3"));
                     // S1: Bounds check — trap on out-of-bounds Vec indexing
                     // when overflow checks are enabled.
                     if self.config.overflow_checks {
-                        let len_gep = self.fresh_tmp();
-                        let len_val = self.fresh_tmp();
-                        self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {vslot}, i32 0, i32 1"));
-                        self.emitln(&format!("  {len_val} = load i64, i64* {len_gep}"));
                         let idx_ge0 = self.fresh_tmp();
                         self.emitln(&format!("  {idx_ge0} = icmp sge i64 {idx}, 0"));
                         let idx_lt_len = self.fresh_tmp();
-                        self.emitln(&format!("  {idx_lt_len} = icmp slt i64 {idx}, {len_val}"));
+                        self.emitln(&format!("  {idx_lt_len} = icmp slt i64 {idx}, {len_tmp}"));
                         let in_bounds = self.fresh_tmp();
                         self.emitln(&format!("  {in_bounds} = and i1 {idx_ge0}, {idx_lt_len}"));
                         let ok_block = self.fresh_block("bounds_ok");
@@ -1929,10 +1924,6 @@ impl IrEmitter {
                         self.emitln("  unreachable");
                         self.emitln(&format!("\n{ok_block}:"));
                     }
-                    let data_gep = self.fresh_tmp();
-                    self.emitln(&format!("  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {vslot}, i32 0, i32 0"));
-                    let data_ptr = self.fresh_tmp();
-                    self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
                     let byte_off = self.fresh_tmp();
                     self.emitln(&format!("  {byte_off} = mul i64 {idx}, {esz_val}"));
                     let elem_ptr = self.fresh_tmp();
