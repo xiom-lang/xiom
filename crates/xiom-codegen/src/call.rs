@@ -1263,12 +1263,22 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         let recv_ty = self.infer_llvm_type(receiver);
                         let is_container = self.is_container_vec_field(receiver);
                         // M33: Detect Vec handles from Result.unwrap().
-                        // result.unwrap() returns i64 handle to boxed Vec.
                         let is_unwrap_vec = !is_container && recv_ty == "i64"
                             && self.receiver_is_unwrap_of_vec(receiver);
-                        if recv_ty != "%struct.Vec" && !is_container && !is_unwrap_vec
-                        {
-                            // Not a Vec receiver
+                        // Also detect Vec/Slice field access where infer_llvm_type
+                        // returns i64 (container handle) but compile_expr returns
+                        // %struct.Vec — avoid routing to Str.len() below.
+                        let is_vec_field = is_container
+                            || is_unwrap_vec
+                            || recv_ty == "%struct.Vec"
+                            || recv_ty.ends_with(".Vec")
+                            || recv_ty == "%struct.Slice"
+                            || recv_ty.ends_with(".Slice")
+                            || recv_ty.contains("struct.Vec")
+                            || recv_ty.contains("struct.Slice")
+                            || (recv_ty == "i64" && self.is_container_vec_field(receiver));
+                        if !is_vec_field {
+                            // Not a Vec/Slice receiver — fall through to Str.len() below
                         } else {
                         let (recv_raw, recv_raw_ty) = self.compile_expr(receiver)?;
                         let (recv_val, _) = self.resolve_vec_receiver(receiver, &recv_raw, &recv_raw_ty);
@@ -1286,6 +1296,11 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 // Str.len(s) / Vec.len / Slice.len — method call
                 if fn_name == "len" && args.is_empty() {
                     if let Some(receiver) = receiver_expr {
+                        // Skip this handler if the receiver is a Vec/Slice field —
+                        // the Vec.len() handler above should have caught it.
+                        if self.is_container_vec_field(receiver) {
+                            // fall through to Vec/Slice path below (or to generic dispatch)
+                        } else {
                         let recv_ty = self.infer_llvm_type(receiver);
                         // Check XIOM type: Str.len() should use xiom_str_len even when
                         // the receiver is i64 (Str pointers stored as i64 in ABI).
@@ -1339,6 +1354,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             self.emitln(&format!("  {lenv} = load i64, i64* {gep}"));
                             return Ok((lenv, LLVM_I64.to_string()));
                         }
+                        } // end else: not a container Vec field
                     }
                 }
                 // Str.c_str() ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â identity on the string pointer (Str is already i8*).

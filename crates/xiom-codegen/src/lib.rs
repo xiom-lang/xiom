@@ -4435,6 +4435,14 @@ let inner_llvm = match &inner_subst {
                         return Some(clean.to_string());
                     }
                 }
+                // Check module-level globals (var _exec: Executor = ...)
+                if let Some((_, global_ty)) = self.local.module_globals.get(&ident.name) {
+                    if global_ty.starts_with("%struct.") {
+                        let raw = &global_ty[8..];
+                        let clean = raw.trim_end_matches('*');
+                        return Some(clean.to_string());
+                    }
+                }
                 // Check if it's a type name (for static method calls like Rect.new(...))
                 if self.types.types.contains_key(&ident.name) || self.types.type_meta.contains_key(&ident.name) {
                     return Some(ident.name.clone());
