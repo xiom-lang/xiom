@@ -3127,6 +3127,11 @@ impl Checker {
                             "clone" => return prim_ty,
                             // Str builtins.
                             "len" if prim_ty == CheckedType::Str => return CheckedType::Int,
+                            "is_empty" if prim_ty == CheckedType::Str => return CheckedType::Bool,
+                            // v0.56: String manipulation methods
+                            "trim" | "trim_start" | "trim_end" | "to_lower" | "to_upper" | "substr"
+                                if prim_ty == CheckedType::Str => return CheckedType::Str,
+                            "byte_at" | "char_at" if prim_ty == CheckedType::Str => return CheckedType::Int,
                             // Gap A fix: to_owned is the idiomatic Str duplication
                             // alias (Rust parity). Same semantics as clone.
                             "to_owned" if prim_ty == CheckedType::Str => return CheckedType::Str,
@@ -3198,10 +3203,14 @@ impl Checker {
                             ("Vec" | "Slice" | "Array" | "Str" | "Box", "as_ptr" | "as_mut_ptr") => return CheckedType::Named("*UInt8".into()),
                             // v0.56: Str byte access
                             ("Str", "byte_at" | "char_at") => return CheckedType::Int,
+                            // v0.56: Common Str methods
+                            ("Str", "trim" | "trim_start" | "trim_end" | "to_lower" | "to_upper" | "substr" | "from_c_str" | "to_c_str") => return CheckedType::Str,
                             // v0.56: String conversion method
                             (_, "to_string") => return CheckedType::Str,
                             // v0.56: Time/counter methods
                             (_, "now" | "elapsed" | "as_millis" | "as_micros" | "as_nanos" | "as_secs") => return CheckedType::Int,
+                            // v0.56: Pointer/offset methods
+                            (_, "offset" | "seek" | "tell" | "position" | "read" | "write" | "flush" | "close") => return CheckedType::Int,
                             // v0.56: Map iterator / key access
                             ("Map" | "Set", "keys" | "values" | "entries" | "iter") => return CheckedType::Named("_".into()),
                             // Container clone returns the same container type. (G-36)
