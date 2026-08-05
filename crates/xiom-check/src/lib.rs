@@ -3604,7 +3604,11 @@ impl Checker {
                     (CheckedType::Named(s), CheckedType::Int) if s == "Ptr" || s.starts_with('*') => target_ty,
                     // 5c-E: Vec/Slice/Array → Ptr cast (Vulkan FFI: pass buffer to extern)
                     (CheckedType::Named(s), CheckedType::Named(t))
-                        if (t == "Ptr" || t.starts_with('*')) && (s == "Vec" || s == "Slice") => target_ty,
+                        if (t == "Ptr" || t.starts_with('*')) && (s == "Vec" || s == "Slice" || s == "Array") => target_ty,
+                    // v0.56: Str → Ptr cast (C FFI: pass string as byte pointer)  
+                    (CheckedType::Str, CheckedType::Named(t)) if t == "Ptr" || t.starts_with('*') => target_ty,
+                    (CheckedType::Named(s), CheckedType::Named(t))
+                        if (s == "Ptr" || s.starts_with('*')) && (t == "Vec" || t == "Slice" || t == "Array" || t == "Str") => target_ty,
                     // M33: Pointer-to-pointer cast (`*T as *U`): allows byte-level
                     // reinterpretation in unsafe code (e.g. `pi as *UInt8` for raw
                     // memory access). Both sides must be pointer types.
