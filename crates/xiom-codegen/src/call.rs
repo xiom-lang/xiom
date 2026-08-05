@@ -344,7 +344,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 // Exit is_scalar to fall through to regular dispatch
                             } else {
                             let arg_val = if let Some(a) = args.first() {
-                                self.compile_expr(a)?.0
+                                // For builtin interface methods on scalar receivers,
+                                // arguments like `&value` should be dereferenced to
+                                // their VALUE, not the address. Otherwise icmp compares
+                                // the element value against the parameter's alloca address.
+                                // e.g. items[i].eq(&value) where T=Int should compare
+                                // two i64 values, not value vs &value.
+                                let arg_expr = if let Expr::Ref(inner, _) = a {
+                                    inner.as_ref()
+                                } else {
+                                    a
+                                };
+                                self.compile_expr(arg_expr)?.0
                             } else {
                                 "0".to_string()
                             };
