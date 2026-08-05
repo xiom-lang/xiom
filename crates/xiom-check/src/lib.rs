@@ -2946,6 +2946,10 @@ impl Checker {
                 }
                 match &obj_ty {
                     CheckedType::Named(name) => {
+                        // v0.56: Wildcard type _ — field access always allowed (codegen resolves)
+                        if name == "_" {
+                            return CheckedType::Named("_".into());
+                        }
                         // Generic type params have no registered fields — return wildcard
                         let is_generic_param = name.len() == 1 && name.chars().next().map_or(false, |c| c.is_ascii_uppercase());
                         if is_generic_param {
@@ -3160,6 +3164,10 @@ impl Checker {
                     if let CheckedType::Named(tn) = &obj_ty {
                         let base = tn.rsplit('.').next().unwrap_or(tn);
                         for arg in args { let _ = self.check_expr(arg); }
+                        // v0.56: Wildcard type _ — accept any method call (codegen resolves)
+                        if tn == "_" || base == "_" {
+                            return CheckedType::Named("_".into());
+                        }
                         // P2-5: Before builtin match, check if the concrete type has
                         // the method registered. This catches user-defined method calls
                         // at checker time instead of deferring to codegen.
@@ -3764,6 +3772,14 @@ impl Checker {
         if matches!(found, CheckedType::ImplTrait(_)) || matches!(expected, CheckedType::ImplTrait(_)) {
             return true;
         }
+        // v0.56: Str is represented as *UInt8 internally (C FFI).
+        // Allow Str to be passed where *UInt8 is expected and vice versa.
+        if matches!((found, expected), 
+            (CheckedType::Str, CheckedType::Named(s)) | (CheckedType::Named(s), CheckedType::Str)
+            if s.starts_with('*') || s == "Ptr")
+        {
+            return true;
+        }
         // Wildcard type `_` — compatible with any concrete type
         if matches!(found, CheckedType::Named(n) if n == "_") ||
            matches!(expected, CheckedType::Named(n) if n == "_") {
@@ -3810,7 +3826,7 @@ impl Checker {
         // v0.56: Pointer types are compatible with each other (e.g., *T with *Int).
         // Both encode as Named("*..."); accept any pointer-to-pointer match.
         if let (CheckedType::Named(a), CheckedType::Named(b)) = (found, expected) {
-            if a.starts_with('*') && b.starts_with('*') {
+            if (a.starts_with('*') || a == "Ptr") && (b.starts_with('*') || b == "Ptr") {
                 return true;
             }
         }
