@@ -3619,8 +3619,12 @@ impl Checker {
                     (CheckedType::Fn(..), CheckedType::Int) => target_ty,
                     // v0.56: fn-ptr → *UInt8 cast (thread spawn, FFI callback)
                     (CheckedType::Fn(..), CheckedType::Named(t)) if t.starts_with('*') => target_ty,
+                    // v0.56: Wildcard type (_) can cast to anything (unwrap result, etc.)
+                    (CheckedType::Named(n), _) if n == "_" => target_ty,
                     // G-16: function name as Int (callback pointer).
                     (CheckedType::Named(n), CheckedType::Int) if n == "fn" => target_ty,
+                    // v0.56: Generic type param cast — let any generic param be cast
+                    (CheckedType::Named(n), _) if n.len() == 1 && n.chars().next().map_or(false, |c| c.is_ascii_uppercase()) => target_ty,
                     _ => {
                         self.error(format!("unsupported type cast: {} to {}", inner_ty.name(), target_ty.name()), *span)
                     }
