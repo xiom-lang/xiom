@@ -29,8 +29,9 @@ function run-test($pkg, $testFile, $label, $extraFilter) {
     if ($extraFilter) { $cargs += $extraFilter }; $cargs += "--","--test-threads=$Threads"
     log "cargo $cargs"
     
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $proc = Start-Process cargo -Arg $cargs -NoNewWindow -PassThru -RedirectStandardOutput $tmpO -RedirectStandardError $tmpE
-    $total=0; $passed=0; $failed=0; $crashed=0; $lr=0; $tc=$false; $lu=[DateTime]::Now
+    $total=0; $passed=0; $failed=0; $crashed=0; $lr=0; $tc=$false; $lu=$sw.Elapsed
     
     while (-not $proc.HasExited) {
         Start-Sleep -Milliseconds 200
@@ -40,15 +41,15 @@ function run-test($pkg, $testFile, $label, $extraFilter) {
                 if ($lines[$i] -match '^running (\d+) tests?') { $total=[int]$Matches[1]; $tc=$true }
                 elseif ($lines[$i] -match '^test .*\.\.\. ok$') { $passed++ }
                 elseif ($lines[$i] -match '^test .*\.\.\. FAILED$') { $failed++ }
-                $lr++
             }
+            $lr = $lines.Count
         }
         if (Test-Path $tmpE) {
-            $el = Get-Content $tmpE -EA 0
+            $el = Get-Content $tmpE -EA 0 -Raw
             if ($el -match 'STATUS_STACK_OVERFLOW|STATUS_ACCESS_VIOLATION|STATUS_ILLEGAL') { $crashed=1 }
         }
-        $fin = $passed+$failed; $now = [DateTime]::Now
-        if ($tc -and $total -gt 0 -and ($now-$lu).TotalSeconds -gt 0.4) {
+        $fin = $passed+$failed; $now = $sw.Elapsed
+        if ($tc -and $total -gt 0 -and ($now - $lu).TotalSeconds -gt 0.4) {
             $pct = [math]::Round($fin*100/$total); $bar=""
             for ($i=0;$i -lt 20;$i++) { $bar += if ($i*5 -lt $pct){"="}else{" "} }
             Write-Host ("`r  [{0}] {1}/{2} ({3}ok {4}fail)   " -f $bar,$fin,$total,$passed,$failed) -NoNewline
@@ -56,6 +57,7 @@ function run-test($pkg, $testFile, $label, $extraFilter) {
         }
     }
     $proc.WaitForExit()
+    $sw.Stop()
     $so = if (Test-Path $tmpO) { Get-Content $tmpO -Raw -EA 0 } else {""}
     $se = if (Test-Path $tmpE) { Get-Content $tmpE -Raw -EA 0 } else {""}
     Remove-Item $tmpO,$tmpE -EA 0
@@ -67,21 +69,12 @@ function run-test($pkg, $testFile, $label, $extraFilter) {
         $p=[int]$Matches[1]; $f=[int]$Matches[2]; $i=[int]$Matches[3]
     } elseif ($se -match 'STATUS_STACK_OVERFLOW|STATUS_ACCESS_VIOLATION|STATUS_ILLEGAL') {
         $crash=$true; $crashName = if ($se -match 'STATUS_(\w+)') {$Matches[1]} else {"CRASH"}
-        # Count tests completed before crash from individual lines
         $f = ([regex]::Matches($so, '\.\.\. FAILED')).Count
         $p = ([regex]::Matches($so, '\.\.\. ok')).Count
-        # If no tests completed, show as all-crash
-        if ($p+$f -eq 0) {
-            # Look for how many test lines there should be
-            $allTests = ([regex]::Matches($so, '^test .*(\.\.\. ok|\.\.\. FAILED|\.\.\.)')).Count
-            $p = $allTests
-        }
     }
     
-    $elapsed = ((Get-Date)-$startTime).TotalSeconds
-    $elapsed = $proc.ExitTime.Subtract($proc.StartTime).TotalSeconds
+    $elapsed = $sw.Elapsed.TotalSeconds
     $es = if ($elapsed -lt 1){"$([math]::Round($elapsed*1000))ms"}else{"$([math]::Round($elapsed,1))s"}
-    $sw = [System.Diagnostics.Stopwatch]::StartNew(); $sw.Stop()  # timing done by process
     
     if ($crash) { Write-Host "  $($label.PadRight(25)) CRASH $crashName ($p ok before crash)" -ForegroundColor Magenta }
     elseif ($f -gt 0) { Write-Host "  $($label.PadRight(25)) FAIL ${es} ($p/$($p+$f))" -ForegroundColor Red }
@@ -105,7 +98,7 @@ Write-Host "===============" -ForegroundColor Magenta
 Write-Host ""
 Write-Host "BUILD (parallel)..." -ForegroundColor Yellow -NoNewline
 $sw=[System.Diagnostics.Stopwatch]::StartNew()
-cargo test --workspace --no-run 2>&1 | Out-Null
+cargo test --workspace --no-run --target-dir .test_build 2>&1 | Out-Null
 $sw.Stop()
 if ($LASTEXITCODE) { Write-Host " FAILED" -ForegroundColor Red; exit 1 }
 Write-Host " OK ($([math]::Round($sw.Elapsed.TotalSeconds,1))s)" -ForegroundColor Green
