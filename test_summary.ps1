@@ -236,7 +236,7 @@ if (-not $Fast) {
         Test-Crate "xiom-codegen" "e2e_tests" "e2e (all 2231)"
     }
 } else {
-    Write-Host " [E2E] SKIPPED (--fast)" -ForegroundColor Yellow
+    Write-Host " [E2E] SKIPPED (-fast)" -ForegroundColor Yellow
 }
 
 $runEnd = Get-Date
