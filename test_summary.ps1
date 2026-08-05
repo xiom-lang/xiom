@@ -25,7 +25,7 @@ function log($m) { if ($Logs) { Add-Content ".testlogs\session_$sid.txt" "[$(Get
 function run-test($pkg, $testFile, $label, $extraFilter) {
     $tmpO = "$env:TEMP\xt_o.txt"; $tmpE = "$env:TEMP\xt_e.txt"; Remove-Item $tmpO,$tmpE -EA 0
     
-    $cargs = @("test","-p",$pkg); if ($testFile) { $cargs += "--test",$testFile }
+    $cargs = @("test","-p",$pkg,"--target-dir",(Resolve-Path ".test_build")); if ($testFile) { $cargs += "--test",$testFile }
     if ($extraFilter) { $cargs += $extraFilter }; $cargs += "--","--test-threads=$Threads"
     log "cargo $cargs"
     
@@ -63,10 +63,13 @@ function run-test($pkg, $testFile, $label, $extraFilter) {
     Remove-Item $tmpO,$tmpE -EA 0
     Write-Host ("`r"+" "*80+"`r") -NoNewline
     
-    # Parse result — handle crash (no "test result:" line)
+    # Parse result — check both stdout and stderr
     $p=0; $f=0; $i=0; $crash=$false
-    if ($so -match 'test result: \w+\.\s*(\d+) passed;\s*(\d+) failed;\s*(\d+) ignored') {
+    $all = ($so + "`n" + $se)
+    if ($all -match 'test result: \w+\.\s*(\d+) passed;\s*(\d+) failed;\s*(\d+) ignored') {
         $p=[int]$Matches[1]; $f=[int]$Matches[2]; $i=[int]$Matches[3]
+    } elseif ($all -match '(\d+) passed;\s*(\d+) failed') {
+        $p=[int]$Matches[1]; $f=[int]$Matches[2]
     } elseif ($se -match 'STATUS_STACK_OVERFLOW|STATUS_ACCESS_VIOLATION|STATUS_ILLEGAL') {
         $crash=$true; $crashName = if ($se -match 'STATUS_(\w+)') {$Matches[1]} else {"CRASH"}
         $f = ([regex]::Matches($so, '\.\.\. FAILED')).Count
@@ -98,7 +101,8 @@ Write-Host "===============" -ForegroundColor Magenta
 Write-Host ""
 Write-Host "BUILD (parallel)..." -ForegroundColor Yellow -NoNewline
 $sw=[System.Diagnostics.Stopwatch]::StartNew()
-cargo test --workspace --no-run 2>&1 | Out-Null
+$td = (Resolve-Path ".test_build").Path
+cargo test --workspace --no-run --target-dir $td 2>&1 | Out-Null
 $sw.Stop()
 if ($LASTEXITCODE) { Write-Host " FAILED" -ForegroundColor Red; exit 1 }
 Write-Host " OK ($([math]::Round($sw.Elapsed.TotalSeconds,1))s)" -ForegroundColor Green
