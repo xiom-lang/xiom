@@ -2383,10 +2383,18 @@ impl Checker {
             // forms now — explicit `self`, receiver-style `&T` first param,
             // `this`-based bodies, AND bare-field bodies (codegen emits a
             // %param_self slot whenever the body mentions receiver state).
+            // Do NOT shadow explicit parameters with same-named receiver
+            // fields (e.g. `fn BufReader.read_line(self, buf: &mut Str)`
+            // where `buf` is also a BufReader field of type Vec[UInt8]).
+            let param_names: Vec<String> = fd.params.iter()
+                .map(|p| p.name.name.clone())
+                .collect();
             let fields_clone = self.get_type(&recv.name).cloned();
             if let Some(fields) = fields_clone {
                 for (field_name, field_ty) in fields {
-                    self.add_local(&field_name, field_ty);
+                    if !param_names.contains(&field_name) {
+                        self.add_local(&field_name, field_ty);
+                    }
                 }
             }
         }

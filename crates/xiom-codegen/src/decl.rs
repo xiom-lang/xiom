@@ -55,6 +55,11 @@ impl IrEmitter {
                 derives: td.derives.clone(),
                 invariants: td.invariants.clone(),
             });
+            // Register nested tuple types used in struct fields so codegen
+            // can resolve them (e.g. Vec[(Str,Str)] needs Tuple__Str__Str).
+            for f in &td.fields {
+                self.ensure_tuple_type_registered(&f.ty);
+            }
         }
         if let TopDecl::Enum(ed) = item {
             let bare_name = ed.name.name.clone();
