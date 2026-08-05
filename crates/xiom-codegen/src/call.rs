@@ -698,6 +698,13 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // push iteration when called inside a loop, causing unbounded
                         // stack growth and ACCESS_VIOLATION (>100K iterations).
                         let (vec_alloca, needs_store_back) = self.resolve_vec_push_ptr(receiver)?;
+                        // OPT-R5: When needs_store_back is false, the alloca IS the
+                        // authoritative storage — the SSA value was just loaded FROM
+                        // this alloca. Skip the redundant extractvalue+store preamble
+                        // (12 LLVM instructions per push: 4x extractvalue + 4x GEP +
+                        // 4x store). In tight Vec push loops (e.g. t1-allocator init),
+                        // this eliminates ~12M redundant instructions for 1M pushes.
+                        if needs_store_back {
                         // Store Vec via extractvalue+individual stores to prevent
                         // LLVM SROA from decomposing the struct write (5c.28).
                         let vec_data = self.fresh_tmp();
@@ -720,6 +727,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         self.emitln(&format!("  store i64 {vec_cap}, i64* {c_gep}"));
                         self.emitln(&format!("  {e_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 3"));
                         self.emitln(&format!("  store i64 {vec_esz}, i64* {e_gep}"));
+                        } // OPT-R5 end: skip redundant extractvalue+store for in-place alloca
                         // Load elem_size early ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â needed to decide struct vs scalar path
                         let esz_gep = self.fresh_tmp();
                         let esz_val = self.fresh_tmp();
