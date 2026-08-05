@@ -6505,3 +6505,33 @@ fn main() -> Int {
     // Verify phi instruction exists (not alloca+store+load)
     assert!(ir.contains("phi i64"), "OPT-R6: must use phi node, not alloca pattern");
 }
+
+// =====================================================================
+// OPT-R7: Vec/Slice index uses extractvalue instead of alloca+memset+store
+// Eliminates 32-byte stack leak per items[i] access in loops.
+// =====================================================================
+
+#[test]
+fn regress_opt_r7_vec_index_extractvalue_no_alloca() {
+    let src = "\
+fn sum_vec(v: &Vec[Int]) -> Int {
+    var total: Int = 0;
+    var i: Int = 0;
+    while i < v.len() {
+        total = total + v[i];
+        i = i + 1;
+    }
+    return total;
+}
+fn main() -> Int {
+    var vec: Vec[Int] = Vec[Int].with_capacity(3);
+    vec.push(10);
+    vec.push(20);
+    vec.push(30);
+    return sum_vec(&vec);
+}";
+    let ir = compile_checked(src).unwrap();
+    assert!(ir.contains("define"), "OPT-R7: Vec index must compile");
+    // Must use extractvalue, not alloca per access
+    assert!(ir.contains("extractvalue %struct.Vec"), "OPT-R7: must use extractvalue, not per-access alloca");
+}
