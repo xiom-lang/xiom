@@ -560,6 +560,10 @@ impl IrEmitter {
                 TopDecl::Extern(eb) => {
                     for fd in &eb.functions {
                         let name = &fd.name.name;
+                        // Track thread spawn declaration to avoid duplicate builtin
+                        if name == "xiom_thread_spawn" {
+                            self.local.spawn_declared = true;
+                        }
                         if self.mono.already_declared.contains(name) {
                             continue;
                         }

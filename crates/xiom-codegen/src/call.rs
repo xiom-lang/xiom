@@ -1311,8 +1311,14 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // 5c.30: Indexed Vec elements (e.g. outer[1] from Vec[Vec[Int]])
                         // return i64 but are NOT strings — exclude them from the Str.len() path.
                         let is_vec_index = matches!(&**receiver, Expr::Index(..));
-                        if (recv_ty == "i8*" || recv_ty == "ptr" || (recv_ty == "i64" && !is_vec_index) || is_str_type)
-                            && !is_vec_index
+                        // Also skip module-level globals whose type is a named struct
+                        // (like Map[K,V]) — they're not strings.
+                        let is_struct_global = if let Expr::Ident(id) = &**receiver {
+                            self.local.module_globals.get(&id.name)
+                                .map_or(false, |(_, ty)| ty.starts_with("%struct.") || ty.ends_with(".Map") || ty.ends_with(".Vec"))
+                        } else { false };
+                        if (recv_ty == "i8*" || recv_ty == "ptr" || (recv_ty == "i64" && !is_vec_index && !is_struct_global) || is_str_type)
+                            && !is_vec_index && !is_struct_global
                         {
                             let (recv_val, _) = self.compile_expr(receiver)?;
                             let str_ptr = if recv_ty == "i64" {
