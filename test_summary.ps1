@@ -35,12 +35,14 @@ function run-test($pkg, $testFile, $label, $extraFilter) {
     
     while (-not $proc.HasExited) {
         Start-Sleep -Milliseconds 200
+        if ($sw.Elapsed.TotalSeconds -gt 180) { $proc.Kill(); $crashed=2; break }  # 3min timeout
         if (Test-Path $tmpO) {
             $lines = Get-Content $tmpO -EA 0
             for ($i=$lr; $i -lt $lines.Count; $i++) {
-                if ($lines[$i] -match '^running (\d+) tests?') { $total=[int]$Matches[1]; $tc=$true }
-                elseif ($lines[$i] -match '^test .*\.\.\. ok$') { $passed++ }
-                elseif ($lines[$i] -match '^test .*\.\.\. FAILED$') { $failed++ }
+                $l = $lines[$i]
+                if ($l -match '^running (\d+) tests?$') { $total=[int]$Matches[1]; $tc=$true }
+                elseif ($l -match '^test \S+ \.\.\. ok\s*$') { $passed++ }
+                elseif ($l -match '^test \S+ \.\.\. FAILED\s*$') { $failed++ }
             }
             $lr = $lines.Count
         }
@@ -63,7 +65,17 @@ function run-test($pkg, $testFile, $label, $extraFilter) {
     Remove-Item $tmpO,$tmpE -EA 0
     Write-Host ("`r"+" "*80+"`r") -NoNewline
     
-    # Parse result — check both stdout and stderr
+    $elapsed = $sw.Elapsed.TotalSeconds
+    $es = if ($elapsed -lt 1){"$([math]::Round($elapsed*1000))ms"}else{"$([math]::Round($elapsed,1))s"}
+    
+    # Handle timeout
+    if ($crashed -eq 2) {
+        Write-Host "  $($label.PadRight(25)) HANG  (timeout 3min)" -ForegroundColor Magenta
+        $script:timings += @{L=$label;P=0;F=0;I=0;E=$elapsed}
+        return
+    }
+    
+    # Parse result from both stdout and stderr
     $p=0; $f=0; $i=0; $crash=$false
     $all = ($so + "`n" + $se)
     if ($all -match 'test result: \w+\.\s*(\d+) passed;\s*(\d+) failed;\s*(\d+) ignored') {
@@ -75,9 +87,6 @@ function run-test($pkg, $testFile, $label, $extraFilter) {
         $f = ([regex]::Matches($so, '\.\.\. FAILED')).Count
         $p = ([regex]::Matches($so, '\.\.\. ok')).Count
     }
-    
-    $elapsed = $sw.Elapsed.TotalSeconds
-    $es = if ($elapsed -lt 1){"$([math]::Round($elapsed*1000))ms"}else{"$([math]::Round($elapsed,1))s"}
     
     if ($crash) { Write-Host "  $($label.PadRight(25)) CRASH $crashName ($p ok before crash)" -ForegroundColor Magenta }
     elseif ($f -gt 0) { Write-Host "  $($label.PadRight(25)) FAIL ${es} ($p/$($p+$f))" -ForegroundColor Red }
