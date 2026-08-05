@@ -577,6 +577,13 @@ impl Parser {
         let start = self.advance().span;
         let name = self.parse_ident()?;
         let generics = self.parse_optional_generic_params()?;
+        // v0.56: Interface inheritance (e.g., `interface DerefMut: Deref`)
+        let parent = if self.peek_kind() == &TokenKind::Colon {
+            self.advance(); // consume ':'
+            Some(self.parse_ident()?)
+        } else {
+            None
+        };
         self.expect_kind(TokenKind::LBrace, "'{'")?;
         let mut members = Vec::new();
         while !self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Eof)) {
@@ -602,7 +609,7 @@ impl Parser {
             }
         }
         self.expect_kind(TokenKind::RBrace, "'}'")?;
-        Ok(TopDecl::Interface(InterfaceDecl { is_pub, name, generics, members, span: start }))
+        Ok(TopDecl::Interface(InterfaceDecl { is_pub, name, generics, parent, members, span: start }))
     }
 
     /// Parse impl TraitName for TypeName { fn method(...) { body } ... }

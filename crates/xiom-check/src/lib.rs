@@ -2987,13 +2987,19 @@ impl Checker {
                         } else {
                             self.functions.get(&method_key)
                         }.cloned();
-                        // If not found, try wildcard method lookup (any type with that method)
-                        let sig = sig.or_else(|| {
-                            self.methods.iter()
-                                .find(|(_, methods)| methods.contains_key(&method.name))
-                                .and_then(|(_, methods)| methods.get(&method.name))
-                                .cloned()
-                        });
+                        // If not found, try wildcard method lookup (any type with that method).
+                        // v0.56: Skip wildcard lookup for 'clone' — it matches the wrong type's
+                        // clone method (e.g., Rc.clone returns Rc[T], not the receiver type).
+                        let sig = if method.name == "clone" {
+                            None
+                        } else {
+                            sig.or_else(|| {
+                                self.methods.iter()
+                                    .find(|(_, methods)| methods.contains_key(&method.name))
+                                    .and_then(|(_, methods)| methods.get(&method.name))
+                                    .cloned()
+                            })
+                        };
                         if let Some(sig) = sig {
                             // Detect static call (TypeName.method) vs instance method:
                             // if obj is a simple Ident that resolves to a known type,
@@ -3124,7 +3130,11 @@ impl Checker {
                         // the method registered. This catches user-defined method calls
                         // at checker time instead of deferring to codegen.
                         let method_key = format!("{}.{}", tn, method.name);
-                        if self.functions.contains_key(&method_key) {
+                        // v0.56: Skip function registry check for single-uppercase-letter
+                        // generic params (T, U, V etc.). These collide with type param names
+                        // from other modules (e.g., MaybeUninit[T] registers 'T' as a key).
+                        let is_generic_param = tn.len() == 1 && tn.chars().next().map_or(false, |c| c.is_ascii_uppercase());
+                        if !is_generic_param && self.functions.contains_key(&method_key) {
                             return CheckedType::Named("_".into());
                         }
                         let method_key_base = format!("{}.{}", base, method.name);
@@ -3167,9 +3177,11 @@ impl Checker {
                             self.interfaces.contains_key(tn)
                             || tn == "_"  // wildcard from Option.value / Result.unwrap
                             || (
-                                // Generic param with potential interface bound
-                                tn.len() == 1 && tn.chars().next().map_or(false, |c| c.is_uppercase())
-                                && self.interfaces.values().any(|m| m.iter().any(|(mn, _, _)| mn == &method.name))
+                                // Generic param with potential interface bound.
+                                // v0.56: Skip — generic params should go through the
+                                // match arms above, not interface dispatch (which may
+                                // return wrong types from other registered types).
+                                false  // tn.len() == 1 && ...
                             )
                         }
                         // Pattern-bound variables from match arms (e.g. `e` in

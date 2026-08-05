@@ -555,6 +555,8 @@ pub struct InterfaceDecl {
     pub is_pub: bool,
     pub name: Ident,
     pub generics: Vec<GenericParam>,
+    /// v0.56: Parent interface for inheritance (DerefMut: Deref)
+    pub parent: Option<Ident>,
     pub members: Vec<InterfaceMember>,
     pub span: Span,
 }
