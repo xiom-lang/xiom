@@ -2896,19 +2896,21 @@ impl Checker {
             }
             Expr::Try(inner, _span) => {
                 let inner_ty = self.check_expr(inner);
+                // v0.56: Cascade suppression — Error/Unit/wildcard from previous
+                // errors should not produce additional ? operator errors.
+                if inner_ty == CheckedType::Error || inner_ty == CheckedType::Unit {
+                    return inner_ty;
+                }
                 // ? unwraps Result[T,E] → T or Option[T] → T.
-                // Return wildcard (_) since the checker erases generic type args
-                // (Result[T,E] is just "Result"). The codegen handles the actual
-                // value extraction and early-return on error propagation.
                 match &inner_ty {
-                    CheckedType::Named(n) if n == "Result" || n == "Option" => {
+                    CheckedType::Named(n) if n == "Result" || n == "Option" || n == "_" => {
                         // P2-1: Validate that the enclosing function returns Result/Option.
                         let fn_returns_result_or_option = self.current_return.as_ref()
                             .map_or(false, |ret| match ret {
-                                CheckedType::Named(rn) => rn == "Result" || rn == "Option",
+                                CheckedType::Named(rn) => rn == "Result" || rn == "Option" || rn == "_",
                                 _ => false,
                             });
-                        if !fn_returns_result_or_option {
+                        if !fn_returns_result_or_option && n != "_" {
                             self.error(
                                 format!("'?' operator used in function that returns '{}' — must return Result or Option",
                                     self.current_return.as_ref().map_or("void".to_string(), |r| r.name())),
@@ -3452,6 +3454,12 @@ impl Checker {
                 // Accept any args and return wildcard since we don't track closure
                 // signatures in the type system yet.
                 if matches!(&callee_ty, CheckedType::Named(n) if n == "fn") {
+                    for arg in args { let _ = self.check_expr(arg); }
+                    return CheckedType::Named("_".into());
+                }
+                // v0.56: Generic type param from Vec/Array indexing (Named("T")) or
+                // wildcard (_) as callable — the real type is erased, codegen resolves.
+                if matches!(&callee_ty, CheckedType::Named(n) if n == "_" || (n.len() == 1 && n.chars().next().map_or(false, |c| c.is_ascii_uppercase()))) {
                     for arg in args { let _ = self.check_expr(arg); }
                     return CheckedType::Named("_".into());
                 }
