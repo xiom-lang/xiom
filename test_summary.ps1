@@ -25,8 +25,11 @@ function log($m) { if ($Logs) { Add-Content ".testlogs\session_$sid.txt" "[$(Get
 function run-test($pkg, $testFile, $label, $extraFilter) {
     $tmpO = "$env:TEMP\xt_o.txt"; $tmpE = "$env:TEMP\xt_e.txt"; Remove-Item $tmpO,$tmpE -EA 0
     
-    $cargs = @("test","-p",$pkg,"--target-dir",(Resolve-Path ".test_build")); if ($testFile) { $cargs += "--test",$testFile }
-    if ($extraFilter) { $cargs += $extraFilter }; $cargs += "--","--test-threads=$Threads"
+    $cargs = @("test","-p",$pkg,"--target-dir",(Resolve-Path ".test_build"))
+    if ($testFile -eq "--lib") { $cargs += "--lib" }
+    elseif ($testFile) { $cargs += "--test",$testFile }
+    if ($extraFilter) { $cargs += $extraFilter }
+    $cargs += "--","--test-threads=$Threads"
     log "cargo $cargs"
     
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -126,7 +129,7 @@ run-test "xiom-parser"  $null "parser"
 run-test "xiom-check"   $null "checker"
 run-test "xiom-ctfe"    $null "ctfe"
 run-test "xiom-graph"   $null "graph"
-run-test "xiom-codegen" $null "codegen-unit"
+run-test "xiom-codegen" "--lib" "codegen-unit"
 run-test "xiom-verify"  "verifier_tests" "verifier"
 run-test "xiom-jit"     $null "jit"
 
