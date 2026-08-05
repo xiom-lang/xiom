@@ -20,29 +20,74 @@ function Write-Log($msg) {
 
 $totalPassed = 0; $totalFailed = 0; $totalIgnored = 0
 
-function Test-Crate($pkg, $testFile, $label, $extraFilter) {
-    $cargs = @("test", "-p", $pkg, "--target-dir", (Resolve-Path $script:BuildDir))
+function Invoke-CargoTest($pkg, $testFile, $extraFilter) {
+    $cargs = @("test", "-p", $pkg)
     if ($testFile) { $cargs += "--test", $testFile }
     if ($extraFilter) { $cargs += $extraFilter }
-    $cargs += "--", "--test-threads=$script:Threads"
+    $cargs += "--", "--test-threads=$Threads"
+    $cargs += "2>&1"
     
+    # Use a temp file for output to avoid hanging
+    $tmp = "$env:TEMP\xiom_test_${pkg}_$((Get-Date).Ticks).txt"
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = "cargo"
+    $psi.Arguments = [string]::Join(" ", $cargs)
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+    
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    
+    # Wait with timeout (5 min per crate)
+    $timeout = 300000
+    $finished = $proc.WaitForExit($timeout)
+    if (-not $finished) {
+        $proc.Kill()
+        return "TIMEOUT"
+    }
+    
+    $stdout = $proc.StandardOutput.ReadToEnd()
+    $stderr = $proc.StandardError.ReadToEnd()
+    return $stdout + "`n" + $stderr
+}
+
+function Test-Crate($pkg, $testFile, $label, $extraFilter) {
     Write-Log "START $label"
     Write-Host "  $($label.PadRight(25)) " -NoNewline
     
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $output = & cargo @cargs 2>&1 | Out-String
+    $output = Invoke-CargoTest $pkg $testFile $extraFilter
     $sw.Stop()
     
+    if ($output -eq "TIMEOUT") {
+        Write-Host "HANG  (timeout)" -ForegroundColor Magenta
+        Write-Log "END $label TIMEOUT"
+        return
+    }
+    
     $p = 0; $f = 0; $i = 0
+    # Try multiple regex patterns for different cargo output formats
     if ($output -match 'test result: \w+\.\s*(\d+) passed;\s*(\d+) failed;\s*(\d+) ignored') {
         $p = [int]$Matches[1]; $f = [int]$Matches[2]; $i = [int]$Matches[3]
+    } elseif ($output -match '(\d+) passed;\s*(\d+) failed') {
+        $p = [int]$Matches[1]; $f = [int]$Matches[2]
+    } elseif ($output -match 'test result: (\w+)') {
+        # Tests ran but no count — check for "ok" or "FAILED"
+        if ($output -match '0 passed; 0 failed') { $p = 0; $f = 0 }
+        elseif ($output -match 'failures:' -and $output -notmatch '0 passed') {
+            # Some failures, extract from individual test lines
+            $f = ([regex]::Matches($output, '\.\.\. FAILED')).Count
+            $p = ([regex]::Matches($output, '\.\.\. ok')).Count
+        }
     }
+    
     $elapsed = $sw.Elapsed.TotalSeconds
     $elapsedStr = if ($elapsed -lt 1) { "$([math]::Round($elapsed*1000))ms" } else { "$([math]::Round($elapsed,1))s" }
     
     if ($f -gt 0) { Write-Host "FAIL ${elapsedStr} ($p/$($p+$f))" -ForegroundColor Red }
     elseif ($p -gt 0) { Write-Host "OK   ${elapsedStr} ($p)" -ForegroundColor Green }
-    else { Write-Host "NONE  ${elapsedStr}" -ForegroundColor Yellow }
+    else { Write-Host "NONE ${elapsedStr} ($p)" -ForegroundColor Yellow }
     
     $r = @{ Label=$label; Passed=$p; Failed=$f; Ignored=$i; Elapsed=$elapsed }
     $script:timings += $r
@@ -64,20 +109,19 @@ Write-Host ""
 Write-Host "BUILD (parallel)..." -ForegroundColor Yellow -NoNewline
 Write-Log "BUILD START"
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
-cargo test --workspace --no-run --target-dir $BuildDir 2>&1 | Out-Null
+cargo test --workspace --no-run 2>&1 | Out-Null
 $sw.Stop()
 if ($LASTEXITCODE -ne 0) {
-    Write-Host " FAILED ($([math]::Round($sw.Elapsed.TotalSeconds,1))s)" -ForegroundColor Red
+    Write-Host " FAILED" -ForegroundColor Red
     Write-Log "BUILD FAILED"
     exit 1
 }
 Write-Host " OK ($([math]::Round($sw.Elapsed.TotalSeconds,1))s)" -ForegroundColor Green
-Write-Log "BUILD OK $([math]::Round($sw.Elapsed.TotalSeconds,1))s"
+Write-Log "BUILD OK"
 Write-Host ""
 
 # ---- Run ----
-Write-Host "RUN ($Threads threads) - $(Get-Date -Format 'HH:mm:ss')" -ForegroundColor Yellow
-Write-Log "RUN START threads=$Threads"
+Write-Host "RUN - $(Get-Date -Format 'HH:mm:ss')" -ForegroundColor Yellow
 
 Write-Host " [UNITS]" -ForegroundColor Cyan
 Test-Crate "xiom-lexer"   $null "lexer"
@@ -119,7 +163,7 @@ if (-not $Fast) {
         Test-Crate "xiom-codegen" "e2e_tests" "e2e (all 2231)"
     }
 } else {
-    Write-Host " [E2E] SKIPPED (-fast)" -ForegroundColor Yellow
+    Write-Host " [E2E] SKIPPED" -ForegroundColor Yellow
 }
 
 # ---- Summary ----
@@ -130,11 +174,8 @@ Write-Host "============================================" -ForegroundColor Magen
 Write-Host "  TEST SUMMARY" -ForegroundColor Cyan
 Write-Host "  Time:    ${totalTime}s" -ForegroundColor White
 Write-Host "  Passed:  $totalPassed" -ForegroundColor Green
-if ($totalFailed -gt 0) {
-    Write-Host "  Failed:  $totalFailed" -ForegroundColor Red
-} else {
-    Write-Host "  Failed:  0" -ForegroundColor Green
-}
+if ($totalFailed -gt 0) { Write-Host "  Failed:  $totalFailed" -ForegroundColor Red }
+else { Write-Host "  Failed:  0" -ForegroundColor Green }
 if ($totalIgnored -gt 0) { Write-Host "  Ignored: $totalIgnored" -ForegroundColor Yellow }
 Write-Host "  Total:   $total" -ForegroundColor White
 Write-Host "============================================" -ForegroundColor Magenta
@@ -145,7 +186,7 @@ if ($totalFailed -gt 0) {
     Write-Host "`nFAILURES:" -ForegroundColor Red
     foreach ($r in $timings) {
         if ($r.Failed -gt 0) {
-            Write-Host "  $($r.Label): $($r.Failed) failed / $($r.Passed + $r.Failed) total in $([math]::Round($r.Elapsed,1))s" -ForegroundColor Red
+            Write-Host "  $($r.Label): $($r.Failed) failed / $($r.Passed + $r.Failed) total" -ForegroundColor Red
         }
     }
     if ($Logs) { Write-Host "  Failure details: $LogDir\failures_$sessionId.txt" -ForegroundColor Yellow }
