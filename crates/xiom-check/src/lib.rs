@@ -3164,6 +3164,8 @@ impl Checker {
                             // P2-5: clone() returns the receiver type for generic/
                             // non-container types. Codegen resolves concrete impl.
                             (_, "clone") => return obj_ty.clone(),
+                            // P2-5: default() on generic types (T.default() for T: Default)
+                            (_, "default") => return obj_ty.clone(),
                             _ => {}
                         }
                     }
