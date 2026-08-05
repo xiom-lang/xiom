@@ -324,6 +324,13 @@ impl Checker {
             generics: vec![],
             uses_implicit_this: false,
         });
+        // v0.56: Builtin utilities
+        self.functions.insert("unreachable".to_string(), FnSig {
+            params: vec![],
+            return_type: Some(CheckedType::Never),
+            generics: vec![],
+            uses_implicit_this: false,
+        });
 
         // v0.56 I3: Mutex builtins for deadlock detection
         self.functions.insert("Mutex.new".to_string(), FnSig {
@@ -3173,10 +3180,14 @@ impl Checker {
                             // P2-5: clone() returns the receiver type for generic/
                             // non-container types. Codegen resolves concrete impl.
                             (_, "clone") => return obj_ty.clone(),
+                            // v0.56: .new() on any named type returns the receiver type
+                            (_, "new") => return obj_ty.clone(),
                             // P2-5: default() on generic types (T.default() for T: Default)
                             (_, "default") => return obj_ty.clone(),
                             (_, "serialize_json") => return CheckedType::Named("Result".into()),
                             (_, "deserialize_json") => return CheckedType::Named("Result".into()),
+                            // v0.56: Ord interface method on generic types
+                            (_, "compare") => return CheckedType::Int,
                             _ => {}
                         }
                     }
@@ -3583,9 +3594,11 @@ impl Checker {
                     // Char is a codepoint: convertible to/from any integer type
                     _ if inner_resolved == CheckedType::Char && target_resolved.is_integer() => target_ty,
                     _ if inner_resolved.is_integer() && target_resolved == CheckedType::Char => target_ty,
-                    // v0.56: Char ↔ Float64 casts (string parsing)
-                    _ if inner_resolved == CheckedType::Char && target_resolved.is_float() => target_ty,
-                    _ if inner_resolved.is_float() && target_resolved == CheckedType::Char => target_ty,
+                    // v0.56: Char ↔ Float casts (string parsing, core.xi)
+                    _ if inner_resolved == CheckedType::Char
+                        && matches!(target_resolved, CheckedType::Float32 | CheckedType::Float64) => target_ty,
+                    _ if matches!(inner_resolved, CheckedType::Float32 | CheckedType::Float64)
+                        && target_resolved == CheckedType::Char => target_ty,
                     // 5c-E: Int ↔ Ptr casts (raw pointer FFI, ptr.xi)
                     (CheckedType::Int, CheckedType::Named(s)) if s == "Ptr" || s.starts_with('*') => target_ty,
                     (CheckedType::Named(s), CheckedType::Int) if s == "Ptr" || s.starts_with('*') => target_ty,
