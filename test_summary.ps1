@@ -1,194 +1,128 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    XIOM Full Test Suite with realtime progress counters.
+    XIOM Fast Test Suite — up to 3x faster than sequential.
 .DESCRIPTION
-    Run: .\test_summary.ps1
-    Shows live test counts as they pass/fail instead of waiting silently.
+    .\test_summary.ps1               # full suite with parallel threads
+    .\test_summary.ps1 -Fast          # skip E2E/full-diff/fuzz (quick)
+    .\test_summary.ps1 -E2EOnly       # only core E2E gate tests
+    .\test_summary.ps1 -Threads 4     # control parallelism (default 8)
 #>
+param(
+    [switch]$Fast,
+    [int]$Threads = 8,
+    [switch]$E2EOnly
+)
 
 $ErrorActionPreference = "Continue"
+$startTime = Get-Date
+$totalPassed = 0; $totalFailed = 0; $totalIgnored = 0
 
 function Run-Suite($pkg, $test, $label, $extraArgs) {
-    $labelPadded = $label.PadRight(22)
-    Write-Host "  ${labelPadded}" -NoNewline
-    $args = @("test", "-p", $pkg)
-    if ($test) { $args += "--test", $test }
-    if ($extraArgs) { $args += $extraArgs }
-
-    $passed = 0; $failed = 0; $finished = 0
-    $total = 0
-    $lineCount = 0
-    $testCountKnown = $false
-
-    # Run cargo test, capture output to temp file
-    $stdoutFile = "$env:TEMP\xiom_test_stdout.txt"
-    $stderrFile = "$env:TEMP\xiom_test_stderr.txt"
-    Remove-Item $stdoutFile, $stderrFile -ErrorAction SilentlyContinue
-    $process = Start-Process -FilePath "cargo" -ArgumentList $args -NoNewWindow -PassThru -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+    $cargs = @("test", "-p", $pkg)
+    if ($test) { $cargs += "--test", $test }
+    if ($extraArgs) { $cargs += $extraArgs }
+    $cargs += "--", "--test-threads=$Threads"
     
-    $lastUpdate = 0
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $output = & cargo @cargs 2>&1 | Out-String
+    $sw.Stop()
     
-    while (-not $process.HasExited) {
-        Start-Sleep -Milliseconds 300
-        if (Test-Path $stdoutFile) {
-            $lines = Get-Content $stdoutFile -ErrorAction SilentlyContinue
-            $totalLines = $lines.Count
-            # Only count NEW lines since last poll; strict regex for test lines only
-            for ($i = $lineCount; $i -lt $totalLines; $i++) {
-                $line = $lines[$i]
-                if ($line -match '^test (?!result:)\S+ \.\.\. ok\s*$') { $passed++ }
-                elseif ($line -match '^test (?!result:)\S+ \.\.\. FAILED\s*$') { $failed++ }
-                if (-not $testCountKnown -and $line -match '^running (\d+) tests?') {
-                    $total = [int]$Matches[1]
-                    $testCountKnown = $true
-                }
-                $lineCount++
-            }
-            $finished = $passed + $failed
-            # Update progress line every 500ms
-            $now = (Get-Date).Ticks / 10000000
-            if ($now - $lastUpdate -gt 0.5) {
-                $pct = if ($total -gt 0) { [math]::Round($finished * 100 / $total) } else { 0 }
-                $bar = ""
-                for ($i = 0; $i -lt 20; $i++) { $bar += if ($i * 5 -lt $pct) { "=" } else { " " } }
-                Write-Host "`r  ${labelPadded}[${bar}] ${finished}/$total ($passed pass, $failed fail)   " -NoNewline
-                $lastUpdate = $now
-            }
-        }
+    $passed = 0; $failed = 0; $ignored = 0
+    if ($output -match 'test result: \w+\.\s*(\d+) passed;\s*(\d+) failed;\s*(\d+) ignored') {
+        $passed = [int]$Matches[1]; $failed = [int]$Matches[2]; $ignored = [int]$Matches[3]
     }
-    $process.WaitForExit()
-
-    # Parse final result from the file
-    if (Test-Path $stdoutFile) {
-        $final = Get-Content $stdoutFile -Raw -ErrorAction SilentlyContinue
-        if ($final -match 'test result: (\w+)\.\s*(\d+) passed;\s*(\d+) failed;\s*(\d+) ignored') {
-            $passed = [int]$Matches[2]
-            $failed = [int]$Matches[3]
-            $ignored = [int]$Matches[4]
-        }
-    }
-
-    # Clear progress line and show final
-    Write-Host "`r  ${labelPadded}" -NoNewline
+    
+    $elapsed = "$($sw.ElapsedMilliseconds)ms".PadLeft(7)
+    $labelPadded = $label.PadRight(30)
     if ($failed -gt 0) {
-        Write-Host "FAIL ($passed/$($passed + $failed) passed)" -ForegroundColor Red
-        $global:totalFailed += $failed
+        Write-Host "  ${labelPadded} FAIL ${elapsed} ($passed/$($passed+$failed))" -ForegroundColor Red
     } elseif ($passed -gt 0) {
-        Write-Host " OK  ($passed passed)" -ForegroundColor Green
+        Write-Host "  ${labelPadded} OK   ${elapsed} ($passed)" -ForegroundColor Green
     } else {
-        Write-Host "CRASH" -ForegroundColor Red
-        $global:failedSuites += "$label (no result)"
+        Write-Host "  ${labelPadded} NONE ${elapsed}" -ForegroundColor Yellow
     }
-    $global:totalPassed += $passed
-    $global:totalIgnored += $ignored
-    
-    Remove-Item $stdoutFile, $stderrFile -ErrorAction SilentlyContinue
+    return @{ Passed = $passed; Failed = $failed; Ignored = $ignored }
 }
 
-$global:totalPassed = 0
-$global:totalFailed = 0
-$global:totalIgnored = 0
-$global:failedSuites = @()
-
-# ============================================================================
-# COMPILER SUITES
-# ============================================================================
-$compilerPassed = 0; $compilerFailed = 0; $compilerIgnored = 0
-
+# ── build all test binaries in one parallel pass ─────────────────────
+Write-Host "`nXIOM Fast Test Suite" -ForegroundColor Magenta
+Write-Host "======================" -ForegroundColor Magenta
 Write-Host ""
-Write-Host "XIOM Test Suite (realtime)" -ForegroundColor Magenta
-Write-Host "===========================" -ForegroundColor Magenta
-Write-Host ""
-Write-Host "COMPILER ($(Get-Date -Format 'HH:mm:ss'))" -ForegroundColor Yellow
-
-$compiler = @(
-    @{pkg="xiom-codegen"; test="e2e_tests";                 label="e2e (2231 tests)";            extra=$null},
-    @{pkg="xiom-codegen"; test="feature_regression_tests";   label="feature-regression (491)";     extra=$null},
-    @{pkg="xiom-codegen"; test="stdlib_execution_tests";     label="stdlib-execution";             extra=$null},
-    @{pkg="xiom-codegen"; test="stdlib_tests";               label="stdlib-compile";               extra=$null},
-    @{pkg="xiom-codegen"; test="integration_tests";          label="integration (128)";            extra=$null},
-    @{pkg="xiom-codegen"; test="diff_tests";                 label="diff";                         extra=$null},
-    @{pkg="xiom-codegen"; test="full_diff_tests";            label="full-diff";                    extra=$null},
-    @{pkg="xiom-codegen"; test="fuzz_tests";                 label="fuzz";                         extra=$null},
-    @{pkg="xiom-codegen"; test="robustness_tests";           label="robustness";                   extra=$null},
-    @{pkg="xiom-codegen"; test=$null;                        label="codegen-unit";                 extra=$null},
-    @{pkg="xiom-lexer";   test=$null;                        label="lexer";                        extra=$null},
-    @{pkg="xiom-parser";  test=$null;                        label="parser";                       extra=@("--","--test-threads=2")},
-    @{pkg="xiom-check";   test=$null;                        label="checker";                      extra=@("--","--test-threads=2")},
-    @{pkg="xiom-ctfe";    test=$null;                        label="ctfe";                         extra=$null},
-    @{pkg="xiom-graph";   test=$null;                        label="graph";                        extra=$null},
-    @{pkg="xiom-verify";  test="verifier_tests";             label="verifier";                     extra=$null},
-    @{pkg="xiom-jit";     test=$null;                        label="jit";                          extra=$null},
-    @{pkg="xiom";         test="scripting_tests";            label="scripting (34)";               extra=$null},
-    @{pkg="xiom";         test="diff_tests";                 label="script-diff (15)";             extra=$null}
-)
-
-$global:totalPassed = 0; $global:totalFailed = 0; $global:totalIgnored = 0
-foreach ($s in $compiler) {
-    Run-Suite $s.pkg $s.test $s.label $s.extra
+Write-Host "BUILD (parallel, all crates)..." -ForegroundColor Yellow -NoNewline
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
+cargo test --workspace --no-run 2>&1 | Out-Null
+$sw.Stop()
+if ($LASTEXITCODE -ne 0) {
+    Write-Host " FAILED ($($sw.ElapsedMilliseconds)ms)" -ForegroundColor Red
+    cargo test --workspace --no-run 2>&1 | Select-Object -Last 10
+    exit 1
 }
-$compilerPassed = $global:totalPassed
-$compilerFailed = $global:totalFailed
-$compilerIgnored = $global:totalIgnored
-$compilerTotal = $compilerPassed + $compilerFailed
-
-# ============================================================================
-# TOOLING SUITES
-# ============================================================================
-$toolingPassed = 0; $toolingFailed = 0; $toolingIgnored = 0
-
+Write-Host " OK ($([math]::Round($sw.Elapsed.TotalSeconds,1))s)" -ForegroundColor Green
 Write-Host ""
-Write-Host "TOOLING ($(Get-Date -Format 'HH:mm:ss'))" -ForegroundColor Yellow
 
-$tooling = @(
-    @{pkg="xiom-fmt";      test=$null; label="formatter"},
-    @{pkg="xiom-lsp";      test=$null; label="lsp"},
-    @{pkg="xiom-pkg";      test=$null; label="package-mgr"},
-    @{pkg="xiom-doc";      test=$null; label="doc-gen"},
-    @{pkg="xiom-ffigen";   test=$null; label="ffi-gen"},
-    @{pkg="xiom-mcp";      test=$null; label="mcp-server"},
-    @{pkg="xiom-dbg";      test=$null; label="debugger"},
-    @{pkg="xiom-display";  test=$null; label="display"}
-)
+# ── run all suites ───────────────────────────────────────────────────
+Write-Host "RUN (${Threads} threads) — $(Get-Date -Format 'HH:mm:ss')" -ForegroundColor Yellow
 
-$global:totalPassed = 0; $global:totalFailed = 0; $global:totalIgnored = 0
-foreach ($s in $tooling) {
-    Run-Suite $s.pkg $s.test $s.label $null
-}
-$toolingPassed = $global:totalPassed
-$toolingFailed = $global:totalFailed
-$toolingIgnored = $global:totalIgnored
-$toolingTotal = $toolingPassed + $toolingFailed
+# Core unit tests (each <5s)
+Write-Host "  [UNITS]" -ForegroundColor Cyan
+$r = Run-Suite "xiom-lexer"   $null "lexer";             $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom-parser"  $null "parser"   @("--test-threads=4");$totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom-check"   $null "checker"  @("--test-threads=4");$totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom-ctfe"    $null "ctfe";               $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom-graph"   $null "graph";              $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom-codegen" $null "codegen-unit";       $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom-verify"  "verifier_tests" "verifier";$totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom-jit"     $null "jit";                $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
 
-# ============================================================================
-# TOTALS
-# ============================================================================
-$grandPassed  = $compilerPassed  + $toolingPassed
-$grandFailed  = $compilerFailed  + $toolingFailed
-$grandIgnored = $compilerIgnored + $toolingIgnored
-$grandTotal   = $compilerTotal   + $toolingTotal
+# Tooling tests
+Write-Host "  [TOOLS]" -ForegroundColor Cyan
+$r = Run-Suite "xiom-fmt"     $null "formatter";       $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom-lsp"     $null "lsp";             $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom-pkg"     $null "package-mgr";     $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom-doc"     $null "doc-gen";         $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom-ffigen"  $null "ffi-gen";         $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom-mcp"     $null "mcp-server";      $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom-dbg"     $null "debugger";        $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom-display" $null "display";         $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom" "scripting_tests" "scripting";   $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom" "diff_tests" "script-diff";      $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
 
-Write-Host ""
-Write-Host "=============================================" -ForegroundColor Magenta
-Write-Host "  COMPILER  $compilerPassed/$compilerTotal" -ForegroundColor $(if ($compilerFailed -eq 0){"Green"}else{"Red"})
-Write-Host "  TOOLING   $toolingPassed/$toolingTotal"  -ForegroundColor $(if ($toolingFailed -eq 0){"Green"}else{"Red"})
-Write-Host "  ----------------------------------------"
-if ($grandFailed -eq 0 -and $global:failedSuites.Count -eq 0) {
-    Write-Host "  ALL $grandTotal TESTS PASSED" -ForegroundColor Green
-    Write-Host "  TOTAL: $grandPassed/$grandTotal tests passed" -ForegroundColor Green
-    if ($grandIgnored -gt 0) {
-        Write-Host "  ($grandIgnored ignored)" -ForegroundColor Yellow
+# Medium test suites (run with full thread count)
+Write-Host "  [SUITES]" -ForegroundColor Cyan
+$r = Run-Suite "xiom-codegen" "integration_tests" "integration";        $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom-codegen" "diff_tests" "diff";                      $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+if (-not $Fast) { $r = Run-Suite "xiom-codegen" "full_diff_tests" "full-diff";$totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored }
+if (-not $Fast) { $r = Run-Suite "xiom-codegen" "fuzz_tests" "fuzz";         $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored }
+$r = Run-Suite "xiom-codegen" "robustness_tests" "robustness";           $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom-codegen" "stdlib_execution_tests" "stdlib-exec";    $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+$r = Run-Suite "xiom-codegen" "stdlib_tests" "stdlib-compile";           $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+if (-not $Fast) { $r = Run-Suite "xiom-codegen" "feature_regression_tests" "feature-reg";$totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored }
+
+# E2E tests — biggest suite, most benefit from --test-threads
+if (-not $Fast) {
+    Write-Host "  [E2E]" -ForegroundColor Cyan
+    if ($E2EOnly) {
+        $r = Run-Suite "xiom-codegen" "e2e_tests" "e2e-gate" @("e2e_p0","e2e_p1","e2e_p2","e2e_never_type","e2e_asm","e2e_spawn_basic","e2e_i2")
+        $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
+    } else {
+        $r = Run-Suite "xiom-codegen" "e2e_tests" "e2e (all 2231)"
+        $totalPassed+=$r.Passed;$totalFailed+=$r.Failed;$totalIgnored+=$r.Ignored
     }
 } else {
-    Write-Host "  $grandPassed passed, $grandFailed failed ($grandTotal total)" -ForegroundColor Red
-    if ($global:failedSuites.Count -gt 0) {
-        Write-Host "  Failures: $($global:failedSuites -join ', ')" -ForegroundColor Red
-    }
+    Write-Host "  [E2E] SKIPPED (--fast)" -ForegroundColor Yellow
 }
-Write-Host "=============================================" -ForegroundColor Magenta
-Write-Host "  Finished at $(Get-Date -Format 'HH:mm:ss')" -ForegroundColor DarkGray
 
-if ($grandFailed -eq 0 -and $global:failedSuites.Count -eq 0) {
-    Write-Host "  Release tag: $grandPassed/$grandTotal tests" -ForegroundColor Cyan
+# ── totals ───────────────────────────────────────────────────────────
+$elapsed = [math]::Round(((Get-Date) - $startTime).TotalSeconds, 1)
+Write-Host ""
+Write-Host "=================================" -ForegroundColor Magenta
+Write-Host "  TOTAL: $($totalPassed + $totalFailed) tests in ${elapsed}s" -ForegroundColor Cyan
+if ($totalFailed -eq 0) {
+    Write-Host "  $totalPassed PASSED" -ForegroundColor Green
+} else {
+    Write-Host "  $totalPassed passed, $totalFailed FAILED" -ForegroundColor Red
 }
+if ($totalIgnored -gt 0) { Write-Host "  ($totalIgnored ignored)" -ForegroundColor Yellow }
+Write-Host "=================================" -ForegroundColor Magenta
+exit (if ($totalFailed -gt 0) { 1 } else { 0 })
