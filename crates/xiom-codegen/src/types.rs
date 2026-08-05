@@ -300,7 +300,8 @@ impl crate::IrEmitter {
 
     pub fn xiom_to_llvm_type(xiom_ty: &str) -> &'static str {
         match xiom_ty {
-            "Int8" | "UInt8" | "Char" => "i8",
+            "Int8" | "UInt8" => "i8",
+            "Char" => "i32",
             "Bool" => "i64",
             "Int16" | "UInt16" => "i16",
             "Int32" | "UInt32" => "i32",

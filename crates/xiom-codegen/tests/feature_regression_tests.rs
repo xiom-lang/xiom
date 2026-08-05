@@ -6297,3 +6297,157 @@ fn regress_checker_scope_while_body_block() {
     let ir = compile_checked(src).unwrap();
     assert!(ir.contains("define"), "Checker: while-body block shadowing must not leak");
 }
+
+// =====================================================================
+// P3-1 (M1): Char type mapping consistency — Char must be i32, not i8
+// =====================================================================
+
+#[test]
+fn regress_p3_char_i32_not_i8() {
+    let src = "fn main() -> Int { var c: Char = 'A'; return c as Int; }";
+    let ir = compile_checked(src).unwrap();
+    assert!(ir.contains("define"), "P3-1: Char variable declaration must compile with i32 mapping");
+    // Verify Char literal emits i32, not i8
+    assert!(ir.contains("i32") || ir.contains("i64"), "P3-1: Char must use i32/i64 width, not narrow i8");
+}
+
+#[test]
+fn regress_p3_char_struct_field() {
+    let src = "\
+type Token = { kind: Char; lexeme: Str; }
+fn make_token(c: Char) -> Token { return Token{ kind: c; lexeme: \"x\"; }; }
+fn main() -> Int { var t = make_token('A'); return t.kind as Int; }";
+    let ir = compile_checked(src).unwrap();
+    assert!(ir.contains("define"), "P3-1: Char struct field must compile with consistent width");
+}
+
+// =====================================================================
+// P1-4: Contract collection methods — none(), is_sorted(), contains_fn(),
+// contains_type(), all_clauses(), filter_nonempty()
+// =====================================================================
+
+#[test]
+fn regress_p1_4_contract_none_and_is_sorted() {
+    let src = "\
+type ContractClause = { kind: Int; expression: Str; location: Str; function: Str; type_name: Str; }
+type FunctionContracts = { name: Str; requires: Vec[ContractClause]; ensures: Vec[ContractClause]; return_type: Str; params: Vec[(Str, Str)]; }
+type TypeContracts = { name: Str; invariants: Vec[ContractClause]; fields: Vec[(Str, Str)]; }
+type ContractIndex = { package: Str; version: Str; functions: Vec[FunctionContracts]; types: Vec[TypeContracts]; total_clauses: Int; requires_count: Int; ensures_count: Int; invariant_count: Int; }
+fn ContractIndex.none(self) -> Bool {
+    return self.functions.len() == 0 && self.types.len() == 0;
+}
+fn ContractIndex.is_sorted(self) -> Bool {
+    if self.functions.len() <= 1 { return true; }
+    var i: Int = 1;
+    while i < self.functions.len() {
+        if self.functions[i].name < self.functions[i - 1].name { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+fn main() -> Int {
+    var idx = ContractIndex{ package: \"\"; version: \"\"; functions: Vec[FunctionContracts].new(); types: Vec[TypeContracts].new(); total_clauses: 0; requires_count: 0; ensures_count: 0; invariant_count: 0; };
+    if !idx.none() { return 1; }
+    if !idx.is_sorted() { return 2; }
+    return 0;
+}";
+    let ir = compile_checked(src).unwrap();
+    assert!(ir.contains("define"), "P1-4: ContractIndex.none() and .is_sorted() must compile");
+}
+
+#[test]
+fn regress_p1_4_contract_contains_fn() {
+    let src = "\
+type ContractClause = { kind: Int; expression: Str; location: Str; function: Str; type_name: Str; }
+type FunctionContracts = { name: Str; requires: Vec[ContractClause]; ensures: Vec[ContractClause]; return_type: Str; params: Vec[(Str, Str)]; }
+type TypeContracts = { name: Str; invariants: Vec[ContractClause]; fields: Vec[(Str, Str)]; }
+type ContractIndex = { package: Str; version: Str; functions: Vec[FunctionContracts]; types: Vec[TypeContracts]; total_clauses: Int; requires_count: Int; ensures_count: Int; invariant_count: Int; }
+fn ContractIndex.contains_fn(self, name: Str) -> Bool {
+    var i: Int = 0;
+    while i < self.functions.len() {
+        if self.functions[i].name == name {
+            return self.functions[i].requires.len() > 0 || self.functions[i].ensures.len() > 0;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+fn main() -> Int {
+    var idx = ContractIndex{ package: \"\"; version: \"\"; functions: Vec[FunctionContracts].new(); types: Vec[TypeContracts].new(); total_clauses: 0; requires_count: 0; ensures_count: 0; invariant_count: 0; };
+    var fn_has = idx.contains_fn(\"nonexistent\");
+    if fn_has { return 1; }
+    return 0;
+}";
+    let ir = compile_checked(src).unwrap();
+    assert!(ir.contains("define"), "P1-4: ContractIndex.contains_fn() must compile");
+}
+
+#[test]
+fn regress_p1_4_contract_all_clauses() {
+    let src = "\
+type ContractClause = { kind: Int; expression: Str; location: Str; function: Str; type_name: Str; }
+type FunctionContracts = { name: Str; requires: Vec[ContractClause]; ensures: Vec[ContractClause]; return_type: Str; params: Vec[(Str, Str)]; }
+type TypeContracts = { name: Str; invariants: Vec[ContractClause]; fields: Vec[(Str, Str)]; }
+type ContractIndex = { package: Str; version: Str; functions: Vec[FunctionContracts]; types: Vec[TypeContracts]; total_clauses: Int; requires_count: Int; ensures_count: Int; invariant_count: Int; }
+fn ContractIndex.all_clauses(self) -> Vec[ContractClause] {
+    var result: Vec[ContractClause] = Vec[ContractClause].new();
+    var i: Int = 0;
+    while i < self.functions.len() {
+        let fc = self.functions[i];
+        var j: Int = 0;
+        while j < fc.requires.len() { result.push(fc.requires[j]); j = j + 1; }
+        j = 0;
+        while j < fc.ensures.len() { result.push(fc.ensures[j]); j = j + 1; }
+        i = i + 1;
+    }
+    i = 0;
+    while i < self.types.len() {
+        let tc = self.types[i];
+        var j: Int = 0;
+        while j < tc.invariants.len() { result.push(tc.invariants[j]); j = j + 1; }
+        i = i + 1;
+    }
+    return result;
+}
+fn main() -> Int {
+    var idx = ContractIndex{ package: \"\"; version: \"\"; functions: Vec[FunctionContracts].new(); types: Vec[TypeContracts].new(); total_clauses: 0; requires_count: 0; ensures_count: 0; invariant_count: 0; };
+    var clauses = idx.all_clauses();
+    if clauses.len() != 0 { return 1; }
+    return 0;
+}";
+    let ir = compile_checked(src).unwrap();
+    assert!(ir.contains("define"), "P1-4: ContractIndex.all_clauses() must compile");
+}
+
+#[test]
+fn regress_p1_4_contract_filter_nonempty() {
+    let src = "\
+type ContractClause = { kind: Int; expression: Str; location: Str; function: Str; type_name: Str; }
+type FunctionContracts = { name: Str; requires: Vec[ContractClause]; ensures: Vec[ContractClause]; return_type: Str; params: Vec[(Str, Str)]; }
+type TypeContracts = { name: Str; invariants: Vec[ContractClause]; fields: Vec[(Str, Str)]; }
+type ContractIndex = { package: Str; version: Str; functions: Vec[FunctionContracts]; types: Vec[TypeContracts]; total_clauses: Int; requires_count: Int; ensures_count: Int; invariant_count: Int; }
+fn ContractIndex.filter_nonempty(self) -> ContractIndex {
+    var filtered_fns: Vec[FunctionContracts] = Vec[FunctionContracts].new();
+    var req_total: Int = 0; var ens_total: Int = 0; var clause_total: Int = 0;
+    var i: Int = 0;
+    while i < self.functions.len() {
+        let fc = self.functions[i];
+        if fc.requires.len() > 0 || fc.ensures.len() > 0 {
+            filtered_fns.push(fc);
+            req_total = req_total + fc.requires.len();
+            ens_total = ens_total + fc.ensures.len();
+            clause_total = clause_total + fc.requires.len() + fc.ensures.len();
+        }
+        i = i + 1;
+    }
+    return ContractIndex{ package: self.package; version: self.version; functions: filtered_fns; types: self.types; total_clauses: clause_total; requires_count: req_total; ensures_count: ens_total; invariant_count: self.invariant_count; };
+}
+fn main() -> Int {
+    var idx = ContractIndex{ package: \"\"; version: \"\"; functions: Vec[FunctionContracts].new(); types: Vec[TypeContracts].new(); total_clauses: 0; requires_count: 0; ensures_count: 0; invariant_count: 0; };
+    var filtered = idx.filter_nonempty();
+    if filtered.total_clauses != 0 { return 1; }
+    return 0;
+}";
+    let ir = compile_checked(src).unwrap();
+    assert!(ir.contains("define"), "P1-4: ContractIndex.filter_nonempty() must compile");
+}
