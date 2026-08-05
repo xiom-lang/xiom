@@ -6121,3 +6121,179 @@ fn main() -> Int { return unwrap(Outer.Wrap(Inner[Int].Val(99))); }";
     let ir = compile(&src).unwrap();
     assert!(ir.contains("define"), "M30: 50 vars must compile");
 }
+
+// =====================================================================
+// Gap 1 regression: Tuple field access via struct field indexing
+// struct.field[j].0 / struct.field[j].1 must resolve tuple elements
+// correctly when the tuple type is nested inside Vec[(A,B)].
+// =====================================================================
+
+#[test]
+fn regress_gap1_tuple_field_via_struct_index() {
+    let src = "\
+type Record = {
+    entries: Vec[(Int, Bool)];
+}
+fn process(r: &Record) -> Bool {
+    var i: Int = 0;
+    while i < r.entries.len() {
+        if r.entries[i].1 { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+fn main() -> Int {
+    var rec = Record{ entries: Vec[(Int, Bool)].new() };
+    rec.entries.push((1, true));
+    rec.entries.push((2, false));
+    rec.entries.push((3, true));
+    if process(&rec) { return 1; }
+    return 0;
+}";
+    let ir = compile_checked(src).unwrap();
+    assert!(ir.contains("define"), "Gap1: tuple field .0/.1 via struct[].field must compile");
+}
+
+// Tuple field access: .0 and .1 on indexed tuple vector
+#[test]
+fn regress_gap1_tuple_field_both_indices() {
+    let src = "\
+type Params = {
+    pairs: Vec[(Str, Str)];
+}
+fn get_second(p: &Params, idx: Int) -> Str {
+    return p.pairs[idx].1;
+}
+fn main() -> Int {
+    var p = Params{ pairs: Vec[(Str, Str)].new() };
+    p.pairs.push((\"key\", \"val\"));
+    let v = get_second(&p, 0);
+    if v.len() > 0 { return 1; }
+    return 0;
+}";
+    let ir = compile_checked(src).unwrap();
+    assert!(ir.contains("define"), "Gap1: .1 on tuple via struct field must compile");
+}
+
+// =====================================================================
+// Gap 2 regression: io::env_var return type + BufReader buf shadowing
+// =====================================================================
+
+#[test]
+fn regress_gap2_env_var_returns_option() {
+    // Use a mock extern C getenv substitute to avoid runtime dependency
+    let src = "\
+extern \"C\" { fn getenv_xiom_test(name: *UInt8) -> *UInt8; }
+fn fake_env_var(name: Str) -> Option[Str] {
+    let ptr: *UInt8;
+    unsafe { ptr = getenv_xiom_test(name.c_str()); }
+    if ptr == 0 { return None; }
+    Some(Str(ptr))
+}
+fn main() -> Int {
+    let v = fake_env_var(\"DOES_NOT_EXIST\");
+    match v {
+        Some(s) => return 1,
+        None => return 0,
+    }
+}";
+    let ir = compile_checked(src).unwrap();
+    assert!(ir.contains("define"), "Gap2: env_var pattern must compile without type errors");
+}
+
+// BufReader field shadowing: parameter named 'buf' must not be
+// shadowed by receiver field 'buf' of a different type.
+#[test]
+fn regress_gap2_buf_field_no_shadow_param() {
+    let src = "\
+type Reader = {
+    buf: Vec[UInt8];    // receiver field: Vec[UInt8]
+}
+fn Reader.process(self, buf: Str) -> Int {
+    // 'buf' must refer to the Str parameter, NOT the Vec[UInt8] field
+    return buf.len();   // Str.len() — would fail if shadowed by Vec
+}
+fn main() -> Int {
+    var r = Reader{ buf: Vec[UInt8].new() };
+    return r.process(\"hello\");
+}";
+    let ir = compile_checked(src).unwrap();
+    assert!(ir.contains("define"), "Gap2: buf param must not be shadowed by receiver field");
+}
+
+// =====================================================================
+// Gap 3 regression: unwrap_or with non-i64 payloads (Str, Vec)
+// Previously hardcoded load i64 caused LLVM type mismatch.
+// =====================================================================
+
+#[test]
+fn regress_gap3_unwrap_or_option_str() {
+    let src = "\
+type Option[T] = struct { disc: Int; val: T; }
+fn Some[T](v: T) -> Option[T] { return struct { disc: 1; val: v; }; }
+fn main() -> Int {
+    var o: Option[Str] = Some(\"hello\");
+    let s = o.unwrap_or(\"fallback\");
+    if s.len() == 5 { return 1; }
+    return 0;
+}";
+    let ir = compile(src).unwrap(); // known-builtin Option uses inlined unwrap_or
+    assert!(ir.contains("define"), "Gap3: Option[Str].unwrap_or() must compile");
+}
+
+#[test]
+fn regress_gap3_unwrap_or_result_str() {
+    let src = "\
+type Result[T,E] = struct { disc: Int; val: T; err: E; }
+fn Ok[T,E](v: T) -> Result[T,E] { return struct { disc: 1; val: v; err: struct { 0 as Int }; }; }
+fn Err[T,E](e: E) -> Result[T,E] { return struct { disc: 0; val: struct { 0 as Int }; err: e; }; }
+fn main() -> Int {
+    var r: Result[Str, Int] = Ok(\"good\");
+    let s = r.unwrap_or(\"bad\");
+    if s.len() == 4 { return 1; }
+    return 0;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Gap3: Result[Str,Int].unwrap_or() must compile");
+}
+
+#[test]
+fn regress_gap3_unwrap_or_option_none_str_default() {
+    let src = "\
+type Option[T] = struct { disc: Int; val: T; }
+fn None[T]() -> Option[T] { return struct { disc: 0; val: struct { 0 as Int }; }; }
+fn main() -> Int {
+    var o: Option[Str] = None();
+    let s = o.unwrap_or(\"fallback\");
+    // unwrap_or on None returns the default
+    if s.len() == 8 { return 1; }
+    return 0;
+}";
+    let ir = compile(src).unwrap();
+    assert!(ir.contains("define"), "Gap3: Option[Str].unwrap_or(None) must compile");
+}
+
+// =====================================================================
+// Checker scope fix: nested blocks must not leak local variables
+// =====================================================================
+
+#[test]
+fn regress_checker_scope_nested_block_no_leak() {
+    let src = "fn main() -> Int { var x = 1; { var x = \"hi\"; } return x; }";
+    let ir = compile_checked(src).unwrap();
+    assert!(ir.contains("define"), "Checker: nested block shadowing must not leak");
+}
+
+#[test]
+fn regress_checker_scope_double_nested_block() {
+    let src = "fn main() -> Int { var x = 1; { var x = 2; { var x = 3; } } return x; }";
+    let ir = compile_checked(src).unwrap();
+    assert!(ir.contains("define"), "Checker: double-nested block shadowing must not leak");
+}
+
+#[test]
+fn regress_checker_scope_while_body_block() {
+    let src = "fn main() -> Int { var x = 1; var i = 0; while i < 3 { var x = 42; i = i + 1; } return x; }";
+    let ir = compile_checked(src).unwrap();
+    assert!(ir.contains("define"), "Checker: while-body block shadowing must not leak");
+}

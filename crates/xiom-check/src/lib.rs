@@ -2413,6 +2413,14 @@ impl Checker {
     }
 
     fn check_block(&mut self, block: &Block, expected_return: Option<CheckedType>) -> Option<CheckedType> {
+        // Push a fresh scope so local variables declared inside this block
+        // do not leak into the enclosing scope. Nested `{ var x = ...; }`
+        // blocks create their own scope — shadowing the outer binding without
+        // mutating it. Without this, `fn main() -> Int { var x = 1; { var x = "hi"; } return x; }`
+        // would resolve `x` to Str after the inner block because add_local
+        // overwrote the outer binding in the shared scope.
+        self.push_scope();
+
         let mut last_expr_ty = None;
         let mut has_return = false;
         let mut tail_diverges = false;
@@ -2458,6 +2466,7 @@ impl Checker {
             }
         }
 
+        self.pop_scope();
         last_expr_ty
     }
 
