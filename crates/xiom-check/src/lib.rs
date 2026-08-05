@@ -2835,7 +2835,11 @@ impl Checker {
                         if matches!(op, BinOp::Add) && (left_ty == CheckedType::Str || right_ty == CheckedType::Str) {
                             return CheckedType::Str;
                         }
-                        if !left_ty.is_numeric() && !is_generic_param(&left_ty) {
+                        let is_ptr_like = |ty: &CheckedType| -> bool {
+                            matches!(ty, CheckedType::Named(n) if n.starts_with('*'))
+                                || matches!(ty, CheckedType::Fn(..))
+                        };
+                        if !left_ty.is_numeric() && !is_generic_param(&left_ty) && !is_ptr_like(&left_ty) {
                             self.error(format!("left operand must be numeric, found {}", left_ty.name()), *span);
                         }
                         if !right_ty.is_numeric() && !is_generic_param(&right_ty) {
@@ -2956,6 +2960,11 @@ impl Checker {
                 let method_target = match func.as_ref() {
                     Expr::Field(..) => Some(func.as_ref()),
                     Expr::Index(field_expr, _, _) if matches!(field_expr.as_ref(), Expr::Field(..)) => Some(field_expr.as_ref()),
+                    _ => None,
+                };
+                // Save field call info for fn-typed field fallback
+                let fn_field_info: Option<(&Expr, &Ident)> = match method_target {
+                    Some(Expr::Field(obj, method, _)) => Some((obj, method)),
                     _ => None,
                 };
                     if let Some(Expr::Field(obj, method, _)) = method_target {
@@ -3207,6 +3216,34 @@ impl Checker {
                             .map(|r| CheckedType::from_str(&r))
                             .unwrap_or(CheckedType::Named("_".into()));
                         return ret;
+                    }
+                    // P2-7: Function pointer call via struct field (e.g., self.f(args)).
+                    // The receiver is a struct field with fn type; check args against
+                    // the fn signature and return the fn's return type.
+                    if let Some((obj, method_ident)) = fn_field_info {
+                        let obj_ty = self.check_expr(obj);
+                        if let CheckedType::Named(tn) = &obj_ty {
+                            let field_map = self.get_type(tn).map(|fm| fm.clone());
+                            if let Some(ref fm) = field_map {
+                                if let Some(field_ty) = fm.get(&method_ident.name) {
+                                    if let CheckedType::Fn(param_types, ret_type) = field_ty {
+                                        for (i, arg) in args.iter().enumerate() {
+                                            let arg_ty = self.check_expr(arg);
+                                            if i < param_types.len() {
+                                                let expected = &param_types[i];
+                                                if !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
+                                                    self.error(
+                                                        format!("argument {} type mismatch: expected {}, found {}", i + 1, expected.name(), arg_ty.name()),
+                                                        *span,
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        return ret_type.as_ref().clone();
+                                    }
+                                }
+                            }
+                        }
                     }
                     // Fallback: unknown call target
                     self.error(
@@ -3546,6 +3583,9 @@ impl Checker {
                     // Char is a codepoint: convertible to/from any integer type
                     _ if inner_resolved == CheckedType::Char && target_resolved.is_integer() => target_ty,
                     _ if inner_resolved.is_integer() && target_resolved == CheckedType::Char => target_ty,
+                    // v0.56: Char ↔ Float64 casts (string parsing)
+                    _ if inner_resolved == CheckedType::Char && target_resolved.is_float() => target_ty,
+                    _ if inner_resolved.is_float() && target_resolved == CheckedType::Char => target_ty,
                     // 5c-E: Int ↔ Ptr casts (raw pointer FFI, ptr.xi)
                     (CheckedType::Int, CheckedType::Named(s)) if s == "Ptr" || s.starts_with('*') => target_ty,
                     (CheckedType::Named(s), CheckedType::Int) if s == "Ptr" || s.starts_with('*') => target_ty,
@@ -3560,6 +3600,8 @@ impl Checker {
                     // 5e.2 G-34: fn-ptr ↔ Int casts (COM vtables, callback registries).
                     (CheckedType::Int, CheckedType::Fn(..)) => target_ty,
                     (CheckedType::Fn(..), CheckedType::Int) => target_ty,
+                    // v0.56: fn-ptr → *UInt8 cast (thread spawn, FFI callback)
+                    (CheckedType::Fn(..), CheckedType::Named(t)) if t.starts_with('*') => target_ty,
                     // G-16: function name as Int (callback pointer).
                     (CheckedType::Named(n), CheckedType::Int) if n == "fn" => target_ty,
                     _ => {
@@ -3714,15 +3756,24 @@ impl Checker {
         }
         // Named types are compatible if they have the same name
         // Generic type parameters (single uppercase letter) are compatible with any type
+        // Also handles *T, *U etc. (pointer to generic)
         let is_generic_param = |ty: &CheckedType| -> bool {
             if let CheckedType::Named(s) = ty {
-                s.len() == 1 && s.chars().next().map_or(false, |c| c.is_ascii_uppercase())
+                let inner = s.strip_prefix('*').unwrap_or(s);
+                inner.len() == 1 && inner.chars().next().map_or(false, |c| c.is_ascii_uppercase())
             } else {
                 false
             }
         };
         if is_generic_param(found) || is_generic_param(expected) {
             return true;
+        }
+        // v0.56: Pointer types are compatible with each other (e.g., *T with *Int).
+        // Both encode as Named("*..."); accept any pointer-to-pointer match.
+        if let (CheckedType::Named(a), CheckedType::Named(b)) = (found, expected) {
+            if a.starts_with('*') && b.starts_with('*') {
+                return true;
+            }
         }
         match (found, expected) {
             (CheckedType::Named(a), CheckedType::Named(b)) if a == b => true,
