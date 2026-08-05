@@ -239,7 +239,16 @@ impl IrEmitter {
             // Const variable reference — substitute from self.local.constants
             Expr::Ident(ident) => {
                 if let Some(val) = self.local.constants.get(&ident.name) {
-                    return self.evaluate_const_init(val);
+                    // Cycle detection: prevent infinite recursion on `const A = B; const B = A;`
+                    // by tracking which constants are currently being evaluated.
+                    // Re-entering a constant we're already resolving means a cycle — bail out.
+                    if self.local.const_eval_stack.borrow().contains(&ident.name) {
+                        return expr.clone();
+                    }
+                    self.local.const_eval_stack.borrow_mut().insert(ident.name.clone());
+                    let result = self.evaluate_const_init(val);
+                    self.local.const_eval_stack.borrow_mut().remove(&ident.name);
+                    return result;
                 }
                 expr.clone()
             }
