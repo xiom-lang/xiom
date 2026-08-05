@@ -3166,6 +3166,8 @@ impl Checker {
                             (_, "clone") => return obj_ty.clone(),
                             // P2-5: default() on generic types (T.default() for T: Default)
                             (_, "default") => return obj_ty.clone(),
+                            (_, "serialize_json") => return CheckedType::Named("Result".into()),
+                            (_, "deserialize_json") => return CheckedType::Named("Result".into()),
                             _ => {}
                         }
                     }
