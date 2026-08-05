@@ -3194,7 +3194,17 @@ impl Checker {
                             ("Vec" | "Slice" | "Array", "all") => return CheckedType::Bool,
                             ("Vec" | "Slice" | "Array", "none") => return CheckedType::Bool,
                             ("Vec" | "Slice" | "Array", "contains") => return CheckedType::Bool,
-                            // G-36: container clone returns the same container type.
+                            // v0.56: Pointer/reference accessors (FFI, low-level)
+                            ("Vec" | "Slice" | "Array" | "Str" | "Box", "as_ptr" | "as_mut_ptr") => return CheckedType::Named("*UInt8".into()),
+                            // v0.56: Str byte access
+                            ("Str", "byte_at" | "char_at") => return CheckedType::Int,
+                            // v0.56: String conversion method
+                            (_, "to_string") => return CheckedType::Str,
+                            // v0.56: Time/counter methods
+                            (_, "now" | "elapsed" | "as_millis" | "as_micros" | "as_nanos" | "as_secs") => return CheckedType::Int,
+                            // v0.56: Map iterator / key access
+                            ("Map" | "Set", "keys" | "values" | "entries" | "iter") => return CheckedType::Named("_".into()),
+                            // Container clone returns the same container type. (G-36)
                             ("Vec" | "Slice" | "Map" | "Set", "clone") => return obj_ty.clone(),
                             // Option/Result payload accessors — inner type is erased,
                             // so return a wildcard the rest of the checker accepts.
