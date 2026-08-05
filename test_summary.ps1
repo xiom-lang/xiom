@@ -178,4 +178,4 @@ if ($totalFailed -gt 0) {
     if ($Logs) { Write-Host "  Logs: .testlogs\failures_$sid.txt" -ForegroundColor Yellow }
 }
 if ($Logs) { Write-Host "  Session: .testlogs\session_$sid.txt" -ForegroundColor Yellow }
-exit (if ($totalFailed -gt 0){1}else{0})
+if ($totalFailed -gt 0) { exit 1 } else { exit 0 }
