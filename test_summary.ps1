@@ -25,10 +25,7 @@ function Invoke-CargoTest($pkg, $testFile, $extraFilter) {
     if ($testFile) { $cargs += "--test", $testFile }
     if ($extraFilter) { $cargs += $extraFilter }
     $cargs += "--", "--test-threads=$Threads"
-    $cargs += "2>&1"
     
-    # Use a temp file for output to avoid hanging
-    $tmp = "$env:TEMP\xiom_test_${pkg}_$((Get-Date).Ticks).txt"
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "cargo"
     $psi.Arguments = [string]::Join(" ", $cargs)
@@ -38,15 +35,9 @@ function Invoke-CargoTest($pkg, $testFile, $extraFilter) {
     $psi.CreateNoWindow = $true
     
     $proc = [System.Diagnostics.Process]::Start($psi)
-    
-    # Wait with timeout (5 min per crate)
     $timeout = 300000
     $finished = $proc.WaitForExit($timeout)
-    if (-not $finished) {
-        $proc.Kill()
-        return "TIMEOUT"
-    }
-    
+    if (-not $finished) { $proc.Kill(); return "TIMEOUT" }
     $stdout = $proc.StandardOutput.ReadToEnd()
     $stderr = $proc.StandardError.ReadToEnd()
     return $stdout + "`n" + $stderr
