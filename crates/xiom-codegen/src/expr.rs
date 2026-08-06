@@ -1309,7 +1309,7 @@ impl IrEmitter {
                 Ok((result, result_ty))
             }
             Expr::Try(inner, _span) => {
-                let (val, _inner_ty) = self.compile_expr(inner)?;
+                let (val, inner_ty) = self.compile_expr(inner)?;
                 // Determine if this is Option (2 fields) or Result (3 fields)
                 let is_option = match &**inner {
                     Expr::Some(..) | Expr::None(..) => {
@@ -1364,7 +1364,7 @@ impl IrEmitter {
                     }
                 };
                 if is_option {
-                    let opt_ty = "%struct.Option";
+                    let opt_ty = if inner_ty.starts_with("%struct.") { inner_ty.as_str() } else { "%struct.Option" };
                     let opt_alloca = self.fresh_tmp();
                     self.emitln(&format!("  {opt_alloca} = alloca {opt_ty}"));
                     self.emitln(&format!("  store {opt_ty} {val}, {opt_ty}* {opt_alloca}"));
@@ -1385,10 +1385,15 @@ impl IrEmitter {
                     let val_gep = self.fresh_tmp();
                     let some_val = self.fresh_tmp();
                     self.emitln(&format!("  {val_gep} = getelementptr {opt_ty}, {opt_ty}* {opt_alloca}, i32 0, i32 1"));
-                    self.emitln(&format!("  {some_val} = load i64, i64* {val_gep}"));
-                    Ok((some_val, LLVM_I64.to_string()))
+                    let payload_llvm_ty = if opt_ty.starts_with("%struct.") {
+                        self.field_llvm_type(&opt_ty[8..], 1)
+                    } else {
+                        "i64".to_string()
+                    };
+                    self.emitln(&format!("  {some_val} = load {payload_llvm_ty}, {payload_llvm_ty}* {val_gep}"));
+                    Ok((some_val, payload_llvm_ty))
                 } else {
-                    let result_ty = "%struct.Result";
+                    let result_ty = if inner_ty.starts_with("%struct.") { inner_ty.as_str() } else { "%struct.Result" };
                     let result_alloca = self.fresh_tmp();
                     self.emitln(&format!("  {result_alloca} = alloca {result_ty}"));
                     self.emitln(&format!("  store {result_ty} {val}, {result_ty}* {result_alloca}"));
@@ -1414,16 +1419,26 @@ impl IrEmitter {
                         let err_gep = self.fresh_tmp();
                         let err_val = self.fresh_tmp();
                         self.emitln(&format!("  {err_gep} = getelementptr {result_ty}, {result_ty}* {result_alloca}, i32 0, i32 2"));
-                        self.emitln(&format!("  {err_val} = load i64, i64* {err_gep}"));
-                        let ev = self.coerce_value(&err_val, "i64", &ret_ty);
+                        let err_llvm_ty = if result_ty.starts_with("%struct.") {
+                            self.field_llvm_type(&result_ty[8..], 2)
+                        } else {
+                            "i64".to_string()
+                        };
+                        self.emitln(&format!("  {err_val} = load {err_llvm_ty}, {err_llvm_ty}* {err_gep}"));
+                        let ev = self.coerce_value(&err_val, &err_llvm_ty, &ret_ty);
                         self.emitln(&format!("  ret {ret_ty} {ev}"));
                     }
                     self.emitln(&format!("\n{ok_block}:"));
                     let val_gep = self.fresh_tmp();
                     let ok_val = self.fresh_tmp();
                     self.emitln(&format!("  {val_gep} = getelementptr {result_ty}, {result_ty}* {result_alloca}, i32 0, i32 1"));
-                    self.emitln(&format!("  {ok_val} = load i64, i64* {val_gep}"));
-                    Ok((ok_val, LLVM_I64.to_string()))
+                    let ok_llvm_ty = if result_ty.starts_with("%struct.") {
+                        self.field_llvm_type(&result_ty[8..], 1)
+                    } else {
+                        "i64".to_string()
+                    };
+                    self.emitln(&format!("  {ok_val} = load {ok_llvm_ty}, {ok_llvm_ty}* {val_gep}"));
+                    Ok((ok_val, ok_llvm_ty))
                 }
             }
             Expr::Imply(left, right, _) => {
