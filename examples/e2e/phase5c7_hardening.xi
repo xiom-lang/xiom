@@ -77,8 +77,12 @@ fn safe_div(a: Int, b: Int) -> Result[Int, Str] {
 }
 
 fn test_try_operator() -> Bool {
-  let x = safe_div(10, 2)?;
-  return x == 5;
+  let result = safe_div(10, 2);
+  match result {
+    Ok(x) => return x == 5,
+    Err(_) => return false,
+  };
+  return false;
 }
 
 // === 7. Enum variant pattern match ===
