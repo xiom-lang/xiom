@@ -29,10 +29,10 @@ pub struct Parser {
 }
 
 /// Maximum expression/type nesting depth. A recursive-descent parser recurses
-/// once per nesting level, with ~16 intermediate frames per level. 16 levels ×
-/// 16 frames ≈ 256 stack frames ≈ 512KB — well within the 1MB test-thread stack.
+/// once per nesting level, with ~16 intermediate frames per level. 24 levels ×
+/// 16 frames ≈ 384 stack frames ≈ 768KB — well within the 1MB test-thread stack.
 /// Prevents STACK_OVERFLOW on deeply nested input like 500-parenthesized exprs.
-const MAX_EXPR_DEPTH: usize = 16;
+const MAX_EXPR_DEPTH: usize = 24;
 
 impl Parser {
         pub fn errors(&self) -> &[ParseError] { &self.errors }
@@ -117,7 +117,7 @@ impl Parser {
     fn enter_expr(&mut self) -> Result<(), ParseError> {
         self.depth += 1;
         if self.depth > MAX_EXPR_DEPTH {
-            return Err(self.error("expression nesting too deep (max 16 levels) — simplify the expression"));
+            return Err(self.error("expression nesting too deep (max 24 levels) — simplify the expression"));
         }
         Ok(())
     }
