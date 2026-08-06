@@ -2360,8 +2360,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     }
                 } else {
                     // For method calls, resolve the fully qualified function name
-                    let mut resolved_fn_key = if let Some(receiver) = receiver_expr {
-                        let recv_type = self.infer_struct_type_name(receiver);
+                    let mut implicit_self_resolved = false;
+                    let mut resolved_fn_key = if let Some(receiver) = receiver_expr {                        let recv_type = self.infer_struct_type_name(receiver);
                         if let Some(rt) = recv_type {
                             format!("{}.{}", rt, fn_name)
                         } else if !self.mono.current_type_map.is_empty() {
@@ -2533,25 +2533,60 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 .join(", ")
                         }
                     } else {
-                        // Use registered param types when available (correct for extern
-                        // functions with non-default types like Int32ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢i32, Float32ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢float).
-                        // 5c.30: G-10 implicit-self â€” override the fn key so
+                        // 5c.30: G-10 implicit-self — override the fn key so
                         // bare `greet("Hi")` resolves to `Greeter.greet`.
-                        // No self injection: method bodies already have receiver
-                        // fields as locals via the prologue.
+                        // Self IS injected: sibling method calls (bare `name()`
+                        // inside `Doctor.formal`) must receive the receiver.
                         if receiver_expr.is_none() {
                             if let Some(isk) = self.resolve_implicit_self_call(&fn_name) {
                                 resolved_fn_key = isk;
+                                implicit_self_resolved = true;
+                            }
+                        }
+                        // Build args_str. When implicit-self resolved, prepend the
+                        // receiver value (self) as the first argument.
+                        let mut parts: Vec<String> = Vec::new();
+                        if implicit_self_resolved {
+                            // Only inject self when the resolved callee's FIRST
+                            // registered param is the receiver struct (or pointer
+                            // to it). Free functions sharing a suffix must not get
+                            // an extra receiver argument.
+                            if let Some((self_slot, self_ty)) = self.lookup_local("self").cloned() {
+                                let callee_pts = self.types.functions.get(&resolved_fn_key).map(|(p, _)| p.clone());
+                                let first_pt = callee_pts.as_ref().and_then(|p| p.first().cloned());
+                                let self_base = self_ty.trim_end_matches('*').to_string();
+                                let takes_self = first_pt.as_ref().map_or(false, |fp| {
+                                    fp == &self_ty || fp == &self_base || fp.ends_with(&self_base)
+                                });
+                                if takes_self {
+                                    let callee_self_ty = first_pt.unwrap_or(self_ty.clone());
+                                    // Slot is an alloca (by-value receiver): load the struct.
+                                    // Slot is a register (pointer receiver): pass directly.
+                                    let self_val = if self_ty.starts_with("%struct.") && !self_ty.ends_with('*') {
+                                        let loaded = self.fresh_tmp();
+                                        self.emitln(&format!("  {loaded} = load {self_ty}, {self_ty}* {self_slot}"));
+                                        loaded
+                                    } else {
+                                        self_slot.clone()
+                                    };
+                                    let coerced = self.coerce_value(&self_val, &self_ty, &callee_self_ty);
+                                    parts.push(format!("{callee_self_ty} {coerced}"));
+                                }
                             }
                         }
                         let use_registered = self.types.functions.get(&resolved_fn_key)
-                            .map(|(pts, _)| pts.len() == compiled_args.len())
+                            .map(|(pts, _)| pts.len() == compiled_args.len() + parts.len())
                             .unwrap_or(false);
                         if use_registered {
                             let pts = self.types.functions.get(&resolved_fn_key).unwrap().0.clone();
-                            let mut parts: Vec<String> = Vec::new();
+                            // Capture the pre-loop arg count (self-injected receiver,
+                            // if any). pi must offset by the INITIAL parts length, not
+                            // the live length which grows as we push.
+                            let base = parts.len();
                             for (i, (arg_val, arg_ty)) in compiled_args.iter().enumerate() {
-                                let pty = pts[i].clone();
+                                let pi = i + base;
+                                if pi >= pts.len() { break; }
+                                let pty = pts[pi].clone();
                                 let coerced = match args.get(i) {
                                     Some(ae) => self.coerce_arg_for_param(ae, arg_val, arg_ty, &pty),
                                     None => self.coerce_value(arg_val, arg_ty, &pty),
@@ -2560,10 +2595,10 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             }
                             parts.join(", ")
                         } else {
-                            compiled_args.iter()
-                                .map(|(arg_val, arg_ty)| format!("{arg_ty} {arg_val}"))
-                                .collect::<Vec<_>>()
-                                .join(", ")
+                            for (arg_val, arg_ty) in compiled_args.iter() {
+                                parts.push(format!("{arg_ty} {arg_val}"));
+                            }
+                            parts.join(", ")
                         }
                     };
                     let tmp = self.fresh_tmp();

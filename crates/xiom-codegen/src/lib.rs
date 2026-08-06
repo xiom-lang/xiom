@@ -2505,9 +2505,10 @@ impl IrEmitter {
         for item in items {
             match item {
                 TopDecl::Fn(fd) => {
-                    if fd.generics.is_empty()
-                        && fd.body.is_some()
-                        && !(fd.name.name == "main" && fd.body.as_ref().map_or(false, |b| b.stmts.is_empty()))
+                    if fd.generics.is_empty() && fd.body.is_some()
+                        // Note: empty-body `fn main() { }` is still emitted as
+                        // `define void @main()` — the JIT and shared-lib paths
+                        // require a callable main entry point.
                     {
                         let recv_is_generic = fd.receiver.as_ref()
                             .map(|_r| false) // simplified: type check done by caller
