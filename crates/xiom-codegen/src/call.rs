@@ -2252,31 +2252,48 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // Not yet registered - use the generic signature with
                             // argument-inferred param types, prepending the receiver
                             // type if the generic decl has a self parameter.
-                            let mut inferred_types: Vec<String> = args.iter()
-                                .map(|a| {
-                                    let t = self.infer_llvm_type(a);
-                                    // `&T` params are by-value at the ABI (type_from_ast
-                                    // maps &T -> T), so infer the INNER type for plain
-                                    // Ref args. `&mut T` maps to `*T` (a real pointer) —
-                                    // keep the pointer inference for MutRef.
-                                    if let Expr::Ref(i, _) = a {
-                                        // &array_local passes the Vec DATA POINTER (i64*),
-                                        // not the Vec struct — match the callee's `&[N]T`
-                                        // param type.
-                                        if let Expr::Ident(id) = i.as_ref() {
-                                            if self.local.array_locals.contains(&id.name) {
-                                                "i64*".to_string()
-                                            } else {
-                                                self.infer_llvm_type(i)
+                            let mut inferred_types: Vec<String> = Vec::new();
+                            // Compute param types from the GENERIC DECL's param types
+                            // (substituted), mirroring what compile_generic_monomorphisations
+                            // will register. Guessing from the ARG types is wrong: `&[N]T`
+                            // registers i64* (data ptr) while `&Vec[T]` registers
+                            // %struct.Vec (by value) — both arrive as &array_local.
+                            let generic_fd = self.mono.generic_fn_decls.iter()
+                                .find(|(k, _)| k == &fn_key)
+                                .or_else(|| self.mono.generic_fn_decls.iter().find(|(k, _)| k.ends_with(&format!(".{}", fn_key))));
+                            for (i, a) in args.iter().enumerate() {
+                                let t = if let Some((_, fd)) = generic_fd {
+                                    if let Some(p) = fd.params.get(i) {
+                                        match &p.ty {
+                                            // &mut T / *T → real pointer to the value type
+                                            Type::MutRef(inner) | Type::Ptr(inner) => {
+                                                let subst = Self::substitute_type(inner, inner, &self.mono.param_concrete_types);
+                                                let name = Self::type_from_ast(&subst);
+                                                let base = self.llvm_type_for(&name).unwrap_or_else(|_| "i64".to_string());
+                                                format!("{base}*")
                                             }
-                                        } else {
-                                            self.infer_llvm_type(i)
+                                            // &[N]T fixed-array ref → Vec data pointer
+                                            Type::Ref(inner) => match inner.as_ref() {
+                                                Type::Array(_, _) => "i64*".to_string(),
+                                                // &Vec[T] / &Slice[T] → by-value Vec struct
+                                                Type::Vec(_) | Type::Slice(_) => "%struct.Vec".to_string(),
+                                                // &T scalar ref → by-value value type
+                                                other => {
+                                                    let subst = Self::substitute_type(other, other, &self.mono.param_concrete_types);
+                                                    let name = Self::type_from_ast(&subst);
+                                                    self.llvm_type_for(&name).unwrap_or_else(|_| "i64".to_string())
+                                                }
+                                            },
+                                            _ => self.infer_llvm_type(a),
                                         }
                                     } else {
-                                        t
+                                        self.infer_llvm_type(a)
                                     }
-                                })
-                                .collect();
+                                } else {
+                                    self.infer_llvm_type(a)
+                                };
+                                inferred_types.push(t);
+                            }
                             // 5c.34: Check if the generic decl body uses `self`
                             // (by-value self method). If so, prepend the receiver
                             // struct pointer type so the call matches the monomorphised

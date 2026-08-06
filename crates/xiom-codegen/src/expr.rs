@@ -878,6 +878,17 @@ impl IrEmitter {
                         // type from the XIOM type system, falling back to i8 for
                         // byte-pointer compat.
                         if inner_ty == "i64" {
+                            // By-value ABI: `&T` params receive the VALUE (type_from_ast
+                            // maps &T -> T). If the deref'd ident's local LLVM type is a
+                            // plain value (i64, not i64*), `*r` is a NO-OP — return the
+                            // value instead of treating it as an address.
+                            if let Expr::Ident(id) = inner.as_ref() {
+                                if let Some((_, lt)) = self.lookup_local(&id.name).cloned() {
+                                    if !lt.ends_with('*') && lt != "i8*" && lt != "ptr" {
+                                        return Ok((val, inner_ty));
+                                    }
+                                }
+                            }
                             // Check if inner is a local with a &T XIOM type
                             let pointee_llvm = if let Expr::Ident(id) = inner.as_ref() {
                                 self.local.local_xiom_types.get(&id.name)
@@ -889,7 +900,22 @@ impl IrEmitter {
                                     })
                             } else { None };
                             if let Some(pointee) = pointee_llvm {
-                                // &Int → inttoptr to i64* and load i64
+                                // By-value ABI: `&T` function PARAMS receive the VALUE
+                                // (type_from_ast maps &T -> T), so `*r` is a NO-OP —
+                                // the local's registered LLVM type is the value type
+                                // (i64), not a pointer. Only inttoptr+load when the
+                                // local actually HOLDS an address (&T local from &x,
+                                // registered as i64*).
+                                let local_is_pointer = if let Expr::Ident(id) = inner.as_ref() {
+                                    self.lookup_local(&id.name)
+                                        .map(|(_, lt)| lt.ends_with('*'))
+                                        .unwrap_or(false)
+                                } else { true };
+                                if !local_is_pointer {
+                                    // *r where r is a by-value &T param → the value itself.
+                                    return Ok((val, inner_ty));
+                                }
+                                // &T local holding an address → inttoptr to i64* and load i64
                                 let ptr = self.fresh_tmp();
                                 self.emitln(&format!("  {ptr} = inttoptr i64 {val} to {pointee}*"));
                                 self.emitln(&format!("  {tmp} = load {pointee}, {pointee}* {ptr}"));

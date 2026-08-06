@@ -12,17 +12,12 @@ impl IrEmitter {
         // non-pointer param, compile the inner value directly — otherwise the
         // caller passes the reference address as the value (e.g. array.contains
         // compared elements against the temp's address instead of 30).
-        // EXCEPTION: &array_local passes the Vec DATA POINTER (already produced
-        // by the Ref handler) — do not recompile the inner Vec value.
+        // &array_local with a by-value %struct.Vec param (&Vec[T]) passes the
+        // Vec VALUE; the i64* (&[N]T data pointer) case is the pointer branch.
         if !param_ty.ends_with('*') {
             if let Expr::Ref(i, _) | Expr::MutRef(i, _) = arg_expr {
-                let is_array_local = if let Expr::Ident(id) = i.as_ref() {
-                    self.local.array_locals.contains(&id.name)
-                } else { false };
-                if !is_array_local {
-                    if let Ok((v, t)) = self.compile_expr(i) {
-                        return self.coerce_value(&v, &t, param_ty);
-                    }
+                if let Ok((v, t)) = self.compile_expr(i) {
+                    return self.coerce_value(&v, &t, param_ty);
                 }
             }
         }
