@@ -3652,7 +3652,72 @@ impl IrEmitter {
             let struct_types: HashSet<String> = self.types.types.keys().into_iter().collect();
             let subst_type = |t: &Type| -> String {
                 match t {
-                    Type::Named(id, _) => {
+                    // Result[T, E] / Option[T] must resolve to the CONCRETE
+                    // monomorphised struct (e.g. %struct.Result__Entity__Str)
+                    // when the inner types are user structs; otherwise the
+                    // generic %struct.Result / %struct.Option layout.
+                    Type::Result(ok, err) => {
+                        let ok_name = Self::type_from_ast(&Self::substitute_type(ok, ok, &type_map));
+                        let err_name = Self::type_from_ast(&Self::substitute_type(err, err, &type_map));
+                        let concrete = format!("Result__{}__{}", ok_name, err_name);
+                        let key_matches = struct_types.iter()
+                            .any(|k| k.as_str() == concrete || k.ends_with(&format!(".{concrete}")));
+                        if key_matches {
+                            let qualified = struct_types.iter()
+                                .find(|k| k.as_str() == concrete || k.ends_with(&format!(".{concrete}")))
+                                .cloned().unwrap_or(concrete);
+                            format!("%struct.{qualified}")
+                        } else {
+                            "%struct.Result".to_string()
+                        }
+                    }
+                    Type::Option(inner) => {
+                        let inner_name = Self::type_from_ast(&Self::substitute_type(inner, inner, &type_map));
+                        let concrete = format!("Option__{}", inner_name);
+                        let key_matches = struct_types.iter()
+                            .any(|k| k.as_str() == concrete || k.ends_with(&format!(".{concrete}")));
+                        if key_matches {
+                            let qualified = struct_types.iter()
+                                .find(|k| k.as_str() == concrete || k.ends_with(&format!(".{concrete}")))
+                                .cloned().unwrap_or(concrete);
+                            format!("%struct.{qualified}")
+                        } else {
+                            "%struct.Option".to_string()
+                        }
+                    }
+                    Type::Named(id, args) => {
+                        // Parameterized generic types like Result[T, E] or
+                        // Option[Entity] must resolve to the CONCRETE struct
+                        // (e.g. %struct.Result__Entity__Str), not the generic
+                        // %struct.Result — callers pass the concrete layout.
+                        if !args.is_empty() {
+                            // Resolve each type arg to its XIOM type NAME (e.g. "Str",
+                            // "Entity") — the concrete struct name joins these with
+                            // "__" (Result__Entity__Str), NOT the LLVM type (i8*).
+                            let resolved: Vec<String> = args.iter()
+                                .map(|a| {
+                                    let subst_a = Self::substitute_type(a, a, &type_map);
+                                    let name = Self::type_from_ast(&subst_a);
+                                    let clean = name.trim_start_matches('*').to_string();
+                                    clean
+                                })
+                                .collect();
+                                // Build the concrete monomorphised struct name, matching
+                                // the naming used by register_mapped_type / concretisation
+                                // (e.g. Result__Entity__Str).
+                                let base = id.name.clone();
+                                if !resolved.is_empty() {
+                                    let concrete_name = format!("{base}__{}", resolved.join("__"));
+                                    let key_matches = struct_types.iter()
+                                        .any(|k| k.as_str() == concrete_name || k.ends_with(&format!(".{concrete_name}")));
+                                    if key_matches {
+                                        let qualified = struct_types.iter()
+                                            .find(|k| k.as_str() == concrete_name || k.ends_with(&format!(".{concrete_name}")))
+                                            .cloned().unwrap_or(concrete_name);
+                                        return format!("%struct.{qualified}");
+                                    }
+                                }
+                            }
                         let raw = if let Some(ct) = type_map.get(&id.name) {
                             ct.clone()
                         } else {
