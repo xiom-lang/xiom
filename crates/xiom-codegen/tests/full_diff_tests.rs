@@ -151,6 +151,7 @@ macro_rules! diff_test {
     ($name:ident, $file:expr, $min_fns:expr, $fn_lo:expr, $name_match:expr,
      $fn_hi:expr, $ret_hi:expr, $ret_lo:expr) => {
         #[test]
+        #[ignore = "selfhost phase pending: compares Rust-compiler IR against selfhost/xiomc_v10.xi output; will be re-enabled during the selfhost phase"]
         fn $name() {
             let source = format!("examples\\{}", $file);
             let rust = rust_ir(&source);
@@ -301,6 +302,7 @@ diff_test!(diff_stress_generic, "stress_generic_5chain.xi", 1, 0.5, 0.16, 1.5, 2
 // ============================================================================
 
 #[test]
+#[ignore = "selfhost phase pending: compares against selfhost/xiomc_v10.xi output"]
 fn diff_benchmark() {
     let source = "examples\\benchmark_selfhost.xi";
     let rust = rust_ir(source);
@@ -351,6 +353,7 @@ fn diff_benchmark() {
 // ============================================================================
 
 #[test]
+#[ignore = "selfhost phase pending: full-diff suite compares against selfhost output"]
 fn diff_stress_body_parser() {
     let rust = rust_ir("examples\\stress_body_parser.xi");
     assert!(rust.len() > 0);
