@@ -915,8 +915,13 @@ impl IrEmitter {
                     // available, falling back to %struct.{type_name} for generic types.
                     // This prevents type mismatches when matching on concretized
                     // enum/struct types like Result[JsonValue, SerializeError].
-                    let struct_ty = if scrutinee_llvm_ty.starts_with("%struct.") && scrutinee_llvm_ty != "i64" {
+                    let struct_ty = if scrutinee_llvm_ty.starts_with("%struct.") && !scrutinee_llvm_ty.ends_with('*') && scrutinee_llvm_ty != "i64" {
                         scrutinee_llvm_ty.clone()
+                    } else if scrutinee_llvm_ty.starts_with("%struct.") && scrutinee_llvm_ty.ends_with('*') {
+                        // Pointer-to-struct scrutinee (e.g. %struct.JsonValue*):
+                        // deref for the match alloca — the discriminant GEP must
+                        // index the STRUCT, not the pointer.
+                        scrutinee_llvm_ty.trim_end_matches('*').to_string()
                     } else {
                         format!("%struct.{type_name}")
                     };
