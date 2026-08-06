@@ -53,6 +53,9 @@ pub struct IrEmitter {
     pub types: TypeContext,
     /// Per-function compilation state (locals, params, return type, ensures)
     pub fctx: FunctionContext,
+    /// Program-wide: true when a non-empty `fn main` exists. Empty-body
+    /// `async fn main() { }` placeholders must not shadow the real entry point.
+    pub has_non_empty_main: bool,
     /// Monomorphisation worklist and instantiation tracking
     pub mono: MonoContext,
     /// Local variable classification, module-level globals, loop stack
@@ -78,6 +81,7 @@ impl IrEmitter {
                 locals: vec![HashMap::new()],
                 ..FunctionContext::default()
             },
+            has_non_empty_main: false,
             mono: MonoContext::default(),
             local: LocalContext::default(),
             ctfe: RefCell::new(CtfeEngine::new()),
@@ -2456,8 +2460,10 @@ impl IrEmitter {
         // in parallel using rayon. Each function gets its own output buffer; we
         // merge them in declaration order after all tasks complete.
         if self.config.parallel_codegen {
+            self.has_non_empty_main = Self::program_has_non_empty_main(&program.items);
             self.compile_functions_parallel(&program.items)?;
         } else {
+            self.has_non_empty_main = Self::program_has_non_empty_main(&program.items);
             for item in &program.items {
                 self.compile_top_decl(item)?;
             }
@@ -2496,6 +2502,25 @@ impl IrEmitter {
 
     /// Walk the program tree to collect all non-generic function declarations
     /// with their module prefix and positional index (for output ordering).
+    /// Returns true when the program contains a `fn main` with a non-empty body.
+    fn program_has_non_empty_main(items: &[TopDecl]) -> bool {
+        for item in items {
+            match item {
+                TopDecl::Fn(fd) => {
+                    if fd.name.name == "main"
+                        && fd.body.as_ref().map_or(false, |b| !b.stmts.is_empty()) {
+                        return true;
+                    }
+                }
+                TopDecl::Module(md) => {
+                    if Self::program_has_non_empty_main(&md.items) { return true; }
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
     fn collect_functions_to_compile<'a>(
         items: &'a [TopDecl],
         module_prefix: &str,
@@ -2506,9 +2531,13 @@ impl IrEmitter {
             match item {
                 TopDecl::Fn(fd) => {
                     if fd.generics.is_empty() && fd.body.is_some()
-                        // Note: empty-body `fn main() { }` is still emitted as
-                        // `define void @main()` — the JIT and shared-lib paths
-                        // require a callable main entry point.
+                        // Empty-body `fn main() { }` is a placeholder (e.g. async
+                        // main). Only emit it when NO non-empty main exists — a
+                        // real entry point must not be shadowed. A standalone
+                        // empty main IS emitted (JIT/shared-lib need @main).
+                        && !(fd.name.name == "main"
+                            && fd.body.as_ref().map_or(false, |b| b.stmts.is_empty())
+                            && Self::program_has_non_empty_main(items))
                     {
                         let recv_is_generic = fd.receiver.as_ref()
                             .map(|_r| false) // simplified: type check done by caller
