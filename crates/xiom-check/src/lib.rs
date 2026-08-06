@@ -87,6 +87,10 @@ pub struct Checker {
     /// 5c.30: When inside a method body, the RECEIVER type name so bare
     /// calls like `init()` can be resolved as `self.init()` (G-10/G-25 fix).
     current_receiver: Option<String>,
+    /// v0.56: Current function's generic param → interface bounds map.
+    /// Enables interface method resolution on generic params like `x.bar()`
+    /// when `x: T` and `T: Foo` where `Foo` declares `fn bar()`.
+    current_generic_bounds: HashMap<String, Vec<String>>,
     /// 5c-R: Type interning arena — maps Named("Foo") strings to TypeIds
     /// for O(1) equality (rustc lesson: TyCtxt::intern_type).
     pub type_arena: TypeArena,
@@ -128,6 +132,7 @@ impl Checker {
             catalog: ModuleCatalog::new(Vec::new()),
             cached_loaded: HashSet::new(),
             current_receiver: None,
+            current_generic_bounds: HashMap::new(),
             error_count: 0,
             type_arena: TypeArena::new(),
             aliases: HashMap::new(),
@@ -2371,6 +2376,16 @@ impl Checker {
             };
             self.add_local(&g.name.name, gen_ty);
         }
+        // Track generic param bounds for interface method resolution.
+        // e.g., fn foo[T: Foo](x: T) { x.bar() } — need to know T has Foo
+        // bound to resolve bar() as an interface method.
+        self.current_generic_bounds.clear();
+        for g in &fd.generics {
+            if !g.bounds.is_empty() {
+                let bounds: Vec<String> = g.bounds.iter().map(|b| b.name.clone()).collect();
+                self.current_generic_bounds.insert(g.name.name.clone(), bounds);
+            }
+        }
 
         // For methods, inject the receiver's fields into scope (implicit self)
         if let Some(recv) = fd.receiver.as_ref() {
@@ -3266,10 +3281,16 @@ impl Checker {
                             || tn == "_"  // wildcard from Option.value / Result.unwrap
                             || (
                                 // Generic param with potential interface bound.
-                                // v0.56: Skip — generic params should go through the
-                                // match arms above, not interface dispatch (which may
-                                // return wrong types from other registered types).
-                                false  // tn.len() == 1 && ...
+                                // Look up the current function's generic bounds to
+                                // see if this type parameter has an interface bound
+                                // that declares the called method.
+                                self.current_generic_bounds.get(tn).map_or(false, |bounds| {
+                                    bounds.iter().any(|b| {
+                                        self.interfaces.get(b).map_or(false, |methods| {
+                                            methods.iter().any(|(mn, _, _)| mn == &method.name)
+                                        })
+                                    })
+                                })
                             )
                         }
                         // Pattern-bound variables from match arms (e.g. `e` in
