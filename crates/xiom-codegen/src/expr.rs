@@ -3365,7 +3365,7 @@ impl IrEmitter {
                 // `match_result_ptr`), then loading the slot as this expression's value.
                 // The result type is the widest type across all arms (struct > i64),
                 // with `coerce_value` handling per-arm conversions during the store.
-                let (scrutinee_val, scrutinee_ty) = self.compile_expr(scrutinee)?;
+                let (_scrutinee_val, scrutinee_ty) = self.compile_expr(scrutinee)?;
                 let result_ty = self.infer_match_llvm_type(arms, &scrutinee_ty);
                 let result_alloca = self.fresh_tmp();
                 self.emitln(&format!("  {result_alloca} = alloca {result_ty}"));
