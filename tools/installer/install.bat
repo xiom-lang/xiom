@@ -1,9 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
-title XIOM v0.49.8 INSTALLER
+title XIOM v0.56.0 INSTALLER
 
 :: ============================================================================
-:: XIOM Compiler Installer (Windows) — Production Release v0.49.8
+:: XIOM Compiler Installer (Windows) - Production Release v0.56.0
 :: ============================================================================
 
 type "%~dp0ascii_art.txt"
@@ -99,7 +99,7 @@ if not "%AI_ENDPOINT%"=="" (
 :: Create xiom.bat wrapper
 (
 echo @echo off
-echo REM XIOM Toolchain v0.49.8
+echo REM XIOM Toolchain v0.56.0
 echo set "XIOM_BIN=%XIOM_BIN%"
 echo set "XIOM_HOME=%XIOM_DIR%"
 echo if "%%1"=="" "%%XIOM_BIN%%\xiom.exe" --help ^& goto :eof
@@ -116,7 +116,7 @@ echo if "%%1"=="mcp"     ^( shift ^& "%%XIOM_BIN%%\xiom-mcp.exe" %%* ^) ^& goto 
 echo if "%%1"=="verify"  ^( shift ^& "%%XIOM_BIN%%\xiom-verify.exe" %%* ^) ^& goto :eof
 echo if "%%1"=="dbg"     ^( shift ^& "%%XIOM_BIN%%\xiom-dbg.exe" %%* ^) ^& goto :eof
 echo if "%%1"=="ai"      ^( shift ^& "%%XIOM_BIN%%\xiom.exe" --ai %%* ^) ^& goto :eof
-echo REM Unknown — pass through to xiom
+echo REM Unknown - pass through to xiom
 echo "%%XIOM_BIN%%\xiom.exe" %%*
 ) > "%XIOM_BIN%\xiom.bat"
 
@@ -162,7 +162,7 @@ echo     + XIOM_HOME=%XIOM_DIR%
 echo @echo off
 echo setlocal
 echo echo.
-echo echo   XIOM Uninstaller v0.49.8
+echo echo   XIOM Uninstaller v0.56.0
 echo echo   This will remove: %XIOM_DIR%
 echo echo.
 echo set /p CONFIRM="  Continue? [y/N]: "
@@ -179,7 +179,7 @@ echo pause
 :: Final message
 echo.
 echo   =========================================
-echo     XIOM v0.49.8 INSTALLED SUCCESSFULLY!
+echo     XIOM v0.56.0 INSTALLED SUCCESSFULLY!
 echo   =========================================
 echo.
 echo   Location:   %XIOM_DIR%
