@@ -1515,8 +1515,10 @@ fn e2e_send_struct_ok() {
 /// Regression test for R4 (dynamic alloca in Vec::push) and R5 (recursion counter leak)
 #[test]
 fn e2e_chaos_t1_allocator() {
+    // Uses the internal copy of the buddy-allocator pattern (UTF-8) so the
+    // test does not depend on xiom-benchmark-chaos reference files.
     assert_eq!(
-        compile_and_run("xiom-benchmark-chaos\\reference\\systems\\t1-allocator.xi"),
+        compile_and_run("tests\\ecosystem\\t1-allocator.xi"),
         Some(0),
         "Chaos t1: buddy memory allocator must pass (R4+R5 regression)"
     );
@@ -1566,12 +1568,14 @@ fn e2e_chaos_t5_btree() {
 /// I2: Parallel codegen — verify all 5 chaos tasks compile correctly with --parallel-codegen
 #[test]
 fn e2e_i2_parallel_codegen() {
+    // Internal copies of the benchmark patterns (UTF-8) so the test does not
+    // depend on xiom-benchmark-chaos reference files.
     let tasks = [
-        "xiom-benchmark-chaos\\reference\\systems\\t1-allocator.xi",
-        "xiom-benchmark-chaos\\reference\\systems\\t2-queue.xi",
-        "xiom-benchmark-chaos\\reference\\systems\\t3-hot-reload.xi",
-        "xiom-benchmark-chaos\\reference\\systems\\t4-packet.xi",
-        "xiom-benchmark-chaos\\reference\\systems\\t5-btree.xi",
+        "tests\\ecosystem\\t1-allocator.xi",
+        "tests\\ecosystem\\t2-queue.xi",
+        "tests\\ecosystem\\t3-hot-reload.xi",
+        "tests\\ecosystem\\t4-packet.xi",
+        "tests\\ecosystem\\t5-btree.xi",
     ];
     for task in &tasks {
         assert_eq!(

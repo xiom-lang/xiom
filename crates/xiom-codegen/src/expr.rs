@@ -2015,13 +2015,15 @@ impl IrEmitter {
                     return Ok((result, LLVM_I64.to_string()));
                 }
                 // Handle pointer-typed array references from monomorphised generic params.
+                // NOTE: `&[N]T` params receive the array's DATA pointer (Vec data is
+                // headerless — array literals compile to %struct.Vec with pure
+                // elements). The old "+1" assumed a raw buffer with a length header
+                // at [0], which misindexed every element by one and read one past
+                // the end (array smoke: contains() returned false / crashed).
                 if cont_ty.ends_with('*') && cont_ty != "i8*" {
                     let elem_ty = cont_ty.trim_end_matches('*');
-                    // Array buffers store the length at [0], so elements start at [1].
-                    let offset = self.fresh_tmp();
-                    self.emitln(&format!("  {offset} = add i64 {idx}, 1"));
                     let elem_ptr = self.fresh_tmp();
-                    self.emitln(&format!("  {elem_ptr} = getelementptr {elem_ty}, {cont_ty} {cont_val}, i64 {offset}"));
+                    self.emitln(&format!("  {elem_ptr} = getelementptr {elem_ty}, {cont_ty} {cont_val}, i64 {idx}"));
                     let elem = self.fresh_tmp();
                     self.emitln(&format!("  {elem} = load {elem_ty}, {elem_ty}* {elem_ptr}"));
                     let result = self.val_to_i64(&elem, &elem_ty);
@@ -2250,6 +2252,18 @@ impl IrEmitter {
                 // This fixes ACCESS_VIOLATION on &Int → *Int deref patterns.
                 if let Expr::Ident(id) = inner.as_ref() {
                     if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
+                        // &array_local — the local is a Vec (array literal). A
+                        // `&[N]T` parameter wants the DATA pointer (i64*), not
+                        // the Vec struct or its alloca. Emit field-0 (data ptr).
+                        if self.local.array_locals.contains(&id.name) && slot_ty == "%struct.Vec" {
+                            let gep = self.fresh_tmp();
+                            self.emitln(&format!("  {gep} = getelementptr %struct.Vec, %struct.Vec* {slot}, i32 0, i32 0"));
+                            let data_ptr = self.fresh_tmp();
+                            self.emitln(&format!("  {data_ptr} = load i8*, i8** {gep}"));
+                            let ptr_val = self.fresh_tmp();
+                            self.emitln(&format!("  {ptr_val} = ptrtoint i8* {data_ptr} to i64"));
+                            return Ok((ptr_val, "i64".to_string()));
+                        }
                         if slot_ty.starts_with("%struct.") {
                             return Ok((slot, format!("{slot_ty}*")));
                         }
@@ -2261,6 +2275,23 @@ impl IrEmitter {
                             return Ok((ptr_val, "i64".to_string()));
                         }
                     }
+                }
+                // &literal (e.g. &30, &true): materialise a temp slot holding the
+                // value and return its ADDRESS. The old fallback returned the raw
+                // value which the caller inttoptr'd — turning the VALUE into its
+                // own address (inttoptr i64 30 to i64*), so the callee loaded from
+                // address 0x1E instead of comparing with 30.
+                match inner.as_ref() {
+                    Expr::Int(_, _) | Expr::Float(_, _) | Expr::Bool(_, _) | Expr::Char(_, _) => {
+                        let (v, v_ty) = self.compile_expr(inner)?;
+                        let slot = self.fresh_tmp();
+                        self.emitln(&format!("  {slot} = alloca {v_ty}"));
+                        self.emitln(&format!("  store {v_ty} {v}, {v_ty}* {slot}"));
+                        let ptr_val = self.fresh_tmp();
+                        self.emitln(&format!("  {ptr_val} = ptrtoint {v_ty}* {slot} to i64"));
+                        return Ok((ptr_val, "i64".to_string()));
+                    }
+                    _ => {}
                 }
                 self.compile_expr(inner)
             }

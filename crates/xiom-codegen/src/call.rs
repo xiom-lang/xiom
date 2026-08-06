@@ -355,7 +355,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 } else {
                                     a
                                 };
-                                self.compile_expr(arg_expr)?.0
+                                let (arg_raw, arg_ty) = self.compile_expr(arg_expr)?;
+                                // Reference-typed args (e.g. a `x: &Int` parameter
+                                // passed directly, arr[i].eq(x)) compile to a pointer
+                                // — deref to the scalar VALUE for the comparison.
+                                if arg_ty.ends_with('*') {
+                                    let loaded = self.fresh_tmp();
+                                    let base = arg_ty.trim_end_matches('*').to_string();
+                                    self.emitln(&format!("  {loaded} = load {base}, {arg_ty} {arg_raw}"));
+                                    loaded
+                                } else {
+                                    arg_raw
+                                }
                             } else {
                                 "0".to_string()
                             };
@@ -2242,7 +2253,29 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // argument-inferred param types, prepending the receiver
                             // type if the generic decl has a self parameter.
                             let mut inferred_types: Vec<String> = args.iter()
-                                .map(|a| self.infer_llvm_type(a))
+                                .map(|a| {
+                                    let t = self.infer_llvm_type(a);
+                                    // `&T` params are by-value at the ABI (type_from_ast
+                                    // maps &T -> T), so infer the INNER type for plain
+                                    // Ref args. `&mut T` maps to `*T` (a real pointer) —
+                                    // keep the pointer inference for MutRef.
+                                    if let Expr::Ref(i, _) = a {
+                                        // &array_local passes the Vec DATA POINTER (i64*),
+                                        // not the Vec struct — match the callee's `&[N]T`
+                                        // param type.
+                                        if let Expr::Ident(id) = i.as_ref() {
+                                            if self.local.array_locals.contains(&id.name) {
+                                                "i64*".to_string()
+                                            } else {
+                                                self.infer_llvm_type(i)
+                                            }
+                                        } else {
+                                            self.infer_llvm_type(i)
+                                        }
+                                    } else {
+                                        t
+                                    }
+                                })
                                 .collect();
                             // 5c.34: Check if the generic decl body uses `self`
                             // (by-value self method). If so, prepend the receiver
