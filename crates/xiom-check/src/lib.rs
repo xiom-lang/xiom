@@ -1473,26 +1473,47 @@ impl Checker {
 
         // Pre-load every path-prefix module via the catalog so that process_use
         // can walk self.modules for multi-segment `use a.b.c` paths.
+        // TRANSITIVE deps are loaded too: a loaded module's own `use` decls
+        // (e.g. env.xi uses xiom.io) must reach the catalog cache, otherwise
+        // collect_external_decls misses their bodies and non-generic stdlib
+        // functions (io.args, io.println) fall back to undefined stubs.
+        let mut worklist: Vec<Vec<String>> = Vec::new();
         for ud in &import_snapshot {
             if ud.path.is_empty() {
                 continue;
             }
-            // Load each prefix [p0], [p0,p1], ..., [p0,...,pn] via catalog.
             for end in 1..=ud.path.len() {
-                let prefix: Vec<String> = ud.path[..end].iter().map(|i| i.name.clone()).collect();
-                let dotted = prefix.join(".");
-                if self.cached_loaded.contains(&dotted) {
-                    continue;
+                worklist.push(ud.path[..end].iter().map(|i| i.name.clone()).collect());
+            }
+        }
+        while let Some(prefix) = worklist.pop() {
+            let dotted = prefix.join(".");
+            if self.cached_loaded.contains(&dotted) {
+                continue;
+            }
+            // Only try catalog if the leaf segment isn't already in self.modules.
+            let leaf = prefix.last().unwrap();
+            if self.modules.contains_key(leaf.as_str()) {
+                continue;
+            }
+            if let Some(cached) = self.catalog.find_owned(&prefix) {
+                self.cached_loaded.insert(dotted);
+                self.register_external_module(&cached);
+                // Enqueue the loaded module's own imports (transitive closure).
+                fn collect_uses(items: &[TopDecl], out: &mut Vec<Vec<String>>) {
+                    for item in items {
+                        match item {
+                            TopDecl::Use(ud) => {
+                                for end in 1..=ud.path.len() {
+                                    out.push(ud.path[..end].iter().map(|i| i.name.clone()).collect());
+                                }
+                            }
+                            TopDecl::Module(md) => collect_uses(&md.items, out),
+                            _ => {}
+                        }
+                    }
                 }
-                // Only try catalog if the leaf segment isn't already in self.modules.
-                let leaf = &prefix.last().unwrap();
-                if self.modules.contains_key(leaf.as_str()) {
-                    continue;
-                }
-                if let Some(cached) = self.catalog.find_owned(&prefix) {
-                    self.cached_loaded.insert(dotted);
-                    self.register_external_module(&cached);
-                }
+                collect_uses(&cached.program.items, &mut worklist);
             }
         }
         // Build parent-module entries for dotted names so that process_use
@@ -1603,7 +1624,13 @@ impl Checker {
     pub fn collect_external_decls(&self, program: &Program) -> Vec<TopDecl> {
         // Names already declared in the program (to avoid duplicates).
         let mut existing: HashSet<String> = HashSet::new();
-        fn collect_names(items: &[TopDecl], existing: &mut HashSet<String>) {
+        // BARE names of free fns declared in the USER program (including nested
+        // modules). These shadow same-named stdlib fns: e.g. `module sys { pub fn
+        // alloc }` must block injecting xiom.alloc's `alloc` (whose qualified
+        // dedup key "xiom.alloc.alloc" would otherwise not collide with the
+        // user's bare "alloc", producing a duplicate `@alloc` definition).
+        let mut user_free_fns: HashSet<String> = HashSet::new();
+        fn collect_names(items: &[TopDecl], existing: &mut HashSet<String>, user_free_fns: &mut HashSet<String>) {
             for item in items {
                 match item {
                     TopDecl::Type(td) => { existing.insert(td.name.name.clone()); }
@@ -1617,13 +1644,16 @@ impl Checker {
                             fd.name.name.clone()
                         };
                         existing.insert(key);
+                        if fd.receiver.is_none() {
+                            user_free_fns.insert(fd.name.name.clone());
+                        }
                     }
-                    TopDecl::Module(md) => { collect_names(&md.items, existing); }
+                    TopDecl::Module(md) => { collect_names(&md.items, existing, user_free_fns); }
                     _ => {}
                 }
             }
         }
-        collect_names(&program.items, &mut existing);
+        collect_names(&program.items, &mut existing, &mut user_free_fns);
 
         // Primitive / builtin types that should never be injected.
         const PRIMITIVES: &[&str] = &[
@@ -1681,12 +1711,15 @@ impl Checker {
         for cached in self.catalog.all_cached() {
             // Walk the cached program items recursively and inject pub type/enum/fn decls
             // with full bodies (not stubs), deduplicated against existing names.
+            let cached_module_name = cached.dotted_name.clone();
             fn collect_pub_decls(
                 items: &[TopDecl],
                 existing: &mut HashSet<String>,
                 primitives: &[&str],
                 generic_types: &HashSet<String>,
                 pub_generic_types: &HashSet<String>,
+                module_name: &str,
+                user_free_fns: &HashSet<String>,
                 out: &mut Vec<TopDecl>,
             ) {
                 for item in items {
@@ -1738,19 +1771,51 @@ impl Checker {
                             // which `new` survived would flip between builds.
                             let dedup_key = if fd.is_method() {
                                 format!("{}.{}", fd.receiver.as_ref().unwrap().name, fd.name.name)
+                            } else if !module_name.is_empty() {
+                                // Module-qualified free fns (e.g. xiom.env.args vs
+                                // xiom.io.args) must NOT dedup against each other —
+                                // bare-name dedup dropped one, leaving the other to
+                                // self-recursively resolve (env.args → @args).
+                                format!("{}.{}", module_name, fd.name.name)
                             } else {
                                 fd.name.name.clone()
                             };
                             if !recv_is_nonpub_generic
                                 && !existing.contains(&dedup_key)
-                                && !primitives.contains(&fd.name.name.as_str()) {
+                                && !primitives.contains(&fd.name.name.as_str())
+                                && !(fd.receiver.is_none() && user_free_fns.contains(&fd.name.name)) {
                                 existing.insert(dedup_key);
                                 // Inject with full body so codegen emits define, not declare.
-                                out.push(TopDecl::Fn(fd.clone()));
+                                let mut fd2 = fd.clone();
+                                // Leaf-qualify FREE fn names (e.g. `array.contains`)
+                                // so codegen registers module-scoped leaf keys. The
+                                // driver merge only accepts flat TopDecl::Fn (Module
+                                // wrappers are dropped), so the module context must
+                                // ride on the name itself. Methods keep their
+                                // receiver-based keys (fn_key uses the receiver).
+                                // Bare internal calls (e.g. env.args_os → args())
+                                // still resolve via codegen's bare-key alias map.
+                                // NOTE: even when the fn's name equals the module
+                                // leaf (`alloc` in xiom.alloc → `alloc.alloc`), the
+                                // rename still applies — the qualified key is what
+                                // makes it distinct from a user's bare `alloc`.
+                                if fd2.receiver.is_none() && !module_name.is_empty() {
+                                    if let Some(leaf) = module_name.rsplit('.').next() {
+                                        if !leaf.is_empty() {
+                                            fd2.name.name = format!("{}.{}", leaf, fd2.name.name);
+                                        }
+                                    }
+                                }
+                                out.push(TopDecl::Fn(fd2));
                             }
                         }
                         TopDecl::Module(md) => {
-                            collect_pub_decls(&md.items, existing, primitives, generic_types, pub_generic_types, out);
+                            // Recurse FLAT (no wrapper): the driver merge in
+                            // crates/xiom/src/lib.rs drops TopDecl::Module from the
+                            // external-decl injection, so wrapped decls would never
+                            // reach codegen. Module context is preserved instead by
+                            // leaf-qualifying free fn names above.
+                            collect_pub_decls(&md.items, existing, primitives, generic_types, pub_generic_types, module_name, user_free_fns, out);
                         }
                         TopDecl::Extern(eb) => {
                             // Inject external modules' `extern "C"` blocks so their
@@ -1773,7 +1838,7 @@ impl Checker {
                     }
                 }
             }
-            collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &pub_generic_type_names, &mut decls);
+            collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &pub_generic_type_names, &cached_module_name, &user_free_fns, &mut decls);
         }
 
         // Reachability filter: only inject FUNCTIONS whose (leaf) name is actually
@@ -1945,7 +2010,12 @@ impl Checker {
             let mut added = false;
             let mut i = 0;
             while i < fn_candidates.len() {
-                let leaf_reachable = referenced.contains(&fn_candidates[i].name.name);
+                // Leaf-qualified free fns (e.g. `array.contains`) are referenced by
+                // their BARE name (`contains`) from call sites like `array.contains(x)`
+                // (Expr::Field collects the field name). Match on the last dot segment.
+                let leaf_name = fn_candidates[i].name.name.rsplit('.').next().unwrap_or(&fn_candidates[i].name.name);
+                let leaf_reachable = referenced.contains(leaf_name)
+                    || referenced.contains(&fn_candidates[i].name.name);
                 let key = if fn_candidates[i].is_method() {
                     format!("{}.{}", fn_candidates[i].receiver.as_ref().unwrap().name, fn_candidates[i].name.name)
                 } else {

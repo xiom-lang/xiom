@@ -7,14 +7,17 @@ use crate::llvm_consts::*;
 
 impl IrEmitter {
     pub(crate) fn coerce_arg_for_param(&mut self, arg_expr: &Expr, pre_val: &str, pre_ty: &str, param_ty: &str) -> String {
-        // By-value ABI: `&T` parameters receive the VALUE, not the address
-        // (type_from_ast maps `&T` -> `T`). For Ref(lvalue) args with a
-        // non-pointer param, compile the inner value directly — otherwise the
-        // caller passes the reference address as the value (e.g. array.contains
-        // compared elements against the temp's address instead of 30).
-        // &array_local with a by-value %struct.Vec param (&Vec[T]) passes the
-        // Vec VALUE; the i64* (&[N]T data pointer) case is the pointer branch.
-        if !param_ty.ends_with('*') {
+        // By-value struct params: `&Vec[T]`/`&Slice[T]` receive the STRUCT value
+        // (%struct.Vec), NOT the address. For a `Ref(lvalue)` arg, compile the
+        // inner value directly — otherwise the caller passes the Vec's data
+        // pointer (i8*) which coerces via inttoptr+load into a GARBAGE struct
+        // (reading the element buffer as the Vec header — ACCESS_VIOLATION).
+        // Scalar `&T` params are EXCLUDED: they carry the ADDRESS as i64
+        // (the &literal/&local temp path in expr.rs supplies it).
+        // Pointer params (`%struct.Vec2*` for &mut Vec2) are also EXCLUDED —
+        // they must receive the lvalue's slot ADDRESS so mutations propagate
+        // (m33_b18: `set_x(&mut p, 3)` writes through the caller's alloca).
+        if param_ty.starts_with("%struct.") && !param_ty.ends_with('*') {
             if let Expr::Ref(i, _) | Expr::MutRef(i, _) = arg_expr {
                 if let Ok((v, t)) = self.compile_expr(i) {
                     return self.coerce_value(&v, &t, param_ty);

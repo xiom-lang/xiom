@@ -703,6 +703,13 @@ impl IrEmitter {
                     if let Some(cval) = self.local.constants.get(&ident.name).cloned() {
                         return self.compile_expr(&cval);
                     }
+                    // Bare `null` in an expression is the NULL POINTER (0), not a
+                    // function reference. Without this, the suffix search below
+                    // matches `ptr.null` and emits `ptrtoint ... @null` (undefined
+                    // symbol) — e.g. contract checks like `result != null`.
+                    if ident.name == "null" {
+                        return Ok(("0".to_string(), LLVM_I64.to_string()));
+                    }
                     // Function name used as value (e.g. v.push(add_one)):
                     // resolve to a function pointer via ptrtoint of the IR symbol.
                     // The functions map has both bare names and module-qualified names.
@@ -878,44 +885,28 @@ impl IrEmitter {
                         // type from the XIOM type system, falling back to i8 for
                         // byte-pointer compat.
                         if inner_ty == "i64" {
-                            // By-value ABI: `&T` params receive the VALUE (type_from_ast
-                            // maps &T -> T). If the deref'd ident's local LLVM type is a
-                            // plain value (i64, not i64*), `*r` is a NO-OP — return the
-                            // value instead of treating it as an address.
-                            if let Expr::Ident(id) = inner.as_ref() {
-                                if let Some((_, lt)) = self.lookup_local(&id.name).cloned() {
-                                    if !lt.ends_with('*') && lt != "i8*" && lt != "ptr" {
-                                        return Ok((val, inner_ty));
-                                    }
-                                }
-                            }
                             // Check if inner is a local with a &T XIOM type
                             let pointee_llvm = if let Expr::Ident(id) = inner.as_ref() {
-                                self.local.local_xiom_types.get(&id.name)
-                                    .and_then(|xiom_ty| {
-                                        if xiom_ty.starts_with('&') {
-                                            let pointee = &xiom_ty[1..]; // strip &
-                                            self.llvm_type_for(pointee).ok()
-                                        } else { None }
-                                    })
+                                // `&T` params carry the ADDRESS (i64); type_from_ast
+                                // strips the &, so local_xiom_types holds "Int" for a
+                                // `r: &Int` param — that IS the pointee type. This
+                                // fixes `*r` loading i8 instead of the declared width.
+                                if self.local.param_locals.contains(&id.name) {
+                                    self.local.local_xiom_types.get(&id.name)
+                                        .and_then(|xiom_ty| self.llvm_type_for(xiom_ty).ok())
+                                } else {
+                                    self.local.local_xiom_types.get(&id.name)
+                                        .and_then(|xiom_ty| {
+                                            if xiom_ty.starts_with('&') {
+                                                let pointee = &xiom_ty[1..]; // strip &
+                                                self.llvm_type_for(pointee).ok()
+                                            } else { None }
+                                        })
+                                }
                             } else { None };
                             if let Some(pointee) = pointee_llvm {
-                                // By-value ABI: `&T` function PARAMS receive the VALUE
-                                // (type_from_ast maps &T -> T), so `*r` is a NO-OP —
-                                // the local's registered LLVM type is the value type
-                                // (i64), not a pointer. Only inttoptr+load when the
-                                // local actually HOLDS an address (&T local from &x,
-                                // registered as i64*).
-                                let local_is_pointer = if let Expr::Ident(id) = inner.as_ref() {
-                                    self.lookup_local(&id.name)
-                                        .map(|(_, lt)| lt.ends_with('*'))
-                                        .unwrap_or(false)
-                                } else { true };
-                                if !local_is_pointer {
-                                    // *r where r is a by-value &T param → the value itself.
-                                    return Ok((val, inner_ty));
-                                }
-                                // &T local holding an address → inttoptr to i64* and load i64
+                                // `&T` params/locals carry the ADDRESS (as i64) —
+                                // inttoptr to the pointee type and load the value.
                                 let ptr = self.fresh_tmp();
                                 self.emitln(&format!("  {ptr} = inttoptr i64 {val} to {pointee}*"));
                                 self.emitln(&format!("  {tmp} = load {pointee}, {pointee}* {ptr}"));

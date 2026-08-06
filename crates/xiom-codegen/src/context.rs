@@ -226,6 +226,13 @@ pub struct MonoContext {
     pub emitted_fns: HashSet<String>,
     /// Set of function names already declared via `declare`
     pub already_declared: HashSet<String>,
+    /// Bare leaf name -> leaf-qualified key for INJECTED stdlib free fns
+    /// (e.g. "args" -> "env.args"). Injected decls are leaf-qualified so the
+    /// driver merge (which drops TopDecl::Module) keeps module context; bare
+    /// internal calls inside stdlib bodies (env.args_os -> args()) are
+    /// rewritten to the qualified key so the emitted symbol matches the
+    /// definition. Keep-first: a user-defined bare fn wins over injection.
+    pub bare_fn_aliases: HashMap<String, String>,
 }
 
 // ============================================================================
@@ -289,6 +296,13 @@ pub struct LocalContext {
     /// M17: XIOM type name for each local. Maps local name → XIOM type string
     /// (e.g. "x" → "Int8", "y" → "UInt16"). Populated from declared type annotations.
     pub local_xiom_types: HashMap<String, String>,
+    /// Names of the CURRENT function's parameters. Used to distinguish by-value
+    /// `&T` params (ABI passes the VALUE — `*r` is a no-op) from local variables
+    /// that HOLD an address (`var r = &x` — `*r` must deref).
+    pub param_locals: HashSet<String>,
+    /// Params declared with a plain `&T` reference type (address carried as i64).
+    /// `&mut T` / `*T` params are real pointers (i64*) and are NOT listed here.
+    pub ref_params: HashSet<String>,
     /// M17: Tracks which SSA register names hold signed integer values.
     /// Populated when values are created with known XIOM type (Ident loads,
     /// As expressions, literals). Consulted by widen_to_i64 to select sext/zext.
