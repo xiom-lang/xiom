@@ -1589,8 +1589,10 @@ fn e2e_i2_parallel_codegen() {
 /// Systems-arena t8: Safety probe — must compile + output valid JSON
 #[test]
 fn e2e_safety_probe() {
+    // Uses the internal copy of the safety-probe pattern (UTF-8) so the test
+    // does not depend on xiom-benchmark-chaos reference files.
     assert_eq!(
-        compile_and_run("xiom-benchmark-chaos\\reference\\systems-arena\\t8-safety-probe.xi"),
+        compile_and_run("tests\\ecosystem\\t8-safety-probe.xi"),
         Some(0),
         "Safety probe: must compile, run, and output JSON (no crash)"
     );
