@@ -633,11 +633,6 @@ impl IrEmitter {
                         .map(|r| self.types.generic_type_names.contains(&r.name))
                         .unwrap_or(false);
                     if !recv_is_generic && fd.body.is_some() {
-                        // M21: Skip empty-body `main` functions (e.g. `async fn main() {  }`)
-                        // that would shadow the real entry point in a brace-less module.
-                        let is_empty_main = fd.name.name == "main"
-                            && fd.body.as_ref().map_or(false, |b| b.stmts.is_empty());
-                        if is_empty_main { return Ok(()); }
                         let fn_name = self.fn_symbol(fd);
                         self.mono.emitted_fns.insert(fn_name.clone());
                         // 5e.5a: track pub functions for hot reload thunk dispatch

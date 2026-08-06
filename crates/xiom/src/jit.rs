@@ -10,16 +10,18 @@ use crate::CompileConfig;
 /// JIT-compile XIOM source to a shared library, load it, and call main().
 /// Returns the exit code from main(), or an error message.
 pub fn jit_execute(source: &str) -> Result<i32, String> {
-    let tmp_dir = std::env::temp_dir().join("xiom_jit");
+    // Unique temp dir per invocation — parallel JIT calls (e.g. tests) must
+    // not collide on a shared _jit.xi/_jit.dll path.
+    let tmp_dir = std::env::temp_dir().join(format!("xiom_jit_{}", std::process::id()));
     std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("cannot create temp dir: {e}"))?;
 
-    let tmp_src = tmp_dir.join("_jit.xi");
+    let tmp_src = tmp_dir.join(format!("_jit_{:x}.xi", rand_suffix()));
     let tmp_out = if cfg!(windows) {
-        tmp_dir.join("_jit.dll")
+        tmp_dir.join(format!("_jit_{:x}.dll", rand_suffix()))
     } else if cfg!(target_os = "macos") {
-        tmp_dir.join("_jit.dylib")
+        tmp_dir.join(format!("_jit_{:x}.dylib", rand_suffix()))
     } else {
-        tmp_dir.join("_jit.so")
+        tmp_dir.join(format!("_jit_{:x}.so", rand_suffix()))
     };
 
     std::fs::write(&tmp_src, source).map_err(|e| format!("cannot write source: {e}"))?;
@@ -49,6 +51,19 @@ pub fn jit_execute(source: &str) -> Result<i32, String> {
         let exit_code = main_fn();
         Ok(exit_code as i32)
     }
+}
+
+/// Time+counter-based suffix so concurrent JIT compiles use distinct files.
+fn rand_suffix() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let ctr = COUNTER.fetch_add(1, Ordering::Relaxed);
+    nanos ^ (ctr.wrapping_mul(0x9E3779B97F4A7C15))
 }
 
 /// JIT-execute with wrapped source (applies implicit main if needed).
