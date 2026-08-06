@@ -390,6 +390,22 @@ impl IrEmitter {
                 .unwrap_or_else(|| "void".to_string());
             let key = self.fn_key(fd);
             self.types.functions.insert(key.clone(), (param_types.clone(), ret_type.clone()));
+            // Injected stdlib free fns arrive leaf-qualified ("array.contains")
+            // because the driver merge drops TopDecl::Module wrappers. Register a
+            // bare-leaf alias ("contains" -> "array.contains") so unqualified
+            // internal stdlib calls (e.g. env.args_os -> args()) resolve to the
+            // qualified key and the emitted symbol matches the definition.
+            // Keep-first: a user-defined bare fn (registered earlier) wins.
+            if fd.receiver.is_none() {
+                if let Some((_, bare)) = key.rsplit_once('.') {
+                    if !bare.is_empty() && bare != key.as_str() {
+                        if !self.types.functions.contains_key(&bare.to_string()) {
+                            self.mono.bare_fn_aliases.entry(bare.to_string())
+                                .or_insert_with(|| key.clone());
+                        }
+                    }
+                }
+            }
             // Track by-value self methods (not &self) for store_back.
             // A by-value self method has a self param that is NOT &self/&mut self/*self.
             if fd.receiver.is_some() {
@@ -438,13 +454,21 @@ impl IrEmitter {
                 }
             }
             if !fd.generics.is_empty() {
-                self.mono.generic_fn_decls.push((key.clone(), fd.clone()));
+                // Bare-key collision guard: two modules can define the same-named
+                // generic fn (e.g. array.contains vs core.contains). The bare key
+                // must stay owned by the FIRST registrant so module-qualified calls
+                // (array.contains → leaf key) resolve unambiguously; a second bare
+                // entry would make the fallback suffix-search pick a random one.
+                if !self.mono.generic_fn_decls.iter().any(|(k, _)| k == &key) {
+                    self.mono.generic_fn_decls.push((key.clone(), fd.clone()));
+                }
                 // Also register with leaf-module key for generic resolution
                 if fd.receiver.is_none() {
                     if let Some(ref module) = self.local.current_module {
                         if let Some(leaf) = module.rsplit('.').next() {
                             let leaf_key = format!("{}.{}", leaf, key);
                             if leaf_key != key {
+                                // Leaf key is unambiguous per module — always add.
                                 self.mono.generic_fn_decls.push((leaf_key, fd.clone()));
             }
             // v0.54 Phase B: Register function body for CTFE evaluation.
@@ -860,11 +884,27 @@ impl IrEmitter {
         // P0-4: Mark functions alwaysinline so clang/LLVM can eliminate
         // call overhead for small hot functions (e.g., read_u16_be called 17M times).
         let inline_attr = " alwaysinline";
-        self.emitln(&format!("define {ret_llvm} @{name}({}){}{inline_attr} {{", params_str.join(", "), dbg_attach));
+        // The program entry point `main` receives argc/argv from the OS so the
+        // runtime's xiom_set_args can populate xiom_argc/xiom_argv (env.args()).
+        // Native-only: wasm has no argc/argv and no xiom_set_args runtime link.
+        let is_native = self.config.target_triple.contains("pc-windows")
+            || self.config.target_triple.contains("unknown-linux")
+            || self.config.target_triple.contains("apple-darwin");
+        let is_entry_main = is_native && name == "main" && fd.params.is_empty() && fd.receiver.is_none();
+        let main_sig = if is_entry_main {
+            "i32 %argc, i8** %argv".to_string()
+        } else {
+            params_str.join(", ")
+        };
+        self.emitln(&format!("define {ret_llvm} @{name}({}){}{inline_attr} {{", main_sig, dbg_attach));
 
         // Recursion depth check
         let entry_block = self.fresh_block("entry");
         self.emitln(&format!("{entry_block}:"));
+        if is_entry_main {
+            // Seed the runtime arg table so env.args()/io.args() work.
+            self.emitln("  call void @xiom_set_args(i32 %argc, i8** %argv)");
+        }
         let depth_tmp = self.fresh_tmp();
         self.emitln(&format!("  {depth_tmp} = load i64, i64* @xiom_recursion_counter"));
         let new_depth = self.fresh_tmp();
@@ -963,6 +1003,12 @@ impl IrEmitter {
             self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
             self.emitln(&format!("  store {llvm_ty} %param{param_idx}, {llvm_ty}* {alloca}"));
             self.add_local(&param.name.name, alloca, &llvm_ty);
+            self.local.param_locals.insert(param.name.name.clone());
+            // Track plain `&T` ref params (address carried as i64) so deref and
+            // eq/compare can load through them. &mut T / *T are real pointers.
+            if matches!(&param.ty, Type::Ref(_)) {
+                self.local.ref_params.insert(param.name.name.clone());
+            }
             // 5c.39: Track Vec element type for function parameters so
             // downstream local bindings (var x = param) can inherit it.
             if let Some(elem) = Self::vec_elem_from_type_annotation(&param.ty) {

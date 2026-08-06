@@ -2369,6 +2369,9 @@ impl IrEmitter {
         // doesn't conflict with user declarations (e.g. thread.xi).
         let spawn_declare = String::from("declare i64 @xiom_thread_spawn(ptr, ptr)");
         self.emitln("declare ptr @xiom_channel_create()");
+        // Runtime arg seeding (env.args()) — declared here so the @main entry
+        // can call it regardless of whether io.xi's extern block is loaded.
+        self.emitln("declare void @xiom_set_args(i32, i8**)");
         self.emitln("declare i64 @xiom_channel_send(ptr, i64)");
         self.emitln("declare i64 @xiom_channel_recv(ptr)");
         self.emitln("declare i64 @xiom_channel_try_recv(ptr, ptr)");
@@ -2502,9 +2505,25 @@ impl IrEmitter {
 
     /// Walk the program tree to collect all non-generic function declarations
     /// with their module prefix and positional index (for output ordering).
+    /// Static fn_key equivalent for parallel symbol pre-assignment. Mirrors
+    /// IrEmitter::fn_key for receiver methods and free functions using the
+    /// module prefix (no emitter state needed).
+    fn fn_key_with_prefix(fd: &FnDecl, module_prefix: &str) -> String {
+        if let Some(recv_name) = &fd.receiver {
+            let recv_type = if module_prefix.is_empty() {
+                recv_name.name.clone()
+            } else {
+                format!("{}.{}", module_prefix, recv_name.name)
+            };
+            let bare_method = fd.name.name.rsplit('.').next().unwrap_or(&fd.name.name);
+            format!("{recv_type}.{bare_method}")
+        } else {
+            fd.name.name.clone()
+        }
+    }
+
     /// Returns true when the program contains a `fn main` with a non-empty body.
-    fn program_has_non_empty_main(items: &[TopDecl]) -> bool {
-        for item in items {
+    fn program_has_non_empty_main(items: &[TopDecl]) -> bool {        for item in items {
             match item {
                 TopDecl::Fn(fd) => {
                     if fd.name.name == "main"
@@ -2582,6 +2601,29 @@ impl IrEmitter {
             return Ok(());
         }
 
+        // Step 1.5: Pre-assign unique symbols across ALL functions BEFORE the
+        // parallel loop. Each parallel emitter starts with an empty emitted_fns,
+        // so fn_symbol's collision check never fired — env.args and io.args both
+        // compiled to `@args`, the later one overwriting the earlier and
+        // self-recursing (env.args() → @args → @args … infinite recursion).
+        let mut seen_bare: HashSet<String> = HashSet::new();
+        let mut assignments: Vec<(usize, String, HashSet<String>)> = Vec::new();
+        for (idx, prefix, fd) in &functions {
+            let bare = Self::fn_key_with_prefix(fd, prefix);
+            let snapshot = seen_bare.clone();
+            let sym = if seen_bare.contains(&bare) {
+                if prefix.is_empty() {
+                    bare.clone()
+                } else {
+                    format!("{}.{}", prefix, bare)
+                }
+            } else {
+                bare.clone()
+            };
+            seen_bare.insert(bare);
+            assignments.push((*idx, sym, snapshot));
+        }
+
         // Step 2: Compile each function in parallel
         let type_ctx = Arc::new(self.types.clone());
         let cfg = Arc::new(self.config.clone());
@@ -2589,7 +2631,8 @@ impl IrEmitter {
         let local_constants = Arc::new(self.local.constants.clone());
         let outputs: Vec<_> = functions
             .par_iter()
-            .map(|(idx, prefix, fd)| {
+            .zip(assignments)
+            .map(|((idx, prefix, fd), (_aidx, sym, snapshot))| {
                 let mut emitter = IrEmitter::new();
                 emitter.types = (*type_ctx).clone();
                 emitter.config = (*cfg).clone();
@@ -2603,7 +2646,10 @@ impl IrEmitter {
                 emitter.tmp_counter = (*idx as u32) * 10000;
                 emitter.block_counter = (*idx as u32) * 10000;
 
-                let fn_name = emitter.fn_symbol(fd);
+                // Use the pre-assigned symbol; seed emitted_fns with the names
+                // seen BEFORE this function so fn_symbol qualifies identically.
+                emitter.mono.emitted_fns = snapshot;
+                let fn_name = sym;
                 emitter.mono.emitted_fns.insert(fn_name.clone());
                 if emitter.config.hot_reload && fd.is_pub {
                     emitter.config.pub_functions.insert(fn_name);
@@ -4053,6 +4099,15 @@ let inner_llvm = match &inner_subst {
                     if let Some(concrete) = type_map.get(&xiom_ty) {
                         self.mono.param_concrete_types.insert(param.name.name.clone(), concrete.clone());
                     }
+                }
+                // Mirror compile_fn's ref-param tracking: plain `&T` params carry
+                // the ADDRESS as i64 (deref must inttoptr+load), &mut T / *T are
+                // real pointers. Without this, eq/compare inside generic bodies
+                // (e.g. array.contains's `arr[i].eq(x)`) compares the element
+                // against the address instead of the value.
+                self.local.param_locals.insert(param.name.name.clone());
+                if matches!(&param.ty, Type::Ref(_)) {
+                    self.local.ref_params.insert(param.name.name.clone());
                 }
             }
 

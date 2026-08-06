@@ -356,13 +356,27 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     a
                                 };
                                 let (arg_raw, arg_ty) = self.compile_expr(arg_expr)?;
-                                // Reference-typed args (e.g. a `x: &Int` parameter
-                                // passed directly, arr[i].eq(x)) compile to a pointer
-                                // — deref to the scalar VALUE for the comparison.
-                                if arg_ty.ends_with('*') {
+                                // Reference-typed args compile to a pointer (i64* from
+                                // &mut T / *T) OR an address-as-i64 (plain `&T` param).
+                                // Deref to the scalar VALUE for the comparison.
+                                let is_ref_param = if let Expr::Ident(id) = arg_expr {
+                                    self.local.ref_params.contains(&id.name)
+                                } else { false };
+                                if arg_ty.ends_with('*') || is_ref_param {
                                     let loaded = self.fresh_tmp();
-                                    let base = arg_ty.trim_end_matches('*').to_string();
-                                    self.emitln(&format!("  {loaded} = load {base}, {arg_ty} {arg_raw}"));
+                                    let base = if arg_ty.ends_with('*') {
+                                        arg_ty.trim_end_matches('*').to_string()
+                                    } else {
+                                        "i64".to_string()
+                                    };
+                                    let ptr = if arg_ty.ends_with('*') {
+                                        arg_raw.clone()
+                                    } else {
+                                        let p = self.fresh_tmp();
+                                        self.emitln(&format!("  {p} = inttoptr i64 {arg_raw} to i64*"));
+                                        p
+                                    };
+                                    self.emitln(&format!("  {loaded} = load {base}, {base}* {ptr}"));
                                     loaded
                                 } else {
                                     arg_raw
@@ -2037,6 +2051,20 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     }
                 } else {
                     fn_name.clone()
+                };
+                // Rewrite bare internal stdlib calls (e.g. `args()` inside
+                // env.args_os) to the leaf-qualified key registered for injected
+                // free fns. The injected decls carry qualified names
+                // ("env.args") so the emitted symbol matches the definition;
+                // bare keys resolve through the keep-first alias map.
+                let fn_key = if !fn_key.contains('.') {
+                    if let Some(qualified) = self.mono.bare_fn_aliases.get(&fn_key) {
+                        qualified.clone()
+                    } else {
+                        fn_key
+                    }
+                } else {
+                    fn_key
                 };
                 // Interface dispatch fallback: when the receiver type is a known
                 // interface (e.g. `Error.description`), search all registered
