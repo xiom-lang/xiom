@@ -44,7 +44,7 @@ run_test() {
     local tmp_o; tmp_o=$(mktemp /tmp/xt_o.XXXXXX)
     local tmp_e; tmp_e=$(mktemp /tmp/xt_e.XXXXXX)
     
-    local cargs=("test" "-p" "$pkg")
+    local cargs=("test" "-p" "$pkg" "--target-dir" "$(pwd)/.test_build")
     [[ -n "$test_file" && "$test_file" != "--lib" ]] && cargs+=("--test" "$test_file")
     [[ "$test_file" == "--lib" ]] && cargs+=("--lib")
     [[ -n "$extra" ]] && cargs+=($extra)
@@ -134,7 +134,7 @@ echo ""
 printf "${YELLOW}BUILD (parallel)...${NC} "
 log "BUILD START"
 BUILD_START=$(date +%s)
-cargo test --workspace --no-run > /dev/null 2>&1
+cargo test --workspace --no-run --target-dir "$(pwd)/.test_build" > /dev/null 2>&1
 BUILD_END=$(date +%s)
 if [[ $? -ne 0 ]]; then
     echo -e "${RED}FAILED${NC}"
