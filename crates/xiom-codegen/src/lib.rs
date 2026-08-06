@@ -2364,7 +2364,7 @@ impl IrEmitter {
         // v0.55: Declare C runtime threading/channel functions (always available).
         // Deferred: emit these AFTER user extern blocks so xiom_thread_spawn
         // doesn't conflict with user declarations (e.g. thread.xi).
-        let mut spawn_declare = String::from("declare i64 @xiom_thread_spawn(ptr, ptr)");
+        let spawn_declare = String::from("declare i64 @xiom_thread_spawn(ptr, ptr)");
         self.emitln("declare ptr @xiom_channel_create()");
         self.emitln("declare i64 @xiom_channel_send(ptr, i64)");
         self.emitln("declare i64 @xiom_channel_recv(ptr)");
