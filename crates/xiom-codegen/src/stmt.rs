@@ -911,7 +911,15 @@ impl IrEmitter {
                 // Store scrutinee value in alloca for field extraction
                 let mut scrutinee_alloca_info = None;
                 if let Some(ref type_name) = scrutinee_type {
-                    let struct_ty = format!("%struct.{type_name}");
+                    // Use the concrete LLVM type (e.g. %struct.Result__X__Y) when
+                    // available, falling back to %struct.{type_name} for generic types.
+                    // This prevents type mismatches when matching on concretized
+                    // enum/struct types like Result[JsonValue, SerializeError].
+                    let struct_ty = if scrutinee_llvm_ty.starts_with("%struct.") && scrutinee_llvm_ty != "i64" {
+                        scrutinee_llvm_ty.clone()
+                    } else {
+                        format!("%struct.{type_name}")
+                    };
                     let alloca = self.fresh_tmp();
                     // If the scrutinee is a pointer to the struct (e.g. JsonValue*)
                     // rather than the struct value itself, load the struct through

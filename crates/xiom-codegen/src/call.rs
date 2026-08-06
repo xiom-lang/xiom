@@ -1808,14 +1808,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                     }
                 }
-                // Inline Option.is_some() / Option.is_none() for concrete types
-                // (Option__Point, Option__JsonValue etc.) so the auto-stub
-                // generator doesn't create dead stubs returning 0 (B-001).
-                if (fn_name == "is_some" || fn_name == "is_none") && args.is_empty() {
+                // Inline Option.is_some() / Option.is_none() / Result.is_ok() / Result.is_err()
+                // for concrete types (Option__Point, Result__JsonValue__SerializeError etc.)
+                // so the auto-stub generator doesn't create dead stubs returning 0 (B-001).
+                if (fn_name == "is_some" || fn_name == "is_none"
+                    || fn_name == "is_ok" || fn_name == "is_err") && args.is_empty() {
                     if let Some(receiver) = receiver_expr {
-                        let recv_ty = self.infer_llvm_type(receiver);
-                        if recv_ty.contains("Option__") || recv_ty.contains("Result__") {
-                            let (recv_val, recv_ty) = self.compile_expr(receiver)?;
+                        // Use the compiled type (not infer_llvm_type) so concrete
+                        // types like %struct.Result__X__Y are recognized, not just
+                        // the generic %struct.Result / %struct.Option.
+                        let (recv_val, recv_ty) = self.compile_expr(receiver)?;
+                        if recv_ty.contains("Option__") || recv_ty.contains("Result__")
+                            || recv_ty.contains("Option.") || recv_ty.contains("Result.") {
                             let struct_ty = recv_ty.clone();
                             let alloca = self.fresh_tmp();
                             self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
@@ -1824,7 +1828,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             self.emitln(&format!("  {disc_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
                             let disc = self.fresh_tmp();
                             self.emitln(&format!("  {disc} = load i64, i64* {disc_gep}"));
-                            if fn_name == "is_none" {
+                            if fn_name == "is_none" || fn_name == "is_err" {
                                 let neg = self.fresh_tmp();
                                 self.emitln(&format!("  {neg} = xor i64 {disc}, 1"));
                                 return Ok((neg, LLVM_I64.to_string()));
