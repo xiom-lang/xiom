@@ -1458,15 +1458,20 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 }
                 // v0.56 I3: Mutex builtins for thread synchronization
                 let is_mutex_fn = matches!(fn_name.as_str(), "Mutex.new" | "Mutex.lock" | "Mutex.unlock" | "Mutex.destroy");
-                // v0.56: Numeric conversion builtins — to_float (sitofp) and to_int (fptosi)
-                if fn_name == "to_float" && compiled_args.len() == 1 {
+                // v0.56: Numeric conversion builtins — to_float (sitofp) and to_int (fptosi).
+                // Only apply when the user has NOT defined their own to_float/to_int
+                // function (e.g. `fn to_int(b: Bool) -> Int`). Otherwise the builtin
+                // hijacks the user call and emits a malformed `fptosi double ...`.
+                let user_defined_to_int = self.types.functions.keys().into_iter().any(|k| k == "to_int" || k.ends_with(".to_int"));
+                let user_defined_to_float = self.types.functions.keys().into_iter().any(|k| k == "to_float" || k.ends_with(".to_float"));
+                if fn_name == "to_float" && !user_defined_to_float && compiled_args.len() == 1 {
                     let (arg, arg_ty) = (&compiled_args[0].0, &compiled_args[0].1);
                     let arg_w = self.widen_to_i64(arg, arg_ty);
                     let tmp = self.fresh_tmp();
                     self.emitln(&format!("  {tmp} = sitofp i64 {arg_w} to double"));
                     return Ok((tmp, "double".to_string()));
                 }
-                if fn_name == "to_int" && compiled_args.len() == 1 {
+                if fn_name == "to_int" && !user_defined_to_int && compiled_args.len() == 1 {
                     let (arg, _) = (&compiled_args[0].0, &compiled_args[0].1);
                     let tmp = self.fresh_tmp();
                     self.emitln(&format!("  {tmp} = fptosi double {arg} to i64"));
