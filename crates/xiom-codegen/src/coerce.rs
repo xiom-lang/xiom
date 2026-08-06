@@ -7,6 +7,25 @@ use crate::llvm_consts::*;
 
 impl IrEmitter {
     pub(crate) fn coerce_arg_for_param(&mut self, arg_expr: &Expr, pre_val: &str, pre_ty: &str, param_ty: &str) -> String {
+        // By-value ABI: `&T` parameters receive the VALUE, not the address
+        // (type_from_ast maps `&T` -> `T`). For Ref(lvalue) args with a
+        // non-pointer param, compile the inner value directly — otherwise the
+        // caller passes the reference address as the value (e.g. array.contains
+        // compared elements against the temp's address instead of 30).
+        // EXCEPTION: &array_local passes the Vec DATA POINTER (already produced
+        // by the Ref handler) — do not recompile the inner Vec value.
+        if !param_ty.ends_with('*') {
+            if let Expr::Ref(i, _) | Expr::MutRef(i, _) = arg_expr {
+                let is_array_local = if let Expr::Ident(id) = i.as_ref() {
+                    self.local.array_locals.contains(&id.name)
+                } else { false };
+                if !is_array_local {
+                    if let Ok((v, t)) = self.compile_expr(i) {
+                        return self.coerce_value(&v, &t, param_ty);
+                    }
+                }
+            }
+        }
         if param_ty.ends_with('*') {
             let lvalue: Option<&Expr> = match arg_expr {
                 Expr::Ref(i, _) | Expr::MutRef(i, _) => Some(i.as_ref()),
@@ -14,6 +33,17 @@ impl IrEmitter {
                 _ => None,
             };
             if let Some(Expr::Ident(id)) = lvalue {
+                // &array_local → pass the Vec's DATA pointer (field 0), not the
+                // Vec alloca address. The `&[N]T` callee indexes the data buffer.
+                if self.local.array_locals.contains(&id.name) {
+                    if let Some((slot, _slot_ty)) = self.lookup_local(&id.name).cloned() {
+                        let gep = self.fresh_tmp();
+                        self.emitln(&format!("  {gep} = getelementptr %struct.Vec, %struct.Vec* {slot}, i32 0, i32 0"));
+                        let data_ptr = self.fresh_tmp();
+                        self.emitln(&format!("  {data_ptr} = load i8*, i8** {gep}"));
+                        return self.coerce_value(&data_ptr, "i8*", param_ty);
+                    }
+                }
                 if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
                     if slot_ty.ends_with('*') {
                         // Local already holds a pointer value: load and forward it.
