@@ -2083,17 +2083,16 @@ impl IrEmitter {
             });
         if let Some(meta) = meta {
             if let Some((_, ty_name)) = meta.fields.get(field_idx) {
-                // 5c.37: For generic types (Vec[Int], Map[Str,Int]), extract the
-                // base type name and resolve to the known struct type. Previously
-                // returned i64 to avoid Win64 sret corruption, but that broke
-                // struct layouts and field access (contract invariants, GEP).
-                if ty_name.contains('[') {
+                let result = if ty_name.contains('[') {
                     if let Some(bracket) = ty_name.find('[') {
-                        return self.llvm_type_for(&ty_name[..bracket])
-                            .unwrap_or_else(|_| "i64".to_string());
-                    }
-                }
-                return self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
+                        self.llvm_type_for(&ty_name[..bracket])
+                            .unwrap_or_else(|_| "i64".to_string())
+                    } else { "i64".to_string() }
+                } else {
+                    let t = self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
+                    t
+                };
+                return result;
             }
         }
         "i64".to_string()
@@ -4365,14 +4364,27 @@ let inner_llvm = match &inner_subst {
     /// Collects types from ALL arms and picks the widest (struct > i64 > narrower)
     /// so the result alloca is large enough for every arm.  `coerce_value` handles
     /// the actual per-arm conversion during the store.
-    fn infer_match_llvm_type(&self, arms: &[MatchArm]) -> String {
+    fn infer_match_llvm_type(&self, arms: &[MatchArm], scrutinee_llvm_ty: &str) -> String {
+        // Extract the struct type name from the scrutinee (e.g. %struct.Result__Regex__Str → Result__Regex__Str)
+        let scrutinee_struct_name = if scrutinee_llvm_ty.starts_with("%struct.") {
+            Some(&scrutinee_llvm_ty[8..])
+        } else { None };
         let mut types: Vec<String> = Vec::new();
         for arm in arms {
             let ty = match &arm.body {
                 MatchBody::Expr(e) => {
                     let t = self.infer_llvm_type(e);
-                    if t.is_empty() { continue; }
-                    t
+                    // If inference returns i64 and the expression is an Ident
+                    // that's a pattern binding (Ok(r) => r), resolve from the
+                    // scrutinee struct's field type instead.
+                    if t == "i64" || t == "i8*" || t.is_empty() {
+                        if let Expr::Ident(ident) = e {
+                            if let Some(payload_ty) = self.infer_pattern_binding_type(
+                                &arm.pattern, &ident.name, scrutinee_struct_name) {
+                                payload_ty
+                            } else if t.is_empty() { continue; } else { t }
+                        } else if t.is_empty() { continue; } else { t }
+                    } else if t.is_empty() { continue; } else { t }
                 }
                 MatchBody::Block(b) => {
                     let t = b.stmts.last().and_then(|s| {
@@ -4387,8 +4399,7 @@ let inner_llvm = match &inner_subst {
         if types.is_empty() {
             return "i64".to_string();
         }
-        // Prefer a struct type (wider alloca).  If all types match the first one,
-        // use it directly so the codegen sees the exact struct name.
+        // Prefer a struct type (wider alloca).
         let has_struct = types.iter().any(|t| t.starts_with("%struct."));
         if has_struct {
             return types.iter().find(|t| t.starts_with("%struct.")).cloned().unwrap_or_else(|| types[0].clone());
@@ -4399,6 +4410,23 @@ let inner_llvm = match &inner_subst {
         }
         // Otherwise, use i64 (widest integer-like type).
         types[0].clone()
+    }
+
+    /// For patterns like Ok(r) or Some(v), resolve the bound ident's type from
+    /// the scrutinee struct's field list.
+    fn infer_pattern_binding_type(&self, pattern: &Pattern, ident_name: &str, scrutinee_struct_name: Option<&str>) -> Option<String> {
+        let scrutinee_name = scrutinee_struct_name?;
+        let (inner, field_idx) = match pattern {
+            Pattern::Some(inner, _) | Pattern::Ok(inner, _) => (inner.as_ref(), 1),
+            Pattern::Err(inner, _) => (inner.as_ref(), 2),
+            _ => return None,
+        };
+        if let Pattern::Ident(id) = inner {
+            if id.name == ident_name {
+                return Some(self.field_llvm_type(scrutinee_name, field_idx));
+            }
+        }
+        None
     }
 
     /// Given a parent expression `obj` (e.g. `LogLevel`, `xiom.log.LogLevel`) and a
@@ -4879,7 +4907,7 @@ let inner_llvm = match &inner_subst {
                     .unwrap_or_else(|| "i64".to_string());
                 if then_ty == "double" || else_ty == "double" { "double".to_string() } else { "i64".to_string() }
             }
-            Expr::Match(_scrutinee, arms, _) => self.infer_match_llvm_type(arms),
+            Expr::Match(_scrutinee, arms, _) => self.infer_match_llvm_type(arms, "i64"),
             Expr::Index(container, _, _) => {
                 // For indexed Vec elements, return the element's struct type.
                 if let Some(elem_type_name) = self.resolve_vec_elem_type(container) {
