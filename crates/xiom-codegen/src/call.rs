@@ -1484,7 +1484,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 }
                 if is_mutex_fn && fn_name == "Mutex.new" {
                     let tmp = self.fresh_tmp();
-                    let size_val = self.fresh_tmp();
+                    let _size_val = self.fresh_tmp();
                     self.emitln(&format!("  {tmp} = call i8* @malloc(i64 64)"));
                     self.emitln(&format!("  call void @xiom_mutex_init(i8* {tmp})"));
                     return Ok((tmp, "i8*".to_string()));
