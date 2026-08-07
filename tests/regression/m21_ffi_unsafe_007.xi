@@ -1,9 +1,11 @@
 module m21_ffi_unsafe_007
 pub fn run() -> Int {
-    var x: Int32 = 1000i32;
-    var p: *Int32 = &x;
-    if *p == 1000i32 { return 0; }
-    return 1;
+    unsafe {
+      var x: Int32 = 1000i32;
+      var p: *Int32 = &x;
+      if *p == 1000i32 { return 0; }
+      return 1;
+    }
   }
 use m21_ffi_unsafe_007.run;
 fn main() -> Int { return run(); }

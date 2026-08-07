@@ -31,7 +31,7 @@ fn main() -> Int {
   if live == 1 { chk += 1; }
   if d == 8 { chk += 1; }
   if offset_val() == 2 { chk += 1; }
-  if p != (0 as *Int) { chk += 1; }
+  if p != unsafe { 0 as *Int } { chk += 1; }
   if chk == 5 { return 0; }
   return 1;
 }

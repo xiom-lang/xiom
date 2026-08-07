@@ -2,7 +2,7 @@
 type Node = { value: Int; next: *Node; }
 
 fn count_positive(n: *Node) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   var val: Int;
   var nx: *Node;
   unsafe { val = (*n).value; }
@@ -13,7 +13,7 @@ fn count_positive(n: *Node) -> Int {
 }
 
 fn count_negative(n: *Node) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   var val: Int;
   var nx: *Node;
   unsafe { val = (*n).value; }
@@ -24,7 +24,7 @@ fn count_negative(n: *Node) -> Int {
 }
 
 fn count_divisible_by(n: *Node, d: Int) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   if d == 0 { return 0; }
   var val: Int;
   var nx: *Node;
@@ -36,7 +36,7 @@ fn count_divisible_by(n: *Node, d: Int) -> Int {
 }
 
 fn sum_greater_than(n: *Node, threshold: Int) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   var val: Int;
   var nx: *Node;
   unsafe { val = (*n).value; }
@@ -47,7 +47,7 @@ fn sum_greater_than(n: *Node, threshold: Int) -> Int {
 }
 
 fn main() -> Int {
-  var empty: *Node = 0 as *Node;
+  var empty: *Node = unsafe { 0 as *Node };
   if count_positive(empty) != 0 { return 1; }
   if count_negative(empty) != 0 { return 2; }
   if count_divisible_by(empty, 3) != 0 { return 3; }

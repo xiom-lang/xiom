@@ -2,7 +2,7 @@
 type Node = { value: Int; left: *Node; right: *Node; }
 
 fn tree_double_values(n: *Node) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   var val: Int;
   var l: *Node;
   var r: *Node;
@@ -13,7 +13,7 @@ fn tree_double_values(n: *Node) -> Int {
 }
 
 fn tree_negate_values(n: *Node) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   var val: Int;
   var l: *Node;
   var r: *Node;
@@ -24,7 +24,7 @@ fn tree_negate_values(n: *Node) -> Int {
 }
 
 fn tree_add_const(n: *Node, c: Int) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   var val: Int;
   var l: *Node;
   var r: *Node;
@@ -35,7 +35,7 @@ fn tree_add_const(n: *Node, c: Int) -> Int {
 }
 
 fn main() -> Int {
-  var n: *Node = 0 as *Node;
+  var n: *Node = unsafe { 0 as *Node };
   if tree_double_values(n) != 0 { return 1; }
   if tree_negate_values(n) != 0 { return 2; }
   if tree_add_const(n, 5) != 0 { return 3; }

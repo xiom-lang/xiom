@@ -2,7 +2,7 @@
 type Node = { value: Int; next: *Node; }
 
 fn list_sum(n: *Node) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   var val: Int;
   var nx: *Node;
   unsafe { val = (*n).value; }
@@ -11,14 +11,14 @@ fn list_sum(n: *Node) -> Int {
 }
 
 fn list_length(n: *Node) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   var nx: *Node;
   unsafe { nx = (*n).next; }
   return 1 + list_length(nx);
 }
 
 fn get_nth_from_end(n: *Node, k: Int, len: Int) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   var val: Int;
   var nx: *Node;
   unsafe { val = (*n).value; }
@@ -28,7 +28,7 @@ fn get_nth_from_end(n: *Node, k: Int, len: Int) -> Int {
 }
 
 fn list_product(n: *Node) -> Int {
-  if n == (0 as *Node) { return 1; }
+  if n == (unsafe { 0 as *Node }) { return 1; }
   var val: Int;
   var nx: *Node;
   unsafe { val = (*n).value; }
@@ -37,7 +37,7 @@ fn list_product(n: *Node) -> Int {
 }
 
 fn main() -> Int {
-  var empty: *Node = 0 as *Node;
+  var empty: *Node = unsafe { 0 as *Node };
   if list_sum(empty) != 0 { return 1; }
   if list_length(empty) != 0 { return 2; }
   if list_product(empty) != 1 { return 3; }

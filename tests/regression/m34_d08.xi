@@ -7,7 +7,7 @@ enum TreeOp {
 }
 
 fn node_depth(n: *Node) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   var l: *Node;
   var r: *Node;
   unsafe { l = (*n).left; }

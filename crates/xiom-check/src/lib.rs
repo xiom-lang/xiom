@@ -106,6 +106,10 @@ pub struct Checker {
     pub struct_field_types: HashMap<String, Vec<(String, String)>>,
     /// I1: Enum variant field types for Send/Sync: enum_name → [(variant_name, [field_type_names])]
     pub enum_field_types: HashMap<String, Vec<(String, Vec<String>)>>,
+    /// D2 (2026-08-08): unsafe-context depth counter. Raw-pointer dereference,
+    /// Int↔Ptr casts, and inline asm are REJECTED when depth == 0 (the language
+    /// is safe by default; unsafe { } opts in). Incremented on Expr::Unsafe.
+    unsafe_depth: u32,
 }
 
 impl Checker {
@@ -139,6 +143,7 @@ impl Checker {
             send_sync_types: HashSet::new(),
             struct_field_types: HashMap::new(),
             enum_field_types: HashMap::new(),
+            unsafe_depth: 0,
         };
         // Register built-in types
         checker.register_builtins();
@@ -640,6 +645,14 @@ impl Checker {
     /// one error per root cause, no cascading).
     fn error(&mut self, message: impl Into<String>, span: Span) -> CheckedType {
         self.error_with_cause(message, span, crate::types::TypeCause::Other)
+    }
+
+    /// D2 (2026-08-08): emit an unsafe-context violation for a raw-pointer
+    /// operation performed outside `unsafe { }`. Safe-by-default language rule.
+    fn gate_unsafe(&mut self, op: &str, span: Span) {
+        if self.unsafe_depth == 0 {
+            self.error(format!("{op} requires an `unsafe` block"), span);
+        }
     }
 
     /// Emit an error with a specific cause code (5c-R: TypeCause provenance).
@@ -2822,7 +2835,12 @@ impl Checker {
             }
             Stmt::Break(..) => {}
             Stmt::Continue(..) => {}
-            Stmt::Asm(_) => {}, // asm is valid in unsafe context
+            Stmt::Asm(asm) => {
+                // D2 (2026-08-08): inline assembly is unsafe — requires unsafe context.
+                if self.unsafe_depth == 0 {
+                    self.error("inline asm requires an `unsafe` block", asm.span);
+                }
+            }
             Stmt::Defer(b, _) => { self.check_block(b, None); }
         }
     }
@@ -2935,6 +2953,19 @@ impl Checker {
                     UnaryOp::Ref | UnaryOp::MutRef => inner_ty, // & keeps the type; *T coercion at use-site
                     UnaryOp::BitNot => inner_ty, // bitwise not preserves integer type
                     UnaryOp::Deref => {
+                        // D2 (2026-08-08): dereferencing a RAW pointer is an
+                        // unsafe operation — requires `unsafe { }` context.
+                        // References (&T) remain safe (borrow-checked).
+                        let is_raw_ptr = matches!(&inner_ty, CheckedType::Named(n) if n.starts_with('*') || n == "Ptr");
+                        if is_raw_ptr && self.unsafe_depth == 0 {
+                            self.error(
+                                format!(
+                                    "raw pointer dereference requires an `unsafe` block (found `*{}`)",
+                                    inner_ty.name()
+                                ),
+                                *span,
+                            );
+                        }
                         // *p: strip pointer type — *Ptr[T] → T, *T → T (encoded as "*Tname")
                         if let CheckedType::Named(ref name) = inner_ty {
                             if let Some(inner_name) = name.strip_prefix('*') {
@@ -3761,29 +3792,59 @@ impl Checker {
                     _ if matches!(inner_resolved, CheckedType::Float32 | CheckedType::Float64)
                         && target_resolved == CheckedType::Char => target_ty,
                     // 5c-E: Int ↔ Ptr casts (raw pointer FFI, ptr.xi)
-                    (CheckedType::Int, CheckedType::Named(s)) if s == "Ptr" || s.starts_with('*') => target_ty,
-                    (CheckedType::Named(s), CheckedType::Int) if s == "Ptr" || s.starts_with('*') => target_ty,
+                    (CheckedType::Int, CheckedType::Named(s)) if s == "Ptr" || s.starts_with('*') => {
+                        self.gate_unsafe("integer-to-pointer cast", *span);
+                        target_ty
+                    }
+                    (CheckedType::Named(s), CheckedType::Int) if s == "Ptr" || s.starts_with('*') => {
+                        self.gate_unsafe("pointer-to-integer cast", *span);
+                        target_ty
+                    }
                     // 5c-E: Vec/Slice/Array → Ptr cast (Vulkan FFI: pass buffer to extern)
                     (CheckedType::Named(s), CheckedType::Named(t))
-                        if (t == "Ptr" || t.starts_with('*')) && (s == "Vec" || s == "Slice" || s == "Array") => target_ty,
+                        if (t == "Ptr" || t.starts_with('*')) && (s == "Vec" || s == "Slice" || s == "Array") => {
+                        self.gate_unsafe("container-to-pointer cast", *span);
+                        target_ty
+                    }
                     // v0.56: Str → Ptr cast (C FFI: pass string as byte pointer)  
-                    (CheckedType::Str, CheckedType::Named(t)) if t == "Ptr" || t.starts_with('*') => target_ty,
+                    (CheckedType::Str, CheckedType::Named(t)) if t == "Ptr" || t.starts_with('*') => {
+                        self.gate_unsafe("string-to-pointer cast", *span);
+                        target_ty
+                    }
                     (CheckedType::Named(s), CheckedType::Named(t))
-                        if (s == "Ptr" || s.starts_with('*')) && (t == "Vec" || t == "Slice" || t == "Array" || t == "Str") => target_ty,
+                        if (s == "Ptr" || s.starts_with('*')) && (t == "Vec" || t == "Slice" || t == "Array" || t == "Str") => {
+                        self.gate_unsafe("pointer-to-container cast", *span);
+                        target_ty
+                    }
                     // M33: Pointer-to-pointer cast (`*T as *U`): allows byte-level
                     // reinterpretation in unsafe code (e.g. `pi as *UInt8` for raw
                     // memory access). Both sides must be pointer types.
                     (CheckedType::Named(s), CheckedType::Named(t))
-                        if s.starts_with('*') && t.starts_with('*') => target_ty,
+                        if s.starts_with('*') && t.starts_with('*') => {
+                        self.gate_unsafe("pointer-to-pointer cast", *span);
+                        target_ty
+                    }
                     // 5e.2 G-34: fn-ptr ↔ Int casts (COM vtables, callback registries).
-                    (CheckedType::Int, CheckedType::Fn(..)) => target_ty,
-                    (CheckedType::Fn(..), CheckedType::Int) => target_ty,
+                    (CheckedType::Int, CheckedType::Fn(..)) => {
+                        self.gate_unsafe("integer-to-function-pointer cast", *span);
+                        target_ty
+                    }
+                    (CheckedType::Fn(..), CheckedType::Int) => {
+                        self.gate_unsafe("function-pointer-to-integer cast", *span);
+                        target_ty
+                    }
                     // v0.56: fn-ptr → *UInt8 cast (thread spawn, FFI callback)
-                    (CheckedType::Fn(..), CheckedType::Named(t)) if t.starts_with('*') => target_ty,
+                    (CheckedType::Fn(..), CheckedType::Named(t)) if t.starts_with('*') => {
+                        self.gate_unsafe("function-pointer-to-pointer cast", *span);
+                        target_ty
+                    }
                     // v0.56: Wildcard type (_) can cast to anything (unwrap result, etc.)
                     (CheckedType::Named(n), _) if n == "_" => target_ty,
                     // G-16: function name as Int (callback pointer).
-                    (CheckedType::Named(n), CheckedType::Int) if n == "fn" => target_ty,
+                    (CheckedType::Named(n), CheckedType::Int) if n == "fn" => {
+                        self.gate_unsafe("function-name-to-integer cast", *span);
+                        target_ty
+                    }
                     // v0.56: Generic type param cast — let any generic param be cast
                     (CheckedType::Named(n), _) if n.len() == 1 && n.chars().next().map_or(false, |c| c.is_ascii_uppercase()) => target_ty,
                     _ => {
@@ -3793,7 +3854,15 @@ impl Checker {
             }
             Expr::Await(inner, _) => self.check_expr(inner),
             Expr::Comptime(inner, _) => self.check_expr(inner),
-            Expr::Unsafe(block, _) | Expr::BlockExpr(block, _) => { self.check_block(block, None).unwrap_or(CheckedType::Unit) }
+            Expr::Unsafe(block, _) => {
+                // D2 (2026-08-08): `unsafe { }` opts into raw-pointer ops for
+                // this block only. Depth-scoped so nested blocks compose.
+                self.unsafe_depth += 1;
+                let ty = self.check_block(block, None).unwrap_or(CheckedType::Unit);
+                self.unsafe_depth -= 1;
+                ty
+            }
+            Expr::BlockExpr(block, _) => { self.check_block(block, None).unwrap_or(CheckedType::Unit) }
             Expr::ConstBlock(inner, _) => self.check_expr(inner),
             // 5c-R: Error-poisoned nodes carry an ErrorGuaranteed proof token.
             // Skip silently — a diagnostic was already emitted for this subtree.
@@ -6063,6 +6132,76 @@ fn unsafe_read(ptr: *Int) -> Int {
 }";
         let result = check(src);
         assert!(result.is_ok() || result.is_err());
+    }
+
+    // D2 (2026-08-08): safe-by-default — raw pointer ops REQUIRE unsafe blocks.
+    #[test] fn test_d2_deref_outside_unsafe_rejected() {
+        let src = "\
+fn read_via_ptr(p: *Int) -> Int {
+    return *p;
+}";
+        let result = check(src);
+        assert!(result.is_err(), "raw pointer deref outside unsafe must fail: {:?}", result.err());
+    }
+
+    #[test] fn test_d2_deref_inside_unsafe_accepted() {
+        let src = "\
+fn read_via_ptr(p: *Int) -> Int {
+    unsafe { return *p; }
+}";
+        let result = check(src);
+        assert!(result.is_ok(), "raw pointer deref inside unsafe must pass: {:?}", result.err());
+    }
+
+    #[test] fn test_d2_int_to_ptr_cast_outside_unsafe_rejected() {
+        let src = "\
+fn make_ptr(n: Int) -> *UInt8 {
+    return n as *UInt8;
+}";
+        let result = check(src);
+        assert!(result.is_err(), "int-to-ptr cast outside unsafe must fail: {:?}", result.err());
+    }
+
+    #[test] fn test_d2_int_to_ptr_cast_inside_unsafe_accepted() {
+        let src = "\
+fn make_ptr(n: Int) -> *UInt8 {
+    unsafe { return n as *UInt8; }
+}";
+        let result = check(src);
+        assert!(result.is_ok(), "int-to-ptr cast inside unsafe must pass: {:?}", result.err());
+    }
+
+    #[test] fn test_d2_asm_outside_unsafe_rejected() {
+        let src = "\
+fn spin() {
+    asm(\"nop\");
+}";
+        let result = check(src);
+        assert!(result.is_err(), "asm outside unsafe must fail: {:?}", result.err());
+    }
+
+    #[test] fn test_d2_ref_coercion_stays_safe() {
+        // 5c.32: &expr coerces to *T for raw pointer assignments — the safe
+        // FFI borrow pattern. Must NOT be gated.
+        let src = "\
+fn borrow(x: Int) -> *Int {
+    let p: *Int = &x;
+    return p;
+}";
+        let result = check(src);
+        assert!(result.is_ok(), "&x ref-coercion must stay safe: {:?}", result.err());
+    }
+
+    #[test] fn test_d2_nested_unsafe_composes() {
+        let src = "\
+fn deep(p: *Int) -> Int {
+    unsafe {
+        let q = p as *Int;
+        unsafe { return *q; }
+    }
+}";
+        let result = check(src);
+        assert!(result.is_ok(), "nested unsafe must pass: {:?}", result.err());
     }
 
     // Complex boolean expressions

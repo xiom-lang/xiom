@@ -2,7 +2,7 @@
 type Node = { value: Int; left: *Node; right: *Node; }
 
 fn tree_height(n: *Node) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   var l: *Node;
   var r: *Node;
   unsafe { l = (*n).left; }
@@ -14,17 +14,17 @@ fn tree_height(n: *Node) -> Int {
 }
 
 fn tree_leaf_count(n: *Node) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   var l: *Node;
   var r: *Node;
   unsafe { l = (*n).left; }
   unsafe { r = (*n).right; }
-  if l == (0 as *Node) && r == (0 as *Node) { return 1; }
+  if l == (unsafe { 0 as *Node }) && r == (unsafe { 0 as *Node }) { return 1; }
   return tree_leaf_count(l) + tree_leaf_count(r);
 }
 
 fn tree_sum_all(n: *Node) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   var val: Int;
   var l: *Node;
   var r: *Node;
@@ -35,8 +35,8 @@ fn tree_sum_all(n: *Node) -> Int {
 }
 
 fn tree_check_full(n: *Node, depth: Int) -> Bool {
-  if depth == 0 { return n == (0 as *Node); }
-  if n == (0 as *Node) { return false; }
+  if depth == 0 { return n == (unsafe { 0 as *Node }); }
+  if n == (unsafe { 0 as *Node }) { return false; }
   var l: *Node;
   var r: *Node;
   unsafe { l = (*n).left; }
@@ -45,7 +45,7 @@ fn tree_check_full(n: *Node, depth: Int) -> Bool {
 }
 
 fn main() -> Int {
-  var empty: *Node = 0 as *Node;
+  var empty: *Node = unsafe { 0 as *Node };
   if tree_height(empty) != 0 { return 1; }
   if tree_leaf_count(empty) != 0 { return 2; }
   if tree_sum_all(empty) != 0 { return 3; }

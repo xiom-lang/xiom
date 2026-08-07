@@ -2,7 +2,7 @@
 type Node = { value: Int; left: *Node; right: *Node; }
 
 fn tree_depth(n: *Node) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   var l: *Node;
   var r: *Node;
   unsafe { l = (*n).left; }
@@ -14,7 +14,7 @@ fn tree_depth(n: *Node) -> Int {
 }
 
 fn depth_invariant_holds(n: *Node, max_remaining: Int) -> Bool {
-  if n == (0 as *Node) { return true; }
+  if n == (unsafe { 0 as *Node }) { return true; }
   if max_remaining <= 0 { return false; }
   var l: *Node;
   var r: *Node;
@@ -24,7 +24,7 @@ fn depth_invariant_holds(n: *Node, max_remaining: Int) -> Bool {
 }
 
 fn tree_node_count(n: *Node) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   var l: *Node;
   var r: *Node;
   unsafe { l = (*n).left; }
@@ -33,12 +33,12 @@ fn tree_node_count(n: *Node) -> Int {
 }
 
 fn tree_leaf_count(n: *Node) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   var l: *Node;
   var r: *Node;
   unsafe { l = (*n).left; }
   unsafe { r = (*n).right; }
-  if l == (0 as *Node) && r == (0 as *Node) { return 1; }
+  if l == (unsafe { 0 as *Node }) && r == (unsafe { 0 as *Node }) { return 1; }
   return tree_leaf_count(l) + tree_leaf_count(r);
 }
 
@@ -47,7 +47,7 @@ fn preorder_size(n: *Node) -> Int {
 }
 
 fn main() -> Int {
-  var n: *Node = 0 as *Node;
+  var n: *Node = unsafe { 0 as *Node };
   if tree_depth(n) != 0 { return 1; }
   if !depth_invariant_holds(n, 0) { return 2; }
   if !depth_invariant_holds(n, 5) { return 3; }

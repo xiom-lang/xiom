@@ -2,14 +2,14 @@
 type Node = { value: Int; next: *Node; }
 
 fn node_value_from_null() -> Int {
-  var n: *Node = 0 as *Node;
-  if n == (0 as *Node) { return -1; }
+  var n: *Node = unsafe { 0 as *Node };
+  if n == unsafe { 0 as *Node } { return -1; }
   return 0;
 }
 
 fn main() -> Int {
-  var empty: *Node = 0 as *Node;
+  var empty: *Node = unsafe { 0 as *Node };
   if node_value_from_null() != -1 { return 1; }
-  if empty == (0 as *Node) { return 0; }
+  if empty == unsafe { 0 as *Node } { return 0; }
   return 2;
 }

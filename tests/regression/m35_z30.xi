@@ -53,7 +53,7 @@ fn main() -> Int {
   if c1 == 4 { chk += 1; }
   if c2 == 5 { chk += 1; }
   if f == 120 { chk += 1; }
-  if p == (THRESHOLD as *Int) { chk += 1; }
+  if p == unsafe { THRESHOLD as *Int } { chk += 1; }
   var arr = [1, 3, 5];
   var i = 0; var s = 0;
   while i < 3 { s += arr[i]; i += 1; }

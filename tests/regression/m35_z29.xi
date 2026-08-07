@@ -34,7 +34,7 @@ fn main() -> Int {
   var es = empty();
   if es.count == 0 { chk += 1; }
   var np = null_ptr();
-  if np == (0 as *Int) { chk += 1; }
+  if np == unsafe { 0 as *Int } { chk += 1; }
   var i = 0;
   while i < 5 { i += 1; }
   if i == 5 { chk += 1; }

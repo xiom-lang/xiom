@@ -7,7 +7,7 @@ fn max2(a: Int, b: Int) -> Int {
 }
 
 fn tree_depth(n: *Node) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   var l: *Node;
   var r: *Node;
   unsafe { l = (*n).left; }
@@ -16,7 +16,7 @@ fn tree_depth(n: *Node) -> Int {
 }
 
 fn main() -> Int {
-  var empty: *Node = 0 as *Node;
+  var empty: *Node = unsafe { 0 as *Node };
   if tree_depth(empty) != 0 { return 1; }
   return 0;
 }

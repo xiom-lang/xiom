@@ -7,21 +7,21 @@ enum Expr {
 }
 
 fn is_balanced(e: *Expr, depth: Int) -> Bool {
-  if e == (0 as *Expr) { return depth == 0; }
+  if e == (unsafe { 0 as *Expr }) { return depth == 0; }
   return depth > 0;
 }
 
 fn null_expr() -> *Expr {
-  return 0 as *Expr;
+  return unsafe { 0 as *Expr };
 }
 
 fn always_zero(e: *Expr) -> Int {
-  if e == (0 as *Expr) { return 0; }
+  if e == (unsafe { 0 as *Expr }) { return 0; }
   return 0;
 }
 
 fn main() -> Int {
-  var e1: *Expr = 0 as *Expr;
+  var e1: *Expr = unsafe { 0 as *Expr };
   var e2 = null_expr();
   if e1 != e2 { return 1; }
   if !is_balanced(e1, 0) { return 2; }
