@@ -606,38 +606,69 @@ impl IrEmitter {
     /// Resolve a module-qualified function call like `math.run_all()`.
     /// Looks up `math.run_all`, then `*.math.run_all` in registered functions.
     pub(crate) fn resolve_module_call(&self, receiver: &Expr, fn_name: &str) -> String {
-        if let Expr::Ident(id) = receiver {
-            let module_name = &id.name;
-            // Try leaf-qualified: "math.run_all"
-            let leaf_key = format!("{}.{}", module_name, fn_name);
+        // Resolve the module name from the receiver. `xiom.rsa` parses as a
+        // dotted Ident; `xiom.rsa.encrypt` style receivers arrive as nested
+        // Field exprs rooted at an Ident. Walk to the root ident and join the
+        // field names so "xiom.rsa" and "rsa" both resolve.
+        let mut segments: Vec<String> = Vec::new();
+        let mut cur = receiver;
+        loop {
+            match cur {
+                Expr::Ident(id) => { segments.insert(0, id.name.clone()); break; }
+                Expr::Field(base, fname, _) => {
+                    segments.insert(0, fname.name.clone());
+                    cur = base;
+                }
+                _ => break,
+            }
+        }
+        if segments.is_empty() {
+            return fn_name.to_string();
+        }
+        let dotted = segments.join(".");
+        // The LEAF module segment is what injected decls register under
+        // ("rsa.rsa_encrypt"), so try it FIRST for dotted receivers like
+        // "xiom.rsa" — the full "xiom.rsa.rsa_encrypt" key is never
+        // registered and falling to the bare name lets the keep-first alias
+        // hand the call to the WRONG module's same-named fn (e.g. crypto's
+        // rsa_encrypt vs rsa's rsa_encrypt).
+        if let Some(leaf) = segments.last() {
+            let leaf_key = format!("{}.{}", leaf, fn_name);
             if self.types.functions.contains_key(&leaf_key)
                 || self.mono.generic_fn_decls.iter().any(|(k, _)| k == &leaf_key)
             {
                 return leaf_key;
             }
-            // Try parent-qualified: "benchmark.math.run_all" (current_module parent + module_name)
-            if let Some(ref cur_mod) = self.local.current_module {
-                if let Some(parent) = cur_mod.rsplitn(2, '.').last() {
-                    let parent_key = format!("{}.{}.{}", parent, module_name, fn_name);
-                    if self.types.functions.contains_key(&parent_key)
-                        || self.mono.generic_fn_decls.iter().any(|(k, _)| k == &parent_key)
-                    {
-                        return parent_key;
-                    }
+        }
+        // Try the full dotted path: "xiom.rsa.encrypt"
+        let full_key = format!("{}.{}", dotted, fn_name);
+        if self.types.functions.contains_key(&full_key)
+            || self.mono.generic_fn_decls.iter().any(|(k, _)| k == &full_key)
+        {
+            return full_key;
+        }
+        // Try parent-qualified: "benchmark.math.run_all" (current_module parent + module_name)
+        if let Some(ref cur_mod) = self.local.current_module {
+            if let Some(parent) = cur_mod.rsplitn(2, '.').last() {
+                let parent_key = format!("{}.{}.{}", parent, dotted, fn_name);
+                if self.types.functions.contains_key(&parent_key)
+                    || self.mono.generic_fn_decls.iter().any(|(k, _)| k == &parent_key)
+                {
+                    return parent_key;
                 }
             }
-            // Try any key ending with ".module_name.fn_name" as a fallback
-            let suffix = format!(".{}.{}", module_name, fn_name);
-            for k in self.types.functions.keys() {
-                if k.ends_with(&suffix) {
-                    return k.clone();
-                }
+        }
+        // Try any key ending with ".module_name.fn_name" as a fallback
+        let suffix = format!(".{}.{}", dotted, fn_name);
+        for k in self.types.functions.keys() {
+            if k.ends_with(&suffix) {
+                return k.clone();
             }
-            // Also search generic function decls for the suffix
-            for (k, _) in &self.mono.generic_fn_decls {
-                if k.ends_with(&suffix) {
-                    return k.clone();
-                }
+        }
+        // Also search generic function decls for the suffix
+        for (k, _) in &self.mono.generic_fn_decls {
+            if k.ends_with(&suffix) {
+                return k.clone();
             }
         }
         fn_name.to_string()

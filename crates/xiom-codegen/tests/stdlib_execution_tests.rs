@@ -308,3 +308,88 @@ fn stdlib_exec_cross_module_serialize_convert() {
         "cross-module serialize+convert smoke failed to run/return 0"
     );
 }
+
+// ============================================================================
+// Tier-2 stdlib modules (2026-08-07) — sort/search/bits/geom/complex/bigint/
+// chacha/poly1305/ecc/rsa/des/utf8/platform/debug/misc/process
+// ============================================================================
+
+#[test]
+fn stdlib_exec_sort_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_sort.xi"), Some(0), "sort smoke failed");
+}
+
+#[test]
+fn stdlib_exec_search_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_search.xi"), Some(0), "search smoke failed");
+}
+
+#[test]
+fn stdlib_exec_bits_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_bits.xi"), Some(0), "bits smoke failed");
+}
+
+#[test]
+fn stdlib_exec_geom_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_geom.xi"), Some(0), "geom smoke failed");
+}
+
+#[test]
+fn stdlib_exec_complex_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_complex.xi"), Some(0), "complex smoke failed");
+}
+
+#[test]
+fn stdlib_exec_bigint_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_bigint.xi"), Some(0), "bigint smoke failed");
+}
+
+#[test]
+fn stdlib_exec_chacha_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_chacha.xi"), Some(0), "chacha smoke failed");
+}
+
+#[test]
+fn stdlib_exec_poly1305_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_poly1305.xi"), Some(0), "poly1305 smoke failed");
+}
+
+#[test]
+fn stdlib_exec_ecc_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_ecc.xi"), Some(0), "ecc smoke failed");
+}
+
+#[test]
+fn stdlib_exec_rsa_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_rsa.xi"), Some(0), "rsa smoke failed");
+}
+
+#[test]
+fn stdlib_exec_des_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_des.xi"), Some(0), "des smoke failed");
+}
+
+#[test]
+fn stdlib_exec_utf8_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_utf8.xi"), Some(0), "utf8 smoke failed");
+}
+
+#[test]
+fn stdlib_exec_platform_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_platform.xi"), Some(0), "platform smoke failed");
+}
+
+#[test]
+fn stdlib_exec_debug_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_debug.xi"), Some(0), "debug smoke failed");
+}
+
+#[test]
+fn stdlib_exec_misc_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_misc.xi"), Some(0), "misc smoke failed");
+}
+
+#[test]
+fn stdlib_exec_process_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_process.xi"), Some(0), "process smoke failed");
+}
