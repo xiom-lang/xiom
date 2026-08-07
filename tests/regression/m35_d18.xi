@@ -2,7 +2,7 @@
 type BNode = { value: Int; left: *BNode; right: *BNode; }
 
 fn inorder_sum(n: *BNode) -> Int {
-  if n == (0 as *BNode) { return 0; }
+  if n == unsafe { 0 as *BNode } { return 0; }
   var v: Int;
   var l: *BNode;
   var r: *BNode;
@@ -11,7 +11,7 @@ fn inorder_sum(n: *BNode) -> Int {
 }
 
 fn preorder_sum(n: *BNode) -> Int {
-  if n == (0 as *BNode) { return 0; }
+  if n == unsafe { 0 as *BNode } { return 0; }
   var v: Int;
   var l: *BNode;
   var r: *BNode;
@@ -20,7 +20,7 @@ fn preorder_sum(n: *BNode) -> Int {
 }
 
 fn postorder_sum(n: *BNode) -> Int {
-  if n == (0 as *BNode) { return 0; }
+  if n == unsafe { 0 as *BNode } { return 0; }
   var v: Int;
   var l: *BNode;
   var r: *BNode;
@@ -29,7 +29,7 @@ fn postorder_sum(n: *BNode) -> Int {
 }
 
 fn main() -> Int {
-  var empty: *BNode = 0 as *BNode;
+  var empty: *BNode = unsafe { 0 as *BNode };
   if inorder_sum(empty) != 0 { return 1; }
   if preorder_sum(empty) != 0 { return 2; }
   if postorder_sum(empty) != 0 { return 3; }

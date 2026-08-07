@@ -2,8 +2,8 @@
 type Node = { val: Int; next: *Node; }
 fn ptr_null() -> Bool {
   var p: *Int;
-  p = 0 as *Int;
-  if p == (0 as *Int) { return true; }
+  unsafe { p = 0 as *Int; }
+  if p == unsafe { 0 as *Int } { return true; }
   return false;
 }
 fn ptr_deref() -> Int {
@@ -42,7 +42,7 @@ fn ptr_cast() -> Int {
   return 0;
 }
 fn ptr_in_struct() -> Int {
-  var n = Node{ val: 42; next: 0 as *Node; };
+  var n = Node{ val: 42; next: unsafe { 0 as *Node }; };
   return n.val;
 }
 fn main() -> Int {
@@ -58,7 +58,7 @@ fn main() -> Int {
   var vx: Int;
   unsafe { vx = *px; }
   if vx != 7 { return 7; }
-  var nullp: *Int = 0 as *Int;
-  if nullp != (0 as *Int) { return 8; }
+  var nullp: *Int = unsafe { 0 as *Int };
+  if nullp != unsafe { 0 as *Int } { return 8; }
   return 0;
 }

@@ -7,21 +7,21 @@ enum Expr {
 }
 
 fn count_nodes(e: *Expr) -> Int {
-  if e == (0 as *Expr) { return 0; }
+  if e == (unsafe { 0 as *Expr }) { return 0; }
   return 1;
 }
 
 fn check_null(e: *Expr) -> Bool {
-  return e == (0 as *Expr);
+  return e == (unsafe { 0 as *Expr });
 }
 
 fn depth_estimate(e: *Expr, acc: Int) -> Int {
-  if e == (0 as *Expr) { return acc; }
+  if e == (unsafe { 0 as *Expr }) { return acc; }
   return acc + 1;
 }
 
 fn main() -> Int {
-  var n: *Expr = 0 as *Expr;
+  var n: *Expr = unsafe { 0 as *Expr };
   if count_nodes(n) != 0 { return 1; }
   if !check_null(n) { return 2; }
   if depth_estimate(n, 0) != 0 { return 3; }

@@ -71,8 +71,8 @@ fn probe_use_of_uninit() -> Int {
 
 fn probe_type_confusion() -> Int {
   var p = alloc(8);
-  ptr.write[Float64](p as *Float64, 3.14); // write float bits into raw memory
-  var confused = ptr.read[Int](p as *Int); // read same bytes as int
+  unsafe { ptr.write[Float64](p as *Float64, 3.14); } // write float bits into raw memory
+  var confused = unsafe { ptr.read[Int](p as *Int) }; // read same bytes as int
   return confused;
 }
 

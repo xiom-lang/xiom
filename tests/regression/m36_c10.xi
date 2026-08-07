@@ -7,7 +7,7 @@ fn cast_i_to_i32(v: Int) -> Int32 { return v as Int32; }
 fn cast_i32_to_i(v: Int32) -> Int { return v as Int; }
 fn cast_i_to_f64(v: Int) -> Float64 { return v as Float64; }
 fn cast_f64_to_i(v: Float64) -> Int { return v as Int; }
-fn cast_ptr_to_int(p: *Int) -> Int { return p as Int; }
+fn cast_ptr_to_int(p: *Int) -> Int { unsafe { return p as Int; } }
 fn cast_from_bool(b: Bool) -> Int { if b { return 1; } return 0; }
 fn main() -> Int {
   if cast_i_to_i8(42) != 42 { return 1; }

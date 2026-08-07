@@ -2,7 +2,7 @@
 type Node = { value: Int; left: *Node; right: *Node; }
 
 fn fold_sum(n: *Node, acc: Int) -> Int {
-  if n == (0 as *Node) { return acc; }
+  if n == (unsafe { 0 as *Node }) { return acc; }
   var val: Int;
   var l: *Node;
   var r: *Node;
@@ -13,7 +13,7 @@ fn fold_sum(n: *Node, acc: Int) -> Int {
 }
 
 fn fold_count(n: *Node, acc: Int) -> Int {
-  if n == (0 as *Node) { return acc; }
+  if n == (unsafe { 0 as *Node }) { return acc; }
   var l: *Node;
   var r: *Node;
   unsafe { l = (*n).left; }
@@ -22,7 +22,7 @@ fn fold_count(n: *Node, acc: Int) -> Int {
 }
 
 fn fold_max(n: *Node, best: Int) -> Int {
-  if n == (0 as *Node) { return best; }
+  if n == (unsafe { 0 as *Node }) { return best; }
   var val: Int;
   var l: *Node;
   var r: *Node;
@@ -37,7 +37,7 @@ fn fold_max(n: *Node, best: Int) -> Int {
 }
 
 fn main() -> Int {
-  var n: *Node = 0 as *Node;
+  var n: *Node = unsafe { 0 as *Node };
   if fold_sum(n, 0) != 0 { return 1; }
   if fold_sum(n, 10) != 10 { return 2; }
   if fold_count(n, 0) != 0 { return 3; }

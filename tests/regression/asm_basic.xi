@@ -4,7 +4,7 @@
 
 fn main() -> Int {
   // Basic: nop — does nothing, just verifies asm compiles and links
-  asm("nop");
+  unsafe { asm("nop"); }
 
   // Verify return reaches here
   return 0;

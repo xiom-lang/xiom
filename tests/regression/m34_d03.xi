@@ -2,7 +2,7 @@
 type Node = { value: Int; left: *Node; right: *Node; }
 
 fn node_count(n: *Node) -> Int {
-  if n == (0 as *Node) { return 0; }
+  if n == (unsafe { 0 as *Node }) { return 0; }
   var l: *Node;
   var r: *Node;
   unsafe { l = (*n).left; }
@@ -11,7 +11,7 @@ fn node_count(n: *Node) -> Int {
 }
 
 fn main() -> Int {
-  var empty: *Node = 0 as *Node;
+  var empty: *Node = unsafe { 0 as *Node };
   if node_count(empty) != 0 { return 1; }
   return 0;
 }

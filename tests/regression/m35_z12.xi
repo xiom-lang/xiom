@@ -28,7 +28,7 @@ fn main() -> Int {
   if i == 4 { chk += 1; }
   if ok == 1 { chk += 1; }
   if magic_val() == 0xDEAD { chk += 1; }
-  if p != (0 as *Int) { chk += 1; }
+  if p != unsafe { 0 as *Int } { chk += 1; }
   if chk == 4 { return 0; }
   return 1;
 }

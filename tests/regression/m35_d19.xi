@@ -2,7 +2,7 @@
 type BNode = { value: Int; left: *BNode; right: *BNode; }
 
 fn bst_search(n: *BNode, val: Int) -> Bool {
-  if n == (0 as *BNode) { return false; }
+  if n == unsafe { 0 as *BNode } { return false; }
   var v: Int; unsafe { v = (*n).value; }
   if v == val { return true; }
   var l: *BNode; var r: *BNode; unsafe { l = (*n).left; r = (*n).right; }
@@ -12,24 +12,24 @@ fn bst_search(n: *BNode, val: Int) -> Bool {
 
 fn bst_min(n: *BNode) -> Int {
   var cur: *BNode = n;
-  while cur != (0 as *BNode) { var l: *BNode; unsafe { l = (*cur).left; } if l == (0 as *BNode) { var v: Int; unsafe { v = (*cur).value; } return v; } cur = l; }
+  while cur != unsafe { 0 as *BNode } { var l: *BNode; unsafe { l = (*cur).left; } if l == unsafe { 0 as *BNode } { var v: Int; unsafe { v = (*cur).value; } return v; } cur = l; }
   return -1;
 }
 
 fn bst_max(n: *BNode) -> Int {
   var cur: *BNode = n;
-  while cur != (0 as *BNode) { var r: *BNode; unsafe { r = (*cur).right; } if r == (0 as *BNode) { var v: Int; unsafe { v = (*cur).value; } return v; } cur = r; }
+  while cur != unsafe { 0 as *BNode } { var r: *BNode; unsafe { r = (*cur).right; } if r == unsafe { 0 as *BNode } { var v: Int; unsafe { v = (*cur).value; } return v; } cur = r; }
   return -1;
 }
 
 fn bst_count(n: *BNode) -> Int {
-  if n == (0 as *BNode) { return 0; }
+  if n == unsafe { 0 as *BNode } { return 0; }
   var l: *BNode; var r: *BNode; unsafe { l = (*n).left; r = (*n).right; }
   return 1 + bst_count(l) + bst_count(r);
 }
 
 fn main() -> Int {
-  var empty: *BNode = 0 as *BNode;
+  var empty: *BNode = unsafe { 0 as *BNode };
   if bst_search(empty, 5) { return 1; }
   if bst_min(empty) != -1 { return 2; }
   if bst_max(empty) != -1 { return 3; }

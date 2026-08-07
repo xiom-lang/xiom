@@ -2,9 +2,9 @@
 type Node = { value: Int; left: *Node; right: *Node; }
 
 fn tree_equal(a: *Node, b: *Node) -> Bool {
-  if a == (0 as *Node) && b == (0 as *Node) { return true; }
-  if a == (0 as *Node) { return false; }
-  if b == (0 as *Node) { return false; }
+  if a == (unsafe { 0 as *Node }) && b == (unsafe { 0 as *Node }) { return true; }
+  if a == (unsafe { 0 as *Node }) { return false; }
+  if b == (unsafe { 0 as *Node }) { return false; }
   var va: Int;
   var vb: Int;
   unsafe { va = (*a).value; }
@@ -26,12 +26,12 @@ fn tree_identical(a: *Node, b: *Node) -> Bool {
 }
 
 fn tree_both_null(a: *Node, b: *Node) -> Bool {
-  return a == (0 as *Node) && b == (0 as *Node);
+  return a == (unsafe { 0 as *Node }) && b == (unsafe { 0 as *Node });
 }
 
 fn main() -> Int {
-  var n1: *Node = 0 as *Node;
-  var n2: *Node = 0 as *Node;
+  var n1: *Node = unsafe { 0 as *Node };
+  var n2: *Node = unsafe { 0 as *Node };
   if !tree_equal(n1, n2) { return 1; }
   if !tree_identical(n1, n2) { return 2; }
   if !tree_both_null(n1, n2) { return 3; }
