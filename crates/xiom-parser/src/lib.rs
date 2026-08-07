@@ -1904,10 +1904,7 @@ impl Parser {
                             while self.skip(TokenKind::Comma) { type_args.push(self.parse_type()?); }
                             self.expect_kind(TokenKind::RBracket, "']'")?;
                             let type_exprs: Vec<Expr> = type_args.iter().map(|t| {
-                                match t {
-                                    Type::Named(id, _) => Expr::Ident(id.clone()),
-                                    _ => Expr::Ident(Ident::new("_", self.peek().span)),
-                                }
+                                self.type_to_expr_ident(t)
                             }).collect();
                             let args_expr = if type_exprs.len() == 1 {
                                 type_exprs.into_iter().next().expect("len==1 guaranteed")
@@ -1930,10 +1927,7 @@ impl Parser {
                             // Convert type args to idents for the Index expression
                             // so codegen's type_arg capture can infer concrete types.
                             let type_exprs: Vec<Expr> = type_args.iter().map(|t| {
-                                match t {
-                                    Type::Named(id, _) => Expr::Ident(id.clone()),
-                                    _ => Expr::Ident(Ident::new("Int", self.peek().span)),
-                                }
+                                self.type_to_expr_ident(t)
                             }).collect();
                             let args_expr = if type_exprs.len() == 1 {
                                 type_exprs.into_iter().next().expect("len==1 guaranteed")
@@ -2201,6 +2195,21 @@ impl Parser {
         None
     }
     /// `(Int, Float64, Str)` → `vec![Int, Float64, Str]`
+    /// Convert a parsed Type into an Expr for `Vec[T]`-style Index type-arg
+    /// capture. Tuples are preserved so `Vec[(Str, Str)]` keeps a real
+    /// `Expr::Tuple` node (previously collapsed to `_`, losing the element
+    /// type for `local_vec_elem`/`resolve_vec_elem_type`).
+    fn type_to_expr_ident(&mut self, t: &Type) -> Expr {
+        match t {
+            Type::Named(id, _) => Expr::Ident(id.clone()),
+            Type::Tuple(types) => {
+                let elems: Vec<Expr> = types.iter().map(|tt| self.type_to_expr_ident(tt)).collect();
+                Expr::Tuple(elems, self.peek().span)
+            }
+            _ => Expr::Ident(Ident::new("_", self.peek().span)),
+        }
+    }
+
     fn parse_tuple_type_args(&mut self) -> Result<Vec<Type>, ParseError> {
         self.expect_kind(TokenKind::LParen, "'('")?;
         let mut types = Vec::new();

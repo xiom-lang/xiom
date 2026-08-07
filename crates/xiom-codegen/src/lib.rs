@@ -1564,8 +1564,22 @@ impl IrEmitter {
                                 match idx.as_ref() {
                                     Expr::Ident(t) => return Some(t.name.clone()),
                                     Expr::Tuple(elems, _) => {
-                                        if let Some(Expr::Ident(t)) = elems.first() {
-                                            return Some(t.name.clone());
+                                        // Tuple element types (e.g. Vec[(Str, Str)]):
+                                        // build the full "Tuple__Str__Str" name so
+                                        // resolve_vec_elem_type can find the registered
+                                        // tuple struct and load full elements (not just
+                                        // the first field).
+                                        let mut parts: Vec<String> = Vec::new();
+                                        for e in elems.iter() {
+                                            if let Expr::Ident(t) = e {
+                                                parts.push(t.name.clone());
+                                            } else {
+                                                parts.clear();
+                                                break;
+                                            }
+                                        }
+                                        if !parts.is_empty() && parts.len() == elems.len() {
+                                            return Some(format!("Tuple__{}", parts.join("__")));
                                         }
                                     }
                                     _ => {}
@@ -2493,8 +2507,20 @@ impl IrEmitter {
         // with "use of undefined value '@name'". On any well-formed program (all
         // callees resolved) this pass emits nothing, so it is a strict no-op on
         // the existing test gate. A stub returns a typed default, so it can never
-        // manufacture a *correct* live result ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â only unblock linking.
+        // manufacture a *correct* live result — only unblock linking.
         self.emit_undefined_symbol_stubs();
+
+        // Deferred tuple/anon struct type definitions discovered during function
+        // body compilation. Emitted at module end (top level) — LLVM named types
+        // support forward references, so this is valid even though the types may
+        // already be used above.
+        if !self.local.pending_module_type_defs.is_empty() {
+            self.emitln("");
+            let pending = self.local.pending_module_type_defs.clone();
+            for def in &pending {
+                self.emitln(def);
+            }
+        }
 
         Ok(self.output.clone())
     }

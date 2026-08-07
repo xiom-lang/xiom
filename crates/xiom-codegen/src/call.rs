@@ -596,9 +596,22 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let elem_size: i64 = if let Some(type_arg) = type_arg {
                                 let type_name = match type_arg {
                                     Expr::Ident(id) => id.name.clone(),
-                                    Expr::Tuple(elems, _) => elems.first()
-                                        .map(|e| match e { Expr::Ident(id) => id.name.clone(), _ => "Int".to_string() })
-                                        .unwrap_or_else(|| "Int".to_string()),
+                                    Expr::Tuple(elems, _) => {
+                                        let mut parts: Vec<String> = Vec::new();
+                                        for e in elems.iter() {
+                                            if let Expr::Ident(id) = e {
+                                                parts.push(id.name.clone());
+                                            } else {
+                                                parts.clear();
+                                                break;
+                                            }
+                                        }
+                                        if parts.len() == elems.len() && !parts.is_empty() {
+                                            format!("Tuple__{}", parts.join("__"))
+                                        } else {
+                                            "Int".to_string()
+                                        }
+                                    }
                                     _ => "Int".to_string(),
                                 };
                                 match type_name.as_str() {
@@ -608,7 +621,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     _ => {
                                         // For struct types, compute the REAL layout
                                         // size (nested by-value struct fields count
-                                        // fully â€” 5c.30, field_countÃ—8 truncated
+                                        // fully — 5c.30, field_count×8 truncated
                                         // JsonEntry-style elements).
                                         self.struct_byte_size(&type_name)
                                     }
@@ -653,9 +666,22 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let elem_size: i64 = if let Some(type_arg) = type_arg {
                                 let type_name = match type_arg {
                                     Expr::Ident(id) => id.name.clone(),
-                                    Expr::Tuple(elems, _) => elems.first()
-                                        .map(|e| match e { Expr::Ident(id) => id.name.clone(), _ => "Int".to_string() })
-                                        .unwrap_or_else(|| "Int".to_string()),
+                                    Expr::Tuple(elems, _) => {
+                                        let mut parts: Vec<String> = Vec::new();
+                                        for e in elems.iter() {
+                                            if let Expr::Ident(id) = e {
+                                                parts.push(id.name.clone());
+                                            } else {
+                                                parts.clear();
+                                                break;
+                                            }
+                                        }
+                                        if parts.len() == elems.len() && !parts.is_empty() {
+                                            format!("Tuple__{}", parts.join("__"))
+                                        } else {
+                                            "Int".to_string()
+                                        }
+                                    }
                                     _ => "Int".to_string(),
                                 };
                                 match type_name.as_str() {

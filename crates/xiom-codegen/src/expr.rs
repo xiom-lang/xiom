@@ -793,12 +793,16 @@ impl IrEmitter {
                             derives: vec![],
                             invariants: vec![],
                         });
-                        // 5c.36: Emit struct definition immediately so it's
-                        // defined before the alloca below.
+                        // 5c.36: Emit struct definition at module level (deferred
+                        // to the end of the module so it never appears inline inside
+                        // a function body, which clang rejects). LLVM named types
+                        // support forward references, so deferred emission is safe.
                         let field_llvm_types: Vec<String> = elem_types.iter()
                             .map(|tn| self.llvm_type_for(tn).unwrap_or_else(|_| "i64".to_string()))
                             .collect();
-                        self.emitln(&format!("%struct.{name} = type {{ {} }}", field_llvm_types.join(", ")));
+                        self.local.pending_module_type_defs.push(
+                            format!("%struct.{name} = type {{ {} }}", field_llvm_types.join(", "))
+                        );
                     }
                     let mut struct_ty = self.infer_llvm_type(expr);
                     // Fix: If inference falls back to i64 (because element types

@@ -1314,7 +1314,8 @@ impl IrEmitter {
         match item {
             TopDecl::Fn(fd) => {
                 if let Some(ref body) = fd.body {
-                    Self::scan_block_for_tuples(&mut self.types, body);
+                    let mut vars: HashMap<String, String> = HashMap::new();
+                    Self::scan_block_for_tuples(&mut self.types, body, &mut vars);
                 }
             }
             TopDecl::Module(md) => {
@@ -1326,44 +1327,61 @@ impl IrEmitter {
         }
     }
 
-    fn scan_block_for_tuples(types: &mut TypeContext, block: &Block) {
+    fn scan_block_for_tuples(types: &mut TypeContext, block: &Block, vars: &mut HashMap<String, String>) {
         for stmt in &block.stmts {
             match stmt {
-                StmtOrExpr::Stmt(s) => Self::scan_stmt_for_tuples(types, s),
-                StmtOrExpr::Expr(e) => Self::scan_expr_for_tuples(types, e),
+                StmtOrExpr::Stmt(s) => Self::scan_stmt_for_tuples(types, s, vars),
+                StmtOrExpr::Expr(e) => Self::scan_expr_for_tuples(types, e, vars),
             }
         }
     }
 
-    fn scan_stmt_for_tuples(types: &mut TypeContext, stmt: &Stmt) {
+    fn scan_stmt_for_tuples(types: &mut TypeContext, stmt: &Stmt, vars: &mut HashMap<String, String>) {
         match stmt {
-            Stmt::Let(_, _, init, _) | Stmt::Var(_, _, init, _) => Self::scan_expr_for_tuples(types, init),
-            Stmt::Assign(lhs, rhs, _) => { Self::scan_expr_for_tuples(types, lhs); Self::scan_expr_for_tuples(types, rhs); }
-            Stmt::If(cond, then_b, elifs, else_b, _) => {
-                Self::scan_expr_for_tuples(types, cond);
-                Self::scan_block_for_tuples(types, then_b);
-                for (c, b) in elifs { Self::scan_expr_for_tuples(types, c); Self::scan_block_for_tuples(types, b); }
-                if let Some(b) = else_b { Self::scan_block_for_tuples(types, b); }
+            Stmt::Let(name, ty, init, _) | Stmt::Var(name, ty, init, _) => {
+                let bound = if let Some(t) = ty {
+                    Self::type_from_ast_static(t)
+                } else {
+                    Self::infer_var_type(init, vars)
+                };
+                vars.insert(name.name.clone(), bound);
+                Self::scan_expr_for_tuples(types, init, vars);
             }
-            Stmt::While(cond, body, _, _, _) => { Self::scan_expr_for_tuples(types, cond); Self::scan_block_for_tuples(types, body); }
-            Stmt::For(_, iter, body, _, _) => { Self::scan_expr_for_tuples(types, iter); Self::scan_block_for_tuples(types, body); }
+            Stmt::Assign(lhs, rhs, _) => {
+                // Track re-assignment types for tuple inference consistency
+                if let Expr::Ident(id) = lhs {
+                    if let Some(rt) = Self::infer_simple_expr_type(rhs, vars) {
+                        vars.insert(id.name.clone(), rt);
+                    }
+                }
+                Self::scan_expr_for_tuples(types, lhs, vars);
+                Self::scan_expr_for_tuples(types, rhs, vars);
+            }
+            Stmt::If(cond, then_b, elifs, else_b, _) => {
+                Self::scan_expr_for_tuples(types, cond, vars);
+                Self::scan_block_for_tuples(types, then_b, vars);
+                for (c, b) in elifs { Self::scan_expr_for_tuples(types, c, vars); Self::scan_block_for_tuples(types, b, vars); }
+                if let Some(b) = else_b { Self::scan_block_for_tuples(types, b, vars); }
+            }
+            Stmt::While(cond, body, _, _, _) => { Self::scan_expr_for_tuples(types, cond, vars); Self::scan_block_for_tuples(types, body, vars); }
+            Stmt::For(_, iter, body, _, _) => { Self::scan_expr_for_tuples(types, iter, vars); Self::scan_block_for_tuples(types, body, vars); }
             Stmt::Match(scrut, arms, _) => {
-                Self::scan_expr_for_tuples(types, scrut);
+                Self::scan_expr_for_tuples(types, scrut, vars);
                 for arm in arms {
-                    match &arm.body { MatchBody::Block(b) => Self::scan_block_for_tuples(types, b), MatchBody::Expr(e) => Self::scan_expr_for_tuples(types, e) }
+                    match &arm.body { MatchBody::Block(b) => Self::scan_block_for_tuples(types, b, vars), MatchBody::Expr(e) => Self::scan_expr_for_tuples(types, e, vars) }
                 }
             }
-            Stmt::Return(Some(e), _) | Stmt::Expr(e, _) => Self::scan_expr_for_tuples(types, e),
+            Stmt::Return(Some(e), _) | Stmt::Expr(e, _) => Self::scan_expr_for_tuples(types, e, vars),
             _ => {}
         }
     }
 
-    fn scan_expr_for_tuples(types: &mut TypeContext, expr: &Expr) {
+    fn scan_expr_for_tuples(types: &mut TypeContext, expr: &Expr, vars: &mut HashMap<String, String>) {
         // Register tuple types from expression-level tuples
         if let Expr::Tuple(items, _) = expr {
             if items.len() > 1 {
                 let elem_types: Vec<String> = items.iter()
-                    .map(|i| Self::infer_expr_type_name(i))
+                    .map(|i| Self::infer_expr_type_name(i, vars))
                     .collect();
                 let name = format!("Tuple__{}", elem_types.join("__"));
                 if !types.type_meta.contains_key(&name) {
@@ -1381,30 +1399,73 @@ impl IrEmitter {
             }
         }
         match expr {
-            Expr::Tuple(items, _) => { for item in items { Self::scan_expr_for_tuples(types, item); } }
-            Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => { Self::scan_expr_for_tuples(types, func); for a in args { Self::scan_expr_for_tuples(types, a); } }
-            Expr::Binary(a, _, b, _) => { Self::scan_expr_for_tuples(types, a); Self::scan_expr_for_tuples(types, b); }
-            Expr::Unary(_, e, _) | Expr::Paren(e, _) | Expr::Ref(e, _) | Expr::MutRef(e, _) | Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _) | Expr::As(e, _, _) | Expr::Try(e, _) => Self::scan_expr_for_tuples(types, e),
-            Expr::Field(obj, _, _) => Self::scan_expr_for_tuples(types, obj),
-            Expr::Index(arr, idx, _) => { Self::scan_expr_for_tuples(types, arr); Self::scan_expr_for_tuples(types, idx); }
+            Expr::Tuple(items, _) => { for item in items { Self::scan_expr_for_tuples(types, item, vars); } }
+            Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => { Self::scan_expr_for_tuples(types, func, vars); for a in args { Self::scan_expr_for_tuples(types, a, vars); } }
+            Expr::Binary(a, _, b, _) => { Self::scan_expr_for_tuples(types, a, vars); Self::scan_expr_for_tuples(types, b, vars); }
+            Expr::Unary(_, e, _) | Expr::Paren(e, _) | Expr::Ref(e, _) | Expr::MutRef(e, _) | Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _) | Expr::As(e, _, _) | Expr::Try(e, _) => Self::scan_expr_for_tuples(types, e, vars),
+            Expr::Field(obj, _, _) => Self::scan_expr_for_tuples(types, obj, vars),
+            Expr::Index(arr, idx, _) => { Self::scan_expr_for_tuples(types, arr, vars); Self::scan_expr_for_tuples(types, idx, vars); }
             Expr::If(cond, then_b, elifs, else_b, _) => {
-                Self::scan_expr_for_tuples(types, cond); Self::scan_block_for_tuples(types, then_b);
-                for (c, b) in elifs { Self::scan_expr_for_tuples(types, c); Self::scan_block_for_tuples(types, b); }
-                if let Some(b) = else_b { Self::scan_block_for_tuples(types, b); }
+                Self::scan_expr_for_tuples(types, cond, vars); Self::scan_block_for_tuples(types, then_b, vars);
+                for (c, b) in elifs { Self::scan_expr_for_tuples(types, c, vars); Self::scan_block_for_tuples(types, b, vars); }
+                if let Some(b) = else_b { Self::scan_block_for_tuples(types, b, vars); }
             }
             Expr::Match(scrut, arms, _) => {
-                Self::scan_expr_for_tuples(types, scrut);
-                for arm in arms { match &arm.body { MatchBody::Block(b) => Self::scan_block_for_tuples(types, b), MatchBody::Expr(e) => Self::scan_expr_for_tuples(types, e) } }
+                Self::scan_expr_for_tuples(types, scrut, vars);
+                for arm in arms { match &arm.body { MatchBody::Block(b) => Self::scan_block_for_tuples(types, b, vars), MatchBody::Expr(e) => Self::scan_expr_for_tuples(types, e, vars) } }
             }
-            Expr::Array(elems, _) => { for e in elems { Self::scan_expr_for_tuples(types, e); } }
-            Expr::Struct(_, elems, _, _) => { for (_, e) in elems { Self::scan_expr_for_tuples(types, e); } }
+            Expr::Array(elems, _) => { for e in elems { Self::scan_expr_for_tuples(types, e, vars); } }
+            Expr::Struct(_, elems, _, _) => { for (_, e) in elems { Self::scan_expr_for_tuples(types, e, vars); } }
             _ => {}
+        }
+    }
+
+    /// Infer a variable's type from its binding for tuple pre-registration.
+    /// Matches codegen's practical inference: Str/Int/Float/Bool/Char literals,
+    /// ident inheritance, otherwise Int.
+    fn infer_var_type(expr: &Expr, vars: &HashMap<String, String>) -> String {
+        Self::infer_simple_expr_type(expr, vars).unwrap_or_else(|| "Int".to_string())
+    }
+
+    fn infer_simple_expr_type(expr: &Expr, vars: &HashMap<String, String>) -> Option<String> {
+        match expr {
+            Expr::Int(..) | Expr::Bool(..) => Some("Int".to_string()),
+            Expr::Float(..) => Some("Float64".to_string()),
+            Expr::Str(..) => Some("Str".to_string()),
+            Expr::Char(..) => Some("Char".to_string()),
+            Expr::Ident(id) => vars.get(&id.name).cloned().or_else(|| {
+                if id.name.len() == 1 && id.name.chars().next().map_or(false, |c| c.is_ascii_uppercase()) {
+                    Some(id.name.clone())
+                } else {
+                    None
+                }
+            }),
+            Expr::Some(..) | Expr::None(_) => Some("Option".to_string()),
+            Expr::Ok(..) | Expr::Err(..) => Some("Result".to_string()),
+            _ => None,
+        }
+    }
+
+    fn type_from_ast_static(ty: &Type) -> String {
+        match ty {
+            Type::Named(id, _) => id.name.clone(),
+            Type::Ref(inner) => Self::type_from_ast_static(inner),
+            Type::MutRef(inner) => format!("*{}", Self::type_from_ast_static(inner)),
+            Type::Ptr(inner) => format!("*{}", Self::type_from_ast_static(inner)),
+            Type::Option(_) => "Option".to_string(),
+            Type::Result(_, _) => "Result".to_string(),
+            Type::Vec(_) => "Vec".to_string(),
+            Type::Tuple(types) => {
+                let parts: Vec<String> = types.iter().map(Self::type_from_ast_static).collect();
+                format!("Tuple__{}", parts.join("__"))
+            }
+            _ => "Int".to_string(),
         }
     }
 
     /// Infer a type name from an expression for pre-registration purposes.
     /// Falls back to "Int" for unknown types.
-    fn infer_expr_type_name(expr: &Expr) -> String {
+    fn infer_expr_type_name(expr: &Expr, vars: &HashMap<String, String>) -> String {
         match expr {
             Expr::Int(..) | Expr::Bool(..) => "Int".to_string(),
             Expr::Str(..) => "Str".to_string(),
@@ -1414,7 +1475,7 @@ impl IrEmitter {
                 if id.name.len() == 1 && id.name.chars().next().map_or(false, |c| c.is_ascii_uppercase()) {
                     id.name.clone()
                 } else {
-                    "Int".to_string()
+                    vars.get(&id.name).cloned().unwrap_or_else(|| "Int".to_string())
                 }
             }
             Expr::Some(..) | Expr::None(_) => "Option".to_string(),

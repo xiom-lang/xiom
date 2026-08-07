@@ -72,6 +72,32 @@ fn stdlib_modules() -> Vec<(&'static str, &'static str)> {
         ("alloc",       "stdlib/xiom/alloc.xi"),
         ("env",         "stdlib/xiom/env.xi"),
         ("error",       "stdlib/xiom/error.xi"),
+        // Folder modules (2026-08-07 refactor) — resolved via catalog strategy a:
+        // `use xiom.foo.bar` → stdlib/xiom/foo/bar.xi
+        ("collect.tree",   "stdlib/xiom/collect/tree.xi"),
+        ("collect.heap",   "stdlib/xiom/collect/heap.xi"),
+        ("collect.cache",  "stdlib/xiom/collect/cache.xi"),
+        ("collect.hash",   "stdlib/xiom/collect/hash.xi"),
+        ("collect.queue",  "stdlib/xiom/collect/queue.xi"),
+        ("collect.graph",  "stdlib/xiom/collect/graph.xi"),
+        ("hash.city",      "stdlib/xiom/hash/city.xi"),
+        ("hash.xxhash",    "stdlib/xiom/hash/xxhash.xi"),
+        ("hash.murmur",    "stdlib/xiom/hash/murmur.xi"),
+        ("hash.jenkins",   "stdlib/xiom/hash/jenkins.xi"),
+        ("hash.crc",       "stdlib/xiom/hash/crc.xi"),
+        ("text.similarity","stdlib/xiom/text/similarity.xi"),
+        ("rand.mt19937",   "stdlib/xiom/rand/mt19937.xi"),
+        ("rand.pcg",       "stdlib/xiom/rand/pcg.xi"),
+        ("rand.chacha",    "stdlib/xiom/rand/chacha.xi"),
+        ("net.url",        "stdlib/xiom/net/url.xi"),
+        ("net.dns",        "stdlib/xiom/net/dns.xi"),
+        ("net.proto",      "stdlib/xiom/net/proto.xi"),
+        ("os.fs",          "stdlib/xiom/os/fs.xi"),
+        ("os.proc",        "stdlib/xiom/os/proc.xi"),
+        ("os.term",        "stdlib/xiom/os/term.xi"),
+        ("num.convert",    "stdlib/xiom/num/convert.xi"),
+        ("format.number",  "stdlib/xiom/format/number.xi"),
+        ("format.dump",    "stdlib/xiom/format/dump.xi"),
     ]
 }
 
