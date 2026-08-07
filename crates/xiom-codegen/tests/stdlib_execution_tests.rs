@@ -393,3 +393,47 @@ fn stdlib_exec_misc_runs() {
 fn stdlib_exec_process_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_process.xi"), Some(0), "process smoke failed");
 }
+
+// ============================================================================
+// Folder modules (2026-08-07 refactor) — smoke programs in the same harness.
+// ============================================================================
+
+#[test]
+fn stdlib_exec_collect_tree_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_collect_tree.xi"), Some(0), "collect/tree smoke failed");
+}
+
+#[test]
+fn stdlib_exec_collect_cache_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_collect_cache.xi"), Some(0), "collect/cache+hash+queue+graph smoke failed");
+}
+
+#[test]
+fn stdlib_exec_hash_folder_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_hash_folder.xi"), Some(0), "hash/ folder smoke failed");
+}
+
+#[test]
+fn stdlib_exec_text_similarity_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_text_similarity.xi"), Some(0), "text/similarity smoke failed");
+}
+
+#[test]
+fn stdlib_exec_rand_folder_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_rand_folder.xi"), Some(0), "rand/ folder smoke failed");
+}
+
+#[test]
+fn stdlib_exec_net_folder_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_net_folder.xi"), Some(0), "net/ folder smoke failed");
+}
+
+#[test]
+fn stdlib_exec_os_folder_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_os_folder.xi"), Some(0), "os/ folder smoke failed");
+}
+
+#[test]
+fn stdlib_exec_num_format_folder_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_num_format_folder.xi"), Some(0), "num/convert + format/ smoke failed");
+}

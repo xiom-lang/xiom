@@ -281,6 +281,10 @@ pub struct LocalContext {
     pub current_module: Option<String>,
     /// Struct type definitions created during compilation
     pub deferred_struct_types: Vec<(String, String)>,
+    /// Tuple/anon struct type definition LINES discovered during function-body
+    /// compilation. Flushed at the very end of the module (LLVM permits forward
+    /// references to named types), so they never appear inline inside a function.
+    pub pending_module_type_defs: Vec<String>,
     /// Scrutinee info for match arm field extraction
     pub scrutinee_info: Option<(String, String)>,
     /// M20-A1: Deferred closure function definitions (emitted after current fn)

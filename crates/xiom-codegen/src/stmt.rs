@@ -59,12 +59,19 @@ impl IrEmitter {
                     // or resolve from function call return types.
                     let inherited = match value {
                         Expr::Ident(id) => self.local.local_vec_elem.get(&id.name).cloned(),
-                        Expr::Call(_, args, _) | Expr::GenericCall(_, _, args, _) => {
+                        Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => {
                             // Inherit from first argument's Vec element type
-                            args.first().and_then(|a| {
+                            let from_arg = args.first().and_then(|a| {
                                 if let Expr::Ident(id) = a {
                                     self.local.local_vec_elem.get(&id.name).cloned()
                                 } else { None }
+                            });
+                            // Then fall back to the callee's declared return type
+                            // (e.g. `Vec[Tuple__Str__Str]`).
+                            from_arg.or_else(|| {
+                                self.callee_return_xiom(func).and_then(|rt| {
+                                    rt.strip_prefix("Vec[").and_then(|rest| rest.strip_suffix(']')).map(|e| e.to_string())
+                                })
                             })
                         }
                         _ => None,

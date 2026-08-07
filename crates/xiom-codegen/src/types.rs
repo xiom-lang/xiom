@@ -533,8 +533,22 @@ impl crate::IrEmitter {
                                 match idx.as_ref() {
                                     Expr::Ident(t) => return Some(t.name.clone()),
                                     Expr::Tuple(elems, _) => {
-                                        if let Some(Expr::Ident(t)) = elems.first() {
-                                            return Some(t.name.clone());
+                                        // Tuple element types (e.g. Vec[(Str, Str)]):
+                                        // build the full "Tuple__Str__Str" name so
+                                        // resolve_vec_elem_type can find the registered
+                                        // tuple struct and load full elements (not just
+                                        // the first field).
+                                        let mut parts: Vec<String> = Vec::new();
+                                        for e in elems.iter() {
+                                            if let Expr::Ident(t) = e {
+                                                parts.push(t.name.clone());
+                                            } else {
+                                                parts.clear();
+                                                break;
+                                            }
+                                        }
+                                        if !parts.is_empty() && parts.len() == elems.len() {
+                                            return Some(format!("Tuple__{}", parts.join("__")));
                                         }
                                     }
                                     _ => {}
