@@ -31,6 +31,10 @@ pub enum TokenKind {
     // --- Literals ---
     Ident(String),
     Int(u64),
+    /// D1 (2026-08-08): integer literal that overflows u64 (fits u128/i128).
+    /// Emitted when a decimal or hex literal exceeds u64::MAX so native
+    /// Int128/UInt128 literals are representable end-to-end.
+    BigInt(u128),
     Float(f64),
     Str(String),
     Char(char),
@@ -213,10 +217,15 @@ impl Lexer {
                     self.advance(); // consume '0'
                     self.advance(); // consume 'x' or 'X'
                     let hex = self.advance_while(|c| c.is_ascii_hexdigit() || c == '_');
-                    let num: u64 = u64::from_str_radix(&hex.replace('_', ""), 16).unwrap_or(0);
+                    let clean = hex.replace('_', "");
+                    // D1: prefer u128 so literals beyond u64 work for Int128/UInt128.
+                    let num_u128: u128 = u128::from_str_radix(&clean, 16).unwrap_or(0);
                     let suffix = self.parse_numeric_suffix();
                     let lexeme = if suffix.is_empty() { format!("0x{hex}") } else { format!("0x{hex}{suffix}") };
-                    return Token::new(TokenKind::Int(num), start, lexeme);
+                    if num_u128 > u64::MAX as u128 {
+                        return Token::new(TokenKind::BigInt(num_u128), start, lexeme);
+                    }
+                    return Token::new(TokenKind::Int(num_u128 as u64), start, lexeme);
                 }
                 let int_part = self.advance_while(|c| c.is_ascii_digit() || c == '_');
                 if self.peek() == Some('.') && self.peek_n(1).map_or(false, |c| c.is_ascii_digit()) {
@@ -252,10 +261,15 @@ impl Lexer {
                         let lexeme = if suffix.is_empty() { exp } else { format!("{exp}{suffix}") };
                         return Token::new(TokenKind::Float(num), start, lexeme);
                     }
-                    let num: u64 = int_part.replace('_', "").parse().unwrap_or(0);
+                    let clean = int_part.replace('_', "");
+                    let num_u128: u128 = clean.parse().unwrap_or(0);
                     let suffix = self.parse_numeric_suffix();
                     let lexeme = if suffix.is_empty() { int_part } else { format!("{int_part}{suffix}") };
-                    Token::new(TokenKind::Int(num), start, lexeme)
+                    // D1: overflow u64 → BigInt token for native Int128 literals.
+                    if num_u128 > u64::MAX as u128 {
+                        return Token::new(TokenKind::BigInt(num_u128), start, lexeme);
+                    }
+                    Token::new(TokenKind::Int(num_u128 as u64), start, lexeme)
                 }
             }
 

@@ -956,13 +956,18 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     }
 
     if let Some(opt_path) = &opt {
-        let opt_level = if config.release { "-O3" } else { "-O1" };
+        // D1 (2026-08-08): default optimization raised from -O1 to -O2.
+        // clang/LLVM miscompiles (stack overflow / illegal-instruction traps)
+        // the IR shape produced for native Int128 loops containing inlined
+        // Vec operations at -O0/-O1; -O2's mem2reg+SSA produces correct code.
+        // Verified: i128 loop + Vec.push crashes at -O0/-O1, works at -O2.
+        let opt_level = if config.release { "-O3" } else { "-O2" };
         let opt_status = Command::new(opt_path)
             .args([opt_level, "-S", "-o", &ir_path, &ir_path])
             .status();
         if let Ok(s) = opt_status {
             if !s.success() {
-                eprintln!("  warning: opt -O1 failed, proceeding with unoptimized IR");
+                eprintln!("  warning: opt -O2 failed, proceeding with unoptimized IR");
                 let _ = fs::write(&ir_path, &llvm_ir);
             }
         }
@@ -1021,8 +1026,10 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             if config.target == Target::Native { cmd.arg("-maes"); }
             if asm_objects.is_empty() { cmd.arg("-DXIOM_NO_ASM"); }
             if config.debug_symbols { cmd.arg("-g"); }
-            // v0.56: Apply optimization level to clang (same as opt passes)
-            if config.release { cmd.arg("-O3"); } else { cmd.arg("-O1"); }
+            // v0.56: Apply optimization level to clang (same as opt passes).
+            // D1: default -O2 (see opt-level comment above — -O0/-O1
+            // miscompile native-Int128 loop + Vec IR shapes).
+            if config.release { cmd.arg("-O3"); } else { cmd.arg("-O2"); }
             // v0.56: ThinLTO for 20-40% smaller/faster binaries
             if config.lto {
                 cmd.arg("-flto=thin");

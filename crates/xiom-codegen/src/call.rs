@@ -527,8 +527,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         return Ok(("null".to_string(), LLVM_STR_PTR.to_string()));
                     }
                     let slot = self.fresh_tmp();
-                    self.emitln(&format!("  {slot} = alloca {ty}"));
-                    self.emitln(&format!("  store {ty} {val}, {ty}* {slot}"));
+                    self.emitln(&format!("  {slot} = alloca {ty}{}", self.alloca_align(&ty)));
+                    self.emitln(&format!("  store {ty} {val}, {ty}* {slot}{}", self.store_align(&ty)));
                     return Ok((slot, format!("{ty}*")));
                 }
                 if fn_name == "free" {

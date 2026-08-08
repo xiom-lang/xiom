@@ -229,8 +229,9 @@ impl IrEmitter {
                 let store_val = self.coerce_value(&val, &val_llvm_ty, &llvm_ty);
                 let store_val = self.zero_val_for(&store_val, &llvm_ty);
                 let alloca = self.fresh_tmp();
-                self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
-                self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}"));
+                // D1: i128/fp128 allocas need 16-byte alignment on x86-64.
+                self.emitln(&format!("  {alloca} = alloca {llvm_ty}{}", self.alloca_align(&llvm_ty)));
+                self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}{}", self.store_align(&llvm_ty)));
                 self.add_local(&name.name, alloca, &llvm_ty);
                 // Check invariants if the value is a struct with invariants
                 if self.config.check_contracts {
@@ -431,8 +432,9 @@ impl IrEmitter {
                 }
                 let store_val = self.zero_val_for(&val, &llvm_ty);
                 let alloca = self.fresh_tmp();
-                self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
-                self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}"));
+                // D1: i128/fp128 allocas need 16-byte alignment on x86-64.
+                self.emitln(&format!("  {alloca} = alloca {llvm_ty}{}", self.alloca_align(&llvm_ty)));
+                self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}{}", self.store_align(&llvm_ty)));
                 self.add_local(&name.name, alloca, &llvm_ty);
                 // Check invariants if the value is a struct with invariants
                 if self.config.check_contracts {

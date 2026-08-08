@@ -10,6 +10,7 @@ impl crate::Formatter {
     pub(super) fn format_expr(&mut self, expr: &Expr) {
         match expr {
             Expr::Int(n, _) => self.buf.push_str(&n.to_string()),
+            Expr::BigInt(n, _) => self.buf.push_str(&n.to_string()),
             Expr::Float(f, _) => self.buf.push_str(&crate::format_float(*f)),
             Expr::Bool(b, _) => self.buf.push_str(if *b { "true" } else { "false" }),
             Expr::Str(s, _) => {

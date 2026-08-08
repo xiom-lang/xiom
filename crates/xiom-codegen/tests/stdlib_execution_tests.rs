@@ -437,3 +437,8 @@ fn stdlib_exec_os_folder_runs() {
 fn stdlib_exec_num_format_folder_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_num_format_folder.xi"), Some(0), "num/convert + format/ smoke failed");
 }
+
+#[test]
+fn stdlib_exec_d1_native128_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_d1_native128.xi"), Some(0), "D1 native Int128/UInt128/Float128 smoke failed");
+}

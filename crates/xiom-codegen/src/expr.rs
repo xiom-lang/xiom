@@ -33,7 +33,9 @@ impl IrEmitter {
     pub(crate) fn compile_struct_literal(&mut self, type_name: &str, fields: &[(Ident, Expr)], _is_enum_variant: bool) -> Result<(String, String), String> {
         let struct_ty = self.llvm_type_for(type_name)?;
         let alloca = self.fresh_tmp();
-        self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
+        // D1: align 16 for structs with i128/fp128 fields (e.g. I128DivRem);
+        // plain structs (Vec etc.) stay at default alignment.
+        self.emitln(&format!("  {alloca} = alloca {struct_ty}{}", self.alloca_align(&struct_ty)));
         for (i, (_, val)) in fields.iter().enumerate() {
             let field_llvm_ty = self.field_llvm_type(type_name, i);
             // 5c.39: Empty array `[]` in a Vec-typed struct field — compile as
@@ -120,10 +122,12 @@ impl IrEmitter {
             self.emitln(&format!("  {res} = call i8* @xiom_str_concat(i8* {lp}, i8* {rp})"));
             return Ok((res, LLVM_STR_PTR.to_string()));
         }
-        let is_float = lt == "float" || lt == "double" || rt == "float" || rt == "double";
-        let float_ty = if lt == "float" || rt == "float" { "float" } else { "double" };
+        let is_float = lt == "float" || lt == "double" || lt == "fp128" || rt == "float" || rt == "double" || rt == "fp128";
+        let float_ty = if lt == "float" || rt == "float" { "float" } else if lt == "fp128" || rt == "fp128" { "fp128" } else { "double" };
         let is_add_sub_mul = matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul);
-        let ty = if is_float && is_add_sub_mul { float_ty } else { "i64" };
+        // D1: i128 operands stay i128 (no i64 widening).
+        let int_ty = if lt == "i128" || rt == "i128" { "i128" } else { "i64" };
+        let ty = if is_float && is_add_sub_mul { float_ty } else { int_ty };
         let llvm_op = match op {
             BinOp::Add => if is_float { "fadd" } else { "add" },
             BinOp::Sub => if is_float { "fsub" } else { "sub" },
@@ -162,16 +166,30 @@ impl IrEmitter {
         // Widen narrow integers for non-float ops.
         // Extract scalar fields from struct operands (e.g. Option::unwrap()
         // returns a struct value used in arithmetic).
-        if !is_float && ty == "i64" {
+        if !is_float && int_ty == "i64" {
             lv = self.widen_to_i64(&lv, lt);
             rv = self.widen_to_i64(&rv, rt);
+        } else if !is_float && int_ty == "i128" {
+            // D1: widen narrow operands up to i128 (sext/zext).
+            if lt != "i128" {
+                let ext = self.fresh_tmp();
+                let extop = if lt == "i8" || lt == "i1" { "zext" } else { "sext" };
+                self.emitln(&format!("  {ext} = {extop} {lt} {lv} to i128"));
+                lv = ext;
+            }
+            if rt != "i128" {
+                let ext = self.fresh_tmp();
+                let extop = if rt == "i8" || rt == "i1" { "zext" } else { "sext" };
+                self.emitln(&format!("  {ext} = {extop} {rt} {rv} to i128"));
+                rv = ext;
+            }
         }
         // Struct operands in arithmetic context: extract the leading scalar.
         // Handles patterns like Some(x).unwrap() + 1 being folded.
-        if lt.starts_with("%struct.") && ty == "i64" {
+        if lt.starts_with("%struct.") && int_ty == "i64" {
             lv = self.extract_scalar_field0(&lv, lt);
         }
-        if rt.starts_with("%struct.") && ty == "i64" {
+        if rt.starts_with("%struct.") && int_ty == "i64" {
             rv = self.extract_scalar_field0(&rv, rt);
         }
         let tmp = self.fresh_tmp();
@@ -606,7 +624,8 @@ impl IrEmitter {
                 let lookup_name: &str = if ident.name == "this" { "self" } else { &ident.name };
                 if let Some((ptr, llvm_ty)) = self.lookup_local(lookup_name).cloned() {
                     let tmp = self.fresh_tmp();
-                    self.emitln(&format!("  {tmp} = load {llvm_ty}, {llvm_ty}* {ptr}"));
+                    // D1: i128/fp128 loads need 16-byte alignment (x86-64).
+                    self.emitln(&format!("  {tmp} = load {llvm_ty}, {llvm_ty}* {ptr}{}", self.store_align(&llvm_ty)));
                     // Propagate array-value tracking through let-bound locals:
                     // if `ident` was bound from an Expr::Array, the loaded value
                     // also originates from an array buffer so val_to_struct can
@@ -753,6 +772,11 @@ impl IrEmitter {
             }
             Expr::Int(n, _) => {
                 Ok((format!("{n}"), LLVM_I64.to_string()))
+            }
+            // D1: big literal (beyond u64) — emits an i128 constant. The value
+            // is a bit pattern; signedness is applied by the surrounding cast.
+            Expr::BigInt(n, _) => {
+                Ok((format!("{n}"), "i128".to_string()))
             }
             Expr::Float(f, _) => {
                 Ok((format!("{f:.6}"), "double".to_string()))
@@ -992,11 +1016,17 @@ impl IrEmitter {
                     return Ok((res, LLVM_STR_PTR.to_string()));
                 }
                 let is_float = self.is_float_expr(left) || self.is_float_expr(right)
-                    || lt == "float" || lt == "double" || rt == "float" || rt == "double";
+                    || lt == "float" || lt == "double" || lt == "fp128" || rt == "float" || rt == "double" || rt == "fp128";
                 // Determine the actual float type from the operands.
                 // If either operand is `float` (Float32), use `float` for the
                 // comparison; otherwise default to `double` (Float64).
-                let float_ty = if lt == "float" || rt == "float" { "float" } else { "double" };
+                let float_ty = if lt == "float" || rt == "float" { "float" }
+                    else if lt == "fp128" || rt == "fp128" { "fp128" }
+                    else { "double" };
+                // D1 (2026-08-08): 128-bit integer detection — i128 operands
+                // must NOT be widened to i64. This drives the integer binop
+                // type choice below (i128 vs i64).
+                let int128_ty = if lt == "i128" || rt == "i128" { "i128" } else { "i64" };
                 if matches!(op, BinOp::And | BinOp::Or) {
                     let is_or = matches!(op, BinOp::Or);
                     let widen = |s: &mut Self, val: &str, ty: &str| -> String {
@@ -1140,36 +1170,57 @@ impl IrEmitter {
                 // emitting arithmetic, bitwise, shift, or comparison operations.
                 // This prevents LLVM type mismatches when Int8/Int16/Int32 values
                 // flow into binary ops that expect i64 operands. (B-004, B-005, B-006)
+                // D1: i128 operands are already wide — never widen them.
                 if !is_float && !lt.contains('*') && !rt.contains('*') {
-                    l = self.widen_to_i64(&l, &lt);
-                    r = self.widen_to_i64(&r, &rt);
-                    lt = "i64".to_string();
-                    rt = "i64".to_string();
+                    if int128_ty == "i128" {
+                        // Widen narrow operands UP to i128 (sext/zext) so both
+                        // sides share the i128 type for the op.
+                        if lt != "i128" {
+                            let ext = self.fresh_tmp();
+                            let extop = if lt == "i8" || lt == "i1" { "zext" } else { "sext" };
+                            self.emitln(&format!("  {ext} = {extop} {lt} {l} to i128"));
+                            l = ext;
+                            lt = "i128".to_string();
+                        }
+                        if rt != "i128" {
+                            let ext = self.fresh_tmp();
+                            let extop = if rt == "i8" || rt == "i1" { "zext" } else { "sext" };
+                            self.emitln(&format!("  {ext} = {extop} {rt} {r} to i128"));
+                            r = ext;
+                            rt = "i128".to_string();
+                        }
+                    } else {
+                        l = self.widen_to_i64(&l, &lt);
+                        r = self.widen_to_i64(&r, &rt);
+                        lt = "i64".to_string();
+                        rt = "i64".to_string();
+                    }
                 }
+                let int_ty = if int128_ty == "i128" { "i128" } else { "i64" };
                 let (ty, inst) = match op {
-                    BinOp::Add => (if is_float { float_ty } else { "i64" }, if is_float { "fadd" } else { "add" }),
-                    BinOp::Sub => (if is_float { float_ty } else { "i64" }, if is_float { "fsub" } else { "sub" }),
-                    BinOp::Mul => (if is_float { float_ty } else { "i64" }, if is_float { "fmul" } else { "mul" }),
-                    BinOp::Div => (if is_float { float_ty } else { "i64" }, if is_float { "fdiv" } else { "sdiv" }),
-                    BinOp::Rem => (if is_float { float_ty } else { "i64" }, if is_float { "frem" } else { "srem" }),
-                    BinOp::BitXor => ("i64", "xor"),
-                    BinOp::BitAnd => ("i64", "and"),
-                    BinOp::BitOr => ("i64", "or"),
-                    BinOp::Shl => ("i64", "shl"),
-                    BinOp::Shr => ("i64", "ashr"),
-                    BinOp::Eq => (if is_float { float_ty } else { "i64" }, if is_float { "fcmp oeq" } else { "icmp eq" }),
-                    BinOp::Neq => (if is_float { float_ty } else { "i64" }, if is_float { "fcmp one" } else { "icmp ne" }),
-                    BinOp::Lt => (if is_float { float_ty } else { "i64" }, if is_float { "fcmp olt" } else { "icmp slt" }),
-                    BinOp::Gt => (if is_float { float_ty } else { "i64" }, if is_float { "fcmp ogt" } else { "icmp sgt" }),
-                    BinOp::Le => (if is_float { float_ty } else { "i64" }, if is_float { "fcmp ole" } else { "icmp sle" }),
-                    BinOp::Ge => (if is_float { float_ty } else { "i64" }, if is_float { "fcmp oge" } else { "icmp sge" }),
+                    BinOp::Add => (if is_float { float_ty } else { int_ty }, if is_float { "fadd" } else { "add" }),
+                    BinOp::Sub => (if is_float { float_ty } else { int_ty }, if is_float { "fsub" } else { "sub" }),
+                    BinOp::Mul => (if is_float { float_ty } else { int_ty }, if is_float { "fmul" } else { "mul" }),
+                    BinOp::Div => (if is_float { float_ty } else { int_ty }, if is_float { "fdiv" } else { "sdiv" }),
+                    BinOp::Rem => (if is_float { float_ty } else { int_ty }, if is_float { "frem" } else { "srem" }),
+                    BinOp::BitXor => (int_ty, "xor"),
+                    BinOp::BitAnd => (int_ty, "and"),
+                    BinOp::BitOr => (int_ty, "or"),
+                    BinOp::Shl => (int_ty, "shl"),
+                    BinOp::Shr => (int_ty, "ashr"),
+                    BinOp::Eq => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp oeq" } else { "icmp eq" }),
+                    BinOp::Neq => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp one" } else { "icmp ne" }),
+                    BinOp::Lt => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp olt" } else { "icmp slt" }),
+                    BinOp::Gt => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp ogt" } else { "icmp sgt" }),
+                    BinOp::Le => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp ole" } else { "icmp sle" }),
+                    BinOp::Ge => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp oge" } else { "icmp sge" }),
                     BinOp::Assign => {
                         // Compile the RHS value first
                         let (r_val, r_ty) = (r.clone(), rt.clone());
                         // Compile the LHS as an lvalue (pointer to the storage location)
                         if let Some((l_ptr, l_ptr_ty, l_elem_ty)) = self.compile_lvalue(left) {
                             let store_val = self.coerce_value(&r_val, &r_ty, &l_elem_ty);
-                            self.emitln(&format!("  store {l_elem_ty} {store_val}, {l_ptr_ty} {l_ptr}"));
+                            self.emitln(&format!("  store {l_elem_ty} {store_val}, {l_ptr_ty} {l_ptr}{}", self.store_align(&l_elem_ty)));
                             return Ok((store_val, l_elem_ty));
                         }
                         // Fallback: return RHS (simple variable assignment handled by let/var)
@@ -1275,7 +1326,10 @@ impl IrEmitter {
                 }
                 let div_cont = if !is_float && matches!(op, BinOp::Div | BinOp::Rem) {
                     let zero_check = self.fresh_tmp();
-                    self.emitln(&format!("  {zero_check} = icmp eq i64 {r}, 0"));
+                    // D1: the zero-check must use the operand's actual type
+                    // (i128 for Int128/UInt128, i64 otherwise).
+                    let cmp_ty = if rt == "i128" { "i128" } else { "i64" };
+                    self.emitln(&format!("  {zero_check} = icmp eq {cmp_ty} {r}, 0"));
                     let trap_block = self.fresh_block("div_zero_trap");
                     let safe_block = self.fresh_block("div_safe");
                     let cont_block = self.fresh_block("div_continue");
@@ -1756,9 +1810,9 @@ impl IrEmitter {
                                     let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
                                     let struct_val = self.fresh_tmp();
                                     self.emitln(&format!("  {struct_val} = load {llvm_ty}, {llvm_ty}* {ptr}"));
-                                    let struct_alloca = self.fresh_tmp();
-                                    self.emitln(&format!("  {struct_alloca} = alloca {llvm_ty}"));
-                                    self.emitln(&format!("  store {llvm_ty} {struct_val}, {llvm_ty}* {struct_alloca}"));
+                let struct_alloca = self.fresh_tmp();
+                self.emitln(&format!("  {struct_alloca} = alloca {llvm_ty}, align 16"));
+                self.emitln(&format!("  store {llvm_ty} {struct_val}, {llvm_ty}* {struct_alloca}, align 16"));
                                     let gep = self.fresh_tmp();
                                     let loaded = self.fresh_tmp();
                                     self.emitln(&format!("  {gep} = getelementptr {llvm_ty}, {llvm_ty}* {struct_alloca}, i32 0, i32 {field_idx}"));
@@ -2584,7 +2638,8 @@ impl IrEmitter {
                     return Ok(last);
                 }
                 let alloca = self.fresh_tmp();
-                self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
+                // D1: align 16 only for structs with i128/fp128 fields.
+                self.emitln(&format!("  {alloca} = alloca {struct_ty}{}", self.alloca_align(&struct_ty)));
                 if let Some(ref enum_key) = parent_enum {
                     // Set discriminant (field 0) to the variant index
                     let var_idx = self.types.enum_variants.get(enum_key)
@@ -3110,6 +3165,7 @@ impl IrEmitter {
                         "i16" => Some(16),
                         "i32" => Some(32),
                         "i64" => Some(64),
+                        "i128" => Some(128),
                         _ => None,
                     }
                 };
@@ -3175,6 +3231,41 @@ impl IrEmitter {
                         Ok((tmp, LLVM_I64.to_string()))
                     }
                     (a, b) if a == b => Ok((val, target_llvm_ty.clone())),
+                    // D1: Float64 → Float128 (fpext). fpext of a double constant
+                    // yields a valid fp128 SSA value; the STORE then uses the
+                    // register (clang rejects bare decimal fp128 literals in
+                    // stores, so we never pass the constant through untyped).
+                    ("double", "fp128") => {
+                        self.emitln(&format!("  {tmp} = fpext double {val} to fp128"));
+                        Ok((tmp, "fp128".to_string()))
+                    }
+                    // D1: Float32 → Float128 (fpext).
+                    ("float", "fp128") => {
+                        self.emitln(&format!("  {tmp} = fpext float {val} to fp128"));
+                        Ok((tmp, "fp128".to_string()))
+                    }
+                    // D1: Float128 → Float64 (fptrunc) / Float128 → Float32.
+                    ("fp128", "double") => {
+                        self.emitln(&format!("  {tmp} = fptrunc fp128 {val} to double"));
+                        Ok((tmp, "double".to_string()))
+                    }
+                    ("fp128", "float") => {
+                        let mid = self.fresh_tmp();
+                        self.emitln(&format!("  {mid} = fptrunc fp128 {val} to double"));
+                        self.emitln(&format!("  {tmp} = fptrunc double {mid} to float"));
+                        Ok((tmp, "float".to_string()))
+                    }
+                    // D1: Int ↔ Int128 conversions (sext/trunc handled by the
+                    // generic integer-width arm below via int_width; fp128
+                    // integer conversions go through i64 then widen).
+                    ("fp128", "i64") => {
+                        self.emitln(&format!("  {tmp} = fptosi fp128 {val} to i64"));
+                        Ok((tmp, LLVM_I64.to_string()))
+                    }
+                    ("i64", "fp128") => {
+                        self.emitln(&format!("  {tmp} = sitofp i64 {val} to fp128"));
+                        Ok((tmp, "fp128".to_string()))
+                    }
                     // 5e.2 G-34: fn-ptr ↔ Int casts.
                     (inner_ty, target_fn_ptr) if target_fn_ptr.contains('(')
                         && target_fn_ptr.contains(')')
@@ -3227,6 +3318,16 @@ impl IrEmitter {
                         self.emitln(&format!("  {tmp} = {op} {a} {val} to {b}"));
                         Ok((tmp, target_llvm_ty.clone()))
                     }
+                    // D1: big literal semantics — `9223372036854775808 as Int128`
+                    // means the VALUE 2^63, not i64::MIN sign-extended. When the
+                    // source is a plain Int literal whose u64 bit pattern is
+                    // > i64::MAX and the target is i128, interpret the literal
+                    // as an unsigned u64 value and ZERO-extend.
+                    ("i64", "i128") if matches!(inner.as_ref(), Expr::Int(v, _) if *v > i64::MAX as u64) => {
+                        let z = self.fresh_tmp();
+                        self.emitln(&format!("  {z} = zext i64 {val} to i128"));
+                        Ok((z, "i128".to_string()))
+                    }
                     // Integer <-> integer width conversions (e.g. Int<->Char, Int<->Int8/16/32).
                     // Char is i8 and Int is i64, so Int->Char truncs and Char->Int sign-extends.
                     (a, b) if int_width(a).is_some() && int_width(b).is_some() => {
@@ -3235,7 +3336,19 @@ impl IrEmitter {
                         if bw < aw {
                             self.emitln(&format!("  {tmp} = trunc {a} {val} to {b}"));
                         } else {
-                            self.emitln(&format!("  {tmp} = sext {a} {val} to {b}"));
+                            // D1: unsigned sources must ZERO-extend when widening
+                            // (UInt64→UInt128, UInt8→Int128). Resolve the source
+                            // XIOM type from a local ident when available; unknown
+                            // sources default to sext (historical behavior).
+                            let src_signed = if let Expr::Ident(id) = inner.as_ref() {
+                                self.resolve_local_xiom_type(&id.name)
+                                    .map(|xiom_ty| Self::is_signed_xiom_type(&xiom_ty))
+                                    .unwrap_or(true)
+                            } else {
+                                true
+                            };
+                            let extop = if src_signed { "sext" } else { "zext" };
+                            self.emitln(&format!("  {tmp} = {extop} {a} {val} to {b}"));
                         }
                         // M17: Track signedness of the As result based on target XIOM type.
                         let target_xiom = Self::type_from_ast(ty);

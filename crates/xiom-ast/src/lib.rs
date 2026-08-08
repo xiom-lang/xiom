@@ -132,6 +132,9 @@ pub enum Expr {
     Ident(Ident),
     /// Integer literal
     Int(u64, Span),
+    /// D1 (2026-08-08): integer literal beyond u64 (fits u128/i128) — used for
+    /// native Int128/UInt128 literals. Produced by the lexer's BigInt token.
+    BigInt(u128, Span),
     /// Float literal
     Float(f64, Span),
     /// String literal
@@ -231,7 +234,7 @@ impl Expr {
     pub fn span(&self) -> Span {
         match self {
             Expr::Ident(i) => i.span,
-            Expr::Int(_, s) | Expr::Float(_, s) | Expr::Str(_, s) | Expr::Char(_, s) | Expr::Bool(_, s) => *s,
+            Expr::Int(_, s) | Expr::BigInt(_, s) | Expr::Float(_, s) | Expr::Str(_, s) | Expr::Char(_, s) | Expr::Bool(_, s) => *s,
             Expr::Paren(_, s) | Expr::Unary(_, _, s) | Expr::Binary(_, _, _, s) | Expr::Try(_, s) => *s,
             Expr::Imply(_, _, s) | Expr::Is(_, _, s) | Expr::Field(_, _, s) | Expr::Call(_, _, s) | Expr::GenericCall(_, _, _, s) => *s,
             Expr::Index(_, _, s) | Expr::AtPre(_, s) | Expr::Ref(_, s) | Expr::MutRef(_, s) => *s,

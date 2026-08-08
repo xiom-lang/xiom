@@ -292,9 +292,9 @@ impl crate::IrEmitter {
     pub fn is_primitive_type_name(type_name: &str) -> bool {
         matches!(
             type_name,
-            "Bool" | "Int" | "Int8" | "Int16" | "Int32" | "Int64"
-                | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
-                | "Float32" | "Float64" | "Char" | "Str"
+            "Bool" | "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "Int128"
+                | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64" | "UInt128"
+                | "Float32" | "Float64" | "Float128" | "Char" | "Str"
         )
     }
 
@@ -306,8 +306,10 @@ impl crate::IrEmitter {
             "Int16" | "UInt16" => "i16",
             "Int32" | "UInt32" => "i32",
             "Int" | "Int64" | "UInt" | "UInt64" => "i64",
+            "Int128" | "UInt128" => "i128",
             "Float32" => "float",
             "Float64" => "double",
+            "Float128" => "fp128",
             "Str" => "i8*",
             "()" => "void",
             "Unit" => "i64",
@@ -377,8 +379,10 @@ impl crate::IrEmitter {
             "i32" => "Int32".to_string(),
             "i16" => "Int16".to_string(),
             "i8" => "Int8".to_string(),
+            "i128" => "Int128".to_string(),
             "double" => "Float64".to_string(),
             "float" => "Float32".to_string(),
+            "fp128" => "Float128".to_string(),
             "i1" => "Bool".to_string(),
             _ => base.to_string(),
         }

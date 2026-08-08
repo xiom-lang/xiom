@@ -2047,6 +2047,8 @@ impl Parser {
         let span = self.peek().span;
         match self.peek_kind().clone() {
             TokenKind::Int(n) => { let tok = self.advance(); let suffix_type = Self::parse_int_suffix(&tok.lexeme); if let Some(ty) = suffix_type { Ok(Expr::As(Box::new(Expr::Int(n, span)), ty, span)) } else { Ok(Expr::Int(n, span)) } }
+            // D1: literals beyond u64 (native Int128/UInt128).
+            TokenKind::BigInt(n) => { let tok = self.advance(); let suffix_type = Self::parse_int_suffix(&tok.lexeme); if let Some(ty) = suffix_type { Ok(Expr::As(Box::new(Expr::BigInt(n, span)), ty, span)) } else { Ok(Expr::BigInt(n, span)) } }
             TokenKind::Float(f) => { let tok = self.advance(); let suffix_type = Self::parse_float_suffix(&tok.lexeme); if let Some(ty) = suffix_type { Ok(Expr::As(Box::new(Expr::Float(f, span)), ty, span)) } else { Ok(Expr::Float(f, span)) } }
             TokenKind::Str(s) => { self.advance(); Ok(Expr::Str(s, span)) }
             TokenKind::Char(c) => { self.advance(); Ok(Expr::Char(c, span)) }
