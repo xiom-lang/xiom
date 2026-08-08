@@ -613,12 +613,27 @@ impl Parser {
         Ok(TopDecl::Interface(InterfaceDecl { is_pub, name, generics, parent, members, span: start }))
     }
 
-    /// Parse impl TraitName for TypeName { fn method(...) { body } ... }
+    /// Parse `impl TraitName[Args] [for TypeName] { fn method(...) { body } ... }`
+    /// Supports both forms:
+    ///   - `impl Num[Int] { ... }`            (generic trait instantiation)
+    ///   - `impl Trait for Type { ... }`      (classic form)
     fn parse_impl_decl(&mut self) -> Result<TopDecl, ParseError> {
         let start = self.advance().span; // consume `impl`
         let trait_name = self.parse_ident()?;
-        self.expect_kind(TokenKind::For, "'for'")?;
-        let type_name = self.parse_ident()?;
+        let mut trait_args: Vec<Type> = Vec::new();
+        // D1 (2026-08-08): `impl Num[Int]` — generic args on the trait.
+        if self.peek_kind() == &TokenKind::LBracket {
+            self.advance(); // consume '['
+            while !self.check(|k| matches!(k, TokenKind::RBracket | TokenKind::Eof)) {
+                trait_args.push(self.parse_type()?);
+                if !self.skip(TokenKind::Comma) { break; }
+            }
+            self.expect_kind(TokenKind::RBracket, "']'")?;
+        }
+        let mut type_name = Ident::new("_", start);
+        if self.skip(TokenKind::For) {
+            type_name = self.parse_ident()?;
+        }
         self.expect_kind(TokenKind::LBrace, "'{'")?;
         let mut members = Vec::new();
         while !self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Eof)) {
@@ -628,12 +643,18 @@ impl Parser {
                     TopDecl::Fn(f) => members.push(ImplItem::Fn(f)),
                     _ => return Err(self.error("expected function declaration in impl block")),
                 }
+            } else if self.check(|k| matches!(k, TokenKind::Const)) {
+                let const_decl = self.parse_const_decl(false)?;
+                match const_decl {
+                    TopDecl::Const(c) => members.push(ImplItem::Const(c)),
+                    _ => return Err(self.error("expected const declaration in impl block")),
+                }
             } else {
                 return Err(self.error("expected 'fn' in impl block"));
             }
         }
         self.expect_kind(TokenKind::RBrace, "'}'")?;
-        Ok(TopDecl::Impl(ImplDecl { trait_name, type_name, members, span: start }))
+        Ok(TopDecl::Impl(ImplDecl { trait_name, trait_args, type_name, members, span: start }))
     }
 
     /// Parse compiler attributes: #[safety_audit(justification: "...")]
@@ -1842,7 +1863,15 @@ impl Parser {
                 }
                 TokenKind::LParen => {
                     self.advance();
-                    if self.check(|k| matches!(k, TokenKind::RParen)) { self.advance(); let span = expr.span(); expr = Expr::Call(Box::new(expr), Vec::new(), span); }
+                    if self.check(|k| matches!(k, TokenKind::RParen)) {
+                        self.advance(); let span = expr.span();
+                        // D1: `fn[T]()` — merge into the GenericCall if present.
+                        if let Expr::GenericCall(base, types, _, _) = expr {
+                            expr = Expr::GenericCall(base, types, Vec::new(), span);
+                        } else {
+                            expr = Expr::Call(Box::new(expr), Vec::new(), span);
+                        }
+                    }
                     else {
                         let use_named = if let TokenKind::Ident(_) = self.peek_kind() { let saved = self.pos; self.advance(); let is_named = self.peek_kind() == &TokenKind::Colon && self.peek_ahead(1) != Some(&TokenKind::Colon); self.pos = saved; is_named } else { false };
                         if use_named {
@@ -1851,7 +1880,16 @@ impl Parser {
                             self.expect_kind(TokenKind::RParen, "')'")?; let span = expr.span();
                             let type_name = match &expr { Expr::Ident(id) => id.clone(), _ => Ident::new("_", span) };
                             expr = Expr::Struct(type_name, fields, None, span);
-                        } else { let args = self.parse_arg_list()?; self.expect_kind(TokenKind::RParen, "')'")?; let span = expr.span(); expr = Expr::Call(Box::new(expr), args, span); }
+                        } else {
+                            let args = self.parse_arg_list()?; self.expect_kind(TokenKind::RParen, "')'")?; let span = expr.span();
+                            // D1: `fn[T](args)` — the bracket arm wrapped the base
+                            // in GenericCall with empty args; fill the args in.
+                            if let Expr::GenericCall(base, types, _, _) = expr {
+                                expr = Expr::GenericCall(base, types, args, span);
+                            } else {
+                                expr = Expr::Call(Box::new(expr), args, span);
+                            }
+                        }
                     }
                 }
                 TokenKind::LBracket => {
@@ -1865,16 +1903,27 @@ impl Parser {
                         && matches!(self.peek_kind(), TokenKind::Ident(s) if s.chars().next().map_or(false, |c| c.is_uppercase()))
                     {
                         let saved = self.pos;
-                        let mut depth = 1;
-                        while depth > 0 && !self.peek().is_eof() {
-                            match self.peek_kind() {
-                                TokenKind::LBracket => { depth += 1; self.advance(); }
-                                TokenKind::RBracket => { depth -= 1; self.advance(); }
-                                _ => { self.advance(); }
+                        // NOTE: `[` was already consumed by the LBracket arm's
+                        // self.advance() above — do NOT advance again here.
+                        // D1: capture the explicit generic type args instead of
+                        // discarding them — `add2[Float32](...)` must preserve
+                        // Float32 so generic monomorphisation resolves the
+                        // correct concrete type (was silently resolving to Int).
+                        let mut types: Vec<Type> = Vec::new();
+                        if !self.check(|k| matches!(k, TokenKind::RBracket)) {
+                            loop {
+                                types.push(self.parse_type()?);
+                                if !self.skip(TokenKind::Comma) { break; }
                             }
                         }
+                        self.expect_kind(TokenKind::RBracket, "']'")?;
                         if self.peek_kind() == &TokenKind::LParen {
-                            continue; // generic type args discarded; `(` handles the call
+                            // Wrap the callee in a GenericCall so codegen sees
+                            // the explicit type args: GenericCall(base, types,
+                            // args) — the `(` below will fill the args.
+                            let span = expr.span();
+                            expr = Expr::GenericCall(Box::new(expr), types, Vec::new(), span);
+                            continue;
                         }
                         self.pos = saved;
                     }

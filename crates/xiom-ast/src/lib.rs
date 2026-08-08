@@ -640,6 +640,9 @@ pub enum TopDecl {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImplDecl {
     pub trait_name: Ident,
+    /// Generic args applied to the trait (e.g. `impl Num[Int]` → [Int]).
+    /// Empty for the `impl Trait for Type` form.
+    pub trait_args: Vec<Type>,
     pub type_name: Ident,
     pub members: Vec<ImplItem>,
     pub span: Span,
@@ -663,6 +666,19 @@ pub struct Program {
     pub span: Span,
 }
 
+/// D1 (2026-08-08): extract the type name from a Type AST node
+/// (e.g. `impl Num[Int]` → "Int"). Free function so nested helpers can use it.
+pub fn type_name_from_ast(ty: &Type) -> String {
+    match ty {
+        Type::Named(id, _) => id.name.clone(),
+        Type::Ref(inner) | Type::MutRef(inner) | Type::Ptr(inner) => type_name_from_ast(inner),
+        Type::Vec(inner) => format!("Vec[{}]", type_name_from_ast(inner)),
+        Type::Option(inner) => format!("Option[{}]", type_name_from_ast(inner)),
+        Type::Slice(inner) => format!("Slice[{}]", type_name_from_ast(inner)),
+        _ => format!("{ty:?}"),
+    }
+}
+
 impl Program {
     pub fn new(items: Vec<TopDecl>, span: Span) -> Self {
         Self { items, source_files: Vec::new(), root_dir: None, span }
@@ -671,7 +687,7 @@ impl Program {
     /// M20: Expand impl blocks into freestanding functions.
     /// `impl Trait for Type { fn m() { body } }` becomes `fn Type.m() { body }`.
     /// M22: Recurse into modules so impl blocks inside `module { ... }` are expanded.
-    pub fn expand_impl_blocks(&self) -> Program {
+pub fn expand_impl_blocks(&self) -> Program {
         // Helper: rewrite bare method calls (e.g. `value()`) to `self.value()`
         // in interface default bodies. This ensures the expanded inherent method
         // uses proper self.method() syntax for calls to other interface methods.
@@ -885,7 +901,21 @@ impl Program {
             for item in items {
                 match item {
                     TopDecl::Impl(impl_decl) => {
-                        let type_name = impl_decl.type_name.name.clone();
+                        // D1: `impl Num[Int]` (no `for Type`) — the implementing
+                        // type is the first trait arg. `impl Trait for Type` uses
+                        // type_name directly.
+                        let type_name = if impl_decl.type_name.name != "_" {
+                            impl_decl.type_name.name.clone()
+                        } else if let Some(first_arg) = impl_decl.trait_args.first() {
+                            type_name_from_ast(first_arg)
+                        } else {
+                            impl_decl.type_name.name.clone()
+                        };
+                        // D1: `impl Trait for Type` methods get a receiver
+                        // (`fn Type.method(self, ...)`); `impl Trait[Args]`
+                        // methods are STATIC (no self — the arg IS the impl
+                        // type). Only set the receiver for the `for` form.
+                        let has_for_type = impl_decl.type_name.name != "_";
                         let iface_name = impl_decl.trait_name.name.clone();
                         seen_impls.insert((type_name.clone(), iface_name.clone()));
                         let mut provided_methods: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -893,7 +923,9 @@ impl Program {
                             if let ImplItem::Fn(fn_decl) = member {
                                 let mut new_fn = fn_decl.clone();
                                 new_fn.name = Ident { name: format!("{}.{}", type_name, fn_decl.name.name), span: fn_decl.name.span };
-                                new_fn.receiver = Some(Ident { name: type_name.clone(), span: impl_decl.type_name.span });
+                                if has_for_type {
+                                    new_fn.receiver = Some(Ident { name: type_name.clone(), span: impl_decl.type_name.span });
+                                }
                                 provided_methods.insert(fn_decl.name.name.clone());
                                 out.push(TopDecl::Fn(new_fn));
                             }
@@ -904,7 +936,9 @@ impl Program {
                                 if provided_methods.contains(method_name) { continue; }
                                 let mut new_fn = default_fd.clone();
                                 new_fn.name = Ident { name: format!("{}.{}", type_name, method_name), span: impl_decl.span };
-                                new_fn.receiver = Some(Ident { name: type_name.clone(), span: impl_decl.type_name.span });
+                                if has_for_type {
+                                    new_fn.receiver = Some(Ident { name: type_name.clone(), span: impl_decl.type_name.span });
+                                }
                                 out.push(TopDecl::Fn(new_fn));
                             }
                         }

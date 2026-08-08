@@ -1920,7 +1920,11 @@ impl IrEmitter {
                 }
                 Ok(("0".to_string(), LLVM_I64.to_string()))
             }
-            Expr::GenericCall(func, _ty, args, _) => self.compile_call(func, args),
+            Expr::GenericCall(func, types, args, _) => {
+                // D1: pass explicit type args so generic monomorphisation maps
+                // T→concrete correctly (e.g. `add2[Float32]` → Float32).
+                self.compile_call_with_types(func, args, Some(types))
+            }
             Expr::Call(func, args, _) => self.compile_call(func, args),
                         Expr::Index(container, index, _) => {
                 // Index into a Vec (builtin {i8*, i64, i64}) or a Str (i8*).
@@ -3587,7 +3591,21 @@ impl IrEmitter {
                 self.receiver_is_instance(base) || self.infer_struct_type_name(receiver).is_some()
             }
             // Calls / indexing / parens evaluate to values.
-            Expr::Call(..) | Expr::GenericCall(..) | Expr::Index(..) | Expr::Paren(..) => true,
+            Expr::Call(..) | Expr::GenericCall(..) | Expr::Paren(..) => true,
+            // D1: `Trait[Arg].method(...)` — an Index whose base is a known
+            // interface name is a STATIC impl-dispatch receiver (e.g.
+            // `Num[Int].add(a, b)`), NOT an instance. The codegen resolves the
+            // call to the impl's `Type.method` freestanding fn directly.
+            Expr::Index(base, _, _) => {
+                if let Expr::Ident(id) = base.as_ref() {
+                    if self.types.interfaces.contains_key(&id.name)
+                        || self.types.interfaces.keys().into_iter().any(|k| k.ends_with(&format!(".{}", id.name)))
+                    {
+                        return false;
+                    }
+                }
+                true
+            }
             // Any other receiver form evaluates to a value ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â preserve the prior
             // "complex receiver is an instance" behavior (only the Ident type-name
             // and Field module-path shapes above are treated as non-instances).

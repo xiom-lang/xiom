@@ -347,6 +347,8 @@ impl IrEmitter {
         self.emitln("declare i32 @strcmp(i8*, i8*)");
         // Runtime string concatenation — used for Str + Str lowering.
         self.emitln("declare i8* @xiom_str_concat(i8*, i8*)");
+        // D1 hardening: NUL-terminating copy for Str::from_utf8(Vec[UInt8]).
+        self.emitln("declare i8* @xiom_str_from_vec(i8*, i64)");
         // M12/P1: Runtime string slice/starts_with/ends_with — scripting ergonomics.
         self.emitln("declare i8* @xiom_str_slice(i8*, i64, i64)");
         self.emitln("declare i1 @xiom_str_starts_with(i8*, i8*)");
@@ -526,6 +528,10 @@ impl IrEmitter {
                     && name != "xiom_channel_try_recv"
                     && name != "xiom_threadpool_init"
                     && name != "xiom_threadpool_spawn"
+                    // D1 hardening: provided by xiom_runtime.c (Str::from_utf8
+                    // NUL-termination helper). Must not be auto-stubbed — the
+                    // runtime defines it, so a stub would duplicate the symbol.
+                    && name != "xiom_str_from_vec"
             })
             .collect();
         if missing.is_empty() {

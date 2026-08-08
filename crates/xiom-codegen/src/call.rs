@@ -10,6 +10,16 @@ use super::IrEmitter;
 
 impl IrEmitter {
     pub(crate) fn compile_call(&mut self, func: &Expr, args: &[Expr]) -> Result<(String, String), String> {
+        self.compile_call_with_types(func, args, None)
+    }
+
+    /// D1: compile_call with explicit generic type args (from `fn[Type](args)`).
+    pub(crate) fn compile_call_with_types(
+        &mut self,
+        func: &Expr,
+        args: &[Expr],
+        explicit_types: Option<&[xiom_ast::Type]>,
+    ) -> Result<(String, String), String> {
                 // Determine function name and receiver for both direct and method call forms.
                 // A callee shaped `base[Type]` (Expr::Index) is an explicit generic
                 // instantiation whose type arg the parser preserved as an index;
@@ -42,10 +52,25 @@ impl IrEmitter {
                         _ => false, // integer literal, binary expr, etc. — always a value index
                     }
                 };
+                // D1: capture explicit generic type args from `fn[TypeArgs](...)`
+                // (GenericCall) so the generic-call path can map T→concrete
+                // (e.g. `add2[Float32]` must monomorphise as Float32, not Int).
+                let explicit_generic_types: Vec<String> = match explicit_types {
+                    Some(types) => types.iter().map(|t| Self::type_from_ast(t)).collect(),
+                    None => match func {
+                        Expr::GenericCall(_, types, _, _) => types.iter()
+                            .map(|t| Self::type_from_ast(t))
+                            .collect(),
+                        _ => Vec::new(),
+                    },
+                };
 let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     Expr::Index(base, idx, _) if idx_is_type(&idx) => {
                         (base.as_ref(), Some(idx.as_ref()))
                     }
+                    // D1: `fn[TypeArgs](args)` — GenericCall with explicit type
+                    // args (captured in explicit_generic_types above).
+                    Expr::GenericCall(base, _, _, _) => (base.as_ref(), None),
                     other => (other, None),
                 };
                 let (fn_name_opt, receiver_expr) = match func_unwrapped {
@@ -155,6 +180,22 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         return Ok(("0".to_string(), LLVM_I64.to_string()));
                     }
                 };
+                // D1 (2026-08-08): interface impl dispatch —
+                // `Trait[Arg].method(args)` resolves to the impl's freestanding
+                // `Type.method` fn (produced by expand_impl_blocks). Intercept
+                // BEFORE generic dispatch so two impls of the same trait method
+                // (e.g. Num[Int].add and Num[Float64].add) don't collide.
+                if let Some(recv) = receiver_expr {
+                    if let Some(impl_type) = self.resolve_impl_receiver(recv) {
+                        let impl_fn = format!("{}.{}", impl_type, fn_name);
+                        if self.types.functions.contains_key(&impl_fn)
+                            || self.mono.emitted_fns.contains(&impl_fn)
+                            || self.mono.generic_fn_decls.iter().any(|(k, _)| k == &impl_fn)
+                        {
+                            return self.compile_impl_method_call(&impl_fn, args);
+                        }
+                    }
+                }
                 // Enum variant constructor: TypeName.Variant(args)
                 // e.g. `JsonValue.Integer(42)` or `SqliteValue.Text("hello")`
                 if let Some(recv) = receiver_expr {
@@ -1443,6 +1484,28 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     && !args.is_empty()
                 {
                     let (arg_val, arg_ty) = self.compile_expr(&args[0])?;
+                    // D1 hardening: Vec[UInt8] data is NOT NUL-terminated —
+                    // copy to a terminated buffer (was returning the raw data
+                    // pointer, causing reads past the buffer into adjacent
+                    // memory: intermittent garbage suffixes in decoded strings).
+                    if matches!(fn_name.as_str(), "from_utf8" | "from_bytes")
+                        && arg_ty.starts_with("%struct.")
+                    {
+                        let vec_tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {vec_tmp} = alloca {arg_ty}, align 16"));
+                        self.emitln(&format!("  store {arg_ty} {arg_val}, {arg_ty}* {vec_tmp}, align 16"));
+                        let data_gep = self.fresh_tmp();
+                        self.emitln(&format!("  {data_gep} = getelementptr {arg_ty}, {arg_ty}* {vec_tmp}, i32 0, i32 0"));
+                        let data_ptr = self.fresh_tmp();
+                        self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
+                        let len_gep = self.fresh_tmp();
+                        self.emitln(&format!("  {len_gep} = getelementptr {arg_ty}, {arg_ty}* {vec_tmp}, i32 0, i32 1"));
+                        let len_val = self.fresh_tmp();
+                        self.emitln(&format!("  {len_val} = load i64, i64* {len_gep}"));
+                        let str_tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {str_tmp} = call i8* @xiom_str_from_vec(i8* {data_ptr}, i64 {len_val})"));
+                        return Ok((str_tmp, LLVM_STR_PTR.to_string()));
+                    }
                     let as_ptr = self.coerce_value(&arg_val, &arg_ty, "i8*");
                     return Ok((as_ptr, LLVM_STR_PTR.to_string()));
                 }
@@ -2124,11 +2187,39 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     // Infer concrete types from argument types
                     let mut concrete_types: Vec<String> = Vec::new();
                     let mut const_values: HashMap<String, i64> = HashMap::new();
+                    // D1: explicit type args from `fn[TypeArgs](...)` — captured
+                    // in explicit_generic_types above. Map each generic param to
+                    // its explicit type directly so `add2[Float32]` monomorphises
+                    // as Float32, not Int.
+                    let explicit_types: Vec<String> = explicit_generic_types.clone();
                     // Find the generic function declaration
                     if let Some((_, fd)) = self.mono.generic_fn_decls.iter().find(|(k, _)| k == &fn_key)
                         .or_else(|| self.mono.generic_fn_decls.iter().find(|(k_2, _)| k_2.ends_with(&format!(".{}", fn_key)))) {
                         let fd = fd.clone();
                         for gp in &fd.generics {
+                            // D1: explicit type args win over inference.
+                            // Sources: `fn[T](...)` GenericCall types, or the
+                            // Index-form type_arg (`fn[T]` parsed as index).
+                            let explicit_name: Option<String> = if let Some(idx) = fd.generics.iter().position(|g| g.name.name == gp.name.name) {
+                                if idx < explicit_types.len() && !explicit_types[idx].is_empty() {
+                                    Some(explicit_types[idx].clone())
+                                } else if let Some(ta) = type_arg {
+                                    match ta {
+                                        Expr::Ident(id) if fd.generics.len() == 1 => Some(id.name.clone()),
+                                        Expr::Tuple(elems, _) => elems.get(idx)
+                                            .and_then(|e| if let Expr::Ident(id) = e { Some(id.name.clone()) } else { None }),
+                                        _ => None,
+                                    }
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            };
+                            if let Some(explicit) = explicit_name {
+                                concrete_types.push(explicit);
+                                continue;
+                            }
                             // Const-generic params: extract the integer value from the
                             // explicit type arg (e.g. `len[Int, 5](arr)`).
                             if gp.is_const {
@@ -2236,6 +2327,11 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         Expr::Bool(..) => "Bool".to_string(),
                                         Expr::Str(..) => "Str".to_string(),
                                         Expr::Char(..) => "Char".to_string(),
+                                        // D1: `X as Float32` — use the CAST TARGET type
+                                        // (the value type, not the source). Fixes
+                                        // generic Float32 monomorphisation colliding
+                                        // with Int (wrong call target, garbage).
+                                        Expr::As(_, ty, _) => Self::type_from_ast(ty),
                                         Expr::Ident(id) => {
                                             if let Some(concrete) = self.mono.param_concrete_types.get(&id.name) {
                                                 concrete.clone()
@@ -2375,6 +2471,46 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let generic_ret = self.types.functions.get(&fn_key)
                                 .map(|(_, rt)| rt.clone())
                                 .unwrap_or_else(|| LLVM_I64.to_string());
+                            // D1 (2026-08-08): the generic decl's REGISTERED return
+                            // type may be the un-substituted default (i64). If the
+                            // monomorphised return type is known (via the generic
+                            // decl's declared return type substituted with the
+                            // concrete type map), use THAT — fixes generic
+                            // Float64/float ops returning garbage (the call was
+                            // emitted as i64 while the fn returns double).
+                            let generic_ret = if let Some((_, fd)) = generic_fd {
+                                if let Some(ret_ty) = fd.return_type.as_ref() {
+                                    // D1: substitute T with the CONCRETE type from
+                                    // the call's inferred type args (param_concrete_types
+                                    // is empty at call time). Fixes generic Float64
+                                    // ops: the call was emitted as i64 while the fn
+                                    // returns double. ONLY for scalar results —
+                                    // struct results (Result/Option/Vec payloads)
+                                    // have their own monomorphisation path.
+                                    let mut subst_map: std::collections::HashMap<String, String> =
+                                        self.mono.param_concrete_types.clone();
+                                    for (i, gp) in fd.generics.iter().enumerate() {
+                                        if let Some(c) = concrete_types.get(i) {
+                                            subst_map.insert(gp.name.name.clone(), c.clone());
+                                        }
+                                    }
+                                    let subst = Self::substitute_type(ret_ty, ret_ty, &subst_map);
+                                    let name = Self::type_from_ast(&subst);
+                                    let llvm = self.llvm_type_for(&name).unwrap_or_else(|_| generic_ret.clone());
+                                    let is_struct = name.starts_with("Result") || name.starts_with("Option")
+                                        || name.starts_with("Vec") || name.starts_with("Map") || name.starts_with("Set")
+                                        || name.starts_with("Slice");
+                                    if !is_struct && (llvm != "i64" || generic_ret == "i64") {
+                                        llvm
+                                    } else {
+                                        generic_ret
+                                    }
+                                } else {
+                                    generic_ret.clone()
+                                }
+                            } else {
+                                generic_ret.clone()
+                            };
                             (generic_ret, inferred_types)
                         };
                         // Include receiver argument only if it's an actual struct instance
@@ -2823,4 +2959,90 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     }
                 }
             }
+
+    /// D1 (2026-08-08): resolve a `Trait[Arg]` (or `Trait`) receiver to the
+    /// implementing type registered by `impl Trait[Arg] { ... }`.
+    /// Receiver shapes: Index(Ident(Trait), arg) and bare Ident(Trait).
+    fn resolve_impl_receiver(&self, receiver: &Expr) -> Option<String> {
+        let (trait_name, arg_name): (String, Option<String>) = match receiver {
+            Expr::Index(base, idx, _) => {
+                if let Expr::Ident(id) = base.as_ref() {
+                    let arg = match idx.as_ref() {
+                        Expr::Ident(i) => Some(i.name.clone()),
+                        _ => None,
+                    };
+                    (id.name.clone(), arg)
+                } else {
+                    return None;
+                }
+            }
+            Expr::Ident(id) => (id.name.clone(), None),
+            _ => return None,
+        };
+        // `Trait[Arg]` → the impl fn is `Arg.method` (expand_impl_blocks names
+        // it from the first trait arg when the `for Type` form is absent).
+        if let Some(arg) = arg_name {
+            let is_interface = self.types.interfaces.contains_key(&trait_name)
+                || self.types.interfaces.keys().into_iter().any(|k| k.ends_with(&format!(".{}", trait_name)));
+            if is_interface {
+                return Some(arg);
+            }
+        }
+        None
+    }
+
+    /// D1: emit a direct call to an impl method fn (`Type.method`), passing
+    /// the args in order (no receiver — impl methods are static).
+    fn compile_impl_method_call(&mut self, impl_fn: &str, args: &[Expr]) -> Result<(String, String), String> {
+        // Generic impl method: monomorphise with argument-inferred types.
+        let is_generic = self.mono.generic_fn_decls.iter().any(|(k, _)| k == impl_fn);
+        if is_generic {
+            let concrete_types: Vec<String> = args.iter()
+                .filter_map(|a| {
+                    let ty = self.infer_llvm_type(a);
+                    let xiom = Self::xiom_type_name_from_llvm(&ty);
+                    Some(xiom)
+                })
+                .collect();
+            let specialized = self.monomorphised_fn_name(impl_fn, &concrete_types);
+            let already = self.mono.generic_instantiations.iter()
+                .any(|(f, cts)| f == impl_fn && cts == &concrete_types);
+            if !already {
+                self.mono.generic_instantiations.push((impl_fn.to_string(), concrete_types.clone()));
+            }
+            let compiled_args: Vec<(String, String)> = args.iter()
+                .map(|a| self.compile_expr(a))
+                .collect::<Result<Vec<_>, _>>()?;
+            let args_str = compiled_args.iter()
+                .map(|(v, t)| format!("{t} {v}"))
+                .collect::<Vec<_>>().join(", ");
+            let ret_ty = self.types.functions.get(&specialized.to_string())
+                .map(|(_, rt)| rt.clone())
+                .unwrap_or_else(|| LLVM_I64.to_string());
+            if ret_ty == "void" {
+                self.emitln(&format!("  call void @{specialized}({args_str})"));
+                return Ok((String::new(), "void".to_string()));
+            }
+            let tmp = self.fresh_tmp();
+            self.emitln(&format!("  {tmp} = call {ret_ty} @{specialized}({args_str})"));
+            return Ok((tmp, ret_ty));
+        }
+        // Non-generic impl method: direct call.
+        let compiled_args: Vec<(String, String)> = args.iter()
+            .map(|a| self.compile_expr(a))
+            .collect::<Result<Vec<_>, _>>()?;
+        let args_str = compiled_args.iter()
+            .map(|(v, t)| format!("{t} {v}"))
+            .collect::<Vec<_>>().join(", ");
+        let ret_ty = self.types.functions.get(&impl_fn.to_string())
+            .map(|(_, rt)| rt.clone())
+            .unwrap_or_else(|| LLVM_I64.to_string());
+        if ret_ty == "void" {
+            self.emitln(&format!("  call void @{impl_fn}({args_str})"));
+            return Ok((String::new(), "void".to_string()));
+        }
+        let tmp = self.fresh_tmp();
+        self.emitln(&format!("  {tmp} = call {ret_ty} @{impl_fn}({args_str})"));
+        Ok((tmp, ret_ty))
+    }
 }

@@ -449,12 +449,16 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
 
     // Merge programs
     let program = merge_programs(all_programs);
-    // M20: Expand impl blocks into freestanding functions before type checking
-    let program = program.expand_impl_blocks();
 
     // Stage 3: Type Check
     let mut checker = Checker::new();
     checker.set_strict_exhaustive(config.strict_exhaustive);
+    // D1: register `impl Trait[Args]` blocks from the UNEXPANDED program so
+    // `Trait[Args].method()` static calls can dispatch. Must happen before
+    // expand_impl_blocks erases the impl declarations.
+    checker.register_impls_from_program(&program);
+    // M20: Expand impl blocks into freestanding functions before type checking
+    let program = program.expand_impl_blocks();
     if let Some(primary) = effective_sources.first() {
         let file_path = Path::new(primary);
         // Add the file's parent directory (e.g. examples/)
@@ -683,11 +687,13 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
 
     // Merge all parsed programs into one
     let mut program = merge_programs(all_programs);
+    // D1: register `impl Trait[Args]` blocks before expansion erases them.
+    let mut checker = Checker::new();
+    checker.register_impls_from_program(&program);
     // M20: Expand impl blocks
     program = program.expand_impl_blocks();
 
     // Stage 3: Type Check
-    let mut checker = Checker::new();
     checker.set_strict_exhaustive(config.strict_exhaustive);
     if let Some(primary) = effective_sources.first() {
         let file_path = Path::new(primary);

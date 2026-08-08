@@ -64,6 +64,11 @@ pub struct Checker {
     /// Interface declarations: interface name → [(method_name, param_type_names)]
     /// Each entry also stores the return type name for dispatch resolution.
     interfaces: HashMap<String, Vec<(String, Vec<String>, Option<String>)>>,
+    /// D1 (2026-08-08): interface IMPL registrations.
+    /// Key: "TraitName[arg1,arg2]" (or bare "TraitName" for zero args).
+    /// Value: method name → (implementing type name, param types, return type).
+    /// Enables `impl Num[Int] { ... }` dispatch at monomorphisation.
+    impls: HashMap<String, HashMap<String, (String, Vec<String>, Option<String>)>>,
     /// Visibility: name → is_pub for top-level items
     visibility: HashMap<String, bool>,
     /// Resolved imported names from use declarations
@@ -127,6 +132,7 @@ impl Checker {
             modules: HashMap::new(),
             methods: HashMap::new(),
             interfaces: HashMap::new(),
+            impls: HashMap::new(),
             visibility: HashMap::new(),
             imported_items: HashMap::new(),
             enum_variants: HashMap::new(),
@@ -819,6 +825,7 @@ impl Checker {
             self.register_type_decl(item);
             self.register_fn_signature(item);
             self.register_interface_decl(item);
+            self.register_impl_decl(item);
             self.register_global_const(item);
         }
         // Build variant field maps from all enum declarations
@@ -1035,6 +1042,65 @@ impl Checker {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// D1 (2026-08-08): register all `impl Trait[Args] { ... }` blocks from an
+    /// UNEXPANDED program. The driver expands impl blocks before checking, so
+    /// this must be called with the pre-expansion program (merged, before
+    /// `expand_impl_blocks`).
+    pub fn register_impls_from_program(&mut self, program: &Program) {
+        for item in &program.items {
+            self.register_impl_decl(item);
+        }
+    }
+
+    /// D1 (2026-08-08): register `impl Trait[Args] { ... }` blocks so static
+    /// calls `Trait[Args].method(...)` can dispatch to the implementing type.
+    /// expand_impl_blocks already materializes `Type.method` freestanding fns;
+    /// this map connects the trait instantiation to that type.
+    fn register_impl_decl(&mut self, item: &TopDecl) {
+        match item {
+            TopDecl::Impl(impl_decl) => self.register_impl_inner(impl_decl),
+            TopDecl::Module(md) => {
+                for inner in &md.items {
+                    self.register_impl_decl(inner);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn register_impl_inner(&mut self, impl_decl: &ImplDecl) {
+        if std::env::var("XIOM_DEBUG_IMPL").is_ok() {
+            eprintln!("[impl-debug] registering impl for trait={} args={:?} type={}", impl_decl.trait_name.name, impl_decl.trait_args, impl_decl.type_name.name);
+        }
+        // The implementing type: `impl Trait for Type` uses type_name; the
+        // generic-instantiation form `impl Trait[Args]` uses the trait args.
+        let impl_ty = if impl_decl.type_name.name != "_" {
+            impl_decl.type_name.name.clone()
+        } else if let Some(first_arg) = impl_decl.trait_args.first() {
+            CheckedType::from_ast_type(first_arg).name()
+        } else {
+            return;
+        };
+        let arg_names: Vec<String> = impl_decl.trait_args.iter()
+            .map(|t| CheckedType::from_ast_type(t).name())
+            .collect();
+        let key = if arg_names.is_empty() {
+            impl_decl.trait_name.name.clone()
+        } else {
+            format!("{}[{}]", impl_decl.trait_name.name, arg_names.join(","))
+        };
+        let methods = self.impls.entry(key).or_default();
+        for member in &impl_decl.members {
+            if let ImplItem::Fn(fd) = member {
+                let param_types: Vec<String> = fd.params.iter()
+                    .map(|p| CheckedType::from_ast_type(&p.ty).name())
+                    .collect();
+                let ret = fd.return_type.as_ref().map(|t| CheckedType::from_ast_type(t).name());
+                methods.insert(fd.name.name.clone(), (impl_ty.clone(), param_types, ret));
+            }
         }
     }
 
@@ -2295,6 +2361,34 @@ impl Checker {
 
     /// Try to resolve a module-qualified call: `module.func(args)` or `module.submodule.func(args)`
     fn check_module_call(&mut self, obj: &Expr, method: &Ident, args: &[Expr], span: Span) -> Option<CheckedType> {
+        // D1 (2026-08-08): interface impl dispatch — `Trait[Args].method(args)`
+        // resolves to the registered impl's `Type.method` freestanding fn
+        // (produced by expand_impl_blocks). Handles both `Num[Int].add(...)`
+        // and `Num.add(...)` (zero-arg generic interface).
+        if let Some(impl_ty) = self.resolve_impl_method(obj, method) {
+            // Check args against the impl method's signature.
+            let sig_key = format!("{}.{}", impl_ty, method.name);
+            let sig = self.functions.get(&sig_key).cloned();
+            if let Some(sig) = sig {
+                for (i, arg) in args.iter().enumerate() {
+                    let arg_ty = self.check_expr(arg);
+                    if i < sig.params.len() {
+                        let expected = &sig.params[i].1;
+                        if !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
+                            self.error(
+                                format!("argument {} type mismatch: expected {}, found {}",
+                                    i + 1, expected.name(), arg_ty.name()),
+                                span,
+                            );
+                        }
+                    }
+                }
+                return Some(sig.return_type.clone().unwrap_or(CheckedType::Unit));
+            }
+            for arg in args { let _ = self.check_expr(arg); }
+            return Some(CheckedType::Named("_".into()));
+        }
+
         // Build the module path from the expression chain
         let mut reversed: Vec<String> = Vec::new();
         let mut current = obj;
@@ -2343,6 +2437,60 @@ impl Checker {
 
     /// Resolve a module path to a function signature, checking pub visibility.
     /// Returns None if the path doesn't resolve to a pub function.
+    /// D1 (2026-08-08): resolve `Trait[Args].method` (or `Trait.method`) to the
+    /// implementing type registered via `impl Trait[Args] { ... }`.
+    /// Returns the implementing type name (e.g. "Int" for `Num[Int]`).
+    /// Receiver shapes handled:
+    ///   GenericCall(Ident(Trait), [Args], _) → trait with type args
+    ///   Index(Ident(Trait), arg_expr)         → `Trait[Arg]` parsed as indexing
+    ///   Ident(Trait)                          → bare trait name
+    fn resolve_impl_method(&self, obj: &Expr, method: &Ident) -> Option<String> {
+        // Extract (trait_name, args) from the receiver.
+        let (trait_name, arg_names): (String, Vec<String>) = match obj {
+            Expr::GenericCall(base, types, _, _) => {
+                if let Expr::Ident(id) = base.as_ref() {
+                    let args: Vec<String> = types.iter()
+                        .map(|t| CheckedType::from_ast_type(t).name())
+                        .collect();
+                    (id.name.clone(), args)
+                } else {
+                    return None;
+                }
+            }
+            Expr::Index(base, idx, _) => {
+                if let Expr::Ident(id) = base.as_ref() {
+                    // `Num[Int]` — the index expr is a type name as an Ident.
+                    let arg = match idx.as_ref() {
+                        Expr::Ident(i) => i.name.clone(),
+                        _ => return None,
+                    };
+                    (id.name.clone(), vec![arg])
+                } else {
+                    return None;
+                }
+            }
+            Expr::Ident(id) => (id.name.clone(), Vec::new()),
+            _ => return None,
+        };
+        // Candidate keys: "Trait[Int]" then bare "Trait".
+        let mut keys: Vec<String> = Vec::new();
+        if !arg_names.is_empty() {
+            keys.push(format!("{}[{}]", trait_name, arg_names.join(",")));
+        }
+        keys.push(trait_name.clone());
+        for key in &keys {
+            if let Some(impl_methods) = self.impls.get(key) {
+                if let Some((impl_ty, _, _)) = impl_methods.get(&method.name) {
+                    return Some(impl_ty.clone());
+                }
+            }
+        }
+        if std::env::var("XIOM_DEBUG_IMPL").is_ok() {
+            eprintln!("[impl-debug] receiver keys={:?} method={} impls_keys={:?}", keys, method.name, self.impls.keys().collect::<Vec<_>>());
+        }
+        None
+    }
+
     fn resolve_module_function(&self, path: &[String]) -> Option<&FnSig> {
         let module_name = &path[0];
         // Try modules first, then imported_items (short names from `use`)
@@ -4847,7 +4995,13 @@ mod tests {
         let tokens = Lexer::new(source).tokenize();
         let program = Parser::new(tokens).parse_program();
         match program {
-            Ok(p) => Checker::new().check_program(&p),
+            Ok(p) => {
+                let mut checker = Checker::new();
+                // D1: mirror the driver — register impls from the UNEXPANDED
+                // program before check_program expands them away.
+                checker.register_impls_from_program(&p);
+                checker.check_program(&p)
+            }
             Err(e) => Err(vec![CheckError {
                 message: format!("parse error: {e}"),
                 span: e.span,
@@ -6202,6 +6356,66 @@ fn deep(p: *Int) -> Int {
 }";
         let result = check(src);
         assert!(result.is_ok(), "nested unsafe must pass: {:?}", result.err());
+    }
+
+    // D1 (2026-08-08): interface impl dispatch — `impl Trait[Args]` must
+    // register and `Trait[Args].method(...)` static calls must resolve.
+    #[test] fn test_d1_impl_dispatch_registers() {
+        let src = "\
+interface Num[T] {
+  fn add(a: T, b: T) -> T;
+}
+
+impl Num[Int] {
+  fn add(a: Int, b: Int) -> Int { return a + b; }
+}
+
+fn main() -> Int {
+  var r = Num[Int].add(20, 22);
+  if r == 42 { return 0; }
+  return 1;
+}";
+        let result = check(src);
+        assert!(result.is_ok(), "impl dispatch must type-check: {:?}", result.err());
+    }
+
+    #[test] fn test_d1_impl_dispatch_multi_type() {
+        let src = "\
+interface Num[T] {
+  fn add(a: T, b: T) -> T;
+}
+
+impl Num[Int] {
+  fn add(a: Int, b: Int) -> Int { return a + b; }
+}
+
+impl Num[Float64] {
+  fn add(a: Float64, b: Float64) -> Float64 { return a + b; }
+}
+
+fn main() -> Int {
+  var i = Num[Int].add(1, 2);
+  var f = Num[Float64].add(1.5, 2.5);
+  return 0;
+}";
+        let result = check(src);
+        assert!(result.is_ok(), "multi-type impl dispatch must type-check: {:?}", result.err());
+    }
+
+    // D1: generic explicit type args — `fn[Float32](...)` must keep the
+    // concrete type through parsing (regression: was discarded → resolved Int).
+    #[test] fn test_d1_generic_explicit_type_args_parse() {
+        let src = "\
+fn id[T](a: T) -> T { return a; }
+
+fn main() -> Int {
+  var f = id[Float32](1.5 as Float32);
+  var e: Float32 = 1.5 as Float32;
+  if f == e { return 0; }
+  return 1;
+}";
+        let result = check(src);
+        assert!(result.is_ok(), "generic explicit type args must type-check: {:?}", result.err());
     }
 
     // Complex boolean expressions
