@@ -77,9 +77,9 @@ impl TypeArena {
 /// - [`CheckedType::ImplTrait`] — opaque existential return type
 pub enum CheckedType {
     Bool,
-    Int, Int8, Int16, Int32, Int64,
-    UInt, UInt8, UInt16, UInt32, UInt64,
-    Float32, Float64,
+    Int, Int8, Int16, Int32, Int64, Int128,
+    UInt, UInt8, UInt16, UInt32, UInt64, UInt128,
+    Float32, Float64, Float128,
     Char,
     Str,
     Unit,
@@ -149,13 +149,16 @@ impl CheckedType {
             "Int16" => CheckedType::Int16,
             "Int32" => CheckedType::Int32,
             "Int64" => CheckedType::Int64,
+            "Int128" => CheckedType::Int128,
             "UInt" => CheckedType::UInt,
             "UInt8" => CheckedType::UInt8,
             "UInt16" => CheckedType::UInt16,
             "UInt32" => CheckedType::UInt32,
             "UInt64" => CheckedType::UInt64,
+            "UInt128" => CheckedType::UInt128,
             "Float32" => CheckedType::Float32,
             "Float64" => CheckedType::Float64,
+            "Float128" => CheckedType::Float128,
             "Char" => CheckedType::Char,
             "Str" => CheckedType::Str,
             "()" => CheckedType::Unit,
@@ -167,10 +170,10 @@ impl CheckedType {
     pub fn is_numeric(&self) -> bool {
         matches!(self,
             CheckedType::Int | CheckedType::Int8 | CheckedType::Int16 |
-            CheckedType::Int32 | CheckedType::Int64 |
+            CheckedType::Int32 | CheckedType::Int64 | CheckedType::Int128 |
             CheckedType::UInt | CheckedType::UInt8 | CheckedType::UInt16 |
-            CheckedType::UInt32 | CheckedType::UInt64 |
-            CheckedType::Float32 | CheckedType::Float64
+            CheckedType::UInt32 | CheckedType::UInt64 | CheckedType::UInt128 |
+            CheckedType::Float32 | CheckedType::Float64 | CheckedType::Float128
         )
     }
 
@@ -179,7 +182,7 @@ impl CheckedType {
             CheckedType::Int | CheckedType::Int8 | CheckedType::Int16 |
             CheckedType::Int32 | CheckedType::Int64 |
             CheckedType::UInt | CheckedType::UInt8 | CheckedType::UInt16 |
-            CheckedType::UInt32 | CheckedType::UInt64
+            CheckedType::UInt32 | CheckedType::UInt64 | CheckedType::UInt128
         )
     }
 
@@ -197,13 +200,16 @@ impl CheckedType {
             CheckedType::Int16 => "Int16".into(),
             CheckedType::Int32 => "Int32".into(),
             CheckedType::Int64 => "Int64".into(),
+            CheckedType::Int128 => "Int128".into(),
             CheckedType::UInt => "UInt".into(),
             CheckedType::UInt8 => "UInt8".into(),
             CheckedType::UInt16 => "UInt16".into(),
             CheckedType::UInt32 => "UInt32".into(),
             CheckedType::UInt64 => "UInt64".into(),
+            CheckedType::UInt128 => "UInt128".into(),
             CheckedType::Float32 => "Float32".into(),
             CheckedType::Float64 => "Float64".into(),
+            CheckedType::Float128 => "Float128".into(),
             CheckedType::Char => "Char".into(),
             CheckedType::Str => "Str".into(),
             CheckedType::Unit => "()".into(),
@@ -228,13 +234,16 @@ impl CheckedType {
             CheckedType::Int16 => Type::Named(Ident::new("Int16", Span::new(0, 0)), vec![]),
             CheckedType::Int32 => Type::Named(Ident::new("Int32", Span::new(0, 0)), vec![]),
             CheckedType::Int64 => Type::Named(Ident::new("Int64", Span::new(0, 0)), vec![]),
+            CheckedType::Int128 => Type::Named(Ident::new("Int128", Span::new(0, 0)), vec![]),
             CheckedType::UInt => Type::Named(Ident::new("UInt", Span::new(0, 0)), vec![]),
             CheckedType::UInt8 => Type::Named(Ident::new("UInt8", Span::new(0, 0)), vec![]),
             CheckedType::UInt16 => Type::Named(Ident::new("UInt16", Span::new(0, 0)), vec![]),
             CheckedType::UInt32 => Type::Named(Ident::new("UInt32", Span::new(0, 0)), vec![]),
             CheckedType::UInt64 => Type::Named(Ident::new("UInt64", Span::new(0, 0)), vec![]),
+            CheckedType::UInt128 => Type::Named(Ident::new("UInt128", Span::new(0, 0)), vec![]),
             CheckedType::Float32 => Type::Named(Ident::new("Float32", Span::new(0, 0)), vec![]),
             CheckedType::Float64 => Type::Named(Ident::new("Float64", Span::new(0, 0)), vec![]),
+            CheckedType::Float128 => Type::Named(Ident::new("Float128", Span::new(0, 0)), vec![]),
             CheckedType::Char => Type::Named(Ident::new("Char", Span::new(0, 0)), vec![]),
             CheckedType::Str => Type::Named(Ident::new("Str", Span::new(0, 0)), vec![]),
             CheckedType::Unit => Type::Named(Ident::new("()", Span::new(0, 0)), vec![]),

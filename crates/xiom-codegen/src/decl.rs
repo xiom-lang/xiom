@@ -1031,8 +1031,9 @@ impl IrEmitter {
             let alloca = self.fresh_tmp();
             let param_idx = emitted_param_idx;
             emitted_param_idx += 1;
-            self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
-            self.emitln(&format!("  store {llvm_ty} %param{param_idx}, {llvm_ty}* {alloca}"));
+            // D1: i128/fp128 params need 16-byte aligned allocas (x86-64).
+            self.emitln(&format!("  {alloca} = alloca {llvm_ty}{}", self.alloca_align(&llvm_ty)));
+            self.emitln(&format!("  store {llvm_ty} %param{param_idx}, {llvm_ty}* {alloca}{}", self.store_align(&llvm_ty)));
             self.add_local(&param.name.name, alloca, &llvm_ty);
             self.local.param_locals.insert(param.name.name.clone());
             // Track plain `&T` ref params (address carried as i64) so deref and

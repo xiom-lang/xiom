@@ -207,9 +207,9 @@ impl Checker {
 
     fn register_builtins(&mut self) {
         // All primitive types are known
-        for prim in &["Bool", "Int", "Int8", "Int16", "Int32", "Int64",
-                       "UInt", "UInt8", "UInt16", "UInt32", "UInt64",
-                       "Float32", "Float64", "Char", "Str"] {
+        for prim in &["Bool", "Int", "Int8", "Int16", "Int32", "Int64", "Int128",
+                       "UInt", "UInt8", "UInt16", "UInt32", "UInt64", "UInt128",
+                       "Float32", "Float64", "Float128", "Char", "Str"] {
             self.types.insert(prim.to_string(), HashMap::new());
         }
           // Compound builtin types (empty fields = permissive field access).
@@ -2900,7 +2900,7 @@ impl Checker {
                     self.error(format!("undefined variable '{}'", ident.name), ident.span)
                 }
             }
-            Expr::Int(_, _) => CheckedType::Int,
+            Expr::Int(_, _) | Expr::BigInt(_, _) => CheckedType::Int,
             Expr::Float(_, _) => CheckedType::Float64,
             Expr::Str(_, _) => CheckedType::Str,
             Expr::Char(_, _) => CheckedType::Char,
@@ -4623,7 +4623,7 @@ impl BorrowChecker {
             Expr::Ident(ident) => {
                 self.check_use(&ident.name, ident.span)
             }
-            Expr::Int(_, _) | Expr::Float(_, _) | Expr::Str(_, _)
+            Expr::Int(_, _) | Expr::BigInt(_, _) | Expr::Float(_, _) | Expr::Str(_, _)
                 | Expr::Char(_, _) | Expr::Bool(_, _) => ExprResult::Value,
             Expr::Paren(inner, _) => self.check_expr(inner),
             Expr::Tuple(items, _) => {
