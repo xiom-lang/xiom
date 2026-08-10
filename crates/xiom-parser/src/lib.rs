@@ -1917,6 +1917,27 @@ impl Parser {
                         let saved = self.pos;
                         // NOTE: `[` was already consumed by the LBracket arm's
                         // self.advance() above — do NOT advance again here.
+                        // Speculative scan (no commit): this bracket group could
+                        // be explicit generic args (`add2[Float32](...)`) OR an
+                        // index expression whose first token is an uppercase
+                        // ident (`bits[L - 1]`, `buf[Head]`). Only the generic
+                        // form is immediately followed by `(` — commit to it
+                        // ONLY then; otherwise restore and parse as an index
+                        // expression. Previously the type-args parse committed
+                        // eagerly and errored on `bits[L - 1]` ("expected ']',
+                        // found -").
+                        let mut depth = 1;
+                        while depth > 0 {
+                            match self.peek_kind() {
+                                TokenKind::LBracket => { depth += 1; self.advance(); }
+                                TokenKind::RBracket => { depth -= 1; self.advance(); }
+                                TokenKind::Eof => break,
+                                _ => { self.advance(); }
+                            }
+                        }
+                        let is_generic_call = depth == 0 && self.peek_kind() == &TokenKind::LParen;
+                        self.pos = saved;
+                        if is_generic_call {
                         // D1: capture the explicit generic type args instead of
                         // discarding them — `add2[Float32](...)` must preserve
                         // Float32 so generic monomorphisation resolves the
@@ -1938,6 +1959,7 @@ impl Parser {
                             continue;
                         }
                         self.pos = saved;
+                        }
                     }
                     let is_type_name = match &expr {
                         Expr::Ident(name) => name.name.chars().next().map_or(false, |c| c.is_uppercase()),
