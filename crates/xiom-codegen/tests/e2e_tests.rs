@@ -4332,3 +4332,15 @@ fn e2e_safety_probe() {
 #[test] fn e2e_p2_try_return() { assert_eq!(compile_and_run("tests\\e2e_p2_try_return.xi"), Some(0)); }
 #[test] fn e2e_p2_turbofish() { assert_eq!(compile_and_run("tests\\e2e_p2_turbofish.xi"), Some(0)); }
 
+// ============================================================================
+// M37 — 2026-08-11 compiler-hardening bug-fix regressions
+// (docs/COMPILER_BUGS.md: BUG 1 tuple-of-struct codegen, struct &T param
+// mutation, parser index-arithmetic, BUG 8 catalog &Vec[Int] params,
+// circular-import termination)
+// ============================================================================
+#[test] fn e2e_m37_tuple_struct() { assert_eq!(compile_and_run("tests\\regression\\m37_tuple_struct.xi"), Some(0)); }
+#[test] fn e2e_m37_ref_mut() { assert_eq!(compile_and_run("tests\\regression\\m37_ref_mut.xi"), Some(0)); }
+#[test] fn e2e_m37_index_arith() { assert_eq!(compile_and_run("tests\\regression\\m37_index_arith.xi"), Some(0)); }
+#[test] fn e2e_m37_catfix_catalog_vecref() { assert_eq!(compile_and_run("examples\\catfix\\main.xi"), Some(0)); }
+#[test] fn e2e_m37_catfix_circular_imports() { assert_eq!(compile_and_run("examples\\catfix\\circ_main.xi"), Some(0)); }
+
