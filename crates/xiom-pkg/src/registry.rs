@@ -90,7 +90,6 @@ pub(crate) struct RegistryIndex {
 
 #[derive(Debug, serde::Deserialize)]
 pub(crate) struct RegistryPackage {
-    pub(crate) name: String,
     pub(crate) description: String,
     pub(crate) repository: String,
     pub(crate) latest: String,

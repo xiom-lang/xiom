@@ -72,7 +72,6 @@ pub(crate) trait DebuggerBackend {
     fn list_registers(&mut self) -> Result<Vec<Value>, String>;
     fn read_memory(&mut self, addr: u64, size: usize) -> Result<Vec<u8>, String>;
     fn terminate(&mut self) -> Result<(), String>;
-    fn name(&self) -> &'static str;
 }
 
 fn send(msg: &impl Serialize) {

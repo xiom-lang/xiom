@@ -217,7 +217,6 @@ impl DebuggerBackend for GdbBackend {
     fn delete_breakpoint(&mut self, id: u64) -> Result<(), String> { self.delete_breakpoint_impl(id) }
     fn list_registers(&mut self) -> Result<Vec<Value>, String> { self.list_registers_impl() }
     fn read_memory(&mut self, a: u64, s: usize) -> Result<Vec<u8>, String> { self.read_memory_impl(a, s) }
-    fn name(&self) -> &'static str { "GDB/MI" }
 }
 
 // CDB/WinDbg Backend
@@ -340,5 +339,4 @@ impl DebuggerBackend for CdbBackend {
     fn read_memory(&mut self, addr: u64, size: usize) -> Result<Vec<u8>, String> {
         self.send_cmd(&format!("db 0x{:X} L{}", addr, size)).map(|_| vec![])
     }
-    fn name(&self) -> &'static str { "CDB/WinDbg" }
 }

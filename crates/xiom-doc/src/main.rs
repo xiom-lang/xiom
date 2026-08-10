@@ -12,10 +12,6 @@ use xiom_parser::Parser;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-fn xiom_version() -> &'static str {
-    option_env!("XIOM_RELEASE_TAG").unwrap_or("0.52.1")
-}
-
 fn main() {
     let args: Vec<String> = env::args().collect();
 
