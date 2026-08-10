@@ -10,11 +10,11 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use serde_json::Value;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process;
 
-use crate::registry::{registry_url, http_get, fetch_registry_index, search_registry, install_from_registry, http_get_binary, package_cache_dir, extract_tar_gz};
+use crate::registry::{registry_url, http_get, search_registry, install_from_registry, http_get_binary};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
