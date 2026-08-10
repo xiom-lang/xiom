@@ -1670,7 +1670,7 @@ impl Checker {
                 continue;
             }
             if let Some(cached) = self.catalog.find_owned(&prefix) {
-                self.cached_loaded.insert(dotted);
+                self.cached_loaded.insert(dotted.clone());
                 self.register_external_module(&cached);
                 // Enqueue the loaded module's own imports (transitive closure).
                 fn collect_uses(items: &[TopDecl], out: &mut Vec<Vec<String>>) {
