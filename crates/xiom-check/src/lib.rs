@@ -126,6 +126,18 @@ pub struct Checker {
     /// True while checking a fn that declares a `requires` clause (T007:
     /// every unsafe block must be wrapped by a safe fn enforcing requires).
     current_fn_has_requires: bool,
+    /// D2.1 (T006): stack of "pending extern raw-pointer values" inside the
+    /// current unsafe block. When an extern "C" call returns a raw pointer
+    /// (`*T`) inside a confined block, its result variable is recorded here;
+    /// it MUST be converted to an owned XIOM type (ffi.box_from_ptr /
+    /// ffi.vec_from_ptr_with_free / ffi.str_from_ptr_owned) BEFORE the block's
+    /// tail is evaluated, or the block is a hard error (T006, FFI ownership).
+    pending_extern_ptrs: Vec<String>,
+    /// D2.1 (T006): set of locals that have been "converted" (passed through a
+    /// registered FFI ownership conversion fn) inside the current unsafe block.
+    converted_ffi_ptrs: HashSet<String>,
+    /// D2.1 (T006): names of registered FFI ownership-conversion fns.
+    ffi_convert_fns: HashSet<String>,
 }
 
 impl Checker {
@@ -164,6 +176,14 @@ impl Checker {
             extern_fns: HashSet::new(),
             current_fn_has_contracts: false,
             current_fn_has_requires: false,
+            pending_extern_ptrs: Vec::new(),
+            converted_ffi_ptrs: HashSet::new(),
+            ffi_convert_fns: [
+                "safe_ptr_from_raw".to_string(),
+                "box_from_ptr".to_string(),
+                "vec_from_ptr_with_free".to_string(),
+                "str_from_ptr_owned".to_string(),
+            ].into_iter().collect(),
         };
         // Register built-in types
         checker.register_builtins();
@@ -691,6 +711,32 @@ impl Checker {
             }
         } else {
             None
+        }
+    }
+
+    /// D2.1 (T006): true if a checked type is a raw pointer (`*T`, `Ptr`).
+    fn is_raw_pointer_ty(ty: &CheckedType) -> bool {
+        match ty {
+            CheckedType::Named(n) => n.starts_with('*') || n == "Ptr",
+            _ => false,
+        }
+    }
+
+    /// D2.1 (T006): true if the block's tail expression IS (or calls) one of the
+    /// pending unconverted extern raw-pointer fns — i.e. an extern-returned
+    /// pointer reaches the block's tail without an ownership conversion.
+    fn tail_refs_pending_ptr(&self, tail: &Expr, pending: &[String]) -> bool {
+        match tail {
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+                if let Expr::Ident(name) = func.as_ref() {
+                    let bare = name.name.split('.').last().unwrap_or(&name.name);
+                    pending.iter().any(|p| p.split('.').last() == Some(bare))
+                } else {
+                    false
+                }
+            }
+            Expr::Paren(inner, _) => self.tail_refs_pending_ptr(inner, pending),
+            _ => false,
         }
     }
 
@@ -3925,6 +3971,22 @@ impl Checker {
                             }
                         }
                         let ret_ty = sig.return_type.unwrap_or(CheckedType::Unit);
+                        // D2.1 (T006, FFI ownership): inside a confined block, an
+                        // extern "C" call returning a raw pointer (*T) must have
+                        // its result converted to an owned XIOM type before the
+                        // block's tail. Track such calls; a conversion fn clears
+                        // the pending set. Checked at the unsafe-block boundary.
+                        if self.unsafe_depth > 0 && self.extern_fns.contains(&name.name) {
+                            if matches!(&ret_ty, CheckedType::Named(n) if n.starts_with('*')) {
+                                self.pending_extern_ptrs.push(format!("{}", name.name));
+                            }
+                        }
+                        // A registered FFI ownership-conversion fn converts the
+                        // pending extern pointer(s) (safe_ptr_from_raw, etc.).
+                        let fn_bare = name.name.split('.').last().unwrap_or(&name.name).to_string();
+                        if self.unsafe_depth > 0 && self.ffi_convert_fns.contains(&fn_bare) {
+                            self.converted_ffi_ptrs.extend(self.pending_extern_ptrs.drain(..));
+                        }
                         if sig.generics.is_empty() {
                             return ret_ty;
                         }
@@ -4302,8 +4364,41 @@ impl Checker {
                 // blocks are confined plumbing (operands, assignments) and do
                 // not escape the fn, so they need no wrapper contract.
                 self.unsafe_depth += 1;
+                let pending_saved = std::mem::take(&mut self.pending_extern_ptrs);
+                let converted_saved = std::mem::take(&mut self.converted_ffi_ptrs);
                 let ty = self.check_block(block, None).unwrap_or(CheckedType::Unit);
+                // D2.1 (T006, FFI ownership): an extern call returning a raw
+                // pointer inside this confined block must have been converted to
+                // an owned XIOM type (ffi.safe_ptr_from_raw / box_from_ptr /
+                // vec_from_ptr_with_free / str_from_ptr_owned) BEFORE the tail.
+                // An unconverted extern-returned pointer reaching the block's end
+                // would be leaked (arena doesn't own it) or double-freed.
+                // D2.1 (T006, FFI ownership): an extern call returning a raw
+                // pointer inside this confined block must have been converted to
+                // an owned XIOM type (ffi.safe_ptr_from_raw / box_from_ptr /
+                // vec_from_ptr_with_free / str_from_ptr_owned) BEFORE the tail.
+                // The block's TAIL must not be (or nest) an unconverted
+                // extern-returned raw pointer — that would leak/double-free.
+                if !self.pending_extern_ptrs.is_empty() {
+                    // Does the tail expression reference an unconverted extern
+                    // pointer variable? (Ident / field / index of a pending ptr.)
+                    let tail_expr = Self::block_tail_expr(block).cloned();
+                    let tail_escapes = tail_expr.map_or(false, |tail| {
+                        self.tail_refs_pending_ptr(&tail, &self.pending_extern_ptrs)
+                    });
+                    if tail_escapes {
+                        self.error(
+                            "extern raw-pointer result must be converted to an owned XIOM type before the `unsafe` block's tail (T006: use ffi.safe_ptr_from_raw / box_from_ptr / vec_from_ptr_with_free / str_from_ptr_owned)",
+                            block.span,
+                        );
+                    }
+                }
                 self.unsafe_depth -= 1;
+                // Restore the enclosing block's pending/converted state (a
+                // pointer produced in an outer scope is not affected by this
+                // nested block).
+                self.pending_extern_ptrs = pending_saved;
+                self.converted_ffi_ptrs = converted_saved;
                 // D2.1 (T005): zero-escape is enforced at the FUNCTION boundary
                 // (see enforce_fn_unsafe_tail) — a raw-pointer value produced by
                 // an unsafe SUB-expression stays confined to the enclosing
@@ -6890,6 +6985,46 @@ fn whole(x: Int) -> Int
 fn main() -> Int { return 0; }";
         let result = check(src);
         assert!(result.is_ok(), "whole-body unsafe with requires must pass: {:?}", result.err());
+    }
+
+    // D2.1 (Unsafe Confinement Phase 7/plan §2.12 — requirement i, T006):
+    // an extern "C" call returning a raw pointer inside a confined block must
+    // have its result converted to an owned XIOM type before the block's tail.
+    #[test] fn test_t006_extern_ptr_tail_rejected() {
+        let src = "\
+extern \"C\" {
+  fn xiom_alloc(size: Int) -> *UInt8;
+}
+fn bad_tail() -> *UInt8
+  requires: true
+{
+  unsafe {
+    xiom_alloc(8)
+  }
+}
+fn main() -> Int { return 0; }";
+        let result = check(src);
+        assert!(result.is_err(), "unconverted extern pointer tail must fail (T006): {:?}", result.err());
+    }
+
+    #[test] fn test_t006_extern_ptr_converted_accepted() {
+        let src = "\
+extern \"C\" {
+  fn xiom_alloc(size: Int) -> *UInt8;
+}
+fn safe_ptr_from_raw(p: *UInt8, size: Int) -> Int { return 0; }
+fn good(x: Int) -> Int
+  requires: x >= 0
+{
+  unsafe {
+    var p = xiom_alloc(8);
+    var sp = safe_ptr_from_raw(p, 8);
+    42
+  }
+}
+fn main() -> Int { return 0; }";
+        let result = check(src);
+        assert!(result.is_ok(), "converted extern pointer must pass (T006): {:?}", result.err());
     }
 
     // Complex boolean expressions
