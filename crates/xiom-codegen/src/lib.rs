@@ -352,7 +352,9 @@ impl IrEmitter {
             }
             Expr::Float(f, _) => {
                 if llvm_ty == "double" {
-                    format!("{f:.6}")
+                    // BUG 10 fix (2026-08-11): {:.6} truncated literals to 6
+                    // decimals; {:.17e} round-trips f64 exactly.
+                    format!("{f:.17e}")
                 } else if llvm_ty == "float" {
                     // CG-02: LLVM requires float constants to round-trip exactly
                     // through decimalÃ¢â€ â€™doubleÃ¢â€ â€™float. Use ryu crate or manual formatting
