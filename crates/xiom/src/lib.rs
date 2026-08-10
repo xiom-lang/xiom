@@ -1050,6 +1050,11 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             }
             // Suppress MSVC deprecation warnings (fopen, etc.) in the runtime C code.
             cmd.arg("-D_CRT_SECURE_NO_WARNINGS");
+            // Suppress deprecated-declaration warnings (e.g. GetVersionExA) on
+            // Windows, matching the JIT runtime build (xiom-jit/src/lib.rs).
+            if cfg!(windows) {
+                cmd.arg("-Wno-deprecated-declarations");
+            }
             // 7E.1: Sanitizer flags
             if let Some(ref sanitizer) = config.sanitize {
                 cmd.arg(&format!("-fsanitize={}", sanitizer));
