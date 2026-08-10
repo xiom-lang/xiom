@@ -108,20 +108,26 @@ fn f(x: Int) -> Result[Int, HardwareFault] {
 Compiled (conceptually):
 
 ```
-prologue:
+safe wrapper fn:
   check requires(x)                          // (c) pre-entry contract — hard fail → Err(ContractViolation)
-  tp = xiom_trap_enter(handler_state)        // (f) checkpoint (sigsetjmp / SEH __try)
-  guard_heap = xiom_guard_heap_select()      // (d) isolate heap context
-  push stack guard page                      // (e) red zone below frame
-block_body: ...                               // the user's statements (allocations → guard heap)
-  xiom_trap_leave()                          // (g) disarm
-  ensure checks on the tail value            // (c) post-exit contract
-  ret (safe value)                           // (i) only safe types cross
-fault_handler:
-  log fault (sig, address, pc)               // (f)
-  restore recursion counter                  // §1.3
-  retry_once: fresh memory slot (h) → re-run block_body
-  else: return Err(HardwareFault{ sig, pc }) // (g)
+  pack ctx { x, ...captured locals }          // free vars of the unsafe block
+  result = xiom_trampoline_call(&__unsafe_block_N, &ctx)   // (f) pre-compiled CRT trampoline
+  match result {
+    Ok(v)  => { copy-out v to main heap if heap-backed (§2.11); ensure checks; return v }
+    Err(f) => return Err(HardwareFault{...}) // (g) recoverable
+  }
+
+__unsafe_block_N(ctx):                        // standalone fn, NOT alwaysinline
+  guard_heap = xiom_guard_heap_select(ctx)    // (d) isolate heap context (TLS arena)
+  arm stack guard page                        // (e) red zone
+  ... user statements (allocations → guard heap) ...
+  disarm guard page
+  return tail value (safe type only, §2.10/2.11)
+
+trampoline (pre-compiled, re-entrant, in CRT):
+  checkpoint (SEH __try / sigsetjmp) → call block fn → on fault: restore recursion
+  counter, unwind only trampoline frame, return fault code; retry once (h) with fresh
+  arena + re-armed guard page.
 ```
 
 ### 2.2 (a) Lexical Confinement — hard errors
@@ -182,31 +188,64 @@ fault_handler:
 - Cost: one guard page per concurrently-active unsafe block (reuse via a per-thread pool of
   guard pages — `xiom_guard_page_pool`).
 
-### 2.7 (f) Hardware Fault Trapping — portable trap abstraction
+### 2.7 (f) Hardware Fault Trapping — the CRT Trampoline (REVISED 2026-08-10)
 
-Runtime API (in `xiom_runtime.c`, platform-gated):
+**Design decision (adopted from review):** do NOT wrap the unsafe block inline in the
+LLVM IR with sigsetjmp/longjmp. `longjmp` unwinds C stack frames, not LLVM IR frames —
+unwinding out of an IR block with live PHI nodes / pending state corrupts the register
+allocator. Instead:
 
-```c
-typedef struct XiomTrapState { /* platform-specific */ } XiomTrapState;
-int  xiom_trap_enter(XiomTrapState* st);        // 0 = normal, else fault code (sigsetjmp / SEH __try / VEH)
-void xiom_trap_leave(XiomTrapState* st);
-int  xiom_trap_retry(XiomTrapState* st);        // re-enter checkpoint for the (h) retry
-const char* xiom_trap_signal_name(int sig);     // SIGSEGV → "SIGSEGV", etc.
-uintptr_t   xiom_trap_fault_pc(XiomTrapState* st);
-```
+1. **Codegen lowers every unsafe block to a standalone callable function** (not
+   alwaysinline): `int64_t __unsafe_block_N(uint8_t* ctx)` — a fixed ABI, with the
+   block's FREE VARIABLES packed into a context struct by the codegen (the same
+   capture machinery XIOM's closures (M20) already provide). The call site becomes:
+   `xiom_trampoline_call(block_fn, ctx) -> Result[T, HardwareFault]`.
+2. **The runtime ships ONE pre-compiled, re-entrant, thread-safe Trampoline** (written
+   in C/ASM, platform-gated, compiled into `xiom_runtime.c` / a small `.asm` object —
+   never generated at runtime, immune to LLVM upgrades):
+   ```c
+   // Windows: SEH __try/__except (clang supports it); POSIX: sigsetjmp/siglongjmp.
+   int64_t xiom_trampoline_call(
+       int64_t (*block_fn)(uint8_t*),   // the unsafe block's function
+       uint8_t* ctx)                    // captured-variable context
+   {
+       int64_t result;
+       int fault = xiom_trap_enter();           // checkpoint (SEH __try / sigsetjmp)
+       if (!fault) {
+           result = block_fn(ctx);              // run the confined block
+           xiom_trap_leave();                   // disarm
+           return result;
+       }
+       return XIOM_FAULT_BASE + fault;          // unwound here — only the trampoline's
+   }                                            // own frame + block frame are touched
+   ```
+   The faulting unwinding touches ONLY the trampoline's frame and the block fn's frame —
+   the caller's IR stack stays balanced and intact.
+3. **Platform fault registration** (once per process):
+   - **Windows:** `AddVectoredExceptionHandler`; the handler checks whether the faulting
+     PC is inside a confined block (a registered block-range table). If yes → unwind to
+     the trampoline checkpoint; if no → chain to the previous handler (non-unsafe faults
+     still crash loudly, as today).
+   - **POSIX:** `sigaction(SIGSEGV|SIGILL|SIGFPE, handler, SA_SIGINFO)`; handler calls
+     `siglongjmp` to the trampoline checkpoint.
+4. **The recursion counter** (`@xiom_recursion_counter`, thread-local) is saved/restored
+   by the trampoline around the block call — on fault, the saved value is restored
+   before returning the error (§1.3).
+5. **Retry (h)** re-enters the trampoline: re-arm the guard page, re-select a fresh
+   arena, and call `block_fn(ctx)` again.
 
-- **Windows:** `AddVectoredExceptionHandler` installed once per process; the block's
-  `xiom_trap_enter` records the checkpoint (`RtlCaptureContext`-style or SEH `__try` via a
-  small `.c` thunk — clang supports `__try/__except` on Windows). The vector handler checks
-  whether the faulting PC is inside a confined block; if yes → longjmp-equivalent unwind to
-  the checkpoint; if no → chain to the previous handler (so non-unsafe faults still crash
-  loudly, as today).
-- **POSIX:** `sigsetjmp` + `sigaction(SIGSEGV|SIGILL|SIGFPE, handler)` with `SA_SIGINFO`;
-  handler calls `siglongjmp` to the checkpoint.
-- **Codegen:** each `unsafe { }` block is wrapped: `call xiom_trap_enter`, the block body,
-  `call xiom_trap_leave`; the handler path (separate LLVM blocks) returns the fault as an
-  `Err` value. The wrapper fn's return type becomes `Result[T, HardwareFault]` when the
-  block's tail type is not already a Result.
+**Why this scales:** one function, no global state, per-thread TLS arenas → 128 parallel
+threads call the same trampoline without blocking each other; faults in thread A unwind
+only thread A's stack.
+
+**Codegen consequence (the core Phase 5 work item):** the unsafe-block-as-function
+lowering is the largest single piece — block tail → `Result[T, HardwareFault]` wrapper,
+free-variable capture into the ctx struct, and a trampoline call at the block site.
+Reuses closure capture (M20) but must handle: nested unsafe blocks (one trampoline per
+OUTERMOST block — §2.13), `defer` inside the block (must not be skipped silently by an
+unwind — run deferred cleanups in the block fn's normal exit; on fault, run them in the
+trampoline's error path before returning), and non-inlined emission (block fns must NOT
+be alwaysinline).
 
 ### 2.8 (g) Recoverable Errors
 
@@ -230,16 +269,98 @@ uintptr_t   xiom_trap_fault_pc(XiomTrapState* st);
 - Retry is opt-out per block via an attribute: `#[unsafe_no_retry]` (some faults are not
   transient by nature — e.g. a guaranteed bad deref would just fault twice).
 
-### 2.10 (i) Zero Escape
+### 2.10 (i) Zero Escape — REVISED 2026-08-10 (UAF fix)
 
 - Checker rule: the tail value of an `unsafe` block must have a **safe type** — reject
   `*T`, `Ptr`, `fn`-typed, or struct values containing raw pointers as the block's result.
   Raw pointers may be *used* inside but never *named* as the block's value type.
+- **Strengthened (review): `&T` references are ALSO rejected as tail types.** A borrow
+  into arena memory cannot be copy-out'd safely, and the caller could hold it past the
+  arena reset. Allowed tail types: value types (`Int/Float/Bool/Char/Int128/...`) and
+  heap-backed owned types (`Vec[T]`, `Str`, `Box[T]`, `Option`/`Result` of those).
 - Codegen: FFI handles returned from `extern` calls inside the block are wrapped at the
-  boundary (e.g. an `extern` returning `*T` may only be consumed inside; if it must cross,
-  the block returns `Some(handle as Int)` — an opaque safe integer, or `Err`).
+  boundary — see §2.12.
 - Register state (from `asm`) never crosses: asm outputs are confined to locals inside the
   block.
+
+### 2.11 Copy-Out / Promotion Semantics (i) — THE UAF FIX (REVISED 2026-08-10)
+
+**The conflict the review caught:** a `Vec[Int]` allocated on the GUARD arena and returned
+as a "safe type" would dangle when (d) resets the arena — a use-after-free that bypasses
+zero-escape because `Vec` is a safe type.
+
+**Rule: the tail value is PROMOTED to the main process heap before the arena is discarded.**
+
+- **v1 (Phase 3): Copy-Out — simple and correct.** The codegen emits a deep copy of the
+  tail value's heap payload from the guard arena to the main heap before the arena resets:
+  - `Str` → `memcpy` the bytes into a main-heap allocation.
+  - `Vec[T]` → allocate a new main-heap buffer, `memcpy` the elements, swap the data
+    pointer into the returned Vec.
+  - `Option/Result` wrapping either → copy the payload.
+  - **Cost is bounded: exactly ONE copy per unsafe block** (zero-escape means only the
+    tail crosses; intermediate allocations inside the block are discarded with the
+    arena, never copied). A 1M-item `Vec.push` loop inside the block copies nothing —
+    only the final returned buffer is copied once at exit.
+- **Phase 7+ optimization: Promotion (zero-copy).** Instead of copying, the arena page(s)
+  backing the tail value are ADOPTED into the main heap (O(1) ownership transfer): the
+  Vec/Str's allocator tag is switched to the main heap, and when the value is later
+  dropped it frees the page normally. Only enabled once per-value; requires the arena
+  allocator and the main allocator to share a page-tracking layer. Copy-Out remains the
+  correctness baseline; Promotion is an optimization on top.
+- **Large surviving allocations:** `#[heap = "main"]` on an allocation inside the block
+  routes that specific allocation to the main heap directly (bypassing the guard arena) —
+  the escape hatch for values too large to copy (e.g. a 10MB buffer that must survive).
+  Documented limitation: main-heap allocations inside the block are fault-bounded but NOT
+  arena-isolated.
+
+### 2.12 FFI Heap Bypass — pointer ownership rule (REVISED 2026-08-10)
+
+The plan already documented that `extern` calls allocating on the C heap bypass the guard
+arena (fault-bounded, not isolated). The review's addition — a STRICT checker rule — is
+adopted:
+
+- **Checker rule (T006):** inside a confined block, an `extern` call whose return type is
+  a raw pointer (`*T`) must have its result converted to an OWNED XIOM type **before the
+  block's tail is evaluated**. Allowed conversions (stdlib `ffi` helpers):
+  - `ffi.box_from_ptr[T](p, drop_fn)` — take ownership with a registered destructor,
+  - `ffi.vec_from_ptr_with_free[T](p, len, cap, free_fn)` — adopt a C-allocated buffer,
+  - `ffi.str_from_ptr_owned(p)` — take ownership of a C string.
+- Rationale: a `*T` returned by libc memory (malloc'd on the C heap) must be freed by
+  `free`, not the guard arena — without the conversion rule the pointer would be leaked
+  (the arena doesn't own it) or double-freed (if the caller tries to drop it as arena
+  memory).
+- Enforcement: the checker tracks the result type of every `extern` call inside the block;
+  a raw-pointer-typed value that reaches the tail (directly, or nested in a struct/vec)
+  without passing through a registered conversion fn → hard error T006.
+- Conversions are themselves confined: they run inside the block and may fault (bounded).
+
+### 2.13 Transaction Boundary & `#[unsafe_direct]` (REVISED 2026-08-10)
+
+**Transaction boundary = the OUTERMOST unsafe block.** Nested `unsafe { ... unsafe { ... } }`
+inside an already-active transaction do NOT create a second trampoline/arena/guard page —
+the outer transaction covers them. This is both a semantic rule (one checkpoint per
+transaction) and the performance batching rule:
+
+- **Perf (review):** a 1M-iteration loop with a per-iteration unsafe block would pay
+  ~200–300ns × 1M ≈ 200ms. Rule: hot stdlib paths (e.g. `Vec.push` resize logic) wrap the
+  WHOLE loop/resize in one unsafe block, not per-operation. Phase 7 audits all 37 stdlib
+  sites for transaction granularity.
+- **Measured overhead budget per transaction:** arm/disarm guard page ~100ns + trampoline
+  checkpoint ~50ns + arena select ~20ns ≈ **200–300ns per transaction** (not per
+  operation). With batching, ≤1.5× on hot paths is achievable.
+
+**`#[unsafe_direct]` — the trusted-escape hatch (governance):**
+- Marks a confined block as TRUSTED: no trampoline, no guard page, no arena — runs as
+  today's plain unsafe block. Intended for: self-host compiler internals (FFI bindings,
+  JIT memory mapper), stdlib hot paths, and other audited trusted code.
+- **Governance (my addition):** `#[unsafe_direct]` is RESTRICTED to stdlib/trusted
+  packages by default. User code cannot tag blocks `#[unsafe_direct]` unless the compiler
+  is invoked with `--enable-unsafe-direct` (and a counted, audited cap — the compiler
+  reports the number of direct blocks). Without this gate, user code could bypass the
+  entire confinement story.
+- The self-host compiler uses `#[unsafe_direct]` ONLY in its FFI/JIT blocks; its lexer,
+  parser, and checker are 100% safe (zero unsafe) and run at native speed with zero
+  confinement overhead.
 
 ---
 
@@ -266,22 +387,30 @@ Each phase is independently verifiable; the suite must stay green at every phase
 - (a) `extern "C"` call gate: T002 hard error in safe code; `asm!` alias.
 - (a) raw-pointer type names in safe signatures: T003.
 - (b) parse rejects `unsafe fn/module/struct/impl`.
-- (i) checker rejects raw-pointer/`fn`-typed tails from `unsafe` blocks (T005).
-- **Verify:** checker unit tests (est. +12), full suite green. No runtime change.
+- (i) checker rejects raw-pointer/`fn`-typed tails from `unsafe` blocks (T005);
+  **`&T` tails also rejected (review)**.
+- (i) **FFI pointer ownership rule: T006 (review)** — `extern` returning `*T` inside a
+  confined block must convert to an owned XIOM type before the tail (§2.12).
+- **Verify:** checker unit tests (est. +16), full suite green. No runtime change.
 
 ### Phase 2 — Contracts & Wrapper Rule (c)
 - Checker: every `unsafe` block is inside a fn with ≥1 `requires`; whole-body-unsafe fns
   must declare `requires`+`ensures`.
 - Codegen: requires-checks fail → `Err(ContractViolation)` instead of process trap;
-  ensures-check on tail.
+  ensures-check on the promoted tail (§2.11) after copy-out.
 - **Verify:** contract smokes (safe wrapper + violation path), suite green.
 
-### Phase 3 — Guard Heap (d)
-- Runtime `xiom_guard_heap_*` (arena slabs, per-thread context switch).
+### Phase 3 — Guard Heap (d) + Copy-Out (i)
+- Runtime `xiom_guard_heap_*` (arena slabs, per-thread TLS context switch).
 - Codegen: inside `unsafe` blocks, `malloc`/`realloc`/`free` calls route to the guard
   arena; reset on block exit.
+- **Copy-Out (review/UAF fix):** codegen emits a deep copy of the tail value's heap
+  payload to the main heap before the arena resets (§2.11) — one copy per block, bounded.
+  `#[heap = "main"]` attribute routes specific allocations to the main heap.
 - **Verify:** heap-isolation smoke (corrupt a pointer inside the block → main heap
-  untouched, arena discarded); ASAN run green.
+  untouched, arena discarded); **UAF smoke: return a Vec/Str from a confined block,
+  use it after the block, assert intact (copy-out worked); mutate the arena after and
+  assert the returned value is unaffected**; ASAN run green.
 
 ### Phase 4 — Stack Guard Pages (e)
 - Runtime guard-page alloc/arm/disarm + per-thread pool.
@@ -289,22 +418,36 @@ Each phase is independently verifiable; the suite must stay green at every phase
 - **Verify:** deliberate stack-overflow-in-unsafe smoke → fault caught (Phase 5), process
   survives.
 
-### Phase 5 — Hardware Fault Trapping + Recovery (f, g)
-- Portable `xiom_trap_enter/leave/retry` (SEH/VEH on Windows; sigsetjmp on POSIX).
-- Codegen: block wrapped; handler path returns `Err(HardwareFault)`; recursion counter
-  restored.
-- **Verify:** SIGSEGV/SIGILL/SIGFPE smokes on both platforms; the `test_diff_test_produces_correct_ir`
-  and other suites stay green; faulting block returns Err, caller continues.
+### Phase 5 — Hardware Fault Trapping + Recovery (f, g) — Trampoline (REVISED)
+- **Codegen (core work item): unsafe-block-as-function lowering** — standalone
+  `int64_t __unsafe_block_N(uint8_t* ctx)` per OUTERMOST block, free-variable capture into
+  a ctx struct (reuse closure capture M20), block fns NOT alwaysinline, `defer` inside the
+  block run on both normal exit and the trampoline's fault path (§2.7).
+- Runtime: pre-compiled re-entrant **Trampoline** in the CRT (`xiom_trampoline_call`) —
+  SEH `__try/__except` on Windows, `sigsetjmp/siglongjmp` on POSIX; one VEH/`sigaction`
+  registration per process with a block-range table; recursion counter saved/restored
+  around the block call.
+- Codegen: block site → `xiom_trampoline_call(block_fn, &ctx)` → `Result[T, HardwareFault]`
+  wrapper; handler returns `Err(HardwareFault{ signal, pc, retried })`.
+- **Fault-injection test strategy (my addition):** add a test-only `extern` helper that
+  writes to a known-bad address / executes `ud2` / divides by zero, called INSIDE a
+  confined block; verify the block returns Err and the process continues (print after).
+- **Verify:** SIGSEGV/SIGILL/SIGFPE smokes on both platforms; suite green; faulting block
+  returns Err, caller continues.
 
 ### Phase 6 — Transient Retry (h)
-- Retry-once machinery + fresh arena slot + `#[unsafe_no_retry]`.
+- Retry-once machinery via the trampoline (re-arm guard page, fresh arena, re-call
+  `block_fn(ctx)`) + `#[unsafe_no_retry]`.
 - **Verify:** transient-fault smoke (first run faults, retry succeeds, `retried: true`
   path); permanent-fault smoke (faults twice → Err).
 
 ### Phase 7 — Stdlib Adoption & Perf Budget
 - Migrate the 37+ stdlib unsafe sites to the confined form (wrappers + contracts).
-- Perf budget: guarded Vec push/alloc must stay within **1.5×** of unguarded; if exceeded,
-  provide `#[unsafe_direct]` escape for ultra-hot stdlib internals (audited, counted).
+- **Transaction batching (review):** audit every site for transaction granularity — hot
+  paths (Vec.push resize, alloc) wrap the WHOLE loop/resize in one unsafe block, not
+  per-operation. Budget: ~200–300ns per TRANSACTION; ≤1.5× on hot paths.
+- **`#[unsafe_direct]` (review + governance):** trusted sites (stdlib hot paths) use the
+  escape hatch with a counted, audited cap; user code requires `--enable-unsafe-direct`.
 - **Verify:** stdlib-exec full suite, e2e full suite, benchmark-chaos comparative run.
 
 ### Phase 8 — Self-Host Gate
@@ -330,33 +473,46 @@ Also referenced from: `docs/SAFETY_HARDENING.md` (new §"Unsafe Confinement"), a
 
 ## 6. RISKS & OPEN QUESTIONS
 
-1. **Windows SEH vs codegen IR.** The trap wrapper lives at the LLVM-IR level, but
-   `__try/__except` is a C-language construct. Option A: emit the block as a separate
-   function compiled from a generated C thunk (clang handles SEH). Option B: use
-   `AddVectoredExceptionHandler` + `RtlRestoreContext`-style unwind (no __try needed) —
-   preferred, keeps the IR pipeline intact. **Open question: validate Option B prototype
-   early in Phase 5.**
-2. **`longjmp` across LLVM-generated frames.** `siglongjmp` unwinds the C stack but skips
-   C++/LLVM destructors (there are none — XIOM has no RAII yet, `defer` is manual). Must
-   verify no `defer` inside unsafe blocks is skipped silently (Phase 5 note).
+1. **Windows SEH vs LLVM IR — RESOLVED by the Trampoline (review).** The trap wrapper no
+   longer lives in LLVM IR: the unsafe block is a standalone function called through a
+   pre-compiled C trampoline where `__try/__except` (Windows) / `sigsetjmp` (POSIX) is
+   valid C. The remaining validation is the trampoline's VEH/`sigaction` handler table
+   (block-range check) — prototype early in Phase 5.
+2. **`longjmp` across LLVM frames — RESOLVED by the Trampoline (review).** Unwinding
+   touches only the trampoline's frame and the block fn's frame; the caller's IR stack is
+   never unwound. **Remaining risk:** `defer` inside the block must run on both the normal
+   exit AND the fault path (the trampoline's error return runs the block's deferred
+   cleanups before returning the fault code) — Phase 5 must verify no `defer` is skipped.
 3. **Guard-heap interception coverage.** `extern` calls that allocate on the C heap
-   bypass the guard arena. Mitigation: (f) trap bounds the window; document that FFI
-   allocations are *not* isolated, only *fault-bounded*.
-4. **Performance.** Guard-page arm/disarm + arena switch + checkpoint per block. Perf
-   budget 1.5×; hot stdlib paths get the audited `#[unsafe_direct]` escape.
-5. **Recursion counter balance across longjmp** (§1.3) — must be captured/restored in the
-   handler; a leak would trip the 500-depth guard spuriously.
+   bypass the guard arena. Mitigation: (f) trap bounds the window; **T006 checker rule
+   (§2.12)** forces pointer ownership conversion before the tail; document that FFI
+   allocations are *not* isolated, only *fault-bounded* and *ownership-checked*.
+4. **Performance.** Guard-page arm/disarm + trampoline checkpoint + arena select ≈
+   200–300ns per TRANSACTION (outermost block). Perf budget 1.5× requires **transaction
+   batching** (whole-loop unsafe blocks, not per-operation); trusted hot paths use the
+   audited, capped `#[unsafe_direct]`.
+5. **Recursion counter balance across the trampoline fault path** (§1.3) — the trampoline
+   saves/restores the thread-local counter around the block call; a leak would trip the
+   500-depth guard spuriously.
 6. **Retry semantics.** Some faults (e.g. writing to a read-only page) are deterministic —
    retry is pointless. The `#[unsafe_no_retry]` attribute covers these; default = retry
    once (transient faults like first-touch guard pages benefit).
 7. **Tail-value zero-escape vs existing stdlib.** Several stdlib fns currently *return*
-   raw-pointer-backed values (e.g. `Str.from_cstring` returns i8*). The (i) rule must
-   treat `Str`, `Vec[T]`, `&T` as **safe types** (they are handle-typed, not raw-pointer-
-   named) — only *named raw pointer types* (`*T`, `Ptr`) are confined. This preserves the
-   freeze gate.
+   raw-pointer-backed values (e.g. `Str.from_cstring` returns i8*). The (i) rule treats
+   `Str`, `Vec[T]` as safe types (handle-typed) — but with **Copy-Out (§2.11)** semantics,
+   so their heap payload is promoted to the main heap before the arena resets. `&T` is now
+   REJECTED as a tail type (cannot copy-out a borrow). This preserves the freeze gate
+   (signatures unchanged) while fixing the UAF the review identified.
 8. **Freeze-gate impact.** New types (HardwareFault, ContractViolation) and new runtime
    fns are additive; existing signatures unchanged. Wrapper return types may change for
    unsafe-block fns — must be a **reviewed migration** (freeze snapshot update), not silent.
+9. **`#[unsafe_direct]` governance (new).** The escape hatch must be restricted to
+   stdlib/trusted packages; user code requires `--enable-unsafe-direct` + a counted cap.
+   Without the gate, user code could bypass confinement entirely.
+10. **Copy-Out cost on large tails (new).** One memcpy of the tail per block is bounded,
+    but a 10MB returned buffer copies 10MB. Mitigation: `#[heap = "main"]` for large
+    surviving allocations (fault-bounded, not isolated); Phase 7+ Promotion (O(1) page
+    adoption) as the long-term optimization.
 
 ---
 
@@ -367,23 +523,36 @@ Also referenced from: `docs/SAFETY_HARDENING.md` (new §"Unsafe Confinement"), a
       (smoke: deliberate SIGSEGV in a confined block, then a println after).
 - [ ] A contract-violating wrapper returns `Err(ContractViolation)` (no process trap).
 - [ ] Guard-heap corruption smoke: main heap intact after a block corrupts its arena.
+- [ ] **UAF smoke (review): a Vec/Str returned from a confined block stays intact after
+      the arena resets (Copy-Out); a later mutation of the arena doesn't affect it.**
 - [ ] Stack overflow in a confined block is caught at the guard page, not 0xC00000FD.
-- [ ] Zero-escape checker test: returning `*T` from an `unsafe` block → T005.
-- [ ] Stdlib migrates (37+ sites) with stdlib-exec + e2e green; perf budget met (≤1.5×).
+- [ ] Zero-escape checker test: returning `*T` from an `unsafe` block → T005;
+      returning `&T` from an `unsafe` block → T005; un-converted extern `*T` tail → T006.
+- [ ] **FFI ownership test: an extern returning `*T` must be converted before the tail
+      (T006) — and a converted pointer is freed by the registered destructor, not leaked.**
+- [ ] **Trampoline test: the same confined block faults twice → `Err(HardwareFault{
+      retried: true })`; a transient fault retries once and succeeds.**
+- [ ] Stdlib migrates (37+ sites) with transaction batching; stdlib-exec + e2e green;
+      perf budget met (≤1.5×); `#[unsafe_direct]` count reported and capped.
 - [ ] Self-host bootstrap runs with confinement gates active.
 
 ---
 
-## 8. EFFORT ESTIMATE
+## 8. EFFORT ESTIMATE (REVISED 2026-08-10 — review refinements)
 
 | Phase | Est. effort | Risk |
 |-------|-------------|------|
-| 1 — Gates (a,b,i) | 6–8h | Low |
+| 1 — Gates (a,b,i,T006) | 8–10h | Low |
 | 2 — Contracts (c) | 6–8h | Low |
-| 3 — Guard heap (d) | 12–16h | Medium |
+| 3 — Guard heap (d) + Copy-Out (i) | 14–20h | Medium |
 | 4 — Guard pages (e) | 8–12h | Medium |
-| 5 — Trap + recovery (f,g) | 20–30h | **High** (SEH/VEH, longjmp) |
+| 5 — Trap + recovery (f,g) — **Trampoline + block-as-function lowering** | 36–52h | **High** (block-as-function, SEH/sigsetjmp, defer-on-fault) |
 | 6 — Retry (h) | 6–8h | Medium |
-| 7 — Stdlib adoption + perf | 16–24h | Medium |
+| 7 — Stdlib adoption + batching + unsafe_direct audit | 20–28h | Medium |
 | 8 — Self-host gate | 8–12h | Medium |
-| **Total** | **~82–118h** | — |
+| **Total** | **~106–150h** | — |
+
+Delta vs original (~82–118h): +24–32h for the review refinements — the trampoline +
+unsafe-block-as-function lowering (+16–22h on Phase 5), Copy-Out codegen (+2–4h on
+Phase 3), T006 FFI-ownership gate (+2h on Phase 1), and the transaction-batching +
+`#[unsafe_direct]` governance audit (+4h on Phase 7).
