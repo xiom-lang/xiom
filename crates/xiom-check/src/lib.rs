@@ -741,60 +741,20 @@ impl Checker {
         }
     }
 
-    /// D2.1 (Unsafe Confinement, requirement i — T005): the tail value of an
-    /// `unsafe` block must be a SAFE type. Rejected:
-    ///   - raw pointer types (`*T`, `Ptr`) — never cross the boundary,
-    ///   - function types (`fn(T) -> U`),
-    ///   - references (`&T`, `&mut T`) — a borrow into arena memory cannot be
-    ///     copy-out'd and would dangle after the arena reset (review/UAF fix),
-    ///   - struct types with any raw-pointer/reference field (recursive check).
-    /// `tail_expr` is the block's final expression (if any) — `&x` types as the
-    /// inner type, so the AST must be inspected for Ref/MutRef tails.
-    fn enforce_unsafe_tail_type(&mut self, ty: &CheckedType, tail_expr: Option<&Expr>, span: Span) {
-        // Structural check: `&expr` / `&mut expr` tails are references.
-        if let Some(expr) = tail_expr {
-            if matches!(expr, Expr::Ref(..) | Expr::MutRef(..)) {
-                self.error("reference (&T) cannot escape an `unsafe` block (T005)", span);
-            }
-        }
-        match ty {
-            CheckedType::Named(n) if n.starts_with('*') || n == "Ptr" => {
-                self.error(format!("raw pointer type '{n}' cannot escape an `unsafe` block (T005)"), span);
-            }
-            CheckedType::Fn(..) => {
-                self.error("function type cannot escape an `unsafe` block (T005)", span);
-            }
-            CheckedType::Named(n) if n.starts_with('&') => {
-                self.error(format!("reference type '{n}' cannot escape an `unsafe` block (T005)"), span);
-            }
-            CheckedType::Named(struct_name) => {
-                // Recurse into struct fields for raw-pointer/reference members.
-                if let Some(fields) = self.get_type(struct_name) {
-                    let fields = fields.clone();
-                    for (_, field_ty) in fields {
-                        match &field_ty {
-                            CheckedType::Named(fn2) if fn2.starts_with('*') || fn2 == "Ptr" => {
-                                self.error(
-                                    format!("struct '{struct_name}' contains raw pointer field '{fn2}' and cannot escape an `unsafe` block (T005)"),
-                                    span,
-                                );
-                                break;
-                            }
-                            CheckedType::Named(fn2) if fn2.starts_with('&') => {
-                                self.error(
-                                    format!("struct '{struct_name}' contains reference field '{fn2}' and cannot escape an `unsafe` block (T005)"),
-                                    span,
-                                );
-                                break;
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
+    /// D2.1 (Unsafe Confinement, T005): raw-pointer / reference / fn-type
+    /// values must not escape an `unsafe` block.
+    ///
+    /// NOTE (2026-08-10, removal): this block-level check is intentionally NOT
+    /// invoked. T005 zero-escape is enforced at the FUNCTION boundary instead
+    /// (see `check_fn_decl`'s T003 block: a SAFE fn with no `unsafe` block may
+    /// not RETURN a raw-pointer type). A block-level tail check would reject
+    /// legitimate confined-pointer plumbing within unsafe-internal helpers
+    /// (e.g. `unsafe { 0 as *Node }` as an operand, or a factory whose whole
+    /// body is an `unsafe` block returning a pointer) — see the design note at
+    /// the `Expr::Unsafe` codegen arm. The escape that matters — a pointer
+    /// crossing a function boundary — is already caught. The previous body of
+    /// this method was dead code; removed to keep the confinement surface
+    /// auditable. `test_d21_raw_ptr_tail_rejected` covers the boundary case.
 
     /// Emit an error with a specific cause code (5c-R: TypeCause provenance).
     /// Enables "expected X because contract requires Y" diagnostics.
@@ -2279,8 +2239,6 @@ impl Checker {
                 // are pruned, breaking the C001 bound check at monomorphisation.
                 let impl_iface_reachable = if fn_candidates[i].receiver.is_none()
                     && fn_candidates[i].name.name.contains('.') {
-                    let ifaces = self.interfaces.keys().cloned().collect::<Vec<_>>();
-                    let refs = referenced.iter().cloned().collect::<Vec<_>>();
                     let hit = referenced.iter().any(|r| {
                         self.interfaces.contains_key(r)
                             && self.interfaces.get(r).map_or(false, |methods| {
