@@ -51,7 +51,7 @@ impl SafetyReport {
     pub fn new(file: &str) -> Self {
         SafetyReport {
             schema_version: 1,
-            compiler_version: "0.47.8".to_string(),
+            compiler_version: env!("CARGO_PKG_VERSION").to_string(),
             file: file.to_string(),
             summary: SafetySummary {
                 total_unsafe_blocks: 0,
