@@ -65,9 +65,10 @@ impl crate::IrEmitter {
                 }
             }
         Expr::Float(f, _) => {
-            eprintln!("CG02 DEBUG: Float({f}), llvm_ty={llvm_ty}");
             if llvm_ty == "double" {
-                format!("{f:.6}")
+                // BUG 10 fix (2026-08-11): {:.6} truncated literals to 6
+                // decimals; {:.17e} round-trips f64 exactly.
+                format!("{f:.17e}")
             } else if llvm_ty == "float" {
                 format!("0x{:08X}", (*f as f32).to_bits())
             } else {
