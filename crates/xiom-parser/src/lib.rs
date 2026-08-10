@@ -373,6 +373,15 @@ impl Parser {
             TokenKind::Ident(s) if s == "async" && self.peek_ahead(1) == Some(&TokenKind::Fn) => {
                 self.parse_fn_decl(is_pub, Some(true))
             }
+            // D2.1 (Unsafe Confinement, requirement b): `unsafe` applies STRICTLY
+            // to the lexical block `{ }`. `unsafe fn/module/struct/impl` at
+            // declaration level is a hard error with a clear diagnostic.
+            TokenKind::Unsafe => {
+                self.advance();
+                Err(self.error(
+                    "`unsafe` applies only to block expressions `unsafe { ... }`; it cannot prefix declarations (fn/module/struct/impl)",
+                ))
+            }
             _ => Err(self.error(format!("expected declaration, found '{}'", self.peek().lexeme))),
         }
     }

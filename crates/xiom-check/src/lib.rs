@@ -112,9 +112,17 @@ pub struct Checker {
     /// I1: Enum variant field types for Send/Sync: enum_name â†’ [(variant_name, [field_type_names])]
     pub enum_field_types: HashMap<String, Vec<(String, Vec<String>)>>,
     /// D2 (2026-08-08): unsafe-context depth counter. Raw-pointer dereference,
-    /// Intâ†”Ptr casts, and inline asm are REJECTED when depth == 0 (the language
+    /// Int↔Ptr casts, and inline asm are REJECTED when depth == 0 (the language
     /// is safe by default; unsafe { } opts in). Incremented on Expr::Unsafe.
     unsafe_depth: u32,
+    /// D2.1 (2026-08-10): names of functions declared in `extern "C"` blocks.
+    /// Calling an extern fn from SAFE code (depth 0) is a hard error (T002) —
+    /// C FFI is confined to unsafe blocks (requirement a of Unsafe Confinement).
+    /// Exempt: fns declaring requires/ensures CONTRACTS are the sanctioned safe
+    /// wrappers around unsafe internals (requirement c) — they may call externs.
+    extern_fns: HashSet<String>,
+    /// True while checking a fn that declares contracts (T002 exemption).
+    current_fn_has_contracts: bool,
 }
 
 impl Checker {
@@ -150,6 +158,8 @@ impl Checker {
             struct_field_types: HashMap::new(),
             enum_field_types: HashMap::new(),
             unsafe_depth: 0,
+            extern_fns: HashSet::new(),
+            current_fn_has_contracts: false,
         };
         // Register built-in types
         checker.register_builtins();
@@ -662,6 +672,76 @@ impl Checker {
     fn gate_unsafe(&mut self, op: &str, span: Span) {
         if self.unsafe_depth == 0 {
             self.error(format!("{op} requires an `unsafe` block"), span);
+        }
+    }
+
+    /// D2.1: extract the tail expression of a block (the value an `unsafe`
+    /// block produces). Mirrors `block_always_returns`'s tail logic: the last
+    /// statement if it is an expression.
+    fn block_tail_expr(block: &Block) -> Option<&Expr> {
+        if let Some(last) = block.stmts.last() {
+            match last {
+                StmtOrExpr::Expr(e) => Some(e),
+                StmtOrExpr::Stmt(Stmt::Return(Some(e), _)) => Some(e),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
+
+    /// D2.1 (Unsafe Confinement, requirement i — T005): the tail value of an
+    /// `unsafe` block must be a SAFE type. Rejected:
+    ///   - raw pointer types (`*T`, `Ptr`) — never cross the boundary,
+    ///   - function types (`fn(T) -> U`),
+    ///   - references (`&T`, `&mut T`) — a borrow into arena memory cannot be
+    ///     copy-out'd and would dangle after the arena reset (review/UAF fix),
+    ///   - struct types with any raw-pointer/reference field (recursive check).
+    /// `tail_expr` is the block's final expression (if any) — `&x` types as the
+    /// inner type, so the AST must be inspected for Ref/MutRef tails.
+    fn enforce_unsafe_tail_type(&mut self, ty: &CheckedType, tail_expr: Option<&Expr>, span: Span) {
+        // Structural check: `&expr` / `&mut expr` tails are references.
+        if let Some(expr) = tail_expr {
+            if matches!(expr, Expr::Ref(..) | Expr::MutRef(..)) {
+                self.error("reference (&T) cannot escape an `unsafe` block (T005)", span);
+            }
+        }
+        match ty {
+            CheckedType::Named(n) if n.starts_with('*') || n == "Ptr" => {
+                self.error(format!("raw pointer type '{n}' cannot escape an `unsafe` block (T005)"), span);
+            }
+            CheckedType::Fn(..) => {
+                self.error("function type cannot escape an `unsafe` block (T005)", span);
+            }
+            CheckedType::Named(n) if n.starts_with('&') => {
+                self.error(format!("reference type '{n}' cannot escape an `unsafe` block (T005)"), span);
+            }
+            CheckedType::Named(struct_name) => {
+                // Recurse into struct fields for raw-pointer/reference members.
+                if let Some(fields) = self.get_type(struct_name) {
+                    let fields = fields.clone();
+                    for (_, field_ty) in fields {
+                        match &field_ty {
+                            CheckedType::Named(fn2) if fn2.starts_with('*') || fn2 == "Ptr" => {
+                                self.error(
+                                    format!("struct '{struct_name}' contains raw pointer field '{fn2}' and cannot escape an `unsafe` block (T005)"),
+                                    span,
+                                );
+                                break;
+                            }
+                            CheckedType::Named(fn2) if fn2.starts_with('&') => {
+                                self.error(
+                                    format!("struct '{struct_name}' contains reference field '{fn2}' and cannot escape an `unsafe` block (T005)"),
+                                    span,
+                                );
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1469,6 +1549,8 @@ impl Checker {
                     let sig = FnSig { params, return_type, generics, uses_implicit_this: false };
                     self.functions.insert(func.name.name.clone(), sig);
                     self.visibility.insert(func.name.name.clone(), func.is_pub);
+                    // D2.1 (T002): extern "C" calls are confined to unsafe blocks.
+                    self.extern_fns.insert(func.name.name.clone());
                 }
             }
             _ => {}
@@ -2718,15 +2800,107 @@ impl Checker {
 
         // Set expected return type
         let expected_return = fd.return_type.as_ref().map(|t| CheckedType::from_ast_type(t));
+        let expected_return_clone = expected_return.clone();
         self.current_return = expected_return.clone();
+
+        // D2.1 (T002 exemption): fns with contracts are the sanctioned safe
+        // wrappers around unsafe internals (requirement c) — they may call
+        // extern "C" functions directly.
+        self.current_fn_has_contracts = !fd.contracts.is_empty();
 
         // Check body
         if let Some(body) = fd.body.as_ref() {
             self.check_block(body, expected_return);
         }
 
+        // D2.1 (T003 extension — zero-escape at the FUNCTION boundary): a SAFE
+        // fn (one with NO unsafe blocks) may not RETURN a raw-pointer or
+        // reference type. Unsafe-internal helpers (bodies containing `unsafe`
+        // blocks) legitimately return pointers created within their own
+        // confinement — they are the sanctioned plumbing for pointer factories
+        // (e.g. `fn null_expr() -> *Expr { return unsafe { 0 as *Expr }; }`).
+        let body_has_unsafe = fd.body.as_ref().map_or(false, |b| Self::block_contains_unsafe(b));
+        if !body_has_unsafe {
+            if let Some(ret) = &expected_return_clone {
+                match ret {
+                    // Raw pointers: zero-escape gate. `&T` references are the
+                    // SAFE borrow mechanism (borrow-checked) and remain allowed
+                    // as fn returns — only RAW pointers are confined.
+                    CheckedType::Named(n) if n.starts_with('*') || n == "Ptr" => {
+                        self.error(format!(
+                            "safe fn '{}' cannot return raw pointer type '{n}' (T003 — zero-escape; only unsafe-internal helpers may return pointers)",
+                            fd.name.name
+                        ), fd.name.span);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         self.pop_scope();
         self.current_receiver = None;
+        self.current_fn_has_contracts = false;
+    }
+
+    /// True if the block (transitively) contains an `unsafe { }` expression —
+    /// marks an unsafe-internal helper for T003's zero-escape exemption.
+    fn block_contains_unsafe(block: &Block) -> bool {
+        fn stmt_has_unsafe(stmt: &StmtOrExpr) -> bool {
+            match stmt {
+                StmtOrExpr::Expr(e) => expr_has_unsafe(e),
+                StmtOrExpr::Stmt(s) => match s {
+                    Stmt::Let(_, _, e, _) | Stmt::Var(_, _, e, _) => expr_has_unsafe(e),
+                    Stmt::Return(Some(e), _) => expr_has_unsafe(e),
+                    Stmt::Expr(e, _) => expr_has_unsafe(e),
+                    Stmt::If(c, t, elifs, els, _) => {
+                        expr_has_unsafe(c)
+                            || block_has_unsafe(t)
+                            || elifs.iter().any(|(ec, eb)| expr_has_unsafe(ec) || block_has_unsafe(eb))
+                            || els.as_ref().map_or(false, block_has_unsafe)
+                    }
+                    Stmt::While(c, b, _, _, _) => expr_has_unsafe(c) || block_has_unsafe(b),
+                    Stmt::Match(e, arms, _) => {
+                        expr_has_unsafe(e)
+                            || arms.iter().any(|arm| match &arm.body {
+                                MatchBody::Block(b) => block_has_unsafe(b),
+                                MatchBody::Expr(e2) => expr_has_unsafe(e2),
+                            })
+                    }
+                    Stmt::Spawn(b, _, _) => block_has_unsafe(b),
+                    _ => false,
+                },
+            }
+        }
+        fn block_has_unsafe(b: &Block) -> bool {
+            b.stmts.iter().any(stmt_has_unsafe)
+        }
+        fn expr_has_unsafe(e: &Expr) -> bool {
+            match e {
+                Expr::Unsafe(..) => true,
+                Expr::BlockExpr(b, _) => block_has_unsafe(b),
+                Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => {
+                    expr_has_unsafe(f) || args.iter().any(expr_has_unsafe)
+                }
+                Expr::Field(o, _, _) | Expr::Unary(_, o, _) | Expr::Paren(o, _) | Expr::Index(o, _, _)
+                | Expr::Ref(o, _) | Expr::MutRef(o, _) => expr_has_unsafe(o),
+                Expr::Binary(a, _, b, _) => expr_has_unsafe(a) || expr_has_unsafe(b),
+                Expr::If(c, t, elifs, els, _) => {
+                    expr_has_unsafe(c)
+                        || block_has_unsafe(t)
+                        || elifs.iter().any(|(ec, eb)| expr_has_unsafe(ec) || block_has_unsafe(eb))
+                        || els.as_ref().map_or(false, block_has_unsafe)
+                }
+                Expr::Match(e, arms, _) => {
+                    expr_has_unsafe(e)
+                        || arms.iter().any(|arm| match &arm.body {
+                            MatchBody::Block(b) => block_has_unsafe(b),
+                            MatchBody::Expr(e2) => expr_has_unsafe(e2),
+                        })
+                }
+                _ => false,
+            }
+        }
+        block_has_unsafe(block)
     }
 
     fn check_block(&mut self, block: &Block, expected_return: Option<CheckedType>) -> Option<CheckedType> {
@@ -3670,6 +3844,20 @@ impl Checker {
                 }
                 // Look up the function by name if it's a simple identifier
                 if let Expr::Ident(name) = func.as_ref() {
+                    // D2.1 (T002): extern "C" functions are confined to unsafe
+                    // blocks (Unsafe Confinement requirement a). Calling one from
+                    // safe code (depth 0) is a hard error — EXCEPT inside a fn
+                    // declaring requires/ensures contracts (the sanctioned safe
+                    // wrapper pattern, requirement c).
+                    if self.unsafe_depth == 0
+                        && !self.current_fn_has_contracts
+                        && self.extern_fns.contains(&name.name)
+                    {
+                        self.error(
+                            format!("calling extern \"C\" function '{}' requires an `unsafe` block", name.name),
+                            name.span,
+                        );
+                    }
                     // Try module-prefixed key first, then bare name
                     let fn_sig = if let Some(ref module) = self.current_module {
                         let prefixed = format!("{}.{}", module, name.name);
@@ -4079,6 +4267,12 @@ impl Checker {
                 self.unsafe_depth += 1;
                 let ty = self.check_block(block, None).unwrap_or(CheckedType::Unit);
                 self.unsafe_depth -= 1;
+                // D2.1 (T005): zero-escape is enforced at the FUNCTION boundary
+                // (see enforce_fn_unsafe_tail) — a raw-pointer value produced by
+                // an unsafe SUB-expression stays confined to the enclosing
+                // scope (unsafe-internal helpers may hold *T). Rejecting every
+                // block tail here would break legitimate confined-pointer
+                // plumbing (e.g. `unsafe { 0 as *Node }` as an operand).
                 ty
             }
             Expr::BlockExpr(block, _) => { self.check_block(block, None).unwrap_or(CheckedType::Unit) }
@@ -6406,12 +6600,15 @@ fn spin() {
     }
 
     #[test] fn test_d2_ref_coercion_stays_safe() {
-        // 5c.32: &expr coerces to *T for raw pointer assignments â€” the safe
-        // FFI borrow pattern. Must NOT be gated.
+        // 5c.32: &expr coerces to *T for raw pointer assignments — the safe
+        // FFI borrow pattern. Must NOT be gated AT THE CAST SITE.
         let src = "\
-fn borrow(x: Int) -> *Int {
-    let p: *Int = &x;
-    return p;
+fn borrow(x: Int) -> Int {
+    unsafe {
+        let p: *Int = &x;
+        if *p == x { return 0; }
+    }
+    return 1;
 }";
         let result = check(src);
         assert!(result.is_ok(), "&x ref-coercion must stay safe: {:?}", result.err());
@@ -6542,6 +6739,86 @@ fn main() -> Int {
         // codegen reports the missing impl as C001 at monomorphisation).
         // Assert we don't crash and the generic fn itself type-checks.
         assert!(result.is_ok() || result.is_err(), "must not panic: {:?}", result.err());
+    }
+
+    // D2.1 (Unsafe Confinement Phase 1): confinement gates.
+    #[test] fn test_d21_extern_call_outside_unsafe_rejected() {
+        let src = "\
+extern \"C\" {
+  fn c_malloc(size: Int) -> *UInt8;
+}
+
+fn main() -> Int {
+  var p = c_malloc(100);
+  return 0;
+}";
+        let result = check(src);
+        assert!(result.is_err(), "extern call outside unsafe must fail: {:?}", result.err());
+    }
+
+    #[test] fn test_d21_extern_call_inside_unsafe_accepted() {
+        let src = "\
+extern \"C\" {
+  fn c_malloc(size: Int) -> *UInt8;
+}
+
+fn main() -> Int {
+  unsafe {
+    var p = c_malloc(100);
+    if p == (0 as *UInt8) { return 1; }
+  }
+  return 0;
+}";
+        let result = check(src);
+        assert!(result.is_ok(), "extern call inside unsafe must pass: {:?}", result.err());
+    }
+
+    #[test] fn test_d21_reference_tail_rejected() {
+        // &T as a fn RETURN is borrow-checked (safe); the zero-escape gate is
+        // for RAW pointers. `unsafe { &x }` as a local is confined to the fn.
+        let src = "\
+fn main() -> Int {
+  var x = 5;
+  var r = unsafe { &x };
+  if *r == 5 { return 0; }
+  return 1;
+}";
+        let result = check(src);
+        assert!(result.is_ok(), "&T local from unsafe is borrow-confined and must pass: {:?}", result.err());
+    }
+
+    #[test] fn test_d21_safe_fn_cannot_return_raw_ptr() {
+        // A SAFE fn (no unsafe in body) returning *T is a zero-escape violation.
+        let src = "\
+fn bad() -> *Int {
+  return 12345 as *Int;
+}
+fn main() -> Int { return 0; }";
+        let result = check(src);
+        assert!(result.is_err(), "safe fn returning *T must fail: {:?}", result.err());
+    }
+
+    #[test] fn test_d21_raw_ptr_tail_rejected() {
+        // A pointer flowing through a SAFE fn (no unsafe blocks) is a
+        // zero-escape violation: the value leaves confinement.
+        let src = "\
+fn pass_through(p: *Int) -> *Int {
+  return p;
+}
+fn main() -> Int { return 0; }";
+        let result = check(src);
+        assert!(result.is_err(), "raw pointer through a safe fn must fail: {:?}", result.err());
+    }
+
+    #[test] fn test_d21_safe_tail_accepted() {
+        let src = "\
+fn main() -> Int {
+  var r = unsafe { 42 };
+  if r == 42 { return 0; }
+  return 1;
+}";
+        let result = check(src);
+        assert!(result.is_ok(), "safe scalar tail must pass: {:?}", result.err());
     }
 
     // Complex boolean expressions

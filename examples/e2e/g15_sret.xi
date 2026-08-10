@@ -11,8 +11,9 @@ extern "C" {
 }
 
 fn main() -> Int {
-  var small = g15_small_return();
-  var large = g15_large_return();
-  var rt = g15_pass_and_return(small);
+  // D2.1 (Unsafe Confinement): extern "C" calls are confined to unsafe blocks.
+  var small = unsafe { g15_small_return() };
+  var large = unsafe { g15_large_return() };
+  var rt = unsafe { g15_pass_and_return(small) };
   return 0;
 }
