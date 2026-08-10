@@ -417,3 +417,20 @@ uncommitted coerce.rs state (now reverted/committed). Locked in with e2e:
   stdlib has NO true module cycle (bigint→xiom.num; num/bigfloat→xiom.bigint
   don't close a loop because num.xi doesn't import bigfloat).
 - Locked in by e2e `e2e_m37_catfix_circular_imports` (examples/catfix circ_*).
+
+---
+
+## 2026-08-11 — BigInt/BigFloat session: Phase C (transcendentals) landed
+
+- `bigfloat` Phase C landed (pure-XIOM series: pi/e with precision via
+  Machin/Taylor, exp/ln/log10, sin/cos/tan, atan/atan2, pow_bf) —
+  `smoke_bigfloat.xi` now 44 assertion blocks, exit 0 in ~2s.
+- NO new compiler findings from Phase C. One stdlib coding error caught and
+  fixed (atan halving identity: `1 + sqrt(1 + t^2)`, not `1 + sqrt(t^2)`).
+- **BUG 11 (unsafe extern doubles) remains OPEN** — `stdlib_exec_complex_runs`
+  and `stdlib_exec_net_folder_runs` still fail (math.sqrt through the unsafe
+  trampoline); the other 70 stdlib-exec smokes pass. This is the compiler
+  session's domain (confinement marshalling).
+- BUG 2/3 (module-global field writes / fn-call initializers) also remain
+  open; stdlib design already avoids both (whole-value global assignment;
+  constants as pure constructor fns).
