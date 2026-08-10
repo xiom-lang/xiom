@@ -420,6 +420,45 @@ uncommitted coerce.rs state (now reverted/committed). Locked in with e2e:
 
 ---
 
+## 2026-08-11 — M37 batch 2: BUG 9/10/11 FIXED — fast suite 1112/1/1
+
+### FIXED — BUG 9: private catalog struct types degrade to i64
+
+`collect_external_decls` injected only PUB type decls; a pub fn taking or
+returning a PRIVATE struct (the stdlib's `pub IntFrac` workaround pattern)
+lost the type layout — emitted signatures degraded to i64 (`make_frac(3,4)`
+summed to 0 instead of 7). Fix: transitively inject non-pub types
+referenced by injected pub fn signatures (params/returns/inner types +
+field types). Verified: examples/catfix b9mod+b9main; e2e
+`e2e_m37_catfix_private_type`.
+
+### FIXED — BUG 10: float literals truncated to 6 decimals
+
+`{:.6}` at all three literal-emission sites truncated 0.123456789 to
+0.123457 (wrong stored values AND wrong comparisons). Now `{:.17e}` —
+exact f64 round-trip, LLVM-valid. Also removed a leftover "CG02 DEBUG"
+eprintln. Verified: e2e `e2e_m37_float_precision`.
+
+### FIXED — BUG 11: unsafe-extern double marshalling (complex/net_folder)
+
+The unsafe-block round-trip family: (1) block-fn `return X` with a STRUCT
+tail extracted a scalar field (Option field-1) instead of val_to_i64's
+heap-pointer round-trip → AV on re-materialization (m34_y04);
+(2) `ret_from_enclosing` overwrote the shared block value with the
+enclosing coercion → `icmp eq ptr, i64` (m34_d01..d20);
+(3) fault path emitted `ret i64* 0` (clang rejects) instead of `null`
+(m33_u13). Fixes in expr.rs/stmt.rs. `smoke_complex.xi` and
+`smoke_net_folder.xi` now PASS — stdlib-exec is 72/72.
+
+### TEST MIGRATIONS (confinement-era rules, not compiler regressions)
+
+- m21_ffi_unsafe_001..009: added the T007 `requires:` contract to
+  whole-body-unsafe fns (rule landed in 83416aa9 after the tests).
+- m35_z12/z30: wrapped pointer-returning wrappers in unsafe (T003).
+- m33_u13: rewrote the dangling-`&local` return test to be well-defined.
+
+---
+
 ## 2026-08-11 — BigInt/BigFloat session: Phase C (transcendentals) landed
 
 - `bigfloat` Phase C landed (pure-XIOM series: pi/e with precision via
