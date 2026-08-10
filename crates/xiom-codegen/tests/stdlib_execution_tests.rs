@@ -488,3 +488,13 @@ fn stdlib_exec_d1_native128_runs() {
 fn stdlib_exec_hardening_generics_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_hardening_generics.xi"), Some(0), "hardening generics/impl-dispatch smoke failed");
 }
+
+#[test]
+fn stdlib_exec_generic_tower_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_generic_tower.xi"), Some(0), "3c generic numeric tower smoke failed");
+}
+
+#[test]
+fn stdlib_exec_math_core_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_math_core.xi"), Some(0), "math/core generic tower module smoke failed");
+}
