@@ -729,6 +729,7 @@ impl IrEmitter {
                         }
                         self.emitln("  call void @xiom_guard_heap_exit()");
                         self.emitln("  call void @xiom_guard_page_disarm()");
+                        self.emitln("  call void @xiom_trap_leave()");
                     }
                     // Coerce the returned value to the function's declared return
                     // type (int widths, int<->pointer, int<->double, int->struct)

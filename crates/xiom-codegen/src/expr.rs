@@ -3373,6 +3373,44 @@ impl IrEmitter {
             Expr::Await(inner, _) => self.compile_expr(inner),
             Expr::Comptime(inner, _) => self.compile_expr(inner),
             Expr::Unsafe(block, _) => {
+                // D2.1 (Phase 5, requirement f): set up the fault trap FIRST.
+                // xiom_trap_enter captures the CPU context; on a hardware fault
+                // inside the block, the VEH handler restores it with a fault
+                // code as the "return value". Branch to a fault path that
+                // yields a zero/Err value instead of crashing the process.
+                let fault_flag = self.fresh_tmp();
+                self.emitln(&format!("  {fault_flag} = call i64 @xiom_trap_enter()"));
+                let fault_is_set = self.fresh_tmp();
+                self.emitln(&format!("  {fault_is_set} = icmp ne i64 {fault_flag}, 0"));
+                let fault_path = self.fresh_block("confined_fault");
+                let normal_path = self.fresh_block("confined_normal");
+                self.emitln(&format!("  br i1 {fault_is_set}, label %{fault_path}, label %{normal_path}"));
+                self.emitln(&format!("\n{fault_path}:"));
+                // On fault: discard the arena + disarm the page, then return a
+                // type-correct zero value for the fn's declared return type
+                // (the caller can detect the fault via the Result wrapper or
+                // the zero value). Non-void returns get their zero literal.
+                self.emitln("  call void @xiom_guard_heap_exit()");
+                self.emitln("  call void @xiom_guard_page_disarm()");
+                self.emitln("  call void @xiom_trap_leave()");
+                let ret_ty = self.fctx.current_return_type.clone();
+                if ret_ty.is_empty() || ret_ty == "void" {
+                    self.emitln("  ret void");
+                } else if ret_ty == LLVM_STR_PTR {
+                    self.emitln("  ret i8* null");
+                } else if ret_ty.starts_with("%struct.") {
+                    // Struct returns use sret — ret a zeroed struct via alloca.
+                    let slot = self.fresh_tmp();
+                    self.emitln(&format!("  {slot} = alloca {ret_ty}, align 16"));
+                    let loaded = self.fresh_tmp();
+                    self.emitln(&format!("  {loaded} = load {ret_ty}, {ret_ty}* {slot}, align 16"));
+                    self.emitln(&format!("  ret {ret_ty} {loaded}"));
+                } else if ret_ty.starts_with("float") || ret_ty == "double" {
+                    self.emitln(&format!("  ret {ret_ty} 0.0"));
+                } else {
+                    self.emitln(&format!("  ret {ret_ty} 0"));
+                }
+                self.emitln(&format!("\n{normal_path}:"));
                 // D2.1 (Unsafe Confinement Phase 3, requirement d): route this
                 // block's allocations to the per-thread GUARD ARENA, which is
                 // discarded wholesale on exit — isolation from the main heap.
@@ -3435,6 +3473,7 @@ impl IrEmitter {
                 }
                 self.emitln("  call void @xiom_guard_heap_exit()");
                 self.emitln("  call void @xiom_guard_page_disarm()");
+                self.emitln("  call void @xiom_trap_leave()");
                 Ok((last, last_ty))
             }
             Expr::BlockExpr(block, _) => {
