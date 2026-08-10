@@ -52,9 +52,18 @@
 - **GOAL 2 (no new failures):** Fast suite = 1109 passed / 4 failed / 1 ignored. 3 failures are the documented pre-existing baseline (diff `test_diff_test_produces_correct_ir`, stdlib-exec complex, stdlib-exec net). The 4th (`stdlib_exec_bigint_runs`) is a **parallel-session in-flight** stdlib failure (bigint.xi/smoke_bigint.xi have +788 uncommitted parallel edits) — NOT a compiler regression; logged as docs/COMPILER_BUGS.md NOTE 6.
 - **Commits:** `refactor(xiom-check)` `4403a118` · `chore(tools)` `b82a7cc6` · `chore(test)` `fb8405b7` · `fix(runtime)` `f99da928` · docs commits below.
 
+## BUG-1 FIX SESSION (2026-08-10 late) — UNBLOCKED the parallel BigInt/BigFloat session
+- **BUG 1 (tuple-of-struct codegen) FIXED** — commit `d22068f8` (crates/xiom-codegen):
+  - fn signature/return/param tuple names now match the expression-level registration (module-qualified element names); `resolve_type_key` skips generated aggregate keys (no self-nesting); `parse_struct_field_types` uses real type_meta instead of `_`-splitting. Tuple-of-struct returns (2- and 3-element, 40-byte structs) compile and run correctly.
+  - **Struct `&T` params now pass the ADDRESS** (`%struct.X*`) instead of a by-value copy — `_trim(&result)`-style mutations (digits.pop()) write through to the caller (previously silently lost → phantom limbs → wrong eq/compare). Scalar `&T` unchanged; `&Vec/&Slice/&Map/&Set` keep the by-value ABI.
+  - **clang -O2 hang fixed** — size-based inline policy (alwaysinline only ≤10 stmts, inlinehint ≤48) replaces alwaysinline-everything; the 735KB extended-bigint module compiles in ~14s (was >300s hang).
+  - Verified: probe_tuple/probe_big/probe_big2/probe_mut/probe_ref/probe_dig/probe_cmp/probe_dm all pass; `bigint_div_mod` no longer crashes; fast suite re-run = 1109/4/1, **no new failures**; stdlib-compile 40/40; checker 178/178.
+- **NOTE 7 (stdlib, parallel session owns it):** `bigint_div_mod` returns a WRONG quotient for multi-limb dividends (e.g. `1000000005/2` → q=2 r=1000000001; `987654321987654321/12345` → r ≥ b). Root cause in `_estimate_q_digit`: single-top-limb estimate, no upward correction, `est<=0 → return 1`. `stdlib_exec_bigint_runs` fails at assertion 8 until the stdlib algorithm is fixed (the crash/hang causes are gone). See docs/COMPILER_BUGS.md.
+- **Commits:** `fix(codegen)` `d22068f8` · `docs(compiler-bugs)` `df8b918b`.
+
 ## KNOWN LIMITATIONS (documented, not blockers)
 - **complex + net stdlib smokes** fail on the clean baseline too (pre-existing; net is network-dependent).
-- **bigint stdlib-exec smoke** fails while the parallel BigInt/BigFloat session's bigint.xi is mid-refactor (see docs/COMPILER_BUGS.md NOTE 6).
+- **bigint stdlib-exec smoke** fails at assertion 8 while the parallel BigInt session's `_estimate_q_digit` underestimates multi-limb quotients (stdlib logic — docs/COMPILER_BUGS.md NOTE 7); the crash/hang/compile causes are fixed.
 - **Full selfhost diff tests** (`test_selfhost_bootstrap_v050`, full_diff_tests) remain `#[ignore]`d — selfhost bootstrap is a deferred milestone; the gate (compiler compiles itself) is verified manually.
 - **e2e (16min)** not re-run at every phase boundary this session (fast gates used; parallel-session xiom.exe rebuilds make it flaky). Run e2e at the next full-suite boundary.
 - **HardwareFault/ContractViolation** types exist in stdlib/xiom/error.xi; the fault path returns a type-correct zero (recoverable indicator) rather than a full `Result[T, HardwareFault]` wrapper (plan §2.8's wrapper is a future refinement).
