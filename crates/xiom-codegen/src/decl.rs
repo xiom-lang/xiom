@@ -765,6 +765,17 @@ impl IrEmitter {
         // once-only transient-fault retry for its unsafe blocks (deterministic
         // faults shouldn't be retried).
         self.fctx.unsafe_allow_retry = !fd.attributes.iter().any(|a| a.name.name == "unsafe_no_retry");
+        // D2.1 (Phase 7): `#[unsafe_direct]` marks the fn's unsafe blocks as
+        // trusted (no trampoline/arena/guard page). Restricted to stdlib/trusted
+        // or user code with --enable-unsafe-direct.
+        let has_direct = fd.attributes.iter().any(|a| a.name.name == "unsafe_direct");
+        let is_stdlib = self.config.source_file.contains("stdlib")
+            || self.config.source_file.contains("selfhost");
+        let direct_allowed = has_direct && (is_stdlib || self.config.enable_unsafe_direct);
+        self.fctx.unsafe_direct = direct_allowed;
+        if has_direct && !direct_allowed {
+            eprintln!("  warning: `#[unsafe_direct]` is restricted to stdlib/trusted code; add --enable-unsafe-direct to allow user code. Block will be confined.");
+        }
         self.types.fn_ptr_return_types = SyncRegistry::default();
         self.local.bool_locals.clear();
         self.local.ptr_locals.clear();

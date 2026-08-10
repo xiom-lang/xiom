@@ -380,6 +380,8 @@ fn main() {
     let stack_protector = args.iter().any(|a| a == "--stack-protector");
     let overflow_checks = args.iter().any(|a| a == "--overflow-checks");
     let strict_exhaustive = args.iter().any(|a| a == "--strict-exhaustive");
+    // D2.1 (Phase 7): allow `#[unsafe_direct]` (trusted escape hatch) in user code
+    let enable_unsafe_direct = args.iter().any(|a| a == "--enable-unsafe-direct");
     // v0.54: Binary cache — cache compiled binary by SHA-256 source hash
     let use_cache = args.iter().any(|a| a == "--cache");
     // 5e.5f: Incremental compilation flags
@@ -655,6 +657,7 @@ fn main() {
         cache: use_cache,
         lto: use_lto,
         parallel_codegen,
+        enable_unsafe_direct,
     };
 
     // 7F.2: Build graph visualization
@@ -870,6 +873,7 @@ fn main() {
                     cache: false,
                     lto: false,
                     parallel_codegen: false,
+                    enable_unsafe_direct: enable_unsafe_direct,
                 };
                 let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
                 let source = std::fs::read_to_string(path).unwrap_or_default();
@@ -921,6 +925,7 @@ fn main() {
                     cache: false,
                     lto: false,
                     parallel_codegen: false,
+                    enable_unsafe_direct: enable_unsafe_direct,
                 };
                 let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
                 let source = std::fs::read_to_string(path).unwrap_or_default();
@@ -982,6 +987,7 @@ fn print_usage() {
     eprintln!("  --sanitize=<type>    7E.1: Enable sanitizer (address, undefined, leak, thread)");
     eprintln!("  --stack-protector    7E.2: Enable stack canaries (-fstack-protector)");
     eprintln!("  --overflow-checks    Enable integer overflow runtime checks");
+    eprintln!("  --enable-unsafe-direct  D2.1: allow #[unsafe_direct] (trusted escape hatch) in user code");
     eprintln!("  --graph             7F.2: Output dependency graph (DOT format)");
     eprintln!("  --graph=mermaid     7F.2: Output dependency graph (Mermaid format)");
     eprintln!("  build               7F.1: Build entire project (from xiom.toml)");

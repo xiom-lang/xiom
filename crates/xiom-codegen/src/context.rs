@@ -102,6 +102,14 @@ pub struct CodegenConfig {
     pub debug_symbols: bool,
     /// R1: Source file path for DWARF DIFile metadata
     pub source_file: String,
+    /// D2.1 (Phase 7): `#[unsafe_direct]` — trusted escape hatch. When true,
+    /// user code may tag unsafe blocks `#[unsafe_direct]` (bypass confinement:
+    /// no trampoline/arena/guard page, runs as today's plain unsafe block).
+    /// Restricted to stdlib/trusted packages by default; `--enable-unsafe-direct`
+    /// grants it to user code. The compiler reports the number of direct blocks.
+    pub enable_unsafe_direct: bool,
+    /// D2.1 (Phase 7): counted cap of `#[unsafe_direct]` blocks allowed.
+    pub unsafe_direct_cap: u32,
 }
 
 impl Default for CodegenConfig {
@@ -129,6 +137,8 @@ impl Default for CodegenConfig {
             parallel_codegen: false,
             debug_symbols: false,
             source_file: "unknown.xi".to_string(),
+            enable_unsafe_direct: false,
+            unsafe_direct_cap: 64,
         }
     }
 }
@@ -204,6 +214,11 @@ pub struct FunctionContext {
     /// retry a transient fault once. Set from `#[unsafe_no_retry]` on the fn
     /// (deterministic faults shouldn't retry). Default: true (retry once).
     pub unsafe_allow_retry: bool,
+    /// D2.1 (Phase 7): whether the current function's unsafe blocks run
+    /// `#[unsafe_direct]` — trusted, no trampoline/arena/guard page (plain
+    /// unsafe). Restricted to stdlib/trusted, or user code with
+    /// --enable-unsafe-direct.
+    pub unsafe_direct: bool,
 }
 
 // ============================================================================

@@ -3458,6 +3458,50 @@ impl IrEmitter {
                     self.emitln("  call void @xiom_guard_page_disarm()");
                     return Ok((last, last_ty));
                 }
+                // D2.1 (Phase 7): `#[unsafe_direct]` — trusted escape hatch.
+                // The fn's unsafe blocks run as PLAIN unsafe blocks (no
+                // trampoline, no arena, no guard page): today's transparent
+                // lowering. Intended for stdlib/selfhost hot paths. Counted
+                // against the audited cap.
+                if self.fctx.unsafe_direct {
+                    self.unsafe_direct_count += 1;
+                    if self.unsafe_direct_count > self.config.unsafe_direct_cap {
+                        return Err(format!(
+                            "unsafe_direct cap exceeded: {} `#[unsafe_direct]` blocks (limit {})",
+                            self.unsafe_direct_count, self.config.unsafe_direct_cap
+                        ));
+                    }
+                    // Compile as a plain block (no guard heap / page — trusted).
+                    let mut last = String::new();
+                    let mut last_ty = String::new();
+                    let n = block.stmts.len();
+                    for (i, item) in block.stmts.iter().enumerate() {
+                        let is_last = i + 1 == n;
+                        match item {
+                            xiom_ast::StmtOrExpr::Expr(e) => {
+                                let (v, vt) = self.compile_expr(e)?;
+                                if is_last { last = v; last_ty = vt; }
+                            }
+                            xiom_ast::StmtOrExpr::Stmt(s) => {
+                                if is_last {
+                                    if let Stmt::Expr(e, ..) = s {
+                                        let (v, vt) = self.compile_expr(e)?;
+                                        last = v; last_ty = vt;
+                                    } else {
+                                        self.compile_stmt(s)?;
+                                    }
+                                } else {
+                                    self.compile_stmt(s)?;
+                                }
+                            }
+                        }
+                    }
+                    if last.is_empty() {
+                        last = "0".to_string();
+                        last_ty = "void".to_string();
+                    }
+                    return Ok((last, last_ty));
+                }
                 let unsafe_id = self.unsafe_block_counter;
                 self.unsafe_block_counter += 1;
                 let fn_name = format!("__unsafe_block_{unsafe_id}");

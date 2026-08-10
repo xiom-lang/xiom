@@ -62,6 +62,9 @@ pub struct IrEmitter {
     /// @xiom_trampoline_set_returned() call first, so the call site knows to
     /// return the block's value from the ENCLOSING fn.
     pub in_unsafe_block_fn: bool,
+    /// D2.1 (Phase 7): counted number of `#[unsafe_direct]` blocks compiled
+    /// (audited cap against config.unsafe_direct_cap).
+    pub unsafe_direct_count: u32,
 
     /// Compilation flags and target configuration
     pub config: CodegenConfig,
@@ -94,6 +97,7 @@ impl IrEmitter {
     guard_heap_depth: 0,
             unsafe_block_counter: 0,
             in_unsafe_block_fn: false,
+            unsafe_direct_count: 0,
             config: CodegenConfig::default(),
             types: TypeContext::default(),
             fctx: FunctionContext {
@@ -125,6 +129,12 @@ impl IrEmitter {
 
     pub fn set_debug_symbols(&mut self, enabled: bool) {
         self.config.debug_symbols = enabled;
+    }
+
+    /// D2.1 (Phase 7): enable `#[unsafe_direct]` for user code (default: stdlib/
+    /// trusted only). Mirrors the --enable-unsafe-direct CLI gate.
+    pub fn set_enable_unsafe_direct(&mut self, enabled: bool) {
+        self.config.enable_unsafe_direct = enabled;
     }
 
     pub fn set_source_file(&mut self, path: String) {
@@ -4239,6 +4249,11 @@ let inner_llvm = match &inner_subst {
             self.mono.current_type_map = type_map.clone();
             // D2.1 (Phase 6): honor #[unsafe_no_retry] on generic fns too.
             self.fctx.unsafe_allow_retry = !fd.attributes.iter().any(|a| a.name.name == "unsafe_no_retry");
+            // D2.1 (Phase 7): honor #[unsafe_direct] on generic fns too.
+            let has_direct = fd.attributes.iter().any(|a| a.name.name == "unsafe_direct");
+            let is_stdlib = self.config.source_file.contains("stdlib")
+                || self.config.source_file.contains("selfhost");
+            self.fctx.unsafe_direct = has_direct && (is_stdlib || self.config.enable_unsafe_direct);
 
             // P0-2: Clear deferred cleanup stack at function start
             self.clear_deferred_cleanups();
