@@ -1142,6 +1142,28 @@ v0.54 ??? v0.55 ??? v0.56 ??? SELFHOST
 
 ---
 
+### v0.57.0 — "Unsafe Confinement" (PLANNED — before SELFHOST)
+
+**Plan:** `docs/UNSAFE_CONFINEMENT_PLAN.md` (8 phases, ~82–118h). Upgrades `unsafe { }`
+from a lexical permission gate (D2) to a **confined transaction**: lexical confinement of
+`*T`/`asm`/`extern "C"` (a), block-scoped-only (b), pre-entry contracts (c), guard-heap
+isolation (d), stack guard pages (e), hardware fault trapping via SEH/sigsetjmp (f),
+recoverable `Err(HardwareFault)`/`Err(ContractViolation)` (g), transient-fault retry (h),
+and zero-escape of raw pointers (i). MUST land before the self-host bootstrap.
+
+| Domain | Feature | Source Plan | Effort | Status |
+|--------|---------|-------------|--------|--------|
+| **Safety** | Confinement gates (a, b, i) — extern-call gate, block-only enforcement, zero-escape tail check | `UNSAFE_CONFINEMENT_PLAN.md` P1 | 6–8h | ? Planned |
+| **Safety** | Pre-entry contracts (c) — safe wrapper + requires/ensures, Err(ContractViolation) | `UNSAFE_CONFINEMENT_PLAN.md` P2 | 6–8h | ? Planned |
+| **Safety** | Guard heap isolation (d) — per-block arena, main-heap isolation | `UNSAFE_CONFINEMENT_PLAN.md` P3 | 12–16h | ? Planned |
+| **Safety** | Stack guard pages (e) — red-zone overflow catch | `UNSAFE_CONFINEMENT_PLAN.md` P4 | 8–12h | ? Planned |
+| **Safety** | Hardware fault trapping (f, g) — SEH/VEH (Win), sigsetjmp (POSIX), Err(HardwareFault) | `UNSAFE_CONFINEMENT_PLAN.md` P5 | 20–30h | ? Planned |
+| **Safety** | Transient fault retry (h) — fresh-slot re-execution, #[unsafe_no_retry] | `UNSAFE_CONFINEMENT_PLAN.md` P6 | 6–8h | ? Planned |
+| **Safety** | Stdlib adoption + perf budget (?1.5×, #[unsafe_direct] escape) | `UNSAFE_CONFINEMENT_PLAN.md` P7 | 16–24h | ? Planned |
+| **Safety** | Self-host gate — confinement active when compiler compiles itself | `UNSAFE_CONFINEMENT_PLAN.md` P8 | 8–12h | ? Planned |
+
+---
+
 ### Performance Targets
 
 | Benchmark | v0.53 (now) | v0.54 | v0.55 | v0.56 |
@@ -1178,12 +1200,14 @@ Before self-host begins, these safety-critical features MUST be complete:
 - [ ] R1: Accurate DI emission for .xi source — remaining Phase A
 - [ ] I1: Send/Sync enforcement — remaining Phase B
 - [ ] I3: Deadlock detection — remaining Phase B
+- [ ] **Unsafe Confinement (a–i) — v0.57.0 — `docs/UNSAFE_CONFINEMENT_PLAN.md`** (see §v0.57.0)
 
-**17/17 selfhost gates CLEARED. 3 tasks remain (1 Phase A + 2 Phase B).**
+**17/17 selfhost gates CLEARED. 4 tasks remain (1 Phase A + 2 Phase B + Unsafe Confinement).**
 
 | Version | Date | Tests | Notes |
 |---------|------|-------|-------|
 | **SELFHOST** | TBD | — | Self-host bootstrap — XIOM compiles itself |
+| **v0.57.0** | TBD | — | **Unsafe Confinement (a–i)** — `docs/UNSAFE_CONFINEMENT_PLAN.md` — required before SELFHOST |
 | **v0.56.0** | TBD | — | LTO + Debug info + Hot reload + Lazy JIT + defer + Never type |
 | **v0.55.0** | TBD | — | OrcJIT MVP + Spawn codegen + Send/Sync + Channel[T] + CTFE Phase B |
 | **v0.54.0** | TBD | — | CTFE Phase A + Binary cache + Debug safety + Match exhaust + Thread-safe registry |
