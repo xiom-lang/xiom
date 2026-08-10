@@ -46,6 +46,12 @@ pub struct IrEmitter {
     pub str_counter: u32,
     /// Whether @llvm.trap has been declared
     pub has_llvm_trap_decl: bool,
+    /// D2.1 (Unsafe Confinement Phase 3, requirement d): guard-heap nesting
+    /// depth. While > 0 (inside an `unsafe` block), allocations route to the
+    /// per-thread guard arena (@xiom_guard_alloc) instead of @malloc; on block
+    /// exit the arena is discarded wholesale (isolation) and the tail value is
+    /// Copy-Out'd to the main heap (requirement i, UAF fix).
+    pub guard_heap_depth: u32,
 
     /// Compilation flags and target configuration
     pub config: CodegenConfig,
@@ -75,6 +81,7 @@ impl IrEmitter {
             block_counter: 0,
             str_counter: 0,
             has_llvm_trap_decl: false,
+    guard_heap_depth: 0,
             config: CodegenConfig::default(),
             types: TypeContext::default(),
             fctx: FunctionContext {
@@ -510,6 +517,20 @@ impl IrEmitter {
     /// -O0/-O1 when an i128 loop-carried local coexists in the same frame).
     fn alloca_align(&self, ty: &str) -> &'static str {
         if ty == "i128" || ty == "fp128" || self.struct_contains_128(&ty) { ", align 16" } else { "" }
+    }
+
+    /// D2.1 (Unsafe Confinement Phase 3, requirement d): emit a heap allocation
+    /// that routes to the guard arena when inside an `unsafe` block (guard_heap
+    /// depth > 0), else to @malloc. The guard arena is discarded wholesale on
+    /// block exit, isolating unsafe-block allocations from the main heap.
+    fn emit_alloc(&mut self, size_expr: &str) -> String {
+        let tmp = self.fresh_tmp();
+        if self.guard_heap_depth > 0 {
+            self.emitln(&format!("  {tmp} = call i8* @xiom_guard_alloc(i64 {size_expr})"));
+        } else {
+            self.emitln(&format!("  {tmp} = call i8* @malloc(i64 {size_expr})"));
+        }
+        tmp
     }
 
     /// D1: alignment suffix for stores/loads of 128-bit types.

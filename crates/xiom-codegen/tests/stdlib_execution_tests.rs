@@ -498,3 +498,8 @@ fn stdlib_exec_generic_tower_runs() {
 fn stdlib_exec_math_core_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_math_core.xi"), Some(0), "math/core generic tower module smoke failed");
 }
+
+#[test]
+fn stdlib_exec_guard_heap_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_guard_heap.xi"), Some(0), "guard heap + Copy-Out smoke failed");
+}

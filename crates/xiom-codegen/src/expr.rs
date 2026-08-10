@@ -3372,14 +3372,13 @@ impl IrEmitter {
             }
             Expr::Await(inner, _) => self.compile_expr(inner),
             Expr::Comptime(inner, _) => self.compile_expr(inner),
-            Expr::Unsafe(block, _) | Expr::BlockExpr(block, _) => {
-                // An `unsafe { ... }` block is an expression whose value is its
-                // tail. Compile every statement (Let/Var/Assign/Return/ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦) and
-                // return the value of the final expression, so
-                // `let x = unsafe { ffi_call() }` and
-                // `fn f() -> T { unsafe { ffi_call() } }` yield a real SSA value
-                // instead of an empty operand (previously returned String::new(),
-                // producing invalid `store T ,` / `ret T ` IR).
+            Expr::Unsafe(block, _) => {
+                // D2.1 (Unsafe Confinement Phase 3, requirement d): route this
+                // block's allocations to the per-thread GUARD ARENA, which is
+                // discarded wholesale on exit — isolation from the main heap.
+                self.emitln("  call void @xiom_guard_heap_enter()");
+                self.guard_heap_depth += 1;
+                // Compile every statement; the block's value is its tail.
                 let mut last = String::new();
                 let mut last_ty = String::new();
                 let n = block.stmts.len();
@@ -3409,7 +3408,63 @@ impl IrEmitter {
                     }
                 }
                 if last.is_empty() {
-                    // No value-producing tail expression.
+                    last = "0".to_string();
+                    last_ty = "void".to_string();
+                }
+                self.guard_heap_depth -= 1;
+                // Copy-Out (requirement i, review/UAF fix): a heap-backed tail
+                // (Str / Vec data pointer) is COPIED to the main heap BEFORE the
+                // arena resets, so the caller's value never points at arena
+                // memory that is about to be discarded. Single C call (no
+                // inline strlen — avoids recursion-counter leaks in the block).
+                // NULL result (OOM) falls back to the original pointer; the
+                // arena is exited right after regardless (a NULL copy means the
+                // caller keeps an arena pointer, but OOM is unrecoverable anyway).
+                if last_ty == LLVM_STR_PTR {
+                    let copy_tmp = self.fresh_tmp();
+                    self.emitln(&format!("  {copy_tmp} = call i8* @xiom_guard_copy_str(i8* {last})"));
+                    let not_null = self.fresh_tmp();
+                    self.emitln(&format!("  {not_null} = icmp ne i8* {copy_tmp}, null"));
+                    let sel = self.fresh_tmp();
+                    self.emitln(&format!("  {sel} = select i1 {not_null}, i8* {copy_tmp}, i8* {last}"));
+                    last = sel;
+                }
+                self.emitln("  call void @xiom_guard_heap_exit()");
+                Ok((last, last_ty))
+            }
+            Expr::BlockExpr(block, _) => {
+                // A plain block expression: compile every statement; the value
+                // is its tail. No guard-heap wrapping (only `unsafe` blocks are
+                // confined).
+                let mut last = String::new();
+                let mut last_ty = String::new();
+                let n = block.stmts.len();
+                for (i, item) in block.stmts.iter().enumerate() {
+                    let is_last = i + 1 == n;
+                    match item {
+                        xiom_ast::StmtOrExpr::Expr(e) => {
+                            let (v, vt) = self.compile_expr(e)?;
+                            if is_last {
+                                last = v;
+                                last_ty = vt;
+                            }
+                        }
+                        xiom_ast::StmtOrExpr::Stmt(s) => {
+                            if is_last {
+                                if let Stmt::Expr(e, ..) = s {
+                                    let (v, vt) = self.compile_expr(e)?;
+                                    last = v;
+                                    last_ty = vt;
+                                } else {
+                                    self.compile_stmt(s)?;
+                                }
+                            } else {
+                                self.compile_stmt(s)?;
+                            }
+                        }
+                    }
+                }
+                if last.is_empty() {
                     Ok(("0".to_string(), "void".to_string()))
                 } else {
                     Ok((last, last_ty))
