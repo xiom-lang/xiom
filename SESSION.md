@@ -48,3 +48,11 @@
 1. Run the full e2e suite at a phase boundary (fast gates are green).
 2. Optionally: selfhost bootstrap milestone (re-enable full_diff_tests) — deferred by constraints.
 3. Optional refinements: Result[T, HardwareFault] wrapper (plan §2.8), transaction batching audit for perf, Promotion (zero-copy Copy-Out).
+
+## DOC UPDATES (2026-08-10, docs-only commit)
+- `docs/AI_CONTEXT.md` → v0.57.0: Unsafe Confinement model (§4.4, req a–j), `#[unsafe_no_retry]`/`#[unsafe_direct]` attributes, HardwareFault/ContractViolation (§8.17), `--enable-unsafe-direct` CLI flag (§11), FFI ownership conversions (C FFI), 60-module stdlib count.
+- `docs/SCALING_ARCHITECTURE.md` → v0.2: pre-selfhost review incorporated (§12 — Sealed Generics/Pre-Mono Table, Layout Hash, Compiler Daemon) + revised migration path (~15 weeks).
+- `docs/CTFE_PLAN.md` → §6 integration audit (CTFE+Confinement contracts; CTFE cache → SyncRegistry at Scaling Phase 5, NOT before).
+- `docs/ORCJIT_PLAN.md` → §7 integration audit (JIT inherits Confinement automatically; `JitModule::get_function_ptr()` for Live Patching).
+- `docs/LIVE_PATCHING_PLAN.md` → NEW v0.61 design spec (patchable ABI, JIT sandbox, atomic swap, rollback, AI/spacecraft integration).
+- `docs/BIGINT_BIGFLOAT_SESSION.md` → NEW parallel-work session spec: production BigInt extension + BigFloat build, full API/contracts/test plan, ALL stdlib libs categorized with 12 parallel session slots.

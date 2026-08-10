@@ -112,3 +112,45 @@ xiom --jit file.xi              # Compile path with JIT
 ---
 
 **Status:** Phase 1+2 COMPLETE. Process-based JIT engine with incremental caching. Fast enough for development (3.3x vs AOT). Ready for selfhost dev loop.
+
+---
+
+## 7. INTEGRATION AUDIT (2026-08-10 — pre-selfhost review)
+
+### Integration B: OrcJIT + Unsafe Confinement (v0.57)
+
+**Interaction.** Confined unsafe blocks are emitted as SEH/sigsetjmp trampoline
+calls (`xiom_trampoline_call`). Because the JIT uses the SAME `IrEmitter` as the
+AOT compiler and links against `libxiom_runtime.dll` (pre-built via
+`xiom build-runtime`), JIT-compiled code inherits the full Unsafe Confinement
+(fault traps, guard arena, retry) with **zero extra work**.
+
+**Verification status:** ✅ inherited automatically — the JIT pipeline shares the
+IR emitter; no divergence between AOT and JIT codegen.
+
+### Integration D: OrcJIT + Live Patching (v0.61)
+
+**Interaction.** Live Patching needs the JIT to compile a NEW version of a
+function while the process runs. The JIT engine already does
+`JitEngine::compile_module(source) → .dll → dlopen`. For patching it must:
+1. Compile the new .dll (already works).
+2. Load it (already works).
+3. Look up a SPECIFIC symbol (e.g. `math_sqrt`) instead of `main`.
+4. Return that function pointer to the Atomic Swapper.
+
+**What to do (Implementation Note):** extend `JitModule::get_symbol()` to expose
+arbitrary function names:
+```rust
+pub fn get_function_ptr(&self, name: &str) -> Option<*const ()>;
+```
+`JitModule` already stores a `HashMap<String, usize>` of symbols — this is an
+exposure change, ~1 day. The JIT engine is **80% ready for Live Patching**.
+
+**Linking requirement:** `xiom build-runtime` produces `libxiom_runtime.dll`
+containing the trap handlers; JIT patches link `-lxiom_runtime`, so patched
+code is confined identically to AOT code (fault traps catch hardware errors
+during the patch, per v0.61 §4).
+
+---
+
+## 8. REMAINING (Deferred to Post-Selfhost)
