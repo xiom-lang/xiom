@@ -3622,6 +3622,11 @@ impl IrEmitter {
                 };
                 let fn_i64 = self.fresh_tmp();
                 self.emitln(&format!("  {fn_i64} = ptrtoint ptr @{fn_name} to i64"));
+                // D2.1 (Phase 6, requirement h): apply the enclosing fn's retry
+                // policy. `#[unsafe_no_retry]` (fctx.unsafe_allow_retry=false)
+                // disables the once-only transient retry.
+                let retry_policy = if self.fctx.unsafe_allow_retry { "1" } else { "0" };
+                self.emitln(&format!("  call void @xiom_trampoline_set_allow_retry(i64 {retry_policy})"));
                 let fault_flag = self.fresh_tmp();
                 self.emitln(&format!("  {fault_flag} = call i64 @xiom_trampoline_call(i64 {fn_i64}, i8* {ctx_i8})"));
                 let fault_is_set = self.fresh_tmp();
