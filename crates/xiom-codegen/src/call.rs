@@ -480,15 +480,15 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 }
                 // Check for memory allocation/free builtins
                 if fn_name == "alloc" {
-                    let tmp = self.fresh_tmp();
                     if let Some(size_arg) = args.first() {
                         let (size_raw, size_ty) = self.compile_expr(size_arg)?;
                         let size_val = self.val_to_i64(&size_raw, &size_ty);
-                        self.emitln(&format!("  {tmp} = call i8* @malloc(i64 {size_val})"));
+                        let tmp = self.emit_alloc(&size_val);
+                        return Ok((tmp, LLVM_STR_PTR.to_string()));
                     } else {
-                        self.emitln(&format!("  {tmp} = call i8* @malloc(i64 0)"));
+                        let tmp = self.emit_alloc("0");
+                        return Ok((tmp, LLVM_STR_PTR.to_string()));
                     }
-                    return Ok((tmp, LLVM_STR_PTR.to_string()));
                 }
                 // ptr.null[T]() / ptr.null_mut[T]() / ptr.dangling[T]() ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â generic
                 // pointer constructors with NO value arguments. The parser discards
@@ -690,8 +690,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let alloc_size = initial_cap * elem_size;
                             let struct_alloca = self.fresh_tmp();
                             self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
-                            let data_ptr = self.fresh_tmp();
-                            self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 {alloc_size})"));
+                            let data_ptr = self.emit_alloc(&format!("{alloc_size}"));
                             // Null check on malloc ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â trap on OOM
                             let null_check = self.fresh_tmp();
                             let ok_block = self.fresh_block("vec_new_malloc_ok");
@@ -752,10 +751,9 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             } else { 8 };
                             let struct_alloca = self.fresh_tmp();
                             self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
-                            let data_ptr = self.fresh_tmp();
                             let alloc_size = self.fresh_tmp();
                             self.emitln(&format!("  {alloc_size} = mul i64 {elem_size}, {cap_i64}"));
-                            self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 {alloc_size})"));
+                            let data_ptr = self.emit_alloc(&alloc_size);
                             let null_check = self.fresh_tmp();
                             let ok_block = self.fresh_block("vec_wc_ok");
                             let trap_block = self.fresh_block("vec_wc_trap");
@@ -1351,8 +1349,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             self.emitln(&format!("  {bytes_zero} = icmp eq i64 {bytes}, 0"));
                             let alloc_bytes = self.fresh_tmp();
                             self.emitln(&format!("  {alloc_bytes} = select i1 {bytes_zero}, i64 1, i64 {bytes}"));
-                            let newbuf = self.fresh_tmp();
-                            self.emitln(&format!("  {newbuf} = call i8* @malloc(i64 {alloc_bytes})"));
+                            let newbuf = self.emit_alloc(&alloc_bytes);
                             self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {newbuf}, i8* {data}, i64 {bytes}, i1 false)"));
                             // Build the cloned struct: {newbuf, len, cap=len, elem_size}
                             let s0 = self.fresh_tmp();
@@ -1620,9 +1617,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     return Ok((arg.clone(), LLVM_I64.to_string()));
                 }
                 if is_mutex_fn && fn_name == "Mutex.new" {
-                    let tmp = self.fresh_tmp();
-                    let _size_val = self.fresh_tmp();
-                    self.emitln(&format!("  {tmp} = call i8* @malloc(i64 64)"));
+                    let tmp = self.emit_alloc("64");
                     self.emitln(&format!("  call void @xiom_mutex_init(i8* {tmp})"));
                     return Ok((tmp, "i8*".to_string()));
                 } else if is_mutex_fn {

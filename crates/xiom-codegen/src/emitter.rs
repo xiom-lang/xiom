@@ -328,6 +328,12 @@ impl IrEmitter {
         self.emitln("declare void @llvm.trap()");
         self.emitln("@xiom_recursion_counter = internal thread_local global i64 0");
         self.emitln("declare i8* @malloc(i64)");
+        // D2.1 (Unsafe Confinement Phase 3): guard-heap arena + Copy-Out.
+        self.emitln("declare void @xiom_guard_heap_enter()");
+        self.emitln("declare void @xiom_guard_heap_exit()");
+        self.emitln("declare i8* @xiom_guard_alloc(i64)");
+        self.emitln("declare i8* @xiom_guard_copy_out(i8*, i64)");
+        self.emitln("declare i8* @xiom_guard_copy_str(i8*)");
         self.emitln("declare i8* @realloc(i8*, i64)");
         self.emitln("declare void @free(i8*)");
         self.emitln("declare void @llvm.memcpy.p0i8.p0i8.i64(i8*, i8*, i64, i1)");

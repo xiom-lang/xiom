@@ -704,6 +704,23 @@ impl IrEmitter {
                     // Value sink: use the value's real LLVM type from compile_expr.
                     let (mut val, val_ty) = self.compile_expr(e)?;
                     let ret_ty = self.fctx.current_return_type.clone();
+                    // D2.1 (Unsafe Confinement Phase 3, requirement i — Copy-Out):
+                    // a `return` INSIDE an unsafe block returns a value whose heap
+                    // payload lives on the guard arena. It must be COPIED to the
+                    // main heap BEFORE the arena resets at block exit, or the
+                    // caller's Str/Vec would dangle (use-after-free).
+                    // Uses xiom_guard_copy_str (single C call) — NOT inline
+                    // strlen — which would leak the recursion counter in the
+                    // confined block (alwaysinline imbalance, 500-depth trap).
+                    if self.guard_heap_depth > 0 && val_ty == LLVM_STR_PTR {
+                        let copy_tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {copy_tmp} = call i8* @xiom_guard_copy_str(i8* {val})"));
+                        let not_null = self.fresh_tmp();
+                        self.emitln(&format!("  {not_null} = icmp ne i8* {copy_tmp}, null"));
+                        let sel = self.fresh_tmp();
+                        self.emitln(&format!("  {sel} = select i1 {not_null}, i8* {copy_tmp}, i8* {val}"));
+                        val = sel;
+                    }
                     // Coerce the returned value to the function's declared return
                     // type (int widths, int<->pointer, int<->double, int->struct)
                     // so the `ret` instruction is well-typed.

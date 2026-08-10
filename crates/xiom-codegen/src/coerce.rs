@@ -322,10 +322,9 @@ impl IrEmitter {
             let null_ptr = self.fresh_tmp();
             self.emitln(&format!("  {null_ptr} = getelementptr {ty}, {ty}* null, i32 1"));
             self.emitln(&format!("  {size_i64} = ptrtoint {ty}* {null_ptr} to i64"));
-            let malloc_ptr = self.fresh_tmp();
+            let malloc_ptr = self.emit_alloc(&size_i64);
             let typed_ptr = self.fresh_tmp();
             let bc = self.fresh_tmp();
-            self.emitln(&format!("  {malloc_ptr} = call i8* @malloc(i64 {size_i64})"));
             self.emitln(&format!("  {typed_ptr} = bitcast i8* {malloc_ptr} to {ty}*"));
             self.emitln(&format!("  store {ty} {val}, {ty}* {typed_ptr}"));
             self.emitln(&format!("  {bc} = ptrtoint {ty}* {typed_ptr} to i64"));
@@ -372,8 +371,7 @@ impl IrEmitter {
             // 5c-E: malloc(0) may return NULL on Windows. Ensure at least 1 byte.
             let safe_count = self.fresh_tmp();
             self.emitln(&format!("  {safe_count} = or i64 {byte_count}, 1"));
-            let heap_copy = self.fresh_tmp();
-            self.emitln(&format!("  {heap_copy} = call i8* @malloc(i64 {safe_count})"));
+            let heap_copy = self.emit_alloc(&safe_count);
             // 5c-E: malloc(0) may return NULL on some platforms (Windows).
             // Only trap on NULL when length > 0; zero-length Vecs use NULL.
             let is_empty = self.fresh_tmp();
