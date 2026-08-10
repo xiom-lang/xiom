@@ -61,11 +61,39 @@
 - **NOTE 7 (stdlib, parallel session owns it):** `bigint_div_mod` returns a WRONG quotient for multi-limb dividends (e.g. `1000000005/2` → q=2 r=1000000001; `987654321987654321/12345` → r ≥ b). Root cause in `_estimate_q_digit`: single-top-limb estimate, no upward correction, `est<=0 → return 1`. `stdlib_exec_bigint_runs` fails at assertion 8 until the stdlib algorithm is fixed (the crash/hang causes are gone). See docs/COMPILER_BUGS.md.
 - **Commits:** `fix(codegen)` `d22068f8` · `docs(compiler-bugs)` `df8b918b`.
 
+## M37 HARDENING SESSION (2026-08-11) — e2e failures chased, 4 compiler fixes + 5 e2e tests
+- **Fix 1 (parser, `40441ca7`):** `bits[L - 1]` — the explicit-generic-call
+  heuristic mis-parsed index expressions starting with an UPPERCASE ident
+  ("expected ']', found -"). Speculative bracket-depth scan; commits to
+  generic-args only when `]` is followed by `(`. Unblocked the parallel
+  session's bigint.xi/bigfloat.xi (both use `bits[L-1]`).
+- **Fix 2 (check/catalog, `1e982ebf`):** import lookups walked the ENTIRE
+  source tree per failed leaf lookup (`use xiom.math` minutes-to-hang;
+  probe_bit compile 138-160s). Strategy-b scan is now index-gated (skipped
+  when build_index ran) and skips build/VCS/package dirs. `use xiom.math`
+  ~20s→9.6s; probe_bit 138-160s→9.5s; stdlib-compile 108.7s→23.7s.
+- **Fix 3 (codegen, `384d5666`):** reverted the d22068f8 non-ident `&expr`
+  fallback in coerce_arg_for_param — it re-compiled the inner of
+  `&mut arr[i]`, discarding the element ADDRESS (m33_z14 regression).
+- **Fix 4 (verified):** BUG 8 (catalog `&Vec[Int]` empty signatures) is
+  RESOLVED on the current tree (probe_bit 12&10=8); the empty-signature
+  stub came from the earlier uncommitted coerce.rs state.
+- **e2e tests added (`2836dfd7`):** m37_tuple_struct (BUG 1), m37_ref_mut
+  (&T mutation), m37_index_arith (parser), catfix vecmod/main (BUG 8
+  catalog &Vec[Int] + &struct), catfix circ_* (circular imports).
+- **Circular imports verified safe:** A↔B module cycles terminate
+  (cached_loaded guard), check + compile succeed, symbols resolve both
+  ways. No true cycle in the current stdlib.
+- **Final fast suite (02:23): 1110 passed / 3 failed / 1 ignored — back to
+  the documented baseline** (diff `test_diff_test_produces_correct_ir`,
+  stdlib-exec complex, stdlib-exec net). `stdlib_exec_bigint_runs` PASSES
+  (parallel session's dc1dd8e4 landed the div_mod estimator fix).
+  stdlib-compile 40/40, checker 178/178, stdlib-exec 70/72 in 43.7s.
+
 ## KNOWN LIMITATIONS (documented, not blockers)
-- **complex + net stdlib smokes** fail on the clean baseline too (pre-existing; net is network-dependent).
-- **bigint stdlib-exec smoke** fails at assertion 8 while the parallel BigInt session's `_estimate_q_digit` underestimates multi-limb quotients (stdlib logic — docs/COMPILER_BUGS.md NOTE 7); the crash/hang/compile causes are fixed.
+- **complex + net stdlib smokes** fail on the clean baseline too (pre-existing; net is network-dependent; complex hits the unsafe-extern `math.sqrt` double-arg path — see docs/COMPILER_BUGS.md, compiler session's in-flight domain).
 - **Full selfhost diff tests** (`test_selfhost_bootstrap_v050`, full_diff_tests) remain `#[ignore]`d — selfhost bootstrap is a deferred milestone; the gate (compiler compiles itself) is verified manually.
-- **e2e (16min)** not re-run at every phase boundary this session (fast gates used; parallel-session xiom.exe rebuilds make it flaky). Run e2e at the next full-suite boundary.
+- **e2e (16min)** not re-run this session (fast gates used; parallel-session xiom.exe rebuilds make it flaky). The 73 e2e failures from the 00:48 full run were traced to the catalog-scan slowness + racy xiom.exe rebuilds — the catalog fix (Fix 2) removes the dominant cause; run the full suite at the next boundary to confirm.
 - **HardwareFault/ContractViolation** types exist in stdlib/xiom/error.xi; the fault path returns a type-correct zero (recoverable indicator) rather than a full `Result[T, HardwareFault]` wrapper (plan §2.8's wrapper is a future refinement).
 
 ## NEXT SESSION — START HERE
