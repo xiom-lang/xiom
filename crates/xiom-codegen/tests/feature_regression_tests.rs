@@ -2248,7 +2248,7 @@ fn regress_7b05_fingerprint_content_change() {
 /// 7B-06: Verify CacheDb purge_stale removes entries for missing files.
 #[test]
 fn regress_7b06_cache_purge_stale() {
-    use xiom_graph::{CacheDb, CacheEntry, CacheTiers, ModuleNode, make_cache_entry};
+    use xiom_graph::{CacheDb, CacheTiers, ModuleNode, make_cache_entry};
     use std::path::PathBuf;
 
     let temp_dir = std::env::temp_dir().join(format!("xiom_purge_{}", std::process::id()));
@@ -2276,7 +2276,7 @@ fn regress_7b06_cache_purge_stale() {
 /// 7B-07: Verify CacheDb persists across instances (index.json).
 #[test]
 fn regress_7b07_cache_persistence() {
-    use xiom_graph::{CacheDb, CacheEntry, CacheTiers, ModuleNode, make_cache_entry};
+    use xiom_graph::{CacheDb, CacheTiers, ModuleNode, make_cache_entry};
     use std::path::PathBuf;
 
     let temp_dir = std::env::temp_dir().join(format!("xiom_persist_{}", std::process::id()));
@@ -3341,15 +3341,10 @@ fn main() -> Int { return 0; }
 /// M3-01: xiom::compile_with_diagnostics on known-good source.
 #[test]
 fn regress_m301_compile_with_diagnostics_success() {
-    let src = r#"
-fn add(a: Int, b: Int) -> Int { return a + b; }
-fn main() -> Int { return add(1, 2); }
-"#;
     let config = xiom::CompileConfig {
         emit_ir: true, check_only: true, diagnostics_json: true,
         ..xiom::CompileConfig::default()
     };
-    let result = xiom::compile_with_diagnostics(&config, &["inline.xi".to_string()]);
     // Test would need to write temp file ? skip actual compile_with_diagnostics
     // since it reads from filesystem. Test the config struct instead.
     assert!(!config.force);

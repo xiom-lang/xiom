@@ -665,7 +665,6 @@ impl Default for CtfeEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xiom_ast::*;
 
     // ---- CtfeValue tests ---------------------------------------------------
     #[test] fn test_value_int() { assert_eq!(CtfeValue::Int(42).as_int(), 42); }
@@ -703,7 +702,6 @@ mod tests {
     fn char_expr(c: char) -> Expr { Expr::Char(c, Span::new(0, 0)) }
     fn ident_expr(name: &str) -> Expr { Expr::Ident(Ident::new(name, Span::new(0, 0))) }
     fn bin_expr(lhs: Expr, op: BinOp, rhs: Expr) -> Expr { Expr::Binary(Box::new(lhs), op, Box::new(rhs), Span::new(0, 0)) }
-    fn call_expr(name: &str, args: Vec<Expr>) -> Expr { Expr::Call(Box::new(ident_expr(name)), args, Span::new(0, 0)) }
     fn block_expr(e: Expr) -> StmtOrExpr { StmtOrExpr::Expr(e) }
     fn block_stmts(stmts: Vec<StmtOrExpr>) -> Block { Block { stmts, span: Span::new(0, 0) } }
 
@@ -840,8 +838,8 @@ mod tests {
     #[test] fn test_builtin_unknown() { assert!(engine().eval_builtin("nonexistent", &[]).is_none()); }
 
     // ---- Pattern matching ----------------------------------------------------
-    #[test] fn test_pat_wildcard() { let mut e = engine(); let mut c = ctx(); assert!(e.pattern_matches(&Pattern::Wildcard(Span::new(0,0)), &CtfeValue::Int(1), &mut c).unwrap()); }
-    #[test] fn test_pat_ident_binds() { let mut e = engine(); let mut c = ctx(); assert!(e.pattern_matches(&Pattern::Ident(Ident::new("x", Span::new(0,0))), &CtfeValue::Int(42), &mut c).unwrap()); assert_eq!(c.locals.get("x").unwrap(), &CtfeValue::Int(42)); }
+    #[test] fn test_pat_wildcard() { let e = engine(); let mut c = ctx(); assert!(e.pattern_matches(&Pattern::Wildcard(Span::new(0,0)), &CtfeValue::Int(1), &mut c).unwrap()); }
+    #[test] fn test_pat_ident_binds() { let e = engine(); let mut c = ctx(); assert!(e.pattern_matches(&Pattern::Ident(Ident::new("x", Span::new(0,0))), &CtfeValue::Int(42), &mut c).unwrap()); assert_eq!(c.locals.get("x").unwrap(), &CtfeValue::Int(42)); }
     #[test] fn test_pat_lit_int() { let mut c = ctx(); assert!(engine().pattern_matches(&Pattern::Lit(Literal::Int(5, Span::new(0,0))), &CtfeValue::Int(5), &mut c).unwrap()); }
     #[test] fn test_pat_lit_int_mismatch() { let mut c = ctx(); assert!(!engine().pattern_matches(&Pattern::Lit(Literal::Int(5, Span::new(0,0))), &CtfeValue::Int(3), &mut c).unwrap()); }
     #[test] fn test_pat_lit_bool() { let mut c = ctx(); assert!(engine().pattern_matches(&Pattern::Lit(Literal::Bool(true, Span::new(0,0))), &CtfeValue::Bool(true), &mut c).unwrap()); }
