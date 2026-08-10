@@ -3377,6 +3377,10 @@ impl IrEmitter {
                 // block's allocations to the per-thread GUARD ARENA, which is
                 // discarded wholesale on exit — isolation from the main heap.
                 self.emitln("  call void @xiom_guard_heap_enter()");
+                // D2.1 (Phase 4, requirement e): arm the stack guard page so a
+                // stack overflow inside the block faults at the red zone —
+                // before adjacent memory is written.
+                self.emitln("  call void @xiom_guard_page_arm()");
                 self.guard_heap_depth += 1;
                 // Compile every statement; the block's value is its tail.
                 let mut last = String::new();
@@ -3430,6 +3434,7 @@ impl IrEmitter {
                     last = sel;
                 }
                 self.emitln("  call void @xiom_guard_heap_exit()");
+                self.emitln("  call void @xiom_guard_page_disarm()");
                 Ok((last, last_ty))
             }
             Expr::BlockExpr(block, _) => {
