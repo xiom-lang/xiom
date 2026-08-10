@@ -1976,6 +1976,60 @@ impl Checker {
                                 && !primitives.contains(&fd.name.name.as_str())
                                 && !(fd.receiver.is_none() && user_free_fns.contains(&fd.name.name)) {
                                 existing.insert(dedup_key);
+                                // BUG 9 fix (2026-08-11): inject NON-pub struct/enum
+                                // types referenced by this fn's signature (params,
+                                // return, and — transitively — their fields). Their
+                                // layouts must reach codegen, otherwise the type
+                                // resolves to i64 and the fn signature/ABI degrades
+                                // (docs/COMPILER_BUGS.md BUG 9). The stdlib worked
+                                // around this with `pub IntFrac`; the compiler now
+                                // handles private types used across the boundary.
+                                let mut sig_types: Vec<String> = Vec::new();
+                                fn first_named(ty: &Type) -> Option<String> {
+                                    match ty {
+                                        Type::Named(n, _) => Some(n.name.clone()),
+                                        Type::Ref(i) | Type::MutRef(i) | Type::Ptr(i)
+                                        | Type::Vec(i) | Type::Slice(i) | Type::Option(i) => first_named(i),
+                                        Type::Result(a, b) => first_named(a).or_else(|| first_named(b)),
+                                        Type::Map(k, v) => first_named(k).or_else(|| first_named(v)),
+                                        Type::Set(i) => first_named(i),
+                                        _ => None,
+                                    }
+                                }
+                                for p in &fd.params {
+                                    if let Some(n) = first_named(&p.ty) { sig_types.push(n); }
+                                }
+                                if let Some(rt) = &fd.return_type {
+                                    if let Some(n) = first_named(rt) { sig_types.push(n); }
+                                }
+                                // Transitive walk: inject referenced types + the types
+                                // their FIELDS reference (nested private structs).
+                                let mut worklist = sig_types;
+                                while let Some(ty_name) = worklist.pop() {
+                                    if existing.contains(&ty_name) || primitives.contains(&ty_name.as_str()) {
+                                        continue;
+                                    }
+                                    for item in items {
+                                        match item {
+                                            TopDecl::Type(td) if td.name.name == ty_name => {
+                                                existing.insert(ty_name.clone());
+                                                out.push(TopDecl::Type(td.clone()));
+                                                for f in &td.fields {
+                                                    if let Some(n) = first_named(&f.ty) {
+                                                        worklist.push(n);
+                                                    }
+                                                }
+                                                break;
+                                            }
+                                            TopDecl::Enum(ed) if ed.name.name == ty_name => {
+                                                existing.insert(ty_name.clone());
+                                                out.push(TopDecl::Enum(ed.clone()));
+                                                break;
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
                                 // Inject with full body so codegen emits define, not declare.
                                 let mut fd2 = fd.clone();
                                 // Leaf-qualify FREE fn names (e.g. `array.contains`)
