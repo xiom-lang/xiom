@@ -154,3 +154,38 @@ E2E: 17/17 pass (including CTFE + eco + ASM + Never + spawn).
 ---
 
 **Status:** CTFE Phase A + B COMPLETE. Phase C deferred. Production-grade with 66 assertions and safety limits. Ready for selfhost bootstrap usage (table generation, constant computation).
+
+---
+
+## 6. INTEGRATION AUDIT (2026-08-10 — pre-selfhost review)
+
+### Integration A: CTFE + Unsafe Confinement (v0.57)
+
+**Interaction.** Confinement contracts (`requires: x >= sqrt(y) + 5`) may contain
+complex arithmetic. When the checker evaluates a `requires` expression against
+constant arguments, the CTFE evaluator (`CtfeEngine::eval_expr`) reduces it; if
+it cannot reduce to a constant (runtime variable), it falls back to the existing
+runtime guard generation.
+
+**What to do (Implementation Note — post-selfhost, optional):** in
+`xiom-check/src/lib.rs`, when evaluating a `requires` expression with constant
+arguments, call `CtfeEngine::eval_expr`. Architecture is already designed for
+this (`eval_expr` handles binary ops, builtins, recursion). No change needed
+before or during selfhost.
+
+### Integration C: CTFE + Scaling Architecture (v0.58–v0.60)
+
+**Interaction (the "Gotcha").** The CTFE engine is a `RefCell<CtfeEngine>` on the
+`IrEmitter`. In parallel compilation (128 threads), a shared emitter panics on
+concurrent RefCell access; per-file clones recompute `sizeof::<Int>()` thousands
+of times.
+
+**Production Fix (Zero-Cost, at Scaling Phase 5 — NOT before).**
+1. Move the CTFE result cache OUT of the IrEmitter into a thread-safe global:
+   `CtfeCache = RwLock<HashMap<u64, CtfeValue>>` stored in the `SyncRegistry`.
+2. File workers lock once to check the cache; miss → compute (< 1 ms) → store.
+3. Result: no duplicate computation across 10K files; minimal lock contention.
+
+**Effort:** ~2 days of refactoring. **Do this at Scaling Phase 5, not earlier.**
+Selfhost is single-threaded and < 200 files — the current RefCell design works
+flawlessly at that scale.

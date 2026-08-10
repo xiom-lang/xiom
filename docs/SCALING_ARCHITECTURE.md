@@ -1,7 +1,7 @@
 # XIOM — Scaling Architecture (10K+ Files, Millions of Lines)
 
-**Version:** Design Spec v0.1 | **Target:** Post-Selfhost (v0.58–v0.60)
-**Status:** DESIGN ONLY — no implementation until selfhost complete.
+**Version:** Design Spec v0.2 | **Target:** Post-Selfhost (v0.58–v0.60)
+**Status:** DESIGN ONLY — no implementation until selfhost complete. v0.2 incorporates the pre-selfhost architecture review (Sealed Generics/Pre-Mono Table, Layout Hash, Compiler Daemon — see §12).
 
 ---
 
@@ -462,7 +462,109 @@ xiom build                          # Compiles all .xi → .o, links with runtim
 
 ---
 
-## 12. Summary
+## 12. Architecture Review — 3 Critical Gaps (2026-08-10, pre-selfhost review)
+
+An external production-compiler review of this design surfaced **three architectural
+gaps** that, if unaddressed, will make the scaling architecture collapse during the
+selfhost phase or at the 10K-file milestone. Each is addressed below with the
+bullet-proof refinement and a revised migration path.
+
+### Gap 1: Generic Monomorphization Across Files (the "C++ Header" Problem)
+
+**Problem.** With per-file codegen, `Vec[Int]` used in File A and File B is
+monomorphized in BOTH objects. Without LTO, duplicate symbols explode the binary;
+with LTO, compilation times skyrocket — defeating parallel compilation.
+
+**Bullet-Proof Fix: Sealed Generics + Pre-Mono Table.**
+
+1. **Sealed generics:** Generics in the stdlib (`Vec[T]`, `Map[K,V]`, `Set[T]`, ...)
+   are "sealed" when the stdlib is compiled. `libxiom_std.a` ships a
+   **Pre-Monomorphized Table** of function bodies for all primitive types
+   (`Int`, `Float64`, `Str`, `Bool`, `UInt8`, ...) as generic-erased symbols.
+2. User files calling `Vec[Int]` do NOT generate code — they call the
+   pre-compiled, generic-erased functions from `libxiom_std.a`.
+3. User generics over their own types (`Vec[MyStruct]`) are monomorphized
+   locally and emitted as **Weak Symbols** in the `.o`; the linker keeps the
+   first definition and discards the rest.
+
+**Design change to §3:**
+- `.xiom.sym` gains a `"generics"` section listing the sealed generic
+  instantiations provided by the file/object (name → instantiation set).
+- Codegen, when emitting a generic call, consults the pre-mono table first;
+  only user-type instantiations are emitted locally (weak).
+
+### Gap 2: Stable Type Layouts in `.xiom.sym` (the "Recompile the World" Trap)
+
+**Problem.** Changing `Vec`'s layout in `stdlib.xi` triggers a full dirty
+propagation → recompiles all 10,000 user files (2–3 minutes) even when only a
+method body changed and the ABI is identical.
+
+**Bullet-Proof Fix: Layout Hash + Forced Recheck.**
+
+1. `.xiom.sym` stores a **Layout Hash** — SHA-256 of the struct's FIELD TYPES
+   and ALIGNMENT only, NOT the source code.
+2. The dependency graph distinguishes **signature changes** (rebuild dependents)
+   from **layout-hash changes**:
+   - Layout hash unchanged → ABI identical → dependents keep their cached `.o`
+     (only re-emit signatures, which are unchanged).
+   - Layout hash changed → only files that embed the type in THEIR OWN layout
+     fully recompile (typically ~1% of the codebase).
+3. Cache keeps the object under the layout-hash key, so old/new coexist during
+   migration.
+
+**Design change to §6.1/§6.3:** dirty-propagation table becomes:
+
+| What changes | Rebuild | Detection |
+|-------------|---------|-----------|
+| Function body | File only | SHA-256 of source |
+| Function signature | File + importers | `.xiom.sym` signature hash |
+| Type layout (field set/order/types) | File + files embedding the type | `.xiom.sym` **layout hash** |
+| Method body only (layout unchanged) | File only | layout hash unchanged → ABI-fast path |
+
+### Gap 3: The Compiler Daemon (why `xiom build` alone bottlenecks at 10K files)
+
+**Problem.** Spawning the compiler binary per file (even 100 times) costs
+hundreds of ms in process spawn + `stat()` scans of 10,000 files.
+
+**Bullet-Proof Fix: Lazy Import Resolver / Daemon (`xiom daemon`).**
+
+1. `xiom daemon` (or `xiom build --persistent`) holds the dependency graph and
+   file SHA hashes in memory.
+2. File-system notifications (inotify / ReadDirectoryChangesW) trigger a
+   **Delta analysis**: which imports changed, which signatures changed.
+3. Only dirty files spawn compiler workers (pre-warmed pool).
+4. Target: 1-line change on a 10K-file project → **~200 ms** (1 dirty file +
+   relink), matching Bazel/cargo-check behavior.
+
+**Design addition to §7/§9:** a new Phase 6b for the daemon; the watcher
+infrastructure already exists (OrcJIT `HotReloadWatcher`).
+
+### Revised Migration Path (v0.58–v0.60)
+
+| Phase | Original Plan | Revised Additions (Critical) | Effort |
+|-------|---------------|------------------------------|--------|
+| Phase 1 | `xiom -c` + `.xiom.sym` | **Add Layout Hash to `.xiom.sym`** | +2 days |
+| Phase 2 | Dependency Resolution | **Detect layout-hash vs signature changes** to minimize dirty propagation | +3 days |
+| Phase 3 | Incremental Build | **Pre-mono Table for stdlib generics** (prevent duplicate codegen) | +3 days |
+| Phase 6 | Build System | **`xiom daemon` persistent mode** for watch/build | +5 days |
+
+**New total effort: ~15 weeks (still realistic).**
+
+### Review Verdict (recorded)
+
+- The blueprint (parallel units, symbol tables, SHA caching) is the exact pattern
+  used by `go build` and rustc incremental — it scales logarithmically.
+- Layout Hash + Pre-mono Table are REQUIRED or the linker chokes on duplicate
+  symbols at ~5K files and stdlib layout changes trigger full rebuilds.
+- Selfhost (~200 files) does NOT need these; the true test is user projects.
+- **CTFE note:** keep the CTFE engine (RefCell on IrEmitter) EXACTLY as-is for
+  v0.57 selfhost. Only at Scaling Phase 5, migrate the CTFE cache to a
+  thread-safe global (`RwLock<HashMap<u64, CtfeValue>>` in SyncRegistry) so
+  128 parallel workers don't panic on shared RefCell or recompute constants.
+
+---
+
+## 13. Summary
 
 | Component | Approach | Effort | Dependencies |
 |-----------|----------|--------|-------------|
@@ -475,6 +577,7 @@ xiom build                          # Compiles all .xi → .o, links with runtim
 | Incremental build | SHA-256 per-file + graph | 2 weeks | Dependency graph |
 | Linker | System ld/lld via clang | 1 week | Separate compilation |
 | Build system | `xiom.toml` + `xiom build` | 1 week | All of the above |
-| **Total estimated effort** | | **~14 weeks** | |
+| Compiler daemon | `xiom daemon` / `--persistent` (Gap 3) | 1 week | Incremental build |
+| **Total estimated effort** | | **~15 weeks** | |
 
 **Start condition:** Selfhost complete (v0.57). Don't start before then — scaling architecture needs to be designed against a language that has been proven correct through self-compilation.
