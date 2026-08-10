@@ -4343,4 +4343,8 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m37_index_arith() { assert_eq!(compile_and_run("tests\\regression\\m37_index_arith.xi"), Some(0)); }
 #[test] fn e2e_m37_catfix_catalog_vecref() { assert_eq!(compile_and_run("examples\\catfix\\main.xi"), Some(0)); }
 #[test] fn e2e_m37_catfix_circular_imports() { assert_eq!(compile_and_run("examples\\catfix\\circ_main.xi"), Some(0)); }
+#[test] fn e2e_m37_float_precision() { assert_eq!(compile_and_run("tests\\regression\\m37_float_precision.xi"), Some(0)); }
+#[test] fn e2e_m37_catfix_private_type() { assert_eq!(compile_and_run("examples\\catfix\\b9main.xi"), Some(0)); }
+#[test] fn e2e_m37_unsafe_option_return() { assert_eq!(compile_and_run("tests\\regression\\m34_y04.xi"), Some(0)); }
+#[test] fn e2e_m37_unsafe_null_fault() { assert_eq!(compile_and_run("tests\\regression\\m33_u13.xi"), Some(0)); }
 

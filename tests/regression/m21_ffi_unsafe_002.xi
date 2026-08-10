@@ -1,7 +1,9 @@
 module m21_ffi_unsafe_002
 type Point = { x: Int; y: Int; }
 
-  pub fn run() -> Int {
+  pub fn run() -> Int
+  requires: true
+{
     var p: Point = { x: 10; y: 20; };
     unsafe {
       var ptr: *Point = &p;

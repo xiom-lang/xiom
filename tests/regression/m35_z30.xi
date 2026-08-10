@@ -36,7 +36,10 @@ fn check_magic() -> *Int {
 module core {
   pub fn event(r: Register, e: Event) -> Int { return handle_event(r, e); }
   pub fn fact(n: Int) -> Int { return factorial(n); }
-  pub fn magic_ptr() -> *Int { return check_magic(); }
+  pub fn magic_ptr() -> *Int {
+    var p: *Int = check_magic();
+    unsafe { return p; }
+  }
 }
 use core.event;
 use core.fact;

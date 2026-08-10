@@ -1,5 +1,7 @@
 module m21_ffi_unsafe_001
-pub fn run() -> Int {
+pub fn run() -> Int
+  requires: true
+{
     unsafe {
       var x: Int = 42;
       var ptr: *Int = &x;
