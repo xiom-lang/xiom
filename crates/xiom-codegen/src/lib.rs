@@ -1306,19 +1306,39 @@ impl IrEmitter {
     /// Resolve a short type name to the key it actually lives under in type_meta
     /// (handles module-qualified names like "tests.ecosystem.test_json.JsonValue").
     fn resolve_type_key(&self, short_name: &str) -> String {
-        // Exact match first
+        // Current module's qualified name first (mirrors llvm_type_for):
+        // deterministic when the module defines the type, e.g. "Big" →
+        // "probe_big2.Big".
+        if let Some(ref module) = self.local.current_module {
+            let qualified = format!("{}.{}", module, short_name);
+            if self.types.type_meta.contains_key(&qualified) || self.types.types.contains_key(&qualified) {
+                return qualified;
+            }
+        }
+        // Exact match next
         if self.types.type_meta.contains_key(&short_name.to_string()) || self.types.types.contains_key(&short_name.to_string()) {
             return short_name.to_string();
         }
-        // Module-qualified suffix match
+        // Module-qualified suffix match. Skip GENERATED aggregate keys
+        // (`Tuple__...`, `Option__...`, `Result__...`, `_Anon__...`): their
+        // names end with `.Type` too (e.g. `Tuple__probe_big2.Big__probe_big2.
+        // Big` ends with `.Big`), which would resolve an element type to the
+        // aggregate itself and nest the tuple name into itself (BUG 1
+        // fallout — docs/COMPILER_BUGS.md).
+        let is_generated = |k: &str| {
+            k.contains("Tuple__")
+                || k.starts_with("_Anon__")
+                || k.starts_with("Option__")
+                || k.starts_with("Result__")
+        };
         let suffix = format!(".{}", short_name);
         for key in self.types.type_meta.keys() {
-            if key.ends_with(&suffix) {
+            if key.ends_with(&suffix) && !is_generated(key.as_str()) {
                 return key.clone();
             }
         }
         for key in self.types.types.keys() {
-            if key.ends_with(&suffix) {
+            if key.ends_with(&suffix) && !is_generated(key.as_str()) {
                 return key.clone();
             }
         }
@@ -1394,6 +1414,41 @@ impl IrEmitter {
     /// monomorphised name (`Result__T__E` / `Option__T`) if at least one inner type
     /// is a user-defined struct. Otherwise returns the base name (`Result`/`Option`).
     /// This is used by `compile_fn` to select the correct LLVM struct layout.
+    /// BUG 1 fix (2026-08-10): LLVM type for a function parameter, routing
+    /// tuple types through `concrete_type_for` so their element names are
+    /// module-qualified (`Tuple__probe_tuple.Pair__probe_tuple.Pair`).
+    /// `type_from_ast` produces bare names (`Tuple__Pair__Pair`) that never
+    /// match the expression-level tuple type used at call sites, causing
+    /// clang IR rejection (see docs/COMPILER_BUGS.md BUG 1).
+    ///
+    /// Also fixes the "struct `&T` param mutation lost" bug: STRUCT-typed
+    /// `&T` params now pass the ADDRESS (`%struct.X*`) instead of a by-value
+    /// struct copy, so callee mutations (e.g. `_trim(&result)`'s
+    /// `digits.pop()`) write through to the caller's variable. Scalar `&T`
+    /// params already carried the address (as i64); plain struct params and
+    /// generic container params (`&Vec[T]`, `&Slice[T]`, `&Map`, `&Set`) keep
+    /// the existing by-value ABI to avoid changing their established layout
+    /// (see coerce_arg_for_param).
+    fn param_llvm_type(&mut self, ty: &Type) -> String {
+        match ty {
+            Type::Tuple(_) => {
+                let concrete = self.concrete_type_for(ty);
+                self.llvm_type_for(&concrete).unwrap_or_else(|_| "i64".to_string())
+            }
+            Type::Ref(inner) => {
+                let inner_llvm = self.llvm_type_for(&Self::type_from_ast(inner)).unwrap_or_else(|_| "i64".to_string());
+                if inner_llvm.starts_with("%struct.")
+                    && !matches!(inner.as_ref(), Type::Vec(_) | Type::Slice(_) | Type::Map(_, _) | Type::Set(_))
+                {
+                    format!("{inner_llvm}*")
+                } else {
+                    inner_llvm
+                }
+            }
+            _ => self.llvm_type_for(&Self::type_from_ast(ty)).unwrap_or_else(|_| "i64".to_string()),
+        }
+    }
+
     fn concrete_type_for(&mut self, ty: &Type) -> String {
         match ty {
             Type::Option(inner) => {
@@ -1433,17 +1488,33 @@ impl IrEmitter {
                 }
             }
             Type::Tuple(types) => {
-                let name = Self::type_from_ast(ty);
+                // BUG 1 fix (2026-08-10): module-qualify element names so the
+                // tuple type key matches the expression-level registration.
+                // The body path (Expr::Tuple in expr.rs) resolves struct
+                // elements through `infer_llvm_type` and produces fully-
+                // qualified keys (e.g. `Tuple__probe_tuple.Pair__probe_tuple.
+                // Pair`), while `type_from_ast` produces BARE names
+                // (`Tuple__Pair__Pair`). Using bare names here made the fn
+                // signature/return type a DIFFERENT type than the one used by
+                // the body's alloca/GEP — clang rejected the IR ("Cannot
+                // allocate unsized type") or the tuple was stored truncated
+                // to i64s (tuple-of-struct codegen bug, docs/COMPILER_BUGS.md
+                // BUG 1).
+                let parts: Vec<String> = types.iter()
+                    .map(|t| self.resolve_type_key(&Self::type_from_ast(t)))
+                    .collect();
+                let name = format!("Tuple__{}", parts.join("__"));
                 if !self.types.type_meta.contains_key(&name) && !types.is_empty() {
                     let fields: Vec<(String, String)> = types.iter().enumerate()
-                        .map(|(i, t)| (i.to_string(), Self::type_from_ast(t)))
+                        .map(|(i, t)| (format!("_{i}"), self.resolve_type_key(&Self::type_from_ast(t))))
                         .collect();
+                    let field_names: Vec<String> = fields.iter().map(|(n, _)| n.clone()).collect();
                     self.types.type_meta.insert(name.clone(), crate::context::TypeMeta {
                         fields,
                         derives: vec![],
                         invariants: vec![],
                     });
-                    self.types.types.insert(name.clone(), vec!["0".to_string()]);
+                    self.types.types.insert(name.clone(), field_names);
                 }
                 name
             }
@@ -4932,7 +5003,28 @@ let inner_llvm = match &inner_subst {
     /// `%struct.Tuple_Int_Float64` Ã¢â€ â€™ `["i64", "double"]`
     fn parse_struct_field_types(&self, struct_ty: &str) -> Vec<String> {
         let name = struct_ty.trim_start_matches("%struct.");
-        // Struct names for tuples have format: Tuple_Type1_Type2_... or just Type1_Type2
+        // BUG 1 fix (2026-08-10): prefer the registered type_meta layout. The
+        // legacy split-based parser below only understands PRIMITIVE element
+        // names, so a tuple containing structs (e.g. `Tuple__probe_tuple.Pair__
+        // probe_tuple.Pair`) parsed every element as i64 — the tuple literal
+        // stores then wrote only the first i64 of each struct into the slot
+        // (garbage Vec pointers at runtime, docs/COMPILER_BUGS.md BUG 1).
+        if let Some(meta) = self.types.type_meta.get(&name.to_string())
+            .or_else(|| {
+                self.local.current_module.as_ref()
+                    .and_then(|m| self.types.type_meta.get(&format!("{m}.{name}")))
+            })
+            .or_else(|| {
+                self.types.type_meta.entries().into_iter()
+                    .find(|(k, _)| k.ends_with(&format!(".{name}")))
+                    .map(|(_, v)| v)
+            }) {
+            return meta.fields.iter()
+                .map(|(_, t)| self.llvm_type_for(t).unwrap_or_else(|_| "i64".to_string()))
+                .collect();
+        }
+        // Fallback: legacy split parser for unregistered primitive tuples
+        // (format Tuple_Type1_Type2_... or Type1_Type2).
         let parts: Vec<&str> = name.split('_').collect();
         let mut types = Vec::new();
         for part in parts {
@@ -5043,8 +5135,12 @@ let inner_llvm = match &inner_subst {
             Expr::Field(obj, field, _) => {
                 // Resolve the LLVM type of a struct field access.
                 // Handle both simple (obj.x) and compound (a.b[idx].x) bases.
-                let obj_ty = self.infer_llvm_type(obj);
-                if obj_ty.starts_with("%struct.") && !obj_ty.ends_with('*') {
+                // The base may be a POINTER to the struct (struct `&T`/`&mut T`
+                // params lower to `%struct.X*`) — strip the trailing `*` so the
+                // field resolves against the pointee layout.
+                let obj_ty_raw = self.infer_llvm_type(obj);
+                let obj_ty = obj_ty_raw.trim_end_matches('*').to_string();
+                if obj_ty.starts_with("%struct.") {
                     let type_name = &obj_ty[8..]; // strip "%struct."
                     if let Some(meta) = self.types.type_meta.get(&type_name.to_string())
                         .or_else(|| {
@@ -5055,18 +5151,24 @@ let inner_llvm = match &inner_subst {
                         })
                     {
                         if let Some((_, ty_name)) = meta.fields.iter().find(|(name, _)| name == &field.name) {
-                            return self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
+                            // Generic container fields ("Vec[Int]", "Map[K,V]")
+                            // resolve by their base container name ("Vec" →
+                            // %struct.Vec), mirroring field_llvm_type.
+                            let base = ty_name.split('[').next().unwrap_or(ty_name);
+                            return self.llvm_type_for(base).unwrap_or_else(|_| "i64".to_string());
                         }
                     }
                 }
                 // Fallback: try by looking up the base's ident (legacy path)
                 if let Expr::Ident(obj_ident) = obj.as_ref() {
                     if let Some((_, llvm_ty)) = self.lookup_local(&obj_ident.name) {
-                        if llvm_ty.starts_with("%struct.") {
-                            let type_name = &llvm_ty[8..];
+                        let base = llvm_ty.trim_end_matches('*').to_string();
+                        if base.starts_with("%struct.") {
+                            let type_name = &base[8..];
                             if let Some(meta) = self.types.type_meta.get(&type_name.to_string()) {
                                 if let Some((_, ty_name)) = meta.fields.iter().find(|(name, _)| name == &field.name) {
-                                    return self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
+                                    let base = ty_name.split('[').next().unwrap_or(ty_name);
+                                    return self.llvm_type_for(base).unwrap_or_else(|_| "i64".to_string());
                                 }
                             }
                         }

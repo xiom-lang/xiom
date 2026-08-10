@@ -54,6 +54,21 @@ impl IrEmitter {
                         return self.coerce_value(&slot, &addr_ty, param_ty);
                     }
                 }
+            } else if lvalue.is_some() {
+                // Non-ident lvalue (e.g. `&fn_call()` — the bigint smoke passes
+                // `bigint_pow(&bigint_from_int(2), 10)`): compile the inner
+                // VALUE, stash it in a fresh alloca, and pass its address so
+                // pointer params (struct `&T`) receive a valid reference.
+                if let Some(inner) = lvalue {
+                    if let Ok((v, t)) = self.compile_expr(inner) {
+                        if t != "void" && !v.is_empty() {
+                            let slot = self.fresh_tmp();
+                            self.emitln(&format!("  {slot} = alloca {t}{}", self.alloca_align(&t)));
+                            self.emitln(&format!("  store {t} {v}, {t}* {slot}{}", self.store_align(&t)));
+                            return self.coerce_value(&slot, &format!("{t}*"), param_ty);
+                        }
+                    }
+                }
             }
         }
         self.coerce_value(pre_val, pre_ty, param_ty)
