@@ -741,7 +741,24 @@ impl IrEmitter {
                     // Coerce the returned value to the function's declared return
                     // type (int widths, int<->pointer, int<->double, int->struct)
                     // so the `ret` instruction is well-typed.
-                    val = self.coerce_value(&val, &val_ty, &ret_ty);
+                    let ret_ty = if self.in_unsafe_block_fn {
+                        // D2.1 (block-fn ABI): `fctx.current_return_type` is the
+                        // block fn's i64 (see the Unsafe expression lowering), so
+                        // the generic coerce would WRONGLY extract a scalar field
+                        // from a struct tail (e.g. `return Some(v - 1)` returned
+                        // Option's field-1 VALUE as i64). The trampoline's
+                        // round-trip contract is val_to_i64 on the EXPRESSION's
+                        // type: STRUCT values are stored to a heap slot and the
+                        // ADDRESS flows back, and unsafe_result_i64_to_val
+                        // re-materializes with the enclosing fn's return type.
+                        // (The guard arena is already exited above, so the slot
+                        // lives on the main heap.)
+                        val = self.val_to_i64(&val, &val_ty);
+                        LLVM_I64.to_string()
+                    } else {
+                        val = self.coerce_value(&val, &val_ty, &ret_ty);
+                        ret_ty
+                    };
                     // Store result for ensures checks
                     if let Some(res_ptr) = self.fctx.result_ptr.as_ref() {
                         let ret_ty = self.fctx.current_return_type.clone();

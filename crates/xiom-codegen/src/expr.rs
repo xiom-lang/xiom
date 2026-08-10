@@ -779,7 +779,11 @@ impl IrEmitter {
                 Ok((format!("{n}"), "i128".to_string()))
             }
             Expr::Float(f, _) => {
-                Ok((format!("{f:.6}"), "double".to_string()))
+                // BUG 10 fix (2026-08-11): {:.6} truncated literals to 6
+                // decimals (0.123456789 -> 0.123457). {:.17e} gives 17
+                // significant digits — exact f64 round-trip, and LLVM accepts
+                // the exponent form (e.g. 1.23456789000000000e-1).
+                Ok((format!("{f:.17e}"), "double".to_string()))
             }
             Expr::Bool(b, _) => {
                 Ok((if *b { "1".to_string() } else { "0".to_string() }, LLVM_I64.to_string()))
@@ -3695,6 +3699,11 @@ impl IrEmitter {
                     let loaded = self.fresh_tmp();
                     self.emitln(&format!("  {loaded} = load {ret_ty}, {ret_ty}* {slot}, align 16"));
                     self.emitln(&format!("  ret {ret_ty} {loaded}"));
+                } else if ret_ty.ends_with('*') {
+                    // Pointer return type (e.g. *Int, *Node): the recoverable
+                    // fault indicator is a NULL pointer, not an integer literal
+                    // (clang rejects `ret i64* 0`).
+                    self.emitln(&format!("  ret {ret_ty} null"));
                 } else if ret_ty.starts_with("float") || ret_ty == "double" {
                     self.emitln(&format!("  ret {ret_ty} 0.0"));
                 } else {
@@ -3706,7 +3715,7 @@ impl IrEmitter {
                 self.emitln(&format!("\n{normal_path}:"));
                 let res_i64 = self.fresh_tmp();
                 self.emitln(&format!("  {res_i64} = call i64 @xiom_trampoline_get_result()"));
-                let (mut last, last_ty) = self.unsafe_result_i64_to_val(&res_i64, &last_ty);
+                let (last, last_ty) = self.unsafe_result_i64_to_val(&res_i64, &last_ty);
                 // If the block fn executed a `return` statement, the block's
                 // value must be RETURNED from the ENCLOSING fn (the block was
                 // not used as an expression value). Emit the enclosing return
@@ -3723,10 +3732,15 @@ impl IrEmitter {
                 if enc_ret_ty.is_empty() || enc_ret_ty == "void" {
                     self.emitln("  ret void");
                 } else {
-                    last = self.coerce_value(&last, &last_ty, &enc_ret_ty);
+                    // Use a SEPARATE register for the enclosing-fn coercion: the
+                    // block's `last` value must stay untouched for the normal_tail
+                    // path below (e.g. a pointer tail stays a pointer — coercing
+                    // it to the enclosing fn's i64 here previously leaked the
+                    // i64 into `icmp eq ptr, i64` at the block's use site).
+                    let coerced_last = self.coerce_value(&last, &last_ty, &enc_ret_ty);
                     if let Some(res_ptr) = self.fctx.result_ptr.as_ref() {
                         let enc_ret_ty = self.fctx.current_return_type.clone();
-                        self.emitln(&format!("  store {enc_ret_ty} {last}, {enc_ret_ty}* {res_ptr}"));
+                        self.emitln(&format!("  store {enc_ret_ty} {coerced_last}, {enc_ret_ty}* {res_ptr}"));
                     }
                     if !self.fctx.current_ensures.is_empty() {
                         self.compile_ensures_checks();
@@ -3736,7 +3750,7 @@ impl IrEmitter {
                     let new_depth = self.fresh_tmp();
                     self.emitln(&format!("  {new_depth} = sub i64 {depth_dec}, 1"));
                     self.emitln(&format!("  store i64 {new_depth}, i64* @xiom_recursion_counter"));
-                    self.emitln(&format!("  ret {enc_ret_ty} {last}"));
+                    self.emitln(&format!("  ret {enc_ret_ty} {coerced_last}"));
                 }
                 self.emitln(&format!("\n{normal_tail}:"));
                 Ok((last, last_ty))
