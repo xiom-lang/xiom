@@ -220,7 +220,7 @@ There is NO `Result::Ok` / `Option::Some` path syntax in XIOM.
 - Absence → Option.
 - Programmer errors / invariant violations → contracts (trap on violation)."#;
 
-const UNSAFE_FFI: &str = r#"# XIOM Unsafe & C FFI
+const UNSAFE_FFI: &str = r#"# XIOM Unsafe & C FFI (v0.57 Unsafe Confinement)
 
 ## Declare foreign functions
 ```xiom
@@ -230,7 +230,7 @@ extern "C" {
 }
 ```
 
-## Call inside unsafe
+## Call inside unsafe (confined block)
 ```xiom
 pub fn alloc(size: Int) -> *mut UInt8
   requires: size > 0;
@@ -240,20 +240,40 @@ pub fn alloc(size: Int) -> *mut UInt8
 }
 ```
 
-## Rules
-1. Every extern call requires `unsafe { }`.
-2. Raw deref `*ptr` requires unsafe.
-3. `unsafe { ...; return x; }` as the whole body is fine — divergence analysis
-   accepts blocks where every path returns.
-4. NEVER name a wrapper after a C symbol (e.g. `pub fn realloc`) — it collides
-   with the extern declaration and is silently dropped. Use `realloc_sized`.
+## Rules (v0.57 — all enforced by the compiler)
+1. `unsafe` applies STRICTLY to the block `{ }` — `unsafe fn/module/struct` is a
+   hard error.
+2. Every extern call requires `unsafe { }` (T002). Exempt: fns declaring
+   `requires`/`ensures` contracts (safe-wrapper pattern).
+3. Raw deref `*ptr` and Int↔Ptr casts require unsafe.
+4. A safe fn cannot return a raw pointer (T003) unless its body contains unsafe
+   (unsafe-internal helper exemption).
+5. A fn whose ENTIRE body is one unsafe block must declare `requires` (T007).
+6. Confined blocks are TRAPPED: a hardware fault is caught by the SEH/sigsetjmp
+   trampoline, retried once on a fresh arena slot, then the block yields a
+   recoverable zero (HardwareFault) — the process never crashes.
+7. `#[unsafe_no_retry]` disables the once-only transient retry; `#[unsafe_direct]`
+   is the trusted escape hatch (stdlib/selfhost; `--enable-unsafe-direct` for
+   user code).
+8. Zero-escape (T005): raw ptrs / refs / fn types cannot be an unsafe block's
+   tail; Str tails are Copy-Out'd to the main heap before the arena resets.
+9. FFI ownership (T006): an extern-returned `*T` in a confined block must be
+   converted to an owned XIOM type before the tail (ffi.safe_ptr_from_raw /
+   box_from_ptr / vec_from_ptr_with_free / str_from_ptr_owned) — UNLESS the fn
+   itself returns the raw pointer (allocator pattern: caller owns it).
+10. NEVER name a wrapper after a C symbol (e.g. `pub fn realloc`) — it collides
+    with the extern declaration and is silently dropped. Use `realloc_sized`.
+11. `unsafe { ...; return x; }` as the whole body is fine — divergence analysis
+    accepts blocks where every path returns.
 
 ## Safety audit
-`xiom --sandbox file.xi` scores unsafe blocks:
+`xiom --sandbox file.xi` scores unsafe blocks (legacy audit — confinement gates
+are the primary layer):
 - extern call without contract → HIGH
 - pointer arithmetic without bounds → HIGH
 - unsafe in pub fn → MEDIUM
-CI gate: `xiom --sandbox=strict` (exit 3 on HIGH). JSON: `--sandbox-report=json`."#;
+CI gate: `xiom --sandbox=strict` (exit 3 on HIGH). JSON: `--sandbox-report=json`
+(MCP audit_safety_sandbox passes `--sandbox` first)."#;
 
 const DEBUGGING: &str = r#"# XIOM Debugging Guide
 
@@ -491,10 +511,14 @@ Lockfile (xiom.lock) pins dep versions — commit it."#;
 
 const W_SANDBOX: &str = r#"# Safety Audit (Sandbox) Workflows
 
+> v0.57 note: Unsafe Confinement gates (T002/T003/T005/T006/T007) are the PRIMARY
+> safety layer — they make violations COMPILE ERRORS. The sandbox audit below is
+> the legacy scoring layer (report + CI gating). Both remain active.
+
 ## Run
 xiom --sandbox file.xi                  # human-readable report
-xiom --sandbox-report=json file.xi      # JSON (CI parsing)
-xiom --sandbox-report=out.json file.xi  # write to file
+xiom --sandbox --sandbox-report=json file.xi   # JSON (CI parsing) — MUST include --sandbox first
+xiom --sandbox --sandbox-report=out.json file.xi # write to file
 xiom --sandbox=strict file.xi           # exit 3 if HIGH findings
 
 ## Exit codes (CI gating)

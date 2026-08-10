@@ -268,7 +268,10 @@ fn tool_format_xiom_code(params: &Value) -> Result<Value, String> {
 fn tool_audit_safety_sandbox(params: &Value) -> Result<Value, String> {
     let file = params["file"].as_str().ok_or("Missing required parameter: file")?;
     if !std::path::Path::new(file).exists() { return Err(format!("File not found: {file}")); }
-    let output = Command::new("xiom").args(["--sandbox-report=json", file]).output().map_err(|e| format!("Failed to spawn xiom: {e}"))?;
+    // NOTE: --sandbox must precede --sandbox-report=json: sandbox_mode matches
+    // `--sandbox` or `--sandbox=`; `--sandbox-report=` alone falls through to
+    // normal compilation (emitting IR) instead of producing the audit report.
+    let output = Command::new("xiom").args(["--sandbox", "--sandbox-report=json", file]).output().map_err(|e| format!("Failed to spawn xiom: {e}"))?;
     let report: Value = serde_json::from_slice(&output.stdout).unwrap_or(json!({"error": "Failed to parse sandbox report"}));
     Ok(json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&report).unwrap_or_default()}]}))
 }
@@ -350,20 +353,52 @@ extern "C" {
   fn printf(format: *UInt8, ...) -> Int;
 }
 
-// Safe wrapper with contracts:
-fn safe_malloc(size: Int) -> *UInt8
+// v0.57 Unsafe Confinement: extern calls are confined to unsafe blocks (T002).
+// The sanctioned safe-wrapper pattern declares contracts (requires/ensures):
+fn safe_alloc(size: Int) -> Result[*UInt8, Str]
   requires: size > 0;
-  ensures: result != null;
 {
-  return unsafe { malloc(size as UInt64) };
+  unsafe {
+    let ptr = malloc(size as UInt64);
+    if ptr == null { return Err("allocation failed"); }
+    return Ok(ptr);
+  }
+}
+// NOTE: raw-pointer-RETURNING fns (allocator pattern) transfer ownership to the
+// caller (T006 exemption). A NON-pointer fn must convert extern-returned *T to
+// an owned XIOM type before the unsafe block's tail (ffi.safe_ptr_from_raw /
+// box_from_ptr / vec_from_ptr_with_free / str_from_ptr_owned) — T006.
+```"#,
+        "unsafe" => r#"## Unsafe Confinement (v0.57)
+```xiom
+// `unsafe` applies STRICTLY to the block. unsafe fn/module/struct = error.
+// Confined blocks get: guard-heap arena (isolated), stack guard page, and an
+// SEH/sigsetjmp fault trap — a hardware fault is caught and the block yields a
+// recoverable zero; the process NEVER crashes on a confined fault.
+
+// Fault trap + transient retry (once, on a fresh arena slot):
+unsafe {
+  var v = *some_raw_ptr;   // if this faults, the block is retried once, then
+                           // yields a recoverable zero (HardwareFault)
 }
 
-// Call extern in unsafe block:
-unsafe {
-  let ptr = malloc(1024);
-  printf("allocated %d bytes\n", 1024);
-  free(ptr);
+// #[unsafe_no_retry] — disable the once-only retry (deterministic faults):
+#[unsafe_no_retry]
+fn deterministic() -> Int {
+  unsafe { return risky_c(); }
 }
+
+// #[unsafe_direct] — trusted escape hatch (stdlib/selfhost only; user code
+// needs --enable-unsafe-direct). No trampoline/arena/guard page:
+#[unsafe_direct]
+fn hot_path() -> Int {
+  unsafe { return compute(); }
+}
+
+// Zero-escape (T005): raw ptrs / refs / fn types cannot be a block's tail.
+// FFI ownership (T006): extern *T must convert before the tail (unless the fn
+// itself returns the raw pointer — allocator pattern, caller owns it).
+// Whole-body-unsafe fns must declare `requires` (T007).
 ```"#,
         "generics" => r#"## Generics
 ```xiom
@@ -439,12 +474,12 @@ core.free(buf);
 | Borrow | `fn read(data: &Vec[Int])` |
 | Mutable borrow | `fn write(data: &mut Vec[Int])` |
 | Generic | `fn first[T](items: &Slice[T]) -> T { return items[0]; }` |
-| Unsafe | `unsafe { extern_c_call(args); }` |
+| Unsafe | `unsafe { extern_c_call(args); }` — confined (trap/arena/retry); `#[unsafe_no_retry]` / `#[unsafe_direct]` |
 | Extern C | `extern "C" { fn malloc(size: UInt64) -> *UInt8; }` |
 | Module | `module my.module { pub fn helper() { ... } }` |
 | Use | `use xiom.core;` |
 
-Use `xiom_cheatsheet {section}` for detailed examples of: functions, structs, enums, contracts, ffi, generics, ownership, stdlib."#
+Use `xiom_cheatsheet {section}` for detailed examples of: functions, structs, enums, contracts, ffi, unsafe, generics, ownership, stdlib."#
     };
 
     Ok(Value::String(cheatsheet.to_string()))
@@ -516,8 +551,8 @@ fn list_tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "xiom_cheatsheet".into(),
-            description: "Get canonical XIOM code patterns and idioms for common tasks (functions, structs, enums, contracts, FFI, generics, ownership, stdlib). Use this when writing new XIOM code to follow language conventions.".into(),
-            input_schema: json!({"type":"object","properties":{"section":{"type":"string","description":"Cheatsheet section: all, functions, structs, enums, contracts, ffi, generics, ownership, stdlib","default":"all"}}}),
+            description: "Get canonical XIOM code patterns and idioms for common tasks (functions, structs, enums, contracts, FFI, unsafe-confinement, generics, ownership, stdlib). Use this when writing new XIOM code to follow language conventions.".into(),
+            input_schema: json!({"type":"object","properties":{"section":{"type":"string","description":"Cheatsheet section: all, functions, structs, enums, contracts, ffi, unsafe, generics, ownership, stdlib","default":"all"}}}),
         },
         ToolDef {
             name: "xiom_stdlib_reference".into(),
