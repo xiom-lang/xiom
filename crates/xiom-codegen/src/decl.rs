@@ -378,7 +378,7 @@ impl IrEmitter {
             } else { None };
             let explicit_params: Vec<String> = fd.params.iter()
                 .filter(|p| !(has_recv && !is_first_param_self && p.name.name == "self"))
-                .map(|p| self.llvm_type_for(&Self::type_from_ast(&p.ty)).unwrap_or_else(|_| "i64".to_string()))
+                .map(|p| self.param_llvm_type(&p.ty))
                 .collect();
             param_types.extend(explicit_params);
             let ret_type = fd.return_type.as_ref()
@@ -811,7 +811,7 @@ impl IrEmitter {
             type_str == "!"
         });
         self.fctx.current_param_llvm_types = fd.params.iter()
-            .map(|p| self.llvm_type_for(&Self::type_from_ast(&p.ty)).unwrap_or_else(|_| "i64".to_string()))
+            .map(|p| self.param_llvm_type(&p.ty))
             .collect();
 
         // Store ensures clauses for return point checking
@@ -900,7 +900,9 @@ impl IrEmitter {
             .filter(|p| !(self_offset == 1 && p.name.name == "self"))
             .enumerate()
             .map(|(i, p)| {
-                let llvm_ty = self.llvm_type_for(&Self::type_from_ast(&p.ty)).unwrap_or_else(|_| "i64".to_string());
+                // param_llvm_type: tuple params get module-qualified concrete
+                // names; struct `&T` params pass the ADDRESS (%struct.X*).
+                let llvm_ty = self.param_llvm_type(&p.ty);
                 format!("{llvm_ty} %param{}", i + self_offset)
             })
             .collect();
@@ -927,9 +929,22 @@ impl IrEmitter {
         } else {
             String::new()
         };
-        // P0-4: Mark functions alwaysinline so clang/LLVM can eliminate
-        // call overhead for small hot functions (e.g., read_u16_be called 17M times).
-        let inline_attr = " alwaysinline";
+        // P0-4: Mark SMALL functions alwaysinline so clang/LLVM can eliminate
+        // call overhead for small hot functions (e.g., read_u16_be called 17M
+        // times). Large functions must NOT be alwaysinline: always-inlining
+        // every function into a hot caller (e.g. the extended bigint smoke
+        // inlines the whole library into main) makes LLVM's -O2 pass explode —
+        // observed: clang hung >300s on a 735KB module, finishing in ~3s once
+        // the attribute was removed. Medium functions get `inlinehint` so the
+        // optimizer decides; large ones get no attribute.
+        let body_size = fd.body.as_ref().map_or(0, |b| Self::approx_block_cost(b));
+        let inline_attr = if body_size <= 10 {
+            " alwaysinline"
+        } else if body_size <= 48 {
+            " inlinehint"
+        } else {
+            ""
+        };
         // The program entry point `main` receives argc/argv from the OS so the
         // runtime's xiom_set_args can populate xiom_argc/xiom_argv (env.args()).
         // Native-only: wasm has no argc/argv and no xiom_set_args runtime link.
@@ -1042,7 +1057,7 @@ impl IrEmitter {
             if self_offset == 1 && param.name.name == "self" {
                 continue;
             }
-            let llvm_ty = self.llvm_type_for_fallback(&Self::type_from_ast(&param.ty));
+            let llvm_ty = self.param_llvm_type(&param.ty);
             let alloca = self.fresh_tmp();
             let param_idx = emitted_param_idx;
             emitted_param_idx += 1;
@@ -1053,8 +1068,14 @@ impl IrEmitter {
             self.local.param_locals.insert(param.name.name.clone());
             // Track plain `&T` ref params (address carried as i64) so deref and
             // eq/compare can load through them. &mut T / *T are real pointers.
-            if matches!(&param.ty, Type::Ref(_)) {
-                self.local.ref_params.insert(param.name.name.clone());
+            // STRUCT-typed &T params are excluded: they are real `%struct.X*`
+            // pointers now (param_llvm_type), so the i64-address deref path
+            // must not fire for them.
+            if let Type::Ref(inner) = &param.ty {
+                let inner_llvm = self.llvm_type_for(&Self::type_from_ast(inner)).unwrap_or_else(|_| "i64".to_string());
+                if !inner_llvm.starts_with("%struct.") {
+                    self.local.ref_params.insert(param.name.name.clone());
+                }
             }
             // 5c.39: Track Vec element type for function parameters so
             // downstream local bindings (var x = param) can inherit it.
@@ -1323,7 +1344,40 @@ impl IrEmitter {
     // 5c.36: Pre-register expression-level tuple types
     // ========================================================================
 
-    /// Scan function bodies for `Expr::Tuple` with 2+ elements and register
+    /// Approximate cost of a function body for the inline-attribute policy:
+    /// 1 per statement/expression, recursing into nested blocks (if/while/
+    /// for/match/spawn). Used to avoid `alwaysinline` on large functions,
+    /// which makes LLVM's -O2 hang when a hot caller inlines the whole
+    /// library (see the `inline_attr` policy at the define-line emission).
+    pub(crate) fn approx_block_cost(block: &Block) -> usize {
+        Self::block_stmt_cost(block)
+    }
+
+    fn block_stmt_cost(block: &Block) -> usize {
+        block.stmts.iter().map(Self::stmt_cost).sum()
+    }
+
+    fn stmt_cost(stmt: &StmtOrExpr) -> usize {
+        match stmt {
+            StmtOrExpr::Expr(_) => 1,
+            StmtOrExpr::Stmt(s) => 1 + match s {
+                Stmt::If(_, t, elifs, e, _) => {
+                    Self::block_stmt_cost(t)
+                        + elifs.iter().map(|(_, b)| Self::block_stmt_cost(b)).sum::<usize>()
+                        + e.as_ref().map_or(0, Self::block_stmt_cost)
+                }
+                Stmt::While(_, b, _, _, _) => Self::block_stmt_cost(b),
+                Stmt::For(_, _, b, _, _) => Self::block_stmt_cost(b),
+                Stmt::Match(_, arms, _) => arms.iter().map(|arm| match &arm.body {
+                    MatchBody::Block(b) => Self::block_stmt_cost(b),
+                    MatchBody::Expr(_) => 1,
+                }).sum(),
+                Stmt::Spawn(b, _, _) => Self::block_stmt_cost(b),
+                _ => 0,
+            },
+        }
+    }
+
     /// the corresponding `Tuple__Type1__Type2` struct types so their LLVM
     /// definitions are emitted at module level before any function bodies.
     pub(crate) fn register_expr_tuple_types(&mut self, item: &TopDecl) {
