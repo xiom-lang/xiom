@@ -207,7 +207,126 @@ garbage before the fix).
 
 ---
 
-## 2026-08-10 — Compiler-hardening session fast-suite observation
+## 2026-08-11 — BigInt/BigFloat session: follow-up verification (post coerce.rs edit)
+
+### BUG 8 (CRITICAL) — RESOLVED by the compiler session's uncommitted coerce.rs edit
+
+Re-verified on the rebuilt compiler: `_from_twos_bits` / `_bits_to_bigint`
+now emit correct signatures
+(`define %struct.BigInt @bigint._from_twos_bits(%struct.Vec %param0)`),
+`bigint_bit_and/or/xor` work, and the extended `smoke_bigint.xi` (20+
+assertions incl. two's-complement negatives) passes end-to-end.
+
+### BUG 9 — Catalog fns returning module-local PRIVATE struct types degrade to i64
+
+- **Construct:** `fn f(...) -> PrivateType` where `PrivateType` is a struct
+  declared (non-`pub`) in the same catalog stdlib module. The definition and
+  call sites emit `i64` instead of `%struct.PrivateType` → ABI mismatch →
+  AV at runtime. `pub type` in the same position works.
+- **Minimal repro** (verified): `stdlib/xiom/num/probet.xi` with
+  `type Wrap = { a: Int; b: Int; }` + private `make_wrap` → `call i64
+  @probet.make_wrap` / `define i64 @probet.make_wrap`; with `pub type Wrap`
+  → `%struct.Wrap` and correct results.
+- **Stdlib handling:** `IntFrac` in `num/bigfloat.xi` is declared `pub` —
+  it is part of the module's public surface anyway (split result of the
+  rounding/floor machinery).
+- **Fix direction (compiler):** catalog decl registration must resolve
+  non-pub module-local struct types (or the checker must reject them) —
+  silently defaulting to i64 corrupts memory.
+
+### BUG 10 (pre-existing) — Float literals emitted rounded to 6 decimals
+
+- **Construct:** any Float64 literal. The emitted LLVM constant is the
+  literal formatted with ~6 decimals: `0.000000001` → `0.000000` (= 0.0),
+  `3.14159265358979` → `3.141593` (≈1e-7 error). Short literals (<= 6
+  decimals) are exact and unaffected. Present in the OLD compiler binary as
+  well — pre-existing, not a regression from the hardening session.
+- **Observed:** `if diff > 0.000000001` became `if diff > 0.0`; probes
+  comparing literals like `3.1400000000000001` vs `3.14` reported "equal".
+- **Stdlib handling:** no stdlib fn depends on > 6-decimal literals (PI/E
+  are parsed from strings); the bigfloat smoke expresses its 1e-9 tolerance
+  as `diff * 1000000000.0 > 1.0` (emission-safe).
+- **Fix direction (compiler):** emit `%f`-style literals with full
+  precision (e.g. `%.17g`) or hex float constants (`0x1.91eb851eb851fp+1`).
+
+### BUG 11 — `unsafe { extern }` calls return wrong values for runtime Float64 args
+
+- **Construct:** `stdlib/xiom/math.xi` `pub fn sqrt(x: Float64)` lowers to
+  `unsafe { return sqrt(x); }` (extern "C" libm). With a RUNTIME argument the
+  result is wrong: `math.sqrt(4.0)` (var-held) != 2.0, `sqrt(9.0)` != 3.0.
+  Constant-folded calls appear fine. Same symptom in `smoke_complex.xi`
+  (`complex_abs` -> `math.sqrt`) and `smoke_net_folder.xi` — both fail in the
+  stdlib-exec suite (70/72 pass; the two failures are the unsafe-extern
+  path, unrelated to bigint/bigfloat).
+- **Suspect:** the Unsafe Confinement trampoline
+  (`xiom_trampoline_call` + `__unsafe_ctx` struct) — double args/results
+  through the context struct. Compiler session's in-flight domain
+  (uncommitted coerce.rs + confinement phases); NOT the stdlib code.
+- **Fix direction (compiler):** verify double (and i64) arg/ret marshalling
+  through `__unsafe_ctx`; compare against `sqrt_pure` (non-unsafe impl).
+
+---
+
+## 2026-08-11 — REGRESSION in committed &T fix (d22068f8) — RESOLVED
+
+### BUG 8 (CRITICAL) — Catalog-module fns with `&Vec[Int]` params emit an EMPTY signature
+
+> RESOLVED: the compiler session's later uncommitted coerce.rs edit fixed the
+> &expr lowering; verified on the rebuilt compiler (see the follow-up section
+> above). Kept below as the original report.
+
+- **Construct:** any function in an IMPORTED (catalog) stdlib module whose
+  parameter is `&Vec[Int]` (i64-element generic container). The function
+  definition is emitted with NO parameters and `i64` return, while call
+  sites pass `%struct.Vec*` and use the declared return type — ABI mismatch
+  → deterministic ACCESS_VIOLATION at runtime.
+- **Observed IR (probe_bit.xi, both the fresh build and the committed-HEAD
+  compiler):**
+  ```
+  %tmp183 = call i64 @_from_twos_bits(%struct.Vec* %tmp47)   ; call site: Vec* arg
+  define i64 @_from_twos_bits() {                             ; definition: NO params!
+  ```
+  The definition is also emitted UNQUALIFIED (`@_from_twos_bits`, missing the
+  `@bigint.` module prefix) — the external-decl registration degraded the
+  signature. `_bits_to_bigint(&Vec[Int], Bool)` in the same module vanished
+  from the IR entirely.
+- **Scope (empirically verified):**
+  - `&Vec[Int]` param in a USER module → correct (`define i64 @sum_vec(%struct.Vec %param0)`).
+  - `&Vec[UInt8]` param in a CATALOG module → correct (smoke_compress exit 0).
+  - `&BigInt` (plain struct) param in a catalog module → correct (`@bigint._twos_bits(%struct.BigInt*, i64)`).
+  - OLD compiler (before d22068f8): `bigint_bit_and` worked (probe_bisect #9,
+    exit 0) — so this is a REGRESSION from the committed &T-param fix
+    (param_llvm_type struct-address lowering + coerce changes), not a
+    pre-existing issue.
+- **Trigger in stdlib:** `stdlib/xiom/bigint.xi` `_from_twos_bits(bits: &Vec[Int])`
+  and `_bits_to_bigint(bits: &Vec[Int], negative: Bool)` — the two's-complement
+  bitwise helpers. The extended `smoke_bigint.xi` crashes (0xC0000005) the
+  moment any of `bigint_bit_and/or/xor` is linked in.
+- **Likely root cause hint:** the recurring `warning: unknown type 'Int]' —
+  defaulting to i64` (type-string parser splitting `Vec[Int]` on `]`) combined
+  with the new param lowering — the mangled `&Vec[Int]` param type resolves to
+  an empty/i64 default during catalog decl registration. The catalog
+  registration path (collect_external_decls) is what differs from the
+  in-program path (which works).
+- **Fix direction (compiler):** catalog/external-decl signature extraction for
+  `&Vec[T]` params must preserve the container type (and the module prefix on
+  the emitted fn name). Verify with: probe_bit.xi (bit ops), smoke_bigint.xi
+  (extended), and re-run smoke_compress (must stay green — &Vec[UInt8] is the
+  canary for the working path).
+
+### FIXED in stdlib during diagnosis (no compiler involvement)
+
+- `bigint.xi` div_mod zero-remainder: `dm.1.digits[0]` is an out-of-bounds
+  read when the remainder is zero (div_mod returns an EMPTY digits Vec for a
+  zero remainder — `_trim` pops all limbs; both the old and new paths do
+  this). All readers (`bigint_to_base`, `bigint_to_hex`, `_bigint_bit_array`)
+  now guard with `bigint_is_zero(&dm.1)` first. Pre-existing hazard, exposed
+  by the new m==1 schoolbook path.
+- `smoke_bigint.xi` assertion for `bigint_shift_left`: the function is the
+  original DECIMAL shift (×10^n), not a bit shift — assertion corrected to
+  `shift_left(1, 3) == "1000"` (documented in the module header).
+
+---
 
 ### NOTE 6 — `stdlib_exec_bigint_runs` fails (smoke_bigint.xi compile hangs/fails) — PARALLEL-SESSION IN-FLIGHT, NOT A COMPILER REGRESSION
 
