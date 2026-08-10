@@ -337,6 +337,9 @@ impl IrEmitter {
         // D2.1 (Phase 4): stack guard pages (red-zone overflow catch).
         self.emitln("declare void @xiom_guard_page_arm()");
         self.emitln("declare void @xiom_guard_page_disarm()");
+        // D2.1 (Phase 5): fault trap (VEH context-restore; returns fault code).
+        self.emitln("declare i64 @xiom_trap_enter()");
+        self.emitln("declare void @xiom_trap_leave()");
         self.emitln("declare i8* @realloc(i8*, i64)");
         self.emitln("declare void @free(i8*)");
         self.emitln("declare void @llvm.memcpy.p0i8.p0i8.i64(i8*, i8*, i64, i1)");
