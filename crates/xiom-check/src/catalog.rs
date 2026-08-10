@@ -80,11 +80,27 @@ impl ModuleCatalog {
         }
     }
 
+    /// Directories that are never XIOM source roots: build artifacts, VCS
+    /// internals, and package-manager caches. Skipping them keeps the
+    /// index build and the scan-based module lookup (Strategy b in
+    /// `load_module`) cheap even when a source_dir is a project root or
+    /// the working directory (which can contain a full `target/` tree).
+    fn should_skip_dir(name: &str) -> bool {
+        name.starts_with('.')
+            || matches!(name, "target" | "build" | "dist" | "out" | "obj"
+                | "node_modules" | ".cargo" | "cmake-build-debug" | "cmake-build-release")
+    }
+
     fn index_dir(&mut self, dir: &Path) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
+                    // Do not index build/VCS/package-manager subtrees.
+                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if Self::should_skip_dir(name) {
+                        continue;
+                    }
                     self.index_dir(&path);
                 } else if path.extension().map_or(false, |e| e == "xi") {
                     if let Some(dotted) = self.read_module_header(&path) {
@@ -177,7 +193,17 @@ impl ModuleCatalog {
 
         // Strategy b: scan-based — walk source_dirs for any .xi file whose declared
         // module name (parsed from the file's header) matches path_segments.
-        for dir in &self.source_dirs {
+        // ONLY used when the index was never built (e.g. catalog unit tests):
+        // when `build_index` has run, the module_index already covers every
+        // file this scan could find (both index the same dirs with the same
+        // header check), so the scan would be pure waste — and it is
+        // PATHOLOGICAL on a source_dir that is a project root or the working
+        // directory (walking the whole tree per failed leaf lookup, e.g.
+        // `use xiom.core.to_int` where to_int is a fn/const, not a module —
+        // observed multi-minute hangs). The index is authoritative; skip the
+        // scan entirely.
+        if self.module_index.is_empty() {
+            for dir in &self.source_dirs {
             if let Ok(entries) = std::fs::read_dir(dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
@@ -199,6 +225,10 @@ impl ModuleCatalog {
                     for entry in entries.flatten() {
                         let path = entry.path();
                         if path.is_dir() {
+                            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                            if Self::should_skip_dir(name) {
+                                continue;
+                            }
                             if let Some(cached) = self.load_from_dir(&path, path_segments) {
                                 return Some(cached);
                             }
@@ -206,6 +236,7 @@ impl ModuleCatalog {
                     }
                 }
             }
+        }
         }
 
         None
@@ -224,6 +255,10 @@ impl ModuleCatalog {
                         }
                     }
                 } else if path.is_dir() {
+                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if Self::should_skip_dir(name) {
+                        continue;
+                    }
                     if let Some(cached) = self.load_from_dir(&path, path_segments) {
                         return Some(cached);
                     }
