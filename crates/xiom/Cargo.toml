@@ -34,3 +34,4 @@ xiom-jit = { path = "../xiom-jit" }
 [features]
 default = []
 nasm = []  # Enable NASM assembly of .asm files for hardware acceleration
+full-e2e = []  # Enable full compile+run execution tests (requires runtime linking)

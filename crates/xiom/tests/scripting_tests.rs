@@ -6,7 +6,6 @@
 //
 // Run with: cargo test -p xiom --test scripting_tests
 
-use std::io::Write;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -54,6 +53,8 @@ fn check_script(content: &str) -> std::process::Output {
 }
 
 /// Full execution test: compile + run (requires runtime linking).
+/// Only compiled when the `full-e2e` feature is enabled (see execution mod).
+#[cfg(feature = "full-e2e")]
 fn run_script(content: &str) -> std::process::Output {
     let script = tmp_script("run.xi", content);
     let output = Command::new(xiom_binary())
