@@ -1,7 +1,9 @@
 module m21_ffi_unsafe_004
 type Data = { val: Int; }
 
-  pub fn run() -> Int {
+  pub fn run() -> Int
+  requires: true
+{
     unsafe {
       var d: Data = { val: 99; };
       var p: *Data = &d;

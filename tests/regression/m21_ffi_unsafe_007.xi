@@ -1,5 +1,7 @@
 module m21_ffi_unsafe_007
-pub fn run() -> Int {
+pub fn run() -> Int
+  requires: true
+{
     unsafe {
       var x: Int32 = 1000i32;
       var p: *Int32 = &x;

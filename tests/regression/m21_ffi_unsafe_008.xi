@@ -1,5 +1,7 @@
 module m21_ffi_unsafe_008
-pub fn run() -> Int {
+pub fn run() -> Int
+  requires: true
+{
     unsafe {
       var arr: Vec[Int] = [10, 20, 30];
       var p: *Int = &arr[0];

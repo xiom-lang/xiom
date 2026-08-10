@@ -12,7 +12,10 @@ fn dangerous_cast(v: Int) -> *Int {
 }
 module heap {
   pub fn verify(a: Alloc) -> Int { return check_alloc(a); }
-  pub fn cast_ptr(v: Int) -> *Int { return dangerous_cast(v); }
+  pub fn cast_ptr(v: Int) -> *Int {
+    var p: *Int = dangerous_cast(v);
+    unsafe { return p; }
+  }
   pub fn magic_val() -> Int { return MAGIC; }
 }
 use heap.verify;
