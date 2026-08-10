@@ -5,7 +5,9 @@ fn safe_sum(n: Int) -> Option[Int] {
   while i < n { i = i + 1; if i > 10 { return None; } }
   return Some(n);
 }
-fn unsafe_check(x: Int) -> Option[Int] {
+fn unsafe_check(x: Int) -> Option[Int]
+  requires: x >= 0
+{
   unsafe {
     var v = x;
     v = v + 1;

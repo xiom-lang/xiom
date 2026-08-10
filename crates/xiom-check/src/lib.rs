@@ -123,6 +123,9 @@ pub struct Checker {
     extern_fns: HashSet<String>,
     /// True while checking a fn that declares contracts (T002 exemption).
     current_fn_has_contracts: bool,
+    /// True while checking a fn that declares a `requires` clause (T007:
+    /// every unsafe block must be wrapped by a safe fn enforcing requires).
+    current_fn_has_requires: bool,
 }
 
 impl Checker {
@@ -160,6 +163,7 @@ impl Checker {
             unsafe_depth: 0,
             extern_fns: HashSet::new(),
             current_fn_has_contracts: false,
+            current_fn_has_requires: false,
         };
         // Register built-in types
         checker.register_builtins();
@@ -2807,9 +2811,25 @@ impl Checker {
         // wrappers around unsafe internals (requirement c) — they may call
         // extern "C" functions directly.
         self.current_fn_has_contracts = !fd.contracts.is_empty();
+        // D2.1 (T007): an unsafe block must be wrapped by a safe fn enforcing
+        // at least one `requires` clause (pre-entry validation, requirement c).
+        self.current_fn_has_requires = fd.contracts.iter().any(|c| matches!(c, ContractClause::Requires(..)));
 
         // Check body
         if let Some(body) = fd.body.as_ref() {
+            // D2.1 (T007, requirement c): a fn whose ENTIRE body is one
+            // `unsafe { }` block must declare at least one `requires` clause —
+            // the safe wrapper pattern: inputs are logically validated before
+            // the confined block executes.
+            if !self.current_fn_has_requires && Self::block_is_single_unsafe(body) {
+                self.error(
+                    format!(
+                        "fn '{}' has a whole-body `unsafe` block but declares no `requires` (T007 — pre-entry contract, Unsafe Confinement requirement c)",
+                        fd.name.name
+                    ),
+                    fd.name.span,
+                );
+            }
             self.check_block(body, expected_return);
         }
 
@@ -2840,6 +2860,18 @@ impl Checker {
         self.pop_scope();
         self.current_receiver = None;
         self.current_fn_has_contracts = false;
+        self.current_fn_has_requires = false;
+    }
+
+    /// True if the block is exactly one `unsafe { }` expression statement
+    /// (T007 whole-body-unsafe detection).
+    fn block_is_single_unsafe(block: &Block) -> bool {
+        if block.stmts.len() == 1 {
+            if let StmtOrExpr::Expr(e) = &block.stmts[0] {
+                return matches!(e, Expr::Unsafe(..));
+            }
+        }
+        false
     }
 
     /// True if the block (transitively) contains an `unsafe { }` expression —
@@ -4264,6 +4296,11 @@ impl Checker {
             Expr::Unsafe(block, _) => {
                 // D2 (2026-08-08): `unsafe { }` opts into raw-pointer ops for
                 // this block only. Depth-scoped so nested blocks compose.
+                // D2.1 (T007, requirement c): whole-body-unsafe fns must
+                // declare `requires` — enforced at check_fn_decl (a fn whose
+                // ENTIRE body is one unsafe block). Sub-expression unsafe
+                // blocks are confined plumbing (operands, assignments) and do
+                // not escape the fn, so they need no wrapper contract.
                 self.unsafe_depth += 1;
                 let ty = self.check_block(block, None).unwrap_or(CheckedType::Unit);
                 self.unsafe_depth -= 1;
@@ -5294,14 +5331,17 @@ mod tests {
     #[test]
     fn test_divergence_unsafe_tail_return() {
         // The alloc.xi FFI-wrapper pattern: entire body is `unsafe { ...; return X; }`.
-        let result = check("fn f() -> Int { unsafe { return 42; } }");
+        // Whole-body unsafe fns must declare `requires` (T007).
+        let result = check("fn f() -> Int requires: true { unsafe { return 42; } }");
         assert!(result.is_ok(), "unsafe tail with return must satisfy fn return type: {:?}", result.err());
     }
 
     #[test]
     fn test_divergence_unsafe_with_early_return() {
         let src = r#"
-fn f(x: Int) -> Int {
+fn f(x: Int) -> Int
+  requires: x >= 0
+{
   unsafe {
     if x == 0 { return 1; };
     return x * 2;
@@ -6564,8 +6604,11 @@ fn read_via_ptr(p: *Int) -> Int {
     }
 
     #[test] fn test_d2_deref_inside_unsafe_accepted() {
+        // Whole-body unsafe fns must declare `requires` (T007).
         let src = "\
-fn read_via_ptr(p: *Int) -> Int {
+fn read_via_ptr(p: *Int) -> Int
+    requires: p != (0 as *Int)
+{
     unsafe { return *p; }
 }";
         let result = check(src);
@@ -6583,7 +6626,9 @@ fn make_ptr(n: Int) -> *UInt8 {
 
     #[test] fn test_d2_int_to_ptr_cast_inside_unsafe_accepted() {
         let src = "\
-fn make_ptr(n: Int) -> *UInt8 {
+fn make_ptr(n: Int) -> *UInt8
+    requires: n >= 0
+{
     unsafe { return n as *UInt8; }
 }";
         let result = check(src);
@@ -6616,7 +6661,9 @@ fn borrow(x: Int) -> Int {
 
     #[test] fn test_d2_nested_unsafe_composes() {
         let src = "\
-fn deep(p: *Int) -> Int {
+fn deep(p: *Int) -> Int
+    requires: p != (0 as *Int)
+{
     unsafe {
         let q = p as *Int;
         unsafe { return *q; }
@@ -6819,6 +6866,30 @@ fn main() -> Int {
 }";
         let result = check(src);
         assert!(result.is_ok(), "safe scalar tail must pass: {:?}", result.err());
+    }
+
+    // D2.1 (Unsafe Confinement Phase 2 — requirement c): whole-body unsafe
+    // fns must declare `requires` (pre-entry contracts).
+    #[test] fn test_d21_whole_body_unsafe_requires_rejected() {
+        let src = "\
+fn whole() -> Int {
+  unsafe { return 42; }
+}
+fn main() -> Int { return 0; }";
+        let result = check(src);
+        assert!(result.is_err(), "whole-body unsafe without requires must fail: {:?}", result.err());
+    }
+
+    #[test] fn test_d21_whole_body_unsafe_with_requires_accepted() {
+        let src = "\
+fn whole(x: Int) -> Int
+  requires: x >= 0
+{
+  unsafe { return x; }
+}
+fn main() -> Int { return 0; }";
+        let result = check(src);
+        assert!(result.is_ok(), "whole-body unsafe with requires must pass: {:?}", result.err());
     }
 
     // Complex boolean expressions
