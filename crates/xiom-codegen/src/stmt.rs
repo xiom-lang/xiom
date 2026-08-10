@@ -712,14 +712,23 @@ impl IrEmitter {
                     // Uses xiom_guard_copy_str (single C call) — NOT inline
                     // strlen — which would leak the recursion counter in the
                     // confined block (alwaysinline imbalance, 500-depth trap).
-                    if self.guard_heap_depth > 0 && val_ty == LLVM_STR_PTR {
-                        let copy_tmp = self.fresh_tmp();
-                        self.emitln(&format!("  {copy_tmp} = call i8* @xiom_guard_copy_str(i8* {val})"));
-                        let not_null = self.fresh_tmp();
-                        self.emitln(&format!("  {not_null} = icmp ne i8* {copy_tmp}, null"));
-                        let sel = self.fresh_tmp();
-                        self.emitln(&format!("  {sel} = select i1 {not_null}, i8* {copy_tmp}, i8* {val}"));
-                        val = sel;
+                    // D2.1 (Phase 3/4): a `return` INSIDE an unsafe block must
+                    // (a) Copy-Out a Str tail to the main heap before the arena
+                    // resets (UAF fix), and (b) ALWAYS discard the guard arena
+                    // + disarm the stack guard page — the block-exit emission
+                    // after the tail loop is skipped for early returns.
+                    if self.guard_heap_depth > 0 {
+                        if val_ty == LLVM_STR_PTR {
+                            let copy_tmp = self.fresh_tmp();
+                            self.emitln(&format!("  {copy_tmp} = call i8* @xiom_guard_copy_str(i8* {val})"));
+                            let not_null = self.fresh_tmp();
+                            self.emitln(&format!("  {not_null} = icmp ne i8* {copy_tmp}, null"));
+                            let sel = self.fresh_tmp();
+                            self.emitln(&format!("  {sel} = select i1 {not_null}, i8* {copy_tmp}, i8* {val}"));
+                            val = sel;
+                        }
+                        self.emitln("  call void @xiom_guard_heap_exit()");
+                        self.emitln("  call void @xiom_guard_page_disarm()");
                     }
                     // Coerce the returned value to the function's declared return
                     // type (int widths, int<->pointer, int<->double, int->struct)
