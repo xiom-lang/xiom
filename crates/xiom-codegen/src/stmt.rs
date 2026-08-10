@@ -727,6 +727,13 @@ impl IrEmitter {
                             self.emitln(&format!("  {sel} = select i1 {not_null}, i8* {copy_tmp}, i8* {val}"));
                             val = sel;
                         }
+                        // D2.1 (Phase 5): inside an unsafe-block fn, a `return`
+                        // must signal the call site to return from the ENCLOSING
+                        // fn (not just from the block fn), so the block value is
+                        // propagated out.
+                        if self.in_unsafe_block_fn {
+                            self.emitln("  call void @xiom_trampoline_set_returned()");
+                        }
                         self.emitln("  call void @xiom_guard_heap_exit()");
                         self.emitln("  call void @xiom_guard_page_disarm()");
                         self.emitln("  call void @xiom_trap_leave()");

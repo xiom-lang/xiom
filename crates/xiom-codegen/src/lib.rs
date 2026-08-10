@@ -52,6 +52,16 @@ pub struct IrEmitter {
     /// exit the arena is discarded wholesale (isolation) and the tail value is
     /// Copy-Out'd to the main heap (requirement i, UAF fix).
     pub guard_heap_depth: u32,
+    /// D2.1 (Phase 5): globally-unique counter for emitted unsafe-block
+    /// functions (`__unsafe_block_N`). Unlike tmp_counter/block_counter (which
+    /// are reset per function by compile_fn), this monotonically increases so
+    /// deferred block fn symbols never collide across enclosing functions.
+    pub unsafe_block_counter: u32,
+    /// D2.1 (Phase 5): 1 while compiling the standalone fn body of an unsafe
+    /// block. When set, a `Stmt::Return` inside the block fn emits a
+    /// @xiom_trampoline_set_returned() call first, so the call site knows to
+    /// return the block's value from the ENCLOSING fn.
+    pub in_unsafe_block_fn: bool,
 
     /// Compilation flags and target configuration
     pub config: CodegenConfig,
@@ -82,6 +92,8 @@ impl IrEmitter {
             str_counter: 0,
             has_llvm_trap_decl: false,
     guard_heap_depth: 0,
+            unsafe_block_counter: 0,
+            in_unsafe_block_fn: false,
             config: CodegenConfig::default(),
             types: TypeContext::default(),
             fctx: FunctionContext {
@@ -529,6 +541,21 @@ impl IrEmitter {
             self.emitln(&format!("  {tmp} = call i8* @xiom_guard_alloc(i64 {size_expr})"));
         } else {
             self.emitln(&format!("  {tmp} = call i8* @malloc(i64 {size_expr})"));
+        }
+        tmp
+    }
+
+    /// D2.1 (Phase 3, fix): emit a realloc call that routes to the arena-aware
+    /// @xiom_guard_realloc when inside a confined block (grows a guard-arena
+    /// block by copying to a fresh arena slab), else plain @realloc. Vec growth
+    /// inside unsafe blocks MUST NOT use plain realloc — it would realloc a
+    /// VirtualAlloc slab pointer (invalid) and corrupt/crash the process.
+    fn emit_realloc(&mut self, old_ptr: &str, old_size: &str, new_size: &str) -> String {
+        let tmp = self.fresh_tmp();
+        if self.guard_heap_depth > 0 {
+            self.emitln(&format!("  {tmp} = call i8* @xiom_guard_realloc(i8* {old_ptr}, i64 {old_size}, i64 {new_size})"));
+        } else {
+            self.emitln(&format!("  {tmp} = call i8* @realloc(i8* {old_ptr}, i64 {new_size})"));
         }
         tmp
     }
@@ -4240,6 +4267,11 @@ let inner_llvm = match &inner_subst {
                 self.pop_scope();
                 self.fctx.current_fn = None;
                 self.fctx.current_receiver = None;
+                // D2.1 (Phase 5): flush deferred unsafe-block functions emitted
+                // from THIS generic specialization's body. (compile_fn flushes
+                // after each non-generic fn; the monomorphisation path must too,
+                // or __unsafe_block_N defs from generic bodies are dropped.)
+                self.flush_deferred_closures();
             }
         }
         Ok(())

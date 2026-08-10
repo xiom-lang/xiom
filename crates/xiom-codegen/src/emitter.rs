@@ -229,16 +229,18 @@ impl IrEmitter {
             }
         }
         let mut captures = Vec::new();
-        for name in used {
-            if !param_names.contains(&name) {
-                if let Some((_, llvm_ty)) = self.lookup_local(&name) {
+        for name in &used {
+            if !param_names.contains(name) {
+                if let Some((_, llvm_ty)) = self.lookup_local(name) {
                     captures.push((name.clone(), llvm_ty.clone()));
                 }
             }
         }
+        if std::env::var("XIOM_DEBUG_CAPTURES").is_ok() {
+            eprintln!("[collect_block_free_vars] used={:?} captures={:?}", used, captures);
+        }
         captures
     }
-
     /// Recursively collect all identifier names from an expression.
     fn collect_ident_names(&self, expr: &Expr, out: &mut std::collections::HashSet<String>) {
         match expr {
@@ -251,19 +253,40 @@ impl IrEmitter {
                 self.collect_ident_names(func, out);
                 for a in args { self.collect_ident_names(a, out); }
             }
-            Expr::Field(obj, _, _) | Expr::Index(obj, _, _) | Expr::Ref(obj, _) => {
+            Expr::Field(obj, _, _) | Expr::Ref(obj, _) => {
                 self.collect_ident_names(obj, out);
+            }
+            Expr::Index(obj, index, _) => {
+                self.collect_ident_names(obj, out);
+                self.collect_ident_names(index, out);
             }
             Expr::Unary(_, obj, _) => {
                 self.collect_ident_names(obj, out);
             }
-            Expr::If(cond, then_block, _elifs, _else_block, _) => {
+            Expr::If(cond, then_block, _elifs, else_block, _) => {
                 self.collect_ident_names(cond, out);
                 for stmt in &then_block.stmts {
                     self.collect_stmt_names(stmt, out);
                 }
+                for stmt in else_block.iter().flat_map(|b| b.stmts.iter()) {
+                    self.collect_stmt_names(stmt, out);
+                }
             }
             Expr::PipeClosure(_, inner, _) => {
+                self.collect_ident_names(inner, out);
+            }
+            Expr::Paren(inner, _) => {
+                self.collect_ident_names(inner, out);
+            }
+            Expr::As(inner, _, _) => {
+                self.collect_ident_names(inner, out);
+            }
+            Expr::BlockExpr(b, _) | Expr::Unsafe(b, _) => {
+                for stmt in &b.stmts {
+                    self.collect_stmt_names(stmt, out);
+                }
+            }
+            Expr::Await(inner, _) | Expr::Comptime(inner, _) => {
                 self.collect_ident_names(inner, out);
             }
             _ => {}
@@ -284,8 +307,67 @@ impl IrEmitter {
             Stmt::Let(_, _, e, _) => self.collect_ident_names(e, out),
             Stmt::Var(_, _, e, _) => self.collect_ident_names(e, out),
             Stmt::Return(Some(e), _) => self.collect_ident_names(e, out),
-            Stmt::If(cond, _, _, _, _) => self.collect_ident_names(cond, out),
-            Stmt::While(cond, _, _, _, _) => self.collect_ident_names(cond, out),
+            Stmt::Assign(target, value, _) => {
+                self.collect_ident_names(target, out);
+                self.collect_ident_names(value, out);
+            }
+            Stmt::Destructure(_, e, _) => self.collect_ident_names(e, out),
+            Stmt::For(_, iter, body, _, _) => {
+                self.collect_ident_names(iter, out);
+                for stmt in &body.stmts {
+                    self.collect_stmt_names(stmt, out);
+                }
+            }
+            Stmt::Spawn(body, _, _) => {
+                for stmt in &body.stmts {
+                    self.collect_stmt_names(stmt, out);
+                }
+            }
+            Stmt::Defer(block, _) => {
+                for stmt in &block.stmts {
+                    self.collect_stmt_names(stmt, out);
+                }
+            }
+            Stmt::If(cond, then_block, elifs, else_block, _) => {
+                self.collect_ident_names(cond, out);
+                for stmt in &then_block.stmts {
+                    self.collect_stmt_names(stmt, out);
+                }
+                for (econd, eblock) in elifs {
+                    self.collect_ident_names(econd, out);
+                    for stmt in &eblock.stmts {
+                        self.collect_stmt_names(stmt, out);
+                    }
+                }
+                for stmt in else_block.iter().flat_map(|b| b.stmts.iter()) {
+                    self.collect_stmt_names(stmt, out);
+                }
+            }
+            Stmt::While(cond, body, _, _, _) => {
+                if std::env::var("XIOM_DEBUG_CAPTURES").is_ok() {
+                    eprintln!("[capture-while] cond idents collected, body has {} stmts", body.stmts.len());
+                }
+                self.collect_ident_names(cond, out);
+                for stmt in &body.stmts {
+                    self.collect_stmt_names(stmt, out);
+                }
+            }
+            Stmt::Match(scrutinee, arms, _) => {
+                self.collect_ident_names(scrutinee, out);
+                for arm in arms {
+                    if let Some(guard) = &arm.guard {
+                        self.collect_ident_names(guard, out);
+                    }
+                    match &arm.body {
+                        xiom_ast::MatchBody::Block(b) => {
+                            for stmt in &b.stmts {
+                                self.collect_stmt_names(stmt, out);
+                            }
+                        }
+                        xiom_ast::MatchBody::Expr(e) => self.collect_ident_names(e, out),
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -340,7 +422,15 @@ impl IrEmitter {
         // D2.1 (Phase 5): fault trap (VEH context-restore; returns fault code).
         self.emitln("declare i64 @xiom_trap_enter()");
         self.emitln("declare void @xiom_trap_leave()");
+        // D2.1 (Phase 5, canonical): the pre-compiled SEH trampoline. Returns
+        // the fault code (0 = block completed normally, 1-6 = hardware fault);
+        // the block's SUCCESS value is recovered via @xiom_trampoline_get_result.
+        self.emitln("declare i64 @xiom_trampoline_call(i64, i8*)");
+        self.emitln("declare i64 @xiom_trampoline_get_result()");
+        self.emitln("declare void @xiom_trampoline_set_returned()");
+        self.emitln("declare i64 @xiom_trampoline_was_returned()");
         self.emitln("declare i8* @realloc(i8*, i64)");
+        self.emitln("declare i8* @xiom_guard_realloc(i8*, i64, i64)");
         self.emitln("declare void @free(i8*)");
         self.emitln("declare void @llvm.memcpy.p0i8.p0i8.i64(i8*, i8*, i64, i1)");
         self.emitln("declare void @llvm.memmove.p0i8.p0i8.i64(i8*, i8*, i64, i1)");
