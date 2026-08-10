@@ -736,6 +736,7 @@ impl Checker {
                 }
             }
             Expr::Paren(inner, _) => self.tail_refs_pending_ptr(inner, pending),
+            Expr::As(inner, _, _) => self.tail_refs_pending_ptr(inner, pending),
             _ => false,
         }
     }
@@ -4371,15 +4372,15 @@ impl Checker {
                 // pointer inside this confined block must have been converted to
                 // an owned XIOM type (ffi.safe_ptr_from_raw / box_from_ptr /
                 // vec_from_ptr_with_free / str_from_ptr_owned) BEFORE the tail.
-                // An unconverted extern-returned pointer reaching the block's end
-                // would be leaked (arena doesn't own it) or double-freed.
-                // D2.1 (T006, FFI ownership): an extern call returning a raw
-                // pointer inside this confined block must have been converted to
-                // an owned XIOM type (ffi.safe_ptr_from_raw / box_from_ptr /
-                // vec_from_ptr_with_free / str_from_ptr_owned) BEFORE the tail.
                 // The block's TAIL must not be (or nest) an unconverted
                 // extern-returned raw pointer — that would leak/double-free.
-                if !self.pending_extern_ptrs.is_empty() {
+                // EXEMPTION: raw-pointer-RETURNING fns (the stdlib allocator
+                // pattern `fn alloc(...) -> *mut UInt8` — `unsafe { return
+                // malloc(...); }`) transfer ownership to the CALLER, who is
+                // responsible for freeing. Mirrors T003's unsafe-internal-helper
+                // exemption.
+                let fn_returns_raw_ptr = self.current_return.as_ref().map_or(false, Self::is_raw_pointer_ty);
+                if !self.pending_extern_ptrs.is_empty() && !fn_returns_raw_ptr {
                     // Does the tail expression reference an unconverted extern
                     // pointer variable? (Ident / field / index of a pending ptr.)
                     let tail_expr = Self::block_tail_expr(block).cloned();
@@ -6991,15 +6992,17 @@ fn main() -> Int { return 0; }";
     // an extern "C" call returning a raw pointer inside a confined block must
     // have its result converted to an owned XIOM type before the block's tail.
     #[test] fn test_t006_extern_ptr_tail_rejected() {
+        // The fn returns a NON-pointer (Int); the extern-returned pointer is
+        // cast to Int in the tail without any ownership conversion → T006.
         let src = "\
 extern \"C\" {
   fn xiom_alloc(size: Int) -> *UInt8;
 }
-fn bad_tail() -> *UInt8
+fn bad_tail() -> Int
   requires: true
 {
   unsafe {
-    xiom_alloc(8)
+    xiom_alloc(8) as Int
   }
 }
 fn main() -> Int { return 0; }";
