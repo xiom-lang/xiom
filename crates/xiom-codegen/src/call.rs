@@ -898,9 +898,10 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         let grow_data_ptr = self.fresh_tmp();
                         self.emitln(&format!("  {grow_data_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 0"));
                         self.emitln(&format!("  {grow_data_ptr} = load i8*, i8** {grow_data_gep}"));
-                        let new_data = self.fresh_tmp();
-                        self.emitln(&format!("  {new_data} = call i8* @realloc(i8* {grow_data_ptr}, i64 {new_size})"));
-                        // Null check on realloc ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â trap on OOM
+                        let old_size_tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {old_size_tmp} = mul i64 {cap_val}, {esz_val}"));
+                        let new_data = self.emit_realloc(&grow_data_ptr, &old_size_tmp, &new_size);
+                        // Null check on realloc — trap on OOM
                         let grow_null_check = self.fresh_tmp();
                         let grow_ok_block = self.fresh_block("vec_realloc_ok");
                         let grow_trap_block = self.fresh_block("vec_realloc_trap");
@@ -1066,8 +1067,9 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 let gd_ptr = self.fresh_tmp();
                                 self.emitln(&format!("  {gd_gep} = getelementptr %struct.Vec, %struct.Vec* {hdr}, i32 0, i32 0"));
                                 self.emitln(&format!("  {gd_ptr} = load i8*, i8** {gd_gep}"));
-                                let new_data = self.fresh_tmp();
-                                self.emitln(&format!("  {new_data} = call i8* @realloc(i8* {gd_ptr}, i64 {new_size})"));
+                                let old_size2 = self.fresh_tmp();
+                                self.emitln(&format!("  {old_size2} = mul i64 {cap}, {esz}"));
+                                let new_data = self.emit_realloc(&gd_ptr, &old_size2, &new_size);
                                 let re_null = self.fresh_tmp();
                                 let re_ok = self.fresh_block("vecmod_realloc_ok");
                                 let re_trap = self.fresh_block("vecmod_realloc_trap");

@@ -350,6 +350,56 @@ impl IrEmitter {
         }
     }
 
+    /// Convert an i64 (recovered from the trampoline's TLS result slot on the
+    /// SUCCESS path of a confined unsafe block) back to the block's actual tail
+    /// LLVM type. Inverse of val_to_i64. Used by the Expr::Unsafe arm after a
+    /// xiom_trampoline_call returns 0 (no fault).
+    pub(crate) fn unsafe_result_i64_to_val(&mut self, res: &str, last_ty: &str) -> (String, String) {
+        if last_ty == "void" || last_ty.is_empty() {
+            return (res.to_string(), LLVM_I64.to_string());
+        }
+        if last_ty == "double" {
+            let bc = self.fresh_tmp();
+            self.emitln(&format!("  {bc} = bitcast i64 {res} to double"));
+            return (bc, "double".to_string());
+        }
+        if last_ty == "float" {
+            let tr = self.fresh_tmp();
+            self.emitln(&format!("  {tr} = trunc i64 {res} to i32"));
+            let bc = self.fresh_tmp();
+            self.emitln(&format!("  {bc} = bitcast i32 {tr} to float"));
+            return (bc, "float".to_string());
+        }
+        if last_ty == "i8" || last_ty == "i16" || last_ty == "i32" {
+            let tr = self.fresh_tmp();
+            self.emitln(&format!("  {tr} = trunc i64 {res} to {last_ty}"));
+            return (tr, last_ty.to_string());
+        }
+        if last_ty == "i1" {
+            let tr = self.fresh_tmp();
+            self.emitln(&format!("  {tr} = trunc i64 {res} to i1"));
+            return (tr, "i1".to_string());
+        }
+        if last_ty.contains('*') {
+            // Pointer tail (e.g. Str as i8*): re-materialize via inttoptr.
+            let itp = self.fresh_tmp();
+            self.emitln(&format!("  {itp} = inttoptr i64 {res} to {last_ty}"));
+            return (itp, last_ty.to_string());
+        }
+        if last_ty.starts_with('%') {
+            // Struct-typed tail: val_to_i64 stored a heap pointer to the boxed
+            // struct. Re-materialize by loading through it.
+            let itp = self.fresh_tmp();
+            self.emitln(&format!("  {itp} = inttoptr i64 {res} to {last_ty}*"));
+            let loaded = self.fresh_tmp();
+            self.emitln(&format!("  {loaded} = load {last_ty}, {last_ty}* {itp}, align 16"));
+            return (loaded, last_ty.to_string());
+        }
+        // Default: i64 (Int, Bool, Char, pointers-as-i64).
+        (res.to_string(), last_ty.to_string())
+    }
+
+
     pub(crate) fn val_to_struct(&mut self, val: &str, val_ty: &str, struct_ty: &str) -> String {
         let alloca = self.fresh_tmp();
         self.emitln(&format!("  {alloca} = alloca {struct_ty}"));

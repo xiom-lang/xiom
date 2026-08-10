@@ -3373,56 +3373,153 @@ impl IrEmitter {
             Expr::Await(inner, _) => self.compile_expr(inner),
             Expr::Comptime(inner, _) => self.compile_expr(inner),
             Expr::Unsafe(block, _) => {
-                // D2.1 (Phase 5, requirement f): set up the fault trap FIRST.
-                // xiom_trap_enter captures the CPU context; on a hardware fault
-                // inside the block, the VEH handler restores it with a fault
-                // code as the "return value". Branch to a fault path that
-                // yields a zero/Err value instead of crashing the process.
-                let fault_flag = self.fresh_tmp();
-                self.emitln(&format!("  {fault_flag} = call i64 @xiom_trap_enter()"));
-                let fault_is_set = self.fresh_tmp();
-                self.emitln(&format!("  {fault_is_set} = icmp ne i64 {fault_flag}, 0"));
-                let fault_path = self.fresh_block("confined_fault");
-                let normal_path = self.fresh_block("confined_normal");
-                self.emitln(&format!("  br i1 {fault_is_set}, label %{fault_path}, label %{normal_path}"));
-                self.emitln(&format!("\n{fault_path}:"));
-                // On fault: discard the arena + disarm the page, then return a
-                // type-correct zero value for the fn's declared return type
-                // (the caller can detect the fault via the Result wrapper or
-                // the zero value). Non-void returns get their zero literal.
-                self.emitln("  call void @xiom_guard_heap_exit()");
-                self.emitln("  call void @xiom_guard_page_disarm()");
-                self.emitln("  call void @xiom_trap_leave()");
-                let ret_ty = self.fctx.current_return_type.clone();
-                if ret_ty.is_empty() || ret_ty == "void" {
-                    self.emitln("  ret void");
-                } else if ret_ty == LLVM_STR_PTR {
-                    self.emitln("  ret i8* null");
-                } else if ret_ty.starts_with("%struct.") {
-                    // Struct returns use sret — ret a zeroed struct via alloca.
-                    let slot = self.fresh_tmp();
-                    self.emitln(&format!("  {slot} = alloca {ret_ty}, align 16"));
-                    let loaded = self.fresh_tmp();
-                    self.emitln(&format!("  {loaded} = load {ret_ty}, {ret_ty}* {slot}, align 16"));
-                    self.emitln(&format!("  ret {ret_ty} {loaded}"));
-                } else if ret_ty.starts_with("float") || ret_ty == "double" {
-                    self.emitln(&format!("  ret {ret_ty} 0.0"));
-                } else {
-                    self.emitln(&format!("  ret {ret_ty} 0"));
+                // D2.1 (Phase 5, requirement f — REVISED 2026-08-10): canonical
+                // TRAP LOWERING. The inline VEH approach (xiom_trap_enter with
+                // RtlCaptureContext/RtlRestoreContext) is BROKEN: the captured
+                // context's RSP points into xiom_trap_enter's OWN frame, which
+                // is popped and reused before a fault deep in the block fires.
+                // RtlRestoreContext then restores RSP into that dead region, the
+                // epilogue `ret` pops a stale address, and control jumps back
+                // into the faulting block → infinite AV→restore→AV loop.
+                //
+                // Canonical fix (plan §2.7): lower the block to a STANDALONE
+                // function `int64_t __unsafe_block_N(uint8_t* ctx)` (captures =
+                // free variables packed in a ctx struct) and run it through the
+                // pre-compiled SEH trampoline xiom_trampoline_call, whose
+                // `__try/__except` checkpoint frame stays ALIVE across
+                // block_fn(ctx). On fault, __except returns a code 1-6 (no
+                // register-restore). Branch on the fault code.
+                //
+                // D2.1 (Phase 5, §2.13): a NESTED unsafe block (already inside an
+                // unsafe-block fn) must NOT create a second trampoline — the outer
+                // SEH checkpoint already covers it. Compile it as a plain block
+                // (allocations still route to the guard arena via guard_heap_depth,
+                // and captured-variable access works directly since we are in the
+                // same fn scope). This avoids nested trampolines corrupting the
+                // guard-arena/TLS state (observed: str_concat's unsafe block inside
+                // str_pad_left's unsafe block crashed).
+                if self.in_unsafe_block_fn {
+                    // Emit guard enter/arm (idempotent with the outer block's —
+                    // the outer block already entered; nested re-enter bumps depth,
+                    // re-exit decrements — so the arena stays active throughout).
+                    self.emitln("  call void @xiom_guard_heap_enter()");
+                    self.emitln("  call void @xiom_guard_page_arm()");
+                    self.guard_heap_depth += 1;
+                    // A `return` inside a nested unsafe block must NOT signal a
+                    // return-from-the-enclosing-fn (that is the OUTER block fn's
+                    // job). It returns from the current block fn normally, so the
+                    // nested block's `return X` yields X as the outer block fn's
+                    // value. Temporarily clear the in-block-fn flag so Stmt::Return
+                    // emits a plain `ret`.
+                    let saved_nested_in_block = self.in_unsafe_block_fn;
+                    self.in_unsafe_block_fn = false;
+                    let mut last = String::new();
+                    let mut last_ty = String::new();
+                    let n = block.stmts.len();
+                    for (i, item) in block.stmts.iter().enumerate() {
+                        let is_last = i + 1 == n;
+                        match item {
+                            xiom_ast::StmtOrExpr::Expr(e) => {
+                                let (v, vt) = self.compile_expr(e)?;
+                                if is_last { last = v; last_ty = vt; }
+                            }
+                            xiom_ast::StmtOrExpr::Stmt(s) => {
+                                if is_last {
+                                    if let Stmt::Expr(e, ..) = s {
+                                        let (v, vt) = self.compile_expr(e)?;
+                                        last = v; last_ty = vt;
+                                    } else {
+                                        self.compile_stmt(s)?;
+                                    }
+                                } else {
+                                    self.compile_stmt(s)?;
+                                }
+                            }
+                        }
+                    }
+                    self.in_unsafe_block_fn = saved_nested_in_block;
+                    if last.is_empty() {
+                        last = "0".to_string();
+                        last_ty = "void".to_string();
+                    }
+                    self.guard_heap_depth -= 1;
+                    // Copy-Out a Str tail (the outer block's arena reset would
+                    // otherwise UAF it).
+                    if last_ty == LLVM_STR_PTR {
+                        let copy_tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {copy_tmp} = call i8* @xiom_guard_copy_str(i8* {last})"));
+                        let not_null = self.fresh_tmp();
+                        self.emitln(&format!("  {not_null} = icmp ne i8* {copy_tmp}, null"));
+                        let sel = self.fresh_tmp();
+                        self.emitln(&format!("  {sel} = select i1 {not_null}, i8* {copy_tmp}, i8* {last}"));
+                        last = sel;
+                    }
+                    self.emitln("  call void @xiom_guard_heap_exit()");
+                    self.emitln("  call void @xiom_guard_page_disarm()");
+                    return Ok((last, last_ty));
                 }
-                self.emitln(&format!("\n{normal_path}:"));
-                // D2.1 (Unsafe Confinement Phase 3, requirement d): route this
-                // block's allocations to the per-thread GUARD ARENA, which is
-                // discarded wholesale on exit — isolation from the main heap.
+                let unsafe_id = self.unsafe_block_counter;
+                self.unsafe_block_counter += 1;
+                let fn_name = format!("__unsafe_block_{unsafe_id}");
+                let ctx_name = format!("__unsafe_ctx_{unsafe_id}");
+
+                // Free variables referenced by the block (from enclosing scope).
+                // Captures are passed BY POINTER (not by value) so that reads AND
+                // writes to captured variables inside the block fn propagate back
+                // to the enclosing scope (e.g. `pad_str = str_concat(...)` in a
+                // confined block must update the caller's `pad_str`). Each ctx
+                // field holds the ADDRESS of the enclosing alloca.
+                let captures = self.collect_block_free_vars(block, &[]);
+
+                // ---- Emit the ctx struct type (before the enclosing define) ----
+                if !captures.is_empty() {
+                    let ctx_fields: Vec<String> = captures.iter().map(|(_, t)| format!("{t}*")).collect();
+                    let ctx_def = format!("%struct.{ctx_name} = type {{ {} }}\n", ctx_fields.join(", "));
+                    if let Some(pos) = self.output.find("define ") {
+                        self.output.insert_str(pos, &ctx_def);
+                    } else {
+                        self.output.push_str(&ctx_def);
+                    }
+                }
+
+                // ---- Emit the standalone block function (deferred) ----
+                let saved_output = std::mem::take(&mut self.output);
+                let saved_tmp = self.tmp_counter;
+                let saved_block = self.block_counter;
+                let saved_ret = self.fctx.current_return_type.clone();
+                let saved_result_ptr = self.fctx.result_ptr.take();
+                let saved_match_ptr = self.fctx.match_result_ptr.take();
+                let saved_match_ty = self.fctx.match_result_ty.take();
+                let saved_ensures = std::mem::take(&mut self.fctx.current_ensures);
+                let saved_in_block_fn = self.in_unsafe_block_fn;
+                self.in_unsafe_block_fn = true;
+                self.tmp_counter = unsafe_id * 1000;
+                self.block_counter = unsafe_id * 1000;
+                self.fctx.current_return_type = LLVM_I64.to_string();
+                self.push_scope();
+
+                self.output.push_str(&format!("define i64 @{fn_name}(i8* %ctx_raw) {{\nentry:\n"));
+                // Load capture POINTERS from the ctx struct; register them as the
+                // locals directly (no fresh alloca) so loads AND stores go through
+                // the enclosing alloca's address (write-back semantics).
+                if !captures.is_empty() {
+                    self.emitln(&format!("  %__ctx_ptr = bitcast i8* %ctx_raw to %struct.{ctx_name}*"));
+                    for (i, (cap_name, cap_ty)) in captures.iter().enumerate() {
+                        let gep = self.fresh_tmp();
+                        let cap_ptr = self.fresh_tmp();
+                        self.emitln(&format!("  {gep} = getelementptr %struct.{ctx_name}, %struct.{ctx_name}* %__ctx_ptr, i32 0, i32 {i}"));
+                        self.emitln(&format!("  {cap_ptr} = load {cap_ty}*, {cap_ty}** {gep}"));
+                        self.add_local(cap_name, cap_ptr, cap_ty);
+                    }
+                }
+                // Guard heap + guard page inside the confined block fn.
                 self.emitln("  call void @xiom_guard_heap_enter()");
-                // D2.1 (Phase 4, requirement e): arm the stack guard page so a
-                // stack overflow inside the block faults at the red zone —
-                // before adjacent memory is written.
                 self.emitln("  call void @xiom_guard_page_arm()");
                 self.guard_heap_depth += 1;
                 // Compile every statement; the block's value is its tail.
                 let mut last = String::new();
                 let mut last_ty = String::new();
+                let mut block_ends_in_return = false;
                 let n = block.stmts.len();
                 for (i, item) in block.stmts.iter().enumerate() {
                     let is_last = i + 1 == n;
@@ -3441,6 +3538,7 @@ impl IrEmitter {
                                     last = v;
                                     last_ty = vt;
                                 } else {
+                                    if matches!(s, Stmt::Return(..)) { block_ends_in_return = true; }
                                     self.compile_stmt(s)?;
                                 }
                             } else {
@@ -3450,30 +3548,148 @@ impl IrEmitter {
                     }
                 }
                 if last.is_empty() {
+                    // A block whose tail is a `return` returns the enclosing
+                    // fn's value type (coerced to i64 for the block-fn ABI);
+                    // the value flows through the trampoline's result slot.
                     last = "0".to_string();
-                    last_ty = "void".to_string();
+                    if block_ends_in_return && !saved_ret.is_empty() && saved_ret != "void" {
+                        last_ty = saved_ret.clone();
+                    } else {
+                        last_ty = "void".to_string();
+                    }
                 }
                 self.guard_heap_depth -= 1;
-                // Copy-Out (requirement i, review/UAF fix): a heap-backed tail
-                // (Str / Vec data pointer) is COPIED to the main heap BEFORE the
-                // arena resets, so the caller's value never points at arena
-                // memory that is about to be discarded. Single C call (no
-                // inline strlen — avoids recursion-counter leaks in the block).
-                // NULL result (OOM) falls back to the original pointer; the
-                // arena is exited right after regardless (a NULL copy means the
-                // caller keeps an arena pointer, but OOM is unrecoverable anyway).
-                if last_ty == LLVM_STR_PTR {
-                    let copy_tmp = self.fresh_tmp();
-                    self.emitln(&format!("  {copy_tmp} = call i8* @xiom_guard_copy_str(i8* {last})"));
-                    let not_null = self.fresh_tmp();
-                    self.emitln(&format!("  {not_null} = icmp ne i8* {copy_tmp}, null"));
-                    let sel = self.fresh_tmp();
-                    self.emitln(&format!("  {sel} = select i1 {not_null}, i8* {copy_tmp}, i8* {last}"));
-                    last = sel;
+                // If the block's tail was a `return` statement, Stmt::Return has
+                // ALREADY emitted the copy-out + guard exit + `ret` (with the
+                // enclosing fn's value type, coerced to i64 for the block-fn
+                // ABI). Do NOT emit a second dead tail here.
+                if !self.current_block_terminated() {
+                    // Copy-Out (requirement i, UAF fix): promote a Str tail to
+                    // the main heap BEFORE the arena resets.
+                    if last_ty == LLVM_STR_PTR {
+                        let copy_tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {copy_tmp} = call i8* @xiom_guard_copy_str(i8* {last})"));
+                        let not_null = self.fresh_tmp();
+                        self.emitln(&format!("  {not_null} = icmp ne i8* {copy_tmp}, null"));
+                        let sel = self.fresh_tmp();
+                        self.emitln(&format!("  {sel} = select i1 {not_null}, i8* {copy_tmp}, i8* {last}"));
+                        last = sel;
+                    }
+                    self.emitln("  call void @xiom_guard_heap_exit()");
+                    self.emitln("  call void @xiom_guard_page_disarm()");
+                    // Return the block's value as i64 (the trampoline ABI is
+                    // int64_t (*)(uint8_t*)); the trampoline stores it in the
+                    // TLS result slot on success.
+                    let ret_i64 = self.val_to_i64(&last, &last_ty);
+                    self.emitln(&format!("  ret i64 {ret_i64}"));
                 }
+                self.emitln("}");
+                self.pop_scope();
+
+                let block_ir = std::mem::take(&mut self.output);
+                self.local.deferred_closure_defs.push(block_ir);
+                self.output = saved_output;
+                self.tmp_counter = saved_tmp;
+                self.block_counter = saved_block;
+                self.fctx.current_return_type = saved_ret;
+                self.fctx.result_ptr = saved_result_ptr;
+                self.fctx.match_result_ptr = saved_match_ptr;
+                self.fctx.match_result_ty = saved_match_ty;
+                self.fctx.current_ensures = saved_ensures;
+                self.in_unsafe_block_fn = saved_in_block_fn;
+
+                // ---- At the block site: build ctx, call trampoline, branch ----
+                // Allocate + populate the ctx struct (stack), then call the
+                // trampoline which wraps block_fn in SEH __try/__except.
+                let ctx_i8 = if captures.is_empty() {
+                    "null".to_string()
+                } else {
+                    let ctx_slot = self.fresh_tmp();
+                    self.emitln(&format!("  {ctx_slot} = alloca %struct.{ctx_name}"));
+                    for (i, (cap_name, _cap_ty)) in captures.iter().enumerate() {
+                        let gep = self.fresh_tmp();
+                        self.emitln(&format!("  {gep} = getelementptr %struct.{ctx_name}, %struct.{ctx_name}* {ctx_slot}, i32 0, i32 {i}"));
+                        if let Some((slot, ty)) = self.lookup_local(cap_name).cloned() {
+                            // Store the ADDRESS of the enclosing alloca into the
+                            // ctx field (pointer capture). The block fn loads AND
+                            // stores through it, so mutations write back.
+                            self.emitln(&format!("  store {ty}* {slot}, {ty}** {gep}"));
+                        }
+                    }
+                    let bc = self.fresh_tmp();
+                    self.emitln(&format!("  {bc} = bitcast %struct.{ctx_name}* {ctx_slot} to i8*"));
+                    bc
+                };
+                let fn_i64 = self.fresh_tmp();
+                self.emitln(&format!("  {fn_i64} = ptrtoint ptr @{fn_name} to i64"));
+                let fault_flag = self.fresh_tmp();
+                self.emitln(&format!("  {fault_flag} = call i64 @xiom_trampoline_call(i64 {fn_i64}, i8* {ctx_i8})"));
+                let fault_is_set = self.fresh_tmp();
+                self.emitln(&format!("  {fault_is_set} = icmp ne i64 {fault_flag}, 0"));
+                let fault_path = self.fresh_block("confined_fault");
+                let normal_path = self.fresh_block("confined_normal");
+                self.emitln(&format!("  br i1 {fault_is_set}, label %{fault_path}, label %{normal_path}"));
+
+                // Fault path: discard the arena + disarm, return a type-correct
+                // zero for the enclosing fn's return type (recoverable indicator).
+                self.emitln(&format!("\n{fault_path}:"));
                 self.emitln("  call void @xiom_guard_heap_exit()");
                 self.emitln("  call void @xiom_guard_page_disarm()");
-                self.emitln("  call void @xiom_trap_leave()");
+                let ret_ty = self.fctx.current_return_type.clone();
+                if ret_ty.is_empty() || ret_ty == "void" {
+                    self.emitln("  ret void");
+                } else if ret_ty == LLVM_STR_PTR {
+                    self.emitln("  ret i8* null");
+                } else if ret_ty.starts_with("%struct.") {
+                    let slot = self.fresh_tmp();
+                    self.emitln(&format!("  {slot} = alloca {ret_ty}, align 16"));
+                    let loaded = self.fresh_tmp();
+                    self.emitln(&format!("  {loaded} = load {ret_ty}, {ret_ty}* {slot}, align 16"));
+                    self.emitln(&format!("  ret {ret_ty} {loaded}"));
+                } else if ret_ty.starts_with("float") || ret_ty == "double" {
+                    self.emitln(&format!("  ret {ret_ty} 0.0"));
+                } else {
+                    self.emitln(&format!("  ret {ret_ty} 0"));
+                }
+
+                // Normal path: recover the block's value from the trampoline's
+                // TLS result slot and convert it back to the block's tail type.
+                self.emitln(&format!("\n{normal_path}:"));
+                let res_i64 = self.fresh_tmp();
+                self.emitln(&format!("  {res_i64} = call i64 @xiom_trampoline_get_result()"));
+                let (mut last, last_ty) = self.unsafe_result_i64_to_val(&res_i64, &last_ty);
+                // If the block fn executed a `return` statement, the block's
+                // value must be RETURNED from the ENCLOSING fn (the block was
+                // not used as an expression value). Emit the enclosing return
+                // with the block's value.
+                let was_returned = self.fresh_tmp();
+                self.emitln(&format!("  {was_returned} = call i64 @xiom_trampoline_was_returned()"));
+                let returned_cond = self.fresh_tmp();
+                self.emitln(&format!("  {returned_cond} = icmp ne i64 {was_returned}, 0"));
+                let normal_tail = self.fresh_block("confined_value");
+                let ret_from_enclosing = self.fresh_block("confined_return");
+                self.emitln(&format!("  br i1 {returned_cond}, label %{ret_from_enclosing}, label %{normal_tail}"));
+                self.emitln(&format!("\n{ret_from_enclosing}:"));
+                let enc_ret_ty = self.fctx.current_return_type.clone();
+                if enc_ret_ty.is_empty() || enc_ret_ty == "void" {
+                    self.emitln("  ret void");
+                } else {
+                    last = self.coerce_value(&last, &last_ty, &enc_ret_ty);
+                    if let Some(res_ptr) = self.fctx.result_ptr.as_ref() {
+                        let enc_ret_ty = self.fctx.current_return_type.clone();
+                        self.emitln(&format!("  store {enc_ret_ty} {last}, {enc_ret_ty}* {res_ptr}"));
+                    }
+                    if !self.fctx.current_ensures.is_empty() {
+                        self.compile_ensures_checks();
+                    }
+                    let depth_dec = self.fresh_tmp();
+                    self.emitln(&format!("  {depth_dec} = load i64, i64* @xiom_recursion_counter"));
+                    let new_depth = self.fresh_tmp();
+                    self.emitln(&format!("  {new_depth} = sub i64 {depth_dec}, 1"));
+                    self.emitln(&format!("  store i64 {new_depth}, i64* @xiom_recursion_counter"));
+                    self.emitln(&format!("  ret {enc_ret_ty} {last}"));
+                }
+                self.emitln(&format!("\n{normal_tail}:"));
                 Ok((last, last_ty))
             }
             Expr::BlockExpr(block, _) => {
