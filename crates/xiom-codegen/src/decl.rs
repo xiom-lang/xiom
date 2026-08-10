@@ -761,6 +761,10 @@ impl IrEmitter {
         self.push_scope();
         self.block_counter = 0;
         self.tmp_counter = 0;
+        // D2.1 (Phase 6): `#[unsafe_no_retry]` on the enclosing fn disables the
+        // once-only transient-fault retry for its unsafe blocks (deterministic
+        // faults shouldn't be retried).
+        self.fctx.unsafe_allow_retry = !fd.attributes.iter().any(|a| a.name.name == "unsafe_no_retry");
         self.types.fn_ptr_return_types = SyncRegistry::default();
         self.local.bool_locals.clear();
         self.local.ptr_locals.clear();

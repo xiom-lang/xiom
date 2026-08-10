@@ -382,6 +382,9 @@ impl Parser {
                     "`unsafe` applies only to block expressions `unsafe { ... }`; it cannot prefix declarations (fn/module/struct/impl)",
                 ))
             }
+            // D2.1 (Phase 6): fn-level attributes (`#[unsafe_no_retry]`, ...)
+            // precede the `fn` keyword. parse_fn_decl consumes them.
+            TokenKind::Hash => self.parse_fn_decl(is_pub, None),
             _ => Err(self.error(format!("expected declaration, found '{}'", self.peek().lexeme))),
         }
     }

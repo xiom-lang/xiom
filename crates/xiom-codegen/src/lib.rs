@@ -4237,6 +4237,8 @@ let inner_llvm = match &inner_subst {
             // Set type substitution map for method dispatch in body
             self.mono.current_const_map = const_map.clone();
             self.mono.current_type_map = type_map.clone();
+            // D2.1 (Phase 6): honor #[unsafe_no_retry] on generic fns too.
+            self.fctx.unsafe_allow_retry = !fd.attributes.iter().any(|a| a.name.name == "unsafe_no_retry");
 
             // P0-2: Clear deferred cleanup stack at function start
             self.clear_deferred_cleanups();

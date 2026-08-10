@@ -429,6 +429,8 @@ impl IrEmitter {
         self.emitln("declare i64 @xiom_trampoline_get_result()");
         self.emitln("declare void @xiom_trampoline_set_returned()");
         self.emitln("declare i64 @xiom_trampoline_was_returned()");
+        self.emitln("declare i64 @xiom_trampoline_was_retried()");
+        self.emitln("declare void @xiom_trampoline_set_allow_retry(i64)");
         self.emitln("declare i8* @realloc(i8*, i64)");
         self.emitln("declare i8* @xiom_guard_realloc(i8*, i64, i64)");
         self.emitln("declare void @free(i8*)");

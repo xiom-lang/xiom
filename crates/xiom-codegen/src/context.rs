@@ -200,6 +200,10 @@ pub struct FunctionContext {
     /// v0.56/P2-4: Whether the current function returns `!` (Never type).
     /// When true, fallthrough/return paths emit `unreachable` instead of `ret`.
     pub is_never_return: bool,
+    /// D2.1 (Phase 6): whether the current function's unsafe blocks should
+    /// retry a transient fault once. Set from `#[unsafe_no_retry]` on the fn
+    /// (deterministic faults shouldn't retry). Default: true (retry once).
+    pub unsafe_allow_retry: bool,
 }
 
 // ============================================================================

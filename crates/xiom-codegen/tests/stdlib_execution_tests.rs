@@ -508,3 +508,8 @@ fn stdlib_exec_guard_heap_runs() {
 fn stdlib_exec_guard_fault_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_guard_fault.xi"), Some(0), "hardware fault trap smoke (AV/SIGILL/SIGFPE) failed");
 }
+
+#[test]
+fn stdlib_exec_guard_retry_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_guard_retry.xi"), Some(0), "transient fault retry smoke failed");
+}
