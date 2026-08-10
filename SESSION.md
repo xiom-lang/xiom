@@ -90,10 +90,35 @@
   (parallel session's dc1dd8e4 landed the div_mod estimator fix).
   stdlib-compile 40/40, checker 178/178, stdlib-exec 70/72 in 43.7s.
 
+## M37 BATCH 2 (2026-08-11 02:5x) — BUG 9/10/11 FIXED — fast suite 1112/1/1
+- **BUG 11 (`7f7b7b54`):** unsafe-block round-trip family — block-fn
+  struct-tail returns now val_to_i64 round-trip (Option/struct tails no
+  longer extract field-1 → AV), ret_from_enclosing no longer pollutes the
+  block value (icmp ptr,i64), fault path returns `null` for pointers
+  (`ret i64* 0` clang rejection). Fixed m33_u13, m34_d01..d20, m34_y04 AND
+  the last two suite failures: **stdlib-exec is now 72/72** (complex +
+  net_folder pass — BUG 11 unsafe-extern doubles were this family).
+- **BUG 10 (`a2aafa26`):** float literals emitted full precision
+  (`{:.17e}`, was `{:.6}` — 0.123456789 truncated to 0.123457); removed a
+  leftover CG02 debug print. e2e: m37_float_precision.
+- **BUG 9 (`3ccd004c`):** private catalog struct types referenced by pub fn
+  signatures are now injected (were i64-degraded — ABI garbage). e2e:
+  catfix b9mod/b9main.
+- **Test migrations:** m21_ffi_unsafe_001..009 (T007 `requires:`),
+  m35_z12/z30 (T003 unsafe wrapper), m33_u13 (well-defined rewrite —
+  original was dangling-&local UB).
+- **FINAL fast suite (02:53): 1112 passed / 1 failed / 1 ignored — the
+  only remaining failure is the documented pre-existing
+  `test_diff_test_produces_correct_ir`.** stdlib-exec 72/72, stdlib-compile
+  40/40, checker 178/178. All 43 previously-failing e2e tests verified
+  passing with the current binary.
+
 ## KNOWN LIMITATIONS (documented, not blockers)
-- **complex + net stdlib smokes** fail on the clean baseline too (pre-existing; net is network-dependent; complex hits the unsafe-extern `math.sqrt` double-arg path — see docs/COMPILER_BUGS.md, compiler session's in-flight domain).
+- **diff suite** `test_diff_test_produces_correct_ir` fails (documented pre-existing; handoff says IGNORE).
 - **Full selfhost diff tests** (`test_selfhost_bootstrap_v050`, full_diff_tests) remain `#[ignore]`d — selfhost bootstrap is a deferred milestone; the gate (compiler compiles itself) is verified manually.
-- **e2e (16min)** not re-run this session (fast gates used; parallel-session xiom.exe rebuilds make it flaky). The 73 e2e failures from the 00:48 full run were traced to the catalog-scan slowness + racy xiom.exe rebuilds — the catalog fix (Fix 2) removes the dominant cause; run the full suite at the next boundary to confirm.
+- **e2e (16min)** not re-run this session (fast gates used; parallel-session xiom.exe rebuilds make it flaky). All 73 failures from the 00:48 full run are verified passing with the current binary (22 were racy m19/m20; 43 were the confinement-era tests fixed in batch 2; 8 were file-path/eco artifacts). Run the full suite at the next boundary to confirm 0 e2e failures.
+- **BUG 2/3 (globals):** module-global struct field writes lost / fn-call initializers zero — advisory (stdlib design avoids them); not fixed this session.
+- **`to_str()` method on Float64** dispatches to the Display-interface stub (no impl registered) — stdlib uses `Str.from`/`float_to_string`; the interface-dispatch gap is tracked for a later session.
 - **HardwareFault/ContractViolation** types exist in stdlib/xiom/error.xi; the fault path returns a type-correct zero (recoverable indicator) rather than a full `Result[T, HardwareFault]` wrapper (plan §2.8's wrapper is a future refinement).
 
 ## NEXT SESSION — START HERE
