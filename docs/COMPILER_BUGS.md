@@ -347,3 +347,73 @@ assertions incl. two's-complement negatives) passes end-to-end.
   session). Re-verify once the parallel session lands its BigInt refactor and
   the helpers exist; if it still hangs on a CONSISTENT stdlib, re-open as a
   compiler bug (likely BUG 1 area).
+
+---
+
+## 2026-08-11 — Compiler session follow-up: BUG 8 verified FIXED, 3 new findings
+
+### BUG 8 — verified RESOLVED on the current tree (commit pending)
+
+Reproduced with a fresh probe (`probe_bit.xi`: `bigint_bit_and(12, 10)`) —
+the current compiler emits CORRECT signatures for catalog fns with
+`&Vec[Int]` params:
+
+```
+define %struct.BigInt @bigint._from_twos_bits(%struct.Vec %param0) inlinehint {
+define %struct.BigInt @bigint._bits_to_bigint(%struct.Vec %param0, i64 %param1) ...
+```
+
+and `probe_bit` compiles + runs (12&10=8). The empty-signature stub the
+stdlib session observed came from `emit_undefined_symbol_stubs` filling in
+for a fn that was never emitted — the emission failure was the earlier
+uncommitted coerce.rs state (now reverted/committed). Locked in with e2e:
+`e2e_m37_catfix_catalog_vecref` (examples/catfix: imported module with
+`&Vec[Int]` + `&struct` params).
+
+### FIXED — Parser: `bits[L - 1]` (index with arithmetic on an uppercase ident)
+
+- **Construct:** `if bits[L - 1] == 0 { ... }` — the postfix `[` arm's
+  "explicit generic call args" heuristic (lowercase base + UPPERCASE first
+  token in brackets) eagerly parsed `L` as a TYPE argument and errored
+  "expected ']', found -" — it only backtracks when `]` is followed by `(`,
+  but the error fired before reaching that check. Also broke catalog files:
+  `stdlib/xiom/bigint.xi` `_from_twos_bits` and `stdlib/xiom/num/bigfloat.xi`.
+- **Fix (crates/xiom-parser/src/lib.rs):** speculative scan to the matching
+  `]` (bracket-depth aware, Eof-guarded); commit to generic-args ONLY when
+  the group is immediately followed by `(`. Index expressions (`bits[L-1]`,
+  `buf[Head]`) fall through to normal index parsing.
+- **Verified:** probe_idx (bits[L-1] evaluates correctly), generic calls
+  (`add2[Float32](...)`) still parse; e2e `e2e_m37_index_arith`.
+
+### FIXED — Catalog import pathological slowness ("hang" on `use xiom.math`)
+
+- **Construct:** importing modules whose transitive imports contain LEAF
+  references (`use xiom.core.to_int` — a fn/const, not a module file) made
+  `xiom --check` take minutes-to-infinite. Root cause: `ModuleCatalog::
+  load_module`'s Strategy-b scan-based fallback walks the ENTIRE source
+  directory tree (reading every .xi header) for EVERY failed lookup — and
+  source_dirs include the file's parent dir + project root (and the CWD,
+  which can be a temp dir containing a full worktree + target/). The
+  pre-built `module_index` (build_index) already covers every file the scan
+  could find, so the scan is pure waste in the normal flow.
+- **Fix (crates/xiom-check/src/catalog.rs):** (1) skip the scan entirely when
+  `module_index` is non-empty (index is authoritative; scan retained only for
+  catalogs built without `build_index`, e.g. unit tests); (2) `index_dir` /
+  `load_from_dir` / scan recursion skip build/VCS/package-manager dirs
+  (`target`, `build`, `.git`, `node_modules`, any `.`-prefixed dir).
+- **Measured:** `use xiom.math` check 20s→9.6s (scan eliminated; residual
+  ~4-9s is prelude module parsing); `probe_bit` full compile 138-160s→9.5s.
+  Locked in by e2e_m37_catfix_* (which also verify catalog resolution still
+  works).
+
+### VERIFIED — circular imports are safe (not prevented, terminate)
+
+- **Construct:** module A `use`s B and B `use`s A. The loader's
+  `cached_loaded` guard terminates the cycle; the checker resolves both
+  modules' symbols regardless of load order; compile succeeds.
+- **Empirically verified** with a two-module cycle (check 4.6s, compile 8.3s,
+  run correct — the only crash was my fixture's own unbounded mutual
+  recursion, expected stack overflow, not a compiler issue). The current
+  stdlib has NO true module cycle (bigint→xiom.num; num/bigfloat→xiom.bigint
+  don't close a loop because num.xi doesn't import bigfloat).
+- Locked in by e2e `e2e_m37_catfix_circular_imports` (examples/catfix circ_*).
