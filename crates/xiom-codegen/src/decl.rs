@@ -1,4 +1,4 @@
-﻿use super::{IrEmitter, TypeMeta};
+use super::{IrEmitter, TypeMeta};
 use crate::context::{TypeContext, SyncRegistry};
 use xiom_ast::*;
 use std::collections::HashMap;

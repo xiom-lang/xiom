@@ -323,6 +323,11 @@ impl ModuleCatalog {
         let source_hash = hash_bytes(source.as_bytes());
         let tokens = Lexer::new(&source).tokenize();
         let program = Parser::new(tokens).parse_program().ok()?;
+        // 3c (2026-08-10): expand impl blocks at PARSE time so catalog-loaded
+        // modules (e.g. stdlib folder modules with `impl Num[Float64] { }`)
+        // expose the expanded `Type.method` freestanding fns to both the
+        // checker's registration and the driver's external-decl injection.
+        let program = program.expand_impl_blocks();
 
         let mut types = HashMap::new();
         let mut functions = HashMap::new();

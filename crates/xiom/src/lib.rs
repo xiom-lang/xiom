@@ -849,6 +849,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             let name = match &decl {
                 xiom_ast::TopDecl::Type(td) => td.name.name.clone(),
                 xiom_ast::TopDecl::Enum(ed) => ed.name.name.clone(),
+                xiom_ast::TopDecl::Interface(id) => id.name.name.clone(),
                 xiom_ast::TopDecl::Fn(fd) => fn_dedup_key(fd),
                 xiom_ast::TopDecl::Extern(_) => { program.items.push(decl); continue; }
                 xiom_ast::TopDecl::Const(cd) => cd.name.name.clone(),
