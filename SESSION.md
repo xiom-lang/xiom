@@ -167,6 +167,28 @@ skeleton, runtime_ffi.xi, archive xiomc_v050.xi. Checklist:
 - Verified: e2e_p1_contract_methods + representative m37/m19/i2 tests pass
   via the harness.
 
+## WASM + PLAYGROUND (2026-08-11 17:2x) — in-browser compiler v0.58.0 shipped
+- **Built:** `crates/xiom-wasm` (0.58.0, wasm-bindgen) →
+  `xiom-playground/xiom_wasm.js` + `xiom_wasm_bg.wasm` (2.6 MB, now TRACKED
+  in git via a `.gitignore` negation). Rebuild: `cargo build -p xiom-wasm
+  --target wasm32-unknown-unknown --release && wasm-bindgen --target web
+  --out-dir xiom-playground <wasm>`.
+- **Playground wired:** `js/wasm-loader.js` loads it (dynamic import + init,
+  server fallback); `compiler.js` compiles PURE programs fully in-browser
+  (diagnostics + LLVM IR instant/offline); stdlib programs and program
+  OUTPUT go through the server; version text updated to v0.58.0.
+- **Compiler fix found en route:** `find_runtime_c`/`find_runtime_c_files`
+  resolved the runtime relative to cwd or exe.parent().parent() — from a
+  non-repo cwd (playground server) `xiom run` linked without the runtime C
+  ("undefined symbol: xiom_set_args"). Now walk UP from the exe (8 levels)
+  + XIOM_STDLIB sibling runtime.
+- **Verified live (playwright vs localhost:3000):** pure program (IR +
+  "clean ✓ (WASM)" + server run), stdlib Hello World ("Hello, XIOM!"),
+  broken program ([T001] diagnostics), 0 console errors/warnings, status
+  "Ready. v0.58.0 — WASM compiler loaded".
+- **Release:** v0.58.0 repackaged — now includes `wasm/` (in-browser
+  compiler). Commits: `a62eaf8b`-era batch + wasm/playground commits.
+
 ## KNOWN LIMITATIONS (documented, not blockers)
 - **diff suite** `test_diff_test_produces_correct_ir` fails (documented pre-existing; handoff says IGNORE).
 - **Full selfhost diff tests + bootstrap e2e** remain `#[ignore]`d / `XIOM_SELFHOST`-gated by design — the selfhost plan (docs/SELFHOST_PLAN.md) defines the phased path to un-gate them.
