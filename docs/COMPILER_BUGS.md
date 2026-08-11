@@ -25,15 +25,25 @@ workarounds" — the compiler must be fixed, then the stdlib lands.
 | clang -O2 hang (alwaysinline everything) | **DONE** | `d22068f8` | smoke_bigint.xi compiles ~5–14s (was >300s) |
 | Unsafe-block capture collector missing Expr::Struct etc. | **DONE** | `e0f96fef` | e2e_m19_read_file_content |
 | Parallel codegen `__unsafe_ctx_0` redefinition | **DONE** | `e0f96fef` | e2e_i2_parallel_codegen (all 5 ecosystem tasks) |
+| BUG 12/17 — Vec[Float64]/Vec[Str] element type lost on `&Vec[T]` params | **DONE** | `2ae300fd` | e2e_m37_vec_f64 (R=0 isolated); m12b |
+| BUG 13 — fp128 link + coercion (soft-float helpers) | **DONE** | `2ae300fd` + `3b8f5415` (fp128_helpers.c) | e2e_m37_f128 (R=0 isolated); C harness 400/5/2500/1002.5 |
+| BUG 14 — UInt64→UInt128 sext / UInt128>> ashr | **DONE** | `2ae300fd` | e2e_m37_u128 (R=0 isolated); m14 |
+| BUG 15 — bare `shr`/`shl` hijacked by math-builtin intercept | **DONE** | `2ae300fd` | e2e_m37_shr_builtin (R=0 isolated); m15 |
+| BUG 16/18 — skiplist+trie / string+similarity+time 0xC0000409 combos | **DONE** | `2ae300fd` (fn-key + longest-prefix walk + encoding repair) | m16a-f probes R=0; m16b-e (bare/leaf forms) R=0 |
 | **BUG 2 — module-global struct FIELD writes lost** | **OPEN** (advisory) | — | stdlib avoids (whole-value assignment); needed for precision-cached π/ln10 and `const BIGINT_*/BIGFLOAT_*` |
 | **BUG 3 — module-global fn-call initializers zero** | **OPEN** (advisory) | — | stdlib avoids (constants as pure constructor fns) |
 | §7 NASM/SIMD tracks (math/crypto/hash/compress asm, CPUID dispatch) | **OPEN** — off-limits to stdlib session (crates/ + stdlib/runtime/*.c); pure-XIOM fallbacks in place | — | — |
 | Selfhost plan | **WRITTEN — execution in progress** | `090ed5d1` | docs/SELFHOST_PLAN.md (phases 0–8) + docs/checklists/selfhost-phase0.md |
 
-**Suite state (current):** fast suite 1112/1/1 (only the documented pre-existing
-`test_diff_test_produces_correct_ir`, handoff: IGNORE); e2e 2239/2240 at 15:57
-(the single failure was a harness race — hardened in `a092cc35`, expect
-2240/2240 on the next full run); stdlib-exec 72/72; warning gates 0/0.
+**Suite state (current, 2026-08-11 22:10):** fast suite 1103/10/1 — ALL 10
+failures are the parallel stdlib session's in-flight restructure (stdlib-exec
+complex/hash/net/rand folder moves + smoke_math_core renamed to
+smoke_math_tower, lsp/mcp module-list tests against the new layout, diff
+documented pre-existing ignore); **zero compiler regressions**. e2e harness
+verification of the 4 new e2e_m37 tests is blocked until the parallel session's
+next compiler rebuild (their target/debug/xiom.exe predates `2ae300fd`); exact
+harness invocation replicated with the isolated binary: compile=0 run=0 for
+all 6 affected tests. Warning gates 0/0.
 
 ---
 
