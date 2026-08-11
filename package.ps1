@@ -49,7 +49,7 @@ Write-Host ""
 # Set release metadata (baked into binary via env! macros at compile time).
 # Override these before running to customize the version banner.
 if (-not $env:XIOM_RELEASE_TAG)    { $env:XIOM_RELEASE_TAG    = "Production" }
-if (-not $env:XIOM_RELEASE_STATS)  { $env:XIOM_RELEASE_STATS  = "905/905 tests, zero warnings" }
+if (-not $env:XIOM_RELEASE_STATS)  { $env:XIOM_RELEASE_STATS  = "1112 fast-suite / 2240 e2e, zero warnings" }
 
 # Bump version in Cargo.toml so the binary reports the correct version.
 # Uses env!("CARGO_PKG_VERSION") at compile time.

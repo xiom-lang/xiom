@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     XIOM Compiler v0.46.0 Installer
@@ -205,12 +205,12 @@ if ($Unattended) {
 }
 if ($createShortcut -eq "y" -or $createShortcut -eq "Y") {
     $WshShell = New-Object -ComObject WScript.Shell
-    $Shortcut = $WshShell.CreateShortcut("$env:USERPROFILE\Desktop\XIOM CLI.lnk")
-    $Shortcut.TargetPath = "cmd.exe"
-    $Shortcut.Arguments = "/k `"$binDir\xiom.bat`" --help"
-    $Shortcut.WorkingDirectory = $env:USERPROFILE
-    $Shortcut.IconLocation = "$binDir\xiom.exe,0"
-    $Shortcut.Save()
+    $sc = $WshShell.CreateShortcut("$env:USERPROFILE\Desktop\XIOM CLI.lnk")
+    $sc.TargetPath = "cmd.exe"
+    $sc.Arguments = "/k `"$binDir\xiom.bat`" --help"
+    $sc.WorkingDirectory = $env:USERPROFILE
+    $sc.IconLocation = "$binDir\xiom.exe,0"
+    $sc.Save()
     Write-Host "  Desktop shortcut created." -ForegroundColor Green
 }
 

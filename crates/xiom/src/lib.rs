@@ -1055,6 +1055,11 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             if cfg!(windows) {
                 cmd.arg("-Wno-deprecated-declarations");
             }
+            // POSIX (Linux/WSL) native links need the math library for the
+            // stdlib's extern math fns (exp/ln/sqrt/etc. — math.xi FFI).
+            if !cfg!(windows) && config.target == Target::Native {
+                cmd.arg("-lm");
+            }
             // 7E.1: Sanitizer flags
             if let Some(ref sanitizer) = config.sanitize {
                 cmd.arg(&format!("-fsanitize={}", sanitizer));
