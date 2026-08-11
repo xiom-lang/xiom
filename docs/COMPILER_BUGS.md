@@ -7,6 +7,36 @@ workarounds" — the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## STATUS SUMMARY — authoritative (2026-08-11 16:3x, compiler session)
+
+> Read this first. Older dated sections below may contradict it (e.g. the
+> BigInt/BigFloat Phase C entry claimed BUG 11 open — that predates the fix).
+
+| Item | Status | Fix commit | Verified by |
+|------|--------|-----------|-------------|
+| BUG 1 — tuple-of-struct opaque LLVM type / truncated slots | **DONE** | `d22068f8` | e2e_m37_tuple_struct; probe_big/probe_big2; bigint_div_mod no longer crashes |
+| BUG 8 — catalog fns with `&Vec[Int]`/`&Vec[UInt8]` params | **DONE** (was the uncommitted coerce.rs state) | `384d5666` (revert) + verified | e2e_m37_catfix_catalog_vecref; probe_bit (12&10=8) |
+| BUG 9 — private catalog struct types degrade to i64 | **DONE** | `3ccd004c` | e2e_m37_catfix_private_type (b9mod+b9main, sum=7) |
+| BUG 10 — float literals truncated to 6 decimals | **DONE** | `a2aafa26` | e2e_m37_float_precision (0.123456789 round-trips) |
+| BUG 11 — unsafe-extern double marshalling (math.sqrt via trampoline) | **DONE** | `7f7b7b54` | stdlib-exec **72/72** (complex + net_folder pass); e2e_m37_unsafe_option_return |
+| Parser — `bits[L - 1]` (uppercase-ident index with arithmetic) | **DONE** | `40441ca7` | e2e_m37_index_arith; bigint.xi/bigfloat.xi parse |
+| Catalog — import lookup walked the whole tree per miss (minutes/hang) | **DONE** | `1e982ebf` | stdlib-compile 108.7s → 23.7s; probe_bit compile 138–160s → 9.5s |
+| Struct `&T` param mutation silently lost | **DONE** | `d22068f8` | e2e_m37_ref_mut; probe_dig/probe_cmp |
+| clang -O2 hang (alwaysinline everything) | **DONE** | `d22068f8` | smoke_bigint.xi compiles ~5–14s (was >300s) |
+| Unsafe-block capture collector missing Expr::Struct etc. | **DONE** | `e0f96fef` | e2e_m19_read_file_content |
+| Parallel codegen `__unsafe_ctx_0` redefinition | **DONE** | `e0f96fef` | e2e_i2_parallel_codegen (all 5 ecosystem tasks) |
+| **BUG 2 — module-global struct FIELD writes lost** | **OPEN** (advisory) | — | stdlib avoids (whole-value assignment); needed for precision-cached π/ln10 and `const BIGINT_*/BIGFLOAT_*` |
+| **BUG 3 — module-global fn-call initializers zero** | **OPEN** (advisory) | — | stdlib avoids (constants as pure constructor fns) |
+| §7 NASM/SIMD tracks (math/crypto/hash/compress asm, CPUID dispatch) | **OPEN** — off-limits to stdlib session (crates/ + stdlib/runtime/*.c); pure-XIOM fallbacks in place | — | — |
+| Selfhost plan | **WRITTEN — execution in progress** | `090ed5d1` | docs/SELFHOST_PLAN.md (phases 0–8) + docs/checklists/selfhost-phase0.md |
+
+**Suite state (current):** fast suite 1112/1/1 (only the documented pre-existing
+`test_diff_test_produces_correct_ir`, handoff: IGNORE); e2e 2239/2240 at 15:57
+(the single failure was a harness race — hardened in `a092cc35`, expect
+2240/2240 on the next full run); stdlib-exec 72/72; warning gates 0/0.
+
+---
+
 ## 2026-08-10 — BigInt/BigFloat session findings (feat/architect)
 
 ### BUG 1 (CRITICAL) — Tuple return types containing structs emit an OPAQUE LLVM type
@@ -466,10 +496,12 @@ enclosing coercion → `icmp eq ptr, i64` (m34_d01..d20);
   `smoke_bigfloat.xi` now 44 assertion blocks, exit 0 in ~2s.
 - NO new compiler findings from Phase C. One stdlib coding error caught and
   fixed (atan halving identity: `1 + sqrt(1 + t^2)`, not `1 + sqrt(t^2)`).
-- **BUG 11 (unsafe extern doubles) remains OPEN** — `stdlib_exec_complex_runs`
-  and `stdlib_exec_net_folder_runs` still fail (math.sqrt through the unsafe
-  trampoline); the other 70 stdlib-exec smokes pass. This is the compiler
-  session's domain (confinement marshalling).
-- BUG 2/3 (module-global field writes / fn-call initializers) also remain
+- **BUG 11 (unsafe extern doubles) — FIXED by the compiler session AFTER this
+  entry was written** (`7f7b7b54`, 2026-08-11): `stdlib_exec_complex_runs`
+  and `stdlib_exec_net_folder_runs` now PASS (stdlib-exec 72/72 — verified
+  15:0x and 15:4x). The stale "remains OPEN" claim below was written before
+  the fix landed; see the STATUS SUMMARY at the top of this file.
+- BUG 2/3 (module-global field writes / fn-call initializers) remain
   open; stdlib design already avoids both (whole-value global assignment;
-  constants as pure constructor fns).
+  constants as pure constructor fns). Fixing them unlocks precision-cached
+  π/ln10 and the spec's `const BIGINT_*/BIGFLOAT_*` style.
