@@ -58,6 +58,9 @@ impl IrEmitter {
     /// Resolve a local variable's XIOM type name, with array-element awareness.
     /// For array-literal locals (in `array_locals`), returns the ELEMENT type
     /// (e.g. "Int" for `[5]Int`) instead of the buffer pointer type ("Str").
+    /// NOTE: derives from the LLVM slot type (generic inference depends on
+    /// this mapping — do NOT prefer local_xiom_types here; use
+    /// `xiom_type_of_local` when the REGISTERED type is needed).
     pub(crate) fn resolve_local_xiom_type(&self, name: &str) -> Option<String> {
         if let Some((_, llvm_ty)) = self.lookup_local(name) {
             if self.local.array_locals.contains(name) {
@@ -69,6 +72,41 @@ impl IrEmitter {
             Some(Self::xiom_type_name_from_llvm(llvm_ty))
         } else {
             None
+        }
+    }
+
+    /// BUG 14 fix: infer a binding's XIOM type from its VALUE expression when
+    /// no explicit type annotation is present — `var big = x as UInt128` must
+    /// register "UInt128" so signedness-aware lowering (zext/lshr) works.
+    pub(crate) fn infer_value_xiom_type(value: &Expr) -> Option<String> {
+        match value {
+            Expr::As(_, ty, _) => Some(Self::type_from_ast(ty)),
+            Expr::Paren(inner, _) => Self::infer_value_xiom_type(inner),
+            Expr::Binary(l, BinOp::Shl | BinOp::Shr, _, _) => Self::infer_value_xiom_type(l),
+            _ => None,
+        }
+    }
+
+    /// BUG 14 fix: true when the expression's XIOM type is an UNSIGNED integer
+    /// (UInt8/16/32/64/128) — used to pick `lshr` over `ashr` for right shifts.
+    /// Idents resolve through the registered type; casts check the target type
+    /// name; shifts inherit the left operand's unsignedness.
+    pub(crate) fn expr_is_unsigned(&self, e: &Expr) -> bool {
+        fn is_unsigned_name(n: &str) -> bool {
+            n.starts_with("UInt") || n == "UInt" || n.starts_with("u8")
+        }
+        match e {
+            Expr::Ident(id) => self.local.local_xiom_types.get(&id.name)
+                .map(|t| is_unsigned_name(t))
+                .unwrap_or(false),
+            Expr::As(inner, ty, _) => {
+                let tn = Self::type_from_ast(ty);
+                is_unsigned_name(&tn) || self.expr_is_unsigned(inner)
+            }
+            Expr::Binary(bl, op2, _, _) => matches!(op2, BinOp::Shl | BinOp::Shr)
+                && self.expr_is_unsigned(bl),
+            Expr::Paren(inner, _) => self.expr_is_unsigned(inner),
+            _ => false,
         }
     }
 

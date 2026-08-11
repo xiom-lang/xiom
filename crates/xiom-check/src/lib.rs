@@ -7,11 +7,7 @@
 //! No generics, no ownership, no contracts enforcement.
 
 use xiom_ast::*;
-use xiom_lexer::Lexer;
-use xiom_parser::Parser;
 use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::Path;
 use crate::types::{TypeArena, TypeId};
 
 pub mod types;
@@ -1774,22 +1770,6 @@ impl Checker {
         }
     }
 
-    /// Try to load an external module file `{source_dir}/{module_name}.xi` from the
-    /// configured source directories.  Returns the module's export map if found.
-    fn load_external_module(&mut self, module_name: &str) -> Option<HashMap<String, ModuleExport>> {
-        for dir in &self.source_dirs {
-            let file_path = format!("{}/{}.xi", dir, module_name);
-            if !Path::new(&file_path).exists() {
-                continue;
-            }
-            let source = fs::read_to_string(&file_path).ok()?;
-            let tokens = Lexer::new(&source).tokenize();
-            let program = Parser::new(tokens).parse_program().ok()?;
-            return Some(self.build_module_map(&program.items));
-        }
-        None
-    }
-
     /// Collect external declarations from the catalog that are not already present
     /// in the given program, for injection before codegen. Types, enums, and function
     /// stubs from lazily-loaded external modules are returned as TopDecl items.
@@ -2435,6 +2415,9 @@ impl Checker {
                 // First segment not in modules (e.g. "xiom" from `use xiom.async`
                 // when no standalone xiom.xi exists). Load the full path from catalog
                 // and build a parent module entry containing the submodule.
+                // NOTE: the full path may include the ITEM (fn/const) — the walk
+                // above already resolved directory-module paths; here the last
+                // segment is either part of the module path or the item itself.
                 let full_path: Vec<String> = effective_path.iter().map(|p| p.name.clone()).collect();
                 if let Some(cached) = self.catalog.find_owned(&full_path) {
                     // Register function signatures from the loaded module so
@@ -2460,37 +2443,55 @@ impl Checker {
 
         // Walk through intermediate path segments (submodules)
         let mut current = exports;
-        for i in 1..effective_path.len() - 1 {
+        let mut i = 1;
+        while i < effective_path.len() - 1 {
             let seg = &effective_path[i].name;
             match current.get(seg) {
                 Some(ModuleExport::SubModule(sub)) => {
                     current = sub.clone();
+                    i += 1;
                 }
                 _ => {
-                    // Try to load submodule from external file.
-                    // The path is relative to the source directory: {source_dir}/{seg}.xi
-                    if let Some(mut sub_exports) = self.load_external_module(seg) {
-                        // The loaded file may have nested module wrappers
-                        // (e.g., main.xi contains `module benchmark.main { ... }`).
-                        // Walk into any top-level module to find the actual exports.
-                        while sub_exports.len() == 1 {
-                            let (only_key, only_val) = sub_exports.iter().next().unwrap();
-                            if let ModuleExport::SubModule(inner) = only_val {
-                                if !only_key.is_empty() {
-                                    sub_exports = inner.clone();
-                                } else {
-                                    break;
+                    // BUG fix (2026-08-11): load the LONGEST matching dotted
+                    // prefix from the catalog — submodule DIRECTORIES like
+                    // xiom.collect.skiplist have no `collect.xi` intermediate
+                    // file, so single-segment loading (`collect`) fails and the
+                    // whole import silently binds nothing. Try each prefix from
+                    // the current segment onward (INCLUDING the last segment,
+                    // which may be a directory module path) and take the first
+                    // that resolves as a real module file.
+                    let mut resolved: Option<(usize, CachedModule)> = None;
+                    for j in i..effective_path.len() {
+                        let cand: Vec<String> = effective_path[0..=j].iter().map(|p| p.name.clone()).collect();
+                        if let Some(cached) = self.catalog.find_owned(&cand) {
+                            resolved = Some((j, cached));
+                            break;
+                        }
+                    }
+                    match resolved {
+                        Some((j, cached)) => {
+                            let sub_exports = self.build_module_map(&cached.program.items);
+                            // Register the intermediate segments AND the consumed
+                            // path into the FIRST segment's parent map so qualified
+                            // expressions (xiom.collect.skiplist.fn) resolve.
+                            let mut chain: HashMap<String, ModuleExport> = sub_exports.clone();
+                            for k in (1..=j).rev() {
+                                let mut parent = HashMap::new();
+                                parent.insert(effective_path[k].name.clone(), ModuleExport::SubModule(chain));
+                                chain = parent;
+                            }
+                            if let Some(root) = self.modules.get_mut(&effective_path[0].name) {
+                                for (k, v) in chain {
+                                    root.insert(k, v);
                                 }
                             } else {
-                                break;
+                                self.modules.insert(effective_path[0].name.clone(), chain);
                             }
+                            current = sub_exports;
+                            i = j + 1;
                         }
-                        // Store in self.modules for future lookups
-                        self.modules.insert(seg.clone(), sub_exports.clone());
-                        current = sub_exports;
-                        continue;
+                        None => return,
                     }
-                    return;
                 }
             }
         }

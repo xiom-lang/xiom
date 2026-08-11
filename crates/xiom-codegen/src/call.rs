@@ -2161,11 +2161,41 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 // free fns. The injected decls carry qualified names
                 // ("env.args") so the emitted symbol matches the definition;
                 // bare keys resolve through the keep-first alias map.
+                // BUG 16/18 fix (2026-08-11): a bare call must prefer the
+                // CALLER's own module first — `_slot(...)` inside skiplist.xi
+                // must resolve to `skiplist._slot`, not the first-registered
+                // module's `_slot` (keep-first aliasing picked trie._slot when
+                // both modules were linked → wrong function → garbage index →
+                // stack-buffer-overrun fast-fail 0xC0000409 at exit).
                 let fn_key = if !fn_key.contains('.') {
-                    if let Some(qualified) = self.mono.bare_fn_aliases.get(&fn_key) {
-                        qualified.clone()
-                    } else {
+                    // BUG 16/18 fix (2026-08-11): a bare call must prefer the
+                    // CALLER's own module when no bare definition exists —
+                    // `_slot(...)` inside skiplist.xi resolves to `skiplist._slot`,
+                    // not the first-registered module's `_slot` (keep-first
+                    // aliasing picked trie._slot when both modules were linked →
+                    // wrong function → garbage index → 0xC0000409 at exit).
+                    // CRITICAL: when a BARE definition IS registered (user-module
+                    // fns emit bare symbols — fn_symbol dedup), the call MUST use
+                    // the bare key — the leaf-qualified key only exists as a
+                    // resolution alias and would hit emit_undefined_symbol_stubs
+                    // (zero-param stub → ABI mismatch → crash).
+                    if self.types.functions.contains_key(&fn_key) || self.mono.emitted_fns.contains(&fn_key) {
                         fn_key
+                    } else {
+                        let caller_module = self.fctx.current_fn.as_ref()
+                            .and_then(|k| k.rsplit_once('.'))
+                            .map(|(m, _)| m.to_string())
+                            .or_else(|| self.local.current_module.clone());
+                        let in_caller_module = caller_module
+                            .map(|m| format!("{m}.{fn_key}"))
+                            .filter(|k| self.types.functions.contains_key(k) || self.mono.emitted_fns.contains(k));
+                        if let Some(qualified) = in_caller_module {
+                            qualified
+                        } else if let Some(qualified) = self.mono.bare_fn_aliases.get(&fn_key) {
+                            qualified.clone()
+                        } else {
+                            fn_key
+                        }
                     }
                 } else {
                     fn_key
@@ -2888,13 +2918,29 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     // instructions. The stdlib math.xi provides per-bit software loops
                     // (O(n) with modulo/division per iteration); native LLVM and/or/xor/
                     // shl/ashr are single CPU instructions.
-                    // Resolved names may be bare (shl) or qualified (xiom.math.shl).
-                    let is_math_builtin = resolved_fn_key == "shl" || resolved_fn_key.ends_with(".shl")
-                        || resolved_fn_key == "shr" || resolved_fn_key.ends_with(".shr")
-                        || resolved_fn_key == "bit_and" || resolved_fn_key.ends_with(".bit_and")
-                        || resolved_fn_key == "bit_or" || resolved_fn_key.ends_with(".bit_or")
-                        || resolved_fn_key == "bit_xor" || resolved_fn_key.ends_with(".bit_xor")
-                        || resolved_fn_key == "bit_not" || resolved_fn_key.ends_with(".bit_not");
+                    // BUG 15 fix (2026-08-11): this MUST only match the stdlib math
+                    // module's helpers. The old `ends_with(".shr")` also intercepted
+                    // USER helpers named shr/shl in any module (e.g. hash.xi's
+                    // logical shift `fn shr` whose body computes a MASK) — the
+                    // intercept emitted a bare `ashr` and silently dropped the
+                    // function body's mask statements. Qualified keys are restricted
+                    // to xiom.math.*; BARE keys are intercepted only when no real
+                    // function definition exists (soft/prelude names).
+                    let bare_key = resolved_fn_key.rsplit('.').next().unwrap_or(&resolved_fn_key);
+                    let is_named_builtin = matches!(bare_key, "shl" | "shr" | "bit_and" | "bit_or" | "bit_xor" | "bit_not");
+                    let is_math_builtin = if !is_named_builtin {
+                        false
+                    } else if resolved_fn_key.contains('.') {
+                        // Catalog keys: `math.shr` (the "xiom." prefix is
+                        // stripped by the module registry). Only the stdlib
+                        // math module's helpers are the software loops.
+                        let is_math_module = resolved_fn_key.starts_with("math.")
+                            || resolved_fn_key.starts_with("xiom.math.");
+                        is_math_module
+                    } else {
+                        // Bare key with no registered definition — soft name.
+                        !self.types.functions.contains_key(&resolved_fn_key)
+                    };
                     if is_math_builtin {
                         let lv = self.widen_to_i64(&compiled_args[0].0, &compiled_args[0].1);
                         let result = self.fresh_tmp();

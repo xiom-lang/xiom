@@ -1770,7 +1770,15 @@ impl IrEmitter {
 
     /// Extract the element type name from a `Vec[T]` type annotation.
     pub fn vec_elem_from_type_annotation(ty: &Type) -> Option<String> {
-        match ty {
+        // Unwrap reference wrappers (`&Vec[T]`/`&mut Vec[T]` params) — must
+        // match the types.rs copy (BUG 12/17: without this, `v[0]` on a
+        // `&Vec[Float64]` param loads i64 + sitofp the bit pattern, and
+        // Vec[Str] elements lose the strcmp equality lowering).
+        let inner = match ty {
+            Type::Ref(t) | Type::MutRef(t) | Type::Ptr(t) => t.as_ref(),
+            other => other,
+        };
+        match inner {
             Type::Vec(inner) => Some(Self::type_from_ast(inner)),
             Type::Named(ident, type_args) if ident.name == "Vec" => {
                 type_args.first().map(|t| Self::type_from_ast(t))
@@ -1963,9 +1971,18 @@ impl IrEmitter {
         if self.types.types.contains_key(&clean_name.to_string()) || self.types.type_meta.contains_key(&clean_name.to_string()) {
             return Ok(format!("%struct.{clean_name}"));
         }
-        // Search for any module-qualified variant ending with .clean_name
+        // Search for any module-qualified variant ending with .clean_name.
+        // BUG 16-family fix (2026-08-11): skip GENERATED aggregate keys
+        // (Tuple__/Option__/Result__/_Anon__) — their names end with .Type
+        // too, so a bare `Big` could resolve to the TUPLE key depending on
+        // HashMap iteration order (must mirror the types.rs copy).
         for (key, _) in self.types.type_meta.entries() {
-            if key.ends_with(&format!(".{clean_name}")) {
+            if key.ends_with(&format!(".{clean_name}"))
+                && !key.contains("Tuple__")
+                && !key.starts_with("Option__")
+                && !key.starts_with("Result__")
+                && !key.starts_with("_Anon__")
+            {
                 return Ok(format!("%struct.{key}"));
             }
         }

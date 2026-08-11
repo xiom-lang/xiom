@@ -181,6 +181,10 @@ impl IrEmitter {
                     } else {
                         self.local.signed_locals.remove(&name.name);
                     }
+                } else if let Some(inferred) = Self::infer_value_xiom_type(value) {
+                    // BUG 14: `var big = x as UInt128` — no annotation, but the
+                    // cast target tells us the signedness.
+                    self.local.local_xiom_types.insert(name.name.clone(), inferred);
                 }
                 // Use declared struct type when available (handles Option.unwrap
                 // round-trip where the value is a heap pointer i64 but the declared
@@ -373,6 +377,10 @@ impl IrEmitter {
                     } else {
                         self.local.signed_locals.remove(&name.name);
                     }
+                } else if let Some(inferred) = Self::infer_value_xiom_type(value) {
+                    // BUG 14: `var big = x as UInt128` — infer signedness from
+                    // the cast target when there is no annotation.
+                    self.local.local_xiom_types.insert(name.name.clone(), inferred);
                 }
                 let (val, val_llvm_ty) = if let Expr::Array(elems, _) = value {
                     // 5c.39: Non-empty array literal assigned to a Vec-typed

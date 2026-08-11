@@ -570,14 +570,22 @@ impl crate::IrEmitter {
     /// Extract the element type name from a `Vec[T]` type annotation.
     /// e.g. `Vec[Float64]` → Some("Float64"), `Vec[Int]` → Some("Int").
     pub fn vec_elem_from_type_annotation(ty: &Type) -> Option<String> {
-        if let Type::Named(ident, type_args) = ty {
-            if ident.name == "Vec" {
-                if let Some(first) = type_args.first() {
-                    return Some(Self::type_from_ast(first));
-                }
+        // Unwrap reference wrappers: catalog fns take `&Vec[T]`/`&mut Vec[T]`
+        // params, which must STILL register the element type — otherwise
+        // `v[0]` on a `&Vec[Float64]` param falls back to the width-based i64
+        // load + sitofp (the f64 bit pattern converted as an int, BUG 12) and
+        // `Str` elements lose the strcmp equality lowering (BUG 17).
+        let inner = match ty {
+            Type::Ref(t) | Type::MutRef(t) | Type::Ptr(t) => t.as_ref(),
+            other => other,
+        };
+        match inner {
+            Type::Named(ident, type_args) if ident.name == "Vec" => {
+                type_args.first().map(|t| Self::type_from_ast(t))
             }
+            Type::Vec(inner) => Some(Self::type_from_ast(inner)),
+            _ => None,
         }
-        None
     }
 
     /// 5c.29: If `container` is a struct-field access whose declared type is a
@@ -715,9 +723,20 @@ impl crate::IrEmitter {
         if self.types.types.contains_key(&type_name.to_string()) || self.types.type_meta.contains_key(&type_name.to_string()) {
             return Ok(format!("%struct.{type_name}"));
         }
-        // Search for any module-qualified variant ending with .type_name
+        // Search for any module-qualified variant ending with .type_name.
+        // BUG 16-family fix (2026-08-11): skip GENERATED aggregate keys
+        // (`Tuple__...`, `Option__...`, `Result__...`, `_Anon__...`) — their
+        // names end with `.Type` too (e.g. `Tuple__m.Big__m.Big` ends with
+        // `.Big`), so a bare `Big` could resolve to the TUPLE key depending
+        // on HashMap iteration order (regression: m37_tuple_struct emitted
+        // `Tuple__Big__Big` whose fields were 3-element tuples → llvm.trap).
         for (key, _) in self.types.type_meta.entries() {
-            if key.ends_with(&format!(".{type_name}")) {
+            if key.ends_with(&format!(".{type_name}"))
+                && !key.contains("Tuple__")
+                && !key.starts_with("Option__")
+                && !key.starts_with("Result__")
+                && !key.starts_with("_Anon__")
+            {
                 return Ok(format!("%struct.{key}"));
             }
         }
