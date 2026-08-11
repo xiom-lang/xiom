@@ -4383,4 +4383,8 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m37_catfix_private_type() { assert_eq!(compile_and_run("examples\\catfix\\b9main.xi"), Some(0)); }
 #[test] fn e2e_m37_unsafe_option_return() { assert_eq!(compile_and_run("tests\\regression\\m34_y04.xi"), Some(0)); }
 #[test] fn e2e_m37_unsafe_null_fault() { assert_eq!(compile_and_run("tests\\regression\\m33_u13.xi"), Some(0)); }
+#[test] fn e2e_m37_vec_f64() { assert_eq!(compile_and_run("tests\\regression\\m37_vec_f64.xi"), Some(0)); }
+#[test] fn e2e_m37_u128() { assert_eq!(compile_and_run("tests\\regression\\m37_u128.xi"), Some(0)); }
+#[test] fn e2e_m37_shr_builtin() { assert_eq!(compile_and_run("tests\\regression\\m37_shr_builtin.xi"), Some(0)); }
+#[test] fn e2e_m37_f128() { assert_eq!(compile_and_run("tests\\regression\\m37_f128.xi"), Some(0)); }
 
