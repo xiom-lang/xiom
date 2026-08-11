@@ -1,44 +1,57 @@
-# XIOM Session Handoff — 2026-08-10 17:50 (Unsafe Confinement mid-implementation)
+# XIOM Session Handoff — 2026-08-11 16:4x (release v0.58.0 + Linux target + SELFHOST READY)
 
 ## ⚠️ CRITICAL CONSTRAINTS
 1. **NEVER commit/modify `xiom-benchmark-chaos/`** — owner works in a PARALLEL session (it has uncommitted changes). It COPIES `stdlib/` directly into its build (stdlib-pin deleted). Stage only: `crates/`, `stdlib/`, `docs/`, `tests/`, `examples/`, `selfhost/` (except `_diff_*`), `packages/`.
-2. **Parallel session rebuilds `target/debug/xiom.exe` frequently** — verify failures by recompiling the specific smoke manually before assuming regression. The 16-minute e2e suite is UNRELIABLE mid-parallel; use checker + stdlib-exec (~1-2 min) as fast gates, e2e only at phase boundaries.
-3. **Selfhost tests are IGNORED**: `test_selfhost_bootstrap_v050` + all `full_diff_tests.rs` — `#[ignore]`. Do not touch.
+2. **Parallel session rebuilds `target/debug/xiom.exe` frequently** — verify failures by recompiling the specific smoke manually before assuming regression. The e2e harness now RETRIES raced compiles (`a092cc35`), so full runs are reliable again; still re-verify manually if a single test fails once.
+3. **Selfhost tests are IGNORED**: `test_selfhost_bootstrap_v050` + all `full_diff_tests.rs` — `#[ignore]`. Do not touch UNTIL the selfhost plan (docs/SELFHOST_PLAN.md) reaches the relevant phase — then un-ignore deliberately.
 4. **Models**: ALL agents/subagents run DeepSeek V4 FLASH only. NEVER pro. `subagent_variant_overrides`: flash → high.
 5. **Monorepo split DEFERRED**. stdlib becomes its own repo later (backlog).
-6. **`test_diff_test_produces_correct_ir` is a PRE-EXISTING failure** on the clean tree (verified repeatedly) — NOT caused by Unsafe Confinement. `g15_sret_abi` e2e: the test file is `examples/e2e/g15_sret.xi` (was failing from the T002 gate, now MIGRATED to unsafe-wrapped extern calls).
+6. **`test_diff_test_produces_correct_ir` is a PRE-EXISTING failure** on the clean tree (handoff: IGNORE) — the ONLY red left anywhere.
 7. **`.xiom_ai.json` is a parallel-session artifact — never stage it.**
+8. **Parallel stdlib session owns `stdlib/xiom/*.xi`** — do NOT modify unless a compiler bug needs a stdlib-side fix; log in `docs/COMPILER_BUGS.md` instead. They are mid BigFloat Phase D/transcendentals; their file states are in flight.
 
 ## CURRENT BRANCH
-`feat/architect` — HEAD `d866231a` (P5-P8 + T006 all committed; tree clean except `.xiom_ai.json`)
+`feat/architect` — HEAD `4565e3af` (release v0.58.0 + Linux/WSL target committed; tree clean except `.xiom_ai.json` + parallel-session probes)
 
-## SESSION GOAL: Implement UNSAFE CONFINEMENT v0.57.0 100% — **COMPLETE** (P1-P8 + T006)
+## NEXT SESSION FOCUS: SELFHOSTING — start with docs/SELFHOST_PLAN.md Phase 0
+The compiler is **SELFHOST READY** (see status below). The next session's job is
+**Phase 0 of the selfhost plan**: harness upgrade (3-tier diff gate), module
+skeleton, runtime_ffi.xi, archive xiomc_v050.xi. Checklist:
+`docs/checklists/selfhost-phase0.md`. Do NOT start Phase 1 (lexer) until Phase 0's gate is green.
 
-### ✅ COMMITTED PHASES
-| Commit | Phase | What |
-|--------|-------|------|
-| `0c490a8d` | **P1 Gates** | T002 extern-call gate, T003 safe-fn raw-ptr return gate, block-only unsafe parse, &T borrow-confined; migrated g15_sret; 7 gate tests |
-| `29fbf966` | **P2 Contracts** | T007 whole-body-unsafe requires gate; contract exemption; 2 tests |
-| `776ae148` | **P3 Guard heap + Copy-Out** | TLS slab arena, emit_alloc routing, Copy-Out Str tails; smoke_guard_heap |
-| `fd1e9969` | **P4 Stack guard pages** | per-thread guard page red-zone at unsafe entry/exit |
-| `cc06f69f` | **P5 Trap + recovery (f,g) — FIXED** | REPLACED broken inline VEH (hung). Canonical block-as-function + SEH trampoline. Pointer captures (write-back). Return routing via TLS this_returned (nested-safe). Arena-aware realloc. Fault-injection smokes (AV/ud2/div0 survive). |
-| `f8919652` | **P6 Transient retry (h)** | Once-only retry in trampoline; #[unsafe_no_retry]; xiom_trampoline_was_retried; smoke_guard_retry |
-| `022d903f` | **P7 stdlib + #[unsafe_direct]** | #[unsafe_direct] escape hatch (stdlib/trusted; --enable-unsafe-direct gate; counted cap). Stdlib needed NO migration — P5/P6 lowering already handles all 37+ sites. |
-| `d866231a` | **T006 FFI ownership** | extern-returning-*T inside confined block must convert to owned type before tail (ffi.safe_ptr_from_raw/box_from_ptr/vec_from_ptr_with_free/str_from_ptr_owned); 2 checker tests |
-| (docs) | **P8 Self-host gate** | xiomc_v10.xi compiles with all confinement gates live (verified); selfhost diff tests remain #[ignore]d (deferred, per constraints) |
+## RELEASE v0.58.0 — BUILT + INSTALLED (2026-08-11)
+- Package: `release\xiom-v0.58.0\` (bin/lib/runtime/mcp + install.bat/install.sh) and
+  `release\xiom-v0.58.0-windows-x64.zip`.
+- Installed: `%LOCALAPPDATA%\xiom\bin\xiom.exe` (PATH + desktop shortcut + .xi association).
+  Verify: `xiom --version` → "XIOM Compiler v0.58.0 Production - 1112 fast-suite / 2240 e2e, zero warnings".
+- Installer notes: `install.ps1 -BinaryPath <pkg>\bin -Unattended -Shortcut` (encoding fixed to
+  UTF-8-BOM; `$Shortcut` shadowing fixed; binaries live in the package's `bin\` subdir).
+- Release banner stats live in `package.ps1` (`XIOM_RELEASE_STATS`) — update before next release.
 
-## TEST SUITE STATE (fast gates — verified 2026-08-10, after compiler-hardening session)
-| Suite | Result |
-|-------|--------|
-| BUILD (workspace) | **zero warnings** (`cargo build --workspace` and `cargo test --workspace --no-run` → 0 `^warning` lines) |
-| checker | **178/178** (+T006 tests; incl. test_d21_raw_ptr_tail_rejected) |
-| stdlib-exec | **69/72** (guard_fault FAULT-OK / guard_retry RETRY-OK / guard_heap exit-0 all pass; complex + net are PRE-EXISTING baseline failures; bigint is a parallel-session in-flight failure — see docs/COMPILER_BUGS.md NOTE 6) |
+## LINUX/WSL TARGET — WORKING (2026-08-11, commit `4565e3af`)
+- **How to build/test** (Ubuntu WSL): copy repo to ext4 (`~/axiom-linux`, exclude
+  `.git target release .testlogs`), `cargo build --release -p xiom` (~40 s), then
+  `target/release/xiom -o /tmp/x.exe file.xi && /tmp/x.exe`.
+- Fixed for Linux: runtime C `__declspec(thread)` → `XIOM_TLS` macro; POSIX
+  `xiom_trap_enter/leave` (sigsetjmp/siglongjmp + sigaction — the fault-guard works:
+  smoke_guard_fault FAULT-OK, smoke_guard_retry RETRY-OK); `-lm` on POSIX native links.
+- Verified on WSL: diff_test (42), all m37 regressions, smoke_bigint/complex/bigfloat/
+  guard_heap — exit 0.
+- Caveat: `--parallel-codegen` on Linux untested (the unsafe-ctx counter fix is
+  platform-neutral); guard smokes use the POSIX trap path (Windows uses SEH).
+
+## TEST SUITE STATE (verified 2026-08-11 15:4x–16:3x)
+
+| Gate | Result |
+|------|--------|
+| `cargo build --workspace` + `cargo test --workspace --no-run` warnings | **0 / 0** |
+| fast suite (`./test_summary.ps1 -Fast`) | **1112 passed / 1 failed / 1 ignored** (only `test_diff_test_produces_correct_ir`, handoff IGNORE) |
+| stdlib-exec | **72/72** |
 | stdlib-compile | 40/40 |
-| parser | 96/96 |
-| feature-regression | 510/510 |
-| integration | 128/128 |
-| P8 | xiomc_v10.xi compiles clean under all confinement gates (verified manually, no `#[unsafe_direct]` warnings) |
-| runtime C | stdlib/runtime/*.c compile warning-free under the compiler's exact clang flags |
+| checker | 178/178 |
+| e2e full run (15:57) | **2239/2240** — the 1 failure (`e2e_p1_contract_methods`) was a harness race, now hardened (`a092cc35`); expect **2240/2240** next run |
+| release binary | v0.58.0 installed, `--version` OK, compiles smokes |
+| Linux binary | builds + all smokes pass in WSL |
 
 ## COMPILER-HARDENING SESSION (this session) — SELFHOST READY
 - **GOAL 1 (zero warnings): DONE.** Fixed all 12 `cargo build --workspace` warnings + 5 additional test-target warnings surfaced by `cargo test --workspace --no-run`:
