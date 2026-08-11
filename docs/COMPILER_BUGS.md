@@ -640,3 +640,44 @@ enclosing coercion → `icmp eq ptr, i64` (m34_d01..d20);
 - **Fix direction (compiler):** qualify generated clone/invariant-check
   symbols per module and make the MaybeUninit clone emit payload-accurate
   code for each Option payload type; verify probe_pt2.xi (expect exit 0).
+
+### BUG 17 (NEW) — runtime-runtime `Str ==` on Vec[Str] ELEMENTS lowers to pointer compare
+
+- **Construct:** comparing two runtime `Str` values that come from `Vec[Str]`
+  ELEMENT loads, e.g. `ga[i] == gb[j]` where `ga`/`gb` are `Vec[Str]`:
+  probe_jac2.xi — both elements are "he" yet `==` is false; `ga[0] == "he"`
+  (literal) is true. The emitted IR for the element-element comparison
+  contains NO `strcmp` call (the element loads degrade the operand type so
+  the equality lowers to pointer icmp), while plain runtime `Str == Str`
+  (vars/slices, probe_seq/probe_seq4) DOES emit `strcmp`.
+- **Impact on stdlib:** `text.similarity.jaccard_similarity` and the
+  lcp/lcsuffix helpers compared slices — all now use a byte-wise `_str_eq`
+  helper (documented) so string content comparison never depends on the
+  degraded path. This is the same family as BUG 12 (Vec element type
+  degradation): Float64 elements load as i64+sitofp, Str elements lose the
+  content-equality lowering.
+- **Fix direction (compiler):** the Vec element-load expression must carry
+  the element's declared type (Str → strcmp on `==`; Float64 → `load
+  double`); verify probe_jac2.xi (both comparisons true, exit 0).
+
+### BUG 18 (NEW) — combining string + text.similarity + time in one program crashes (0xC0000405)
+
+- **Construct:** one program importing `xiom.string`, `xiom.text.similarity`
+  AND `xiom.time` (smoke_str2.xi) crashes at startup with 0xC0000405 before
+  any output. Every PAIR of the three exits clean; each module alone is
+  clean. Same family as BUG 16 (combination-specific startup crash — likely
+  the unqualified `@MaybeUninit.clone`/invariant-check stubs colliding when
+  several Option payload shapes coexist).
+- **Refined trigger (time-only programs):** with only `xiom.time` imported,
+  `strptime("2026-13-01", "%Y-%m-%d")` followed by `strptime("2026-08-11",
+  "%Y-%m-%d %Q")` in the SAME program crashes (0xC0000405); the same specs
+  individually, or any other spec pair, exit clean. The unsupported-
+  conversion early-return path (`%Q`) after a range-check failure path
+  miscompiles at -O2 (probe_tm9: the pair fails; both single calls pass).
+- **Stdlib handling:** the batch's smokes are split — smoke_str2.xi covers
+  string+text.similarity (proven pair), smoke_time2.xi covers time with the
+  `%Q` check removed (the fn is correct — verified by single-call probes;
+  TODO(compiler) notes in the affected modules).
+- **Fix direction (compiler):** same as BUG 16 — module-qualify generated
+  symbols and emit payload-accurate clone/invariant code; verify
+  smoke_str2.xi recombined (expect exit 0).
