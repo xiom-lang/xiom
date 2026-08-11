@@ -111,13 +111,15 @@ impl IrEmitter {
     /// Lower a single binary operation for the iterative fold path (deep-chain
     /// hardening). Takes pre-compiled operands and produces the folded result.
     /// Handles arithmetic (Add/Sub/Mul), bitwise (And/Or/Xor), and float coercions.
-    fn compile_binop_fold(&mut self, l: &str, lt: &str, r: &str, rt: &str, op: &BinOp) -> Result<(String, String), String> {
+    fn compile_binop_fold(&mut self, l: &str, lt: &str, r: &str, rt: &str, op: &BinOp, l_expr: &Expr, r_expr: &Expr) -> Result<(String, String), String> {
         // String concatenation: Add with i8* operands must call xiom_str_concat,
         // not emit `add i64` on pointer values. The normal BinOp path checks this
-        // first; replicate the check here for the iterative fold path.
+        // first; replicate the check here for the iterative fold path. Integer
+        // operands are formatted via @xiom_int_to_string (not inttoptr — garbage
+        // pointer + AV), decided by the XIOM-level type verdict.
         if matches!(op, BinOp::Add) && (lt == "i8*" || rt == "i8*") {
-            let lp = self.val_to_i8ptr(l, lt);
-            let rp = self.val_to_i8ptr(r, rt);
+            let lp = self.concat_val_to_i8ptr(l, lt, self.expr_is_integer(l_expr));
+            let rp = self.concat_val_to_i8ptr(r, rt, self.expr_is_integer(r_expr));
             let res = self.fresh_tmp();
             self.emitln(&format!("  {res} = call i8* @xiom_str_concat(i8* {lp}, i8* {rp})"));
             return Ok((res, LLVM_STR_PTR.to_string()));
@@ -989,15 +991,17 @@ impl IrEmitter {
                     if operands.len() > 2 {
                         // Compile the first operand
                         let (mut acc_val, mut acc_ty) = self.compile_expr(&operands[0])?;
+                        let mut acc_expr = operands[0].clone();
                         // Iteratively compile and fold each remaining operand
                         for operand in &operands[1..] {
                             let (r_val, r_ty) = self.compile_expr(operand)?;
                             let (l, lt) = (acc_val, acc_ty);
                             let (r, rt) = (r_val, r_ty);
                             // Reuse the standard BinOp lowering for each pair
-                            let folded = self.compile_binop_fold(&l, &lt, &r, &rt, op)?;
+                            let folded = self.compile_binop_fold(&l, &lt, &r, &rt, op, &acc_expr, operand)?;
                             acc_val = folded.0;
                             acc_ty = folded.1;
+                            acc_expr = (*operand).clone();
                         }
                         return Ok((acc_val, acc_ty));
                     }
@@ -1013,8 +1017,8 @@ impl IrEmitter {
                 // coerced to i8*), which also keeps IR valid where a Str-returning
                 // callee was resolved to a fallback i64 signature.
                 if matches!(op, BinOp::Add) && (lt == "i8*" || rt == "i8*") {
-                    let lp = self.val_to_i8ptr(&l, &lt);
-                    let rp = self.val_to_i8ptr(&r, &rt);
+                    let lp = self.concat_val_to_i8ptr(&l, &lt, self.expr_is_integer(left));
+                    let rp = self.concat_val_to_i8ptr(&r, &rt, self.expr_is_integer(right));
                     let res = self.fresh_tmp();
                     self.emitln(&format!("  {res} = call i8* @xiom_str_concat(i8* {lp}, i8* {rp})"));
                     return Ok((res, LLVM_STR_PTR.to_string()));

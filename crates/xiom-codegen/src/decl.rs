@@ -247,6 +247,19 @@ impl IrEmitter {
         }
     }
 
+    /// BUG 3 fix: true when a module-global initializer is a COMPILE-TIME
+    /// constant that `global_const_init` can materialize (int/bool/float/char
+    /// literals, optionally negated). Runtime expressions (fn calls, struct
+    /// constructors, enum variants) return false and are handled via
+    /// @llvm.global_ctors startup initializers instead.
+    fn expr_is_const_init(value: &Expr) -> bool {
+        match value {
+            Expr::Int(..) | Expr::Bool(..) | Expr::Float(..) | Expr::Char(..) => true,
+            Expr::Unary(UnaryOp::Neg, inner, _) => matches!(inner.as_ref(), Expr::Int(..)),
+            _ => false,
+        }
+    }
+
     pub(crate) fn register_functions(&mut self, item: &TopDecl) {
         if let TopDecl::Const(cd) = item {
             if cd.is_mut {
@@ -272,6 +285,13 @@ impl IrEmitter {
                     if !self.local.module_global_defs.iter().any(|(s, _, _)| s == &symbol) {
                         let init = Self::global_const_init(&cd.value, &llvm_ty);
                         self.local.module_global_defs.push((symbol.clone(), llvm_ty.clone(), init));
+                        // BUG 3 fix: a RUNTIME initializer (fn call etc.) cannot
+                        // become a compile-time constant — the global is emitted
+                        // zero-initialized and a @llvm.global_ctors entry runs the
+                        // initializer expression at startup.
+                        if !Self::expr_is_const_init(&cd.value) {
+                            self.local.global_runtime_inits.push((symbol.clone(), llvm_ty.clone(), cd.value.clone()));
+                        }
                     }
                     // 5e.5c: track for hot reload state migration
                     if self.config.hot_reload {

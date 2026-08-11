@@ -296,6 +296,11 @@ pub struct LocalContext {
     pub module_globals: HashMap<String, (String, String)>,
     /// Ordered list of module-global definitions to emit
     pub module_global_defs: Vec<(String, String, String)>,
+    /// Module-level `var` globals whose initializer is a RUNTIME expression
+    /// (fn call, etc.) — cannot be a compile-time constant. The global is
+    /// emitted zero-initialized and a @llvm.global_ctors entry runs the
+    /// initializer at startup (BUG 3 fix).
+    pub global_runtime_inits: Vec<(String, String, Expr)>,
     /// Current module prefix for scoped type resolution
     pub current_module: Option<String>,
     /// Struct type definitions created during compilation

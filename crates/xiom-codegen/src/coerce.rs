@@ -381,6 +381,93 @@ impl IrEmitter {
         }
     }
 
+    /// Concatenation-operand conversion for `Str + X`. Pointer operands bitcast
+    /// (or pass through for i8*); INTEGER operands (Int/Int8..UInt128/Char —
+    /// `is_int` verdict from the XIOM-level type) are FORMATTED via
+    /// @xiom_int_to_string instead of inttoptr, which produced a garbage
+    /// pointer and crashed at runtime ("y = " + 42 → AV).
+    pub(crate) fn concat_val_to_i8ptr(&mut self, val: &str, ty: &str, is_int: bool) -> String {
+        if ty == "i8*" {
+            return val.to_string();
+        }
+        if is_int {
+            let i64_val = self.val_to_i64(val, ty);
+            let fmt = self.fresh_tmp();
+            self.emitln(&format!("  {fmt} = call i8* @xiom_int_to_string(i64 {i64_val})"));
+            return fmt;
+        }
+        self.val_to_i8ptr(val, ty)
+    }
+
+    /// XIOM-level verdict: is this expression an integer (Int*/UInt*/Char)?
+    /// Used at concat sites to choose string formatting over inttoptr. Idents
+    /// resolve through the registered local type; casts check the target type
+    /// name; calls check the callee's registered return type (a real Str
+    /// return registers as i8*, so pointer returns are never formatted).
+    pub(crate) fn expr_is_integer(&self, e: &Expr) -> bool {
+        fn is_int_name(n: &str) -> bool {
+            n == "Int" || n == "Int64" || n == "Char" || n.starts_with("Int") && n.len() <= 6
+                || n == "UInt" || n.starts_with("UInt") && n.len() <= 7
+        }
+        match e {
+            Expr::Int(..) | Expr::Char(..) => true,
+            Expr::Ident(id) => {
+                // Registered XIOM type (annotation or binding inference) wins.
+                if let Some(t) = self.local.local_xiom_types.get(&id.name) {
+                    return is_int_name(t);
+                }
+                // Module-global fallback: the LLVM slot verdict — a non-pointer
+                // integer slot (i64/i32/...) is an Int/UInt global.
+                if let Some((_, llvm_ty)) = self.local.module_globals.get(&id.name) {
+                    return llvm_ty.starts_with('i') && !llvm_ty.ends_with('*') && llvm_ty != "i1" && llvm_ty != "i8*";
+                }
+                // Local-slot fallback: derive the XIOM name from the LLVM type.
+                self.resolve_local_xiom_type(&id.name)
+                    .map(|t| is_int_name(&t))
+                    .unwrap_or(false)
+            }
+            Expr::As(_, ty, _) => is_int_name(&Self::type_from_ast(ty)),
+            Expr::Paren(inner, _) => self.expr_is_integer(inner),
+            Expr::Field(obj, field, _) => {
+                // Resolve the object's struct type, then the field's declared
+                // XIOM type from type_meta (e.g. `g.v` of a module-global W).
+                let struct_name = match self.infer_struct_type_name(obj) {
+                    Some(n) => n,
+                    None => return false,
+                };
+                let idx = match self.types.types.get(&struct_name) {
+                    Some(fields) => match fields.iter().position(|f| f == &field.name) {
+                        Some(i) => i,
+                        None => return false,
+                    },
+                    None => return false,
+                };
+                match self.types.type_meta.get(&struct_name) {
+                    Some(meta) => meta.fields.get(idx).map(|(_, t)| is_int_name(t)).unwrap_or(false),
+                    None => false,
+                }
+            }
+            Expr::Call(callee, ..) | Expr::GenericCall(callee, ..) => {
+                let key = match callee.as_ref() {
+                    Expr::Ident(id) => id.name.clone(),
+                    Expr::Field(obj, m, _) => {
+                        if let Expr::Ident(o) = obj.as_ref() {
+                            format!("{}.{}", o.name, m.name)
+                        } else {
+                            return false;
+                        }
+                    }
+                    _ => return false,
+                };
+                let ret_llvm = self.types.functions.get(&key)
+                    .map(|(_, r)| r.clone())
+                    .unwrap_or_default();
+                ret_llvm.starts_with('i') && !ret_llvm.ends_with('*') && ret_llvm != "i8*"
+            }
+            _ => false,
+        }
+    }
+
     /// Convert an i64 (recovered from the trampoline's TLS result slot on the
     /// SUCCESS path of a confined unsafe block) back to the block's actual tail
     /// LLVM type. Inverse of val_to_i64. Used by the Expr::Unsafe arm after a

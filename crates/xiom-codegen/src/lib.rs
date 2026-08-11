@@ -2609,6 +2609,21 @@ impl IrEmitter {
             self.emitln("");
         }
 
+        // BUG 3 fix: globals whose initializer is a runtime expression get a
+        // @llvm.global_ctors entry (startup initializer). The ctor function
+        // bodies are emitted at module end, after all functions are compiled.
+        if !self.local.global_runtime_inits.is_empty() {
+            let n = self.local.global_runtime_inits.len();
+            let entries: Vec<String> = (0..n)
+                .map(|i| format!("{{ i32, ptr, ptr }} {{ i32 65535, ptr @__xiom_ginit_{i}, ptr null }}"))
+                .collect();
+            self.emitln(&format!(
+                "@llvm.global_ctors = appending global [{n} x {{ i32, ptr, ptr }}] [{}]",
+                entries.join(", ")
+            ));
+            self.emitln("");
+        }
+
         // 5e.5c: emit hot reload state save/restore functions
         if self.config.hot_reload && !self.config.xiom_hot_globals.is_empty() {
             self.emit_hot_state_functions();
@@ -2691,8 +2706,41 @@ impl IrEmitter {
         // with "use of undefined value '@name'". On any well-formed program (all
         // callees resolved) this pass emits nothing, so it is a strict no-op on
         // the existing test gate. A stub returns a typed default, so it can never
-        // manufacture a *correct* live result Ã¢â‚¬â€ only unblock linking.
+        // manufacture a *correct* live result — only unblock linking.
         self.emit_undefined_symbol_stubs();
+
+        // BUG 3 fix: emit the @llvm.global_ctors initializer bodies for
+        // module-level `var` globals with runtime initializer expressions.
+        if !self.local.global_runtime_inits.is_empty() {
+            let inits = self.local.global_runtime_inits.clone();
+            for (i, (symbol, llvm_ty, init_expr)) in inits.iter().enumerate() {
+                // Minimal function context so compile_expr can resolve calls
+                // (fn_key uses current_fn for the caller-module fallback).
+                self.push_scope();
+                self.block_counter = 0;
+                self.tmp_counter = 0;
+                self.local.signed_locals.clear();
+                self.local.local_xiom_types.clear();
+                self.local.reg_signed.clear();
+                self.local.ptr_locals.clear();
+                self.local.bool_locals.clear();
+                self.fctx.current_fn = Some(format!("__xiom_ginit_{i}"));
+                self.fctx.current_receiver = None;
+                self.fctx.current_ensures.clear();
+                self.fctx.current_return_type = "void".to_string();
+                self.emitln(&format!("\ndefine internal void @__xiom_ginit_{i}() {{"));
+                self.emitln("entry:");
+                let (val, val_ty) = self.compile_expr(init_expr)?;
+                let store_val = self.coerce_value(&val, &val_ty, llvm_ty);
+                self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* @{symbol}"));
+                self.emitln("  ret void");
+                self.emitln("}");
+                self.pop_scope();
+                self.fctx.current_fn = None;
+                self.fctx.current_ensures.clear();
+            }
+            self.emitln("");
+        }
 
         // Deferred tuple/anon struct type definitions discovered during function
         // body compilation. Emitted at module end (top level) Ã¢â‚¬â€ LLVM named types

@@ -143,6 +143,21 @@ impl IrEmitter {
                     };
                     let elem_ty = base_ptr_ty.trim_end_matches('*').to_string();
                     Some((base_ptr, base_ptr_ty, elem_ty))
+                } else if let Some((symbol, llvm_ty)) = self.local.module_globals.get(&id.name).cloned() {
+                    // BUG 2 fix: a mutable module-level `var` IS its own storage —
+                    // GEP directly on @symbol so field writes (`g.v = 5`) write
+                    // through to the global instead of being silently dropped.
+                    // Pointer-typed globals load the pointer value first, mirroring
+                    // the local-variable path above.
+                    let (base_ptr, base_ptr_ty) = if llvm_ty.ends_with('*') {
+                        let loaded = self.fresh_tmp();
+                        self.emitln(&format!("  {loaded} = load {llvm_ty}, {llvm_ty}* @{symbol}"));
+                        (loaded, llvm_ty)
+                    } else {
+                        (format!("@{symbol}"), format!("{llvm_ty}*"))
+                    };
+                    let elem_ty = base_ptr_ty.trim_end_matches('*').to_string();
+                    Some((base_ptr, base_ptr_ty, elem_ty))
                 } else { None }
             }
             Expr::Field(obj, field, _) => {
