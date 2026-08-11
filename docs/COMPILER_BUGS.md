@@ -34,6 +34,7 @@ workarounds" â€” the compiler must be fixed, then the stdlib lands.
 | **BUG 3 â€” module-global fn-call initializers zero** | **DONE** | `f0388644` | e2e_m37_global_fn_init (`var G = _mk(1)` â†’ 10 via @llvm.global_ctors); probe_const3 R=0 |
 | Str + Int/Char/UInt concat crashed (inttoptr of the integer â†’ AV) | **DONE** | `f0388644` | e2e_m37_str_int_concat ("y = " + 42 â†’ "y = 42"); probe_concat0 R=0 |
 | Dotted-module chain binding â€” `use stdlib.xiom.io` flaky 40â€“60% "cannot call" (parser nests dotted paths; process_use bound the {xiom:{io:â€¦}} chain; stdlib-prefixed uses skipped preload/prelude) | **DONE** | `f0388644` | m19_read_file 8/8 + min repro 8/8 deterministic; stdlib-compile 40/40; checker 178/178 |
+| BUG 19 — NaN-producing Float64 ops returned sentinel/0xC000001D (float `!=` ? `fcmp one`; `Str+Float64` concat inttoptr) | **DONE** | `9c3a2f9e` | e2e_m37_nan_ieee (23 checks) R=0; probe_nan prints "c = nan / is NaN" exit 0; 17/17 sweep |
 | Â§7 NASM/SIMD tracks (math/crypto/hash/compress asm, CPUID dispatch) | **OPEN** â€” off-limits to stdlib session (crates/ + stdlib/runtime/*.c); pure-XIOM fallbacks in place | â€” | â€” |
 | Selfhost plan | **WRITTEN â€” execution in progress** | `090ed5d1` | docs/SELFHOST_PLAN.md (phases 0â€“8) + docs/checklists/selfhost-phase0.md |
 
@@ -723,6 +724,25 @@ enclosing coercion â†’ `icmp eq ptr, i64` (m34_d01..d20);
 
 ## 2026-08-11 — stdlib session (evening): BUG 19 (NEW) — every NaN-producing Float64 operation returns a garbage sentinel or traps
 
+**? FIXED 2026-08-11 (commit `9c3a2f9e`).** Two codegen defects, both verified:
+
+1. **float `!=` lowered to `fcmp one`** (ordered-not-equal) — for NaN operands
+   `one` is FALSE, so `x != x` returned false and NaN was undetectable.
+   Fixed to `fcmp une` in both the BinOp table (expr.rs) and the trait-method
+   table (call.rs `.ne()`).
+2. **`Str + Float64` concat inttoptr'd the FP bits** — the "garbage sentinel
+   print" was this, not the fdiv (the IR fdiv was always correct). Fixed via
+   new `@xiom_double_to_string` (xiom_runtime.c): NaN ? "nan", ±inf ?
+   "inf"/"-inf", finite values shortest-round-trip (%.15g else %.17g);
+   declare added to emitter.rs so the undefined-symbol stub pass can't emit
+   a conflicting zero-param definition (this WAS the 0xC000001D crash path).
+   Float32 concat widens via fpext first.
+
+Verified: `m37_nan_ieee.xi` (23 checks: 0/0, inf*0, inf?inf ? NaN; `x != x`
+true; ordering-with-NaN all false; Float32 NaN; concat "nan"/"inf"/"-inf"/
+"3.14"/"0"/"0.5") R=0; original probe prints "c = nan / is NaN" exit 0;
+17/17 regression sweep + stdlib-compile 40/40 + checker 178/178 green.
+
 - **Construct:** any IEEE-754 NaN-producing Float64 operation: `0.0 / 0.0`, `inf - inf`, `inf * 0.0` (with `inf` from `1.0 / 0.0` or `-1.0 / 0.0`). Verified on a fresh build from HEAD (incl. `2ae300fd` + `3b8f5415` + `f0388644`; `cargo rustc -p xiom --bin xiom -- -o <temp>\xiom.exe`).
 - **Observed:**
   1. `var a = 0.0; var b = 0.0; var c = a / b;` ? `c` prints `-92233.-72036854775808` and `c != c` is **false** (not NaN). Same sentinel for `inf * 0.0` and `inf - inf`.
@@ -731,3 +751,8 @@ enclosing coercion â†’ `icmp eq ptr, i64` (m34_d01..d20);
 - **IR evidence (probe_nan.xi):** the emitted IR is correct — `%tmp41 = fdiv double 0.00000000000000000e0, 0.00000000000000000e0` — so the corruption happens in the clang/optimize/runtime-trap stage, not in AST emission. The consistent garbage value (`-92233.72036854775808` ˜ a sentinel) suggests the fault-trap/intercept layer (the same system as smoke_guard_fault.xi) replaces NaN-producing FP ops with a trap-or-sentinel path instead of the IEEE result.
 - **Impact on stdlib:** `math.constants` NAN cannot be implemented (no literal syntax; `0.0/0.0` broken) — `// TODO(compiler): BUG 19` in math/constants.xi; `math.is_nan`/`is_inf` classify correctly but nothing in the stdlib can PRODUCE a NaN today (all NaN-producing libm entries — asin/acos/ln/sqrt — carry domain `requires:` contracts). `num/float.xi` `bits_to_float` (planned) needs a real bitcast intrinsic to land anyway.
 - **Fix direction (compiler):** route NaN results (fdiv 0/0, fsub inf-inf, fmul inf*0, and libm domain-error returns) through the IEEE path — do not trap/sentinel float NaN; optionally add a `nan` literal or i64?f64 bitcast intrinsic (`bitcast i64 0x7FF8000000000000 to double`) which would unblock `math.constants.NAN` + `num.float.bits_to_float`. Verify with probe_nan2/probe_nan3 (expect `nan` print + `x != x` true, exit 0).
+
+**Stdlib unblock:** `math.constants.NAN` can now be implemented as
+`pub fn nan() -> Float64 { return 0.0 / 0.0; }` (a const initializer can't hold
+the expression yet — const-fold only handles literals; a runtime fn works).
+`is_nan(x)` = `x != x` is now correct.
