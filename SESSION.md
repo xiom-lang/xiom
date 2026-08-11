@@ -1,42 +1,53 @@
-# XIOM Session Handoff — 2026-08-11 21:40 (BUG 12–18 fixes MID-VERIFICATION — uncommitted)
+# XIOM Session Handoff — 2026-08-11 22:10 (BUG 12–18 all FIXED + COMMITTED, sweep green)
 
-## ⚠️ URGENT — CONTINUATION REQUIRED (do not lose the working tree)
-**The BUG 12–18 compiler fixes are UNCOMMITTED in the working tree**
-(`git diff --stat crates/` = 10 files, +247/−47). **DO NOT stash/checkout/revert.**
-Continue from "CONTINUATION PROMPT" below.
+## ✅ BUG 12–18 — RESOLVED, committed, verified (this stretch)
+**Commits:** `2ae300fd` fix(codegen) · `3b8f5415` test(e2e) · `36a37e12` docs(compiler-bugs).
+The fn-key fix (bare-key preference when a bare definition exists; caller-module/
+alias qualification only as fallback) resolved the definition-vs-call symbol
+mismatch (user fns emit bare `@mk_big`, calls resolved to leaf-qualified
+zero-param stubs → ABI crash).
+
+**Regression sweep** (isolated binary `$env:TEMP\kilo\tgt_iso\debug\xiom.exe`):
+m37_tuple_struct, m37_ref_mut, m37_index_arith, m37_vec_f64, m37_u128, m37_f128,
+m37_float_precision, m37_shr_builtin (+ `use xiom.math;` added), m33_z14, m34_y04,
+m33_u13, m19_read_file — **12/12 R=0**. BUG 16 probes: m16b/c/d/e (bare + leaf
+import forms) + m16f (fully-qualified form with declared name) all R=0.
+Workspace build gate: **zero warnings** (XIOM_TRACE_* prints + dead
+`load_external_module` removed).
+
+**Fast suite (22:00 run): 1103 passed / 10 failed / 1 ignored.** All 10 failures
+are the parallel session's IN-FLIGHT stdlib work, NOT the compiler:
+stdlib-exec complex/hash/net/rand (folders moved) + math_core (smoke file
+deleted by their session), lsp 1 + mcp-server 3 module-list tests (layout
+change), diff 1 (documented pre-existing ignore). Unit gates all green:
+checker 178/178, stdlib-compile 40/40, integration 128/128, robustness 63/63.
+
+**e2e caveat:** the e2e harness hardcodes `target/debug/xiom.exe`; the parallel
+session's last build (21:25) predates the fn-key fix and contains the
+intermediate buggy caller-module state, so e2e_m37_f128/vec_f64/ref_mut/
+index_arith/shr_builtin/tuple_struct FAIL via the harness against THAT binary.
+Verified equivalent via exact-invocation replication with the isolated binary
+(compile=0 run=0 for all 6). Re-run the e2e suite after the parallel session's
+next `cargo build` to see them green.
 
 ## What was done this stretch (BUG 12–18 from docs/COMPILER_BUGS.md, parallel session's log)
-| Bug | Fix (uncommitted) | Verified |
-|-----|-------------------|----------|
-| 12/17 — Vec[Float64]/Vec[Str] element type lost on `&Vec[T]` params | `vec_elem_from_type_annotation` (TWO copies: types.rs + lib.rs) now unwraps Ref/MutRef/Ptr; Vec(...) AST form handled | m12b, m37_vec_f64 PASS |
-| 14 — UInt64→UInt128 sext / UInt128>> ashr | cast site uses `xiom_type_of_local` (registered type); `expr_is_unsigned()` helper picks lshr; var bindings infer type from `as UInt*` targets (`infer_value_xiom_type`) | m14, m37_u128 PASS |
-| 15 — bare `shr`/`shl` hijacked by math-builtin intercept | intercept restricted to `math.*`/`xiom.math.*` qualified keys + bare keys with NO registered fn | m15 PASS |
-| 13 — fp128 link + coercion | coerce_value fp128 arms; NEW `stdlib/runtime/fp128_helpers.c` (soft-float add/sub/mul/div/conv/cmp — verified in a C harness: 400/5/2500/1002.5, negatives, tiny values all correct after fixing round_pack drop=0, div carry, mul significand extraction + exponent terms) | m13b/m13d PASS; m37_f128 RUN=1 **STILL INVESTIGATING** |
-| 16/18 — skiplist+trie 0xC0000409 | `process_use` walk now loads the LONGEST dotted prefix (directory submodules like xiom.collect.skiplist); `bare_fn_aliases` call resolution prefers the CALLER's module; **encoding repair** — skiplist.xi + trie.xi had invalid UTF-8 (lone 0x97 bytes) — repaired | m16a-e PASS (before the last regression) |
+| Bug | Fix (committed `2ae300fd`) | Verified |
+|-----|---------------------------|----------|
+| 12/17 — Vec[Float64]/Vec[Str] element type lost on `&Vec[T]` params | `vec_elem_from_type_annotation` (TWO copies: types.rs + lib.rs) now unwraps Ref/MutRef/Ptr; Vec(...) AST form handled | m12b, m37_vec_f64 R=0 |
+| 14 — UInt64→UInt128 sext / UInt128>> ashr | cast site uses `xiom_type_of_local` (registered type); `expr_is_unsigned()` helper picks lshr; var bindings infer type from `as UInt*` targets (`infer_value_xiom_type`) | m14, m37_u128 R=0 |
+| 15 — bare `shr`/`shl` hijacked by math-builtin intercept | intercept restricted to `math.*`/`xiom.math.*` qualified keys + bare keys with NO registered fn | m15, m37_shr_builtin R=0 |
+| 13 — fp128 link + coercion | coerce_value fp128 arms; NEW `stdlib/runtime/fp128_helpers.c` (soft-float add/sub/mul/div/conv/cmp — verified in a C harness: 400/5/2500/1002.5, negatives, tiny values all correct after fixing round_pack drop=0, div carry, mul significand extraction + exponent terms) | m13b/m13d, m37_f128 R=0 |
+| 16/18 — skiplist+trie 0xC0000409 | `process_use` walk loads the LONGEST dotted prefix (directory submodules); `bare_fn_aliases` call resolution prefers the CALLER's module; **fn-key fix** (see above); **encoding repair** — skiplist.xi + trie.xi had invalid UTF-8 (lone 0x97 bytes) — repaired | m16a-e + m16f all R=0 |
 | collect modules unresolvable | process_use longest-prefix walk + parent-chain registration | smoke_collect2a/2b PASS |
 
-## ⚠️ THE OPEN PROBLEM (last state — a regression appeared)
-After the fixes, DETERMINISTIC failures appeared (isolated binary
-`$env:TEMP\kilo\tgt_iso\debug\xiom.exe` — use it to avoid the parallel session's
-rebuild race): m37_tuple_struct/m37g (struct-return fns) R=-1073741795,
-m37_ref_mut R=1, m37_index_arith R=1, m37_vec_f64 R=1, m37_f128 R=1.
-
-**ROOT CAUSE FOUND (traced with env-gated prints XIOM_TRACE_FNKEY2/XIOM_TRACE_TMETA):
-call/fn-key vs definition-symbol mismatch.** `register_functions` registers BOTH
-the bare key (`mk_big`) AND the leaf-qualified alias (`m37g.mk_big`, decl.rs:449-458),
-but the DEFINITION emits the BARE symbol (`fn_symbol` dedup). My BUG-16 caller-
-module fix made bare calls prefer `m37g.mk_big` → the call hits a zero-param
-`ret zeroinitializer` STUB (from emit_undefined_symbol_stubs) → ABI mismatch →
-crash. (The same stub pattern as BUG 8.)
-
-**THE FIX IS ALREADY APPLIED IN THE WORKING TREE** (call.rs, the fn_key branch
-now returns the bare key when `types.functions`/`emitted_fns` has it, and only
-falls to caller-module/alias qualification when NO bare definition exists) —
-**but it has NOT been rebuilt/tested yet.** Next step: build with
-`$env:CARGO_TARGET_DIR="$env:TEMP\kilo\tgt_iso"` and re-run the sweep. The
-env-gated debug prints (`XIOM_TRACE_FNKEY2`, `XIOM_TRACE_COERCE`,
-`XIOM_TRACE_TMETA`, `XIOM_TRACE_IMPORTS` remnants) are still in the code —
-remove them after the sweep is green.
+## ⚠️ Known follow-up (parallel stdlib session owns it)
+The `collect/` → `collections/` folder move landed (commits e33b5572/56fbe1cd)
+while module declarations inside still say `xiom.collect.*` — `use` resolves by
+file path (works), but fully-qualified calls need the DECLARED name
+(`xiom.collect.skiplist.fn` works, `xiom.collections.skiplist.fn` does not
+until declarations are aligned). Not a compiler regression — m16b-e/m16f green.
+The user confirmed the ENTIRE stdlib is being rebuilt in the parallel session;
+expect stdlib-related suite failures until that lands.
 
 ## Other state
 - **Parallel session** is mid MASSIVE stdlib stub creation (140+ sublibs, 2,874
