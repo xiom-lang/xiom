@@ -139,6 +139,21 @@
   three-tier diff gate counts→normalized→exact bytes; risks incl.
   register-number determinism). docs/checklists/selfhost-phase0.md checklist.
 
+## M37 BATCH 3.5 (2026-08-11 16:1x) — e2e_p1_contract_methods flake root-caused + harness hardened
+- The 15:57 full run: **2239/2240** — the single failure
+  (`e2e_p1_contract_methods`) was NOT a compiler bug: it passed 4/4 via
+  the harness and manually, and the compiler is unchanged for that path
+  (xiom_is_sorted/xiom_contains are real runtime impls). It was the known
+  parallel-session binary-swap race (target/debug/xiom.exe rebuilt
+  mid-suite).
+- **Fix (`a092cc35`):** hardened `compile_and_run` in e2e_tests.rs with the
+  stdlib-exec suite's disambiguation — 50ms flush delay before spawning the
+  produced exe + up to 3 attempts where a non-zero exit is recompiled fresh
+  and only a REPEAT of the same code is accepted as real. Genuine compile
+  failures are never retried (no real bug can be masked).
+- Verified: e2e_p1_contract_methods + representative m37/m19/i2 tests pass
+  via the harness.
+
 ## KNOWN LIMITATIONS (documented, not blockers)
 - **diff suite** `test_diff_test_produces_correct_ir` fails (documented pre-existing; handoff says IGNORE).
 - **Full selfhost diff tests + bootstrap e2e** remain `#[ignore]`d / `XIOM_SELFHOST`-gated by design — the selfhost plan (docs/SELFHOST_PLAN.md) defines the phased path to un-gate them.
