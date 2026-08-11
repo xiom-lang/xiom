@@ -1223,7 +1223,11 @@ impl IrEmitter {
                         (int_ty, if unsigned { "lshr" } else { "ashr" })
                     }
                     BinOp::Eq => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp oeq" } else { "icmp eq" }),
-                    BinOp::Neq => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp one" } else { "icmp ne" }),
+                    // BUG 19 fix (2026-08-11): float `!=` must lower to fcmp UNE
+                    // (unordered-or-not-equal), not `one` — for NaN operands `one`
+                    // is FALSE, so `x != x` returned false and is_nan was impossible;
+                    // IEEE requires NaN != NaN to be TRUE (`une`).
+                    BinOp::Neq => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp une" } else { "icmp ne" }),
                     BinOp::Lt => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp olt" } else { "icmp slt" }),
                     BinOp::Gt => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp ogt" } else { "icmp sgt" }),
                     BinOp::Le => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp ole" } else { "icmp sle" }),
