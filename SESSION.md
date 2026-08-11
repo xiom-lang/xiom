@@ -113,12 +113,38 @@
   40/40, checker 178/178. All 43 previously-failing e2e tests verified
   passing with the current binary.
 
+## M37 BATCH 3 (2026-08-11 15:4x) — last 3 e2e failures fixed; selfhost plan written
+- **e2e_i2_parallel_codegen (`e0f96fef`):** `--parallel-codegen` offset
+  tmp/block/str counters per function but NOT `unsafe_block_counter` —
+  every fn with an unsafe block emitted `%struct.__unsafe_ctx_0` → clang
+  "redefinition of type" (t2-queue). Each parallel function now gets 1000
+  unsafe-block slots. All 5 ecosystem tasks pass with `--parallel-codegen`.
+- **e2e_m19_read_file_content (`e0f96fef`):** `collect_ident_names` had no
+  `Expr::Struct` arm — free vars inside struct literals in unsafe blocks
+  (io.read_file's `Err(IOError{ message: "..." + path })`) were never
+  captured → the block fn referenced the enclosing fn's register ("use of
+  undefined value '%tmp3'"). Added Struct/Array/Tuple/Some/Ok/Err/Try/
+  AtPre/ConstBlock/Imply/Is/Match/Closure arms.
+- **e2e_safety_probe (`e0f96fef`):** t8-safety-probe called extern `free`
+  outside unsafe (predates the D2 extern-call rule) — migrated to
+  `unsafe { free(p); }`.
+- **Verified:** all 3 e2e tests pass via the harness; stdlib-exec 72/72
+  standalone (one suite run had a racy misc failure during a parallel
+  rebuild — passes 4/4 manually); fast suite 1111/2/1 (2 = documented diff
+  test + the racy misc).
+- **Selfhost plan (`090ed5d1`):** docs/SELFHOST_PLAN.md — byte-identical
+  selfhost plan (Phases 0-8: foundations → lexer/parser/checker/codegen
+  parity → self-compile sha256 gate → full green; O1 selfhost code-quality
+  pass after Phase 4, O2 bootstrap-chain performance pass after Phase 7;
+  three-tier diff gate counts→normalized→exact bytes; risks incl.
+  register-number determinism). docs/checklists/selfhost-phase0.md checklist.
+
 ## KNOWN LIMITATIONS (documented, not blockers)
 - **diff suite** `test_diff_test_produces_correct_ir` fails (documented pre-existing; handoff says IGNORE).
-- **Full selfhost diff tests** (`test_selfhost_bootstrap_v050`, full_diff_tests) remain `#[ignore]`d — selfhost bootstrap is a deferred milestone; the gate (compiler compiles itself) is verified manually.
-- **e2e (16min)** not re-run this session (fast gates used; parallel-session xiom.exe rebuilds make it flaky). All 73 failures from the 00:48 full run are verified passing with the current binary (22 were racy m19/m20; 43 were the confinement-era tests fixed in batch 2; 8 were file-path/eco artifacts). Run the full suite at the next boundary to confirm 0 e2e failures.
-- **BUG 2/3 (globals):** module-global struct field writes lost / fn-call initializers zero — advisory (stdlib design avoids them); not fixed this session.
-- **`to_str()` method on Float64** dispatches to the Display-interface stub (no impl registered) — stdlib uses `Str.from`/`float_to_string`; the interface-dispatch gap is tracked for a later session.
+- **Full selfhost diff tests + bootstrap e2e** remain `#[ignore]`d / `XIOM_SELFHOST`-gated by design — the selfhost plan (docs/SELFHOST_PLAN.md) defines the phased path to un-gate them.
+- **e2e (16min) full run at 15:09: 2237/2240** — the 3 failures (m19_read_file, safety_probe, i2_parallel_codegen) are FIXED and verified via the harness; a clean full-suite re-run is the next boundary action (expect 2240/2240).
+- **BUG 2/3 (globals):** module-global struct field writes lost / fn-call initializers zero — advisory (stdlib design avoids them); tracked for a later session.
+- **`to_str()` method on Float64** dispatches to the Display-interface stub (no impl registered) — stdlib uses `Str.from`/`float_to_string`; interface-dispatch gap tracked for a later session.
 - **HardwareFault/ContractViolation** types exist in stdlib/xiom/error.xi; the fault path returns a type-correct zero (recoverable indicator) rather than a full `Result[T, HardwareFault]` wrapper (plan §2.8's wrapper is a future refinement).
 
 ## NEXT SESSION — START HERE
