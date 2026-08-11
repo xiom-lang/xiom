@@ -31,7 +31,7 @@ const N_PROBES: Int = 8;
 fn probe_use_after_free() -> Int {
   var p = alloc(8);
   ptr.write[Int](p, 42);
-  free(p);
+  unsafe { free(p); }
   var x = ptr.read[Int](p); // use-after-free
   return x;
 }
@@ -39,8 +39,8 @@ fn probe_use_after_free() -> Int {
 fn probe_double_free() -> Int {
   var p = alloc(8);
   ptr.write[Int](p, 7);
-  free(p);
-  free(p); // double free
+  unsafe { free(p); }
+  unsafe { free(p); } // double free
   return 0;
 }
 
