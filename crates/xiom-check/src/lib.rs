@@ -1651,8 +1651,16 @@ impl Checker {
             if ud.path.is_empty() {
                 continue;
             }
-            for end in 1..=ud.path.len() {
-                worklist.push(ud.path[..end].iter().map(|i| i.name.clone()).collect());
+            // Strip the 'stdlib' filesystem-directory prefix the same way
+            // process_use does, so stdlib-prefixed imports get the same
+            // transitive/prelude module loading as plain `xiom.*` uses.
+            let path: &[Ident] = if ud.path.len() > 1 && ud.path[0].name == "stdlib" {
+                &ud.path[1..]
+            } else {
+                &ud.path
+            };
+            for end in 1..=path.len() {
+                worklist.push(path[..end].iter().map(|i| i.name.clone()).collect());
             }
         }
         while let Some(prefix) = worklist.pop() {
@@ -1725,7 +1733,14 @@ impl Checker {
         // the exact-IR diff/e2e examples, which never `use xiom.*`) is affected.
         let uses_xiom_stdlib = import_snapshot
             .iter()
-            .any(|ud| ud.path.first().map(|i| i.name == "xiom").unwrap_or(false));
+            .any(|ud| {
+                let first = if ud.path.len() > 1 && ud.path[0].name == "stdlib" {
+                    ud.path.get(1).map(|i| i.name == "xiom").unwrap_or(false)
+                } else {
+                    ud.path.first().map(|i| i.name == "xiom").unwrap_or(false)
+                };
+                first
+            });
         if uses_xiom_stdlib {
             const PRELUDE: &[&[&str]] = &[
                 &["xiom", "core"],
@@ -2319,7 +2334,22 @@ impl Checker {
     }
 
     fn build_module_map(&self, items: &[TopDecl]) -> HashMap<String, ModuleExport> {
-        self.build_module_map_inner(items, "")
+        let mut m = self.build_module_map_inner(items, "");
+        // The parser nests dotted file modules (`module xiom.io` becomes
+        // Module(xiom){ Module(io){ … } }), so build_module_map_inner returns a
+        // single-child chain {xiom:{io:{real fns}}}. Binding that chain under
+        // the imported name breaks `io.println`-style resolution (the walk
+        // finds only "xiom" at the top). Descend through single-child
+        // SubModule chains to the LEAF export map.
+        loop {
+            if m.len() == 1 {
+                if let Some(ModuleExport::SubModule(inner)) = m.values().next() {
+                    m = inner.clone();
+                    continue;
+                }
+            }
+            return m;
+        }
     }
 
     fn build_module_map_inner(&self, items: &[TopDecl], prefix: &str) -> HashMap<String, ModuleExport> {
