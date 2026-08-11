@@ -1211,7 +1211,13 @@ impl IrEmitter {
                     BinOp::BitAnd => (int_ty, "and"),
                     BinOp::BitOr => (int_ty, "or"),
                     BinOp::Shl => (int_ty, "shl"),
-                    BinOp::Shr => (int_ty, "ashr"),
+                    // BUG 14 fix (2026-08-11): UInt128 (and any unsigned
+                    // integer) right-shift must use LSHR — ashr sign-extends
+                    // and corrupts values with the top bit set.
+                    BinOp::Shr => {
+                        let unsigned = self.expr_is_unsigned(left);
+                        (int_ty, if unsigned { "lshr" } else { "ashr" })
+                    }
                     BinOp::Eq => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp oeq" } else { "icmp eq" }),
                     BinOp::Neq => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp one" } else { "icmp ne" }),
                     BinOp::Lt => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp olt" } else { "icmp slt" }),
@@ -3344,12 +3350,14 @@ impl IrEmitter {
                         if bw < aw {
                             self.emitln(&format!("  {tmp} = trunc {a} {val} to {b}"));
                         } else {
-                            // D1: unsigned sources must ZERO-extend when widening
-                            // (UInt64→UInt128, UInt8→Int128). Resolve the source
-                            // XIOM type from a local ident when available; unknown
-                            // sources default to sext (historical behavior).
+                            // BUG 14 fix: unsigned sources must ZERO-extend when
+                            // widening (UInt64→UInt128, UInt8→Int128). Resolve the
+                            // source's REGISTERED XIOM type (xiom_type_of_local
+                            // prefers local_xiom_types — the LLVM-slot-derived
+                            // name loses signedness); unknown sources default to
+                            // sext (historical behavior).
                             let src_signed = if let Expr::Ident(id) = inner.as_ref() {
-                                self.resolve_local_xiom_type(&id.name)
+                                self.xiom_type_of_local(&id.name)
                                     .map(|xiom_ty| Self::is_signed_xiom_type(&xiom_ty))
                                     .unwrap_or(true)
                             } else {

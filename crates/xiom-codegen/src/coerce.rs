@@ -166,6 +166,30 @@ impl IrEmitter {
             self.emitln(&format!("  {t} = fptrunc double {val} to float"));
             return t;
         }
+        // BUG 13 fix: Float128 (fp128) coercions — the As-cast handler had
+        // fp128 arms but coerce_value (stores/params/returns) had none, so
+        // `var n: Float128 = 5` emitted `store fp128 5` (clang rejects the
+        // integer constant) and fp128 flows silently passed values through.
+        if from == "i64" && to == "fp128" {
+            let t = self.fresh_tmp();
+            self.emitln(&format!("  {t} = sitofp i64 {val} to fp128"));
+            return t;
+        }
+        if from == "fp128" && to == "i64" {
+            let t = self.fresh_tmp();
+            self.emitln(&format!("  {t} = fptosi fp128 {val} to i64"));
+            return t;
+        }
+        if (from == "double" || from == "float") && to == "fp128" {
+            let t = self.fresh_tmp();
+            self.emitln(&format!("  {t} = fpext {from} {val} to fp128"));
+            return t;
+        }
+        if from == "fp128" && (to == "double" || to == "float") {
+            let t = self.fresh_tmp();
+            self.emitln(&format!("  {t} = fptrunc fp128 {val} to {to}"));
+            return t;
+        }
         // 5c-E: i8* buffer pointer -> %struct.Vec coercion.
         // Used when returning a Vec-typed array literal from a function
         // (e.g. `return out` where `out: Vec[Float32] = []` is i8*).
