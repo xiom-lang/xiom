@@ -1,4 +1,67 @@
-# XIOM Session Handoff — 2026-08-11 16:4x (release v0.58.0 + Linux target + SELFHOST READY)
+# XIOM Session Handoff — 2026-08-11 21:40 (BUG 12–18 fixes MID-VERIFICATION — uncommitted)
+
+## ⚠️ URGENT — CONTINUATION REQUIRED (do not lose the working tree)
+**The BUG 12–18 compiler fixes are UNCOMMITTED in the working tree**
+(`git diff --stat crates/` = 10 files, +247/−47). **DO NOT stash/checkout/revert.**
+Continue from "CONTINUATION PROMPT" below.
+
+## What was done this stretch (BUG 12–18 from docs/COMPILER_BUGS.md, parallel session's log)
+| Bug | Fix (uncommitted) | Verified |
+|-----|-------------------|----------|
+| 12/17 — Vec[Float64]/Vec[Str] element type lost on `&Vec[T]` params | `vec_elem_from_type_annotation` (TWO copies: types.rs + lib.rs) now unwraps Ref/MutRef/Ptr; Vec(...) AST form handled | m12b, m37_vec_f64 PASS |
+| 14 — UInt64→UInt128 sext / UInt128>> ashr | cast site uses `xiom_type_of_local` (registered type); `expr_is_unsigned()` helper picks lshr; var bindings infer type from `as UInt*` targets (`infer_value_xiom_type`) | m14, m37_u128 PASS |
+| 15 — bare `shr`/`shl` hijacked by math-builtin intercept | intercept restricted to `math.*`/`xiom.math.*` qualified keys + bare keys with NO registered fn | m15 PASS |
+| 13 — fp128 link + coercion | coerce_value fp128 arms; NEW `stdlib/runtime/fp128_helpers.c` (soft-float add/sub/mul/div/conv/cmp — verified in a C harness: 400/5/2500/1002.5, negatives, tiny values all correct after fixing round_pack drop=0, div carry, mul significand extraction + exponent terms) | m13b/m13d PASS; m37_f128 RUN=1 **STILL INVESTIGATING** |
+| 16/18 — skiplist+trie 0xC0000409 | `process_use` walk now loads the LONGEST dotted prefix (directory submodules like xiom.collect.skiplist); `bare_fn_aliases` call resolution prefers the CALLER's module; **encoding repair** — skiplist.xi + trie.xi had invalid UTF-8 (lone 0x97 bytes) — repaired | m16a-e PASS (before the last regression) |
+| collect modules unresolvable | process_use longest-prefix walk + parent-chain registration | smoke_collect2a/2b PASS |
+
+## ⚠️ THE OPEN PROBLEM (last state — a regression appeared)
+After the fixes, DETERMINISTIC failures appeared (isolated binary
+`$env:TEMP\kilo\tgt_iso\debug\xiom.exe` — use it to avoid the parallel session's
+rebuild race): m37_tuple_struct/m37g (struct-return fns) R=-1073741795,
+m37_ref_mut R=1, m37_index_arith R=1, m37_vec_f64 R=1, m37_f128 R=1.
+
+**ROOT CAUSE FOUND (traced with env-gated prints XIOM_TRACE_FNKEY2/XIOM_TRACE_TMETA):
+call/fn-key vs definition-symbol mismatch.** `register_functions` registers BOTH
+the bare key (`mk_big`) AND the leaf-qualified alias (`m37g.mk_big`, decl.rs:449-458),
+but the DEFINITION emits the BARE symbol (`fn_symbol` dedup). My BUG-16 caller-
+module fix made bare calls prefer `m37g.mk_big` → the call hits a zero-param
+`ret zeroinitializer` STUB (from emit_undefined_symbol_stubs) → ABI mismatch →
+crash. (The same stub pattern as BUG 8.)
+
+**THE FIX IS ALREADY APPLIED IN THE WORKING TREE** (call.rs, the fn_key branch
+now returns the bare key when `types.functions`/`emitted_fns` has it, and only
+falls to caller-module/alias qualification when NO bare definition exists) —
+**but it has NOT been rebuilt/tested yet.** Next step: build with
+`$env:CARGO_TARGET_DIR="$env:TEMP\kilo\tgt_iso"` and re-run the sweep. The
+env-gated debug prints (`XIOM_TRACE_FNKEY2`, `XIOM_TRACE_COERCE`,
+`XIOM_TRACE_TMETA`, `XIOM_TRACE_IMPORTS` remnants) are still in the code —
+remove them after the sweep is green.
+
+## Other state
+- **Parallel session** is mid MASSIVE stdlib stub creation (140+ sublibs, 2,874
+  stubs, their commits 56fbe1cd/a61fbf70/391a58b5 landed). They rebuild
+  target/debug/xiom.exe constantly → **always use the isolated binary**
+  (`$env:TEMP\kilo\tgt_iso\debug\xiom.exe`, built via
+  `$env:CARGO_TARGET_DIR="$env:TEMP\kilo\tgt_iso" cargo build -p xiom`) for
+  verification, and re-verify the binary timestamp before/after sweeps.
+- Their restructure (collect/→collections/, complex.xi moved, hash/rand/net
+  folder moves) is IN FLIGHT — the stdlib-exec suite currently fails on
+  complex/hash/rand/net + lsp/mcp module-list tests because of THEIR moves,
+  not the compiler. smoke_collect2a/2b reference the OLD paths.
+- The fast-suite baseline before this stretch: 1112/1/1 (only the documented
+  diff-test ignore).
+- New e2e tests added (uncommitted, in e2e_tests.rs): e2e_m37_vec_f64,
+  e2e_m37_u128, e2e_m37_shr_builtin, e2e_m37_f128 + 4 regression files in
+  tests/regression/ (m37_vec_f64.xi, m37_u128.xi, m37_shr_builtin.xi,
+  m37_f128.xi). Note m37_shr_builtin.xi needs `use xiom.math;` added (its
+  `xiom.math.shr` call currently errors "undefined variable 'xiom'" — the test
+  file has NO use at all).
+- `stdlib/runtime/fp128_helpers.c` — NEW file, all ops verified in a C harness;
+  `find_runtime_c_files` picks it up automatically; the JIT prebuilt dll does
+  NOT include it (edge case, acceptable).
+
+## CONTINUATION PROMPT (paste into the next session)
 
 ## ⚠️ CRITICAL CONSTRAINTS
 1. **NEVER commit/modify `xiom-benchmark-chaos/`** — owner works in a PARALLEL session (it has uncommitted changes). It COPIES `stdlib/` directly into its build (stdlib-pin deleted). Stage only: `crates/`, `stdlib/`, `docs/`, `tests/`, `examples/`, `selfhost/` (except `_diff_*`), `packages/`.
