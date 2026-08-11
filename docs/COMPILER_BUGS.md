@@ -681,3 +681,28 @@ enclosing coercion → `icmp eq ptr, i64` (m34_d01..d20);
 - **Fix direction (compiler):** same as BUG 16 — module-qualify generated
   symbols and emit payload-accurate clone/invariant code; verify
   smoke_str2.xi recombined (expect exit 0).
+
+## 2026-08-11 — STATUS SUMMARY: BUG 12–18 all FIXED (commits `2ae300fd`, `3b8f5415`)
+
+| Bug | Fix | Verified |
+|-----|-----|----------|
+| 12/17 | `vec_elem_from_type_annotation` (types.rs + lib.rs) unwraps Ref/MutRef/Ptr; `Vec(...)` AST form handled — Vec element loads keep Float64/Str types | m12b, m37_vec_f64 R=0 |
+| 13 | fp128 coercion arms in `coerce_value` + NEW `stdlib/runtime/fp128_helpers.c` soft-float add/sub/mul/div/conv/cmp (verified in a C harness: 400/5/2500/1002.5, negatives, tiny values) | m13b/m13d, m37_f128 R=0 |
+| 14 | cast site uses `xiom_type_of_local` (registered type); `expr_is_unsigned()` picks lshr; var bindings infer type from `as UInt*` targets | m14, m37_u128 R=0 |
+| 15 | math-builtin `shr`/`shl` intercept restricted to `math.*`/`xiom.math.*` qualified keys + bare keys with NO registered fn | m15, m37_shr_builtin R=0 |
+| 16/18 | `process_use` longest-dotted-prefix walk (directory submodules); `bare_fn_aliases` prefers the CALLER's module; **fn-key fix**: call resolution returns the BARE key when a bare definition exists, qualifying to caller-module/alias only otherwise — kills the definition-vs-call symbol mismatch (user fns emit bare `@mk_big`, calls resolved to leaf-qualified zero-param stubs → ABI crash, same family as BUG 8) | m16a-e (bare/leaf forms) + m16f (qualified form) all R=0; skiplist+trie combined OK |
+
+- **Encoding repair:** `skiplist.xi` + `trie.xi` contained invalid UTF-8 (lone
+  0x97 bytes) which silently broke import binding — repaired.
+- **Regression sweep** (isolated binary, `tgt_iso`): m37_tuple_struct,
+  m37_ref_mut, m37_index_arith, m37_vec_f64, m37_u128, m37_f128,
+  m37_float_precision, m37_shr_builtin, m33_z14, m34_y04, m33_u13,
+  m19_read_file — **12/12 R=0**.
+- **Known follow-up (parallel stdlib session owns it):** the `collect/` →
+  `collections/` folder move landed while module declarations inside still
+  say `xiom.collect.*` — `use` resolves by file path (works) but
+  fully-qualified calls need the declared name (`xiom.collect.skiplist.fn`
+  works; `xiom.collections.skiplist.fn` does not until the declarations are
+  aligned). Not a compiler regression; m16b-e/m16f verified green.
+- Workspace build gate: **zero warnings** (dead `load_external_module` +
+  unused imports removed with the XIOM_TRACE_* debug prints).
