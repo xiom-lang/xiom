@@ -30,8 +30,10 @@ workarounds" — the compiler must be fixed, then the stdlib lands.
 | BUG 14 — UInt64→UInt128 sext / UInt128>> ashr | **DONE** | `2ae300fd` | e2e_m37_u128 (R=0 isolated); m14 |
 | BUG 15 — bare `shr`/`shl` hijacked by math-builtin intercept | **DONE** | `2ae300fd` | e2e_m37_shr_builtin (R=0 isolated); m15 |
 | BUG 16/18 — skiplist+trie / string+similarity+time 0xC0000409 combos | **DONE** | `2ae300fd` (fn-key + longest-prefix walk + encoding repair) | m16a-f probes R=0; m16b-e (bare/leaf forms) R=0 |
-| **BUG 2 — module-global struct FIELD writes lost** | **OPEN** (advisory) | — | stdlib avoids (whole-value assignment); needed for precision-cached π/ln10 and `const BIGINT_*/BIGFLOAT_*` |
-| **BUG 3 — module-global fn-call initializers zero** | **OPEN** (advisory) | — | stdlib avoids (constants as pure constructor fns) |
+| **BUG 2 — module-global struct FIELD writes lost** | **DONE** | `f0388644` | e2e_m37_global_field_write (g.v = 5 persists); probe_gf R=0 |
+| **BUG 3 — module-global fn-call initializers zero** | **DONE** | `f0388644` | e2e_m37_global_fn_init (`var G = _mk(1)` → 10 via @llvm.global_ctors); probe_const3 R=0 |
+| Str + Int/Char/UInt concat crashed (inttoptr of the integer → AV) | **DONE** | `f0388644` | e2e_m37_str_int_concat ("y = " + 42 → "y = 42"); probe_concat0 R=0 |
+| Dotted-module chain binding — `use stdlib.xiom.io` flaky 40–60% "cannot call" (parser nests dotted paths; process_use bound the {xiom:{io:…}} chain; stdlib-prefixed uses skipped preload/prelude) | **DONE** | `f0388644` | m19_read_file 8/8 + min repro 8/8 deterministic; stdlib-compile 40/40; checker 178/178 |
 | §7 NASM/SIMD tracks (math/crypto/hash/compress asm, CPUID dispatch) | **OPEN** — off-limits to stdlib session (crates/ + stdlib/runtime/*.c); pure-XIOM fallbacks in place | — | — |
 | Selfhost plan | **WRITTEN — execution in progress** | `090ed5d1` | docs/SELFHOST_PLAN.md (phases 0–8) + docs/checklists/selfhost-phase0.md |
 
