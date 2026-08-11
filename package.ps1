@@ -150,6 +150,15 @@ if (Test-Path $mcpSrc) {
     Write-Host "    + mcp/ (IDE configs: Kilo, Cursor, Claude, Windsurf, etc.)" -ForegroundColor DarkGray
 }
 
+# Copy the WASM compiler (browser playground: xiom_wasm.js + xiom_wasm_bg.wasm)
+$wasmDir = "$pkgDir\wasm"
+if (Test-Path "$root\xiom-playground\xiom_wasm_bg.wasm") {
+    New-Item -ItemType Directory -Force -Path $wasmDir | Out-Null
+    Copy-Item "$root\xiom-playground\xiom_wasm.js" "$wasmDir\" -Force
+    Copy-Item "$root\xiom-playground\xiom_wasm_bg.wasm" "$wasmDir\" -Force
+    Write-Host "    + wasm/ (in-browser compiler, xiom_wasm.js + xiom_wasm_bg.wasm)" -ForegroundColor DarkGray
+}
+
 # Create README
 @"
 XIOM v$Version - Portable Release

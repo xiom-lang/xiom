@@ -1571,18 +1571,31 @@ pub fn find_project_root(file_path: &Path) -> Option<PathBuf> {
 }
 
 pub fn find_runtime_c() -> Option<String> {
+    // Walk UP from the xiom binary (up to 8 levels) looking for the standard
+    // layouts. This is the reliable path for dev (`target/debug/xiom.exe` →
+    // `<repo>/stdlib/runtime/xiom_runtime.c`) AND for the playground server
+    // whose cwd is NOT the repo root. The old exe.parent().parent() guess
+    // (`target/debug` → `target`) never reached the project root.
+    if let Ok(exe) = std::env::current_exe() {
+        let mut search = exe.parent();
+        for _ in 0..8 {
+            if let Some(dir) = search {
+                let cand1 = dir.join("stdlib").join("runtime").join("xiom_runtime.c");
+                if cand1.is_file() { return Some(cand1.to_string_lossy().to_string()); }
+                let cand2 = dir.join("runtime").join("xiom_runtime.c");
+                if cand2.is_file() { return Some(cand2.to_string_lossy().to_string()); }
+                search = dir.parent();
+            } else { break; }
+        }
+    }
     let candidates: Vec<String> = {
         let mut paths = vec![
             "stdlib\\runtime\\xiom_runtime.c".to_string(),
             "stdlib/runtime/xiom_runtime.c".to_string(),
         ];
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(exe_dir) = exe.parent() {
-                if let Some(parent) = exe_dir.parent() {
-                    paths.push(format!("{}/runtime/xiom_runtime.c", parent.display()));
-                    paths.push(format!("{}\\runtime\\xiom_runtime.c", parent.display()));
-                }
-            }
+        if let Ok(sd) = std::env::var("XIOM_STDLIB") {
+            paths.push(format!("{}/../runtime/xiom_runtime.c", sd));
+            paths.push(format!("{}\\..\\runtime\\xiom_runtime.c", sd));
         }
         paths
     };
@@ -1672,6 +1685,26 @@ pub fn find_runtime_c_files() -> Vec<String> {
         "stdlib/runtime".to_string(),
         "runtime".to_string(),
     ];
+
+    // Walk UP from the xiom binary (up to 8 levels) — reliable for dev
+    // (target/debug/xiom.exe → <repo>/stdlib/runtime) and for servers whose
+    // cwd is not the repo root (playground).
+    if let Ok(exe) = std::env::current_exe() {
+        let mut search = exe.parent();
+        for _ in 0..8 {
+            if let Some(dir) = search {
+                let cand = dir.join("stdlib").join("runtime");
+                if cand.is_dir() {
+                    dir_candidates.push(cand.to_string_lossy().to_string());
+                }
+                let cand2 = dir.join("runtime");
+                if cand2.is_dir() {
+                    dir_candidates.push(cand2.to_string_lossy().to_string());
+                }
+                search = dir.parent();
+            } else { break; }
+        }
+    }
 
     // Search relative to the xiom binary location (production installs)
     if let Ok(exe) = std::env::current_exe() {
