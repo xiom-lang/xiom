@@ -49,6 +49,33 @@ until declarations are aligned). Not a compiler regression — m16b-e/m16f green
 The user confirmed the ENTIRE stdlib is being rebuilt in the parallel session;
 expect stdlib-related suite failures until that lands.
 
+## ✅ SIMD/ISA flags for the stdlib session (committed — tell the other session)
+Native x86_64 clang now compiles with **`-maes -mavx -mavx2 -mavx512f
+-mavx512bw -mavx512dq -mavx512vl`** unconditionally (crates/xiom/src/lib.rs:
+`config.target == Target::Native && cfg!(target_arch = "x86_64")`). The stdlib
+can write `_mm512*`/`_mm256*` intrinsics in `stdlib/runtime/*.c` with NO
+per-function `__attribute__((target(...)))` needed.
+
+**PRODUCTION RULE (must be passed along):** any function executing wide-ISA
+instructions MUST be runtime-gated via the CPUID dispatch in simd_runtime.c
+(`xiom_simd_has_avx2()` / `xiom_simd_has_avx512()` / bitmask
+`xiom_simd_available()`). The -O2 vectorizer can also emit wide instructions in
+hot loops anywhere in the runtime C — on CPUs without AVX-512 that is an
+illegal-instruction crash, so dispatch gates are mandatory for correctness on
+older hardware. `simd_runtime.c` already follows this pattern
+(`__attribute__((target("avx")))` fns + has_* checks in the XIOM module).
+
+Test: `tests/regression/m37_simd_runtime.xi` (+ `e2e_m37_simd_runtime`) covers
+SSE/SSE2/SSE4.1 ops, detection consistency, and dispatch-gated AVX f32x8/f64x4.
+16/16 sweep + stdlib-compile 40/40 green with the flags.
+
+**Smoke-test workflow agreed with the user:** the stdlib session writes smoke
+tests; any compiler gap they hit goes into `docs/COMPILER_BUGS.md` for the
+compiler session. Compiler-side test lists that need syncing AFTER their layout
+freezes (do NOT chase now): `crates/xiom-codegen/tests/stdlib_tests.rs`
+(module list — stale collect/ paths) and `stdlib_execution_tests.rs` (smoke
+file list).
+
 ## Other state
 - **Parallel session** is mid MASSIVE stdlib stub creation (140+ sublibs, 2,874
   stubs, their commits 56fbe1cd/a61fbf70/391a58b5 landed). They rebuild
