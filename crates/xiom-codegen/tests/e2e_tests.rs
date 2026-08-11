@@ -4388,3 +4388,8 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m37_shr_builtin() { assert_eq!(compile_and_run("tests\\regression\\m37_shr_builtin.xi"), Some(0)); }
 #[test] fn e2e_m37_f128() { assert_eq!(compile_and_run("tests\\regression\\m37_f128.xi"), Some(0)); }
 
+// BUG 2/BUG 3 + Str+Int concat regressions (2026-08-11 late session)
+#[test] fn e2e_m37_global_field_write() { assert_eq!(compile_and_run("tests\\regression\\m37_global_field_write.xi"), Some(0)); }
+#[test] fn e2e_m37_global_fn_init() { assert_eq!(compile_and_run("tests\\regression\\m37_global_fn_init.xi"), Some(0)); }
+#[test] fn e2e_m37_str_int_concat() { assert_eq!(compile_and_run("tests\\regression\\m37_str_int_concat.xi"), Some(0)); }
+
