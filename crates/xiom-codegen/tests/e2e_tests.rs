@@ -4396,3 +4396,6 @@ fn e2e_safety_probe() {
 // SIMD/ISA flags (-mavx -mavx2 -mavx512*) + runtime simd_runtime.c end-to-end
 #[test] fn e2e_m37_simd_runtime() { assert_eq!(compile_and_run("tests\\regression\\m37_simd_runtime.xi"), Some(0)); }
 
+// BUG 19: IEEE NaN/Inf semantics + Str+Float64 concat formatting
+#[test] fn e2e_m37_nan_ieee() { assert_eq!(compile_and_run("tests\\regression\\m37_nan_ieee.xi"), Some(0)); }
+

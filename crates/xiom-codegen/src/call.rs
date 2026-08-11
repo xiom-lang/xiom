@@ -461,7 +461,9 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             }
                             let op = match (fn_name.as_str(), is_float) {
                                 ("eq", false) => "icmp eq",  ("eq", true) => "fcmp oeq",
-                                ("ne", false) => "icmp ne",  ("ne", true) => "fcmp one",
+                                // BUG 19 fix: float `.ne()` must be fcmp une —
+                                // `one` is false for NaN operands (IEEE: NaN != NaN is true)
+                                ("ne", false) => "icmp ne",  ("ne", true) => "fcmp une",
                                 ("lt", false) => "icmp slt", ("lt", true) => "fcmp olt",
                                 ("gt", false) => "icmp sgt", ("gt", true) => "fcmp ogt",
                                 ("le", false) => "icmp sle", ("le", true) => "fcmp ole",

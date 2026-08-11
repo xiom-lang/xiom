@@ -553,6 +553,11 @@ impl IrEmitter {
         self.emitln("declare i1 @xiom_str_ends_with(i8*, i8*)");
         // Runtime integer→string — used for to_string(Int) / Int.to_str().
         self.emitln("declare i8* @xiom_int_to_string(i64)");
+        // Runtime float→string (BUG 19): IEEE-aware shortest-round-trip
+        // formatting for `Str + Float64/Float32` concat (NaN → "nan",
+        // ±inf → "inf"/"-inf"). MUST be declared or the undefined-symbol
+        // stub pass emits a conflicting zero-param definition.
+        self.emitln("declare i8* @xiom_double_to_string(double)");
         // String interning
         self.emitln("declare i64 @xiom_intern(i8*, i64, i64)");
         self.emitln("declare i8* @xiom_lookup(i64)");

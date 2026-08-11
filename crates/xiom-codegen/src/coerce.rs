@@ -385,7 +385,11 @@ impl IrEmitter {
     /// (or pass through for i8*); INTEGER operands (Int/Int8..UInt128/Char —
     /// `is_int` verdict from the XIOM-level type) are FORMATTED via
     /// @xiom_int_to_string instead of inttoptr, which produced a garbage
-    /// pointer and crashed at runtime ("y = " + 42 → AV).
+    /// pointer and crashed at runtime ("y = " + 42 → AV). FLOAT operands
+    /// (double/float — BUG 19 fix) are formatted via @xiom_double_to_string
+    /// (shortest round-trip; NaN → "nan", ±inf → "inf"/"-inf") — the previous
+    /// inttoptr path bitcast the FP bits to a pointer, crashing or printing
+    /// garbage ("c = " + NaN → AV / sentinel text).
     pub(crate) fn concat_val_to_i8ptr(&mut self, val: &str, ty: &str, is_int: bool) -> String {
         if ty == "i8*" {
             return val.to_string();
@@ -394,6 +398,18 @@ impl IrEmitter {
             let i64_val = self.val_to_i64(val, ty);
             let fmt = self.fresh_tmp();
             self.emitln(&format!("  {fmt} = call i8* @xiom_int_to_string(i64 {i64_val})"));
+            return fmt;
+        }
+        if ty == "double" || ty == "float" {
+            let (fmt_val, fmt_ty) = if ty == "float" {
+                let ext = self.fresh_tmp();
+                self.emitln(&format!("  {ext} = fpext float {val} to double"));
+                (ext, "double".to_string())
+            } else {
+                (val.to_string(), "double".to_string())
+            };
+            let fmt = self.fresh_tmp();
+            self.emitln(&format!("  {fmt} = call i8* @xiom_double_to_string({fmt_ty} {fmt_val})"));
             return fmt;
         }
         self.val_to_i8ptr(val, ty)
