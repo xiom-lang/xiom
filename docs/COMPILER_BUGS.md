@@ -505,3 +505,63 @@ enclosing coercion → `icmp eq ptr, i64` (m34_d01..d20);
   open; stdlib design already avoids both (whole-value global assignment;
   constants as pure constructor fns). Fixing them unlocks precision-cached
   π/ln10 and the spec's `const BIGINT_*/BIGFLOAT_*` style.
+
+---
+
+## 2026-08-11 — fmt.sprintf session: Float64 container element access broken (NEW)
+
+### BUG 12 (NEW) — `Vec[Float64]` element reads lower to `load i64 + sitofp` (silent corruption); `[N]Float64` fixed arrays degrade to `[N]i64` (AV)
+
+- **Construct (both user and catalog modules):** any read of an element of a
+  `Vec[Float64]` (param or local) or of a fixed `[N]Float64` array.
+- **Observed:**
+  1. `Vec[Float64]`: `probe_vf.xi` — `var x = v[0];` after `v.push(3.14159)`
+     → `x != 3.14159`. IR evidence (`_sprintf_engine`, the Vec element-load
+     switch): the 8-byte case emits `bitcast i8* to i64*` + `load i64`, then
+     the float-typed value is produced by `sitofp i64 %tmp402 to double` —
+     the f64 BIT PATTERN (4614256650576693248 for 3.14159) is treated as an
+     integer and converted, not reinterprete — `%.2f` of 3.14159 printed
+     "4614256650576693248.00". The generic Vec element-load path only knows
+     integer element widths (1/2/4/8) and defaults the type to i64.
+  2. `[N]Float64` (incl. inside structs): `probe_fa.xi` — warning
+     `unknown type 'Float64]' — defaulting to i64` (the type-string parser
+     splits on `]`, same family as the old BUG 8), struct fields + array
+     slots laid out as i64 → 0xC0000005 ACCESS_VIOLATION reading `s.values[0]`.
+  3. `Vec[Float64]` STORE path appears intact (push stores the raw bits);
+     only element READS are wrong.
+- **Impact on stdlib:** NO pre-existing stdlib module uses `Vec[Float64]` or
+  `[N]Float64` (stats works on `Vec[Int]`) — zero regression. The fmt.sprintf/
+  sscanf batch (G13) was designed around `Vec[Float64]` and was re-designed
+  to avoid the construct: scalar `Float64` params (proven — bigfloat/geom
+  pass doubles everywhere) and a fixed-slot `FloatScan` struct for sscanf
+  float results (`// TODO(compiler)` note in fmt.xi). Float64 in structs as
+  plain fields (not arrays) is proven fine (geom Vec2).
+- **Fix direction (compiler):** (a) the Vec element-load switch must load
+  `double` (and `float`/`fp128`) for float element types instead of i64+sitofp
+  — the element type should come from the Vec's registered type, not the
+  width; (b) the type-string parser must not split `Float64]`/`UInt8]` on the
+  first `]` (parse the full `Vec[T]`/`[N]T` with bracket depth) — same root
+  cause family as BUG 8's `&Vec[Int]` empty-signature bug. Verify with
+   probe_vf.xi (expect exit 0) and probe_fa.xi (expect exit 0).
+
+### BUG 13 (NEW) — fp128 (Float128) arithmetic hits missing compiler-rt helpers at link time
+
+- **Construct:** any program whose Float128 value flows through i64→f128
+  (sitofp), f128→f64 (fptrunc), or f128 division. `probe_f128.xi` —
+  `n as Float128`, `x as Float64`, `acc / ten` → lld-link errors:
+  ```
+  undefined symbol: __floatditf   (sitofp i64 → fp128)
+  undefined symbol: __trunctfdf2  (fptrunc fp128 → f64)
+  undefined symbol: __divtf3      (fdiv fp128)
+  ```
+  fadd/fmul/fpext on fp128 are native (x87) and link fine; the compiler-rt
+  soft-float helpers are not in the link line.
+- **Impact on stdlib:** blocks the planned `bigfloat_to_float128` bridge
+  (256-bit framing mission). Int128/UInt128 are UNAFFECTED (native LLVM i128
+  — no helpers) so `bigint_to_i128/u128/u64` landed. A lossy
+  `bigfloat_to_float64 → fpext` wrapper was rejected (only 15 digits — the
+  whole point of f128 is 34). TODO(compiler) note in stdlib/xiom/num/bigfloat.xi.
+- **Fix direction (compiler):** link compiler-rt (clang `-rtlib=compiler-rt`
+  or add libclang_rt.builtins) on Windows, or emit/implement the handful of
+  `__*tf3`/`__floatditf`/`__trunctfdf2` stubs; verify with probe_f128.xi
+  (expect exit 0).
