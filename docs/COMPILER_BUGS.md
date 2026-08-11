@@ -565,3 +565,78 @@ enclosing coercion → `icmp eq ptr, i64` (m34_d01..d20);
   or add libclang_rt.builtins) on Windows, or emit/implement the handful of
   `__*tf3`/`__floatditf`/`__trunctfdf2` stubs; verify with probe_f128.xi
   (expect exit 0).
+
+### BUG 14 (NEW) — UInt64→UInt128 cast emits SEXT; UInt128 `>>` emits ASHR
+
+- **Construct:** `v as UInt128` with `v: UInt64` whose bit 63 is set, and
+  `(p >> 64)` on a `UInt128` whose bit 127 is set. `probe_m128.xi` —
+  `(lhs as UInt128) * (rhs as UInt128)` for lhs/rhs with bit 63 set gives the
+  WRONG product. IR evidence:
+  ```
+  %tmp6 = sext i64 %tmp5 to i128     ; must be zext for UInt64
+  %tmp18 = ashr i128 %tmp17, %tmp19  ; must be lshr for UInt128
+  ```
+  (The compiler has no unsigned 128-bit type distinction at codegen — UInt64→
+  UInt128 and Int64→Int128 both lower to sext; UInt128 `>>` lowers to ashr.)
+- **Impact on stdlib:** XXH3's 64×64→128 mulhi (`XXH3_mul128_fold64`) was
+  wrong on inputs with the top bit set (verified: seed-0 64-bit vectors
+  passed for short inputs only after the fix). Worked around in
+  `hash/xxhash.xi`: `_u64_to_u128` builds the i128 from 32-bit halves (sext
+  == zext for bit-63-clear values) and the high half is masked after `>>`.
+  `bigint_to_u128`/`to_i128` are unaffected (limbs < 1e9 and shifts of
+  bit-63-clear values only).
+- **Fix direction (compiler):** lower `UInt64 as UInt128` with `zext` (type
+  information exists in the checker) and `UInt128 >>` with `lshr`; verify
+  with probe_m128.xi (expect exit 0).
+
+### BUG 15 (NEW) — alwaysinline bodies with a single `var` + `return` drop the mask statement on inline
+
+- **Construct:** a small fn (≤ inline-threshold) whose body is exactly
+  `var mask = <expr>; return <expr2> & mask;` — e.g.
+  ```
+  fn shr(x: UInt64, k: Int) -> UInt64 {
+    var mask: UInt64 = ((1 as UInt64) << (64 - k)) - 1;
+    return (x >> k) & mask;
+  }
+  ```
+  Inlined call sites emit ONLY the `ashr` — the mask `shl`/`sub` and the
+  `and` are dropped (probe_sip3.xi: `shr(t, 32)` returns the sign-extended
+  value; IR shows `%tmp6 = ashr i64 %tmp4, 32` with no following `and`).
+  Adding a second var (`var shift = 64 - k; var mask = ...;`) makes the
+  inline correct (the pattern hash.xi `_rotl64` has always used).
+- **Impact on stdlib:** SipHash/XXH3 logical shifts were wrong until the
+  two-var form was used. All new hash code uses the two-var pattern with a
+  comment. NOT worked around in old code — hash.xi `_rotl64` (two vars) is
+  unaffected.
+- **Fix direction (compiler):** the inline expansion drops statements from
+  single-var bodies (likely a statement-copy bug in the inline pass); verify
+  with probe_sip3.xi (single-var shr must equal two-var shr, exit 0).
+
+### BUG 16 (NEW) — combining collect.skiplist + collect.trie fast-fails with 0xC0000409 (stack cookie)
+
+- **Construct:** link BOTH `stdlib/xiom/collect/skiplist.xi` and
+  `stdlib/xiom/collect/trie.xi` into one program and run ANY skiplist fn
+  (even `skiplist_insert`) plus `trie_new` — the program prints normally
+  then dies at exit with 0xC0000409 (STATUS_STACK_BUFFER_OVERRUN — the /GS
+  cookie check on main's frame fires after `return`). Repros:
+  `probe_pt2.xi` (two inserts, no io) and `probe_pt3.xi` (insert + trie_new).
+  Each module alone, and every other pair (skiplist×{string,convert,char,
+  cuckoo,fenwick,objectpool,queue,cache}; trie×{cuckoo,fenwick,objectpool,
+  queue,cache}) exits clean.
+- **Observed in IR (both modules combined):** generated symbols emitted
+  UNQUALIFIED: `define %struct.MaybeUninit @MaybeUninit.clone(...)` and
+  `define void @BinaryHeap.invariant_check(...)` / `@BufReader.invariant_
+  check` / `@Cursor.invariant_check` — no module prefix, while the same
+  programs alone show the same stubs (benign alone). Two Option payload
+  instantiations exist in the pair (Option[Int] in skiplist, Option[Char]
+  via trie→string.char_at) — the shared MaybeUninit/clone codegen path is
+  the prime suspect (clone body `ret %struct.MaybeUninit %self` with a
+  16-byte layout vs possibly 8-byte Char payload → stack corruption).
+- **Stdlib handling:** both modules are correct individually; the CI/exec
+  harness must NOT combine them in one smoke — the batch's smokes are
+  split (smoke_collect2a: skiplist+cuckoo+fenwick+pool+spsc+arc;
+  smoke_collect2b: trie+cuckoo+fenwick+pool+spsc+arc). TODO(compiler) notes
+  in both modules.
+- **Fix direction (compiler):** qualify generated clone/invariant-check
+  symbols per module and make the MaybeUninit clone emit payload-accurate
+  code for each Option payload type; verify probe_pt2.xi (expect exit 0).
