@@ -2838,6 +2838,13 @@ impl IrEmitter {
                 emitter.str_counter = (*idx as u32) * 1000;
                 emitter.tmp_counter = (*idx as u32) * 10000;
                 emitter.block_counter = (*idx as u32) * 10000;
+                // I2 fix: the unsafe-block counter must ALSO be unique per
+                // function — otherwise every function with an `unsafe { }`
+                // emits `%struct.__unsafe_ctx_0` / `__unsafe_block_0` and the
+                // merged module has a redefinition of the ctx type (clang:
+                // "redefinition of type %struct.__unsafe_ctx_0"). Each function
+                // gets 1000 unsafe-block slots.
+                emitter.unsafe_block_counter = (*idx as u32) * 1000;
 
                 // Use the pre-assigned symbol; seed emitted_fns with the names
                 // seen BEFORE this function so fn_symbol qualifies identically.

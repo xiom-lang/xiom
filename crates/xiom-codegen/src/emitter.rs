@@ -289,6 +289,47 @@ impl IrEmitter {
             Expr::Await(inner, _) | Expr::Comptime(inner, _) => {
                 self.collect_ident_names(inner, out);
             }
+            // BUG fix (2026-08-11, m19_read_file "use of undefined value"):
+            // these arms were MISSING, so free variables referenced inside them
+            // (e.g. `path` inside `Err(IOError{ message: "..." + path, .. })`)
+            // were never collected as unsafe-block captures — the block fn then
+            // emitted stale references to the ENCLOSING fn's registers.
+            Expr::Struct(_, fields, spread, _) => {
+                for (_, e) in fields { self.collect_ident_names(e, out); }
+                if let Some(sp) = spread { self.collect_ident_names(sp, out); }
+            }
+            Expr::Array(elems, _) | Expr::Tuple(elems, _) => {
+                for e in elems { self.collect_ident_names(e, out); }
+            }
+            Expr::Some(inner, _) | Expr::Ok(inner, _) | Expr::Err(inner, _)
+            | Expr::Try(inner, _) | Expr::AtPre(inner, _) | Expr::ConstBlock(inner, _) => {
+                self.collect_ident_names(inner, out);
+            }
+            Expr::Imply(a, b, _) => {
+                self.collect_ident_names(a, out);
+                self.collect_ident_names(b, out);
+            }
+            Expr::Is(inner, _pat, _) => {
+                self.collect_ident_names(inner, out);
+            }
+            Expr::Match(scrutinee, arms, _) => {
+                self.collect_ident_names(scrutinee, out);
+                for arm in arms {
+                    match &arm.body {
+                        MatchBody::Block(b) => {
+                            for stmt in &b.stmts { self.collect_stmt_names(stmt, out); }
+                        }
+                        MatchBody::Expr(e) => self.collect_ident_names(e, out),
+                    }
+                }
+            }
+            Expr::Closure(_params, _ret, body, _) => {
+                // Free vars in the closure body still live in the enclosing
+                // scope (the closure captures them itself, but the block fn
+                // must pass them through the ctx to compile the closure).
+                for stmt in &body.stmts { self.collect_stmt_names(stmt, out); }
+            }
+            Expr::None(_) | Expr::Error(..) => {}
             _ => {}
         }
     }
