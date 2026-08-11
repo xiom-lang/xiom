@@ -1036,7 +1036,25 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     match clang {
         Some(clang_path) => {
             let mut cmd = Command::new(&clang_path);
-            if config.target == Target::Native { cmd.arg("-maes"); }
+            // v0.58: full ISA enablement for the NATIVE x86_64 runtime. SSE/SSE2
+            // are x86-64 baseline; AES-NI + AVX + AVX2 + AVX-512 (F/BW/DQ/VL) are
+            // enabled unconditionally so stdlib runtime C can use the whole SIMD/
+            // crypto instruction set without per-function target attributes
+            // (simd_runtime.c already uses __attribute__((target(...))) where it
+            // needs them; the global flags remove that requirement for new code).
+            // PRODUCTION RULE: wide-ISA execution MUST be gated at runtime via the
+            // CPUID dispatch in simd_runtime.c (xiom_simd_has_avx2/avx512/...) —
+            // the -O2 vectorizer can also emit wide instructions in hot loops, so
+            // only dispatch-gated code paths may rely on AVX-512 presence.
+            if config.target == Target::Native && cfg!(target_arch = "x86_64") {
+                cmd.arg("-maes");
+                cmd.arg("-mavx");
+                cmd.arg("-mavx2");
+                cmd.arg("-mavx512f");
+                cmd.arg("-mavx512bw");
+                cmd.arg("-mavx512dq");
+                cmd.arg("-mavx512vl");
+            }
             if asm_objects.is_empty() { cmd.arg("-DXIOM_NO_ASM"); }
             if config.debug_symbols { cmd.arg("-g"); }
             // v0.56: Apply optimization level to clang (same as opt passes).

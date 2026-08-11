@@ -4393,3 +4393,6 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m37_global_fn_init() { assert_eq!(compile_and_run("tests\\regression\\m37_global_fn_init.xi"), Some(0)); }
 #[test] fn e2e_m37_str_int_concat() { assert_eq!(compile_and_run("tests\\regression\\m37_str_int_concat.xi"), Some(0)); }
 
+// SIMD/ISA flags (-mavx -mavx2 -mavx512*) + runtime simd_runtime.c end-to-end
+#[test] fn e2e_m37_simd_runtime() { assert_eq!(compile_and_run("tests\\regression\\m37_simd_runtime.xi"), Some(0)); }
+
