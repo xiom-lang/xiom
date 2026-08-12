@@ -813,6 +813,21 @@ EXACT original file still fails, send it and it becomes a live repro.
 
 ## 2026-08-11 (night) — stdlib session: BUG 22 (NEW, batch report) — implementation-phase findings from 4 parallel agents (detailed repros below; all pre-existing or new-shape; none blocked the batches)
 
+**? RESOLVED 2026-08-12 (commits `eeab8cf7`, `e6608946`, `47cd188f`, `f74a52c7`):**
+1. `&&`/`||` short-circuit — **FIXED** (branch on LHS; RHS compiled only when needed; verified div-by-zero RHS never executes) — m37_short_circuit
+2. Unary minus on match-bound vars — **FIXED** (negation defers wildcards like Not; float payloads bitcast from the i64 slot) — m37_match_float_payload
+3. Cross-module 3-tuple `.1`/`.2` — **FIXED** (tuple field maps derive+register for catalog returns) — m37_catalog_boundary
+4. Cross-module Option payload match — **FIXED** (float payloads via local_opt_payload_xiom; Int payloads verified) — m37_catalog_boundary
+5. requires/ensures trap — **FIXED** (clean `xiom_panic`: message to stderr + flush + exit 1, no more 0xC000001D) — m37_contract_pass + manual violation probe
+6. str_reverse invalid IR — flat string.xi REMOVED by the stdlib rewrite (reverse lives in string/reverse.xi); the alloca-dominance family is covered by the BUG 22 #15 loop-in-unsafe shape — re-verify against the new reverse.xi once its imports compile
+7. index_of(str_slice) 0xC0000409 — stdlib-side scan workaround in place; not reproduced standalone (see 22.15)
+8. xiom_char_at leading-byte — DOCUMENTED CONTRACT (byte position), stdlib decodes UTF-8 manually — no change
+9. Multi-byte char literals — **VERIFIED FIXED** on current build (é=233, ?=937)
+10. byte_at sign-extend — **VERIFIED FIXED** on current build (UInt8 as Int zexts)
+11. Module-qualified call results inline — **FIXED** (ROOT: qualified-call symbol vs bare def mismatch ? fn-symbol PRE-ASSIGNMENT map + integer verdicts for inline calls/index/binary operands) — m37_inline_call_concat
+12. Vec[Char] element size — **FIXED by the BUG 23 #2 nested-Vec work** (elem sizes now resolve from the registered element type; Char elements read via the elem_size switch)
+
+
 1. **`&&` does not short-circuit** (num/fraction.xi `fraction_from_float`): both operands evaluate; a div-by-zero in the RHS traps 0xC000001D even when the LHS is false. Use nested `if`s. (Suggested fix: proper short-circuit lowering or reject non-short-circuit semantics.)
 2. **Unary minus on match-bound vars fails** — `error[T001]: cannot negate type _` for `-d` where `d` is bound in a match arm. Workaround: type-annotate the binding.
 3. **Cross-module 3-tuple field access `.1`/`.2` fails** (math/arithmetic.xi `gcd_extended` returns (Int,Int,Int)): `240 * t.1` ? "right operand must be numeric, found <error>" — `.0` works, 2-tuples fine. Comparison/return contexts work.
@@ -829,6 +844,21 @@ EXACT original file still fails, send it and it becomes a live repro.
 ---
 
 ## 2026-08-11 (night) — stdlib session: BUG 23 (NEW, wave-2 batch) — findings from 4 parallel agents (string metrics/unicode, math number-theory/linear)
+
+**? RESOLVED 2026-08-12 (commits `eeab8cf7`, `e6608946`, `47cd188f`, `f74a52c7`):**
+1. Cross-module returned Vec[Float64] reads — **FIXED** (var-bindings inherit the callee's declared element type) — m37_catalog_boundary
+2. Nested Vec[Vec[T]] garbage — **FIXED** (parser type-arg rendering, elem size 32, memcpy reads, nested float inner reads) — m37_nested_vec
+3. Fn-value params named add/mul — **VERIFIED FIXED** on current build (fn-typed params dispatch correctly)
+4. `else if` parser rejection — **FIXED** — m37_else_if
+5. Flaky `use of undefined value` (~50%) — **FIXED** (catalog decl injection now deterministic: all_cached sorted; plus the fn-symbol pre-assignment kills the order-dependent symbol class) — 8/8 deterministic compiles
+6. UTF-8 BOM breaks registration — **FIXED** (lexer strips leading BOMs) — lexer unit test
+7. (Bool,Bool) tuples as Tuple__Int__Int — **FIXED** (param-seeded tuple scan + XIOM idents + checker field-map derivation) — m37_catalog_boundary
+8. Catalog `&Vec[T]` param mutation no-op — **FIXED** (Ref params pass the pointer like &mut) — m37_catalog_boundary
+9. Unary minus on catalog-returned float — **FIXED** — m37_catalog_boundary
+10. Subtraction on catalog-returned floats — covered by the BUG 20 CPUID gating + float-type registration fixes; verify via the float smokes
+11. xiom.math.sqrt bare import "requires unsafe" — **VERIFIED FIXED** on current build (math.sqrt R=0)
+12. Recursive helpers defeat the vectorizer — NOT a compiler bug (stdlib shape choice); BUG 20's CPUID gating now lets loops vectorize on Zen 2 (AVX2); recursion remains their call
+
 
 1. **Vec[Float64] element READS of a module-RETURNED Vec are still broken** (BUG 12 corner): a user program reading `v[0]` from a Vec[Float64] returned by a catalog fn gets raw bit-pattern garbage and float arithmetic on such loads traps (0xC000001D). BUG 12's fix covers Vec element loads inside the defining module; cross-module returned float Vecs are not fixed. Workaround: verify via scalar invariants (dot/norm), avoid element reads of module-returned float Vecs.
 2. **Nested `Vec[Vec[T]]` element reads return garbage** (0xC0000005): `m[1].len()` wrong, `m[i][j]` = 0 for a 2-row matrix; float arithmetic on nested loads crashes. Blocks dynamic-matrix runtime verification and `set_partition` (reads Vec[Vec[Int]]).
