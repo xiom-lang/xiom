@@ -535,6 +535,9 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     emitter.set_hot_reload(config.hot_reload);
     emitter.set_debug_symbols(config.debug_symbols);
     emitter.set_enable_unsafe_direct(config.enable_unsafe_direct);
+    // BUG 25 #2 fix: surface the checker's use-alias bindings (`use X.f as
+    // alias`) to the codegen — the driver strips UseDecls before codegen.
+    emitter.set_use_alias_paths(checker.use_alias_paths.clone());
     if !effective_sources.is_empty() {
         emitter.set_source_file(effective_sources[0].clone());
     }
@@ -876,6 +879,9 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     emitter.set_hot_reload(config.hot_reload);
     emitter.set_debug_symbols(config.debug_symbols);
     emitter.set_enable_unsafe_direct(config.enable_unsafe_direct);
+    // BUG 25 #2 fix: surface the checker's use-alias bindings (`use X.f as
+    // alias`) to the codegen — the driver strips UseDecls before codegen.
+    emitter.set_use_alias_paths(checker.use_alias_paths.clone());
     if !effective_sources.is_empty() {
         emitter.set_source_file(effective_sources[0].clone());
     }

@@ -4409,4 +4409,8 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m37_contract_pass() { assert_eq!(compile_and_run("tests\\regression\\m37_contract_pass.xi"), Some(0)); }
 // BUG 22 #6: loop-body binding captured by a later unsafe block
 #[test] fn e2e_m37_loop_capture() { assert_eq!(compile_and_run("tests\\regression\\m37_loop_capture.xi"), Some(0)); }
+// BUG 24: structural equality for same-type structs without derived eq
+#[test] fn e2e_m37_structural_eq() { assert_eq!(compile_and_run("tests\\regression\\m37_structural_eq.xi"), Some(0)); }
+// BUG 25 #3: user fn named from_bytes not hijacked by the builtin
+#[test] fn e2e_m37_from_bytes_fn() { assert_eq!(compile_and_run("tests\\regression\\m37_from_bytes_fn.xi"), Some(0)); }
 

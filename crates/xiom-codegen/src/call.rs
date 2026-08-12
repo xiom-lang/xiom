@@ -1535,7 +1535,14 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 // C string is already a NUL-terminated i8*, so this is an identity
                 // on the pointer (coerced to i8*). Emitted inline since there is no
                 // runtime function.
-                if matches!(fn_name.as_str(), "from_cstring" | "from_c_str" | "from_utf8" | "from_bytes")
+                // BUG 25 #3 fix: only fire when NO real fn with this name is
+                // registered — a user/module fn named `from_bytes` (or any of
+                // these) was previously HIJACKED by the builtin intercept,
+                // producing "invalid getelementptr indices" / wrong returns.
+                let builtin_name_free = !self.types.functions.contains_key(&fn_name.to_string())
+                    && !self.types.functions.entries().iter().any(|(k, _)| k.ends_with(&format!(".{fn_name}")));
+                if builtin_name_free
+                    && matches!(fn_name.as_str(), "from_cstring" | "from_c_str" | "from_utf8" | "from_bytes")
                     && !args.is_empty()
                 {
                     let (arg_val, arg_ty) = self.compile_expr(&args[0])?;
@@ -2231,6 +2238,23 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             qualified
                         } else if let Some(qualified) = self.mono.bare_fn_aliases.get(&fn_key) {
                             qualified.clone()
+                        } else if let Some(aliased) = self.mono.use_alias_map.get(&fn_key) {
+                            // BUG 25 #2 fix: `use X.Y.f as alias;` — the alias
+                            // resolves through the MODULE-CALL machinery, which
+                            // registers the callee's signature on demand (the fn
+                            // may not be in types.functions yet at preassign).
+                            let parts: Vec<&str> = aliased.split('.').collect();
+                            if parts.len() >= 2 {
+                                let module_ident = Ident::new(parts[0], Span::new(0, 0));
+                                let resolved = self.resolve_module_call(&Expr::Ident(module_ident), parts[1]);
+                                if !resolved.is_empty() {
+                                    resolved
+                                } else {
+                                    aliased.clone()
+                                }
+                            } else {
+                                aliased.clone()
+                            }
                         } else {
                             fn_key
                         }

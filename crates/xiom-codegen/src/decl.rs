@@ -269,6 +269,23 @@ impl IrEmitter {
     /// symbol — a call compiled before its def can no longer emit a
     /// qualified key the def went bare on (zero-param stub → garbage).
     pub(crate) fn preassign_fn_symbols(&mut self, items: &[TopDecl]) {
+        if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
+            let kinds: Vec<&str> = items.iter().map(|i| match i { TopDecl::Use(_) => "Use", TopDecl::Fn(_) => "Fn", _ => "Other" }).collect();
+            eprintln!("[preassign] items: {kinds:?}");
+        }
+        // BUG 25 #2 fix: resolve the checker-surfaced use-alias paths to
+        // registered fn keys (the driver strips UseDecls; the checker records
+        // `use X.Y.f as alias` → "X.Y.f"). Bare calls through the alias then
+        // resolve to the real registered key.
+        let alias_paths = std::mem::take(&mut self.config.use_alias_paths);
+        for (alias, dotted) in alias_paths {
+            if let Some(q) = alias.strip_suffix("::qualified") {
+                // leaf-qualified form: "af" → "math.abs_float" (stdlib-stripped)
+                self.mono.use_alias_map.insert(q.to_string(), dotted.clone());
+                continue;
+            }
+            self.mono.use_alias_map.insert(alias.clone(), dotted.clone());
+        }
         let mut seen_bare: std::collections::HashSet<String> = std::collections::HashSet::new();
         fn walk(em: &IrEmitter, items: &[TopDecl], module: &Option<String>, seen_bare: &mut std::collections::HashSet<String>, map: &mut std::collections::HashMap<String, String>) {
             for item in items {
