@@ -879,8 +879,25 @@ EXACT original file still fails, send it and it becomes a live repro.
 
 ## 2026-08-12 — stdlib session: BUG 24 (NEW, REGRESSION from the 22/23 batch `eeab8cf7..7cfc7fe4`) — bigfloat pow_bf miscompiles inconsistently (AV or hang) depending on unrelated program structure
 
+**? PARTIAL FIX 2026-08-12 (`dd6b4ab1`):** the WRONG-VALUE symptom is fixed —
+root was PRE-EXISTING (not the 22/23 batch): `llvm_type_for`'s array arm
+kept the trailing bracket (`[10 x Int]` ? elem name `"Int]"` ? unknown type ?
+i64 degradation), corrupting bigint's `var digits: [10]Int` and every
+fixed-array local. Verified: p_arr digit-extract R=0; probe pair now compiles
+clean (no "unknown type" warnings).
+**RESIDUAL (open):** a per-program-shape AV remains inside the pow path when
+the program also compiles to_str/eq — crashes before the first println with
+buffered output lost; the compiled IR is verifiably sound (no stubs, no
+duplicate defines, helper symbols consistent across shapes). Suspects to
+continue: BigFloat struct-value passing with Vec[Int] significand fields
+interacting with the 23.8 &Vec pointer-pass change; deeper helpers in the
+bigger module set. Reproduction: p_powv2.xi shape (pow_bf + to_str in one
+program) AVs; p_b24a.xi shape (pow_bf alone) returns a wrong value only in
+the pre-fix build.
+
 - **Construct:** any program calling `num/bigfloat.xi` `bigfloat_pow_bf(&base, &exp)` — or its wrappers (`precision_float.bigfloat_pow`) — on the CURRENT compiler. `smoke_bigfloat.xi` (pre-existing harness smoke, was 72/72 green) now dies 0xC0000005; `smoke_num_precision.xi` dies too. pow_bf's pieces (is_zero/is_one/is_negative/ln/mul/exp at the same operands) ALL verify correctly in isolation.
 - **Decisive minimal repro pair (identical logical values, different codegen):**
+
   - `var t = bigfloat.bigfloat_two(); bigfloat.bigfloat_pow_bf(&t, &t);` ? prints 4, exit 0.  (works)
   - `var t = bigfloat.bigfloat_from_int(2); bigfloat.bigfloat_pow_bf(&t, &t);` ? 0xC0000005 with zero output. (AV)
   - `bigfloat_two()` is literally `return bigfloat_from_int(2);` — the VALUES are identical; only the CALL STRUCTURE differs. Combining both in one program ? infinite hang (series divergence, no output).
