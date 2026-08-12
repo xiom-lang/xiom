@@ -819,7 +819,7 @@ EXACT original file still fails, send it and it becomes a live repro.
 3. Cross-module 3-tuple `.1`/`.2` — **FIXED** (tuple field maps derive+register for catalog returns) — m37_catalog_boundary
 4. Cross-module Option payload match — **FIXED** (float payloads via local_opt_payload_xiom; Int payloads verified) — m37_catalog_boundary
 5. requires/ensures trap — **FIXED** (clean `xiom_panic`: message to stderr + flush + exit 1, no more 0xC000001D) — m37_contract_pass + manual violation probe
-6. str_reverse invalid IR — flat string.xi REMOVED by the stdlib rewrite (reverse lives in string/reverse.xi); the alloca-dominance family is covered by the BUG 22 #15 loop-in-unsafe shape — re-verify against the new reverse.xi once its imports compile
+6. str_reverse invalid IR — **FIXED 2026-08-12** (root: unsafe-block captures grabbed SHADOWED names — the block's inner `let c` shadowed an enclosing loop's `let c`, capturing the outer loop-body alloca whose address doesn't dominate; fix: block-bound names excluded from captures + loop-body binding allocas hoisted to fn entry). Flat string/string.xi str_reverse verified: compiles, returns "cba"; m37_loop_capture regression — the stdlib's reverse.xi workaround can now delegate
 7. index_of(str_slice) 0xC0000409 — stdlib-side scan workaround in place; not reproduced standalone (see 22.15)
 8. xiom_char_at leading-byte — DOCUMENTED CONTRACT (byte position), stdlib decodes UTF-8 manually — no change
 9. Multi-byte char literals — **VERIFIED FIXED** on current build (é=233, ?=937)
