@@ -69,6 +69,10 @@ pub struct Checker {
     visibility: HashMap<String, bool>,
     /// Resolved imported names from use declarations
     imported_items: HashMap<String, ModuleExport>,
+    /// BUG 25 #2 fix: `use X.Y.f as alias;` — alias → the FULL dotted use
+    /// path, surfaced to the codegen (the driver strips UseDecls before
+    /// codegen, so the alias binding would otherwise be lost).
+    pub use_alias_paths: HashMap<String, String>,
     /// Enum variant name â†’ parent enum type name
     enum_variants: HashMap<String, String>,
     /// Module-level `const`/`var` global names â†’ declared type (so references to
@@ -154,6 +158,7 @@ impl Checker {
             impls: HashMap::new(),
             visibility: HashMap::new(),
             imported_items: HashMap::new(),
+            use_alias_paths: HashMap::new(),
             enum_variants: HashMap::new(),
             global_consts: HashMap::new(),
             variant_fields: HashMap::new(),
@@ -2568,6 +2573,27 @@ impl Checker {
             let local_name = ud.alias.as_ref()
                 .map(|a| a.name.clone())
                 .unwrap_or_else(|| item_name.clone());
+            // BUG 25 #2 fix: record the alias → FULL dotted use path so the
+            // codegen can resolve bare calls through the alias (the driver
+            // strips UseDecls before codegen; the checker is the only place
+            // the binding survives).
+            if ud.alias.is_some() {
+                let full: Vec<String> = effective_path.iter().map(|p| p.name.clone()).collect();
+                if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
+                    eprintln!("[userec] {local_name} -> {} (full={full:?})", full.join("."));
+                }
+                // Record BOTH the full dotted path AND the stdlib-stripped
+                // leaf-qualified form ("xiom.math.abs_float" and
+                // "math.abs_float") — injected stdlib fns register under the
+                // leaf-qualified key.
+                self.use_alias_paths.insert(local_name.clone(), full.join("."));
+                if full.len() > 1 {
+                    self.use_alias_paths.insert(
+                        format!("{local_name}::qualified"),
+                        full[1..].join("."),
+                    );
+                }
+            }
             // Register SubModules in both imported_items (for type paths)
             // and modules (for expression paths like `async.Executor.new()`)
             if let ModuleExport::SubModule(sub_exports) = &export {

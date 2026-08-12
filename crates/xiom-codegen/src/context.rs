@@ -110,6 +110,11 @@ pub struct CodegenConfig {
     pub enable_unsafe_direct: bool,
     /// D2.1 (Phase 7): counted cap of `#[unsafe_direct]` blocks allowed.
     pub unsafe_direct_cap: u32,
+    /// BUG 25 #2 fix: `use X.Y.f as alias;` — alias name → the FULL dotted
+    /// use path (recorded by the checker; the driver strips UseDecls before
+    /// codegen). The codegen resolves each path to its registered fn key at
+    /// preassign time so bare calls through the alias work.
+    pub use_alias_paths: HashMap<String, String>,
 }
 
 impl Default for CodegenConfig {
@@ -139,6 +144,7 @@ impl Default for CodegenConfig {
             source_file: "unknown.xi".to_string(),
             enable_unsafe_direct: false,
             unsafe_direct_cap: 64,
+            use_alias_paths: HashMap::new(),
         }
     }
 }
@@ -252,6 +258,12 @@ pub struct MonoContext {
     /// rewritten to the qualified key so the emitted symbol matches the
     /// definition. Keep-first: a user-defined bare fn wins over injection.
     pub bare_fn_aliases: HashMap<String, String>,
+    /// BUG 25 #2 fix: `use X.Y.f as alias;` — alias name → the registered fn
+    /// key. The checker binds the alias for type checking, but the codegen's
+    /// bare-call resolution had no alias table, so `af(-4.0)` through an
+    /// alias resolved to the wrong symbol (wrong returns). Populated from the
+    /// program's UseDecls; consulted by the bare-call fn-key resolution.
+    pub use_alias_map: HashMap<String, String>,
     /// BUG 22 #11: PRE-ASSIGNED fn key -> emitted LLVM symbol for every
     /// non-generic fn with a body (walked once before any body compiles, in
     /// program order, using fn_symbol's dedup rule: the first same-key fn
