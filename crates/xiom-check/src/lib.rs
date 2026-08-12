@@ -2016,6 +2016,107 @@ impl Checker {
                                 if let Some(rt) = &fd.return_type {
                                     if let Some(n) = first_named(rt) { sig_types.push(n); }
                                 }
+                                // BUG 25 #10 (crypto follow-up): inject PRIVATE struct
+                                // types used ONLY as LOCALS / struct literals inside
+                                // catalog fn bodies (crypto.xi's KeyExpState in
+                                // aes_key_expansion_128, aes.xi's AesState). Signature-
+                                // only injection left these degrading to i64: the local
+                                // was bound as a single i64 slot and the struct
+                                // constructor's zero-store clobbered the field reads
+                                // mid-construction (wrong AES key schedule → wrong
+                                // ciphertext / contract violations). Struct literals
+                                // (`S{ ... }`) and annotated bindings (`var x: S`)
+                                // both seed the transitive walk below.
+                                fn collect_block_struct_names(b: &Block, out: &mut Vec<String>) {
+                                    for se in &b.stmts {
+                                        match se {
+                                            StmtOrExpr::Stmt(s) => collect_stmt_struct_names(s, out),
+                                            StmtOrExpr::Expr(e) => collect_expr_struct_names(e, out),
+                                        }
+                                    }
+                                }
+                                fn collect_stmt_struct_names(s: &Stmt, out: &mut Vec<String>) {
+                                    match s {
+                                        Stmt::Let(_, Some(t), _, _) | Stmt::Var(_, Some(t), _, _) => {
+                                            if let Some(n) = first_named(t) { out.push(n); }
+                                        }
+                                        Stmt::Let(_, None, e, _) | Stmt::Var(_, None, e, _) => collect_expr_struct_names(e, out),
+                                        Stmt::Assign(_, e, _) => collect_expr_struct_names(e, out),
+                                        Stmt::Return(Some(e), _) => collect_expr_struct_names(e, out),
+                                        Stmt::Expr(e, _) => collect_expr_struct_names(e, out),
+                                        Stmt::If(c, t, elifs, els, _) => {
+                                            collect_expr_struct_names(c, out);
+                                            collect_block_struct_names(t, out);
+                                            for (ec, eb) in elifs { collect_expr_struct_names(ec, out); collect_block_struct_names(eb, out); }
+                                            if let Some(eb) = els { collect_block_struct_names(eb, out); }
+                                        }
+                                        Stmt::Match(e, arms, _) => {
+                                            collect_expr_struct_names(e, out);
+                                            for arm in arms {
+                                                match &arm.body {
+                                                    MatchBody::Block(b) => collect_block_struct_names(b, out),
+                                                    MatchBody::Expr(e) => collect_expr_struct_names(e, out),
+                                                }
+                                            }
+                                        }
+                                        Stmt::While(c, b, _, _, _) | Stmt::For(_, c, b, _, _) => {
+                                            collect_expr_struct_names(c, out);
+                                            collect_block_struct_names(b, out);
+                                        }
+                                        Stmt::Spawn(b, _, _) | Stmt::Defer(b, _) => collect_block_struct_names(b, out),
+                                        Stmt::Destructure(_, e, _) => collect_expr_struct_names(e, out),
+                                        _ => {}
+                                    }
+                                }
+                                fn collect_expr_struct_names(e: &Expr, out: &mut Vec<String>) {
+                                    match e {
+                                        Expr::Struct(id, fields, base, _) => {
+                                            out.push(id.name.clone());
+                                            for (_, v) in fields { collect_expr_struct_names(v, out); }
+                                            if let Some(b) = base { collect_expr_struct_names(b, out); }
+                                        }
+                                        Expr::Field(b, _, _) => collect_expr_struct_names(b, out),
+                                        Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => {
+                                            collect_expr_struct_names(f, out);
+                                            for a in args { collect_expr_struct_names(a, out); }
+                                        }
+                                        Expr::Index(a, b, _) => { collect_expr_struct_names(a, out); collect_expr_struct_names(b, out); }
+                                        Expr::Paren(e, _) | Expr::Unary(_, e, _) | Expr::Try(e, _) | Expr::AtPre(e, _)
+                                        | Expr::Ref(e, _) | Expr::MutRef(e, _) | Expr::Some(e, _) | Expr::Ok(e, _)
+                                        | Expr::Err(e, _) | Expr::Await(e, _) | Expr::Comptime(e, _) | Expr::As(e, _, _) => {
+                                            collect_expr_struct_names(e, out);
+                                        }
+                                        Expr::Binary(a, _, b, _) | Expr::Imply(a, b, _) => {
+                                            collect_expr_struct_names(a, out); collect_expr_struct_names(b, out);
+                                        }
+                                        Expr::Is(e, _, _) => collect_expr_struct_names(e, out),
+                                        Expr::Array(elems, _) | Expr::Tuple(elems, _) => {
+                                            for el in elems { collect_expr_struct_names(el, out); }
+                                        }
+                                        Expr::Closure(_, _, b, _) => collect_block_struct_names(b, out),
+                                        Expr::PipeClosure(_, e, _) => collect_expr_struct_names(e, out),
+                                        Expr::If(c, t, elifs, els, _) => {
+                                            collect_expr_struct_names(c, out);
+                                            collect_block_struct_names(t, out);
+                                            for (ec, eb) in elifs { collect_expr_struct_names(ec, out); collect_block_struct_names(eb, out); }
+                                            if let Some(eb) = els { collect_block_struct_names(eb, out); }
+                                        }
+                                        Expr::Match(e, arms, _) => {
+                                            collect_expr_struct_names(e, out);
+                                            for arm in arms {
+                                                match &arm.body {
+                                                    MatchBody::Block(b) => collect_block_struct_names(b, out),
+                                                    MatchBody::Expr(e) => collect_expr_struct_names(e, out),
+                                                }
+                                            }
+                                        }
+                                        Expr::Unsafe(b, _) | Expr::BlockExpr(b, _) => collect_block_struct_names(b, out),
+                                        _ => {}
+                                    }
+                                }
+                                if let Some(body) = &fd.body {
+                                    collect_block_struct_names(body, &mut sig_types);
+                                }
                                 // Transitive walk: inject referenced types + the types
                                 // their FIELDS reference (nested private structs).
                                 let mut worklist = sig_types;
@@ -4738,6 +4839,18 @@ impl Checker {
                     (CheckedType::Named(s), CheckedType::Named(t))
                         if s.starts_with('*') && t.starts_with('*') => {
                         self.gate_unsafe("pointer-to-pointer cast", *span);
+                        target_ty
+                    }
+                    // BUG 25 #10 (crypto AES-NI follow-up): `&x as *T` /
+                    // `&v[i] as *T` — address-of cast to a raw pointer. The
+                    // reference's INNER type checks as the element type
+                    // (UInt8), which no rule above matches; the reference
+                    // wrapper is what makes this an ADDRESS, not a value.
+                    // `&out as *UInt8`-style casts are the documented FFI
+                    // idiom (G-44) and must type-check inside unsafe blocks.
+                    _ if matches!(inner.as_ref(), Expr::Ref(..) | Expr::MutRef(..))
+                        && matches!(target_resolved, CheckedType::Named(ref t) if t == "Ptr" || t.starts_with('*')) => {
+                        self.gate_unsafe("reference-to-pointer cast", *span);
                         target_ty
                     }
                     // 5e.2 G-34: fn-ptr Ã¢â€ â€ Int casts (COM vtables, callback registries).
