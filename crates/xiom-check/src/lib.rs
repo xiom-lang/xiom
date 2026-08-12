@@ -4090,6 +4090,21 @@ impl Checker {
                             name.span,
                         );
                     }
+                    // BUG 25 #1 fix: a bare name exported by MULTIPLE
+                    // imported modules is AMBIGUOUS — resolve deterministically
+                    // or error. Silently picking one module's version
+                    // (keep-first vs last-imported) produced wrong calls
+                    // (to_base58 resolving to the wrong module's fn). Error
+                    // and require a module-qualified call.
+                    let ambiguous = self.modules.iter()
+                        .filter(|(m, ex)| !m.is_empty() && matches!(ex.get(&name.name), Some(ModuleExport::Function { .. })))
+                        .count() > 1;
+                    if ambiguous {
+                        self.error(
+                            format!("ambiguous function '{}': exported by multiple imported modules — use a module-qualified call", name.name),
+                            name.span,
+                        );
+                    }
                     // BUG 25 #11 fix: same visibility gate as the Ident
                     // expression — a PRIVATE fn of an imported module must
                     // not resolve as a bare call (it previously hijacked
