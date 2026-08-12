@@ -4413,4 +4413,6 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m37_structural_eq() { assert_eq!(compile_and_run("tests\\regression\\m37_structural_eq.xi"), Some(0)); }
 // BUG 25 #3: user fn named from_bytes not hijacked by the builtin
 #[test] fn e2e_m37_from_bytes_fn() { assert_eq!(compile_and_run("tests\\regression\\m37_from_bytes_fn.xi"), Some(0)); }
+// BUG 25 #5: Option/Result .value/.error payload-aware reads
+#[test] fn e2e_m37_opt_payload_value() { assert_eq!(compile_and_run("tests\\regression\\m37_opt_payload_value.xi"), Some(0)); }
 

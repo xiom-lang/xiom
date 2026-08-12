@@ -137,6 +137,11 @@ impl IrEmitter {
         self.config.enable_unsafe_direct = enabled;
     }
 
+    /// BUG 25 #2 fix: alias → full dotted use path (from the checker).
+    pub fn set_use_alias_paths(&mut self, paths: std::collections::HashMap<String, String>) {
+        self.config.use_alias_paths = paths;
+    }
+
     pub fn set_source_file(&mut self, path: String) {
         self.config.source_file = path;
     }
@@ -1710,6 +1715,24 @@ impl IrEmitter {
             Expr::Ident(id) => self.local.local_xiom_types.get(&id.name).cloned(),
             Expr::Some(..) | Expr::Ok(..) | Expr::Err(..) => self.ctor_payload_xiom(inner),
             Expr::Paren(e, _) => self.ctor_payload_xiom(e),
+            // `Some(Vec[Int].new())` — a Vec-ctor payload ("Vec[Int]").
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+                if let Expr::Field(obj, method, _) = func.as_ref() {
+                    if method.name == "new" {
+                        if let Expr::Index(base, idx, _) = obj.as_ref() {
+                            if let Expr::Ident(b) = base.as_ref() {
+                                if b.name == "Vec" {
+                                    let rendered = Self::type_arg_to_name(&Expr::Index(base.clone(), idx.clone(), b.span));
+                                    if rendered.starts_with("Vec[") {
+                                        return Some(rendered);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                None
+            }
             _ => None,
         }
     }

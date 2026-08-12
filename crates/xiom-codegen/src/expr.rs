@@ -1976,16 +1976,85 @@ impl IrEmitter {
                                 })
                             {
                                 if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
-                                    let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
+                                    // BUG 25 #5 fix: Option/Result `.value`/`.error`
+                                    // field reads must use the ACTUAL payload type —
+                                    // the static slot type is i64, so Str/Vec/Float
+                                    // payloads read back as raw bits (pointer-as-
+                                    // number, wrong len/bit pattern). Match
+                                    // extraction was already payload-aware. Only
+                                    // the OVERRIDE path reinterprets the i64 slot;
+                                    // regular fields load with their static type.
+                                    let is_result = type_name.ends_with("Result") || type_name.contains(".Result") || type_name.starts_with("Result__");
+                                    let is_option = type_name.ends_with("Option") || type_name.contains(".Option") || type_name.starts_with("Option__");
+                                    let mut field_llvm_ty = self.field_llvm_type(type_name, field_idx);
+                                    let mut payload_reinterpret = false;
+                                    let mut payload_boxed = false;
+                                    if (is_option && field.name == "value") || (is_result && field.name == "error") {
+                                        if let Expr::Ident(oid) = obj.as_ref() {
+                                            if let Some(px) = self.local.local_opt_payload_xiom.get(&oid.name) {
+                                                payload_reinterpret = true;
+                                                match px.as_str() {
+                                                    "Str" => field_llvm_ty = "i8*".to_string(),
+                                                    "Float64" | "Float" => field_llvm_ty = "double".to_string(),
+                                                    "Float32" => field_llvm_ty = "float".to_string(),
+                                                    "Bool" | "Char" | "Int" | "Int8" | "Int16" | "Int32" | "UInt8" | "UInt16" | "UInt32" | "Int64" | "UInt" | "UInt64" | "UInt128" | "Int128" => payload_reinterpret = false,
+                                                    _ => {
+                                                        // Boxed struct payload: inttoptr the
+                                                        // slot to the struct pointer + load.
+                                                        if let Ok(st) = self.llvm_type_for(px) {
+                                                            if st.starts_with("%struct.") {
+                                                                field_llvm_ty = st;
+                                                                payload_boxed = true;
+                                                            } else {
+                                                                payload_reinterpret = false;
+                                                            }
+                                                        } else {
+                                                            payload_reinterpret = false;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                     let struct_val = self.fresh_tmp();
                                     self.emitln(&format!("  {struct_val} = load {llvm_ty}, {llvm_ty}* {ptr}"));
                 let struct_alloca = self.fresh_tmp();
                 self.emitln(&format!("  {struct_alloca} = alloca {llvm_ty}, align 16"));
                 self.emitln(&format!("  store {llvm_ty} {struct_val}, {llvm_ty}* {struct_alloca}, align 16"));
                                     let gep = self.fresh_tmp();
-                                    let loaded = self.fresh_tmp();
                                     self.emitln(&format!("  {gep} = getelementptr {llvm_ty}, {llvm_ty}* {struct_alloca}, i32 0, i32 {field_idx}"));
-                                    self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+                                    let loaded = if payload_reinterpret {
+                                        // Payload override: the slot holds raw bits —
+                                        // load i64 and reinterpret to the payload type.
+                                        let raw_loaded = self.fresh_tmp();
+                                        self.emitln(&format!("  {raw_loaded} = load i64, i64* {gep}"));
+                                        if payload_boxed {
+                                            let sp = self.fresh_tmp();
+                                            self.emitln(&format!("  {sp} = inttoptr i64 {raw_loaded} to {field_llvm_ty}*"));
+                                            let sv = self.fresh_tmp();
+                                            self.emitln(&format!("  {sv} = load {field_llvm_ty}, {field_llvm_ty}* {sp}"));
+                                            sv
+                                        } else if field_llvm_ty.ends_with('*') {
+                                            let ip = self.fresh_tmp();
+                                            self.emitln(&format!("  {ip} = inttoptr i64 {raw_loaded} to {field_llvm_ty}"));
+                                            ip
+                                        } else if field_llvm_ty == "float" {
+                                            let t32 = self.fresh_tmp();
+                                            self.emitln(&format!("  {t32} = trunc i64 {raw_loaded} to i32"));
+                                            let bc = self.fresh_tmp();
+                                            self.emitln(&format!("  {bc} = bitcast i32 {t32} to {field_llvm_ty}"));
+                                            bc
+                                        } else {
+                                            let bc = self.fresh_tmp();
+                                            self.emitln(&format!("  {bc} = bitcast i64 {raw_loaded} to {field_llvm_ty}"));
+                                            bc
+                                        }
+                                    } else {
+                                        // Regular field: load with the static type.
+                                        let loaded = self.fresh_tmp();
+                                        self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+                                        loaded
+                                    };
                                     return Ok((loaded, field_llvm_ty));
                                 }
                             }
