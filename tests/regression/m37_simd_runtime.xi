@@ -110,7 +110,7 @@ fn main() -> Int {
     var b8 = Vec[Float32].new();
     var o8 = Vec[Float32].new();
     var i: Int = 0;
-    while i < 8 { a8.push(1.0 + i); b8.push(10.0 + i); o8.push(0.0); i = i + 1; }
+    while i < 8 { a8.push(1.0 + i as Float64); b8.push(10.0 + i as Float64); o8.push(0.0); i = i + 1; }
     unsafe {
       xiom_simd_f32x8_add(a8.data, b8.data, o8.data);
       if o8[0] != 11.0 || o8[7] != 25.0 { return 16; }
