@@ -1869,12 +1869,6 @@ impl IrEmitter {
         // 5c.30: local Vec bindings (`var v = Vec[Float32].new()`) and
         // container-handle bindings.
         if let Expr::Ident(id) = container {
-            if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
-                eprintln!("[vecfloat] ident={} local_vec_elem={:?} local_vec_handle={:?}",
-                    id.name,
-                    self.local.local_vec_elem.get(&id.name),
-                    self.local.local_vec_handle.get(&id.name));
-            }
             if let Some(elem) = self.local.local_vec_elem.get(&id.name)
                 .or_else(|| self.local.local_vec_handle.get(&id.name))
             {
@@ -1883,6 +1877,31 @@ impl IrEmitter {
                     "Float64" | "Float" => Some("double"),
                     _ => None,
                 };
+            }
+        }
+        // BUG 23 #2: `fm[0][1]` — the INNER index's container is the outer
+        // index result; its element type is the inner of the OUTER Vec's
+        // registered element, stripped recursively ("Vec[Vec[Float64]]" →
+        // "Vec[Float64]" → "Float64" → double).
+        if let Expr::Index(base, _, _) = container {
+            if let Expr::Ident(b) = base.as_ref() {
+                if let Some(outer) = self.local.local_vec_elem.get(&b.name)
+                    .or_else(|| self.local.local_vec_handle.get(&b.name))
+                {
+                    let mut inner = outer.as_str();
+                    loop {
+                        if let Some(rest) = inner.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
+                            inner = rest;
+                        } else {
+                            break;
+                        }
+                    }
+                    return match inner {
+                        "Float32" => Some("float"),
+                        "Float64" | "Float" => Some("double"),
+                        _ => None,
+                    };
+                }
             }
         }
         if let Expr::Field(base, field_expr, _) = container {
@@ -2743,6 +2762,9 @@ impl IrEmitter {
         // I2: When --parallel-codegen is enabled, compile independent functions
         // in parallel using rayon. Each function gets its own output buffer; we
         // merge them in declaration order after all tasks complete.
+        // BUG 22 #11: pre-assign symbols for ALL fns first (sequential path)
+        // so definitions and call sites agree regardless of emit order.
+        self.preassign_fn_symbols(&program.items);
         if self.config.parallel_codegen {
             self.has_non_empty_main = Self::program_has_non_empty_main(&program.items);
             self.compile_functions_parallel(&program.items)?;

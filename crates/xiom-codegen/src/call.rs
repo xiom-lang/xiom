@@ -2236,7 +2236,29 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                     }
                 } else {
-                    fn_key
+                    // BUG 22 #11 fix (qualified-call side of the BUG 12-18
+                    // fn-key fix): the module-qualified key may NOT be
+                    // registered while the DEFINITION exists under the BARE
+                    // leaf — fn_symbol dedup emits the bare symbol for the
+                    // first same-named fn. Resolve to the bare leaf when it
+                    // is the registered/emitted definition; otherwise
+                    // emit_undefined_symbol_stubs creates a zero-param
+                    // @qualified stub and the call returns garbage (0).
+                    // Safe: the fallback only fires when NO qualified
+                    // registration exists, i.e. exactly one (bare) def.
+                    let bare_leaf = fn_key.rsplit('.').next().unwrap_or(&fn_key).to_string();
+                    if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
+                        eprintln!("[fnkeyq] key={fn_key} bare={bare_leaf} reg_q={} reg_b={}",
+                            self.types.functions.contains_key(&fn_key),
+                            self.types.functions.contains_key(&bare_leaf));
+                    }
+                    if !(self.types.functions.contains_key(&fn_key) || self.mono.emitted_fns.contains(&fn_key))
+                        && (self.types.functions.contains_key(&bare_leaf) || self.mono.emitted_fns.contains(&bare_leaf))
+                    {
+                        bare_leaf
+                    } else {
+                        fn_key
+                    }
                 };
                 // Interface dispatch fallback: when the receiver type is a known
                 // interface (e.g. `Error.description`), search all registered
@@ -3002,6 +3024,14 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         && self.lookup_local(&fn_name).is_some()
                         && self.types.functions.get(&resolved_fn_key).is_none()
                         && ret_ty == "i64";
+                    // BUG 22 #11 fix: emit the PRE-ASSIGNED symbol for the
+                    // resolved key (bare or qualified) — definitions and call
+                    // sites agree even when the call compiles before its def;
+                    // otherwise the stub pass creates a zero-param
+                    // @qualified stub and the call returns garbage.
+                    let call_symbol = self.mono.fn_symbol_map.get(&resolved_fn_key)
+                        .cloned()
+                        .unwrap_or_else(|| resolved_fn_key.clone());
                     if callee_is_fn_ptr {
                         let (alloca_reg, local_llvm_ty) = self.lookup_local(&fn_name).expect("fn_ptr target must be in locals").clone();
                         let fn_ptr_loaded = self.fresh_tmp();
@@ -3027,7 +3057,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             || resolved_fn_key.rsplitn(2, '.').next()
                                 .map_or(false, |bare| self.config.pub_functions.contains(bare)))
                     {
-                        // 5e.5a: hot reload Ã¢â‚¬â€ redirect pub fn calls through thunks
+                        // 5e.5a: hot reload — redirect pub fn calls through thunks
                         let thunk_name = format!("xiom_hot_thunk_{}", resolved_fn_key);
                         if ret_ty == "void" {
                             self.emitln(&format!("  call void @{thunk_name}({args_str})"));
@@ -3045,10 +3075,10 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         Ok((tmp, ret_ty.clone()))
                     }
                     } else if ret_ty == "void" {
-                        self.emitln(&format!("  call void @{resolved_fn_key}({args_str})"));
+                        self.emitln(&format!("  call void @{call_symbol}({args_str})"));
                         Ok((String::new(), "void".to_string()))
                     } else {
-                        self.emitln(&format!("  {tmp} = call {ret_ty} @{resolved_fn_key}({args_str})"));
+                        self.emitln(&format!("  {tmp} = call {ret_ty} @{call_symbol}({args_str})"));
                         if let Some(receiver) = receiver_expr {
                             if ret_ty.starts_with("%struct.") && self.should_store_back_method(&resolved_fn_key) {
                                 self.store_back_to_receiver(receiver, &tmp, &ret_ty);

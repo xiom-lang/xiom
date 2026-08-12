@@ -4399,3 +4399,12 @@ fn e2e_safety_probe() {
 // BUG 19: IEEE NaN/Inf semantics + Str+Float64 concat formatting
 #[test] fn e2e_m37_nan_ieee() { assert_eq!(compile_and_run("tests\\regression\\m37_nan_ieee.xi"), Some(0)); }
 
+// BUG 22/23 batch regression tests (2026-08-12)
+#[test] fn e2e_m37_catalog_boundary() { assert_eq!(compile_and_run("tests\\regression\\m37_catalog_boundary.xi"), Some(0)); }
+#[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
+#[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
+#[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }
+#[test] fn e2e_m37_inline_call_concat() { assert_eq!(compile_and_run("tests\\regression\\m37_inline_call_concat.xi"), Some(0)); }
+#[test] fn e2e_m37_else_if() { assert_eq!(compile_and_run("tests\\regression\\m37_else_if.xi"), Some(0)); }
+#[test] fn e2e_m37_contract_pass() { assert_eq!(compile_and_run("tests\\regression\\m37_contract_pass.xi"), Some(0)); }
+
