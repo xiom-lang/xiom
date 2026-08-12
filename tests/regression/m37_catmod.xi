@@ -20,6 +20,13 @@ pub fn mk_matrix() -> Vec[Vec[Int]] {
 pub fn mk_opt() -> Option[Int] { return Some(5); }
 pub fn mk_optf() -> Option[Float64] { return Some(2.5); }
 
+pub fn mk_optvec() -> Option[Vec[Int]] {
+  var v = Vec[Int].new();
+  v.push(7);
+  v.push(8);
+  return Some(v);
+}
+
 pub fn mk_bb(b1: Bool, b2: Bool) -> (Bool, Bool) { return (b1, b2); }
 
 pub fn mk_t3(a: Int, b: Int, c: Int) -> (Int, Int, Int) { return (a, b, c); }
