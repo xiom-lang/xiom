@@ -281,16 +281,24 @@ impl IrEmitter {
                 StmtOrExpr::Stmt(s) => self.collect_stmt_names_inner(s, &mut used),
             }
         }
+        // BUG 22 #6 fix: names BOUND inside the unsafe block (its own
+        // let/var/for/match bindings) SHADOW same-named enclosing locals —
+        // they must never be captured. The block fn compiles them as its own
+        // locals; capturing the outer (loop-body) alloca instead produced
+        // "Instruction does not dominate all uses!" (str_reverse's inner
+        // `let c` shadowed the first-pass loop's `c`).
+        let mut bound = std::collections::HashSet::new();
+        Self::collect_bound_names(block, &mut bound);
         let mut captures = Vec::new();
         for name in &used {
-            if !param_names.contains(name) {
+            if !param_names.contains(name) && !bound.contains(name) {
                 if let Some((_, llvm_ty)) = self.lookup_local(name) {
                     captures.push((name.clone(), llvm_ty.clone()));
                 }
             }
         }
         if std::env::var("XIOM_DEBUG_CAPTURES").is_ok() {
-            eprintln!("[collect_block_free_vars] used={:?} captures={:?}", used, captures);
+            eprintln!("[collect_block_free_vars] used={:?} bound={:?} captures={:?}", used, bound, captures);
         }
         captures
     }
@@ -474,6 +482,48 @@ impl IrEmitter {
     /// opened, still-empty block) or a non-terminator instruction.
     pub(crate) fn current_block_terminated(&self) -> bool {
         self.output_terminated(&self.output)
+    }
+
+    /// BUG 22 #6: splice allocas hoisted from loop bodies into the current
+    /// function's ENTRY block (right after the entry label). Called at fn
+    /// end — the hoisted set is only known after the body compiles. Locates
+    /// the entry label by scanning (position-independent — byte offsets
+    /// drift when the fn body is assembled across buffer swaps).
+    pub(crate) fn finish_hoisted_allocas(&mut self) {
+        let hoisted = std::mem::take(&mut self.local.hoisted_allocas);
+        if hoisted.is_empty() {
+            return;
+        }
+        let lines: Vec<&str> = self.output.lines().collect();
+        let mut define_idx = None;
+        for (i, l) in lines.iter().enumerate().rev() {
+            if l.trim_start().starts_with("define ") {
+                define_idx = Some(i);
+                break;
+            }
+        }
+        let Some(di) = define_idx else { return };
+        let mut insert_after = di;
+        for (i, l) in lines.iter().enumerate().skip(di + 1) {
+            let t = l.trim();
+            if t.ends_with(':') && !t.contains(' ') {
+                insert_after = i;
+                break;
+            }
+        }
+        let mut text = String::new();
+        for (reg, ty) in &hoisted {
+            text.push_str(&format!("  {reg} = alloca {ty}{}\n", self.alloca_align(ty)));
+        }
+        let mut out = String::with_capacity(self.output.len() + text.len());
+        for (i, l) in lines.iter().enumerate() {
+            out.push_str(l);
+            out.push('\n');
+            if i == insert_after {
+                out.push_str(&text);
+            }
+        }
+        self.output = out;
     }
 
     /// BUG 22 #1: the label of the block currently being emitted (the last

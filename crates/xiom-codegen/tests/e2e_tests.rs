@@ -4407,4 +4407,6 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m37_inline_call_concat() { assert_eq!(compile_and_run("tests\\regression\\m37_inline_call_concat.xi"), Some(0)); }
 #[test] fn e2e_m37_else_if() { assert_eq!(compile_and_run("tests\\regression\\m37_else_if.xi"), Some(0)); }
 #[test] fn e2e_m37_contract_pass() { assert_eq!(compile_and_run("tests\\regression\\m37_contract_pass.xi"), Some(0)); }
+// BUG 22 #6: loop-body binding captured by a later unsafe block
+#[test] fn e2e_m37_loop_capture() { assert_eq!(compile_and_run("tests\\regression\\m37_loop_capture.xi"), Some(0)); }
 

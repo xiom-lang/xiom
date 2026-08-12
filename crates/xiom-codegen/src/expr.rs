@@ -2908,6 +2908,9 @@ impl IrEmitter {
                     let saved_output = std::mem::take(&mut self.output);
                     let saved_tmp = self.tmp_counter;
                     let saved_block = self.block_counter;
+                    // BUG 22 #6: isolate the hoisted-alloca list so the closure
+                    // splices only its own loop-body allocas.
+                    let saved_hoisted = std::mem::take(&mut self.local.hoisted_allocas);
                     self.tmp_counter = closure_id * 1000;
                     self.block_counter = closure_id * 1000;
                     self.push_scope();
@@ -2932,14 +2935,18 @@ impl IrEmitter {
                     let (ret_val, ret_ty) = self.compile_expr(body)?;
                     let result = self.val_to_i64(&ret_val, &ret_ty);
                     self.emitln(&format!("  ret i64 {}", result));
-                    self.emitln("}");
-                    self.pop_scope();
+                self.emitln("}");
+                // BUG 22 #6: splice loop-body-hoisted allocas into the block
+                // fn's entry block (before the buffer is taken).
+                self.finish_hoisted_allocas();
+                self.pop_scope();
                     
                     let closure_ir = std::mem::take(&mut self.output);
                     self.local.deferred_closure_defs.push(closure_ir);
                     self.output = saved_output;
                     self.tmp_counter = saved_tmp;
                     self.block_counter = saved_block;
+                    self.local.hoisted_allocas = saved_hoisted;
                     
                     // Emit env struct: { fn_ptr }
                     let env_def = format!("%struct.{env_name} = type {{ i64 }}\n");
@@ -3642,6 +3649,10 @@ impl IrEmitter {
                 let saved_match_ty = self.fctx.match_result_ty.take();
                 let saved_ensures = std::mem::take(&mut self.fctx.current_ensures);
                 let saved_in_block_fn = self.in_unsafe_block_fn;
+                // BUG 22 #6: the block fn and the enclosing fn share
+                // self.local — isolate the hoisted-alloca list so each fn
+                // splices only its own loop-body allocas into its own entry.
+                let saved_hoisted = std::mem::take(&mut self.local.hoisted_allocas);
                 self.in_unsafe_block_fn = true;
                 self.tmp_counter = unsafe_id * 1000;
                 self.block_counter = unsafe_id * 1000;
@@ -3734,6 +3745,9 @@ impl IrEmitter {
                     self.emitln(&format!("  ret i64 {ret_i64}"));
                 }
                 self.emitln("}");
+                // BUG 22 #6: splice loop-body-hoisted allocas into the block
+                // fn's entry block (before the buffer is taken).
+                self.finish_hoisted_allocas();
                 self.pop_scope();
 
                 let block_ir = std::mem::take(&mut self.output);
@@ -3747,6 +3761,7 @@ impl IrEmitter {
                 self.fctx.match_result_ty = saved_match_ty;
                 self.fctx.current_ensures = saved_ensures;
                 self.in_unsafe_block_fn = saved_in_block_fn;
+                self.local.hoisted_allocas = saved_hoisted;
 
                 // ---- At the block site: build ctx, call trampoline, branch ----
                 // Allocate + populate the ctx struct (stack), then call the
@@ -3760,9 +3775,12 @@ impl IrEmitter {
                         let gep = self.fresh_tmp();
                         self.emitln(&format!("  {gep} = getelementptr %struct.{ctx_name}, %struct.{ctx_name}* {ctx_slot}, i32 0, i32 {i}"));
                         if let Some((slot, ty)) = self.lookup_local(cap_name).cloned() {
-                            // Store the ADDRESS of the enclosing alloca into the
-                            // ctx field (pointer capture). The block fn loads AND
-                            // stores through it, so mutations write back.
+                            // BUG 22 #6: capture the ADDRESS of the enclosing
+                            // alloca directly (pointer capture — the block fn
+                            // loads AND stores through it, so mutations write
+                            // back). Loop-body binding allocas are HOISTED to
+                            // the fn entry by the binding codegen, so every
+                            // captured alloca dominates this site.
                             self.emitln(&format!("  store {ty}* {slot}, {ty}** {gep}"));
                         }
                     }
