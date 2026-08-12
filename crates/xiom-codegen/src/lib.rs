@@ -5011,6 +5011,23 @@ let inner_llvm = match &inner_subst {
                 return Some(enum_key.clone());
             }
         }
+        // NOTE 4 fix: module-qualified VARIANT form — `bigfloat.Down` (obj is
+        // the MODULE, the variant's parent enum is a type the module exports).
+        // Prefer an enum key whose module prefix matches; otherwise accept the
+        // first enum carrying the variant (deterministic registry order).
+        for (enum_key, vars) in self.types.enum_variants.entries() {
+            if vars.iter().any(|(v, _)| v == variant) {
+                let parent_mod = enum_key.rsplitn(2, '.').nth(1).unwrap_or("");
+                if parent_mod == type_seg {
+                    return Some(enum_key.clone());
+                }
+            }
+        }
+        for (enum_key, vars) in self.types.enum_variants.entries() {
+            if vars.iter().any(|(v, _)| v == variant) {
+                return Some(enum_key.clone());
+            }
+        }
         None
     }
 

@@ -2134,6 +2134,21 @@ impl Checker {
                         }
                     }
                     TopDecl::Module(md) => collect_referenced_names(&md.items, out),
+                    // BUG 25 #2 fix: a use declaration references its TARGET
+                    // leaf — the reachability filter must keep the aliased fn
+                    // (`use X.f as af; af(...)` kept abs_float alive, not just
+                    // the alias name "af").
+                    TopDecl::Use(ud) => {
+                        for p in &ud.path {
+                            out.insert(p.name.clone());
+                            if let Some(leaf) = p.name.rsplit('.').next() {
+                                out.insert(leaf.to_string());
+                            }
+                        }
+                        if let Some(alias) = &ud.alias {
+                            out.insert(alias.name.clone());
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -2866,6 +2881,19 @@ impl Checker {
         }
 
         let name = &path[path.len() - 1];
+        // NOTE 4 fix: module-qualified enum VARIANT access — `bigfloat.Down`
+        // — the variant's parent enum type must be one the module EXPORTS
+        // (e.g. bigfloat.RoundMode.Down also works via the Type export path).
+        if !current_exports.contains_key(name) {
+            let parent = self.enum_variants.get(name)
+                .or_else(|| self.resolve_enum_variant(name));
+            if let Some(parent_name) = parent {
+                let parent_leaf = parent_name.rsplit('.').next().unwrap_or(parent_name);
+                if current_exports.contains_key(parent_leaf) {
+                    return Some(CheckedType::Named(parent_name.clone()));
+                }
+            }
+        }
         let export = current_exports.get(name)?;
         Some(match export {
             ModuleExport::Function { is_pub, .. } => {

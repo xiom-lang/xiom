@@ -175,6 +175,18 @@ impl crate::Formatter {
                 self.buf.push_str("\");\n");
             }
             Stmt::Defer(_, _) => todo!(),
+            Stmt::Assert(cond, msg, _) => {
+                self.buf.push_str("assert(");
+                self.format_expr(cond);
+                if let Some(m) = msg {
+                    self.buf.push_str(", ");
+                    self.format_expr(m);
+                }
+                self.buf.push_str(");\n");
+            }
+            Stmt::Debugger(_) => {
+                self.buf.push_str("debugger;\n");
+            }
         }
     }
 }
