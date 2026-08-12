@@ -522,6 +522,10 @@ impl IrEmitter {
         self.emitln("declare i32 @printf(i8*, ...)");
         self.emitln("declare i32 @sprintf(i8*, i8*, ...)");
         self.emitln("declare i32 @puts(i8*)");
+        // BUG 22 #5: clean contract-violation termination (message to stderr,
+        // flush, exit code 1) — implemented in xiom_runtime.c; a bare @exit
+        // call would collide with the stdlib io module's extern decl.
+        self.emitln("declare void @xiom_panic(i8*)");
         self.emitln("declare void @llvm.trap()");
         self.emitln("@xiom_recursion_counter = internal thread_local global i64 0");
         self.emitln("declare i8* @malloc(i64)");
@@ -756,6 +760,11 @@ impl IrEmitter {
                     // NUL-termination helper). Must not be auto-stubbed — the
                     // runtime defines it, so a stub would duplicate the symbol.
                     && name != "xiom_str_from_vec"
+                    // BUG 22 #5: exit/fflush resolve to the C runtime or the
+                    // stdlib io module's extern decls; a stub would duplicate
+                    // the symbol at link time.
+                    && name != "exit"
+                    && name != "fflush"
             })
             .collect();
         if missing.is_empty() {

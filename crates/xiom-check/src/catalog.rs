@@ -143,7 +143,15 @@ impl ModuleCatalog {
 
     /// Returns all cached modules as owned clones (for snapshot iteration).
     pub fn all_cached(&self) -> Vec<CachedModule> {
-        self.cache.values().cloned().collect()
+        // BUG 23 #5 fix: deterministic ORDER — the cache is a HashMap, so
+        // iteration order is randomized per process. collect_external_decls
+        // walks this list to inject decls into the program; with random order
+        // the codegen's first-registered-wins symbol assignment for
+        // same-leaf-name fns (e.g. `_tridiagonal`) flipped per run, causing
+        // ~50% flaky "use of undefined value '@...'" compile failures.
+        let mut v: Vec<CachedModule> = self.cache.values().cloned().collect();
+        v.sort_by(|a, b| a.dotted_name.cmp(&b.dotted_name));
+        v
     }
 
     /// Scan source_dirs for a file whose declared module matches path_segments.

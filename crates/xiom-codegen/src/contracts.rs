@@ -44,7 +44,13 @@ impl super::IrEmitter {
         self.emitln(&format!("  {msg_ptr} = getelementptr [{len} x i8], [{len} x i8]* {label}, i64 0, i64 0",
             len = msg.len() + 1));
         self.emitln(&format!("  call i32 @puts(i8* {msg_ptr})"));
-        self.emitln("  call void @llvm.trap()");
+        // BUG 22 #5 fix (2026-08-12): a contract violation is a LOGIC error —
+        // fail FAST with the message visible and a clean exit code, not a
+        // hardware trap. The old `llvm.trap()` (ud2 → 0xC000001D) crashed the
+        // process with any buffered output lost, and inside unsafe blocks the
+        // VEH caught the trap as a recoverable "illegal instruction" fault,
+        // silently swallowing real contract violations.
+        self.emitln(&format!("  call void @xiom_panic(i8* {msg_ptr})"));
         self.emitln("  unreachable");
         self.emitln(&format!("\n{ok_label}:"));
     }
