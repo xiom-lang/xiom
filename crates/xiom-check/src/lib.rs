@@ -3541,7 +3541,34 @@ impl Checker {
                         }
                         left_ty // result type is the left operand type (promotion in Phase 1)
                     }
-                    BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
+                    BinOp::Eq | BinOp::Neq => {
+                        // BUG 24 fix: equality operand compatibility. A struct
+                        // compared with an INCOMPATIBLE scalar (BigFloat == 4)
+                        // silently lowered to a field-0 compare (miscompare /
+                        // silent corruption). Numbers coerce; same-type operands
+                        // (incl. structs — compared structurally in codegen)
+                        // are allowed; generic/wildcard operands defer to codegen.
+                        let numeric_family = |ty: &CheckedType| -> bool {
+                            ty.is_numeric() || matches!(ty, CheckedType::Char)
+                        };
+                        let is_generic_or_wild = |ty: &CheckedType| -> bool {
+                            if let CheckedType::Named(n) = ty {
+                                n == "_" || (n.len() == 1 && n.chars().next().map(|c| c.is_uppercase()).unwrap_or(false))
+                            } else { false }
+                        };
+                        let compatible = left_ty == right_ty
+                            || (numeric_family(&left_ty) && numeric_family(&right_ty))
+                            || is_generic_or_wild(&left_ty)
+                            || is_generic_or_wild(&right_ty);
+                        if !compatible {
+                            self.error(
+                                format!("cannot compare {} with {}", left_ty.name(), right_ty.name()),
+                                *span,
+                            );
+                        }
+                        CheckedType::Bool
+                    }
+                    BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
                         CheckedType::Bool
                     }
                     BinOp::And | BinOp::Or => {

@@ -1142,6 +1142,78 @@ impl IrEmitter {
                         let eq_result = self.fresh_tmp();
                         if self.types.functions.contains_key(&eq_fn) {
                             self.emitln(&format!("  {eq_result} = call i64 @{eq_fn}({lt} {l}, {rt} {r})"));
+                        } else if lt_is_struct && rt_is_struct && lt == rt {
+                            // BUG 24 fix: no derived `.eq` registered — compare
+                            // STRUCTURALLY over ALL fields instead of only field 0
+                            // (the old fallback compared `sign` for BigFloat ==
+                            // BigFloat — silent miscompare). Mirrors compile_eq_impl:
+                            // scalars icmp/oeq, nested structs via their derived eq.
+                            let l_a = self.fresh_tmp();
+                            let r_a = self.fresh_tmp();
+                            self.emitln(&format!("  {l_a} = alloca {lt}"));
+                            self.emitln(&format!("  store {lt} {l}, {lt}* {l_a}"));
+                            self.emitln(&format!("  {r_a} = alloca {rt}"));
+                            self.emitln(&format!("  store {rt} {r}, {rt}* {r_a}"));
+                            let mut acc: Option<String> = None;
+                            if let Some(meta) = self.types.type_meta.get(&struct_name.to_string()) {
+                                for (i, (_fname, _)) in meta.fields.iter().enumerate() {
+                                    let field_llvm = self.field_llvm_type(struct_name, i);
+                                    let lg = self.fresh_tmp(); let lv = self.fresh_tmp();
+                                    let rg = self.fresh_tmp(); let rv = self.fresh_tmp();
+                                    self.emitln(&format!("  {lg} = getelementptr {lt}, {lt}* {l_a}, i32 0, i32 {i}"));
+                                    self.emitln(&format!("  {lv} = load {field_llvm}, {field_llvm}* {lg}"));
+                                    self.emitln(&format!("  {rg} = getelementptr {rt}, {rt}* {r_a}, i32 0, i32 {i}"));
+                                    self.emitln(&format!("  {rv} = load {field_llvm}, {field_llvm}* {rg}"));
+                                    let mut cmp = self.fresh_tmp();
+                                    if field_llvm.starts_with("%struct.") {
+                                        let eq_fn = format!("{}.eq", &field_llvm[8..]);
+                                        if self.types.functions.contains_key(&eq_fn) {
+                                            self.emitln(&format!("  {cmp} = call i64 @{eq_fn}({field_llvm} {lv}, {field_llvm} {rv})"));
+                                        } else {
+                                            let pi = self.fresh_tmp();
+                                            self.emitln(&format!("  {pi} = icmp eq {field_llvm} {lv}, {rv}"));
+                                            let ze = self.fresh_tmp();
+                                            self.emitln(&format!("  {ze} = zext i1 {pi} to i64"));
+                                            cmp = ze;
+                                        }
+                                    } else if matches!(field_llvm.as_str(), "double" | "float" | "fp128") {
+                                        let fc = self.fresh_tmp();
+                                        self.emitln(&format!("  {fc} = fcmp oeq {field_llvm} {lv}, {rv}"));
+                                        let ze = self.fresh_tmp();
+                                        self.emitln(&format!("  {ze} = zext i1 {fc} to i64"));
+                                        cmp = ze;
+                                    } else {
+                                        let ic = self.fresh_tmp();
+                                        self.emitln(&format!("  {ic} = icmp eq {field_llvm} {lv}, {rv}"));
+                                        let ze = self.fresh_tmp();
+                                        self.emitln(&format!("  {ze} = zext i1 {ic} to i64"));
+                                        cmp = ze;
+                                    }
+                                    acc = Some(match acc {
+                                        None => cmp,
+                                        Some(prev) => {
+                                            let a = self.fresh_tmp();
+                                            self.emitln(&format!("  {a} = and i64 {prev}, {cmp}"));
+                                            a
+                                        }
+                                    });
+                                }
+                            }
+                            // Empty structs are trivially equal.
+                            let eq_result = match acc {
+                                Some(a) => a,
+                                None => {
+                                    let one = self.fresh_tmp();
+                                    self.emitln(&format!("  {one} = add i64 0, 1"));
+                                    one
+                                }
+                            };
+                            if matches!(op, BinOp::Neq) {
+                                let negated = self.fresh_tmp();
+                                self.emitln(&format!("  {negated} = xor i64 {eq_result}, 1"));
+                                return Ok((negated, LLVM_I64.to_string()));
+                            }
+                            return Ok((eq_result, LLVM_I64.to_string()));
                         } else {
                             // No derived `.eq` (e.g. builtin Ordering/Option enums):
                             // For Option/Result types, compare field 1 (the value)
@@ -2448,6 +2520,18 @@ impl IrEmitter {
                             return Ok((ptr_val, "i64".to_string()));
                         }
                         if slot_ty.starts_with("%struct.") {
+                            // BUG 24 fix: `&x` where x is ALREADY a reference
+                            // (pointer-typed local — a `&Vec[Float64]`/`&BigFloat`
+                            // param) is a DOUBLE-ADDRESS: the callee would read
+                            // the pointer SLOT as the struct (garbage → wrong
+                            // values / AVs, per-program-shape). Reject it so the
+                            // typo is a compile error, not silent corruption.
+                            if slot_ty.ends_with('*') {
+                                return Err(format!(
+                                    "cannot take a reference to '{}': it is already a reference (remove the leading '&')",
+                                    id.name
+                                ));
+                            }
                             return Ok((slot, format!("{slot_ty}*")));
                         }
                         // Only ptrtoint when the ident refers to a non-self local.
