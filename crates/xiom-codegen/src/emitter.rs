@@ -473,7 +473,28 @@ impl IrEmitter {
     /// Returns `false` when the last meaningful line is a bare label (a freshly
     /// opened, still-empty block) or a non-terminator instruction.
     pub(crate) fn current_block_terminated(&self) -> bool {
+        self.output_terminated(&self.output)
+    }
+
+    /// BUG 22 #1: the label of the block currently being emitted (the last
+    /// bare label line in the output). Used by the &&/|| short-circuit
+    /// lowering to name the phi predecessor after the RHS compiled its own
+    /// blocks (elem-load switches etc.).
+    pub(crate) fn current_block_label(&self) -> Option<String> {
         for line in self.output.lines().rev() {
+            let t = line.trim();
+            if t.is_empty() || t.starts_with(';') {
+                continue;
+            }
+            if t.ends_with(':') && !t.contains(' ') {
+                return Some(t.trim_end_matches(':').to_string());
+            }
+        }
+        None
+    }
+
+    fn output_terminated(&self, out: &str) -> bool {
+        for line in out.lines().rev() {
             let t = line.trim();
             if t.is_empty() || t.starts_with(';') {
                 continue;

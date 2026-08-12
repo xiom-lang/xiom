@@ -1016,6 +1016,76 @@ impl IrEmitter {
                     }
                 }
                 // Normal path (short chain or non-foldable operator)
+                // BUG 22 #1 fix: && / || MUST SHORT-CIRCUIT. The previous
+                // lowering compiled BOTH operands then bitwise-and'ed them,
+                // so a div-by-zero / fault in the RHS trapped even when the
+                // LHS already decided the result. Branch on the LHS and
+                // compile the RHS only in the block where it is needed.
+                if matches!(op, BinOp::And | BinOp::Or) {
+                    let is_or = matches!(op, BinOp::Or);
+                    let (l, lt) = self.compile_expr(left)?;
+                    let l_i1 = if lt == "i1" { l.clone() } else {
+                        let ne = self.fresh_tmp();
+                        self.emitln(&format!("  {ne} = icmp ne {lt} {l}, 0"));
+                        ne
+                    };
+                    let rhs_block = self.fresh_block("logic_rhs");
+                    let done_false = self.fresh_block("logic_done_false");
+                    let done_block = self.fresh_block("logic_done");
+                    // && : LHS false → skip RHS, result 0.
+                    // || : LHS true  → skip RHS, result 1.
+                    let skip_cond = if is_or {
+                        l_i1.clone()
+                    } else {
+                        let not = self.fresh_tmp();
+                        self.emitln(&format!("  {not} = xor i1 {l_i1}, true"));
+                        not
+                    };
+                    self.emitln(&format!("  br i1 {skip_cond}, label %{done_false}, label %{rhs_block}"));
+                    self.emitln(&format!("\n{rhs_block}:"));
+                    let (r, rt) = self.compile_expr(right)?;
+                    let r_i1 = if rt == "i1" { r.clone() } else {
+                        let ne = self.fresh_tmp();
+                        self.emitln(&format!("  {ne} = icmp ne {rt} {r}, 0"));
+                        ne
+                    };
+                    let rhs_res = self.fresh_tmp();
+                    self.emitln(&format!("  {rhs_res} = zext i1 {r_i1} to i64"));
+                    // The RHS may have emitted its own blocks (elem-load
+                    // switches, nested &&/||). Its LAST block must terminate
+                    // with a branch to %done so the phi below has a valid
+                    // predecessor. If the RHS's last block already terminated
+                    // (rare — only statement-like expressions), fall back to
+                    // unconditional evaluation (correct result, no
+                    // short-circuit) rather than emitting invalid IR.
+                    if !self.current_block_terminated() {
+                        let rhs_last = self.current_block_label().unwrap_or_else(|| rhs_block.clone());
+                        self.emitln(&format!("  br label %{done_block}"));
+                        self.emitln(&format!("\n{done_false}:"));
+                        self.emitln(&format!("  br label %{done_block}"));
+                        self.emitln(&format!("\n{done_block}:"));
+                        let phi = self.fresh_tmp();
+                        let skip_val = if is_or { "1" } else { "0" };
+                        self.emitln(&format!("  {phi} = phi i64 [ {skip_val}, %{done_false} ], [ {rhs_res}, %{rhs_last} ]"));
+                        return Ok((phi, LLVM_I64.to_string()));
+                    }
+                    // Fallback: RHS control flow already terminated — evaluate
+                    // both sides unconditionally (pre-BUG-22 semantics).
+                    let lw = if lt == "i64" { l.clone() } else {
+                        let ext = self.fresh_tmp();
+                        self.emitln(&format!("  {ext} = zext {lt} {l} to i64"));
+                        ext
+                    };
+                    let rw = if rt == "i64" { r.clone() } else {
+                        let ext = self.fresh_tmp();
+                        self.emitln(&format!("  {ext} = zext {rt} {r} to i64"));
+                        ext
+                    };
+                    let op_name = if is_or { "or" } else { "and" };
+                    let result = self.fresh_tmp();
+                    self.emitln(&format!("  {result} = {op_name} i64 {lw}, {rw}"));
+                    return Ok((result, LLVM_I64.to_string()));
+                }
                 let (mut l, mut lt) = self.compile_expr(left)?;
                 let (mut r, mut rt) = self.compile_expr(right)?;
                 let tmp = self.fresh_tmp();
