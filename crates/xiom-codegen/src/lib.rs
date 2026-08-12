@@ -1439,9 +1439,12 @@ impl IrEmitter {
             }
             Type::Ref(inner) => {
                 let inner_llvm = self.llvm_type_for(&Self::type_from_ast(inner)).unwrap_or_else(|_| "i64".to_string());
-                if inner_llvm.starts_with("%struct.")
-                    && !matches!(inner.as_ref(), Type::Vec(_) | Type::Slice(_) | Type::Map(_, _) | Type::Set(_))
-                {
+                if inner_llvm.starts_with("%struct.") {
+                    // BUG 23 #8 fix: &Vec[T]/&Slice[..]/&Map[..]/&Set[..] params
+                    // must pass the POINTER, like &mut Vec[T] already did. The
+                    // previous exclusion passed these BY VALUE, so a catalog fn
+                    // taking &Vec[T] mutated its own copy — push/realloc in the
+                    // callee never reached the caller's Vec (silent no-op).
                     format!("{inner_llvm}*")
                 } else {
                     inner_llvm
