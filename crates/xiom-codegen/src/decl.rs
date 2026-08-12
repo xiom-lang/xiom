@@ -857,6 +857,8 @@ impl IrEmitter {
         self.local.local_vec_elem.clear();
         self.local.local_opt_payload.clear();
         self.local.local_opt_payload_xiom.clear();
+        self.local.loop_depth = 0;
+        self.local.hoisted_allocas.clear();
         self.local.local_boxed_struct.clear();
         self.local.local_vec_handle.clear();
         self.local.signed_locals.clear();
@@ -1379,6 +1381,8 @@ impl IrEmitter {
         self.fctx.current_receiver = None;
         self.fctx.current_ensures.clear();
         self.fctx.result_ptr = None;
+        // BUG 22 #6: splice loop-body-hoisted allocas into the entry block.
+        self.finish_hoisted_allocas();
         // M20-A1: Emit any deferred closure function definitions
         self.flush_deferred_closures();
         Ok(())

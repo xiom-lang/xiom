@@ -225,7 +225,12 @@ impl IrEmitter {
                 if is_bool { self.local.bool_locals.insert(name.name.clone()); } else { self.local.bool_locals.remove(&name.name); }
                 if llvm_ty == "void" || val.is_empty() {
                     let alloca = self.fresh_tmp();
-                    self.emitln(&format!("  {alloca} = alloca i64"));
+                    // BUG 22 #6: loop-body binding allocas hoist to fn entry.
+                    if self.local.loop_depth > 0 {
+                        self.local.hoisted_allocas.push((alloca.clone(), "i64".to_string()));
+                    } else {
+                        self.emitln(&format!("  {alloca} = alloca i64"));
+                    }
                     self.emitln(&format!("  store i64 0, i64* {alloca}"));
                     self.add_local(&name.name, alloca, "i64");
                     return Ok(());
@@ -234,7 +239,12 @@ impl IrEmitter {
                 let store_val = self.zero_val_for(&store_val, &llvm_ty);
                 let alloca = self.fresh_tmp();
                 // D1: i128/fp128 allocas need 16-byte alignment on x86-64.
-                self.emitln(&format!("  {alloca} = alloca {llvm_ty}{}", self.alloca_align(&llvm_ty)));
+                // BUG 22 #6: loop-body binding allocas hoist to fn entry.
+                if self.local.loop_depth > 0 {
+                    self.local.hoisted_allocas.push((alloca.clone(), llvm_ty.clone()));
+                } else {
+                    self.emitln(&format!("  {alloca} = alloca {llvm_ty}{}", self.alloca_align(&llvm_ty)));
+                }
                 self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}{}", self.store_align(&llvm_ty)));
                 self.add_local(&name.name, alloca, &llvm_ty);
                 // Check invariants if the value is a struct with invariants
@@ -445,7 +455,12 @@ impl IrEmitter {
                 if is_bool { self.local.bool_locals.insert(name.name.clone()); } else { self.local.bool_locals.remove(&name.name); }
                 if llvm_ty == "void" || val.is_empty() {
                     let alloca = self.fresh_tmp();
-                    self.emitln(&format!("  {alloca} = alloca i64"));
+                    // BUG 22 #6: loop-body binding allocas hoist to fn entry.
+                    if self.local.loop_depth > 0 {
+                        self.local.hoisted_allocas.push((alloca.clone(), "i64".to_string()));
+                    } else {
+                        self.emitln(&format!("  {alloca} = alloca i64"));
+                    }
                     self.emitln(&format!("  store i64 0, i64* {alloca}"));
                     self.add_local(&name.name, alloca, "i64");
                     return Ok(());
@@ -453,7 +468,12 @@ impl IrEmitter {
                 let store_val = self.zero_val_for(&val, &llvm_ty);
                 let alloca = self.fresh_tmp();
                 // D1: i128/fp128 allocas need 16-byte alignment on x86-64.
-                self.emitln(&format!("  {alloca} = alloca {llvm_ty}{}", self.alloca_align(&llvm_ty)));
+                // BUG 22 #6: loop-body binding allocas hoist to fn entry.
+                if self.local.loop_depth > 0 {
+                    self.local.hoisted_allocas.push((alloca.clone(), llvm_ty.clone()));
+                } else {
+                    self.emitln(&format!("  {alloca} = alloca {llvm_ty}{}", self.alloca_align(&llvm_ty)));
+                }
                 self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}{}", self.store_align(&llvm_ty)));
                 self.add_local(&name.name, alloca, &llvm_ty);
                 // Check invariants if the value is a struct with invariants
@@ -1924,7 +1944,11 @@ impl IrEmitter {
                 self.emitln(&format!("  br i1 {cond_val}, label %{loop_body}, label %{loop_exit}"));
                 self.emitln(&format!("\n{loop_body}:"));
                 self.local.loop_stack.push((None, loop_cond.clone(), loop_exit.clone()));
+                // BUG 22 #6: bindings inside the body hoist their alloca to the
+                // fn entry (loop-body allocas don't dominate later blocks).
+                self.local.loop_depth += 1;
                 self.compile_block(body, false)?;
+                self.local.loop_depth -= 1;
                 self.local.loop_stack.pop();
                 self.emitln(&format!("  br label %{loop_cond}"));
                 self.emitln(&format!("\n{loop_exit}:"));
@@ -1985,7 +2009,11 @@ impl IrEmitter {
                 let label_name = label.as_ref().map(|l| l.name.clone());
                 self.local.loop_stack.push((label_name, loop_cond.clone(), loop_exit.clone()));
 
+                // BUG 22 #6: bindings inside the body hoist their alloca to the
+                // fn entry (loop-body allocas don't dominate later blocks).
+                self.local.loop_depth += 1;
                 self.compile_block(body, false)?;
+                self.local.loop_depth -= 1;
 
                 self.local.loop_stack.pop();
 

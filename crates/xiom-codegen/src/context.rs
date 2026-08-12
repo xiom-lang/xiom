@@ -281,6 +281,13 @@ pub struct LocalContext {
     pub local_array_elem: HashMap<String, String>,
     /// Fixed-size array-local bindings (var name -> N elements)
     pub local_array_sizes: HashMap<String, i64>,
+    /// BUG 22 #6: while/for nesting depth — bindings compiled at depth > 0
+    /// hoist their alloca to the fn entry (loop-body allocas do not dominate
+    /// later blocks, which broke unsafe-block ctx captures referencing them).
+    pub loop_depth: u32,
+    /// BUG 22 #6: (alloca_reg, llvm_ty) pairs hoisted from loop bodies —
+    /// spliced into the fn's entry block at fn end.
+    pub hoisted_allocas: Vec<(String, String)>,
     /// Local Vec bindings' declared element type name
     pub local_vec_elem: HashMap<String, String>,
     /// Option locals whose payload is a heap-boxed STRUCT pointer
