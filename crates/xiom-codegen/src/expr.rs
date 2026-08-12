@@ -807,6 +807,15 @@ impl IrEmitter {
                     // so expression-level tuples like (x, y) get proper struct types.
                     let elem_types: Vec<String> = items.iter()
                         .map(|i| {
+                            // BUG 23 #7 fix: prefer the REGISTERED XIOM type for
+                            // idents — infer_llvm_type erases Bool→i64, which named
+                            // (Bool, Bool) tuples "Tuple__Int__Int" and broke
+                            // cross-module Bool-tuple field access.
+                            if let Expr::Ident(id) = i {
+                                if let Some(xiom) = self.local.local_xiom_types.get(&id.name) {
+                                    return xiom.clone();
+                                }
+                            }
                             let t = self.infer_llvm_type(i);
                             IrEmitter::xiom_type_name_from_llvm(&t)
                         })
@@ -2053,7 +2062,14 @@ impl IrEmitter {
                     // struct directly from Vec data via memcpy, bypassing the
                     // ptrtoint/inttoptr chain of emit_elem_load+val_to_struct.
                     if let Some(elem_type_name) = self.resolve_vec_elem_type(container) {
-                        let struct_ty = format!("%struct.{elem_type_name}");
+                        // BUG 23 #2 fix: NESTED Vec[Vec[T]] — the element IS a
+                        // generic %struct.Vec (32 bytes); memcpy it like any
+                        // struct element so `m[i][j]` / `m[i].len()` work.
+                        let struct_ty = if elem_type_name.starts_with("Vec[") {
+                            "%struct.Vec".to_string()
+                        } else {
+                            format!("%struct.{elem_type_name}")
+                        };
                         let struct_alloca = self.fresh_tmp();
                         self.emitln(&format!("  {struct_alloca} = alloca {struct_ty}"));
                         let dst_i8 = self.fresh_tmp();

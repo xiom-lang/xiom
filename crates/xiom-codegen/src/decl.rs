@@ -801,6 +801,7 @@ impl IrEmitter {
         self.local.ptr_locals.clear();
         self.local.local_vec_elem.clear();
         self.local.local_opt_payload.clear();
+        self.local.local_opt_payload_xiom.clear();
         self.local.local_boxed_struct.clear();
         self.local.local_vec_handle.clear();
         self.local.signed_locals.clear();
@@ -1405,6 +1406,13 @@ impl IrEmitter {
             TopDecl::Fn(fd) => {
                 if let Some(ref body) = fd.body {
                     let mut vars: HashMap<String, String> = HashMap::new();
+                    // BUG 23 #7 fix: seed the tuple-scan variable map from the
+                    // fn's PARAM types — `fn mk_bb(b1: Bool, b2: Bool) -> (Bool, Bool)`
+                    // previously registered Tuple__Int__Int (params defaulted to
+                    // "Int" in the scan), mis-typing every cross-module Bool tuple.
+                    for p in &fd.params {
+                        vars.insert(p.name.name.clone(), Self::type_from_ast(&p.ty));
+                    }
                     Self::scan_block_for_tuples(&mut self.types, body, &mut vars);
                 }
             }

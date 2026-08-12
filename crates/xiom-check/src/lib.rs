@@ -3364,6 +3364,21 @@ impl Checker {
     // Expression type checking
     // ========================================================================
 
+    /// BUG 23 #7 fix: derive the field map of a tuple type name
+    /// ("Tuple__Bool__Bool" → {_0: Bool, _1: Bool}). Tuple types only register
+    /// at tuple-EXPRESSION check sites; catalog fn returns never did.
+    fn tuple_fields_from_name(name: &str) -> Option<HashMap<String, CheckedType>> {
+        let rest = name.strip_prefix("Tuple__")?;
+        let parts: Vec<&str> = rest.split("__").collect();
+        if parts.len() < 2 {
+            return None;
+        }
+        let map = parts.iter().enumerate()
+            .map(|(i, p)| (format!("_{i}"), CheckedType::from_str(p)))
+            .collect();
+        Some(map)
+    }
+
     fn check_expr(&mut self, expr: &Expr) -> CheckedType {
         match expr {
             Expr::Ident(ident) => {
@@ -3452,7 +3467,13 @@ impl Checker {
                 let inner_ty = self.check_expr(inner);
                 match op {
                     UnaryOp::Neg => {
-                        if !inner_ty.is_numeric() {
+                        // BUG 22 #2 fix: match-bound payload vars (Some(d)/Ok(v))
+                        // use the wildcard convention (Gap D) — codegen resolves
+                        // the concrete type. Negation must defer like `Not` and
+                        // method dispatch do, instead of rejecting "_".
+                        if !inner_ty.is_numeric()
+                            && !matches!(&inner_ty, CheckedType::Named(n) if n == "_")
+                        {
                             self.error(format!("cannot negate type {}", inner_ty.name()), *span);
                         }
                         inner_ty
@@ -3618,6 +3639,15 @@ impl Checker {
                                 // Known type with no registered fields (builtin) â€” allow access
                                 CheckedType::Int
                             }
+                        } else if let Some(tuple_fields) = Self::tuple_fields_from_name(name) {
+                            // BUG 23 #7 fix: tuples RETURNED by catalog fns never
+                            // register their field maps (only tuple EXPRESSIONS do
+                            // at check time). Derive "Tuple__A__B" → {_0: A, _1: B}
+                            // and register on first field access, so cross-module
+                            // `t.0` / `t.1` type-check instead of degrading to
+                            // <error> (which broke `!t.0`, `240 * t.1`, ...).
+                            self.types.insert(name.clone(), tuple_fields.clone());
+                            tuple_fields.get(&field.name).cloned().unwrap_or(CheckedType::Error)
                         } else {
                             CheckedType::Error // unknown type
                         }

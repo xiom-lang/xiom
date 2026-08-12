@@ -1580,6 +1580,11 @@ impl IrEmitter {
             Expr::Field(_, f, _) => f.name.clone(),
             _ => return None,
         };
+        if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
+            let hits: Vec<(String, String)> = self.types.fn_return_xiom.entries().into_iter()
+                .filter(|(k, _)| k.contains(&leaf)).collect();
+            eprintln!("[retxiom] leaf={leaf} keys: {hits:?}");
+        }
         if let Some(rt) = self.types.fn_return_xiom.get(&leaf) {
             return Some(rt.clone());
         }
@@ -1608,6 +1613,15 @@ impl IrEmitter {
         self.local.local_boxed_struct.remove(name);
         self.local.local_vec_handle.remove(name);
         self.local.local_err_payload.remove(name);
+        self.local.local_opt_payload_xiom.remove(name);
+
+        // BUG 22 #4 fix: track the SCALAR XIOM payload type of Some/Ok/Err
+        // bindings (`var o = Some(5.0)` → "Float64"). Some(5.0) stores the
+        // double BITS in the i64 payload slot; match extraction needs to
+        // know to bitcast back (float payloads read as raw i64 otherwise).
+        if let Some(payload_xiom) = self.ctor_payload_xiom(value) {
+            self.local.local_opt_payload_xiom.insert(name.to_string(), payload_xiom);
+        }
 
         // M18: Detect struct payload types from inline `Some(..)` and `Ok(..)`
         // constructors. When `var opt = Some(Ok(77))` has no type annotation,
@@ -1675,10 +1689,32 @@ impl IrEmitter {
         }
     }
 
+    /// BUG 22 #4 fix: infer the SCALAR XIOM payload type of a Some/Ok/Err
+    /// constructor expression (Float64 for Some(5.0), Int for Some(1),
+    /// Str for Some("x"), Idents resolve via the registered local type,
+    /// nested ctors recurse). Struct payloads return None (boxed path).
+    fn ctor_payload_xiom(&self, value: &Expr) -> Option<String> {
+        let inner = match value {
+            Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _) => e.as_ref(),
+            _ => return None,
+        };
+        match inner {
+            Expr::Float(..) => Some("Float64".to_string()),
+            Expr::Int(..) => Some("Int".to_string()),
+            Expr::Bool(..) => Some("Bool".to_string()),
+            Expr::Str(..) => Some("Str".to_string()),
+            Expr::Char(..) => Some("Char".to_string()),
+            Expr::Ident(id) => self.local.local_xiom_types.get(&id.name).cloned(),
+            Expr::Some(..) | Expr::Ok(..) | Expr::Err(..) => self.ctor_payload_xiom(inner),
+            Expr::Paren(e, _) => self.ctor_payload_xiom(e),
+            _ => None,
+        }
+    }
+
     /// M18: Determine the XIOM struct type name for the payload of a `Some(..)`
     /// or `Ok(..)` constructor expression. Returns the type name if the inner
     /// expression is a struct-producing expression, otherwise `None`.
-    /// E.g. `Some(Ok(77))` Ã¢â€ â€™ `Some("Result")` because the Some payload is
+    /// E.g. `Some(Ok(77))` â€' `Some("Result")` because the Some payload is
     /// an `Ok(77)` which produces a `Result` struct.
     fn struct_ctor_type_name(expr: &Expr) -> Option<String> {
         match expr {
@@ -1744,7 +1780,17 @@ impl IrEmitter {
                                             return Some(format!("Tuple__{}", parts.join("__")));
                                         }
                                     }
-                                    _ => {}
+                                    // BUG 23 #2 fix: NESTED generic arg
+                                    // (`Vec[Vec[Int]].new()`) — the type arg is itself
+                                    // an Index expression; render it to "Vec[Int]" so
+                                    // the element type and size resolve correctly.
+                                    _ => {
+                                        let span = b.span;
+                                        let rendered = Self::type_arg_to_name(&Expr::Index(base.clone(), idx.clone(), span));
+                                        if rendered != "Int" {
+                                            return Some(rendered);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1820,6 +1866,12 @@ impl IrEmitter {
         // 5c.30: local Vec bindings (`var v = Vec[Float32].new()`) and
         // container-handle bindings.
         if let Expr::Ident(id) = container {
+            if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
+                eprintln!("[vecfloat] ident={} local_vec_elem={:?} local_vec_handle={:?}",
+                    id.name,
+                    self.local.local_vec_elem.get(&id.name),
+                    self.local.local_vec_handle.get(&id.name));
+            }
             if let Some(elem) = self.local.local_vec_elem.get(&id.name)
                 .or_else(|| self.local.local_vec_handle.get(&id.name))
             {
@@ -1865,6 +1917,12 @@ impl IrEmitter {
                 .or_else(|| self.local.local_vec_handle.get(&id.name))?;
             if matches!(elem.as_str(), "Int" | "Bool" | "Str" | "Float64" | "Float32" | "UInt8" | "Int8" | "Int16" | "Int32" | "UInt16" | "UInt32" | "Char" | "Float") {
                 return None;
+            }
+            // BUG 23 #2 fix: NESTED Vec elements (`Vec[Vec[T]]`, `Vec[Vec[Int]]`)
+            // have no dedicated struct key — the element IS the generic %struct.Vec.
+            // Return the generic-args name so the index site can load it as a Vec.
+            if elem.starts_with("Vec[") {
+                return Some(elem.clone());
             }
             return self.types.types.keys().into_iter()
     .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem);
@@ -2130,6 +2188,13 @@ impl IrEmitter {
     fn struct_byte_size_depth(&self, type_name: &str, depth: u32) -> i64 {
         if depth > 8 {
             return 8;
+        }
+        // BUG 23 #2 fix: NESTED Vec[...] element names have no type_meta entry
+        // (the element IS the generic %struct.Vec — 4 × i64 = 32 bytes). Without
+        // this, Vec[Vec[T]] allocated its elements at 8 bytes each, truncating
+        // every inner Vec to its data pointer and corrupting m[i][j] reads.
+        if type_name.starts_with("Vec[") && type_name.ends_with(']') {
+            return 32;
         }
         let meta = self.types.type_meta.get(&type_name.to_string())
             .or_else(|| {
