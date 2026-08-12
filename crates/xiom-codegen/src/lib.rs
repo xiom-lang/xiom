@@ -1997,7 +1997,11 @@ impl IrEmitter {
             if let Some(rest) = type_name.strip_prefix('[') {
                 if let Some(x_pos) = rest.find(" x ") {
                     let n_str = rest[..x_pos].trim();
-                    let elem_name = rest[x_pos + 3..].trim();
+                    // BUG 24 fix: strip the CLOSING bracket from the element
+                    // name — "[10 x Int]" produced elem "Int]" (unknown type →
+                    // i64 degradation → corrupted fixed-array locals like
+                    // bigint's `var digits: [10]Int`).
+                    let elem_name = rest[x_pos + 3..].trim_end_matches(']').trim();
                     let elem_llvm = self.llvm_type_for(elem_name)
                         .unwrap_or_else(|_| Self::xiom_to_llvm_type(elem_name).to_string());
                     // Literal integer size (e.g. [4 x i64]).
