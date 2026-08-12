@@ -935,13 +935,85 @@ the pre-fix build.
    root)
 9. Module-name vs fn-name collision — DESIGN (keep-first alias rule
    documented; smokes split) — no change
-10. `xiom.crypto` _pkcs7_pad undefined + pure-XIOM SHA-256 — **PRE-EXISTING,
-    queued** (crypto.xi's private `_pkcs7_pad` call link issue — the fn's
-    body emission vs the bare-symbol resolution; needs a dedicated session)
+10. `xiom.crypto` _pkcs7_pad undefined + pure-XIOM SHA-256 — **FIXED 2026-08-13**
+    (see the dedicated section below — root cause was a chain of 6 defects,
+    incl. an unsupported `[0; 16]` array literal and a transposed AES
+    add-round-key mapping; crypto module now imports, all 25 crypto smokes
+    pass, AES verified against FIPS-197 Appendix B + C.2)
 11. Private fns leak via `use` — **FIXED** (export maps exclude private fns;
     bare-call resolution has a visibility gate: pub fns, same-module fns,
     and top-level fns only) — pheap_merge probe now errors "undefined"
 12. Spurious E001 borrow warnings — benign (matches pre-existing), no change
+
+## 2026-08-13 — BUG 25 #10 RESOLVED: xiom.crypto unimportable (`_pkcs7_pad` link failure)
+
+**Symptom:** `use xiom.crypto;` + any call ? clang "use of undefined value
+'@_pkcs7_pad'" with a degraded `call i64 @_pkcs7_pad(i64 0)` stub; the whole
+module was unusable. Root cause was a CHAIN of independent defects (each
+verified with a minimal repro before fixing):
+
+1. **Unsupported `[0; 16]` array-repeat literal** (stdlib, crypto.xi:1461):
+   the parser errors "expected ']', found ;" at `var ct_buf: [16]UInt8 =
+   [0; 16];`, then error-recovers by treating the REST of `aes_encrypt`'s
+   body as top-level items — `var padded = _pkcs7_pad(plaintext)` became a
+   module-global with a BUG 3 ctor that called the never-emitted private
+   `_pkcs7_pad` (i64 0 stub). Not spec syntax (AI_CONTEXT.md documents only
+   `[a, b, c]` and `[]`); fixed in the stdlib with the zero-init declaration
+   form. **Fix: stdlib.**
+2. **`&fixed_arr[i] as *UInt8` lowered to value-load + inttoptr** (codegen,
+   expr.rs Expr::Ref arm): the Ref arm handled Ident and Vec-Index but not
+   FIXED-ARRAY Index — `&ct_buf[0] as *UInt8` loaded the BYTE (0) and
+   inttoptr'd the VALUE ? ciphertext pointer NULL ? 0xC0000005 in the AES-NI
+   FFI call. **Fix: GEP element-address case for `[N x T]` slot types.**
+3. **Checker rejected `&x as *T` in user modules** ("unsupported type cast:
+   UInt8 to *UInt8") while catalog bodies bypassed checking entirely —
+   user-side FFI with the same idiom failed to compile. **Fix: reference-to-
+   pointer cast rule (unsafe-gated).**
+4. **Match-bound Vec payloads bound as i64 heap HANDLES** (codegen, stmt.rs
+   match arm): `Ok(ciphertext) => aes_decrypt(&key, &ciphertext)` passed the
+   address of the HANDLE SLOT as `%struct.Vec*` ? callee read garbage
+   (len=1 vs 2; contract violations; AV). **Fix: re-materialize a real
+   `%struct.Vec` local (inttoptr + load volatile) at the binding site.**
+5. **Private struct types used only as LOCALS in catalog fn bodies degrade
+   to i64** (checker): BUG 9's injection covers fn signatures only; aes.xi's
+   AesState/StateHolder/KeyExpState (locals of private fns) never reached
+   codegen — the struct var became one i64 slot and constructor zero-stores
+   clobbered field reads mid-construction (wrong key schedule, rcon
+   contract violations). **Fix: scan injected fn BODIES for struct-literal /
+   annotated-var names and run the existing transitive type walk.**
+6. **Const fixed-array element reads returned the LENGTH slot** (codegen,
+   expr.rs Index arm): `const _AES_SBOX: [256]UInt8 = [...]` substituted to
+   an array buffer but `_AES_SBOX[i]` read buf[0]=256 as the first element —
+   the whole AES S-box lookup was garbage. **Fix: const-substituted
+   Expr::Array idents join the array-buffer path (index+1).**
+7. **aes.xi `aes_add_round_key` transposed key mapping** (stdlib): sXY read
+   `rk[4X+Y]` instead of the AES column-major `rk[4Y+X]` — self-consistent
+   encrypt?decrypt but NOT FIPS-197 (verified with Appendix B: expected
+   69c4e0d8..., got 37f0d10c...). **Fix: correct index mapping.**
+8. **AES-NI C decrypt used forward-schedule keys with `aesdec`** (runtime,
+   xiom_runtime.c): hardware decryption requires the aesimc-transformed
+   inverse schedule for middle rounds. **Fix: `_mm_aesimc_si128` on rounds
+   1..n-1** (kept for correctness of the hardware decrypt entry point).
+9. **crypto.xi aes_encrypt/aes_decrypt declared `requires` contracts on
+   graceful-fallback fns** — bad-key calls TRAPPED instead of returning Err
+   (documented stdlib rule BUG 22 #5: no contracts on fallback fns).
+   **Fix: contracts removed; bodies validate.**
+
+**Verification (isolated binary):** smoke_crypto, smoke_crypto_known_vectors,
+ALL 25 smoke*crypto*.xi smokes (roundtrip, GCM, bad-key, sha256/512, md5,
+blake3, hmac, pbkdf2, hash vectors, secure random, constant-time compare,
+RSA keypair 24-bit) — 25/25 R=0. FIPS-197 Appendix B (AES-128) and C.2
+(AES-192) exact match through BOTH aes.xi's AesState implementation and
+crypto.xi's byte-oriented implementation; AES-NI hardware encrypt +
+software decrypt roundtrip recovers the plaintext. Regression sweep
+34/34 (3 new tests: m37_const_array, m37_payload_ref, m37_ptr_cast),
+checker 178/178, workspace zero warnings.
+
+**Remaining (documented, not blocking):** the 6 M22 stress smokes that used
+`Vec.get(idx)` were adapted to indexing (`.get` is not a Vec builtin — the
+checker resolves it to a Box-typed get; "expected Box, found Int"). The
+tuple-pattern `Ok((a, b))` checker simplification (binds Int) remains —
+documented workaround: `.0`/`.1` field access (applied to the GCM smoke).
 
 ## 2026-08-13 — LANGUAGE features (all implemented + tested, commits `dd6a31cd`/`4c439e6a`)
 - **BUG 26 (secure numeric policy)**: INT ? FLOAT mixing in arithmetic,
