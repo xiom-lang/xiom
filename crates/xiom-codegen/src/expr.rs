@@ -2179,7 +2179,16 @@ impl IrEmitter {
                 // buffer that wasn't interned as a C string.
                 let is_array_buf = cont_ty == "i8*" && (
                     matches!(container.as_ref(), Expr::Array(..))
-                    || (if let Expr::Ident(ident) = container.as_ref() { self.local.array_locals.contains(&ident.name) } else { false })
+                    || (if let Expr::Ident(ident) = container.as_ref() {
+                        self.local.array_locals.contains(&ident.name)
+                            // BUG 25 #10 (crypto): CONST fixed arrays
+                            // (`const _AES_SBOX: [256]UInt8 = [...]`) substitute
+                            // to an Expr::Array buffer at read sites but are NOT
+                            // in array_locals — without this, `_AES_SBOX[i]`
+                            // read the LENGTH slot (buf[0]) as the first element
+                            // and the whole AES S-box lookup returned garbage.
+                            || self.local.constants.get(&ident.name).map_or(false, |v| matches!(v, Expr::Array(..)))
+                    } else { false })
                 );
                 if is_array_buf {
                     let base_ptr = self.fresh_tmp();
@@ -2566,6 +2575,37 @@ impl IrEmitter {
                         let ptr_val = self.fresh_tmp();
                         self.emitln(&format!("  {ptr_val} = ptrtoint i8* {elem_ptr} to i64"));
                         return Ok((ptr_val, LLVM_I64.to_string()));
+                    }
+                }
+                // BUG 25 #10 (crypto AES-NI follow-up): `&arr[i]` on a FIXED
+                // ARRAY local (`[N]T` — slot type `[16 x i8]`) must return the
+                // element ADDRESS (GEP), not the loaded element value. The
+                // generic fallback compiled the Index as a VALUE, which the
+                // `as *T` cast then inttoptr'd (the byte value 0 became the
+                // NULL ciphertext pointer → 0xC0000005 in crypto's AES-NI FFI
+                // call). Mirrors the Vec element-address path above.
+                if let Expr::Index(container, index, _) = inner.as_ref() {
+                    if let Expr::Ident(id) = container.as_ref() {
+                        if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
+                            if slot_ty.starts_with('[') && !slot_ty.ends_with('*') {
+                                let (idx_raw, idx_ty) = self.compile_expr(index)?;
+                                let idx = self.val_to_i64(&idx_raw, &idx_ty);
+                                let gep = self.fresh_tmp();
+                                self.emitln(&format!(
+                                    "  {gep} = getelementptr {slot_ty}, {slot_ty}* {slot}, i64 0, i64 {idx}"
+                                ));
+                                // GEP result type is the ELEMENT pointer:
+                                // `[16 x i8]` → `i8*`.
+                                let elem_ty = slot_ty
+                                    .rsplit_once(" x ")
+                                    .map(|(_, t)| t.trim_end_matches(']'))
+                                    .unwrap_or("i8")
+                                    .to_string();
+                                let ptr_val = self.fresh_tmp();
+                                self.emitln(&format!("  {ptr_val} = ptrtoint {elem_ty}* {gep} to i64"));
+                                return Ok((ptr_val, LLVM_I64.to_string()));
+                            }
+                        }
                     }
                 }
                 // &x: return a pointer to x's storage.

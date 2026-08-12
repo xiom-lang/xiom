@@ -1541,12 +1541,34 @@ impl IrEmitter {
                                             }
                                         }
                                     }
+                                    // BUG 25 #10 (crypto AES-NI follow-up): when the
+                                    // payload is a Vec container stored as an i64
+                                    // heap HANDLE in the Option/Result slot, bind a
+                                    // REAL %struct.Vec local (inttoptr + load) instead
+                                    // of the raw handle. A handle-typed binding made
+                                    // `&v` (Ref arm) take the ADDRESS OF THE HANDLE
+                                    // SLOT, so passing the match-bound payload to a
+                                    // `&Vec[T]` param read garbage (len=1 vs 2) and
+                                    // crypto's aes_decrypt(&key, &ciphertext) crashed.
+                                    let payload_xiom = self.field_xiom_type(type_name, field_idx as usize);
+                                    if field_llvm_ty == "i64" {
+                                        if let Some(pt) = &payload_xiom {
+                                            if pt.starts_with("Vec[") || pt.contains(".Vec") || pt.ends_with("]Vec") {
+                                                let vp = self.fresh_tmp();
+                                                self.emitln(&format!("  {vp} = inttoptr i64 {bind_val} to %struct.Vec*"));
+                                                let vl = self.fresh_tmp();
+                                                self.emitln(&format!("  {vl} = load volatile %struct.Vec, %struct.Vec* {vp}"));
+                                                bind_val = vl;
+                                                field_llvm_ty = "%struct.Vec".to_string();
+                                            }
+                                        }
+                                    }
                                     let inner_alloca = self.fresh_tmp();
                                     self.emitln(&format!("  {inner_alloca} = alloca {field_llvm_ty}"));
                                     self.emitln(&format!("  store {field_llvm_ty} {bind_val}, {field_llvm_ty}* {inner_alloca}"));
                                     self.add_local(&ident.name, inner_alloca, &field_llvm_ty);
                                     // Track XIOM type for method dispatch (e.g. Str.len())
-                                    if let Some(xiom_ty) = self.field_xiom_type(type_name, field_idx as usize) {
+                                    if let Some(xiom_ty) = payload_xiom {
                                         self.local.local_xiom_types.insert(ident.name.clone(), xiom_ty);
                                     }
                                 }
@@ -1849,6 +1871,21 @@ impl IrEmitter {
                                         self.emitln(&format!("  {f} = bitcast i32 {t32} to float"));
                                         (f, "float".to_string())
                                     }
+                                    // Vec payload: the i64 is a heap HANDLE to the
+                                    // boxed Vec header (5c.28h). Bind a REAL
+                                    // %struct.Vec local (inttoptr + load) instead
+                                    // of the raw handle: handle-typed bindings made
+                                    // `&v` (Ref arm) take the address OF THE HANDLE
+                                    // SLOT, so passing a match-bound payload to a
+                                    // `&Vec[T]` param read garbage (m37 crypto
+                                    // roundtrip: len=1 vs 2, aes_decrypt 0xC0000005).
+                                    Some(decl) if field_ty == "i64" && (decl.starts_with("Vec[") || decl.contains(".Vec")) => {
+                                        let vp = self.fresh_tmp();
+                                        self.emitln(&format!("  {vp} = inttoptr i64 {loaded} to %struct.Vec*"));
+                                        let vl = self.fresh_tmp();
+                                        self.emitln(&format!("  {vl} = load volatile %struct.Vec, %struct.Vec* {vp}"));
+                                        (vl, "%struct.Vec".to_string())
+                                    }
                                     // Struct payload: the i64 is a heap pointer to a
                                     // boxed struct (Option/Result/enum). Load the struct
                                     // so nested match dispatch works.
@@ -1891,12 +1928,15 @@ impl IrEmitter {
                                 self.emitln(&format!("  {field_alloca} = alloca {bind_ty_inner}"));
                                 self.emitln(&format!("  store {bind_ty_inner} {bind_val_inner}, {bind_ty_inner}* {field_alloca}"));
                                 self.add_local(&ident.name, field_alloca, &bind_ty_inner);
-                                // Vec[T] payloads are container HANDLES: register so
-                                // len/push/index dereference the boxed Vec header.
+                                // Vec[T] payloads bound as i64 handles are registered
+                                // for handle deref; a %struct.Vec binding needs no
+                                // handle registration (all consumers use it directly).
                                 self.local.local_vec_handle.remove(&ident.name);
-                                if let Some(decl_ty) = declared.as_deref() {
-                                    if let Some(elem) = decl_ty.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
-                                        self.local.local_vec_handle.insert(ident.name.clone(), elem.to_string());
+                                if bind_ty_inner == "i64" {
+                                    if let Some(decl_ty) = declared.as_deref() {
+                                        if let Some(elem) = decl_ty.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
+                                            self.local.local_vec_handle.insert(ident.name.clone(), elem.to_string());
+                                        }
                                     }
                                 }
                             }
