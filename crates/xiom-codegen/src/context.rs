@@ -276,6 +276,11 @@ pub struct LocalContext {
     pub local_vec_elem: HashMap<String, String>,
     /// Option locals whose payload is a heap-boxed STRUCT pointer
     pub local_opt_payload: HashMap<String, String>,
+    /// BUG 22 #4 fix: the SCALAR XIOM payload type of a Some/Ok/Err binding
+    /// (`var o = Some(5.0)` → "Float64"). Some(5.0) stores the DOUBLE BITS in
+    /// the i64 payload slot; the match extraction must bitcast back. Struct
+    /// payloads stay in local_opt_payload (boxed); scalars land here.
+    pub local_opt_payload_xiom: HashMap<String, String>,
     /// i64 locals holding a heap-boxed struct pointer
     pub local_boxed_struct: HashMap<String, String>,
     /// Locals holding an i64 CONTAINER HANDLE (pointer to boxed Vec header)

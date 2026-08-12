@@ -283,11 +283,23 @@ impl IrEmitter {
                     // 5c.39: Inherit Vec element type for Var binding
                     let inherited = match value {
                         Expr::Ident(id) => self.local.local_vec_elem.get(&id.name).cloned(),
-                        Expr::Call(_, args, _) | Expr::GenericCall(_, _, args, _) => {
-                            args.first().and_then(|a| {
+                        Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => {
+                            // BUG 23 #1 fix: inherit from the callee's DECLARED
+                            // return type as well as from the first argument —
+                            // `var v = module.mk_vecf()` (catalog fn returning
+                            // Vec[Float64]) must register "Float64", otherwise
+                            // v[i] element reads degrade to the elem_size switch
+                            // (raw bit-pattern garbage for float elements). The
+                            // let-path had this fallback; the var-path did not.
+                            let from_arg = args.first().and_then(|a| {
                                 if let Expr::Ident(id) = a {
                                     self.local.local_vec_elem.get(&id.name).cloned()
                                 } else { None }
+                            });
+                            from_arg.or_else(|| {
+                                self.callee_return_xiom(func).and_then(|rt| {
+                                    rt.strip_prefix("Vec[").and_then(|rest| rest.strip_suffix(']')).map(|e| e.to_string())
+                                })
                             })
                         }
                         // M33: Array literal bound to Var — keep the element
@@ -1478,12 +1490,40 @@ impl IrEmitter {
                                 if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
                                     let gep = self.fresh_tmp();
                                     self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {field_idx}"));
-                                    let field_llvm_ty = self.field_llvm_type(type_name, field_idx as usize);
+                                    let mut field_llvm_ty = self.field_llvm_type(type_name, field_idx as usize);
                                     let loaded = self.fresh_tmp();
                                     self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+                                    // BUG 22 #4 fix: Some(5.0)/Ok(2.5) store the
+                                    // FLOAT BITS in the i64 payload slot — bitcast
+                                    // back when the payload's XIOM type is a float,
+                                    // so match-bound vars carry real doubles/floats
+                                    // (unary minus / arithmetic on them was garbage).
+                                    let scrutinee_name = if let Expr::Ident(sid) = expr_match { Some(sid.name.clone()) } else { None };
+                                    if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
+                                        eprintln!("[matchpay] scrutinee={scrutinee_name:?} field_llvm_ty={field_llvm_ty} payload_xiom={:?}",
+                                            scrutinee_name.as_ref().and_then(|n| self.local.local_opt_payload_xiom.get(n)));
+                                    }
+                                    let mut bind_val = loaded.clone();
+                                    if field_llvm_ty == "i64" {
+                                        if let Some(px) = scrutinee_name.as_ref().and_then(|n| self.local.local_opt_payload_xiom.get(n)) {
+                                            if px == "Float64" {
+                                                let bc = self.fresh_tmp();
+                                                self.emitln(&format!("  {bc} = bitcast i64 {loaded} to double"));
+                                                bind_val = bc;
+                                                field_llvm_ty = "double".to_string();
+                                            } else if px == "Float32" {
+                                                let t32 = self.fresh_tmp();
+                                                self.emitln(&format!("  {t32} = trunc i64 {loaded} to i32"));
+                                                let bc = self.fresh_tmp();
+                                                self.emitln(&format!("  {bc} = bitcast i32 {t32} to float"));
+                                                bind_val = bc;
+                                                field_llvm_ty = "float".to_string();
+                                            }
+                                        }
+                                    }
                                     let inner_alloca = self.fresh_tmp();
                                     self.emitln(&format!("  {inner_alloca} = alloca {field_llvm_ty}"));
-                                    self.emitln(&format!("  store {field_llvm_ty} {loaded}, {field_llvm_ty}* {inner_alloca}"));
+                                    self.emitln(&format!("  store {field_llvm_ty} {bind_val}, {field_llvm_ty}* {inner_alloca}"));
                                     self.add_local(&ident.name, inner_alloca, &field_llvm_ty);
                                     // Track XIOM type for method dispatch (e.g. Str.len())
                                     if let Some(xiom_ty) = self.field_xiom_type(type_name, field_idx as usize) {
@@ -1759,11 +1799,15 @@ impl IrEmitter {
                             self.emitln(&format!("  {loaded} = load {field_ty}, {field_ty}* {val_gep}"));
                             if let Pattern::Ident(ident) = inner {
                                 // Declared payload type from scrutinee tracking
+                                // (BUG 22 #4: scalar float payloads come from
+                                // local_opt_payload_xiom — `var o = Some(5.0)` —
+                                // struct payloads from local_opt_payload).
                                 let declared: Option<String> = if let Expr::Ident(sid) = expr_match {
                                     if val_field == 2 {
                                         self.local.local_err_payload.get(&sid.name).cloned()
                                     } else {
                                         self.local.local_opt_payload.get(&sid.name).cloned()
+                                            .or_else(|| self.local.local_opt_payload_xiom.get(&sid.name).cloned())
                                     }
                                 } else { None };
 
@@ -1777,6 +1821,13 @@ impl IrEmitter {
                                         let f = self.fresh_tmp();
                                         self.emitln(&format!("  {f} = bitcast i64 {loaded} to double"));
                                         (f, "double".to_string())
+                                    }
+                                    Some("Float32") if field_ty == "i64" => {
+                                        let t32 = self.fresh_tmp();
+                                        self.emitln(&format!("  {t32} = trunc i64 {loaded} to i32"));
+                                        let f = self.fresh_tmp();
+                                        self.emitln(&format!("  {f} = bitcast i32 {t32} to float"));
+                                        (f, "float".to_string())
                                     }
                                     // Struct payload: the i64 is a heap pointer to a
                                     // boxed struct (Option/Result/enum). Load the struct

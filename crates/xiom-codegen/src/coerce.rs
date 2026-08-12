@@ -464,6 +464,25 @@ impl IrEmitter {
                 }
             }
             Expr::Call(callee, ..) | Expr::GenericCall(callee, ..) => {
+                // BUG 22 #11 fix: resolve the callee's REGISTERED return type
+                // (bare leaf, receiver-qualified "Vec.len", or module-qualified
+                // keys — the previous key construction used the receiver
+                // EXPRESSION name ("v.len"), which never matched, so inline
+                // method-call operands like `"len = " + v.len()` fell through
+                // to inttoptr (garbage pointer → AV).
+                if let Some(rt) = self.callee_return_xiom(callee) {
+                    return is_int_name(&rt);
+                }
+                // Inline Vec builtins have no registered signature: len → Int.
+                if let Expr::Field(obj, m, _) = callee.as_ref() {
+                    let is_vec_recv = self.infer_struct_type_name(obj)
+                        .map(|n| n == "Vec" || n.ends_with(".Vec"))
+                        .unwrap_or(false)
+                        || matches!(obj.as_ref(), Expr::Ident(id) if self.local.local_vec_elem.contains_key(&id.name));
+                    if is_vec_recv && m.name == "len" {
+                        return true;
+                    }
+                }
                 let key = match callee.as_ref() {
                     Expr::Ident(id) => id.name.clone(),
                     Expr::Field(obj, m, _) => {

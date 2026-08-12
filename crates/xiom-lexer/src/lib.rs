@@ -88,8 +88,17 @@ pub struct Lexer {
 
 impl Lexer {
     pub fn new(source: &str) -> Self {
+        // BUG 23 #6 fix: a UTF-8 BOM (U+FEFF) at the start of a source file must
+        // be stripped — previously it surfaced as `unexpected character` at 1:1
+        // and silently broke module registration for catalog files saved with a
+        // BOM (writer tools / Windows editors). All leading BOMs are dropped
+        // (a double-BOM file is malformed but should still parse).
+        let chars: Vec<char> = source.chars().collect();
+        let mut start = 0;
+        while chars.get(start) == Some(&'\u{FEFF}') { start += 1; }
+        let src = &chars[start..];
         Self {
-            source: source.chars().collect(),
+            source: src.to_vec(),
             pos: 0,
             line: 1,
             col: 1,

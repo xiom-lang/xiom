@@ -1329,7 +1329,7 @@ impl Parser {
         let cond = self.parse_cond()?; let then_block = self.parse_block()?;
         let mut elifs = Vec::new();
         while self.skip(TokenKind::Elif) { let econd = self.parse_cond()?; let eblock = self.parse_block()?; elifs.push((econd, eblock)); }
-        let else_block = if self.skip(TokenKind::Else) { Some(self.parse_block()?) } else { None };
+        let else_block = self.parse_else_tail()?;
         Ok(Stmt::If(cond, then_block, elifs, else_block, span))
     }
 
@@ -1344,7 +1344,7 @@ impl Parser {
         self.expect_kind(TokenKind::Eq, "'=' in if let")?;
         let expr = self.parse_expr()?;
         let then_block = self.parse_block()?;
-        let else_block = if self.skip(TokenKind::Else) { Some(self.parse_block()?) } else { None };
+        let else_block = self.parse_else_tail()?;
 
         let wildcard = Pattern::Wildcard(Span::new(0, 0));
         let else_body = match else_block {
@@ -1358,6 +1358,26 @@ impl Parser {
         ];
 
         Ok(Stmt::Match(*Box::new(expr), arms, if_span))
+    }
+
+    /// BUG 23 #4 fix: parse the tail of an `if`/`if let` after `else`.
+    /// Supports BOTH `else { ... }` and the two-word `else if <cond> { ... }`
+    /// chain (desugared to a nested if statement inside the else block, so
+    /// `else if A { } else if B { } else { }` chains parse recursively — the
+    /// same shape `elif` already supports).
+    fn parse_else_tail(&mut self) -> Result<Option<Block>, ParseError> {
+        if !self.skip(TokenKind::Else) {
+            return Ok(None);
+        }
+        if self.check(|k| matches!(k, TokenKind::If)) {
+            let start = self.peek().span;
+            let nested = self.parse_if_stmt()?;
+            return Ok(Some(Block {
+                stmts: vec![StmtOrExpr::Stmt(nested)],
+                span: start,
+            }));
+        }
+        Ok(Some(self.parse_block()?))
     }
 
     fn parse_match_stmt(&mut self) -> Result<Stmt, ParseError> {
@@ -2291,7 +2311,56 @@ impl Parser {
                 let elems: Vec<Expr> = types.iter().map(|tt| self.type_to_expr_ident(tt)).collect();
                 Expr::Tuple(elems, self.peek().span)
             }
+            // BUG 23 #2 fix: nested generic containers previously degraded to
+            // Ident("_"), so `Vec[Vec[Int]].new()` sized its elements at
+            // 8 bytes (truncating every inner Vec) and `m[i][j]` reads were
+            // garbage. Render them as Index chains carrying the RENDERED
+            // inner name ("Vec[Vec[Int]]") so codegen's type-arg capture can
+            // resolve the real element size (32 bytes for a Vec element).
+            Type::Vec(inner) => self.generic_type_expr("Vec", inner),
+            Type::Slice(inner) => self.generic_type_expr("Slice", inner),
+            Type::Option(inner) => self.generic_type_expr("Option", inner),
+            Type::Set(inner) => self.generic_type_expr("Set", inner),
+            Type::Map(k, v) => Expr::Index(
+                Box::new(Expr::Ident(Ident::new("Map", self.peek().span))),
+                Box::new(Expr::Ident(Ident::new(&format!("{},{}", self.type_name_str(k), self.type_name_str(v)), self.peek().span))),
+                self.peek().span,
+            ),
+            Type::Result(ok, err) => Expr::Index(
+                Box::new(Expr::Ident(Ident::new("Result", self.peek().span))),
+                Box::new(Expr::Ident(Ident::new(&format!("{},{}", self.type_name_str(ok), self.type_name_str(err)), self.peek().span))),
+                self.peek().span,
+            ),
             _ => Expr::Ident(Ident::new("_", self.peek().span)),
+        }
+    }
+
+    /// Render a single-arg generic container type as an Index expression
+    /// `Ctor[<rendered inner name>]` (BUG 23 #2 — see type_to_expr_ident).
+    fn generic_type_expr(&mut self, ctor: &str, inner: &Type) -> Expr {
+        Expr::Index(
+            Box::new(Expr::Ident(Ident::new(ctor, self.peek().span))),
+            Box::new(Expr::Ident(Ident::new(&self.type_name_str(inner), self.peek().span))),
+            self.peek().span,
+        )
+    }
+
+    /// Render a Type to its canonical NAME string, recursing through nested
+    /// generic containers ("Vec[Vec[Int]]", "Map[Str,Int]", ...).
+    fn type_name_str(&self, t: &Type) -> String {
+        match t {
+            Type::Named(id, _) => id.name.clone(),
+            Type::Vec(inner) => format!("Vec[{}]", self.type_name_str(inner)),
+            Type::Slice(inner) => format!("Slice[{}]", self.type_name_str(inner)),
+            Type::Option(inner) => format!("Option[{}]", self.type_name_str(inner)),
+            Type::Set(inner) => format!("Set[{}]", self.type_name_str(inner)),
+            Type::Map(k, v) => format!("Map[{},{}]", self.type_name_str(k), self.type_name_str(v)),
+            Type::Result(ok, err) => format!("Result[{},{}]", self.type_name_str(ok), self.type_name_str(err)),
+            Type::Tuple(types) => {
+                let parts: Vec<String> = types.iter().map(|t| self.type_name_str(t)).collect();
+                format!("({})", parts.join(","))
+            }
+            _ => "_".to_string(),
         }
     }
 
