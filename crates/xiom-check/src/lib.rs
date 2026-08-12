@@ -67,6 +67,10 @@ pub struct Checker {
     impls: HashMap<String, HashMap<String, (String, Vec<String>, Option<String>)>>,
     /// Visibility: name â†’ is_pub for top-level items
     visibility: HashMap<String, bool>,
+    /// BUG 25 #11 fix: fn name â†’ owning module path (empty = top-level).
+    /// Bare-call resolution uses this + visibility to keep PRIVATE fns of
+    /// imported modules out of the importing module's namespace.
+    fn_owner_module: HashMap<String, String>,
     /// Resolved imported names from use declarations
     imported_items: HashMap<String, ModuleExport>,
     /// BUG 25 #2 fix: `use X.Y.f as alias;` — alias → the FULL dotted use
@@ -157,6 +161,7 @@ impl Checker {
             interfaces: HashMap::new(),
             impls: HashMap::new(),
             visibility: HashMap::new(),
+            fn_owner_module: HashMap::new(),
             imported_items: HashMap::new(),
             use_alias_paths: HashMap::new(),
             enum_variants: HashMap::new(),
@@ -1533,6 +1538,10 @@ impl Checker {
                 if key != bare_key {
                     self.functions.entry(bare_key).or_insert(sig.clone());
                 }
+                // BUG 25 #11 fix: track each fn's owning module so bare-call
+                // resolution can enforce visibility (a PRIVATE fn of an
+                // imported module must not hijack bare calls).
+                self.fn_owner_module.insert(fd.name.name.clone(), module_path.to_string());
                 self.visibility.insert(fd.name.name.clone(), fd.is_pub);
                 // Track methods separately
                 if let Some(recv) = fd.receiver.as_ref() {
@@ -2391,7 +2400,15 @@ impl Checker {
                             let generics = fd.generics.iter().map(|g| g.name.name.clone()).collect();
                             FnSig { params, return_type, generics, uses_implicit_this: false }
                         });
-                    map.insert(map_key, ModuleExport::Function { sig, is_pub });
+                    // BUG 25 #11 fix: PRIVATE fns must not be re-exported by
+                    // `use` — a bare call in an importing module previously
+                    // resolved to the imported module's private fn (hijacking
+                    // same-named calls, e.g. heap.xi's private `pheap_merge`).
+                    // The export map is the module SURFACE; private fns stay
+                    // visible only within their own module.
+                    if is_pub {
+                        map.insert(map_key, ModuleExport::Function { sig, is_pub });
+                    }
                 }
                 TopDecl::Module(md) => {
                     let new_prefix = if prefix.is_empty() { md.name.name.clone() } else { format!("{}.{}", prefix, md.name.name) };
@@ -3418,7 +3435,17 @@ impl Checker {
                     ty.clone()
                 } else if let Some(ty) = self.global_consts.get(&ident.name) {
                     ty.clone()
-                } else if self.functions.contains_key(&ident.name) {
+                } else if self.functions.contains_key(&ident.name)
+                    // BUG 25 #11 fix: a PRIVATE fn of an imported module must
+                    // not be reachable as a bare call from another module
+                    // (it previously hijacked same-named calls). Bare
+                    // resolution is allowed for: pub fns, fns owned by the
+                    // CURRENT module, and top-level program fns.
+                    && (self.visibility.get(&ident.name).copied().unwrap_or(true)
+                        || self.fn_owner_module.get(&ident.name)
+                            .map(|m| m.is_empty() || Some(m.as_str()) == self.current_module.as_deref())
+                            .unwrap_or(true))
+                {
                     CheckedType::Named("fn".into())
                 } else if self.contains_type(&ident.name) {
                     CheckedType::Named(ident.name.clone())
@@ -4063,12 +4090,24 @@ impl Checker {
                             name.span,
                         );
                     }
+                    // BUG 25 #11 fix: same visibility gate as the Ident
+                    // expression — a PRIVATE fn of an imported module must
+                    // not resolve as a bare call (it previously hijacked
+                    // same-named calls in the importing module).
+                    let visible = self.visibility.get(&name.name).copied().unwrap_or(true)
+                        || self.fn_owner_module.get(&name.name)
+                            .map(|m| m.is_empty() || Some(m.as_str()) == self.current_module.as_deref())
+                            .unwrap_or(true);
                     // Try module-prefixed key first, then bare name
-                    let fn_sig = if let Some(ref module) = self.current_module {
-                        let prefixed = format!("{}.{}", module, name.name);
-                        self.functions.get(&prefixed).or_else(|| self.functions.get(&name.name))
+                    let fn_sig = if visible {
+                        if let Some(ref module) = self.current_module {
+                            let prefixed = format!("{}.{}", module, name.name);
+                            self.functions.get(&prefixed).or_else(|| self.functions.get(&name.name))
+                        } else {
+                            self.functions.get(&name.name)
+                        }
                     } else {
-                        self.functions.get(&name.name)
+                        None
                     };
                     if let Some(sig) = fn_sig.cloned() {
                         // Build generic substitution map from the call arguments
