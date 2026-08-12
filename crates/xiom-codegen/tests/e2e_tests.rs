@@ -4415,4 +4415,10 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m37_from_bytes_fn() { assert_eq!(compile_and_run("tests\\regression\\m37_from_bytes_fn.xi"), Some(0)); }
 // BUG 25 #5: Option/Result .value/.error payload-aware reads
 #[test] fn e2e_m37_opt_payload_value() { assert_eq!(compile_and_run("tests\\regression\\m37_opt_payload_value.xi"), Some(0)); }
+// BUG 26: int↔float mixing requires explicit `as` (allowed surface)
+#[test] fn e2e_m37_numeric_policy() { assert_eq!(compile_and_run("tests\\regression\\m37_numeric_policy.xi"), Some(0)); }
+// Labeled break/continue
+#[test] fn e2e_m37_labeled_loops() { assert_eq!(compile_and_run("tests\\regression\\m37_labeled_loops.xi"), Some(0)); }
+// BUG 27: in-code debug intrinsics
+#[test] fn e2e_m37_debug_intrinsics() { assert_eq!(compile_and_run("tests\\regression\\m37_debug_intrinsics.xi"), Some(0)); }
 

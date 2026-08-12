@@ -1116,6 +1116,31 @@ impl Parser {
             TokenKind::Break => { let span = self.advance().span; let label = self.parse_optional_label(); self.skip(TokenKind::Semicolon); Ok(StmtOrExpr::Stmt(Stmt::Break(label, span))) }
             TokenKind::Continue => { let span = self.advance().span; let label = self.parse_optional_label(); self.skip(TokenKind::Semicolon); Ok(StmtOrExpr::Stmt(Stmt::Continue(label, span))) }
             TokenKind::If => { let stmt = self.parse_if_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
+            // BUG 27: `assert(cond)` / `assert(cond, "msg")` — a runtime-checked
+            // invariant statement (panics cleanly on violation).
+            TokenKind::Ident(name) if name == "assert" && self.peek_ahead(1) == Some(&TokenKind::LParen) => {
+                let span = self.advance().span;
+                self.advance(); // (
+                let cond = self.parse_expr_open()?;
+                let msg = if self.skip(TokenKind::Comma) {
+                    Some(self.parse_expr_open()?)
+                } else {
+                    None
+                };
+                self.expect_kind(TokenKind::RParen, "')' in assert")?;
+                self.skip(TokenKind::Semicolon);
+                Ok(StmtOrExpr::Stmt(Stmt::Assert(cond, msg, span)))
+            }
+            // BUG 27: `debugger;` / `debugger();` — break into the attached
+            // debugger (no-op without one).
+            TokenKind::Ident(name) if name == "debugger" => {
+                let span = self.advance().span;
+                if self.skip(TokenKind::LParen) {
+                    self.expect_kind(TokenKind::RParen, "')' in debugger")?;
+                }
+                self.skip(TokenKind::Semicolon);
+                Ok(StmtOrExpr::Stmt(Stmt::Debugger(span)))
+            }
             TokenKind::Match => { let stmt = self.parse_match_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::While => {
                 let mut stmt = self.parse_while_stmt()?;
@@ -2225,6 +2250,27 @@ impl Parser {
                 let inner = self.parse_expr()?;
                 self.expect_kind(TokenKind::RBrace, "'}'")?;
                 Ok(Expr::ConstBlock(Box::new(inner), span))
+            }
+            // BUG 27: debug intrinsics — `dbg!(expr)`, `todo!()`,
+            // `unimplemented!()` parse as plain calls to the builtin names
+            // (the checker/codegen treat them as builtins when no user fn
+            // with the name is registered).
+            TokenKind::Ident(name) if (name == "dbg" || name == "todo" || name == "unimplemented")
+                && self.peek_ahead(1) == Some(&TokenKind::Bang)
+                && self.peek_ahead(2) == Some(&TokenKind::LParen) =>
+            {
+                let span = self.advance().span; // ident
+                self.advance(); // !
+                self.advance(); // (
+                let mut args = Vec::new();
+                if !self.check(|k| matches!(k, TokenKind::RParen)) {
+                    args.push(self.parse_expr_open()?);
+                    while self.skip(TokenKind::Comma) {
+                        args.push(self.parse_expr_open()?);
+                    }
+                }
+                self.expect_kind(TokenKind::RParen, "')'")?;
+                Ok(Expr::Call(Box::new(Expr::Ident(Ident::new(name, span))), args, span))
             }
             _ => {
                 let name = self.parse_ident()?;

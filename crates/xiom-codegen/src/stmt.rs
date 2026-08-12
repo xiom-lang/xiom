@@ -1,4 +1,4 @@
-// XIOM Codegen — Statement compilation (extracted from expr.rs, M4.2)
+﻿// XIOM Codegen â€” Statement compilation (extracted from expr.rs, M4.2)
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -12,7 +12,7 @@ impl IrEmitter {
     pub(crate) fn compile_stmt_impl(&mut self, stmt: &Stmt) -> Result<(), String> {
         match stmt {
             Stmt::Let(name, _ty, value, _) => {
-                // 5c.30: Empty array `[]` assigned to a Vec-typed variable — emit
+                // 5c.30: Empty array `[]` assigned to a Vec-typed variable â€” emit
                 // proper Vec initialization instead of coercing i8* to %struct.Vec.
                 let is_empty_array_to_vec = matches!(value, Expr::Array(elems, _) if elems.is_empty())
                     && _ty.as_ref().map_or(false, |t| {
@@ -104,8 +104,8 @@ impl IrEmitter {
                         self.local.local_err_payload.entry(name.name.clone()).or_insert(err_val);
                     }
                 }
-                // 5c.30: Empty array `[]` assigned to Vec-typed variable — emit
-                // proper Vec initialization to avoid i8* → %struct.Vec coercion.
+                // 5c.30: Empty array `[]` assigned to Vec-typed variable â€” emit
+                // proper Vec initialization to avoid i8* â†’ %struct.Vec coercion.
                 if is_empty_array_to_vec {
                     let elem_size: i64 = _ty.as_ref()
                         .and_then(|t| Self::vec_elem_from_type_annotation(t))
@@ -155,7 +155,7 @@ impl IrEmitter {
                 }
                 let (val, val_llvm_ty) = if let Expr::Array(elems, _) = value {
                     // M33: Non-empty array literal assigned to a Let binding
-                    // — convert to Vec so `&arr` produces a proper Vec pointer
+                    // â€” convert to Vec so `&arr` produces a proper Vec pointer
                     // instead of an i8* buffer pointer. Fixes ACCESS_VIOLATION
                     // on `binary_search(&arr, ...)` where arr is a let-bound array.
                     let elem_ty = _ty.as_ref()
@@ -182,7 +182,7 @@ impl IrEmitter {
                         self.local.signed_locals.remove(&name.name);
                     }
                 } else if let Some(inferred) = Self::infer_value_xiom_type(value) {
-                    // BUG 14: `var big = x as UInt128` — no annotation, but the
+                    // BUG 14: `var big = x as UInt128` â€” no annotation, but the
                     // cast target tells us the signedness.
                     self.local.local_xiom_types.insert(name.name.clone(), inferred);
                 }
@@ -196,7 +196,7 @@ impl IrEmitter {
                 } else if let Some(ref d) = declared_llvm_ty {
                     // M17: For primitive declared types, prefer the declared type
                     // when it differs from the compiled value's LLVM type.
-                    // This ensures Int8→i8, Int16→i16, Int32→i32, Float32→float.
+                    // This ensures Int8â†’i8, Int16â†’i16, Int32â†’i32, Float32â†’float.
                     // For i64 declared types where the value is also i64, keep i64.
                     if d != &val_llvm_ty || val_llvm_ty == "void" || val.is_empty() {
                         d.clone()
@@ -295,7 +295,7 @@ impl IrEmitter {
                         Expr::Ident(id) => self.local.local_vec_elem.get(&id.name).cloned(),
                         Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => {
                             // BUG 23 #1 fix: inherit from the callee's DECLARED
-                            // return type as well as from the first argument —
+                            // return type as well as from the first argument â€”
                             // `var v = module.mk_vecf()` (catalog fn returning
                             // Vec[Float64]) must register "Float64", otherwise
                             // v[i] element reads degrade to the elem_size switch
@@ -312,7 +312,7 @@ impl IrEmitter {
                                 })
                             })
                         }
-                        // M33: Array literal bound to Var — keep the element
+                        // M33: Array literal bound to Var â€” keep the element
                         // type that was inferred above (from first struct element).
                         // The `remove` below would otherwise clear it.
                         Expr::Array(..) => self.local.local_vec_elem.get(&name.name).cloned(),
@@ -338,7 +338,7 @@ impl IrEmitter {
                         self.local.local_err_payload.entry(name.name.clone()).or_insert(err_val);
                     }
                 }
-                // 5c.30: Empty array `[]` assigned to Vec-typed variable — emit
+                // 5c.30: Empty array `[]` assigned to Vec-typed variable â€” emit
                 // proper Vec initialization.
                 let is_empty_array_to_vec_var = matches!(value, Expr::Array(elems, _) if elems.is_empty())
                     && _ty.as_ref().map_or(false, |t| {
@@ -400,13 +400,13 @@ impl IrEmitter {
                         self.local.signed_locals.remove(&name.name);
                     }
                 } else if let Some(inferred) = Self::infer_value_xiom_type(value) {
-                    // BUG 14: `var big = x as UInt128` — infer signedness from
+                    // BUG 14: `var big = x as UInt128` â€” infer signedness from
                     // the cast target when there is no annotation.
                     self.local.local_xiom_types.insert(name.name.clone(), inferred);
                 }
                 let (val, val_llvm_ty) = if let Expr::Array(elems, _) = value {
                     // 5c.39: Non-empty array literal assigned to a Vec-typed
-                    // variable — convert to Vec via compile_array_as_vec.
+                    // variable â€” convert to Vec via compile_array_as_vec.
                     // M33: Infer element type from first element for struct
                     // arrays when no type annotation is present. Defaults to
                     // "Int" for scalar elements. This ensures struct elements
@@ -424,14 +424,14 @@ impl IrEmitter {
                 };
                 let orig_val_ty = val_llvm_ty.clone();
                 // M17: Use declared type for alloca width when present, falling back
-                // to value type. Special cases preserved for zero-init and float→double.
+                // to value type. Special cases preserved for zero-init and floatâ†’double.
                 let llvm_ty = if val_llvm_ty == "i64" && val == "0" {
                     declared_llvm_ty.clone().unwrap_or(val_llvm_ty)
                 } else if val_llvm_ty == "void" || val.is_empty() {
                     declared_llvm_ty.clone().unwrap_or_else(|| LLVM_I64.to_string())
                 } else if let Some(ref d) = declared_llvm_ty {
                     // M17: When a type annotation exists, prefer the declared type
-                    // for the alloca width. This ensures Int8→i8, Int16→i16, etc.
+                    // for the alloca width. This ensures Int8â†’i8, Int16â†’i16, etc.
                     // Struct types (starts_with '%') and Float32 special case were
                     // already handled; this generalizes to all declared types.
                     if d.starts_with('%') || d != &val_llvm_ty {
@@ -495,7 +495,7 @@ impl IrEmitter {
                         self.emitln(&format!("  store {pointee} {store_val}, {ptr_ty} {ptr_val}"));
                         return Ok(());
                     }
-                    // 5c.31: Legacy erased-to-i64 path — the pointer value is
+                    // 5c.31: Legacy erased-to-i64 path â€” the pointer value is
                     // held as an i64 (e.g. from `&mut x` ptrtoint). Resolve the
                     // pointee type from the inner expression's XIOM type and
                     // emit inttoptr + store through the real pointer.
@@ -546,7 +546,7 @@ impl IrEmitter {
                     }
                 }
                 // Indexed assignment: `container[idx] = value` into a Vec (builtin
-                // {i8*, i64, i64}) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â write an i64-wide slot at data[idx]. Str is
+                // {i8*, i64, i64}) ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â write an i64-wide slot at data[idx]. Str is
                 // immutable at the ABI, so only Vec/Slice are handled.
                 if let Expr::Index(container, index, _) = place {
                     let (cont_val, cont_ty) = self.compile_expr(container)?;
@@ -579,7 +579,7 @@ impl IrEmitter {
                         let (idx_raw, idx_ty) = self.compile_expr(index)?;
                         let idx = self.val_to_i64(&idx_raw, &idx_ty);
                         // Use the existing local alloca when the container is an
-                        // Ident ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â avoids fresh alloca/load/store on every write.
+                        // Ident ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â avoids fresh alloca/load/store on every write.
                         let mut is_ident = false;
                         let mut arr_ptr = String::new();
                         let mut arr_ptr_ty = String::new();
@@ -610,7 +610,7 @@ impl IrEmitter {
                         // Raw byte-buffer store: `buf[i] = v` where `buf: *UInt8`.
                         // The element is one byte; truncate the value to i8. Without
                         // this, `buf[i] = ...` silently emitted nothing (the store was
-                        // dropped), leaving heap buffers uninitialized ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ crashes in
+                        // dropped), leaving heap buffers uninitialized ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ crashes in
                         // str_concat/str_upper/str_slice and other manual builders.
                         let (idx_raw, idx_ty) = self.compile_expr(index)?;
                         let idx = self.val_to_i64(&idx_raw, &idx_ty);
@@ -734,7 +734,7 @@ impl IrEmitter {
             }
             Stmt::Return(expr, _) => {
                 if self.fctx.is_never_return {
-                    // P2-4: Never-returning functions — compile the expression
+                    // P2-4: Never-returning functions â€” compile the expression
                     // (which may itself be a !-returning call), then unreachable.
                     if let Some(e) = expr {
                         let _ = self.compile_expr(e)?;
@@ -744,18 +744,18 @@ impl IrEmitter {
                     // Value sink: use the value's real LLVM type from compile_expr.
                     let (mut val, val_ty) = self.compile_expr(e)?;
                     let ret_ty = self.fctx.current_return_type.clone();
-                    // D2.1 (Unsafe Confinement Phase 3, requirement i — Copy-Out):
+                    // D2.1 (Unsafe Confinement Phase 3, requirement i â€” Copy-Out):
                     // a `return` INSIDE an unsafe block returns a value whose heap
                     // payload lives on the guard arena. It must be COPIED to the
                     // main heap BEFORE the arena resets at block exit, or the
                     // caller's Str/Vec would dangle (use-after-free).
-                    // Uses xiom_guard_copy_str (single C call) — NOT inline
-                    // strlen — which would leak the recursion counter in the
+                    // Uses xiom_guard_copy_str (single C call) â€” NOT inline
+                    // strlen â€” which would leak the recursion counter in the
                     // confined block (alwaysinline imbalance, 500-depth trap).
                     // D2.1 (Phase 3/4): a `return` INSIDE an unsafe block must
                     // (a) Copy-Out a Str tail to the main heap before the arena
                     // resets (UAF fix), and (b) ALWAYS discard the guard arena
-                    // + disarm the stack guard page — the block-exit emission
+                    // + disarm the stack guard page â€” the block-exit emission
                     // after the tail loop is skipped for early returns.
                     if self.guard_heap_depth > 0 {
                         if val_ty == LLVM_STR_PTR {
@@ -930,12 +930,12 @@ impl IrEmitter {
                         merge_reachable = true;
                     }
                 } else if elifs.is_empty() && prev_label != merge_label {
-                    // No else case for simple if ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the else block is just a merge jump
+                    // No else case for simple if ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â the else block is just a merge jump
                     self.emitln(&format!("\n{prev_label}:"));
                     self.emitln(&format!("  br label %{merge_label}"));
                     merge_reachable = true;
                 } else if elifs.is_empty() {
-                    // prev_label == merge_label ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ skip redundant label emission
+                    // prev_label == merge_label ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€š skip redundant label emission
                     merge_reachable = true;
                 } else if prev_label != merge_label {
                     self.emitln(&format!("\n{prev_label}:"));
@@ -1017,7 +1017,7 @@ impl IrEmitter {
                         scrutinee_llvm_ty.clone()
                     } else if scrutinee_llvm_ty.starts_with("%struct.") && scrutinee_llvm_ty.ends_with('*') {
                         // Pointer-to-struct scrutinee (e.g. %struct.JsonValue*):
-                        // deref for the match alloca — the discriminant GEP must
+                        // deref for the match alloca â€” the discriminant GEP must
                         // index the STRUCT, not the pointer.
                         scrutinee_llvm_ty.trim_end_matches('*').to_string()
                     } else {
@@ -1101,7 +1101,7 @@ impl IrEmitter {
                 // `arm_is_checked[i]` is `true`, so it can never outrun
                 // `check_labels`. Every index into `check_labels`/`arm_labels`
                 // is additionally bounds-guarded so that even a future codegen
-                // bug degrades to a branch-to-merge instead of a panic ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â a
+                // bug degrades to a branch-to-merge instead of a panic ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â a
                 // compiler must never crash.
                 let mut check_idx: usize = 0;
                 for (i, arm) in arms.iter().enumerate() {
@@ -1115,7 +1115,7 @@ impl IrEmitter {
                     let this_label = if check_idx < check_labels.len() {
                         check_labels[check_idx].clone()
                     } else {
-                        // Safety fallback ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â unreachable once the build/emit
+                        // Safety fallback ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â unreachable once the build/emit
                         // loops are symmetric. Emit a diagnostic comment and
                         // skip this (impossible) arm rather than panicking.
                         self.emitln(&format!(
@@ -1345,7 +1345,7 @@ impl IrEmitter {
                             self.emitln(&format!("  br i1 {check}, label %{arm_label}, label %{next}"));
                         }
                         Pattern::Lit(Literal::Float(f, _)) => {
-                            // P1-3: Float literal pattern — use fcmp for double-precision comparison.
+                            // P1-3: Float literal pattern â€” use fcmp for double-precision comparison.
                             let fval = if scrutinee_llvm_ty == "double" || scrutinee_llvm_ty == "float" {
                                 val.clone()
                             } else {
@@ -1514,7 +1514,7 @@ impl IrEmitter {
                                     let loaded = self.fresh_tmp();
                                     self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
                                     // BUG 22 #4 fix: Some(5.0)/Ok(2.5) store the
-                                    // FLOAT BITS in the i64 payload slot — bitcast
+                                    // FLOAT BITS in the i64 payload slot â€” bitcast
                                     // back when the payload's XIOM type is a float,
                                     // so match-bound vars carry real doubles/floats
                                     // (unary minus / arithmetic on them was garbage).
@@ -1705,7 +1705,7 @@ impl IrEmitter {
                                                 self.emitln(&format!("  {f} = bitcast i32 {t32} to float"));
                                                 (f, "float".to_string())
                                             }
-                                            // M19: Str payload stored in i64 slot via ptrtoint —
+                                            // M19: Str payload stored in i64 slot via ptrtoint â€”
                                             // convert back to i8* for string operations.
                                             ("i64", Some("Str")) => {
                                                 let sptr = self.fresh_tmp();
@@ -1719,7 +1719,7 @@ impl IrEmitter {
                                         self.emitln(&format!("  store {bind_ty} {bind_val}, {bind_ty}* {field_alloca}"));
                                         self.add_local(&field_ident.name, field_alloca, &bind_ty);
                                         // 5c.30: a generic-container payload
-                                        // (Vec[T]) binds the i64 HANDLE â€” record
+                                        // (Vec[T]) binds the i64 HANDLE Ã¢â‚¬â€ record
                                         // it so `items.push(..)` / `items.len()`
                                         // dereference the boxed header and
                                         // mutations alias the original enum.
@@ -1804,7 +1804,7 @@ impl IrEmitter {
                     // Err(inner) extracts field 2 (the error payload).
                     // 5d: bindings are TYPED from the scrutinee's declared payload
                     // types (local_opt_payload / local_err_payload) so `.len()` etc.
-                    // dispatch correctly (fixes match Ok(bytes) → bytes.len()).
+                    // dispatch correctly (fixes match Ok(bytes) â†’ bytes.len()).
                     let payload_binding: Option<(&Pattern, i32)> = match &arm.pattern {
                         Pattern::Some(inner, _) | Pattern::Ok(inner, _) => Some((inner.as_ref(), 1)),
                         Pattern::Err(inner, _) => Some((inner.as_ref(), 2)),
@@ -1820,7 +1820,7 @@ impl IrEmitter {
                             if let Pattern::Ident(ident) = inner {
                                 // Declared payload type from scrutinee tracking
                                 // (BUG 22 #4: scalar float payloads come from
-                                // local_opt_payload_xiom — `var o = Some(5.0)` —
+                                // local_opt_payload_xiom â€” `var o = Some(5.0)` â€”
                                 // struct payloads from local_opt_payload).
                                 let declared: Option<String> = if let Expr::Ident(sid) = expr_match {
                                     if val_field == 2 {
@@ -1922,7 +1922,7 @@ impl IrEmitter {
 
                 self.emitln(&format!("\n{merge_label}:"));
             }
-            Stmt::While(cond, body, _, _, _) => {
+            Stmt::While(cond, body, _, _, label) => {
                 let loop_cond = self.fresh_block("while_cond");
                 let loop_body = self.fresh_block("while_body");
                 let loop_exit = self.fresh_block("while_exit");
@@ -1943,7 +1943,11 @@ impl IrEmitter {
                 };
                 self.emitln(&format!("  br i1 {cond_val}, label %{loop_body}, label %{loop_exit}"));
                 self.emitln(&format!("\n{loop_body}:"));
-                self.local.loop_stack.push((None, loop_cond.clone(), loop_exit.clone()));
+                // P0-3 fix: the labeled-loop field (5th) must reach the stack â€”
+                // previously dropped, so `break @label` fell back to the
+                // innermost loop.
+                let label_name = label.as_ref().map(|l| l.name.clone());
+                self.local.loop_stack.push((label_name, loop_cond.clone(), loop_exit.clone()));
                 // BUG 22 #6: bindings inside the body hoist their alloca to the
                 // fn entry (loop-body allocas don't dominate later blocks).
                 self.local.loop_depth += 1;
@@ -2054,13 +2058,13 @@ impl IrEmitter {
                 }
             }
             Stmt::Spawn(body, _span, _move) => {
-                // v0.55/R2: Spawn — compile body as separate function, call xiom_thread_spawn.
+                // v0.55/R2: Spawn â€” compile body as separate function, call xiom_thread_spawn.
                 // (xiom_thread_spawn is already declared at module level in compile_program)
                 let spawn_id = self.local.spawn_counter;
                 self.local.spawn_counter += 1;
                 let fn_name = format!("_xiom_spawn_{spawn_id}");
 
-                // R2: Collect captured variables — names used in body that are
+                // R2: Collect captured variables â€” names used in body that are
                 // declared in outer scopes (not inside the spawn block itself).
                 let captures: Vec<String> = self.collect_spawn_captures(body);
 
@@ -2196,6 +2200,42 @@ impl IrEmitter {
                     self.emitln(&format!("\n{dead}:"));
                 }
             }
+            // BUG 27: assert(cond[, "msg"]) â€” runtime-checked invariant.
+            // On false the message (or a default with the source location)
+            // goes through xiom_panic (clean stderr + exit 1).
+            Stmt::Assert(cond, msg, span) => {
+                let (c, ct) = self.compile_expr(cond)?;
+                let c_i1 = if ct == "i1" { c.clone() } else {
+                    let ne = self.fresh_tmp();
+                    self.emitln(&format!("  {ne} = icmp ne {ct} {c}, 0"));
+                    ne
+                };
+                let ok_block = self.fresh_block("assert_ok");
+                let fail_block = self.fresh_block("assert_fail");
+                self.emitln(&format!("  br i1 {c_i1}, label %{ok_block}, label %{fail_block}"));
+                self.emitln(&format!("\n{fail_block}:"));
+                let msg_ptr = match msg {
+                    Some(m) => {
+                        let (mv, mt) = self.compile_expr(m)?;
+                        if mt == "i8*" {
+                            // Str message — use the compiled pointer directly.
+                            mv
+                        } else {
+                            let fallback = format!("assertion failed at {}:{}", span.line, span.col);
+                            self.intern_cstring(&fallback)
+                        }
+                    }
+                    None => self.intern_cstring(&format!("assertion failed at {}:{}", span.line, span.col)),
+                };
+                self.emitln(&format!("  call void @xiom_panic(i8* {msg_ptr})"));
+                self.emitln("  unreachable");
+                self.emitln(&format!("\n{ok_block}:"));
+            }
+            // BUG 27: debugger; â€” break into the attached debugger (no-op
+            // without one; used with the xiom-dbg DAP server).
+            Stmt::Debugger(_) => {
+                self.emitln("  call void @xiom_debugger_break()");
+            }
             xiom_ast::Stmt::Asm(ab) => {
                 // Emit inline assembly as LLVM IR call void asm sideeffect
                 let asm_str = ab.template.replace('\n', "\\0A");
@@ -2233,7 +2273,7 @@ impl IrEmitter {
         Ok(())
     }
 
-    /// R2: Collect variable names captured by a spawn block — names referenced
+    /// R2: Collect variable names captured by a spawn block â€” names referenced
     /// inside the body that are available in the current scope (not declared
     /// within the spawn block itself).
     fn collect_spawn_captures(&self, body: &Block) -> Vec<String> {
@@ -2283,6 +2323,11 @@ impl IrEmitter {
             }
             Stmt::Destructure(_, e, _) => Self::collect_expr_var_refs(e, refs),
             Stmt::Break(..) | Stmt::Continue(..) | Stmt::Asm(_) | Stmt::Defer(_, _) => {}
+            Stmt::Assert(c, m, _) => {
+                Self::collect_expr_var_refs(c, refs);
+                if let Some(msg) = m { Self::collect_expr_var_refs(msg, refs); }
+            }
+            Stmt::Debugger(_) => {},
         }
     }
 
@@ -2333,7 +2378,7 @@ impl IrEmitter {
 
     // P0-2: Emit all deferred blocks in LIFO order at scope exit.
     // Called before `ret` instructions to guarantee defer execution.
-    // Does NOT pop the defer_stack — multiple return paths must all emit
+    // Does NOT pop the defer_stack â€” multiple return paths must all emit
     // the same defers. The stack is cleared at function epilogue.
     pub(crate) fn compile_deferred_cleanups(&mut self) -> Result<(), String> {
         let blocks: Vec<Block> = self.local.defer_stack.iter().rev().cloned().collect();

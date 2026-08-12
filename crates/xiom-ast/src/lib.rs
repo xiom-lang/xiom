@@ -368,6 +368,12 @@ pub enum Stmt {
     Asm(AsmBlock),
     /// v0.55: `defer { expr }` — guaranteed scope-exit execution
     Defer(Block, Span),
+    /// BUG 27: `assert(cond)` / `assert(cond, "msg")` — runtime-checked
+    /// invariant (panics cleanly on violation via xiom_panic).
+    Assert(Expr, Option<Expr>, Span),
+    /// BUG 27: `debugger;` — break into the attached debugger (no-op
+    /// without one). Used with the xiom-dbg DAP server.
+    Debugger(Span),
 }
 
 /// v0.55: Inline assembly block — `asm("template" : outputs : inputs : clobbers)`

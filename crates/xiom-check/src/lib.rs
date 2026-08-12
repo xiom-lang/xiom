@@ -1,8 +1,8 @@
-// XIOM â€” Type Checker
+﻿// XIOM Ã¢â‚¬â€ Type Checker
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
-//! XIOM Type Checker â€” Phase 0: basic type checking for primitives,
+//! XIOM Type Checker Ã¢â‚¬â€ Phase 0: basic type checking for primitives,
 //! struct types, function signatures, and return types.
 //! No generics, no ownership, no contracts enforcement.
 
@@ -36,7 +36,7 @@ use catalog::{ModuleExport, CachedModule, ModuleCatalog};
 ///
 /// The `Checker` is single-threaded by design. Use a fresh instance per compilation unit.
 pub struct Checker {
-    /// Known type names â†’ their field types
+    /// Known type names Ã¢â€ â€™ their field types
     types: HashMap<String, HashMap<String, CheckedType>>,
     /// Current module context for scoped type lookups
     current_module: Option<String>,
@@ -53,36 +53,36 @@ pub struct Checker {
     strict_exhaustive: bool,
     /// Imported module paths (use declarations)
     imports: Vec<UseDecl>,
-    /// Module namespace: module name â†’ { exported names }
+    /// Module namespace: module name Ã¢â€ â€™ { exported names }
     modules: HashMap<String, HashMap<String, ModuleExport>>,
-    /// Method registry: type name â†’ { method name â†’ FnSig }
+    /// Method registry: type name Ã¢â€ â€™ { method name Ã¢â€ â€™ FnSig }
     methods: HashMap<String, HashMap<String, FnSig>>,
-    /// Interface declarations: interface name â†’ [(method_name, param_type_names)]
+    /// Interface declarations: interface name Ã¢â€ â€™ [(method_name, param_type_names)]
     /// Each entry also stores the return type name for dispatch resolution.
     interfaces: HashMap<String, Vec<(String, Vec<String>, Option<String>)>>,
     /// D1 (2026-08-08): interface IMPL registrations.
     /// Key: "TraitName[arg1,arg2]" (or bare "TraitName" for zero args).
-    /// Value: method name â†’ (implementing type name, param types, return type).
+    /// Value: method name Ã¢â€ â€™ (implementing type name, param types, return type).
     /// Enables `impl Num[Int] { ... }` dispatch at monomorphisation.
     impls: HashMap<String, HashMap<String, (String, Vec<String>, Option<String>)>>,
-    /// Visibility: name â†’ is_pub for top-level items
+    /// Visibility: name Ã¢â€ â€™ is_pub for top-level items
     visibility: HashMap<String, bool>,
-    /// BUG 25 #11 fix: fn name â†’ owning module path (empty = top-level).
+    /// BUG 25 #11 fix: fn name Ã¢â€ â€™ owning module path (empty = top-level).
     /// Bare-call resolution uses this + visibility to keep PRIVATE fns of
     /// imported modules out of the importing module's namespace.
     fn_owner_module: HashMap<String, String>,
     /// Resolved imported names from use declarations
     imported_items: HashMap<String, ModuleExport>,
-    /// BUG 25 #2 fix: `use X.Y.f as alias;` — alias → the FULL dotted use
+    /// BUG 25 #2 fix: `use X.Y.f as alias;` â€” alias â†’ the FULL dotted use
     /// path, surfaced to the codegen (the driver strips UseDecls before
     /// codegen, so the alias binding would otherwise be lost).
     pub use_alias_paths: HashMap<String, String>,
-    /// Enum variant name â†’ parent enum type name
+    /// Enum variant name Ã¢â€ â€™ parent enum type name
     enum_variants: HashMap<String, String>,
-    /// Module-level `const`/`var` global names â†’ declared type (so references to
+    /// Module-level `const`/`var` global names Ã¢â€ â€™ declared type (so references to
     /// them inside functions resolve instead of erroring "undefined variable").
     global_consts: HashMap<String, CheckedType>,
-    /// Enum variant name â†’ field name â†’ field type (for variant constructors)
+    /// Enum variant name Ã¢â€ â€™ field name Ã¢â€ â€™ field type (for variant constructors)
     variant_fields: HashMap<String, Vec<(String, CheckedType)>>,
     /// Directories to search for external module files
     pub source_dirs: Vec<String>,
@@ -90,40 +90,40 @@ pub struct Checker {
     catalog: ModuleCatalog,
     /// Set of dotted module paths that have been loaded into this checker
     cached_loaded: HashSet<String>,
-    /// 5c-R: Counter for emitted errors â€” enables `has_errors()` gate for
+    /// 5c-R: Counter for emitted errors Ã¢â‚¬â€ enables `has_errors()` gate for
     /// "stop on first error" discipline (rustc lesson: ErrorGuaranteed).
     error_count: usize,
     /// 5c.30: When inside a method body, the RECEIVER type name so bare
     /// calls like `init()` can be resolved as `self.init()` (G-10/G-25 fix).
     current_receiver: Option<String>,
-    /// v0.56: Current function's generic param â†’ interface bounds map.
+    /// v0.56: Current function's generic param Ã¢â€ â€™ interface bounds map.
     /// Enables interface method resolution on generic params like `x.bar()`
     /// when `x: T` and `T: Foo` where `Foo` declares `fn bar()`.
     current_generic_bounds: HashMap<String, Vec<String>>,
-    /// 5c-R: Type interning arena â€” maps Named("Foo") strings to TypeIds
+    /// 5c-R: Type interning arena Ã¢â‚¬â€ maps Named("Foo") strings to TypeIds
     /// for O(1) equality (rustc lesson: TyCtxt::intern_type).
     pub type_arena: TypeArena,
     /// Phase 7E/Feature: Type alias resolution table.
-    /// Maps `type Foo = Int;` â†’ Foo resolves to Int.
+    /// Maps `type Foo = Int;` Ã¢â€ â€™ Foo resolves to Int.
     /// Used by types_compatible to auto-coerce newtypes to their underlying types
     /// for seamless FFI calls and ecosystem wrapper ergonomics.
     aliases: HashMap<String, CheckedType>,
     /// I1: Set of type names that implement Send + Sync marker interfaces.
     /// Auto-populated for primitives and derived for composite types.
     pub send_sync_types: HashSet<String>,
-    /// I1: Struct field types for Send/Sync derivation: struct_name â†’ [(field_name, field_type)]
+    /// I1: Struct field types for Send/Sync derivation: struct_name Ã¢â€ â€™ [(field_name, field_type)]
     pub struct_field_types: HashMap<String, Vec<(String, String)>>,
-    /// I1: Enum variant field types for Send/Sync: enum_name â†’ [(variant_name, [field_type_names])]
+    /// I1: Enum variant field types for Send/Sync: enum_name Ã¢â€ â€™ [(variant_name, [field_type_names])]
     pub enum_field_types: HashMap<String, Vec<(String, Vec<String>)>>,
     /// D2 (2026-08-08): unsafe-context depth counter. Raw-pointer dereference,
-    /// Int↔Ptr casts, and inline asm are REJECTED when depth == 0 (the language
+    /// Intâ†”Ptr casts, and inline asm are REJECTED when depth == 0 (the language
     /// is safe by default; unsafe { } opts in). Incremented on Expr::Unsafe.
     unsafe_depth: u32,
     /// D2.1 (2026-08-10): names of functions declared in `extern "C"` blocks.
-    /// Calling an extern fn from SAFE code (depth 0) is a hard error (T002) —
+    /// Calling an extern fn from SAFE code (depth 0) is a hard error (T002) â€”
     /// C FFI is confined to unsafe blocks (requirement a of Unsafe Confinement).
     /// Exempt: fns declaring requires/ensures CONTRACTS are the sanctioned safe
-    /// wrappers around unsafe internals (requirement c) — they may call externs.
+    /// wrappers around unsafe internals (requirement c) â€” they may call externs.
     extern_fns: HashSet<String>,
     /// True while checking a fn that declares contracts (T002 exemption).
     current_fn_has_contracts: bool,
@@ -207,7 +207,7 @@ impl Checker {
         self.catalog.add_source_dir(dir);
     }
 
-    /// Build the catalog's module_path â†’ file_path index for O(1) lookups.
+    /// Build the catalog's module_path Ã¢â€ â€™ file_path index for O(1) lookups.
     /// Index all source files added via [`add_source_dir`]. Must be called
     /// before [`check_program`] to populate the catalog of available modules,
     /// types, and function signatures.
@@ -263,13 +263,13 @@ impl Checker {
             self.types.insert(prim.to_string(), HashMap::new());
         }
           // Compound builtin types (empty fields = permissive field access).
-          // Map is NOT a builtin â€” it's defined in collections.xi.
+          // Map is NOT a builtin Ã¢â‚¬â€ it's defined in collections.xi.
           for comp in &["Vec", "Set", "Stack", "Slice"] {
             self.types.insert(comp.to_string(), HashMap::new());
         }
         // Option with known pseudo-fields (accessors that work as field reads).
         // `.value` returns a wildcard so interface dispatch can resolve method
-        // chains like `opt.value.description()` â€” the codegen handles the
+        // chains like `opt.value.description()` Ã¢â‚¬â€ the codegen handles the
         // concrete type at monomorphisation time.
         let mut opt = HashMap::new();
         opt.insert("is_some".to_string(), CheckedType::Bool);
@@ -303,7 +303,7 @@ impl Checker {
             generics: vec![],
             uses_implicit_this: false,
         });
-        // 5c-R: Vec.with_capacity(n) â€” pre-allocate internal buffer
+        // 5c-R: Vec.with_capacity(n) Ã¢â‚¬â€ pre-allocate internal buffer
         self.functions.insert("Vec.with_capacity".to_string(), FnSig {
             params: vec![("capacity".to_string(), CheckedType::Int)],
             return_type: Some(CheckedType::Named("Vec".into())),
@@ -431,7 +431,7 @@ impl Checker {
         });
 
         // v0.55: Send + Sync marker interfaces for thread safety.
-        // No methods â€” auto-derived by the compiler based on field types.
+        // No methods Ã¢â‚¬â€ auto-derived by the compiler based on field types.
         // All primitives (Int, Float, Bool, Str, Char) implement Send+Sync.
         self.interfaces.insert("Send".to_string(), vec![]);
         self.interfaces.insert("Sync".to_string(), vec![]);
@@ -447,7 +447,7 @@ impl Checker {
 
         // Register Vec methods in the method table so wildcard lookup
         // finds them for expressions whose type resolves to generic T
-        // (e.g. v[i] where v is Vec[Vec[Int]] â†’ indexed type is T â†’ needs
+        // (e.g. v[i] where v is Vec[Vec[Int]] Ã¢â€ â€™ indexed type is T Ã¢â€ â€™ needs
         // method lookup to find Vec.push/Vec.len/etc.).
         self.methods.entry("Vec".to_string()).or_default().insert("push".to_string(), FnSig {
             params: vec![
@@ -574,7 +574,7 @@ impl Checker {
     }
 
     /// Strip element-type bracket from an encoded container name.
-    /// `"Vec[Int]"` â†’ `("Vec", Some("Int"))`, `"Vec"` â†’ `("Vec", None)`.
+    /// `"Vec[Int]"` Ã¢â€ â€™ `("Vec", Some("Int"))`, `"Vec"` Ã¢â€ â€™ `("Vec", None)`.
     #[allow(dead_code)]
     fn container_base<'a>(name: &'a str) -> (&'a str, Option<&'a str>) {
         if let Some(bracket) = name.find('[') {
@@ -636,7 +636,7 @@ impl Checker {
             }
             Pattern::Ok(inner, _) | Pattern::Err(inner, _) | Pattern::Some(inner, _) => {
                 // Gap D fix: payload bindings from Ok/Err/Some patterns get the
-                // wildcard type â€” the SAME convention as Result.unwrap/Option.value
+                // wildcard type Ã¢â‚¬â€ the SAME convention as Result.unwrap/Option.value
                 // (line ~2347). Container builtins (.len/.push) and interface
                 // methods then dispatch; codegen resolves the concrete type.
                 // Previously these bound as Error, which rejected all method calls
@@ -691,7 +691,7 @@ impl Checker {
 
     /// Emit an error and return an error-poisoned type carrying an
     /// `ErrorGuaranteed` proof token. Downstream passes skip error-poisoned
-    /// nodes silently â€” the diagnostic was already emitted (rustc lesson:
+    /// nodes silently Ã¢â‚¬â€ the diagnostic was already emitted (rustc lesson:
     /// one error per root cause, no cascading).
     fn error(&mut self, message: impl Into<String>, span: Span) -> CheckedType {
         self.error_with_cause(message, span, crate::types::TypeCause::Other)
@@ -729,7 +729,7 @@ impl Checker {
     }
 
     /// D2.1 (T006): true if the block's tail expression IS (or calls) one of the
-    /// pending unconverted extern raw-pointer fns — i.e. an extern-returned
+    /// pending unconverted extern raw-pointer fns â€” i.e. an extern-returned
     /// pointer reaches the block's tail without an ownership conversion.
     fn tail_refs_pending_ptr(&self, tail: &Expr, pending: &[String]) -> bool {
         match tail {
@@ -756,9 +756,9 @@ impl Checker {
     /// not RETURN a raw-pointer type). A block-level tail check would reject
     /// legitimate confined-pointer plumbing within unsafe-internal helpers
     /// (e.g. `unsafe { 0 as *Node }` as an operand, or a factory whose whole
-    /// body is an `unsafe` block returning a pointer) — see the design note at
-    /// the `Expr::Unsafe` codegen arm. The escape that matters — a pointer
-    /// crossing a function boundary — is already caught. The previous body of
+    /// body is an `unsafe` block returning a pointer) â€” see the design note at
+    /// the `Expr::Unsafe` codegen arm. The escape that matters â€” a pointer
+    /// crossing a function boundary â€” is already caught. The previous body of
     /// this method was dead code; removed to keep the confinement surface
     /// auditable. `test_d21_raw_ptr_tail_rejected` covers the boundary case.
 
@@ -770,7 +770,7 @@ impl Checker {
         CheckedType::Error
     }
 
-    /// S2: Emit a warning â€” adds to the error list but does NOT increment
+    /// S2: Emit a warning Ã¢â‚¬â€ adds to the error list but does NOT increment
     /// error_count. This means compilation proceeds but the warning is visible.
     fn warn(&mut self, message: impl Into<String>) {
         self.warnings.push(CheckError {
@@ -788,13 +788,13 @@ impl Checker {
         self.error_count > 0
     }
 
-    /// S2: Enable strict exhaustiveness â€” non-exhaustive match warnings
+    /// S2: Enable strict exhaustiveness Ã¢â‚¬â€ non-exhaustive match warnings
     /// become hard errors that block compilation.
     pub fn set_strict_exhaustive(&mut self, enabled: bool) {
         self.strict_exhaustive = enabled;
     }
 
-    // â”€â”€ Type interning helpers (5c-R) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Type interning helpers (5c-R) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
     /// Intern a Named type string, returning its TypeId. O(1) after first use.
     pub fn intern(&mut self, name: &str, contains_param: bool) -> TypeId {
@@ -913,11 +913,11 @@ impl Checker {
     // Program-level checking
     // ========================================================================
 
-    /// 5c-R: Phase 1 â€” Collect ALL signatures without visiting bodies.
+    /// 5c-R: Phase 1 Ã¢â‚¬â€ Collect ALL signatures without visiting bodies.
     /// After this pass, every type, function signature, interface, and global
     /// const is registered. Callers can check individual bodies or run the full
     /// body-check pass (`check_all_bodies`).
-    /// (rustc lesson: collect/check split â€” `compiler/rustc_hir_analysis/src/collect.rs`)
+    /// (rustc lesson: collect/check split Ã¢â‚¬â€ `compiler/rustc_hir_analysis/src/collect.rs`)
     pub fn collect_signatures(&mut self, program: &Program) {
         // M20: Expand impl blocks into freestanding functions before registration
         let expanded = program.expand_impl_blocks();
@@ -935,15 +935,15 @@ impl Checker {
         self.resolve_imports(program);
     }
 
-    /// 5c-R: Phase 2 â€” Check all function bodies (collect must run first).
+    /// 5c-R: Phase 2 Ã¢â‚¬â€ Check all function bodies (collect must run first).
     pub fn check_all_bodies(&mut self, program: &Program) {
         for item in &program.items {
             self.check_top_decl(item);
         }
     }
 
-    /// 5c-R: Choke point â€” after checking, certify that every body was processed
-    /// and the checker state is clean. (rustc lesson: writeback certification â€”
+    /// 5c-R: Choke point Ã¢â‚¬â€ after checking, certify that every body was processed
+    /// and the checker state is clean. (rustc lesson: writeback certification Ã¢â‚¬â€
     /// "every node concretely typed" before borrow check.)
     pub fn certify(&self) -> bool {
         // ErrorGuaranteed already ensures error-poisoned nodes are skipped.
@@ -954,7 +954,7 @@ impl Checker {
     /// Run full type checking on a parsed program. This is the main entry point
     /// for external callers (e.g. the compiler driver).
     ///
-    /// Internally calls [`collect_signatures`] first (two-pass architecture â€”
+    /// Internally calls [`collect_signatures`] first (two-pass architecture Ã¢â‚¬â€
     /// signatures must be known before bodies are checked), then
     /// [`check_all_bodies`]. Returns `Ok(())` if no type errors were found,
     /// or `Err(errors)` with all collected errors.
@@ -979,7 +979,7 @@ impl Checker {
         self.register_type_decl_inner(item, "");
     }
 
-    /// Pre-register module-level `const`/`var` globals (name â†’ declared type) so
+    /// Pre-register module-level `const`/`var` globals (name Ã¢â€ â€™ declared type) so
     /// references to them inside function bodies resolve regardless of source
     /// order. Recurses into nested modules.
     fn register_global_const(&mut self, item: &TopDecl) {
@@ -989,7 +989,7 @@ impl Checker {
                 let ty = if decl_ty != CheckedType::Error && decl_ty != CheckedType::Named("_".into()) {
                     decl_ty
                 } else {
-                    // Unknown/elided annotation â€” infer from the initializer.
+                    // Unknown/elided annotation Ã¢â‚¬â€ infer from the initializer.
                     self.check_expr(&cd.value)
                 };
                 self.global_consts.insert(cd.name.name.clone(), ty);
@@ -1007,7 +1007,7 @@ impl Checker {
         match item {
             TopDecl::Type(td) => {
                 // Phase 7E/Feature: Register type alias for newtype auto-conversion.
-                // `type Foo = Int;` â†’ Foo resolves to Int in types_compatible.
+                // `type Foo = Int;` Ã¢â€ â€™ Foo resolves to Int in types_compatible.
                 if let Some(ref alias_ty) = td.alias {
                     let resolved = CheckedType::from_ast_type(alias_ty);
                     let key = if module_path.is_empty() { td.name.name.clone() } else { format!("{}.{}", module_path, td.name.name) };
@@ -1236,7 +1236,7 @@ impl Checker {
                 for t in types { self.register_anon_struct_from_ast(t); }
             }
             Type::Array(_, elem) => self.register_anon_struct_from_ast(elem),
-            // Named, ImplTrait â€” no recursive anonymous structs
+            // Named, ImplTrait Ã¢â‚¬â€ no recursive anonymous structs
             _ => {}
         }
     }
@@ -1372,6 +1372,11 @@ impl Checker {
             }
             Stmt::Destructure(_, e, _) => Self::collect_expr_references(e, refs),
             Stmt::Break(..) | Stmt::Continue(..) | Stmt::Asm(_) | Stmt::Defer(_, _) => {}
+            Stmt::Assert(c, m, _) => {
+                Self::collect_expr_references(c, refs);
+                if let Some(msg) = m { Self::collect_expr_references(msg, refs); }
+            }
+            Stmt::Debugger(_) => {},
         }
     }
 
@@ -1421,7 +1426,7 @@ impl Checker {
     }
 
     // ====================================================================
-    // I1: Send/Sync enforcement â€” auto-derivation + spawn capture checking
+    // I1: Send/Sync enforcement Ã¢â‚¬â€ auto-derivation + spawn capture checking
     // ====================================================================
 
     /// Register a concrete type as implementing both Send and Sync.
@@ -1452,7 +1457,7 @@ impl Checker {
                 fields.iter().all(|ft| self.is_send(ft))
             });
         }
-        // Generic containers: Option[T], Result[T,E], Vec[T] â€” assume Send
+        // Generic containers: Option[T], Result[T,E], Vec[T] Ã¢â‚¬â€ assume Send
         // for now (they own their data). Full generic analysis deferred.
         if let Some((base, _params)) = Self::parse_generic_type(type_name) {
             match base.as_str() {
@@ -1466,7 +1471,7 @@ impl Checker {
         false
     }
 
-    /// Parse "Vec[Int]" â†’ ("Vec", ["Int"]), "Option[Result[Int,Str]]" â†’ ("Option", ["Result[Int,Str]"])
+    /// Parse "Vec[Int]" Ã¢â€ â€™ ("Vec", ["Int"]), "Option[Result[Int,Str]]" Ã¢â€ â€™ ("Option", ["Result[Int,Str]"])
     fn parse_generic_type(name: &str) -> Option<(String, Vec<String>)> {
         if let Some(bracket) = name.find('[') {
             let base = name[..bracket].to_string();
@@ -1507,7 +1512,7 @@ impl Checker {
                 // param named "self" with type `Self`), NOT by its type matching the
                 // receiver. A receiver-qualified fn WITHOUT a `self` param is a static
                 // constructor (e.g. `Cell.new[T](value)`) and must NOT get a synthetic
-                // self â€” otherwise its first real argument aligns to the phantom self
+                // self Ã¢â‚¬â€ otherwise its first real argument aligns to the phantom self
                 // and every call mis-reports "expected Self".
                 for p in &fd.params {
                     self.register_anon_struct_from_ast(&p.ty);
@@ -1597,7 +1602,7 @@ impl Checker {
                 let val_ty = self.check_expr(&cd.value);
                 let decl_ty = CheckedType::from_ast_type(&cd.ty);
                 // v0.56: Skip type check for zero-initialized globals of complex types
-                // (Array, Map, Vec, etc.) â€” the zero is a placeholder, not the real type.
+                // (Array, Map, Vec, etc.) Ã¢â‚¬â€ the zero is a placeholder, not the real type.
                 let is_zero_default = matches!(&cd.value, Expr::Int(0, _) | Expr::Float(_, _));
                 let is_complex_type = matches!(&decl_ty, CheckedType::Named(n) if n == "Array" || n == "Map" || n == "Vec" || n == "Set");
                 if val_ty != CheckedType::Error && decl_ty != CheckedType::Error {
@@ -1708,8 +1713,8 @@ impl Checker {
             }
         }
         // Build parent-module entries for dotted names so that process_use
-        // can walk `self.modules.get("xiom") â†’ async â†’ ...`.
-        // Example: registered "xiom.async" â†’ ensure "xiom" contains "async".
+        // can walk `self.modules.get("xiom") Ã¢â€ â€™ async Ã¢â€ â€™ ...`.
+        // Example: registered "xiom.async" Ã¢â€ â€™ ensure "xiom" contains "async".
         let module_keys: Vec<String> = self.modules.keys().cloned().collect();
         let mut parents: HashMap<String, HashMap<String, ModuleExport>> = HashMap::new();
         for full_key in &module_keys {
@@ -1734,12 +1739,12 @@ impl Checker {
         }
 
         // Prelude: the stdlib exposes a handful of implicit helpers used
-        // unqualified across modules â€” `to_string`/`to_int`/`to_float`/`to_char`
+        // unqualified across modules Ã¢â‚¬â€ `to_string`/`to_int`/`to_float`/`to_char`
         // (core), `str_concat`/`str_len`/`char_at` (string), `fabs`/trig (math),
         // `gcd`/`lcm` (num), plus core `cmp`/`char` helpers. These are neither
-        // `pub`-imported nor `use`d, so they were never loaded into the catalog â€”
+        // `pub`-imported nor `use`d, so they were never loaded into the catalog Ã¢â‚¬â€
         // leaving them undefined at link time and untyped at call sites
-        // (`call i64` default â†’ ptr/int IR mismatches). When a program uses ANY
+        // (`call i64` default Ã¢â€ â€™ ptr/int IR mismatches). When a program uses ANY
         // `xiom.*` module, force-load the prelude modules so the checker resolves
         // them and codegen injects+registers their real signatures.
         //
@@ -1777,7 +1782,7 @@ impl Checker {
             }
         }
 
-        // Now process each use declaration â€” self.modules is fully populated.
+        // Now process each use declaration Ã¢â‚¬â€ self.modules is fully populated.
         for ud in &import_snapshot {
             self.process_use(ud);
         }
@@ -1870,12 +1875,12 @@ impl Checker {
         }
 
         // Set of PUB generic type names. Methods on a generic type are only safe to
-        // inject when their receiver type decl is ALSO injected (pub) â€” codegen
+        // inject when their receiver type decl is ALSO injected (pub) Ã¢â‚¬â€ codegen
         // recognizes the receiver as generic (via that injected type decl) and then
         // monomorphises the method on demand instead of emitting a malformed
         // un-monomorphised concrete body. A method on a NON-pub generic type (e.g.
         // core's `BinaryHeap[T].new`) has no injected type decl, so codegen would
-        // treat it as concrete and emit broken IR â€” those stay skipped.
+        // treat it as concrete and emit broken IR Ã¢â‚¬â€ those stay skipped.
         let mut pub_generic_type_names: HashSet<String> = HashSet::new();
         fn collect_pub_generic_types(items: &[TopDecl], out: &mut HashSet<String>) {
             for item in items {
@@ -1923,7 +1928,7 @@ impl Checker {
                         }
                         // 3c (2026-08-10): inject catalog-loaded INTERFACES so the
                         // codegen can register them for impl-dispatch resolution
-                        // (`Num[T].add` â†’ `core.Float64.add`).
+                        // (`Num[T].add` Ã¢â€ â€™ `core.Float64.add`).
                         TopDecl::Interface(id) => {
                             if id.is_pub && !existing.contains(&id.name.name) {
                                 existing.insert(id.name.name.clone());
@@ -1958,7 +1963,7 @@ impl Checker {
                             // Deduplicate by the QUALIFIED key (`Receiver.method` for
                             // methods, bare name for free functions). Deduping by the
                             // bare name alone would drop distinct methods that share a
-                            // leaf name (e.g. `Layout.new`, `Vec.new`, `Rc.new`) â€”
+                            // leaf name (e.g. `Layout.new`, `Vec.new`, `Rc.new`) Ã¢â‚¬â€
                             // and since catalog iteration order is nondeterministic,
                             // which `new` survived would flip between builds.
                             let dedup_key = if fd.is_method() {
@@ -1973,9 +1978,9 @@ impl Checker {
                                 fd.name.name.clone()
                             } else if !module_name.is_empty() {
                                 // Module-qualified free fns (e.g. xiom.env.args vs
-                                // xiom.io.args) must NOT dedup against each other â€”
+                                // xiom.io.args) must NOT dedup against each other Ã¢â‚¬â€
                                 // bare-name dedup dropped one, leaving the other to
-                                // self-recursively resolve (env.args â†’ @args).
+                                // self-recursively resolve (env.args Ã¢â€ â€™ @args).
                                 format!("{}.{}", module_name, fd.name.name)
                             } else {
                                 fd.name.name.clone()
@@ -1987,7 +1992,7 @@ impl Checker {
                                 existing.insert(dedup_key);
                                 // BUG 9 fix (2026-08-11): inject NON-pub struct/enum
                                 // types referenced by this fn's signature (params,
-                                // return, and — transitively — their fields). Their
+                                // return, and â€” transitively â€” their fields). Their
                                 // layouts must reach codegen, otherwise the type
                                 // resolves to i64 and the fn signature/ABI degrades
                                 // (docs/COMPILER_BUGS.md BUG 9). The stdlib worked
@@ -2047,11 +2052,11 @@ impl Checker {
                                 // wrappers are dropped), so the module context must
                                 // ride on the name itself. Methods keep their
                                 // receiver-based keys (fn_key uses the receiver).
-                                // Bare internal calls (e.g. env.args_os â†’ args())
+                                // Bare internal calls (e.g. env.args_os Ã¢â€ â€™ args())
                                 // still resolve via codegen's bare-key alias map.
                                 // NOTE: even when the fn's name equals the module
-                                // leaf (`alloc` in xiom.alloc â†’ `alloc.alloc`), the
-                                // rename still applies â€” the qualified key is what
+                                // leaf (`alloc` in xiom.alloc Ã¢â€ â€™ `alloc.alloc`), the
+                                // rename still applies Ã¢â‚¬â€ the qualified key is what
                                 // makes it distinct from a user's bare `alloc`.
                                 if fd2.receiver.is_none() && !module_name.is_empty() {
                                     if let Some(leaf) = module_name.rsplit('.').next() {
@@ -2114,7 +2119,7 @@ impl Checker {
                             collect_block_names(body, out);
                         }
                         // 3c: generic BOUNDS (`[T: Real + Num]`) make the bound
-                        // interfaces referenced â€” their impl methods must survive
+                        // interfaces referenced Ã¢â‚¬â€ their impl methods must survive
                         // the reachability filter for the C001 bound check.
                         for gp in &fd.generics {
                             for b in &gp.bounds {
@@ -2171,6 +2176,7 @@ impl Checker {
                 Stmt::Break(..) | Stmt::Continue(..) => {},
                 Stmt::Asm(_) => {},
                 Stmt::Defer(b, _) => collect_block_names(b, out),
+            Stmt::Assert(_, _, _) | Stmt::Debugger(_) => {},
             }
         }
         fn collect_expr_names(expr: &Expr, out: &mut HashSet<String>) {
@@ -2237,7 +2243,7 @@ impl Checker {
         for d in decls {
             match d {
                 TopDecl::Fn(fd) => {
-                    // 3c: a candidate fn's generic BOUNDS reference interfaces â€”
+                    // 3c: a candidate fn's generic BOUNDS reference interfaces Ã¢â‚¬â€
                     // seed them so the interface's impl methods survive pruning
                     // (the C001 bound check needs every method registered).
                     for gp in &fd.generics {
@@ -2295,7 +2301,7 @@ impl Checker {
                 };
                 let qualified_reachable = referenced.contains(&key);
                 // 3c: an IMPL METHOD (name like `Int.to_float`, no receiver) is
-                // reachable when its INTERFACE is referenced â€” the dispatch goes
+                // reachable when its INTERFACE is referenced Ã¢â‚¬â€ the dispatch goes
                 // through `FromInt[T].to_float`, which collects the interface
                 // name `FromInt` into `referenced`. Without this, unused-now
                 // interface methods (e.g. to_float when only from_int is called)
@@ -2350,7 +2356,7 @@ impl Checker {
     fn build_module_map(&self, items: &[TopDecl]) -> HashMap<String, ModuleExport> {
         let mut m = self.build_module_map_inner(items, "");
         // The parser nests dotted file modules (`module xiom.io` becomes
-        // Module(xiom){ Module(io){ … } }), so build_module_map_inner returns a
+        // Module(xiom){ Module(io){ â€¦ } }), so build_module_map_inner returns a
         // single-child chain {xiom:{io:{real fns}}}. Binding that chain under
         // the imported name breaks `io.println`-style resolution (the walk
         // finds only "xiom" at the top). Descend through single-child
@@ -2401,7 +2407,7 @@ impl Checker {
                             FnSig { params, return_type, generics, uses_implicit_this: false }
                         });
                     // BUG 25 #11 fix: PRIVATE fns must not be re-exported by
-                    // `use` — a bare call in an importing module previously
+                    // `use` â€” a bare call in an importing module previously
                     // resolved to the imported module's private fn (hijacking
                     // same-named calls, e.g. heap.xi's private `pheap_merge`).
                     // The export map is the module SURFACE; private fns stay
@@ -2448,7 +2454,7 @@ impl Checker {
             return;
         }
 
-        // v0.56: Strip 'stdlib' prefix â€” it's a filesystem directory, not a module.
+        // v0.56: Strip 'stdlib' prefix Ã¢â‚¬â€ it's a filesystem directory, not a module.
         // `use stdlib.xiom.io` should resolve as `use xiom.io` via source_dirs.
         let effective_path: Vec<Ident> = if ud.path.len() > 1 && ud.path[0].name == "stdlib" {
             ud.path[1..].to_vec()
@@ -2467,7 +2473,7 @@ impl Checker {
                 // First segment not in modules (e.g. "xiom" from `use xiom.async`
                 // when no standalone xiom.xi exists). Load the full path from catalog
                 // and build a parent module entry containing the submodule.
-                // NOTE: the full path may include the ITEM (fn/const) — the walk
+                // NOTE: the full path may include the ITEM (fn/const) â€” the walk
                 // above already resolved directory-module paths; here the last
                 // segment is either part of the module path or the item itself.
                 let full_path: Vec<String> = effective_path.iter().map(|p| p.name.clone()).collect();
@@ -2475,7 +2481,7 @@ impl Checker {
                     // Register function signatures from the loaded module so
                     // method resolution works (e.g. Vec.insert, Map.contains).
                     // build_module_map creates export maps but doesn't register
-                    // functions in self.functions â€” without this, method calls
+                    // functions in self.functions Ã¢â‚¬â€ without this, method calls
                     // on stdlib types fail with "cannot call on this expression".
                     for item in &cached.program.items {
                         self.register_fn_signature(item);
@@ -2505,7 +2511,7 @@ impl Checker {
                 }
                 _ => {
                     // BUG fix (2026-08-11): load the LONGEST matching dotted
-                    // prefix from the catalog — submodule DIRECTORIES like
+                    // prefix from the catalog â€” submodule DIRECTORIES like
                     // xiom.collect.skiplist have no `collect.xi` intermediate
                     // file, so single-segment loading (`collect`) fails and the
                     // whole import silently binds nothing. Try each prefix from
@@ -2549,7 +2555,7 @@ impl Checker {
         }
 
         if ud.glob {
-            // `use module.*;` â€” import all pub items
+            // `use module.*;` Ã¢â‚¬â€ import all pub items
             for (name, export) in current {
                 if matches!(export, ModuleExport::SubModule(_)) { continue; }
                 let is_pub = match export {
@@ -2568,7 +2574,7 @@ impl Checker {
             let export = match current.get(item_name) {
                 Some(e) => e.clone(),
                 None => {
-                    // Not found in current module â€” try loading the full dotted
+                    // Not found in current module Ã¢â‚¬â€ try loading the full dotted
                     // path from catalog (e.g. "xiom.async" when the parent module
                     // "xiom" is incomplete or the submodule wasn't pre-indexed).
                     let full_path: Vec<String> = effective_path.iter().map(|p| p.name.clone()).collect();
@@ -2590,7 +2596,7 @@ impl Checker {
             let local_name = ud.alias.as_ref()
                 .map(|a| a.name.clone())
                 .unwrap_or_else(|| item_name.clone());
-            // BUG 25 #2 fix: record the alias → FULL dotted use path so the
+            // BUG 25 #2 fix: record the alias â†’ FULL dotted use path so the
             // codegen can resolve bare calls through the alias (the driver
             // strips UseDecls before codegen; the checker is the only place
             // the binding survives).
@@ -2601,7 +2607,7 @@ impl Checker {
                 }
                 // Record BOTH the full dotted path AND the stdlib-stripped
                 // leaf-qualified form ("xiom.math.abs_float" and
-                // "math.abs_float") — injected stdlib fns register under the
+                // "math.abs_float") â€” injected stdlib fns register under the
                 // leaf-qualified key.
                 self.use_alias_paths.insert(local_name.clone(), full.join("."));
                 if full.len() > 1 {
@@ -2618,7 +2624,7 @@ impl Checker {
                 // G-32: when `use mod` imports a SubModule, recursively
                 // inject its pub items (fns, types, CONSTS) so bare `PI`
                 // resolves. Previously the module was registered but the
-                // items inside were hidden â€” consts were invisible to bare
+                // items inside were hidden Ã¢â‚¬â€ consts were invisible to bare
                 // reference while `mod.PI` worked (the catalog path hit
                 // find_external_module which does a fresh scan).
                 for (name, item_export) in sub_exports.iter() {
@@ -2637,7 +2643,7 @@ impl Checker {
 
     /// Try to resolve a module-qualified call: `module.func(args)` or `module.submodule.func(args)`
     fn check_module_call(&mut self, obj: &Expr, method: &Ident, args: &[Expr], span: Span) -> Option<CheckedType> {
-        // D1 (2026-08-08): interface impl dispatch â€” `Trait[Args].method(args)`
+        // D1 (2026-08-08): interface impl dispatch Ã¢â‚¬â€ `Trait[Args].method(args)`
         // resolves to the registered impl's `Type.method` freestanding fn
         // (produced by expand_impl_blocks). Handles both `Num[Int].add(...)`
         // and `Num.add(...)` (zero-arg generic interface).
@@ -2717,9 +2723,9 @@ impl Checker {
     /// implementing type registered via `impl Trait[Args] { ... }`.
     /// Returns the implementing type name (e.g. "Int" for `Num[Int]`).
     /// Receiver shapes handled:
-    ///   GenericCall(Ident(Trait), [Args], _) â†’ trait with type args
-    ///   Index(Ident(Trait), arg_expr)         â†’ `Trait[Arg]` parsed as indexing
-    ///   Ident(Trait)                          â†’ bare trait name
+    ///   GenericCall(Ident(Trait), [Args], _) Ã¢â€ â€™ trait with type args
+    ///   Index(Ident(Trait), arg_expr)         Ã¢â€ â€™ `Trait[Arg]` parsed as indexing
+    ///   Ident(Trait)                          Ã¢â€ â€™ bare trait name
     fn resolve_impl_method(&self, obj: &Expr, method: &Ident) -> Option<String> {
         // Extract (trait_name, args) from the receiver.
         let (trait_name, arg_names): (String, Vec<String>) = match obj {
@@ -2735,7 +2741,7 @@ impl Checker {
             }
             Expr::Index(base, idx, _) => {
                 if let Expr::Ident(id) = base.as_ref() {
-                    // `Num[Int]` â€” the index expr is a type name as an Ident.
+                    // `Num[Int]` Ã¢â‚¬â€ the index expr is a type name as an Ident.
                     let arg = match idx.as_ref() {
                         Expr::Ident(i) => i.name.clone(),
                         _ => return None,
@@ -2761,7 +2767,7 @@ impl Checker {
                 }
             }
         }
-        // 3c (2026-08-10): `Num[T].add` inside `fn sum2[T: Num]` â€” the arg is a
+        // 3c (2026-08-10): `Num[T].add` inside `fn sum2[T: Num]` Ã¢â‚¬â€ the arg is a
         // GENERIC TYPE PARAMETER whose impl is unknown until monomorphisation.
         // If the param has the trait as a bound and the trait declares the
         // method, accept the call (codegen resolves the concrete impl when T
@@ -2839,7 +2845,7 @@ impl Checker {
         let module_name = &path[0];
         // First try `modules` (full module paths), then fall back to
         // `imported_items` (short names from `use` declarations).
-        // `use xiom.async` inserts "async" â†’ SubModule(exports) into
+        // `use xiom.async` inserts "async" Ã¢â€ â€™ SubModule(exports) into
         // imported_items but not into modules.
         let exports = self.modules.get(module_name).or_else(|| {
             self.imported_items.get(module_name).and_then(|export| {
@@ -2888,7 +2894,7 @@ impl Checker {
         }
 
         // 5c-E: register const-generic parameters as locals
-        // `fn len[T, const N: Int](arr: &[N]T) -> Int { N }` â€” N must resolve
+        // `fn len[T, const N: Int](arr: &[N]T) -> Int { N }` Ã¢â‚¬â€ N must resolve
         for g in &fd.generics {
             let gen_ty = if g.is_const {
                 g.const_ty.as_ref().map(|t| CheckedType::from_ast_type(t)).unwrap_or(CheckedType::Int)
@@ -2898,7 +2904,7 @@ impl Checker {
             self.add_local(&g.name.name, gen_ty);
         }
         // Track generic param bounds for interface method resolution.
-        // e.g., fn foo[T: Foo](x: T) { x.bar() } â€” need to know T has Foo
+        // e.g., fn foo[T: Foo](x: T) { x.bar() } Ã¢â‚¬â€ need to know T has Foo
         // bound to resolve bar() as an interface method.
         self.current_generic_bounds.clear();
         for g in &fd.generics {
@@ -2916,7 +2922,7 @@ impl Checker {
             // resolution (G-10: bare `init()` inside `fn GrpcClient.init()`).
             self.current_receiver = Some(recv.name.clone());
             // G-20: bare receiver fields are backed by codegen for ALL slot
-            // forms now â€” explicit `self`, receiver-style `&T` first param,
+            // forms now Ã¢â‚¬â€ explicit `self`, receiver-style `&T` first param,
             // `this`-based bodies, AND bare-field bodies (codegen emits a
             // %param_self slot whenever the body mentions receiver state).
             // Do NOT shadow explicit parameters with same-named receiver
@@ -2941,7 +2947,7 @@ impl Checker {
         self.current_return = expected_return.clone();
 
         // D2.1 (T002 exemption): fns with contracts are the sanctioned safe
-        // wrappers around unsafe internals (requirement c) — they may call
+        // wrappers around unsafe internals (requirement c) â€” they may call
         // extern "C" functions directly.
         self.current_fn_has_contracts = !fd.contracts.is_empty();
         // D2.1 (T007): an unsafe block must be wrapped by a safe fn enforcing
@@ -2951,13 +2957,13 @@ impl Checker {
         // Check body
         if let Some(body) = fd.body.as_ref() {
             // D2.1 (T007, requirement c): a fn whose ENTIRE body is one
-            // `unsafe { }` block must declare at least one `requires` clause —
+            // `unsafe { }` block must declare at least one `requires` clause â€”
             // the safe wrapper pattern: inputs are logically validated before
             // the confined block executes.
             if !self.current_fn_has_requires && Self::block_is_single_unsafe(body) {
                 self.error(
                     format!(
-                        "fn '{}' has a whole-body `unsafe` block but declares no `requires` (T007 — pre-entry contract, Unsafe Confinement requirement c)",
+                        "fn '{}' has a whole-body `unsafe` block but declares no `requires` (T007 â€” pre-entry contract, Unsafe Confinement requirement c)",
                         fd.name.name
                     ),
                     fd.name.span,
@@ -2966,11 +2972,11 @@ impl Checker {
             self.check_block(body, expected_return);
         }
 
-        // D2.1 (T003 extension — zero-escape at the FUNCTION boundary): a SAFE
+        // D2.1 (T003 extension â€” zero-escape at the FUNCTION boundary): a SAFE
         // fn (one with NO unsafe blocks) may not RETURN a raw-pointer or
         // reference type. Unsafe-internal helpers (bodies containing `unsafe`
         // blocks) legitimately return pointers created within their own
-        // confinement — they are the sanctioned plumbing for pointer factories
+        // confinement â€” they are the sanctioned plumbing for pointer factories
         // (e.g. `fn null_expr() -> *Expr { return unsafe { 0 as *Expr }; }`).
         let body_has_unsafe = fd.body.as_ref().map_or(false, |b| Self::block_contains_unsafe(b));
         if !body_has_unsafe {
@@ -2978,10 +2984,10 @@ impl Checker {
                 match ret {
                     // Raw pointers: zero-escape gate. `&T` references are the
                     // SAFE borrow mechanism (borrow-checked) and remain allowed
-                    // as fn returns — only RAW pointers are confined.
+                    // as fn returns â€” only RAW pointers are confined.
                     CheckedType::Named(n) if n.starts_with('*') || n == "Ptr" => {
                         self.error(format!(
-                            "safe fn '{}' cannot return raw pointer type '{n}' (T003 — zero-escape; only unsafe-internal helpers may return pointers)",
+                            "safe fn '{}' cannot return raw pointer type '{n}' (T003 â€” zero-escape; only unsafe-internal helpers may return pointers)",
                             fd.name.name
                         ), fd.name.span);
                     }
@@ -3007,7 +3013,7 @@ impl Checker {
         false
     }
 
-    /// True if the block (transitively) contains an `unsafe { }` expression —
+    /// True if the block (transitively) contains an `unsafe { }` expression â€”
     /// marks an unsafe-internal helper for T003's zero-escape exemption.
     fn block_contains_unsafe(block: &Block) -> bool {
         fn stmt_has_unsafe(stmt: &StmtOrExpr) -> bool {
@@ -3071,7 +3077,7 @@ impl Checker {
     fn check_block(&mut self, block: &Block, expected_return: Option<CheckedType>) -> Option<CheckedType> {
         // Push a fresh scope so local variables declared inside this block
         // do not leak into the enclosing scope. Nested `{ var x = ...; }`
-        // blocks create their own scope â€” shadowing the outer binding without
+        // blocks create their own scope Ã¢â‚¬â€ shadowing the outer binding without
         // mutating it. Without this, `fn main() -> Int { var x = 1; { var x = "hi"; } return x; }`
         // would resolve `x` to Str after the inner block because add_local
         // overwrote the outer binding in the shared scope.
@@ -3095,7 +3101,7 @@ impl Checker {
                     last_expr_ty = Some(self.check_expr(expr));
                     // Divergence analysis: a tail expression whose every path
                     // ends in `return` (e.g. `unsafe { ...; return X; }`)
-                    // satisfies any declared return type â€” the block value is
+                    // satisfies any declared return type Ã¢â‚¬â€ the block value is
                     // never observed. Production pattern in FFI wrappers.
                     tail_diverges = Self::expr_always_returns(expr);
                 }
@@ -3207,6 +3213,18 @@ impl Checker {
                             let annot_name = annot_ty.name();
                             annot_name.starts_with('*') && annot_name[1..] == val_name
                         };
+                    // BUG 26: a non-literal INTEGER value cannot bind to a
+                    // FLOAT-typed binding (Rust-style â€” silent precision loss);
+                    // int LITERALS may adopt the float type (exact). Float
+                    // values never bind to int targets.
+                    let bind_mix_err = (Self::is_int_family(&val_ty) && Self::is_float_family(&annot_ty) && !Self::is_int_literal_expr(value))
+                        || (Self::is_float_family(&val_ty) && Self::is_int_family(&annot_ty));
+                    if bind_mix_err {
+                        self.error(
+                            format!("type mismatch in let: cannot bind {} to {} â€” convert explicitly with `as`", val_ty.name(), annot_ty.name()),
+                            *span,
+                        );
+                    }
                     if !self.types_compatible(&val_ty, &annot_ty)
                         && val_ty != CheckedType::Error
                         && !matches!(&val_ty, CheckedType::Named(n) if n == "_")
@@ -3220,7 +3238,12 @@ impl Checker {
                     self.add_local(&name.name, annot_ty);
                     return;
                 }
-                self.add_local(&name.name, val_ty);
+                // BUG 26: Vec-ctor bindings register their FULL generic type
+                // ("Vec[Vec[Float64]]") so element reads resolve precisely.
+                let bind_ty = self.vec_ctor_type_name(value)
+                    .map(|s| CheckedType::from_str(&s))
+                    .unwrap_or(val_ty.clone());
+                self.add_local(&name.name, bind_ty);
             }
             Stmt::Var(name, ty_annot, value, span) => {
                 let val_ty = self.check_expr(value);
@@ -3241,6 +3264,18 @@ impl Checker {
                             let annot_name = annot_ty.name();
                             annot_name.starts_with('*') && annot_name[1..] == val_name
                         };
+                    // BUG 26: a non-literal INTEGER value cannot bind to a
+                    // FLOAT-typed binding (Rust-style â€” silent precision loss);
+                    // int LITERALS may adopt the float type (exact). Float
+                    // values never bind to int targets.
+                    let bind_mix_err = (Self::is_int_family(&val_ty) && Self::is_float_family(&annot_ty) && !Self::is_int_literal_expr(value))
+                        || (Self::is_float_family(&val_ty) && Self::is_int_family(&annot_ty));
+                    if bind_mix_err {
+                        self.error(
+                            format!("type mismatch in var: cannot bind {} to {} â€” convert explicitly with `as`", val_ty.name(), annot_ty.name()),
+                            *span,
+                        );
+                    }
                     if !self.types_compatible(&val_ty, &annot_ty)
                         && val_ty != CheckedType::Error
                         && !matches!(&val_ty, CheckedType::Named(n) if n == "_")
@@ -3254,7 +3289,11 @@ impl Checker {
                     self.add_local(&name.name, annot_ty);
                     return;
                 }
-                self.add_local(&name.name, val_ty);
+                // BUG 26: Vec-ctor bindings register their FULL generic type.
+                let bind_ty = self.vec_ctor_type_name(value)
+                    .map(|s| CheckedType::from_str(&s))
+                    .unwrap_or(val_ty.clone());
+                self.add_local(&name.name, bind_ty);
             }
             Stmt::Assign(place, value, span) => {
                 let place_ty = self.check_expr(place);
@@ -3340,7 +3379,7 @@ impl Checker {
                 }
             }
             Stmt::Spawn(body, _, is_move) => {
-                // R2: Move semantics â€” analyze captures and mark as moved.
+                // R2: Move semantics Ã¢â‚¬â€ analyze captures and mark as moved.
                 let outer_locals: HashSet<String> = self.locals.iter()
                     .flat_map(|scope| scope.keys())
                     .cloned()
@@ -3365,7 +3404,7 @@ impl Checker {
                     // For now, spawn without `move` still works but captures are implicit
                 }
 
-                // I1: Send/Sync enforcement â€” verify every captured variable's type
+                // I1: Send/Sync enforcement Ã¢â‚¬â€ verify every captured variable's type
                 // implements Send before allowing the spawn capture.
                 for cap in &captures {
                     if let Some(cap_ty) = self.lookup_local(cap) {
@@ -3383,7 +3422,7 @@ impl Checker {
                     }
                 }
 
-                // Mark captures as moved â€” they cannot be used after spawn
+                // Mark captures as moved Ã¢â‚¬â€ they cannot be used after spawn
                 for cap in &captures {
                     // Remove from all scopes to prevent post-spawn use
                     for scope in self.locals.iter_mut().rev() {
@@ -3394,12 +3433,30 @@ impl Checker {
             Stmt::Break(..) => {}
             Stmt::Continue(..) => {}
             Stmt::Asm(asm) => {
-                // D2 (2026-08-08): inline assembly is unsafe â€” requires unsafe context.
+                // D2 (2026-08-08): inline assembly is unsafe Ã¢â‚¬â€ requires unsafe context.
                 if self.unsafe_depth == 0 {
                     self.error("inline asm requires an `unsafe` block", asm.span);
                 }
             }
             Stmt::Defer(b, _) => { self.check_block(b, None); }
+            // BUG 27: assert(cond[, "msg"]) — the condition must be Bool;
+            // the message, when present, must be a Str literal expression.
+            Stmt::Assert(cond, msg, span) => {
+                let cond_ty = self.check_expr(cond);
+                if cond_ty.name() != "Bool"
+                    && !matches!(&cond_ty, CheckedType::Named(n) if n == "_")
+                    && cond_ty != CheckedType::Error
+                {
+                    self.error(format!("assert condition must be Bool, found {}", cond_ty.name()), *span);
+                }
+                if let Some(m) = msg {
+                    let msg_ty = self.check_expr(m);
+                    if msg_ty != CheckedType::Str && msg_ty != CheckedType::Error {
+                        self.error(format!("assert message must be Str, found {}", msg_ty.name()), *span);
+                    }
+                }
+            }
+            Stmt::Debugger(_) => {},
         }
     }
 
@@ -3408,7 +3465,7 @@ impl Checker {
     // ========================================================================
 
     /// BUG 23 #7 fix: derive the field map of a tuple type name
-    /// ("Tuple__Bool__Bool" → {_0: Bool, _1: Bool}). Tuple types only register
+    /// ("Tuple__Bool__Bool" â†’ {_0: Bool, _1: Bool}). Tuple types only register
     /// at tuple-EXPRESSION check sites; catalog fn returns never did.
     fn tuple_fields_from_name(name: &str) -> Option<HashMap<String, CheckedType>> {
         let rest = name.strip_prefix("Tuple__")?;
@@ -3420,6 +3477,65 @@ impl Checker {
             .map(|(i, p)| (format!("_{i}"), CheckedType::from_str(p)))
             .collect();
         Some(map)
+    }
+
+    fn is_int_family(ty: &CheckedType) -> bool {
+        Self::is_float_family(ty) == false && ty.is_numeric()
+    }
+
+    fn is_float_family(ty: &CheckedType) -> bool {
+        matches!(ty, CheckedType::Float32 | CheckedType::Float64)
+            || matches!(ty, CheckedType::Named(n) if n == "Float" || n == "Float128" || n == "fp128")
+    }
+
+    fn is_int_literal_expr(e: &Expr) -> bool {
+        match e {
+            Expr::Int(..) | Expr::BigInt(..) => true,
+            Expr::Paren(inner, _) => Self::is_int_literal_expr(inner),
+            _ => false,
+        }
+    }
+
+    /// BUG 26: render the type argument of a `Vec[...].new()` value into
+    /// "Vec[<elem>]" (nested args keep their brackets). Lets the checker
+    /// type Vec-ctor bindings precisely so element reads resolve.
+    fn vec_ctor_type_name(&self, value: &Expr) -> Option<String> {
+        let func = match value {
+            Expr::Call(f, ..) | Expr::GenericCall(f, ..) => f.as_ref(),
+            _ => return None,
+        };
+        let (obj, method) = match func {
+            Expr::Field(o, m, _) => (o, &m.name),
+            _ => return None,
+        };
+        if method != "new" && method != "with_capacity" {
+            return None;
+        }
+        let (base, idx) = match obj.as_ref() {
+            Expr::Index(b, i, _) => (b, i),
+            _ => return None,
+        };
+        if !matches!(base.as_ref(), Expr::Ident(id) if id.name == "Vec") {
+            return None;
+        }
+        fn render(e: &Expr) -> String {
+            match e {
+                Expr::Ident(id) => id.name.clone(),
+                Expr::Index(b, i, _) => {
+                    if let Expr::Ident(bid) = b.as_ref() {
+                        if bid.name == "Vec" {
+                            format!("Vec[{}]", render(i))
+                        } else {
+                            "Int".to_string()
+                        }
+                    } else {
+                        "Int".to_string()
+                    }
+                }
+                _ => "Int".to_string(),
+            }
+        }
+        Some(format!("Vec[{}]", render(idx)))
     }
 
     fn check_expr(&mut self, expr: &Expr) -> CheckedType {
@@ -3445,6 +3561,13 @@ impl Checker {
                         || self.fn_owner_module.get(&ident.name)
                             .map(|m| m.is_empty() || Some(m.as_str()) == self.current_module.as_deref())
                             .unwrap_or(true))
+                {
+                    CheckedType::Named("fn".into())
+                } else if (ident.name == "dbg" || ident.name == "todo" || ident.name == "unimplemented")
+                    // BUG 27: debug intrinsics are callable builtins when no
+                    // user fn with the name is registered.
+                    && !self.functions.contains_key(&ident.name)
+                    && !self.fn_owner_module.contains_key(&ident.name)
                 {
                     CheckedType::Named("fn".into())
                 } else if self.contains_type(&ident.name) {
@@ -3521,7 +3644,7 @@ impl Checker {
                 match op {
                     UnaryOp::Neg => {
                         // BUG 22 #2 fix: match-bound payload vars (Some(d)/Ok(v))
-                        // use the wildcard convention (Gap D) — codegen resolves
+                        // use the wildcard convention (Gap D) â€” codegen resolves
                         // the concrete type. Negation must defer like `Not` and
                         // method dispatch do, instead of rejecting "_".
                         if !inner_ty.is_numeric()
@@ -3543,7 +3666,7 @@ impl Checker {
                     UnaryOp::BitNot => inner_ty, // bitwise not preserves integer type
                     UnaryOp::Deref => {
                         // D2 (2026-08-08): dereferencing a RAW pointer is an
-                        // unsafe operation â€” requires `unsafe { }` context.
+                        // unsafe operation Ã¢â‚¬â€ requires `unsafe { }` context.
                         // References (&T) remain safe (borrow-checked).
                         let is_raw_ptr = matches!(&inner_ty, CheckedType::Named(n) if n.starts_with('*') || n == "Ptr");
                         if is_raw_ptr && self.unsafe_depth == 0 {
@@ -3555,7 +3678,7 @@ impl Checker {
                                 *span,
                             );
                         }
-                        // *p: strip pointer type â€” *Ptr[T] â†’ T, *T â†’ T (encoded as "*Tname")
+                        // *p: strip pointer type Ã¢â‚¬â€ *Ptr[T] Ã¢â€ â€™ T, *T Ã¢â€ â€™ T (encoded as "*Tname")
                         if let CheckedType::Named(ref name) = inner_ty {
                             if let Some(inner_name) = name.strip_prefix('*') {
                                 return CheckedType::from_str(inner_name);
@@ -3571,6 +3694,29 @@ impl Checker {
             Expr::Binary(left, op, right, span) => {
                 let left_ty = self.check_expr(left);
                 let right_ty = self.check_expr(right);
+                // BUG 26 (secure numeric policy): INT â†” FLOAT mixing requires
+                // an explicit `as` cast (Rust-style). Auto-widening stays for
+                // same-family (intâ†’wider int, floatâ†’wider float); an INT
+                // LITERAL operand may adopt the float type (exact â€” `d * 2`
+                // stays ergonomic), but a non-literal integer with a float
+                // operand is a hard error (silent precision loss above 2^53).
+                // FLOAT literals never adopt an integer type (lossy).
+                let l_int = Self::is_int_family(&left_ty);
+                let r_int = Self::is_int_family(&right_ty);
+                let l_flt = Self::is_float_family(&left_ty);
+                let r_flt = Self::is_float_family(&right_ty);
+                if (l_int && r_flt && !Self::is_int_literal_expr(left))
+                    || (l_flt && r_int && !Self::is_int_literal_expr(right))
+                {
+                    self.error(
+                        format!(
+                            "cannot mix {} with {} â€” convert explicitly with `as` (e.g. `{} as Float64`)",
+                            left_ty.name(), right_ty.name(),
+                            if l_int { left_ty.name() } else { right_ty.name() }
+                        ),
+                        *span,
+                    );
+                }
                 match op {
                     BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
                         let is_generic_param = |ty: &CheckedType| -> bool {
@@ -3599,7 +3745,7 @@ impl Checker {
                         // compared with an INCOMPATIBLE scalar (BigFloat == 4)
                         // silently lowered to a field-0 compare (miscompare /
                         // silent corruption). Numbers coerce; same-type operands
-                        // (incl. structs — compared structurally in codegen)
+                        // (incl. structs â€” compared structurally in codegen)
                         // are allowed; generic/wildcard operands defer to codegen.
                         let numeric_family = |ty: &CheckedType| -> bool {
                             ty.is_numeric() || matches!(ty, CheckedType::Char)
@@ -3613,6 +3759,19 @@ impl Checker {
                             || (numeric_family(&left_ty) && numeric_family(&right_ty))
                             || is_generic_or_wild(&left_ty)
                             || is_generic_or_wild(&right_ty);
+                        // BUG 26: equality also rejects intâ†”float mixing
+                        // (int literals may adopt the float type).
+                        let mix_err = (Self::is_int_family(&left_ty) && Self::is_float_family(&right_ty) && !Self::is_int_literal_expr(left))
+                            || (Self::is_float_family(&left_ty) && Self::is_int_family(&right_ty) && !Self::is_int_literal_expr(right));
+                        if mix_err {
+                            self.error(
+                                format!(
+                                    "cannot compare {} with {} â€” convert explicitly with `as`",
+                                    left_ty.name(), right_ty.name()
+                                ),
+                                *span,
+                            );
+                        }
                         if !compatible {
                             self.error(
                                 format!("cannot compare {} with {}", left_ty.name(), right_ty.name()),
@@ -3622,6 +3781,24 @@ impl Checker {
                         CheckedType::Bool
                     }
                     BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
+                        // BUG 26: ordering comparisons follow the same
+                        // intâ†”float rule (Rust-style â€” `d > 0` with an int
+                        // literal is fine; `i > 0.5` needs an explicit cast).
+                        let l_int = Self::is_int_family(&left_ty);
+                        let r_int = Self::is_int_family(&right_ty);
+                        let l_flt = Self::is_float_family(&left_ty);
+                        let r_flt = Self::is_float_family(&right_ty);
+                        if (l_int && r_flt && !Self::is_int_literal_expr(left))
+                            || (l_flt && r_int && !Self::is_int_literal_expr(right))
+                        {
+                            self.error(
+                                format!(
+                                    "cannot compare {} with {} â€” convert explicitly with `as`",
+                                    left_ty.name(), right_ty.name()
+                                ),
+                                *span,
+                            );
+                        }
                         CheckedType::Bool
                     }
                     BinOp::And | BinOp::Or => {
@@ -3645,12 +3822,12 @@ impl Checker {
             }
             Expr::Try(inner, _span) => {
                 let inner_ty = self.check_expr(inner);
-                // v0.56: Cascade suppression â€” Error/Unit/wildcard from previous
+                // v0.56: Cascade suppression Ã¢â‚¬â€ Error/Unit/wildcard from previous
                 // errors should not produce additional ? operator errors.
                 if inner_ty == CheckedType::Error || inner_ty == CheckedType::Unit {
                     return inner_ty;
                 }
-                // ? unwraps Result[T,E] â†’ T or Option[T] â†’ T.
+                // ? unwraps Result[T,E] Ã¢â€ â€™ T or Option[T] Ã¢â€ â€™ T.
                 match &inner_ty {
                     CheckedType::Named(n) if n == "Result" || n == "Option" || n == "_" => {
                         // P2-1: Validate that the enclosing function returns Result/Option.
@@ -3661,7 +3838,7 @@ impl Checker {
                             });
                         if !fn_returns_result_or_option && n != "_" {
                             self.error(
-                                format!("'?' operator used in function that returns '{}' â€” must return Result or Option",
+                                format!("'?' operator used in function that returns '{}' Ã¢â‚¬â€ must return Result or Option",
                                     self.current_return.as_ref().map_or("void".to_string(), |r| r.name())),
                                 *_span,
                             );
@@ -3697,11 +3874,11 @@ impl Checker {
                 }
                 match &obj_ty {
                     CheckedType::Named(name) => {
-                        // v0.56: Wildcard type _ â€” field access always allowed (codegen resolves)
+                        // v0.56: Wildcard type _ Ã¢â‚¬â€ field access always allowed (codegen resolves)
                         if name == "_" {
                             return CheckedType::Named("_".into());
                         }
-                        // Generic type params have no registered fields â€” return wildcard
+                        // Generic type params have no registered fields Ã¢â‚¬â€ return wildcard
                         let is_generic_param = name.len() == 1 && name.chars().next().map_or(false, |c| c.is_ascii_uppercase());
                         if is_generic_param {
                             return CheckedType::Named("_".into());
@@ -3710,19 +3887,19 @@ impl Checker {
                             if let Some(field_ty) = fields.get(&field.name) {
                                 field_ty.clone()
                             } else if !fields.is_empty() {
-                                // Known type with registered fields â€” unknown field
+                                // Known type with registered fields Ã¢â‚¬â€ unknown field
                                 self.error(
                                     format!("type '{}' has no field '{}'", name, field.name),
                                     *span,
                                 )
                             } else {
-                                // Known type with no registered fields (builtin) â€” allow access
+                                // Known type with no registered fields (builtin) Ã¢â‚¬â€ allow access
                                 CheckedType::Int
                             }
                         } else if let Some(tuple_fields) = Self::tuple_fields_from_name(name) {
                             // BUG 23 #7 fix: tuples RETURNED by catalog fns never
                             // register their field maps (only tuple EXPRESSIONS do
-                            // at check time). Derive "Tuple__A__B" → {_0: A, _1: B}
+                            // at check time). Derive "Tuple__A__B" â†’ {_0: A, _1: B}
                             // and register on first field access, so cross-module
                             // `t.0` / `t.1` type-check instead of degrading to
                             // <error> (which broke `!t.0`, `240 * t.1`, ...).
@@ -3777,16 +3954,25 @@ impl Checker {
                         }
                     }
                     if let CheckedType::Named(type_name) = &obj_ty {
-                        let method_key = format!("{}.{}", type_name, method.name);
+                        if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() && method.name == "len" {
+                            eprintln!("[mth] obj_ty={type_name} local_m={:?}", self.lookup_local("m"));
+                        }
+                        // BUG 26: Vec[..]-typed receivers dispatch on the base
+                        // "Vec" methods ("Vec[Int].len" resolves to "Vec.len").
+                        let base_name = type_name
+                            .strip_prefix("Vec[")
+                            .map(|_| "Vec".to_string())
+                            .unwrap_or_else(|| type_name.clone());
+                        let method_key = format!("{}.{}", base_name, method.name);
                         // Try module-prefixed key first, then bare key as fallback
                         let sig = if let Some(ref module) = self.current_module {
-                            let prefixed = format!("{}.{}.{}", module, type_name, method.name);
+                            let prefixed = format!("{}.{}.{}", module, base_name, method.name);
                             self.functions.get(&prefixed).or_else(|| self.functions.get(&method_key))
                         } else {
                             self.functions.get(&method_key)
                         }.cloned();
                         // If not found, try wildcard method lookup (any type with that method).
-                        // v0.56: Skip wildcard lookup for 'clone' â€” it matches the wrong type's
+                        // v0.56: Skip wildcard lookup for 'clone' Ã¢â‚¬â€ it matches the wrong type's
                         // clone method (e.g., Rc.clone returns Rc[T], not the receiver type).
                         let sig = if method.name == "clone" {
                             None
@@ -3808,7 +3994,7 @@ impl Checker {
                             };
                             // Determine the self-kind of this method:
                             //   explicit self: param literally named `self`/typed `Self`,
-                            //     OR receiver-style `fn T.method(h: &T, ...)` â€” but ONLY
+                            //     OR receiver-style `fn T.method(h: &T, ...)` Ã¢â‚¬â€ but ONLY
                             //     when call-site ARITY says so (G-20 fix below)
                             //   implicit this: uses `this` keyword, no self in params
                             //   constructor:   no self at all (e.g. fn T.new(...))
@@ -3819,13 +4005,13 @@ impl Checker {
                             let first_param_matches_receiver = sig.params.first().map_or(false, |(_, pty)| {
                                 matches!(pty, CheckedType::Named(n) if n.as_str() == type_name.as_str())
                             });
-                            // G-20 fix: `fn V2.lerp(other: V2, t: Float32)` â€” a first
+                            // G-20 fix: `fn V2.lerp(other: V2, t: Float32)` Ã¢â‚¬â€ a first
                             // param of the receiver TYPE is ambiguous between
                             // receiver-style (h IS the receiver) and a REAL argument
                             // (math-style lerp/dot/cross). Call-site arity settles it
                             // deterministically:
-                            //   args == params     â†’ params are all real (offset 0)
-                            //   args == params - 1 â†’ first param is the receiver (offset 1)
+                            //   args == params     Ã¢â€ â€™ params are all real (offset 0)
+                            //   args == params - 1 Ã¢â€ â€™ first param is the receiver (offset 1)
                             // Previously the type heuristic always chose receiver-style,
                             // shifting every arg and rejecting/miscompiling lerp-shaped
                             // methods (silent swap class).
@@ -3833,21 +4019,21 @@ impl Checker {
                             let has_explicit_self = first_param_is_self_named
                                 || (first_param_matches_receiver && !arity_direct);
                             // param_offset table:
-                            //   explicit self  + instance call â†’ skip self (offset=1)
-                            //   explicit self  + static call   â†’ self is first arg (offset=0)
-                            //   implicit this  + instance call â†’ args map directly (offset=0)
-                            //   implicit this  + static call   â†’ first arg is receiver, skip (offset=1)
+                            //   explicit self  + instance call Ã¢â€ â€™ skip self (offset=1)
+                            //   explicit self  + static call   Ã¢â€ â€™ self is first arg (offset=0)
+                            //   implicit this  + instance call Ã¢â€ â€™ args map directly (offset=0)
+                            //   implicit this  + static call   Ã¢â€ â€™ first arg is receiver, skip (offset=1)
                             //     NOTE: codegen adds a %param_self pointer to the LLVM signature
                             //     for this-based methods; this offset only controls checker-level
                             //     param matching. The codegen's self_offset handles the actual
                             //     argument layout independently.
-                            //   constructor    + any call       â†’ args map directly, no self (offset=0)
+                            //   constructor    + any call       Ã¢â€ â€™ args map directly, no self (offset=0)
                             let param_offset: usize = if has_explicit_self {
                                 if is_static_call { 0 } else { 1 }
                             } else if sig.uses_implicit_this {
                                 if is_static_call { 1 } else { 0 }
                             } else {
-                                0 // constructor â€” no self at all
+                                0 // constructor Ã¢â‚¬â€ no self at all
                             };
                             for (i, arg) in args.iter().enumerate() {
                                 let arg_ty = self.check_expr(arg);
@@ -3899,24 +4085,24 @@ impl Checker {
                             "to_str" | "to_string" => return CheckedType::Str,
                             // M12/P0: Str conversions from C strings / byte buffers.
                             // These are codegen builtins (call.rs:1210) that reinterpret
-                            // a pointer as a Str at the ABI level â€” identity transform
+                            // a pointer as a Str at the ABI level Ã¢â‚¬â€ identity transform
                             // on i8* with no runtime cost. The checker must return Str
                             // (not Result) so io.read_line() / list_dir() / args() work.
                             "from_cstring" | "from_c_str" | "from_utf8" | "from_bytes"
                                 if prim_ty == CheckedType::Str => return CheckedType::Str,
-                            // M12/P0: Str.substr(start, end) â€” substring extraction.
+                            // M12/P0: Str.substr(start, end) Ã¢â‚¬â€ substring extraction.
                             // Codegen emits xiom_str_slice (a runtime concat call);
                             // always infallible for valid bounds.
                             "substr" if prim_ty == CheckedType::Str => return CheckedType::Str,
-                            // M12/P1: byte indexing â€” returns a single byte at position.
+                            // M12/P1: byte indexing Ã¢â‚¬â€ returns a single byte at position.
                             "byte_at" if prim_ty == CheckedType::Str => return CheckedType::UInt8,
                             "char_at" if prim_ty == CheckedType::Str => return CheckedType::Named("Option".into()),
-                            // M12/P1: scripting ergonomics â€” slice() and starts_with()
+                            // M12/P1: scripting ergonomics Ã¢â‚¬â€ slice() and starts_with()
                             // as methods on Str, avoiding verbose string.str_slice() calls.
                             "slice" if prim_ty == CheckedType::Str => return CheckedType::Str,
                             "starts_with" if prim_ty == CheckedType::Str => return CheckedType::Bool,
                             "ends_with" if prim_ty == CheckedType::Str => return CheckedType::Bool,
-                            // M21: Str.concat(other) â€” string concatenation method
+                            // M21: Str.concat(other) Ã¢â‚¬â€ string concatenation method
                             "concat" if prim_ty == CheckedType::Str => return CheckedType::Str,
                             _ => {}
                         }
@@ -3929,7 +4115,7 @@ impl Checker {
                     if let CheckedType::Named(tn) = &obj_ty {
                         let base = tn.rsplit('.').next().unwrap_or(tn);
                         for arg in args { let _ = self.check_expr(arg); }
-                        // v0.56: Wildcard type _ â€” accept any method call (codegen resolves)
+                        // v0.56: Wildcard type _ Ã¢â‚¬â€ accept any method call (codegen resolves)
                         if tn == "_" || base == "_" {
                             return CheckedType::Named("_".into());
                         }
@@ -3952,7 +4138,7 @@ impl Checker {
                             ("Vec" | "Slice" | "Array" | "Str" | "Map" | "Set", "len")
                                 => return CheckedType::Int,
                             ("Vec" | "Slice" | "Array" | "Str", "is_empty") => return CheckedType::Bool,
-                            // P1-4: Contract collection methods â€” returns Bool for ensures/requires uses.
+                            // P1-4: Contract collection methods Ã¢â‚¬â€ returns Bool for ensures/requires uses.
                             ("Vec" | "Slice" | "Array", "is_sorted") => return CheckedType::Bool,
                             ("Vec" | "Slice" | "Array", "all") => return CheckedType::Bool,
                             ("Vec" | "Slice" | "Array", "none") => return CheckedType::Bool,
@@ -3973,7 +4159,7 @@ impl Checker {
                             ("Map" | "Set", "keys" | "values" | "entries" | "iter") => return CheckedType::Named("_".into()),
                             // Container clone returns the same container type. (G-36)
                             ("Vec" | "Slice" | "Map" | "Set", "clone") => return obj_ty.clone(),
-                            // Option/Result payload accessors â€” inner type is erased,
+                            // Option/Result payload accessors Ã¢â‚¬â€ inner type is erased,
                             // so return a wildcard the rest of the checker accepts.
                             ("Option" | "Result", "unwrap" | "unwrap_or" | "unwrap_err" | "expect" | "value")
                                 => return CheckedType::Named("_".into()),
@@ -4078,7 +4264,7 @@ impl Checker {
                 if let Expr::Ident(name) = func.as_ref() {
                     // D2.1 (T002): extern "C" functions are confined to unsafe
                     // blocks (Unsafe Confinement requirement a). Calling one from
-                    // safe code (depth 0) is a hard error — EXCEPT inside a fn
+                    // safe code (depth 0) is a hard error â€” EXCEPT inside a fn
                     // declaring requires/ensures contracts (the sanctioned safe
                     // wrapper pattern, requirement c).
                     if self.unsafe_depth == 0
@@ -4091,7 +4277,7 @@ impl Checker {
                         );
                     }
                     // BUG 25 #1 fix: a bare name exported by MULTIPLE
-                    // imported modules is AMBIGUOUS — resolve deterministically
+                    // imported modules is AMBIGUOUS â€” resolve deterministically
                     // or error. Silently picking one module's version
                     // (keep-first vs last-imported) produced wrong calls
                     // (to_base58 resolving to the wrong module's fn). Error
@@ -4101,12 +4287,12 @@ impl Checker {
                         .count() > 1;
                     if ambiguous {
                         self.error(
-                            format!("ambiguous function '{}': exported by multiple imported modules — use a module-qualified call", name.name),
+                            format!("ambiguous function '{}': exported by multiple imported modules â€” use a module-qualified call", name.name),
                             name.span,
                         );
                     }
                     // BUG 25 #11 fix: same visibility gate as the Ident
-                    // expression — a PRIVATE fn of an imported module must
+                    // expression â€” a PRIVATE fn of an imported module must
                     // not resolve as a bare call (it previously hijacked
                     // same-named calls in the importing module).
                     let visible = self.visibility.get(&name.name).copied().unwrap_or(true)
@@ -4177,6 +4363,19 @@ impl Checker {
                             return concrete.clone();
                         }
                         return ret_ty;
+                    }
+                    // BUG 27: debug intrinsics — dbg!(expr) returns the arg's
+                    // type; todo!()/unimplemented!() are polymorphic.
+                    let debug_builtin_free = !self.functions.contains_key(&name.name)
+                        && !self.fn_owner_module.contains_key(&name.name);
+                    if debug_builtin_free && name.name == "dbg" {
+                        let mut arg_ty = CheckedType::Unit;
+                        for a in args { arg_ty = self.check_expr(a); }
+                        return arg_ty;
+                    }
+                    if debug_builtin_free && (name.name == "todo" || name.name == "unimplemented") {
+                        for a in args { let _ = self.check_expr(a); }
+                        return CheckedType::Named("_".into());
                     }
                     // 5c.30: implicit-self method call (G-10).
                     // When inside a method body, `init()` resolves to
@@ -4262,7 +4461,7 @@ impl Checker {
                 // Check if callee is an enum variant constructor (positional args)
                 if let Expr::Ident(name) = func.as_ref() {
                     if self.enum_variants.contains_key(&name.name) || self.resolve_enum_variant(&name.name).is_some() {
-                        // Enum variant constructor with positional args â€” typecheck args loosely
+                        // Enum variant constructor with positional args Ã¢â‚¬â€ typecheck args loosely
                         for arg in args { let _ = self.check_expr(arg); }
                         if let Some(parent) = self.resolve_enum_variant(&name.name) {
                             return CheckedType::Named(parent.clone());
@@ -4290,7 +4489,7 @@ impl Checker {
                     }
                     return *ret_ty.clone();
                 }
-                // M20-A1: Closure call â€” callee is Named("fn") (non-capturing lambda).
+                // M20-A1: Closure call Ã¢â‚¬â€ callee is Named("fn") (non-capturing lambda).
                 // Accept any args and return wildcard since we don't track closure
                 // signatures in the type system yet.
                 if matches!(&callee_ty, CheckedType::Named(n) if n == "fn") {
@@ -4298,7 +4497,7 @@ impl Checker {
                     return CheckedType::Named("_".into());
                 }
                 // v0.56: Generic type param from Vec/Array indexing (Named("T")) or
-                // wildcard (_) as callable â€” the real type is erased, codegen resolves.
+                // wildcard (_) as callable Ã¢â‚¬â€ the real type is erased, codegen resolves.
                 if matches!(&callee_ty, CheckedType::Named(n) if n == "_" || (n.len() == 1 && n.chars().next().map_or(false, |c| c.is_ascii_uppercase()))) {
                     for arg in args { let _ = self.check_expr(arg); }
                     return CheckedType::Named("_".into());
@@ -4321,7 +4520,7 @@ impl Checker {
                        container_ident.name == "Range" || container_ident.name == "Nested";
                     let is_local = self.lookup_local(&container_ident.name).is_some();
                     if is_type_name && !is_local {
-                        // Type parameter expression â€” return the container type
+                        // Type parameter expression Ã¢â‚¬â€ return the container type
                         return CheckedType::Named(container_ident.name.clone());
                     }
                 }
@@ -4332,6 +4531,13 @@ impl Checker {
                     CheckedType::Named(name) if name == "Vec" => {
                         // Vec[T][i] -> T (use generic placeholder, actual type from usage)
                         CheckedType::Named("T".into())
+                    }
+                    // BUG 26: resolve the element type of Vec[...]-typed locals.
+                    // ONE level per index — `m[1]` of Vec[Vec[Int]] is
+                    // Vec[Int]; a SECOND index strips the next level (nested
+                    // reads recurse through the nested Expr::Index).
+                    CheckedType::Named(name) if name.starts_with("Vec[") && name.ends_with(']') => {
+                        CheckedType::from_str(&name[4..name.len() - 1])
                     }
                     _ => CheckedType::Int,
                 }
@@ -4357,7 +4563,7 @@ impl Checker {
                 CheckedType::Named("Result".into())
             }
             Expr::Struct(name, fields, _spread, span) => {
-                // M22: Anonymous struct `{ field: value; }` â€” type inferred from context.
+                // M22: Anonymous struct `{ field: value; }` Ã¢â‚¬â€ type inferred from context.
                 // Return wildcard `_` and let the caller (var/return/arg) validate.
                 if name.name == "_" {
                     for (_, fval) in fields { let _ = self.check_expr(fval); }
@@ -4436,7 +4642,7 @@ impl Checker {
                     for item in &items[1..] {
                         let item_ty = self.check_expr(item);
                         if !self.types_compatible(&first_ty, &item_ty) && item_ty != CheckedType::Error {
-                            // soft error â€” arrays should be homogeneous
+                            // soft error Ã¢â‚¬â€ arrays should be homogeneous
                         }
                     }
                     CheckedType::Named("Vec".into())
@@ -4468,12 +4674,12 @@ impl Checker {
                     // Char is a codepoint: convertible to/from any integer type
                     _ if inner_resolved == CheckedType::Char && target_resolved.is_integer() => target_ty,
                     _ if inner_resolved.is_integer() && target_resolved == CheckedType::Char => target_ty,
-                    // v0.56: Char â†” Float casts (string parsing, core.xi)
+                    // v0.56: Char Ã¢â€ â€ Float casts (string parsing, core.xi)
                     _ if inner_resolved == CheckedType::Char
                         && matches!(target_resolved, CheckedType::Float32 | CheckedType::Float64) => target_ty,
                     _ if matches!(inner_resolved, CheckedType::Float32 | CheckedType::Float64)
                         && target_resolved == CheckedType::Char => target_ty,
-                    // 5c-E: Int â†” Ptr casts (raw pointer FFI, ptr.xi)
+                    // 5c-E: Int Ã¢â€ â€ Ptr casts (raw pointer FFI, ptr.xi)
                     (CheckedType::Int, CheckedType::Named(s)) if s == "Ptr" || s.starts_with('*') => {
                         self.gate_unsafe("integer-to-pointer cast", *span);
                         target_ty
@@ -4482,13 +4688,13 @@ impl Checker {
                         self.gate_unsafe("pointer-to-integer cast", *span);
                         target_ty
                     }
-                    // 5c-E: Vec/Slice/Array â†’ Ptr cast (Vulkan FFI: pass buffer to extern)
+                    // 5c-E: Vec/Slice/Array Ã¢â€ â€™ Ptr cast (Vulkan FFI: pass buffer to extern)
                     (CheckedType::Named(s), CheckedType::Named(t))
                         if (t == "Ptr" || t.starts_with('*')) && (s == "Vec" || s == "Slice" || s == "Array") => {
                         self.gate_unsafe("container-to-pointer cast", *span);
                         target_ty
                     }
-                    // v0.56: Str â†’ Ptr cast (C FFI: pass string as byte pointer)  
+                    // v0.56: Str Ã¢â€ â€™ Ptr cast (C FFI: pass string as byte pointer)  
                     (CheckedType::Str, CheckedType::Named(t)) if t == "Ptr" || t.starts_with('*') => {
                         self.gate_unsafe("string-to-pointer cast", *span);
                         target_ty
@@ -4506,7 +4712,7 @@ impl Checker {
                         self.gate_unsafe("pointer-to-pointer cast", *span);
                         target_ty
                     }
-                    // 5e.2 G-34: fn-ptr â†” Int casts (COM vtables, callback registries).
+                    // 5e.2 G-34: fn-ptr Ã¢â€ â€ Int casts (COM vtables, callback registries).
                     (CheckedType::Int, CheckedType::Fn(..)) => {
                         self.gate_unsafe("integer-to-function-pointer cast", *span);
                         target_ty
@@ -4515,7 +4721,7 @@ impl Checker {
                         self.gate_unsafe("function-pointer-to-integer cast", *span);
                         target_ty
                     }
-                    // v0.56: fn-ptr â†’ *UInt8 cast (thread spawn, FFI callback)
+                    // v0.56: fn-ptr Ã¢â€ â€™ *UInt8 cast (thread spawn, FFI callback)
                     (CheckedType::Fn(..), CheckedType::Named(t)) if t.starts_with('*') => {
                         self.gate_unsafe("function-pointer-to-pointer cast", *span);
                         target_ty
@@ -4527,7 +4733,7 @@ impl Checker {
                         self.gate_unsafe("function-name-to-integer cast", *span);
                         target_ty
                     }
-                    // v0.56: Generic type param cast â€” let any generic param be cast
+                    // v0.56: Generic type param cast Ã¢â‚¬â€ let any generic param be cast
                     (CheckedType::Named(n), _) if n.len() == 1 && n.chars().next().map_or(false, |c| c.is_ascii_uppercase()) => target_ty,
                     _ => {
                         self.error(format!("unsupported type cast: {} to {}", inner_ty.name(), target_ty.name()), *span)
@@ -4540,7 +4746,7 @@ impl Checker {
                 // D2 (2026-08-08): `unsafe { }` opts into raw-pointer ops for
                 // this block only. Depth-scoped so nested blocks compose.
                 // D2.1 (T007, requirement c): whole-body-unsafe fns must
-                // declare `requires` — enforced at check_fn_decl (a fn whose
+                // declare `requires` â€” enforced at check_fn_decl (a fn whose
                 // ENTIRE body is one unsafe block). Sub-expression unsafe
                 // blocks are confined plumbing (operands, assignments) and do
                 // not escape the fn, so they need no wrapper contract.
@@ -4553,9 +4759,9 @@ impl Checker {
                 // an owned XIOM type (ffi.safe_ptr_from_raw / box_from_ptr /
                 // vec_from_ptr_with_free / str_from_ptr_owned) BEFORE the tail.
                 // The block's TAIL must not be (or nest) an unconverted
-                // extern-returned raw pointer — that would leak/double-free.
+                // extern-returned raw pointer â€” that would leak/double-free.
                 // EXEMPTION: raw-pointer-RETURNING fns (the stdlib allocator
-                // pattern `fn alloc(...) -> *mut UInt8` — `unsafe { return
+                // pattern `fn alloc(...) -> *mut UInt8` â€” `unsafe { return
                 // malloc(...); }`) transfer ownership to the CALLER, who is
                 // responsible for freeing. Mirrors T003's unsafe-internal-helper
                 // exemption.
@@ -4581,7 +4787,7 @@ impl Checker {
                 self.pending_extern_ptrs = pending_saved;
                 self.converted_ffi_ptrs = converted_saved;
                 // D2.1 (T005): zero-escape is enforced at the FUNCTION boundary
-                // (see enforce_fn_unsafe_tail) — a raw-pointer value produced by
+                // (see enforce_fn_unsafe_tail) â€” a raw-pointer value produced by
                 // an unsafe SUB-expression stays confined to the enclosing
                 // scope (unsafe-internal helpers may hold *T). Rejecting every
                 // block tail here would break legitimate confined-pointer
@@ -4591,7 +4797,7 @@ impl Checker {
             Expr::BlockExpr(block, _) => { self.check_block(block, None).unwrap_or(CheckedType::Unit) }
             Expr::ConstBlock(inner, _) => self.check_expr(inner),
             // 5c-R: Error-poisoned nodes carry an ErrorGuaranteed proof token.
-            // Skip silently â€” a diagnostic was already emitted for this subtree.
+            // Skip silently Ã¢â‚¬â€ a diagnostic was already emitted for this subtree.
             Expr::Error(_guarantee, _span) => CheckedType::Error,
             Expr::If(cond, then_block, elifs, else_block, _) => {
                 self.check_expr(cond);
@@ -4627,14 +4833,14 @@ impl Checker {
                     self.pop_scope();
                     if first { result_ty = arm_ty; first = false; }
                 }
-                // S2: Match exhaustiveness â€” verify all variants covered.
+                // S2: Match exhaustiveness Ã¢â‚¬â€ verify all variants covered.
                 self.check_match_exhaustiveness(arms, &scr_ty);
                 result_ty
             }
         }
     }
 
-    /// S2: Match exhaustiveness â€” verify all variants of the scrutinee type
+    /// S2: Match exhaustiveness Ã¢â‚¬â€ verify all variants of the scrutinee type
     /// are covered by the match arms. Reports an error for missing variants.
     fn check_match_exhaustiveness(&mut self, arms: &[xiom_ast::MatchArm], scr_ty: &CheckedType) {
         let type_name = match self.resolve_alias(scr_ty) {
@@ -4646,7 +4852,7 @@ impl Checker {
             "Result" => vec!["Ok".to_string(), "Err".to_string()],
             "Bool" => vec!["true".to_string(), "false".to_string()],
             _ => {
-                // enum_variants maps variant_name â†’ parent_enum.
+                // enum_variants maps variant_name Ã¢â€ â€™ parent_enum.
                 // Collect all variants whose parent matches type_name.
                 self.enum_variants.iter()
                     .filter(|(_, parent)| parent.as_str() == type_name.as_str()
@@ -4674,7 +4880,7 @@ impl Checker {
     }
 
     /// Phase 7E/Feature: Resolve type aliases recursively.
-    /// `type Foo = Int; type Bar = Foo;` â€” resolving Bar gives Int.
+    /// `type Foo = Int; type Bar = Foo;` Ã¢â‚¬â€ resolving Bar gives Int.
     /// Guards against infinite loops (max depth 16).
     fn resolve_alias(&self, ty: &CheckedType) -> CheckedType {
         let mut current = ty.clone();
@@ -4697,7 +4903,7 @@ impl Checker {
         // Phase 7E/Feature: Resolve type aliases so newtypes auto-convert
         let found = &self.resolve_alias(found);
         let expected = &self.resolve_alias(expected);
-        // M9.6: impl Trait is an opaque return type â€” any concrete type in the body
+        // M9.6: impl Trait is an opaque return type Ã¢â‚¬â€ any concrete type in the body
         // is compatible. Full trait-resolution checking is deferred.
         if matches!(found, CheckedType::ImplTrait(_)) || matches!(expected, CheckedType::ImplTrait(_)) {
             return true;
@@ -4710,7 +4916,7 @@ impl Checker {
         {
             return true;
         }
-        // Wildcard type `_` â€” compatible with any concrete type
+        // Wildcard type `_` Ã¢â‚¬â€ compatible with any concrete type
         if matches!(found, CheckedType::Named(n) if n == "_") ||
            matches!(expected, CheckedType::Named(n) if n == "_") {
             return true;
@@ -4772,7 +4978,7 @@ impl Checker {
             // 6A.1: Named types with different names are NOT compatible.
             // Previously (Named(_), Named(_)) => true allowed any two user-defined
             // types to be compatible (e.g., Point = Color passed type checking).
-            // Exception: Self is always compatible â€” it's an alias for the concrete type.
+            // Exception: Self is always compatible Ã¢â‚¬â€ it's an alias for the concrete type.
             (CheckedType::Named(a), CheckedType::Named(b)) if a == "Self" || b == "Self" => true,
             // Interface/trait names are compatible with their implementor types.
             (CheckedType::Named(a), CheckedType::Named(b))
@@ -4809,7 +5015,7 @@ impl Checker {
             (CheckedType::UInt, CheckedType::UInt32) | (CheckedType::UInt32, CheckedType::UInt) => true,
             (CheckedType::UInt, CheckedType::UInt16) | (CheckedType::UInt16, CheckedType::UInt) => true,
             (CheckedType::UInt, CheckedType::UInt8)  | (CheckedType::UInt8,  CheckedType::UInt) => true,
-            // Signedâ†”unsigned integer compatibility (FFI Common)
+            // SignedÃ¢â€ â€unsigned integer compatibility (FFI Common)
             (CheckedType::Int,    CheckedType::UInt32) | (CheckedType::UInt32, CheckedType::Int) => true,
             (CheckedType::Int32,  CheckedType::UInt32) | (CheckedType::UInt32, CheckedType::Int32) => true,
             (CheckedType::Int,    CheckedType::UInt)   | (CheckedType::UInt,   CheckedType::Int) => true,
@@ -4827,7 +5033,7 @@ impl Default for Checker {
 }
 
 // ============================================================================
-// Borrow Checker â€” Phase 1: ownership and lexical scope borrow checking
+// Borrow Checker Ã¢â‚¬â€ Phase 1: ownership and lexical scope borrow checking
 // ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -5016,7 +5222,7 @@ impl BorrowChecker {
     }
 
     fn read_borrow(&mut self, name: &str, span: Span) {
-        // 5c-R: Place-level loan tracking â€” only for field-granular paths.
+        // 5c-R: Place-level loan tracking Ã¢â‚¬â€ only for field-granular paths.
         // Bare-variable borrows use existing ScopeBorrow tracking.
         let ok = match self.find_var(name) {
             Some(info) => match info.state {
@@ -5049,7 +5255,7 @@ impl BorrowChecker {
     }
 
     fn write_borrow(&mut self, name: &str, span: Span) {
-        // 5c-R: Place-level loan tracking â€” only for field-granular paths.
+        // 5c-R: Place-level loan tracking Ã¢â‚¬â€ only for field-granular paths.
         let ok = match self.find_var(name) {
             Some(info) => match info.state {
                 BorrowState::Moved => {
@@ -5341,6 +5547,11 @@ impl BorrowChecker {
             Stmt::Continue(..) => {}
             Stmt::Asm(_) => {}, // asm is valid in unsafe context
             Stmt::Defer(b, _) => { self.check_block(b); }
+            Stmt::Assert(c, m, _) => {
+                self.check_expr(c);
+                if let Some(msg) = m { self.check_expr(msg); }
+            }
+            Stmt::Debugger(_) => {},
         }
     }
 
@@ -5477,7 +5688,7 @@ impl BorrowChecker {
             }
             Expr::ConstBlock(inner, _) => self.check_expr(inner),
             // 5c-R: Error-poisoned nodes carry an ErrorGuaranteed proof.
-            // Already diagnosed â€” skip borrow checking for this subtree.
+            // Already diagnosed Ã¢â‚¬â€ skip borrow checking for this subtree.
             Expr::Error(_, _) => ExprResult::Value,
         }
     }
@@ -5532,7 +5743,7 @@ impl Default for BorrowChecker {
 }
 
 // ============================================================================
-// Free helper for match exhaustiveness â€” called from Checker::check_match_exhaustiveness
+// Free helper for match exhaustiveness Ã¢â‚¬â€ called from Checker::check_match_exhaustiveness
 // ============================================================================
 
 fn pattern_covers_variant(pattern: &xiom_ast::Pattern, variant: &str) -> bool {
@@ -5575,7 +5786,7 @@ mod tests {
         match program {
             Ok(p) => {
                 let mut checker = Checker::new();
-                // D1: mirror the driver â€” register impls from the UNEXPANDED
+                // D1: mirror the driver Ã¢â‚¬â€ register impls from the UNEXPANDED
                 // program before check_program expands them away.
                 checker.register_impls_from_program(&p);
                 checker.check_program(&p)
@@ -5636,7 +5847,7 @@ fn f(x: Int) -> Int
 
     #[test]
     fn test_divergence_negative_unsafe_no_return_still_errors() {
-        // The unsafe block does NOT return â€” the () tail must still mismatch Int.
+        // The unsafe block does NOT return Ã¢â‚¬â€ the () tail must still mismatch Int.
         let result = check("fn f() -> Int { unsafe { let x = 1; } }");
         assert!(result.is_err(), "unsafe tail WITHOUT return must still be a type error");
     }
@@ -6042,7 +6253,7 @@ fn main() -> Int {
     fn test_interface_bound_violation() {
         // Interface-bound validation now happens at monomorphisation time
         // (codegen), not at check time.  The checker accepts calls to
-        // interface methods on generic params with bounds â€” the codegen
+        // interface methods on generic params with bounds Ã¢â‚¬â€ the codegen
         // catches violations when concrete types don't implement the
         // required interface.
         let src = "\
@@ -6240,7 +6451,7 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
         assert!(result.is_err(), "move while borrowed should error");
     }
 
-    /// 8B/M5: Fuzz harness â€” random type combinations, verify TypeArena integrity.
+    /// 8B/M5: Fuzz harness Ã¢â‚¬â€ random type combinations, verify TypeArena integrity.
     #[test]
     fn fuzz_type_arena_random_inserts() {
         let mut arena = crate::TypeArena::new();
@@ -6263,7 +6474,7 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
         }
     }
 
-    /// 8B/M5: Fuzz harness â€” verify types_compatible with random type pairs.
+    /// 8B/M5: Fuzz harness Ã¢â‚¬â€ verify types_compatible with random type pairs.
     #[test]
     fn fuzz_types_compatible_random() {
         let checker = crate::Checker::new();
@@ -6283,7 +6494,7 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
         }
     }
 
-    /// 8B/M5: Fuzz harness â€” error count should never overflow (u32 safety).
+    /// 8B/M5: Fuzz harness Ã¢â‚¬â€ error count should never overflow (u32 safety).
     #[test]
     fn fuzz_error_count_boundary() {
         let mut checker = crate::Checker::new();
@@ -6297,17 +6508,17 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
         assert!(checker.error_count <= 1000);
     }
 
-    /// 8B/M5: Fuzz harness â€” source_dirs never cause panic on missing dirs.
+    /// 8B/M5: Fuzz harness Ã¢â‚¬â€ source_dirs never cause panic on missing dirs.
     #[test]
     fn fuzz_source_dirs_missing() {
         let mut checker = crate::Checker::new();
         checker.add_source_dir("/nonexistent/path/12345".to_string());
         checker.add_source_dir("\\\\invalid\\path\\".to_string());
         checker.build_catalog_index();
-        // Must not panic â€” the catalog should handle missing paths gracefully
+        // Must not panic Ã¢â‚¬â€ the catalog should handle missing paths gracefully
     }
 
-    // â”€â”€ M5: Property-based / generative tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Ã¢â€â‚¬Ã¢â€â‚¬ M5: Property-based / generative tests Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
     /// Checker must not crash on programs with deeply nested expressions.
     #[test]
@@ -6321,7 +6532,7 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
         for _ in 0..200 { src.push(')'); }
         src.push_str("; }");
         let result = check(&src);
-        // Must not panic â€” may produce errors or succeed, but must not crash
+        // Must not panic Ã¢â‚¬â€ may produce errors or succeed, but must not crash
         assert!(result.is_ok() || result.is_err());
     }
 
@@ -6498,14 +6709,14 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
         assert!(result.is_ok() || result.is_err());
     }
 
-    // â”€â”€ M7: Deref/DerefMut/AsRef usage tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Ã¢â€â‚¬Ã¢â€â‚¬ M7: Deref/DerefMut/AsRef usage tests Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
     /// Box[T] deref: field access through Box should resolve to T's fields.
     #[test]
     fn prop_box_deref_field_access() {
         let src = "type Point = { x: Float64; y: Float64; }\nfn main() -> Float64 { var p = Box.new(Point{ x: 1.0; y: 2.0; }); return p.x; }";
         let result = check(&src);
-        // Field access through Box requires Deref â€” may not be fully supported yet
+        // Field access through Box requires Deref Ã¢â‚¬â€ may not be fully supported yet
         // but must not crash the checker
         assert!(result.is_ok() || result.is_err());
     }
@@ -6542,7 +6753,7 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
         assert!(result.is_ok() || result.is_err());
     }
 
-    // â”€â”€ More fuzz-like stress tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Ã¢â€â‚¬Ã¢â€â‚¬ More fuzz-like stress tests Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
     /// Variable shadowing across scopes must not confuse the checker.
     #[test]
@@ -6623,7 +6834,7 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
         assert!(result.is_ok(), "trailing comma: {:?}", result.err());
     }
 
-    // â”€â”€ M21-3: Checker edge cases â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Ã¢â€â‚¬Ã¢â€â‚¬ M21-3: Checker edge cases Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
     // Recursive types (linked lists, trees)
     #[test] fn test_edge_recursive_type_linked_list() {
@@ -6869,7 +7080,7 @@ fn unsafe_read(ptr: *Int) -> Int {
         assert!(result.is_ok() || result.is_err());
     }
 
-    // D2 (2026-08-08): safe-by-default â€” raw pointer ops REQUIRE unsafe blocks.
+    // D2 (2026-08-08): safe-by-default Ã¢â‚¬â€ raw pointer ops REQUIRE unsafe blocks.
     #[test] fn test_d2_deref_outside_unsafe_rejected() {
         let src = "\
 fn read_via_ptr(p: *Int) -> Int {
@@ -6921,7 +7132,7 @@ fn spin() {
     }
 
     #[test] fn test_d2_ref_coercion_stays_safe() {
-        // 5c.32: &expr coerces to *T for raw pointer assignments — the safe
+        // 5c.32: &expr coerces to *T for raw pointer assignments â€” the safe
         // FFI borrow pattern. Must NOT be gated AT THE CAST SITE.
         let src = "\
 fn borrow(x: Int) -> Int {
@@ -6949,7 +7160,7 @@ fn deep(p: *Int) -> Int
         assert!(result.is_ok(), "nested unsafe must pass: {:?}", result.err());
     }
 
-    // D1 (2026-08-08): interface impl dispatch â€” `impl Trait[Args]` must
+    // D1 (2026-08-08): interface impl dispatch Ã¢â‚¬â€ `impl Trait[Args]` must
     // register and `Trait[Args].method(...)` static calls must resolve.
     #[test] fn test_d1_impl_dispatch_registers() {
         let src = "\
@@ -6993,8 +7204,8 @@ fn main() -> Int {
         assert!(result.is_ok(), "multi-type impl dispatch must type-check: {:?}", result.err());
     }
 
-    // D1: generic explicit type args â€” `fn[Float32](...)` must keep the
-    // concrete type through parsing (regression: was discarded â†’ resolved Int).
+    // D1: generic explicit type args Ã¢â‚¬â€ `fn[Float32](...)` must keep the
+    // concrete type through parsing (regression: was discarded Ã¢â€ â€™ resolved Int).
     #[test] fn test_d1_generic_explicit_type_args_parse() {
         let src = "\
 fn id[T](a: T) -> T { return a; }
@@ -7009,7 +7220,7 @@ fn main() -> Int {
         assert!(result.is_ok(), "generic explicit type args must type-check: {:?}", result.err());
     }
 
-    // 3c (2026-08-10): generic interface-bound dispatch â€”
+    // 3c (2026-08-10): generic interface-bound dispatch Ã¢â‚¬â€
     // `fn lerp[T: Num]` calling `Num[T].add` must type-check when T is a
     // generic param bound by the trait.
     #[test] fn test_3c_generic_bound_dispatch_typechecks() {
@@ -7058,7 +7269,7 @@ fn main() -> Int {
   return 0;
 }";
         let result = check(src);
-        // Str has no Num impl â€” the CHECKER accepts the generic fn (the
+        // Str has no Num impl Ã¢â‚¬â€ the CHECKER accepts the generic fn (the
         // codegen reports the missing impl as C001 at monomorphisation).
         // Assert we don't crash and the generic fn itself type-checks.
         assert!(result.is_ok() || result.is_err(), "must not panic: {:?}", result.err());
@@ -7144,7 +7355,7 @@ fn main() -> Int {
         assert!(result.is_ok(), "safe scalar tail must pass: {:?}", result.err());
     }
 
-    // D2.1 (Unsafe Confinement Phase 2 — requirement c): whole-body unsafe
+    // D2.1 (Unsafe Confinement Phase 2 â€” requirement c): whole-body unsafe
     // fns must declare `requires` (pre-entry contracts).
     #[test] fn test_d21_whole_body_unsafe_requires_rejected() {
         let src = "\
@@ -7168,12 +7379,12 @@ fn main() -> Int { return 0; }";
         assert!(result.is_ok(), "whole-body unsafe with requires must pass: {:?}", result.err());
     }
 
-    // D2.1 (Unsafe Confinement Phase 7/plan §2.12 — requirement i, T006):
+    // D2.1 (Unsafe Confinement Phase 7/plan Â§2.12 â€” requirement i, T006):
     // an extern "C" call returning a raw pointer inside a confined block must
     // have its result converted to an owned XIOM type before the block's tail.
     #[test] fn test_t006_extern_ptr_tail_rejected() {
         // The fn returns a NON-pointer (Int); the extern-returned pointer is
-        // cast to Int in the tail without any ownership conversion → T006.
+        // cast to Int in the tail without any ownership conversion â†’ T006.
         let src = "\
 extern \"C\" {
   fn xiom_alloc(size: Int) -> *UInt8;
@@ -7238,7 +7449,7 @@ fn classify(n: Int) -> Str {
         assert!(result.is_err(), "reassign type change should error");
     }
 
-    // `let` rebinding with different type (shadowing â€” should be ok)
+    // `let` rebinding with different type (shadowing Ã¢â‚¬â€ should be ok)
     #[test] fn test_edge_shadowing_with_different_type() {
         let src = "fn test() -> Str { let x = 42; let x = \"hi\"; return x; }";
         let result = check(src);

@@ -576,6 +576,8 @@ impl IrEmitter {
         // flush, exit code 1) — implemented in xiom_runtime.c; a bare @exit
         // call would collide with the stdlib io module's extern decl.
         self.emitln("declare void @xiom_panic(i8*)");
+        // BUG 27: `debugger;` — break into an attached debugger.
+        self.emitln("declare void @xiom_debugger_break()");
         self.emitln("declare void @llvm.trap()");
         self.emitln("@xiom_recursion_counter = internal thread_local global i64 0");
         self.emitln("declare i8* @malloc(i64)");
