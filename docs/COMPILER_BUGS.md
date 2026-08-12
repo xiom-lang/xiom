@@ -914,12 +914,12 @@ the pre-fix build.
 1. Same-name delegation / cross-module same-name — **FIXED**: ambiguous bare fns
    exported by multiple imported modules now ERROR (T001) and require a
    module-qualified call — no more silent wrong-module resolution
-2. `use X as alias;` — **PARTIAL**: the alias now resolves to the correct
-   symbol/signature through the module-call machinery (checker records the
-   alias path; driver surfaces it to codegen). RESIDUAL: in leaf-import
-   programs the first trampoline call through an aliased unsafe-block fn can
-   fault (returns the fault-path zero) — direct qualified calls unaffected;
-   queued for the unsafe-block investigation
+2. `use X as alias;` — **FIXED 2026-08-13**: the residual was the external-decl
+   REACHABILITY filter pruning the aliased fn (main references the ALIAS name,
+   not the target leaf ? the fn came back as a bare stub with an i64-return).
+   Use declarations now contribute their target leaves to the referenced-name
+   set. All four alias forms (module alias, fn alias, alias+qualified)
+   verified R=0.
 3. `from_bytes` fn name collision — **FIXED** (builtin intercept now only
    fires when no real fn with the name is registered) — m37_from_bytes_fn
 4. Bool inside returned tuples — **VERIFIED FIXED** on current build
@@ -942,6 +942,24 @@ the pre-fix build.
     bare-call resolution has a visibility gate: pub fns, same-module fns,
     and top-level fns only) — pheap_merge probe now errors "undefined"
 12. Spurious E001 borrow warnings — benign (matches pre-existing), no change
+
+## 2026-08-13 — LANGUAGE features (all implemented + tested, commits `dd6a31cd`/`4c439e6a`)
+- **BUG 26 (secure numeric policy)**: INT ? FLOAT mixing in arithmetic,
+  comparisons, and typed bindings requires an explicit `as` cast (Rust-style).
+  Auto-widening stays for same-family; INT LITERALS may adopt the float type
+  (`d * 2` stays ergonomic); FLOAT literals never adopt an integer type.
+  The checker now also resolves nested Vec[...] element types + dispatches
+  methods on the base Vec.
+- **Labeled loops**: `@label: while ...` + `break @label;` /
+  `continue @label;` (the label field was previously dropped in the codegen
+  While arm — labeled break silently targeted the innermost loop).
+- **BUG 27 (in-code debug intrinsics)**: `assert(cond[, "msg"])` (clean
+  xiom_panic violation), `dbg!(expr)` (prints "[dbg] <value>", returns the
+  value), `todo!()`/`unimplemented!()` (panic with source location),
+  `debugger;` (breaks into an attached debugger — xiom-debugger_break;
+  no-op without one). All builtins yield to user fns with the same name.
+- **NOTE 4 FIXED**: module-qualified enum variant access (`bigfloat.Down`)
+  resolves + constructs the variant correctly.
 
 
 1. **Same-name delegation ? 0xC0000005**: a local `pub fn to_base58` PLUS `use xiom.num.convert;` (which exports `to_base58`) — any call to the IMPORTED fn AVs at runtime (even via an indirection helper or `as` alias). Stdlib rule: never delegate to a same-named fn across modules; implement locally. (Related: cross-module same-name resolution silently prefers the LAST imported module's version — quadtree_query resolved to spatial's variant.)
