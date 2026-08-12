@@ -260,6 +260,54 @@ impl IrEmitter {
         }
     }
 
+    /// BUG 22 #11 fix: pre-assign the emitted LLVM symbol for EVERY
+    /// non-generic fn with a body BEFORE any body compiles, walking the
+    /// program in declaration order with fn_symbol's dedup rule (the first
+    /// same-key fn emits the bare symbol; later ones module-qualify). The
+    /// map keys cover the bare key AND the leaf-qualified/module-qualified
+    /// call keys so both definitions and call sites resolve to the SAME
+    /// symbol — a call compiled before its def can no longer emit a
+    /// qualified key the def went bare on (zero-param stub → garbage).
+    pub(crate) fn preassign_fn_symbols(&mut self, items: &[TopDecl]) {
+        let mut seen_bare: std::collections::HashSet<String> = std::collections::HashSet::new();
+        fn walk(em: &IrEmitter, items: &[TopDecl], module: &Option<String>, seen_bare: &mut std::collections::HashSet<String>, map: &mut std::collections::HashMap<String, String>) {
+            for item in items {
+                match item {
+                    TopDecl::Fn(fd) => {
+                        let is_generic = !fd.generics.is_empty()
+                            || fd.receiver.as_ref().map(|r| em.types.generic_type_names.contains(&r.name)).unwrap_or(false);
+                        if !is_generic && fd.body.is_some() {
+                            let key = em.fn_key(fd);
+                            let sym = if seen_bare.contains(&key) {
+                                module.as_ref().map(|m| format!("{m}.{key}")).unwrap_or_else(|| key.clone())
+                            } else {
+                                key.clone()
+                            };
+                            seen_bare.insert(key.clone());
+                            map.insert(key.clone(), sym.clone());
+                            if let Some(m) = module {
+                                map.insert(format!("{m}.{key}"), sym.clone());
+                            }
+                        }
+                    }
+                    TopDecl::Module(md) => {
+                        let new_module = Some(if let Some(prev) = module.as_ref() {
+                            format!("{prev}.{}", md.name.name)
+                        } else {
+                            md.name.name.clone()
+                        });
+                        walk(em, &md.items, &new_module, seen_bare, map);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let mut map = std::mem::take(&mut self.mono.fn_symbol_map);
+        let current_module = self.local.current_module.clone();
+        walk(self, items, &current_module, &mut seen_bare, &mut map);
+        self.mono.fn_symbol_map = map;
+    }
+
     pub(crate) fn register_functions(&mut self, item: &TopDecl) {
         if let TopDecl::Const(cd) = item {
             if cd.is_mut {
@@ -603,6 +651,13 @@ impl IrEmitter {
     /// If a bare name already exists in emitted_fns, use module-qualified.
     pub(crate) fn fn_symbol(&self, fd: &FnDecl) -> String {
         let bare = self.fn_key(fd);
+        // BUG 22 #11: prefer the PRE-ASSIGNED symbol (assigned once for all
+        // fns before body compilation, in program order) — definitions and
+        // call sites then always agree, even when a call compiles before its
+        // def (fn_symbol's lazy emitted_fns dedup was order-dependent).
+        if let Some(sym) = self.mono.fn_symbol_map.get(&bare) {
+            return sym.clone();
+        }
         // Keep `main` as bare entry point. If a second `main` is encountered
         // (e.g. module-level `async fn main()` shadowing the real entry point),
         // qualify the duplicate with its module name.

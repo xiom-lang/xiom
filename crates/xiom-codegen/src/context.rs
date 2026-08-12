@@ -252,6 +252,15 @@ pub struct MonoContext {
     /// rewritten to the qualified key so the emitted symbol matches the
     /// definition. Keep-first: a user-defined bare fn wins over injection.
     pub bare_fn_aliases: HashMap<String, String>,
+    /// BUG 22 #11: PRE-ASSIGNED fn key -> emitted LLVM symbol for every
+    /// non-generic fn with a body (walked once before any body compiles, in
+    /// program order, using fn_symbol's dedup rule: the first same-key fn
+    /// emits the bare symbol, later ones qualify). Definitions AND call
+    /// sites consult this map so a call compiled before its def can never
+    /// emit a qualified symbol the def went bare on (zero-param stub →
+    /// garbage). Keys cover the bare key, the leaf-qualified alias, and the
+    /// module-qualified call key.
+    pub fn_symbol_map: HashMap<String, String>,
 }
 
 // ============================================================================

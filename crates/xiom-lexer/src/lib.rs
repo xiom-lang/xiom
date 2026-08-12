@@ -578,6 +578,17 @@ mod tests {
     }
 
     #[test]
+    fn test_utf8_bom_stripped() {
+        // BUG 23 #6: a leading UTF-8 BOM must be stripped (module files saved
+        // by Windows editors/tools previously failed with "unexpected character").
+        let tokens = lex("\u{FEFF}module foo\nfn main() -> Int { return 0; }");
+        assert!(matches!(&tokens[0], TokenKind::Module));
+        // Double BOM (mangled writer output) is also tolerated.
+        let tokens2 = lex("\u{FEFF}\u{FEFF}module foo");
+        assert!(matches!(&tokens2[0], TokenKind::Module));
+    }
+
+    #[test]
     fn test_keywords() {
         let tokens = lex("let var const fn return if elif else match while for in spawn async await comptime module use pub as type enum interface derive requires ensures invariant true false self");
         assert!(tokens.iter().any(|t| matches!(t, TokenKind::Let)));

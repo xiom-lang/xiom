@@ -444,6 +444,21 @@ impl IrEmitter {
             }
             Expr::As(_, ty, _) => is_int_name(&Self::type_from_ast(ty)),
             Expr::Paren(inner, _) => self.expr_is_integer(inner),
+            // BUG 22 #11: a parenthesized ARITHMETIC expression of integers is
+            // an integer (`"sum = " + (v[0] + v[1])`) — previously fell through
+            // to inttoptr (garbage pointer → AV).
+            Expr::Binary(l, op, r, _) => matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor)
+                && self.expr_is_integer(l) && self.expr_is_integer(r),
+            // Vec element reads: the registered element type decides
+            // (v[0] of a Vec[Int] is an Int; of a Vec[Float64] is not).
+            Expr::Index(container, _, _) => {
+                if let Expr::Ident(id) = container.as_ref() {
+                    if let Some(elem) = self.local.local_vec_elem.get(&id.name) {
+                        return is_int_name(elem);
+                    }
+                }
+                false
+            }
             Expr::Field(obj, field, _) => {
                 // Resolve the object's struct type, then the field's declared
                 // XIOM type from type_meta (e.g. `g.v` of a module-global W).
