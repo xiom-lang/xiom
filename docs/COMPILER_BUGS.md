@@ -761,6 +761,19 @@ the expression yet — const-fold only handles literals; a runtime fn works).
 
 ## 2026-08-11 (night) — stdlib session: BUG 20 (NEW, REGRESSION from `1d4cd2e8`) — unconditional -mavx512* clang flags crash non-AVX-512 CPUs (illegal instruction) in ANY vectorized program
 
+**? FIXED 2026-08-12 (commit `4fa7a1d2`).** AVX-512 flags are now HOST-CPUID-gated:
+`-mavx512f/bw/dq/vl` are added only when
+`std::arch::is_x86_feature_detected!("avx512f")` (crates/xiom/src/lib.rs). The
+-O2 vectorizer emits zmm in ordinary float loops; the runtime CPUID dispatch
+gates only INTENTIONAL SIMD calls, so the FLAGS must match the host.
+`-maes -mavx -mavx2` remain unconditional (safe on any AVX2 CPU). Verified on
+Zen 2: clang arg trace shows no `-mavx512*`; probe_avx.xi exit 0;
+smoke_num_fraction/smoke_math_rounding/smoke_math_precision/
+smoke_math_trig_constants/smoke_num_float all R=0 (were 0xC000001D).
+`smoke_num_precision` STILL AV-crashes (0xC0000005, deterministic) — a
+separate BUG 22/23 item (cross-module returned Vec[Float64] / nested Vec
+family), queued with the wave batches.
+
 - **Construct:** commit `1d4cd2e8` adds `-maes -mavx -mavx2 -mavx512f -mavx512bw -mavx512dq -mavx512vl` to every clang invocation on `Target::Native && x86_64` (crates/xiom/src/lib.rs:1049-1057). On a CPU WITHOUT AVX-512 the -O2 vectorizer can emit AVX-512 instructions in ordinary float loops ? 0xC000001D (STATUS_ILLEGAL_INSTRUCTION) at runtime. The CPUID dispatch in simd_runtime.c gates only the INTENTIONAL SIMD calls; it cannot gate the vectorizer.
 - **Repro (minimal, probe_avx.xi):**
   ```xiom
@@ -779,6 +792,17 @@ the expression yet — const-fold only handles literals; a runtime fn works).
 ---
 
 ## 2026-08-11 (night) — stdlib session: BUG 21 (NEW) — catalog-module fn returning a Str created INSIDE an unsafe block returns a corrupted Str (len 0xFFFFFFFF)
+
+**Status 2026-08-12: NOT REPRODUCED on the current build.** All documented
+shapes verified PASSING with the isolated binary: catalog fn with (a) loop
+inside unsafe + `return Str.from_cstring(buf)` from inside the block ?
+"aaa" R=0; (b) direct return from inside the block ? "xyz" R=0; (c) while
+loop + `xiom.string.str_concat` build inside unsafe + return ? "aaa" R=0.
+`smoke_string_pad_repeat` R=0. The original `str_repeat_char` shape was
+restructured away before the fix could be isolated — likely resolved by the
+accumulated batch (`f0388644` chain/process_use + `9c3a2f9e` BUG 19 + `2ae300fd`
+fn-key). The stdlib's workaround (no loop inside unsafe) can stay. If the
+EXACT original file still fails, send it and it becomes a live repro.
 
 - **Construct:** an IMPORTED (catalog) stdlib module fn whose body creates a Str inside an `unsafe` block and RETURNS it from inside that block, e.g. `stdlib/xiom/string/repeat.xi` `str_repeat_char` (was: `unsafe { ...; return Str.from_cstring(buf); }`). The unsafe-confinement trampoline (`__unsafe_ctx`) round-trips only i64-class values; the Str (ptr+len struct) return corrupts the length field ? `len()` returns 4294967295 and any strcmp on the value crashes (0x80000003 breakpoint — heap guard).
 - **Verified:** probe_repeat/probe_rep2 — `repeat.str_repeat_char('a', 3)` prints `[]` with `len=4294967295`; the smoke's `str_repeat_char(...) != "aaa"` comparison then dies 0x80000003 with all buffered output lost. The SAME shape in a USER module (`fn mk_a() -> Str { unsafe { ...; return Str.from_cstring(buf); } }` with T007 `requires: true`) works — so it is the catalog/trampoline path, not from_cstring. The flat string.xi str_pad_left/str_pad_right build strings inside unsafe but return OUTSIDE the block (assign-var-in-unsafe, return after) — that shape is correct, which is why the bug was never hit before.
