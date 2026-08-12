@@ -910,6 +910,40 @@ the pre-fix build.
 
 ## 2026-08-12 — stdlib session: BUG 25 (NEW, wave-3 batch) — findings from 3 parallel agents (collections + convert/bits)
 
+**? COMPILER SESSION STATUS 2026-08-12 (commits `9a578313`..`271567b0`):**
+1. Same-name delegation / cross-module same-name — **FIXED**: ambiguous bare fns
+   exported by multiple imported modules now ERROR (T001) and require a
+   module-qualified call — no more silent wrong-module resolution
+2. `use X as alias;` — **PARTIAL**: the alias now resolves to the correct
+   symbol/signature through the module-call machinery (checker records the
+   alias path; driver surfaces it to codegen). RESIDUAL: in leaf-import
+   programs the first trampoline call through an aliased unsafe-block fn can
+   fault (returns the fault-path zero) — direct qualified calls unaffected;
+   queued for the unsafe-block investigation
+3. `from_bytes` fn name collision — **FIXED** (builtin intercept now only
+   fires when no real fn with the name is registered) — m37_from_bytes_fn
+4. Bool inside returned tuples — **VERIFIED FIXED** on current build
+   (covered by the BUG 23 #7 tuple-type batch) — p_btup R=0
+5. Option/Result `.value`/`.error` reads — **FIXED** (payload-aware field
+   reads: Str/Float reinterpret, boxed structs inttoptr+load) —
+   m37_opt_payload_value
+6. Char `<`/`>` comparisons — **VERIFIED FIXED** on current build (p_char_cmp
+   R=0)
+7. Big&big AND — **VERIFIED FIXED** on current build (0xAEF1AD80 & 0x9B05688C
+   = 0x8A012880)
+8. `let len = v.len();` GEP family — **FIXED** by #3 (the same builtin-hijack
+   root)
+9. Module-name vs fn-name collision — DESIGN (keep-first alias rule
+   documented; smokes split) — no change
+10. `xiom.crypto` _pkcs7_pad undefined + pure-XIOM SHA-256 — **PRE-EXISTING,
+    queued** (crypto.xi's private `_pkcs7_pad` call link issue — the fn's
+    body emission vs the bare-symbol resolution; needs a dedicated session)
+11. Private fns leak via `use` — **FIXED** (export maps exclude private fns;
+    bare-call resolution has a visibility gate: pub fns, same-module fns,
+    and top-level fns only) — pheap_merge probe now errors "undefined"
+12. Spurious E001 borrow warnings — benign (matches pre-existing), no change
+
+
 1. **Same-name delegation ? 0xC0000005**: a local `pub fn to_base58` PLUS `use xiom.num.convert;` (which exports `to_base58`) — any call to the IMPORTED fn AVs at runtime (even via an indirection helper or `as` alias). Stdlib rule: never delegate to a same-named fn across modules; implement locally. (Related: cross-module same-name resolution silently prefers the LAST imported module's version — quadtree_query resolved to spatial's variant.)
 2. **`use X as alias;` miscompiles**: `use xiom.num.base as numbase; numbase.to_base(255,16)` traps `contract violated: ensures`; `use xiom.bits.popcount as pc;` returns 0. Fully-qualified `xiom.num.base.to_base(...)` works. Fix: alias-import resolution.
 3. **`from_bytes` fn name collides with a compiler builtin**: ANY module fn named `from_bytes` (even `{ return 0; }`) emits `invalid getelementptr indices` on `%struct.Vec`. convert/bytes.xi keeps the fn as TODO(compiler) — unimplementable.
