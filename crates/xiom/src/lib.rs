@@ -1050,10 +1050,20 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 cmd.arg("-maes");
                 cmd.arg("-mavx");
                 cmd.arg("-mavx2");
-                cmd.arg("-mavx512f");
-                cmd.arg("-mavx512bw");
-                cmd.arg("-mavx512dq");
-                cmd.arg("-mavx512vl");
+                // BUG 20 fix (2026-08-12): AVX-512 flags are HOST-CPUID-gated.
+                // The -O2 vectorizer emits AVX-512 (zmm) in ORDINARY float loops,
+                // which traps 0xC000001D on CPUs without AVX-512 (Zen 2 CI
+                // machine) — the runtime's CPUID dispatch gates only the
+                // INTENTIONAL SIMD calls, never the vectorizer, so the FLAGS
+                // themselves must match the host. Builds on AVX-512 machines
+                // still get the full set; the simd_runtime dispatch covers
+                // foreign machines at execution time.
+                if std::arch::is_x86_feature_detected!("avx512f") {
+                    cmd.arg("-mavx512f");
+                    cmd.arg("-mavx512bw");
+                    cmd.arg("-mavx512dq");
+                    cmd.arg("-mavx512vl");
+                }
             }
             if asm_objects.is_empty() { cmd.arg("-DXIOM_NO_ASM"); }
             if config.debug_symbols { cmd.arg("-g"); }
