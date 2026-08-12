@@ -1,312 +1,125 @@
-# XIOM Session Handoff — 2026-08-11 22:10 (BUG 12–18 all FIXED + COMMITTED, sweep green)
+# XIOM Session Handoff — 2026-08-13 01:10 (compiler session — handoff: everything verified & committed)
 
-## ✅ BUG 12–18 — RESOLVED, committed, verified (this stretch)
-**Commits:** `2ae300fd` fix(codegen) · `3b8f5415` test(e2e) · `36a37e12` docs(compiler-bugs).
-The fn-key fix (bare-key preference when a bare definition exists; caller-module/
-alias qualification only as fallback) resolved the definition-vs-call symbol
-mismatch (user fns emit bare `@mk_big`, calls resolved to leaf-qualified
-zero-param stubs → ABI crash).
+> **Context-full handoff.** The compiler session has COMPLETED its work; the next
+> session continues from a clean tree. Read this file, then run
+> `./test_summary.ps1 -Fast` to re-verify, and answer the two OPEN QUESTIONS at
+> the bottom (they are for the NEXT session — do not lose them).
 
-**Regression sweep** (isolated binary `$env:TEMP\kilo\tgt_iso\debug\xiom.exe`):
-m37_tuple_struct, m37_ref_mut, m37_index_arith, m37_vec_f64, m37_u128, m37_f128,
-m37_float_precision, m37_shr_builtin (+ `use xiom.math;` added), m33_z14, m34_y04,
-m33_u13, m19_read_file — **12/12 R=0**. BUG 16 probes: m16b/c/d/e (bare + leaf
-import forms) + m16f (fully-qualified form with declared name) all R=0.
-Workspace build gate: **zero warnings** (XIOM_TRACE_* prints + dead
-`load_external_module` removed).
+## ✅ Completed this stretch (all committed on `feat/architect`)
 
-**Fast suite (22:00 run): 1103 passed / 10 failed / 1 ignored.** All 10 failures
-are the parallel session's IN-FLIGHT stdlib work, NOT the compiler:
-stdlib-exec complex/hash/net/rand (folders moved) + math_core (smoke file
-deleted by their session), lsp 1 + mcp-server 3 module-list tests (layout
-change), diff 1 (documented pre-existing ignore). Unit gates all green:
-checker 178/178, stdlib-compile 40/40, integration 128/128, robustness 63/63.
-
-**e2e caveat:** the e2e harness hardcodes `target/debug/xiom.exe`; the parallel
-session's last build (21:25) predates the fn-key fix and contains the
-intermediate buggy caller-module state, so e2e_m37_f128/vec_f64/ref_mut/
-index_arith/shr_builtin/tuple_struct FAIL via the harness against THAT binary.
-Verified equivalent via exact-invocation replication with the isolated binary
-(compile=0 run=0 for all 6). Re-run the e2e suite after the parallel session's
-next `cargo build` to see them green.
-
-## What was done this stretch (BUG 12–18 from docs/COMPILER_BUGS.md, parallel session's log)
-| Bug | Fix (committed `2ae300fd`) | Verified |
-|-----|---------------------------|----------|
-| 12/17 — Vec[Float64]/Vec[Str] element type lost on `&Vec[T]` params | `vec_elem_from_type_annotation` (TWO copies: types.rs + lib.rs) now unwraps Ref/MutRef/Ptr; Vec(...) AST form handled | m12b, m37_vec_f64 R=0 |
-| 14 — UInt64→UInt128 sext / UInt128>> ashr | cast site uses `xiom_type_of_local` (registered type); `expr_is_unsigned()` helper picks lshr; var bindings infer type from `as UInt*` targets (`infer_value_xiom_type`) | m14, m37_u128 R=0 |
-| 15 — bare `shr`/`shl` hijacked by math-builtin intercept | intercept restricted to `math.*`/`xiom.math.*` qualified keys + bare keys with NO registered fn | m15, m37_shr_builtin R=0 |
-| 13 — fp128 link + coercion | coerce_value fp128 arms; NEW `stdlib/runtime/fp128_helpers.c` (soft-float add/sub/mul/div/conv/cmp — verified in a C harness: 400/5/2500/1002.5, negatives, tiny values all correct after fixing round_pack drop=0, div carry, mul significand extraction + exponent terms) | m13b/m13d, m37_f128 R=0 |
-| 16/18 — skiplist+trie 0xC0000409 | `process_use` walk loads the LONGEST dotted prefix (directory submodules); `bare_fn_aliases` call resolution prefers the CALLER's module; **fn-key fix** (see above); **encoding repair** — skiplist.xi + trie.xi had invalid UTF-8 (lone 0x97 bytes) — repaired | m16a-e + m16f all R=0 |
-| collect modules unresolvable | process_use longest-prefix walk + parent-chain registration | smoke_collect2a/2b PASS |
-
-## ⚠️ Known follow-up (parallel stdlib session owns it)
-The `collect/` → `collections/` folder move landed (commits e33b5572/56fbe1cd)
-while module declarations inside still say `xiom.collect.*` — `use` resolves by
-file path (works), but fully-qualified calls need the DECLARED name
-(`xiom.collect.skiplist.fn` works, `xiom.collections.skiplist.fn` does not
-until declarations are aligned). Not a compiler regression — m16b-e/m16f green.
-The user confirmed the ENTIRE stdlib is being rebuilt in the parallel session;
-expect stdlib-related suite failures until that lands.
-
-## ✅ SIMD/ISA flags for the stdlib session (committed — tell the other session)
-Native x86_64 clang now compiles with **`-maes -mavx -mavx2 -mavx512f
--mavx512bw -mavx512dq -mavx512vl`** unconditionally (crates/xiom/src/lib.rs:
-`config.target == Target::Native && cfg!(target_arch = "x86_64")`). The stdlib
-can write `_mm512*`/`_mm256*` intrinsics in `stdlib/runtime/*.c` with NO
-per-function `__attribute__((target(...)))` needed.
-
-**PRODUCTION RULE (must be passed along):** any function executing wide-ISA
-instructions MUST be runtime-gated via the CPUID dispatch in simd_runtime.c
-(`xiom_simd_has_avx2()` / `xiom_simd_has_avx512()` / bitmask
-`xiom_simd_available()`). The -O2 vectorizer can also emit wide instructions in
-hot loops anywhere in the runtime C — on CPUs without AVX-512 that is an
-illegal-instruction crash, so dispatch gates are mandatory for correctness on
-older hardware. `simd_runtime.c` already follows this pattern
-(`__attribute__((target("avx")))` fns + has_* checks in the XIOM module).
-
-Test: `tests/regression/m37_simd_runtime.xi` (+ `e2e_m37_simd_runtime`) covers
-SSE/SSE2/SSE4.1 ops, detection consistency, and dispatch-gated AVX f32x8/f64x4.
-16/16 sweep + stdlib-compile 40/40 green with the flags.
-
-**Smoke-test workflow agreed with the user:** the stdlib session writes smoke
-tests; any compiler gap they hit goes into `docs/COMPILER_BUGS.md` for the
-compiler session. Compiler-side test lists that need syncing AFTER their layout
-freezes (do NOT chase now): `crates/xiom-codegen/tests/stdlib_tests.rs`
-(module list — stale collect/ paths) and `stdlib_execution_tests.rs` (smoke
-file list).
-
-## Other state
-- **Parallel session** is mid MASSIVE stdlib stub creation (140+ sublibs, 2,874
-  stubs, their commits 56fbe1cd/a61fbf70/391a58b5 landed). They rebuild
-  target/debug/xiom.exe constantly → **always use the isolated binary**
-  (`$env:TEMP\kilo\tgt_iso\debug\xiom.exe`, built via
-  `$env:CARGO_TARGET_DIR="$env:TEMP\kilo\tgt_iso" cargo build -p xiom`) for
-  verification, and re-verify the binary timestamp before/after sweeps.
-- Their restructure (collect/→collections/, complex.xi moved, hash/rand/net
-  folder moves) is IN FLIGHT — the stdlib-exec suite currently fails on
-  complex/hash/rand/net + lsp/mcp module-list tests because of THEIR moves,
-  not the compiler. smoke_collect2a/2b reference the OLD paths.
-- The fast-suite baseline before this stretch: 1112/1/1 (only the documented
-  diff-test ignore).
-- New e2e tests added (uncommitted, in e2e_tests.rs): e2e_m37_vec_f64,
-  e2e_m37_u128, e2e_m37_shr_builtin, e2e_m37_f128 + 4 regression files in
-  tests/regression/ (m37_vec_f64.xi, m37_u128.xi, m37_shr_builtin.xi,
-  m37_f128.xi). Note m37_shr_builtin.xi needs `use xiom.math;` added (its
-  `xiom.math.shr` call currently errors "undefined variable 'xiom'" — the test
-  file has NO use at all).
-- `stdlib/runtime/fp128_helpers.c` — NEW file, all ops verified in a C harness;
-  `find_runtime_c_files` picks it up automatically; the JIT prebuilt dll does
-  NOT include it (edge case, acceptable).
-
-## CONTINUATION PROMPT (paste into the next session)
-
-## ⚠️ CRITICAL CONSTRAINTS
-1. **NEVER commit/modify `xiom-benchmark-chaos/`** — owner works in a PARALLEL session (it has uncommitted changes). It COPIES `stdlib/` directly into its build (stdlib-pin deleted). Stage only: `crates/`, `stdlib/`, `docs/`, `tests/`, `examples/`, `selfhost/` (except `_diff_*`), `packages/`.
-2. **Parallel session rebuilds `target/debug/xiom.exe` frequently** — verify failures by recompiling the specific smoke manually before assuming regression. The e2e harness now RETRIES raced compiles (`a092cc35`), so full runs are reliable again; still re-verify manually if a single test fails once.
-3. **Selfhost tests are IGNORED**: `test_selfhost_bootstrap_v050` + all `full_diff_tests.rs` — `#[ignore]`. Do not touch UNTIL the selfhost plan (docs/SELFHOST_PLAN.md) reaches the relevant phase — then un-ignore deliberately.
-4. **Models**: ALL agents/subagents run DeepSeek V4 FLASH only. NEVER pro. `subagent_variant_overrides`: flash → high.
-5. **Monorepo split DEFERRED**. stdlib becomes its own repo later (backlog).
-6. **`test_diff_test_produces_correct_ir` is a PRE-EXISTING failure** on the clean tree (handoff: IGNORE) — the ONLY red left anywhere.
-7. **`.xiom_ai.json` is a parallel-session artifact — never stage it.**
-8. **Parallel stdlib session owns `stdlib/xiom/*.xi`** — do NOT modify unless a compiler bug needs a stdlib-side fix; log in `docs/COMPILER_BUGS.md` instead. They are mid BigFloat Phase D/transcendentals; their file states are in flight.
-
-## CURRENT BRANCH
-`feat/architect` — HEAD `4565e3af` (release v0.58.0 + Linux/WSL target committed; tree clean except `.xiom_ai.json` + parallel-session probes)
-
-## NEXT SESSION FOCUS: SELFHOSTING — start with docs/SELFHOST_PLAN.md Phase 0
-The compiler is **SELFHOST READY** (see status below). The next session's job is
-**Phase 0 of the selfhost plan**: harness upgrade (3-tier diff gate), module
-skeleton, runtime_ffi.xi, archive xiomc_v050.xi. Checklist:
-`docs/checklists/selfhost-phase0.md`. Do NOT start Phase 1 (lexer) until Phase 0's gate is green.
-
-## RELEASE v0.58.0 — BUILT + INSTALLED (2026-08-11)
-- Package: `release\xiom-v0.58.0\` (bin/lib/runtime/mcp + install.bat/install.sh) and
-  `release\xiom-v0.58.0-windows-x64.zip`.
-- Installed: `%LOCALAPPDATA%\xiom\bin\xiom.exe` (PATH + desktop shortcut + .xi association).
-  Verify: `xiom --version` → "XIOM Compiler v0.58.0 Production - 1112 fast-suite / 2240 e2e, zero warnings".
-- Installer notes: `install.ps1 -BinaryPath <pkg>\bin -Unattended -Shortcut` (encoding fixed to
-  UTF-8-BOM; `$Shortcut` shadowing fixed; binaries live in the package's `bin\` subdir).
-- Release banner stats live in `package.ps1` (`XIOM_RELEASE_STATS`) — update before next release.
-
-## LINUX/WSL TARGET — WORKING (2026-08-11, commit `4565e3af`)
-- **How to build/test** (Ubuntu WSL): copy repo to ext4 (`~/axiom-linux`, exclude
-  `.git target release .testlogs`), `cargo build --release -p xiom` (~40 s), then
-  `target/release/xiom -o /tmp/x.exe file.xi && /tmp/x.exe`.
-- Fixed for Linux: runtime C `__declspec(thread)` → `XIOM_TLS` macro; POSIX
-  `xiom_trap_enter/leave` (sigsetjmp/siglongjmp + sigaction — the fault-guard works:
-  smoke_guard_fault FAULT-OK, smoke_guard_retry RETRY-OK); `-lm` on POSIX native links.
-- Verified on WSL: diff_test (42), all m37 regressions, smoke_bigint/complex/bigfloat/
-  guard_heap — exit 0.
-- Caveat: `--parallel-codegen` on Linux untested (the unsafe-ctx counter fix is
-  platform-neutral); guard smokes use the POSIX trap path (Windows uses SEH).
-
-## TEST SUITE STATE (verified 2026-08-11 15:4x–16:3x)
-
-| Gate | Result |
+| Area | Result |
 |------|--------|
-| `cargo build --workspace` + `cargo test --workspace --no-run` warnings | **0 / 0** |
-| fast suite (`./test_summary.ps1 -Fast`) | **1112 passed / 1 failed / 1 ignored** (only `test_diff_test_produces_correct_ir`, handoff IGNORE) |
-| stdlib-exec | **72/72** |
-| stdlib-compile | 40/40 |
-| checker | 178/178 |
-| e2e full run (15:57) | **2239/2240** — the 1 failure (`e2e_p1_contract_methods`) was a harness race, now hardened (`a092cc35`); expect **2240/2240** next run |
-| release binary | v0.58.0 installed, `--version` OK, compiles smokes |
-| Linux binary | builds + all smokes pass in WSL |
+| BUG 1–24 (all numbered compiler bugs) | **ALL FIXED** — see docs/COMPILER_BUGS.md |
+| BUG 25 wave-3 (12 findings) | **#1/#2/#3/#5/#8/#11 FIXED**, #4/#6/#7 verified-fixed, #9 design, #12 benign, **#10 (crypto) still OPEN** |
+| NOTE 4 (module-qualified enum variants) | **FIXED** (`bigfloat.Down` works) |
+| BUG 26 (secure numeric policy) | **IMPLEMENTED**: Int↔Float mixing requires explicit `as` (Rust-style); int literals may adopt float; same-family widening stays auto; checker resolves nested Vec elem types + base-Vec methods |
+| Labeled loops | **IMPLEMENTED**: `@label: while …` + `break @label;` / `continue @label;` |
+| BUG 27 (debug intrinsics) | **IMPLEMENTED**: `assert(cond[, "msg"])`, `dbg!(expr)`, `todo!()`, `unimplemented!()`, `debugger;` — all yield to user fns with the same name; `debugger;` calls runtime `xiom_debugger_break` (no-op without an attached debugger) |
 
-## COMPILER-HARDENING SESSION (this session) — SELFHOST READY
-- **GOAL 1 (zero warnings): DONE.** Fixed all 12 `cargo build --workspace` warnings + 5 additional test-target warnings surfaced by `cargo test --workspace --no-run`:
-  - xiom-check: removed dead `enforce_unsafe_tail_type` (T005 is enforced at the FUNCTION boundary via `check_fn_decl` T003 — block-level tail check was intentionally not wired; documented in a comment) + dropped unused `ifaces`/`refs` locals.
-  - xiom-doc: removed dead `xiom_version()`.
-  - xiom-dbg: removed never-called `DebuggerBackend::name()` (trait + GDB/MI + CDB impls).
-  - xiom-pkg: removed unused `Write` + registry imports; dropped unread `RegistryPackage.name`.
-  - test targets: feature_regression_tests (unused `CacheEntry` x2, dead `src`/`result`), xiom-ctfe lib tests (unused import, dead `call_expr`, needless `mut`), scripting_tests (unused `Write`, dead `run_script` gated behind newly-declared `full-e2e` feature).
-  - Commits: `4403a118`, `b82a7cc6`, `fb8405b7`.
-- **GOAL 3 (hardening sweep): DONE.** Guard smokes verified manually (FAULT-OK / RETRY-OK / heap exit 0), `xiomc_v10.xi` compiles clean, runtime C warning-free (`#ifndef`-guarded `_CRT_SECURE_NO_WARNINGS`, `-Wno-deprecated-declarations` on Windows native). Commit `f99da928`.
-- **GOAL 2 (no new failures):** Fast suite = 1109 passed / 4 failed / 1 ignored. 3 failures are the documented pre-existing baseline (diff `test_diff_test_produces_correct_ir`, stdlib-exec complex, stdlib-exec net). The 4th (`stdlib_exec_bigint_runs`) is a **parallel-session in-flight** stdlib failure (bigint.xi/smoke_bigint.xi have +788 uncommitted parallel edits) — NOT a compiler regression; logged as docs/COMPILER_BUGS.md NOTE 6.
-- **Commits:** `refactor(xiom-check)` `4403a118` · `chore(tools)` `b82a7cc6` · `chore(test)` `fb8405b7` · `fix(runtime)` `f99da928` · docs commits below.
+**Key commits:** `dd6a31cd` (numeric policy + labeled loops + debug intrinsics) ·
+`4c439e6a` (NOTE 4 + BUG 25 #2 reachability) · `1a2d132a` (docs) · plus the earlier
+BUG 12–24 batch (`2ae300fd` … `77a67a01`).
 
-## BUG-1 FIX SESSION (2026-08-10 late) — UNBLOCKED the parallel BigInt/BigFloat session
-- **BUG 1 (tuple-of-struct codegen) FIXED** — commit `d22068f8` (crates/xiom-codegen):
-  - fn signature/return/param tuple names now match the expression-level registration (module-qualified element names); `resolve_type_key` skips generated aggregate keys (no self-nesting); `parse_struct_field_types` uses real type_meta instead of `_`-splitting. Tuple-of-struct returns (2- and 3-element, 40-byte structs) compile and run correctly.
-  - **Struct `&T` params now pass the ADDRESS** (`%struct.X*`) instead of a by-value copy — `_trim(&result)`-style mutations (digits.pop()) write through to the caller (previously silently lost → phantom limbs → wrong eq/compare). Scalar `&T` unchanged; `&Vec/&Slice/&Map/&Set` keep the by-value ABI.
-  - **clang -O2 hang fixed** — size-based inline policy (alwaysinline only ≤10 stmts, inlinehint ≤48) replaces alwaysinline-everything; the 735KB extended-bigint module compiles in ~14s (was >300s hang).
-  - Verified: probe_tuple/probe_big/probe_big2/probe_mut/probe_ref/probe_dig/probe_cmp/probe_dm all pass; `bigint_div_mod` no longer crashes; fast suite re-run = 1109/4/1, **no new failures**; stdlib-compile 40/40; checker 178/178.
-- **NOTE 7 (stdlib, parallel session owns it):** `bigint_div_mod` returns a WRONG quotient for multi-limb dividends (e.g. `1000000005/2` → q=2 r=1000000001; `987654321987654321/12345` → r ≥ b). Root cause in `_estimate_q_digit`: single-top-limb estimate, no upward correction, `est<=0 → return 1`. `stdlib_exec_bigint_runs` fails at assertion 8 until the stdlib algorithm is fixed (the crash/hang causes are gone). See docs/COMPILER_BUGS.md.
-- **Commits:** `fix(codegen)` `d22068f8` · `docs(compiler-bugs)` `df8b918b`.
+## Verification state (current)
+- **31/31 regression sweep** (tests/regression/m37_*.xi) R=0 — includes the 3 new
+  feature tests: `m37_numeric_policy`, `m37_labeled_loops`, `m37_debug_intrinsics`
+- checker 178/178 · parser 96/96 · lexer 18/18 · ctfe 96/96 · codegen-unit 10/10 ·
+  verifier 27/27 · stdlib-compile **40/40** · formatter 79/79 · scripting 34/34 ·
+  script-diff 15/15 · integration 128/128 · robustness 63/63 · jit 5/5 · display 5/5
+- Workspace `cargo build --workspace`: **zero warnings**
+- Fast suite (00:43 run): **1102/12/1** — all 12 failures are the parallel stdlib
+  session's IN-FLIGHT work (lsp 1, mcp-server 3, diff 2 [documented ignore +
+  their selfhost file vs T002], stdlib-exec 6 [moved/renamed smokes + transient
+  mid-run commit — re-verified passing after]). **Zero compiler regressions.**
 
-## M37 HARDENING SESSION (2026-08-11) — e2e failures chased, 4 compiler fixes + 5 e2e tests
-- **Fix 1 (parser, `40441ca7`):** `bits[L - 1]` — the explicit-generic-call
-  heuristic mis-parsed index expressions starting with an UPPERCASE ident
-  ("expected ']', found -"). Speculative bracket-depth scan; commits to
-  generic-args only when `]` is followed by `(`. Unblocked the parallel
-  session's bigint.xi/bigfloat.xi (both use `bits[L-1]`).
-- **Fix 2 (check/catalog, `1e982ebf`):** import lookups walked the ENTIRE
-  source tree per failed leaf lookup (`use xiom.math` minutes-to-hang;
-  probe_bit compile 138-160s). Strategy-b scan is now index-gated (skipped
-  when build_index ran) and skips build/VCS/package dirs. `use xiom.math`
-  ~20s→9.6s; probe_bit 138-160s→9.5s; stdlib-compile 108.7s→23.7s.
-- **Fix 3 (codegen, `384d5666`):** reverted the d22068f8 non-ident `&expr`
-  fallback in coerce_arg_for_param — it re-compiled the inner of
-  `&mut arr[i]`, discarding the element ADDRESS (m33_z14 regression).
-- **Fix 4 (verified):** BUG 8 (catalog `&Vec[Int]` empty signatures) is
-  RESOLVED on the current tree (probe_bit 12&10=8); the empty-signature
-  stub came from the earlier uncommitted coerce.rs state.
-- **e2e tests added (`2836dfd7`):** m37_tuple_struct (BUG 1), m37_ref_mut
-  (&T mutation), m37_index_arith (parser), catfix vecmod/main (BUG 8
-  catalog &Vec[Int] + &struct), catfix circ_* (circular imports).
-- **Circular imports verified safe:** A↔B module cycles terminate
-  (cached_loaded guard), check + compile succeed, symbols resolve both
-  ways. No true cycle in the current stdlib.
-- **Final fast suite (02:23): 1110 passed / 3 failed / 1 ignored — back to
-  the documented baseline** (diff `test_diff_test_produces_correct_ir`,
-  stdlib-exec complex, stdlib-exec net). `stdlib_exec_bigint_runs` PASSES
-  (parallel session's dc1dd8e4 landed the div_mod estimator fix).
-  stdlib-compile 40/40, checker 178/178, stdlib-exec 70/72 in 43.7s.
+## ⚠️ Workflow rules (IMPORTANT for the next session)
+- The **parallel stdlib session** owns `stdlib/xiom/**` (except `stdlib/runtime/*.c`),
+  examples/stdlib_smoke, and selfhost. They commit to the SAME `feat/architect`
+  branch and rebuild `target/debug/xiom.exe` constantly. The stdlib is being
+  REBUILT from scratch — expect stdlib smoke/suite failures until it lands.
+- **ALWAYS use the ISOLATED binary** for compiler verification:
+  ```powershell
+  $env:CARGO_TARGET_DIR="$env:TEMP\kilo\tgt_iso"; cargo build -p xiom
+  Remove-Item Env:CARGO_TARGET_DIR
+  $xiom = "$env:TEMP\kilo\tgt_iso\debug\xiom.exe"
+  ```
+  Check its timestamp after parallel-session commits (they may land mid-run).
+- The e2e harness hardcodes `target/debug/xiom.exe` — e2e runs against the
+  parallel session's possibly-stale binary; verify via the isolated binary +
+  exact-invocation replication instead.
+- The user's workflow: stdlib-session smoke tests that find compiler gaps go into
+  `docs/COMPILER_BUGS.md` for the compiler session. Compiler-side test lists
+  (`crates/xiom-codegen/tests/stdlib_tests.rs`, `stdlib_execution_tests.rs`) need a
+  sync AFTER their stdlib layout freezes — do NOT chase mid-rewrite.
 
-## M37 BATCH 2 (2026-08-11 02:5x) — BUG 9/10/11 FIXED — fast suite 1112/1/1
-- **BUG 11 (`7f7b7b54`):** unsafe-block round-trip family — block-fn
-  struct-tail returns now val_to_i64 round-trip (Option/struct tails no
-  longer extract field-1 → AV), ret_from_enclosing no longer pollutes the
-  block value (icmp ptr,i64), fault path returns `null` for pointers
-  (`ret i64* 0` clang rejection). Fixed m33_u13, m34_d01..d20, m34_y04 AND
-  the last two suite failures: **stdlib-exec is now 72/72** (complex +
-  net_folder pass — BUG 11 unsafe-extern doubles were this family).
-- **BUG 10 (`a2aafa26`):** float literals emitted full precision
-  (`{:.17e}`, was `{:.6}` — 0.123456789 truncated to 0.123457); removed a
-  leftover CG02 debug print. e2e: m37_float_precision.
-- **BUG 9 (`3ccd004c`):** private catalog struct types referenced by pub fn
-  signatures are now injected (were i64-degraded — ABI garbage). e2e:
-  catfix b9mod/b9main.
-- **Test migrations:** m21_ffi_unsafe_001..009 (T007 `requires:`),
-  m35_z12/z30 (T003 unsafe wrapper), m33_u13 (well-defined rewrite —
-  original was dangling-&local UB).
-- **FINAL fast suite (02:53): 1112 passed / 1 failed / 1 ignored — the
-  only remaining failure is the documented pre-existing
-  `test_diff_test_produces_correct_ir`.** stdlib-exec 72/72, stdlib-compile
-  40/40, checker 178/178. All 43 previously-failing e2e tests verified
-  passing with the current binary.
+## ⏳ Remaining (compiler session, low priority)
+1. **BUG 25 #10**: `xiom.crypto` — `use of undefined value '@_pkcs7_pad'` link
+   issue (private fn body emission vs bare-symbol resolution) + pure-XIOM SHA-256
+   correctness. PRE-EXISTING; reproduced (p_crypto2 probe); needs a dedicated
+   investigation session.
+2. **fast suite re-run** after the parallel session stabilizes — the stdlib-exec
+   count should drop back to their in-flight baseline.
+3. **stdlib_tests.rs + stdlib_execution_tests.rs path sync** — one commit after
+   their layout freezes.
 
-## M37 BATCH 3 (2026-08-11 15:4x) — last 3 e2e failures fixed; selfhost plan written
-- **e2e_i2_parallel_codegen (`e0f96fef`):** `--parallel-codegen` offset
-  tmp/block/str counters per function but NOT `unsafe_block_counter` —
-  every fn with an unsafe block emitted `%struct.__unsafe_ctx_0` → clang
-  "redefinition of type" (t2-queue). Each parallel function now gets 1000
-  unsafe-block slots. All 5 ecosystem tasks pass with `--parallel-codegen`.
-- **e2e_m19_read_file_content (`e0f96fef`):** `collect_ident_names` had no
-  `Expr::Struct` arm — free vars inside struct literals in unsafe blocks
-  (io.read_file's `Err(IOError{ message: "..." + path })`) were never
-  captured → the block fn referenced the enclosing fn's register ("use of
-  undefined value '%tmp3'"). Added Struct/Array/Tuple/Some/Ok/Err/Try/
-  AtPre/ConstBlock/Imply/Is/Match/Closure arms.
-- **e2e_safety_probe (`e0f96fef`):** t8-safety-probe called extern `free`
-  outside unsafe (predates the D2 extern-call rule) — migrated to
-  `unsafe { free(p); }`.
-- **Verified:** all 3 e2e tests pass via the harness; stdlib-exec 72/72
-  standalone (one suite run had a racy misc failure during a parallel
-  rebuild — passes 4/4 manually); fast suite 1111/2/1 (2 = documented diff
-  test + the racy misc).
-- **Selfhost plan (`090ed5d1`):** docs/SELFHOST_PLAN.md — byte-identical
-  selfhost plan (Phases 0-8: foundations → lexer/parser/checker/codegen
-  parity → self-compile sha256 gate → full green; O1 selfhost code-quality
-  pass after Phase 4, O2 bootstrap-chain performance pass after Phase 7;
-  three-tier diff gate counts→normalized→exact bytes; risks incl.
-  register-number determinism). docs/checklists/selfhost-phase0.md checklist.
+## 🔧 Compiler behavior the next session should know (documented in COMPILER_BUGS.md)
+- **Numeric policy**: `var f: Float64 = int_var;` / `d + int_var` / `d > int_var`
+  now ERROR with "convert explicitly with `as`" (int LITERALS are fine).
+- **Ref-of-ref guard**: `&x` where `x` is already a `&T` param is a compile error
+  (caught real stdlib typos: bigfloat `&base`, spline `&xs`).
+- **Ambiguity**: bare fns exported by multiple imported modules → T001 error.
+- **Private fns**: never re-exported by `use` (visibility gate).
+- **Debug intrinsics**: `assert`/`dbg`/`todo`/`unimplemented`/`debugger` are
+  reserved builtins ONLY when no user fn with the name is registered; `dbg!` prints
+  `[dbg] <value>` and returns the value; assert violations exit 1 with the message.
+- **Labeled loops**: syntax `@label: while …` and `break @label;`.
 
-## M37 BATCH 3.5 (2026-08-11 16:1x) — e2e_p1_contract_methods flake root-caused + harness hardened
-- The 15:57 full run: **2239/2240** — the single failure
-  (`e2e_p1_contract_methods`) was NOT a compiler bug: it passed 4/4 via
-  the harness and manually, and the compiler is unchanged for that path
-  (xiom_is_sorted/xiom_contains are real runtime impls). It was the known
-  parallel-session binary-swap race (target/debug/xiom.exe rebuilt
-  mid-suite).
-- **Fix (`a092cc35`):** hardened `compile_and_run` in e2e_tests.rs with the
-  stdlib-exec suite's disambiguation — 50ms flush delay before spawning the
-  produced exe + up to 3 attempts where a non-zero exit is recompiled fresh
-  and only a REPEAT of the same code is accepted as real. Genuine compile
-  failures are never retried (no real bug can be masked).
-- Verified: e2e_p1_contract_methods + representative m37/m19/i2 tests pass
-  via the harness.
+---
 
-## WASM + PLAYGROUND (2026-08-11 17:2x) — in-browser compiler v0.58.0 shipped
-- **Built:** `crates/xiom-wasm` (0.58.0, wasm-bindgen) →
-  `xiom-playground/xiom_wasm.js` + `xiom_wasm_bg.wasm` (2.6 MB, now TRACKED
-  in git via a `.gitignore` negation). Rebuild: `cargo build -p xiom-wasm
-  --target wasm32-unknown-unknown --release && wasm-bindgen --target web
-  --out-dir xiom-playground <wasm>`.
-- **Playground wired:** `js/wasm-loader.js` loads it (dynamic import + init,
-  server fallback); `compiler.js` compiles PURE programs fully in-browser
-  (diagnostics + LLVM IR instant/offline); stdlib programs and program
-  OUTPUT go through the server; version text updated to v0.58.0.
-- **Compiler fix found en route:** `find_runtime_c`/`find_runtime_c_files`
-  resolved the runtime relative to cwd or exe.parent().parent() — from a
-  non-repo cwd (playground server) `xiom run` linked without the runtime C
-  ("undefined symbol: xiom_set_args"). Now walk UP from the exe (8 levels)
-  + XIOM_STDLIB sibling runtime.
-- **Verified live (playwright vs localhost:3000):** pure program (IR +
-  "clean ✓ (WASM)" + server run), stdlib Hello World ("Hello, XIOM!"),
-  broken program ([T001] diagnostics), 0 console errors/warnings, status
-  "Ready. v0.58.0 — WASM compiler loaded".
-- **Release:** v0.58.0 repackaged — now includes `wasm/` (in-browser
-  compiler). Commits: `a62eaf8b`-era batch + wasm/playground commits.
+## ❓ OPEN QUESTIONS — for the NEXT session to answer (do NOT lose these)
 
-## KNOWN LIMITATIONS (documented, not blockers)
-- **diff suite** `test_diff_test_produces_correct_ir` fails (documented pre-existing; handoff says IGNORE).
-- **Full selfhost diff tests + bootstrap e2e** remain `#[ignore]`d / `XIOM_SELFHOST`-gated by design — the selfhost plan (docs/SELFHOST_PLAN.md) defines the phased path to un-gate them.
-- **e2e (16min) full run at 15:09: 2237/2240** — the 3 failures (m19_read_file, safety_probe, i2_parallel_codegen) are FIXED and verified via the harness; a clean full-suite re-run is the next boundary action (expect 2240/2240).
-- **BUG 2/3 (globals):** module-global struct field writes lost / fn-call initializers zero — advisory (stdlib design avoids them); tracked for a later session.
-- **`to_str()` method on Float64** dispatches to the Display-interface stub (no impl registered) — stdlib uses `Str.from`/`float_to_string`; interface-dispatch gap tracked for a later session.
-- **HardwareFault/ContractViolation** types exist in stdlib/xiom/error.xi; the fault path returns a type-correct zero (recoverable indicator) rather than a full `Result[T, HardwareFault]` wrapper (plan §2.8's wrapper is a future refinement).
+The user asked these two questions; the compiler session's context window is full
+so they are handed over UNANSWERED. Both are language-design/security questions —
+the next session should research (incl. docs/ROADMAP.md Phase 5c-E + the stdlib
+session's conventions) and answer/implement with the user's confirmation:
 
-## NEXT SESSION — START HERE
-1. Run the full e2e suite at a phase boundary (fast gates are green).
-2. Optionally: selfhost bootstrap milestone (re-enable full_diff_tests) — deferred by constraints.
-3. Optional refinements: Result[T, HardwareFault] wrapper (plan §2.8), transaction batching audit for perf, Promotion (zero-copy Copy-Out).
+**Q1 — `docs/AI_CONTEXT.md` update.** The file is marked IMMUTABLE (only the
+language team may update it). The v0.57+ features (BUG 26 numeric policy,
+labeled loops, BUG 27 debug intrinsics: `assert(cond[, msg])`, `dbg!(expr)`,
+`todo!()`, `unimplemented!()`, `debugger;`) are NOT yet documented there
+(section 2 syntax, section 8.1 core intrinsics — `fn assert(condition: Bool,
+msg: Str)` exists but the statement form + `dbg!`/`todo!`/`debugger;` do not).
+The next session should update AI_CONTEXT.md (with the user's approval to touch
+the immutable spec) to document: the numeric-policy rule (Int↔Float requires
+`as`, int literals may adopt float), the `@label:` loop syntax, and the debug
+intrinsics with their security semantics. Also the `if / elif / else` rule
+(section 2.4 says "Not `else if`" — `else if` is NOW accepted as a desugared
+form; decide how to document it).
 
-## DOC UPDATES (2026-08-10, docs-only commit)
-- `docs/AI_CONTEXT.md` → v0.57.0: Unsafe Confinement model (§4.4, req a–j), `#[unsafe_no_retry]`/`#[unsafe_direct]` attributes, HardwareFault/ContractViolation (§8.17), `--enable-unsafe-direct` CLI flag (§11), FFI ownership conversions (C FFI), 60-module stdlib count.
-- `docs/SCALING_ARCHITECTURE.md` → v0.2: pre-selfhost review incorporated (§12 — Sealed Generics/Pre-Mono Table, Layout Hash, Compiler Daemon) + revised migration path (~15 weeks).
-- `docs/CTFE_PLAN.md` → §6 integration audit (CTFE+Confinement contracts; CTFE cache → SyncRegistry at Scaling Phase 5, NOT before).
-- `docs/ORCJIT_PLAN.md` → §7 integration audit (JIT inherits Confinement automatically; `JitModule::get_function_ptr()` for Live Patching).
-- `docs/LIVE_PATCHING_PLAN.md` → NEW v0.61 design spec (patchable ABI, JIT sandbox, atomic swap, rollback, AI/spacecraft integration).
-- `docs/BIGINT_BIGFLOAT_SESSION.md` → NEW parallel-work session spec: production BigInt extension + BigFloat build, full API/contracts/test plan, ALL stdlib libs categorized with 12 parallel session slots.
+**Q2 — Security review of the debug intrinsics + broader secure-language gaps.**
+The user's exact framing: "are these secure macros? also should we include like
+IF DEBUG or something to strip debug code on build? I mean what else for a secure
+system programming language we need. I know using macros and not restricting them
+on users can pass bad code. we don't want that. Does our language have gaps like
+it? or any grey areas."
+
+Things to investigate/answer (do NOT implement without user confirmation):
+1. Are `assert`/`dbg!`/`todo!`/`debugger;` secure as builtins? (They are NOT
+   user-facing macros — they're compiler intrinsics that yield to user fns with
+   the same name; `dbg!`/`assert` print to stderr; `debugger;` no-ops without an
+   attached debugger. Consider: is stderr exposure acceptable? Should `assert`
+   strip in release? Should there be a `--no-assert`/`--debug-build` flag?)
+2. Should XIOM add a compile-time debug-build toggle (e.g. `--debug-build`,
+   `#[cfg(debug_assertions)]`-style, or a `comptime`-gated `is_debug_build()`
+   intrinsic) to strip `assert`/`dbg!` from release binaries — while ensuring the
+   STRIPPING cannot change program semantics in unsafe ways?
+3. Broader secure-language gap analysis: what other grey areas exist vs the spec?
+   (Candidate areas to review: the numeric policy's int-literal float adoption,
+   unchecked index/overflow behavior flags, extern FFI confinement, the
+   `--enable-unsafe-direct` cap, `asm()` usage, contract stripping
+   (`--no-contracts`) vs debug builds, and whether any spec-conformant construct
+   the compiler accepts could allow silent undefined behavior.)
+4. Any spec-vs-implementation grey areas the parallel stdlib session should know
+   before freezing the API (e.g. `else if` vs `elif` spelling, the debug
+   intrinsics naming, the numeric-policy error messages as the sanctioned
+   conversion guidance).
