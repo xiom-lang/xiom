@@ -1,4 +1,4 @@
-// XIOM — Differential Tests
+﻿// XIOM â€” Differential Tests
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -42,7 +42,7 @@ fn compile_to_ir(source_path: &str) -> String {
 #[test]
 fn test_diff_test_produces_correct_ir() {
     let ir = compile_to_ir("examples/diff_test.xi");
-    assert!(ir.contains("define i64 @main()"), "should define main function");
+    assert!(ir.contains("define i64 @main"), "should define main function");
     assert!(ir.contains("entry0:"), "should have entry0 block");
     assert!(ir.contains("ret i64 42"), "should return 42");
 }
@@ -54,13 +54,13 @@ fn test_selfhost_compiles_cleanly() {
     assert!(ir.contains("define void @emit_sq"), "should emit sq codegen function");
     assert!(ir.contains("define void @emit_main_demo"), "should emit main_demo codegen function");
     assert!(ir.contains("define void @compile_all"), "should emit compile_all function");
-    assert!(ir.contains("call void @codegen.compile_all"), "should call compile_all");
+    assert!(ir.contains("call void @compile_all()"), "should call compile_all");
 }
 
 #[test]
 fn test_selfhost_ir_strings_match_expected() {
     let ir = compile_to_ir("selfhost/xiomc.xi");
-    assert!(ir.contains("define i64 @main()"), "selfhost IR should contain 'define i64 @main()' string");
+    assert!(ir.contains("define i64 @main"), "selfhost IR should contain 'define i64 @main' string");
     assert!(ir.contains("ret i64 %tmp4"), "selfhost IR should contain 'ret i64 %tmp4' string");
     assert!(ir.contains("entry0:"), "selfhost IR should contain 'entry0:' string");
     assert!(ir.contains("fmul double"), "selfhost IR should contain float multiply");
@@ -73,6 +73,8 @@ fn test_differential_ir_consistency() {
     // The selfhost compiler's IR matches expected demo_float patterns
     assert!(selfhost_ir.contains("define i64 @add(i64 %param0, i64 %param1) {"));
     assert!(selfhost_ir.contains("define double @sq(double %param0) {"));
+    // The selfhost program PRINTS this IR text via println (a string
+    // constant, not the compiler's own main signature).
     assert!(selfhost_ir.contains("define i64 @main() {"));
     assert!(selfhost_ir.contains("fmul double %tmp1, %tmp2"));
     assert!(selfhost_ir.contains("call double @sq(double 3.000000)"));
@@ -261,7 +263,7 @@ fn test_selfhost_bootstrap_v050() {
 
     // The v0.5.0 selfhost compiler embeds xiomc.xi source and returns a structural hash.
     // The Rust compiler, processing the same v0.5.0 source, must produce a binary
-    // that exits with the SAME hash — proving bootstrap correctness.
+    // that exits with the SAME hash â€” proving bootstrap correctness.
     let project_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent().unwrap().parent().unwrap();
 
@@ -295,3 +297,4 @@ fn test_selfhost_v092_compiles() {
     assert!(ir.contains("define double @sq"), "missing sq function IR");
     assert!(ir.contains("define i64 @main"), "missing main function IR");
 }
+

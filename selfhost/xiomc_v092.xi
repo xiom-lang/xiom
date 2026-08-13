@@ -1,4 +1,4 @@
-// XIOM — Self-Hosted Compiler v0.9.2
+﻿// XIOM â€” Self-Hosted Compiler v0.9.2
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -8,7 +8,7 @@
 // tokenize() reads examples/demo_float.xi and returns actual token count.
 // The codegen emits matching IR for examples/demo_float.xi.
 
-// Extern C runtime functions — declared as signatures (no body)
+// Extern C runtime functions â€” declared as signatures (no body)
 fn xiom_read_file(path: Str) -> Int;
 fn xiom_str_len(src: Int) -> Int;
 fn xiom_char_at(src: Int, pos: Int) -> Int;
@@ -120,7 +120,7 @@ use parser.parse;
 use checker.check;
 use codegen.emit;
 
-fn println(msg: Str);
+use xiom.io;
 
 fn main() -> Int {
   var tokens = tokenize();
@@ -132,3 +132,4 @@ fn main() -> Int {
   emit();
   return 0;
 }
+

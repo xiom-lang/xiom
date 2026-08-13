@@ -1663,10 +1663,25 @@ impl Checker {
                     let return_type = func.return_type.as_ref().map(|t| CheckedType::from_ast_type(t));
                     let generics = func.generics.iter().map(|g| g.name.name.clone()).collect();
                     let sig = FnSig { params, return_type, generics, uses_implicit_this: false };
-                    self.functions.insert(func.name.name.clone(), sig);
-                    self.visibility.insert(func.name.name.clone(), func.is_pub);
-                    // D2.1 (T002): extern "C" calls are confined to unsafe blocks.
-                    self.extern_fns.insert(func.name.name.clone());
+                    // BUG 29 (selfhost xiomc_v092): the stdlib's extern blocks
+                    // (loaded via `use xiom.io`) must NOT overwrite a fn the
+                    // USER PROGRAM declared as a signature-only fn — the user's
+                    // declaration wins (keep-first). The user's `fn
+                    // xiom_read_file(path: Str) -> Int;` is the sanctioned
+                    // selfhost declaration pattern; the stdlib extern's
+                    // `xiom_char_at(s: Str, pos: Int) -> Char` was registered
+                    // with unconditional insert and hijacked the user's
+                    // signature, turning safe calls into "extern requires
+                    // unsafe" + wrong param types. extern_fns tracking stays
+                    // for externs that are NOT shadowed by a user declaration.
+                    let user_declared = self.functions.contains_key(&func.name.name)
+                        && self.fn_owner_module.contains_key(&func.name.name);
+                    if !user_declared {
+                        self.functions.insert(func.name.name.clone(), sig);
+                        self.visibility.insert(func.name.name.clone(), func.is_pub);
+                        // D2.1 (T002): extern "C" calls are confined to unsafe blocks.
+                        self.extern_fns.insert(func.name.name.clone());
+                    }
                 }
             }
             _ => {}
