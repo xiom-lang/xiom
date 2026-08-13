@@ -98,6 +98,15 @@ pub struct Checker {
     /// map. Regression from the 4c439e6a batch: sublib prefixes were
     /// unresolvable after `use xiom.os;`.
     submodule_aliases: HashMap<String, HashMap<String, ModuleExport>>,
+    /// BUG 28 #4: dotted paths of SUBMODULES resolved via catalog peek during
+    /// checking (e.g. "xiom.os.platform" after `os.platform.platform_name()`).
+    /// The peek deliberately does NOT cache (eager caching perturbed bare-alias
+    /// keep-first resolution), but the peeked module's pub fns/types must still
+    /// be INJECTED for codegen — otherwise the call resolves in the checker but
+    /// emits a bare zero-arg stub at codegen ("os.platform.platform_name()"
+    /// crashed with ret-null + inttoptr garbage). collect_external_decls
+    /// iterates this set alongside catalog.all_cached().
+    peeked_resolved: HashSet<String>,
     /// Checker-only local module name → FULL dotted path (recorded for every
     /// `use`, not just aliases) so the qualified-call walk can map the first
     /// segment to its catalog path when descending submodule segments.
@@ -186,6 +195,7 @@ impl Checker {
             catalog: ModuleCatalog::new(Vec::new()),
             cached_loaded: HashSet::new(),
             submodule_aliases: HashMap::new(),
+            peeked_resolved: HashSet::new(),
             local_module_paths: HashMap::new(),
             current_receiver: None,
             current_generic_bounds: HashMap::new(),
@@ -1908,7 +1918,7 @@ impl Checker {
     /// in the given program, for injection before codegen. Types, enums, and function
     /// stubs from lazily-loaded external modules are returned as TopDecl items.
     /// Primitive types are filtered out.
-    pub fn collect_external_decls(&self, program: &Program) -> Vec<TopDecl> {
+    pub fn collect_external_decls(&mut self, program: &Program) -> Vec<TopDecl> {
         // Names already declared in the program (to avoid duplicates).
         let mut existing: HashSet<String> = HashSet::new();
         // BARE names of free fns declared in the USER program (including nested
@@ -1996,10 +2006,11 @@ impl Checker {
             collect_pub_generic_types(&cached.program.items, &mut pub_generic_type_names);
         }
 
-        for cached in self.catalog.all_cached() {
-            // Walk the cached program items recursively and inject pub type/enum/fn decls
-            // with full bodies (not stubs), deduplicated against existing names.
-            let cached_module_name = cached.dotted_name.clone();
+
+        // Walk the cached program items recursively and inject pub type/enum/fn decls
+        // with full bodies (not stubs), deduplicated against existing names.
+        // Hoisted out of the per-module loop so BOTH the cached-module loop and
+        // the BUG 28 #4 peeked-submodule loop can share it.
             fn collect_pub_decls(
                 items: &[TopDecl],
                 existing: &mut HashSet<String>,
@@ -2340,7 +2351,26 @@ impl Checker {
                     }
                 }
             }
+
+        for cached in self.catalog.all_cached() {
+            let cached_module_name = cached.dotted_name.clone();
             collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &pub_generic_type_names, &cached_module_name, &user_free_fns, &mut decls);
+        }
+
+        // BUG 28 #4: submodules resolved via catalog PEEK during checking
+        // (e.g. "xiom.os.platform" from `os.platform.platform_name()` after
+        // `use xiom.os;`). The peek is deliberately non-caching, so these
+        // never entered all_cached() — yet their pub fns ARE callable and
+        // must reach codegen, or the call emits a bare zero-arg stub
+        // (ret null → inttoptr garbage → crash). Inject them exactly like
+        // cached modules; the reachability filter below prunes everything
+        // the program does not actually reference.
+        for dotted in &self.peeked_resolved {
+            let segs: Vec<String> = dotted.split('.').map(|s| s.to_string()).collect();
+            if let Some(cached) = self.catalog.peek_owned(&segs) {
+                let cached_module_name = cached.dotted_name.clone();
+                collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &pub_generic_type_names, &cached_module_name, &user_free_fns, &mut decls);
+            }
         }
 
         // Reachability filter: only inject FUNCTIONS whose (leaf) name is actually
@@ -3120,6 +3150,10 @@ impl Checker {
                         let segs: Vec<String> = dotted.split('.').map(|s| s.to_string()).collect();
                         match self.catalog.peek_owned(&segs) {
                             Some(sub_cached) => {
+                                // BUG 28 #4: the submodule resolved a REAL callable —
+                                // record it so collect_external_decls injects its pub
+                                // decls into codegen (peek stays non-caching).
+                                self.peeked_resolved.insert(dotted.clone());
                                 let sub_exports = self.build_module_map(&sub_cached.program.items);
                                 self.submodule_aliases.insert(dotted.clone(), sub_exports.clone());
                                 current_exports = sub_exports;
@@ -3140,6 +3174,8 @@ impl Checker {
                     let segs: Vec<String> = dotted.split('.').map(|s| s.to_string()).collect();
                     match self.catalog.peek_owned(&segs) {
                         Some(sub_cached) => {
+                            // BUG 28 #4: record for injection (see above).
+                            self.peeked_resolved.insert(dotted.clone());
                             let sub_exports = self.build_module_map(&sub_cached.program.items);
                             self.submodule_aliases.insert(dotted.clone(), sub_exports.clone());
                             current_exports = sub_exports;
@@ -3221,6 +3257,8 @@ impl Checker {
                         let segs: Vec<String> = dotted.split('.').map(|s| s.to_string()).collect();
                         match self.catalog.peek_owned(&segs) {
                             Some(sub_cached) => {
+                                // BUG 28 #4: record for injection (see resolve_module_function).
+                                self.peeked_resolved.insert(dotted.clone());
                                 let sub_exports = self.build_module_map(&sub_cached.program.items);
                                 self.submodule_aliases.insert(dotted.clone(), sub_exports.clone());
                                 current_exports = sub_exports;
@@ -3233,6 +3271,8 @@ impl Checker {
                     let segs: Vec<String> = dotted.split('.').map(|s| s.to_string()).collect();
                     match self.catalog.peek_owned(&segs) {
                         Some(sub_cached) => {
+                            // BUG 28 #4: record for injection (see resolve_module_function).
+                            self.peeked_resolved.insert(dotted.clone());
                             let sub_exports = self.build_module_map(&sub_cached.program.items);
                             self.submodule_aliases.insert(dotted.clone(), sub_exports.clone());
                             current_exports = sub_exports;

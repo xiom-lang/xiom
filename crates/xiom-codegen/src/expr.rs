@@ -834,8 +834,26 @@ impl IrEmitter {
                                     return xiom.clone();
                                 }
                             }
-                            let t = self.infer_llvm_type(i);
-                            IrEmitter::xiom_type_name_from_llvm(&t)
+                            // BUG 29 (BUG 28 #6): name LITERALS by their XIOM type
+                            // too. infer_llvm_type erases Bool→i64→"Int", so
+                            // `(PathBuf, Bool)` returns built the expression
+                            // "Tuple__PathBuf__Int" while the fn signature
+                            // registered "Tuple__PathBuf__Bool" — the expr-built
+                            // type was never pre-registered, its definition
+                            // emitted AFTER the alloca that used it, and clang
+                            // rejected "Cannot allocate unsized type"
+                            // (os/path.xi PathBuf.pop + os/file.xi combo).
+                            match i {
+                                Expr::Bool(..) => "Bool".to_string(),
+                                Expr::Int(..) | Expr::BigInt(..) => "Int".to_string(),
+                                Expr::Str(..) => "Str".to_string(),
+                                Expr::Float(..) => "Float64".to_string(),
+                                Expr::Char(..) => "Char".to_string(),
+                                _ => {
+                                    let t = self.infer_llvm_type(i);
+                                    IrEmitter::xiom_type_name_from_llvm(&t)
+                                }
+                            }
                         })
                         .collect();
                     let name = format!("Tuple__{}", elem_types.join("__"));
