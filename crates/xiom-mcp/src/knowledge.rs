@@ -21,40 +21,58 @@ pub fn stdlib_reference(module_filter: Option<&str>) -> Result<String, String> {
         return Err("No stdlib directory found. Set XIOM_STDLIB or run from the XIOM repo/release.".into());
     }
 
-    let mut files: Vec<std::path::PathBuf> = Vec::new();
+    // Recursive scan of stdlib/xiom/**/*.xi (the 512-module layout uses
+    // subdirectories: os/file.xi -> module xiom.os.file). Module names are
+    // the dotted relative path ("memory.alloc"), and the LEGACY bare stem
+    // ("alloc") resolves when unique — keeps old tooling/agents working
+    // against the frozen layout.
+    let mut modules: Vec<(String, std::path::PathBuf)> = Vec::new(); // (dotted name, path)
     for dir in &dirs {
         let xiom_subdir = std::path::Path::new(dir).join("xiom");
-        let scan_dir = if xiom_subdir.is_dir() { xiom_subdir } else { std::path::PathBuf::from(dir) };
-        if let Ok(entries) = std::fs::read_dir(&scan_dir) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.extension().and_then(|e| e.to_str()) == Some("xi") {
-                    files.push(p);
+        let scan_root = if xiom_subdir.is_dir() { xiom_subdir } else { std::path::PathBuf::from(dir) };
+        let mut walk: Vec<std::path::PathBuf> = vec![scan_root.clone()];
+        while let Some(d) = walk.pop() {
+            if let Ok(entries) = std::fs::read_dir(&d) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_dir() {
+                        walk.push(p);
+                    } else if p.extension().and_then(|e| e.to_str()) == Some("xi") {
+                        let rel = p.strip_prefix(&scan_root).unwrap_or(&p);
+                        let dotted = rel.with_extension("")
+                            .components()
+                            .filter_map(|c| c.as_os_str().to_str())
+                            .collect::<Vec<_>>()
+                            .join(".");
+                        modules.push((dotted, p));
+                    }
                 }
             }
         }
-        if !files.is_empty() { break; } // first stdlib root wins (mirrors compiler)
+        if !modules.is_empty() { break; } // first stdlib root wins (mirrors compiler)
     }
-    files.sort();
+    modules.sort();
 
     if let Some(want) = module_filter {
         let want_norm = want.trim().trim_start_matches("xiom.").to_lowercase();
-        for f in &files {
-            let stem = f.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
-            if stem == want_norm {
-                return describe_module(f);
-            }
+        // Exact dotted match first ("memory.alloc"), then bare-stem match
+        // ("alloc") when unique.
+        if let Some((_, f)) = modules.iter().find(|(n, _)| n == &want_norm) {
+            return describe_module(f);
         }
-        let available: Vec<String> = files.iter()
-            .filter_map(|f| f.file_stem().and_then(|s| s.to_str()).map(String::from))
+        let stem_matches: Vec<&(String, std::path::PathBuf)> = modules.iter()
+            .filter(|(n, _)| n.rsplit('.').next().map(|s| s == want_norm.as_str()).unwrap_or(false))
             .collect();
+        if stem_matches.len() == 1 {
+            return describe_module(&stem_matches[0].1);
+        }
+        let available: Vec<String> = modules.iter().map(|(n, _)| n.clone()).collect();
         return Err(format!("Module '{want}' not found. Available: {}", available.join(", ")));
     }
 
     // No filter: list all modules with their doc header + public item counts
     let mut out = String::from("# XIOM Standard Library Modules\n\nUse `xiom_stdlib_reference {module: \"<name>\"}` for full signatures.\n\n| Module | Description | Pub fns | Pub types |\n|--------|-------------|---------|-----------|\n");
-    for f in &files {
-        let stem = f.file_stem().and_then(|s| s.to_str()).unwrap_or("?");
+    for (name, f) in &modules {
         let source = std::fs::read_to_string(f).unwrap_or_default();
         let desc = source.lines()
             .find(|l| l.starts_with("// XIOM") && l.contains('—'))
@@ -62,7 +80,7 @@ pub fn stdlib_reference(module_filter: Option<&str>) -> Result<String, String> {
             .map(|s| s.trim().to_string())
             .unwrap_or_default();
         let (fn_count, ty_count) = count_pub_items(&source);
-        out.push_str(&format!("| {stem} | {desc} | {fn_count} | {ty_count} |\n"));
+        out.push_str(&format!("| {name} | {desc} | {fn_count} | {ty_count} |\n"));
     }
     Ok(out)
 }
@@ -98,11 +116,27 @@ fn describe_module(path: &std::path::Path) -> Result<String, String> {
     let source = std::fs::read_to_string(path)
         .map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("?");
+    // BUG 29 (new 512-module layout): derive the dotted module name from the
+    // path ("stdlib/xiom/os/file.xi" -> "xiom.os.file"), falling back to the
+    // bare stem for flat layouts.
+    let dotted = {
+        // Walk up from the file until the "xiom" root segment.
+        let mut cur = path.parent();
+        let mut parts: Vec<String> = Vec::new();
+        while let Some(d) = cur {
+            let name = d.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string();
+            if name == "xiom" || name.is_empty() { break; }
+            parts.insert(0, name);
+            cur = d.parent();
+        }
+        parts.push(stem.to_string());
+        parts.join(".")
+    };
     let tokens = Lexer::new(&source).tokenize();
     let program = Parser::new(tokens).parse_program()
         .map_err(|e| format!("Parse error in {}: {}", path.display(), e.message))?;
 
-    let mut out = format!("# Module xiom.{stem}\n\nImport with: `use xiom.{stem};`\n\n");
+    let mut out = format!("# Module xiom.{dotted}\n\nImport with: `use xiom.{dotted};`\n\n");
 
     let mut types_section = String::new();
     let mut fns_section = String::new();

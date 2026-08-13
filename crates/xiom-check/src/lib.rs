@@ -4221,20 +4221,20 @@ impl Checker {
                         let is_ptr_ty = |ty: &CheckedType| -> bool {
                             matches!(ty, CheckedType::Named(n) if n.starts_with('*') || n == "Ptr")
                         };
-                        // BUG 29 (regress_gap2): `ptr == 0` / `ptr != 0` — a
-                        // RAW POINTER compared with the null literal is the
-                        // canonical FFI null check (`let ptr: *UInt8; ... if
-                        // ptr == 0 { return None; }`). Without this, the
-                        // BUG 24 compatibility gate rejected the pattern
-                        // ("cannot compare *UInt8 with Int").
+                        let is_null_literal = |e: &Expr| -> bool {
+                            matches!(e, Expr::Ident(id) if id.name == "null")
+                                || matches!(e, Expr::Int(0, _))
+                        };
+                        // BUG 29 (regress_gap2 + LSP alloc.xi): a RAW POINTER
+                        // compared with the null literal (`ptr == 0`, `ptr ==
+                        // null`, `ptr != null`) is the canonical FFI null check.
+                        // The `null` keyword types as Ptr; the literal 0 as Int.
                         let ptr_null_cmp = (is_ptr_ty(&left_ty)
-                            && matches!(&right_ty, CheckedType::Int)
-                            && Self::is_int_literal_expr(right)
-                            && matches!(right.as_ref(), Expr::Int(0, _)))
+                            && (matches!(&right_ty, CheckedType::Int) || matches!(&right_ty, CheckedType::Named(n) if n == "Ptr" || n == "_"))
+                            && is_null_literal(right))
                             || (is_ptr_ty(&right_ty)
-                                && matches!(&left_ty, CheckedType::Int)
-                                && Self::is_int_literal_expr(left)
-                                && matches!(left.as_ref(), Expr::Int(0, _)));
+                                && (matches!(&left_ty, CheckedType::Int) || matches!(&left_ty, CheckedType::Named(n) if n == "Ptr" || n == "_"))
+                                && is_null_literal(left));
                         let compatible = left_ty == right_ty
                             || (numeric_family(&left_ty) && numeric_family(&right_ty))
                             || is_generic_or_wild(&left_ty)

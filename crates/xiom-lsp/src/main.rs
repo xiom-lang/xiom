@@ -368,8 +368,10 @@ mod tests {
         let backend = Backend::new();
         let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent().unwrap().parent().unwrap();
-        let alloc_path = repo_root.join("stdlib").join("xiom").join("alloc.xi");
-        let text = std::fs::read_to_string(&alloc_path).expect("stdlib/xiom/alloc.xi must exist");
+        // BUG 29 (new 512-module layout): alloc moved from stdlib/xiom/alloc.xi
+        // to stdlib/xiom/memory/alloc.xi.
+        let alloc_path = repo_root.join("stdlib").join("xiom").join("memory").join("alloc.xi");
+        let text = std::fs::read_to_string(&alloc_path).expect("stdlib/xiom/memory/alloc.xi must exist");
 
         let uri = format!("file:///{}", alloc_path.to_string_lossy().replace('\\', "/").replace(':', "%3A"));
         {
