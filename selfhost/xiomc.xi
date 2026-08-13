@@ -1,4 +1,4 @@
-// XIOM — Self-Hosted Compiler Driver
+﻿// XIOM â€” Self-Hosted Compiler Driver
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -54,13 +54,13 @@ module parser {
   }
   pub fn token_count()->Int{return 11;}
   
-  // Parse program — returns node count
+  // Parse program â€” returns node count
   pub fn parse_program(pos: &Int) -> Int {
     var p=pos; var nodes=0;
     while p<token_count(){
       var e=next_token(&p); var t=e/1000000; p=e-t*1000000;
       if t==1{
-        // fn keyword — count declaration
+        // fn keyword â€” count declaration
         nodes=nodes+1;
         e=next_token(&p);t=e/1000000;p=e-t*1000000;// ident
         e=next_token(&p);t=e/1000000;p=e-t*1000000;// (
@@ -660,7 +660,7 @@ module codegen {
 }
 
 // === EXTERNAL DECLARATIONS ===
-fn println(msg: Str);
+use xiom.io;
 
 // === DRIVER ===
 use lexer.tokenize;
@@ -670,3 +670,4 @@ use checker.check_program;
 fn main() {
   codegen.compile_all();
 }
+
