@@ -90,6 +90,21 @@ pub struct Checker {
     catalog: ModuleCatalog,
     /// Set of dotted module paths that have been loaded into this checker
     cached_loaded: HashSet<String>,
+    /// Submodule export maps keyed by FULL dotted path, for segments that
+    /// collide with a same-named fn/type export (e.g. xiom.os has BOTH
+    /// `pub fn platform()` and the `platform` submodule). The export map
+    /// keeps the Function entry (so `os.platform()` resolves); qualified
+    /// continuations (`os.platform.platform_name()`) descend through this
+    /// map. Regression from the 4c439e6a batch: sublib prefixes were
+    /// unresolvable after `use xiom.os;`.
+    submodule_aliases: HashMap<String, HashMap<String, ModuleExport>>,
+    /// Checker-only local module name → FULL dotted path (recorded for every
+    /// `use`, not just aliases) so the qualified-call walk can map the first
+    /// segment to its catalog path when descending submodule segments.
+    /// Deliberately NOT merged into use_alias_paths — the driver hands that
+    /// map to the codegen, whose bare-call alias resolution must not see
+    /// plain module-name entries.
+    local_module_paths: HashMap<String, String>,
     /// 5c-R: Counter for emitted errors Ã¢â‚¬â€ enables `has_errors()` gate for
     /// "stop on first error" discipline (rustc lesson: ErrorGuaranteed).
     error_count: usize,
@@ -170,6 +185,8 @@ impl Checker {
             source_dirs: Vec::new(),
             catalog: ModuleCatalog::new(Vec::new()),
             cached_loaded: HashSet::new(),
+            submodule_aliases: HashMap::new(),
+            local_module_paths: HashMap::new(),
             current_receiver: None,
             current_generic_bounds: HashMap::new(),
             error_count: 0,
@@ -1768,6 +1785,17 @@ impl Checker {
                 &["xiom", "num"],
                 &["xiom", "char"],
                 &["xiom", "cmp"],
+                // BUG 27 (Map.new in module-global inits): the container
+                // generics the compiler special-cases (Vec/Map/Set/Slice/Stack)
+                // are declared in xiom.collections, which nothing `use`s —
+                // their constructors were never injected, so
+                // `Map[Str, Bool].new()` emitted a stub `define i64
+                // @Map.new() { ret i64 0 }` (crash) or "use of undefined
+                // value '@new'" (link error). Force-load collections with the
+                // prelude so the generic decls reach the monomorphisation
+                // registry. NOTE: an on-demand load via a catalog reverse
+                // type-index is the planned refinement (docs/ROADMAP.md).
+                &["xiom", "collections"],
             ];
             for segs in PRELUDE {
                 let prefix: Vec<String> = segs.iter().map(|s| s.to_string()).collect();
@@ -2565,6 +2593,22 @@ impl Checker {
         map
     }
 
+        /// Build the export map for a catalog module and AUGMENT it with the
+    /// catalog's submodule entries (e.g. xiom.os's exports gain "platform",
+    /// "filesystem", ...). Directory modules (os.xi + os/*.xi siblings) must
+    /// expose their submodules so qualified calls like `os.platform.<fn>`
+    /// resolve after `use xiom.os;` (regression from the 4c439e6a batch).
+    ///
+    /// Collision policy: when a submodule shares a name with an existing
+    /// export (xiom.os has BOTH `pub fn platform()` and the `platform`
+    /// submodule), the map keeps the Function/Type entry (so the 2-segment
+    /// call `os.platform()` keeps resolving) and the submodule's exports are
+    /// recorded under `submodule_aliases` keyed by the FULL dotted path
+    /// ("xiom.os.platform") — the qualified walk descends through that map.
+    fn module_exports_with_submodules(&mut self, cached: &CachedModule) -> HashMap<String, ModuleExport> {
+        self.build_module_map(&cached.program.items)
+    }
+
     fn process_use(&mut self, ud: &UseDecl) {
         if ud.path.is_empty() {
             return;
@@ -2597,12 +2641,12 @@ impl Checker {
                     // Register function signatures from the loaded module so
                     // method resolution works (e.g. Vec.insert, Map.contains).
                     // build_module_map creates export maps but doesn't register
-                    // functions in self.functions Ã¢â‚¬â€ without this, method calls
+                    // functions in self.functions Ã¢â‚¬â€œ without this, method calls
                     // on stdlib types fail with "cannot call on this expression".
                     for item in &cached.program.items {
                         self.register_fn_signature(item);
                     }
-                    let sub_exports = self.build_module_map(&cached.program.items);
+                    let sub_exports = self.module_exports_with_submodules(&cached);
                     let mut parent = HashMap::new();
                     // Extract the short submodule name from the last path segment
                     let short = effective_path.last().map(|p| p.name.clone()).unwrap_or_default();
@@ -2644,7 +2688,7 @@ impl Checker {
                     }
                     match resolved {
                         Some((j, cached)) => {
-                            let sub_exports = self.build_module_map(&cached.program.items);
+                            let sub_exports = self.module_exports_with_submodules(&cached);
                             // Register the intermediate segments AND the consumed
                             // path into the FIRST segment's parent map so qualified
                             // expressions (xiom.collect.skiplist.fn) resolve.
@@ -2695,10 +2739,11 @@ impl Checker {
                     // "xiom" is incomplete or the submodule wasn't pre-indexed).
                     let full_path: Vec<String> = effective_path.iter().map(|p| p.name.clone()).collect();
                     if let Some(cached) = self.catalog.find_owned(&full_path) {
-                        let module_exports = self.build_module_map(&cached.program.items);
+                        let module_exports = self.module_exports_with_submodules(&cached);
                         let local_name = ud.alias.as_ref()
                             .map(|a| a.name.clone())
                             .unwrap_or_else(|| item_name.clone());
+                        self.local_module_paths.insert(local_name.clone(), full_path.join("."));
                         let export = ModuleExport::SubModule(module_exports);
                         self.modules.entry(local_name.clone()).or_insert_with(|| {
                             if let ModuleExport::SubModule(ref s) = export { s.clone() } else { HashMap::new() }
@@ -2712,7 +2757,7 @@ impl Checker {
             let local_name = ud.alias.as_ref()
                 .map(|a| a.name.clone())
                 .unwrap_or_else(|| item_name.clone());
-            // BUG 25 #2 fix: record the alias â†’ FULL dotted use path so the
+            // BUG 25 #2 fix: record the alias → FULL dotted use path so the
             // codegen can resolve bare calls through the alias (the driver
             // strips UseDecls before codegen; the checker is the only place
             // the binding survives).
@@ -2723,7 +2768,7 @@ impl Checker {
                 }
                 // Record BOTH the full dotted path AND the stdlib-stripped
                 // leaf-qualified form ("xiom.math.abs_float" and
-                // "math.abs_float") â€” injected stdlib fns register under the
+                // "math.abs_float") — injected stdlib fns register under the
                 // leaf-qualified key.
                 self.use_alias_paths.insert(local_name.clone(), full.join("."));
                 if full.len() > 1 {
@@ -2732,6 +2777,17 @@ impl Checker {
                         full[1..].join("."),
                     );
                 }
+            }
+            // Checker-only local-name → FULL dotted path map, recorded for
+            // EVERY use. The qualified-call walk uses it to map the first
+            // segment back to its full dotted path when descending submodule
+            // segments (`use xiom.os;` → "os.platform" → "xiom.os.platform").
+            // Kept SEPARATE from use_alias_paths: the driver hands that map
+            // to the codegen, whose bare-call alias resolution must not see
+            // plain module-name entries (perturbed unrelated programs).
+            {
+                let full: Vec<String> = effective_path.iter().map(|p| p.name.clone()).collect();
+                self.local_module_paths.insert(local_name.clone(), full.join("."));
             }
             // Register SubModules in both imported_items (for type paths)
             // and modules (for expression paths like `async.Executor.new()`)
@@ -2903,28 +2959,74 @@ impl Checker {
         None
     }
 
-    fn resolve_module_function(&self, path: &[String]) -> Option<&FnSig> {
+    fn resolve_module_function(&mut self, path: &[String]) -> Option<FnSig> {
         let module_name = &path[0];
         // Try modules first, then imported_items (short names from `use`)
-        let exports = self.modules.get(module_name).or_else(|| {
+        let exports = self.modules.get(module_name).cloned().or_else(|| {
             self.imported_items.get(module_name).and_then(|export| {
                 match export {
-                    ModuleExport::SubModule(exports) => Some(exports),
+                    ModuleExport::SubModule(exports) => Some(exports.clone()),
                     _ => None,
                 }
             })
         })?;
+        // Full dotted path of the FIRST segment, for submodule descent when a
+        // segment collides with a same-named fn (xiom.os.platform) or is only
+        // discoverable via the catalog index (directory modules).
+        let mut dotted = self.local_module_paths.get(module_name)
+            .cloned()
+            .unwrap_or_else(|| module_name.clone());
         let mut current_exports = exports;
         for i in 1..path.len() - 1 {
             let seg = &path[i];
-            let export = current_exports.get(seg)?;
+            dotted = format!("{dotted}.{seg}");
+            let export = current_exports.get(seg).cloned();
             match export {
-                ModuleExport::SubModule(sub) => current_exports = sub,
-                _ => return None,
+                Some(ModuleExport::SubModule(sub)) => current_exports = sub,
+                Some(ModuleExport::Function { .. }) | Some(ModuleExport::Type { .. }) => {
+                    // Name collision: the segment is BOTH an export and a
+                    // submodule (xiom.os has `pub fn platform()` AND the
+                    // `platform` submodule). A qualified continuation means
+                    // the submodule — descend through submodule_aliases, or
+                    // resolve it from the catalog on demand.
+                    if let Some(alias) = self.submodule_aliases.get(&dotted).cloned() {
+                        current_exports = alias;
+                    } else {
+                        let segs: Vec<String> = dotted.split('.').map(|s| s.to_string()).collect();
+                        match self.catalog.peek_owned(&segs) {
+                            Some(sub_cached) => {
+                                let sub_exports = self.build_module_map(&sub_cached.program.items);
+                                self.submodule_aliases.insert(dotted.clone(), sub_exports.clone());
+                                current_exports = sub_exports;
+                            }
+                            None => return None,
+                        }
+                    }
+                }
+                None => {
+                    // Segment missing from the export map: it may be a
+                    // catalog submodule of a directory module (os.xi with
+                    // os/platform.xi siblings) that nothing `use`d. Resolve
+                    // it lazily from the catalog WITHOUT caching (peek) so
+                    // the submodule's decls never enter the injection set
+                    // (eager injection perturbed bare-alias keep-first
+                    // resolution — crypto sha256 broke when os/* submodules
+                    // entered the graph).
+                    let segs: Vec<String> = dotted.split('.').map(|s| s.to_string()).collect();
+                    match self.catalog.peek_owned(&segs) {
+                        Some(sub_cached) => {
+                            let sub_exports = self.build_module_map(&sub_cached.program.items);
+                            self.submodule_aliases.insert(dotted.clone(), sub_exports.clone());
+                            current_exports = sub_exports;
+                        }
+                        None => return None,
+                    }
+                }
+                Some(_) => return None,
             }
         }
         let func_name = &path[path.len() - 1];
-        let export = current_exports.get(func_name)?;
+        let export = current_exports.get(func_name)?.clone();
         match export {
             ModuleExport::Function { sig, is_pub: true } => Some(sig),
             _ => None,
@@ -2934,7 +3036,7 @@ impl Checker {
     /// Resolve a module path to a function signature without pub check
     /// (used by check_module_field_access to verify visibility separately).
     /// Try to resolve module-qualified field access: `module.Type` or `module.sub.Type`
-    fn check_module_field_access(&self, obj: &Expr, field: &Ident) -> Option<CheckedType> {
+    fn check_module_field_access(&mut self, obj: &Expr, field: &Ident) -> Option<CheckedType> {
         let mut reversed: Vec<String> = Vec::new();
         let mut current = obj;
         loop {
@@ -2963,21 +3065,57 @@ impl Checker {
         // `imported_items` (short names from `use` declarations).
         // `use xiom.async` inserts "async" Ã¢â€ â€™ SubModule(exports) into
         // imported_items but not into modules.
-        let exports = self.modules.get(module_name).or_else(|| {
+        let exports = self.modules.get(module_name).cloned().or_else(|| {
             self.imported_items.get(module_name).and_then(|export| {
                 match export {
-                    ModuleExport::SubModule(exports) => Some(exports),
+                    ModuleExport::SubModule(exports) => Some(exports.clone()),
                     _ => None,
                 }
             })
         })?;
         let mut current_exports = exports;
+        // Full dotted path of the first segment, for submodule descent when a
+        // segment collides with a same-named fn/type (xiom.os.platform) or is
+        // only discoverable via the catalog index (directory modules).
+        let mut dotted = self.local_module_paths.get(module_name)
+            .cloned()
+            .unwrap_or_else(|| module_name.clone());
         for i in 1..path.len() - 1 {
             let seg = &path[i];
-            let export = current_exports.get(seg)?;
+            dotted = format!("{dotted}.{seg}");
+            let export = current_exports.get(seg).cloned();
             match export {
-                ModuleExport::SubModule(sub) => current_exports = sub,
-                _ => return None,
+                Some(ModuleExport::SubModule(sub)) => current_exports = sub,
+                Some(ModuleExport::Function { .. }) | Some(ModuleExport::Type { .. }) => {
+                    // Name collision: the segment is BOTH an export and a
+                    // submodule — descend through submodule_aliases or the
+                    // catalog on demand.
+                    if let Some(alias) = self.submodule_aliases.get(&dotted).cloned() {
+                        current_exports = alias;
+                    } else {
+                        let segs: Vec<String> = dotted.split('.').map(|s| s.to_string()).collect();
+                        match self.catalog.peek_owned(&segs) {
+                            Some(sub_cached) => {
+                                let sub_exports = self.build_module_map(&sub_cached.program.items);
+                                self.submodule_aliases.insert(dotted.clone(), sub_exports.clone());
+                                current_exports = sub_exports;
+                            }
+                            None => return None,
+                        }
+                    }
+                }
+                None => {
+                    let segs: Vec<String> = dotted.split('.').map(|s| s.to_string()).collect();
+                    match self.catalog.peek_owned(&segs) {
+                        Some(sub_cached) => {
+                            let sub_exports = self.build_module_map(&sub_cached.program.items);
+                            self.submodule_aliases.insert(dotted.clone(), sub_exports.clone());
+                            current_exports = sub_exports;
+                        }
+                        None => return None,
+                    }
+                }
+                Some(_) => return None,
             }
         }
 

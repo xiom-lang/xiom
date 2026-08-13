@@ -1,4 +1,4 @@
-use super::{IrEmitter, TypeMeta};
+﻿use super::{IrEmitter, TypeMeta};
 use crate::context::{TypeContext, SyncRegistry};
 use xiom_ast::*;
 use std::collections::HashMap;
@@ -24,7 +24,7 @@ impl IrEmitter {
                     }
                     return;
                 }
-                // Empty struct (no fields, no alias) â€” still register as a type
+                // Empty struct (no fields, no alias) Ã¢â‚¬â€ still register as a type
                 // so it resolves in LLVM type lookups. Uses a sentinel field.
                 self.types.types.or_insert_with(type_name.clone(), || vec!["__xiom_empty".to_string()]);
                 self.types.type_meta.or_insert_with(type_name, || TypeMeta {
@@ -92,7 +92,7 @@ impl IrEmitter {
                         }
                     }
                     vfields.push(fname);
-                    // Keep generic args (Vec[JsonValue]) â€” 5c.30 handle detection.
+                    // Keep generic args (Vec[JsonValue]) Ã¢â‚¬â€ 5c.30 handle detection.
                     vftypes.push(Self::type_from_ast_with_args(&field.ty));
                 }
                 variants_info.push((vname.clone(), vfields));
@@ -266,8 +266,8 @@ impl IrEmitter {
     /// same-key fn emits the bare symbol; later ones module-qualify). The
     /// map keys cover the bare key AND the leaf-qualified/module-qualified
     /// call keys so both definitions and call sites resolve to the SAME
-    /// symbol — a call compiled before its def can no longer emit a
-    /// qualified key the def went bare on (zero-param stub → garbage).
+    /// symbol â€” a call compiled before its def can no longer emit a
+    /// qualified key the def went bare on (zero-param stub â†’ garbage).
     pub(crate) fn preassign_fn_symbols(&mut self, items: &[TopDecl]) {
         if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
             let kinds: Vec<&str> = items.iter().map(|i| match i { TopDecl::Use(_) => "Use", TopDecl::Fn(_) => "Fn", _ => "Other" }).collect();
@@ -275,12 +275,12 @@ impl IrEmitter {
         }
         // BUG 25 #2 fix: resolve the checker-surfaced use-alias paths to
         // registered fn keys (the driver strips UseDecls; the checker records
-        // `use X.Y.f as alias` → "X.Y.f"). Bare calls through the alias then
+        // `use X.Y.f as alias` â†’ "X.Y.f"). Bare calls through the alias then
         // resolve to the real registered key.
         let alias_paths = std::mem::take(&mut self.config.use_alias_paths);
         for (alias, dotted) in alias_paths {
             if let Some(q) = alias.strip_suffix("::qualified") {
-                // leaf-qualified form: "af" → "math.abs_float" (stdlib-stripped)
+                // leaf-qualified form: "af" â†’ "math.abs_float" (stdlib-stripped)
                 self.mono.use_alias_map.insert(q.to_string(), dotted.clone());
                 continue;
             }
@@ -351,7 +351,7 @@ impl IrEmitter {
                         let init = Self::global_const_init(&cd.value, &llvm_ty);
                         self.local.module_global_defs.push((symbol.clone(), llvm_ty.clone(), init));
                         // BUG 3 fix: a RUNTIME initializer (fn call etc.) cannot
-                        // become a compile-time constant — the global is emitted
+                        // become a compile-time constant â€” the global is emitted
                         // zero-initialized and a @llvm.global_ctors entry runs the
                         // initializer expression at startup.
                         if !Self::expr_is_const_init(&cd.value) {
@@ -396,7 +396,7 @@ impl IrEmitter {
             // ONLY to by-REFERENCE first params (&T / &mut T / *T). A by-VALUE
             // first param of the receiver type (math lerp/dot pattern
             // `fn V2.lerp(other: V2, t)`) is a REAL argument, never the receiver
-            // â€” the old type-only heuristic hijacked it and shifted every arg
+            // Ã¢â‚¬â€ the old type-only heuristic hijacked it and shifted every arg
             // (silent-swap miscompile class).
             let is_first_param_self = fd.receiver.is_some() && fd.params.first().map_or(false, |p| {
                 let is_ref = matches!(&p.ty, Type::Ref(_) | Type::MutRef(_) | Type::Ptr(_));
@@ -409,7 +409,7 @@ impl IrEmitter {
                 || is_first_param_self;
             let has_recv = fd.receiver.is_some() && has_self_param;
             // For `this`-based methods (receiver exists but no explicit `self`
-            // param, AND body references receiver STATE â€” `this` or bare
+            // param, AND body references receiver STATE Ã¢â‚¬â€ `this` or bare
             // fields), register the receiver as a pointer type so call-site
             // receiver handling can detect the need for a pointer and coerce
             // instance method calls (v.method()) correctly. (G-20: bare-field
@@ -542,7 +542,7 @@ impl IrEmitter {
                 // Bare-key collision guard: two modules can define the same-named
                 // generic fn (e.g. array.contains vs core.contains). The bare key
                 // must stay owned by the FIRST registrant so module-qualified calls
-                // (array.contains â†’ leaf key) resolve unambiguously; a second bare
+                // (array.contains Ã¢â€ â€™ leaf key) resolve unambiguously; a second bare
                 // entry would make the fallback suffix-search pick a random one.
                 if !self.mono.generic_fn_decls.iter().any(|(k, _)| k == &key) {
                     self.mono.generic_fn_decls.push((key.clone(), fd.clone()));
@@ -553,7 +553,7 @@ impl IrEmitter {
                         if let Some(leaf) = module.rsplit('.').next() {
                             let leaf_key = format!("{}.{}", leaf, key);
                             if leaf_key != key {
-                                // Leaf key is unambiguous per module â€” always add.
+                                // Leaf key is unambiguous per module Ã¢â‚¬â€ always add.
                                 self.mono.generic_fn_decls.push((leaf_key, fd.clone()));
             }
             // v0.54 Phase B: Register function body for CTFE evaluation.
@@ -669,7 +669,7 @@ impl IrEmitter {
     pub(crate) fn fn_symbol(&self, fd: &FnDecl) -> String {
         let bare = self.fn_key(fd);
         // BUG 22 #11: prefer the PRE-ASSIGNED symbol (assigned once for all
-        // fns before body compilation, in program order) — definitions and
+        // fns before body compilation, in program order) â€” definitions and
         // call sites then always agree, even when a call compiles before its
         // def (fn_symbol's lazy emitted_fns dedup was order-dependent).
         if let Some(sym) = self.mono.fn_symbol_map.get(&bare) {
@@ -720,7 +720,7 @@ impl IrEmitter {
         let dotted = segments.join(".");
         // The LEAF module segment is what injected decls register under
         // ("rsa.rsa_encrypt"), so try it FIRST for dotted receivers like
-        // "xiom.rsa" â€” the full "xiom.rsa.rsa_encrypt" key is never
+        // "xiom.rsa" Ã¢â‚¬â€ the full "xiom.rsa.rsa_encrypt" key is never
         // registered and falling to the bare name lets the keep-first alias
         // hand the call to the WRONG module's same-named fn (e.g. crypto's
         // rsa_encrypt vs rsa's rsa_encrypt).
@@ -769,7 +769,7 @@ impl IrEmitter {
     pub(crate) fn compile_top_decl(&mut self, item: &TopDecl) -> Result<(), String> {
         match item {
             TopDecl::Fn(fd) => {
-                // Skip generic functions â€” they will be monomorphised later
+                // Skip generic functions Ã¢â‚¬â€ they will be monomorphised later
                 if fd.generics.is_empty() {
                     // Skip methods on generic types (e.g. `BinaryHeap[T].push`). The
                     // generic parameter lives on the RECEIVER type, not in fd.generics,
@@ -781,7 +781,7 @@ impl IrEmitter {
                         .unwrap_or(false);
                     if !recv_is_generic && fd.body.is_some() {
                         // M21: Skip empty-body `main` functions (e.g. `async fn main() {  }`)
-                        // ONLY when a non-empty main exists â€” a placeholder would shadow
+                        // ONLY when a non-empty main exists Ã¢â‚¬â€ a placeholder would shadow
                         // the real entry point. A standalone `fn main() { }` IS emitted
                         // (JIT/shared-lib paths require a callable @main entry point).
                         let is_empty_main = fd.name.name == "main"
@@ -815,7 +815,7 @@ impl IrEmitter {
             }
             TopDecl::Spawn(_block, _, _move) => {
                 // M21: Module-level spawn blocks are compiled inline at
-                // program init. For now, skip â€” spawn is a no-op runtime.
+                // program init. For now, skip Ã¢â‚¬â€ spawn is a no-op runtime.
                 Ok(())
             }
             TopDecl::Interface(_) | TopDecl::Enum(_) | TopDecl::Const(_) | TopDecl::Type(_) | TopDecl::Use(_) | TopDecl::Extern(_) | TopDecl::Impl(_) => Ok(()),
@@ -928,12 +928,12 @@ impl IrEmitter {
         // with NO `self` param is a static constructor (e.g. `Layout.new(size)`):
         // it keeps its qualified name but takes no receiver argument.
         let has_self_param = fd.params.iter().any(|p| p.name.name == "self");
-        // 5c.29: ecosystem pattern `fn T.method(h: &T, ...)` Ã¢â‚¬â€ the first
+        // 5c.29: ecosystem pattern `fn T.method(h: &T, ...)` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the first
         // explicit param IS the receiver. Signature registration and all call
         // sites never include an implicit self argument for these, so the
         // definition must not emit `%param_self` either (the extra leading
         // param shifted every argument and made the body read uninitialized
-        // registers Ã¢â‚¬â€ HTTP/SQLITE ACCESS_VIOLATION).
+        // registers ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â HTTP/SQLITE ACCESS_VIOLATION).
         // G-20 fix: receiver-style requires a by-REFERENCE first param
         // (&T/&mut T/*T). By-value same-type params are real arguments.
         let is_first_param_self = fd.receiver.is_some() && !has_self_param
@@ -941,7 +941,7 @@ impl IrEmitter {
                 let is_ref = matches!(&p.ty, Type::Ref(_) | Type::MutRef(_) | Type::Ptr(_));
                 if !is_ref { return false; }
                 let pt = Self::type_from_ast(&p.ty);
-                // type_from_ast returns "*T" for &mut T Ã¢â‚¬â€ strip the pointer
+                // type_from_ast returns "*T" for &mut T ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â strip the pointer
                 // prefix to compare with the bare receiver name.
                 let ptn = pt.trim_start_matches('*');
                 fd.receiver.as_ref().map_or(false, |r| ptn == r.name)
@@ -949,12 +949,12 @@ impl IrEmitter {
         // Match registration: implicit self only for explicit-`self` methods
         // and `this`-based methods (body references receiver state).
         // G-20: `this`-based now includes BARE-FIELD bodies (e.g.
-        // `fn Counter.inc() -> Int { return val + 1; }`) â€” the %param_self
+        // `fn Counter.inc() -> Int { return val + 1; }`) Ã¢â‚¬â€ the %param_self
         // slot is emitted and the prologue GEP-binds every field, so bare
         // reads are correct instead of garbage. Must match registration.
         let is_this_based = fd.receiver.is_some() && !has_self_param && !is_first_param_self
             && self.body_uses_receiver_state(fd);
-        // 5c.32: by-value self methods â€” `fn Type.method(params) { self.field = ... }`
+        // 5c.32: by-value self methods Ã¢â‚¬â€ `fn Type.method(params) { self.field = ... }`
         // The parser stores the receiver but does NOT add `self` to fd.params.
         // Detect self usage in the body so the LLVM signature gets the struct param.
         let body_uses_self = fd.receiver.is_some() && !has_self_param && !is_first_param_self
@@ -974,7 +974,7 @@ impl IrEmitter {
                 if base.starts_with('%') { format!("{base}*") } else { base }
             })
         } else if body_uses_self {
-            // 5c.32: by-value self method â€” body uses `self` variable.
+            // 5c.32: by-value self method Ã¢â‚¬â€ body uses `self` variable.
             // Pass the struct by POINTER so mutations propagate to the
             // caller's storage. The callee loads from the pointer into
             // its alloca and stores back through the pointer on return.
@@ -1028,7 +1028,7 @@ impl IrEmitter {
         // call overhead for small hot functions (e.g., read_u16_be called 17M
         // times). Large functions must NOT be alwaysinline: always-inlining
         // every function into a hot caller (e.g. the extended bigint smoke
-        // inlines the whole library into main) makes LLVM's -O2 pass explode —
+        // inlines the whole library into main) makes LLVM's -O2 pass explode â€”
         // observed: clang hung >300s on a 735KB module, finishing in ~3s once
         // the attribute was removed. Medium functions get `inlinehint` so the
         // optimizer decides; large ones get no attribute.
@@ -1140,7 +1140,7 @@ impl IrEmitter {
         }
         // Then allocate explicit parameters. Number them by their position in the
         // EMITTED signature (which skips the duplicate `self` in fd.params), using
-        // a counter that only advances for emitted params ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ keeping %paramN indices
+        // a counter that only advances for emitted params ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€š keeping %paramN indices
         // in lock-step with the signature above.
         let mut emitted_param_idx = self_offset;
         for param in fd.params.iter() {
@@ -1296,12 +1296,12 @@ impl IrEmitter {
                 self.emitln("  ret void");
             }
         } else if !self.current_block_terminated() {
-            // P2-4: Never-returning functions â€” emit unreachable instead of ret
+            // P2-4: Never-returning functions Ã¢â‚¬â€ emit unreachable instead of ret
             if self.fctx.is_never_return {
                 self.emitln("  unreachable");
             } else {
             // A4 fix: the function declares a return type but control reached the
-            // end of the body without a terminator ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ the body ends in a loop, an
+            // end of the body without a terminator ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€š the body ends in a loop, an
             // `if` without `else`, or a trailing statement, so no tail `ret` was
             // emitted. Append a safe fallback return so the trailing block is
             // terminated and the module is valid LLVM IR. (Functions that already
@@ -1483,7 +1483,7 @@ impl IrEmitter {
                 if let Some(ref body) = fd.body {
                     let mut vars: HashMap<String, String> = HashMap::new();
                     // BUG 23 #7 fix: seed the tuple-scan variable map from the
-                    // fn's PARAM types — `fn mk_bb(b1: Bool, b2: Bool) -> (Bool, Bool)`
+                    // fn's PARAM types â€” `fn mk_bb(b1: Bool, b2: Bool) -> (Bool, Bool)`
                     // previously registered Tuple__Int__Int (params defaulted to
                     // "Int" in the scan), mis-typing every cross-module Bool tuple.
                     for p in &fd.params {
