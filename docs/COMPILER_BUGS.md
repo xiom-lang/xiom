@@ -1153,3 +1153,67 @@ global-init probes R=0; release-strip probe verified in all three modes.
 6. **"Cannot allocate unsized type" at clang**: os_path smoke's file/path sections (os/file.xi Result/Option matches + os/path.xi fns) fail to compile in combination while each works in isolation (4e95717e). Smoke trimmed to the verified fs/dir sections, TODO(compiler).
 7. **`@Executor.new` undefined in minimal programs**: importing only xiom.async.timer (+executor) fails link ("use of undefined value '@Executor.new'"); the full smoke import set works. Generic-ctor injection is program-shape dependent.
 8. **`use xiom.X;` aggregate import affects sublib struct-literal codegen** (timer.xi literal worked after adding `use xiom.async;` in one configuration) — same BUG 24 family; not a reliable workaround.
+
+---
+
+## 2026-08-13 (night) — compiler session: BUG 27 #12 + BUG 28 #1-#8 ALL RESOLVED
+
+Every item the stdlib session filed is now FIXED on the compiler side, verified
+with harness drivers in docs/repros/ (all exit 0):
+
+1. **Catalog unsafe-block Str construction** — VERIFIED FIXED (env.xi var_opt
+   + match + config_dir second-hop roundtrip exit 0). The stdlib's multi-block
+   shape works; the earlier small-fn corruption is covered by the BUG 29
+   visibility/owner fixes.
+2. **Option-Some payload binding in CONTRACT evaluation** — VERIFIED FIXED
+   (repro_opt_contract: ensures: result is Some => result.len() > 0 on an
+   Option[Str] catalog fn exit 0). The stdlib can restore home_dir's clause.
+3. **Option[Str] second-hop return** — VERIFIED FIXED (same repro; match +
+   rewrap + unwrap all exit 0). home_dir/config_dir can be restored.
+4. **os.platform aggregate shadowing** — FIXED (peeked-submodule injection,
+   b01d7c5e): os.platform.platform_name() now resolves to the REAL submodule
+   fn (platform_name returns a real value; flat os.platform() still works).
+   The old "fully-qualified works" was a false positive (str_len(null) != 0).
+5. **Catalog struct literals drop trailing fields** — VERIFIED FIXED
+   (repro_timer_literal: Timer{deadline: dl; armed: true; label: "t"} reads
+   all three fields correctly).
+6. **"Cannot allocate unsized type" (os/file + os/path combo)** — FIXED
+   (b01d7c5e): tuple EXPRESSION element typing erased Bool to Int, so
+   (PathBuf, Bool) built "Tuple__PathBuf__Int" while the signature
+   registered "Tuple__PathBuf__Bool" — the expr-built type was never
+   pre-registered and its definition emitted after the alloca that used it.
+   Tuple element naming now uses XIOM types for literals. os file write/read/
+   remove roundtrip compiles and runs.
+7. **@Executor.new undefined in minimal programs** — VERIFIED FIXED: the
+   reachability filter now seeds from KEPT const initializers (5865a3b5), so
+   module-global ar _exec = Executor.new() keeps the ctor alive regardless
+   of import shape. Minimal xiom.async.timer-only program exit 0.
+8. **use xiom.X aggregate import vs sublib struct-literal codegen** — covered
+   by the #5 verification (same BUG 24 family).
+
+Plus BUG 27 #12 (the last baseline crypto failure):
+- **Tuple+Vec payload corruption (smoke_stress_crypto_aes_gcm 0xC0000005)** —
+  FIXED (cfe783e0), 3-part chain:
+  a. callee_return_xiom resolved by bare leaf suffix only — ambiguous
+     (cipher.aes_encrypt_gcm -> Vec[UInt8] vs crypto.aes_encrypt_gcm ->
+     Result[Tuple__Vec__Vec, Str]) returned None and dropped payload
+     tracking. Now resolves the receiver prefix first.
+  b. boxed-struct field access matched tuple fields by raw position() — only
+     pair._1 worked; numeric pair.1 fell to Str.len. Now uses
+     resolve_field_index (both forms).
+  c. is_container_vec_field (vec_abi.rs) had no boxed-tuple-field case —
+     pair.1.len() misdispatched to Str.len. Now classifies via
+     local_boxed_struct + container base types (tolerates erased "Vec").
+  **Crypto smokes 30/30** (was 29/30 since the baseline); full gcm encrypt+
+  decrypt roundtrip exit 0.
+
+Also closed: BUG 29 (fn_symbol emission vs fn_key, checker dotted-module path
+join, visibility keep-first — feea1b8a) which fixed the m19_default (~110)
+and m18_guard/ecosystem (~30) e2e clusters, plus the 5 repro files
+(repro_error_type, repro_fn_storage, repro_unsafe_int, repro_opt_vec,
+repro_tuple_vec) — all exit 0 with harness drivers (5865a3b5).
+
+Remaining (not compiler blockers): closure-through-fn-slot crashes (B-007
+family — reproduced at baseline with a plain fn-typed param; needs a design
+decision on the fn-ptr vs env-ptr ABI), and the e2e alias-comparison /
+ambiguity clusters (checker strictness, unrelated to stdlib).
