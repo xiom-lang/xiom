@@ -1563,8 +1563,16 @@ impl Checker {
                 // BUG 25 #11 fix: track each fn's owning module so bare-call
                 // resolution can enforce visibility (a PRIVATE fn of an
                 // imported module must not hijack bare calls).
-                self.fn_owner_module.insert(fd.name.name.clone(), module_path.to_string());
-                self.visibility.insert(fd.name.name.clone(), fd.is_pub);
+                // BUG 29: keep-first to MATCH the bare-key keep-first rule
+                // above (entry().or_insert). The bare-key slot in `functions`
+                // belongs to whichever fn registered FIRST (user program
+                // registers before catalog imports). Unconditional insert
+                // let a transitively-loaded catalog private fn (e.g.
+                // xiom.encoding.base64_index) OVERWRITE the owner record of
+                // the user's own same-named fn, so the visibility gate
+                // rejected the user's bare call ("undefined variable").
+                self.fn_owner_module.entry(fd.name.name.clone()).or_insert(module_path.to_string());
+                self.visibility.entry(fd.name.name.clone()).or_insert(fd.is_pub);
                 // Track methods separately
                 if let Some(recv) = fd.receiver.as_ref() {
                     let _method_key = format!("{}.{}", recv.name, fd.name.name);
@@ -1608,8 +1616,20 @@ impl Checker {
                 }
             }
             TopDecl::Module(md) => {
+                // BUG 29: JOIN dotted module paths (parser nests `module a.b.c`
+                // as Module(a){Module(b){Module(c)}}). Registration
+                // (register_fn_signature_inner) joins the same way, so
+                // fn_owner_module["f"] = "a.b.c" while the old overwrite left
+                // current_module = "c" — the visibility gate then rejected
+                // bare calls to PRIVATE fns in the same module ("undefined
+                // variable 'is_valid'" in every m18_guard_*/ecosystem test
+                // with a dotted module name).
                 let prev = self.current_module.take();
-                self.current_module = Some(md.name.name.clone());
+                self.current_module = Some(if let Some(ref p) = prev {
+                    format!("{}.{}", p, md.name.name)
+                } else {
+                    md.name.name.clone()
+                });
                 for item in &md.items {
                     self.check_top_decl(item);
                 }
