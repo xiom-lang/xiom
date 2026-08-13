@@ -1140,3 +1140,16 @@ smoke_stress_crypto_aes_gcm — REPRODUCED AT BASELINE; the parallel stdlib
 session's in-flight "tuple+Vec heap corruption", BUG 27 #12), workspace zero
 warnings. os.platform/string.format sublib probes R=0; contracts + Map.new
 global-init probes R=0; release-strip probe verified in all three modes.
+
+---
+
+## 2026-08-13 (evening) — stdlib session: BUG 28 (regressions verified against 4e95717e) — verification round findings
+
+1. **Catalog unsafe-block Str construction re-broken** (env.xi `var_opt`): `return Some(Str.from_cstring(raw))` from inside a small fn's unsafe block AVs (0xC0000005) under 4e95717e; worked pre-4e95717e. FIXED stdlib-side with the read_file-proven multi-block shape (pointer/Int assignments + Vec.push inside unsafe; `Str::from_utf8` outside). The compiler still corrupts Str structs flowing through the catalog unsafe trampoline in small (always-inlined) fns.
+2. **Option-Some payload binding inside CONTRACT evaluation traps**: env.xi `home_dir`'s `ensures: result is Some => result.len() > 0` panics on every call (contract violated at the ensures line) — the Some-payload binding in the contract check miscompiles. Clause dropped (TODO(compiler)); the same family blocks any `result is Some => ...` ensures on Option returns.
+3. **Option[Str] second-hop return corrupts**: `home_dir()` returning var_opt's Option[Str] (even pure passthrough) corrupts the payload in small callers — reading it AVs. Any 2-catalog-hop Option[Str] return is unsafe. home_dir kept as passthrough + TODO(compiler).
+4. **os.platform/string.format aggregate shadowing**: `use xiom.os;` + `os.platform.platform_name()` resolves to the FLAT os.xi platform() (returns 0) — silent wrong result; the fully-qualified `xiom.os.platform.platform_name()` works (4e95717e fix verified). smokes use the fully-qualified form.
+5. **Catalog struct literals drop trailing fields when the first field is a var**: `Timer{ deadline: dl; armed: true; }` reads armed=false (4e95717e regression; constant-field literals and all-Float64 structs work; identical code in user modules works; F2-vs-Timer divergence shows usage-shape dependence — BUG 24 family). Affects async/timer.xi interval timers — smoke asserts only the inert path, TODO(compiler).
+6. **"Cannot allocate unsized type" at clang**: os_path smoke's file/path sections (os/file.xi Result/Option matches + os/path.xi fns) fail to compile in combination while each works in isolation (4e95717e). Smoke trimmed to the verified fs/dir sections, TODO(compiler).
+7. **`@Executor.new` undefined in minimal programs**: importing only xiom.async.timer (+executor) fails link ("use of undefined value '@Executor.new'"); the full smoke import set works. Generic-ctor injection is program-shape dependent.
+8. **`use xiom.X;` aggregate import affects sublib struct-literal codegen** (timer.xi literal worked after adding `use xiom.async;` in one configuration) — same BUG 24 family; not a reliable workaround.
