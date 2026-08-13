@@ -4218,10 +4218,28 @@ impl Checker {
                                 n == "_" || (n.len() == 1 && n.chars().next().map(|c| c.is_uppercase()).unwrap_or(false))
                             } else { false }
                         };
+                        let is_ptr_ty = |ty: &CheckedType| -> bool {
+                            matches!(ty, CheckedType::Named(n) if n.starts_with('*') || n == "Ptr")
+                        };
+                        // BUG 29 (regress_gap2): `ptr == 0` / `ptr != 0` — a
+                        // RAW POINTER compared with the null literal is the
+                        // canonical FFI null check (`let ptr: *UInt8; ... if
+                        // ptr == 0 { return None; }`). Without this, the
+                        // BUG 24 compatibility gate rejected the pattern
+                        // ("cannot compare *UInt8 with Int").
+                        let ptr_null_cmp = (is_ptr_ty(&left_ty)
+                            && matches!(&right_ty, CheckedType::Int)
+                            && Self::is_int_literal_expr(right)
+                            && matches!(right.as_ref(), Expr::Int(0, _)))
+                            || (is_ptr_ty(&right_ty)
+                                && matches!(&left_ty, CheckedType::Int)
+                                && Self::is_int_literal_expr(left)
+                                && matches!(left.as_ref(), Expr::Int(0, _)));
                         let compatible = left_ty == right_ty
                             || (numeric_family(&left_ty) && numeric_family(&right_ty))
                             || is_generic_or_wild(&left_ty)
-                            || is_generic_or_wild(&right_ty);
+                            || is_generic_or_wild(&right_ty)
+                            || ptr_null_cmp;
                         // BUG 26: equality also rejects intâ†”float mixing
                         // (int literals may adopt the float type).
                         let mix_err = (Self::is_int_family(&left_ty) && Self::is_float_family(&right_ty) && !Self::is_int_literal_expr(left))
