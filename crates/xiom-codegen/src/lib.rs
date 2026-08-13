@@ -1670,15 +1670,41 @@ impl IrEmitter {
                         }
                     }
                     "unwrap" | "unwrap_or" => {
-                        if let Expr::Ident(opt_id) = recv.as_ref() {
-                            if let Some(t) = self.local.local_opt_payload.get(&opt_id.name).cloned() {
-                                if let Some(elem) = t.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
-                                    self.local.local_vec_handle.insert(name.to_string(), elem.to_string());
-                                } else {
-                                    self.local.local_boxed_struct.insert(name.to_string(), t);
-                                }
-                                return;
+                        // BUG 29 (repro_opt_vec): resolve the payload through a
+                        // LOCAL's tracked type when the receiver is an Ident
+                        // (`var v = o.unwrap()`), OR through the receiver CALL's
+                        // declared return type when chained
+                        // (`var v1 = captures(...).unwrap()` — the receiver is
+                        // a Call, not an Ident, so no local payload was tracked).
+                        let payload_opt: Option<String> = if let Expr::Ident(opt_id) = recv.as_ref() {
+                            self.local.local_opt_payload.get(&opt_id.name).cloned()
+                        } else {
+                            // Chained receiver: `captures(...).unwrap()` — the
+                            // receiver is a CALL; resolve the callee's declared
+                            // return type directly.
+                            let inner_callee: &Expr = match recv.as_ref() {
+                                Expr::Call(f, _, _) | Expr::GenericCall(f, _, _, _) => f.as_ref(),
+                                other => other,
+                            };
+                            self.callee_return_xiom(inner_callee)
+                                .and_then(|ret| Self::option_result_payload(&ret))
+                                .map(|p| {
+                                    if p.contains('[') {
+                                        p
+                                    } else {
+                                        self.types.types.keys().into_iter()
+                                            .find(|k| k.ends_with(&format!(".{p}")) || k.as_str() == p)
+                                            .unwrap_or(p)
+                                    }
+                                })
+                        };
+                        if let Some(t) = payload_opt {
+                            if let Some(elem) = t.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
+                                self.local.local_vec_handle.insert(name.to_string(), elem.to_string());
+                            } else {
+                                self.local.local_boxed_struct.insert(name.to_string(), t);
                             }
+                            return;
                         }
                     }
                     _ => {}

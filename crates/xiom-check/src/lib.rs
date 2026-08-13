@@ -938,12 +938,18 @@ impl Checker {
     pub fn collect_signatures(&mut self, program: &Program) {
         // M20: Expand impl blocks into freestanding functions before registration
         let expanded = program.expand_impl_blocks();
-        // Single pass over items: register types, functions, interfaces, consts
+        // BUG 29 (repro_fn_storage): TWO passes. The old single pass registered
+        // module globals in source order, so `var g = FnBox{ f: _id; }` BEFORE
+        // `fn _id` was inferred while `_id` was not yet registered → the
+        // inferred type check errored "undefined variable '_id'". Register ALL
+        // types + fn signatures + interfaces + impls first, then globals.
         for item in &expanded.items {
             self.register_type_decl(item);
             self.register_fn_signature(item);
             self.register_interface_decl(item);
             self.register_impl_decl(item);
+        }
+        for item in &expanded.items {
             self.register_global_const(item);
         }
         // Build variant field maps from all enum declarations
@@ -1003,11 +1009,22 @@ impl Checker {
         match item {
             TopDecl::Const(cd) => {
                 let decl_ty = CheckedType::from_ast_type(&cd.ty);
-                let ty = if decl_ty != CheckedType::Error && decl_ty != CheckedType::Named("_".into()) {
+                // BUG 29: elided annotation (`var g = FnBox{...}` parses as
+                // Type::Named("_") which from_ast_type maps to Int — the old
+                // `!= Named("_")` check never fired, so `g` was registered as
+                // Int and `g.f` failed with "cannot access field on non-struct
+                // type Int". Detect elision on the AST directly.
+                let is_elided = matches!(&cd.ty, Type::Named(n, _) if n.name == "_");
+                let ty = if !is_elided && decl_ty != CheckedType::Error {
                     decl_ty
                 } else {
-                    // Unknown/elided annotation Ã¢â‚¬â€ infer from the initializer.
-                    self.check_expr(&cd.value)
+                    // BUG 29: NEVER call check_expr here — this is the
+                    // collection pass (signatures may not be visible yet, and
+                    // check_expr emits real diagnostics + runs the visibility
+                    // gate against current_module, which is not set during
+                    // this recursion). Structural inference only; the real
+                    // type check happens in check_top_decl's Const arm.
+                    Self::infer_global_init_type(&cd.value)
                 };
                 self.global_consts.insert(cd.name.name.clone(), ty);
             }
@@ -1017,6 +1034,35 @@ impl Checker {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Structural type inference for a module-global initializer. NEVER emits
+    /// diagnostics and never consults function visibility — used only to give
+    /// elided `var`/`const` declarations a usable type for name resolution.
+    /// The authoritative check is the Const arm of check_top_decl.
+    fn infer_global_init_type(expr: &Expr) -> CheckedType {
+        match expr {
+            Expr::Struct(name, _, _, _) => CheckedType::Named(name.name.clone()),
+            Expr::Some(..) => CheckedType::Named("Option".into()),
+            Expr::None(_) => CheckedType::Named("Option".into()),
+            Expr::Ok(..) => CheckedType::Named("Result".into()),
+            Expr::Err(..) => CheckedType::Named("Result".into()),
+            Expr::Int(_, _) | Expr::BigInt(_, _) => CheckedType::Int,
+            Expr::Float(_, _) => CheckedType::Float64,
+            Expr::Str(_, _) => CheckedType::Str,
+            Expr::Bool(_, _) => CheckedType::Bool,
+            Expr::Char(_, _) => CheckedType::Char,
+            Expr::Array(_, _) => CheckedType::Named("Vec".into()),
+            Expr::Tuple(items, _) => {
+                let elem_types: Vec<String> = items.iter()
+                    .map(|i| Self::infer_global_init_type(i).name())
+                    .collect();
+                CheckedType::Named(format!("Tuple__{}", elem_types.join("__")))
+            }
+            // Fallback: unknown — the Const arm of check_top_decl reports the
+            // real type error if the initializer is genuinely invalid.
+            _ => CheckedType::Error,
         }
     }
 
@@ -1639,10 +1685,16 @@ impl Checker {
                 let val_ty = self.check_expr(&cd.value);
                 let decl_ty = CheckedType::from_ast_type(&cd.ty);
                 // v0.56: Skip type check for zero-initialized globals of complex types
-                // (Array, Map, Vec, etc.) Ã¢â‚¬â€ the zero is a placeholder, not the real type.
+                // (Array, Map, Vec, etc.) — the zero is a placeholder, not the real type.
                 let is_zero_default = matches!(&cd.value, Expr::Int(0, _) | Expr::Float(_, _));
                 let is_complex_type = matches!(&decl_ty, CheckedType::Named(n) if n == "Array" || n == "Map" || n == "Vec" || n == "Set");
-                if val_ty != CheckedType::Error && decl_ty != CheckedType::Error {
+                // BUG 29: elided annotation (`var g = FnBox{...}` parses as
+                // Type::Named("_") → Int here). The real type was inferred from
+                // the initializer in register_global_const; the mismatch check
+                // against the placeholder Int is a false positive ("const type
+                // mismatch: declared Int, found FnBox" blocked repro_fn_storage).
+                let is_elided = matches!(&cd.ty, Type::Named(n, _) if n.name == "_");
+                if val_ty != CheckedType::Error && decl_ty != CheckedType::Error && !is_elided {
                     if !is_zero_default || !is_complex_type {
                         if !self.types_compatible(&val_ty, &decl_ty) {
                             self.error(
@@ -1958,6 +2010,107 @@ impl Checker {
                 user_free_fns: &HashSet<String>,
                 out: &mut Vec<TopDecl>,
             ) {
+                // BUG 9 / BUG 29: struct-name walkers shared by the Fn and Const
+                // arms so injected bodies/initializers pull in the layouts of the
+                // private types they reference (else they degrade to i64).
+                fn first_named(ty: &Type) -> Option<String> {
+                    match ty {
+                        Type::Named(n, _) => Some(n.name.clone()),
+                        Type::Ref(i) | Type::MutRef(i) | Type::Ptr(i)
+                        | Type::Vec(i) | Type::Slice(i) | Type::Option(i) => first_named(i),
+                        Type::Result(a, b) => first_named(a).or_else(|| first_named(b)),
+                        Type::Map(k, v) => first_named(k).or_else(|| first_named(v)),
+                        Type::Set(i) => first_named(i),
+                        _ => None,
+                    }
+                }
+                fn collect_block_struct_names(b: &Block, out: &mut Vec<String>) {
+                    for se in &b.stmts {
+                        match se {
+                            StmtOrExpr::Stmt(s) => collect_stmt_struct_names(s, out),
+                            StmtOrExpr::Expr(e) => collect_expr_struct_names(e, out),
+                        }
+                    }
+                }
+                fn collect_stmt_struct_names(s: &Stmt, out: &mut Vec<String>) {
+                    match s {
+                        Stmt::Let(_, Some(t), _, _) | Stmt::Var(_, Some(t), _, _) => {
+                            if let Some(n) = first_named(t) { out.push(n); }
+                        }
+                        Stmt::Let(_, None, e, _) | Stmt::Var(_, None, e, _) => collect_expr_struct_names(e, out),
+                        Stmt::Assign(_, e, _) => collect_expr_struct_names(e, out),
+                        Stmt::Return(Some(e), _) => collect_expr_struct_names(e, out),
+                        Stmt::Expr(e, _) => collect_expr_struct_names(e, out),
+                        Stmt::If(c, t, elifs, els, _) => {
+                            collect_expr_struct_names(c, out);
+                            collect_block_struct_names(t, out);
+                            for (ec, eb) in elifs { collect_expr_struct_names(ec, out); collect_block_struct_names(eb, out); }
+                            if let Some(eb) = els { collect_block_struct_names(eb, out); }
+                        }
+                        Stmt::Match(e, arms, _) => {
+                            collect_expr_struct_names(e, out);
+                            for arm in arms {
+                                match &arm.body {
+                                    MatchBody::Block(b) => collect_block_struct_names(b, out),
+                                    MatchBody::Expr(e) => collect_expr_struct_names(e, out),
+                                }
+                            }
+                        }
+                        Stmt::While(c, b, _, _, _) | Stmt::For(_, c, b, _, _) => {
+                            collect_expr_struct_names(c, out);
+                            collect_block_struct_names(b, out);
+                        }
+                        Stmt::Spawn(b, _, _) | Stmt::Defer(b, _) => collect_block_struct_names(b, out),
+                        Stmt::Destructure(_, e, _) => collect_expr_struct_names(e, out),
+                        _ => {}
+                    }
+                }
+                fn collect_expr_struct_names(e: &Expr, out: &mut Vec<String>) {
+                    match e {
+                        Expr::Struct(id, fields, base, _) => {
+                            out.push(id.name.clone());
+                            for (_, v) in fields { collect_expr_struct_names(v, out); }
+                            if let Some(b) = base { collect_expr_struct_names(b, out); }
+                        }
+                        Expr::Field(b, _, _) => collect_expr_struct_names(b, out),
+                        Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => {
+                            collect_expr_struct_names(f, out);
+                            for a in args { collect_expr_struct_names(a, out); }
+                        }
+                        Expr::Index(a, b, _) => { collect_expr_struct_names(a, out); collect_expr_struct_names(b, out); }
+                        Expr::Paren(e, _) | Expr::Unary(_, e, _) | Expr::Try(e, _) | Expr::AtPre(e, _)
+                        | Expr::Ref(e, _) | Expr::MutRef(e, _) | Expr::Some(e, _) | Expr::Ok(e, _)
+                        | Expr::Err(e, _) | Expr::Await(e, _) | Expr::Comptime(e, _) | Expr::As(e, _, _) => {
+                            collect_expr_struct_names(e, out);
+                        }
+                        Expr::Binary(a, _, b, _) | Expr::Imply(a, b, _) => {
+                            collect_expr_struct_names(a, out); collect_expr_struct_names(b, out);
+                        }
+                        Expr::Is(e, _, _) => collect_expr_struct_names(e, out),
+                        Expr::Array(elems, _) | Expr::Tuple(elems, _) => {
+                            for el in elems { collect_expr_struct_names(el, out); }
+                        }
+                        Expr::Closure(_, _, b, _) => collect_block_struct_names(b, out),
+                        Expr::PipeClosure(_, e, _) => collect_expr_struct_names(e, out),
+                        Expr::If(c, t, elifs, els, _) => {
+                            collect_expr_struct_names(c, out);
+                            collect_block_struct_names(t, out);
+                            for (ec, eb) in elifs { collect_expr_struct_names(ec, out); collect_block_struct_names(eb, out); }
+                            if let Some(eb) = els { collect_block_struct_names(eb, out); }
+                        }
+                        Expr::Match(e, arms, _) => {
+                            collect_expr_struct_names(e, out);
+                            for arm in arms {
+                                match &arm.body {
+                                    MatchBody::Block(b) => collect_block_struct_names(b, out),
+                                    MatchBody::Expr(e) => collect_expr_struct_names(e, out),
+                                }
+                            }
+                        }
+                        Expr::Unsafe(b, _) | Expr::BlockExpr(b, _) => collect_block_struct_names(b, out),
+                        _ => {}
+                    }
+                }
                 for item in items {
                     match item {
                         TopDecl::Type(td) => {
@@ -2047,17 +2200,6 @@ impl Checker {
                                 // around this with `pub IntFrac`; the compiler now
                                 // handles private types used across the boundary.
                                 let mut sig_types: Vec<String> = Vec::new();
-                                fn first_named(ty: &Type) -> Option<String> {
-                                    match ty {
-                                        Type::Named(n, _) => Some(n.name.clone()),
-                                        Type::Ref(i) | Type::MutRef(i) | Type::Ptr(i)
-                                        | Type::Vec(i) | Type::Slice(i) | Type::Option(i) => first_named(i),
-                                        Type::Result(a, b) => first_named(a).or_else(|| first_named(b)),
-                                        Type::Map(k, v) => first_named(k).or_else(|| first_named(v)),
-                                        Type::Set(i) => first_named(i),
-                                        _ => None,
-                                    }
-                                }
                                 for p in &fd.params {
                                     if let Some(n) = first_named(&p.ty) { sig_types.push(n); }
                                 }
@@ -2075,93 +2217,6 @@ impl Checker {
                                 // ciphertext / contract violations). Struct literals
                                 // (`S{ ... }`) and annotated bindings (`var x: S`)
                                 // both seed the transitive walk below.
-                                fn collect_block_struct_names(b: &Block, out: &mut Vec<String>) {
-                                    for se in &b.stmts {
-                                        match se {
-                                            StmtOrExpr::Stmt(s) => collect_stmt_struct_names(s, out),
-                                            StmtOrExpr::Expr(e) => collect_expr_struct_names(e, out),
-                                        }
-                                    }
-                                }
-                                fn collect_stmt_struct_names(s: &Stmt, out: &mut Vec<String>) {
-                                    match s {
-                                        Stmt::Let(_, Some(t), _, _) | Stmt::Var(_, Some(t), _, _) => {
-                                            if let Some(n) = first_named(t) { out.push(n); }
-                                        }
-                                        Stmt::Let(_, None, e, _) | Stmt::Var(_, None, e, _) => collect_expr_struct_names(e, out),
-                                        Stmt::Assign(_, e, _) => collect_expr_struct_names(e, out),
-                                        Stmt::Return(Some(e), _) => collect_expr_struct_names(e, out),
-                                        Stmt::Expr(e, _) => collect_expr_struct_names(e, out),
-                                        Stmt::If(c, t, elifs, els, _) => {
-                                            collect_expr_struct_names(c, out);
-                                            collect_block_struct_names(t, out);
-                                            for (ec, eb) in elifs { collect_expr_struct_names(ec, out); collect_block_struct_names(eb, out); }
-                                            if let Some(eb) = els { collect_block_struct_names(eb, out); }
-                                        }
-                                        Stmt::Match(e, arms, _) => {
-                                            collect_expr_struct_names(e, out);
-                                            for arm in arms {
-                                                match &arm.body {
-                                                    MatchBody::Block(b) => collect_block_struct_names(b, out),
-                                                    MatchBody::Expr(e) => collect_expr_struct_names(e, out),
-                                                }
-                                            }
-                                        }
-                                        Stmt::While(c, b, _, _, _) | Stmt::For(_, c, b, _, _) => {
-                                            collect_expr_struct_names(c, out);
-                                            collect_block_struct_names(b, out);
-                                        }
-                                        Stmt::Spawn(b, _, _) | Stmt::Defer(b, _) => collect_block_struct_names(b, out),
-                                        Stmt::Destructure(_, e, _) => collect_expr_struct_names(e, out),
-                                        _ => {}
-                                    }
-                                }
-                                fn collect_expr_struct_names(e: &Expr, out: &mut Vec<String>) {
-                                    match e {
-                                        Expr::Struct(id, fields, base, _) => {
-                                            out.push(id.name.clone());
-                                            for (_, v) in fields { collect_expr_struct_names(v, out); }
-                                            if let Some(b) = base { collect_expr_struct_names(b, out); }
-                                        }
-                                        Expr::Field(b, _, _) => collect_expr_struct_names(b, out),
-                                        Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => {
-                                            collect_expr_struct_names(f, out);
-                                            for a in args { collect_expr_struct_names(a, out); }
-                                        }
-                                        Expr::Index(a, b, _) => { collect_expr_struct_names(a, out); collect_expr_struct_names(b, out); }
-                                        Expr::Paren(e, _) | Expr::Unary(_, e, _) | Expr::Try(e, _) | Expr::AtPre(e, _)
-                                        | Expr::Ref(e, _) | Expr::MutRef(e, _) | Expr::Some(e, _) | Expr::Ok(e, _)
-                                        | Expr::Err(e, _) | Expr::Await(e, _) | Expr::Comptime(e, _) | Expr::As(e, _, _) => {
-                                            collect_expr_struct_names(e, out);
-                                        }
-                                        Expr::Binary(a, _, b, _) | Expr::Imply(a, b, _) => {
-                                            collect_expr_struct_names(a, out); collect_expr_struct_names(b, out);
-                                        }
-                                        Expr::Is(e, _, _) => collect_expr_struct_names(e, out),
-                                        Expr::Array(elems, _) | Expr::Tuple(elems, _) => {
-                                            for el in elems { collect_expr_struct_names(el, out); }
-                                        }
-                                        Expr::Closure(_, _, b, _) => collect_block_struct_names(b, out),
-                                        Expr::PipeClosure(_, e, _) => collect_expr_struct_names(e, out),
-                                        Expr::If(c, t, elifs, els, _) => {
-                                            collect_expr_struct_names(c, out);
-                                            collect_block_struct_names(t, out);
-                                            for (ec, eb) in elifs { collect_expr_struct_names(ec, out); collect_block_struct_names(eb, out); }
-                                            if let Some(eb) = els { collect_block_struct_names(eb, out); }
-                                        }
-                                        Expr::Match(e, arms, _) => {
-                                            collect_expr_struct_names(e, out);
-                                            for arm in arms {
-                                                match &arm.body {
-                                                    MatchBody::Block(b) => collect_block_struct_names(b, out),
-                                                    MatchBody::Expr(e) => collect_expr_struct_names(e, out),
-                                                }
-                                            }
-                                        }
-                                        Expr::Unsafe(b, _) | Expr::BlockExpr(b, _) => collect_block_struct_names(b, out),
-                                        _ => {}
-                                    }
-                                }
                                 if let Some(body) = &fd.body {
                                     collect_block_struct_names(body, &mut sig_types);
                                 }
@@ -2240,6 +2295,45 @@ impl Checker {
                             if !existing.contains(&cd.name.name) {
                                 existing.insert(cd.name.name.clone());
                                 out.push(TopDecl::Const(cd.clone()));
+                                // BUG 29 (repro_fn_storage): a module-level
+                                // `var g = FnBox{...}` injects the CONST but not
+                                // the (possibly private) struct type it
+                                // references — codegen then degraded the global
+                                // to i64 ("module-scope fn storage read-only").
+                                // Transitive type injection mirrors the Fn arm:
+                                // collect struct names from the declared type
+                                // and the initializer expression, then pull in
+                                // their layouts (and nested field types).
+                                let mut worklist: Vec<String> = Vec::new();
+                                if let Some(n) = first_named(&cd.ty) {
+                                    worklist.push(n);
+                                }
+                                collect_expr_struct_names(&cd.value, &mut worklist);
+                                while let Some(ty_name) = worklist.pop() {
+                                    if existing.contains(&ty_name) || primitives.contains(&ty_name.as_str()) {
+                                        continue;
+                                    }
+                                    for item in items {
+                                        match item {
+                                            TopDecl::Type(td) if td.name.name == ty_name => {
+                                                existing.insert(ty_name.clone());
+                                                out.push(TopDecl::Type(td.clone()));
+                                                for f in &td.fields {
+                                                    if let Some(n) = first_named(&f.ty) {
+                                                        worklist.push(n);
+                                                    }
+                                                }
+                                                break;
+                                            }
+                                            TopDecl::Enum(ed) if ed.name.name == ty_name => {
+                                                existing.insert(ty_name.clone());
+                                                out.push(TopDecl::Enum(ed.clone()));
+                                                break;
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
                             }
                         }
                         _ => {}
@@ -2418,6 +2512,17 @@ impl Checker {
                     fn_candidates.push(fd)
                 }
                 other => kept.push(other),
+            }
+        }
+        // BUG 29 (repro_fn_storage): KEPT const initializers reference fns too
+        // — `var g = FnBox{ f: _id; }` seeds `_id`. Without this, the
+        // reachability filter pruned `_id` (only the module-global initializer
+        // references it, and the user program never names it), the ginit
+        // emitted `ptrtoint` of an undefined symbol → stored 0 → the stored fn
+        // call crashed. The fixpoint loop below propagates from these seeds.
+        for d in &kept {
+            if let TopDecl::Const(cd) = d {
+                collect_expr_names(&cd.value, &mut referenced);
             }
         }
 
@@ -4826,6 +4931,12 @@ impl Checker {
                     CheckedType::Named(name) if name.starts_with("Vec[") && name.ends_with(']') => {
                         CheckedType::from_str(&name[4..name.len() - 1])
                     }
+                    // BUG 29 (repro_opt_vec): wildcard receiver (`v` from
+                    // `o.unwrap()` where o: Option[Vec[Str]]). Indexing must
+                    // DEFER to codegen (return `_`), not degrade to Int —
+                    // otherwise `v[0] != "hello"` errors "cannot compare Int
+                    // with Str" even though codegen lowers it correctly.
+                    CheckedType::Named(name) if name == "_" => CheckedType::Named("_".into()),
                     _ => CheckedType::Int,
                 }
             }

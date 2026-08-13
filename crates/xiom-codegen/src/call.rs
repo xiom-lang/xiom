@@ -3105,6 +3105,51 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         && self.lookup_local(&fn_name).is_some()
                         && self.types.functions.get(&resolved_fn_key).is_none()
                         && ret_ty == "i64";
+                    // BUG 29 (repro_fn_storage): call through a FN-TYPED FIELD of
+                    // a MODULE-GLOBAL struct (`g.f(x)` where `g: FnBox` is a
+                    // module-level `var`). The method dispatch resolves
+                    // `g.f` to the key `FnBox.f` which is NOT a registered
+                    // function — without this the call landed on a zero-arg
+                    // auto-stub (`ret 0`) → "module-scope fn storage silently
+                    // read-only". Detect: receiver is a module global whose
+                    // struct type_meta declares a field named `f`; emit
+                    // GEP → load i64 fn ptr → inttoptr → call.
+                    let global_fn_field: Option<(String, String, usize)> = if receiver_expr.is_some()
+                        && self.types.functions.get(&resolved_fn_key).is_none()
+                        && self.mono.generic_fn_decls.iter().all(|(k, _)| k != &resolved_fn_key)
+                    {
+                        if let Some(Expr::Ident(obj_id)) = receiver_expr.map(|r| r.as_ref()) {
+                            if let Some((symbol, global_llvm_ty)) = self.local.module_globals.get(&obj_id.name).cloned() {
+                                if let Some(struct_name) = global_llvm_ty.strip_prefix("%struct.").map(|s| s.trim_end_matches('*').to_string()) {
+                                    let field_idx = self.types.type_meta.get(&struct_name)
+                                        .and_then(|meta| meta.fields.iter().position(|(fname, _)| fname == &fn_name));
+                                    field_idx.map(|idx| (symbol, struct_name, idx))
+                                } else { None }
+                            } else { None }
+                        } else { None }
+                    } else { None };
+                    if let Some((symbol, struct_name, field_idx)) = global_fn_field {
+                        // GEP into the global struct, load the fn pointer field,
+                        // and call through it (closure-style dispatch).
+                        let struct_llvm = format!("%struct.{struct_name}");
+                        let gep = self.fresh_tmp();
+                        self.emitln(&format!("  {gep} = getelementptr {struct_llvm}, {struct_llvm}* @{symbol}, i32 0, i32 {field_idx}"));
+                        let loaded = self.fresh_tmp();
+                        self.emitln(&format!("  {loaded} = load i64, i64* {gep}"));
+                        let compiled_args: Vec<(String, String)> = args.iter()
+                            .map(|a| self.compile_expr(a).map(|(v, t)| (v, t)))
+                            .collect::<Result<Vec<_>, _>>()?;
+                        let args_str = compiled_args.iter()
+                            .map(|(v, t)| format!("{t} {v}"))
+                            .collect::<Vec<_>>().join(", ");
+                        let param_types: Vec<String> = compiled_args.iter().map(|(_, t)| t.clone()).collect();
+                        let fn_ptr_ty = format!("i64 ({})*", param_types.join(", "));
+                        let fn_ptr = self.fresh_tmp();
+                        self.emitln(&format!("  {fn_ptr} = inttoptr i64 {loaded} to {fn_ptr_ty}"));
+                        let tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {tmp} = call i64 {fn_ptr}({args_str})"));
+                        return Ok((tmp, LLVM_I64.to_string()));
+                    }
                     // BUG 22 #11 fix: emit the PRE-ASSIGNED symbol for the
                     // resolved key (bare or qualified) â€” definitions and call
                     // sites agree even when the call compiles before its def;
