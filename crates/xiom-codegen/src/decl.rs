@@ -293,7 +293,16 @@ impl IrEmitter {
                     TopDecl::Fn(fd) => {
                         let is_generic = !fd.generics.is_empty()
                             || fd.receiver.as_ref().map(|r| em.types.generic_type_names.contains(&r.name)).unwrap_or(false);
-                        if !is_generic && fd.body.is_some() {
+                        // BUG 29 (m21_async_spawn_007): skip EMPTY-BODY `main`
+                        // fns here too — compile_top_decl already skips emitting
+                        // them when a non-empty main exists, but the preassign
+                        // walk claimed the bare "main" symbol for the empty
+                        // `async fn main() {}` placeholder, so the REAL main
+                        // got module-qualified (@m21_async_spawn_007.main) and
+                        // the link failed with "undefined symbol: main".
+                        let is_empty_main = fd.name.name == "main"
+                            && fd.body.as_ref().map_or(false, |b| b.stmts.is_empty());
+                        if !is_generic && fd.body.is_some() && !is_empty_main {
                             let key = em.fn_key(fd);
                             let sym = if seen_bare.contains(&key) {
                                 module.as_ref().map(|m| format!("{m}.{key}")).unwrap_or_else(|| key.clone())
