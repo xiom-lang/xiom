@@ -334,7 +334,19 @@ impl IrEmitter {
                 // type; otherwise (e.g. `Map[K,V]`, whose LLVM lowering isn't a
                 // simple global slot) fall back to constant substitution so the
                 // existing behavior -- and the green test gate -- is preserved.
-                let ty_name = Self::type_from_ast(&cd.ty);
+                // BUG 29: an UNANNOTATED `var g = FnBox{...}` parses with
+                // Type::Named("_"); type_from_ast("_") degrades to i64, emitting
+                // `@g = internal global i64 0` — the struct field store was
+                // dropped and reads hit a bare @f stub (module-scope fn storage
+                // silently read-only). Infer the type from the initializer
+                // expression (struct literal → its type name) when the declared
+                // type is elided.
+                let declared_ty = Self::type_from_ast(&cd.ty);
+                let ty_name = if declared_ty == "_" || declared_ty == "()" || declared_ty.is_empty() {
+                    self.struct_type_from_expr(&cd.value).unwrap_or(declared_ty)
+                } else {
+                    declared_ty
+                };
                 if let Ok(llvm_ty) = self.llvm_type_for(&ty_name) {
                     let symbol = if let Some(ref m) = self.local.current_module {
                         format!("{}.{}", m, cd.name.name)
