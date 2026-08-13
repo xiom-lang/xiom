@@ -353,6 +353,9 @@ fn main() {
     let target = parse_target(&args);
     let check_contracts = !args.iter().any(|a| a == "--no-contracts") && !release;
     let runtime_contracts = args.iter().any(|a| a == "--runtime-contracts");
+    // Security review (2026-08-13): release builds strip assert/dbg!/debugger;
+    // --keep-debug-checks retains them in release binaries.
+    let keep_debug_checks = args.iter().any(|a| a == "--keep-debug-checks");
     let diagnostics_json = args.iter().any(|a| a == "--diagnostics=json");
     let strict_mode = args.iter().any(|a| a == "--strict");
     let debug_symbols = args.iter().any(|a| a == "--debug") || args.iter().any(|a| a == "-g");
@@ -382,6 +385,15 @@ fn main() {
     let strict_exhaustive = args.iter().any(|a| a == "--strict-exhaustive");
     // D2.1 (Phase 7): allow `#[unsafe_direct]` (trusted escape hatch) in user code
     let enable_unsafe_direct = args.iter().any(|a| a == "--enable-unsafe-direct");
+    if enable_unsafe_direct {
+        // Security review (2026-08-13): the escape hatch disables the
+        // unsafe-confinement guard — surface it loudly on every invocation so
+        // a release build log cannot silently contain unguarded code.
+        eprintln!(
+            "warning: --enable-unsafe-direct is set — #[unsafe_direct] code bypasses \
+             the unsafe-confinement fault guard; audit any binary built with this flag"
+        );
+    }
     // v0.54: Binary cache — cache compiled binary by SHA-256 source hash
     let use_cache = args.iter().any(|a| a == "--cache");
     // 5e.5f: Incremental compilation flags
@@ -647,6 +659,7 @@ fn main() {
         sanitize,
         stack_protector,
         runtime_contracts,
+        keep_debug_checks,
         overflow_checks,
         strict_exhaustive,
         incremental,
@@ -867,6 +880,7 @@ fn main() {
                     sanitize: None,
                     stack_protector: false,
                     runtime_contracts: false,
+                    keep_debug_checks: false,
                     overflow_checks: config.overflow_checks,
                     strict_exhaustive: config.strict_exhaustive,
                     script_mode: false,
@@ -919,6 +933,7 @@ fn main() {
                     sanitize: None,
                     stack_protector: false,
                     runtime_contracts: false,
+                    keep_debug_checks: false,
                     overflow_checks: config.overflow_checks,
                     strict_exhaustive: config.strict_exhaustive,
                     script_mode: false,

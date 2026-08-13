@@ -84,6 +84,10 @@ pub struct CodegenConfig {
     pub target_triple: String,
     /// Whether to emit contract runtime checks
     pub check_contracts: bool,
+    /// Security review (2026-08-13): strip `assert`/`dbg!`/`debugger;` from
+    /// release builds (contracts are governed by check_contracts). Keeps
+    /// attack surface and debug output out of shipped binaries.
+    pub strip_debug_checks: bool,
     /// Strict mode: error on unknown types defaulting to i64
     pub strict_mode: bool,
     /// Maximum allowed recursion depth
@@ -136,6 +140,7 @@ impl Default for CodegenConfig {
             strict_mode: false,
             max_recursion_depth: 2000,
             hot_reload: false,
+            strip_debug_checks: false,
             overflow_checks: true, // v0.56: ON by default (AI-safe systems compiler)
             pub_functions: HashSet::new(),
             xiom_hot_globals: Vec::new(),
@@ -325,6 +330,12 @@ pub struct LocalContext {
     /// are currently being resolved. Prevents infinite recursion on cycles
     /// like `const A = B; const B = A;`.
     pub const_eval_stack: RefCell<HashSet<String>>,
+    /// Current const-evaluation recursion depth (security review 2026-08-13):
+    /// a hostile or pathological const expression must not be able to hang
+    /// the compiler via unbounded CTFE recursion. `evaluate_const_init` bails
+    /// out (returns the expression unevaluated, falling back to runtime
+    /// evaluation) once the depth exceeds CONST_EVAL_BUDGET.
+    pub const_eval_depth: std::cell::Cell<u32>,
     /// Mutable module-level var globals: name -> (llvm_symbol, llvm_type)
     pub module_globals: HashMap<String, (String, String)>,
     /// Ordered list of module-global definitions to emit

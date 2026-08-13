@@ -1222,3 +1222,52 @@ Before self-host begins, these safety-critical features MUST be complete:
 | v0.49.7 | 2026-07-21 | 910 | Phase 8B/M4-M9 complete, preflight audit |
 | v0.49.5 | 2026-07-20 | 871 | Phase 7 complete, installer v2 |
 | v0.48.9 | 2026-07-20 | 768 | Phase 5-6 complete |
+
+---
+
+## 2026-08-13 — Multi-session production items (from security review + session handoff)
+
+### A. [HIGH, LARGE] Type-check catalog module fn bodies (Q2b, user-approved)
+**Problem:** stdlib modules loaded via use are parsed but their fn bodies
+are NEVER type-checked. Invalid constructs that user code rejects (e.g.
+&ct_buf[0] as *UInt8 — "unsupported type cast" in user modules) compile
+silently inside stdlib fns and can become UB (the crypto AES-NI NULL-pointer
+crash). For a systems language this is the largest grey area.
+**Phased plan:**
+1. Phase 1 (scoped): run the checker's fn-body pass over the REACHABLE
+   injected fns (the ones actually compiled into user programs) and report
+   errors as compile-time errors of the user program. Measure fallout on the
+   512-module stdlib (numeric-policy-era code may fail; fix stdlib or gate).
+2. Phase 2 (full): check every catalog module body at load time; cache the
+   check result per module (hash-keyed, like CachedModule) so recompiles are
+   free. Errors report file:line with the import chain.
+3. Phase 3: --strict-stdlib flag; CI gate that stdlib checks clean.
+**Do not rush.** Phase 1 alone is a multi-session effort with fallout
+management.
+
+### B. [MEDIUM] Payload-aware tuple patterns (BUG 26 #3)
+Ok((a, b)) binds a/b as Int (documented simplification). Full fix: the
+checker must track Result/Option payload types (currently erased) and bind
+tuple pattern elements from them. Requires payload-type propagation in
+check_expr (Option/Result method dispatch + match scrutinee typing). Until
+then the documented workaround is .0/.1 field access.
+
+### C. [MEDIUM] Vec.get dispatch hijack
+.get(i) on Vec[T] resolves to a Box-typed get ("expected Box, found
+Int"). Either implement Vec.get as a real builtin (like len/push) or emit a
+clear T001 naming the supported access ([i]).
+
+### D. [LOW] [v; n] array-repeat literal
+Not in the spec; crypto.xi used it and was fixed with the zero-init form. If
+adopted, it needs: parser (array-repeat in the literal arm), AST/codegen
+(constant-folded expansion), spec update (user approval). Otherwise keep
+documented as unsupported.
+
+### E. [LOW] Catalog reverse type-index (refines the prelude-collections load)
+The checker force-loads xiom.collections in the prelude. A catalog
+type-name -> module reverse index would load only what a program references.
+Correctness today is fine; this is compile-time economy.
+
+### F. [LOW] Contract policy decision
+--no-contracts is all-or-nothing; per-module opt-out or verified-contract
+mode (Z3) as release default are open policy choices.

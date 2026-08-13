@@ -60,6 +60,10 @@ pub struct CompileConfig {
     pub stack_protector: bool,
     /// 7E.4: force runtime contract checks even in release builds
     pub runtime_contracts: bool,
+    /// Security review (2026-08-13): keep `assert`/`dbg!`/`debugger;` in
+    /// release builds. Default: stripped (release strips debug checks;
+    /// debug builds always keep them).
+    pub keep_debug_checks: bool,
     pub overflow_checks: bool,
     /// S2: Promote non-exhaustive match warnings to hard errors
     pub strict_exhaustive: bool,
@@ -108,6 +112,7 @@ impl Default for CompileConfig {
             sanitize: None,
             stack_protector: false,
             runtime_contracts: false,
+            keep_debug_checks: false,
             overflow_checks: false,
             strict_exhaustive: false,
             max_recursion_depth: 500,
@@ -528,6 +533,10 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
         Target::Native => {}
     }
     emitter.set_check_contracts(config.check_contracts || config.runtime_contracts);
+    // Security review (2026-08-13): release builds strip assert/dbg!/debugger;
+    // `--keep-debug-checks` (or a debug build) retains them. Contracts are
+    // governed separately by check_contracts (already release-stripped).
+    emitter.set_strip_debug_checks(config.release && !config.keep_debug_checks);
     emitter.set_overflow_checks(config.overflow_checks);
     emitter.set_parallel_codegen(config.parallel_codegen);
     emitter.set_max_recursion_depth(config.max_recursion_depth);
@@ -838,8 +847,8 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     }
 
     // Stage 4.5: Inject external module declarations
-    let external_decls = checker.collect_external_decls(&program);
-    if !external_decls.is_empty() {
+        let external_decls = checker.collect_external_decls(&program);
+        if !external_decls.is_empty() {
         fn fn_dedup_key(fd: &xiom_ast::FnDecl) -> String {
             if fd.is_method() {
                 format!("{}.{}", fd.receiver.as_ref().expect("method has receiver").name, fd.name.name)
@@ -872,6 +881,9 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     // Stage 5: Codegen
     let mut emitter = IrEmitter::new();
     emitter.set_check_contracts(config.check_contracts || config.runtime_contracts);
+    // Security review (2026-08-13): release builds strip assert/dbg!/debugger;
+    // `--keep-debug-checks` (or a debug build) retains them.
+    emitter.set_strip_debug_checks(config.release && !config.keep_debug_checks);
     emitter.set_overflow_checks(config.overflow_checks);
     emitter.set_parallel_codegen(config.parallel_codegen);
     emitter.set_max_recursion_depth(config.max_recursion_depth);

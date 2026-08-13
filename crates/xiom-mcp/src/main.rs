@@ -674,6 +674,7 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
         sanitize: None,
         stack_protector: false,
         runtime_contracts: false,
+        keep_debug_checks: false,
         overflow_checks: false,
         incremental: false,
         force: false,

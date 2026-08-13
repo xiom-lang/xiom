@@ -1087,3 +1087,56 @@ documented workaround: `.0`/`.1` field access (applied to the GCM smoke).
 18. `xiom_atomic_store` doesn't round-trip negative Ints; runtime `xiom_mutex_*` broken (trylock always 0); real threads unusable (fn?ptr cast T001 + xiom_thread_spawn AV) — thread/spawn.xi is a documented inline simulation.
 19. Bool display via generic renders "1"; Str.to_str()/Float64.to_str() crash; Float32?Float64 conversion prints bit patterns; Vec[Bool] elements type as generic T.
 20. High-bit mask AND still miscompiles for UTF-8 classifiers (convert/utf8.xi — BUG 26 #5, unfixed).
+
+## 2026-08-13 — BUG 27 items RESOLVED (compiler side) + security review implementation
+
+**1. Sublib-prefix resolution regression (xiom.os.platform / xiom.string.format — 4c439e6a):**
+use xiom.os; os.platform.platform_name() failed with "cannot call 'platform_name'
+on this expression". Root causes + fixes (commits 4e95717e, 1aa93cc?):
+- The module map for directory modules (os.xi + os/*.xi) only contained the
+  module's own exports — submodule segments were unresolvable. The qualified-call
+  walk now descends submodule segments LAZILY via catalog.peek_owned() (parses
+  WITHOUT caching, so the submodule's decls never enter the injection set —
+  eager loading perturbed bare-alias keep-first resolution and broke unrelated
+  programs, e.g. crypto sha256).
+- Name collisions (xiom.os has BOTH `pub fn platform()` and the `platform`
+  submodule) descend through submodule_aliases keyed by full dotted path; the
+  2-segment call `os.platform()` keeps resolving the fn.
+- local_module_paths: checker-only local-name -> full-dotted map recorded for
+  every use (kept OUT of use_alias_paths, which the codegen's bare-call alias
+  resolution consumes).
+
+**2. Generic constructors in module-global initializers (Map[Str, Bool].new()):**
+ar _coverage: Map[Str, Bool] = Map[Str, Bool].new(); (core/contracts.xi)
+emitted a stub `define i64 @Map.new() { ret i64 0 }` (runtime crash
+0x80000003) or "use of undefined value '@new'" (link error). Three fixes:
+- infer_struct_type_name: Index receivers with a KNOWN TYPE base resolve to the
+  base type — fn_key "Map.new", not the bare-key hijack of another module's
+  generic `new`.
+- The checker prelude force-loads xiom.collections (container generics were
+  never imported by any use, so their decls never reached the monomorphisation
+  registry). Planned refinement: catalog reverse type-index + on-demand load
+  (docs/ROADMAP.md).
+- ginit drain: @llvm.global_ctors bodies compile AFTER the first monomorphisation
+  pass; the instantiation queue is drained again so generic ctors called from
+  globals get real bodies.
+
+**3. Security review implementation (user-approved, production-grade):**
+- Release builds strip assert/dbg!/debugger; (`--keep-debug-checks` retains;
+  contracts were already release-stripped, `--runtime-contracts` forces).
+  dbg! still evaluates and returns its value — only the print disappears.
+- Const-eval budget: evaluate_const_init is bounded by CONST_EVAL_BUDGET (4096)
+  recursion depth; on overflow the expression is returned unevaluated (materializes
+  at runtime) — a hostile const cannot hang the compiler.
+- asm(): verified ALREADY unsafe-gated (T001 "inline asm requires an unsafe
+  block"); stdlib contains no asm usage.
+- --enable-unsafe-direct: prominent stderr warning on every invocation.
+- Catalog fn bodies bypassing the checker (invalid casts compile silently in
+  stdlib modules) remains OPEN — see docs/ROADMAP.md (multi-session item).
+
+**Verification:** 34/34 regression sweep (incl. new m37_const_array,
+m37_payload_ref, m37_ptr_cast), checker 178/178, crypto 29/30 (only
+smoke_stress_crypto_aes_gcm — REPRODUCED AT BASELINE; the parallel stdlib
+session's in-flight "tuple+Vec heap corruption", BUG 27 #12), workspace zero
+warnings. os.platform/string.format sublib probes R=0; contracts + Map.new
+global-init probes R=0; release-strip probe verified in all three modes.

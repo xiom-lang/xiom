@@ -87,7 +87,12 @@ pub struct IrEmitter {
 
 
 impl IrEmitter {
-        pub fn new() -> Self {
+    /// Security review (2026-08-13): maximum CTFE recursion depth for
+    /// `evaluate_const_init`. Pathological const expressions bail out
+    /// (evaluated at runtime instead) rather than hanging the compiler.
+    pub const CONST_EVAL_BUDGET: u32 = 4096;
+
+    pub fn new() -> Self {
         Self {
             output: String::new(),
             tmp_counter: 0,
@@ -118,7 +123,11 @@ impl IrEmitter {
     pub fn set_check_contracts(&mut self, enabled: bool) {
         self.config.check_contracts = enabled;
     }
-
+    /// Security review (2026-08-13): release builds strip assert/dbg!/debugger;
+    /// `--keep-debug-checks` (or a debug build) retains them.
+    pub fn set_strip_debug_checks(&mut self, enabled: bool) {
+        self.config.strip_debug_checks = enabled;
+    }
     pub fn set_overflow_checks(&mut self, enabled: bool) {
         self.config.overflow_checks = enabled;
     }
@@ -4029,8 +4038,7 @@ impl IrEmitter {
     /// instantiations (generic chains), which are processed in subsequent passes.
     fn compile_generic_monomorphisations(&mut self) -> Result<(), String> {
         let mut iteration: u32 = 0;
-        const MAX_GENERIC_ITERATIONS: u32 = 65536;
-        loop {
+        const MAX_GENERIC_ITERATIONS: u32 = 65536;        loop {
             iteration += 1;
             if iteration > MAX_GENERIC_ITERATIONS {
                 return Err(format!(

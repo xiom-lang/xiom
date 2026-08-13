@@ -236,7 +236,25 @@ impl IrEmitter {
     ///   - Parenthesized expressions
     ///   - `if`/`match` on compile-time-known conditions
     /// Returns the original expression unchanged if evaluation fails.
+    ///
+    /// Security review (2026-08-13): bounded by CONST_EVAL_BUDGET recursion
+    /// depth — a pathological const expression must not be able to hang the
+    /// compiler (stack overflow / OOM) via unbounded CTFE recursion. On
+    /// exceeding the budget the expression is returned UNEVALUATED, which is
+    /// always safe: the constant then materializes at runtime like any other
+    /// non-foldable initializer.
     pub(crate) fn evaluate_const_init(&self, expr: &Expr) -> Expr {
+        let depth = self.local.const_eval_depth.get();
+        if depth >= Self::CONST_EVAL_BUDGET {
+            return expr.clone();
+        }
+        self.local.const_eval_depth.set(depth + 1);
+        let result = self.evaluate_const_init_inner(expr);
+        self.local.const_eval_depth.set(depth);
+        result
+    }
+
+    fn evaluate_const_init_inner(&self, expr: &Expr) -> Expr {
         match expr {
             // Literals — already evaluated
             Expr::Int(..) | Expr::Float(..) | Expr::Bool(..) | Expr::Str(..) => expr.clone(),
