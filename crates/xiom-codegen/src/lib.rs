@@ -2889,6 +2889,7 @@ impl IrEmitter {
         self.compile_builtin_impls();
 
         // Emit string constants collected during compilation
+        let strings_before_ginits = self.fctx.strings.len();
         for s in &self.fctx.strings.clone() {
             self.emitln(&s);
         }
@@ -2937,6 +2938,18 @@ impl IrEmitter {
                 self.fctx.current_ensures.clear();
             }
             self.emitln("");
+            // BUG 29 (m36_r01/r14): ginit bodies compile AFTER the string
+            // constants were dumped above, so strings collected while
+            // compiling a global initializer (`var s: Str = "...";`) were
+            // never emitted — clang rejected "use of undefined value
+            // '@.str0'". Re-emit ONLY the strings added since the first
+            // dump (re-emitting all would redefine every constant).
+            for s in &self.fctx.strings.clone()[strings_before_ginits..] {
+                self.emitln(s);
+            }
+            if self.fctx.strings.len() > strings_before_ginits {
+                self.emitln("");
+            }
         }
 
         // BUG 27 (Map.new in module-global inits): the @llvm.global_ctors

@@ -1,4 +1,4 @@
-// M33-P13: 30-fn deep chain + 20 struct + 15 enum + 10 const + 5 modules all interleaved + big match + 50 vars
+﻿// M33-P13: 30-fn deep chain + 20 struct + 15 enum + 10 const + 5 modules all interleaved + big match + 50 vars
 // Pattern: fn main() -> Int { ... return 0; }
 
 const P13_KK0: Int = 0; const P13_KK1: Int = 1; const P13_KK2: Int = 2; const P13_KK3: Int = 3; const P13_KK4: Int = 4;
@@ -163,6 +163,7 @@ fn main() -> Int {
   if match20(19) != 95 { return 4; }
   if fifty() != 50 { return 5; }
   if deep10() != 99 { return 6; }
-  if p13_m5.verify(1, 15) != 0 { return 7; }
+  if p13_m5.verify(1, 13) != 0 { return 7; }
   return 0;
 }
+

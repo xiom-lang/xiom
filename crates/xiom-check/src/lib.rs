@@ -1595,8 +1595,17 @@ impl Checker {
                     self.register_anon_struct_from_ast(ret);
                 }
                 let return_type = fd.return_type.as_ref().map(|t| CheckedType::from_ast_type(t));
+                // BUG 29 (m35_t16): strip a receiver prefix already present in
+                // the fn NAME. expand_impl_blocks emits `impl Sum for NumPair`
+                // methods as name="NumPair.sum" AND receiver=NumPair — naive
+                // `{recv}.{name}` doubling registered "NumPair.NumPair.sum",
+                // so `np1.sum()` resolved through the wildcard to the WRONG
+                // signature (Int-returning `get`) and the checker rejected
+                // `sum() != 30.0` ("cannot mix Int with Float64"). Mirrors
+                // codegen fn_key's rsplit('.').next() stripping.
                 let bare_key = if let Some(recv) = fd.receiver.as_ref() {
-                    format!("{}.{}", recv.name, fd.name.name)
+                    let bare_method = fd.name.name.rsplit('.').next().unwrap_or(&fd.name.name);
+                    format!("{}.{}", recv.name, bare_method)
                 } else {
                     fd.name.name.clone()
                 };
@@ -4177,8 +4186,15 @@ impl Checker {
                         // compared with an INCOMPATIBLE scalar (BigFloat == 4)
                         // silently lowered to a field-0 compare (miscompare /
                         // silent corruption). Numbers coerce; same-type operands
-                        // (incl. structs â€” compared structurally in codegen)
+                        // (incl. structs — compared structurally in codegen)
                         // are allowed; generic/wildcard operands defer to codegen.
+                        // BUG 29: resolve TYPE ALIASES first — `type Id = Int;
+                        // type SessionId = Id;` then `s == 42` must compare as
+                        // Int == Int (m29_type_alias + the ~15-test alias
+                        // comparison cluster). types_compatible already resolves
+                        // aliases; the comparison path must too.
+                        let left_ty = self.resolve_alias(&left_ty);
+                        let right_ty = self.resolve_alias(&right_ty);
                         let numeric_family = |ty: &CheckedType| -> bool {
                             ty.is_numeric() || matches!(ty, CheckedType::Char)
                         };
@@ -4396,6 +4412,9 @@ impl Checker {
                             .map(|_| "Vec".to_string())
                             .unwrap_or_else(|| type_name.clone());
                         let method_key = format!("{}.{}", base_name, method.name);
+                        if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() && method.name == "sum" {
+                            eprintln!("[sum] obj_ty={} key={} in_functions={} methods_keys={:?}", type_name, method_key, self.functions.contains_key(&method_key), self.methods.keys().collect::<Vec<_>>());
+                        }
                         // Try module-prefixed key first, then bare key as fallback
                         let sig = if let Some(ref module) = self.current_module {
                             let prefixed = format!("{}.{}.{}", module, base_name, method.name);
@@ -4709,12 +4728,21 @@ impl Checker {
                         );
                     }
                     // BUG 25 #1 fix: a bare name exported by MULTIPLE
-                    // imported modules is AMBIGUOUS â€” resolve deterministically
+                    // imported modules is AMBIGUOUS — resolve deterministically
                     // or error. Silently picking one module's version
                     // (keep-first vs last-imported) produced wrong calls
                     // (to_base58 resolving to the wrong module's fn). Error
                     // and require a module-qualified call.
-                    let ambiguous = self.modules.iter()
+                    // BUG 29 (m34_j08/m33_p13): an EXPLICIT `use module.fn`
+                    // import already disambiguates — `use net.ping; ping()`
+                    // must not error even when both the module and its alias
+                    // appear in the module map (count > 1). Skip the check
+                    // when the name is in imported_items as a Function.
+                    let explicitly_imported = matches!(
+                        self.imported_items.get(&name.name),
+                        Some(ModuleExport::Function { .. })
+                    );
+                    let ambiguous = !explicitly_imported && self.modules.iter()
                         .filter(|(m, ex)| !m.is_empty() && matches!(ex.get(&name.name), Some(ModuleExport::Function { .. })))
                         .count() > 1;
                     if ambiguous {
