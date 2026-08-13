@@ -1057,3 +1057,33 @@ documented workaround: `.0`/`.1` field access (applied to the GCM smoke).
 4. Same-family C001 for `snappy_*`/`lz4_*` decompress calls (all &Vec-param catalog fns taking module-returned values).
 5. **High-bit mask comparisons miscompile in UTF-8 classifiers** (BUG 25 #7 family, extended): `(b0 & 0xE0) == 0xC0` / `(b0 & 0xF0) == 0xE0` / `(b0 & 0xF8) == 0xF0` on `byte_at`-derived Ints are FALSE for multibyte lead bytes (C3, etc.) ? convert/utf8.xi utf8_valid_sequences counts every byte as a 1-byte sequence (6 for "héllo" instead of 5). Small masks (< 0x80) and shifts are fine. Stdlib smokes adapted (expected value + TODO); fix direction: verify AND folding for masks with bit 7+ set against byte-extracted values.
 6. **percent_encode combination miscompile** (BUG 24 family): `convert/percent.xi` percent_encode returns fully-encoded output ("/a?b=1&c=2" ? "%2Fa...") when the smoke also imports xiom.convert.bytes or xiom.string, but correct output in isolation. `_is_url_safe` branch selection flips with program shape. Smoke split into isolated modules (smoke_convert_percent / smoke_convert_bytes); module verified correct in isolation.
+
+---
+
+## 2026-08-13 — stdlib session: BUG 27 (wave-5 batch) — regressions + findings from 7 parallel agents
+
+**Regressions from the 4c439e6a (NOTE 4 / BUG 25 #2) batch:**
+1. **`xiom.os.platform` sublib prefix unresolvable in user modules** — `use xiom.os.platform;` + `platform.platform_name()` fails "cannot call on this expression" even in isolation (worked pre-4c439e6a). Workaround: fn-level imports (`use xiom.os.platform.platform_name;` + bare call). Likely the NOTE 4 module-qualified-variant change interacting with the flat os.xi `platform()` fn shadowing the sublib prefix.
+2. **`xiom.string.format` sublib fns (str_format1/2/3) unreachable** — flat string.xi exports same-named fns; sublib path fails regardless of qualification (pre-existing family, now deterministic). smoke_string_format_printf is compile-only.
+
+**Flat crypto.xi defects (stdlib, verified 2026-08-13):** `crypto.sha512` wrong output (`_u64_rotr` mis-handles signed Int — arithmetic-shift semantics), `crypto.md5` wrong (SHL instead of ROTL in rounds), `crypto.aes_decrypt` fails its own length check, `aes_encrypt_gcm`/`decrypt_gcm` heap-corrupt, `rsa_sign/verify/generate_rsa_keypair` fail at runtime. The wave-5 crypto/hash.xi + cipher.xi implement correct local versions (RFC 1321/4231/5869 vectors verified). The compiler session's smoke_stress_crypto_* are actively exercising this surface.
+
+**Other wave-5 findings (each with in-module or in-smoke documentation):**
+3. Qualified-name resolution breaks with 5+ sibling leaf-module imports (xiom.iter.* + xiom.iter.range.range call ? T001); split smokes.
+4. Generic fn + fn-value param + Vec[T] ? codegen "use of undefined value %tmp" (sort_by-style comparators); everything concrete per GENERICS policy.
+5. Cross-module `Option[Vec[T]]`/`Result[Vec[T],_]` payloads corrupt (regex captures, scanf tokens) — is_some/len trustworthy, elements garbage.
+6. `Error` is a compiler-reserved type name — modules defining `pub type Error` emit "unknown type 'Error' defaulting to i64" + corrupt cross-module codegen (renamed ChainError etc.).
+7. Sibling submodule imports clobber earlier siblings (import ORDER matters for error.backtrace/context, test.assert/harness cannot coexist).
+8. Module-scope fn storage is read-only (`g.f0 = f` silently no-ops; test_register records names only); module-level bare Vec mutation silently fails (push then len==0).
+9. Structs with first field named `type` break cross-module fn resolution; structs containing `Map[Str,Str]` hang/0xC0000005 on construction (mime.xi uses Vec[(Str,Str)]).
+10. Tuple payloads in Result miscompile (`Ok((a,b))` ? `.value.0` = 0; match works); `(Vec,Vec)`/`(Vec,Int)` returns heap-corrupt (0xC0000374).
+11. `UInt64 >>` is arithmetic (0x8000…>>1 ? /2); `UInt64 as Float64` reinterprets bits (use num.f64_from_u64); `Float64.to_string()` prints bit patterns.
+12. `let (a, b) = tuple` destructuring binds both names to the whole tuple (use .0/.1); `match *ref` on enums miscompiles (match values).
+13. Module auto-loads its parent: same-named sublib fns misresolve to the parent's (varint_decode/json_parse) — unique-name private helpers used.
+14. Int32/Int returns from catalog unsafe blocks corrupt (fs_move's rename rc always non-zero; file moved correctly) — fs.xi rewritten copy+remove (documented non-atomic).
+15. `ptr == 0 as *UInt8` compiles to strcmp(ptr, NULL) — compare `ptr == 0` inside unsafe; `s.c_str()` not null-terminated for strlen; `Int as *UInt8` corrupts (pointer?Int ok).
+16. Struct literals assign positionally not by name (Quat{w:…;x:…} swaps); row swap via tuple assignment corrupts (swap element-wise); Vec[struct] index-writes corrupt (rebuild Vecs).
+17. Module-name vs fn-name collision (spawn module + spawn fn) — import order matters; sublib `xiom.string.format`/`xiom.os.platform` collide with flat fns.
+18. `xiom_atomic_store` doesn't round-trip negative Ints; runtime `xiom_mutex_*` broken (trylock always 0); real threads unusable (fn?ptr cast T001 + xiom_thread_spawn AV) — thread/spawn.xi is a documented inline simulation.
+19. Bool display via generic renders "1"; Str.to_str()/Float64.to_str() crash; Float32?Float64 conversion prints bit patterns; Vec[Bool] elements type as generic T.
+20. High-bit mask AND still miscompiles for UTF-8 classifiers (convert/utf8.xi — BUG 26 #5, unfixed).
