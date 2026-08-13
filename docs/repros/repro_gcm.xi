@@ -1,0 +1,9 @@
+module repro_gcm
+
+pub fn aes_encrypt_gcm(a: Vec[UInt8], b: Vec[UInt8]) -> Result[(Vec[UInt8], Vec[UInt8]), Str] {
+  return Ok((a, b));
+}
+
+pub fn gcm_passthrough(a: Vec[UInt8], b: Vec[UInt8]) -> (Vec[UInt8], Vec[UInt8]) {
+  return (a, b);
+}

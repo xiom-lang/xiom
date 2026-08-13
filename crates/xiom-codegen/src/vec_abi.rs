@@ -300,6 +300,34 @@ impl IrEmitter {
             return self.local.local_vec_handle.contains_key(&id.name);
         }
         if let Expr::Field(base, field_expr, _) = container {
+            // BUG 29 (BUG 27 #12): tuple field of a BOXED struct local
+            // (`pair.1` where `pair` came from `Result[(Vec,Vec),Str].
+            // unwrap()`). infer_llvm_type returns i64 for the boxed handle,
+            // so the Vec.len() handler must classify via local_boxed_struct:
+            // resolve the tuple's field type and check for a container.
+            if let Expr::Ident(base_id) = base.as_ref() {
+                if let Some(tn) = self.local.local_boxed_struct.get(&base_id.name).cloned() {
+                    let field_names = self.types.types.get(&tn)
+                        .or_else(|| {
+                            let suffix = format!(".{tn}");
+                            self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix))
+                                .and_then(|k| self.types.types.get(&k))
+                        });
+                    if let Some(names) = field_names {
+                        if let Some(fi) = IrEmitter::resolve_field_index(&names, &field_expr.name) {
+                            if let Some(meta) = self.types.type_meta.get(&tn) {
+                                if let Some((_, ftype)) = meta.fields.get(fi) {
+                                    // Container fields may be "Vec[UInt8]" OR the
+                                    // erased bare "Vec" (tuple element typing uses
+                                    // xiom_type_name_from_llvm which strips args).
+                                    let base = ftype.split('[').next().unwrap_or(ftype);
+                                    return base == "Vec" || base == "Slice" || base == "Array" || base == "Map" || base == "Set";
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if let Some(base_ty) = self.infer_struct_type_name(base) {
                 for key in self.types.type_meta.keys() {
                     if key.ends_with(&base_ty) || key == base_ty {
