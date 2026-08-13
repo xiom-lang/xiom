@@ -1639,7 +1639,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     && !self.types.functions.entries().iter().any(|(k, _)| k.ends_with(&format!(".{fn_name}")));
                 if dbg_builtin_free && fn_name == "dbg" && compiled_args.len() == 1 {
                     let (arg_val, arg_ty) = (&compiled_args[0].0, &compiled_args[0].1);
-                    // Format the value by type, prefix "[dbg] ", print.
+                    // Security review (2026-08-13): release builds strip the
+                    // dbg! print — the EXPRESSION still evaluates and returns
+                    // its value (dbg!(x) is an expression), only the output
+                    // disappears (Rust debug_assert! policy).
+                    if !self.config.strip_debug_checks {
+                        // Format the value by type, prefix "[dbg] ", print.
                     let formatted = if arg_ty == "i64" {
                         let f = self.fresh_tmp();
                         self.emitln(&format!("  {f} = call i8* @xiom_int_to_string(i64 {arg_val})"));
@@ -1670,6 +1675,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     let out = self.fresh_tmp();
                     self.emitln(&format!("  {out} = call i8* @xiom_str_concat(i8* {prefix}, i8* {formatted})"));
                     self.emitln(&format!("  call i32 @puts(i8* {out})"));
+                    }
                     return Ok((arg_val.clone(), arg_ty.clone()));
                 }
                 if dbg_builtin_free && (fn_name == "todo" || fn_name == "unimplemented") {

@@ -2244,6 +2244,12 @@ impl IrEmitter {
             // On false the message (or a default with the source location)
             // goes through xiom_panic (clean stderr + exit 1).
             Stmt::Assert(cond, msg, span) => {
+                // Security review (2026-08-13): release builds strip assert
+                // statements (Rust debug_assert! policy) — no assertion
+                // messages or debug-only logic in shipped binaries.
+                if self.config.strip_debug_checks {
+                    return Ok(());
+                }
                 let (c, ct) = self.compile_expr(cond)?;
                 let c_i1 = if ct == "i1" { c.clone() } else {
                     let ne = self.fresh_tmp();
@@ -2274,7 +2280,11 @@ impl IrEmitter {
             // BUG 27: debugger; â€” break into the attached debugger (no-op
             // without one; used with the xiom-dbg DAP server).
             Stmt::Debugger(_) => {
-                self.emitln("  call void @xiom_debugger_break()");
+                // Security review (2026-08-13): debugger; is stripped from
+                // release builds along with assert/dbg!.
+                if !self.config.strip_debug_checks {
+                    self.emitln("  call void @xiom_debugger_break()");
+                }
             }
             xiom_ast::Stmt::Asm(ab) => {
                 // Emit inline assembly as LLVM IR call void asm sideeffect
