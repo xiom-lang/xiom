@@ -1592,9 +1592,48 @@ impl IrEmitter {
     /// 5c.30: Resolve the declared XIOM return type of a call expression's
     /// callee (exact key, then unique `.name` suffix match).
     fn callee_return_xiom(&self, func: &Expr) -> Option<String> {
+        // BUG 29 (BUG 27 #12): for a module-qualified callee (`crypto.
+        // aes_encrypt_gcm`) resolve the RECEIVER prefix first — the bare-leaf
+        // suffix match is ambiguous when two modules export the same fn name
+        // with different return types (cipher.aes_encrypt_gcm -> Vec[UInt8]
+        // vs crypto.aes_encrypt_gcm -> Result[Tuple__Vec__Vec, Str]), and the
+        // ambiguity return None silently dropped the Option/Result payload
+        // tracking — `pair.1` then compiled as Str.len(inttoptr 0) -> garbage
+        // lengths -> AES-GCM smoke heap corruption.
+        if let Expr::Field(recv, f, _) = func {
+            let leaf = f.name.clone();
+            let receiver_name = match recv.as_ref() {
+                Expr::Ident(id) => id.name.clone(),
+                Expr::Field(_, rf, _) => rf.name.clone(),
+                _ => String::new(),
+            };
+            if !receiver_name.is_empty() {
+                if let Some(rt) = self.types.fn_return_xiom.get(&format!("{receiver_name}.{leaf}")) {
+                    return Some(rt.clone());
+                }
+                // Also try the full dotted receiver (e.g. "xiom.crypto.…").
+                let dotted = {
+                    let mut segs: Vec<String> = Vec::new();
+                    let mut cur = recv.as_ref();
+                    loop {
+                        match cur {
+                            Expr::Ident(id) => { segs.insert(0, id.name.clone()); break; }
+                            Expr::Field(base, fname, _) => { segs.insert(0, fname.name.clone()); cur = base; }
+                            _ => break,
+                        }
+                    }
+                    segs.join(".")
+                };
+                if !dotted.is_empty() {
+                    if let Some(rt) = self.types.fn_return_xiom.get(&format!("{dotted}.{leaf}")) {
+                        return Some(rt.clone());
+                    }
+                }
+            }
+            return self.callee_return_xiom_suffix(&leaf);
+        }
         let leaf = match func {
             Expr::Ident(id) => id.name.clone(),
-            Expr::Field(_, f, _) => f.name.clone(),
             _ => return None,
         };
         if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
@@ -1605,6 +1644,12 @@ impl IrEmitter {
         if let Some(rt) = self.types.fn_return_xiom.get(&leaf) {
             return Some(rt.clone());
         }
+        self.callee_return_xiom_suffix(&leaf)
+    }
+
+    /// Unique `.leaf` suffix match for a bare callee; None when multiple
+    /// modules export the same leaf with DIFFERENT return types.
+    fn callee_return_xiom_suffix(&self, leaf: &str) -> Option<String> {
         let suffix = format!(".{leaf}");
         let mut found: Option<String> = None;
         for (k, v) in self.types.fn_return_xiom.entries() {

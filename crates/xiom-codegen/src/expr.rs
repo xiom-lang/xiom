@@ -1924,7 +1924,15 @@ impl IrEmitter {
                                     })
                                     
                                 {
-                                    if let Some(fi) = field_names.iter().position(|f| f == &field.name) {
+                                    // BUG 29 (BUG 27 #12): use resolve_field_index so
+                                    // BOTH `pair._1` AND `pair.1` (numeric tuple field
+                                    // syntax, as in crypto.xi's `&pair.0`/`&pair.1`
+                                    // AES-GCM smokes) resolve — the raw position() only
+                                    // matched the legacy `_N` form, so `pair.1` fell
+                                    // through to the Str.len handler (inttoptr 0 →
+                                    // garbage lengths → heap corruption in the gcm
+                                    // smoke's decrypt roundtrip).
+                                    if let Some(fi) = IrEmitter::resolve_field_index(&field_names, &field.name) {
                                         let sty = format!("%struct.{tn}");
                                         let field_llvm_ty = self.field_llvm_type(&tn, fi);
                                         let hv = self.fresh_tmp();
