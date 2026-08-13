@@ -920,6 +920,16 @@ impl IrEmitter {
         }
 
         let name = self.fn_key(fd);
+        // BUG 29: the emitted LLVM symbol MUST come from the pre-assigned
+        // fn_symbol map (assigned once in preassign_fn_symbols, program
+        // order) — NOT fn_key. For a method inside `module X { ... }`,
+        // fn_key resolves the receiver to the module-qualified type
+        // (X.Person.greet) while call sites and the preassign map agree on
+        // the bare symbol (Person.greet). Emitting the qualified key while
+        // calls use the bare symbol made the call land on the zero-arg
+        // auto-stub (ret null) with the struct argument → ABI mismatch →
+        // 0xC0000005 (m19_default_* cluster, all 125 tests).
+        let emit_symbol = self.fn_symbol(fd);
         self.fctx.current_fn = Some(name.clone());
         // 5c.30: track receiver type for implicit-self method calls (G-10)
         self.fctx.current_receiver = fd.receiver.as_ref().map(|r| r.name.clone());
@@ -1019,7 +1029,7 @@ impl IrEmitter {
             self.local.di_node_counter += 1;
             let line = fd.name.span.line.max(1);
             // Emit the DISubprogram metadata inline, right before the define
-            self.emitln(&format!("!{} = distinct !DISubprogram(name: \"{name}\", linkageName: \"{name}\", scope: !4, file: !4, line: {line}, type: !{{}}, spFlags: DISPFlagDefinition, unit: !0)", di_node));
+            self.emitln(&format!("!{} = distinct !DISubprogram(name: \"{emit_symbol}\", linkageName: \"{emit_symbol}\", scope: !4, file: !4, line: {line}, type: !{{}}, spFlags: DISPFlagDefinition, unit: !0)", di_node));
             format!(" !dbg !{}", di_node)
         } else {
             String::new()
@@ -1052,7 +1062,7 @@ impl IrEmitter {
         } else {
             params_str.join(", ")
         };
-        self.emitln(&format!("define {ret_llvm} @{name}({}){}{inline_attr} {{", main_sig, dbg_attach));
+        self.emitln(&format!("define {ret_llvm} @{emit_symbol}({}){}{inline_attr} {{", main_sig, dbg_attach));
 
         // Recursion depth check
         let entry_block = self.fresh_block("entry");
@@ -1321,8 +1331,11 @@ impl IrEmitter {
 
         // 5e.5a: emit hot reload thunk for pub functions
         if self.config.hot_reload && fd.is_pub {
-            let thunk_name = format!("xiom_hot_thunk_{}", name);
-            let hash = Self::djb2_hash(&name);
+            // The thunk hash must match the REGISTERED symbol (pub_functions
+            // uses fn_symbol, the preassigned map) — not fn_key, which is
+            // module-qualified for methods inside `module X { ... }`.
+            let thunk_name = format!("xiom_hot_thunk_{}", emit_symbol);
+            let hash = Self::djb2_hash(&emit_symbol);
 
             // Build the thunk signature and forwarding param list.
             // Uses simple p0, p1, ... naming to avoid matching complexities.
