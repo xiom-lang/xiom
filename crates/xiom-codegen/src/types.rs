@@ -1095,7 +1095,29 @@ impl crate::IrEmitter {
             // 5c.29: Vec-of-struct element access (`tree.nodes[idx]`): the
             // struct type is the container's element type. Needed so nested
             // receivers like `tree.nodes[idx].keys` resolve their base type.
-            Expr::Index(container, _, _) => self.resolve_vec_elem_type(container),
+            Expr::Index(container, _, _) => {
+                // Type-parameterized STATIC receiver (`Map[Str, Bool].new()`,
+                // `Option[Int].unwrap()`): the base is a KNOWN TYPE name and
+                // the index is a type-argument expression. Resolve to the
+                // BASE type so the fn_key becomes "Map.new" — previously the
+                // bare-key fallback hijacked another module's generic `new`
+                // (stub body returning 0 → runtime crash in module-global
+                // initializers like core/contracts.xi's `_coverage`).
+                let base_is_type = match container.as_ref() {
+                    Expr::Ident(id) => {
+                        self.types.types.contains_key(&id.name)
+                            || self.types.type_meta.contains_key(&id.name)
+                            || self.types.generic_type_names.iter().any(|k| k == &id.name || k.ends_with(&format!(".{}", id.name)))
+                    }
+                    _ => false,
+                };
+                if base_is_type {
+                    if let Expr::Ident(id) = container.as_ref() {
+                        return Some(id.name.clone());
+                    }
+                }
+                self.resolve_vec_elem_type(container)
+            }
             Expr::Field(obj, field, _) => {
                 // `module.Type` path (e.g. `alloc.Layout`): if the base is not an
                 // instance value and the leaf names a known type, resolve to that
