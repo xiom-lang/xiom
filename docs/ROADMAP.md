@@ -1271,3 +1271,18 @@ Correctness today is fine; this is compile-time economy.
 ### F. [LOW] Contract policy decision
 --no-contracts is all-or-nothing; per-module opt-out or verified-contract
 mode (Z3) as release default are open policy choices.
+
+### G. [MEDIUM — after the monorepo split] MCP catalog & registry tools (user question 2026-08-13)
+An AI agent without context must be able to discover the language surface
+through tooling, not by reading source. Two capabilities:
+1. **Module introspection (checker-side, pre-split):** xiom_module_introspect
+   (module) — dump the checker's export map for a loaded module (pub fn
+   signatures, types, consts) WITHOUT a full compile. The data already exists
+   (ModuleExport::Function sigs + catalog index); it needs an MCP tool +
+   a non-compiling loader path. Complement of the existing
+   xiom_stdlib_reference (which parses stdlib source live).
+2. **Registry query (post-split):** egistry_search(query) /
+   package_info(name) — query ghcr.io/xiom-lang (or the local registry
+   cache) for published packages: name, version, description, public API
+   surface, dependencies. Implementable only after the split makes the
+   registry real and testable (production path, not a simulation).
