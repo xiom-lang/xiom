@@ -691,6 +691,8 @@ impl IrEmitter {
                             let struct_ty = self.llvm_type_for(&enum_key)?;
                             let alloca = self.fresh_tmp();
                             self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
+                            // BUG 30: zero-init unused payload slots (LLVM poison).
+                            self.emitln(&format!("  store {struct_ty} zeroinitializer, {struct_ty}* {alloca}"));
                             let disc_gep = self.fresh_tmp();
                             self.emitln(&format!("  {disc_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
                             self.emitln(&format!("  store i64 {var_idx}, i64* {disc_gep}"));
@@ -1722,8 +1724,19 @@ impl IrEmitter {
                 }
             }
             Expr::Imply(left, right, _) => {
+                // BUG 30 fix: scope the Imply so a bare `is Some`/`is Ok`/
+                // `is Err` rebind of the scrutinee ident (contract ensures
+                // like `result is Some => result.len() > 0`) is discarded
+                // after the consequence compiles. Without the scope, the
+                // rebind persisted in the locals map and every LATER
+                // contract check at another return site resolved `result`
+                // to the hoisted i64 payload slot → the i64-form Is()
+                // inttoptr+load dereferenced the payload value as a
+                // pointer (uninitialized on Some-return paths) → AV.
+                self.push_scope();
                 let (l, _lt) = self.compile_expr(left)?;
                 let (r, _rt) = self.compile_expr(right)?;
+                self.pop_scope();
                 let tmp1 = self.fresh_tmp();
                 let tmp2 = self.fresh_tmp();
                 self.emitln(&format!("  {tmp1} = xor i64 {l}, 1"));
@@ -1756,18 +1769,32 @@ impl IrEmitter {
                             self.emitln(&format!("  {loaded} = load i64, i64* {gep}"));
                             let cmp = self.fresh_tmp();
                             self.emitln(&format!("  {cmp} = icmp eq i64 {loaded}, {disc_val}"));
-                            // M18: Bind pattern variable (e.g. Some(n) → bind n)
+                            // M18: Bind pattern variable (e.g. Some(n) → bind n).
+                            // BUG 30: also rebind a BARE `is Some/Ok/Err` scrutinee
+                            // ident (contract ensures `result is Ok => ...`) to the
+                            // payload slot — the consequence's method calls then
+                            // dispatch on the payload (Vec.len unboxing), not the
+                            // Result struct (which fell to generic Map.len).
                             if let xiom_ast::Pattern::Some(inner, _)
                                 | xiom_ast::Pattern::Ok(inner, _)
                                 | xiom_ast::Pattern::Err(inner, _) = &pattern
                             {
-                                if let xiom_ast::Pattern::Ident(id) = inner.as_ref() {
+                                let bind_ident: Option<&Ident> = match inner.as_ref() {
+                                    xiom_ast::Pattern::Ident(id) => Some(id),
+                                    _ => match expr.as_ref() {
+                                        Expr::Ident(sid) => Some(sid),
+                                        _ => None,
+                                    },
+                                };
+                                if let Some(id) = bind_ident {
                                     let payload_gep = self.fresh_tmp();
                                     self.emitln(&format!("  {payload_gep} = getelementptr {ty}, {ty}* {alloca}, i32 0, i32 1"));
                                     let payload_loaded = self.fresh_tmp();
                                     self.emitln(&format!("  {payload_loaded} = load i64, i64* {payload_gep}"));
                                     let inner_alloca = self.fresh_tmp();
-                                    self.emitln(&format!("  {inner_alloca} = alloca i64"));
+                                    // BUG 30: hoist — `&&` guard chains bind in
+                                    // one block, read in a later one (dominance).
+                                    self.local.hoisted_allocas.push((inner_alloca.clone(), "i64".to_string()));
                                     self.emitln(&format!("  store i64 {payload_loaded}, i64* {inner_alloca}"));
                                     self.add_local(&id.name, inner_alloca, "i64");
                                     // BUG 29: record the payload's XIOM type so
@@ -1866,7 +1893,15 @@ impl IrEmitter {
                             let payload = self.fresh_tmp();
                             self.emitln(&format!("  {payload} = load i64, i64* {payload_ptr}"));
                             let inner_alloca = self.fresh_tmp();
-                            self.emitln(&format!("  {inner_alloca} = alloca i64"));
+                            // BUG 30: hoist the payload slot to fn entry. The
+                            // `&&` short-circuit chain evaluates `x is Some(v)`
+                            // in one block but reads `v` in a LATER block that
+                            // is also reachable via the false edge (e.g.
+                            // `x if x is Some(inner) && inner is Some(v) && v > 0`)
+                            // — an inline alloca there does not dominate the
+                            // use (LLVM: "Instruction does not dominate all
+                            // uses"). Same treatment as the struct-form bind.
+                            self.local.hoisted_allocas.push((inner_alloca.clone(), "i64".to_string()));
                             self.emitln(&format!("  store i64 {payload}, i64* {inner_alloca}"));
                             self.add_local(&id.name, inner_alloca, "i64");
                             // BUG 29: record payload XIOM type for dispatch.
@@ -2144,6 +2179,8 @@ impl IrEmitter {
                             if let Ok(struct_ty) = self.llvm_type_for(&enum_key) {
                                 let alloca = self.fresh_tmp();
                                 self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
+                                // BUG 30: zero-init unused payload slots (LLVM poison).
+                                self.emitln(&format!("  store {struct_ty} zeroinitializer, {struct_ty}* {alloca}"));
                                 let disc_gep = self.fresh_tmp();
                                 self.emitln(&format!("  {disc_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
                                 self.emitln(&format!("  store i64 {var_idx}, i64* {disc_gep}"));
@@ -2862,6 +2899,9 @@ impl IrEmitter {
                     .unwrap_or_else(|_| "i64".to_string());
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {result_ty}"));
+                // BUG 30: zero-init unused slots (Err payload for Ok, Ok payload
+                // for Err) — structural eq/Is reads must not see LLVM poison.
+                self.emitln(&format!("  store {result_ty} zeroinitializer, {result_ty}* {alloca}"));
                 let gep0 = self.fresh_tmp();
                 self.emitln(&format!("  {gep0} = getelementptr {result_ty}, {result_ty}* {alloca}, i32 0, i32 0"));
                 self.emitln(&format!("  store i64 1, i64* {gep0}"));
@@ -2916,6 +2956,8 @@ impl IrEmitter {
                     .unwrap_or_else(|_| "i64".to_string());
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {result_ty}"));
+                // BUG 30: zero-init unused slots (Ok payload for Err).
+                self.emitln(&format!("  store {result_ty} zeroinitializer, {result_ty}* {alloca}"));
                 let gep0 = self.fresh_tmp();
                 self.emitln(&format!("  {gep0} = getelementptr {result_ty}, {result_ty}* {alloca}, i32 0, i32 0"));
                 self.emitln(&format!("  store i64 0, i64* {gep0}"));
@@ -3015,6 +3057,15 @@ impl IrEmitter {
                 // D1: align 16 only for structs with i128/fp128 fields.
                 self.emitln(&format!("  {alloca} = alloca {struct_ty}{}", self.alloca_align(&struct_ty)));
                 if let Some(ref enum_key) = parent_enum {
+                    // BUG 30: zero-initialize the WHOLE enum literal before
+                    // writing the discriminant/payloads. Unused payload slots
+                    // of other variants were left uninitialized → LLVM poison
+                    // → structural `==` (no derived eq) compared poison fields
+                    // → `br i1 poison` is UB and clang -O2 deterministically
+                    // miscompiled it into an access violation (m35_z10/z29).
+                    // Zeroed slots make the all-slots compare well-defined:
+                    // same-variant payloads differ, other slots are 0 == 0.
+                    self.emitln(&format!("  store {struct_ty} zeroinitializer, {struct_ty}* {alloca}"));
                     // Set discriminant (field 0) to the variant index
                     let var_idx = self.types.enum_variants.get(enum_key)
                         .and_then(|vars| vars.iter().position(|(v, _)| v == &leaf_variant))

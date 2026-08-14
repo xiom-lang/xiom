@@ -33,7 +33,11 @@ impl IrEmitter {
             if let Some(Expr::Ident(id)) = lvalue {
                 // &array_local → pass the Vec's DATA pointer (field 0), not the
                 // Vec alloca address. The `&[N]T` callee indexes the data buffer.
-                if self.local.array_locals.contains(&id.name) {
+                // BUG 30: ONLY for fixed-array-style params (i64*, [N x T]*).
+                // A `%struct.Vec*` param (&Vec[T]) must receive the HEADER
+                // alloca address — the data-pointer path made len() read the
+                // first ELEMENT as the length → OOB → AV (eco test_algo).
+                if self.local.array_locals.contains(&id.name) && !param_ty.contains("%struct.") {
                     if let Some((slot, _slot_ty)) = self.lookup_local(&id.name).cloned() {
                         let gep = self.fresh_tmp();
                         self.emitln(&format!("  {gep} = getelementptr %struct.Vec, %struct.Vec* {slot}, i32 0, i32 0"));

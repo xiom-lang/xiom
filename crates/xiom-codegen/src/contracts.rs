@@ -59,7 +59,21 @@ impl super::IrEmitter {
     /// Called just before a return instruction.
     pub(crate) fn compile_ensures_checks(&mut self) {
         for expr in &self.fctx.current_ensures.clone() {
+            // BUG 30: bind `result` to the RETURN-VALUE slot in a dedicated
+            // scope for the duration of each check. Without it, a USER local
+            // named `result` (e.g. `var result = Vec[UInt8].new()` inside
+            // utf8_encode) shadows the synthetic return-slot binding at later
+            // return sites, and the ensure `result is Ok => result.len()`
+            // reads the user's Vec header as the Result struct (AV).
+            self.push_scope();
+            if let (Some(ptr), Some(ty)) = (self.fctx.result_ptr.clone(), self.fctx.result_llvm_ty.clone()) {
+                self.add_local("result", ptr, &ty);
+                if let Some(t) = self.local.local_xiom_types.get("result").cloned() {
+                    self.local.local_xiom_types.insert("result".to_string(), t);
+                }
+            }
             self.compile_contract_check(expr, "ensures");
+            self.pop_scope();
         }
     }
 

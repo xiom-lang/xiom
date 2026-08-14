@@ -2,7 +2,13 @@ module m21_vec_edge_004
 pub fn run() -> Int {
     var v: Vec[Int] = [10, 20, 30];
     var val = v.pop();
-    if val == 30 && v.len() == 2 { return 0; }
+    // stdlib Vec.pop returns Option[T]; verify the popped payload.
+    var ok = false;
+    match val {
+      Some(x) => { if x == 30 { ok = true; } }
+      None => {}
+    }
+    if ok && v.len() == 2 { return 0; }
     return 1;
   }
 use m21_vec_edge_004.run;

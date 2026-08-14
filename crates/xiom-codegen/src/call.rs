@@ -1449,6 +1449,16 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // fall through to Vec/Slice path below (or to generic dispatch)
                         } else {
                         let recv_ty = self.infer_llvm_type(receiver);
+                        // BUG 30 (utf8 ensure): a contract-ensure payload rebind
+                        // (`result is Ok => result.len()`) binds a BOXED Vec
+                        // HANDLE (i64) as the receiver. It must unbox to
+                        // %struct.Vec and read field 1 - NOT go down the Str
+                        // path (xiom_str_len on the boxed pointer -> AV) nor the
+                        // generic dispatch (Map.len on the Result struct).
+                        let is_vec_handle_local = if let Expr::Ident(id) = &**receiver {
+                            self.local.local_xiom_types.get(&id.name)
+                                .map_or(false, |t| t.contains("Vec[") || t.ends_with("]Vec") || t.ends_with(".Vec"))
+                        } else { false };
                         // Check XIOM type: Str.len() should use xiom_str_len even when
                         // the receiver is i64 (Str pointers stored as i64 in ABI).
                         let is_str_type = if let Expr::Ident(id) = &**receiver {
@@ -1464,8 +1474,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             self.local.module_globals.get(&id.name)
                                 .map_or(false, |(_, ty)| ty.starts_with("%struct.") || ty.ends_with(".Map") || ty.ends_with(".Vec"))
                         } else { false };
-                        if (recv_ty == "i8*" || recv_ty == "ptr" || (recv_ty == "i64" && !is_vec_index && !is_struct_global) || is_str_type)
-                            && !is_vec_index && !is_struct_global
+                        if (recv_ty == "i8*" || recv_ty == "ptr" || (recv_ty == "i64" && !is_vec_index && !is_struct_global && !is_vec_handle_local) || is_str_type)
+                            && !is_vec_index && !is_struct_global && !is_vec_handle_local
                         {
                             let (recv_val, _) = self.compile_expr(receiver)?;
                             let str_ptr = if recv_ty == "i64" {
@@ -1476,6 +1486,23 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let tmp = self.fresh_tmp();
                             self.emitln(&format!("  {tmp} = call i64 @xiom_str_len(i8* {str_ptr})"));
                             return Ok((tmp, LLVM_I64.to_string()));
+                        }
+                        // BUG 30: boxed Vec handle local (i64 slot, XIOM type Vec[..])
+                        // - inttoptr to %struct.Vec*, load the header, read field 1.
+                        if is_vec_handle_local && recv_ty == "i64" {
+                            let (recv_val, _) = self.compile_expr(receiver)?;
+                            let vp = self.fresh_tmp();
+                            self.emitln(&format!("  {vp} = inttoptr i64 {recv_val} to %struct.Vec*"));
+                            let vl = self.fresh_tmp();
+                            self.emitln(&format!("  {vl} = load %struct.Vec, %struct.Vec* {vp}"));
+                            let va = self.fresh_tmp();
+                            self.emitln(&format!("  {va} = alloca %struct.Vec"));
+                            self.emitln(&format!("  store %struct.Vec {vl}, %struct.Vec* {va}"));
+                            let lg = self.fresh_tmp();
+                            let lv = self.fresh_tmp();
+                            self.emitln(&format!("  {lg} = getelementptr %struct.Vec, %struct.Vec* {va}, i32 0, i32 1"));
+                            self.emitln(&format!("  {lv} = load i64, i64* {lg}"));
+                            return Ok((lv, LLVM_I64.to_string()));
                         }
                         // Pointer-typed array references from monomorphised generics
                         // (e.g. &Slice[Int] -> i64*): length is at buf[0].
@@ -2669,6 +2696,10 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             });
                             let has_self = generic_fd.map_or(false, |(_, fd)| {
                                 fd.receiver.is_some()
+                                    && fd.params.iter().any(|p| p.name.name == "self")
+                            });
+                            let has_mut_self = generic_fd.map_or(false, |(_, fd)| {
+                                fd.receiver.is_some()
                                     && fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self)
                             });
                             // BUG 29 (Map.keys on module globals): THIS-BASED
@@ -2682,14 +2713,30 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     && self.body_uses_receiver_state(fd)
                             });
                             if has_self || body_uses_self || is_this_based {
-                                // Prepend the receiver's pointer/struct type
+                                // Prepend the receiver's pointer/struct type.
+                                // BUG 30 (smoke_rc): mirror the monomorphised
+                                // callee's self ABI exactly — has_self_param
+                                // means BY-VALUE unless the self is `&mut self`
+                                // (pointer); only body_uses_self/this-based get
+                                // a pointer. The old caller logic checked only
+                                // is_mut_self, so `Rc.get[T](self)` (by-value
+                                // self) received `%struct.Rc*` while the callee
+                                // took `%struct.Rc` by value → the callee read
+                                // the alloca ADDRESS as the Rc struct → every
+                                // field garbage (pointer-sized values).
                                 if let Some(recv_name) = generic_fd
                                     .and_then(|(_, fd)| fd.receiver.as_ref())
                                 {
                                     let recv_ty = self.llvm_type_for(&recv_name.name)
                                         .unwrap_or_else(|_| LLVM_I64.to_string());
-                                    let recv_ptr = if recv_ty.starts_with('%') { format!("{recv_ty}*") } else { recv_ty };
-                                    inferred_types.insert(0, recv_ptr);
+                                    let recv_abi = if has_self && !has_mut_self {
+                                        recv_ty
+                                    } else if recv_ty.starts_with('%') {
+                                        format!("{recv_ty}*")
+                                    } else {
+                                        recv_ty
+                                    };
+                                    inferred_types.insert(0, recv_abi);
                                 }
                             }
                             let generic_ret = self.types.functions.get(&fn_key)

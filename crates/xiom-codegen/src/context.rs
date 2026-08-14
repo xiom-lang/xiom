@@ -214,6 +214,8 @@ pub struct FunctionContext {
     pub self_pre_value: Option<String>,
     /// Alloca for the result value in ensures expressions
     pub result_ptr: Option<String>,
+    /// LLVM type of the result alloca (for per-check `result` scope rebinding)
+    pub result_llvm_ty: Option<String>,
     /// Alloca for match result in expression position
     pub match_result_ptr: Option<String>,
     /// LLVM type used when storing an arm body into match_result_ptr
