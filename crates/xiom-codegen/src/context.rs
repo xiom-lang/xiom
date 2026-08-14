@@ -338,6 +338,11 @@ pub struct LocalContext {
     pub const_eval_depth: std::cell::Cell<u32>,
     /// Mutable module-level var globals: name -> (llvm_symbol, llvm_type)
     pub module_globals: HashMap<String, (String, String)>,
+    /// BUG 29 (Map.keys on module globals): name -> XIOM type string
+    /// ("Map[Str, Bool]", "Vec[Int]", ...) recorded at global registration so
+    /// generic METHOD calls on globals (`_coverage.keys()`) can infer their
+    /// concrete type args instead of defaulting to Int.
+    pub global_xiom_types: HashMap<String, String>,
     /// Ordered list of module-global definitions to emit
     pub module_global_defs: Vec<(String, String, String)>,
     /// Module-level `var` globals whose initializer is a RUNTIME expression

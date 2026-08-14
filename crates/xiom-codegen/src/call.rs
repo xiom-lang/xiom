@@ -2406,6 +2406,34 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 concrete_types.push(explicit);
                                 continue;
                             }
+                            // BUG 29 (Map.keys on module globals): infer a
+                            // generic METHOD's type args from the RECEIVER's
+                            // declared XIOM type when the receiver is a
+                            // module-global (`_coverage: Map[Str, Bool]` →
+                            // `_coverage.keys()` must monomorphise
+                            // Map.keys[Str, Bool], not Map.keys[Int, Int]).
+                            // Local receivers already infer via
+                            // resolve_local_xiom_type below; globals were
+                            // only tracked by LLVM type (erased), so they
+                            // fell through to the Int default.
+                            if let Some(recv) = receiver_expr {
+                                if let Expr::Ident(rid) = recv.as_ref() {
+                                    if let Some(gxiom) = self.local.global_xiom_types.get(&rid.name).cloned() {
+                                        let (base, args) = Self::parse_generic_type_string(&gxiom);
+                                        if let Some(pos) = fd.generics.iter().position(|g| g.name.name == gp.name.name) {
+                                            if let Some(arg) = args.get(pos) {
+                                                let arg = arg.clone();
+                                                // Recurse one level: `Map[Str, Bool]`
+                                                // args may themselves be generic
+                                                // (`Map[K, V]` → K is "Str").
+                                                concrete_types.push(arg);
+                                                continue;
+                                            }
+                                        }
+                                        let _ = base;
+                                    }
+                                }
+                            }
                             // Const-generic params: extract the integer value from the
                             // explicit type arg (e.g. `len[Int, 5](arr)`).
                             if gp.is_const {
@@ -2643,7 +2671,17 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 fd.receiver.is_some()
                                     && fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self)
                             });
-                            if has_self || body_uses_self {
+                            // BUG 29 (Map.keys on module globals): THIS-BASED
+                            // generic methods (receiver, no self param, body
+                            // reads bare fields) also take a receiver pointer
+                            // in the monomorphised def — prepend it here too.
+                            let is_this_based = generic_fd.map_or(false, |(_, fd)| {
+                                !has_self
+                                    && !body_uses_self
+                                    && fd.receiver.is_some()
+                                    && self.body_uses_receiver_state(fd)
+                            });
+                            if has_self || body_uses_self || is_this_based {
                                 // Prepend the receiver's pointer/struct type
                                 if let Some(recv_name) = generic_fd
                                     .and_then(|(_, fd)| fd.receiver.as_ref())
@@ -2717,7 +2755,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // has_receiver_in_params check above handles the rest.
                             let generic_has_self = self.mono.generic_fn_decls.iter()
                                 .find(|(k, _)| k == &fn_key)
-                                .map(|(_, fd)| fd.params.iter().any(|p| p.name.name == "self"))
+                                .map(|(_, fd)| {
+                                    if fd.params.iter().any(|p| p.name.name == "self") {
+                                        return true;
+                                    }
+                                    // BUG 29 (Map.keys on module globals):
+                                    // THIS-BASED generic methods have a receiver
+                                    // but NO self param — their bodies read bare
+                                    // fields (`keys.len()` in Map.keys[K, V]).
+                                    // The monomorphised def takes a receiver
+                                    // pointer, so the call MUST pass it.
+                                    fd.receiver.is_some() && self.body_uses_receiver_state(fd)
+                                })
                                 .unwrap_or(true);
                             // Pass the receiver if it's an instance AND either the
                             // signature includes a self param or the generic decl does.
@@ -2731,6 +2780,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                             if let Expr::Ident(id) = &**receiver {
                                                 if let Some((slot, _slot_ty)) = self.lookup_local(&id.name).cloned() {
                                                     (slot, format!("{recv_llvm_ty}*"))
+                                                // BUG 29 (Map.keys on module globals):
+                                                // the receiver is a MODULE-GLOBAL —
+                                                // pass the global's ADDRESS
+                                                // (@_coverage), not the loaded value.
+                                                } else if let Some((symbol, _)) = self.local.module_globals.get(&id.name).cloned() {
+                                                    (format!("@{symbol}"), format!("{recv_llvm_ty}*"))
                                                 } else { (recv_val, recv_llvm_ty) }
                                             } else { (recv_val, recv_llvm_ty) }
                                         } else { (recv_val, recv_llvm_ty) }

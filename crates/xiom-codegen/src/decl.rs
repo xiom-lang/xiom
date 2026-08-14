@@ -367,6 +367,15 @@ impl IrEmitter {
                     // its decls are injected flattened at top level.
                     self.local.module_globals.insert(cd.name.name.clone(), (symbol.clone(), llvm_ty.clone()));
                     self.local.module_globals.insert(symbol.clone(), (symbol.clone(), llvm_ty.clone()));
+                    // BUG 29 (Map.keys on module globals): record the XIOM type
+                    // with args ("Map[Str, Bool]") so generic METHOD calls on the
+                    // global (`_coverage.keys()`) can infer concrete type args
+                    // instead of defaulting to Int (wrong monomorphisation
+                    // Map.keys_Int_Int + undefined @Map.keys fn-value).
+                    if let Some(xiom_ty) = Self::type_from_ast_with_args_opt(&cd.ty) {
+                        self.local.global_xiom_types.insert(cd.name.name.clone(), xiom_ty.clone());
+                        self.local.global_xiom_types.insert(symbol.clone(), xiom_ty);
+                    }
                     // Dedup the emitted definition by symbol name.
                     if !self.local.module_global_defs.iter().any(|(s, _, _)| s == &symbol) {
                         let init = Self::global_const_init(&cd.value, &llvm_ty);
@@ -664,6 +673,15 @@ impl IrEmitter {
                         .insert(type_name.clone());
                 }
             }
+        }
+    }
+
+    /// Like type_from_ast_with_args but returns None for elided/unknown
+    /// annotations (`Type::Named("_")`) so callers can skip inference.
+    fn type_from_ast_with_args_opt(ty: &Type) -> Option<String> {
+        match ty {
+            Type::Named(id, _) if id.name == "_" || id.name.is_empty() => None,
+            _ => Some(Self::type_from_ast_with_args(ty)),
         }
     }
 
@@ -1289,6 +1307,14 @@ impl IrEmitter {
             let result_alloca = self.fresh_tmp();
             self.emitln(&format!("  {result_alloca} = alloca {ret_llvm}"));
             self.add_local("result", result_alloca.clone(), &ret_llvm);
+            // BUG 29 (contract Some-payload ensures): track the RETURN value's
+            // XIOM type so `result is Some => result.len() > 0` can dispatch
+            // the Some-bound payload as Str (not fall through to Map.len).
+            if let Some(rt) = &fd.return_type {
+                if let Some(xiom_ty) = Self::type_from_ast_with_args_opt(rt) {
+                    self.local.local_xiom_types.insert("result".to_string(), xiom_ty);
+                }
+            }
             self.fctx.result_ptr = Some(result_alloca);
         }
 
