@@ -84,7 +84,7 @@ fn parse_functions(src: &Int) -> Int {
         if comma_count > 0 {
           param_count = comma_count + 1;
         }
-        elif pfound == 1 == 1 {
+        elif pfound {
           param_count = 1;
         } else {
           param_count = 0;

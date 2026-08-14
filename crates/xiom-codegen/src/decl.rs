@@ -1303,17 +1303,22 @@ impl IrEmitter {
 
         // Create result alloca for ensures if function returns a value
         self.fctx.result_ptr = None;
+        self.fctx.result_llvm_ty = None;
         if !self.fctx.current_ensures.is_empty() && fd.return_type.is_some() {
             let result_alloca = self.fresh_tmp();
             self.emitln(&format!("  {result_alloca} = alloca {ret_llvm}"));
             self.add_local("result", result_alloca.clone(), &ret_llvm);
+            self.fctx.result_llvm_ty = Some(ret_llvm.clone());
             // BUG 29 (contract Some-payload ensures): track the RETURN value's
             // XIOM type so `result is Some => result.len() > 0` can dispatch
             // the Some-bound payload as Str (not fall through to Map.len).
+            // BUG 30: MUST use type_string_full (like fn_return_xiom) —
+            // type_from_ast_with_args drops Option/Result payload args, so
+            // `Result[Vec[UInt8], Str]` became "Result" and the payload rebind
+            // recorded NO type → `result.len()` went down the Str path and
+            // xiom_str_len'd a boxed Vec handle (AV, smoke_utf8).
             if let Some(rt) = &fd.return_type {
-                if let Some(xiom_ty) = Self::type_from_ast_with_args_opt(rt) {
-                    self.local.local_xiom_types.insert("result".to_string(), xiom_ty);
-                }
+                self.local.local_xiom_types.insert("result".to_string(), Self::type_string_full(rt));
             }
             self.fctx.result_ptr = Some(result_alloca);
         }

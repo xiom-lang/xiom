@@ -4456,18 +4456,46 @@ impl Checker {
                             self.functions.get(&method_key)
                         }.cloned();
                         // If not found, try wildcard method lookup (any type with that method).
-                        // v0.56: Skip wildcard lookup for 'clone' Ã¢â‚¬â€ it matches the wrong type's
+                        // v0.56: Skip wildcard lookup for 'clone' — it matches the wrong type's
                         // clone method (e.g., Rc.clone returns Rc[T], not the receiver type).
-                        let sig = if method.name == "clone" {
-                            None
-                        } else {
-                            sig.or_else(|| {
-                                self.methods.iter()
-                                    .find(|(_, methods)| methods.contains_key(&method.name))
-                                    .and_then(|(_, methods)| methods.get(&method.name))
-                                    .cloned()
-                            })
-                        };
+                        // BUG 30: the wildcard skip must ONLY apply to the FALLBACK —
+                        // the original `let sig = if clone { None } else {...}` DISCARDED
+                        // the DIRECT hit too, so `r.clone()` on Rc[Int] typed `_` and the
+                        // next method call fell to the wildcard (r2.get() → BTreeMap.get →
+                        // Option — "cannot compare Option with Int"; smoke_rc).
+                        // BUG 30 (cont.): the wildcard itself MUST be deterministic. The
+                        // old `.find()` over self.methods (a HashMap) picked the first
+                        // hash-order match — for `r.get()` on Rc[Int] it sometimes
+                        // returned Option.get's signature (flaky per process/run).
+                        // Sort candidates by type name; prefer the receiver's base name
+                        // (generic args stripped), then a module-qualified/base suffix.
+                        let sig = sig.or_else(|| {
+                            if method.name == "clone" {
+                                None
+                            } else {
+                                // "Rc[Int]" -> "Rc"; "Vec[Int]" -> "Vec"
+                                let base = base_name.split('[').next().unwrap_or(&base_name).to_string();
+                                let mut candidates: Vec<(String, &FnSig)> = self.methods.iter()
+                                    .filter_map(|(ty, methods)| methods.get(&method.name).map(|s| (ty.clone(), s)))
+                                    .collect();
+                                candidates.sort_by(|a, b| a.0.cmp(&b.0));
+                                let exact = candidates.iter()
+                                    .find(|(ty, _)| ty == &base || ty == &base_name)
+                                    .map(|(_, s)| (*s).clone());
+                                if exact.is_some() {
+                                    exact
+                                } else {
+                                    let close = candidates.iter()
+                                        .find(|(ty, _)| ty.ends_with(&format!(".{base}")) || ty.ends_with(&format!(".{base_name}")))
+                                        .map(|(_, s)| (*s).clone());
+                                    if close.is_some() {
+                                        close
+                                    } else {
+                                        candidates.into_iter().next().map(|(_, s)| (*s).clone())
+                                    }
+                                }
+                            }
+                        });
                         if let Some(sig) = sig {
                             // Detect static call (TypeName.method) vs instance method:
                             // if obj is a simple Ident that resolves to a known type,

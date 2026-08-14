@@ -300,6 +300,16 @@ impl IrEmitter {
         if std::env::var("XIOM_DEBUG_CAPTURES").is_ok() {
             eprintln!("[collect_block_free_vars] used={:?} bound={:?} captures={:?}", used, bound, captures);
         }
+        // BUG 30: sort captures by name. `used` is a HashSet whose iteration
+        // order varies per collection (per-process RandomState seed) — the
+        // unsafe block fn, its ctx struct type, and the caller's ctx stores
+        // are each emitted from this list, and a generic fn's block can be
+        // compiled in different passes with DIFFERENT hash seeds → the block
+        // read slot0 as the value while the caller stored inner there
+        // (Rc.new_Int: wrote fields through the VALUE 42 as a pointer → all
+        // Rc fields garbage; smoke_rc/cell return 1). Sorting makes every
+        // pass agree on slot order.
+        captures.sort_by(|a, b| a.0.cmp(&b.0));
         captures
     }
     /// Recursively collect all identifier names from an expression.

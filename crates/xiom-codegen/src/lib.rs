@@ -3285,33 +3285,39 @@ impl IrEmitter {
                 None
             }
             Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
-                let fn_name = match &**func {
-                    Expr::Ident(name) => Some(name.name.clone()),
+                let fn_key = match &**func {
+                    Expr::Ident(name) => self.resolve_scrutinee_fn_key(&name.name),
                     Expr::Field(obj, field, _) => {
                         let bare = field.name.clone();
                         if let Some(recv_type) = self.infer_struct_type_name(obj) {
                             let qualified = format!("{}.{}", recv_type, field.name);
                             if self.types.functions.contains_key(&qualified) {
-                                Some(qualified)
+                                qualified
                             } else {
-                                Some(bare)
+                                self.resolve_scrutinee_fn_key(&bare)
                             }
                         } else {
-                            Some(bare)
+                            // Module-qualified callee (e.g. `catmod3.get_int()`):
+                            // resolve through the module-call machinery so the
+                            // scrutinee type survives for match lowering.
+                            let resolved = self.resolve_module_call(obj, &field.name);
+                            if !resolved.is_empty() {
+                                resolved
+                            } else {
+                                bare
+                            }
                         }
                     }
-                    _ => None,
+                    _ => return None,
                 };
-                if let Some(ref name) = fn_name {
-                    // Check if the known return type is a struct
-                    if self.types.type_meta.contains_key(name) {
-                        return Some(name.clone());
-                    }
-                    // Also check the return type from the function registry
-                    if let Some((_, ret_ty)) = self.types.functions.get(name) {
-                        if ret_ty.starts_with("%struct.") {
-                            return Some(ret_ty[8..].to_string());
-                        }
+                // Check if the known return type is a struct
+                if self.types.type_meta.contains_key(&fn_key) {
+                    return Some(fn_key);
+                }
+                // Also check the return type from the function registry
+                if let Some((_, ret_ty)) = self.types.functions.get(&fn_key) {
+                    if ret_ty.starts_with("%struct.") {
+                        return Some(ret_ty[8..].to_string());
                     }
                 }
                 None
@@ -3319,6 +3325,44 @@ impl IrEmitter {
             Expr::Tuple(_, _) => None,
             _ => None,
         }
+    }
+
+    /// BUG 30: resolve a BARE callee name to the registered fn key for
+    /// match-scrutinee type inference, mirroring the call-site resolution in
+    /// call.rs: caller module first, then leaf-qualified injected-fn aliases,
+    /// then use-alias map. Injected/catalog fns register under qualified keys
+    /// ("catmod3.get_int"); without this, `match catmod3.get_int() { ... }`
+    /// found no return type → no scrutinee alloca → no tag checks and the
+    /// arm payload degraded to literal 0 (garbage payload → AV / wrong values).
+    fn resolve_scrutinee_fn_key(&self, bare: &str) -> String {
+        if self.types.functions.contains_key(&bare.to_string()) {
+            return bare.to_string();
+        }
+        let caller_module = self.fctx.current_fn.as_ref()
+            .and_then(|k| k.rsplit_once('.'))
+            .map(|(m, _)| m.to_string())
+            .or_else(|| self.local.current_module.clone());
+        if let Some(m) = caller_module {
+            let qualified = format!("{m}.{bare}");
+            if self.types.functions.contains_key(&qualified) {
+                return qualified;
+            }
+        }
+        if let Some(qualified) = self.mono.bare_fn_aliases.get(bare) {
+            return qualified.clone();
+        }
+        if let Some(aliased) = self.mono.use_alias_map.get(bare) {
+            let parts: Vec<&str> = aliased.split('.').collect();
+            if parts.len() >= 2 {
+                let module_ident = Ident::new(parts[0], Span::new(0, 0));
+                let resolved = self.resolve_module_call(&Expr::Ident(module_ident), parts[1]);
+                if !resolved.is_empty() {
+                    return resolved;
+                }
+            }
+            return aliased.clone();
+        }
+        bare.to_string()
     }
 
 
@@ -4693,6 +4737,13 @@ let inner_llvm = match &inner_subst {
                 let zero = Self::default_const_for(&specialized_ret_type);
                 self.emitln(&format!("  ret {specialized_ret_type} {zero}"));
             }
+                // BUG 30: the monomorphisation path must flush loop-body /
+                // match-payload binding allocas hoisted during the body compile
+                // (regular fns do this in compile_fn via finish_hoisted_allocas).
+                // Without it, `var t = b;` inside a while loop of a GENERIC fn
+                // emits only the store — the alloca is never defined → clang:
+                // "use of undefined value" (m35_z24).
+                self.finish_hoisted_allocas();
                 self.emitln("}\n");
                 self.pop_scope();
                 self.fctx.current_fn = None;

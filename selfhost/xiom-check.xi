@@ -105,21 +105,21 @@ pub fn check_let(val_ty: CheckedType, annot_ty: CheckedType) -> CheckedType {
 // Test harness — verify type checker rules
 // ============================================================================
 
-fn test_int_compatible() -> Int {
+pub fn test_int_compatible() -> Int {
   let a = int_type();
   let b = int_type();
   if !(types_compatible(a, b)) { return 1; }
   return 0;
 }
 
-fn test_error_compatible() -> Int {
+pub fn test_error_compatible() -> Int {
   let a = error_type();
   let b = int_type();
   if !(types_compatible(a, b)) { return 1; }
   return 0;
 }
 
-fn test_arithmetic_int() -> Int {
+pub fn test_arithmetic_int() -> Int {
   let a = int_type();
   let b = int_type();
   let res = check_binary(a, 43, b); // +
@@ -127,7 +127,7 @@ fn test_arithmetic_int() -> Int {
   return 0;
 }
 
-fn test_comparison_bool() -> Int {
+pub fn test_comparison_bool() -> Int {
   let a = int_type();
   let b = int_type();
   let res = check_binary(a, 57, b); // >
@@ -135,7 +135,7 @@ fn test_comparison_bool() -> Int {
   return 0;
 }
 
-fn test_return_compatible() -> Int {
+pub fn test_return_compatible() -> Int {
   let val = int_type();
   let expected = int_type();
   let res = check_return(val, expected);
@@ -143,7 +143,7 @@ fn test_return_compatible() -> Int {
   return 0;
 }
 
-fn test_return_mismatch() -> Int {
+pub fn test_return_mismatch() -> Int {
   let val = bool_type();
   let expected = int_type();
   let res = check_return(val, expected);
@@ -151,7 +151,7 @@ fn test_return_mismatch() -> Int {
   return 0;
 }
 
-fn test_let_inference() -> Int {
+pub fn test_let_inference() -> Int {
   let val = int_type();
   let annot = CheckedType{ kind: 0, name: 0 }; // no annotation
   let res = check_let(val, annot);
@@ -173,6 +173,13 @@ use checker.types_compatible;
 use checker.check_binary;
 use checker.check_return;
 use checker.check_let;
+use checker.test_int_compatible;
+use checker.test_error_compatible;
+use checker.test_arithmetic_int;
+use checker.test_comparison_bool;
+use checker.test_return_compatible;
+use checker.test_return_mismatch;
+use checker.test_let_inference;
 
 // ============================================================================
 // Entry point — runs all tests
