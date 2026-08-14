@@ -496,7 +496,9 @@ fn stdlib_exec_generic_tower_runs() {
 
 #[test]
 fn stdlib_exec_math_core_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_math_core.xi"), Some(0), "math/core generic tower module smoke failed");
+    // BUG 29 (new 512-module layout): smoke_math_core.xi was renamed to
+    // smoke_math_tower.xi by the stdlib session.
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_math_tower.xi"), Some(0), "math/core generic tower module smoke failed");
 }
 
 #[test]

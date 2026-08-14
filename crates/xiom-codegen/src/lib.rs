@@ -1567,6 +1567,39 @@ impl IrEmitter {
         Some(inner[..end].trim().to_string())
     }
 
+    /// BUG 29 (Map.keys on module globals): split a generic type string into
+    /// (base, top-level args). "Map[Str, Bool]" -> ("Map", ["Str", "Bool"]);
+    /// "Vec[Int]" -> ("Vec", ["Int"]). Depth-aware so nested args
+    /// ("Map[Str, Vec[Int]]") split only on TOP-LEVEL commas.
+    fn parse_generic_type_string(s: &str) -> (String, Vec<String>) {
+        let Some(open) = s.find('[') else {
+            return (s.to_string(), Vec::new());
+        };
+        let Some(close) = s.rfind(']') else {
+            return (s.to_string(), Vec::new());
+        };
+        let base = s[..open].trim().to_string();
+        let inner = &s[open + 1..close];
+        let mut args: Vec<String> = Vec::new();
+        let mut depth = 0i32;
+        let mut current = String::new();
+        for c in inner.chars() {
+            match c {
+                '[' => { depth += 1; current.push(c); }
+                ']' => { depth -= 1; current.push(c); }
+                ',' if depth == 0 => {
+                    args.push(current.trim().to_string());
+                    current.clear();
+                }
+                _ => current.push(c),
+            }
+        }
+        if !current.trim().is_empty() {
+            args.push(current.trim().to_string());
+        }
+        (base, args)
+    }
+
     /// 5d: Extract the ERROR payload type of `Result[T, E]` (the second
     /// generic argument). Returns None for Option or non-generic types.
     fn option_result_err_payload(s: &str) -> Option<String> {
@@ -4442,6 +4475,19 @@ let inner_llvm = match &inner_subst {
             let body_uses_self = !has_self_param
                 && fd.receiver.is_some()
                 && fd.body.as_ref().map_or(false, |b| IrEmitter::block_uses_self_ident(b));
+            // BUG 29 (Map.keys on module globals): THIS-BASED generic method
+            // bodies — `fn Map.keys[K, V]() -> Vec[K] { ... keys.len() ... }`
+            // references BARE FIELDS (no `self`/`this` ident). The non-generic
+            // path binds the receiver for these via body_uses_receiver_state;
+            // the generic monomorphisation only handled self-ident bodies, so
+            // the emitted fn took NO receiver and bare `keys` resolved to a
+            // fn-pointer (@Map.keys) → "use of undefined value '@Map.keys'".
+            // Detect the same this-based shape here so the receiver pointer +
+            // field locals are bound.
+            let is_this_based = !has_self_param
+                && !body_uses_self
+                && fd.receiver.is_some()
+                && self.body_uses_receiver_state(&fd);
             let self_llvm_ty = if let (true, Some(r)) = (has_self_param, fd.receiver.as_ref()) {
                 let base = self.llvm_type_for(&r.name).unwrap_or_else(|_| {
                     let search = format!(".{}", r.name);
@@ -4451,9 +4497,11 @@ let inner_llvm = match &inner_subst {
                     "i64".to_string()
                 });
                 Some(if is_mut_self && base.starts_with('%') { format!("{base}*") } else { base })
-            } else if body_uses_self {
-                // 5c.34: By-value self in generic method ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â pass pointer so
+            } else if body_uses_self || is_this_based {
+                // 5c.34: By-value self in generic method — pass pointer so
                 // mutations propagate to caller (matches compile_fn behavior).
+                // This-based: bind the receiver by pointer (bare field reads
+                // GEP through it).
                 let base = fd.receiver.as_ref().and_then(|r| {
                     self.llvm_type_for(&r.name).ok().or_else(|| {
                         let search = format!(".{}", r.name);

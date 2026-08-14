@@ -1770,6 +1770,11 @@ impl IrEmitter {
                                     self.emitln(&format!("  {inner_alloca} = alloca i64"));
                                     self.emitln(&format!("  store i64 {payload_loaded}, i64* {inner_alloca}"));
                                     self.add_local(&id.name, inner_alloca, "i64");
+                                    // BUG 29: record the payload's XIOM type so
+                                    // method calls on the bound var dispatch
+                                    // correctly (`result is Some => result.len()`
+                                    // must be Str.len, not Map.len).
+                                    self.bind_is_payload_xiom(expr, &pattern, id);
                                 }
                             }
                             let ext = self.fresh_tmp();
@@ -1792,15 +1797,37 @@ impl IrEmitter {
                             | xiom_ast::Pattern::Ok(inner, _)
                             | xiom_ast::Pattern::Err(inner, _) = pat
                         {
-                            if let xiom_ast::Pattern::Ident(id) = inner.as_ref() {
+                            // BUG 29 (contract Some-payload ensures): a BARE
+                            // `is Some` / `is Ok` / `is Err` pattern (no inner
+                            // binding var) in a contract expression binds the
+                            // payload to the SCRUTINEE's own name for the
+                            // consequence — `result is Some => result.len() >
+                            // 0` must call Str.len on the payload, not Map.len
+                            // on the Option. Rebind the scrutinee ident to the
+                            // payload slot.
+                            let bind_name: Option<String> = if let xiom_ast::Pattern::Ident(id) = inner.as_ref() {
+                                Some(id.name.clone())
+                            } else if let Expr::Ident(sid) = expr.as_ref() {
+                                Some(sid.name.clone())
+                            } else {
+                                None
+                            };
+                            if let Some(bname) = bind_name {
                                 let payload_gep = emitter.fresh_tmp();
                                 emitter.emitln(&format!("  {payload_gep} = getelementptr {struct_ty}, {struct_ty}* {struct_alloca}, i32 0, i32 1"));
                                 let payload_loaded = emitter.fresh_tmp();
                                 emitter.emitln(&format!("  {payload_loaded} = load i64, i64* {payload_gep}"));
                                 let inner_alloca = emitter.fresh_tmp();
-                                emitter.emitln(&format!("  {inner_alloca} = alloca i64"));
+                                // BUG 29: hoist the payload slot to fn entry so
+                                // contract-expression uses in LATER blocks
+                                // dominate (the `is` check branches before the
+                                // consequence reads the payload).
+                                emitter.local.hoisted_allocas.push((inner_alloca.clone(), "i64".to_string()));
                                 emitter.emitln(&format!("  store i64 {payload_loaded}, i64* {inner_alloca}"));
-                                emitter.add_local(&id.name, inner_alloca, "i64");
+                                emitter.add_local(&bname, inner_alloca, "i64");
+                                // BUG 29: record the payload's XIOM type for
+                                // correct method dispatch on the bound var.
+                                emitter.bind_is_payload_xiom(expr, pat, &Ident { name: bname.clone(), span: xiom_ast::Span::new(0, 0) });
                             }
                         }
                     };
@@ -1842,6 +1869,8 @@ impl IrEmitter {
                             self.emitln(&format!("  {inner_alloca} = alloca i64"));
                             self.emitln(&format!("  store i64 {payload}, i64* {inner_alloca}"));
                             self.add_local(&id.name, inner_alloca, "i64");
+                            // BUG 29: record payload XIOM type for dispatch.
+                            self.bind_is_payload_xiom(expr, &pattern, id);
                         }
                     }
                     if variant_name == "Some" || variant_name == "Ok" {
@@ -4295,6 +4324,31 @@ impl IrEmitter {
         }
     }
 
+    /// BUG 29 (contract Some-payload ensures): after binding a pattern
+    /// variable from `expr is Some(x)` / `Ok(x)` / `Err(x)`, record the
+    /// payload's XIOM type in local_xiom_types so method calls on the
+    /// bound var dispatch correctly — `result is Some => result.len() > 0`
+    /// was emitting Map.len (first generic match) instead of Str.len
+    /// because the payload was an untracked i64.
+    fn bind_is_payload_xiom(&mut self, scrutinee: &Expr, pat: &xiom_ast::Pattern, id: &Ident) {
+        let scrut_xiom = match scrutinee {
+            Expr::Ident(sid) => self.local.local_xiom_types.get(&sid.name).cloned(),
+            _ => None,
+        };
+        let payload_ty = scrut_xiom.and_then(|t| {
+            let (base, args) = Self::parse_generic_type_string(&t);
+            match (base.as_str(), pat) {
+                ("Option", _) => args.first().cloned(),
+                ("Result", xiom_ast::Pattern::Err(..)) => args.get(1).cloned(),
+                ("Result", _) => args.first().cloned(),
+                _ => None,
+            }
+        });
+        if let Some(pt) = payload_ty {
+            self.local.local_xiom_types.insert(id.name.clone(), pt);
+        }
+    }
+
     /// Returns true if `receiver` in `receiver.method(args)` is a real VALUE
     /// instance (so its value must be passed as the `self` argument), vs a module
     /// path (`xiom.char`) or bare type name (`LogLevel`) used only for name
@@ -4307,8 +4361,14 @@ impl IrEmitter {
         match receiver {
             // A bare identifier is an instance only if it's a bound local/param
             // (a value). Bare type names (`LogLevel`) and module roots (`xiom`)
-            // are not locals ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ not instances.
-            Expr::Ident(ident) => self.lookup_local(&ident.name).is_some(),
+            // are not locals — not instances.
+            Expr::Ident(ident) => {
+                self.lookup_local(&ident.name).is_some()
+                    // BUG 29 (Map.keys on module globals): a MODULE-GLOBAL var
+                    // (`var _coverage: Map[Str, Bool]`) is a VALUE — generic
+                    // method calls on it must pass the receiver instance.
+                    || self.local.module_globals.contains_key(&ident.name)
+            }
             // `a.b`: instance iff its base chain is rooted in a value (local/self),
             // e.g. `obj.field`. A module path like `xiom.char` is rooted in `xiom`
             // (not a local) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ NOT an instance. Also an instance if the whole
