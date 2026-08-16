@@ -1217,3 +1217,83 @@ Remaining (not compiler blockers): closure-through-fn-slot crashes (B-007
 family — reproduced at baseline with a plain fn-typed param; needs a design
 decision on the fn-ptr vs env-ptr ABI), and the e2e alias-comparison /
 ambiguity clusters (checker strictness, unrelated to stdlib).
+
+---
+
+## 2026-08-16 — compiler session: BUG 30 batch (16 regression failures from the 04:03 run all fixed) + 904-smoke survey
+
+### BUG 30 — 14 fixes, commits `0ddc4500` + `5940ba2c` (all verified)
+
+The 2026-08-14 04:03 test run had 12 e2e failures + 4 stdlib-exec failures +
+1 diff failure. All compiler-fixable items are FIXED (full detail in
+docs/SESSION.md, 2026-08-16):
+
+1. **Imply scoping** — contract-ensure `is Some/Ok/Err` payload rebinds no
+   longer poison later return-site checks (i64-form Is inttoptr+load ? AV).
+   Fixes b003 / m19_read_file / file_stem chains.
+2. **Is() payload-slot hoisting** (struct + i64 forms) — `&&` guard chains
+   bind in one block, read in a later one ? dominance error (m18_guard_0086).
+3. **Is() bare-scrutinee rebind in the enum-variants form** (utf8 Map.len).
+4. **struct_type_from_expr Call-arm resolution** — match-on-catalog-call
+   dropped the scrutinee (m35_z24/z29, eco_algo).
+5. **Mono path flushes hoisted allocas** (m35_z24 "undefined value %tmp55").
+6. **Enum/Result literal ctors zero-init unused payload slots** — LLVM poison
+   + clang -O2 ? deterministic AV (m35_z10/z29). NOTE: the driver runs
+   `opt -O2` + `clang -O2`; uninitialized-slot reads are exploited.
+7. **coerce_arg_for_param `&array_local`** — data pointer only for `&[N]T`
+   params; `%struct.Vec*` params get the header alloca (eco_algo).
+8. **len() dispatch for boxed Vec-handle locals** (utf8 ensure).
+9. **Ensure `result` scoped per-check** — user locals named `result` shadowed
+   the synthetic return slot (utf8_encode AV).
+10. **decl.rs result local_xiom_types uses type_string_full** (payload args).
+11. **collect_block_free_vars sorts captures by name** — HashSet order
+    differed between block/type/caller passes (Rc.new slot swap).
+12. **Generic receiver ABI** — by-value `self` passes the struct VALUE not a
+    pointer (smoke_rc).
+13. **Checker wildcard method lookup deterministic** + clone skip applies only
+    to the fallback, not the direct hit (smoke_rc r2 typed `_`).
+14. **struct_type_from_expr Type.method static calls** — `Vec[Str]::new()`
+    must resolve `Vec.new` (exact/module-qualified suffix); unregistered
+    typed keys return None — NEVER the bare alias (BufReader.invariant_check
+    on a Vec ? invalid IR; smoke_net_http + io graph).
+
+**CORRECTION to the 2026-08-14 report:** the 4 stdlib-exec stragglers were
+labeled stdlib-side — WRONG for 3 of them. `smoke_rc`, `smoke_cell`,
+`smoke_utf8` were COMPILER bugs (fixes #11/#12/#13, #3/#8/#10, #9/#10) and
+now PASS. Only `smoke_hash_folder` is stdlib-side (missing
+`use xiom.convert.toint;`).
+
+### 904-smoke battery survey (NEW — the real production gate)
+
+`examples/stdlib_smoke/` has **904 smoke files** (the 08-14 report's
+"stdlib-exec 68/72" covered only 72 of them). Full sweep with the isolated
+binary: **~516 pass / ~289 fail** (run in 8 parallel batches; batch 8
+timed out, totals approximate). Failure classes:
+
+**Real compiler bugs still OPEN (next sessions):**
+- Map AVs 0xC0000005 (smoke_stress_collections_map_*: get_missing/insert_get/
+  clear/collision/overwrite) — Map is a NEW stdlib type, never swept before.
+- fmt AVs 0xC0000005/0xC0000409 (smoke_fmt_edge/float/format*) +
+  `void type only allowed for function results` (smoke_fmt_formatter) —
+  void in expression position.
+- struct-literal field-type mixups: `store %struct.BST %vecval` in
+  benchmark.main Node.new (bench_math native compile; harness is
+  emit-ir-only so not suite-blocking) — same family as fix #14 but a
+  FIELD-TYPE/INDEX lookup issue in the non-enum struct-literal path.
+- Interface-bound gap: `type 'Int' does not implement 'Bounded': missing
+  method 'is_finite'` (smoke_num_saturating).
+- BUG 26 #2 bare prelude names in user modules (LIVE: smoke_alloc_basic
+  `undefined variable 'ptr'`), BUG 26 #3 cross-module tuple destructuring,
+  BUG 26 #5/BUG 27 #20 high-bit mask AND (per doc unfixed; smoke_utf8 now
+  passes — stdlib worked around it).
+- BUG 24 residual (bigfloat pow_bf per-program-shape AV) — doc says
+  PARTIAL; smoke_num_precision PASSED in this sweep (may be closed by the
+  later batch — needs re-verification).
+- Closure-through-fn-slot (B-007 family) — design decision pending.
+
+**Stdlib-side (for the stdlib session — smoke/API staleness):**
+parse errors (P001 — e.g. smoke_stress_rand_shuffle), undefined vars /
+missing imports (smoke_alloc_basic `ptr` family, smoke_net_* API drift),
+renamed/absent APIs (smoke_stress_rand_* compile failures). hash_folder
+missing import. The stdlib session should fix these in their tree; the
+compiler-side list above is the compiler's share.
