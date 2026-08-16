@@ -3830,8 +3830,25 @@ impl Checker {
             }
             Stmt::Destructure(names, value, _) => {
                 let val_ty = self.check_expr(value);
-                for name in names {
-                    self.add_local(&name.name, val_ty.clone());
+                // BUG 26 #3: bind each name to its ELEMENT type — previously
+                // every name got the WHOLE tuple ("cannot compare
+                // Tuple__Int__Int with Int" on the first use). The codegen
+                // already extracts the fields; the checker must type them.
+                let elem_types: Vec<CheckedType> = match &val_ty {
+                    CheckedType::Named(n) if n.starts_with("Tuple__") => {
+                        let inner = &n["Tuple__".len()..];
+                        inner.split("__").map(|t| CheckedType::from_str(t)).collect()
+                    }
+                    _ => Vec::new(),
+                };
+                if elem_types.len() == names.len() {
+                    for (name, ty) in names.iter().zip(elem_types.iter()) {
+                        self.add_local(&name.name, ty.clone());
+                    }
+                } else {
+                    for name in names {
+                        self.add_local(&name.name, val_ty.clone());
+                    }
                 }
             }
             Stmt::Spawn(body, _, is_move) => {
