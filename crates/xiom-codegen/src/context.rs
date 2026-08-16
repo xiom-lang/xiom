@@ -386,6 +386,12 @@ pub struct LocalContext {
     /// Populated when values are created with known XIOM type (Ident loads,
     /// As expressions, literals). Consulted by widen_to_i64 to select sext/zext.
     pub reg_signed: HashMap<String, bool>,
+    /// BUG 38: true while compiling the LEFT side of an `=>` Imply
+    /// (contract ensures). The BUG 29 bare `is Some/Ok/Err` scrutinee-name
+    /// payload rebind fires ONLY here — in if/while conditions it poisoned
+    /// the subsequent `match` on the same value (the scrutinee read as an
+    /// i64 payload, so Some(v) arms bound 0 and skipped the disc check).
+    pub in_imply_lhs: bool,
     /// v0.55: Whether @xiom_thread_spawn has been declared in this module
     pub spawn_declared: bool,
     /// v0.55: Counter for unique spawn function names
