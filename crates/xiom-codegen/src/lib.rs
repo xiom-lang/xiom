@@ -5149,8 +5149,12 @@ let inner_llvm = match &inner_subst {
             let field_ty_1 = self.types.type_meta.get(name)
                 .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
                 .unwrap_or_else(|| "Int".to_string());
-            let llvm1 = if field_ty_1 == "Int" { "i64".to_string() }
-                else { format!("%struct.{field_ty_1}") };
+            // BUG 33: resolve the payload's REAL LLVM type (fp128 for
+            // Float128, i8* for Str, %struct.X for structs) — the old
+            // `%struct.{name}` blanket emitted an OPAQUE %struct.Float128
+            // for native scalar payloads (clang: "load operand must be a
+            // pointer to a first class type").
+            let llvm1 = self.llvm_type_for(&field_ty_1).unwrap_or_else(|_| "i64".to_string());
 
             // is_some
             self.emitln(&format!("define i64 @{name}.is_some({cty} %self) {{"));
