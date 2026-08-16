@@ -1502,16 +1502,13 @@ impl IrEmitter {
             }
             Type::Ref(inner) => {
                 let inner_llvm = self.llvm_type_for(&Self::type_from_ast(inner)).unwrap_or_else(|_| "i64".to_string());
-                if inner_llvm.starts_with("%struct.") {
-                    // BUG 23 #8 fix: &Vec[T]/&Slice[..]/&Map[..]/&Set[..] params
-                    // must pass the POINTER, like &mut Vec[T] already did. The
-                    // previous exclusion passed these BY VALUE, so a catalog fn
-                    // taking &Vec[T] mutated its own copy â€” push/realloc in the
-                    // callee never reached the caller's Vec (silent no-op).
-                    format!("{inner_llvm}*")
-                } else {
-                    inner_llvm
-                }
+                // BUG 31: &T params ALWAYS pass the ADDRESS — scalars included.
+                // `*key` on a `&Int` param derefs (inttoptr + load), so a
+                // by-value `i64` param made the callee deref the VALUE as an
+                // address (Map.get's `keys[i] == *key` → load from address 1 →
+                // AV). The old exclusion only covered structs/Vec; scalars
+                // must be pointers too.
+                format!("{inner_llvm}*")
             }
             _ => self.llvm_type_for(&Self::type_from_ast(ty)).unwrap_or_else(|_| "i64".to_string()),
         }
@@ -4509,10 +4506,12 @@ impl IrEmitter {
                     // Pointer / mutable-scalar-ref types: substitute the inner
                     // generic, then lower to a REAL pointer (e.g. `mem.swap[Int]`'s
                     // `&mut T` -> `i64*`). Uses the captured `struct_types` set for
-                    // struct detection so the closure stays `self`-free. Without this,
-                    // such params defaulted to `i64` and `from_mut(x)` fed an `i64*`
-                    // address into an `i64` slot ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ miscompiled swap.
-                    Type::Ptr(inner) | Type::MutRef(inner) => {
+                    // struct detection so the closure stays `self`-free.
+                    // BUG 31: plain `&T` (Map.get's `&K`) is included — scalars
+                    // pass the ADDRESS; `*key` derefs it (the old i64 by-value
+                    // param made the callee deref the VALUE → load from address
+                    // 1 → AV).
+                    Type::Ref(inner) | Type::Ptr(inner) | Type::MutRef(inner) => {
                         let subst = Self::substitute_type(t, inner, &type_map);
                         let name = Self::type_from_ast(&subst);
                         if let Some(inner_name) = name.strip_prefix('*') {
