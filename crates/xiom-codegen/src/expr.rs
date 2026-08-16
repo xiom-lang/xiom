@@ -921,7 +921,10 @@ impl IrEmitter {
                 let tmp = self.fresh_tmp();
                 match op {
                     UnaryOp::Neg => {
-                        if inner_ty == "double" || inner_ty == "float" {
+                        // BUG 31: fp128 (Float128) must also use `fneg` — the
+                        // integer `sub i64 0, %val` path made clang reject
+                        // (`'%tmp' defined with type 'fp128' but expected 'i64'`).
+                        if inner_ty == "double" || inner_ty == "float" || inner_ty == "fp128" {
                             self.emitln(&format!("  {tmp} = fneg {inner_ty} {val}"));
                             return Ok((tmp, inner_ty.clone()));
                         } else {
@@ -3580,6 +3583,13 @@ impl IrEmitter {
                 // with `inner` as bare `Expr::Ident`. Handle both forms.
                 let target_llvm_ty = self.llvm_type_for_fallback(&Self::type_from_ast(ty));
                 // Extract the local ident from Ref(ident) / MutRef(ident) / bare Ident.
+                // BUG 32: the REF forms mean "address of the local" (&x as *T);
+                // the BARE-Ident form means "the local's VALUE as a pointer"
+                // (`h as *UInt8` where h holds ptrtoint bits) — it must
+                // inttoptr the loaded value, never bitcast the slot address.
+                let is_ref_form = matches!(inner.as_ref(),
+                    Expr::Ref(_, _) | Expr::MutRef(_, _)
+                    | Expr::Unary(UnaryOp::Ref, _, _) | Expr::Unary(UnaryOp::MutRef, _, _));
                 let ident_opt: Option<&str> = match inner.as_ref() {
                     Expr::Ref(id_expr, _) | Expr::MutRef(id_expr, _) => {
                         if let Expr::Ident(id) = id_expr.as_ref() {
@@ -3598,12 +3608,23 @@ impl IrEmitter {
                     if let Some(name) = ident_opt {
                         if let Some((slot, slot_ty)) = self.lookup_local(name).cloned() {
                             let ptr_reg = self.fresh_tmp();
-                            if slot_ty.ends_with('*') {
+                            if is_ref_form {
+                                // `&x as *T`: the ADDRESS of the local's slot.
+                                self.emitln(&format!("  {ptr_reg} = bitcast {slot_ty}* {slot} to {target_llvm_ty}"));
+                            } else if slot_ty.ends_with('*') {
+                                // Pointer-typed local: load the pointer, bitcast.
                                 let loaded = self.fresh_tmp();
                                 self.emitln(&format!("  {loaded} = load {slot_ty}, {slot_ty}* {slot}"));
                                 self.emitln(&format!("  {ptr_reg} = bitcast {slot_ty} {loaded} to {target_llvm_ty}"));
                             } else {
-                                self.emitln(&format!("  {ptr_reg} = bitcast {slot_ty}* {slot} to {target_llvm_ty}"));
+                                // BUG 32: an INT-typed local holding pointer bits
+                                // (`var h = buf as Int; h as *UInt8`) must
+                                // inttoptr the loaded VALUE — the old code
+                                // bitcast the slot ADDRESS (q == buf was false,
+                                // q[0] read stack bytes).
+                                let loaded = self.fresh_tmp();
+                                self.emitln(&format!("  {loaded} = load {slot_ty}, {slot_ty}* {slot}"));
+                                self.emitln(&format!("  {ptr_reg} = inttoptr {slot_ty} {loaded} to {target_llvm_ty}"));
                             }
                             return Ok((ptr_reg, target_llvm_ty.clone()));
                         }
