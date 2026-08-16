@@ -1442,6 +1442,120 @@ compiler-side list above is the compiler's share.
 
 ---
 
+## 2026-08-16 (late) — compiler session: BUG 38 family + BUG 32/33/31/34/35 status
+
+### BUG 38 — FIXED (`9042e8a2`) — is-Some double-check binds payload 0
+
+The bare `is Some/Ok/Err` scrutinee payload rebind (the BUG 29 contract
+convenience: `result is Some => result.len()`) fired in EVERY context. In
+if/while conditions it poisoned the subsequent `match` on the same value —
+the scrutinee read as an i64 payload, Some(v) arms bound 0 and skipped the
+discriminant check (sx4: pos=0 instead of 5; iter.xi collect returned [0,0,0]
+or len 0). The rebind now fires ONLY inside an Imply left side
+(`in_imply_lhs` flag). The checker never rebinds, so codegen now matches it.
+
+### BUG 38b (NEW, same commit) — generic-receiver methods never monomorphised
+
+`Iterator[T].collect(self)` (and 44 other decls in iter/core/collections/
+sync/rc/memory) had their receiver generics DROPPED by the parser — the decl
+registered with an erased i64 receiver ABI and never entered the mono
+machinery (iter smokes 0/19, all 16 in the stale runfail list). Four-part fix:
+1. **Parser** (`xiom-parser`): receiver type-param names merge into
+   fd.generics (receiver-first, deduped) — `Iterator[T].collect` ≡
+   `Rc.get[T]` convention.
+2. **Mono dispatch** (`call.rs`): receiver-keyed generic calls
+   ("Range.collect" ↔ decl "Iterator.collect") enter monomorphisation via a
+   leaf-method match; `find_generic_decl` prefers UNDECLARED abstract
+   receivers ("Iterator") over concrete types that merely share the leaf
+   ("HashMap.count" no longer hijacks "Range.count" — the wrong decl's
+   [K,V] generics produced `Range.count_Int_Int` with a `%struct.HashMap*`
+   receiver).
+3. **Emission** (`lib.rs`): the concrete receiver LLVM type derives from the
+   mono key (`mono_receiver_part`/`receiver_llvm_type`); container returns
+   (Vec[T]) keep `%struct.Vec` instead of the erased i64.
+4. **Mutating self ABI**: `block_mutates_self` now recurses into if/while/
+   for/match bodies, and a new `block_mutates_receiver_state` catches BARE
+   receiver-field assignments (`start = start + 1` in Range.next) — both
+   flip the ABI to BY POINTER (value copies silently dropped the mutation;
+   iterators looped forever on the first element).
+
+Verified: sx4 pos=5, `iter.range(1,4).collect()` == [1,2,3], user-space
+collect/count shapes, checker 178/178. iter smokes 0/19 → 6/19 (the
+remaining adapter-chain failures — receiver-CALL chains like
+`iter.range(1,6).max()` and fn-value params — reproduce identically at
+baseline HEAD; B-007-adjacent).
+
+### BUG 32 — FIXED (`74bcc28b`) — Int-var → ptr cast emits address-of-local
+
+`var h = buf as Int; var q = h as *UInt8;` emitted `bitcast i64* %slot to
+i8*` — the ADDRESS OF THE LOCAL. The As-cast arm now distinguishes the
+`&x as *T` address-of form from the bare-Ident VALUE form (load + inttoptr).
+Verified: pdb3 eq=OK/read=OK/from_cstring=OK.
+
+### BUG 33 — FIXED (`74bcc28b`) — Option[Float128] unwrap loads opaque `%struct.Float128`
+
+The concrete Option__T builtin impls hardcoded `%struct.{payload}` for
+non-Int payloads. The payload LLVM type now resolves through llvm_type_for
+(Float128 → fp128). Verified: match-Some and unwrap() on Option[Float128]
+both return 42.
+
+### BUG 31 — FIXED (`74bcc28b`) — unary minus on Float128 emits `sub i64 0, fp128`
+
+fneg now covers fp128 (was double/float only). Verified: -a + -2.0 == -3.0.
+
+### BUG 34 — FIXED (`b15d0d3b`) — nested Vec[Vec[T]] element writes
+
+`bs[i].push(x)` lost the mutation (and corrupted the buffer) through three
+gaps: (1) dispatch — `bs[0]` compiled as i64 so the inline push path missed
+the Vec receiver (call fell to a bare `@push` stub); (2) receiver ABI —
+resolve_vec_receiver_ptr inttoptr'd the LOADED element value for i64
+receivers instead of GEP-ing the element address in the outer buffer;
+(3) slot math — Vec.new() defaulted elem_size to 8, so 32-byte Vec elements
+overwrote 4 slots and reads used wrong offsets. Struct-element pushes now
+use the struct's real byte size, persist it into field 3, and record the
+nested element type so reads take the struct-element (memcpy) path.
+Verified: bs[0].push(5) → bs[0][0] == 5.
+
+### BUG 35 — primary shape VERIFIED WORKING (no crash, correct buckets)
+
+The Int128 index-math + Vec-write shape (radix-sort distribution) compiles
+and runs correctly — counts[0..2] == [1,1,1] for (100,200,300)/min=100/
+width=100. The documented 0xC0000005/0xC000001D variants did not reproduce;
+likely resolved by the BUG 38/34 batches. The extreme-i64 variant needs the
+stdlib session's exact repro to re-verify.
+
+### BUG 37/36 — OPEN (deep-dive needed) — fp128 + BigFloat chain shape AV
+
+Minimal deterministic repro (user space, no catalog needed):
+`var n = v.significand.digits.len();` (BigFloat field-chain Vec len) used as
+a loop bound + ANY fp128 op in the loop body → 0xC0000005, even at clang -O0,
+with verifiably sound IR (t_chainloop/t_b37f/t_b37k in the compiler session's
+scratch). `bigfloat_to_float128` (catalog) with non-zero values crashes in
+every consumer shape — the stdlib's three-single-shape-fn workaround did NOT
+fully dodge it (the main fn still mixes chain + fp128). fp128 arithmetic
+without the chain, and the chain without fp128, both work. The loop's
+semantics even shift when a probe print is added (BUG 24/36 family — shape
+miscompile at the clang/runtime level).
+
+### P001 — NOT REPRODUCED (resolved by the stdlib realignment)
+
+Indented module-level decls now reject in 0.14s (clean P001 error, no hang);
+the former 15-min hang case (smoke_stress_crypto_hash_known_vector) compiles
+in 4.9s and runs exit 0. The 238-file re-sweep completed with no hangs.
+
+### Re-triage numbers (current isolated binary, 2026-08-16 late)
+
+238 files from the stdlib session's two remaining lists → 43 pass, 82
+compilefail, 113 runfail. Known stdlib-side: smoke_num_saturating (Bounded/
+Ord impls), smoke_alloc_basic (`use xiom.ptr;`), char.from_digit contract
+false-fire (contract on a graceful-fallback fn — stdlib rule BUG 22 #5),
+smoke_collections_vec_push_pop (is_empty broken — reproduces at baseline),
+Vec.get usage in stale smokes (not a Vec method). Remaining compiler-side
+families cluster in: receiver-CALL chains for generic methods (iter
+adapters), the BUG 24/36 shape family, and the stale-API smokes.
+
+---
+
 ## 2026-08-16 (late) — compiler session: BUG 31 batch — fmt, Map, variant-hijack, tuple destructure all fixed
 
 The compiler session's queue from the 904-sweep. Commits:
