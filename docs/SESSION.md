@@ -1,11 +1,11 @@
 # XIOM Compiler Session — Handoff (2026-08-16)
 
-Branch: `feat/architect` (26 commits ahead of `origin/feat/architect`).
+Branch: `feat/architect` (31 commits ahead of `origin/feat/architect`).
 COMPILER session. The parallel stdlib session is MISSION COMPLETE
 (512 modules, 6,379 pub fns, 0 stubs, layout FROZEN); my replies live in
 `docs/REPORT_TO_STDLIB_SESSION.md` (last updated `707a299c`).
 
-## Session summary (2026-08-16): the 16 regression failures are FIXED
+## Session summary (2026-08-16): the 16 regression failures are FIXED + BUG 31 batch
 
 The 04:03 test run (`session_20260814_040310.txt`) had **12 e2e failures +
 4 stdlib-exec failures + 1 diff failure**. All compiler-fixable ones are now
@@ -73,6 +73,40 @@ Compiler (xiom-codegen):
 File-side (same commits): bench_math Float64 casts (644/656), selfhost
 xiom-check pub+use for 7 test fns, xiomc_v11_test `elif pfound {`, m21
 Vec.pop Option handling.
+
+## BUG 31 batch (2026-08-16, second half — the 904-sweep queue)
+
+Commits: `2b238da4` (fmt), `b28ac72b` (Map), `a7571ac7` (variant hijack),
+`99f894b7` (tuple destructure), `de639432` (docs).
+
+- **fmt cluster (8 fixes, 8 smokes green):** Unit fields in
+  Result[Unit, FmtError] literals (`store void 0, void*` invalid IR —
+  generic literals adopt the fn's concrete return type; field types
+  degrade Unit→i64); Str.to_str passthrough read the first BYTE (prologue
+  treated i8* as a struct pointer — only %struct.X* receivers take the
+  pointer branch); primitive/variable method receivers resolved to bare
+  stubs (infer_struct_type_name learns literals/negated/parens, primitive
+  locals via local_xiom_types, generic params via param_concrete_types,
+  infer_value_xiom_type learns literals); mutating `self` methods lost
+  mutations (block_mutates_self → pointer ABI in compile_fn + signature
+  registration).
+- **Map cluster (4 fixes, 7 smokes green):** `&K` scalar params passed the
+  VALUE — four coordinated fixes (param_llvm_type, mono subst_type Ref arm,
+  generic-call inference, coerce materializes plain values for pointer
+  params).
+- **Variant-hijack:** struct literals whose name collides with an enum
+  VARIANT (Node{...} vs enum BST { Node(...) }) — bare-variant search
+  yields to known types. bench_math native IR now valid (was
+  store %struct.BST %vecval).
+- **Tuple destructure (BUG 26 #3):** the checker bound every name to the
+  whole Tuple__A__B; now splits element types.
+
+**Verified fixed:** BUG 26 #2 (bare prelude names), BUG 26 #5 (high-bit
+mask AND), BUG 24 residual (smoke_num_precision). **Stdlib-side:**
+smoke_num_saturating needs real Bounded/Ord impls; smoke_alloc_basic needs
+`use xiom.ptr;`; smoke_hash_folder needs `use xiom.convert.toint;`.
+The stdlib session also filed BUG 32-38 (fp128/ptr-cast/nested-Vec-write/
+is-Some-double-check families) — the next compiler queue.
 
 ### Verified green (isolated binary `$env:TEMP\kilo\tgt_iso\debug\xiom.exe`)
 
