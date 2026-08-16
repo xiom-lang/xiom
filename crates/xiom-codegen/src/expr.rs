@@ -3000,10 +3000,23 @@ impl IrEmitter {
     .find(|k| k.ends_with(&format!(".{ek}")))
                     }
                 } else {
-                    // Bare variant: search all enums
-                    self.types.enum_variants.entries().into_iter()
-    .find(|(_, vars)| vars.iter().any(|(v, _)| v == &leaf_variant))
-                        .map(|(ek, _)| ek.clone())
+                    // Bare variant: search all enums — BUT only when the name
+                    // is NOT a known struct type. BUG 31 (bench_math native):
+                    // `Node{ value: ...; children: ... }` (the bench_memory
+                    // STRUCT) was hijacked by `enum BST[T] { Node(...) }`'s
+                    // Node VARIANT — the literal compiled as %struct.BST with
+                    // the enum's payload slots (store %struct.BST %vecval at
+                    // field 2 → invalid IR).
+                    if !self.types.types.contains_key(&name.name)
+                        && !self.types.type_meta.contains_key(&name.name)
+                        && !self.types.generic_type_names.iter().any(|k| k == &name.name || k.ends_with(&format!(".{}", name.name)))
+                    {
+                        self.types.enum_variants.entries().into_iter()
+                            .find(|(_, vars)| vars.iter().any(|(v, _)| v == &leaf_variant))
+                            .map(|(ek, _)| ek.clone())
+                    } else {
+                        None
+                    }
                 };
                 // Verify the variant exists in the resolved enum
                 let parent_enum = parent_enum.and_then(|ek| {
