@@ -121,8 +121,37 @@ is-Some-double-check families) — the next compiler queue.
 
 ## Open items (next sessions, in priority order)
 
+### 0. [HIGH — NOW] Rebuild + re-triage the remaining smoke failures (2026-08-16 late)
+
+The stdlib session's 905-smoke sweep (621 pass / 300 fail, done against the
+STALE 17:36 binary) produced exact lists:
+`%TEMP%\kilo\remaining_compilefail.txt` (59) + `remaining_runfail.txt` (190).
+
+**BEFORE triaging anything:**
+1. Rebuild the isolated binary — my BUG 31 fixes (`2b238da4`, `b28ac72b`,
+   `a7571ac7`, `99f894b7`) are NOT in the 17:36 binary. The fmt/io/regex
+   clang clusters and ALL `bisect_*` entries (deleted scratch) should drop
+   out of the lists immediately.
+2. Re-run both lists against the new binary; filter:
+   - `bisect_*` — my deleted scratch, ignore.
+   - `smoke_fmt_*`, `smoke_stress_fmt_*` — fixed (fmt cluster).
+   - `smoke_rc/cell/utf8`, `smoke_stress_collections_map_*` — fixed.
+3. The ~60 remaining compile-fails and the run-fails cluster into families
+   that need triage: **array/char/cell/cmp/collections/convert/core/error/
+   io/num/ptr/rc** — each is either a REAL compiler bug (like the fmt/Map
+   clusters were) or stdlib-side API drift. Bisect each family like the
+   fmt/Map clusters were done (small repro → root cause → fix).
+4. Known stdlib-side (hand to the stdlib session): smoke_num_saturating
+   (Bounded/Ord impls needed), smoke_alloc_basic (`use xiom.ptr;`).
+
+**Edit-race caution (stdlib session's warning):** their realignment script
+ran while smoke crypto/net/stress files showed as modified; if any of my
+uncommitted smoke content is missing from the tree, re-apply it. Current
+tree has NO uncommitted smoke changes (all committed) — verify with
+`git status --short examples/stdlib_smoke` before mass-editing.
+
 ### A. [HIGH — pre-selfhost] Catalog body type-checking (Q2b, user-approved)
-NOT STARTED this session (the 16-failure sweep consumed it). Plan unchanged:
+NOT STARTED. Plan unchanged:
 Phase 1 check reachable injected fns; Phase 2 all catalog bodies at load
 (hash-keyed cache); Phase 3 `--strict-stdlib` CI gate.
 
@@ -130,34 +159,31 @@ Phase 1 check reachable injected fns; Phase 2 all catalog bodies at load
 Unchanged: `crates/xiom-codegen/tests/stdlib_tests.rs` +
 `stdlib_execution_tests.rs` still reference the pre-refactor layout
 (STDLIB_MANIFEST.md 515 paths + STDLIB_SMOKES.md 213 smokes).
+**The merge wave (5 idle test worktrees) WAITS on this** — the stdlib
+session is ready to run it once item B lands.
 
-### C. [MEDIUM] BUG 26 leftovers
-- Bare prelude names in user modules — LIVE: smoke_alloc_basic fails with
-  `undefined variable 'ptr'` (a `xiom.ptr`/prelude name users can't resolve).
-- Cross-module tuple destructuring (Pattern::Tuple binds Int).
+### C. [MEDIUM] BUG 32-38 — the stdlib session's new compiler queue
+Filed in COMPILER_BUGS.md (2026-08-16 evening), priority by blocker:
+1. **BUG 37** — fp128 RETURNED from a catalog fn crashes the caller
+   (0xC0000005) — blocks any consumer of `bigfloat_to_float128`.
+2. **BUG 32** — `x as *T` (Int VARIABLE to pointer) emits address-of-local,
+   not inttoptr — blocks pointer-handle designs (glob).
+3. **BUG 38** — `if x is Some { match x { Some(v) => ... } }` double-check
+   binds the payload as 0 — BUG 30 #1/#2 family; semver worked around it.
+4. **BUG 34** — nested Vec element WRITES via `&mut` AV (reads work).
+5. **BUG 35** — Int128 index math inside a Vec-writing fn shape AV.
+6. **BUG 36** — fp128 Horner-loop fn shape AV when sign statements follow.
+7. **BUG 33** — Option[Float128] unwrap loads undefined `%struct.Float128`
+   (payload type lookup must map XIOM Float128 → LLVM fp128).
+8. **BUG 31 (stdlib's)** — unary minus on Float128 emits `sub i64 0, fp128`
+   (fneg path must handle fp128).
+9. **P001 hang** — indented module-level declarations HANG the compiler
+   (stdlib realigned 158 files; the parser should reject, not hang).
 
-### D. [MEDIUM] 904-smoke battery — failure survey (NEW this session)
-Ran all `examples/stdlib_smoke/smoke_*.xi` (904 files — the stdlib session
-added ~830 since STDLIB_SMOKES.md). Results: ~516 pass / ~289 fail. The
-failures are a MIX — triage notes for the next session:
-- **Compiler bug classes seen (REAL, worth fixing):**
-  - `void type only allowed for function results` (smoke_fmt_formatter) —
-    void in expression position.
-  - struct-literal field-type mixups (bench_math BST/Vec store; same family
-    as the fixed BufReader invariant bug — a Node.new-style literal stores a
-    Vec into a wrong-typed slot) — still OPEN.
-  - `type 'Int' does not implement 'Bounded': missing method 'is_finite'`
-    (smoke_num_saturating) — checker interface-bound gap.
-  - Map AVs (smoke_stress_collections_map_*: get_missing/insert_get/
-    clear/collision AV 0xC0000005) — Map is a NEW stdlib type, needs a
-    dedicated investigation.
-  - smoke_fmt_edge/float/format* AVs (0xC0000005/0xC0000409) — fmt module.
-- **Stdlib-side (smoke files/API staleness — for the stdlib session):**
-  parse errors (P001), undefined vars (missing imports), renamed APIs,
-  broken .xi files (smoke_stress_rand_shuffle). The 4 known harness failures:
-  hash_folder (missing `use xiom.convert.toint;`), rc/cell/utf8 now PASS
-  (compiler fixes) — tell stdlib the rc/cell/utf8 labels in the old report
-  were compiler-side, now fixed; hash_folder remains stdlib-side.
+### D. [DONE] 904-smoke battery — BUG 31 batch closed the compiler-side
+fmt (8 smokes), Map (7 smokes), variant-hijack (bench_math native), tuple
+destructure (BUG 26 #3) all fixed; BUG 26 #2/#5 + BUG 24 residual verified
+fixed. Remaining queue is item 0 (re-triage) + C above.
 
 ### E. [MEDIUM] MCP catalog/registry tools (ROADMAP G) — unchanged.
 ### F. [LOW] Roadmap E/F: reverse type-index, contract policy decision.
