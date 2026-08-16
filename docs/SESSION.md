@@ -1,6 +1,35 @@
 # XIOM Compiler Session — Handoff (2026-08-16)
 
-Branch: `feat/architect` (31 commits ahead of `origin/feat/architect`).
+## Session update (2026-08-16 late): BUG 32-38 queue progress
+
+Commits this session: `9042e8a2` (BUG 38 + 38b generic-receiver family),
+`74bcc28b` (BUG 32/33/31), `b15d0d3b` (BUG 34).
+
+- **BUG 38 FIXED** — bare `is Some` scrutinee rebind now fires ONLY inside
+  an Imply left side (sx4 pos=5).
+- **BUG 38b (new) FIXED** — generic-receiver methods (`Iterator[T].collect`)
+  lost their receiver generics in the parser; receiver-keyed mono dispatch +
+  abstract-receiver decl preference + mutating-self ABI (block_mutates_self
+  recursion + block_mutates_receiver_state). iter smokes 0/19 → 6/19.
+- **BUG 32 FIXED** (Int→ptr cast inttoptr), **BUG 33 FIXED** (Option[Float128]
+  payload → fp128), **BUG 31 FIXED** (fp128 fneg), **BUG 34 FIXED** (nested
+  Vec[Vec[T]] writes: dispatch + element-address ABI + elem_size 32).
+- **BUG 35** primary shape verified working (Int128+Vec-write buckets
+  correct); extreme variant needs the stdlib repro.
+- **BUG 37/36 OPEN** — minimal deterministic repro: BigFloat field-chain
+  Vec-len as a loop bound + any fp128 op in the loop → AV even at clang -O0
+  with sound IR (t_chainloop/t_b37f). `bigfloat_to_float128` still crashes
+  for non-zero values. Deep-dive needed.
+- **P001 not reproduced** — indented decls reject in 0.14s; the former
+  15-min hang smoke compiles in 4.9s. The 238-file re-sweep completed
+  without hangs.
+- Re-triage of the stdlib session's two lists: 238 files → 43 pass, 82
+  compilefail, 113 runfail (details in COMPILER_BUGS.md + the report file).
+
+Full statuses: docs/COMPILER_BUGS.md (2026-08-16 late section). The queue
+items B (exec harness) and C (catalog body checking) are still OPEN.
+
+Branch: `feat/architect` (32 commits ahead of `origin/feat/architect`).
 COMPILER session. The parallel stdlib session is MISSION COMPLETE
 (512 modules, 6,379 pub fns, 0 stubs, layout FROZEN); my replies live in
 `docs/REPORT_TO_STDLIB_SESSION.md` (last updated `707a299c`).
