@@ -1297,3 +1297,127 @@ missing imports (smoke_alloc_basic `ptr` family, smoke_net_* API drift),
 renamed/absent APIs (smoke_stress_rand_* compile failures). hash_folder
 missing import. The stdlib session should fix these in their tree; the
 compiler-side list above is the compiler's share.
+
+---
+
+## 2026-08-16 (evening) — stdlib session: two NEW compiler findings during gap-fill implementation
+
+### BUG 31 — unary minus on Float128 emits sub i64 0, fp128 (codegen, clang rejects)
+
+- **Construct:** any -x where x: Float128 (unary negation in an expression).
+- **Repro:** ar a = 1.0 as Float128; a = -a; — clang: error: '%tmp' defined with type 'fp128' but expected 'i64' at sub i64 0, %tmp.
+- **Worked around in stdlib** (num/bigfloat.xi bigfloat_to_float128 uses cc * (-1.0 as Float128) with a TODO(compiler) note) — negation via literal multiply is idiomatic float code and the only construct that trips it.
+- **Likely fix:** fneg path in codegen must emit LLVM neg fp128 (or sub fp128 0.0, x), not the integer sub i64 form. Check the Int-only neg emission branch; Float32/64 likely share it — verify those too.
+- Also related: standalone xiom.exe --emit-ir on num/bigfloat.xi reports cannot call 'to_int' on this expression at 239:13 — a STANDALONE-check false positive (the fn resolves through the import catalog; aggregate-file check quirk documented in STDLIB_IMPLEMENTATION.md §4 — the real test is a consumer program, which type-checks fine).
+
+### BUG 37 — fp128 RETURNED from a catalog fn crashes the caller (0xC0000005)
+
+- **Construct:** calling a stdlib (catalog) fn that returns `Float128` and
+  doing anything with the result (even just assigning it), in a program that
+  also imports bigfloat machinery. Crash occurs inside/right after the call,
+  before the next statement.
+- **Status:** the IDENTICAL fn defined in user space (local struct + local
+  fn, g17 probe) exits 0 with correct values; the catalog version crashes in
+  every caller shape tried (direct assignment, print-after, compare, negate,
+  single vs dual import, explicit result type). fp128 arithmetic on
+  user-locals is fine (smoke_d1_native128); the failure is specific to the
+  catalog-return boundary. BUG 24/28-family shape dependence.
+- **Impact on stdlib:** num/bigfloat.xi `bigfloat_to_float128` (structured as
+  three single-shape fns to dodge BUG 36) compiles and is correct, but no
+  consumer program can use it yet — the gap-fill smoke cannot include it
+  (documented in the smoke). TODO(compiler) notes left in the module.
+- **Likely fix:** the catalog-return ABI for fp128 (value vs sret, or the
+  mono'd copy-out path) — the compiler session's BUG 24/27 #12 families.
+
+### BUG 36 — fp128 Horner-loop fn shape crashes when any sign/scaling statement follows (0xC0000005)
+
+- **Construct:** a fn that (a) runs a Horner loop mixing fp128 mul/add with
+  i64?fp128 casts of Vec-element reads through a struct chain, and (b) ALSO
+  contains any subsequent fp128 statement — a sign negate
+  (`acc * (-1.0 as Float128)` or `(0.0 as Float128) - acc`), or an
+  in-loop Int negate — crashes at runtime 0xC0000005 even when the sign
+  branch is not taken. Removing the sign statement (or moving it to a
+  separate helper fn) makes the same fn exit 0.
+- **Status:** every individual piece (Horner loop, pow10 loop, div loop,
+  negate, Int128 math) passes in isolation and in small combinations; the
+  crash is strictly per-fn-shape (BUG 24/28 #5 family). The compiler
+  session's "repro g12/g14/g16" probes are in this session's notes.
+- **Impact on stdlib:** num/bigfloat.xi bigfloat_to_float128 is structured
+  as: Horner loop fn + `_f128_pow10` helper (one scaling loop) + `_f128_neg`
+  helper (sign only) — three single-shape fns that each compile clean.
+  TODO(compiler) notes left; consolidate when the shape bug lands.
+- **Likely fix:** fp128 register allocation / mono across statement
+  boundaries — the compiler session's BUG 24 family.
+
+### BUG 35 — Int128 index math inside a Vec-writing fn shape AVs (0xC0000005 / 0xC000001D)
+
+- **Construct:** `var diff128 = (v[i] as Int128) - (min as Int128);
+  var idx = (diff128 / (width as Int128)) as Int;` inside a fn that also
+  writes Vec elements (`counts[idx] = ...`, `output[slot] = ...`).
+- **Status:** the SAME Int128 ops pass in isolation (probe i128a/i128b exit 0)
+  and pass in a counting-only fn, but crash when combined with Vec element
+  writes in the same fn (0xC0000005) or with extreme i64 values
+  (0xC000001D — SIMD/illegal-instruction family). Shape-dependent
+  miscompile, BUG 24 family.
+- **Impact on stdlib:** sort/radix.xi bucket_sort uses plain Int index math
+  with a documented i64-span caveat (TODO(compiler) notes left). Revisit
+  with Int128 when the shape bug is fixed.
+- **Likely fix:** Int128 mono/register allocation interacting with the
+  boxed-Vec write path — the compiler session's BUG 24/27 #12 families.
+
+### BUG 34 — nested Vec element WRITES via reference AV (0xC0000005)
+
+- **Construct:** `bs[idx].push(x)` or `&bs[b]` passed as `&mut Vec[Int]`
+  where `bs: Vec[Vec[Int]]` — mutation of a nested-vector ELEMENT.
+- **Status:** READS of nested elements work (`outer[0][1]` compiles and runs),
+  but WRITES through the inner vector reference crash at runtime
+  (0xC0000005). The pre-existing stub note in sort/radix.xi ("nested
+  Vec[Vec[Int]] element access is not handled reliably") is still accurate
+  for the write path.
+- **Impact on stdlib:** sort/radix.xi `bucket_sort` was rewritten with a flat
+  offset-table distribution (counts/offsets Vec[Int] + single output Vec[Int])
+  to avoid nested vectors entirely; semantics unchanged (stable per-bucket
+  ordering, O(n + b) expected).
+- **Likely fix:** the `&mut` reference-to-nested-element lowering (pointer to
+  the Vec handle inside the outer buffer vs pointer to the inner heap data)
+  — same family as BUG 24 / the coerce_arg_for_param `&Vec` fixes.
+
+### BUG 33 — Option[Float128] payload unwrap loads undefined `%struct.Float128`
+
+- **Construct:** matching/unwrapping an `Option[Float128]` payload (the
+  `Option__Float128.unwrap` / match-Some binding path).
+- **IR evidence:** `%struct.Option__Float128 = type { i64, fp128 }` is defined
+  correctly (native fp128 payload), but the unwrap fn emits
+  `%result = load %struct.Float128, %struct.Float128* %val_gep` — the
+  payload's STRUCT NAME (`%struct.Float128`, never defined ? opaque) instead
+  of the native `fp128`. clang: `error: load operand must be a pointer to a
+  first class type`.
+- **Impact on stdlib:** any fn returning `Option[Float128]` is unusable by
+  consumers until fixed. num/bigfloat.xi `bigfloat_to_float128` therefore
+  returns bare `Float128` (documented inf saturation) with a TODO(compiler)
+  note; the Option variant can land once the unwrap names the payload type
+  correctly.
+- **Likely fix:** the Option-payload unwrap type-name resolution should emit
+  the native LLVM scalar type for Float128 (same class of fix as BUG 30 #10
+  local_xiom_types / payload slot typing — the payload type lookup must map
+  XIOM Float128 ? LLVM fp128, not the struct name).
+
+### BUG 32 — Int?pointer cast (`x as *T`) emits address-of-local, not `inttoptr`
+
+- **Construct:** `var h = buf as Int; var q = h as *UInt8;` inside an unsafe
+  block (any Int VARIABLE cast to a pointer).
+- **IR evidence (repro pdb3.xi):** `h = buf as Int` correctly emits
+  `ptrtoint`; the reverse cast emits `bitcast i64* %alloca_slot to i8*` —
+  i.e. the ADDRESS OF THE LOCAL holding h, NOT `inttoptr i64 %h to i8*`.
+  The recovered pointer reads the stack slot, so `q == buf` is false and
+  `q[0]` reads pointer bytes. Constant casts (`0 as *T`) are unaffected
+  (proper inttoptr), which is why `ptr.null` works.
+- **Impact on stdlib:** blocks pointer-handle designs through Int-typed APIs
+  (misc/glob.xi glob_compile/glob_compile_match — worked around with a
+  single-slot module-global registry, TODO(compiler) note left).
+- **Likely fix:** the unsafe cast lowering — emit `inttoptr` for Int?pointer
+  casts instead of reusing the ptr-to-locals path.
+
+### P001 indentation quirk (parser, low priority — smoke files realigned to convention)
+
+- Indented module-level declarations (    use xiom.x; + indented n main) + a final column-0 } produce error[P001]: expected declaration, found '}' at EOF, while any one of those three properties removed compiles. Module-level use/n at column 0 (repo convention) always works. 10 smoke files in examples/stdlib_smoke were realigned to the convention (they had 4-space-indented use + n); no stdlib code uses the failing shape.
