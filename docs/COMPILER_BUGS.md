@@ -1439,3 +1439,54 @@ compiler-side list above is the compiler's share.
 - Indented module-level declarations (indented `use xiom.x;` + indented `fn main`) + a final column-0 `}` produce `error[P001]: expected declaration, found '}'` at EOF, while any one of those three properties removed compiles. Module-level `use`/`fn` at column 0 (repo convention) always works.
 - **WORSE: the 2-space-indented variant HANGS the compiler indefinitely** (no error, no exit � smoke_stress_crypto_hash_known_vector.xi hung the 904-sweep for 15+ min; the compiler session's own "batch 8 timed out" was the same family). The unindented copy of the same file compiles in ~14s.
 - 158 smoke files in examples/stdlib_smoke were realigned to the col-0 convention on 2026-08-16 (stdlib session) � zero indented `use` remain; re-check this note if a future sweep hangs.
+
+---
+
+## 2026-08-16 (late) — compiler session: BUG 31 batch — fmt, Map, variant-hijack, tuple destructure all fixed
+
+The compiler session's queue from the 904-sweep. Commits:
+`2b238da4` (fmt), `b28ac72b` (Map), `a7571ac7` (variant hijack), `99f894b7` (tuple destructure).
+
+1. **Unit fields in `Result[Unit, FmtError]` literals → `store void 0, void*`**
+   (invalid IR): generic-name literals now resolve to the CONCRETE
+   instantiation via the fn's return type; field types degrade Unit→i64
+   (field_llvm_type + ctor sites + the 5c.39 value adoption never takes
+   void). **Fixes smoke_fmt_align/formatter/format1-3/edge/float.**
+2. **Str.to_str passthrough read the first BYTE of the string**: the
+   prologue treated i8* receivers as struct pointers (self registered as
+   the pointee "i8"); only `%struct.X*` receivers take that branch.
+3. **`v.to_str()` on primitive locals → bare `@to_str` stub**:
+   infer_struct_type_name now resolves literal receivers (incl. negated +
+   paren-wrapped), primitive-typed locals via local_xiom_types, and
+   monomorphised generic params via param_concrete_types;
+   infer_value_xiom_type learns literals.
+4. **Mutating `self` methods (Formatter.write_int's `self.buf = ...`) lost
+   the mutation**: block_mutates_self pushes the POINTER ABI in compile_fn
+   AND the signature registration.
+5. **Map[K,V] `&K` params (get/contains/remove) passed the VALUE**: four
+   coordinated fixes — param_llvm_type Type::Ref → pointer for scalars;
+   mono subst_type Ref → pointer arm; generic-call inference &T scalar →
+   pointer; coerce_arg_for_param materializes plain VALUE args into temps
+   for pointer params. **Fixes all 7 smoke_stress_collections_map_*.**
+6. **Struct literal vs enum-variant name hijack**: `Node{...}` (a STRUCT)
+   was hijacked by `enum BST[T] { Node(...) }`'s Node VARIANT — the
+   bare-variant search now only fires when the name is NOT a known type.
+   **Fixes bench_math's native IR (was store %struct.BST %vecval).**
+7. **Cross-module tuple destructuring** (`var (a, b) = pair()`): the
+   checker bound every name to the WHOLE tuple — now splits the
+   Tuple__A__B element types. **Fixes BUG 26 #3.**
+
+**Verified fixed this session:** BUG 26 #2 (bare prelude names — repro
+passes), BUG 26 #5 (high-bit mask AND — repro passes), BUG 24 residual
+(smoke_num_precision OK).
+
+**Remaining compiler queue (documented):** BUG 32 (Int→ptr cast emits
+address-of-local), BUG 33 (Option[Float128] unwrap opaque struct name),
+BUG 34 (nested-Vec element WRITES), BUG 35 (Int128+Vec-write shape AV),
+BUG 36 (fp128 Horner shape AV), BUG 37 (fp128 catalog-return AV),
+BUG 38 (is-Some + match double-check binds 0 — BUG 30 #1/#2 family).
+
+**Stdlib-side (for the stdlib session):** smoke_num_saturating needs real
+Bounded/Ord impls (generic bounded fns, no impls — interface dispatch
+itself verified working); smoke_alloc_basic needs `use xiom.ptr;`;
+smoke_hash_folder needs `use xiom.convert.toint;`.
