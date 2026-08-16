@@ -1418,6 +1418,22 @@ compiler-side list above is the compiler's share.
 - **Likely fix:** the unsafe cast lowering � emit `inttoptr` for Int->pointer
   casts instead of reusing the ptr-to-locals path.
 
+### BUG 38 - if opt is Some { match opt { Some(x) => ... } } double-check binds payload as 0
+
+- **Construct:** an is Some predicate check on an Option followed by a
+  match on the same Option whose Some(x) arm binds the payload.
+- **Repro (sx4.xi):** str_index_of("1.2.3-alpha.1", "-") returns Some(5);
+  the plain match binds pos=5 (correct), but the if ... is Some + inner
+  match form binds pos=0 (wrong) - every slice then starts at 1.
+- **Impact on stdlib:** misc/semver.xi semver_parse/semver_parse_partial/
+  semver_satisfies used the double-check on str_index_of results - any
+  version with a -/+ suffix failed to parse (semver_valid("1.2.3-alpha.1")
+  = false; smoke_misc2 exit 55). REWRITTEN to plain match (the pre-check
+  was redundant) - smoke_misc2 now exit 0. iter.xi's while item is Some
+  (single-check rebind) is unaffected and NOT this bug.
+- **Likely fix:** the is-Some imply/binding machinery (BUG 30 #1/#2 family) -
+  the payload slot binding after an is Some check must not poison the
+  subsequent match's payload read (0 is the zero-init of the untracked slot).
 ### P001 indentation quirk (parser � CAN HANG the compiler, priority for the compiler session)
 
 - Indented module-level declarations (indented `use xiom.x;` + indented `fn main`) + a final column-0 `}` produce `error[P001]: expected declaration, found '}'` at EOF, while any one of those three properties removed compiles. Module-level `use`/`fn` at column 0 (repo convention) always works.
