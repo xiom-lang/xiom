@@ -27,6 +27,23 @@ impl IrEmitter {
         // 5c.30: Indexed Vec element (e.g. outer[0] where outer: Vec[Vec[Int]]).
         // The index returns a loaded struct. For mutation (push), we need a pointer
         // into the outer Vec's data buffer so changes persist.
+        // BUG 34: `bs[i].push(x)` — an INDEXED element of a Vec whose elements
+        // are Vecs. The element must be mutated IN the outer data buffer: the
+        // element-address path (GEP) is authoritative for ALL Index receivers
+        // on Vec containers, whether the compiled element is an i64 or a
+        // %struct.Vec — the old i64 branch inttoptr'd the ELEMENT VALUE as a
+        // pointer (mutations hit garbage) and the %struct.Vec branch needed
+        // the (often mis-inferred) struct type to fire at all.
+        if let Expr::Index(container, idx, _) = receiver {
+            let cont_ty = self.infer_llvm_type(container);
+            if cont_ty == "%struct.Vec" || cont_ty.ends_with(".Vec") || cont_ty.contains("struct.Vec") {
+                if let Some(elem_ptr) = self.resolve_index_elem_ptr(container, idx) {
+                    let vp = self.fresh_tmp();
+                    self.emitln(&format!("  {vp} = bitcast i8* {elem_ptr} to %struct.Vec*"));
+                    return Ok((vp, false)); // mutations go directly to buffer
+                }
+            }
+        }
         if recv_ty == "i64" {
             if let Expr::Index(container, _, _) = receiver {
                 let cont_ty = self.infer_llvm_type(container);
