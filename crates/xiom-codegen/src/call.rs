@@ -2672,7 +2672,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                 other => {
                                                     let subst = Self::substitute_type(other, other, &self.mono.param_concrete_types);
                                                     let name = Self::type_from_ast(&subst);
-                                                    self.llvm_type_for(&name).unwrap_or_else(|_| "i64".to_string())
+                                                    // BUG 31: &T scalar ref → POINTER to
+                                                    // the value type (the mono def takes
+                                                    // i64*; a by-value i64 param made
+                                                    // `*key` deref the VALUE → AV).
+                                                    let base = self.llvm_type_for(&name).unwrap_or_else(|_| "i64".to_string());
+                                                    format!("{base}*")
                                                 }
                                             },
                                             _ => self.infer_llvm_type(a),

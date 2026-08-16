@@ -66,6 +66,22 @@ impl IrEmitter {
             // an i64 address inttoptrs to the real pointer, a struct value
             // takes the existing struct→pointer slot path (coerce_value),
             // and a Vec data pointer coerces directly.
+            if lvalue.is_none() && !pre_ty.ends_with('*') && !param_ty.starts_with("%struct.") {
+                // BUG 31: a plain VALUE arg (literal etc.) to a `&T`/pointer
+                // param must be MATERIALIZED into a temp — the inttoptr
+                // fallback treated the VALUE as an address
+                // (Map.get(1) → callee's `*key` derefs address 1 → AV).
+                // Only for scalar pointees (i64*/i8*/double*); array and
+                // struct-pointer params keep their existing paths.
+                let pointee = param_ty.trim_end_matches('*');
+                if matches!(pointee, "i1" | "i8" | "i16" | "i32" | "i64" | "float" | "double" | "fp128") {
+                    let tmp = self.fresh_tmp();
+                    self.emitln(&format!("  {tmp} = alloca {pointee}"));
+                    let cv = self.coerce_value(pre_val, pre_ty, pointee);
+                    self.emitln(&format!("  store {pointee} {cv}, {pointee}* {tmp}"));
+                    return tmp;
+                }
+            }
         }
         self.coerce_value(pre_val, pre_ty, param_ty)
     }
