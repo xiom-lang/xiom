@@ -3289,6 +3289,65 @@ impl IrEmitter {
                     Expr::Ident(name) => self.resolve_scrutinee_fn_key(&name.name),
                     Expr::Field(obj, field, _) => {
                         let bare = field.name.clone();
+                        // BUG 30 (BufReader.lines): `Vec[Str]::new()` parses as
+                        // Field(Ident(Vec), new) with the generic args on the
+                        // GenericCall wrapper. A known-TYPE base must resolve
+                        // `{Type}.{method}` — the bare `new` alias falls to the
+                        // FIRST registrant (BufReader.new) and the Vec
+                        // accumulator's invariant check became
+                        // BufReader.invariant_check(%struct.Vec ...) → invalid IR.
+                        if let Expr::Ident(bid) = obj.as_ref() {
+                            if self.types.types.contains_key(&bid.name)
+                                || self.types.type_meta.contains_key(&bid.name)
+                                || self.types.type_meta.keys().into_iter().any(|k| k.ends_with(&format!(".{}", bid.name)))
+                            {
+                                let typed = format!("{}.{}", bid.name, field.name);
+                                if self.types.functions.contains_key(&typed)
+                                    || self.types.type_meta.contains_key(&typed)
+                                {
+                                    return self.resolve_struct_return(&typed);
+                                }
+                                // Module-qualified registration
+                                // ("xiom.collections.Vec.new") — suffix search.
+                                let suffix = format!(".{}", typed);
+                                let hit = self.types.functions.keys()
+                                    .into_iter()
+                                    .find(|k| k.ends_with(&suffix));
+                                if let Some(k) = hit {
+                                    return self.resolve_struct_return(&k);
+                                }
+                                // Known-type static call whose method isn't
+                                // registered yet (catalog order): do NOT fall
+                                // through to the bare alias (wrong-type check).
+                                return None;
+                            }
+                        }
+                        // BUG 30: `Vec[Str]::new()` with an INDEX receiver —
+                        // resolve `Vec.new` from the index BASE. When the typed
+                        // key isn't registered yet (catalog compile ORDER — io.xi
+                        // compiles before xiom.collections), return None rather
+                        // than falling through to the BARE alias: the bare `new`
+                        // resolves to the FIRST registrant (io's own
+                        // BufReader.new) and the Vec accumulator's invariant
+                        // check became BufReader.invariant_check(%struct.Vec …).
+                        if let Expr::Index(base, _, _) = obj.as_ref() {
+                            if let Expr::Ident(bid) = base.as_ref() {
+                                let typed = format!("{}.{}", bid.name, field.name);
+                                if self.types.functions.contains_key(&typed)
+                                    || self.types.type_meta.contains_key(&typed)
+                                {
+                                    return self.resolve_struct_return(&typed);
+                                }
+                                let suffix = format!(".{}", typed);
+                                let hit = self.types.functions.keys()
+                                    .into_iter()
+                                    .find(|k| k.ends_with(&suffix));
+                                if let Some(k) = hit {
+                                    return self.resolve_struct_return(&k);
+                                }
+                                return None;
+                            }
+                        }
                         if let Some(recv_type) = self.infer_struct_type_name(obj) {
                             let qualified = format!("{}.{}", recv_type, field.name);
                             if self.types.functions.contains_key(&qualified) {
@@ -3310,17 +3369,7 @@ impl IrEmitter {
                     }
                     _ => return None,
                 };
-                // Check if the known return type is a struct
-                if self.types.type_meta.contains_key(&fn_key) {
-                    return Some(fn_key);
-                }
-                // Also check the return type from the function registry
-                if let Some((_, ret_ty)) = self.types.functions.get(&fn_key) {
-                    if ret_ty.starts_with("%struct.") {
-                        return Some(ret_ty[8..].to_string());
-                    }
-                }
-                None
+                self.resolve_struct_return(&fn_key)
             }
             Expr::Tuple(_, _) => None,
             _ => None,
@@ -3363,6 +3412,23 @@ impl IrEmitter {
             return aliased.clone();
         }
         bare.to_string()
+    }
+
+    /// BUG 30: given a resolved callee key, return the STRUCT type name from
+    /// its registered return type (None when the fn isn't registered or the
+    /// return type isn't a struct).
+    fn resolve_struct_return(&self, fn_key: &str) -> Option<String> {
+        // Check if the known return type is a struct
+        if self.types.type_meta.contains_key(&fn_key.to_string()) {
+            return Some(fn_key.to_string());
+        }
+        // Also check the return type from the function registry
+        if let Some((_, ret_ty)) = self.types.functions.get(&fn_key.to_string()) {
+            if ret_ty.starts_with("%struct.") {
+                return Some(ret_ty[8..].to_string());
+            }
+        }
+        None
     }
 
 
