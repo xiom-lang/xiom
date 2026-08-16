@@ -456,7 +456,11 @@ impl IrEmitter {
             if has_recv && !is_first_param_self {
                 if let Some(recv) = fd.receiver.as_ref() {
                     let base = self.llvm_type_for(&recv.name).unwrap_or_else(|_| "i64".to_string());
-                    let is_mut = fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self);
+                    // BUG 31: mutating `self` methods (body assigns self fields,
+                    // e.g. Formatter.write_int's `self.buf = ...`) must register
+                    // the POINTER ABI — mirror compile_fn's self_llvm_ty decision.
+                    let is_mut = fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self)
+                        || self.block_mutates_self(fd);
                     if is_mut && base.starts_with('%') {
                         param_types.push(format!("{base}*"));
                     } else {
@@ -1012,7 +1016,12 @@ impl IrEmitter {
         let self_llvm_ty = if has_self_param {
             fd.receiver.as_ref().map(|r| {
                 let base = self.llvm_type_for(&r.name).unwrap_or_else(|_| "i64".to_string());
-                let is_mut = fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self);
+                // BUG 31: a `self` param whose body ASSIGNS to self fields
+                // (Formatter.write_int's `self.buf = ...`) must pass BY
+                // POINTER even when not declared `mut` — the caller's copy
+                // would never see the mutation (finish() returned "").
+                let is_mut = fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self)
+                    || self.block_mutates_self(fd);
                 if is_mut && base.starts_with('%') { format!("{base}*") } else { base }
             })
         } else if is_this_based {
@@ -1129,7 +1138,14 @@ impl IrEmitter {
         // For methods, first allocate the self struct
         if let (Some(recv), Some(st)) = (fd.receiver.as_ref(), self_llvm_ty.as_ref()) {
             let self_alloca = self.fresh_tmp();
-            let is_ptr_receiver = st.ends_with('*');
+            // BUG 31: only STRUCT pointers (`%struct.X*`) take the pointer-
+            // receiver branch. Str's i8* is the VALUE — treating it as a
+            // struct pointer registered self as the POINTEE ("i8"), so the
+            // body `self` read the first BYTE of the string
+            // (load i8 → zext → inttoptr → strcmp(NULL) → AV in
+            // Str.to_str passthroughs).
+            let is_ptr_receiver = st.ends_with('*')
+                && st.trim_end_matches('*').starts_with("%struct.");
             self.emitln(&format!("  {self_alloca} = alloca {st}"));
             self.emitln(&format!("  store {st} %param_self, {st}* {self_alloca}"));
             if is_ptr_receiver {

@@ -259,6 +259,7 @@ impl IrEmitter {
             // Literals — already evaluated
             Expr::Int(..) | Expr::Float(..) | Expr::Bool(..) | Expr::Str(..) => expr.clone(),
 
+
             // Enum constructors — evaluate inner expression
             Expr::Some(inner, span) => {
                 let v = self.evaluate_const_init(inner);
@@ -2813,8 +2814,7 @@ impl IrEmitter {
                 let field_type_1 = self.types.type_meta.get(&struct_name.to_string())
                     .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
-                let field_llvm_1 = self.llvm_type_for(&field_type_1)
-                    .unwrap_or_else(|_| "i64".to_string());
+                let field_llvm_1 = self.field_llvm_ty(&field_type_1);
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {opt_ty}"));
                 let gep0 = self.fresh_tmp();
@@ -2850,8 +2850,7 @@ impl IrEmitter {
                 let field_type_1 = self.types.type_meta.get(&struct_name.to_string())
                     .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
-                let field_llvm_1 = self.llvm_type_for(&field_type_1)
-                    .unwrap_or_else(|_| "i64".to_string());
+                let field_llvm_1 = self.field_llvm_ty(&field_type_1);
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {opt_ty}"));
                 let gep0 = self.fresh_tmp();
@@ -2890,13 +2889,11 @@ impl IrEmitter {
                 } else {
                     self.compile_expr(inner)?
                 };
-                let field_llvm_1 = self.llvm_type_for(&field_type_1)
-                    .unwrap_or_else(|_| "i64".to_string());
+                let field_llvm_1 = self.field_llvm_ty(&field_type_1);
                 let field_type_2 = self.types.type_meta.get(&struct_name.to_string())
                     .and_then(|m| m.fields.get(2).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
-                let field_llvm_2 = self.llvm_type_for(&field_type_2)
-                    .unwrap_or_else(|_| "i64".to_string());
+                let field_llvm_2 = self.field_llvm_ty(&field_type_2);
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {result_ty}"));
                 // BUG 30: zero-init unused slots (Err payload for Ok, Ok payload
@@ -2947,13 +2944,11 @@ impl IrEmitter {
                 let field_type_1 = self.types.type_meta.get(&struct_name.to_string())
                     .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
-                let field_llvm_1 = self.llvm_type_for(&field_type_1)
-                    .unwrap_or_else(|_| "i64".to_string());
+                let field_llvm_1 = self.field_llvm_ty(&field_type_1);
                 let field_type_2 = self.types.type_meta.get(&struct_name.to_string())
                     .and_then(|m| m.fields.get(2).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
-                let field_llvm_2 = self.llvm_type_for(&field_type_2)
-                    .unwrap_or_else(|_| "i64".to_string());
+                let field_llvm_2 = self.field_llvm_ty(&field_type_2);
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {result_ty}"));
                 // BUG 30: zero-init unused slots (Ok payload for Err).
@@ -2982,6 +2977,9 @@ impl IrEmitter {
                 Ok((loaded, result_ty.to_string()))
             }
             Expr::Struct(name, fields, _spread, _span) => {
+                if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() && (name.name == "Result" || name.name.contains("Result")) {
+                    eprintln!("[struct] name={} ret_ty={}", name.name, self.fctx.current_return_type);
+                }
                 // If `name` is an enum variant (e.g., `Circle` or `Shape.Circle`),
                 // resolve to parent enum type. Qualified variant names need splitting.
                 let (base_name, leaf_variant) = match name.name.rfind('.') {
@@ -3042,7 +3040,20 @@ impl IrEmitter {
                         }
                     }
                 } else {
-                    self.llvm_type_for_fallback(&name.name)
+                    let mut ty = self.resolve_literal_struct_ty(&name.name);
+                    // BUG 31: `Result[Unit, FmtError] { is_ok: ...; value: ();
+                    // error: ... }` — the parser drops the generic args, so the
+                    // literal resolves to the GENERIC template (%struct.Result,
+                    // void Unit-field stores, ABI mismatch vs the fn signature).
+                    // When the fn's return type is a CONCRETE instantiation of
+                    // the same base, adopt it.
+                    if (ty == "%struct.Result" || ty == "%struct.Option")
+                        && self.fctx.current_return_type.starts_with(&ty[..ty.len() - 1])
+                        && self.fctx.current_return_type != ty
+                    {
+                        ty = self.fctx.current_return_type.clone();
+                    }
+                    ty
                 };
                 if !struct_ty.starts_with('%') {
                     // Scalar type — struct literal was resolved to a non-struct
@@ -3140,7 +3151,10 @@ impl IrEmitter {
                         } else if field_llvm_ty == "i64" {
                             // For generic types, field_llvm_type may return "i64" for unresolved type params (like T).
                             // Fall back to the field value's actual compiled LLVM type.
-                            if field_val_ty != "i64" {
+                            // BUG 31: NEVER adopt "void" — a Unit value (`value: ()`)
+                            // must keep the i64 slot (`store void 0, void*` was
+                            // invalid IR); the struct DEF degrades Unit fields to i64.
+                            if field_val_ty != "i64" && field_val_ty != "void" {
                                 field_llvm_ty = field_val_ty.clone();
                             }
                         }
@@ -4457,6 +4471,36 @@ impl IrEmitter {
             // and Field module-path shapes above are treated as non-instances).
             _ => true,
         }
+    }
+
+    /// BUG 31: LLVM type for a STRUCT FIELD — degrades Unit to i64. The
+    /// struct-def path emits Unit fields as i64, so the ctor stores must
+    /// match (`store void 0, void*` was invalid IR; Ok(()) on
+    /// Result[Unit, FmtError] → "void type only allowed for function
+    /// results").
+    fn field_llvm_ty(&self, xiom_ty: &str) -> String {
+        let t = self.llvm_type_for(xiom_ty).unwrap_or_else(|_| "i64".to_string());
+        if t == "void" { "i64".to_string() } else { t }
+    }
+
+    /// BUG 31: resolve a struct-literal type NAME that may carry generic
+    /// args (`Result[Unit, FmtError]`) to the CONCRETE registered type
+    /// (`%struct.Result__Unit__FmtError`). Without this, the literal built
+    /// the GENERIC template (%struct.Result) while the fn signature used the
+    /// concrete type — the Unit field store emitted `store void 0, void*`
+    /// (invalid IR) and the return ABI mismatched.
+    fn resolve_literal_struct_ty(&self, name: &str) -> String {
+        if name.contains('[') {
+            let mangled = name.replace('[', "__")
+                .replace(", ", "__")
+                .replace(',', "__")
+                .replace(']', "");
+            let t = self.llvm_type_for_fallback(&mangled);
+            if t.starts_with('%') {
+                return t;
+            }
+        }
+        self.llvm_type_for_fallback(name)
     }
 
 }

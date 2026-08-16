@@ -793,6 +793,55 @@ impl IrEmitter {
         Self::block_mentions_self(block)
     }
 
+    /// BUG 31: true when the fn body ASSIGNS to a `self`/`this` FIELD
+    /// (`self.buf = ...`). Such methods mutate the receiver, so the ABI must
+    /// pass self BY POINTER even when the declared `self` param is not `mut`
+    /// — otherwise the caller's copy never sees the mutation
+    /// (Formatter.write_int's buf update was lost → finish() returned "").
+    pub(crate) fn block_mutates_self(&self, fd: &FnDecl) -> bool {
+        let Some(body) = fd.body.as_ref() else { return false };
+        fn stmt_mutates_self(s: &Stmt) -> bool {
+            match s {
+                Stmt::Assign(place, _, _) => {
+                    fn place_is_self(place: &Expr) -> bool {
+                        match place {
+                            Expr::Field(base, _, _) => matches!(base.as_ref(),
+                                Expr::Ident(id) if id.name == "self" || id.name == "this"),
+                            Expr::Index(base, _, _) => place_is_self(base.as_ref()),
+                            Expr::Unary(UnaryOp::Deref, inner, _) => place_is_self(inner.as_ref()),
+                            _ => false,
+                        }
+                    }
+                    place_is_self(place)
+                }
+                _ => false,
+            }
+        }
+        fn expr_mutates_self(e: &Expr) -> bool {
+            match e {
+                Expr::Unsafe(b, _) | Expr::BlockExpr(b, _) => block_mutates(b),
+                Expr::If(c, t, elifs, els, _) => {
+                    expr_mutates_self(c)
+                        || block_mutates(t)
+                        || elifs.iter().any(|(ec, eb)| expr_mutates_self(ec) || block_mutates(eb))
+                        || els.as_ref().map_or(false, block_mutates)
+                }
+                Expr::Match(_, arms, _) => arms.iter().any(|arm| match &arm.body {
+                    MatchBody::Block(b) => block_mutates(b),
+                    MatchBody::Expr(e) => expr_mutates_self(e),
+                }),
+                _ => false,
+            }
+        }
+        fn block_mutates(b: &Block) -> bool {
+            b.stmts.iter().any(|s| match s {
+                StmtOrExpr::Stmt(stmt) => stmt_mutates_self(stmt),
+                StmtOrExpr::Expr(e) => expr_mutates_self(e),
+            })
+        }
+        block_mutates(body)
+    }
+
     fn block_mentions_self(block: &Block) -> bool {
         block.stmts.iter().any(|s| match s {
             StmtOrExpr::Stmt(stmt) => Self::stmt_mentions_self(stmt),
@@ -2514,7 +2563,11 @@ impl IrEmitter {
                     } else { "i64".to_string() }
                 } else {
                     let t = self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
-                    t
+                    // BUG 31: Unit fields degrade to i64 in the struct DEF; the
+                    // literal store must match (`store void 0, void*` was
+                    // invalid IR — Formatter.write_* Result[Unit, FmtError]
+                    // literals).
+                    if t == "void" { "i64".to_string() } else { t }
                 };
                 return result;
             }
@@ -5311,6 +5364,28 @@ let inner_llvm = match &inner_subst {
                         let clean = raw.trim_end_matches('*'); // strip pointer suffix
                         return Some(clean.to_string());
                     }
+                    // BUG 31: PRIMITIVE-typed locals must resolve their XIOM
+                    // type for method dispatch (`v.to_str()` on a Float64
+                    // local resolved to the bare `@to_str` stub → strcmp(NULL)
+                    // → AV). The LLVM type alone can't distinguish Int
+                    // variants, so use the registered XIOM type.
+                    if let Some(xiom_ty) = self.local.local_xiom_types.get(&ident.name) {
+                        if xiom_ty == "Str" || xiom_ty == "Float64" || xiom_ty == "Float32"
+                            || xiom_ty == "Int" || xiom_ty == "Int8" || xiom_ty == "Int16"
+                            || xiom_ty == "Int32" || xiom_ty == "Int64" || xiom_ty == "UInt"
+                            || xiom_ty == "UInt8" || xiom_ty == "UInt16" || xiom_ty == "UInt32"
+                            || xiom_ty == "UInt64" || xiom_ty == "Bool" || xiom_ty == "Char"
+                        {
+                            return Some(xiom_ty.clone());
+                        }
+                    }
+                    // BUG 31: GENERIC param receivers in a monomorphised body
+                    // (`arg.to_str()` with T=Bool in format1) — the mono map
+                    // carries the concrete type even when the local registry
+                    // still holds the generic.
+                    if let Some(ct) = self.mono.param_concrete_types.get(&ident.name) {
+                        return Some(ct.clone());
+                    }
                 }
                 // Check module-level globals (var _exec: Executor = ...)
                 if let Some((_, global_ty)) = self.local.module_globals.get(&ident.name) {
@@ -5462,6 +5537,19 @@ let inner_llvm = match &inner_subst {
                 }
                 None
             }
+            // BUG 31: LITERAL receivers must resolve their type for method
+            // dispatch (`"".to_str()` → "Str.to_str"). Without this the call
+            // fell through to the ambiguous ".to_str" suffix search → bare
+            // `@to_str` zero-param stub → strcmp(NULL) → AV.
+            Expr::Str(..) => Some("Str".to_string()),
+            Expr::Int(..) => Some("Int".to_string()),
+            Expr::Float(..) => Some("Float64".to_string()),
+            Expr::Bool(..) => Some("Bool".to_string()),
+            Expr::Char(..) => Some("Char".to_string()),
+            // BUG 31: `(-1.5).to_str()` — the negation (and parens) wrap the
+            // literal.
+            Expr::Unary(UnaryOp::Neg, inner, _) => self.infer_struct_type_name(inner),
+            Expr::Paren(inner, _) => self.infer_struct_type_name(inner),
             _ => None,
         }
     }
