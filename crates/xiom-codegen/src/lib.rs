@@ -814,8 +814,29 @@ impl IrEmitter {
                     }
                     place_is_self(place)
                 }
+                // BUG 38b: `if cond { self.start = ... }` — the assign sits in a
+                // nested block; without recursion the ABI stayed by-value and the
+                // mutation was silently lost (iterators looped forever).
+                Stmt::If(cond, then_b, elifs, else_b, _) => {
+                    stmt_mutates_self_in_expr(cond)
+                        || block_mutates(then_b)
+                        || elifs.iter().any(|(ec, eb)| stmt_mutates_self_in_expr(ec) || block_mutates(eb))
+                        || else_b.as_ref().map_or(false, block_mutates)
+                }
+                Stmt::While(cond, b, _, _, _) => stmt_mutates_self_in_expr(cond) || block_mutates(b),
+                Stmt::For(_, iter, b, _, _) => stmt_mutates_self_in_expr(iter) || block_mutates(b),
+                Stmt::Match(scrut, arms, _) => {
+                    stmt_mutates_self_in_expr(scrut)
+                        || arms.iter().any(|arm| match &arm.body {
+                            MatchBody::Block(b) => block_mutates(b),
+                            MatchBody::Expr(e) => expr_mutates_self(e),
+                        })
+                }
                 _ => false,
             }
+        }
+        fn stmt_mutates_self_in_expr(e: &Expr) -> bool {
+            expr_mutates_self(e)
         }
         fn expr_mutates_self(e: &Expr) -> bool {
             match e {
@@ -840,6 +861,104 @@ impl IrEmitter {
             })
         }
         block_mutates(body)
+    }
+
+    /// BUG 38b (iter family): true when the fn body ASSIGNS to a BARE receiver
+    /// field (`start = start + 1` inside `Range.next(self)` — this-based
+    /// mutation without a `self.` prefix). The by-value self ABI would pass a
+    /// COPY and the mutation would be lost (`r.next()` returned Some(1)
+    /// forever → infinite loop / stack smashing in every iter.xi consumer).
+    /// Mirrors block_mutates_self but matches bare receiver-field places.
+    pub(crate) fn block_mutates_receiver_state(&self, fd: &FnDecl) -> bool {
+        let Some(body) = fd.body.as_ref() else { return false };
+        let Some(recv) = fd.receiver.as_ref() else { return false };
+        let types_fields = self.types.types.get(&recv.name)
+            .or_else(|| {
+                let suffix = format!(".{}", recv.name);
+                self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix)).and_then(|k|self.types.types.get(&k))
+            });
+        let fields: Option<Vec<String>> = types_fields.or_else(|| {
+            self.types.type_meta.get(&recv.name).map(|m| {
+                m.fields.iter().map(|(n, _)| n.clone()).collect()
+            })
+        }).or_else(|| {
+            let suffix = format!(".{}", recv.name);
+            self.types.type_meta.keys().into_iter().find(|k| k.ends_with(&suffix)).and_then(|k| {
+                self.types.type_meta.get(&k).map(|m| {
+                    m.fields.iter().map(|(n, _)| n.clone()).collect()
+                })
+            })
+        });
+        let Some(fields) = fields else { return false };
+        let mut bound: std::collections::HashSet<String> =
+            fd.params.iter().map(|p| p.name.name.clone()).collect();
+        Self::collect_bound_names(body, &mut bound);
+        let candidates: std::collections::HashSet<String> = fields.into_iter()
+            .filter(|f| !bound.contains(f))
+            .collect();
+        if candidates.is_empty() { return false; }
+        fn expr_assigns_field(e: &Expr, candidates: &std::collections::HashSet<String>) -> bool {
+            match e {
+                Expr::Unsafe(b, _) | Expr::BlockExpr(b, _) => block_assigns_field(b, candidates),
+                Expr::If(c, t, elifs, els, _) => {
+                    expr_assigns_field(c, candidates)
+                        || block_assigns_field(t, candidates)
+                        || elifs.iter().any(|(ec, eb)| expr_assigns_field(ec, candidates) || block_assigns_field(eb, candidates))
+                        || els.as_ref().map_or(false, |b| block_assigns_field(b, candidates))
+                }
+                Expr::Match(_, arms, _) => arms.iter().any(|arm| match &arm.body {
+                    MatchBody::Block(b) => block_assigns_field(b, candidates),
+                    MatchBody::Expr(e) => expr_assigns_field(e, candidates),
+                }),
+                _ => false,
+            }
+        }
+        fn block_assigns_field(b: &Block, candidates: &std::collections::HashSet<String>) -> bool {
+            b.stmts.iter().any(|s| match s {
+                StmtOrExpr::Stmt(Stmt::Assign(place, _, _)) => {
+                    // Bare receiver-field place: `start = ...`, `start[i] = ...`,
+                    // `*p = ...` chains rooted at a receiver field name.
+                    fn place_is_field(place: &Expr, candidates: &std::collections::HashSet<String>) -> bool {
+                        match place {
+                            Expr::Ident(id) => candidates.contains(&id.name),
+                            Expr::Index(base, _, _) => place_is_field(base.as_ref(), candidates),
+                            Expr::Unary(UnaryOp::Deref, inner, _) => place_is_field(inner.as_ref(), candidates),
+                            // `self.start = ...` / `this.start = ...`: the FIELD
+                            // name is the receiver field being mutated.
+                            Expr::Field(base, field, _) => {
+                                if matches!(base.as_ref(), Expr::Ident(id) if id.name == "self" || id.name == "this") {
+                                    candidates.contains(&field.name)
+                                } else {
+                                    place_is_field(base.as_ref(), candidates)
+                                }
+                            }
+                            _ => false,
+                        }
+                    }
+                    place_is_field(place, candidates)
+                }
+                StmtOrExpr::Stmt(s) => match s {
+                    Stmt::If(cond, t, elifs, els, _) => {
+                        expr_assigns_field(cond, candidates)
+                            || block_assigns_field(t, candidates)
+                            || elifs.iter().any(|(ec, eb)| expr_assigns_field(ec, candidates) || block_assigns_field(eb, candidates))
+                            || els.as_ref().map_or(false, |b| block_assigns_field(b, candidates))
+                    }
+                    Stmt::While(cond, b, _, _, _) => expr_assigns_field(cond, candidates) || block_assigns_field(b, candidates),
+                    Stmt::For(_, iter, b, _, _) => expr_assigns_field(iter, candidates) || block_assigns_field(b, candidates),
+                    Stmt::Match(scrut, arms, _) => {
+                        expr_assigns_field(scrut, candidates)
+                            || arms.iter().any(|arm| match &arm.body {
+                                MatchBody::Block(b) => block_assigns_field(b, candidates),
+                                MatchBody::Expr(e) => expr_assigns_field(e, candidates),
+                            })
+                    }
+                    _ => false,
+                },
+                StmtOrExpr::Expr(e) => expr_assigns_field(e, candidates),
+            })
+        }
+        block_assigns_field(body, &candidates)
     }
 
     fn block_mentions_self(block: &Block) -> bool {
@@ -4309,6 +4428,76 @@ impl IrEmitter {
         }
     }
 
+    /// BUG 38b: find the generic decl for a (possibly receiver-keyed) method
+    /// key. Exact-key and suffix matches win; the receiver-keyed LEAF fallback
+    /// ("Range.count" ↔ "Iterator[T].count") prefers a decl whose receiver is
+    /// an UNDECLARED abstract type ("Iterator") over concrete receivers
+    /// ("HashMap") that merely share the leaf method name — otherwise the
+    /// wrong decl's generics ([K, V] instead of [T]) mis-shape the
+    /// instantiation and the receiver ABI.
+    pub(crate) fn find_generic_decl(&self, fkey: &str) -> Option<(String, FnDecl)> {
+        if let Some((k, f)) = self.mono.generic_fn_decls.iter().find(|(k, _)| k == fkey) {
+            return Some((k.clone(), f.clone()));
+        }
+        if let Some((k, f)) = self.mono.generic_fn_decls.iter()
+            .find(|(k, _)| k.ends_with(&format!(".{fkey}")))
+        {
+            return Some((k.clone(), f.clone()));
+        }
+        let leaf = fkey.rsplit('.').next().unwrap_or(fkey);
+        if fkey.split('.').count() != 2 { return None; }
+        // Abstract-receiver decls first: the receiver is not a registered type.
+        let is_abstract_receiver = |recv: &str| -> bool {
+            !self.types.types.contains_key(&recv.to_string())
+                && !self.types.type_meta.contains_key(&recv.to_string())
+                && !self.types.type_meta.keys().into_iter().any(|k| k.ends_with(&format!(".{}", recv)))
+                && !self.types.generic_type_names.iter().any(|k| k == recv || k.ends_with(&format!(".{}", recv)))
+        };
+        if let Some((k, f)) = self.mono.generic_fn_decls.iter().find(|(k, _)| {
+            k.split('.').count() >= 2
+                && k.rsplit('.').next() == Some(leaf)
+                && k.rsplit_once('.').map_or(false, |(r, _)| is_abstract_receiver(r))
+        }) {
+            return Some((k.clone(), f.clone()));
+        }
+        self.mono.generic_fn_decls.iter().find(|(k, _)| {
+            k.split('.').count() >= 2 && k.rsplit('.').next() == Some(leaf)
+        }).map(|(k, f)| (k.clone(), f.clone()))
+    }
+
+    /// BUG 38b: the CONCRETE receiver type embedded in a receiver-keyed
+    /// monomorphisation key ("Range" from "Range.collect", whose generic decl
+    /// is `Iterator[T].collect`). Returns None unless the receiver part names
+    /// a KNOWN type (never a module like "iter" in "iter.range").
+    fn mono_receiver_part(&self, mono_key: &str) -> Option<String> {
+        let (recv_part, leaf) = mono_key.rsplit_once('.')?;
+        if recv_part.is_empty() || recv_part.contains('.') { return None; }
+        let _ = leaf;
+        let known = self.types.types.contains_key(&recv_part.to_string())
+            || self.types.type_meta.contains_key(&recv_part.to_string())
+            || self.types.type_meta.keys().into_iter().any(|k| k.ends_with(&format!(".{}", recv_part)))
+            || self.types.generic_type_names.iter().any(|k| k == recv_part || k.ends_with(&format!(".{}", recv_part)));
+        if known { Some(format!("%struct.{recv_part}")) } else { None }
+    }
+
+    /// BUG 38b: the receiver LLVM type for a monomorphised method definition.
+    /// A KNOWN concrete receiver (Range, Vec, Cell...) resolves through
+    /// llvm_type_for; an UNDECLARED abstract receiver ("Iterator" — the
+    /// trait-like receiver of `Iterator[T].collect`) falls back to the
+    /// concrete receiver embedded in the receiver-keyed mono key, since
+    /// llvm_type_for's final fallback would silently return i64.
+    fn receiver_llvm_type(&self, recv_name: &str, mono_key: &str) -> String {
+        let known = self.types.types.contains_key(&recv_name.to_string())
+            || self.types.type_meta.contains_key(&recv_name.to_string())
+            || self.types.type_meta.keys().into_iter().any(|k| k.ends_with(&format!(".{}", recv_name)))
+            || self.types.generic_type_names.iter().any(|k| k == recv_name || k.ends_with(&format!(".{}", recv_name)));
+        if known {
+            self.llvm_type_for(recv_name).unwrap_or_else(|_| "i64".to_string())
+        } else {
+            self.mono_receiver_part(mono_key).unwrap_or_else(|| "i64".to_string())
+        }
+    }
+
     /// After all non-generic functions have been compiled, emit specialized
     /// versions for each tracked generic instantiation.
     /// Uses a worklist pattern: monomorphising one function may trigger new
@@ -4329,11 +4518,9 @@ impl IrEmitter {
             }
             for (base_name, concrete_types) in &instantiations {
             // Find the generic function decl
-            let fd = match self.mono.generic_fn_decls.iter().find(|(k, _)| k == base_name) {
-                Some((_, f)) => f.clone(),
-                None => {
-                    continue;
-                }
+            let fd = match self.find_generic_decl(base_name) {
+                Some((_, f)) => f,
+                None => { continue; }
             };
             // Emit each unique specialization at most once. Without this, a
             // generic that (transitively) instantiates itself re-queues the same
@@ -4651,26 +4838,24 @@ let inner_llvm = match &inner_subst {
                 && fd.receiver.is_some()
                 && self.body_uses_receiver_state(&fd);
             let self_llvm_ty = if let (true, Some(r)) = (has_self_param, fd.receiver.as_ref()) {
-                let base = self.llvm_type_for(&r.name).unwrap_or_else(|_| {
-                    let search = format!(".{}", r.name);
-                    for key in self.types.type_meta.keys() {
-                        if key.ends_with(&search) { return format!("%struct.{key}"); }
-                    }
-                    "i64".to_string()
-                });
-                Some(if is_mut_self && base.starts_with('%') { format!("{base}*") } else { base })
+                // BUG 38b: concrete receiver when it's a KNOWN type; for an
+                // undeclared abstract receiver ("Iterator[T].collect") the
+                // concrete type comes from the mono KEY ("Range.collect").
+                let base = self.receiver_llvm_type(&r.name, base_name);
+                // BUG 31/38b: mutating self methods (self.field or BARE
+                // receiver-field assignments) pass BY POINTER.
+                let is_mut = is_mut_self
+                    || self.block_mutates_self(&fd)
+                    || self.block_mutates_receiver_state(&fd);
+                Some(if is_mut && base.starts_with('%') { format!("{base}*") } else { base })
             } else if body_uses_self || is_this_based {
                 // 5c.34: By-value self in generic method — pass pointer so
                 // mutations propagate to caller (matches compile_fn behavior).
                 // This-based: bind the receiver by pointer (bare field reads
                 // GEP through it).
-                let base = fd.receiver.as_ref().and_then(|r| {
-                    self.llvm_type_for(&r.name).ok().or_else(|| {
-                        let search = format!(".{}", r.name);
-                        self.types.type_meta.keys().into_iter().find(|k| k.ends_with(&search))
-                            .map(|k| format!("%struct.{k}"))
-                    })
-                }).unwrap_or_else(|| "i64".to_string());
+                let base = fd.receiver.as_ref()
+                    .map(|r| self.receiver_llvm_type(&r.name, base_name))
+                    .unwrap_or_else(|| "i64".to_string());
                 Some(if base.starts_with('%') { format!("{base}*") } else { base })
             } else {
                 None

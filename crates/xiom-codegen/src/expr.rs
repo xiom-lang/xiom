@@ -1735,7 +1735,17 @@ impl IrEmitter {
                 // inttoptr+load dereferenced the payload value as a
                 // pointer (uninitialized on Some-return paths) → AV.
                 self.push_scope();
+                // BUG 38: the bare-scrutinee payload rebind in Is()
+                // (`x is Some` rebinds x to the payload slot) is a
+                // contract-ensures convenience (BUG 29: `result is Some
+                // => result.len()`) and must fire ONLY inside the Imply
+                // left side. In if/while conditions it leaked into the
+                // enclosing scope and poisoned the subsequent `match x`
+                // (payload read as i64, Some(v) arm bound 0).
+                let saved_imply_lhs = self.local.in_imply_lhs;
+                self.local.in_imply_lhs = true;
                 let (l, _lt) = self.compile_expr(left)?;
+                self.local.in_imply_lhs = saved_imply_lhs;
                 let (r, _rt) = self.compile_expr(right)?;
                 self.pop_scope();
                 let tmp1 = self.fresh_tmp();
@@ -1782,8 +1792,11 @@ impl IrEmitter {
                             {
                                 let bind_ident: Option<&Ident> = match inner.as_ref() {
                                     xiom_ast::Pattern::Ident(id) => Some(id),
+                                    // BUG 38: the bare `is Some` scrutinee-name
+                                    // rebind is a contract-ensures convenience
+                                    // (BUG 29) — gate it to Imply-left contexts.
                                     _ => match expr.as_ref() {
-                                        Expr::Ident(sid) => Some(sid),
+                                        Expr::Ident(sid) if self.local.in_imply_lhs => Some(sid),
                                         _ => None,
                                     },
                                 };
@@ -1820,6 +1833,7 @@ impl IrEmitter {
                     let loaded = self.fresh_tmp();
                     self.emitln(&format!("  {loaded} = load i64, i64* {gep}"));
                     // M18: Bind pattern variable before the return
+                    let in_imply_lhs = self.local.in_imply_lhs;
                     let bind_payload = |emitter: &mut Self, pat: &xiom_ast::Pattern, struct_alloca: &str, struct_ty: &str| {
                         if let xiom_ast::Pattern::Some(inner, _)
                             | xiom_ast::Pattern::Ok(inner, _)
@@ -1836,7 +1850,9 @@ impl IrEmitter {
                             let bind_name: Option<String> = if let xiom_ast::Pattern::Ident(id) = inner.as_ref() {
                                 Some(id.name.clone())
                             } else if let Expr::Ident(sid) = expr.as_ref() {
-                                Some(sid.name.clone())
+                                // BUG 38: gate the bare-scrutinee rebind to
+                                // Imply-left (contract ensures) contexts.
+                                if in_imply_lhs { Some(sid.name.clone()) } else { None }
                             } else {
                                 None
                             };

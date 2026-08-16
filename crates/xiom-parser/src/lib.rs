@@ -716,6 +716,11 @@ impl Parser {
         // Handle generic args on a method receiver type: `fn Option[T].method(...)`.
         // Only skip `[...]` when it is immediately followed by `.` (a method receiver);
         // otherwise it is a generic function's own params (e.g. `fn max[T](...)`), so restore.
+        // BUG 38b: the receiver's generic param NAMES are captured into fd.generics
+        // (receiver-first) instead of being dropped — `Iterator[T].collect(self)`
+        // must monomorphise like the equivalent `Rc.get[T](self)` form; without
+        // them the decl was registered with an erased i64 receiver ABI.
+        let mut receiver_generics: Vec<String> = Vec::new();
         if self.check(|k| matches!(k, TokenKind::LBracket)) {
             let saved = self.pos;
             self.advance(); // consume '['
@@ -724,15 +729,36 @@ impl Parser {
                 match self.peek_kind() {
                     TokenKind::LBracket => { depth += 1; self.advance(); }
                     TokenKind::RBracket => { depth -= 1; self.advance(); }
+                    // Single-uppercase-letter type-param names at depth 1
+                    // (convention: T, U, K, V, E, B...). Multi-char names are
+                    // concrete type args (Vec, Str, Foo) — never captured.
+                    TokenKind::Ident(s) if depth == 1 && s.len() == 1
+                        && s.chars().next().map_or(false, |c| c.is_ascii_uppercase()) => {
+                        receiver_generics.push(s.clone());
+                        self.advance();
+                    }
                     _ => { self.advance(); }
                 }
             }
             if !self.check(|k| matches!(k, TokenKind::Dot)) {
                 self.pos = saved; // not a method receiver — leave `[...]` for generic params
+                receiver_generics.clear();
             }
         }
         let (receiver, name) = if self.skip(TokenKind::Dot) { (Some(first), self.parse_ident()?) } else { (None, first) };
         let mut generics = self.parse_optional_generic_params()?;
+        // BUG 38b: receiver generics come FIRST (they bind the receiver type
+        // param, e.g. `Iterator[T].chain[U]` → generics [T, U]), deduped by name.
+        for rg in receiver_generics.into_iter().rev() {
+            if !generics.iter().any(|g| g.name.name == rg) {
+                generics.insert(0, GenericParam {
+                    name: Ident::new(&rg, start),
+                    bounds: Vec::new(),
+                    is_const: false,
+                    const_ty: None,
+                });
+            }
+        }
         self.expect_kind(TokenKind::LParen, "'('")?;
         let params = if self.check(|k| matches!(k, TokenKind::RParen)) { self.advance(); Vec::new() } else { let p = self.parse_param_list()?; self.expect_kind(TokenKind::RParen, "')'")?; p };
         let return_type = if self.skip(TokenKind::Arrow) { Some(self.parse_type()?) } else { None };

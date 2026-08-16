@@ -2395,7 +2395,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 };
                 let is_generic = self.mono.generic_fn_decls.iter().any(|(k, _)| k == &fn_key)
                     || (!self.types.functions.contains_key(&fn_key)
-                        && self.mono.generic_fn_decls.iter().any(|(k, _)| k.ends_with(&format!(".{}", fn_key))));
+                        && (self.mono.generic_fn_decls.iter().any(|(k, _)| k.ends_with(&format!(".{}", fn_key)))
+                            // BUG 38b (iter family): RECEIVER-KEYED generic methods —
+                            // `iter.range(1, 4).collect()` resolves fn_key to
+                            // "Range.collect", but the generic decl is registered
+                            // as "Iterator[T].collect". Match on the LEAF method
+                            // name so the call enters monomorphisation with the
+                            // concrete receiver instead of calling the erased
+                            // i64-receiver definition (ABI mismatch → garbage).
+                            || (fn_key.split('.').count() == 2
+                                && self.mono.generic_fn_decls.iter().any(|(k, _)| {
+                                    k.rsplit('.').next() == fn_key.rsplit('.').next()
+                                }))));
                 if is_generic {
                     // Infer concrete types from argument types
                     let mut concrete_types: Vec<String> = Vec::new();
@@ -2406,8 +2417,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     // as Float32, not Int.
                     let explicit_types: Vec<String> = explicit_generic_types.clone();
                     // Find the generic function declaration
-                    if let Some((_, fd)) = self.mono.generic_fn_decls.iter().find(|(k, _)| k == &fn_key)
-                        .or_else(|| self.mono.generic_fn_decls.iter().find(|(k_2, _)| k_2.ends_with(&format!(".{}", fn_key)))) {
+                    if let Some((_, fd)) = self.find_generic_decl(&fn_key) {
                         let fd = fd.clone();
                         for gp in &fd.generics {
                             // D1: explicit type args win over inference.
@@ -2640,20 +2650,15 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         let (ret_ty, param_types) = if let Some((pts, rt)) = self.types.functions.get(&specialized_name) {
                             (rt.clone(), pts.clone())
                         } else {
-                            // Not yet registered - use the generic signature with
-                            // argument-inferred param types, prepending the receiver
-                            // type if the generic decl has a self parameter.
                             let mut inferred_types: Vec<String> = Vec::new();
                             // Compute param types from the GENERIC DECL's param types
                             // (substituted), mirroring what compile_generic_monomorphisations
                             // will register. Guessing from the ARG types is wrong: `&[N]T`
                             // registers i64* (data ptr) while `&Vec[T]` registers
                             // %struct.Vec (by value) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â both arrive as &array_local.
-                            let generic_fd = self.mono.generic_fn_decls.iter()
-                                .find(|(k, _)| k == &fn_key)
-                                .or_else(|| self.mono.generic_fn_decls.iter().find(|(k, _)| k.ends_with(&format!(".{}", fn_key))));
+                            let generic_fd = self.find_generic_decl(&fn_key);
                             for (i, a) in args.iter().enumerate() {
-                                let t = if let Some((_, fd)) = generic_fd {
+                                let t = if let Some((_, fd)) = generic_fd.as_ref() {
                                     if let Some(p) = fd.params.get(i) {
                                         match &p.ty {
                                             // &mut T / *T ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ real pointer to the value type
@@ -2694,16 +2699,15 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // (by-value self method). If so, prepend the receiver
                             // struct pointer type so the call matches the monomorphised
                             // function's actual signature.
-                            let generic_fd = self.mono.generic_fn_decls.iter()
-                                .find(|(k, _)| k == &fn_key);
-                            let body_uses_self = generic_fd.map_or(false, |(_, fd)| {
+                            let generic_fd = self.find_generic_decl(&fn_key);
+                            let body_uses_self = generic_fd.as_ref().map_or(false, |(_, fd)| {
                                 fd.body.as_ref().map_or(false, |b| IrEmitter::block_uses_self_ident(b))
                             });
-                            let has_self = generic_fd.map_or(false, |(_, fd)| {
+                            let has_self = generic_fd.as_ref().map_or(false, |(_, fd)| {
                                 fd.receiver.is_some()
                                     && fd.params.iter().any(|p| p.name.name == "self")
                             });
-                            let has_mut_self = generic_fd.map_or(false, |(_, fd)| {
+                            let has_mut_self = generic_fd.as_ref().map_or(false, |(_, fd)| {
                                 fd.receiver.is_some()
                                     && fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self)
                             });
@@ -2711,7 +2715,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // generic methods (receiver, no self param, body
                             // reads bare fields) also take a receiver pointer
                             // in the monomorphised def — prepend it here too.
-                            let is_this_based = generic_fd.map_or(false, |(_, fd)| {
+                            let is_this_based = generic_fd.as_ref().map_or(false, |(_, fd)| {
                                 !has_self
                                     && !body_uses_self
                                     && fd.receiver.is_some()
@@ -2730,11 +2734,21 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 // the alloca ADDRESS as the Rc struct → every
                                 // field garbage (pointer-sized values).
                                 if let Some(recv_name) = generic_fd
+                                    .as_ref()
                                     .and_then(|(_, fd)| fd.receiver.as_ref())
                                 {
-                                    let recv_ty = self.llvm_type_for(&recv_name.name)
-                                        .unwrap_or_else(|_| LLVM_I64.to_string());
-                                    let recv_abi = if has_self && !has_mut_self {
+                                    // BUG 38b: a KNOWN concrete receiver resolves
+                                    // through llvm_type_for; an UNDECLARED abstract
+                                    // receiver ("Iterator") falls back to the
+                                    // receiver part of the call key ("Range").
+                                    let recv_ty = self.receiver_llvm_type(&recv_name.name, &fn_key);
+                                    // BUG 31/38b: mutating self methods (self.field
+                                    // or BARE receiver-field assignments) pass BY
+                                    // POINTER — mirror the callee's ABI decision.
+                                    let fd_mutates = generic_fd.as_ref().map_or(false, |(_, fd)| {
+                                        self.block_mutates_self(fd) || self.block_mutates_receiver_state(fd)
+                                    });
+                                    let recv_abi = if has_self && !has_mut_self && !fd_mutates {
                                         recv_ty
                                     } else if recv_ty.starts_with('%') {
                                         format!("{recv_ty}*")
@@ -2776,7 +2790,13 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     let is_struct = name.starts_with("Result") || name.starts_with("Option")
                                         || name.starts_with("Vec") || name.starts_with("Map") || name.starts_with("Set")
                                         || name.starts_with("Slice");
-                                    if !is_struct && (llvm != "i64" || generic_ret == "i64") {
+                                    // BUG 38b: container returns ("Vec[Int]") must
+                                    // keep the container LLVM type (%struct.Vec) —
+                                    // the erased i64 made the call/def ABI mismatch
+                                    // (clang: defined %struct.Range but expected i64).
+                                    if is_struct && llvm != "i64" {
+                                        llvm
+                                    } else if !is_struct && (llvm != "i64" || generic_ret == "i64") {
                                         llvm
                                     } else {
                                         generic_ret

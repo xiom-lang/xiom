@@ -459,8 +459,12 @@ impl IrEmitter {
                     // BUG 31: mutating `self` methods (body assigns self fields,
                     // e.g. Formatter.write_int's `self.buf = ...`) must register
                     // the POINTER ABI — mirror compile_fn's self_llvm_ty decision.
+                    // BUG 38b (iter family): BARE receiver-field assignments
+                    // (`start = start + 1` in Range.next) get the same pointer
+                    // ABI (by-value copies lost the mutation → infinite loops).
                     let is_mut = fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self)
-                        || self.block_mutates_self(fd);
+                        || self.block_mutates_self(fd)
+                        || self.block_mutates_receiver_state(fd);
                     if is_mut && base.starts_with('%') {
                         param_types.push(format!("{base}*"));
                     } else {
@@ -1020,8 +1024,13 @@ impl IrEmitter {
                 // (Formatter.write_int's `self.buf = ...`) must pass BY
                 // POINTER even when not declared `mut` — the caller's copy
                 // would never see the mutation (finish() returned "").
+                // BUG 38b (iter family): BARE receiver-field assignments
+                // (`start = start + 1` in Range.next) need the same pointer
+                // ABI — a by-value copy silently dropped the mutation and
+                // iterators looped forever on the first element.
                 let is_mut = fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self)
-                    || self.block_mutates_self(fd);
+                    || self.block_mutates_self(fd)
+                    || self.block_mutates_receiver_state(fd);
                 if is_mut && base.starts_with('%') { format!("{base}*") } else { base }
             })
         } else if is_this_based {
