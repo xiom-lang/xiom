@@ -824,8 +824,16 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // Accept any Vec-typed receiver (Vec[Int], Vec[UInt8], a
                         // module-qualified `%struct.xiom.collections.Vec`, etc.),
                         // including i64 container-field handles (5c.29).
+                        // BUG 34: an INDEXED element of a Vec (nested Vec[Vec[T]])
+                        // compiles as i64/%struct.Vec — accept it when the
+                        // CONTAINER is Vec-typed (resolve_vec_receiver_ptr's
+                        // element-address path handles the buffer GEP).
+                        let is_indexed_vec_elem = matches!(receiver.as_ref(), Expr::Index(container, _, _) if {
+                            let ct = self.infer_llvm_type(container);
+                            ct == "%struct.Vec" || ct.ends_with(".Vec") || ct.contains("struct.Vec")
+                        });
                         let is_vec = recv_ty == "%struct.Vec" || recv_ty.ends_with(".Vec") || recv_ty.contains("struct.Vec")
-                            || self.is_container_vec_field(receiver);
+                            || self.is_container_vec_field(receiver) || is_indexed_vec_elem;
                         if !is_vec {
                             // Not a Vec receiver ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ fall through to general method dispatch
                         } else {
@@ -887,9 +895,33 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         } // OPT-R5 end: skip redundant extractvalue+store for in-place alloca
                         // Load elem_size early ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â needed to decide struct vs scalar path
                         let esz_gep = self.fresh_tmp();
-                        let esz_val = self.fresh_tmp();
-                        self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 3"));
-                        self.emitln(&format!("  {esz_val} = load i64, i64* {esz_gep}"));
+                        let esz_val = {
+                            let tn = val_ty.trim_start_matches("%struct.").trim_end_matches('*');
+                            let is_struct_elem_here = val_ty.starts_with('%') && !val_ty.ends_with('*')
+                                && (self.types.types.contains_key(&tn.to_string())
+                                    || self.types.types.keys().into_iter().any(|k| k.ends_with(&format!(".{tn}"))));
+                            if is_struct_elem_here {
+                                // BUG 34 (nested Vec[Vec[T]]): a STRUCT element
+                                // (e.g. a Vec pushed into a Vec whose ctor
+                                // defaulted elem_size to 8) needs the struct's
+                                // REAL byte size for the slot math (grow + store
+                                // offsets) - else a 32-byte element overwrites 4
+                                // slots. Emit the size as a constant; the store
+                                // block persists it into field 3 so later index
+                                // reads use the same offsets.
+                                let struct_size = self.sizeof_struct(tn);
+                                let sz_tmp = self.fresh_tmp();
+                                self.emitln(&format!("  {sz_tmp} = alloca i64"));
+                                self.emitln(&format!("  store i64 {struct_size}, i64* {sz_tmp}"));
+                                self.emitln(&format!("  {esz_gep} = load i64, i64* {sz_tmp}"));
+                                esz_gep
+                            } else {
+                                let esz_reg = self.fresh_tmp();
+                                self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 3"));
+                                self.emitln(&format!("  {esz_reg} = load i64, i64* {esz_gep}"));
+                                esz_reg
+                            }
+                        };
                         // For struct elements >8 bytes, skip val_to_i64 (which would
                         // heap-allocate) and use memcpy to store the struct inline.
                         let is_struct_elem = val_ty.starts_with('%') && {
@@ -955,6 +987,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         self.emitln(&format!("  store i64 {new_cap}, i64* {grow_cap_gep}"));
                         self.emitln(&format!("  br label %{store_block}"));
                         self.emitln(&format!("\n{store_block}:"));
+                        // BUG 34: persist the (possibly struct-sized) elem_size
+                        // into field 3 so later index reads compute the same
+                        // offsets (Vec.new() defaulted 8 for nested Vecs).
+                        let esz_store_gep = self.fresh_tmp();
+                        self.emitln(&format!("  {esz_store_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 3"));
+                        self.emitln(&format!("  store i64 {esz_val}, i64* {esz_store_gep}"));
                         let store_data_gep = self.fresh_tmp();
                         let store_data_ptr = self.fresh_tmp();
                         self.emitln(&format!("  {store_data_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 0"));
@@ -990,6 +1028,20 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // needs_store_back=false) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the mutation is already in-place.
                         if needs_store_back {
                             self.store_back_to_receiver(receiver, &loaded, "%struct.Vec");
+                        }
+                        // BUG 34: record the NESTED element type on the pushed-to
+                        // Vec so later INDEX reads (`bs[0]`, `bs[i].len()`) take
+                        // the struct-element path (resolve_vec_elem_type). The
+                        // ctor defaulted the type to Int, so without this the
+                        // read inttoptr'd the element's first field as a header.
+                        if is_struct_elem {
+                            if let Expr::Ident(rid) = receiver.as_ref() {
+                                if let Some(arg0) = args.first() {
+                                    let inner = self.resolve_vec_elem_type(arg0)
+                                        .unwrap_or_else(|| "Int".to_string());
+                                    self.local.local_vec_elem.insert(rid.name.clone(), format!("Vec[{inner}]"));
+                                }
+                            }
                         }
                         return Ok((loaded, "%struct.Vec".to_string()));
                         }
@@ -3009,6 +3061,22 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         } else {
                                             (recv_val, recv_llvm_ty)
                                         }
+                                    } else if let Some(Expr::Index(..)) = inner_ident {
+                                        // BUG 34: `bs[i].push(x)` — a MUTATING
+                                        // method on a nested-Vec ELEMENT. The
+                                        // element must be passed BY ADDRESS (GEP
+                                        // into the outer data buffer) — the old
+                                        // path passed the loaded COPY, so the
+                                        // inner push mutated a discarded header
+                                        // (bs[0][0] read 0). Reuse the Ref arm's
+                                        // element-address machinery, then
+                                        // inttoptr the ptrtoint'd address to the
+                                        // callee's declared pointer type.
+                                        let ref_expr = Expr::Ref(Box::new((**receiver).clone()), Span::new(0, 0));
+                                        let (addr_val, _) = self.compile_expr(&ref_expr)?;
+                                        let ptr_reg = self.fresh_tmp();
+                                        self.emitln(&format!("  {ptr_reg} = inttoptr i64 {addr_val} to {p0}"));
+                                        (ptr_reg, p0.clone())
                                     } else {
                                         (recv_val, recv_llvm_ty)
                                     }

@@ -5644,6 +5644,31 @@ let inner_llvm = match &inner_subst {
                         return Some(id.name.clone());
                     }
                 }
+                // BUG 34: `bs[i].push(x)` on a NESTED Vec[Vec[T]] — the element
+                // type must resolve to the BASE container ("Vec" from
+                // "Vec[Int]") so the method dispatches to Vec.push, not a bare
+                // `@push` stub. The container's declared XIOM type
+                // ("Vec[Vec[Int]]") is authoritative when the elem-type
+                // tracking (local_vec_elem) is stale (Vec.new() defaults T).
+                if let Expr::Ident(cid) = container.as_ref() {
+                    if let Some(xiom_ty) = self.local.local_xiom_types.get(&cid.name) {
+                        if let Some(inner) = xiom_ty.strip_prefix("Vec[") {
+                            if let Some(elem) = inner.strip_suffix(']') {
+                                if let Some(elem_base) = elem.split('[').next() {
+                                    let elem_clean = elem_base.trim();
+                                    if self.types.types.contains_key(&elem_clean.to_string())
+                                        || self.types.type_meta.contains_key(&elem_clean.to_string())
+                                        || elem_clean == "Vec" || elem_clean == "Option"
+                                        || elem_clean == "Result" || elem_clean == "Map"
+                                        || elem_clean == "Set" || elem_clean == "Str"
+                                    {
+                                        return Some(elem_clean.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 self.resolve_vec_elem_type(container)
             }
             Expr::Field(obj, field, _) => {
