@@ -34,7 +34,7 @@ workarounds" â€” the compiler must be fixed, then the stdlib lands.
 | **BUG 3 â€” module-global fn-call initializers zero** | **DONE** | `f0388644` | e2e_m37_global_fn_init (`var G = _mk(1)` â†’ 10 via @llvm.global_ctors); probe_const3 R=0 |
 | Str + Int/Char/UInt concat crashed (inttoptr of the integer â†’ AV) | **DONE** | `f0388644` | e2e_m37_str_int_concat ("y = " + 42 â†’ "y = 42"); probe_concat0 R=0 |
 | Dotted-module chain binding â€” `use stdlib.xiom.io` flaky 40â€“60% "cannot call" (parser nests dotted paths; process_use bound the {xiom:{io:â€¦}} chain; stdlib-prefixed uses skipped preload/prelude) | **DONE** | `f0388644` | m19_read_file 8/8 + min repro 8/8 deterministic; stdlib-compile 40/40; checker 178/178 |
-| BUG 19 — NaN-producing Float64 ops returned sentinel/0xC000001D (float `!=` ? `fcmp one`; `Str+Float64` concat inttoptr) | **DONE** | `9c3a2f9e` | e2e_m37_nan_ieee (23 checks) R=0; probe_nan prints "c = nan / is NaN" exit 0; 17/17 sweep |
+| BUG 19 ï¿½ NaN-producing Float64 ops returned sentinel/0xC000001D (float `!=` ? `fcmp one`; `Str+Float64` concat inttoptr) | **DONE** | `9c3a2f9e` | e2e_m37_nan_ieee (23 checks) R=0; probe_nan prints "c = nan / is NaN" exit 0; 17/17 sweep |
 | Â§7 NASM/SIMD tracks (math/crypto/hash/compress asm, CPUID dispatch) | **OPEN** â€” off-limits to stdlib session (crates/ + stdlib/runtime/*.c); pure-XIOM fallbacks in place | â€” | â€” |
 | Selfhost plan | **WRITTEN â€” execution in progress** | `090ed5d1` | docs/SELFHOST_PLAN.md (phases 0â€“8) + docs/checklists/selfhost-phase0.md |
 
@@ -722,17 +722,17 @@ enclosing coercion â†’ `icmp eq ptr, i64` (m34_d01..d20);
 
 ---
 
-## 2026-08-11 — stdlib session (evening): BUG 19 (NEW) — every NaN-producing Float64 operation returns a garbage sentinel or traps
+## 2026-08-11 ï¿½ stdlib session (evening): BUG 19 (NEW) ï¿½ every NaN-producing Float64 operation returns a garbage sentinel or traps
 
 **? FIXED 2026-08-11 (commit `9c3a2f9e`).** Two codegen defects, both verified:
 
-1. **float `!=` lowered to `fcmp one`** (ordered-not-equal) — for NaN operands
+1. **float `!=` lowered to `fcmp one`** (ordered-not-equal) ï¿½ for NaN operands
    `one` is FALSE, so `x != x` returned false and NaN was undetectable.
    Fixed to `fcmp une` in both the BinOp table (expr.rs) and the trait-method
    table (call.rs `.ne()`).
-2. **`Str + Float64` concat inttoptr'd the FP bits** — the "garbage sentinel
+2. **`Str + Float64` concat inttoptr'd the FP bits** ï¿½ the "garbage sentinel
    print" was this, not the fdiv (the IR fdiv was always correct). Fixed via
-   new `@xiom_double_to_string` (xiom_runtime.c): NaN ? "nan", ±inf ?
+   new `@xiom_double_to_string` (xiom_runtime.c): NaN ? "nan", ï¿½inf ?
    "inf"/"-inf", finite values shortest-round-trip (%.15g else %.17g);
    declare added to emitter.rs so the undefined-symbol stub pass can't emit
    a conflicting zero-param definition (this WAS the 0xC000001D crash path).
@@ -746,20 +746,20 @@ true; ordering-with-NaN all false; Float32 NaN; concat "nan"/"inf"/"-inf"/
 - **Construct:** any IEEE-754 NaN-producing Float64 operation: `0.0 / 0.0`, `inf - inf`, `inf * 0.0` (with `inf` from `1.0 / 0.0` or `-1.0 / 0.0`). Verified on a fresh build from HEAD (incl. `2ae300fd` + `3b8f5415` + `f0388644`; `cargo rustc -p xiom --bin xiom -- -o <temp>\xiom.exe`).
 - **Observed:**
   1. `var a = 0.0; var b = 0.0; var c = a / b;` ? `c` prints `-92233.-72036854775808` and `c != c` is **false** (not NaN). Same sentinel for `inf * 0.0` and `inf - inf`.
-  2. `math.ln_pure(-1.0)` (pre-existing stdlib path `if x <= 0.0 { return 0.0 / 0.0; }`, math.xi:162) ? process dies with **0xC000001D** (STATUS_ILLEGAL_INSTRUCTION) — the runtime fault-trap fires on the NaN-producing division.
+  2. `math.ln_pure(-1.0)` (pre-existing stdlib path `if x <= 0.0 { return 0.0 / 0.0; }`, math.xi:162) ? process dies with **0xC000001D** (STATUS_ILLEGAL_INSTRUCTION) ï¿½ the runtime fault-trap fires on the NaN-producing division.
   3. `1.0 / 0.0` ? +inf and `-1.0 / 0.0` ? -inf are **correct** (inf results pass; only NaN results are broken).
-- **IR evidence (probe_nan.xi):** the emitted IR is correct — `%tmp41 = fdiv double 0.00000000000000000e0, 0.00000000000000000e0` — so the corruption happens in the clang/optimize/runtime-trap stage, not in AST emission. The consistent garbage value (`-92233.72036854775808` ˜ a sentinel) suggests the fault-trap/intercept layer (the same system as smoke_guard_fault.xi) replaces NaN-producing FP ops with a trap-or-sentinel path instead of the IEEE result.
-- **Impact on stdlib:** `math.constants` NAN cannot be implemented (no literal syntax; `0.0/0.0` broken) — `// TODO(compiler): BUG 19` in math/constants.xi; `math.is_nan`/`is_inf` classify correctly but nothing in the stdlib can PRODUCE a NaN today (all NaN-producing libm entries — asin/acos/ln/sqrt — carry domain `requires:` contracts). `num/float.xi` `bits_to_float` (planned) needs a real bitcast intrinsic to land anyway.
-- **Fix direction (compiler):** route NaN results (fdiv 0/0, fsub inf-inf, fmul inf*0, and libm domain-error returns) through the IEEE path — do not trap/sentinel float NaN; optionally add a `nan` literal or i64?f64 bitcast intrinsic (`bitcast i64 0x7FF8000000000000 to double`) which would unblock `math.constants.NAN` + `num.float.bits_to_float`. Verify with probe_nan2/probe_nan3 (expect `nan` print + `x != x` true, exit 0).
+- **IR evidence (probe_nan.xi):** the emitted IR is correct ï¿½ `%tmp41 = fdiv double 0.00000000000000000e0, 0.00000000000000000e0` ï¿½ so the corruption happens in the clang/optimize/runtime-trap stage, not in AST emission. The consistent garbage value (`-92233.72036854775808` ï¿½ a sentinel) suggests the fault-trap/intercept layer (the same system as smoke_guard_fault.xi) replaces NaN-producing FP ops with a trap-or-sentinel path instead of the IEEE result.
+- **Impact on stdlib:** `math.constants` NAN cannot be implemented (no literal syntax; `0.0/0.0` broken) ï¿½ `// TODO(compiler): BUG 19` in math/constants.xi; `math.is_nan`/`is_inf` classify correctly but nothing in the stdlib can PRODUCE a NaN today (all NaN-producing libm entries ï¿½ asin/acos/ln/sqrt ï¿½ carry domain `requires:` contracts). `num/float.xi` `bits_to_float` (planned) needs a real bitcast intrinsic to land anyway.
+- **Fix direction (compiler):** route NaN results (fdiv 0/0, fsub inf-inf, fmul inf*0, and libm domain-error returns) through the IEEE path ï¿½ do not trap/sentinel float NaN; optionally add a `nan` literal or i64?f64 bitcast intrinsic (`bitcast i64 0x7FF8000000000000 to double`) which would unblock `math.constants.NAN` + `num.float.bits_to_float`. Verify with probe_nan2/probe_nan3 (expect `nan` print + `x != x` true, exit 0).
 
 **Stdlib unblock:** `math.constants.NAN` can now be implemented as
 `pub fn nan() -> Float64 { return 0.0 / 0.0; }` (a const initializer can't hold
-the expression yet — const-fold only handles literals; a runtime fn works).
+the expression yet ï¿½ const-fold only handles literals; a runtime fn works).
 `is_nan(x)` = `x != x` is now correct.
 
 ---
 
-## 2026-08-11 (night) — stdlib session: BUG 20 (NEW, REGRESSION from `1d4cd2e8`) — unconditional -mavx512* clang flags crash non-AVX-512 CPUs (illegal instruction) in ANY vectorized program
+## 2026-08-11 (night) ï¿½ stdlib session: BUG 20 (NEW, REGRESSION from `1d4cd2e8`) ï¿½ unconditional -mavx512* clang flags crash non-AVX-512 CPUs (illegal instruction) in ANY vectorized program
 
 **? FIXED 2026-08-12 (commit `4fa7a1d2`).** AVX-512 flags are now HOST-CPUID-gated:
 `-mavx512f/bw/dq/vl` are added only when
@@ -770,7 +770,7 @@ gates only INTENTIONAL SIMD calls, so the FLAGS must match the host.
 Zen 2: clang arg trace shows no `-mavx512*`; probe_avx.xi exit 0;
 smoke_num_fraction/smoke_math_rounding/smoke_math_precision/
 smoke_math_trig_constants/smoke_num_float all R=0 (were 0xC000001D).
-`smoke_num_precision` STILL AV-crashes (0xC0000005, deterministic) — a
+`smoke_num_precision` STILL AV-crashes (0xC0000005, deterministic) ï¿½ a
 separate BUG 22/23 item (cross-module returned Vec[Float64] / nested Vec
 family), queued with the wave batches.
 
@@ -785,13 +785,13 @@ family), queued with the wave batches.
     return 0;
   }
   ```
-  ? compiles clean, then **exit -1073741795 (0xC000001D)** with zero output. Also affects: `smoke_num_fraction.xi`, `smoke_math_rounding.xi` (and every float-loop stdlib smoke) on this machine (AMD Ryzen 9 3950X = Zen 2 — **no AVX-512**). Pure-int/string programs (e.g. `smoke_string_case.xi`) run fine.
-- **Impact:** blocks stdlib float-smoke verification on non-AVX-512 machines; any user program with a float hot loop crashes on such CPUs. The v0.58 comment's own rule ("only dispatch-gated code paths may rely on AVX-512 presence") is unenforceable for the vectorizer — the FLAGS themselves must be gated.
+  ? compiles clean, then **exit -1073741795 (0xC000001D)** with zero output. Also affects: `smoke_num_fraction.xi`, `smoke_math_rounding.xi` (and every float-loop stdlib smoke) on this machine (AMD Ryzen 9 3950X = Zen 2 ï¿½ **no AVX-512**). Pure-int/string programs (e.g. `smoke_string_case.xi`) run fine.
+- **Impact:** blocks stdlib float-smoke verification on non-AVX-512 machines; any user program with a float hot loop crashes on such CPUs. The v0.58 comment's own rule ("only dispatch-gated code paths may rely on AVX-512 presence") is unenforceable for the vectorizer ï¿½ the FLAGS themselves must be gated.
 - **Fix direction:** gate the flags on the HOST's CPUID at build time (query AVX-512 support before adding -mavx512*; e.g. use `-march=native` which enables only what the host supports), or drop the 512-bit flags (keep -maes -mavx -mavx2, safe on any AVX2 CPU). Verify: probe_avx.xi exit 0 on Zen 2; e2e SIMD test still R=0.
 
 ---
 
-## 2026-08-11 (night) — stdlib session: BUG 21 (NEW) — catalog-module fn returning a Str created INSIDE an unsafe block returns a corrupted Str (len 0xFFFFFFFF)
+## 2026-08-11 (night) ï¿½ stdlib session: BUG 21 (NEW) ï¿½ catalog-module fn returning a Str created INSIDE an unsafe block returns a corrupted Str (len 0xFFFFFFFF)
 
 **Status 2026-08-12: NOT REPRODUCED on the current build.** All documented
 shapes verified PASSING with the isolated binary: catalog fn with (a) loop
@@ -799,94 +799,94 @@ inside unsafe + `return Str.from_cstring(buf)` from inside the block ?
 "aaa" R=0; (b) direct return from inside the block ? "xyz" R=0; (c) while
 loop + `xiom.string.str_concat` build inside unsafe + return ? "aaa" R=0.
 `smoke_string_pad_repeat` R=0. The original `str_repeat_char` shape was
-restructured away before the fix could be isolated — likely resolved by the
+restructured away before the fix could be isolated ï¿½ likely resolved by the
 accumulated batch (`f0388644` chain/process_use + `9c3a2f9e` BUG 19 + `2ae300fd`
 fn-key). The stdlib's workaround (no loop inside unsafe) can stay. If the
 EXACT original file still fails, send it and it becomes a live repro.
 
-- **Construct:** an IMPORTED (catalog) stdlib module fn whose body creates a Str inside an `unsafe` block and RETURNS it from inside that block, e.g. `stdlib/xiom/string/repeat.xi` `str_repeat_char` (was: `unsafe { ...; return Str.from_cstring(buf); }`). The unsafe-confinement trampoline (`__unsafe_ctx`) round-trips only i64-class values; the Str (ptr+len struct) return corrupts the length field ? `len()` returns 4294967295 and any strcmp on the value crashes (0x80000003 breakpoint — heap guard).
-- **Verified:** probe_repeat/probe_rep2 — `repeat.str_repeat_char('a', 3)` prints `[]` with `len=4294967295`; the smoke's `str_repeat_char(...) != "aaa"` comparison then dies 0x80000003 with all buffered output lost. The SAME shape in a USER module (`fn mk_a() -> Str { unsafe { ...; return Str.from_cstring(buf); } }` with T007 `requires: true`) works — so it is the catalog/trampoline path, not from_cstring. The flat string.xi str_pad_left/str_pad_right build strings inside unsafe but return OUTSIDE the block (assign-var-in-unsafe, return after) — that shape is correct, which is why the bug was never hit before.
-- **Fix direction (compiler):** the unsafe-block return marshalling for catalog fns must round-trip Str (and other 16-byte struct) returns like the BUG 11 Option fix did — verify repeat.xi's `str_repeat_char` via its smoke once fixed; alternatively reject `return <struct-typed>` from inside unsafe blocks with a clear error.
-- **Stdlib handling:** repeat.xi restructured to the proven shape (assign inside unsafe, return outside) + `// TODO(compiler): BUG 21` note. The `str_repeat_char(...) != "aaa"` comparison is the crash trigger — the corrupted value must never reach a comparison.
+- **Construct:** an IMPORTED (catalog) stdlib module fn whose body creates a Str inside an `unsafe` block and RETURNS it from inside that block, e.g. `stdlib/xiom/string/repeat.xi` `str_repeat_char` (was: `unsafe { ...; return Str.from_cstring(buf); }`). The unsafe-confinement trampoline (`__unsafe_ctx`) round-trips only i64-class values; the Str (ptr+len struct) return corrupts the length field ? `len()` returns 4294967295 and any strcmp on the value crashes (0x80000003 breakpoint ï¿½ heap guard).
+- **Verified:** probe_repeat/probe_rep2 ï¿½ `repeat.str_repeat_char('a', 3)` prints `[]` with `len=4294967295`; the smoke's `str_repeat_char(...) != "aaa"` comparison then dies 0x80000003 with all buffered output lost. The SAME shape in a USER module (`fn mk_a() -> Str { unsafe { ...; return Str.from_cstring(buf); } }` with T007 `requires: true`) works ï¿½ so it is the catalog/trampoline path, not from_cstring. The flat string.xi str_pad_left/str_pad_right build strings inside unsafe but return OUTSIDE the block (assign-var-in-unsafe, return after) ï¿½ that shape is correct, which is why the bug was never hit before.
+- **Fix direction (compiler):** the unsafe-block return marshalling for catalog fns must round-trip Str (and other 16-byte struct) returns like the BUG 11 Option fix did ï¿½ verify repeat.xi's `str_repeat_char` via its smoke once fixed; alternatively reject `return <struct-typed>` from inside unsafe blocks with a clear error.
+- **Stdlib handling:** repeat.xi restructured to the proven shape (assign inside unsafe, return outside) + `// TODO(compiler): BUG 21` note. The `str_repeat_char(...) != "aaa"` comparison is the crash trigger ï¿½ the corrupted value must never reach a comparison.
 
 ---
 
-## 2026-08-11 (night) — stdlib session: BUG 22 (NEW, batch report) — implementation-phase findings from 4 parallel agents (detailed repros below; all pre-existing or new-shape; none blocked the batches)
+## 2026-08-11 (night) ï¿½ stdlib session: BUG 22 (NEW, batch report) ï¿½ implementation-phase findings from 4 parallel agents (detailed repros below; all pre-existing or new-shape; none blocked the batches)
 
 **? RESOLVED 2026-08-12 (commits `eeab8cf7`, `e6608946`, `47cd188f`, `f74a52c7`):**
-1. `&&`/`||` short-circuit — **FIXED** (branch on LHS; RHS compiled only when needed; verified div-by-zero RHS never executes) — m37_short_circuit
-2. Unary minus on match-bound vars — **FIXED** (negation defers wildcards like Not; float payloads bitcast from the i64 slot) — m37_match_float_payload
-3. Cross-module 3-tuple `.1`/`.2` — **FIXED** (tuple field maps derive+register for catalog returns) — m37_catalog_boundary
-4. Cross-module Option payload match — **FIXED** (float payloads via local_opt_payload_xiom; Int payloads verified) — m37_catalog_boundary
-5. requires/ensures trap — **FIXED** (clean `xiom_panic`: message to stderr + flush + exit 1, no more 0xC000001D) — m37_contract_pass + manual violation probe
-6. str_reverse invalid IR — **FIXED 2026-08-12** (root: unsafe-block captures grabbed SHADOWED names — the block's inner `let c` shadowed an enclosing loop's `let c`, capturing the outer loop-body alloca whose address doesn't dominate; fix: block-bound names excluded from captures + loop-body binding allocas hoisted to fn entry). Flat string/string.xi str_reverse verified: compiles, returns "cba"; m37_loop_capture regression — the stdlib's reverse.xi workaround can now delegate
-7. index_of(str_slice) 0xC0000409 — stdlib-side scan workaround in place; not reproduced standalone (see 22.15)
-8. xiom_char_at leading-byte — DOCUMENTED CONTRACT (byte position), stdlib decodes UTF-8 manually — no change
-9. Multi-byte char literals — **VERIFIED FIXED** on current build (é=233, ?=937)
-10. byte_at sign-extend — **VERIFIED FIXED** on current build (UInt8 as Int zexts)
-11. Module-qualified call results inline — **FIXED** (ROOT: qualified-call symbol vs bare def mismatch ? fn-symbol PRE-ASSIGNMENT map + integer verdicts for inline calls/index/binary operands) — m37_inline_call_concat
-12. Vec[Char] element size — **FIXED by the BUG 23 #2 nested-Vec work** (elem sizes now resolve from the registered element type; Char elements read via the elem_size switch)
+1. `&&`/`||` short-circuit ï¿½ **FIXED** (branch on LHS; RHS compiled only when needed; verified div-by-zero RHS never executes) ï¿½ m37_short_circuit
+2. Unary minus on match-bound vars ï¿½ **FIXED** (negation defers wildcards like Not; float payloads bitcast from the i64 slot) ï¿½ m37_match_float_payload
+3. Cross-module 3-tuple `.1`/`.2` ï¿½ **FIXED** (tuple field maps derive+register for catalog returns) ï¿½ m37_catalog_boundary
+4. Cross-module Option payload match ï¿½ **FIXED** (float payloads via local_opt_payload_xiom; Int payloads verified) ï¿½ m37_catalog_boundary
+5. requires/ensures trap ï¿½ **FIXED** (clean `xiom_panic`: message to stderr + flush + exit 1, no more 0xC000001D) ï¿½ m37_contract_pass + manual violation probe
+6. str_reverse invalid IR ï¿½ **FIXED 2026-08-12** (root: unsafe-block captures grabbed SHADOWED names ï¿½ the block's inner `let c` shadowed an enclosing loop's `let c`, capturing the outer loop-body alloca whose address doesn't dominate; fix: block-bound names excluded from captures + loop-body binding allocas hoisted to fn entry). Flat string/string.xi str_reverse verified: compiles, returns "cba"; m37_loop_capture regression ï¿½ the stdlib's reverse.xi workaround can now delegate
+7. index_of(str_slice) 0xC0000409 ï¿½ stdlib-side scan workaround in place; not reproduced standalone (see 22.15)
+8. xiom_char_at leading-byte ï¿½ DOCUMENTED CONTRACT (byte position), stdlib decodes UTF-8 manually ï¿½ no change
+9. Multi-byte char literals ï¿½ **VERIFIED FIXED** on current build (ï¿½=233, ?=937)
+10. byte_at sign-extend ï¿½ **VERIFIED FIXED** on current build (UInt8 as Int zexts)
+11. Module-qualified call results inline ï¿½ **FIXED** (ROOT: qualified-call symbol vs bare def mismatch ? fn-symbol PRE-ASSIGNMENT map + integer verdicts for inline calls/index/binary operands) ï¿½ m37_inline_call_concat
+12. Vec[Char] element size ï¿½ **FIXED by the BUG 23 #2 nested-Vec work** (elem sizes now resolve from the registered element type; Char elements read via the elem_size switch)
 
 
 1. **`&&` does not short-circuit** (num/fraction.xi `fraction_from_float`): both operands evaluate; a div-by-zero in the RHS traps 0xC000001D even when the LHS is false. Use nested `if`s. (Suggested fix: proper short-circuit lowering or reject non-short-circuit semantics.)
-2. **Unary minus on match-bound vars fails** — `error[T001]: cannot negate type _` for `-d` where `d` is bound in a match arm. Workaround: type-annotate the binding.
-3. **Cross-module 3-tuple field access `.1`/`.2` fails** (math/arithmetic.xi `gcd_extended` returns (Int,Int,Int)): `240 * t.1` ? "right operand must be numeric, found <error>" — `.0` works, 2-tuples fine. Comparison/return contexts work.
+2. **Unary minus on match-bound vars fails** ï¿½ `error[T001]: cannot negate type _` for `-d` where `d` is bound in a match arm. Workaround: type-annotate the binding.
+3. **Cross-module 3-tuple field access `.1`/`.2` fails** (math/arithmetic.xi `gcd_extended` returns (Int,Int,Int)): `240 * t.1` ? "right operand must be numeric, found <error>" ï¿½ `.0` works, 2-tuples fine. Comparison/return contexts work.
 4. **Cross-module `match` on `Option[Int]` binds a garbage payload** (math/arithmetic.xi `mod_inverse`): `Some(v) => v != 5` misbehaves; `is_some()/unwrap()` exact. Same family as the old Option-tail extraction bug.
-5. **`requires:`/`ensures:` are runtime-enforced and TRAP on violation (0xC0000005/0xC000001D)** — even when the fn body guards the case. Stdlib avoids declaring contracts on fns with graceful fallbacks (documented in module headers); fix direction: contracts should be checked/elided consistently (or only in debug builds), or stdlib keeps fallback-first bodies.
-6. **flat `string.str_reverse` emits invalid LLVM IR** (`Instruction does not dominate all uses!` — alloca in loop body captured by an enclosing unsafe context struct). Blocks the `str_reverse` API name: any program calling `string.str_reverse` fails to compile. reverse.xi implements locally; the flat fn needs the loop-body alloca moved out (compiler session's string.xi is a shared file — needs care).
-7. **`string.index_of(str_slice(...), needle)` inside a loop crashes (0xC0000409)** — passing a str_slice result to index_of repeatedly corrupts; replace.xi scans byte-wise instead.
-8. **`xiom_char_at(s, pos)` returns only the leading BYTE** of a multi-byte char (195 for é, not 233) — pre-existing flat string.xi/char.xi contract: byte position, not code point. String sublibs do manual UTF-8 decode from byte_at.
-9. **Multi-byte char literals are mangled to their last byte**: `'é' != 'O'` is false (both ? 0xA9). Workaround: build chars via to_char(cp) in tests.
+5. **`requires:`/`ensures:` are runtime-enforced and TRAP on violation (0xC0000005/0xC000001D)** ï¿½ even when the fn body guards the case. Stdlib avoids declaring contracts on fns with graceful fallbacks (documented in module headers); fix direction: contracts should be checked/elided consistently (or only in debug builds), or stdlib keeps fallback-first bodies.
+6. **flat `string.str_reverse` emits invalid LLVM IR** (`Instruction does not dominate all uses!` ï¿½ alloca in loop body captured by an enclosing unsafe context struct). Blocks the `str_reverse` API name: any program calling `string.str_reverse` fails to compile. reverse.xi implements locally; the flat fn needs the loop-body alloca moved out (compiler session's string.xi is a shared file ï¿½ needs care).
+7. **`string.index_of(str_slice(...), needle)` inside a loop crashes (0xC0000409)** ï¿½ passing a str_slice result to index_of repeatedly corrupts; replace.xi scans byte-wise instead.
+8. **`xiom_char_at(s, pos)` returns only the leading BYTE** of a multi-byte char (195 for ï¿½, not 233) ï¿½ pre-existing flat string.xi/char.xi contract: byte position, not code point. String sublibs do manual UTF-8 decode from byte_at.
+9. **Multi-byte char literals are mangled to their last byte**: `'ï¿½' != 'O'` is false (both ? 0xA9). Workaround: build chars via to_char(cp) in tests.
 10. **`byte_at(...) as Int` sign-extends UInt8** (0xC3 ? -61): must mask `& 0xFF` when handling bytes >= 0x80.
 11. **Module-qualified call results used INLINE in arithmetic miscompile** (e.g. `i = i + char.len_utf8(ch)` advances by 1 instead of 2): bind the result to a `let` var first (agent-applied repo-wide).
 12. **`Vec[Char]` element size is 1 byte** (BUG 12 family): storing code point 937 (0x3A9) reads back 0xA9. str_code_points returns Vec[Int] instead.
 
 ---
 
-## 2026-08-11 (night) — stdlib session: BUG 23 (NEW, wave-2 batch) — findings from 4 parallel agents (string metrics/unicode, math number-theory/linear)
+## 2026-08-11 (night) ï¿½ stdlib session: BUG 23 (NEW, wave-2 batch) ï¿½ findings from 4 parallel agents (string metrics/unicode, math number-theory/linear)
 
 **? RESOLVED 2026-08-12 (commits `eeab8cf7`, `e6608946`, `47cd188f`, `f74a52c7`):**
-1. Cross-module returned Vec[Float64] reads — **FIXED** (var-bindings inherit the callee's declared element type) — m37_catalog_boundary
-2. Nested Vec[Vec[T]] garbage — **FIXED** (parser type-arg rendering, elem size 32, memcpy reads, nested float inner reads) — m37_nested_vec
-3. Fn-value params named add/mul — **VERIFIED FIXED** on current build (fn-typed params dispatch correctly)
-4. `else if` parser rejection — **FIXED** — m37_else_if
-5. Flaky `use of undefined value` (~50%) — **FIXED** (catalog decl injection now deterministic: all_cached sorted; plus the fn-symbol pre-assignment kills the order-dependent symbol class) — 8/8 deterministic compiles
-6. UTF-8 BOM breaks registration — **FIXED** (lexer strips leading BOMs) — lexer unit test
-7. (Bool,Bool) tuples as Tuple__Int__Int — **FIXED** (param-seeded tuple scan + XIOM idents + checker field-map derivation) — m37_catalog_boundary
-8. Catalog `&Vec[T]` param mutation no-op — **FIXED** (Ref params pass the pointer like &mut) — m37_catalog_boundary
-9. Unary minus on catalog-returned float — **FIXED** — m37_catalog_boundary
-10. Subtraction on catalog-returned floats — covered by the BUG 20 CPUID gating + float-type registration fixes; verify via the float smokes
-11. xiom.math.sqrt bare import "requires unsafe" — **VERIFIED FIXED** on current build (math.sqrt R=0)
-12. Recursive helpers defeat the vectorizer — NOT a compiler bug (stdlib shape choice); BUG 20's CPUID gating now lets loops vectorize on Zen 2 (AVX2); recursion remains their call
+1. Cross-module returned Vec[Float64] reads ï¿½ **FIXED** (var-bindings inherit the callee's declared element type) ï¿½ m37_catalog_boundary
+2. Nested Vec[Vec[T]] garbage ï¿½ **FIXED** (parser type-arg rendering, elem size 32, memcpy reads, nested float inner reads) ï¿½ m37_nested_vec
+3. Fn-value params named add/mul ï¿½ **VERIFIED FIXED** on current build (fn-typed params dispatch correctly)
+4. `else if` parser rejection ï¿½ **FIXED** ï¿½ m37_else_if
+5. Flaky `use of undefined value` (~50%) ï¿½ **FIXED** (catalog decl injection now deterministic: all_cached sorted; plus the fn-symbol pre-assignment kills the order-dependent symbol class) ï¿½ 8/8 deterministic compiles
+6. UTF-8 BOM breaks registration ï¿½ **FIXED** (lexer strips leading BOMs) ï¿½ lexer unit test
+7. (Bool,Bool) tuples as Tuple__Int__Int ï¿½ **FIXED** (param-seeded tuple scan + XIOM idents + checker field-map derivation) ï¿½ m37_catalog_boundary
+8. Catalog `&Vec[T]` param mutation no-op ï¿½ **FIXED** (Ref params pass the pointer like &mut) ï¿½ m37_catalog_boundary
+9. Unary minus on catalog-returned float ï¿½ **FIXED** ï¿½ m37_catalog_boundary
+10. Subtraction on catalog-returned floats ï¿½ covered by the BUG 20 CPUID gating + float-type registration fixes; verify via the float smokes
+11. xiom.math.sqrt bare import "requires unsafe" ï¿½ **VERIFIED FIXED** on current build (math.sqrt R=0)
+12. Recursive helpers defeat the vectorizer ï¿½ NOT a compiler bug (stdlib shape choice); BUG 20's CPUID gating now lets loops vectorize on Zen 2 (AVX2); recursion remains their call
 
 
 1. **Vec[Float64] element READS of a module-RETURNED Vec are still broken** (BUG 12 corner): a user program reading `v[0]` from a Vec[Float64] returned by a catalog fn gets raw bit-pattern garbage and float arithmetic on such loads traps (0xC000001D). BUG 12's fix covers Vec element loads inside the defining module; cross-module returned float Vecs are not fixed. Workaround: verify via scalar invariants (dot/norm), avoid element reads of module-returned float Vecs.
 2. **Nested `Vec[Vec[T]]` element reads return garbage** (0xC0000005): `m[1].len()` wrong, `m[i][j]` = 0 for a 2-row matrix; float arithmetic on nested loads crashes. Blocks dynamic-matrix runtime verification and `set_partition` (reads Vec[Vec[Int]]).
-3. **Fn-value params named `add`/`mul`/`div` collide with built-in operators**: `ring_theory(add, mul)` compiled the param calls to `tower.Int.mul`/native `*`, IGNORING the passed function (verified in IR). Rename params (op_add/op_mul) — callers pass positionally so the API is unchanged. Parser/checker should reject or qualify operator-shadowing param names.
-4. **Parser rejects `else if`** (`expected '{', found if`) — must use nested if/else. (The `elif` keyword works; `else if` as two words does not.)
+3. **Fn-value params named `add`/`mul`/`div` collide with built-in operators**: `ring_theory(add, mul)` compiled the param calls to `tower.Int.mul`/native `*`, IGNORING the passed function (verified in IR). Rename params (op_add/op_mul) ï¿½ callers pass positionally so the API is unchanged. Parser/checker should reject or qualify operator-shadowing param names.
+4. **Parser rejects `else if`** (`expected '{', found if`) ï¿½ must use nested if/else. (The `elif` keyword works; `else if` as two words does not.)
 5. **Flaky `use of undefined value` compile failure** (~50%): combining modules that load `xiom.text.similarity` + spline fns with `&Vec[Float64]` params (math/numerical.xi) intermittently fails with `use of undefined value '@_tridiagonal'` (undefined-symbol-stub emission; BUG 8/16/18 family). Same source compiles on retry.
 6. **A UTF-8 BOM in a catalog module silently breaks function registration** (all BOMs in the stdlib were removed/avoided; writer tools must not add BOMs).
-7. **(Bool,Bool) tuples misregister as Tuple__Int__Int** (logic.xi `quantifiers`) — Bool in tuples/structs degrades; workaround: encode as Int 0/1 or separate fns.
-8. **Catalog `&Vec[T]` param mutation is a silent no-op** — `&mut Vec[T]` is required for mutation (enumerators use `&mut`). The old struct-&T fix (d22068f8) covers struct params, not Vec params.
+7. **(Bool,Bool) tuples misregister as Tuple__Int__Int** (logic.xi `quantifiers`) ï¿½ Bool in tuples/structs degrades; workaround: encode as Int 0/1 or separate fns.
+8. **Catalog `&Vec[T]` param mutation is a silent no-op** ï¿½ `&mut Vec[T]` is required for mutation (enumerators use `&mut`). The old struct-&T fix (d22068f8) covers struct params, not Vec params.
 9. **Unary minus on a catalog-returned float in an expression traps** (0xC000001D, BUG 20 family): use `0.0 - x`.
 10. **Subtraction on catalog-returned floats in smoke asserts traps** (0xC000001D): use interval comparisons (a > lo && a < hi) instead of `a - b` diffs in smokes.
-11. **`xiom.math.sqrt` as a direct import cannot be called bare from a user module** (T001 "requires unsafe") — the math-builtin intercept (BUG 15) only covers catalog modules; user code must call `math.sqrt`.
+11. **`xiom.math.sqrt` as a direct import cannot be called bare from a user module** (T001 "requires unsafe") ï¿½ the math-builtin intercept (BUG 15) only covers catalog modules; user code must call `math.sqrt`.
 12. **Recursive helpers defeat the BUG 20 AVX-512 vectorizer**: range/table scans and summation loops written as recursion (one iteration per frame, depth = ~182 < 500 limit) do not get vectorized, so those modules run on Zen 2. Intended as a temporary shape until BUG 20's CPUID gating lands.
 
-**TODO(compiler): NOT IMPLEMENTABLE stubs left by wave-2** (frozen signatures compile, bodies documented; blocked by the above): math/trig sinh/cosh/tanh/atanh (exp/ln inline arithmetic traps — same shape as math/hyperbolic.xi which is also BUG-20-blocked at runtime), calculus integrate_romberg/integrate_gauss/limit/left/right/is_continuous/gradient/partial_derivative/jacobian/hessian/laplacian/curl/divergence (loops + Vec[Float64]), differential richardson/gradient/jacobian/partial_derivative, series maclaurin_series/convergence_rate, integral integrate_adaptive, set_theory set_partition (nested Vec), logic simplify/normal_forms/satisfiability/tautology_check/quantifiers (Bool/Str-returning recursion + Bool tuples). All re-verifiable once BUG 20 (CPUID-gated flags) and the BUG 23 #1/#2 (cross-module float Vec / nested Vec) fixes land.
+**TODO(compiler): NOT IMPLEMENTABLE stubs left by wave-2** (frozen signatures compile, bodies documented; blocked by the above): math/trig sinh/cosh/tanh/atanh (exp/ln inline arithmetic traps ï¿½ same shape as math/hyperbolic.xi which is also BUG-20-blocked at runtime), calculus integrate_romberg/integrate_gauss/limit/left/right/is_continuous/gradient/partial_derivative/jacobian/hessian/laplacian/curl/divergence (loops + Vec[Float64]), differential richardson/gradient/jacobian/partial_derivative, series maclaurin_series/convergence_rate, integral integrate_adaptive, set_theory set_partition (nested Vec), logic simplify/normal_forms/satisfiability/tautology_check/quantifiers (Bool/Str-returning recursion + Bool tuples). All re-verifiable once BUG 20 (CPUID-gated flags) and the BUG 23 #1/#2 (cross-module float Vec / nested Vec) fixes land.
 
 ---
 
-## 2026-08-12 — stdlib session: BUG 24 (NEW, REGRESSION from the 22/23 batch `eeab8cf7..7cfc7fe4`) — bigfloat pow_bf miscompiles inconsistently (AV or hang) depending on unrelated program structure
+## 2026-08-12 ï¿½ stdlib session: BUG 24 (NEW, REGRESSION from the 22/23 batch `eeab8cf7..7cfc7fe4`) ï¿½ bigfloat pow_bf miscompiles inconsistently (AV or hang) depending on unrelated program structure
 
-**? PARTIAL FIX 2026-08-12 (`dd6b4ab1`):** the WRONG-VALUE symptom is fixed —
+**? PARTIAL FIX 2026-08-12 (`dd6b4ab1`):** the WRONG-VALUE symptom is fixed ï¿½
 root was PRE-EXISTING (not the 22/23 batch): `llvm_type_for`'s array arm
 kept the trailing bracket (`[10 x Int]` ? elem name `"Int]"` ? unknown type ?
 i64 degradation), corrupting bigint's `var digits: [10]Int` and every
 fixed-array local. Verified: p_arr digit-extract R=0; probe pair now compiles
 clean (no "unknown type" warnings).
 **RESIDUAL (open):** a per-program-shape AV remains inside the pow path when
-the program also compiles to_str/eq — crashes before the first println with
+the program also compiles to_str/eq ï¿½ crashes before the first println with
 buffered output lost; the compiled IR is verifiably sound (no stubs, no
 duplicate defines, helper symbols consistent across shapes). Suspects to
 continue: BigFloat struct-value passing with Vec[Int] significand fields
@@ -895,57 +895,57 @@ bigger module set. Reproduction: p_powv2.xi shape (pow_bf + to_str in one
 program) AVs; p_b24a.xi shape (pow_bf alone) returns a wrong value only in
 the pre-fix build.
 
-- **Construct:** any program calling `num/bigfloat.xi` `bigfloat_pow_bf(&base, &exp)` — or its wrappers (`precision_float.bigfloat_pow`) — on the CURRENT compiler. `smoke_bigfloat.xi` (pre-existing harness smoke, was 72/72 green) now dies 0xC0000005; `smoke_num_precision.xi` dies too. pow_bf's pieces (is_zero/is_one/is_negative/ln/mul/exp at the same operands) ALL verify correctly in isolation.
+- **Construct:** any program calling `num/bigfloat.xi` `bigfloat_pow_bf(&base, &exp)` ï¿½ or its wrappers (`precision_float.bigfloat_pow`) ï¿½ on the CURRENT compiler. `smoke_bigfloat.xi` (pre-existing harness smoke, was 72/72 green) now dies 0xC0000005; `smoke_num_precision.xi` dies too. pow_bf's pieces (is_zero/is_one/is_negative/ln/mul/exp at the same operands) ALL verify correctly in isolation.
 - **Decisive minimal repro pair (identical logical values, different codegen):**
 
   - `var t = bigfloat.bigfloat_two(); bigfloat.bigfloat_pow_bf(&t, &t);` ? prints 4, exit 0.  (works)
   - `var t = bigfloat.bigfloat_from_int(2); bigfloat.bigfloat_pow_bf(&t, &t);` ? 0xC0000005 with zero output. (AV)
-  - `bigfloat_two()` is literally `return bigfloat_from_int(2);` — the VALUES are identical; only the CALL STRUCTURE differs. Combining both in one program ? infinite hang (series divergence, no output).
-- **Also:** `smoke_math_numerical.xi` / `smoke_math_approximation.xi` AV (0xC0000005) — may be the same root (they call math.exp/ln-style paths) or the nested-Vec spline reads; both were green at agent time.
-- **Suspects (in order):** (1) the fn-symbol pre-assignment map (`7cfc7fe4`) — bigfloat.xi has 1380 lines of private helpers (`_one_at`, `_finish`, `_round_digits_raw`, `_atanh_series`, ...) that can land on different symbols per program shape; (2) the `23.8 &Vec[T]` pointer-pass change interacting with BigFloat's `Vec[Int]` significand FIELD copies inside struct-value passing (`bigfloat_mul(exp, &l)` passes a `&BigFloat` param BY VALUE to a `BigFloat` value param — shallow Vec copy).
+  - `bigfloat_two()` is literally `return bigfloat_from_int(2);` ï¿½ the VALUES are identical; only the CALL STRUCTURE differs. Combining both in one program ? infinite hang (series divergence, no output).
+- **Also:** `smoke_math_numerical.xi` / `smoke_math_approximation.xi` AV (0xC0000005) ï¿½ may be the same root (they call math.exp/ln-style paths) or the nested-Vec spline reads; both were green at agent time.
+- **Suspects (in order):** (1) the fn-symbol pre-assignment map (`7cfc7fe4`) ï¿½ bigfloat.xi has 1380 lines of private helpers (`_one_at`, `_finish`, `_round_digits_raw`, `_atanh_series`, ...) that can land on different symbols per program shape; (2) the `23.8 &Vec[T]` pointer-pass change interacting with BigFloat's `Vec[Int]` significand FIELD copies inside struct-value passing (`bigfloat_mul(exp, &l)` passes a `&BigFloat` param BY VALUE to a `BigFloat` value param ï¿½ shallow Vec copy).
 - **Fix direction:** reproduce with the probe pair above; check the pre-assignment map for bigfloat.xi private helpers (does `@bigfloat._finish`/`_round_digits_raw` resolve identically in both programs?); verify struct-with-Vec-field value-copy semantics unchanged by 23.8. Verification: probe pair both exit 0; smoke_bigfloat + smoke_num_precision green.
-- **Stdlib handling:** no stdlib change (bigfloat.xi untouched — pre-existing REAL module). The blocked smokes (smoke_bigfloat, smoke_num_precision, smoke_math_numerical, smoke_math_approximation) stay as-is pending the fix; everything else in the 61-smoke sweep passes.
+- **Stdlib handling:** no stdlib change (bigfloat.xi untouched ï¿½ pre-existing REAL module). The blocked smokes (smoke_bigfloat, smoke_num_precision, smoke_math_numerical, smoke_math_approximation) stay as-is pending the fix; everything else in the 61-smoke sweep passes.
 
 ---
 
-## 2026-08-12 — stdlib session: BUG 25 (NEW, wave-3 batch) — findings from 3 parallel agents (collections + convert/bits)
+## 2026-08-12 ï¿½ stdlib session: BUG 25 (NEW, wave-3 batch) ï¿½ findings from 3 parallel agents (collections + convert/bits)
 
 **? COMPILER SESSION STATUS 2026-08-12 (commits `9a578313`..`271567b0`):**
-1. Same-name delegation / cross-module same-name — **FIXED**: ambiguous bare fns
+1. Same-name delegation / cross-module same-name ï¿½ **FIXED**: ambiguous bare fns
    exported by multiple imported modules now ERROR (T001) and require a
-   module-qualified call — no more silent wrong-module resolution
-2. `use X as alias;` — **FIXED 2026-08-13**: the residual was the external-decl
+   module-qualified call ï¿½ no more silent wrong-module resolution
+2. `use X as alias;` ï¿½ **FIXED 2026-08-13**: the residual was the external-decl
    REACHABILITY filter pruning the aliased fn (main references the ALIAS name,
    not the target leaf ? the fn came back as a bare stub with an i64-return).
    Use declarations now contribute their target leaves to the referenced-name
    set. All four alias forms (module alias, fn alias, alias+qualified)
    verified R=0.
-3. `from_bytes` fn name collision — **FIXED** (builtin intercept now only
-   fires when no real fn with the name is registered) — m37_from_bytes_fn
-4. Bool inside returned tuples — **VERIFIED FIXED** on current build
-   (covered by the BUG 23 #7 tuple-type batch) — p_btup R=0
-5. Option/Result `.value`/`.error` reads — **FIXED** (payload-aware field
-   reads: Str/Float reinterpret, boxed structs inttoptr+load) —
+3. `from_bytes` fn name collision ï¿½ **FIXED** (builtin intercept now only
+   fires when no real fn with the name is registered) ï¿½ m37_from_bytes_fn
+4. Bool inside returned tuples ï¿½ **VERIFIED FIXED** on current build
+   (covered by the BUG 23 #7 tuple-type batch) ï¿½ p_btup R=0
+5. Option/Result `.value`/`.error` reads ï¿½ **FIXED** (payload-aware field
+   reads: Str/Float reinterpret, boxed structs inttoptr+load) ï¿½
    m37_opt_payload_value
-6. Char `<`/`>` comparisons — **VERIFIED FIXED** on current build (p_char_cmp
+6. Char `<`/`>` comparisons ï¿½ **VERIFIED FIXED** on current build (p_char_cmp
    R=0)
-7. Big&big AND — **VERIFIED FIXED** on current build (0xAEF1AD80 & 0x9B05688C
+7. Big&big AND ï¿½ **VERIFIED FIXED** on current build (0xAEF1AD80 & 0x9B05688C
    = 0x8A012880)
-8. `let len = v.len();` GEP family — **FIXED** by #3 (the same builtin-hijack
+8. `let len = v.len();` GEP family ï¿½ **FIXED** by #3 (the same builtin-hijack
    root)
-9. Module-name vs fn-name collision — DESIGN (keep-first alias rule
-   documented; smokes split) — no change
-10. `xiom.crypto` _pkcs7_pad undefined + pure-XIOM SHA-256 — **FIXED 2026-08-13**
-    (see the dedicated section below — root cause was a chain of 6 defects,
+9. Module-name vs fn-name collision ï¿½ DESIGN (keep-first alias rule
+   documented; smokes split) ï¿½ no change
+10. `xiom.crypto` _pkcs7_pad undefined + pure-XIOM SHA-256 ï¿½ **FIXED 2026-08-13**
+    (see the dedicated section below ï¿½ root cause was a chain of 6 defects,
     incl. an unsupported `[0; 16]` array literal and a transposed AES
     add-round-key mapping; crypto module now imports, all 25 crypto smokes
     pass, AES verified against FIPS-197 Appendix B + C.2)
-11. Private fns leak via `use` — **FIXED** (export maps exclude private fns;
+11. Private fns leak via `use` ï¿½ **FIXED** (export maps exclude private fns;
     bare-call resolution has a visibility gate: pub fns, same-module fns,
-    and top-level fns only) — pheap_merge probe now errors "undefined"
-12. Spurious E001 borrow warnings — benign (matches pre-existing), no change
+    and top-level fns only) ï¿½ pheap_merge probe now errors "undefined"
+12. Spurious E001 borrow warnings ï¿½ benign (matches pre-existing), no change
 
-## 2026-08-13 — BUG 25 #10 RESOLVED: xiom.crypto unimportable (`_pkcs7_pad` link failure)
+## 2026-08-13 ï¿½ BUG 25 #10 RESOLVED: xiom.crypto unimportable (`_pkcs7_pad` link failure)
 
 **Symptom:** `use xiom.crypto;` + any call ? clang "use of undefined value
 '@_pkcs7_pad'" with a degraded `call i64 @_pkcs7_pad(i64 0)` stub; the whole
@@ -955,18 +955,18 @@ verified with a minimal repro before fixing):
 1. **Unsupported `[0; 16]` array-repeat literal** (stdlib, crypto.xi:1461):
    the parser errors "expected ']', found ;" at `var ct_buf: [16]UInt8 =
    [0; 16];`, then error-recovers by treating the REST of `aes_encrypt`'s
-   body as top-level items — `var padded = _pkcs7_pad(plaintext)` became a
+   body as top-level items ï¿½ `var padded = _pkcs7_pad(plaintext)` became a
    module-global with a BUG 3 ctor that called the never-emitted private
    `_pkcs7_pad` (i64 0 stub). Not spec syntax (AI_CONTEXT.md documents only
    `[a, b, c]` and `[]`); fixed in the stdlib with the zero-init declaration
    form. **Fix: stdlib.**
 2. **`&fixed_arr[i] as *UInt8` lowered to value-load + inttoptr** (codegen,
    expr.rs Expr::Ref arm): the Ref arm handled Ident and Vec-Index but not
-   FIXED-ARRAY Index — `&ct_buf[0] as *UInt8` loaded the BYTE (0) and
+   FIXED-ARRAY Index ï¿½ `&ct_buf[0] as *UInt8` loaded the BYTE (0) and
    inttoptr'd the VALUE ? ciphertext pointer NULL ? 0xC0000005 in the AES-NI
    FFI call. **Fix: GEP element-address case for `[N x T]` slot types.**
 3. **Checker rejected `&x as *T` in user modules** ("unsupported type cast:
-   UInt8 to *UInt8") while catalog bodies bypassed checking entirely —
+   UInt8 to *UInt8") while catalog bodies bypassed checking entirely ï¿½
    user-side FFI with the same idiom failed to compile. **Fix: reference-to-
    pointer cast rule (unsafe-gated).**
 4. **Match-bound Vec payloads bound as i64 heap HANDLES** (codegen, stmt.rs
@@ -977,17 +977,17 @@ verified with a minimal repro before fixing):
 5. **Private struct types used only as LOCALS in catalog fn bodies degrade
    to i64** (checker): BUG 9's injection covers fn signatures only; aes.xi's
    AesState/StateHolder/KeyExpState (locals of private fns) never reached
-   codegen — the struct var became one i64 slot and constructor zero-stores
+   codegen ï¿½ the struct var became one i64 slot and constructor zero-stores
    clobbered field reads mid-construction (wrong key schedule, rcon
    contract violations). **Fix: scan injected fn BODIES for struct-literal /
    annotated-var names and run the existing transitive type walk.**
 6. **Const fixed-array element reads returned the LENGTH slot** (codegen,
    expr.rs Index arm): `const _AES_SBOX: [256]UInt8 = [...]` substituted to
-   an array buffer but `_AES_SBOX[i]` read buf[0]=256 as the first element —
+   an array buffer but `_AES_SBOX[i]` read buf[0]=256 as the first element ï¿½
    the whole AES S-box lookup was garbage. **Fix: const-substituted
    Expr::Array idents join the array-buffer path (index+1).**
 7. **aes.xi `aes_add_round_key` transposed key mapping** (stdlib): sXY read
-   `rk[4X+Y]` instead of the AES column-major `rk[4Y+X]` — self-consistent
+   `rk[4X+Y]` instead of the AES column-major `rk[4Y+X]` ï¿½ self-consistent
    encrypt?decrypt but NOT FIPS-197 (verified with Appendix B: expected
    69c4e0d8..., got 37f0d10c...). **Fix: correct index mapping.**
 8. **AES-NI C decrypt used forward-schedule keys with `aesdec`** (runtime,
@@ -995,14 +995,14 @@ verified with a minimal repro before fixing):
    inverse schedule for middle rounds. **Fix: `_mm_aesimc_si128` on rounds
    1..n-1** (kept for correctness of the hardware decrypt entry point).
 9. **crypto.xi aes_encrypt/aes_decrypt declared `requires` contracts on
-   graceful-fallback fns** — bad-key calls TRAPPED instead of returning Err
+   graceful-fallback fns** ï¿½ bad-key calls TRAPPED instead of returning Err
    (documented stdlib rule BUG 22 #5: no contracts on fallback fns).
    **Fix: contracts removed; bodies validate.**
 
 **Verification (isolated binary):** smoke_crypto, smoke_crypto_known_vectors,
 ALL 25 smoke*crypto*.xi smokes (roundtrip, GCM, bad-key, sha256/512, md5,
 blake3, hmac, pbkdf2, hash vectors, secure random, constant-time compare,
-RSA keypair 24-bit) — 25/25 R=0. FIPS-197 Appendix B (AES-128) and C.2
+RSA keypair 24-bit) ï¿½ 25/25 R=0. FIPS-197 Appendix B (AES-128) and C.2
 (AES-192) exact match through BOTH aes.xi's AesState implementation and
 crypto.xi's byte-oriented implementation; AES-NI hardware encrypt +
 software decrypt roundtrip recovers the plaintext. Regression sweep
@@ -1010,12 +1010,12 @@ software decrypt roundtrip recovers the plaintext. Regression sweep
 checker 178/178, workspace zero warnings.
 
 **Remaining (documented, not blocking):** the 6 M22 stress smokes that used
-`Vec.get(idx)` were adapted to indexing (`.get` is not a Vec builtin — the
+`Vec.get(idx)` were adapted to indexing (`.get` is not a Vec builtin ï¿½ the
 checker resolves it to a Box-typed get; "expected Box, found Int"). The
-tuple-pattern `Ok((a, b))` checker simplification (binds Int) remains —
+tuple-pattern `Ok((a, b))` checker simplification (binds Int) remains ï¿½
 documented workaround: `.0`/`.1` field access (applied to the GCM smoke).
 
-## 2026-08-13 — LANGUAGE features (all implemented + tested, commits `dd6a31cd`/`4c439e6a`)
+## 2026-08-13 ï¿½ LANGUAGE features (all implemented + tested, commits `dd6a31cd`/`4c439e6a`)
 - **BUG 26 (secure numeric policy)**: INT ? FLOAT mixing in arithmetic,
   comparisons, and typed bindings requires an explicit `as` cast (Rust-style).
   Auto-widening stays for same-family; INT LITERALS may adopt the float type
@@ -1024,79 +1024,79 @@ documented workaround: `.0`/`.1` field access (applied to the GCM smoke).
   methods on the base Vec.
 - **Labeled loops**: `@label: while ...` + `break @label;` /
   `continue @label;` (the label field was previously dropped in the codegen
-  While arm — labeled break silently targeted the innermost loop).
+  While arm ï¿½ labeled break silently targeted the innermost loop).
 - **BUG 27 (in-code debug intrinsics)**: `assert(cond[, "msg"])` (clean
   xiom_panic violation), `dbg!(expr)` (prints "[dbg] <value>", returns the
   value), `todo!()`/`unimplemented!()` (panic with source location),
-  `debugger;` (breaks into an attached debugger — xiom-debugger_break;
+  `debugger;` (breaks into an attached debugger ï¿½ xiom-debugger_break;
   no-op without one). All builtins yield to user fns with the same name.
 - **NOTE 4 FIXED**: module-qualified enum variant access (`bigfloat.Down`)
   resolves + constructs the variant correctly.
 
 
-1. **Same-name delegation ? 0xC0000005**: a local `pub fn to_base58` PLUS `use xiom.num.convert;` (which exports `to_base58`) — any call to the IMPORTED fn AVs at runtime (even via an indirection helper or `as` alias). Stdlib rule: never delegate to a same-named fn across modules; implement locally. (Related: cross-module same-name resolution silently prefers the LAST imported module's version — quadtree_query resolved to spatial's variant.)
+1. **Same-name delegation ? 0xC0000005**: a local `pub fn to_base58` PLUS `use xiom.num.convert;` (which exports `to_base58`) ï¿½ any call to the IMPORTED fn AVs at runtime (even via an indirection helper or `as` alias). Stdlib rule: never delegate to a same-named fn across modules; implement locally. (Related: cross-module same-name resolution silently prefers the LAST imported module's version ï¿½ quadtree_query resolved to spatial's variant.)
 2. **`use X as alias;` miscompiles**: `use xiom.num.base as numbase; numbase.to_base(255,16)` traps `contract violated: ensures`; `use xiom.bits.popcount as pc;` returns 0. Fully-qualified `xiom.num.base.to_base(...)` works. Fix: alias-import resolution.
-3. **`from_bytes` fn name collides with a compiler builtin**: ANY module fn named `from_bytes` (even `{ return 0; }`) emits `invalid getelementptr indices` on `%struct.Vec`. convert/bytes.xi keeps the fn as TODO(compiler) — unimplementable.
+3. **`from_bytes` fn name collides with a compiler builtin**: ANY module fn named `from_bytes` (even `{ return 0; }`) emits `invalid getelementptr indices` on `%struct.Vec`. convert/bytes.xi keeps the fn as TODO(compiler) ï¿½ unimplementable.
 4. **Bool inside a returned tuple miscompiles**: fn returning `(Int, Bool)` or `(Int, Int, Bool)` emits `%tmp defined with Tuple__Int__Int but expected Tuple__Int__Bool` (tuple-literal constructor emits an all-Int LLVM type). Same family as BUG 23 #7 (Bool tuple misregistration). Blocks convert/overflow.overflowing_* (TODO(compiler)).
-5. **Caller-side `.value`/`.error` field reads of Option/Result are corrupted** (wrong len/bit pattern) while `match` extraction is correct. Blocks `xiom.encoding` decoders when read via `.value` (verified: encoding.base64_decode round-trip fails — pre-existing). Stdlib rule: match-extract only.
+5. **Caller-side `.value`/`.error` field reads of Option/Result are corrupted** (wrong len/bit pattern) while `match` extraction is correct. Blocks `xiom.encoding` decoders when read via `.value` (verified: encoding.base64_decode round-trip fails ï¿½ pre-existing). Stdlib rule: match-extract only.
 6. **Char `<`/`>` comparisons miscompile** (all chars report "bad") while `==`/`!=` and `byte_at(...) as Int` work. Root cause of the broken core `to_float_from_str` (digit-range checks). Stdlib parsers use byte-based comparisons.
 7. **Bitwise AND on two Int operands with bit 31+ set miscompiles** (`0xAEF1AD80 & 0x9B05688C` wrong by one bit); small masks, OR, shifts, byte_swap are correct. Stdlib hash/mask code avoids big&big (uses shifts + small masks).
-8. **`let len = v.len();` in specific module shapes triggers the same GEP error as #3** — `var len` avoids it.
-9. **Module-name vs fn-name collision**: `use xiom.bits.popcount;` + `use xiom.bits.bitwise;` (which exports a `popcount` fn) cannot both resolve — smokes split.
-10. **`xiom.crypto` unimportable** (`undefined @_pkcs7_pad` at link) and pure-XIOM SHA-256 miscompiles (wrong digests for ""/"abc"; documented in crypto.xi) — pre-existing, blocks base58check's double-SHA256 (Adler-32 fallback shipped, TODO(compiler)).
+8. **`let len = v.len();` in specific module shapes triggers the same GEP error as #3** ï¿½ `var len` avoids it.
+9. **Module-name vs fn-name collision**: `use xiom.bits.popcount;` + `use xiom.bits.bitwise;` (which exports a `popcount` fn) cannot both resolve ï¿½ smokes split.
+10. **`xiom.crypto` unimportable** (`undefined @_pkcs7_pad` at link) and pure-XIOM SHA-256 miscompiles (wrong digests for ""/"abc"; documented in crypto.xi) ï¿½ pre-existing, blocks base58check's double-SHA256 (Adler-32 fallback shipped, TODO(compiler)).
 11. **Private fn leaks into global namespace via `use`**: collect/heap.xi's PRIVATE `pheap_merge(h, a, b)` became reachable through `use xiom.collect.heap;` in pairingheap.xi and hijacked bare calls. Stdlib rule: module-qualified calls for shared names; fix direction: private symbols must not be re-exported by `use`.
 12. Spurious E001 borrow warnings through imported fns (benign, codegen correct; matches pre-existing smokes).
 
 ---
 
-## 2026-08-12 (night) — stdlib session: BUG 26 (NEW, regression from 271567b0/841119d8/28aaa5e0 batch) — user-module surface regressions
+## 2026-08-12 (night) ï¿½ stdlib session: BUG 26 (NEW, regression from 271567b0/841119d8/28aaa5e0 batch) ï¿½ user-module surface regressions
 
 1. **Catalog-RETURNED Vec passed to a `&Vec[T]` catalog param ? C001** ("cannot take a reference to 'data': it is already a reference"): `var c = lz4.lz4_compress(data); var d = lz4.lz4_decompress(c);` fails codegen; even copy-out (`var c2 = c`) or a by-value thunk still fails. Locally-built Vecs work. Affects smoke_compress_lz4_snappy (decompress round-trips trimmed to compress-only, TODO(compiler)). Suspect: returned-Vec values are typed as references by the 28aaa5e0 payload-aware-read change, and the &Vec auto-ref then double-refs.
-2. **Bare prelude names (to_char/to_string/to_int) no longer resolve in USER modules** — `use xiom.core.to_char;` (a non-pub prelude fn) does NOT register it, and the old implicit bare-name path was removed by 271567b0's ambiguity error. Catalog modules still get them via prelude wiring. User smokes now use the public `convert.int_to_string` / `convert.float_to_int` / `convert.int_to_char` (match on the Option). Fix direction: prelude names should remain bare-callable in user modules (or be re-exported as pub from a user-facing module).
-3. **Cross-module tuple DESTRUCTURING regressed**: `var (a, b) = some_catalog_f.(...)` binds BOTH names to the whole tuple (error "cannot compare Tuple__X__Y with X"). `.0`/`.1` field access (fixed in the 22/23 batch) works — smokes switched to field access.
+2. **Bare prelude names (to_char/to_string/to_int) no longer resolve in USER modules** ï¿½ `use xiom.core.to_char;` (a non-pub prelude fn) does NOT register it, and the old implicit bare-name path was removed by 271567b0's ambiguity error. Catalog modules still get them via prelude wiring. User smokes now use the public `convert.int_to_string` / `convert.float_to_int` / `convert.int_to_char` (match on the Option). Fix direction: prelude names should remain bare-callable in user modules (or be re-exported as pub from a user-facing module).
+3. **Cross-module tuple DESTRUCTURING regressed**: `var (a, b) = some_catalog_f.(...)` binds BOTH names to the whole tuple (error "cannot compare Tuple__X__Y with X"). `.0`/`.1` field access (fixed in the 22/23 batch) works ï¿½ smokes switched to field access.
 4. Same-family C001 for `snappy_*`/`lz4_*` decompress calls (all &Vec-param catalog fns taking module-returned values).
-5. **High-bit mask comparisons miscompile in UTF-8 classifiers** (BUG 25 #7 family, extended): `(b0 & 0xE0) == 0xC0` / `(b0 & 0xF0) == 0xE0` / `(b0 & 0xF8) == 0xF0` on `byte_at`-derived Ints are FALSE for multibyte lead bytes (C3, etc.) ? convert/utf8.xi utf8_valid_sequences counts every byte as a 1-byte sequence (6 for "héllo" instead of 5). Small masks (< 0x80) and shifts are fine. Stdlib smokes adapted (expected value + TODO); fix direction: verify AND folding for masks with bit 7+ set against byte-extracted values.
+5. **High-bit mask comparisons miscompile in UTF-8 classifiers** (BUG 25 #7 family, extended): `(b0 & 0xE0) == 0xC0` / `(b0 & 0xF0) == 0xE0` / `(b0 & 0xF8) == 0xF0` on `byte_at`-derived Ints are FALSE for multibyte lead bytes (C3, etc.) ? convert/utf8.xi utf8_valid_sequences counts every byte as a 1-byte sequence (6 for "hï¿½llo" instead of 5). Small masks (< 0x80) and shifts are fine. Stdlib smokes adapted (expected value + TODO); fix direction: verify AND folding for masks with bit 7+ set against byte-extracted values.
 6. **percent_encode combination miscompile** (BUG 24 family): `convert/percent.xi` percent_encode returns fully-encoded output ("/a?b=1&c=2" ? "%2Fa...") when the smoke also imports xiom.convert.bytes or xiom.string, but correct output in isolation. `_is_url_safe` branch selection flips with program shape. Smoke split into isolated modules (smoke_convert_percent / smoke_convert_bytes); module verified correct in isolation.
 
 ---
 
-## 2026-08-13 — stdlib session: BUG 27 (wave-5 batch) — regressions + findings from 7 parallel agents
+## 2026-08-13 ï¿½ stdlib session: BUG 27 (wave-5 batch) ï¿½ regressions + findings from 7 parallel agents
 
 **Regressions from the 4c439e6a (NOTE 4 / BUG 25 #2) batch:**
-1. **`xiom.os.platform` sublib prefix unresolvable in user modules** — `use xiom.os.platform;` + `platform.platform_name()` fails "cannot call on this expression" even in isolation (worked pre-4c439e6a). Workaround: fn-level imports (`use xiom.os.platform.platform_name;` + bare call). Likely the NOTE 4 module-qualified-variant change interacting with the flat os.xi `platform()` fn shadowing the sublib prefix.
-2. **`xiom.string.format` sublib fns (str_format1/2/3) unreachable** — flat string.xi exports same-named fns; sublib path fails regardless of qualification (pre-existing family, now deterministic). smoke_string_format_printf is compile-only.
+1. **`xiom.os.platform` sublib prefix unresolvable in user modules** ï¿½ `use xiom.os.platform;` + `platform.platform_name()` fails "cannot call on this expression" even in isolation (worked pre-4c439e6a). Workaround: fn-level imports (`use xiom.os.platform.platform_name;` + bare call). Likely the NOTE 4 module-qualified-variant change interacting with the flat os.xi `platform()` fn shadowing the sublib prefix.
+2. **`xiom.string.format` sublib fns (str_format1/2/3) unreachable** ï¿½ flat string.xi exports same-named fns; sublib path fails regardless of qualification (pre-existing family, now deterministic). smoke_string_format_printf is compile-only.
 
-**Flat crypto.xi defects (stdlib, verified 2026-08-13):** `crypto.sha512` wrong output (`_u64_rotr` mis-handles signed Int — arithmetic-shift semantics), `crypto.md5` wrong (SHL instead of ROTL in rounds), `crypto.aes_decrypt` fails its own length check, `aes_encrypt_gcm`/`decrypt_gcm` heap-corrupt, `rsa_sign/verify/generate_rsa_keypair` fail at runtime. The wave-5 crypto/hash.xi + cipher.xi implement correct local versions (RFC 1321/4231/5869 vectors verified). The compiler session's smoke_stress_crypto_* are actively exercising this surface.
+**Flat crypto.xi defects (stdlib, verified 2026-08-13):** `crypto.sha512` wrong output (`_u64_rotr` mis-handles signed Int ï¿½ arithmetic-shift semantics), `crypto.md5` wrong (SHL instead of ROTL in rounds), `crypto.aes_decrypt` fails its own length check, `aes_encrypt_gcm`/`decrypt_gcm` heap-corrupt, `rsa_sign/verify/generate_rsa_keypair` fail at runtime. The wave-5 crypto/hash.xi + cipher.xi implement correct local versions (RFC 1321/4231/5869 vectors verified). The compiler session's smoke_stress_crypto_* are actively exercising this surface.
 
 **Other wave-5 findings (each with in-module or in-smoke documentation):**
 3. Qualified-name resolution breaks with 5+ sibling leaf-module imports (xiom.iter.* + xiom.iter.range.range call ? T001); split smokes.
 4. Generic fn + fn-value param + Vec[T] ? codegen "use of undefined value %tmp" (sort_by-style comparators); everything concrete per GENERICS policy.
-5. Cross-module `Option[Vec[T]]`/`Result[Vec[T],_]` payloads corrupt (regex captures, scanf tokens) — is_some/len trustworthy, elements garbage.
-6. `Error` is a compiler-reserved type name — modules defining `pub type Error` emit "unknown type 'Error' defaulting to i64" + corrupt cross-module codegen (renamed ChainError etc.).
+5. Cross-module `Option[Vec[T]]`/`Result[Vec[T],_]` payloads corrupt (regex captures, scanf tokens) ï¿½ is_some/len trustworthy, elements garbage.
+6. `Error` is a compiler-reserved type name ï¿½ modules defining `pub type Error` emit "unknown type 'Error' defaulting to i64" + corrupt cross-module codegen (renamed ChainError etc.).
 7. Sibling submodule imports clobber earlier siblings (import ORDER matters for error.backtrace/context, test.assert/harness cannot coexist).
 8. Module-scope fn storage is read-only (`g.f0 = f` silently no-ops; test_register records names only); module-level bare Vec mutation silently fails (push then len==0).
 9. Structs with first field named `type` break cross-module fn resolution; structs containing `Map[Str,Str]` hang/0xC0000005 on construction (mime.xi uses Vec[(Str,Str)]).
 10. Tuple payloads in Result miscompile (`Ok((a,b))` ? `.value.0` = 0; match works); `(Vec,Vec)`/`(Vec,Int)` returns heap-corrupt (0xC0000374).
-11. `UInt64 >>` is arithmetic (0x8000…>>1 ? /2); `UInt64 as Float64` reinterprets bits (use num.f64_from_u64); `Float64.to_string()` prints bit patterns.
+11. `UInt64 >>` is arithmetic (0x8000ï¿½>>1 ? /2); `UInt64 as Float64` reinterprets bits (use num.f64_from_u64); `Float64.to_string()` prints bit patterns.
 12. `let (a, b) = tuple` destructuring binds both names to the whole tuple (use .0/.1); `match *ref` on enums miscompiles (match values).
-13. Module auto-loads its parent: same-named sublib fns misresolve to the parent's (varint_decode/json_parse) — unique-name private helpers used.
-14. Int32/Int returns from catalog unsafe blocks corrupt (fs_move's rename rc always non-zero; file moved correctly) — fs.xi rewritten copy+remove (documented non-atomic).
-15. `ptr == 0 as *UInt8` compiles to strcmp(ptr, NULL) — compare `ptr == 0` inside unsafe; `s.c_str()` not null-terminated for strlen; `Int as *UInt8` corrupts (pointer?Int ok).
-16. Struct literals assign positionally not by name (Quat{w:…;x:…} swaps); row swap via tuple assignment corrupts (swap element-wise); Vec[struct] index-writes corrupt (rebuild Vecs).
-17. Module-name vs fn-name collision (spawn module + spawn fn) — import order matters; sublib `xiom.string.format`/`xiom.os.platform` collide with flat fns.
-18. `xiom_atomic_store` doesn't round-trip negative Ints; runtime `xiom_mutex_*` broken (trylock always 0); real threads unusable (fn?ptr cast T001 + xiom_thread_spawn AV) — thread/spawn.xi is a documented inline simulation.
+13. Module auto-loads its parent: same-named sublib fns misresolve to the parent's (varint_decode/json_parse) ï¿½ unique-name private helpers used.
+14. Int32/Int returns from catalog unsafe blocks corrupt (fs_move's rename rc always non-zero; file moved correctly) ï¿½ fs.xi rewritten copy+remove (documented non-atomic).
+15. `ptr == 0 as *UInt8` compiles to strcmp(ptr, NULL) ï¿½ compare `ptr == 0` inside unsafe; `s.c_str()` not null-terminated for strlen; `Int as *UInt8` corrupts (pointer?Int ok).
+16. Struct literals assign positionally not by name (Quat{w:ï¿½;x:ï¿½} swaps); row swap via tuple assignment corrupts (swap element-wise); Vec[struct] index-writes corrupt (rebuild Vecs).
+17. Module-name vs fn-name collision (spawn module + spawn fn) ï¿½ import order matters; sublib `xiom.string.format`/`xiom.os.platform` collide with flat fns.
+18. `xiom_atomic_store` doesn't round-trip negative Ints; runtime `xiom_mutex_*` broken (trylock always 0); real threads unusable (fn?ptr cast T001 + xiom_thread_spawn AV) ï¿½ thread/spawn.xi is a documented inline simulation.
 19. Bool display via generic renders "1"; Str.to_str()/Float64.to_str() crash; Float32?Float64 conversion prints bit patterns; Vec[Bool] elements type as generic T.
-20. High-bit mask AND still miscompiles for UTF-8 classifiers (convert/utf8.xi — BUG 26 #5, unfixed).
+20. High-bit mask AND still miscompiles for UTF-8 classifiers (convert/utf8.xi ï¿½ BUG 26 #5, unfixed).
 
-## 2026-08-13 — BUG 27 items RESOLVED (compiler side) + security review implementation
+## 2026-08-13 ï¿½ BUG 27 items RESOLVED (compiler side) + security review implementation
 
-**1. Sublib-prefix resolution regression (xiom.os.platform / xiom.string.format — 4c439e6a):**
+**1. Sublib-prefix resolution regression (xiom.os.platform / xiom.string.format ï¿½ 4c439e6a):**
 use xiom.os; os.platform.platform_name() failed with "cannot call 'platform_name'
 on this expression". Root causes + fixes (commits 4e95717e, 1aa93cc?):
 - The module map for directory modules (os.xi + os/*.xi) only contained the
-  module's own exports — submodule segments were unresolvable. The qualified-call
+  module's own exports ï¿½ submodule segments were unresolvable. The qualified-call
   walk now descends submodule segments LAZILY via catalog.peek_owned() (parses
-  WITHOUT caching, so the submodule's decls never enter the injection set —
+  WITHOUT caching, so the submodule's decls never enter the injection set ï¿½
   eager loading perturbed bare-alias keep-first resolution and broke unrelated
   programs, e.g. crypto sha256).
 - Name collisions (xiom.os has BOTH `pub fn platform()` and the `platform`
@@ -1111,7 +1111,7 @@ on this expression". Root causes + fixes (commits 4e95717e, 1aa93cc?):
 emitted a stub `define i64 @Map.new() { ret i64 0 }` (runtime crash
 0x80000003) or "use of undefined value '@new'" (link error). Three fixes:
 - infer_struct_type_name: Index receivers with a KNOWN TYPE base resolve to the
-  base type — fn_key "Map.new", not the bare-key hijack of another module's
+  base type ï¿½ fn_key "Map.new", not the bare-key hijack of another module's
   generic `new`.
 - The checker prelude force-loads xiom.collections (container generics were
   never imported by any use, so their decls never reached the monomorphisation
@@ -1124,146 +1124,146 @@ emitted a stub `define i64 @Map.new() { ret i64 0 }` (runtime crash
 **3. Security review implementation (user-approved, production-grade):**
 - Release builds strip assert/dbg!/debugger; (`--keep-debug-checks` retains;
   contracts were already release-stripped, `--runtime-contracts` forces).
-  dbg! still evaluates and returns its value — only the print disappears.
+  dbg! still evaluates and returns its value ï¿½ only the print disappears.
 - Const-eval budget: evaluate_const_init is bounded by CONST_EVAL_BUDGET (4096)
   recursion depth; on overflow the expression is returned unevaluated (materializes
-  at runtime) — a hostile const cannot hang the compiler.
+  at runtime) ï¿½ a hostile const cannot hang the compiler.
 - asm(): verified ALREADY unsafe-gated (T001 "inline asm requires an unsafe
   block"); stdlib contains no asm usage.
 - --enable-unsafe-direct: prominent stderr warning on every invocation.
 - Catalog fn bodies bypassing the checker (invalid casts compile silently in
-  stdlib modules) remains OPEN — see docs/ROADMAP.md (multi-session item).
+  stdlib modules) remains OPEN ï¿½ see docs/ROADMAP.md (multi-session item).
 
 **Verification:** 34/34 regression sweep (incl. new m37_const_array,
 m37_payload_ref, m37_ptr_cast), checker 178/178, crypto 29/30 (only
-smoke_stress_crypto_aes_gcm — REPRODUCED AT BASELINE; the parallel stdlib
+smoke_stress_crypto_aes_gcm ï¿½ REPRODUCED AT BASELINE; the parallel stdlib
 session's in-flight "tuple+Vec heap corruption", BUG 27 #12), workspace zero
 warnings. os.platform/string.format sublib probes R=0; contracts + Map.new
 global-init probes R=0; release-strip probe verified in all three modes.
 
 ---
 
-## 2026-08-13 (evening) — stdlib session: BUG 28 (regressions verified against 4e95717e) — verification round findings
+## 2026-08-13 (evening) ï¿½ stdlib session: BUG 28 (regressions verified against 4e95717e) ï¿½ verification round findings
 
 1. **Catalog unsafe-block Str construction re-broken** (env.xi `var_opt`): `return Some(Str.from_cstring(raw))` from inside a small fn's unsafe block AVs (0xC0000005) under 4e95717e; worked pre-4e95717e. FIXED stdlib-side with the read_file-proven multi-block shape (pointer/Int assignments + Vec.push inside unsafe; `Str::from_utf8` outside). The compiler still corrupts Str structs flowing through the catalog unsafe trampoline in small (always-inlined) fns.
-2. **Option-Some payload binding inside CONTRACT evaluation traps**: env.xi `home_dir`'s `ensures: result is Some => result.len() > 0` panics on every call (contract violated at the ensures line) — the Some-payload binding in the contract check miscompiles. Clause dropped (TODO(compiler)); the same family blocks any `result is Some => ...` ensures on Option returns.
-3. **Option[Str] second-hop return corrupts**: `home_dir()` returning var_opt's Option[Str] (even pure passthrough) corrupts the payload in small callers — reading it AVs. Any 2-catalog-hop Option[Str] return is unsafe. home_dir kept as passthrough + TODO(compiler).
-4. **os.platform/string.format aggregate shadowing**: `use xiom.os;` + `os.platform.platform_name()` resolves to the FLAT os.xi platform() (returns 0) — silent wrong result; the fully-qualified `xiom.os.platform.platform_name()` works (4e95717e fix verified). smokes use the fully-qualified form.
-5. **Catalog struct literals drop trailing fields when the first field is a var**: `Timer{ deadline: dl; armed: true; }` reads armed=false (4e95717e regression; constant-field literals and all-Float64 structs work; identical code in user modules works; F2-vs-Timer divergence shows usage-shape dependence — BUG 24 family). Affects async/timer.xi interval timers — smoke asserts only the inert path, TODO(compiler).
+2. **Option-Some payload binding inside CONTRACT evaluation traps**: env.xi `home_dir`'s `ensures: result is Some => result.len() > 0` panics on every call (contract violated at the ensures line) ï¿½ the Some-payload binding in the contract check miscompiles. Clause dropped (TODO(compiler)); the same family blocks any `result is Some => ...` ensures on Option returns.
+3. **Option[Str] second-hop return corrupts**: `home_dir()` returning var_opt's Option[Str] (even pure passthrough) corrupts the payload in small callers ï¿½ reading it AVs. Any 2-catalog-hop Option[Str] return is unsafe. home_dir kept as passthrough + TODO(compiler).
+4. **os.platform/string.format aggregate shadowing**: `use xiom.os;` + `os.platform.platform_name()` resolves to the FLAT os.xi platform() (returns 0) ï¿½ silent wrong result; the fully-qualified `xiom.os.platform.platform_name()` works (4e95717e fix verified). smokes use the fully-qualified form.
+5. **Catalog struct literals drop trailing fields when the first field is a var**: `Timer{ deadline: dl; armed: true; }` reads armed=false (4e95717e regression; constant-field literals and all-Float64 structs work; identical code in user modules works; F2-vs-Timer divergence shows usage-shape dependence ï¿½ BUG 24 family). Affects async/timer.xi interval timers ï¿½ smoke asserts only the inert path, TODO(compiler).
 6. **"Cannot allocate unsized type" at clang**: os_path smoke's file/path sections (os/file.xi Result/Option matches + os/path.xi fns) fail to compile in combination while each works in isolation (4e95717e). Smoke trimmed to the verified fs/dir sections, TODO(compiler).
 7. **`@Executor.new` undefined in minimal programs**: importing only xiom.async.timer (+executor) fails link ("use of undefined value '@Executor.new'"); the full smoke import set works. Generic-ctor injection is program-shape dependent.
-8. **`use xiom.X;` aggregate import affects sublib struct-literal codegen** (timer.xi literal worked after adding `use xiom.async;` in one configuration) — same BUG 24 family; not a reliable workaround.
+8. **`use xiom.X;` aggregate import affects sublib struct-literal codegen** (timer.xi literal worked after adding `use xiom.async;` in one configuration) ï¿½ same BUG 24 family; not a reliable workaround.
 
 ---
 
-## 2026-08-13 (night) — compiler session: BUG 27 #12 + BUG 28 #1-#8 ALL RESOLVED
+## 2026-08-13 (night) ï¿½ compiler session: BUG 27 #12 + BUG 28 #1-#8 ALL RESOLVED
 
 Every item the stdlib session filed is now FIXED on the compiler side, verified
 with harness drivers in docs/repros/ (all exit 0):
 
-1. **Catalog unsafe-block Str construction** — VERIFIED FIXED (env.xi var_opt
+1. **Catalog unsafe-block Str construction** ï¿½ VERIFIED FIXED (env.xi var_opt
    + match + config_dir second-hop roundtrip exit 0). The stdlib's multi-block
    shape works; the earlier small-fn corruption is covered by the BUG 29
    visibility/owner fixes.
-2. **Option-Some payload binding in CONTRACT evaluation** — VERIFIED FIXED
+2. **Option-Some payload binding in CONTRACT evaluation** ï¿½ VERIFIED FIXED
    (repro_opt_contract: ensures: result is Some => result.len() > 0 on an
    Option[Str] catalog fn exit 0). The stdlib can restore home_dir's clause.
-3. **Option[Str] second-hop return** — VERIFIED FIXED (same repro; match +
+3. **Option[Str] second-hop return** ï¿½ VERIFIED FIXED (same repro; match +
    rewrap + unwrap all exit 0). home_dir/config_dir can be restored.
-4. **os.platform aggregate shadowing** — FIXED (peeked-submodule injection,
+4. **os.platform aggregate shadowing** ï¿½ FIXED (peeked-submodule injection,
    b01d7c5e): os.platform.platform_name() now resolves to the REAL submodule
    fn (platform_name returns a real value; flat os.platform() still works).
    The old "fully-qualified works" was a false positive (str_len(null) != 0).
-5. **Catalog struct literals drop trailing fields** — VERIFIED FIXED
+5. **Catalog struct literals drop trailing fields** ï¿½ VERIFIED FIXED
    (repro_timer_literal: Timer{deadline: dl; armed: true; label: "t"} reads
    all three fields correctly).
-6. **"Cannot allocate unsized type" (os/file + os/path combo)** — FIXED
+6. **"Cannot allocate unsized type" (os/file + os/path combo)** ï¿½ FIXED
    (b01d7c5e): tuple EXPRESSION element typing erased Bool to Int, so
    (PathBuf, Bool) built "Tuple__PathBuf__Int" while the signature
-   registered "Tuple__PathBuf__Bool" — the expr-built type was never
+   registered "Tuple__PathBuf__Bool" ï¿½ the expr-built type was never
    pre-registered and its definition emitted after the alloca that used it.
    Tuple element naming now uses XIOM types for literals. os file write/read/
    remove roundtrip compiles and runs.
-7. **@Executor.new undefined in minimal programs** — VERIFIED FIXED: the
+7. **@Executor.new undefined in minimal programs** ï¿½ VERIFIED FIXED: the
    reachability filter now seeds from KEPT const initializers (5865a3b5), so
    module-global ar _exec = Executor.new() keeps the ctor alive regardless
    of import shape. Minimal xiom.async.timer-only program exit 0.
-8. **use xiom.X aggregate import vs sublib struct-literal codegen** — covered
+8. **use xiom.X aggregate import vs sublib struct-literal codegen** ï¿½ covered
    by the #5 verification (same BUG 24 family).
 
 Plus BUG 27 #12 (the last baseline crypto failure):
-- **Tuple+Vec payload corruption (smoke_stress_crypto_aes_gcm 0xC0000005)** —
+- **Tuple+Vec payload corruption (smoke_stress_crypto_aes_gcm 0xC0000005)** ï¿½
   FIXED (cfe783e0), 3-part chain:
-  a. callee_return_xiom resolved by bare leaf suffix only — ambiguous
+  a. callee_return_xiom resolved by bare leaf suffix only ï¿½ ambiguous
      (cipher.aes_encrypt_gcm -> Vec[UInt8] vs crypto.aes_encrypt_gcm ->
      Result[Tuple__Vec__Vec, Str]) returned None and dropped payload
      tracking. Now resolves the receiver prefix first.
-  b. boxed-struct field access matched tuple fields by raw position() — only
+  b. boxed-struct field access matched tuple fields by raw position() ï¿½ only
      pair._1 worked; numeric pair.1 fell to Str.len. Now uses
      resolve_field_index (both forms).
-  c. is_container_vec_field (vec_abi.rs) had no boxed-tuple-field case —
+  c. is_container_vec_field (vec_abi.rs) had no boxed-tuple-field case ï¿½
      pair.1.len() misdispatched to Str.len. Now classifies via
      local_boxed_struct + container base types (tolerates erased "Vec").
   **Crypto smokes 30/30** (was 29/30 since the baseline); full gcm encrypt+
   decrypt roundtrip exit 0.
 
 Also closed: BUG 29 (fn_symbol emission vs fn_key, checker dotted-module path
-join, visibility keep-first — feea1b8a) which fixed the m19_default (~110)
+join, visibility keep-first ï¿½ feea1b8a) which fixed the m19_default (~110)
 and m18_guard/ecosystem (~30) e2e clusters, plus the 5 repro files
 (repro_error_type, repro_fn_storage, repro_unsafe_int, repro_opt_vec,
-repro_tuple_vec) — all exit 0 with harness drivers (5865a3b5).
+repro_tuple_vec) ï¿½ all exit 0 with harness drivers (5865a3b5).
 
 Remaining (not compiler blockers): closure-through-fn-slot crashes (B-007
-family — reproduced at baseline with a plain fn-typed param; needs a design
+family ï¿½ reproduced at baseline with a plain fn-typed param; needs a design
 decision on the fn-ptr vs env-ptr ABI), and the e2e alias-comparison /
 ambiguity clusters (checker strictness, unrelated to stdlib).
 
 ---
 
-## 2026-08-16 — compiler session: BUG 30 batch (16 regression failures from the 04:03 run all fixed) + 904-smoke survey
+## 2026-08-16 ï¿½ compiler session: BUG 30 batch (16 regression failures from the 04:03 run all fixed) + 904-smoke survey
 
-### BUG 30 — 14 fixes, commits `0ddc4500` + `5940ba2c` (all verified)
+### BUG 30 ï¿½ 14 fixes, commits `0ddc4500` + `5940ba2c` (all verified)
 
 The 2026-08-14 04:03 test run had 12 e2e failures + 4 stdlib-exec failures +
 1 diff failure. All compiler-fixable items are FIXED (full detail in
 docs/SESSION.md, 2026-08-16):
 
-1. **Imply scoping** — contract-ensure `is Some/Ok/Err` payload rebinds no
+1. **Imply scoping** ï¿½ contract-ensure `is Some/Ok/Err` payload rebinds no
    longer poison later return-site checks (i64-form Is inttoptr+load ? AV).
    Fixes b003 / m19_read_file / file_stem chains.
-2. **Is() payload-slot hoisting** (struct + i64 forms) — `&&` guard chains
+2. **Is() payload-slot hoisting** (struct + i64 forms) ï¿½ `&&` guard chains
    bind in one block, read in a later one ? dominance error (m18_guard_0086).
 3. **Is() bare-scrutinee rebind in the enum-variants form** (utf8 Map.len).
-4. **struct_type_from_expr Call-arm resolution** — match-on-catalog-call
+4. **struct_type_from_expr Call-arm resolution** ï¿½ match-on-catalog-call
    dropped the scrutinee (m35_z24/z29, eco_algo).
 5. **Mono path flushes hoisted allocas** (m35_z24 "undefined value %tmp55").
-6. **Enum/Result literal ctors zero-init unused payload slots** — LLVM poison
+6. **Enum/Result literal ctors zero-init unused payload slots** ï¿½ LLVM poison
    + clang -O2 ? deterministic AV (m35_z10/z29). NOTE: the driver runs
    `opt -O2` + `clang -O2`; uninitialized-slot reads are exploited.
-7. **coerce_arg_for_param `&array_local`** — data pointer only for `&[N]T`
+7. **coerce_arg_for_param `&array_local`** ï¿½ data pointer only for `&[N]T`
    params; `%struct.Vec*` params get the header alloca (eco_algo).
 8. **len() dispatch for boxed Vec-handle locals** (utf8 ensure).
-9. **Ensure `result` scoped per-check** — user locals named `result` shadowed
+9. **Ensure `result` scoped per-check** ï¿½ user locals named `result` shadowed
    the synthetic return slot (utf8_encode AV).
 10. **decl.rs result local_xiom_types uses type_string_full** (payload args).
-11. **collect_block_free_vars sorts captures by name** — HashSet order
+11. **collect_block_free_vars sorts captures by name** ï¿½ HashSet order
     differed between block/type/caller passes (Rc.new slot swap).
-12. **Generic receiver ABI** — by-value `self` passes the struct VALUE not a
+12. **Generic receiver ABI** ï¿½ by-value `self` passes the struct VALUE not a
     pointer (smoke_rc).
 13. **Checker wildcard method lookup deterministic** + clone skip applies only
     to the fallback, not the direct hit (smoke_rc r2 typed `_`).
-14. **struct_type_from_expr Type.method static calls** — `Vec[Str]::new()`
+14. **struct_type_from_expr Type.method static calls** ï¿½ `Vec[Str]::new()`
     must resolve `Vec.new` (exact/module-qualified suffix); unregistered
-    typed keys return None — NEVER the bare alias (BufReader.invariant_check
+    typed keys return None ï¿½ NEVER the bare alias (BufReader.invariant_check
     on a Vec ? invalid IR; smoke_net_http + io graph).
 
 **CORRECTION to the 2026-08-14 report:** the 4 stdlib-exec stragglers were
-labeled stdlib-side — WRONG for 3 of them. `smoke_rc`, `smoke_cell`,
+labeled stdlib-side ï¿½ WRONG for 3 of them. `smoke_rc`, `smoke_cell`,
 `smoke_utf8` were COMPILER bugs (fixes #11/#12/#13, #3/#8/#10, #9/#10) and
 now PASS. Only `smoke_hash_folder` is stdlib-side (missing
 `use xiom.convert.toint;`).
 
-### 904-smoke battery survey (NEW — the real production gate)
+### 904-smoke battery survey (NEW ï¿½ the real production gate)
 
 `examples/stdlib_smoke/` has **904 smoke files** (the 08-14 report's
 "stdlib-exec 68/72" covered only 72 of them). Full sweep with the isolated
@@ -1272,27 +1272,27 @@ timed out, totals approximate). Failure classes:
 
 **Real compiler bugs still OPEN (next sessions):**
 - Map AVs 0xC0000005 (smoke_stress_collections_map_*: get_missing/insert_get/
-  clear/collision/overwrite) — Map is a NEW stdlib type, never swept before.
+  clear/collision/overwrite) ï¿½ Map is a NEW stdlib type, never swept before.
 - fmt AVs 0xC0000005/0xC0000409 (smoke_fmt_edge/float/format*) +
-  `void type only allowed for function results` (smoke_fmt_formatter) —
+  `void type only allowed for function results` (smoke_fmt_formatter) ï¿½
   void in expression position.
 - struct-literal field-type mixups: `store %struct.BST %vecval` in
   benchmark.main Node.new (bench_math native compile; harness is
-  emit-ir-only so not suite-blocking) — same family as fix #14 but a
+  emit-ir-only so not suite-blocking) ï¿½ same family as fix #14 but a
   FIELD-TYPE/INDEX lookup issue in the non-enum struct-literal path.
 - Interface-bound gap: `type 'Int' does not implement 'Bounded': missing
   method 'is_finite'` (smoke_num_saturating).
 - BUG 26 #2 bare prelude names in user modules (LIVE: smoke_alloc_basic
   `undefined variable 'ptr'`), BUG 26 #3 cross-module tuple destructuring,
   BUG 26 #5/BUG 27 #20 high-bit mask AND (per doc unfixed; smoke_utf8 now
-  passes — stdlib worked around it).
-- BUG 24 residual (bigfloat pow_bf per-program-shape AV) — doc says
+  passes ï¿½ stdlib worked around it).
+- BUG 24 residual (bigfloat pow_bf per-program-shape AV) ï¿½ doc says
   PARTIAL; smoke_num_precision PASSED in this sweep (may be closed by the
-  later batch — needs re-verification).
-- Closure-through-fn-slot (B-007 family) — design decision pending.
+  later batch ï¿½ needs re-verification).
+- Closure-through-fn-slot (B-007 family) ï¿½ design decision pending.
 
-**Stdlib-side (for the stdlib session — smoke/API staleness):**
-parse errors (P001 — e.g. smoke_stress_rand_shuffle), undefined vars /
+**Stdlib-side (for the stdlib session ï¿½ smoke/API staleness):**
+parse errors (P001 ï¿½ e.g. smoke_stress_rand_shuffle), undefined vars /
 missing imports (smoke_alloc_basic `ptr` family, smoke_net_* API drift),
 renamed/absent APIs (smoke_stress_rand_* compile failures). hash_folder
 missing import. The stdlib session should fix these in their tree; the
@@ -1300,17 +1300,17 @@ compiler-side list above is the compiler's share.
 
 ---
 
-## 2026-08-16 (evening) — stdlib session: two NEW compiler findings during gap-fill implementation
+## 2026-08-16 (evening) ï¿½ stdlib session: two NEW compiler findings during gap-fill implementation
 
-### BUG 31 — unary minus on Float128 emits sub i64 0, fp128 (codegen, clang rejects)
+### BUG 31 ï¿½ unary minus on Float128 emits `sub i64 0, fp128` (codegen, clang rejects)
 
-- **Construct:** any -x where x: Float128 (unary negation in an expression).
-- **Repro:** ar a = 1.0 as Float128; a = -a; — clang: error: '%tmp' defined with type 'fp128' but expected 'i64' at sub i64 0, %tmp.
-- **Worked around in stdlib** (num/bigfloat.xi bigfloat_to_float128 uses cc * (-1.0 as Float128) with a TODO(compiler) note) — negation via literal multiply is idiomatic float code and the only construct that trips it.
-- **Likely fix:** fneg path in codegen must emit LLVM neg fp128 (or sub fp128 0.0, x), not the integer sub i64 form. Check the Int-only neg emission branch; Float32/64 likely share it — verify those too.
-- Also related: standalone xiom.exe --emit-ir on num/bigfloat.xi reports cannot call 'to_int' on this expression at 239:13 — a STANDALONE-check false positive (the fn resolves through the import catalog; aggregate-file check quirk documented in STDLIB_IMPLEMENTATION.md §4 — the real test is a consumer program, which type-checks fine).
+- **Construct:** any `-x` where `x: Float128` (unary negation in an expression).
+- **Repro:** `var a = 1.0 as Float128; a = -a;` ï¿½ clang: `error: '%tmp' defined with type 'fp128' but expected 'i64'` at `sub i64 0, %tmp`.
+- **Worked around in stdlib** (num/bigfloat.xi bigfloat_to_float128 uses `acc * (-1.0 as Float128)` with a TODO(compiler) note) ï¿½ negation via literal multiply is idiomatic float code and the only construct that trips it.
+- **Likely fix:** fneg path in codegen must emit LLVM `fneg fp128` (or `fsub fp128 0.0, x`), not the integer `sub i64` form. Check the Int-only neg emission branch; Float32/64 likely share it ï¿½ verify those too.
+- Also related: standalone `xiom.exe --emit-ir` on num/bigfloat.xi reports `cannot call 'to_int' on this expression` at 239:13 ï¿½ a STANDALONE-check false positive (the fn resolves through the import catalog; aggregate-file check quirk documented in STDLIB_IMPLEMENTATION.md ï¿½4 ï¿½ the real test is a consumer program, which type-checks fine).
 
-### BUG 37 — fp128 RETURNED from a catalog fn crashes the caller (0xC0000005)
+### BUG 37 ï¿½ fp128 RETURNED from a catalog fn crashes the caller (0xC0000005)
 
 - **Construct:** calling a stdlib (catalog) fn that returns `Float128` and
   doing anything with the result (even just assigning it), in a program that
@@ -1324,18 +1324,18 @@ compiler-side list above is the compiler's share.
   catalog-return boundary. BUG 24/28-family shape dependence.
 - **Impact on stdlib:** num/bigfloat.xi `bigfloat_to_float128` (structured as
   three single-shape fns to dodge BUG 36) compiles and is correct, but no
-  consumer program can use it yet — the gap-fill smoke cannot include it
+  consumer program can use it yet ï¿½ the gap-fill smoke cannot include it
   (documented in the smoke). TODO(compiler) notes left in the module.
 - **Likely fix:** the catalog-return ABI for fp128 (value vs sret, or the
-  mono'd copy-out path) — the compiler session's BUG 24/27 #12 families.
+  mono'd copy-out path) ï¿½ the compiler session's BUG 24/27 #12 families.
 
-### BUG 36 — fp128 Horner-loop fn shape crashes when any sign/scaling statement follows (0xC0000005)
+### BUG 36 ï¿½ fp128 Horner-loop fn shape crashes when any sign/scaling statement follows (0xC0000005)
 
 - **Construct:** a fn that (a) runs a Horner loop mixing fp128 mul/add with
   i64?fp128 casts of Vec-element reads through a struct chain, and (b) ALSO
-  contains any subsequent fp128 statement — a sign negate
+  contains any subsequent fp128 statement ï¿½ a sign negate
   (`acc * (-1.0 as Float128)` or `(0.0 as Float128) - acc`), or an
-  in-loop Int negate — crashes at runtime 0xC0000005 even when the sign
+  in-loop Int negate ï¿½ crashes at runtime 0xC0000005 even when the sign
   branch is not taken. Removing the sign statement (or moving it to a
   separate helper fn) makes the same fn exit 0.
 - **Status:** every individual piece (Horner loop, pow10 loop, div loop,
@@ -1344,12 +1344,12 @@ compiler-side list above is the compiler's share.
   session's "repro g12/g14/g16" probes are in this session's notes.
 - **Impact on stdlib:** num/bigfloat.xi bigfloat_to_float128 is structured
   as: Horner loop fn + `_f128_pow10` helper (one scaling loop) + `_f128_neg`
-  helper (sign only) — three single-shape fns that each compile clean.
+  helper (sign only) ï¿½ three single-shape fns that each compile clean.
   TODO(compiler) notes left; consolidate when the shape bug lands.
 - **Likely fix:** fp128 register allocation / mono across statement
-  boundaries — the compiler session's BUG 24 family.
+  boundaries ï¿½ the compiler session's BUG 24 family.
 
-### BUG 35 — Int128 index math inside a Vec-writing fn shape AVs (0xC0000005 / 0xC000001D)
+### BUG 35 ï¿½ Int128 index math inside a Vec-writing fn shape AVs (0xC0000005 / 0xC000001D)
 
 - **Construct:** `var diff128 = (v[i] as Int128) - (min as Int128);
   var idx = (diff128 / (width as Int128)) as Int;` inside a fn that also
@@ -1357,18 +1357,18 @@ compiler-side list above is the compiler's share.
 - **Status:** the SAME Int128 ops pass in isolation (probe i128a/i128b exit 0)
   and pass in a counting-only fn, but crash when combined with Vec element
   writes in the same fn (0xC0000005) or with extreme i64 values
-  (0xC000001D — SIMD/illegal-instruction family). Shape-dependent
+  (0xC000001D ï¿½ SIMD/illegal-instruction family). Shape-dependent
   miscompile, BUG 24 family.
 - **Impact on stdlib:** sort/radix.xi bucket_sort uses plain Int index math
   with a documented i64-span caveat (TODO(compiler) notes left). Revisit
   with Int128 when the shape bug is fixed.
 - **Likely fix:** Int128 mono/register allocation interacting with the
-  boxed-Vec write path — the compiler session's BUG 24/27 #12 families.
+  boxed-Vec write path ï¿½ the compiler session's BUG 24/27 #12 families.
 
-### BUG 34 — nested Vec element WRITES via reference AV (0xC0000005)
+### BUG 34 ï¿½ nested Vec element WRITES via reference AV (0xC0000005)
 
 - **Construct:** `bs[idx].push(x)` or `&bs[b]` passed as `&mut Vec[Int]`
-  where `bs: Vec[Vec[Int]]` — mutation of a nested-vector ELEMENT.
+  where `bs: Vec[Vec[Int]]` ï¿½ mutation of a nested-vector ELEMENT.
 - **Status:** READS of nested elements work (`outer[0][1]` compiles and runs),
   but WRITES through the inner vector reference crash at runtime
   (0xC0000005). The pre-existing stub note in sort/radix.xi ("nested
@@ -1380,16 +1380,16 @@ compiler-side list above is the compiler's share.
   ordering, O(n + b) expected).
 - **Likely fix:** the `&mut` reference-to-nested-element lowering (pointer to
   the Vec handle inside the outer buffer vs pointer to the inner heap data)
-  — same family as BUG 24 / the coerce_arg_for_param `&Vec` fixes.
+  ï¿½ same family as BUG 24 / the coerce_arg_for_param `&Vec` fixes.
 
-### BUG 33 — Option[Float128] payload unwrap loads undefined `%struct.Float128`
+### BUG 33 ï¿½ Option[Float128] payload unwrap loads undefined `%struct.Float128`
 
 - **Construct:** matching/unwrapping an `Option[Float128]` payload (the
   `Option__Float128.unwrap` / match-Some binding path).
 - **IR evidence:** `%struct.Option__Float128 = type { i64, fp128 }` is defined
   correctly (native fp128 payload), but the unwrap fn emits
-  `%result = load %struct.Float128, %struct.Float128* %val_gep` — the
-  payload's STRUCT NAME (`%struct.Float128`, never defined ? opaque) instead
+  `%result = load %struct.Float128, %struct.Float128* %val_gep` ï¿½ the
+  payload's STRUCT NAME (`%struct.Float128`, never defined (opaque)) instead
   of the native `fp128`. clang: `error: load operand must be a pointer to a
   first class type`.
 - **Impact on stdlib:** any fn returning `Option[Float128]` is unusable by
@@ -1399,25 +1399,27 @@ compiler-side list above is the compiler's share.
   correctly.
 - **Likely fix:** the Option-payload unwrap type-name resolution should emit
   the native LLVM scalar type for Float128 (same class of fix as BUG 30 #10
-  local_xiom_types / payload slot typing — the payload type lookup must map
-  XIOM Float128 ? LLVM fp128, not the struct name).
+  local_xiom_types / payload slot typing ï¿½ the payload type lookup must map
+  XIOM Float128 -> LLVM fp128, not the struct name).
 
-### BUG 32 — Int?pointer cast (`x as *T`) emits address-of-local, not `inttoptr`
+### BUG 32 ï¿½ Int->pointer cast (`x as *T`) emits address-of-local, not `inttoptr`
 
 - **Construct:** `var h = buf as Int; var q = h as *UInt8;` inside an unsafe
   block (any Int VARIABLE cast to a pointer).
 - **IR evidence (repro pdb3.xi):** `h = buf as Int` correctly emits
-  `ptrtoint`; the reverse cast emits `bitcast i64* %alloca_slot to i8*` —
+  `ptrtoint`; the reverse cast emits `bitcast i64* %alloca_slot to i8*` ï¿½
   i.e. the ADDRESS OF THE LOCAL holding h, NOT `inttoptr i64 %h to i8*`.
   The recovered pointer reads the stack slot, so `q == buf` is false and
   `q[0]` reads pointer bytes. Constant casts (`0 as *T`) are unaffected
   (proper inttoptr), which is why `ptr.null` works.
 - **Impact on stdlib:** blocks pointer-handle designs through Int-typed APIs
-  (misc/glob.xi glob_compile/glob_compile_match — worked around with a
+  (misc/glob.xi glob_compile/glob_compile_match ï¿½ worked around with a
   single-slot module-global registry, TODO(compiler) note left).
-- **Likely fix:** the unsafe cast lowering — emit `inttoptr` for Int?pointer
+- **Likely fix:** the unsafe cast lowering ï¿½ emit `inttoptr` for Int->pointer
   casts instead of reusing the ptr-to-locals path.
 
-### P001 indentation quirk (parser, low priority — smoke files realigned to convention)
+### P001 indentation quirk (parser ï¿½ CAN HANG the compiler, priority for the compiler session)
 
-- Indented module-level declarations (    use xiom.x; + indented n main) + a final column-0 } produce error[P001]: expected declaration, found '}' at EOF, while any one of those three properties removed compiles. Module-level use/n at column 0 (repo convention) always works. 10 smoke files in examples/stdlib_smoke were realigned to the convention (they had 4-space-indented use + n); no stdlib code uses the failing shape.
+- Indented module-level declarations (indented `use xiom.x;` + indented `fn main`) + a final column-0 `}` produce `error[P001]: expected declaration, found '}'` at EOF, while any one of those three properties removed compiles. Module-level `use`/`fn` at column 0 (repo convention) always works.
+- **WORSE: the 2-space-indented variant HANGS the compiler indefinitely** (no error, no exit ï¿½ smoke_stress_crypto_hash_known_vector.xi hung the 904-sweep for 15+ min; the compiler session's own "batch 8 timed out" was the same family). The unindented copy of the same file compiles in ~14s.
+- 158 smoke files in examples/stdlib_smoke were realigned to the col-0 convention on 2026-08-16 (stdlib session) ï¿½ zero indented `use` remain; re-check this note if a future sweep hangs.
