@@ -83,6 +83,14 @@ impl IrEmitter {
             Expr::As(_, ty, _) => Some(Self::type_from_ast(ty)),
             Expr::Paren(inner, _) => Self::infer_value_xiom_type(inner),
             Expr::Binary(l, BinOp::Shl | BinOp::Shr, _, _) => Self::infer_value_xiom_type(l),
+            // BUG 31: literal bindings must register their XIOM type so method
+            // dispatch on the local resolves (`var v = 0.0; v.to_str()` → the
+            // Float64.to_str method; previously the bare `@to_str` stub → AV).
+            Expr::Float(..) => Some("Float64".to_string()),
+            Expr::Int(..) => Some("Int".to_string()),
+            Expr::Bool(..) => Some("Bool".to_string()),
+            Expr::Str(..) => Some("Str".to_string()),
+            Expr::Char(..) => Some("Char".to_string()),
             _ => None,
         }
     }
