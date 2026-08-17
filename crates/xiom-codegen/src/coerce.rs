@@ -25,6 +25,19 @@ impl IrEmitter {
             }
         }
         if param_ty.ends_with('*') {
+            // BUG 44: `&T` → T auto-coercion for POINTER-pointee types (Str).
+            // An arg carrying an ADDRESS (`&s`, or a ref-local/ref-param
+            // ident `p: &Str`) must be DEREF'd when the param expects the
+            // pointee VALUE (`expect_str(&s)` — the old code passed the slot
+            // ADDRESS, or worse truncated it to a byte). Scalar `&T` → T is
+            // ambiguous with `&T` params at this layer (both lower to "i64")
+            // and keeps the established address-passthrough; `i8**` params
+            // (&Str) want the address itself.
+            if !param_ty.ends_with("**") {
+                if let Some(pointee_arg) = self.coerce_ref_arg_to_pointee(arg_expr, &param_ty) {
+                    return pointee_arg;
+                }
+            }
             let lvalue: Option<&Expr> = match arg_expr {
                 Expr::Ref(i, _) | Expr::MutRef(i, _) => Some(i.as_ref()),
                 Expr::Unary(UnaryOp::Ref, i, _) | Expr::Unary(UnaryOp::MutRef, i, _) => Some(i.as_ref()),
@@ -104,6 +117,52 @@ impl IrEmitter {
             }
         }
         self.coerce_value(pre_val, pre_ty, param_ty)
+    }
+
+    /// BUG 44: when a call arg carries an ADDRESS but the param expects the
+    /// pointee VALUE (auto-coercion `&Str` → `Str`), deref the address and
+    /// return the loaded pointee value. Handles both `&ident` REF EXPR args
+    /// and ref-local/ref-param IDENT args (`p: &Str` passed to a `Str` param).
+    /// Only fires when the param type EXACTLY equals the pointee's LLVM type
+    /// (i8* for Str) — `&T` params (i64 / i8**) keep receiving the address.
+    fn coerce_ref_arg_to_pointee(&mut self, arg_expr: &Expr, param_ty: &str) -> Option<String> {
+        match arg_expr {
+            // `&s` / `&mut s`: compile the INNER lvalue — its value IS the
+            // pointee. (`f(&x)` to a `&T` param never reaches here: `&T`
+            // params are i64/i8** and the inner value type won't match.)
+            Expr::Ref(inner, _) | Expr::MutRef(inner, _) => {
+                if let Ok((iv, it)) = self.compile_expr(inner) {
+                    if param_ty == it {
+                        return Some(iv);
+                    }
+                }
+                None
+            }
+            // `p` where p is a ref-local/ref-param (`var p = &s`, `s: &Str`):
+            // the ident holds the ADDRESS — inttoptr (if i64) + load.
+            Expr::Ident(id) => {
+                let is_ref = self.local.ref_params.contains(&id.name)
+                    || self.local.ref_locals.contains(&id.name);
+                if !is_ref { return None; }
+                let pointee = self.local.local_xiom_types.get(&id.name)
+                    .and_then(|t| self.llvm_type_for(t).ok())?;
+                if pointee != param_ty { return None; }
+                if let Ok((addr, addr_ty)) = self.compile_expr(arg_expr) {
+                    let ptr = if addr_ty == "i64" {
+                        let p = self.fresh_tmp();
+                        self.emitln(&format!("  {p} = inttoptr i64 {addr} to {pointee}*"));
+                        p
+                    } else {
+                        addr
+                    };
+                    let loaded = self.fresh_tmp();
+                    self.emitln(&format!("  {loaded} = load {pointee}, {pointee}* {ptr}"));
+                    return Some(loaded);
+                }
+                None
+            }
+            _ => None,
+        }
     }
 
     pub(crate) fn coerce_value(&mut self, val: &str, from: &str, to: &str) -> String {
