@@ -900,9 +900,10 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         let esz_gep = self.fresh_tmp();
                         let esz_val = {
                             let tn = val_ty.trim_start_matches("%struct.").trim_end_matches('*');
+                            // BUG 42: enum elements (Vec[JsonValue]) are
+                            // struct-likes too — enum_variants, not types.
                             let is_struct_elem_here = val_ty.starts_with('%') && !val_ty.ends_with('*')
-                                && (self.types.types.contains_key(&tn.to_string())
-                                    || self.types.types.keys().into_iter().any(|k| k.ends_with(&format!(".{tn}"))));
+                                && self.is_struct_or_enum_type(&tn);
                             if is_struct_elem_here {
                                 // BUG 34 (nested Vec[Vec[T]]): a STRUCT element
                                 // (e.g. a Vec pushed into a Vec whose ctor
@@ -912,7 +913,13 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 // slots. Emit the size as a constant; the store
                                 // block persists it into field 3 so later index
                                 // reads use the same offsets.
-                                let struct_size = self.sizeof_struct(tn);
+                                // BUG 42: sizeof_struct under-counts ENUM
+                                // fields (JsonValue in JsonEntry → 8 instead
+                                // of 16) and returns 0 for enum elements —
+                                // vec_elem_storage_size knows the enum
+                                // { i64 tag, i64 x slots } layout, container
+                                // fields (Vec 32, Map/Set 64) and arrays.
+                                let struct_size = self.vec_elem_storage_size(&tn);
                                 let sz_tmp = self.fresh_tmp();
                                 self.emitln(&format!("  {sz_tmp} = alloca i64"));
                                 self.emitln(&format!("  store i64 {struct_size}, i64* {sz_tmp}"));
@@ -929,8 +936,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // heap-allocate) and use memcpy to store the struct inline.
                         let is_struct_elem = val_ty.starts_with('%') && {
                             let tn = val_ty.trim_start_matches("%struct.").trim_end_matches('*');
-                            self.types.types.contains_key(&tn.to_string())
-                                || self.types.types.keys().into_iter().any(|k| k.ends_with(&format!(".{tn}")))
+                            self.is_struct_or_enum_type(&tn)
                         };
                         let val = if !is_struct_elem {
                             self.val_to_i64(&val_raw, &val_ty)
@@ -2877,7 +2883,19 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     }
                                     let subst = Self::substitute_type(ret_ty, ret_ty, &subst_map);
                                     let name = Self::type_from_ast(&subst);
-                                    let llvm = self.llvm_type_for(&name).unwrap_or_else(|_| generic_ret.clone());
+                                    // BUG 41 (2026-08-17): concrete Result/
+                                    // Option payloads must resolve to the
+                                    // monomorphised struct (Result__Env__Str),
+                                    // mirroring the mono definition's
+                                    // subst_type. The generic-base lookup
+                                    // produced %struct.Result while the
+                                    // callee emits %struct.Result__Env__Str
+                                    // → invalid IR (m34_y15/y20 compile
+                                    // failures, deterministic after BUG 40).
+                                    let llvm = match self.concrete_container_llvm(&name) {
+                                        Some(concrete) => concrete,
+                                        None => self.llvm_type_for(&name).unwrap_or_else(|_| generic_ret.clone()),
+                                    };
                                     let is_struct = name.starts_with("Result") || name.starts_with("Option")
                                         || name.starts_with("Vec") || name.starts_with("Map") || name.starts_with("Set")
                                         || name.starts_with("Slice");

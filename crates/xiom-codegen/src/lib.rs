@@ -2264,6 +2264,38 @@ impl IrEmitter {
         false
     }
 
+    /// BUG 41 (2026-08-17): resolve a `Result[A, B]` / `Option[A]` XIOM type
+    /// NAME to its concrete monomorphised LLVM struct (`%struct.Result__A__B`
+    /// / `%struct.Option__A`) when that concrete key is registered — mirrors
+    /// the mono definition's subst_type Result/Option arms. Returns None for
+    /// generic-only keys so callers keep the generic fallback.
+    pub(crate) fn concrete_container_llvm(&self, name: &str) -> Option<String> {
+        let (base, inner) = if let Some(rest) = name.strip_prefix("Result[") {
+            ("Result", rest.strip_suffix(']')?)
+        } else if let Some(rest) = name.strip_prefix("Option[") {
+            ("Option", rest.strip_suffix(']')?)
+        } else {
+            return None;
+        };
+        let concrete = format!("{base}__{}", inner.replace(", ", "__").replace(',', "__"));
+        let key = self.types.type_meta.keys().iter()
+            .find(|k| k.as_str() == concrete || k.ends_with(&format!(".{concrete}")))
+            .cloned()?;
+        Some(format!("%struct.{key}"))
+    }
+
+    /// BUG 42 (2026-08-17): is `type_name` a registered STRUCT or ENUM type
+    /// (bare or module-qualified)? Enums live in enum_variants, not types —
+    /// the old struct-only checks made Vec[JsonValue] pushes/reads treat the
+    /// 16-byte enum element as an i64 scalar (tag only, payload garbage).
+    pub(crate) fn is_struct_or_enum_type(&self, type_name: &str) -> bool {
+        let key = type_name.to_string();
+        self.types.types.contains_key(&key)
+            || self.types.types.keys().into_iter().any(|k| k.ends_with(&format!(".{type_name}")))
+            || self.types.enum_variants.contains_key(&key)
+            || self.types.enum_variants.keys().into_iter().any(|k| k.ends_with(&format!(".{type_name}")))
+    }
+
     fn resolve_vec_elem_type(&self, container: &Expr) -> Option<String> {
         // 5c.30: local Vec bindings (`var v = Vec[Point2D].new()`): the elem
         // type was recorded at the let/var binding. Only struct element types
@@ -2275,13 +2307,21 @@ impl IrEmitter {
                 return None;
             }
             // BUG 23 #2 fix: NESTED Vec elements (`Vec[Vec[T]]`, `Vec[Vec[Int]]`)
-            // have no dedicated struct key ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the element IS the generic %struct.Vec.
+            // have no dedicated struct key — the element IS the generic %struct.Vec.
             // Return the generic-args name so the index site can load it as a Vec.
             if elem.starts_with("Vec[") {
                 return Some(elem.clone());
             }
+            // BUG 42: ENUM elements (Vec[JsonValue]) must take the struct-
+            // element memcpy path too — enums register in enum_variants,
+            // not types. Without this the read fell to the scalar i64 load
+            // (tag only, payload garbage → float_to_string crash).
             return self.types.types.keys().into_iter()
-    .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem);
+    .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
+                .or_else(|| {
+                    self.types.enum_variants.keys().into_iter()
+                        .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
+                });
         }
         if let Expr::Field(base, field_expr, _) = container {
             let base_ty = self.infer_struct_type_name(base)?;
@@ -2581,7 +2621,39 @@ impl IrEmitter {
                             .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
                             .map(|(_, v)| v)
                     });
-                let Some(meta) = meta else { return 8 };
+                let Some(meta) = meta else {
+                    // BUG 42 (2026-08-17): ENUM types live in enum_variants,
+                    // not type_meta — without this arm a struct containing an
+                    // enum field (JsonEntry { key: Str; value: JsonValue })
+                    // sized the enum at 8 bytes instead of its real
+                    // { i64 tag, i64 x slots } layout (16 for JsonValue),
+                    // so Vec[JsonEntry] elements were stored at 16-byte
+                    // strides for a 24-byte struct → overlapping elements →
+                    // garbage Str keys → strcmp crash (test_json).
+                    let variants = self.types.enum_variants.get(&type_name.to_string())
+                        .or_else(|| {
+                            self.types.enum_variants.entries().into_iter()
+                                .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
+                                .map(|(_, v)| v)
+                        });
+                    if let Some(variants) = variants {
+                        // Enum layout: { i64 tag, i64 x slots }. Payloads are
+                        // i64-width slots (containers/structs boxed to
+                        // handles); multi-name payloads (tuples) contribute
+                        // one slot per element.
+                        let mut slots = 1i64;
+                        for (_, payload_names) in variants.iter() {
+                            let pslots = if payload_names.len() > 1 {
+                                payload_names.len() as i64
+                            } else {
+                                1
+                            };
+                            slots = slots.max(pslots);
+                        }
+                        return 8 + slots * 8;
+                    }
+                    return 8;
+                };
                 let mut total = 0i64;
                 for (_, fty) in meta.fields.iter() {
                     total += self.vec_elem_storage_size(fty);
