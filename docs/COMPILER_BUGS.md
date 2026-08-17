@@ -1629,14 +1629,23 @@ byte-reproducible (verified 5× identical for m21/test_vector/m34).
 UNUSED type param) mono'd to adjust_Env: the DEFINITION emitted
 `%struct.Result__Env__Str` (the mono's subst_type resolves concrete
 Result/Option keys), but the CALL-SITE fallback (call.rs generic_ret,
-used when the specialized key isn't registered yet — compile order) went
-through type_from_ast + llvm_type_for, which fell back to the generic
-base registration `%struct.Result` → `call %struct.Result @adjust_Env`
-+ `ret %struct.Result__Env__Str` → clang rejected the IR (m34_y15/y20
-compile failures; deterministic after BUG 40's sorted emission).
-Fix: new `concrete_container_llvm` helper resolves `Result[A, B]` /
-`Option[A]` names to the registered concrete struct key (mirroring the
-mono definition's subst_type arms); the call-site fallback uses it first.
+used when the specialized key isn't registered yet — the `-o` compile
+order compiles the caller first; `xiom run` happened to compile the def
+first, masking the bug) produced the generic base `%struct.Result` →
+`call %struct.Result @adjust_Env` + `ret %struct.Result__Env__Str` →
+clang rejected the IR (m34_y15/y20 compile failures).
+
+Two root causes, both fixed:
+1. `type_from_ast` drops Named args and renders `Type::Result` as bare
+   "Result" — the call-site fallback now renders the FULL
+   "Result[Env, Str]" (Named-with-args, Type::Result, Type::Option arms).
+2. `concrete_container_llvm` (new) mirrors concrete_type_for's rule:
+   concrete `%struct.Result__A__B` iff at least one payload is a STRUCT
+   (primitives/enums keep the generic layout, matching the definition);
+   falls back to the bare concrete name when the key isn't registered yet
+   (a struct payload guarantees the def emits it). Verified via both the
+   `run` and `-o` (harness) paths: m34_y07/11/13/15/16/19/20,
+   m35_z02/09/24/29, m21_complex_generic_008/009 all exit 0.
 
 ### BUG 42 — FIXED (`feat/architect`, 2026-08-17) — enum values in Vec elements
 
@@ -1655,10 +1664,23 @@ only, payload garbage):
    sizeof_struct also under-counted enum fields (8). The enum layout is
    `{ i64 tag, i64 x slots }` (payloads boxed to i64 handles; tuples one
    slot per element) — 16 bytes for JsonValue, 24 for JsonEntry.
+   ALSO: qualified field names broke the leaf-suffix lookup (ColumnDef's
+   affinity → 8 → elem_size 18) and Bool FIELDS are 8 bytes (only
+   Vec[Bool] ELEMENT slots are 1 byte) — ColumnDef sized 18 instead of 40
+   (test_sqlite wrong results).
 Fix: is_struct_or_enum_type helper used by both push checks; the push's
 struct esz now uses vec_elem_storage_size uniformly (structs, enums,
 containers, arrays); resolve_vec_elem_type falls back to enum_variants
-keys. Verified: test_json/test_db/test_vector (29/18/32 tests) exit 0.
+keys; leaf-segment matching for qualified names; Bool-field width 8.
+Verified: test_json (29), test_db (18), test_vector (32), test_sqlite
+(23), test_test (20) all exit 0.
+
+### BUG 40-era harness hardening (2026-08-17)
+
+The e2e harness's compile_and_run_once now deletes the target exe before
+compiling — a STALE exe from an interrupted run held the output path
+open and clang failed with "permission denied" (e2e_main.exe,
+e2e_t3-hot-reload.exe — previously misread as real failures).
 
 ### Item B — exec harness wiring (DONE)
 
