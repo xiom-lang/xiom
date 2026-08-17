@@ -1524,7 +1524,46 @@ width=100. The documented 0xC0000005/0xC000001D variants did not reproduce;
 likely resolved by the BUG 38/34 batches. The extreme-i64 variant needs the
 stdlib session's exact repro to re-verify.
 
-### BUG 37/36 — OPEN (deep-dive needed) — fp128 + BigFloat chain shape AV
+### BUG 37/36 — FIXED (`feat/architect`, 2026-08-17) — fp128 libcall ABI mismatch
+
+**Root cause (NOT a shape miscompile):** the IR clang generates for fp128
+arithmetic calls the soft-float helpers with LLVM's Win64 f128 convention
+(f128 args by POINTER: `__addtf3`: rcx=&a, rdx=&b; f128 RESULT in XMM0),
+but fp128_helpers.c compiled the helpers as `xiom_f128` STRUCT functions,
+which get the MSVC ABI (hidden sret in rcx, args shifted to rdx/r8, result
+written through sret, XMM0 never set). Every f128-returning helper was
+therefore ABI-mismatched: the callee dereferenced r8 = garbage (0xC0000005
+in every RUNTIME fp128 shape — the chain was a red herring; it only
+prevented clang -O2 from constant-folding the loop). The earlier
+"working" fp128 verifications (t_fneg, smoke_d1_native128, BUG 31/33)
+all had CONSTANT-FOLDABLE shapes — clang -O2 eliminated the libcalls.
+
+**Fix (stdlib/runtime/fp128_helpers.c):** the 13 f128-returning helper
+symbols (`__addtf3 __subtf3 __multf3 __divtf3 __negtf2 __extenddftf2
+__extendsftf2 __floatsitf __floatunsitf __floatditf __floatunditf
+__floattitf __floatuntitf`) are now naked-asm shims implementing the IR
+convention (arg pointers as the IR passes them, result in XMM0) that
+forward to plain sret-ABI wrappers around the existing pure by-value
+implementations. SSE2-only instructions (movdqu/movaps) so the JIT build
+(no -mavx) works. Scalar-return helpers (__trunctfdf2/__fixtfdi/compares)
+already matched. Also ADDED the previously-missing `__fixtfti` /
+`__fixunstfti` (f128→i128) — those were latent link errors.
+
+**Verified:** all 14 t_b37* shapes + t_chainloop exit 0 with CORRECT
+values (t_b37e `bigfloat_to_float128(&v)` non-zero → 42 val=OK; t_b37u
+user-space BigFloat Horner → 42). New runtime test t_f128rt (Vec-loaded
+values: add/sub/mul/div/neg/trunc/compare all exact) → OK. Suites:
+checker 178/178, codegen 2263, feature-reg 510, parser 24 — all green.
+`stdlib_api_freeze_no_removals` still fails IDENTICALLY at baseline (item
+B family — 905 stale paths, NOT a regression).
+
+**Note for the stdlib session:** the bigfloat_to_float128
+three-single-shape-fn workaround can be consolidated now; the Option
+variant (BUG 33 follow-up) can land; the "TODO(compiler)" notes in
+num/bigfloat.xi, sort/radix.xi, misc/glob.xi for the fp128/ptr-cast
+families can be re-checked (BUG 32 is fixed too).
+
+### BUG 37/36 — PRE-FIX analysis record (shape AV era)
 
 Minimal deterministic repro (user space, no catalog needed):
 `var n = v.significand.digits.len();` (BigFloat field-chain Vec len) used as
@@ -1534,8 +1573,9 @@ scratch). `bigfloat_to_float128` (catalog) with non-zero values crashes in
 every consumer shape — the stdlib's three-single-shape-fn workaround did NOT
 fully dodge it (the main fn still mixes chain + fp128). fp128 arithmetic
 without the chain, and the chain without fp128, both work. The loop's
-semantics even shift when a probe print is added (BUG 24/36 family — shape
-miscompile at the clang/runtime level).
+semantics even shift when a probe print is added — because a probe print
+breaks clang's constant folding, exposing the libcall ABI fault (the "shape
+miscompile" was the folding/unfolding flip, not a miscompile).
 
 ### P001 — NOT REPRODUCED (resolved by the stdlib realignment)
 

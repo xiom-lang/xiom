@@ -1,5 +1,42 @@
 # XIOM Compiler Session — Handoff (2026-08-17)
 
+## Session update (2026-08-17): BUG 37/36 FIXED — fp128 libcall ABI mismatch
+
+Commits this session: `(pending)` — fp128_helpers.c shims + expr.rs i128 casts.
+
+- **BUG 37/36 ROOT CAUSE FOUND — it was never a shape miscompile.** clang
+  lowers runtime fp128 arithmetic to soft-float libcalls (`__addtf3` etc.)
+  with LLVM's Win64 f128 convention: args BY POINTER (rcx=&a, rdx=&b),
+  result in **XMM0**. fp128_helpers.c compiled the same symbols from C as
+  `xiom_f128` struct functions → MSVC ABI: hidden **sret in rcx**, args
+  shifted to rdx/**r8**, result via sret, XMM0 never set. Every
+  f128-returning helper was ABI-mismatched: callee dereferenced r8=garbage
+  (0xC0000005), caller read XMM0=garbage. The BigFloat chain was a red
+  herring — it only prevented clang -O2 from constant-folding the loop.
+  "Working" fp128 verifications (t_fneg, d1_native128, BUG 31/33) were all
+  constant-folded shapes. Probe prints "changed semantics" by breaking the
+  folding.
+- **FIX:** 13 naked-asm shims (SSE2-only, JIT-safe) implementing the IR
+  convention, forwarding to sret wrappers around the existing pure impls.
+  Also added the missing `__fixtfti`/`__fixunstfti` (f128→i128) and
+  codegen arms for `Int128 as Float128` / `Float128 as Int128` (were
+  emitting mis-typed stores / would-be link errors).
+- **Verified:** t_chainloop + all 14 t_b37* shapes exit 0 with correct
+  values (t_b37e bigfloat_to_float128=42 val=OK; t_b37u user Horner=42).
+  New t_f128rt (runtime Vec-loaded fp128 add/sub/mul/div/neg/trunc/compare)
+  OK; t_f128i128 (Int128↔Float128 roundtrip ×2) OK. Suites: checker
+  178/178, codegen 2263, feature-reg 510, parser 24 — all green.
+  api_freeze_no_removals fails identically at baseline (item B — not a
+  regression). smoke_num_float_classify (17) + smoke_stress_convert_float_
+  to_string_prec (1) still fail as in the pre-fix runfail list (Float64
+  string families — unrelated to fp128; queued for the shape-family
+  triage). t_b35's scratch copy had an INVERTED assertion (counts[0]==3;
+  correct buckets are [1,1,1]) — fixed the scratch copy.
+- **IMPORTANT for verification discipline:** `xiom run` caches binaries in
+  `~/.xiom/jit/<sha256>.exe` keyed ONLY by source hash — after ANY runtime
+  C change, delete those cached exes or results silently use the old
+  runtime (`t_b37q` printed "0","0" from a stale cache; clean build = "0","1").
+
 ## Session handoff (2026-08-17) — CLEAN STATE, work committed
 
 Branch: `feat/architect` (**37 commits ahead** of `origin/feat/architect`).
@@ -51,14 +88,10 @@ contract false-fire, is_empty). Full breakdown: COMPILER_BUGS.md
 
 ### OPEN queue (next sessions, priority order)
 
-1. **BUG 37/36 (HIGH)** — fp128 + BigFloat-chain shape AV. Minimal
-   deterministic repro in `%TEMP%\kilo\` (t_chainloop.xi, t_b37f.xi,
-   t_b37k.xi): `var n = v.significand.digits.len();` (chain Vec-len) used
-   as a loop bound + ANY fp128 op in the loop body → 0xC0000005 even at
-   clang -O0 with verifiably sound IR. `bigfloat_to_float128` still crashes
-   for non-zero values (the stdlib's three-shape workaround did not dodge
-   it — the main fn still mixes chain + fp128). Probe prints change loop
-   semantics — classic shape miscompile.
+1. **BUG 37/36 — FIXED (2026-08-17)** — fp128 libcall ABI mismatch (see the
+   session update above): 13 naked-asm shims in fp128_helpers.c + i128↔fp128
+   cast arms. The stdlib's bigfloat_to_float128 workaround fns can be
+   consolidated; Option[Float128] can land.
 2. **Item B (HIGH)** — exec harness wiring: stdlib_tests.rs +
    stdlib_execution_tests.rs + stdlib_api_freeze_tests.rs still reference
    the pre-refactor layout (STDLIB_MANIFEST.md 515 paths, STDLIB_SMOKES.md
