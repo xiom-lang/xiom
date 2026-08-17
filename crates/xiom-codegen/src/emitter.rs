@@ -91,6 +91,30 @@ impl IrEmitter {
             Expr::Bool(..) => Some("Bool".to_string()),
             Expr::Str(..) => Some("Str".to_string()),
             Expr::Char(..) => Some("Char".to_string()),
+            // BUG 37/36 follow-up: `var p = ptr.null[Int]()` — the inline
+            // handler returns pointer BITS in an i64 register; record the
+            // value as pointer-valued so downstream coercion (is_null's
+            // *const T param) inttoptrs instead of materializing the value
+            // into a temp and passing the temp's ADDRESS (smoke_ptr).
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+                // `ptr.null[Int]()` arrives as Call(Index(Field(ptr, null)))
+                // in some parse shapes and Call(Field(ptr, null)) in others.
+                let leaf = match func.as_ref() {
+                    Expr::Field(_, method, _) => method.name.as_str(),
+                    Expr::Index(inner, _, _) => {
+                        if let Expr::Field(_, method, _) = inner.as_ref() {
+                            method.name.as_str()
+                        } else {
+                            ""
+                        }
+                    }
+                    _ => "",
+                };
+                if matches!(leaf, "null" | "null_mut" | "dangling") {
+                    return Some("*T".to_string());
+                }
+                None
+            }
             _ => None,
         }
     }

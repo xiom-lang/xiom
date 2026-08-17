@@ -1,4 +1,4 @@
-﻿// XIOM Codegen â€” Statement compilation (extracted from expr.rs, M4.2)
+// XIOM Codegen â€” Statement compilation (extracted from expr.rs, M4.2)
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -114,7 +114,7 @@ impl IrEmitter {
                             let sname = self.types.types.keys().into_iter()
     .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
                                 .unwrap_or(elem.to_string());
-                            Some(self.struct_byte_size(&sname) as i64)
+                            Some(self.vec_elem_storage_size(&sname))
                         })
                         .unwrap_or(8);
                     let initial_cap: i64 = 16;
@@ -352,7 +352,7 @@ impl IrEmitter {
                             let sname = self.types.types.keys().into_iter()
     .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
                                 .unwrap_or(elem.to_string());
-                            Some(self.struct_byte_size(&sname) as i64)
+                            Some(self.vec_elem_storage_size(&sname))
                         })
                         .unwrap_or(8);
                     let initial_cap: i64 = 16;

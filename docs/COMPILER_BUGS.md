@@ -1583,6 +1583,88 @@ Indented module-level decls now reject in 0.14s (clean P001 error, no hang);
 the former 15-min hang case (smoke_stress_crypto_hash_known_vector) compiles
 in 4.9s and runs exit 0. The 238-file re-sweep completed with no hangs.
 
+---
+
+## 2026-08-17 — compiler session: BUG 37/36 follow-up batch — IR determinism, BUG 39, Item B
+
+### BUG 39 — Vec element-type records: push overwrite + ctor elem_size (FIXED)
+
+Two coordinated bugs made `Vec[Struct]`/nested-Vec programs fail ~85% of
+builds (layout-dependent):
+
+1. **Push-time element-type overwrite** (call.rs): the BUG 34 nested-Vec
+   recording (`local_vec_elem[recv] = "Vec[{inner}]"`) fired for EVERY
+   struct-element push. For `Vec[Item]` receivers the arg-based inner lookup
+   resolved the struct literal to None → "Int" → the record became
+   `"Vec[Int]"` OVERWRITING the binding's correct `"Item"` — so `v[0]` took
+   the nested-Vec memcpy path and loaded a 16-byte Item into a %struct.Vec
+   slot (garbage field reads; m21_vec_edge_012/027, vec_of_struct, eco
+   suites). Fix: record only when the receiver's recorded elem is a nested
+   Vec OR unrecorded (`Vec[Vec[Int]].new()` — vec_ctor_elem_type cannot
+   resolve nested type args, so the push is the first chance to record).
+2. **Ctor elem_size under-counts container fields** (call.rs/stmt.rs):
+   `Vec[Vector].new()` sized elements with struct_byte_size (XIOM-semantic
+   field-count × 8) — a `Vec[Float32]` FIELD counted as 8 instead of 32, so
+   `Vector` got elem_size 16 instead of 40. The ctor's initial buffer
+   (16 × 16 = 256B) overflowed once 40-byte elements were stored
+   (test_vector/test_db/test_json 0xC0000005). Fix: new
+   `vec_elem_storage_size` — real byte size with container fields counted
+   fully (Vec 32, Map/Set 64, Option 16, Result 24, arrays N × inner).
+
+### BUG 40 — nondeterministic IR emission (type_meta + mono order) (FIXED)
+
+`type_meta.entries()` and `generic_instantiations` are HashMap-backed; their
+iteration order varies per process, so the emitted IR (struct declaration
+order, mono function order) differed BETWEEN BUILDS of the same source.
+clang -O2's codegen of the linked MSVC CRT objects is layout-sensitive:
+identical sources built passing vs crashing/wrong-result binaries. This
+explained the session-long "flaky" failures (m21_vec_edge_012 exit-1,
+smoke_simd 0xC0000005, eco suites, even a CRT-internal call reading an
+uninitialized r9d). Fix: sort both emission loops by key. The output is now
+byte-reproducible (verified 5× identical for m21/test_vector/m34).
+
+### BUG 41 — OPEN: generic fn with unused type param + concrete Result payload
+
+`fn adjust[T](e: Env, target: Climate) -> Result[Env, Str]` mono'd to
+adjust_Env: the DEFINITION emits `%struct.Result__Env__Str`, but the
+call-site registry (types.functions[adjust_Env]) records the GENERIC
+`%struct.Result` — `call %struct.Result @adjust_Env(...)` + `ret
+%struct.Result__Env__Str` → clang rejects (m34_y15/y20 COMPILE failures,
+deterministic with BUG 40's sorted IR; previously masked by the
+nondeterministic layouts). Fix location: the mono'd signature registration
+(lib.rs ~4904, specialized_ret_type = subst_type(t)) must resolve concrete
+Result/Option payload names like the definition side does (concrete_type_for
+/ ensure_concrete_result).
+
+### Item B — exec harness wiring (DONE)
+
+- `stdlib_api_freeze_no_removals` 905 → 0 missing: (1) module paths now
+  resolve via STDLIB_MANIFEST.md (exact `xiom.X` then unique last-segment
+  match, then filesystem scan) — the 2026-08-16 folder refactor broke the
+  flat `stdlib/xiom/{module}.xi` join; (2) the signature extractor's
+  comment-stop is now indentation-aware (crypto.xi documents "no requires
+  clauses" BETWEEN the sig and `{`).
+- `stdlib_execution_tests` 72 → 70 pass + 2 documented #[ignore]s:
+  smoke_core (stdlib-side: `interface Eq` has ZERO impls anywhere — add
+  `impl Eq for Int/...` in core.xi), smoke_simd (BUG 40-era latent CRT
+  layout miscompile; re-enable after a toolchain investigation).
+- Fixed en route (verified): Vec[Str] element reads now inttoptr the loaded
+  handle to i8* (yaml_emit_sequence garbage); null/dangling inline results
+  are recorded as pointer-valued so is_null coercion inttoptrs instead of
+  materializing a temp address; smoke_ptr/serialize/misc/net_folder pass.
+
+### Verified after the batch
+
+- checker 178/178; stdlib_tests 40/40; api_freeze 2/2; execution 70/70+2
+  ignores; e2e 2256/2263 with the 7 remaining = 2 hot-reload file-lock
+  artifacts + m34_y15/y20 (BUG 41) + eco db/json/vector (BUG 41-adjacent
+  container/Result shapes; were flaky at baseline too).
+- Repro battery: t_chainloop, t_b37* (14 shapes), t_f128rt, t_f128i128,
+  sx4, t_iter38, pdb3, t_b33, t_b34, t_b35, t_fneg_clean — all exit 0.
+- Reminder: `xiom run` caches binaries in ~/.xiom/jit/<sha>.exe keyed ONLY
+  by source hash — delete them after ANY runtime C change or results use
+  stale runtimes.
+
 ### Re-triage numbers (current isolated binary, 2026-08-16 late)
 
 238 files from the stdlib session's two remaining lists → 43 pass, 82
