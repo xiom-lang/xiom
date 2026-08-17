@@ -4431,3 +4431,17 @@ fn e2e_safety_probe() {
 // BUG 27: in-code debug intrinsics
 #[test] fn e2e_m37_debug_intrinsics() { assert_eq!(compile_and_run("tests\\regression\\m37_debug_intrinsics.xi"), Some(0)); }
 
+// ============================================================================
+// BUG 43–47 batch (2026-08-18) — docs/COMPILER_BUGS.md
+// BUG 43: Result[Float64, Str] payload read via sitofp (bitcast needed)
+// BUG 44: deref/coercion of &Str loaded a byte instead of the pointer
+// BUG 45: method-form interface dispatch inside generic-bound fns → stub
+// BUG 46: generic &UserStruct[T] param field reads returned garbage
+// BUG 47: ref_params/param_locals leaked across fns (fn-param → AV)
+// ============================================================================
+#[test] fn e2e_m37_bug43_result_f64_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_bug43_result_f64_payload.xi"), Some(0)); }
+#[test] fn e2e_m37_bug44_str_deref() { assert_eq!(compile_and_run("tests\\regression\\m37_bug44_str_deref.xi"), Some(0)); }
+#[test] fn e2e_m37_bug45_iface_method_generic() { assert_eq!(compile_and_run("tests\\regression\\m37_bug45_iface_method_generic.xi"), Some(0)); }
+#[test] fn e2e_m37_bug46_generic_struct_ref() { assert_eq!(compile_and_run("tests\\regression\\m37_bug46_generic_struct_ref.xi"), Some(0)); }
+#[test] fn e2e_m37_bug47_ref_params_leak() { assert_eq!(compile_and_run("tests\\regression\\m37_bug47_ref_params_leak.xi"), Some(0)); }
+
