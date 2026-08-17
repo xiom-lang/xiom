@@ -1,5 +1,29 @@
 # XIOM Compiler Session — Handoff (2026-08-17)
 
+## Session update (2026-08-17, third pass): BUG 41/42 complete — e2e 2263/2263
+
+Commits: `f5e53237` (BUG 41/42 refined + harness locks), `25e4c978`
+(BUG 41/42 initial), on top of the earlier BUG 39/40 + Item B + BUG 37/36.
+
+- **BUG 41 FINAL**: `type_from_ast` renders Type::Result as bare "Result"
+  (Named args dropped) — the mono call-site fallback now renders the full
+  "Result[Env, Str]" (Named-with-args / Type::Result / Type::Option arms),
+  and `concrete_container_llvm` applies concrete_type_for's rule (concrete
+  iff a payload is a struct; primitives/enums keep the generic layout;
+  bare-name fallback for not-yet-registered keys — the `-o` path compiles
+  callers before defs). m34_y07/11/13/15/16/19/20, m35_z02/09/24/29,
+  m21_complex_generic_008/009 all exit 0 via BOTH run and -o paths.
+- **BUG 42 FINAL**: qualified type_meta field names broke leaf-suffix
+  matching (ColumnDef elem_size 18 instead of 40 → test_sqlite wrong
+  results) and Bool FIELDS are 8 bytes (only Vec[Bool] element slots are
+  1 byte). All five eco suites now pass: test_json (29), test_db (18),
+  test_vector (32), test_sqlite (23), test_test (20).
+- **Harness hardening**: compile_and_run_once deletes the target exe first
+  — stale locks caused "permission denied" (e2e_main/t3-hot-reload).
+- **FULL SUITE**: e2e 2263/2263, checker 178, parser 96, feature-reg 510,
+  stdlib-exec 70 (+2 documented ignores), api_freeze 2/2, stdlib-compile
+  40/40. The 7-failure list from the user's test_summary run is CLOSED.
+
 ## Session update (2026-08-17, second half): BUG 39/40 + Item B
 
 Commits: `798a7402` (BUG 39+40), `33ff2167` (Item B harness), on top of
