@@ -1,125 +1,83 @@
-# XIOM Session Handoff — 2026-08-13 01:10 (compiler session — handoff: everything verified & committed)
+# XIOM Session Handoff — 2026-08-18 01:15 (compiler session — BUG 43–47 batch done)
 
-> **Context-full handoff.** The compiler session has COMPLETED its work; the next
-> session continues from a clean tree. Read this file, then run
-> `./test_summary.ps1 -Fast` to re-verify, and answer the two OPEN QUESTIONS at
-> the bottom (they are for the NEXT session — do not lose them).
+> **Context-full handoff.** BUG 43–47 all FIXED and committed (`c2978476`,
+> `aadbfc3d`, `f47c4d3b`, `2daae98d` on `feat/architect`). Working tree clean.
+> The full-suite run was interrupted by the parallel stdlib session's ongoing
+> full-sweep (it rebuilds `target/debug/xiom.exe` mid-run); re-run
+> `./test_summary.ps1 -Fast` (or full) once their sweep finishes — the
+> scripting flake is FIXED (was the only failure in the 23:04 run).
 
-## ✅ Completed this stretch (all committed on `feat/architect`)
+## ✅ Completed this stretch (all committed)
 
-| Area | Result |
+| Item | Result |
 |------|--------|
-| BUG 1–24 (all numbered compiler bugs) | **ALL FIXED** — see docs/COMPILER_BUGS.md |
-| BUG 25 wave-3 (12 findings) | **#1/#2/#3/#5/#8/#11 FIXED**, #4/#6/#7 verified-fixed, #9 design, #12 benign, **#10 (crypto) still OPEN** |
-| NOTE 4 (module-qualified enum variants) | **FIXED** (`bigfloat.Down` works) |
-| BUG 26 (secure numeric policy) | **IMPLEMENTED**: Int↔Float mixing requires explicit `as` (Rust-style); int literals may adopt float; same-family widening stays auto; checker resolves nested Vec elem types + base-Vec methods |
-| Labeled loops | **IMPLEMENTED**: `@label: while …` + `break @label;` / `continue @label;` |
-| BUG 27 (debug intrinsics) | **IMPLEMENTED**: `assert(cond[, "msg"])`, `dbg!(expr)`, `todo!()`, `unimplemented!()`, `debugger;` — all yield to user fns with the same name; `debugger;` calls runtime `xiom_debugger_break` (no-op without an attached debugger) |
+| scripting `test_standalone_simple` flake | **FIXED** — both standalone tests raced on the shared `s_out.exe` output path (parallel threads, Windows sharing violation). Output path now derives from the unique script name. Verified 3/3 full scripting runs 34/34. |
+| BUG 43 — Result[Float64, Str] payload read via sitofp (direct-call scrutinee) | **FIXED** — `scrutinee_payload_xiom` resolves call-scrutinee payloads via `callee_return_xiom`; smoke_core_convert exit 0 |
+| BUG 44 — deref/coercion of `&Str` loads a byte | **FIXED** — one-star strip (`trim_end_matches` stripped both stars of `i8**`), new `ref_locals` tracking for `var p = &s`, `coerce_ref_arg_to_pointee` for `&T`→T auto-coercion |
+| BUG 45 — method-form interface dispatch in generic fns → stub | **FIXED** (root cause = BUG 46's mono param degradation) |
+| BUG 46 — generic `&UserStruct[T]` param field reads → garbage | **FIXED** — mono Ref arm missed module-qualified struct keys (`eqt20.Box2`) → `i64*`; qualified-suffix check restores `%struct.{qualified}*` |
+| BUG 47 — `ref_params`/`param_locals` leak across fns → AV | **FIXED** — both sets now cleared in the per-fn reset block (a `&T` param named `b` in an earlier fn misclassified a later fn's value param `b` → deref'd address 7) |
+| BUG 41/42 follow-up — mono Ref arm made `&Slice[T]`/`&[N]T` lowering unreachable | **FIXED** — restored shape checks in the live arm, deleted the dead arm; **zero-warning gate restored** |
 
-**Key commits:** `dd6a31cd` (numeric policy + labeled loops + debug intrinsics) ·
-`4c439e6a` (NOTE 4 + BUG 25 #2 reachability) · `1a2d132a` (docs) · plus the earlier
-BUG 12–24 batch (`2ae300fd` … `77a67a01`).
+**New e2e regressions (5):** `e2e_m37_bug43_result_f64_payload`,
+`e2e_m37_bug44_str_deref`, `e2e_m37_bug45_iface_method_generic`,
+`e2e_m37_bug46_generic_struct_ref`, `e2e_m37_bug47_ref_params_leak`
+(tests/regression/m37_bug4*.xi).
 
-## Verification state (current)
-- **31/31 regression sweep** (tests/regression/m37_*.xi) R=0 — includes the 3 new
-  feature tests: `m37_numeric_policy`, `m37_labeled_loops`, `m37_debug_intrinsics`
-- checker 178/178 · parser 96/96 · lexer 18/18 · ctfe 96/96 · codegen-unit 10/10 ·
-  verifier 27/27 · stdlib-compile **40/40** · formatter 79/79 · scripting 34/34 ·
-  script-diff 15/15 · integration 128/128 · robustness 63/63 · jit 5/5 · display 5/5
-- Workspace `cargo build --workspace`: **zero warnings**
-- Fast suite (00:43 run): **1102/12/1** — all 12 failures are the parallel stdlib
-  session's IN-FLIGHT work (lsp 1, mcp-server 3, diff 2 [documented ignore +
-  their selfhost file vs T002], stdlib-exec 6 [moved/renamed smokes + transient
-  mid-run commit — re-verified passing after]). **Zero compiler regressions.**
+**Commits:** `c2978476` (BUG 43–47 codegen) · `aadbfc3d` (scripting race) ·
+`f47c4d3b` (e2e regressions) · `2daae98d` (docs/COMPILER_BUGS.md).
 
-## ⚠️ Workflow rules (IMPORTANT for the next session)
-- The **parallel stdlib session** owns `stdlib/xiom/**` (except `stdlib/runtime/*.c`),
-  examples/stdlib_smoke, and selfhost. They commit to the SAME `feat/architect`
-  branch and rebuild `target/debug/xiom.exe` constantly. The stdlib is being
-  REBUILT from scratch — expect stdlib smoke/suite failures until it lands.
+## Verification state (isolated binary, `tgt_iso`)
+- **Unit suites:** checker 178/178 · parser 96/96 · lexer 18/18 · ctfe 96/96 ·
+  codegen-unit 10/10 · jit 5/5 — all green, zero build warnings.
+- **stdlib-exec smoke sweep:** 70/70 pass (smoke_core, smoke_sort, smoke_cmp,
+  smoke_iter, smoke_serialize, smoke_crypto, smoke_complex … all exit 0) +
+  1 documented ignore (smoke_simd — BUG-40-era CRT layout, pre-existing) +
+  smoke_math_core renamed → smoke_math_tower (passes).
+- **New regression files:** all 5 exit 0 via the isolated binary.
+- **The 23:04 full suite** (before this session): 3908/3909 — the ONLY failure
+  was the scripting flake, now fixed. Full-suite rerun pending the parallel
+  sweep's completion (their rebuilds lock target/debug/xiom.exe).
+
+## ⚠️ Workflow rules (unchanged)
 - **ALWAYS use the ISOLATED binary** for compiler verification:
   ```powershell
   $env:CARGO_TARGET_DIR="$env:TEMP\kilo\tgt_iso"; cargo build -p xiom
   Remove-Item Env:CARGO_TARGET_DIR
   $xiom = "$env:TEMP\kilo\tgt_iso\debug\xiom.exe"
   ```
-  Check its timestamp after parallel-session commits (they may land mid-run).
-- The e2e harness hardcodes `target/debug/xiom.exe` — e2e runs against the
-  parallel session's possibly-stale binary; verify via the isolated binary +
-  exact-invocation replication instead.
-- The user's workflow: stdlib-session smoke tests that find compiler gaps go into
-  `docs/COMPILER_BUGS.md` for the compiler session. Compiler-side test lists
-  (`crates/xiom-codegen/tests/stdlib_tests.rs`, `stdlib_execution_tests.rs`) need a
-  sync AFTER their stdlib layout freezes — do NOT chase mid-rewrite.
+- The **parallel stdlib session** owns `stdlib/xiom/**`, examples/stdlib_smoke,
+  and selfhost; they commit to the SAME `feat/architect` branch and rebuild
+  `target/debug/xiom.exe` constantly (their full-sweep was still running at
+  handoff). The e2e/stdlib harnesses hardcode `target/debug/xiom.exe`.
+- Note: PowerShell `$LASTEXITCODE` after `& exe ... 2>$null` in a loop is
+  unreliable for smoke sweeps — capture per-command with `; $c = $LASTEXITCODE`
+  and verify suspicious failures individually (3 false "compile=1" reports
+  this session were capture artifacts; direct reruns all passed).
 
-## ⏳ Remaining (compiler session, low priority)
-1. **BUG 25 #10**: `xiom.crypto` — `use of undefined value '@_pkcs7_pad'` link
-   issue (private fn body emission vs bare-symbol resolution) + pure-XIOM SHA-256
-   correctness. PRE-EXISTING; reproduced (p_crypto2 probe); needs a dedicated
-   investigation session.
-2. **fast suite re-run** after the parallel session stabilizes — the stdlib-exec
-   count should drop back to their in-flight baseline.
-3. **stdlib_tests.rs + stdlib_execution_tests.rs path sync** — one commit after
-   their layout freezes.
+## ⏳ Remaining (low priority / handed to next session)
+1. **BUG 25 #10**: `xiom.crypto` — `use of undefined value '@_pkcs7_pad'`
+   (private fn body emission vs bare-symbol resolution). PRE-EXISTING;
+   smoke_crypto exits 0, so not blocking. Needs a dedicated session.
+2. **smoke_simd**: BUG-40-era latent CRT layout miscompile (0xC0000005) —
+   documented #[ignore]; toolchain investigation, not this batch.
+3. **Checker gap (documented, NOT a codegen bug)**: `Eq5[T].eq(el, &value)`
+   associated-form calls fail the checker ("expected Self, found Int" — Self
+   not substituted in interface method params). Tower pattern + method form
+   work; stdlib uses method form. Candidate checker session.
+4. **stdlib_tests.rs + stdlib_execution_tests.rs path sync** after the stdlib
+   layout freezes (still owned by the parallel session).
+5. **Full-suite rerun** once the parallel sweep finishes (scripting flake fix
+   should make it 3909/3909).
 
-## 🔧 Compiler behavior the next session should know (documented in COMPILER_BUGS.md)
-- **Numeric policy**: `var f: Float64 = int_var;` / `d + int_var` / `d > int_var`
-  now ERROR with "convert explicitly with `as`" (int LITERALS are fine).
-- **Ref-of-ref guard**: `&x` where `x` is already a `&T` param is a compile error
-  (caught real stdlib typos: bigfloat `&base`, spline `&xs`).
-- **Ambiguity**: bare fns exported by multiple imported modules → T001 error.
-- **Private fns**: never re-exported by `use` (visibility gate).
-- **Debug intrinsics**: `assert`/`dbg`/`todo`/`unimplemented`/`debugger` are
-  reserved builtins ONLY when no user fn with the name is registered; `dbg!` prints
-  `[dbg] <value>` and returns the value; assert violations exit 1 with the message.
-- **Labeled loops**: syntax `@label: while …` and `break @label;`.
-
----
-
-## ❓ OPEN QUESTIONS — for the NEXT session to answer (do NOT lose these)
-
-The user asked these two questions; the compiler session's context window is full
-so they are handed over UNANSWERED. Both are language-design/security questions —
-the next session should research (incl. docs/ROADMAP.md Phase 5c-E + the stdlib
-session's conventions) and answer/implement with the user's confirmation:
-
-**Q1 — `docs/AI_CONTEXT.md` update.** The file is marked IMMUTABLE (only the
-language team may update it). The v0.57+ features (BUG 26 numeric policy,
-labeled loops, BUG 27 debug intrinsics: `assert(cond[, msg])`, `dbg!(expr)`,
-`todo!()`, `unimplemented!()`, `debugger;`) are NOT yet documented there
-(section 2 syntax, section 8.1 core intrinsics — `fn assert(condition: Bool,
-msg: Str)` exists but the statement form + `dbg!`/`todo!`/`debugger;` do not).
-The next session should update AI_CONTEXT.md (with the user's approval to touch
-the immutable spec) to document: the numeric-policy rule (Int↔Float requires
-`as`, int literals may adopt float), the `@label:` loop syntax, and the debug
-intrinsics with their security semantics. Also the `if / elif / else` rule
-(section 2.4 says "Not `else if`" — `else if` is NOW accepted as a desugared
-form; decide how to document it).
-
-**Q2 — Security review of the debug intrinsics + broader secure-language gaps.**
-The user's exact framing: "are these secure macros? also should we include like
-IF DEBUG or something to strip debug code on build? I mean what else for a secure
-system programming language we need. I know using macros and not restricting them
-on users can pass bad code. we don't want that. Does our language have gaps like
-it? or any grey areas."
-
-Things to investigate/answer (do NOT implement without user confirmation):
-1. Are `assert`/`dbg!`/`todo!`/`debugger;` secure as builtins? (They are NOT
-   user-facing macros — they're compiler intrinsics that yield to user fns with
-   the same name; `dbg!`/`assert` print to stderr; `debugger;` no-ops without an
-   attached debugger. Consider: is stderr exposure acceptable? Should `assert`
-   strip in release? Should there be a `--no-assert`/`--debug-build` flag?)
-2. Should XIOM add a compile-time debug-build toggle (e.g. `--debug-build`,
-   `#[cfg(debug_assertions)]`-style, or a `comptime`-gated `is_debug_build()`
-   intrinsic) to strip `assert`/`dbg!` from release binaries — while ensuring the
-   STRIPPING cannot change program semantics in unsafe ways?
-3. Broader secure-language gap analysis: what other grey areas exist vs the spec?
-   (Candidate areas to review: the numeric policy's int-literal float adoption,
-   unchecked index/overflow behavior flags, extern FFI confinement, the
-   `--enable-unsafe-direct` cap, `asm()` usage, contract stripping
-   (`--no-contracts`) vs debug builds, and whether any spec-conformant construct
-   the compiler accepts could allow silent undefined behavior.)
-4. Any spec-vs-implementation grey areas the parallel stdlib session should know
-   before freezing the API (e.g. `else if` vs `elif` spelling, the debug
-   intrinsics naming, the numeric-policy error messages as the sanctioned
-   conversion guidance).
+## 🔧 Compiler behavior additions (this session, documented in COMPILER_BUGS.md)
+- **ref_locals**: `var p = &s` / `var p: &Str = ...` now tracked (like
+  `ref_params`) — `*p` derefs correctly for Str and scalar pointees;
+  `&T`→T auto-coercion derefs (Str params only; scalar `&T`→T stays ambiguous
+  at the codegen layer and keeps address passthrough).
+- **param_locals/ref_params cleared per fn** — cross-fn name collisions no
+  longer misclassify params (the BUG 47 AV).
+- **Mono `&Slice[T]` → by-value `%struct.Vec`** (restored) and
+  `&[N]T` → `elem_ty*` (restored); `&UserStruct[T]` → `%struct.{qualified}*`.
+- The 5 new e2e tests run against `target/debug/xiom.exe` — they will FAIL
+  against a stale pre-fix binary; they pass against the rebuilt one.
