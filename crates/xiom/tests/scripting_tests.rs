@@ -67,8 +67,11 @@ fn run_script(content: &str) -> std::process::Output {
 
 fn build_standalone(content: &str) -> std::process::Output {
     let script = tmp_script("s.xi", content);
-    let out_path = script.parent().unwrap().join("s_out");
-    let out = out_path.with_extension(if cfg!(windows) { "exe" } else { "" });
+    // Output path must derive from the UNIQUE script name: the standalone
+    // tests run in parallel (--test-threads=32) and a shared "s_out" path
+    // made them race on the same output file (Windows sharing violation →
+    // intermittent "Access is denied" → flaky non-success status).
+    let out = script.with_extension(if cfg!(windows) { "exe" } else { "" });
     let _ = std::fs::remove_file(&out);
 
     let output = Command::new(xiom_binary())
