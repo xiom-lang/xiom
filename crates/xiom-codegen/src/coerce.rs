@@ -73,13 +73,33 @@ impl IrEmitter {
                 // (Map.get(1) → callee's `*key` derefs address 1 → AV).
                 // Only for scalar pointees (i64*/i8*/double*); array and
                 // struct-pointer params keep their existing paths.
+                // BUG 37/36 follow-up (2026-08-17): a Str-typed arg in i64
+                // form (Vec[Str] element read, Option payload, etc.) is a
+                // STRING HANDLE, not a byte value — materializing it as a
+                // single-byte temp printed garbage (smoke_serialize yaml
+                // sequence). The i64 handle must inttoptr to i8* instead.
                 let pointee = param_ty.trim_end_matches('*');
                 if matches!(pointee, "i1" | "i8" | "i16" | "i32" | "i64" | "float" | "double" | "fp128") {
-                    let tmp = self.fresh_tmp();
-                    self.emitln(&format!("  {tmp} = alloca {pointee}"));
-                    let cv = self.coerce_value(pre_val, pre_ty, pointee);
-                    self.emitln(&format!("  store {pointee} {cv}, {pointee}* {tmp}"));
-                    return tmp;
+                    // Args whose XIOM type is Str (string handle) or a raw
+                    // pointer (`*T` — e.g. `var p = ptr.null[Int]()`) carry
+                    // POINTER BITS in i64 form; they must inttoptr to the
+                    // param type, not materialize a single-element temp
+                    // (smoke_serialize yaml sequence; smoke_ptr is_null).
+                    let arg_xiom = if let Expr::Ident(id) = arg_expr {
+                        self.xiom_type_of_local(&id.name)
+                    } else {
+                        Self::infer_value_xiom_type(arg_expr)
+                    };
+                    let arg_is_ptr_valued = arg_xiom.as_deref().map_or(false, |t| {
+                        t == "Str" || t.starts_with('*')
+                    });
+                    if !arg_is_ptr_valued {
+                        let tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {tmp} = alloca {pointee}"));
+                        let cv = self.coerce_value(pre_val, pre_ty, pointee);
+                        self.emitln(&format!("  store {pointee} {cv}, {pointee}* {tmp}"));
+                        return tmp;
+                    }
                 }
             }
         }

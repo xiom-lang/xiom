@@ -1,4 +1,4 @@
-﻿// XIOM Codegen ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Function/method call compilation (extracted from expr.rs, M4.2)
+// XIOM Codegen ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Function/method call compilation (extracted from expr.rs, M4.2)
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -718,9 +718,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     _ => {
                                         // For struct types, compute the REAL layout
                                         // size (nested by-value struct fields count
-                                        // fully â€” 5c.30, field_countÃ—8 truncated
-                                        // JsonEntry-style elements).
-                                        self.struct_byte_size(&type_name)
+                                        // fully — 5c.30, field_count×8 truncated
+                                        // JsonEntry-style elements). Container
+                                        // fields count fully too (BUG 39:
+                                        // struct_byte_size under-counted Vec fields
+                                        // → Vec[Vector] ctor buffer overflow).
+                                        self.vec_elem_storage_size(&type_name)
                                     }
                                 }
                             } else { 8 };
@@ -784,7 +787,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     "UInt8" | "Int8" | "Char" | "Bool" => 1,
                                     "Int16" | "UInt16" => 2,
                                     "Int32" | "UInt32" | "Float32" => 4,
-                                    _ => self.struct_byte_size(&type_name),
+                                    _ => self.vec_elem_storage_size(&type_name),
                                 }
                             } else { 8 };
                             let struct_alloca = self.fresh_tmp();
@@ -1034,12 +1037,48 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // the struct-element path (resolve_vec_elem_type). The
                         // ctor defaulted the type to Int, so without this the
                         // read inttoptr'd the element's first field as a header.
+                        // BUG 37/36 follow-up (2026-08-17): only fire for
+                        // NESTED-Vec receivers (Vec[Vec[T]]). For Vec[Struct]
+                        // receivers the binding already recorded the struct
+                        // element ("Item"); the arg0-based fallback here
+                        // resolved the struct-literal arg to None → "Int" and
+                        // OVERWROTE it with "Vec[Int]", so `v[0]` memcpy'd the
+                        // struct element into a %struct.Vec slot and field
+                        // reads returned garbage (m21_vec_edge_012/027,
+                        // m37_nested_vec, vec_of_struct, eco suites).
                         if is_struct_elem {
                             if let Expr::Ident(rid) = receiver.as_ref() {
-                                if let Some(arg0) = args.first() {
-                                    let inner = self.resolve_vec_elem_type(arg0)
-                                        .unwrap_or_else(|| "Int".to_string());
-                                    self.local.local_vec_elem.insert(rid.name.clone(), format!("Vec[{inner}]"));
+                                let recv_elem = self.local.local_vec_elem.get(&rid.name).cloned();
+                                // Record when the receiver's elem is a nested
+                                // Vec OR UNRECORDED (`Vec[Vec[Int]].new()` —
+                                // vec_ctor_elem_type can't resolve nested type
+                                // args, so the ctor left it None and the push
+                                // is the first chance to record "Vec[Int]").
+                                // Skip only when a NON-Vec elem is recorded
+                                // ("Item" — the m21_vec_edge_012 overwrite bug).
+                                let is_nested_vec = recv_elem.as_deref()
+                                    .map_or(true, |e| e.starts_with("Vec["));
+                                if is_nested_vec {
+                                    if let Some(arg0) = args.first() {
+                                        // The pushed value's OWN element type
+                                        // (fr: Vec[Float64] → "Float64");
+                                        // resolve_vec_elem_type excludes
+                                        // primitives so it alone fell back to
+                                        // "Int" for Vec[Float64] args
+                                        // (m37_nested_vec check 5).
+                                        let inner = if let Expr::Ident(ai) = arg0 {
+                                            self.local.local_vec_elem.get(&ai.name)
+                                                .or_else(|| self.local.local_vec_handle.get(&ai.name))
+                                                .cloned()
+                                        } else {
+                                            None
+                                        };
+                                        let inner = inner.unwrap_or_else(|| {
+                                            self.resolve_vec_elem_type(arg0)
+                                                .unwrap_or_else(|| "Int".to_string())
+                                        });
+                                        self.local.local_vec_elem.insert(rid.name.clone(), format!("Vec[{inner}]"));
+                                    }
                                 }
                             }
                         }

@@ -2408,6 +2408,18 @@ impl IrEmitter {
                     self.emitln(&format!("  {byte_off} = mul i64 {idx}, {esz_val}"));
                     let elem_ptr = self.fresh_tmp();
                     self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
+                    // BUG 37/36 follow-up: Vec[Str] elements are STRING
+                    // HANDLES (i8* in 8-byte slots). Load the handle and
+                    // inttoptr it back to i8* — the generic scalar path
+                    // returned a bare i64 which downstream Str consumers
+                    // (println, Str params) mis-coerced into a single-byte
+                    // temp (smoke_serialize yaml_emit_sequence garbage).
+                    if self.vec_elem_is_str(container) {
+                        let elem = self.emit_elem_load(&elem_ptr, &esz_val);
+                        let sp = self.fresh_tmp();
+                        self.emitln(&format!("  {sp} = inttoptr i64 {elem} to i8*"));
+                        return Ok((sp, "i8*".to_string()));
+                    }
                     // For struct elements with a known element type, load the
                     // struct directly from Vec data via memcpy, bypassing the
                     // ptrtoint/inttoptr chain of emit_elem_load+val_to_struct.
