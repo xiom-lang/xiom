@@ -2266,9 +2266,14 @@ impl IrEmitter {
 
     /// BUG 41 (2026-08-17): resolve a `Result[A, B]` / `Option[A]` XIOM type
     /// NAME to its concrete monomorphised LLVM struct (`%struct.Result__A__B`
-    /// / `%struct.Option__A`) when that concrete key is registered — mirrors
-    /// the mono definition's subst_type Result/Option arms. Returns None for
-    /// generic-only keys so callers keep the generic fallback.
+    /// / `%struct.Option__A`) — mirrors the mono definition's subst_type
+    /// Result/Option arms AND concrete_type_for's struct-payload rule:
+    /// concrete iff at least one payload is a STRUCT (primitives and enums
+    /// use the generic `%struct.Result` layout, matching the definition).
+    /// Falls back to the bare concrete name when the key isn't registered
+    /// yet (call sites may compile before the mono def registers it — the
+    /// `-o` compile order), since a struct payload guarantees the definition
+    /// emits the concrete struct.
     pub(crate) fn concrete_container_llvm(&self, name: &str) -> Option<String> {
         let (base, inner) = if let Some(rest) = name.strip_prefix("Result[") {
             ("Result", rest.strip_suffix(']')?)
@@ -2277,10 +2282,16 @@ impl IrEmitter {
         } else {
             return None;
         };
+        let payloads: Vec<&str> = inner.split(',').map(|s| s.trim()).collect();
+        let any_struct_payload = payloads.iter().any(|p| self.is_struct_type_in_registry(p));
+        if !any_struct_payload {
+            return None;
+        }
         let concrete = format!("{base}__{}", inner.replace(", ", "__").replace(',', "__"));
-        let key = self.types.type_meta.keys().iter()
+        let registered = self.types.type_meta.keys().iter()
             .find(|k| k.as_str() == concrete || k.ends_with(&format!(".{concrete}")))
-            .cloned()?;
+            .cloned();
+        let key = registered.unwrap_or(concrete);
         Some(format!("%struct.{key}"))
     }
 
@@ -2596,7 +2607,10 @@ impl IrEmitter {
     /// (test_vector/test_db/test_json 0xC0000005; m37 float check).
     fn vec_elem_storage_size(&self, type_name: &str) -> i64 {
         match type_name {
-            "UInt8" | "Int8" | "Char" | "Bool" => 1,
+            "UInt8" | "Int8" | "Char" => 1,
+            // Bool lowers to i8 in Vec[Bool] ELEMENT slots but to i64 in
+            // struct FIELDS — the field path below re-sizes Bool to 8.
+            "Bool" => 1,
             "Int16" | "UInt16" => 2,
             "Int32" | "UInt32" | "Float32" => 4,
             _ => {
@@ -2615,10 +2629,17 @@ impl IrEmitter {
                     }
                     return 8;
                 }
+                // BUG 42 (2026-08-17): type_meta field names may be bare
+                // ("JsonValue") OR module-qualified — match by leaf segment
+                // too so qualified field types resolve (test_sqlite's
+                // ColumnDef.affinity emitted 8 instead of 16 → elem_size 18
+                // → overlapping 40-byte ColumnDefs → wrong results).
+                let leaf = type_name.rsplit('.').next().unwrap_or(type_name);
                 let meta = self.types.type_meta.get(&type_name.to_string())
                     .or_else(|| {
                         self.types.type_meta.entries().into_iter()
-                            .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
+                            .find(|(k, _)| k.ends_with(&format!(".{type_name}"))
+                                || k.ends_with(&format!(".{leaf}")))
                             .map(|(_, v)| v)
                     });
                 let Some(meta) = meta else {
@@ -2633,7 +2654,8 @@ impl IrEmitter {
                     let variants = self.types.enum_variants.get(&type_name.to_string())
                         .or_else(|| {
                             self.types.enum_variants.entries().into_iter()
-                                .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
+                                .find(|(k, _)| k.ends_with(&format!(".{type_name}"))
+                                    || k.ends_with(&format!(".{leaf}")))
                                 .map(|(_, v)| v)
                         });
                     if let Some(variants) = variants {
@@ -2656,6 +2678,15 @@ impl IrEmitter {
                 };
                 let mut total = 0i64;
                 for (_, fty) in meta.fields.iter() {
+                    // BUG 42 (2026-08-17): Bool FIELDS lower to i64 (8 bytes)
+                    // in struct layouts — only Vec[Bool] ELEMENT slots are
+                    // 1 byte. Without this a struct with Bool fields
+                    // (ColumnDef { ..., nullable: Bool; primary_key: Bool })
+                    // was sized 18 instead of 40.
+                    if fty == "Bool" {
+                        total += 8;
+                        continue;
+                    }
                     total += self.vec_elem_storage_size(fty);
                 }
                 if total == 0 { 8 } else { total }

@@ -2882,7 +2882,34 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         }
                                     }
                                     let subst = Self::substitute_type(ret_ty, ret_ty, &subst_map);
-                                    let name = Self::type_from_ast(&subst);
+                                    // type_from_ast DROPS Named args
+                                    // (Type::Named("Result", [Env, Str]) →
+                                    // "Result") — render the full
+                                    // "Result[Env, Str]" so BUG 41's
+                                    // concrete_container_llvm can build the
+                                    // Result__Env__Str key.
+                                    let name = match &subst {
+                                        Type::Named(id, args) if !args.is_empty() => {
+                                            let parts: Vec<String> = args.iter()
+                                                .map(|a| Self::type_from_ast(a))
+                                                .collect();
+                                            format!("{}[{}]", id.name, parts.join(", "))
+                                        }
+                                        // BUG 41: the parser produces
+                                        // Type::Result/Option for `Result[..]`
+                                        // returns — render the FULL name;
+                                        // type_from_ast drops the payloads.
+                                        Type::Result(ok, err) => format!(
+                                            "Result[{}, {}]",
+                                            Self::type_from_ast(ok),
+                                            Self::type_from_ast(err)
+                                        ),
+                                        Type::Option(inner) => format!(
+                                            "Option[{}]",
+                                            Self::type_from_ast(inner)
+                                        ),
+                                        _ => Self::type_from_ast(&subst),
+                                    };
                                     // BUG 41 (2026-08-17): concrete Result/
                                     // Option payloads must resolve to the
                                     // monomorphised struct (Result__Env__Str),

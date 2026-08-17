@@ -70,6 +70,15 @@ fn compile_and_run_once_with_flags(source_path: &str, extra_args: &[&str]) -> Op
     let exe_suffix = if cfg!(target_os = "windows") { ".exe" } else { "" };
     let exe_name = format!("e2e_{}{}", source.file_stem()?.to_str()?, exe_suffix);
 
+    // BUG 40-era hardening (2026-08-17): a STALE exe from an interrupted
+    // run can hold the output path open — clang then fails with
+    // "permission denied" writing the new binary (observed for
+    // e2e_main.exe / e2e_t3-hot-reload.exe in parallel suites). Best
+    // effort delete before compiling; ignore failure (a genuinely running
+    // process still locks it, and the link will fail loudly).
+    let exe_path = project_root().join(&exe_name);
+    let _ = std::fs::remove_file(&exe_path);
+
     let bin_path = xiom_path();
 
     // Compile
