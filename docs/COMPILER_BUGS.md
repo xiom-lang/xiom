@@ -35,6 +35,12 @@ workarounds" — the compiler must be fixed, then the stdlib lands.
 | Str + Int/Char/UInt concat crashed (inttoptr of the integer → AV) | **DONE** | `f0388644` | e2e_m37_str_int_concat ("y = " + 42 → "y = 42"); probe_concat0 R=0 |
 | Dotted-module chain binding — `use stdlib.xiom.io` flaky 40–60% "cannot call" (parser nests dotted paths; process_use bound the {xiom:{io:…}} chain; stdlib-prefixed uses skipped preload/prelude) | **DONE** | `f0388644` | m19_read_file 8/8 + min repro 8/8 deterministic; stdlib-compile 40/40; checker 178/178 |
 | BUG 19 � NaN-producing Float64 ops returned sentinel/0xC000001D (float `!=` ? `fcmp one`; `Str+Float64` concat inttoptr) | **DONE** | `9c3a2f9e` | e2e_m37_nan_ieee (23 checks) R=0; probe_nan prints "c = nan / is NaN" exit 0; 17/17 sweep |
+| BUG 43 — Result[Float64, Str] payload read via sitofp (direct-call scrutinee) | **DONE** | this session | e2e_m37_bug43_result_f64_payload; smoke_core_convert exit 0 |
+| BUG 44 — deref/coercion of `&Str` loads a byte (`i8`) instead of the pointer (`i8*`) | **DONE** | this session | e2e_m37_bug44_str_deref; probe_b44 exit 0 |
+| BUG 45 — method-form interface dispatch inside generic-bound fns → stub | **DONE** (root cause = BUG 46's i64* param degradation) | this session | e2e_m37_bug45_iface_method_generic; eqt11/eqt18/eqt20 exit 0 |
+| BUG 46 — generic `&UserStruct[T]` param field reads return garbage (mono Ref arm degraded to i64*) | **DONE** | this session | e2e_m37_bug46_generic_struct_ref; eqt18/20 exit 0 |
+| BUG 47 — `ref_params`/`param_locals` leak across fns → later value param mis-dereffed (AV) | **DONE** | this session | e2e_m37_bug47_ref_params_leak; smoke_sort exit 0 |
+| BUG 41/42 follow-up — mono Ref arm made `&Slice[T]`/`&[N]T` lowering UNREACHABLE (i64* params) | **DONE** | this session | e2e_m37_bug45/46/47 (restored `%struct.Vec` by-value + `elem_ty*`); warning gate zero |
 | §7 NASM/SIMD tracks (math/crypto/hash/compress asm, CPUID dispatch) | **OPEN** — off-limits to stdlib session (crates/ + stdlib/runtime/*.c); pure-XIOM fallbacks in place | — | — |
 | Selfhost plan | **WRITTEN — execution in progress** | `090ed5d1` | docs/SELFHOST_PLAN.md (phases 0–8) + docs/checklists/selfhost-phase0.md |
 
@@ -47,6 +53,109 @@ verification of the 4 new e2e_m37 tests is blocked until the parallel session's
 next compiler rebuild (their target/debug/xiom.exe predates `2ae300fd`); exact
 harness invocation replicated with the isolated binary: compile=0 run=0 for
 all 6 affected tests. Warning gates 0/0.
+
+---
+
+## 2026-08-18 — Compiler session: BUG 43–47 FIXED + scripting test race + mono &Slice regression
+
+### FIXED — BUG 43: Result[Float64, Str] payload read via sitofp (direct-call scrutinee)
+
+- **Root cause:** the Some/Ok/Err payload binding resolved the payload XIOM type
+  ONLY for `Expr::Ident` scrutinees (`local_opt_payload*` tracking). A scrutinee
+  that is a DIRECT CALL (`match core.to_float_from_str("3.14")`) had no declared
+  payload → the Float64 bound as raw i64 bits and float ops sitofp'd 3.14's
+  pattern (~4.6e18) — smoke_core_convert exit 11.
+- **Fix (lib.rs + stmt.rs):** new `scrutinee_payload_xiom(expr, field_idx)` — for
+  Call/GenericCall scrutinees resolves the callee's declared return type via
+  `callee_return_xiom` + the existing bracket-aware `option_result_payload` /
+  `option_result_err_payload`; both payload-binding paths (guard pre-extract +
+  arm binding) use it. Definition side (bitcast) was already correct.
+- **Verified:** probe exit 0 (direct-call + ident-held + Err-payload Str);
+  smoke_core_convert exit 0; e2e `e2e_m37_bug43_result_f64_payload`.
+
+### FIXED — BUG 44: deref/coercion of `&Str` loads a byte instead of the pointer
+
+- **Construct:** `var p = &s; var d = *p;` (deref of &Str) and passing `&Str`
+  where `Str` is expected (auto-coercion). Both AV'd or compared a byte.
+- **Root cause (three defects):**
+  1. `UnaryOp::Deref` used `trim_end_matches('*')` — for a `&Str` param
+     (`i8**` — pointer to the Str slot) it stripped BOTH stars and emitted
+     `load i8, i8**` instead of `load i8*, i8**`. One-star strip fixes it.
+  2. LOCALS bound from `&expr`/`&T` were untracked (params had `ref_params`;
+     locals had nothing) — `*p` fell to the legacy byte-pointer path
+     (`inttoptr i64 → i8*; load i8`). New `ref_locals` set (context.rs) +
+     `track_ref_local` (stmt.rs Let/Var) mirrors `ref_params`; the deref path
+     resolves the pointee via `local_xiom_types`.
+  3. `&T`→T auto-coercion: `expect_str(&s)` / `expect_str(p)` passed the slot
+     ADDRESS (or truncated it to a byte) as the string. New
+     `coerce_ref_arg_to_pointee` (coerce.rs) derefs the address when the param
+     type exactly equals the pointee LLVM type (i8* for Str); `&T` params
+     (i64/i8**) keep receiving the address.
+- **Verified:** probe (deref local + param, coercion ident + literal-ref forms)
+  exit 0; e2e `e2e_m37_bug44_str_deref`.
+
+### FIXED — BUG 46: generic `&UserStruct[T]` param field reads return garbage
+
+- **Root cause:** the mono `subst_type` Ref arm's struct check only matched
+  BARE registered keys (`struct_types.contains(&name)`); user generic structs
+  register MODULE-QUALIFIED ("eqt20.Box2"), so `&Box2[T]` params degraded to
+  `i64*` — the callee's field GEPs indexed an i64, and every field read
+  degraded to 0 (the "empty body" was `ret i64 0`).
+- **Fix (lib.rs mono Ref arm):** the struct check now also matches the
+  qualified suffix (5c.35 style, same as the Named arm) and emits
+  `%struct.{qualified}*`.
+- **Verified:** eqt18/eqt20 exit 0 (user-slice element reads + len reads),
+  probe exit 0; e2e `e2e_m37_bug46_generic_struct_ref`.
+
+### FIXED — BUG 45: method-form interface dispatch inside generic-bound fns → stub
+
+- **Root cause:** the SAME mono Ref-arm i64* degradation as BUG 46 — the
+  slice element loads produced garbage, and the method-form dispatch
+  (`el.eq(&value)`) resolved against the wrong shape. With the param typed
+  correctly, the primitive fast-path inlines the correct comparison.
+- **Verified:** eqt11 (user slice + generic contains), probe with a T-typed
+  receiver (`f_eq[Int](3,3)`) — both exit 0; e2e
+  `e2e_m37_bug45_iface_method_generic`.
+
+### FIXED — BUG 47: `ref_params`/`param_locals` leak across functions (fn-param → AV)
+
+- **Root cause:** `param_locals` and `ref_params` were NEVER cleared between
+  function compilations (the per-fn reset block missed them). A `&T` param
+  named `b` in an EARLIER fn (`cmp_int(a: &Int, b: &Int)`) left a stale
+  entry, so a LATER fn's plain value param named `b` was misidentified as a
+  ref-param — `x.compare(&b)` compiled the VALUE and the eq/compare fast-path
+  dereferenced address 7 (`inttoptr i64 7 + load`) → 0xC0000005. The fn-param
+  `compare` in heap_sort_by/heap_sift_down_by was the same family (stale
+  ref-param classification broke the fn-pointer arg flow).
+- **Fix (decl.rs):** clear `param_locals` + `ref_params` (and the new
+  `ref_locals`) in the per-fn reset block.
+- **Verified:** full-collision probe (impl `Int.compare` used via a generic
+  bound + `heap_sort_by(&mut hb, cmp_int)`) exit 0; smoke_sort exit 0; e2e
+  `e2e_m37_bug47_ref_params_leak`.
+
+### FIXED — BUG 41/42 follow-up: mono Ref arm made `&Slice[T]`/`&[N]T` lowering UNREACHABLE
+
+- The BUG 41/42 batch merged the Ref/Ptr/MutRef mono arm, making the
+  `&Slice[T]` (by-value `%struct.Vec`) and `&[N]T` (`elem_ty*`) specialization
+  UNREACHABLE (dead-code warning) — generic fns then lowered `&Slice[T]`
+  params to `i64*` and read the first element as the length. Restored the
+  shape checks in the live arm; the dead arm is deleted (warning gate: zero).
+
+### FIXED (test-side) — scripting `test_standalone_simple` flake: shared `s_out.exe` race
+
+- Both standalone tests derived the OUTPUT path from a shared "s_out" name;
+  with `--test-threads=32` they raced on the same output file (Windows
+  sharing violation → intermittent "Access is denied" → non-success status).
+  The output path now derives from the UNIQUE script name. Verified 3/3 full
+  scripting runs 34/34.
+
+### NOTE — checker gap (NOT this batch): `Eq5[T].eq(el, &value)` associated-form Self substitution
+
+- eqt13's associated form still fails the CHECKER ("argument 1 type mismatch:
+  expected Self, found Int") — `Self` in an interface's method param doesn't
+  substitute to the type arg in associated-form calls. The tower pattern
+  (explicit `Eq5[Int].eq(...)` with fn-style params) avoids it; stdlib uses
+  method form. Candidate for a future checker session.
 
 ---
 
