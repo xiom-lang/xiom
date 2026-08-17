@@ -1434,6 +1434,32 @@ compiler-side list above is the compiler's share.
 - **Likely fix:** the is-Some imply/binding machinery (BUG 30 #1/#2 family) -
   the payload slot binding after an is Some check must not poison the
   subsequent match's payload read (0 is the zero-init of the untracked slot).
+
+### BUG 43 - Float64 payload in generic Result/Option container read via sitofp (should itcast)
+
+- **Construct:** a catalog fn returning Result[Float64, Str] (generic %struct.Result layout per BUG 41's primitive rule); the caller's match reads the payload as sitofp i64 - double while the definition stored it via itcast double - i64 - 3.14's bit pattern becomes ~4.6e18. IR: definition itcast double %x to i64 vs caller sitofp i64 %slot to double.
+- **Impact:** smoke_core_convert exit 11 - 	o_float_from_str("3.14") reads garbage. ALL Float64 payloads in generic Result/Option containers are affected. The BUG 41 rule needs the READ side to bitcast for float payloads.
+- **Stdlib:** core.xi's to_float_from_str is correct; no workaround possible from the stdlib side.
+
+### BUG 44 - deref/coercion of &Str broken (loads a single byte)
+
+- **Construct:** ar p = &s; var d = *p; (deref of &Str) - IR emits load i8 instead of load i8*; user-space probe AVs (0xC0000005). Passing &Str where Str is expected (auto-coercion) also miscompiles (compares a byte).
+- **Impact:** any * on &Str, or implicit &Str-Str coercion, is unusable. Str is the only pointer-typed primitive; &Int/&Bool/struct derefs are fine. Blocks Eq-style impls taking &Self for Str.
+
+### BUG 45 - method-form interface dispatch inside generic-bound fns resolves to a stub
+
+- **Construct:** n f[T: Eq](x: T) -> Bool { x.eq(&y) } (method call on a T-typed or concrete-typed receiver inside a fn with an interface bound). Non-generic fns with the same call dispatch correctly (probe eqt12 exit 0); generic-bound fns return the stub's constant (eqt11/13 exit 1).
+- **Impact:** core.contains/is_sorted (and every [T: Ord] user: cmp.min/max, sort.*) return wrong results. The tower pattern (EqT[T].eq(a, b) associated calls) works in user space - the stdlib conversion to that form was attempted and reverted pending BUG 47.
+
+### BUG 46 - generic &UserStruct[T] param field reads return garbage
+
+- **Construct:** n get_v[T](b: &Box2[T]) -> T { return b.v; } - reading a field of a USER-DEFINED generic struct through a & param returns garbage (42 != 42). By-value params and builtin &Vec[T]/&[N]T are fine; &Slice[T] (user struct with *T field) element reads break inside generic fns.
+- **Impact:** blocks generic algorithms over &Slice[T] (contains/sort over slices). Distinct from BUG 45 (a plain == read fails too, probe eqt18).
+
+### BUG 47 - impl method names collide with fn-typed params in mono (fn-param collapses to i64)
+
+- **Construct:** impl Eq[Int] { fn eq ... } / impl Ord[Int] { fn compare ... } in the SAME program as a fn taking a fn-typed param (e.g. heap_sort_by(v, compare: fn(&Int,&Int)-Int)). The fn-param's mono collapses to a garbage i64 (IR: define ... heap_sift_down_by(%struct.Vec*, i64, i64, i64) - the fn param became an integer) - AV at the call. Impls named differently (ar) or for Str-typed receivers do NOT trigger it; renaming the fn-param to cmp does NOT fix it.
+- **Impact:** the tower-style Eq/Ord impls (BUG 45 workaround) cannot land while fn-param fns (heap_sort_by, sort_by, min_by, merge_sort_stable...) exist - the stdlib conversion was reverted. Likely a symbol-key collision between impl method symbols and the fn-pointer trampoline naming for i64-ABI types.
 ### P001 indentation quirk (parser � CAN HANG the compiler, priority for the compiler session)
 
 - Indented module-level declarations (indented `use xiom.x;` + indented `fn main`) + a final column-0 `}` produce `error[P001]: expected declaration, found '}'` at EOF, while any one of those three properties removed compiles. Module-level `use`/`fn` at column 0 (repo convention) always works.
