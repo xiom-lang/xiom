@@ -1,4 +1,91 @@
-# XIOM Compiler Session — Handoff (2026-08-16)
+# XIOM Compiler Session — Handoff (2026-08-17)
+
+## Session handoff (2026-08-17) — CLEAN STATE, work committed
+
+Branch: `feat/architect` (**37 commits ahead** of `origin/feat/architect`).
+All work this session is COMMITTED (5 commits below). Working tree has ONLY
+pre-existing third-party modifications — `.xiom_ai.json`, `Cargo.lock`,
+`docs/AI_CONTEXT.md` (NOT mine; leave them alone).
+
+### Commits this session (in order)
+
+```
+e477815b docs: report BUG 32-38 queue results + stdlib-side list to the stdlib session
+802e9fd2 docs: BUG 32-38 queue status - 38/38b/32/33/31/34 fixed, 35 verified, 37/36 open, P001 resolved
+b15d0d3b fix(codegen): BUG 34 - nested Vec[Vec[T]] element writes
+74bcc28b fix(codegen): BUG 32, 33, 31 - Int-to-ptr cast, Option[Float128] payload, fp128 fneg
+9042e8a2 fix(codegen): BUG 38 family - is-Some double-check, generic-receiver mono, mutating self ABI
+```
+
+### Fixed & verified (isolated binary `$env:TEMP\kilo\tgt_iso\debug\xiom.exe`)
+
+- **BUG 38** — bare `is Some` scrutinee payload rebind fires ONLY inside an
+  Imply left side (sx4 pos=5; iter.xi collect works).
+- **BUG 38b (new)** — generic-receiver methods (`Iterator[T].collect`): the
+  parser DROPPED receiver generics → erased i64 ABI → never monomorphised
+  (45 decls in iter/core/collections/sync/rc/memory). Four-part fix: parser
+  receiver-generics capture; receiver-keyed mono dispatch; find_generic_decl
+  prefers UNDECLARED abstract receivers; mutating-self ABI (block_mutates_self
+  recursion + new block_mutates_receiver_state). iter smokes 0/19 → 6/19.
+- **BUG 32** (Int-var→ptr cast now load+inttoptr), **BUG 33** (Option[Float128]
+  payload → fp128), **BUG 31** (fp128 fneg), **BUG 34** (nested Vec[Vec[T]]
+  writes: i64-element dispatch + element-address ABI + elem_size 32 +
+  elem-type tracking).
+- **BUG 35** primary shape verified working (Int128+Vec-write buckets
+  [1,1,1], no crash).
+- **P001** not reproducible; indented decls reject in 0.14s; former 15-min
+  hang smoke compiles in 4.9s.
+- Suites: checker **178/178**, codegen **2263**, feature-reg **510**, parser
+  **24** — all green. `stdlib_api_freeze_no_removals` FAILS IDENTICALLY AT
+  BASELINE HEAD (905 frozen signatures missing — item B family, stdlib
+  layout moved; NOT a regression).
+
+### Re-triage of the stdlib session's remaining lists (238 files, current binary)
+
+**43 pass / 82 compilefail / 113 runfail.** Results: `%TEMP%\kilo\resweep_new0-3.txt`.
+Remaining families: (a) receiver-CALL chains for generic methods (iter
+adapters — reproduces at baseline, B-007-adjacent); (b) BUG 24/36 shape
+miscompiles; (c) stale-API smokes (`.get(0)` on Vec, char.from_digit
+contract false-fire, is_empty). Full breakdown: COMPILER_BUGS.md
+(2026-08-16 late section) + REPORT_TO_STDLIB_SESSION.md.
+
+### OPEN queue (next sessions, priority order)
+
+1. **BUG 37/36 (HIGH)** — fp128 + BigFloat-chain shape AV. Minimal
+   deterministic repro in `%TEMP%\kilo\` (t_chainloop.xi, t_b37f.xi,
+   t_b37k.xi): `var n = v.significand.digits.len();` (chain Vec-len) used
+   as a loop bound + ANY fp128 op in the loop body → 0xC0000005 even at
+   clang -O0 with verifiably sound IR. `bigfloat_to_float128` still crashes
+   for non-zero values (the stdlib's three-shape workaround did not dodge
+   it — the main fn still mixes chain + fp128). Probe prints change loop
+   semantics — classic shape miscompile.
+2. **Item B (HIGH)** — exec harness wiring: stdlib_tests.rs +
+   stdlib_execution_tests.rs + stdlib_api_freeze_tests.rs still reference
+   the pre-refactor layout (STDLIB_MANIFEST.md 515 paths, STDLIB_SMOKES.md
+   213 smokes, frozen-signature snapshot). The 5-test-worktree merge wave
+   waits on this. **The stdlib session has the GREEN LIGHT to wrap up** —
+   its remaining items are the stdlib-side list in
+   REPORT_TO_STDLIB_SESSION.md (char.xi from_digit requires-contract on a
+   fallback fn; Vec.is_empty broken — baseline-confirmed; stale `.get(0)`
+   smoke usage → use indexing; smoke_num_saturating Bounded/Ord impls;
+   smoke_alloc_basic `use xiom.ptr;`).
+3. **Item C (HIGH, user-approved)** — catalog body type-checking: Phase 1
+   reachable injected fns; Phase 2 all catalog bodies (hash-keyed cache);
+   Phase 3 `--strict-stdlib` gate.
+4. **Iter adapter chains (MEDIUM)** — receiver-CALL chains
+   (`iter.range(1,6).max()`, `.map(fn...).collect()`) + fn-value params:
+   reproduces at baseline; B-007-adjacent (closure-through-fn-slot design
+   decision pending).
+
+### Scratch / repro files this session (in `%TEMP%\kilo\`)
+
+t_b37f/t_b37k/t_chainloop (BUG 37/36), t_b35/b35b (BUG 35 verified),
+t_b34 (BUG 34), t_b33/t_b33u (BUG 33), pdb3 (BUG 32), t_fneg (BUG 31),
+t_iter38/t_b1/t_clike (BUG 38b), sx4 (BUG 38). All exit 0 with the current
+binary except the t_b37* family (AV) and t_vecloop (my test's inverted
+expectation — values correct).
+
+---
 
 ## Session update (2026-08-16 late): BUG 32-38 queue progress
 
