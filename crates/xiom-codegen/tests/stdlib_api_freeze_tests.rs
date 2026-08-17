@@ -986,12 +986,20 @@ fn extract_signatures(path: &Path) -> Vec<String> {
                 {
                     break;
                 }
-                if j + 2 < bytes.len()
-                    && bytes[j] == '\n'
-                    && bytes[j + 1] == '/'
-                    && bytes[j + 2] == '/'
-                {
-                    break;
+                // Indentation-aware comment stop: the 2026-08-16 refactor
+                // added `// note` lines BETWEEN the signature and the '{'
+                // (e.g. crypto.xi aes_encrypt documents "no requires clauses"
+                // under the sig). The old check required '/' immediately
+                // after '\n' and missed two-space-indented comments, so the
+                // comment text leaked into the extracted signature.
+                if j + 2 < bytes.len() && bytes[j] == '\n' {
+                    let mut k = j + 1;
+                    while k < bytes.len() && (bytes[k] == ' ' || bytes[k] == '\t') {
+                        k += 1;
+                    }
+                    if k + 1 < bytes.len() && bytes[k] == '/' && bytes[k + 1] == '/' {
+                        break;
+                    }
                 }
                 j += 1;
             }
@@ -1006,6 +1014,50 @@ fn extract_signatures(path: &Path) -> Vec<String> {
     }
     out
 }
+/// Resolve a frozen SHORT module name ("aes", "alloc", ...) to its stdlib
+/// file path. The 2026-08-16 layout refactor moved modules from flat files
+/// (stdlib/xiom/aes.xi) into folders (stdlib/xiom/crypto/aes.xi), so the
+/// flat join no longer works. Resolution order (Item B, 2026-08-17):
+///   1. STDLIB_MANIFEST.md exact entry `xiom.<name>` (the frozen layout map)
+///   2. STDLIB_MANIFEST.md unique last-segment match (`xiom.crypto.aes`)
+///   3. Filesystem scan for `<name>.xi` under stdlib/xiom
+fn resolve_module_path(root: &Path, module: &str) -> Option<std::path::PathBuf> {
+    let manifest = root.join("docs").join("STDLIB_MANIFEST.md");
+    let exact = format!("xiom.{module}");
+    let mut suffix_match: Option<std::path::PathBuf> = None;
+    if let Ok(text) = fs::read_to_string(&manifest) {
+        for line in text.lines() {
+            let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
+            if parts.len() >= 4
+                && parts[1].starts_with("xiom.")
+                && parts[2].starts_with("stdlib/xiom/")
+                && parts[2].ends_with(".xi")
+            {
+                if parts[1] == exact {
+                    return Some(root.join(parts[2]));
+                }
+                if suffix_match.is_none() && parts[1].rsplit('.').next() == Some(module) {
+                    suffix_match = Some(root.join(parts[2]));
+                }
+            }
+        }
+    }
+    if let Some(p) = suffix_match {
+        return Some(p);
+    }
+    // Filesystem fallback: <name>/<name>.xi or any <name>.xi under stdlib/xiom
+    let base = root.join("stdlib").join("xiom");
+    let direct = base.join(module).join(format!("{module}.xi"));
+    if direct.exists() {
+        return Some(direct);
+    }
+    let flat = base.join(format!("{module}.xi"));
+    if flat.exists() {
+        return Some(flat);
+    }
+    None
+}
+
 #[test]
 fn stdlib_api_freeze_no_removals() {
     let root = project_root();
@@ -1013,11 +1065,10 @@ fn stdlib_api_freeze_no_removals() {
 
     for entry in FROZEN {
         let (module, sig) = entry.split_once(" :: ").unwrap();
-        let path = root.join("stdlib").join("xiom").join(format!("{module}.xi"));
-        if !path.exists() {
+        let Some(path) = resolve_module_path(root, module) else {
             missing.push(format!("{module} :: {sig}  [module file deleted]"));
             continue;
-        }
+        };
         let signatures = extract_signatures(&path);
         if !signatures.iter().any(|s| s == sig) {
             missing.push(format!("{module} :: {sig}"));
