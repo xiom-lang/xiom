@@ -382,6 +382,12 @@ pub struct LocalContext {
     /// Params declared with a plain `&T` reference type (address carried as i64).
     /// `&mut T` / `*T` params are real pointers (i64*) and are NOT listed here.
     pub ref_params: HashSet<String>,
+    /// BUG 44: LOCALS bound from `&expr` or annotated `&T` (`var p = &s;`,
+    /// `var p: &Str = ...`). They hold an ADDRESS (as i64 or a real pointer
+    /// for Str pointees) — deref (`*p`) must load through, and auto-coercion
+    /// to the pointee value (&Str → Str) must deref instead of treating the
+    /// address as a byte value. Mirrors ref_params for non-param bindings.
+    pub ref_locals: HashSet<String>,
     /// M17: Tracks which SSA register names hold signed integer values.
     /// Populated when values are created with known XIOM type (Ident loads,
     /// As expressions, literals). Consulted by widen_to_i64 to select sext/zext.

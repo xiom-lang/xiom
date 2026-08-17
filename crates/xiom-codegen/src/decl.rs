@@ -928,6 +928,16 @@ impl IrEmitter {
         self.local.signed_locals.clear();
         self.local.local_xiom_types.clear();
         self.local.reg_signed.clear();
+        self.local.ref_locals.clear();
+        // BUG 47 (2026-08-18): param_locals/ref_params were NEVER cleared
+        // between functions. A `&T` param named "b" in an earlier fn (e.g.
+        // `cmp_int(a: &Int, b: &Int)`) left a stale entry, so a LATER fn's
+        // plain value param named "b" was misidentified as a ref-param —
+        // `x.compare(&b)` compiled the VALUE and dereferenced address 7
+        // (inttoptr + load) → AV. Same for param_locals (by-value &T deref
+        // logic and the eq/compare fast-path both consult these sets).
+        self.local.param_locals.clear();
+        self.local.ref_params.clear();
         // P0-2: Clear deferred cleanup stack at function start
         self.clear_deferred_cleanups();
 

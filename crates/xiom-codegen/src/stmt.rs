@@ -186,6 +186,9 @@ impl IrEmitter {
                     // cast target tells us the signedness.
                     self.local.local_xiom_types.insert(name.name.clone(), inferred);
                 }
+                // BUG 44: `let p = &s` / `let p: &Str = ...` — track ref-locals
+                // (address-carrying) so deref and &T→T coercion load through.
+                self.track_ref_local(&name.name, _ty.as_deref(), value);
                 // Use declared struct type when available (handles Option.unwrap
                 // round-trip where the value is a heap pointer i64 but the declared
                 // type is a struct).
@@ -404,6 +407,9 @@ impl IrEmitter {
                     // the cast target when there is no annotation.
                     self.local.local_xiom_types.insert(name.name.clone(), inferred);
                 }
+                // BUG 44: `var p = &s` / `var p: &Str = ...` — track ref-locals
+                // (address-carrying) so deref and &T→T coercion load through.
+                self.track_ref_local(&name.name, _ty.as_deref(), value);
                 let (val, val_llvm_ty) = if let Expr::Array(elems, _) = value {
                     // 5c.39: Non-empty array literal assigned to a Vec-typed
                     // variable â€” convert to Vec via compile_array_as_vec.
@@ -1519,13 +1525,14 @@ impl IrEmitter {
                                     // so match-bound vars carry real doubles/floats
                                     // (unary minus / arithmetic on them was garbage).
                                     let scrutinee_name = if let Expr::Ident(sid) = expr_match { Some(sid.name.clone()) } else { None };
+                                    let scrutinee_payload = self.scrutinee_payload_xiom(expr_match, field_idx);
                                     if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
                                         eprintln!("[matchpay] scrutinee={scrutinee_name:?} field_llvm_ty={field_llvm_ty} payload_xiom={:?}",
                                             scrutinee_name.as_ref().and_then(|n| self.local.local_opt_payload_xiom.get(n)));
                                     }
                                     let mut bind_val = loaded.clone();
                                     if field_llvm_ty == "i64" {
-                                        if let Some(px) = scrutinee_name.as_ref().and_then(|n| self.local.local_opt_payload_xiom.get(n)) {
+                                        if let Some(px) = &scrutinee_payload {
                                             if px == "Float64" {
                                                 let bc = self.fresh_tmp();
                                                 self.emitln(&format!("  {bc} = bitcast i64 {loaded} to double"));
@@ -1844,14 +1851,9 @@ impl IrEmitter {
                                 // (BUG 22 #4: scalar float payloads come from
                                 // local_opt_payload_xiom â€” `var o = Some(5.0)` â€”
                                 // struct payloads from local_opt_payload).
-                                let declared: Option<String> = if let Expr::Ident(sid) = expr_match {
-                                    if val_field == 2 {
-                                        self.local.local_err_payload.get(&sid.name).cloned()
-                                    } else {
-                                        self.local.local_opt_payload.get(&sid.name).cloned()
-                                            .or_else(|| self.local.local_opt_payload_xiom.get(&sid.name).cloned())
-                                    }
-                                } else { None };
+                                // BUG 43: direct-call scrutinees resolve the
+                                // callee's declared Option/Result return type.
+                                let declared = self.scrutinee_payload_xiom(expr_match, val_field);
 
                                 let (bind_val_inner, bind_ty_inner) = match declared.as_deref() {
                                     Some("Str") if field_ty == "i64" => {

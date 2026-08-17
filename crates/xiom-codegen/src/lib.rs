@@ -1975,6 +1975,43 @@ impl IrEmitter {
         }
     }
 
+    /// BUG 44: track LOCALS bound from `&expr` or annotated `&T` as
+    /// ref-locals. They hold an ADDRESS (i64 for scalar pointees, i8** for
+    /// Str pointees); deref (`*p`) and &T→T auto-coercion must load through.
+    /// Struct pointees are excluded — `&W` locals are real `%struct.W*`
+    /// pointers (matching the ref_params rule in decl.rs).
+    fn track_ref_local(&mut self, name: &str, ty: Option<&Type>, value: &Expr) {
+        let pointee_xiom: Option<String> = match ty {
+            Some(Type::Ref(inner)) => Some(Self::type_from_ast(inner)),
+            _ => match value {
+                Expr::Ref(inner, _) | Expr::MutRef(inner, _) => {
+                    if let Expr::Ident(id) = inner.as_ref() {
+                        self.xiom_type_of_local(&id.name)
+                    } else { None }
+                }
+                Expr::Unary(UnaryOp::Ref, inner, _) | Expr::Unary(UnaryOp::MutRef, inner, _) => {
+                    if let Expr::Ident(id) = inner.as_ref() {
+                        self.xiom_type_of_local(&id.name)
+                    } else { None }
+                }
+                _ => None,
+            },
+        };
+        if let Some(pointee) = pointee_xiom {
+            // Exclude struct pointees: &W locals are real %struct.W* pointers.
+            let is_struct = self.types.types.contains_key(&pointee)
+                || self.types.types.keys().into_iter().any(|k| k.ends_with(&format!(".{pointee}")));
+            if !is_struct {
+                self.local.ref_locals.insert(name.to_string());
+                // Register the pointee XIOM type for unannotated bindings so
+                // the deref path can resolve the pointee LLVM type.
+                if !self.local.local_xiom_types.contains_key(name) {
+                    self.local.local_xiom_types.insert(name.to_string(), pointee);
+                }
+            }
+        }
+    }
+
     /// BUG 22 #4 fix: infer the SCALAR XIOM payload type of a Some/Ok/Err
     /// constructor expression (Float64 for Some(5.0), Int for Some(1),
     /// Str for Some("x"), Idents resolve via the registered local type,
@@ -2305,6 +2342,36 @@ impl IrEmitter {
             || self.types.types.keys().into_iter().any(|k| k.ends_with(&format!(".{type_name}")))
             || self.types.enum_variants.contains_key(&key)
             || self.types.enum_variants.keys().into_iter().any(|k| k.ends_with(&format!(".{type_name}")))
+    }
+
+    /// BUG 43: resolve the declared payload XIOM type of a match scrutinee's
+    /// Some/Ok/Err payload (field_idx: 1 = ok payload, 2 = err payload).
+    /// Ident scrutinees come from binding tracking (local_opt_payload /
+    /// local_err_payload / local_opt_payload_xiom); direct-call scrutinees
+    /// (`match core.to_float_from_str(s)`) resolve the callee's declared
+    /// return type ("Result[Float64, Str]") — without this, Float64 payloads
+    /// bound as raw i64 bits and float ops sitofp'd 3.14's pattern (~4.6e18).
+    fn scrutinee_payload_xiom(&self, expr_match: &Expr, field_idx: i32) -> Option<String> {
+        match expr_match {
+            Expr::Ident(sid) => {
+                if field_idx == 2 {
+                    self.local.local_err_payload.get(&sid.name).cloned()
+                } else {
+                    self.local.local_opt_payload.get(&sid.name).cloned()
+                        .or_else(|| self.local.local_opt_payload_xiom.get(&sid.name).cloned())
+                }
+            }
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+                self.callee_return_xiom(func).and_then(|full| {
+                    if field_idx == 2 {
+                        Self::option_result_err_payload(&full)
+                    } else {
+                        Self::option_result_payload(&full)
+                    }
+                })
+            }
+            _ => None,
+        }
     }
 
     fn resolve_vec_elem_type(&self, container: &Expr) -> Option<String> {
@@ -4902,74 +4969,62 @@ impl IrEmitter {
                     // 1 ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ AV).
                     Type::Ref(inner) | Type::Ptr(inner) | Type::MutRef(inner) => {
                         let subst = Self::substitute_type(t, inner, &type_map);
+                        // BUG 41/42 follow-up (2026-08-18): the merged arm made
+                        // the `&Slice[T]`/`&[N]T` specialization UNREACHABLE —
+                        // generic fns then lowered `&Slice[T]` params to i64*
+                        // and read the first element as the length
+                        // (contains/is_sorted family). Restore the shapes:
+                        // `&Slice[T]` stays BY-VALUE %struct.Vec (the fn body
+                        // needs .len()/[i] on the Slice), `&[N]T` becomes a
+                        // plain ELEMENT pointer (const N flows via const_map).
+                        if matches!(&**inner, Type::Slice(_)) {
+                            return "%struct.Vec".to_string();
+                        }
+                        if let Type::Array(size_expr, elem) = inner.as_ref() {
+                            let subst_elem = Self::substitute_type(t, elem, &type_map);
+                            let elem_name = Self::type_from_ast(&subst_elem);
+                            let elem_ty = if struct_types.contains(&elem_name) {
+                                format!("%struct.{elem_name}")
+                            } else {
+                                Self::xiom_to_llvm_type(&elem_name).to_string()
+                            };
+                            let _size_val: u64 = match size_expr.as_ref() {
+                                Expr::Int(n, _) => *n as u64,
+                                Expr::Ident(id) => const_map.get(&id.name).copied().unwrap_or(0) as u64,
+                                _ => 0,
+                            };
+                            return format!("{elem_ty}*");
+                        }
                         let name = Self::type_from_ast(&subst);
                         if let Some(inner_name) = name.strip_prefix('*') {
-                            let inner_llvm = if struct_types.contains(inner_name) {
-                                format!("%struct.{inner_name}")
+                            let inner_llvm = if struct_types.contains(inner_name)
+                                || struct_types.iter().any(|k| k.ends_with(&format!(".{inner_name}")))
+                            {
+                                let qualified = struct_types.iter()
+                                    .find(|k| **k == inner_name || k.ends_with(&format!(".{inner_name}")))
+                                    .cloned().unwrap_or_else(|| inner_name.to_string());
+                                format!("%struct.{qualified}")
                             } else {
                                 Self::xiom_to_llvm_type(inner_name).to_string()
                             };
                             if inner_llvm == "void" { "i8*".to_string() } else { format!("{inner_llvm}*") }
                         } else {
-                            if struct_types.contains(&name) {
-                                format!("%struct.{name}*")
+                            // BUG 46: generic user structs register MODULE-QUALIFIED
+                            // ("eqt20.Box2"); the bare-name check missed them and
+                            // `&Box2[T]` params degraded to i64* — the callee's
+                            // field GEPs then indexed an i64 (garbage reads / the
+                            // whole field expression degraded to 0).
+                            let is_struct = struct_types.contains(&name)
+                                || struct_types.iter().any(|k| k.ends_with(&format!(".{}", name)));
+                            if is_struct {
+                                let qualified = struct_types.iter()
+                                    .find(|k| **k == name || k.ends_with(&format!(".{}", name)))
+                                    .cloned().unwrap_or(name);
+                                format!("%struct.{qualified}*")
                             } else {
                                 format!("{}*", Self::xiom_to_llvm_type(&name))
                             }
                         }
-                    }
-                    Type::Ref(inner) => {
-                        // Unwrap Ref to reach Array/Slice handlers directly.
-                        let inner_subst = Self::substitute_type(inner, inner, &type_map);
-                        // Arrays/Slices: produce proper pointer types with const-size resolution.
-let inner_llvm = match &inner_subst {
-                            Type::Array(size_expr, elem) => {
-                                let subst_elem = Self::substitute_type(t, elem, &type_map);
-                                let elem_name = Self::type_from_ast(&subst_elem);
-                                let elem_ty = if struct_types.contains(&elem_name) {
-                                    format!("%struct.{elem_name}")
-                                } else {
-                                    Self::xiom_to_llvm_type(&elem_name).to_string()
-                                };
-                                let _size_val: u64 = match size_expr.as_ref() {
-                                    Expr::Int(n, _) => *n as u64,
-                                    Expr::Ident(id) => const_map.get(&id.name).copied().unwrap_or(0) as u64,
-                                    _ => 0,
-                                };
-                                // For ref params, produce a plain pointer (i64*) instead
-                                // of typed array pointer ([5 x i64]*) for ABI compat.
-                                // The const N is used in the body via const_map.
-                                format!("{elem_ty}*")
-                            }
-                            Type::Slice(elem) => {
-                                // &Slice[T] must produce %struct.Vec (not just a
-                                // data pointer) so the function body can access
-                                // .len() and [i] on the Slice parameter. Without
-                                // this, is_sorted/contains receive i64* and read
-                                // the first element as the length, producing
-                                // incorrect results (stdlib_exec_core_runs).
-                                let _subst_elem = Self::substitute_type(t, elem, &type_map);
-                                "%struct.Vec".to_string()
-                            }
-                            _ => {
-                                let name = Self::type_from_ast(&inner_subst);
-                                if let Some(inner_name) = name.strip_prefix('*') {
-                                    let base = if struct_types.contains(inner_name) {
-                                        format!("%struct.{inner_name}")
-                                    } else {
-                                        Self::xiom_to_llvm_type(inner_name).to_string()
-                                    };
-                                    if base == "void" { "i8*".to_string() } else { format!("{base}*") }
-                                } else if struct_types.contains(&name) {
-                                    format!("%struct.{name}")
-                                } else {
-                                    Self::xiom_to_llvm_type(&name).to_string()
-                                }
-                            }
-                        };
-                        // Arrays from Ref/Ptr/MutRef always become pointers.
-                        if inner_llvm.starts_with('[') { format!("{inner_llvm}*") }
-                        else { inner_llvm }
                     }
                     Type::Tuple(elems) => {
                         let parts: Vec<String> = elems.iter().map(|e| {

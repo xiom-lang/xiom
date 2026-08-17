@@ -960,7 +960,11 @@ impl IrEmitter {
                         // `*p`: load through a real pointer. `inner_ty` is e.g. `i64*`
                         // (from a `*T` value). Load the pointee type.
                         if inner_ty.ends_with('*') {
-                            let pointee = inner_ty.trim_end_matches('*').to_string();
+                            // BUG 44: strip exactly ONE star. `trim_end_matches('*')`
+                            // stripped ALL trailing stars, so deref of a `&Str`
+                            // (an `i8**` — pointer to the Str slot) emitted
+                            // `load i8, i8**` (a byte) instead of `load i8*, i8**`.
+                            let pointee = inner_ty.strip_suffix('*').unwrap_or(&inner_ty).to_string();
                             self.emitln(&format!("  {tmp} = load {pointee}, {inner_ty} {val}"));
                             return Ok((tmp, pointee));
                         }
@@ -976,7 +980,9 @@ impl IrEmitter {
                                 // strips the &, so local_xiom_types holds "Int" for a
                                 // `r: &Int` param — that IS the pointee type. This
                                 // fixes `*r` loading i8 instead of the declared width.
-                                if self.local.param_locals.contains(&id.name) {
+                                // BUG 44: ref-LOCALS (`var p = &s`, `var p: &Str = ..`)
+                                // follow the same rule via ref_locals.
+                                if self.local.param_locals.contains(&id.name) || self.local.ref_locals.contains(&id.name) {
                                     self.local.local_xiom_types.get(&id.name)
                                         .and_then(|xiom_ty| self.llvm_type_for(xiom_ty).ok())
                                 } else {
