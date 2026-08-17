@@ -3762,6 +3762,19 @@ impl IrEmitter {
                         self.emitln(&format!("  {tmp} = sitofp i64 {val} to fp128"));
                         Ok((tmp, "fp128".to_string()))
                     }
+                    // BUG 37/36 follow-up (2026-08-17): Int128 ↔ Float128 casts
+                    // fell through to the generic coerce path and emitted a
+                    // mis-typed store (i128 value stored as fp128 → clang
+                    // rejected; the LLVM libcalls __floattitf/__fixtfti now
+                    // exist in fp128_helpers.c with matching shims).
+                    ("i128", "fp128") => {
+                        self.emitln(&format!("  {tmp} = sitofp i128 {val} to fp128"));
+                        Ok((tmp, "fp128".to_string()))
+                    }
+                    ("fp128", "i128") => {
+                        self.emitln(&format!("  {tmp} = fptosi fp128 {val} to i128"));
+                        Ok((tmp, "i128".to_string()))
+                    }
                     // 5e.2 G-34: fn-ptr ↔ Int casts.
                     (inner_ty, target_fn_ptr) if target_fn_ptr.contains('(')
                         && target_fn_ptr.contains(')')
