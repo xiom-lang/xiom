@@ -1,5 +1,44 @@
 # XIOM Compiler Session — Handoff (2026-08-17)
 
+## Session update (2026-08-17, second half): BUG 39/40 + Item B
+
+Commits: `798a7402` (BUG 39+40), `33ff2167` (Item B harness), on top of
+`69e2c235`/`dedf7bf1` (BUG 37/36).
+
+- **BUG 40 (major find): nondeterministic IR emission.** `type_meta.entries()`
+  and `generic_instantiations` iterate HashMaps in per-process order, so the
+  SAME source emitted different IR between builds; clang -O2's codegen of the
+  linked MSVC CRT is layout-sensitive, producing passing vs crashing/wrong-
+  result binaries at random (~85% crash rate observed for smoke_simd/m21
+  across builds — the "flaky failures" that plagued earlier verification).
+  Both loops now SORT by key → byte-reproducible IR (verified 5×).
+- **BUG 39: Vec element-type records.** (1) push-time recording overwrote
+  `Vec[Struct]` receivers with "Vec[Int]" → struct elements memcpy'd into
+  %struct.Vec slots (m21_vec_edge_012/027, vec_of_struct, eco — fixed);
+  (2) ctor elem_size under-counted container fields (Vec field 8 vs 32) →
+  Vec[Vector] buffer overflow → AV (test_vector/test_db/test_json — fixed
+  via vec_elem_storage_size).
+- **Item B:** api_freeze 905 missing → **0** (manifest-driven module path
+  resolution + indentation-aware signature extraction). Execution tests
+  72 → **70 pass + 2 documented #[ignore]** (smoke_core = stdlib Eq-impl gap;
+  smoke_simd = BUG 40-era latent CRT layout miscompile). stdlib_tests 40/40.
+- **En route:** Vec[Str] element reads inttoptr to i8* (yaml garbage);
+  ptr.null/dangling results recorded pointer-valued → is_null coercion
+  inttoptrs (smoke_ptr).
+- **Verified:** checker 178/178; exec 70/70+2; api_freeze 2/2; e2e
+  2256/2263 (remaining: 2 hot-reload FILE-LOCK artifacts + m34_y15/y20 +
+  eco db/json/vector). Repro battery (t_chainloop, 14×t_b37, t_f128rt,
+  t_f128i128, sx4, t_iter38, pdb3, t_b33, t_b34, t_b35, t_fneg_clean) all 0.
+- **BUG 41 (OPEN, next session):** generic fn with UNUSED type param +
+  concrete Result payload — mono'd definition emits
+  `%struct.Result__Env__Str` but the call-site registry records
+  `%struct.Result` → invalid IR (m34_y15/y20 compile failures; previously
+  masked by BUG 40's nondeterminism). Fix in the mono signature
+  registration (lib.rs specialized_ret_type): resolve concrete
+  Result/Option payloads like the definition side.
+- **Harness reminder:** `xiom run` caches exes in ~/.xiom/jit/<sha>.exe keyed
+  ONLY by source hash — clear after ANY runtime C change.
+
 ## Session update (2026-08-17): BUG 37/36 FIXED — fp128 libcall ABI mismatch
 
 Commits this session: `(pending)` — fp128_helpers.c shims + expr.rs i128 casts.
