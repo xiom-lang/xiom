@@ -1623,18 +1623,42 @@ smoke_simd 0xC0000005, eco suites, even a CRT-internal call reading an
 uninitialized r9d). Fix: sort both emission loops by key. The output is now
 byte-reproducible (verified 5× identical for m21/test_vector/m34).
 
-### BUG 41 — OPEN: generic fn with unused type param + concrete Result payload
+### BUG 41 — FIXED (`feat/architect`, 2026-08-17) — mono call-site ret type vs concrete Result payload
 
-`fn adjust[T](e: Env, target: Climate) -> Result[Env, Str]` mono'd to
-adjust_Env: the DEFINITION emits `%struct.Result__Env__Str`, but the
-call-site registry (types.functions[adjust_Env]) records the GENERIC
-`%struct.Result` — `call %struct.Result @adjust_Env(...)` + `ret
-%struct.Result__Env__Str` → clang rejects (m34_y15/y20 COMPILE failures,
-deterministic with BUG 40's sorted IR; previously masked by the
-nondeterministic layouts). Fix location: the mono'd signature registration
-(lib.rs ~4904, specialized_ret_type = subst_type(t)) must resolve concrete
-Result/Option payload names like the definition side does (concrete_type_for
-/ ensure_concrete_result).
+`fn adjust[T](e: Env, target: Climate) -> Result[Env, Str]` (generic with an
+UNUSED type param) mono'd to adjust_Env: the DEFINITION emitted
+`%struct.Result__Env__Str` (the mono's subst_type resolves concrete
+Result/Option keys), but the CALL-SITE fallback (call.rs generic_ret,
+used when the specialized key isn't registered yet — compile order) went
+through type_from_ast + llvm_type_for, which fell back to the generic
+base registration `%struct.Result` → `call %struct.Result @adjust_Env`
++ `ret %struct.Result__Env__Str` → clang rejected the IR (m34_y15/y20
+compile failures; deterministic after BUG 40's sorted emission).
+Fix: new `concrete_container_llvm` helper resolves `Result[A, B]` /
+`Option[A]` names to the registered concrete struct key (mirroring the
+mono definition's subst_type arms); the call-site fallback uses it first.
+
+### BUG 42 — FIXED (`feat/architect`, 2026-08-17) — enum values in Vec elements
+
+`Vec[JsonValue]` / structs containing enum fields (JsonEntry
+{ key: Str; value: JsonValue }) were stored/read as i64 SCALARS (tag
+only, payload garbage):
+1. **Push path**: is_struct_elem checked only `types` — enums register in
+   `enum_variants`, so a JsonValue push took the scalar store (tag, and
+   the payload slot stayed zero) → as_number read garbage bits →
+   float_to_string crashed in the CRT (shld on a garbage exponent).
+2. **Read path**: resolve_vec_elem_type had no enum_variants fallback →
+   Vec[JsonValue][i] fell to the scalar i64 load instead of the struct
+   memcpy.
+3. **Storage size**: vec_elem_storage_size had no enum arm — JsonEntry
+   (with the JsonValue field) sized 16 instead of 24; the push's
+   sizeof_struct also under-counted enum fields (8). The enum layout is
+   `{ i64 tag, i64 x slots }` (payloads boxed to i64 handles; tuples one
+   slot per element) — 16 bytes for JsonValue, 24 for JsonEntry.
+Fix: is_struct_or_enum_type helper used by both push checks; the push's
+struct esz now uses vec_elem_storage_size uniformly (structs, enums,
+containers, arrays); resolve_vec_elem_type falls back to enum_variants
+keys. Verified: test_json/test_db/test_vector (29/18/32 tests) exit 0.
 
 ### Item B — exec harness wiring (DONE)
 
