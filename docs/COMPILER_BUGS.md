@@ -1545,36 +1545,46 @@ compiler-side list above is the compiler's share.
   subsequent match's payload read (0 is the zero-init of the untracked slot).
 
 
-
-### BUG 50 - generic container names with pointer type args emit invalid LLVM identifiers
+### BUG 50 - generic container names with pointer type args emit invalid LLVM identifiers — FIXED (`569c3d31`)
 
 - **Construct:** a fn returning Result<*mut UInt8, AllocError> (pointer payload in a generic container). The mono names the container struct %struct.Result__*UInt8__AllocError — the * is invalid in an LLVM identifier (clang: error: expected '=' after name).
 - **Triggered by:** smoke_alloc_edge (global_alloc().allocate(l) returns Result<*mut UInt8, AllocError>). The stdlib-side API bug (global_alloc returning the Allocator interface type) was fixed first (alloc.xi -> GlobalAlloc); the remaining failure is this codegen naming issue.
-- **Likely fix:** sanitize/escape pointer type args in container type names (Ptr_UInt8 or the * mangled).
+- **FIX:** `sanitize_container_arg` maps every non-identifier char to `_` — applied at ALL 7 container-name construction sites (ensure_concrete_option/result, concrete_type_for Option/Result arms, mono subst Option/Result arms, concrete_container_llvm) so the def and call sides agree. smoke_alloc_edge + the user probe now compile and run exit 0. (Regression caught & fixed in the same batch: tuple element names built from local_xiom_types leaked "Vec[Int]" into `Tuple__Vec[Int]__Vec[Int]` — the tuple path now strips container args, matching the decl-side bare names; smoke_iter was restored.)
 
-### BUG 51 - Option[UserStruct] payloads: bound-name method resolution + runtime corruption
+### BUG 51 - Option[UserStruct] payloads: bound-name method resolution + runtime corruption — FIXED (`569c3d31`)
 
 - **Construct:** a fn returning Option[Rc[T]]/Option[Ref[T]] (user struct payload) called from user code; the match's Some(up) binding then calls up.get().
-- **Two facets:** (a) CHECKER: up.get() on the directly-bound name resolves to an Option-returning method ("cannot compare Option with Int") — with an explicit ar x: Rc[Int] = up; annotation it type-checks; (b) RUNTIME: the annotated form reads a WRONG payload value (rcprobe3: direct .get() = 42, upgraded x.get() != 42; user-space replica rcprobe4 with a local MyRc reproduces it — not an rc.xi bug).
+- **Two facets:** (a) CHECKER: up.get() on the directly-bound name resolves to an Option-returning method ("cannot compare Option with Int") — with an explicit var x: Rc[Int] = up; annotation it type-checks; (b) RUNTIME: the annotated form reads a WRONG payload value (rcprobe3: direct .get() = 42, upgraded x.get() != 42; user-space replica rcprobe4 with a local MyRc reproduces it — not an rc.xi bug).
 - **Impact:** smoke_rc_edge/rc_weak/cell_refcell_try/cell_refcell_mix blocked (weak.upgrade / try_borrow paths). Same family as BUG 33 (Option payload slots) — struct payloads in the generic Option container still corrupt through the catalog/unsafe path.
 - **Stdlib:** rc.xi/cell.xi implementations verified correct via the user-space replica.
+- **FIX (checker):** `CheckedType::from_ast_type` PRESERVES container args ("Option[MyRc]"); Some/Ok/Err pattern bindings bind the payload with the INNER type from the scrutinee ("Option[MyRc]" -> up: MyRc) instead of the `_` wildcard (which fell to the sorted wildcard method lookup — Option.get < MyRc.get alphabetically -> "cannot compare Option with Int"); Some() ctor types "Option[inner]"; container-erasure compatibility ("Option" ~ "Option[MyRc]") keeps erased forms interchangeable; Field access and method dispatch strip container args to the base name. **FIX (runtime):** no extra codegen change needed — the payload read already used the BUG 43 scrutinee-payload machinery; the checker fix unblocked the annotated form. Probe (Some(up) -> up.get() and x.get() == 42) exits 0; checker 178/178.
 
-### BUG 52 - enum-with-payload values in Map crash at runtime (0xC0000005)
+### BUG 52 - enum-with-payload values in Map crash at runtime (0xC0000005) — FIXED (`569c3d31`)
 
 - **Construct:** Map[Str, T] where T is an enum WITH payload fields (e.g. JsonValue): m.insert("b", MyVal.Text("x")) + m.get("b") + match. User-space replica (jp7) AVs; the same enum in a Vec (BUG 42's fix) works. The Map value path still uses the enum's scalar/tag-only layout.
 - **Impact:** serialize json_set/json_object building crashes — smoke_stress_serialize_json_nested blocked (rewritten to the real json.* API, verified correct, blocked at runtime). json_parse/stringify of parsed values unaffected.
-### BUG 48 - catalog generic-bound ASSOCIATED dispatch (Eq[T].eq) emits icmp eq 0, element
+- **FIX — FOUR coordinated codegen changes + two ABI-family root causes:**
+  1. Enum-variant ctor args infer the ENUM type in the generic direct-match inference (`MyVal.Text("x")` -> V=MyVal, not Int — insert_Str_Int became insert_Str_MyVal).
+  2. Generic METHOD type args infer from LOCAL receivers via recorded container types: `infer_value_xiom_type` records typed static-ctor receivers ("Map[Str, MyVal]"), `infer_call_return_xiom` records fn-return containers (`var m = make_map()`), and the generic-inference fallback parses them positionally (m.get("b") -> Map.get[Str, MyVal], not [Str, Str]).
+  3. Mono'd method bodies record Vec-typed receiver-field ELEMENTS: new `generic_type_field_types` (stdlib generic decls' args-preserving field types — the builtin Map/Set registrations pre-empt type_meta with bare "Vec") + `record_field_vec_elem` in both receiver-binding branches, so `values[i]` reads take the struct/enum memcpy path (resolve_vec_elem_type -> Ident arm) instead of the scalar i64 load (tag only).
+  4. Index-WRITE (`values[i] = value`, the duplicate-key update in Map.insert) memcpy's struct/enum elements INLINE instead of storing a boxed pointer as i64.
+  - concrete_container_llvm now EXCLUDES enum payloads from concrete naming (mirrors concrete_type_for's M18 rule) — the caller previously emitted %struct.Option__MyVal while the def never registers enum monomorphs ("Cannot allocate unsized type").
+  - ABI root cause found while bisecting: `&K` params with K=Str — the caller passed the STRING ADDRESS as i8** and the callee's `*key` loaded the string's FIRST 8 BYTES as a pointer (strcmp AV — smoke_collections_map_basic crashed identically at baseline). Caller now materializes an i8* temp slot. `&Vec[T]` caller ABI fixed to %struct.Vec* (the def GEPs through the param; by-value pass read the data pointer as the Vec header — every contains-style generic fn AV'd).
+  - Verified: 6 user probes (insert/get/update/remove/enum round-trip, fn-return receivers), smoke_collections_map_basic, 30-smoke battery, e2e 2268/2268, checker 178/178, feature-reg 510/510, stdlib-exec 70/70+2. smoke_stress_serialize_json_nested improved (AV -> heap corruption) but still fails — nested enum-with-Vec-field payloads through Map values remain (deeper layer, stdlib-session follow-up).
+
+### BUG 48 - catalog generic-bound ASSOCIATED dispatch (Eq[T].eq) emits icmp eq 0, element — UNBLOCKED (`a33d9a08` pending); verify on re-apply
 
 - **Construct:** a stdlib (catalog) generic-bound fn calling the associated form Eq[T].eq(items[i], value) / Ord[T].compare(a, b) with the tower-style generic interfaces. The mono emits icmp eq i64 0, %element (compare-with-ZERO fallback) instead of calling the impl (verified in core.contains_Int IR: %tmp37 = icmp eq i64 0, %tmp36 → ret 1 when element == 0).
 - **Status:** user-space generic fns with the same call dispatch correctly (eqt16/eqt17 exit 0). The METHOD form (items[i].eq(value)) in catalog fns WORKS (contains/is_sorted exit 0) — the checker note "method form works" holds. Only the associated form in catalog fns falls back.
+- **NEW (2026-08-18):** the ABI-family root causes are fixed — the user-space replica of the FULL construct (tower interfaces + impl Eq[Int] + generic contains_eq with the associated call) previously AV'd due to the &Vec[T] caller ABI (by-value vs %struct.Vec*) and now exits 0 in BOTH associated and method forms (m37_bug48_associated_generic_vec e2e). Whether the catalog-specific zero-fallback had an ADDITIONAL factor can only be confirmed by re-applying the tower Eq/Ord impls (the stdlib session's re-apply plan) — retry with the current compiler.
 - **Stdlib impact:** use the method form for catalog dispatch (the conversion plan uses it); the associated form is available for user-space code.
 
-### BUG 49 - catalog fn-param call sites still break when Eq/Ord impls for i64-ABI types are present
+### BUG 49 - catalog fn-param call sites still break when Eq/Ord impls for i64-ABI types are present — FIXED (`a33d9a08` pending)
 
 - **Construct:** any program that (a) defines impl Eq[Int]/impl Ord[Int] (i64-receiver impls; Str-receiver impls do NOT trigger) AND (b) calls a CATALOG fn taking a fn-typed param (heap_sort_by(v, cmp_int) from xiom.sort.heap) — the fn-param call site miscompiles (AV or wrong order). LOCAL fn-param fns in the same program are fine once the param is not named compare (param-NAME collision with the impl method symbol — verified: local compare-named param breaks, cmp-named works).
 - **Status:** BUG 47's param_locals fix cleared the cross-fn leak but NOT this catalog+impls shape. Param renames in the stdlib (compare->cmp) do not help the catalog case. The tower-style Eq/Ord impls (28) + method-form conversion were re-applied and REVERTED again because of this: smoke_sort (PASS->FAIL exit 4) and smoke_cmp_by regress.
 - **Minimal repro:** hsbp.xi = use xiom.core; (brings the impls) + use xiom.sort.heap; + local cmp_int(a: &Int, b: &Int) -> Int + heap_sort_by(&mut hb, cmp_int) — sorts wrong/AVs. Remove the use xiom.core; → exit 0.
-- **Likely fix:** the catalog fn-param mono symbol keying vs the impl-method symbol table (i64-ABI types only) — same family as the BUG 47 param_locals/ref_params sets; the impl registration path needs a distinct key space.
+- **FIX (2026-08-18):** `callee_is_fn_ptr` (the bare-call dispatch) required the resolved fn key to be UNREGISTERED — but impl-method registration aliases the bare method name ("Int.compare" also registers "compare"), so a fn-typed param named `compare` resolved to @Int.compare and the call bypassed the passed fn pointer. The local now SHADOWS the global for fn-typed params (fn_ptr_return_types) and closure locals: the call loads the param's i64 fn pointer and calls through it. Verified: user-space replica (impl Eq/Ord[Int] + local sort_by_cmp with compare-named param) sorts correctly (exit 0), hsbp shape (tower impls via xiom.math.tower + heap_sort_by) exit 0, m37_bug49_fn_param_impl_collision e2e.
 ### BUG 43 - Float64 payload in generic Result/Option container read via sitofp (should itcast)
 
 - **Construct:** a catalog fn returning Result[Float64, Str] (generic %struct.Result layout per BUG 41's primitive rule); the caller's match reads the payload as sitofp i64 - double while the definition stored it via itcast double - i64 - 3.14's bit pattern becomes ~4.6e18. IR: definition itcast double %x to i64 vs caller sitofp i64 %slot to double.
