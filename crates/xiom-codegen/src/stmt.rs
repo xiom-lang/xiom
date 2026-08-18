@@ -685,6 +685,20 @@ impl IrEmitter {
                             self.emitln(&format!("  {loaded_arr} = load {cont_ty}, {cont_ty}* {arr_ptr}"));
                             self.store_back_to_receiver(container, &loaded_arr, &cont_ty);
                         }
+                    } else if cont_ty.ends_with('*') && cont_ty != "i8*" {
+                        // BUG 53 write-facet (2026-08-18): `&mut [N]T` params
+                        // lower to the ELEMENT pointer (i64*/double*/... — the
+                        // mono subst + the caller's array-local coercion). The
+                        // old code had no branch for these — the write was
+                        // DROPPED (array.sort/sort_by silently no-oped, and
+                        // `set_first(&mut a, 99)` left the array unchanged).
+                        let (idx_raw, idx_ty) = self.compile_expr(index)?;
+                        let idx = self.val_to_i64(&idx_raw, &idx_ty);
+                        let inner_ty = cont_ty.trim_end_matches('*');
+                        let elem_ptr = self.fresh_tmp();
+                        self.emitln(&format!("  {elem_ptr} = getelementptr {inner_ty}, {cont_ty} {cont_val}, i64 {idx}"));
+                        let store_val = self.coerce_value(&val, &val_ty, inner_ty);
+                        self.emitln(&format!("  store {inner_ty} {store_val}, {inner_ty}* {elem_ptr}"));
                     } else if cont_ty == "i8*" {
                         // Raw byte-buffer store: `buf[i] = v` where `buf: *UInt8`.
                         // The element is one byte; truncate the value to i8. Without

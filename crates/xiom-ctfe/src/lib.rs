@@ -1,4 +1,4 @@
-// XIOM CTFE — Phase B Compile-Time Function Evaluation
+// XIOM CTFE â€” Phase B Compile-Time Function Evaluation
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
@@ -6,7 +6,7 @@
 // Supports: arithmetic, comparison, boolean ops, if/match, while/for loops,
 // function calls, recursion with depth limit, struct construction, array ops.
 //
-// Safety: sandboxed — no I/O, no FFI, no mutable globals. Arena-allocated
+// Safety: sandboxed â€” no I/O, no FFI, no mutable globals. Arena-allocated
 // memory is discarded after evaluation. Hard limits on recursion depth (1000)
 // and evaluation steps (100K) prevent infinite loops.
 
@@ -14,7 +14,7 @@ use xiom_ast::*;
 use std::collections::HashMap;
 
 // ============================================================================
-// CTFE Value — runtime representation during compile-time evaluation
+// CTFE Value â€” runtime representation during compile-time evaluation
 // ============================================================================
 
 #[derive(Debug, Clone, PartialEq)]
@@ -25,11 +25,11 @@ pub enum CtfeValue {
     Str(String),
     Char(char),
     Unit,
-    /// Struct value: field_name → CtfeValue
+    /// Struct value: field_name â†’ CtfeValue
     Struct(String, Vec<(String, CtfeValue)>),
-    /// Enum variant: variant_name → payload values
+    /// Enum variant: variant_name â†’ payload values
     Variant(String, Vec<CtfeValue>),
-    /// Ptr value — arena offset; not dereferenceable outside CTFE
+    /// Ptr value â€” arena offset; not dereferenceable outside CTFE
     Ptr(usize),
     Null,
 }
@@ -61,7 +61,7 @@ impl CtfeValue {
 }
 
 // ============================================================================
-// CTFE Arena — bounded memory allocator for compile-time structs/arrays
+// CTFE Arena â€” bounded memory allocator for compile-time structs/arrays
 // ============================================================================
 
 const ARENA_SIZE: usize = 256 * 1024 * 1024; // 256MB
@@ -91,16 +91,22 @@ impl CtfeArena {
 }
 
 // ============================================================================
-// CTFE Context — evaluation state for a single function call
+// CTFE Context â€” evaluation state for a single function call
 // ============================================================================
 
 pub struct CtfeContext {
-    /// Local variables: name → value
+    /// Local variables: name â†’ value
     pub locals: HashMap<String, CtfeValue>,
     /// Current recursion depth
     pub depth: u32,
     /// Maximum recursion depth
     pub max_depth: u32,
+    /// BUG 56 follow-up (2026-08-18): set when a `return` statement executes
+    /// inside a block â€” the enclosing eval_block loop must STOP (an `if` whose
+    /// branch returns would otherwise fall through and keep evaluating the
+    /// remaining statements â€” `if n <= 1 { return 1; }` then `n *
+    /// factorial(n-1)` recursed forever â†’ CTFE stack overflow in debug builds).
+    pub returned: bool,
     /// Steps executed (safety limit)
     pub steps: u64,
     /// Maximum steps
@@ -115,6 +121,7 @@ impl CtfeContext {
             max_depth: 1000,
             steps: 0,
             max_steps: 100_000,
+            returned: false,
         }
     }
 
@@ -159,16 +166,16 @@ pub enum CtfeError {
 }
 
 // ============================================================================
-// CTFE Engine — top-level evaluator
+// CTFE Engine â€” top-level evaluator
 // ============================================================================
 
 #[derive(Clone)]
 pub struct CtfeEngine {
     /// Arena for compile-time allocations
     pub arena: CtfeArena,
-    /// Registry of pure functions: name → (params, body)
+    /// Registry of pure functions: name â†’ (params, body)
     pub functions: HashMap<String, (Vec<String>, Vec<StmtOrExpr>)>,
-    /// Global constants: name → CtfeValue
+    /// Global constants: name â†’ CtfeValue
     pub constants: HashMap<String, CtfeValue>,
 }
 
@@ -368,7 +375,7 @@ impl CtfeEngine {
                 Ok(CtfeValue::Unit)
             }
             Stmt::While(cond, body, _, _, _) => {
-                while self.eval_expr(cond, ctx)?.as_bool() {
+                while !ctx.returned && self.eval_expr(cond, ctx)?.as_bool() {
                     self.eval_block(&body.stmts, ctx)?;
                 }
                 Ok(CtfeValue::Unit)
@@ -389,7 +396,7 @@ impl CtfeEngine {
                 // Very basic for-loop: iterate over array literal range
                 // For CTFE we only support simple integer range-like patterns
                 let _iter_val = self.eval_expr(iter, ctx)?;
-                // Unsupported for now — return Unit
+                // Unsupported for now â€” return Unit
                 let _body_val = self.eval_block(&body.stmts, ctx)?;
                 Ok(CtfeValue::Unit)
             }
@@ -409,8 +416,14 @@ impl CtfeEngine {
     fn eval_block(&mut self, stmts: &[StmtOrExpr], ctx: &mut CtfeContext) -> Result<CtfeValue, CtfeError> {
         let mut result = CtfeValue::Unit;
         for stmt in stmts {
+            // A return executed in an earlier statement (e.g. inside an `if`
+            // branch) stops the whole block â€” no fall-through evaluation.
+            if ctx.returned {
+                break;
+            }
             match stmt {
                 StmtOrExpr::Stmt(Stmt::Return(_, _)) => {
+                    ctx.returned = true;
                     return self.eval_stmt_or_expr(stmt, ctx);
                 }
                 _ => {
@@ -653,7 +666,7 @@ impl CtfeEngine {
             CtfeValue::Str(s) => Expr::Str(s.clone(), Span::new(0, 0)),
             CtfeValue::Char(c) => Expr::Char(*c, Span::new(0, 0)),
             CtfeValue::Unit => Expr::Int(0, Span::new(0, 0)),
-            _ => Expr::Int(0, Span::new(0, 0)), // complex values → 0 sentinel
+            _ => Expr::Int(0, Span::new(0, 0)), // complex values â†’ 0 sentinel
         }
     }
 }
@@ -826,7 +839,7 @@ mod tests {
         let result = e.eval_function("add", &[CtfeValue::Int(3), CtfeValue::Int(4)], 0).unwrap();
         assert_eq!(result, CtfeValue::Int(7));
     }
-    // Note: test_function_call_recursion removed — CTFE uses native Rust recursion
+    // Note: test_function_call_recursion removed â€” CTFE uses native Rust recursion
     // which overflows the stack before the CTFE depth check can catch it. Real CTFE
     // functions are evaluated at compile time in release mode where stack limits are
     // higher. This is a CTFE engine design limitation, not a bug.
@@ -840,6 +853,7 @@ mod tests {
     // ---- Pattern matching ----------------------------------------------------
     #[test] fn test_pat_wildcard() { let e = engine(); let mut c = ctx(); assert!(e.pattern_matches(&Pattern::Wildcard(Span::new(0,0)), &CtfeValue::Int(1), &mut c).unwrap()); }
     #[test] fn test_pat_ident_binds() { let e = engine(); let mut c = ctx(); assert!(e.pattern_matches(&Pattern::Ident(Ident::new("x", Span::new(0,0))), &CtfeValue::Int(42), &mut c).unwrap()); assert_eq!(c.locals.get("x").unwrap(), &CtfeValue::Int(42)); }
+    #[test]
     #[test] fn test_pat_lit_int() { let mut c = ctx(); assert!(engine().pattern_matches(&Pattern::Lit(Literal::Int(5, Span::new(0,0))), &CtfeValue::Int(5), &mut c).unwrap()); }
     #[test] fn test_pat_lit_int_mismatch() { let mut c = ctx(); assert!(!engine().pattern_matches(&Pattern::Lit(Literal::Int(5, Span::new(0,0))), &CtfeValue::Int(3), &mut c).unwrap()); }
     #[test] fn test_pat_lit_bool() { let mut c = ctx(); assert!(engine().pattern_matches(&Pattern::Lit(Literal::Bool(true, Span::new(0,0))), &CtfeValue::Bool(true), &mut c).unwrap()); }
@@ -847,7 +861,7 @@ mod tests {
     #[test] fn test_pat_none_match() { let v = CtfeValue::Variant("None".into(), vec![]); let mut c = ctx(); assert!(engine().pattern_matches(&Pattern::None(Span::new(0,0)), &v, &mut c).unwrap()); }
 
     // ---- Error handling ------------------------------------------------------
-    // Note: test_error_recursion_limit removed — the CTFE recursion check
+    // Note: test_error_recursion_limit removed â€” the CTFE recursion check
     // (check_depth) catches deep calls, but Rust's own stack overflows before
     // CTFE can reject infinite recursion of deeply nested CTFE calls.
     #[test] fn test_error_undefined_function() { assert!(engine().eval_function("missing", &[], 0).is_err()); }
