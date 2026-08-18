@@ -1558,6 +1558,11 @@ compiler-side list above is the compiler's share.
 - **Two facets:** (a) CHECKER: up.get() on the directly-bound name resolves to an Option-returning method ("cannot compare Option with Int") — with an explicit ar x: Rc[Int] = up; annotation it type-checks; (b) RUNTIME: the annotated form reads a WRONG payload value (rcprobe3: direct .get() = 42, upgraded x.get() != 42; user-space replica rcprobe4 with a local MyRc reproduces it — not an rc.xi bug).
 - **Impact:** smoke_rc_edge/rc_weak/cell_refcell_try/cell_refcell_mix blocked (weak.upgrade / try_borrow paths). Same family as BUG 33 (Option payload slots) — struct payloads in the generic Option container still corrupt through the catalog/unsafe path.
 - **Stdlib:** rc.xi/cell.xi implementations verified correct via the user-space replica.
+
+### BUG 52 - enum-with-payload values in Map crash at runtime (0xC0000005)
+
+- **Construct:** Map[Str, T] where T is an enum WITH payload fields (e.g. JsonValue): m.insert("b", MyVal.Text("x")) + m.get("b") + match. User-space replica (jp7) AVs; the same enum in a Vec (BUG 42's fix) works. The Map value path still uses the enum's scalar/tag-only layout.
+- **Impact:** serialize json_set/json_object building crashes — smoke_stress_serialize_json_nested blocked (rewritten to the real json.* API, verified correct, blocked at runtime). json_parse/stringify of parsed values unaffected.
 ### BUG 48 - catalog generic-bound ASSOCIATED dispatch (Eq[T].eq) emits icmp eq 0, element
 
 - **Construct:** a stdlib (catalog) generic-bound fn calling the associated form Eq[T].eq(items[i], value) / Ord[T].compare(a, b) with the tower-style generic interfaces. The mono emits icmp eq i64 0, %element (compare-with-ZERO fallback) instead of calling the impl (verified in core.contains_Int IR: %tmp37 = icmp eq i64 0, %tmp36 → ret 1 when element == 0).
