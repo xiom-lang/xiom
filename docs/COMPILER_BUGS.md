@@ -1585,6 +1585,16 @@ compiler-side list above is the compiler's share.
 - **Status:** BUG 47's param_locals fix cleared the cross-fn leak but NOT this catalog+impls shape. Param renames in the stdlib (compare->cmp) do not help the catalog case. The tower-style Eq/Ord impls (28) + method-form conversion were re-applied and REVERTED again because of this: smoke_sort (PASS->FAIL exit 4) and smoke_cmp_by regress.
 - **Minimal repro:** hsbp.xi = use xiom.core; (brings the impls) + use xiom.sort.heap; + local cmp_int(a: &Int, b: &Int) -> Int + heap_sort_by(&mut hb, cmp_int) â€” sorts wrong/AVs. Remove the use xiom.core; â†’ exit 0.
 - **FIX (2026-08-18):** `callee_is_fn_ptr` (the bare-call dispatch) required the resolved fn key to be UNREGISTERED â€” but impl-method registration aliases the bare method name ("Int.compare" also registers "compare"), so a fn-typed param named `compare` resolved to @Int.compare and the call bypassed the passed fn pointer. The local now SHADOWS the global for fn-typed params (fn_ptr_return_types) and closure locals: the call loads the param's i64 fn pointer and calls through it. Verified: user-space replica (impl Eq/Ord[Int] + local sort_by_cmp with compare-named param) sorts correctly (exit 0), hsbp shape (tower impls via xiom.math.tower + heap_sort_by) exit 0, m37_bug49_fn_param_impl_collision e2e.
+
+### BUG 53 - &[N]T param element access emits invalid GEP
+
+- **Construct:** n f(arr: &[5]Int) -> Int { return arr[0]; } — the fixed-array reference param lowers to [5 x i64]** and element access emits getelementptr [5 x i64]*, [5 x i64]** %p, i64 0, i64 0 — clang: invalid getelementptr indices. User-space probe (as2) reproduces; array.sort/sort_by and every &[N]T catalog fn is blocked.
+
+### BUG 55 - unsafe-block context capture of pointer-typed variables corrupts reads (0xC0000005/wrong values)
+
+- **Construct:** write through a pointer inside one unsafe { } block, then read via *(p) inside a SEPARATE unsafe block (or fn): the read returns the wrong value. Same-block reads work (vg9 exit 0), cross-block reads fail (vg10 exit 1). The unsafe-block ctx-struct capture of pointer-typed locals is misrouted.
+- **Root cause of:** Vec.get / Weak.upgrade / json_set / contains-style payload corruption — the catalog fns construct Some(*(data + i)) inside unsafe and the CALLER's match reads the payload — the caller-side read path (separate block/fn) corrupts. smoke_core_slice/cmp_by/cross_cmp_sort/rc/cell/json blocked.
+- **Probes:** vg10.xi (minimal), vg4.xi (by-value struct + unsafe deref return), rcprobe3.xi (upgrade payload).
 ### BUG 43 - Float64 payload in generic Result/Option container read via sitofp (should itcast)
 
 - **Construct:** a catalog fn returning Result[Float64, Str] (generic %struct.Result layout per BUG 41's primitive rule); the caller's match reads the payload as sitofp i64 - double while the definition stored it via itcast double - i64 - 3.14's bit pattern becomes ~4.6e18. IR: definition itcast double %x to i64 vs caller sitofp i64 %slot to double.
