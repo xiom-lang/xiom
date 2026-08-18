@@ -182,12 +182,19 @@ impl IrEmitter {
                         self.local.signed_locals.remove(&name.name);
                     }
                 } else if let Some(inferred) = Self::infer_value_xiom_type(value) {
-                    // BUG 14: `var big = x as UInt128` â€” no annotation, but the
-                    // cast target tells us the signedness.
+                    // BUG 14: `var big = x as UInt128` â€” infer signedness from
+                    // the cast target when there is no annotation.
                     self.local.local_xiom_types.insert(name.name.clone(), inferred);
+                } else if let Some(rt) = self.infer_call_return_xiom(value) {
+                    // BUG 52: `var m = make_map()` â€” a local bound to a fn
+                    // call keeps the callee's declared return type ("Map[Str,
+                    // MyVal]") so generic METHOD calls on it can infer type
+                    // args (m.get("b") must mono Map.get[Str, MyVal], not
+                    // [Str, Str]).
+                    self.local.local_xiom_types.insert(name.name.clone(), rt);
                 }
-                // BUG 44: `let p = &s` / `let p: &Str = ...` — track ref-locals
-                // (address-carrying) so deref and &T→T coercion load through.
+                // BUG 44: `var p = &s` / `var p: &Str = ...` â€” track ref-locals
+                // (address-carrying) so deref and &Tâ†’T coercion load through.
                 self.track_ref_local(&name.name, _ty.as_deref(), value);
                 // Use declared struct type when available (handles Option.unwrap
                 // round-trip where the value is a heap pointer i64 but the declared
@@ -406,6 +413,13 @@ impl IrEmitter {
                     // BUG 14: `var big = x as UInt128` â€” infer signedness from
                     // the cast target when there is no annotation.
                     self.local.local_xiom_types.insert(name.name.clone(), inferred);
+                } else if let Some(rt) = self.infer_call_return_xiom(value) {
+                    // BUG 52: `var m = make_map()` â€” a local bound to a fn
+                    // call keeps the callee's declared return type ("Map[Str,
+                    // MyVal]") so generic METHOD calls on it can infer type
+                    // args (m.get("b") must mono Map.get[Str, MyVal], not
+                    // [Str, Str]).
+                    self.local.local_xiom_types.insert(name.name.clone(), rt);
                 }
                 // BUG 44: `var p = &s` / `var p: &Str = ...` — track ref-locals
                 // (address-carrying) so deref and &T→T coercion load through.
@@ -580,7 +594,36 @@ impl IrEmitter {
                         self.emitln(&format!("  {byte_off} = mul i64 {idx}, {esz_val}"));
                         let elem_ptr = self.fresh_tmp();
                         self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
-                        self.emit_elem_store(&store_i64, &elem_ptr, &esz_val);
+                        // BUG 52 (2026-08-18): STRUCT/ENUM elements must be
+                        // memcpy'd INLINE into the slot — the old val_to_i64
+                        // path stored a BOXED POINTER as the first 8 bytes and
+                        // emit_elem_store wrote only that i64, so a 16-byte
+                        // enum element was (a) truncated to the boxed handle
+                        // and (b) read back as 16 bytes from the handle +
+                        // adjacent slot bytes (garbage payload → AV in
+                        // Map.insert's duplicate-key update `values[i] = v`).
+                        let mut stored_struct = false;
+                        if val_ty.starts_with('%') {
+                            if let Some(elem_name) = self.resolve_vec_elem_type(container) {
+                                let struct_ty = if elem_name.starts_with("Vec[") {
+                                    "%struct.Vec".to_string()
+                                } else {
+                                    format!("%struct.{elem_name}")
+                                };
+                                if struct_ty == val_ty {
+                                    let tmp = self.fresh_tmp();
+                                    self.emitln(&format!("  {tmp} = alloca {struct_ty}"));
+                                    self.emitln(&format!("  store {struct_ty} {val}, {struct_ty}* {tmp}"));
+                                    let tmp_i8 = self.fresh_tmp();
+                                    self.emitln(&format!("  {tmp_i8} = bitcast {struct_ty}* {tmp} to i8*"));
+                                    self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {elem_ptr}, i8* {tmp_i8}, i64 {esz_val}, i1 false)"));
+                                    stored_struct = true;
+                                }
+                            }
+                        }
+                        if !stored_struct {
+                            self.emit_elem_store(&store_i64, &elem_ptr, &esz_val);
+                        }
                     } else if cont_ty.starts_with('[') && cont_ty.contains(" x ") {
                         let (idx_raw, idx_ty) = self.compile_expr(index)?;
                         let idx = self.val_to_i64(&idx_raw, &idx_ty);

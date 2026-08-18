@@ -46,6 +46,16 @@ impl IrEmitter {
             let full_fields: Vec<(String, String)> = td.fields.iter()
                 .map(|f| (f.name.name.clone(), Self::type_from_ast_with_args(&f.ty)))
                 .collect();
+            // BUG 52 (2026-08-18): keep the generic-args field types for
+            // GENERIC type decls — the builtin Map/Set pre-registrations win
+            // type_meta with bare "Vec" field types, losing "Vec[K]"/"Vec[V]".
+            // mono'd method bodies need them to substitute the concrete args.
+            if !td.generics.is_empty() {
+                self.types.generic_type_field_types.insert(bare_name.clone(), full_fields.clone());
+                if !prefix.is_empty() {
+                    self.types.generic_type_field_types.insert(type_name.clone(), full_fields.clone());
+                }
+            }
             self.types.types.or_insert_with(type_name.clone(), || fields);
             // Use or_insert_with so manual pre-registrations (e.g. Map with
             // resolved Vec type names) are not overwritten by the generic

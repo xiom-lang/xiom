@@ -166,6 +166,13 @@ pub struct TypeContext {
     pub type_meta: SyncRegistry<String, TypeMeta>,
     /// Names of types declared with generic params
     pub generic_type_names: HashSet<String>,
+    /// BUG 52 (2026-08-18): GENERIC type decls' field types WITH their type
+    /// args ("Vec[K]", "Vec[V]") keyed by bare type name ("Map"). The builtin
+    /// Map/Set registrations pre-empt type_meta with bare "Vec" field types,
+    /// so the stdlib's generic-arg field types are lost — this map keeps them
+    /// so mono'd method bodies can substitute the concrete args ("V"→"MyVal")
+    /// for struct/enum Vec-element reads/writes.
+    pub generic_type_field_types: HashMap<String, Vec<(String, String)>>,
     /// Known function signatures: name -> (param_llvm_types, return_llvm_type_or_empty)
     pub functions: SyncRegistry<String, (Vec<String>, String)>,
     /// Declared XIOM return type per function key

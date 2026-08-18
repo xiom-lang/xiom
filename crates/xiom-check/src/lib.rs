@@ -668,11 +668,36 @@ impl Checker {
                 // methods then dispatch; codegen resolves the concrete type.
                 // Previously these bound as Error, which rejected all method calls
                 // ("cannot call 'len'") and forced the is_ok()+unwrap() workaround.
+                // BUG 51 (2026-08-18): when the scrutinee type CARRIES its args
+                // ("Option[MyRc]", "Result[MyRc, Str]"), bind the payload with the
+                // INNER type instead of the wildcard — method calls on the bound
+                // name then resolve to the payload's methods (MyRc.get), not the
+                // sorted wildcard fallback (Option.get before MyRc.get →
+                // "cannot compare Option with Int").
+                let payload_ty = match (&scrutinee_type, pattern) {
+                    (CheckedType::Named(n), Pattern::Some(..)) if n.starts_with("Option[") => {
+                        Self::parse_generic_type(n)
+                            .and_then(|(_, args)| args.first().cloned())
+                            .map(|s| CheckedType::from_str(&s))
+                    }
+                    (CheckedType::Named(n), Pattern::Ok(..)) if n.starts_with("Result[") => {
+                        Self::parse_generic_type(n)
+                            .and_then(|(_, args)| args.first().cloned())
+                            .map(|s| CheckedType::from_str(&s))
+                    }
+                    (CheckedType::Named(n), Pattern::Err(..)) if n.starts_with("Result[") => {
+                        Self::parse_generic_type(n)
+                            .and_then(|(_, args)| args.get(1).cloned())
+                            .map(|s| CheckedType::from_str(&s))
+                    }
+                    _ => None,
+                };
                 if let Pattern::Ident(name) = inner.as_ref() {
                     if !(self.enum_variants.contains_key(&name.name)
                         || self.resolve_enum_variant(&name.name).is_some())
                     {
-                        self.add_local(&name.name, CheckedType::Named("_".into()));
+                        let bind_ty = payload_ty.unwrap_or_else(|| CheckedType::Named("_".into()));
+                        self.add_local(&name.name, bind_ty);
                     }
                 } else {
                     self.add_pattern_bindings(inner, scrutinee_type);
@@ -4327,11 +4352,14 @@ impl Checker {
                 }
                 // ? unwraps Result[T,E] Ã¢â€ â€™ T or Option[T] Ã¢â€ â€™ T.
                 match &inner_ty {
-                    CheckedType::Named(n) if n == "Result" || n == "Option" || n == "_" => {
+                    CheckedType::Named(n)
+                        if n == "Result" || n == "Option" || n == "_"
+                            || n.starts_with("Result[") || n.starts_with("Option[") => {
                         // P2-1: Validate that the enclosing function returns Result/Option.
                         let fn_returns_result_or_option = self.current_return.as_ref()
                             .map_or(false, |ret| match ret {
-                                CheckedType::Named(rn) => rn == "Result" || rn == "Option" || rn == "_",
+                                CheckedType::Named(rn) => rn == "Result" || rn == "Option" || rn == "_"
+                                    || rn.starts_with("Result[") || rn.starts_with("Option["),
                                 _ => false,
                             });
                         if !fn_returns_result_or_option && n != "_" {
@@ -4457,9 +4485,15 @@ impl Checker {
                         }
                         // BUG 26: Vec[..]-typed receivers dispatch on the base
                         // "Vec" methods ("Vec[Int].len" resolves to "Vec.len").
+                        // BUG 51: generalize to ALL bracketed containers
+                        // ("Option[MyRc]" -> "Option", "Result[Int, Str]" ->
+                        // "Result") so method calls on Option/Result-typed
+                        // receivers (unwrap, is_some, ...) hit the registered
+                        // signature instead of the sorted wildcard fallback.
                         let base_name = type_name
-                            .strip_prefix("Vec[")
-                            .map(|_| "Vec".to_string())
+                            .split('[')
+                            .next()
+                            .map(|b| b.trim().to_string())
                             .unwrap_or_else(|| type_name.clone());
                         let method_key = format!("{}.{}", base_name, method.name);
                         if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() && method.name == "sum" {
@@ -5094,12 +5128,19 @@ impl Checker {
                 self.check_expr(inner)
             }
             Expr::Some(inner, _) => {
-                let _ = self.check_expr(inner);
-                CheckedType::Named("Option".into())
+                // BUG 51 (2026-08-18): type the constructor with the payload
+                // arg ("Option[MyRc]") — the erased "Option" mismatched fn
+                // return types that now carry args (expected Option[MyRc],
+                // found Option). The container-erasure compatibility rule in
+                // types_compatible keeps both forms interchangeable.
+                let inner_ty = self.check_expr(inner);
+                CheckedType::Named(format!("Option[{}]", inner_ty.name()))
             }
             Expr::None(_) => CheckedType::Named("Option".into()),
             Expr::Ok(inner, _) => {
                 let _ = self.check_expr(inner);
+                // The error type is unknowable from the constructor alone —
+                // keep the erased form (types_compatible erases both sides).
                 CheckedType::Named("Result".into())
             }
             Expr::Err(inner, _) => {
@@ -5476,6 +5517,17 @@ impl Checker {
         if matches!(found, CheckedType::Named(n) if n == "_") ||
            matches!(expected, CheckedType::Named(n) if n == "_") {
             return true;
+        }
+        // BUG 51 (2026-08-18): CONTAINER ERASURE compatibility - "Option" vs
+        // "Option[MyRc]", "Result" vs "Result[Int, Str]", "Vec" vs "Vec[Int]"
+        // are interchangeable (some paths erase the args, others preserve
+        // them; the payload binding resolves the inner type when present).
+        if let (CheckedType::Named(a), CheckedType::Named(b)) = (found, expected) {
+            let base_a = a.split('[').next().unwrap_or(a);
+            let base_b = b.split('[').next().unwrap_or(b);
+            if base_a == base_b {
+                return true;
+            }
         }
         // Normalize Named("Bool") <-> Bool, Named("Int") <-> Int, etc.
         let norm = |t: &CheckedType| -> CheckedType {

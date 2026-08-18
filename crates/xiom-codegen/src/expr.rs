@@ -834,7 +834,21 @@ impl IrEmitter {
                             // cross-module Bool-tuple field access.
                             if let Expr::Ident(id) = i {
                                 if let Some(xiom) = self.local.local_xiom_types.get(&id.name) {
-                                    return xiom.clone();
+                                    // BUG 52 follow-up (2026-08-18): container
+                                    // bindings record ARG-bearing types
+                                    // ("Vec[Int]", "Map[Str, MyVal]") for generic
+                                    // method inference — but TUPLE element names
+                                    // must stay bare ("Vec", "Map") to match the
+                                    // decl-side registration (infer_expr_type_name
+                                    // / type_from_ast drop the args); a bracketed
+                                    // element name produced invalid LLVM
+                                    // identifiers ("Tuple__Vec[Int]__Vec[Int]" →
+                                    // clang "expected '=' after name") and broke
+                                    // tuple types over containers (smoke_iter).
+                                    return match xiom.find('[') {
+                                        Some(b) => xiom[..b].to_string(),
+                                        None => xiom.clone(),
+                                    };
                                 }
                             }
                             // BUG 29 (BUG 28 #6): name LITERALS by their XIOM type
