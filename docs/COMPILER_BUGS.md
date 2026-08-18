@@ -1551,6 +1551,13 @@ compiler-side list above is the compiler's share.
 - **Construct:** a fn returning Result<*mut UInt8, AllocError> (pointer payload in a generic container). The mono names the container struct %struct.Result__*UInt8__AllocError — the * is invalid in an LLVM identifier (clang: error: expected '=' after name).
 - **Triggered by:** smoke_alloc_edge (global_alloc().allocate(l) returns Result<*mut UInt8, AllocError>). The stdlib-side API bug (global_alloc returning the Allocator interface type) was fixed first (alloc.xi -> GlobalAlloc); the remaining failure is this codegen naming issue.
 - **Likely fix:** sanitize/escape pointer type args in container type names (Ptr_UInt8 or the * mangled).
+
+### BUG 51 - Option[UserStruct] payloads: bound-name method resolution + runtime corruption
+
+- **Construct:** a fn returning Option[Rc[T]]/Option[Ref[T]] (user struct payload) called from user code; the match's Some(up) binding then calls up.get().
+- **Two facets:** (a) CHECKER: up.get() on the directly-bound name resolves to an Option-returning method ("cannot compare Option with Int") — with an explicit ar x: Rc[Int] = up; annotation it type-checks; (b) RUNTIME: the annotated form reads a WRONG payload value (rcprobe3: direct .get() = 42, upgraded x.get() != 42; user-space replica rcprobe4 with a local MyRc reproduces it — not an rc.xi bug).
+- **Impact:** smoke_rc_edge/rc_weak/cell_refcell_try/cell_refcell_mix blocked (weak.upgrade / try_borrow paths). Same family as BUG 33 (Option payload slots) — struct payloads in the generic Option container still corrupt through the catalog/unsafe path.
+- **Stdlib:** rc.xi/cell.xi implementations verified correct via the user-space replica.
 ### BUG 48 - catalog generic-bound ASSOCIATED dispatch (Eq[T].eq) emits icmp eq 0, element
 
 - **Construct:** a stdlib (catalog) generic-bound fn calling the associated form Eq[T].eq(items[i], value) / Ord[T].compare(a, b) with the tower-style generic interfaces. The mono emits icmp eq i64 0, %element (compare-with-ZERO fallback) instead of calling the impl (verified in core.contains_Int IR: %tmp37 = icmp eq i64 0, %tmp36 → ret 1 when element == 0).
