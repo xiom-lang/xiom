@@ -1544,6 +1544,19 @@ compiler-side list above is the compiler's share.
   the payload slot binding after an is Some check must not poison the
   subsequent match's payload read (0 is the zero-init of the untracked slot).
 
+
+### BUG 48 - catalog generic-bound ASSOCIATED dispatch (Eq[T].eq) emits icmp eq 0, element
+
+- **Construct:** a stdlib (catalog) generic-bound fn calling the associated form Eq[T].eq(items[i], value) / Ord[T].compare(a, b) with the tower-style generic interfaces. The mono emits icmp eq i64 0, %element (compare-with-ZERO fallback) instead of calling the impl (verified in core.contains_Int IR: %tmp37 = icmp eq i64 0, %tmp36 → ret 1 when element == 0).
+- **Status:** user-space generic fns with the same call dispatch correctly (eqt16/eqt17 exit 0). The METHOD form (items[i].eq(value)) in catalog fns WORKS (contains/is_sorted exit 0) — the checker note "method form works" holds. Only the associated form in catalog fns falls back.
+- **Stdlib impact:** use the method form for catalog dispatch (the conversion plan uses it); the associated form is available for user-space code.
+
+### BUG 49 - catalog fn-param call sites still break when Eq/Ord impls for i64-ABI types are present
+
+- **Construct:** any program that (a) defines impl Eq[Int]/impl Ord[Int] (i64-receiver impls; Str-receiver impls do NOT trigger) AND (b) calls a CATALOG fn taking a fn-typed param (heap_sort_by(v, cmp_int) from xiom.sort.heap) — the fn-param call site miscompiles (AV or wrong order). LOCAL fn-param fns in the same program are fine once the param is not named compare (param-NAME collision with the impl method symbol — verified: local compare-named param breaks, cmp-named works).
+- **Status:** BUG 47's param_locals fix cleared the cross-fn leak but NOT this catalog+impls shape. Param renames in the stdlib (compare->cmp) do not help the catalog case. The tower-style Eq/Ord impls (28) + method-form conversion were re-applied and REVERTED again because of this: smoke_sort (PASS->FAIL exit 4) and smoke_cmp_by regress.
+- **Minimal repro:** hsbp.xi = use xiom.core; (brings the impls) + use xiom.sort.heap; + local cmp_int(a: &Int, b: &Int) -> Int + heap_sort_by(&mut hb, cmp_int) — sorts wrong/AVs. Remove the use xiom.core; → exit 0.
+- **Likely fix:** the catalog fn-param mono symbol keying vs the impl-method symbol table (i64-ABI types only) — same family as the BUG 47 param_locals/ref_params sets; the impl registration path needs a distinct key space.
 ### BUG 43 - Float64 payload in generic Result/Option container read via sitofp (should itcast)
 
 - **Construct:** a catalog fn returning Result[Float64, Str] (generic %struct.Result layout per BUG 41's primitive rule); the caller's match reads the payload as sitofp i64 - double while the definition stored it via itcast double - i64 - 3.14's bit pattern becomes ~4.6e18. IR: definition itcast double %x to i64 vs caller sitofp i64 %slot to double.
