@@ -3762,6 +3762,9 @@ impl Checker {
                         && !matches!(&val_ty, CheckedType::Named(n) if n == "_")
                         && !is_ref_coercion
                     {
+                        if std::env::var("XIOM_TRACE_RETXIOM").is_ok() {
+                            eprintln!("[varcheck] annotated={:?} found={:?}", annot_ty, val_ty);
+                        }
                         self.error(
                             format!("type mismatch in var: annotated {}, found {}", annot_ty.name(), val_ty.name()),
                             *span,
@@ -4281,7 +4284,12 @@ impl Checker {
                             || (numeric_family(&left_ty) && numeric_family(&right_ty))
                             || is_generic_or_wild(&left_ty)
                             || is_generic_or_wild(&right_ty)
-                            || ptr_null_cmp;
+                            || ptr_null_cmp
+                            // BUG 51 (2026-08-18): container-erasure equality —
+                            // "Option" vs "Option[Int]" (pop() vs Some(30)),
+                            // "Result" vs "Result[Int, Str]" compare fine.
+                            || matches!((&left_ty, &right_ty), (CheckedType::Named(a), CheckedType::Named(b))
+                                if a.split('[').next().unwrap_or(a) == b.split('[').next().unwrap_or(b));
                         // BUG 26: equality also rejects intâ†”float mixing
                         // (int literals may adopt the float type).
                         let mix_err = (Self::is_int_family(&left_ty) && Self::is_float_family(&right_ty) && !Self::is_int_literal_expr(left))
@@ -4681,7 +4689,14 @@ impl Checker {
                     // type-checks (the "if it compiles, it's safe" gate stays sound
                     // because codegen lowers these to real builtins).
                     if let CheckedType::Named(tn) = &obj_ty {
-                        let base = tn.rsplit('.').next().unwrap_or(tn);
+                        // BUG 51 (2026-08-18): normalize BOTH the module prefix and
+                        // container args — "Result[Int, MyErr]" -> "Result" — so the
+                        // builtin special-case table (unwrap/is_ok/len/clone/...) and
+                        // the registered-method lookups below hit for arg-bearing
+                        // receivers (from_ast_type now preserves the args).
+                        let base = tn.rsplit('.').next().unwrap_or(tn)
+                            .split('[').next().unwrap_or(tn)
+                            .trim();
                         for arg in args { let _ = self.check_expr(arg); }
                         // v0.56: Wildcard type _ Ã¢â‚¬â€ accept any method call (codegen resolves)
                         if tn == "_" || base == "_" {
@@ -5114,7 +5129,36 @@ impl Checker {
                     // Vec[Int]; a SECOND index strips the next level (nested
                     // reads recurse through the nested Expr::Index).
                     CheckedType::Named(name) if name.starts_with("Vec[") && name.ends_with(']') => {
-                        CheckedType::from_str(&name[4..name.len() - 1])
+                        let inner = &name[4..name.len() - 1];
+                        // BUG 51 (2026-08-18): fn-typed elements
+                        // (Vec[fn() -> Int]) must parse into a REAL Fn
+                        // CheckedType — from_str yields a bare Named
+                        // ("fn() -> Int") that mismatches the annotation's
+                        // Fn(...) ("type mismatch in var: annotated
+                        // fn() -> Int, found fn() -> Int" — test_fnptr).
+                        if inner.starts_with("fn(") {
+                            if let Some(ret_pos) = inner.find("->") {
+                                let params_part = inner[3..ret_pos].trim();
+                                let ret_part = inner[ret_pos + 2..].trim();
+                                let params_body = params_part
+                                    .trim_start_matches('(')
+                                    .trim_end_matches(')')
+                                    .trim();
+                                let params: Vec<CheckedType> = if params_body.is_empty() {
+                                    Vec::new()
+                                } else {
+                                    params_body
+                                        .split(',')
+                                        .map(|p| CheckedType::from_str(p.trim()))
+                                        .collect()
+                                };
+                                CheckedType::Fn(params, Box::new(CheckedType::from_str(ret_part)))
+                            } else {
+                                CheckedType::from_str(inner)
+                            }
+                        } else {
+                            CheckedType::from_str(inner)
+                        }
                     }
                     // BUG 29 (repro_opt_vec): wildcard receiver (`v` from
                     // `o.unwrap()` where o: Option[Vec[Str]]). Indexing must
