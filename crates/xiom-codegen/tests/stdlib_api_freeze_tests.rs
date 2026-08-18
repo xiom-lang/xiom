@@ -49,7 +49,7 @@ const FROZEN: &[&str] = &[
         "alloc :: pub fn Layout.new(size: Int) -> Layout",
         "alloc :: pub fn Layout.with_align(self, align: Int) -> Layout",
         "alloc :: pub fn Layout.padded_size(self) -> Int",
-        "alloc :: pub fn global_alloc() -> Allocator",
+        "alloc :: pub fn global_alloc() -> GlobalAlloc",
         "alloc :: pub fn GlobalAlloc.allocate(self, layout: Layout) -> Result<*mut UInt8, AllocError>",
         "alloc :: pub fn GlobalAlloc.deallocate(self, ptr: *mut UInt8, layout: Layout)",
         "alloc :: pub fn GlobalAlloc.allocate_zeroed(self, layout: Layout) -> Result<*mut UInt8, AllocError>",
