@@ -1593,6 +1593,11 @@ compiler-side list above is the compiler's share.
 - The ctor-context facet of BUG 55 is fixed (rc/upgrade payloads OK), but the ctx-capture facet remains: a *T local written in one unsafe { } block and read via *(p) in ANOTHER block (or fn) still reads garbage (probe vg10: write p[0]=42 in block A, read *(p) in block B — same fn, no calls — exit 1; same-block reads exit 0).
 - **Blocks:** Vec.get (Some(*(data + index)) — payload corrupt → cross_cmp_sort, smoke_core contains-style reads), json_set/stringify (enum-with-Vec-field payloads), and the compress gzip/zlib intermediate Result[Vec] path. The user-space replicas of all three (cz1/cz2/cb1) pass — catalog-only.
 - **Minimal repro:** vg10.xi (12 lines). The __unsafe_block_N(ctx) capture of the pointer local is misrouted; the fix likely belongs in the block-ctx builder (pointer-typed captures must store the pointer VALUE, not the slot address).
+### BUG 56 - generic catalog fn with ensures: result == <param> emits et 0 (body dropped)
+
+- **Construct:** a GENERIC stdlib fn with an ensures clause comparing the result to a T param — pub fn identity[T](x: T) -> T ensures: result == x { x }. The mono emits define i64 @convert.identity_Int(i64 %param0) { store...; ret i64 0 } — the body is dropped, the fn returns constant 0/null.
+- **Status:** removing the ensures fixes it (verified). min/max's ensures: result == a || result == b do NOT trigger (their mono compiles fully) — the single-param comparison shape is the trigger. The identity ensure was redundant (identity semantics) — REMOVED from the stdlib (convert.xi) rather than worked around.
+- **Impact:** smoke_stress_convert_identity was exit 1; any future generic fn with a param-comparing ensure needs the checker/mono fix (the contract-eval return slot for generic params).
 ### BUG 53 - &[N]T param element access emits invalid GEP
 
 - **Construct:** n f(arr: &[5]Int) -> Int { return arr[0]; } Ã¢â‚¬â€ the fixed-array reference param lowers to [5 x i64]** and element access emits getelementptr [5 x i64]*, [5 x i64]** %p, i64 0, i64 0 Ã¢â‚¬â€ clang: invalid getelementptr indices. User-space probe (as2) reproduces; array.sort/sort_by and every &[N]T catalog fn is blocked.
