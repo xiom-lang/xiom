@@ -1,4 +1,4 @@
-﻿use super::{IrEmitter, TypeMeta};
+use super::{IrEmitter, TypeMeta};
 use crate::context::{TypeContext, SyncRegistry};
 use xiom_ast::*;
 use std::collections::HashMap;
@@ -590,7 +590,7 @@ impl IrEmitter {
                 // Bare-key collision guard: two modules can define the same-named
                 // generic fn (e.g. array.contains vs core.contains). The bare key
                 // must stay owned by the FIRST registrant so module-qualified calls
-                // (array.contains Ã¢â€ â€™ leaf key) resolve unambiguously; a second bare
+                // (array.contains — leaf key) resolve unambiguously; a second bare
                 // entry would make the fallback suffix-search pick a random one.
                 if !self.mono.generic_fn_decls.iter().any(|(k, _)| k == &key) {
                     self.mono.generic_fn_decls.push((key.clone(), fd.clone()));
@@ -601,8 +601,12 @@ impl IrEmitter {
                         if let Some(leaf) = module.rsplit('.').next() {
                             let leaf_key = format!("{}.{}", leaf, key);
                             if leaf_key != key {
-                                // Leaf key is unambiguous per module Ã¢â‚¬â€ always add.
+                                // Leaf key is unambiguous per module — always add.
                                 self.mono.generic_fn_decls.push((leaf_key, fd.clone()));
+                            }
+                        }
+                    }
+                }
             }
             // v0.54 Phase B: Register function body for CTFE evaluation.
             // Skip methods (self-receiver) and generic functions.
@@ -612,10 +616,6 @@ impl IrEmitter {
                         .map(|p| p.name.name.clone())
                         .collect();
                     self.ctfe.borrow_mut().register_function(&fd.name.name, params, &body.stmts);
-                }
-            }
-        }
-                    }
                 }
             }
         }

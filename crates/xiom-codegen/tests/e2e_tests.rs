@@ -4462,3 +4462,10 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m37_bug53_array_ref_param() { assert_eq!(compile_and_run("tests\\regression\\m37_bug53_array_ref_param.xi"), Some(0)); }
 #[test] fn e2e_m37_bug55_unsafe_ptr_capture() { assert_eq!(compile_and_run("tests\\regression\\m37_bug55_unsafe_ptr_capture.xi"), Some(0)); }
 
+// ============================================================================
+// BUG 53 write-facet / BUG 55 facet-2 / BUG 56 (2026-08-18 round 3)
+// ============================================================================
+#[test] fn e2e_m37_bug53_array_ref_write() { assert_eq!(compile_and_run("tests\\regression\\m37_bug53_array_ref_write.xi"), Some(0)); }
+#[test] fn e2e_m37_bug55_payload_loop() { assert_eq!(compile_and_run("tests\\regression\\m37_bug55_payload_loop.xi"), Some(0)); }
+#[test] fn e2e_m37_bug56_ensure_expr_body() { assert_eq!(compile_and_run("tests\\regression\\m37_bug56_ensure_expr_body.xi"), Some(0)); }
+
