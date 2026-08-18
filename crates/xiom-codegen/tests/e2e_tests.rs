@@ -4445,3 +4445,14 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m37_bug46_generic_struct_ref() { assert_eq!(compile_and_run("tests\\regression\\m37_bug46_generic_struct_ref.xi"), Some(0)); }
 #[test] fn e2e_m37_bug47_ref_params_leak() { assert_eq!(compile_and_run("tests\\regression\\m37_bug47_ref_params_leak.xi"), Some(0)); }
 
+// ============================================================================
+// BUG 48-52 batch (2026-08-18): associated-form dispatch + &Vec[T] ABI,
+// fn-param vs impl-method collision, pointer container names, Option[Struct]
+// payloads, Map enum values
+// ============================================================================
+#[test] fn e2e_m37_bug48_associated_generic_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_bug48_associated_generic_vec.xi"), Some(0)); }
+#[test] fn e2e_m37_bug49_fn_param_impl_collision() { assert_eq!(compile_and_run("tests\\regression\\m37_bug49_fn_param_impl_collision.xi"), Some(0)); }
+#[test] fn e2e_m37_bug50_ptr_container_name() { assert_eq!(compile_and_run("tests\\regression\\m37_bug50_ptr_container_name.xi"), Some(0)); }
+#[test] fn e2e_m37_bug51_option_struct_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_bug51_option_struct_payload.xi"), Some(0)); }
+#[test] fn e2e_m37_bug52_map_enum_values() { assert_eq!(compile_and_run("tests\\regression\\m37_bug52_map_enum_values.xi"), Some(0)); }
+

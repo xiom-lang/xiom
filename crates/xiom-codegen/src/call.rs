@@ -3482,9 +3482,19 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                         return Ok((result, LLVM_I64.to_string()));
                     }
+                    // BUG 49 (2026-08-18): a FN-TYPED PARAM local must win over a
+                    // registered function with the same name. The impl-method
+                    // registration aliases the bare method name ("Int.compare"
+                    // also registers "compare"), so a param named `compare` in
+                    // a fn-param fn resolved to @Int.compare and the call
+                    // bypassed the passed fn pointer (wrong order / AV). The
+                    // local SHADOWS the global for fn-typed params and closures.
+                    let is_fn_typed_param = self.types.fn_ptr_return_types.contains_key(&fn_name);
                     let callee_is_fn_ptr = receiver_expr.is_none()
                         && self.lookup_local(&fn_name).is_some()
-                        && self.types.functions.get(&resolved_fn_key).is_none()
+                        && (is_fn_typed_param
+                            || self.local.closure_locals.contains(&fn_name)
+                            || self.types.functions.get(&resolved_fn_key).is_none())
                         && ret_ty == "i64";
                     // BUG 29 (repro_fn_storage): call through a FN-TYPED FIELD of
                     // a MODULE-GLOBAL struct (`g.f(x)` where `g: FnBox` is a
