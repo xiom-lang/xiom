@@ -4409,7 +4409,12 @@ impl Checker {
                         if is_generic_param {
                             return CheckedType::Named("_".into());
                         }
-                        if let Some(fields) = self.get_type(name) {
+                        // BUG 51 (2026-08-18): CONTAINER receivers with args
+                        // ("Option[Str]", "Vec[Int]") look up their pseudo-fields
+                        // (is_some/is_none/value) and registered methods under the
+                        // BASE name — the arg-bearing key is never registered.
+                        let lookup_base = name.split('[').next().unwrap_or(name);
+                        if let Some(fields) = self.get_type(lookup_base) {
                             if let Some(field_ty) = fields.get(&field.name) {
                                 field_ty.clone()
                             } else if !fields.is_empty() {
