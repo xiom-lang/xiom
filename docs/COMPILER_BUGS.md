@@ -1545,6 +1545,12 @@ compiler-side list above is the compiler's share.
   subsequent match's payload read (0 is the zero-init of the untracked slot).
 
 
+
+### BUG 50 - generic container names with pointer type args emit invalid LLVM identifiers
+
+- **Construct:** a fn returning Result<*mut UInt8, AllocError> (pointer payload in a generic container). The mono names the container struct %struct.Result__*UInt8__AllocError — the * is invalid in an LLVM identifier (clang: error: expected '=' after name).
+- **Triggered by:** smoke_alloc_edge (global_alloc().allocate(l) returns Result<*mut UInt8, AllocError>). The stdlib-side API bug (global_alloc returning the Allocator interface type) was fixed first (alloc.xi -> GlobalAlloc); the remaining failure is this codegen naming issue.
+- **Likely fix:** sanitize/escape pointer type args in container type names (Ptr_UInt8 or the * mangled).
 ### BUG 48 - catalog generic-bound ASSOCIATED dispatch (Eq[T].eq) emits icmp eq 0, element
 
 - **Construct:** a stdlib (catalog) generic-bound fn calling the associated form Eq[T].eq(items[i], value) / Ord[T].compare(a, b) with the tower-style generic interfaces. The mono emits icmp eq i64 0, %element (compare-with-ZERO fallback) instead of calling the impl (verified in core.contains_Int IR: %tmp37 = icmp eq i64 0, %tmp36 → ret 1 when element == 0).
