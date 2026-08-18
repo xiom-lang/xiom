@@ -4456,3 +4456,9 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m37_bug51_option_struct_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_bug51_option_struct_payload.xi"), Some(0)); }
 #[test] fn e2e_m37_bug52_map_enum_values() { assert_eq!(compile_and_run("tests\\regression\\m37_bug52_map_enum_values.xi"), Some(0)); }
 
+// ============================================================================
+// BUG 53/55 (2026-08-18): &[N]T param lowering + unsafe-block context capture
+// ============================================================================
+#[test] fn e2e_m37_bug53_array_ref_param() { assert_eq!(compile_and_run("tests\\regression\\m37_bug53_array_ref_param.xi"), Some(0)); }
+#[test] fn e2e_m37_bug55_unsafe_ptr_capture() { assert_eq!(compile_and_run("tests\\regression\\m37_bug55_unsafe_ptr_capture.xi"), Some(0)); }
+

@@ -425,6 +425,36 @@ impl IrEmitter {
                 // (address-carrying) so deref and &T→T coercion load through.
                 self.track_ref_local(&name.name, _ty.as_deref(), value);
                 let (val, val_llvm_ty) = if let Expr::Array(elems, _) = value {
+                    // BUG 53 (2026-08-18): FIXED-ARRAY annotated bindings
+                    // (`var a: [5]Int = [10, ...]`) store elements DIRECTLY
+                    // into the [N x T] slot. The old path converted the
+                    // literal to a %struct.Vec and coerced the Vec VALUE to
+                    // the declared [N x T] type — coerce_value extracted
+                    // field 0 (the data POINTER) and stored it as the array
+                    // (invalid IR: `store [5 x i64] %data_ptr`; reads then
+                    // returned garbage). Register the local and return.
+                    let is_fixed_arr = declared_llvm_ty.as_deref()
+                        .map_or(false, |d| d.starts_with('[') && d.contains(" x "));
+                    if is_fixed_arr {
+                        let arr_ty = declared_llvm_ty.clone().unwrap();
+                        let elem_llvm = Self::extract_array_elem_ty(&arr_ty);
+                        let slot = self.fresh_tmp();
+                        if self.local.loop_depth > 0 {
+                            self.local.hoisted_allocas.push((slot.clone(), arr_ty.clone()));
+                        } else {
+                            self.emitln(&format!("  {slot} = alloca {arr_ty}"));
+                        }
+                        for (i, e) in elems.iter().enumerate() {
+                            let (v, vt) = self.compile_expr(e)?;
+                            let cv = self.coerce_value(&v, &vt, &elem_llvm);
+                            let gep = self.fresh_tmp();
+                            self.emitln(&format!("  {gep} = getelementptr {arr_ty}, {arr_ty}* {slot}, i64 0, i64 {i}"));
+                            self.emitln(&format!("  store {elem_llvm} {cv}, {elem_llvm}* {gep}"));
+                        }
+                        self.add_local(&name.name, slot, &arr_ty);
+                        self.local.array_locals.insert(name.name.clone());
+                        return Ok(());
+                    }
                     // 5c.39: Non-empty array literal assigned to a Vec-typed
                     // variable â€” convert to Vec via compile_array_as_vec.
                     // M33: Infer element type from first element for struct

@@ -207,6 +207,13 @@ pub struct FunctionContext {
     pub current_fn: Option<String>,
     /// Return type of current function (empty = void)
     pub current_return_type: String,
+    /// BUG 55 (2026-08-18): inside a confined-unsafe BLOCK fn,
+    /// current_return_type is the block's i64 ABI — this holds the
+    /// ENCLOSING fn's declared return type so Some/None/Ok/Err ctors
+    /// build the CONCRETE container (Option__Rc), not the generic
+    /// %struct.Option (whose i64 payload slot corrupted the concrete
+    /// inline-struct field — the Option/Result payload family root).
+    pub enclosing_return_type: Option<String>,
     /// String constants to emit at the top
     pub strings: Vec<String>,
     /// Current function's param LLVM types (index -> type)

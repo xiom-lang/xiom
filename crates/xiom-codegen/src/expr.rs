@@ -2483,7 +2483,13 @@ impl IrEmitter {
                 // Fixed-size stack array [N x T]: use the existing alloca for
                 // Ident containers (no fresh alloca per access) or stash into an
                 // alloca and GEP for non-local array values.
-                if cont_ty.starts_with('[') && cont_ty.contains(" x ") {
+                // BUG 53 (2026-08-18): EXCLUDE pointer-typed forms — a
+                // `&[N]T` param slot is `[5 x i64]*` (starts with '[' but is a
+                // POINTER); the old condition GEP'd the SLOT as the array
+                // (`getelementptr [5 x i64]*, [5 x i64]** %slot, i64 0, i64 0`
+                // — clang "invalid getelementptr indices"). Pointer-typed
+                // arrays fall through to the array-ref branch below.
+                if cont_ty.starts_with('[') && cont_ty.contains(" x ") && !cont_ty.ends_with('*') {
                     let (arr_ptr, arr_ptr_ty) = if let Expr::Ident(id) = &**container {
                         if let Some((slot, _slot_ty)) = self.lookup_local(&id.name) {
                             // Use the existing alloca pointer directly ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â avoids
@@ -2517,7 +2523,21 @@ impl IrEmitter {
                 // the end (array smoke: contains() returned false / crashed).
                 if cont_ty.ends_with('*') && cont_ty != "i8*" {
                     let elem_ty = cont_ty.trim_end_matches('*');
+                    // BUG 53 (2026-08-18): `[N x T]*` pointers (non-generic
+                    // `&[N]T` params lower to the typed array pointer) need a
+                    // TWO-INDEX GEP (`i64 0, i64 idx` — one index would scale
+                    // by the whole array) and an ELEMENT-typed load; the old
+                    // single-index GEP returned the array pointer and loaded
+                    // the whole array (invalid/garbage).
                     let elem_ptr = self.fresh_tmp();
+                    if elem_ty.starts_with('[') && elem_ty.contains(" x ") {
+                        let inner_ty = Self::extract_array_elem_ty(&elem_ty);
+                        self.emitln(&format!("  {elem_ptr} = getelementptr {elem_ty}, {cont_ty} {cont_val}, i64 0, i64 {idx}"));
+                        let elem = self.fresh_tmp();
+                        self.emitln(&format!("  {elem} = load {inner_ty}, {inner_ty}* {elem_ptr}"));
+                        let result = self.val_to_i64(&elem, &inner_ty);
+                        return Ok((result, LLVM_I64.to_string()));
+                    }
                     self.emitln(&format!("  {elem_ptr} = getelementptr {elem_ty}, {cont_ty} {cont_val}, i64 {idx}"));
                     let elem = self.fresh_tmp();
                     self.emitln(&format!("  {elem} = load {elem_ty}, {elem_ty}* {elem_ptr}"));
@@ -2855,9 +2875,15 @@ impl IrEmitter {
                 // type actually IS an Option variant; for non-Option returns
                 // (e.g. a struct wrapping Option fields), use the default.
                 // 5c.35: Check that current_return_type is an Option-like struct.
-                let ret_is_option = self.fctx.current_return_type.contains("Option");
-                let opt_ty = if ret_is_option && self.fctx.current_return_type.starts_with("%struct.") {
-                    self.fctx.current_return_type.clone()
+                // BUG 55: inside an unsafe-block fn, current_return_type is the
+                // block's i64 ABI — use the ENCLOSING fn's declared return so
+                // the ctor builds the CONCRETE container (Option__Rc), not the
+                // generic %struct.Option (payload-slot mismatch → corruption).
+                let ctor_ret = self.fctx.enclosing_return_type.clone()
+                    .unwrap_or_else(|| self.fctx.current_return_type.clone());
+                let ret_is_option = ctor_ret.contains("Option");
+                let opt_ty = if ret_is_option && ctor_ret.starts_with("%struct.") {
+                    ctor_ret
                 } else {
                     "%struct.Option".to_string()
                 };
@@ -2891,9 +2917,12 @@ impl IrEmitter {
                 // Without this guard, a function returning a non-Option struct
                 // (e.g. Node { val:Int, next:Option[Int] }) would compile None as
                 // %struct.Node instead of %struct.Option, producing type-mismatched IR.
-                let ret_is_option = self.fctx.current_return_type.contains("Option");
-                let opt_ty = if ret_is_option && self.fctx.current_return_type.starts_with("%struct.") {
-                    self.fctx.current_return_type.clone()
+                // BUG 55: unsafe-block fns consult the ENCLOSING return type.
+                let ctor_ret = self.fctx.enclosing_return_type.clone()
+                    .unwrap_or_else(|| self.fctx.current_return_type.clone());
+                let ret_is_option = ctor_ret.contains("Option");
+                let opt_ty = if ret_is_option && ctor_ret.starts_with("%struct.") {
+                    ctor_ret
                 } else {
                     "%struct.Option".to_string()
                 };
@@ -2921,9 +2950,12 @@ impl IrEmitter {
             Expr::Ok(inner, _) => {
                 self.types.used_builtins.insert("Result".to_string());
                 // 5c.35: Check that current_return_type is a Result-like struct.
-                let ret_is_result = self.fctx.current_return_type.contains("Result");
-                let result_ty = if ret_is_result && self.fctx.current_return_type.starts_with("%struct.") {
-                    self.fctx.current_return_type.clone()
+                // BUG 55: unsafe-block fns consult the ENCLOSING return type.
+                let ctor_ret = self.fctx.enclosing_return_type.clone()
+                    .unwrap_or_else(|| self.fctx.current_return_type.clone());
+                let ret_is_result = ctor_ret.contains("Result");
+                let result_ty = if ret_is_result && ctor_ret.starts_with("%struct.") {
+                    ctor_ret
                 } else {
                     "%struct.Result".to_string()
                 };
@@ -2985,9 +3017,12 @@ impl IrEmitter {
                     self.compile_expr(inner)?
                 };
                 // 5c.35: Check that current_return_type is a Result-like struct.
-                let ret_is_result = self.fctx.current_return_type.contains("Result");
-                let result_ty = if ret_is_result && self.fctx.current_return_type.starts_with("%struct.") {
-                    self.fctx.current_return_type.clone()
+                // BUG 55: unsafe-block fns consult the ENCLOSING return type.
+                let ctor_ret = self.fctx.enclosing_return_type.clone()
+                    .unwrap_or_else(|| self.fctx.current_return_type.clone());
+                let ret_is_result = ctor_ret.contains("Result");
+                let result_ty = if ret_is_result && ctor_ret.starts_with("%struct.") {
+                    ctor_ret
                 } else {
                     "%struct.Result".to_string()
                 };
@@ -4082,6 +4117,10 @@ impl IrEmitter {
                 self.in_unsafe_block_fn = true;
                 self.tmp_counter = unsafe_id * 1000;
                 self.block_counter = unsafe_id * 1000;
+                // BUG 55: keep the ENCLOSING fn's declared return type for the
+                // Some/None/Ok/Err ctor decision (concrete Option__Rc) — the
+                // block-fn ABI stays i64 via current_return_type below.
+                self.fctx.enclosing_return_type = Some(saved_ret.clone());
                 self.fctx.current_return_type = LLVM_I64.to_string();
                 self.push_scope();
 
@@ -4188,6 +4227,9 @@ impl IrEmitter {
                 self.fctx.current_ensures = saved_ensures;
                 self.in_unsafe_block_fn = saved_in_block_fn;
                 self.local.hoisted_allocas = saved_hoisted;
+                // BUG 55: the block fn is done — the enclosing return type
+                // context is no longer needed.
+                self.fctx.enclosing_return_type = None;
 
                 // ---- At the block site: build ctx, call trampoline, branch ----
                 // Allocate + populate the ctx struct (stack), then call the

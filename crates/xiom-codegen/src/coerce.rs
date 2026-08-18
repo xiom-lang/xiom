@@ -51,7 +51,19 @@ impl IrEmitter {
                 // alloca address — the data-pointer path made len() read the
                 // first ELEMENT as the length → OOB → AV (eco test_algo).
                 if self.local.array_locals.contains(&id.name) && !param_ty.contains("%struct.") {
-                    if let Some((slot, _slot_ty)) = self.lookup_local(&id.name).cloned() {
+                    if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
+                        // BUG 53 (2026-08-18): FIXED-ARRAY slots (`var a:
+                        // [5]Int = [...]` → slot `[5 x i64]`) — the element
+                        // pointer is GEP 0,0 of the array; the old code GEP'd
+                        // the slot AS %struct.Vec and loaded "field 0" (the
+                        // first ELEMENT, e.g. 10) as the data pointer →
+                        // garbage reads in every &[N]T fn.
+                        if slot_ty.starts_with('[') && slot_ty.contains(" x ") {
+                            let elem_ptr = self.fresh_tmp();
+                            self.emitln(&format!("  {elem_ptr} = getelementptr {slot_ty}, {slot_ty}* {slot}, i64 0, i64 0"));
+                            let elem_llvm = Self::extract_array_elem_ty(&slot_ty);
+                            return self.coerce_value(&elem_ptr, &format!("{elem_llvm}*"), param_ty);
+                        }
                         let gep = self.fresh_tmp();
                         self.emitln(&format!("  {gep} = getelementptr %struct.Vec, %struct.Vec* {slot}, i32 0, i32 0"));
                         let data_ptr = self.fresh_tmp();
@@ -158,8 +170,19 @@ impl IrEmitter {
                 let is_ref = self.local.ref_params.contains(&id.name)
                     || self.local.ref_locals.contains(&id.name);
                 if !is_ref { return None; }
-                let pointee = self.local.local_xiom_types.get(&id.name)
-                    .and_then(|t| self.llvm_type_for(t).ok())?;
+                // BUG 55 (2026-08-18): RAW-POINTER locals (`var p: *Int = &x`,
+                // `p: *Str`) are POINTER-VALUED — the recorded XIOM type is the
+                // raw pointer ("*Int" → i64*). Passing `p` to a `*Int` param
+                // must pass the pointer ITSELF; the old code treated every
+                // ref-tracked local as address-carrying and DEREF'd it
+                // (`%tmp9 = load i64*, i64** %tmp8` — x's VALUE became the
+                // pointer arg → null/garbage at the callee → AV/wrong reads
+                // across fn/unsafe-block boundaries; the payload-corruption
+                // family root). The auto-deref applies ONLY to `&T` ref-locals
+                // whose recorded type is the bare pointee ("Int"/"Str").
+                let pointee_xiom = self.local.local_xiom_types.get(&id.name)?;
+                if pointee_xiom.starts_with('*') { return None; }
+                let pointee = self.llvm_type_for(pointee_xiom).ok()?;
                 if pointee != param_ty { return None; }
                 if let Ok((addr, addr_ty)) = self.compile_expr(arg_expr) {
                     let ptr = if addr_ty == "i64" {
