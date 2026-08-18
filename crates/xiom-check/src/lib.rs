@@ -3762,9 +3762,6 @@ impl Checker {
                         && !matches!(&val_ty, CheckedType::Named(n) if n == "_")
                         && !is_ref_coercion
                     {
-                        if std::env::var("XIOM_TRACE_RETXIOM").is_ok() {
-                            eprintln!("[varcheck] annotated={:?} found={:?}", annot_ty, val_ty);
-                        }
                         self.error(
                             format!("type mismatch in var: annotated {}, found {}", annot_ty.name(), val_ty.name()),
                             *span,
