@@ -75,6 +75,30 @@ impl IrEmitter {
         }
     }
 
+    /// BUG 52 (2026-08-18): when a let/var binding is initialized with a
+    /// FUNCTION CALL (`var m = make_map()`), record the callee's declared
+    /// return XIOM type ("Map[Str, MyVal]") so generic METHOD calls on the
+    /// binding can infer the type args. Guards against unresolved generic
+    /// params: "Map[K, V]" from a generic callee must NOT be recorded
+    /// (K/V are placeholders, not concrete types).
+    pub(crate) fn infer_call_return_xiom(&self, value: &Expr) -> Option<String> {
+        let func = match value {
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => func.as_ref(),
+            Expr::Paren(inner, _) => return self.infer_call_return_xiom(inner),
+            _ => return None,
+        };
+        let rt = self.callee_return_xiom(func)?;
+        // Skip unresolved generic placeholders ("Map[K, V]", "Option[T]").
+        for token in rt.split(|c: char| !c.is_ascii_alphanumeric()) {
+            if token.len() == 1
+                && token.chars().next().map_or(false, |c| c.is_ascii_uppercase())
+            {
+                return None;
+            }
+        }
+        Some(rt)
+    }
+
     /// BUG 14 fix: infer a binding's XIOM type from its VALUE expression when
     /// no explicit type annotation is present — `var big = x as UInt128` must
     /// register "UInt128" so signedness-aware lowering (zext/lshr) works.
@@ -112,6 +136,53 @@ impl IrEmitter {
                 };
                 if matches!(leaf, "null" | "null_mut" | "dangling") {
                     return Some("*T".to_string());
+                }
+                // BUG 52 (2026-08-18): typed static-receiver ctors
+                // (`Map[Str, MyVal].new()`, `Vec[MyVal].new()`) — record the
+                // FULL container type so generic METHOD calls on the binding
+                // (`m.get("b")`, `m.len()`) can infer the type args instead
+                // of defaulting to Int/Str (mono'd Map.get_Str_Str etc.).
+                // Parse shape: Call(Field(Index(Ident("Map"), Tuple([Str,
+                // MyVal])), "new"), ...).
+                let type_arg_target: Option<(&Expr, &Expr)> = match func.as_ref() {
+                    Expr::Field(inner, _, _) => {
+                        if let Expr::Index(base, type_args, _) = inner.as_ref() {
+                            Some((base.as_ref(), type_args.as_ref()))
+                        } else {
+                            None
+                        }
+                    }
+                    Expr::Index(base, type_args, _) => {
+                        Some((base.as_ref(), type_args.as_ref()))
+                    }
+                    _ => None,
+                };
+                if let Some((base, type_args)) = type_arg_target {
+                    let base_name = match base {
+                        Expr::Ident(id) => id.name.clone(),
+                        Expr::Field(_, f, _) => f.name.clone(),
+                        _ => String::new(),
+                    };
+                    if !base_name.is_empty() {
+                        let mut arg_names: Vec<String> = Vec::new();
+                        let mut all_idents = true;
+                        match type_args {
+                            Expr::Ident(id) => arg_names.push(id.name.clone()),
+                            Expr::Tuple(elems, _) => {
+                                for e in elems {
+                                    match e {
+                                        Expr::Ident(id) => arg_names.push(id.name.clone()),
+                                        Expr::Int(n, _) => arg_names.push(n.to_string()),
+                                        _ => { all_idents = false; break; }
+                                    }
+                                }
+                            }
+                            _ => { all_idents = false; }
+                        }
+                        if all_idents && !arg_names.is_empty() {
+                            return Some(format!("{base_name}[{}]", arg_names.join(", ")));
+                        }
+                    }
                 }
                 None
             }

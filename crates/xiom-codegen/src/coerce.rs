@@ -79,6 +79,20 @@ impl IrEmitter {
             // an i64 address inttoptrs to the real pointer, a struct value
             // takes the existing struct→pointer slot path (coerce_value),
             // and a Vec data pointer coerces directly.
+            // BUG 52 (2026-08-18): `key: &K` with K=Str — the mono param is
+            // `i8**` (address OF a slot holding the string handle). A Str
+            // VALUE arg (`m.get("b")`, a Vec[Str] element) must be
+            // MATERIALIZED into an i8* slot so the callee's `*key` loads the
+            // handle — passing the handle itself as i8** made `*key` read
+            // the string's first 8 BYTES as a pointer (garbage → strcmp AV;
+            // Map.get with Str keys crashed for Int AND enum values alike).
+            // Skip when the arg is already an address (ref-locals: i8**).
+            if param_ty == "i8**" && pre_ty == "i8*" && lvalue.is_none() {
+                let tmp = self.fresh_tmp();
+                self.emitln(&format!("  {tmp} = alloca i8*"));
+                self.emitln(&format!("  store i8* {pre_val}, i8** {tmp}"));
+                return tmp;
+            }
             if lvalue.is_none() && !pre_ty.ends_with('*') && !param_ty.starts_with("%struct.") {
                 // BUG 31: a plain VALUE arg (literal etc.) to a `&T`/pointer
                 // param must be MATERIALIZED into a temp — the inttoptr

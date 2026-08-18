@@ -2620,6 +2620,32 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         Expr::Bool(..) => "Bool".to_string(),
                                         Expr::Str(..) => "Str".to_string(),
                                         Expr::Char(..) => "Char".to_string(),
+                                        // BUG 52: enum variant constructors
+                                        // (`MyVal.Text("x")`) as generic args must
+                                        // infer the ENUM type — the old `_ => "Int"`
+                                        // arm sent Map.insert[K,V] to
+                                        // insert_Str_Int (payload dropped → AV).
+                                        Expr::Call(f, _, _) | Expr::GenericCall(f, _, _, _) => {
+                                            if let Expr::Field(base, _, _) = f.as_ref() {
+                                                let base_name = match base.as_ref() {
+                                                    Expr::Ident(bid) => bid.name.clone(),
+                                                    Expr::Field(_, bf, _) => bf.name.clone(),
+                                                    _ => String::new(),
+                                                };
+                                                if !base_name.is_empty()
+                                                    && (self.types.enum_variants.contains_key(&base_name)
+                                                        || self.types.enum_variants.keys().into_iter()
+                                                            .any(|k| k.ends_with(&format!(".{base_name}")))
+                                                        || self.types.types.contains_key(&base_name))
+                                                {
+                                                    base_name
+                                                } else {
+                                                    "Int".to_string()
+                                                }
+                                            } else {
+                                                "Int".to_string()
+                                            }
+                                        }
                                         Expr::Ident(id) => {
                                             if let Some(concrete) = self.mono.param_concrete_types.get(&id.name) {
                                                 concrete.clone()
@@ -2645,6 +2671,31 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 }
                             }
                             if !inferred {
+                                // BUG 52: infer a generic METHOD's type args from a
+                                // LOCAL receiver's recorded container type
+                                // (`var m = Map[Str, MyVal].new()` → `m.get("b")`
+                                // must monomorphise Map.get[Str, MyVal], not
+                                // Map.get[Str, Str]). The local's LLVM slot type is
+                                // erased (%struct.Map); local_xiom_types keeps the
+                                // args thanks to infer_value_xiom_type's ctor arm.
+                                // Mirrors the BUG 29 module-global path below.
+                                if let Some(recv) = receiver_expr {
+                                    if let Expr::Ident(rid) = recv.as_ref() {
+                                        if let Some(lxiom) = self.local.local_xiom_types.get(&rid.name).cloned() {
+                                            if lxiom.contains('[') {
+                                                let (_base, args) = Self::parse_generic_type_string(&lxiom);
+                                                if let Some(pos) = fd.generics.iter().position(|g| g.name.name == gp.name.name) {
+                                                    if let Some(arg) = args.get(pos) {
+                                                        if !arg.is_empty() {
+                                                            concrete_types.push(arg.clone());
+                                                            continue;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 // Use explicit type args from the call syntax
                                 // (e.g. `Map[Str, JsonValue].new()` ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ type_arg = Tuple([Str, JsonValue])).
                                 if let Some(ta) = type_arg {
@@ -2768,11 +2819,37 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                             // &[N]T fixed-array ref ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ Vec data pointer
                                             Type::Ref(inner) => match inner.as_ref() {
                                                 Type::Array(_, _) => "i64*".to_string(),
-                                                // &Vec[T] / &Slice[T] ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ by-value Vec struct
-                                                Type::Vec(_) | Type::Slice(_) => "%struct.Vec".to_string(),
+                                                // &Slice[T] -> by-value Vec struct (the
+                                                // mono def's subst lowers Slice to
+                                                // %struct.Vec — the body calls
+                                                // .len()/[i] on the value).
+                                                Type::Slice(_) => "%struct.Vec".to_string(),
+                                                // BUG 52 follow-up (2026-08-18):
+                                                // &Vec[T] -> POINTER (the def's generic
+                                                // Ref arm lowers "Vec" -> %struct.Vec*
+                                                // and GEPs through the param). Passing
+                                                // the Vec BY VALUE made the callee
+                                                // read the data pointer as the Vec
+                                                // header -> AV in every generic fn
+                                                // taking &Vec[T] (contains family).
+                                                Type::Vec(_) => "%struct.Vec*".to_string(),
                                                 // &T scalar ref ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ by-value value type
                                                 other => {
-                                                    let subst = Self::substitute_type(other, other, &self.mono.param_concrete_types);
+                                                    // BUG 52 (2026-08-18): substitute
+                                                    // with THIS call's type args —
+                                                    // param_concrete_types is only
+                                                    // populated while compiling a mono
+                                                    // BODY, so at call sites it is
+                                                    // stale/empty and `&K` with K=Str
+                                                    // degraded to i64* (call ABI
+                                                    // mismatched the def's i8**).
+                                                    let mut subst_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+                                                    for (gi, gp) in fd.generics.iter().enumerate() {
+                                                        if let Some(c) = concrete_types.get(gi) {
+                                                            subst_map.insert(gp.name.name.clone(), c.clone());
+                                                        }
+                                                    }
+                                                    let subst = Self::substitute_type(other, other, &subst_map);
                                                     let name = Self::type_from_ast(&subst);
                                                     // BUG 31: &T scalar ref → POINTER to
                                                     // the value type (the mono def takes
@@ -2782,7 +2859,32 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                     format!("{base}*")
                                                 }
                                             },
-                                            _ => self.infer_llvm_type(a),
+                                            _ => {
+                                                // BUG 52 (2026-08-18): by-VALUE generic
+                                                // params (`value: V`) must resolve the
+                                                // CONCRETE type from the call's type
+                                                // args — infer_llvm_type of an enum
+                                                // variant-ctor arg degrades to i64
+                                                // (the tag), so
+                                                // `m.insert("b", MyVal.Text("x"))`
+                                                // called with `i64 tag` against the
+                                                // mono def's `%struct.MyVal` param →
+                                                // payload corruption / AV.
+                                                let pt = Self::type_from_ast(&p.ty);
+                                                if fd.generics.iter().any(|g| g.name.name == pt) {
+                                                    let mut subst_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+                                                    for (gi, gp) in fd.generics.iter().enumerate() {
+                                                        if let Some(c) = concrete_types.get(gi) {
+                                                            subst_map.insert(gp.name.name.clone(), c.clone());
+                                                        }
+                                                    }
+                                                    let subst = Self::substitute_type(&p.ty, &p.ty, &subst_map);
+                                                    let name = Self::type_from_ast(&subst);
+                                                    self.llvm_type_for(&name).unwrap_or_else(|_| "i64".to_string())
+                                                } else {
+                                                    self.infer_llvm_type(a)
+                                                }
+                                            }
                                         }
                                     } else {
                                         self.infer_llvm_type(a)

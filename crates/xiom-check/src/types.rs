@@ -103,12 +103,26 @@ impl CheckedType {
             Type::Named(ident, _) => Self::from_str(&ident.name),
             Type::Ref(inner) => CheckedType::from_ast_type(inner),
             Type::MutRef(inner) => CheckedType::from_ast_type(inner),
-            Type::Option(_) => CheckedType::Named("Option".into()),
-            Type::Result(_, _) => CheckedType::Named("Result".into()),
-            Type::Vec(_) => CheckedType::Named("Vec".into()),
-            Type::Slice(_) => CheckedType::Named("Slice".into()),
-            Type::Map(_, _) => CheckedType::Named("Map".into()),
-            Type::Set(_) => CheckedType::Named("Set".into()),
+            // BUG 51 (2026-08-18): PRESERVE container type args so match
+            // payload bindings get the inner type ("Option[MyRc]" → Some(up)
+            // binds up: MyRc) — the erased "Option" forced payload bindings to
+            // the `_` wildcard, and method calls on them fell to the sorted
+            // wildcard lookup (Option.get before MyRc.get → "cannot compare
+            // Option with Int").
+            Type::Option(inner) => CheckedType::Named(format!("Option[{}]", CheckedType::from_ast_type(inner).name())),
+            Type::Result(ok, err) => CheckedType::Named(format!(
+                "Result[{}, {}]",
+                CheckedType::from_ast_type(ok).name(),
+                CheckedType::from_ast_type(err).name()
+            )),
+            Type::Vec(inner) => CheckedType::Named(format!("Vec[{}]", CheckedType::from_ast_type(inner).name())),
+            Type::Map(k, v) => CheckedType::Named(format!(
+                "Map[{}, {}]",
+                CheckedType::from_ast_type(k).name(),
+                CheckedType::from_ast_type(v).name()
+            )),
+            Type::Set(inner) => CheckedType::Named(format!("Set[{}]", CheckedType::from_ast_type(inner).name())),
+            Type::Slice(inner) => CheckedType::Named(format!("Slice[{}]", CheckedType::from_ast_type(inner).name())),
             Type::Tuple(types) => {
                 // M20: Include element types in tuple name to avoid collisions
                 // (Int, Str) → Tuple__Int__Str, not just Tuple2
