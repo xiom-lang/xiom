@@ -1,5 +1,69 @@
 # XIOM Compiler Session — Handoff (2026-08-19)
 
+## Session update (2026-08-19, round 5): queue item 1 FIXED — gzip/zlib decompress (2 roots) + payload-field unboxing + if-expression Vec arms
+
+Commit: `(pending)` — fix(codegen): gzip decompress payload-field unboxing +
+if-expression result type + param payload tracking. E2E 2279/2279 (+1 new
+`e2e_m37_gzip_roundtrip`), checker 178, parser 97, ctfe 97, feature-reg 510,
+stdlib-exec 70 (+2 ignored), stdlib_tests 40.
+
+### Queue item 1 — gzip_DECOMPRESS catalog crash: FIXED (two+one roots)
+
+The "crashes BEFORE the first statement" was a stdout-buffering artifact
+(puts output lost on the AV); the real crash was INSIDE gzip_decompress.
+THREE coordinated root causes (all documented in COMPILER_BUGS.md):
+
+1. **Result-payload FIELD access never unboxed.** `let decompressed =
+   decoded.value;` (payload-FIELD on a container LOCAL — NOT a match
+   scrutinee) bound the raw BOXED POINTER as i64; `&decompressed` passed
+   the i64 SLOT ADDRESS as `%struct.Vec*` → crc32 read stack garbage as
+   len/elem_size → 8-byte element load → 0xC0000005. Fixes: new
+   `field_payload_xiom` (lib.rs; local_opt_payload → local_opt_payload_xiom
+   / local_err_payload → the receiver's declared type), expr.rs Field arm
+   unboxes container/struct payloads and covers `is_result.value` (was
+   missing), decl.rs tracks Option/Result PARAM payload types (type_from_ast
+   renders bare "Result"), stmt.rs records the payload XIOM type on
+   bindings (infer_field_payload_xiom). **This is the SAME shape as queue
+   item 2 (Path.parent `ch.value`) — re-test Path.parent.**
+2. **If-expression result slot hardcoded i64.** `let compressed = if
+   level == 0 { _store_encode(data) } else { rle_encode(data) };` degraded
+   the %struct.Vec VALUE to field-0-as-i64 (data ptr): `compressed.len()`
+   became xiom_str_len(data_ptr) and `compressed[i]` compiled to a LITERAL
+   0 → gzip payload of six zero bytes → decode produced 3 zero bytes (CRC/
+   size checks passed vacuously against the same broken crc32). Fix:
+   Expr::If result type inferred from arm tails (all-agree struct >
+   pointer > all-agree float > i64) + infer_if_xiom_type records the
+   binding's XIOM type. ALSO fixes Float64-valued if-expressions
+   (`return if c { 1.5 } else { 2.5 };` — was bitcast-to-i64 + sitofp).
+3. Param payload tracking (see #1).
+
+### REMAINING in this area (documented, NOT fixed)
+- smoke_stress_compress_gzip_large: pre-existing 0xC0000005 in __chkstk
+  (huge stack alloca; reproduces at baseline — separate queue item).
+- gzip_empty / gzip_bad_input smokes: facade `requires:` contracts PANIC
+  instead of returning Err (stdlib-side decision).
+- [256]UInt module-global crc table lazy-init writes a STACK COPY, never
+  the global (module-global ARRAY element stores — BUG 2 family for array
+  elements) — CRC is deterministic garbage but self-consistent for
+  round-trips; gzip_crc32's public value is WRONG vs real gzip.
+- Contract-ensure unbox (`result is Ok => ...`) loads the payload
+  UNCONDITIONALLY — Err results inttoptr 0 → NULL load (swallowed by the
+  guard-fault trap today; latent).
+
+### OPEN QUEUE (priority order — stdlib session can re-run the sweep)
+1. ~~gzip/zlib decompress~~ — FIXED (round 5). Re-test smoke_stress_
+   compress_gzip_roundtrip / zlib_roundtrip / gzip_levels / compound /
+   deflate_roundtrip (all exit 0 with this compiler).
+2. Path.parent returns None — the `.value` field shape is fixed by round 5;
+   re-test smoke_stress_io_parent_file_name (loop shape + @Path.parent
+   registration gap may remain).
+3. Multi-match payload-SLOT REUSE (char_to_digit / num_gcd_lcm /
+   rand_weighted / vec_first_last — multi-check smokes).
+4. Vec[Option[Match]] container shape (regex captures — clang-blocked).
+5. The 142-failure map: 16 clang variants, 4 Bounded/is_finite C001s, 45
+   RUNFAIL(1) payload-slot/closure/iter families, rc_weak drop bookkeeping,
+   json_nested heap corruption, SIMD-flag family.
+
 ## Session update (2026-08-19, round 4): stdlib sweep at 765/907 — compiler queue below
 
 Round 3 commits: `82293661` (BUG 53 write-facet, BUG 55 facet-2, BUG 56 +

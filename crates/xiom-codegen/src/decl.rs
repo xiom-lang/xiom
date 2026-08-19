@@ -1279,6 +1279,22 @@ impl IrEmitter {
             } else {
                 self.local.signed_locals.remove(&param.name.name);
             }
+            // gzip-DECOMPRESS fix (2026-08-19): track Option/Result PARAM
+            // payload types (mirrors the let/var tracking in stmt.rs) so
+            // payload-FIELD access on a param (`r.value` for a
+            // Result[Vec[UInt8], Str] param) resolves the payload type —
+            // type_from_ast renders the bare "Result", losing the args.
+            // or_insert keeps the FIRST (value) type: option_type_param's
+            // "Result" arm returns the ERROR type for a direct Type::Result.
+            if let Some(opt_inner) = Self::option_type_param(&param.ty, "Option") {
+                self.local.local_opt_payload.entry(param.name.name.clone()).or_insert(opt_inner);
+            }
+            if let Some(res_val) = Self::option_type_param(&param.ty, "Result") {
+                self.local.local_opt_payload.entry(param.name.name.clone()).or_insert(res_val);
+            }
+            if let Some(err_val) = Self::result_err_type_param(&param.ty) {
+                self.local.local_err_payload.insert(param.name.name.clone(), err_val);
+            }
             // Record raw-pointer params (`*T`/`&T`/`&mut T` over a pointer) so that
             // `param[i]` indexing treats the i64 value as an address (byte buffer).
             if matches!(&param.ty, Type::Ptr(_)) {

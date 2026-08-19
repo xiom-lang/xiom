@@ -190,6 +190,48 @@ impl IrEmitter {
         }
     }
 
+    /// gzip-DECOMPRESS fix (2026-08-19): `let v = r.value;` / `var v = r.error;`
+    /// — record the payload XIOM type of a payload-FIELD access so method
+    /// dispatch on the binding sees "Vec[UInt8]" instead of degrading to
+    /// Str/i64 (`decompressed.len()` was calling xiom_str_len on the raw boxed
+    /// pointer). Resolution mirrors field_payload_xiom (lib.rs).
+    pub(crate) fn infer_field_payload_xiom(&self, value: &Expr) -> Option<String> {
+        match value {
+            Expr::Field(obj, field, _) => self.field_payload_xiom(obj, &field.name),
+            Expr::Paren(inner, _) => self.infer_field_payload_xiom(inner),
+            _ => None,
+        }
+    }
+
+    /// gzip fix (2026-08-19): `let v = if c { f() } else { g() };` — record the
+    /// arm tail's XIOM type (e.g. "Vec[UInt8]") so method dispatch on the
+    /// binding (`v.len()`, `v[i]`) works. Without it, the if-expression binding
+    /// stayed untyped and `.len()` degraded to xiom_str_len.
+    pub(crate) fn infer_if_xiom_type(&self, value: &Expr) -> Option<String> {
+        let Expr::If(_, then_block, elifs, else_block, _) = value else {
+            return None;
+        };
+        let tails: Vec<&Expr> = std::iter::once(then_block)
+            .chain(elifs.iter().map(|(_, b)| b))
+            .chain(else_block.iter())
+            .filter_map(|b| b.stmts.last())
+            .filter_map(|s| match s {
+                StmtOrExpr::Expr(e) => Some(e),
+                _ => None,
+            })
+            .collect();
+        for t in &tails {
+            if let Some(rt) = self.infer_call_return_xiom(t) {
+                return Some(rt);
+            }
+        }
+        for t in &tails {
+            if let Some(rt) = self.infer_struct_type_name(t) {
+                return Some(rt);
+            }
+        }
+        None
+    }
     /// BUG 14 fix: true when the expression's XIOM type is an UNSIGNED integer
     /// (UInt8/16/32/64/128) — used to pick `lshr` over `ashr` for right shifts.
     /// Idents resolve through the registered type; casts check the target type

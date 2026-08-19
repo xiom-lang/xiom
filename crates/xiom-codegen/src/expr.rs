@@ -2137,28 +2137,43 @@ impl IrEmitter {
                                     let mut field_llvm_ty = self.field_llvm_type(type_name, field_idx);
                                     let mut payload_reinterpret = false;
                                     let mut payload_boxed = false;
-                                    if (is_option && field.name == "value") || (is_result && field.name == "error") {
-                                        if let Expr::Ident(oid) = obj.as_ref() {
-                                            if let Some(px) = self.local.local_opt_payload_xiom.get(&oid.name) {
-                                                payload_reinterpret = true;
-                                                match px.as_str() {
-                                                    "Str" => field_llvm_ty = "i8*".to_string(),
-                                                    "Float64" | "Float" => field_llvm_ty = "double".to_string(),
-                                                    "Float32" => field_llvm_ty = "float".to_string(),
-                                                    "Bool" | "Char" | "Int" | "Int8" | "Int16" | "Int32" | "UInt8" | "UInt16" | "UInt32" | "Int64" | "UInt" | "UInt64" | "UInt128" | "Int128" => payload_reinterpret = false,
-                                                    _ => {
-                                                        // Boxed struct payload: inttoptr the
-                                                        // slot to the struct pointer + load.
-                                                        if let Ok(st) = self.llvm_type_for(px) {
-                                                            if st.starts_with("%struct.") {
-                                                                field_llvm_ty = st;
-                                                                payload_boxed = true;
-                                                            } else {
-                                                                payload_reinterpret = false;
-                                                            }
+                                    // gzip-DECOMPRESS fix (2026-08-19): payload
+                                    // FIELDS (Option.value / Result.value /
+                                    // Result.error) resolve the payload type via
+                                    // field_payload_xiom (local_opt_payload /
+                                    // local_opt_payload_xiom / local_err_payload /
+                                    // declared local type) — NOT only the scalar
+                                    // local_opt_payload_xiom registry. Without it
+                                    // `let decompressed = decoded.value;` bound the
+                                    // raw BOXED POINTER as an i64 (and never
+                                    // unboxed the heap Vec), so &decompressed
+                                    // passed the i64 SLOT address as %struct.Vec*
+                                    // → crc32 read stack garbage as len/elem_size
+                                    // → 8-byte element load → 0xC0000005.
+                                    let is_payload_field = (is_option || is_result)
+                                        && (field.name == "value" || field.name == "error");
+                                    if is_payload_field {
+                                        if let Some(px) = self.field_payload_xiom(obj, &field.name) {
+                                            payload_reinterpret = true;
+                                            match px.as_str() {
+                                                "Str" => field_llvm_ty = "i8*".to_string(),
+                                                "Float64" | "Float" => field_llvm_ty = "double".to_string(),
+                                                "Float32" => field_llvm_ty = "float".to_string(),
+                                                "Bool" | "Char" | "Int" | "Int8" | "Int16" | "Int32" | "UInt8" | "UInt16" | "UInt32" | "Int64" | "UInt" | "UInt64" | "UInt128" | "Int128" => payload_reinterpret = false,
+                                                _ => {
+                                                    // Boxed struct/container payload:
+                                                    // inttoptr the slot to the
+                                                    // struct pointer + load (unboxes
+                                                    // the heap box / Vec handle).
+                                                    if let Ok(st) = self.llvm_type_for(&px) {
+                                                        if st.starts_with("%struct.") {
+                                                            field_llvm_ty = st;
+                                                            payload_boxed = true;
                                                         } else {
                                                             payload_reinterpret = false;
                                                         }
+                                                    } else {
+                                                        payload_reinterpret = false;
                                                     }
                                                 }
                                             }
@@ -4405,7 +4420,47 @@ impl IrEmitter {
                     tmp
                 };
 
-                let result_ty = LLVM_I64.to_string();
+                // gzip fix (2026-08-19): `let compressed = if c { rle_encode(data) }
+                // else { _store_encode(data) };` — the result alloca must keep the
+                // arms' STRUCT type (%struct.Vec). The old hardcoded i64 coerced
+                // the Vec VALUE to field-0-as-i64 (the data pointer), so
+                // `compressed.len()` degraded to xiom_str_len and `compressed[i]`
+                // compiled to a literal 0 (payload of all zeros → wrong decode).
+                // Infer the result type from the arm tail expressions like
+                // infer_match_llvm_type does (struct > pointer > i64).
+                let mut arm_tys: Vec<String> = Vec::new();
+                let arm_blocks = std::iter::once(then_block)
+                    .chain(elifs.iter().map(|(_, b)| b))
+                    .chain(else_block.iter());
+                for b in arm_blocks {
+                    if let Some(last) = b.stmts.last() {
+                        if let StmtOrExpr::Expr(e) = last {
+                            let t = self.infer_llvm_type(e);
+                            if !t.is_empty() {
+                                arm_tys.push(t);
+                            }
+                        }
+                    }
+                }
+                let result_ty = if let Some(st) = arm_tys.iter().find(|t| t.starts_with("%struct.")) {
+                    // Only use the struct type when ALL struct arms agree — mixed
+                    // struct types would emit invalid stores into one slot.
+                    if arm_tys.iter().filter(|t| t.starts_with("%struct.")).all(|t| t == st) {
+                        st.clone()
+                    } else {
+                        LLVM_I64.to_string()
+                    }
+                } else if let Some(pt) = arm_tys.iter().find(|t| t.ends_with('*')) {
+                    pt.clone()
+                } else if arm_tys.iter().any(|t| t == "double") && arm_tys.iter().all(|t| t == "double") {
+                    // Float64 arms keep the double bits (was bitcast-to-i64 +
+                    // sitofp on the return — wrong values).
+                    "double".to_string()
+                } else if arm_tys.iter().any(|t| t == "float") && arm_tys.iter().all(|t| t == "float") {
+                    "float".to_string()
+                } else {
+                    LLVM_I64.to_string()
+                };
                 let result_alloca = self.fresh_tmp();
                 self.emitln(&format!("  {result_alloca} = alloca {result_ty}"));
 

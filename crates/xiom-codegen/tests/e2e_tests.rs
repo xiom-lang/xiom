@@ -4469,3 +4469,11 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m37_bug55_payload_loop() { assert_eq!(compile_and_run("tests\\regression\\m37_bug55_payload_loop.xi"), Some(0)); }
 #[test] fn e2e_m37_bug56_ensure_expr_body() { assert_eq!(compile_and_run("tests\\regression\\m37_bug56_ensure_expr_body.xi"), Some(0)); }
 
+// ============================================================================
+// gzip-DECOMPRESS catalog mono (2026-08-19 round 4, queue item 1):
+// Result-payload FIELD access (`decoded.value`) unboxing + if-expression
+// Vec-valued arms (`let x = if c { f() } else { g() };`).
+// ============================================================================
+#[test] fn e2e_m37_gzip_roundtrip() { assert_eq!(compile_and_run("tests\\regression\\m37_gzip_roundtrip.xi"), Some(0)); }
+
+
