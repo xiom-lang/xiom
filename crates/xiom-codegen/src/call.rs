@@ -1757,6 +1757,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 // Handled here to short-circuit method resolution for the Str receiver.
                 if fn_name == "slice" && args.len() == 2 {
                     if let Some(receiver) = receiver_expr {
+                        if self.receiver_is_str(receiver) {
                         let (recv_val, recv_ty) = self.compile_expr(receiver)?;
                         let recv_ptr = self.val_to_i8ptr(&recv_val, &recv_ty);
                         let (start_val, _) = self.compile_expr(&args[0])?;
@@ -1764,11 +1765,35 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         let tmp = self.fresh_tmp();
                         self.emitln(&format!("  {tmp} = call i8* @xiom_str_slice(i8* {recv_ptr}, i64 {start_val}, i64 {end_val})"));
                         return Ok((tmp, LLVM_STR_PTR.to_string()));
+                        }
+                    }
+                }
+                // Round-6 fix (2026-08-19): Str.substr(start, end) — the stdlib's
+                // substring form (io.parent_path, path.file_name/extension use
+                // `s.substr(0, i)`). It was registered as a builtin Str method but
+                // had NO inline handler: the call fell through to normal method
+                // dispatch, emitted `call i64 @Str.substr(...)` against a def that
+                // never exists — zero-param stub `ret i64 0` — NULL string —
+                // Option[Str] payloads of 0 — 0xC0000005 in every parent_path /
+                // file_name / extension user (the stdlib's "Option[Str] pointer-
+                // payload construction mangles" report). Same lowering as slice.
+                if fn_name == "substr" && args.len() == 2 {
+                    if let Some(receiver) = receiver_expr {
+                        if self.receiver_is_str(receiver) {
+                        let (recv_val, recv_ty) = self.compile_expr(receiver)?;
+                        let recv_ptr = self.val_to_i8ptr(&recv_val, &recv_ty);
+                        let (start_val, _) = self.compile_expr(&args[0])?;
+                        let (end_val, _) = self.compile_expr(&args[1])?;
+                        let tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {tmp} = call i8* @xiom_str_slice(i8* {recv_ptr}, i64 {start_val}, i64 {end_val})"));
+                        return Ok((tmp, LLVM_STR_PTR.to_string()));
+                        }
                     }
                 }
                 // M12/P1: Str.starts_with(prefix) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â prefix check via string.xi.
                 if fn_name == "starts_with" && args.len() == 1 {
                     if let Some(receiver) = receiver_expr {
+                        if self.receiver_is_str(receiver) {
                         let (recv_val, recv_ty) = self.compile_expr(receiver)?;
                         let recv_ptr = self.val_to_i8ptr(&recv_val, &recv_ty);
                         let (prefix_val, prefix_ty) = self.compile_expr(&args[0])?;
@@ -1776,11 +1801,13 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         let tmp = self.fresh_tmp();
                         self.emitln(&format!("  {tmp} = call i1 @xiom_str_starts_with(i8* {recv_ptr}, i8* {prefix_ptr})"));
                         return Ok((tmp, "i1".to_string()));
+                        }
                     }
                 }
                 // M12/P1: Str.ends_with(suffix) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â suffix check.
                 if fn_name == "ends_with" && args.len() == 1 {
                     if let Some(receiver) = receiver_expr {
+                        if self.receiver_is_str(receiver) {
                         let (recv_val, recv_ty) = self.compile_expr(receiver)?;
                         let recv_ptr = self.val_to_i8ptr(&recv_val, &recv_ty);
                         let (suffix_val, suffix_ty) = self.compile_expr(&args[0])?;
@@ -1788,6 +1815,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         let tmp = self.fresh_tmp();
                         self.emitln(&format!("  {tmp} = call i1 @xiom_str_ends_with(i8* {recv_ptr}, i8* {suffix_ptr})"));
                         return Ok((tmp, "i1".to_string()));
+                        }
                     }
                 }
                 // M21: Str.concat(other) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â string concatenation via xiom_str_concat.
@@ -3292,6 +3320,22 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // loaded value so mutations propagate to the caller.
                             let (recv_val, recv_llvm_ty) = if let Some(p0) = callee_pts.as_ref().and_then(|p| p.first()) {
                                 if p0.ends_with('*') && !recv_llvm_ty.ends_with('*') {
+                                    // Round-6 fix (2026-08-19): a Str receiver
+                                    // (`let name = io.file_name(p)?; name.byte_at(i)`)
+                                    // holds a string HANDLE in an i64 slot; the
+                                    // callee's `i8*` param wants the handle VALUE
+                                    // (Str == i8*), NOT the slot address. The
+                                    // address-pass heuristic below is for `&mut T`
+                                    // / `&T` self params (mutation propagation) —
+                                    // firing on Str receivers made byte_at read
+                                    // the string bytes from the slot → garbage →
+                                    // io.extension/path.extension returned None.
+                                    let recv_is_str = matches!(receiver.as_ref(), Expr::Ident(id)
+                                        if self.xiom_type_of_local(&id.name).as_deref() == Some("Str"));
+                                    if recv_is_str {
+                                        let coerced = self.coerce_value(&recv_val, &recv_llvm_ty, p0);
+                                        (coerced, p0.clone())
+                                    } else {
                                     // Unwrap &x / &mut x to find the underlying lvalue.
                                     let inner_ident: Option<&Expr> = match &**receiver {
                                         Expr::Ref(i, _) | Expr::MutRef(i, _) => Some(i.as_ref()),
@@ -3322,6 +3366,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         (ptr_reg, p0.clone())
                                     } else {
                                         (recv_val, recv_llvm_ty)
+                                    }
                                     }
                                 } else {
                                     (recv_val, recv_llvm_ty)

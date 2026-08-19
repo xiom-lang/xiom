@@ -232,6 +232,24 @@ impl IrEmitter {
         }
         None
     }
+
+    /// Round-6 fix (2026-08-19): `let name = io.file_name(p)?;` — the `?`
+    /// (Try) binding keeps the payload XIOM type ("Str") so method dispatch
+    /// on the binding (`name.byte_at(i)`, `name.substr(...)`) coerces the
+    /// i64-slot string handle correctly instead of passing the slot ADDRESS.
+    pub(crate) fn infer_try_xiom_type(&self, value: &Expr) -> Option<String> {
+        let Expr::Try(inner, _) = value else {
+            return None;
+        };
+        match inner.as_ref() {
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+                self.callee_return_xiom(func)
+                    .and_then(|full| Self::option_result_payload(&full))
+            }
+            Expr::Ident(id) => self.local.local_opt_payload.get(&id.name).cloned(),
+            _ => None,
+        }
+    }
     /// BUG 14 fix: true when the expression's XIOM type is an UNSIGNED integer
     /// (UInt8/16/32/64/128) — used to pick `lshr` over `ashr` for right shifts.
     /// Idents resolve through the registered type; casts check the target type

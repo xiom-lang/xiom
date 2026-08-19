@@ -1767,15 +1767,41 @@ impl IrEmitter {
                 // (payload read as i64, Some(v) arm bound 0).
                 let saved_imply_lhs = self.local.in_imply_lhs;
                 self.local.in_imply_lhs = true;
-                let (l, _lt) = self.compile_expr(left)?;
+                let (l, lt) = self.compile_expr(left)?;
                 self.local.in_imply_lhs = saved_imply_lhs;
+                // bi4 fix (2026-08-19): SHORT-CIRCUIT the consequence.
+                // The old code compiled the right side unconditionally and
+                // masked it with `or (!l, r)` — for an Err result the
+                // consequence's payload UNBOX (`result is Ok => result.len()`
+                // inttoptrs the payload slot and loads %struct.Vec) executed
+                // anyway → load from NULL (payload 0) → UB → the Err return
+                // value got corrupted and gzip_decompress returned Ok for
+                // garbage input. The consequence now runs only when the left
+                // side is true; the false path contributes literal 1.
+                let l_i1 = if lt == "i1" {
+                    l.clone()
+                } else {
+                    let t = self.fresh_tmp();
+                    self.emitln(&format!("  {t} = icmp ne {lt} {l}, 0"));
+                    t
+                };
+                let imply_alloca = self.fresh_tmp();
+                self.emitln(&format!("  {imply_alloca} = alloca i64"));
+                // Default TRUE before the branch: the false path skips the
+                // consequence entirely and must read 1 (vacuous implication).
+                self.emitln(&format!("  store i64 1, i64* {imply_alloca}"));
+                let conseq_block = self.fresh_block("imply_conseq");
+                let done_block = self.fresh_block("imply_done");
+                self.emitln(&format!("  br i1 {l_i1}, label %{conseq_block}, label %{done_block}"));
+                self.emitln(&format!("\n{conseq_block}:"));
                 let (r, _rt) = self.compile_expr(right)?;
+                self.emitln(&format!("  store i64 {r}, i64* {imply_alloca}"));
+                self.emitln(&format!("  br label %{done_block}"));
+                self.emitln(&format!("\n{done_block}:"));
+                let loaded = self.fresh_tmp();
+                self.emitln(&format!("  {loaded} = load i64, i64* {imply_alloca}"));
                 self.pop_scope();
-                let tmp1 = self.fresh_tmp();
-                let tmp2 = self.fresh_tmp();
-                self.emitln(&format!("  {tmp1} = xor i64 {l}, 1"));
-                self.emitln(&format!("  {tmp2} = or i64 {tmp1}, {r}"));
-                Ok((tmp2, LLVM_I64.to_string()))
+                Ok((loaded, LLVM_I64.to_string()))
             }
             Expr::Is(expr, pattern, _) => {
                 let (val, ty) = self.compile_expr(expr)?;
@@ -4663,6 +4689,24 @@ impl IrEmitter {
             // and Field module-path shapes above are treated as non-instances).
             _ => true,
         }
+    }
+
+    /// Round-6 fix (2026-08-19): true when the receiver is a real STRING value
+    /// (Str == i8*, or an i64 slot holding a string handle via the `?`/payload
+    /// bindings). Guards the Str builtin handlers (slice/substr/starts_with/
+    /// ends_with) so `p.starts_with(b)` on a Path STRUCT falls through to the
+    /// real method dispatch instead of the Str builtin (which BOXED the Path
+    /// and passed the box address as a string — always false / garbage).
+    pub(crate) fn receiver_is_str(&self, receiver: &Expr) -> bool {
+        if self.infer_llvm_type(receiver) == "i8*" {
+            return true;
+        }
+        if let Expr::Ident(id) = receiver {
+            if self.xiom_type_of_local(&id.name).as_deref() == Some("Str") {
+                return true;
+            }
+        }
+        false
     }
 
     /// BUG 31: LLVM type for a STRUCT FIELD — degrades Unit to i64. The

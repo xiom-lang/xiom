@@ -1,5 +1,47 @@
 # XIOM Compiler Session — Handoff (2026-08-19)
 
+## Session update (2026-08-19, round 6): Imply short-circuit + Try-bound Str payloads + substr handler + Str-builtin guards + path.xi import
+
+Commit: `(pending)` — fix(codegen): round-6 — Imply consequence
+short-circuit, Try-binding payload types, Str.substr inline handler,
+Str-builtin receiver guards, path.xi join_paths import.
+
+The stdlib session's round-6 report (bi3/bi4/pp12/pj5/pj6 + "Option[Str]
+payload construction mangles") turned out to be FIVE compiler roots, all
+fixed; the whole path smoke family went from 13/19 to 19/19 and
+gzip_bad_input unblocked. Details in COMPILER_BUGS.md; probes in
+tmp/bug_probes (bi4, op1, q3/q8, sw2/sw4, pj6/pj10, wfn1-4).
+
+1. **Imply consequence unconditional** — `ensures: result is Ok =>
+   result.len() >= 0` unboxed the payload even for Err (NULL load → UB →
+   corrupted return → gzip_decompress returned Ok for garbage, bi4).
+   Expr::Imply now short-circuits (guarded consequence block + default
+   true store). ALSO fixed the stdlib's "Option[Str] payload mangles"
+   (file_name's Some-ensure was the same unbox-on-None corruption) and
+   unblocked smoke_stress_compress_gzip_bad_input.
+2. **Try-bound Str payloads** — `let name = f()?;` didn't record the
+   payload type; byte_at's receiver heuristic passed the i64 SLOT ADDRESS
+   as the string → extension returned None. infer_try_xiom_type + the
+   call.rs receiver heuristic now skips Str receivers (inttoptr the
+   handle).
+3. **Str.substr inline handler** — substr was a registered builtin with
+   no handler → `@Str.substr` never defined → stub ret 0 → NULL → crashes
+   in every parent_path/file_name user. Now lowers to xiom_str_slice.
+4. **Str-builtin receiver guards** — slice/substr/starts_with/ends_with
+   fired on ANY receiver name match: `p.starts_with(b)` on a Path BOXED
+   the struct and passed the box address as a string (pp12). New
+   receiver_is_str guard falls through to real dispatch.
+5. **path.xi bare join_paths with no import** — catalog body's bare call
+   → no registered key → zero-param stub → NULL → join-chain crash
+   (pj5/pj6 was this, not inline). path.xi now imports xiom.env;
+   path_separator() delegates to env's FAMILY-aware version.
+
+REMAINING (unchanged): closure B-007 (smoke_core_option_map/unwrap fail at
+BASELINE identically), gzip_large __chkstk, crc32 table stack-copy store,
+multi-match payload-slot reuse (queue item 3), Vec[Option[Match]] container
+(item 4), the 142-failure map, catalog-body type-check gap (item C — the
+path.xi bare-name stub shows why it matters).
+
 ## Session update (2026-08-19, round 5): queue item 1 FIXED — gzip/zlib decompress (2 roots) + payload-field unboxing + if-expression Vec arms
 
 Commit: `5ead6463` — fix(codegen): gzip decompress - Result payload-field

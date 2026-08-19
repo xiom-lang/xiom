@@ -189,6 +189,11 @@ impl IrEmitter {
                     // gzip fix (2026-08-19): `let v = if c { f() } else { g() };`
                     // — the binding keeps the arm tail's XIOM type ("Vec[UInt8]").
                     self.local.local_xiom_types.insert(name.name.clone(), ix);
+                } else if let Some(tx) = self.infer_try_xiom_type(value) {
+                    // Round-6 fix (2026-08-19): `let name = f()?;` — the binding
+                    // keeps the Option/Result payload XIOM type ("Str") so
+                    // method dispatch on it works.
+                    self.local.local_xiom_types.insert(name.name.clone(), tx);
                 } else if let Some(px) = self.infer_field_payload_xiom(value) {
                     // gzip-DECOMPRESS fix (2026-08-19): `let v = r.value;` â€”
                     // the binding keeps the Option/Result payload type
@@ -427,6 +432,11 @@ impl IrEmitter {
                     // gzip fix (2026-08-19): `let v = if c { f() } else { g() };`
                     // — the binding keeps the arm tail's XIOM type ("Vec[UInt8]").
                     self.local.local_xiom_types.insert(name.name.clone(), ix);
+                } else if let Some(tx) = self.infer_try_xiom_type(value) {
+                    // Round-6 fix (2026-08-19): `let name = f()?;` — the binding
+                    // keeps the Option/Result payload XIOM type ("Str") so
+                    // method dispatch on it works.
+                    self.local.local_xiom_types.insert(name.name.clone(), tx);
                 } else if let Some(px) = self.infer_field_payload_xiom(value) {
                     // gzip-DECOMPRESS fix (2026-08-19): `let v = r.value;` â€”
                     // the binding keeps the Option/Result payload type
