@@ -1666,6 +1666,10 @@ REMAINING in this area (documented, NOT fixed here):
 - PathBuf push/pop/clear took BY-VALUE self (stale note said &mut unsupported) — pushes mutated a copy and were silent no-ops — converted to &mut self (smoke_stress_pathbuf_push exit 0).
 - Path.ends_with catalog alwaysinline returns wrong despite correct IR + working callee + working user-space replicas (probe pp12). The p.join("a").join("b").join("c") chain + Str comparisons in ONE fn AVs while each piece passes alone (probe pj5/pj6 exit 0, smoke AVs) — a shape-dependent mono issue for the compiler session.
 - &struct param field reads of Str-typed fields return garbage in user space (probe pp9/pp10 — BUG 44 family extension) — Path starts_with/ends_with switched to by-value Path as the stdlib-side dodge.
+### Round-6 findings (2026-08-19) — compress validation + Result field reads
+
+- gzip_decompress([0,1,2]) returns Ok — the validation reads (data.len() < 18, data[0] magic, trailer slices) miscompile for small inputs through the catalog (probe bi4: Err never fires; roundtrips of valid data pass). The bad-input smoke is correct (match-based) and blocked on this.
+- Generic Result/Option first-field reads (esult.is_ok) return the wrong slot through the catalog while match works (bi3) — a field-read-on-erased-container shape for the compiler session.
 ### BUG 53 - &[N]T param element access emits invalid GEP — read FIXED (9757e864) + WRITE facet FIXED (round-3 commit)
 
 - **Construct:** n f(arr: &[5]Int) -> Int { return arr[0]; } ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the fixed-array reference param lowers to [5 x i64]** and element access emits getelementptr [5 x i64]*, [5 x i64]** %p, i64 0, i64 0 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â clang: invalid getelementptr indices. User-space probe (as2) reproduces; array.sort/sort_by and every &[N]T catalog fn is blocked.
