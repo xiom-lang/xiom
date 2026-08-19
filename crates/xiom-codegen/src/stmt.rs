@@ -185,6 +185,16 @@ impl IrEmitter {
                     // BUG 14: `var big = x as UInt128` â€” infer signedness from
                     // the cast target when there is no annotation.
                     self.local.local_xiom_types.insert(name.name.clone(), inferred);
+                } else if let Some(ix) = self.infer_if_xiom_type(value) {
+                    // gzip fix (2026-08-19): `let v = if c { f() } else { g() };`
+                    // — the binding keeps the arm tail's XIOM type ("Vec[UInt8]").
+                    self.local.local_xiom_types.insert(name.name.clone(), ix);
+                } else if let Some(px) = self.infer_field_payload_xiom(value) {
+                    // gzip-DECOMPRESS fix (2026-08-19): `let v = r.value;` â€”
+                    // the binding keeps the Option/Result payload type
+                    // ("Vec[UInt8]") so method dispatch/indexing/&passing on it
+                    // work (was untyped â†’ degraded to Str/i64 â†’ AV).
+                    self.local.local_xiom_types.insert(name.name.clone(), px);
                 } else if let Some(rt) = self.infer_call_return_xiom(value) {
                     // BUG 52: `var m = make_map()` â€” a local bound to a fn
                     // call keeps the callee's declared return type ("Map[Str,
@@ -413,6 +423,16 @@ impl IrEmitter {
                     // BUG 14: `var big = x as UInt128` â€” infer signedness from
                     // the cast target when there is no annotation.
                     self.local.local_xiom_types.insert(name.name.clone(), inferred);
+                } else if let Some(ix) = self.infer_if_xiom_type(value) {
+                    // gzip fix (2026-08-19): `let v = if c { f() } else { g() };`
+                    // — the binding keeps the arm tail's XIOM type ("Vec[UInt8]").
+                    self.local.local_xiom_types.insert(name.name.clone(), ix);
+                } else if let Some(px) = self.infer_field_payload_xiom(value) {
+                    // gzip-DECOMPRESS fix (2026-08-19): `let v = r.value;` â€”
+                    // the binding keeps the Option/Result payload type
+                    // ("Vec[UInt8]") so method dispatch/indexing/&passing on it
+                    // work (was untyped â†’ degraded to Str/i64 â†’ AV).
+                    self.local.local_xiom_types.insert(name.name.clone(), px);
                 } else if let Some(rt) = self.infer_call_return_xiom(value) {
                     // BUG 52: `var m = make_map()` â€” a local bound to a fn
                     // call keeps the callee's declared return type ("Map[Str,

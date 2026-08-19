@@ -2427,6 +2427,61 @@ impl IrEmitter {
         }
     }
 
+    /// gzip-DECOMPRESS fix (2026-08-19): resolve the declared payload XIOM type
+    /// of a payload-FIELD access on an Option/Result-typed expression
+    /// (`r.value`, `r.error`, `opt.value`). Mirrors scrutinee_payload_xiom but
+    /// for Field receivers instead of match scrutinees — the BUG 55 facet-2 fix
+    /// covered match arms, NOT this shape (`let decompressed = decoded.value;`
+    /// in compress.xi gzip_decompress; `let c = ch.value;` in Path.parent).
+    /// Order: local_opt_payload (boxed/container payloads from call bindings),
+    /// local_opt_payload_xiom (inline scalars), local_err_payload (error side),
+    /// then the receiver's registered declared type ("Result[Vec[UInt8], Str]"
+    /// from params/annotated locals) parsed via the bracket-aware extractors.
+    fn field_payload_xiom(&self, obj: &Expr, field_name: &str) -> Option<String> {
+        let is_err_field = field_name == "error";
+        let is_value_field = field_name == "value";
+        if !is_err_field && !is_value_field {
+            return None;
+        }
+        match obj {
+            Expr::Ident(sid) => {
+                if is_err_field {
+                    if let Some(e) = self.local.local_err_payload.get(&sid.name) {
+                        return Some(e.clone());
+                    }
+                } else {
+                    if let Some(p) = self.local.local_opt_payload.get(&sid.name) {
+                        return Some(p.clone());
+                    }
+                    if let Some(p) = self.local.local_opt_payload_xiom.get(&sid.name) {
+                        return Some(p.clone());
+                    }
+                }
+                // Fallback: the local's declared type (params and annotated
+                // let/var bindings record the FULL "Result[Vec[UInt8], Str]").
+                if let Some(decl) = self.local.local_xiom_types.get(&sid.name) {
+                    if decl.starts_with("Option[") || decl.starts_with("Result[") {
+                        if is_err_field {
+                            return Self::option_result_err_payload(decl);
+                        }
+                        return Self::option_result_payload(decl);
+                    }
+                }
+                None
+            }
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+                let full = self.callee_return_xiom(func)?;
+                if is_err_field {
+                    Self::option_result_err_payload(&full)
+                } else {
+                    Self::option_result_payload(&full)
+                }
+            }
+            Expr::Paren(inner, _) => self.field_payload_xiom(inner, field_name),
+            _ => None,
+        }
+    }
+
     fn resolve_vec_elem_type(&self, container: &Expr) -> Option<String> {
         // 5c.30: local Vec bindings (`var v = Vec[Point2D].new()`): the elem
         // type was recorded at the let/var binding. Only struct element types

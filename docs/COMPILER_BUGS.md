@@ -1601,6 +1601,65 @@ compiler-side list above is the compiler's share.
 
 - After BUG 55 facet-2 + BUG 56 fixes: the intermediate Result[Vec] rewrap (cz2) and unsafe ctx capture (vg10) PASS in user space, and gzip_COMPRESS works in the catalog (gz9 exit 0), but gzip_DECOMPRESS crashes the program BEFORE the first statement (gz12 probe: println before the call never fires; exit 0xC0000005). deflate (rle_decode direct return) passes. The catalog mono of gzip_decompress (header scan + trailer UInt arithmetic + crc32 table lazy-init) is the trigger — bisecting further needs the compiler session's IR-diff skills; user-space replicas of the same logic pass (cz1/cz2).
 - Same family suspects: smoke_stress_io_parent_file_name (Path.parent returns None — the ch.is_some { let c = ch.value; } payload-field pattern in a loop — NOT the match-scrutinee shape the facet-2 fix covered) and smoke_array_sort_by (closure comparator — B-007 documented layer).
+### Compress gzip/zlib decompress — catalog-only crash FIXED (2026-08-19, round-4 commit)
+
+THREE coordinated root causes, all verified with fresh probes in tmp/bug_probes
+(gz12/gz12d/gz12k now exit 0; gz12m2 payload bytes are real; e2e
+`e2e_m37_gzip_roundtrip`):
+
+1. **Result-payload FIELD access never unboxed (`decoded.value`).** The
+   `let decompressed = decoded.value;` shape (payload-FIELD on an
+   Option/Result LOCAL — NOT a match scrutinee) bound the raw BOXED POINTER
+   as an i64: `&decompressed` then passed the i64 SLOT ADDRESS as
+   `%struct.Vec*`, so crc32 read stack garbage as len/elem_size → 8-byte
+   element loads → 0xC0000005 inside gzip_decompress. (The "crashes before
+   the first statement" claim was a stdout-buffering artifact: puts output
+   was lost on the AV.) Fixes: new `field_payload_xiom` (lib.rs, mirrors
+   scrutinee_payload_xiom: local_opt_payload → local_opt_payload_xiom /
+   local_err_payload → the receiver's declared type), the Field arm in
+   expr.rs now unboxes container/struct payloads (inttoptr + load
+   %struct.Vec) and covers `is_result.value` (was missing — only
+   option.value/result.error reinterpretted), Option/Result PARAMS now
+   track payload types in decl.rs (type_from_ast renders bare "Result"),
+   and let/var bindings record the payload XIOM type via
+   infer_field_payload_xiom (emitter.rs/stmt.rs) so `.len()`/indexing
+   dispatch correctly.
+2. **If-expression result slot hardcoded i64.** `let compressed = if
+   level == 0 { _store_encode(data) } else { rle_encode(data) };` coerced
+   the %struct.Vec VALUE to field-0-as-i64 (the data pointer): 
+   `compressed.len()` became xiom_str_len(data_ptr) and `compressed[i]`
+   compiled to a LITERAL 0 → gzip payload of six zero bytes → decode
+   produced 3 zero bytes (and the CRC/size checks passed vacuously against
+   the same broken crc32). Fix: the Expr::If result type is inferred from
+   the arm tails (all-agree struct > pointer > all-agree float > i64), and
+   infer_if_xiom_type records the arm-tail XIOM type on the binding.
+   ALSO fixes Float64-valued if-expressions (`return if c { 1.5 } else {
+   2.5 };` — was bitcast-to-i64 + sitofp → wrong value).
+3. **Param payload tracking** (decl.rs) — see #1; without it the
+   `use_payload(r: Result[Vec[UInt8], Str])` param shape never resolved.
+
+Verified: probe battery (gz9/12/12d/12e/12f/12h/12u/12m2, field_probe,
+ifexpr_probe incl. Float64 arms) exit 0; stdlib smokes
+smoke_compress / gzip_roundtrip / zlib_roundtrip / gzip_levels /
+compound / deflate_roundtrip exit 0; checker 178, parser 97, ctfe 97,
+feature-reg 510, stdlib-exec 70(+2 ignored), stdlib_tests 40.
+
+REMAINING in this area (documented, NOT fixed here):
+- smoke_stress_compress_gzip_large: pre-existing 0xC0000005 in __chkstk
+  (huge stack alloca — reproduces at baseline; separate queue item).
+- smoke_stress_compress_gzip_empty / gzip_bad_input: the facade's
+  `requires: data.len() > 0` / `>= 18` contracts PANIC instead of letting
+  the fn return Err — the smokes expect Err returns; stdlib-side decision
+  (relax the requires or change the smokes).
+- The [256]UInt module-global crc table lazy-init STILL writes the STACK
+  COPY (module-global ARRAY element stores go to a copied alloca, never
+  the global) — the CRC is deterministic garbage but self-consistent for
+  round-trips; gzip_crc32's public value is WRONG vs real gzip. Same
+  family as BUG 2 (module-global field writes) but for array elements.
+- The contract-ensure unbox (`result is Ok => result.len() >= 0`) loads
+  the payload UNCONDITIONALLY — for an Err result it inttoptrs 0 and
+  loads from NULL (swallowed by the guard-fault trap today; latent).
+
 ### BUG 53 - &[N]T param element access emits invalid GEP — read FIXED (9757e864) + WRITE facet FIXED (round-3 commit)
 
 - **Construct:** n f(arr: &[5]Int) -> Int { return arr[0]; } ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the fixed-array reference param lowers to [5 x i64]** and element access emits getelementptr [5 x i64]*, [5 x i64]** %p, i64 0, i64 0 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â clang: invalid getelementptr indices. User-space probe (as2) reproduces; array.sort/sort_by and every &[N]T catalog fn is blocked.
