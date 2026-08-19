@@ -2,10 +2,12 @@
 
 ## Session update (2026-08-19, round 5): queue item 1 FIXED — gzip/zlib decompress (2 roots) + payload-field unboxing + if-expression Vec arms
 
-Commit: `(pending)` — fix(codegen): gzip decompress payload-field unboxing +
-if-expression result type + param payload tracking. E2E 2279/2279 (+1 new
-`e2e_m37_gzip_roundtrip`), checker 178, parser 97, ctfe 97, feature-reg 510,
-stdlib-exec 70 (+2 ignored), stdlib_tests 40.
+Commit: `5ead6463` — fix(codegen): gzip decompress - Result payload-field
+unboxing + if-expression Vec arms. E2E 2279/2279 (+1 new
+`e2e_m37_gzip_roundtrip`; the only later failure, e2e_m16_scripting_exit_zero,
+is a Windows Defender temp-dir heuristic that reproduces at BASELINE),
+checker 178, parser 97, ctfe 97, feature-reg 510, stdlib-exec 70 (+2
+ignored), stdlib_tests 40.
 
 ### Queue item 1 — gzip_DECOMPRESS catalog crash: FIXED (two+one roots)
 
