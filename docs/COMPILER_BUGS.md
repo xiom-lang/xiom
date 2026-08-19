@@ -1659,6 +1659,75 @@ REMAINING in this area (documented, NOT fixed here):
 - The contract-ensure unbox (`result is Ok => result.len() >= 0`) loads
   the payload UNCONDITIONALLY — for an Err result it inttoptrs 0 and
   loads from NULL (swallowed by the guard-fault trap today; latent).
+### Round-6 findings FIXED (2026-08-19, round-6 commit) — Imply short-circuit, Try-bound Str payloads, substr handler, Str-builtin receiver guards, path.xi import
+
+FIVE coordinated root causes, all reproduced with fresh probes in
+tmp/bug_probes (bi4/bi4u, op1, q3/q8, sw2/sw4, pj6/pj10 — all exit 0; the
+full path smoke family 19/19; e2e `e2e_m37_round6_path_gzip`):
+
+1. **Imply consequence compiled UNCONDITIONALLY (bi4).** `ensures: result
+   is Ok => result.len() >= 0` — the old code compiled the consequence
+   inline and masked it with `or (!l, r)`: for an Err result the
+   consequence's payload UNBOX (inttoptr 0 + load %struct.Vec) executed
+   anyway → load from NULL → UB → the Err return value got corrupted →
+   gzip_decompress returned Ok for garbage input (the stdlib's bi4:
+   "Err path never fires"). The Expr::Imply emission now short-circuits:
+   the consequence compiles inside a guarded block (imply_conseq) with a
+   DEFAULT TRUE store on the false path (imply_done reads the alloca).
+   ALSO unblocked: smoke_stress_compress_gzip_bad_input (was blocked on
+   bi4), and the stdlib's "Option[Str] payload construction mangles"
+   report (file_name's `ensures: result is Some => result.len() > 0` was
+   the same unbox-on-None corruption).
+2. **Try-bound Str payloads (q3/q8).** `let name = io.file_name(p)?;` —
+   the `?` binding stored the payload in an i64 slot WITHOUT recording
+   the XIOM type; `name.byte_at(i)` then took the method-call receiver
+   heuristic "p0 ends with * → pass the SLOT ADDRESS" (i8* param of
+   byte_at) → the slot address was read as the string → garbage → the
+   while loop never found the '.' → io.extension/path.extension returned
+   None. Fixes: infer_try_xiom_type records the payload type on `let x =
+   f()?;` bindings (stmt.rs/emitter.rs), and the receiver-heuristic in
+   call.rs skips Str receivers (xiom_type_of_local == "Str" → coerce the
+   i64 handle to i8* via inttoptr instead of passing the slot address).
+3. **Str.substr had NO inline handler (op1/iop7/iop8).** The stdlib's
+   substring form (`s.substr(0, i)` in io.parent_path, path.file_name/
+   extension) was registered as a builtin Str method but the call fell
+   through to normal dispatch → `call i64 @Str.substr(...)` against a def
+   that never exists → zero-param stub `ret i64 0` → NULL string →
+   Option[Str] payloads of 0 → 0xC0000005 (the stdlib's "Option[Str]
+   pointer-payload construction mangles"). substr now lowers to
+   xiom_str_slice exactly like the existing slice handler.
+4. **Str builtin handlers hijacked non-Str receivers (sw2/sw4/pp12).**
+   `p.starts_with(b)` on a Path STRUCT matched the Str.starts_with builtin
+   (name-only dispatch): the %struct.Path got BOXED (val_to_i8ptr struct
+   path) and the BOX ADDRESS passed as the string → always false (the
+   stdlib's pp12 "alwaysinline returns wrong with correct IR"). All four
+   handlers (slice/substr/starts_with/ends_with) now verify the receiver
+   is really a Str (receiver_is_str: infer_llvm_type == i8*, or an
+   Ident whose XIOM type is Str) and fall through to real method dispatch
+   otherwise.
+5. **path.xi called bare `join_paths` with NO import (pj6/pj10).** The
+   catalog body's bare call resolved to no registered key → the call-site
+   fallback emitted the bare symbol → zero-param stub `ret i64 0` → NULL
+   → the join-chain smoke crashed (the stdlib's pj5/pj6 "join-chain AV"
+   report was this stub, not an inline issue). path.xi now `use xiom.env;`
+   (env.join_paths is FAMILY-aware) and path_separator() delegates to
+   env.path_separator() (was hardcoded "/" while join produced "\" — the
+   smoke mismatch). The catalog-body type-check gap (item C) is what let
+   the undefined bare name slip through silently.
+
+Verified: probes bi4/bi4u/op1/q3/q4/q5/q8/iop4-9/sw1-4/pj1-10/wfn1-4 exit 0;
+path smoke family 19/19 (incl. smoke_io_path, join, pop_clear,
+starts_ends_with, with_extension, with_file_name — the last three needed
+stdlib smoke fixes: separator-aware comparisons and as_path().file_name());
+compress smokes incl. gzip_bad_input green; checker 178, parser 97, ctfe 97,
+feature-reg 510, stdlib-exec 70(+2), stdlib_tests 40; e2e pending.
+
+STDLIB smoke fixes included in this round (examples/stdlib_smoke):
+smoke_stress_path_extension (.hidden → None — Rust semantics, the impl was
+right), smoke_stress_path_with_extension (separator-aware expectations),
+smoke_stress_path_with_file_name (PathBuf has no file_name — use
+as_path()). smoke_core_option_map / smoke_core_option_unwrap fail at
+BASELINE identically (B-007 closure layer — unchanged).
 
 ### Round-6 findings (2026-08-19) — path family
 

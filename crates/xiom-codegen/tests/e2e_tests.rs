@@ -4476,4 +4476,12 @@ fn e2e_safety_probe() {
 // ============================================================================
 #[test] fn e2e_m37_gzip_roundtrip() { assert_eq!(compile_and_run("tests\\regression\\m37_gzip_roundtrip.xi"), Some(0)); }
 
+// ============================================================================
+// Round 6 (2026-08-19): Imply short-circuit (gzip validation Err path),
+// Try-binding Str payloads + byte_at receiver, substr inline handler,
+// Str-builtin receiver guards, path.xi join_paths import.
+// ============================================================================
+#[test] fn e2e_m37_round6_path_gzip() { assert_eq!(compile_and_run("tests\\regression\\m37_round6_path_gzip.xi"), Some(0)); }
+
+
 
