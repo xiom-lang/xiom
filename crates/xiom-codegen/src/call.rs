@@ -2578,17 +2578,36 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 let is_generic = self.mono.generic_fn_decls.iter().any(|(k, _)| k == &fn_key)
                     || (!self.types.functions.contains_key(&fn_key)
                         && (self.mono.generic_fn_decls.iter().any(|(k, _)| k.ends_with(&format!(".{}", fn_key)))
-                            // BUG 38b (iter family): RECEIVER-KEYED generic methods â€”
+                            // BUG 38b (iter family): RECEIVER-KEYED generic methods —
                             // `iter.range(1, 4).collect()` resolves fn_key to
                             // "Range.collect", but the generic decl is registered
                             // as "Iterator[T].collect". Match on the LEAF method
                             // name so the call enters monomorphisation with the
                             // concrete receiver instead of calling the erased
-                            // i64-receiver definition (ABI mismatch â†’ garbage).
+                            // i64-receiver definition (ABI mismatch → garbage).
+                            //
+                            // round-7 (ve2 regression): the leaf match must only
+                            // fire when the fn_key's RECEIVER part is an ABSTRACT
+                            // (unregistered) type. A registered receiver means the
+                            // call is `{KnownType}.{method}` — a "Graph.push" key
+                            // (base type of a `g.edges.push(...)` FIELD receiver)
+                            // must NOT be hijacked onto the injected "Vec.push"
+                            // decl (mono'd @Graph.push_Int with a literal-0
+                            // receiver → invalid IR). find_generic_decl's
+                            // abstract-receiver preference uses the same rule.
                             || (fn_key.split('.').count() == 2
-                                && self.mono.generic_fn_decls.iter().any(|(k, _)| {
-                                    k.rsplit('.').next() == fn_key.rsplit('.').next()
-                                }))));
+                                && {
+                                    let recv_part = fn_key.rsplit_once('.').map(|(r, _)| r).unwrap_or("");
+                                    let recv_is_abstract = !recv_part.is_empty()
+                                        && !self.types.types.contains_key(&recv_part.to_string())
+                                        && !self.types.type_meta.contains_key(&recv_part.to_string())
+                                        && !self.types.type_meta.keys().into_iter().any(|k| k.ends_with(&format!(".{}", recv_part)))
+                                        && !self.types.generic_type_names.iter().any(|k| k == recv_part || k.ends_with(&format!(".{}", recv_part)));
+                                    recv_is_abstract
+                                        && self.mono.generic_fn_decls.iter().any(|(k, _)| {
+                                            k.rsplit('.').next() == fn_key.rsplit('.').next()
+                                        })
+                                })));
                 if is_generic {
                     // Infer concrete types from argument types
                     let mut concrete_types: Vec<String> = Vec::new();

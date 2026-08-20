@@ -346,6 +346,13 @@ impl IrEmitter {
                 }
             }
             if let Some(base_ty) = self.infer_struct_type_name(base) {
+                // round-7 (ve2 regression): two structs can share a leaf name
+                // (collect.Graph vs math.graph_theory.Graph) — the OLD loop
+                // `break`t at the FIRST suffix-matching key, so a field of the
+                // OTHER type ("edges" of graph_theory.Graph) was never found
+                // and `g.edges.push(...)` missed the inline Vec handler (fell
+                // into the generic leaf-match → @Graph.push_Int mono with a
+                // literal 0 receiver → invalid IR). Search ALL matching keys.
                 for key in self.types.type_meta.keys() {
                     if key.ends_with(&base_ty) || key == base_ty {
                         if let Some(meta) = self.types.type_meta.get(&key) {
@@ -355,7 +362,6 @@ impl IrEmitter {
                                 }
                             }
                         }
-                        break;
                     }
                 }
             }

@@ -1659,7 +1659,7 @@ REMAINING in this area (documented, NOT fixed here):
 - The contract-ensure unbox (`result is Ok => result.len() >= 0`) loads
   the payload UNCONDITIONALLY — for an Err result it inttoptrs 0 and
   loads from NULL (swallowed by the guard-fault trap today; latent).
-### Round-7 finding (2026-08-20) — inlined Vec.pop + match Option slot (probe ve2)
+### Round-7 finding FIXED (2026-08-20) — inlined Vec.pop + match Option slot (probe ve2); Vec/Set/Slice method injection + pointer arithmetic
 
 - **Construct:** inlined `Vec.pop` on an EMPTY vec returns Some at runtime
   while the emitted IR is fully correct (len==0 → `Option{tag=0, payload=0}`)
@@ -1676,6 +1676,82 @@ REMAINING in this area (documented, NOT fixed here):
   `Option{tag=0}` that is `alwaysinline` and matched by the caller; diff
   the inlined vs non-inlined scrutinee alloca handling in expr.rs's
   match-check code.
+
+**RESOLVED — FOUR compiler roots (round-7 commits, e2e
+`e2e_m37_round7_vec_pop_slot`):**
+
+1. **Vec/Set/Slice methods were NEVER injected** (checker
+   `collect_external_decls`): `recv_is_nonpub_generic` skipped methods on
+   non-pub generic receivers — correct for `BinaryHeap[T]`, but Vec/Set/
+   Slice are COMPILER-BUILTIN generic types whose type decl is in
+   PRIMITIVES (never injected), so ALL their methods vanished:
+   - the six INLINE builtins (new/push/pop/get/len/sort/set) still worked
+     at call time via call.rs inline handlers — but `struct_type_from_expr`
+     → `resolve_struct_return` found NOTHING for bare "pop" (Vec methods
+     register in NEITHER functions NOR generic_fn_decls) → no scrutinee
+     alloca → the Some/None check blocks became unconditional branches →
+     the match always took the FIRST arm (Some on empty = ve2). Vec.get
+     worked only by LUCK (the ".get" suffix happened to land on
+     Map.get, also Option-returning).
+   - every NON-inline Vec method (first/last/clear/reserve/extend/
+     insert/remove/truncate/...) compiled to a ZERO-PARAM STUB
+     (`define i64 @Vec.first() { ret 0 }`) — smoke_collections_vec_
+     first_last and every vec method beyond the six inline ones were
+     broken. Fix: exempt PRIMITIVES receivers from recv_is_nonpub_generic
+     (xiom-check/src/lib.rs) — Vec/Set/Slice methods now inject and
+     monomorphise like Map's.
+2. **`resolve_struct_return` suffix search took the FIRST match and gave
+   up** — a ".pop" suffix could resolve to a non-Option-returning decl and
+   return None even when a later match returned Option. Now scans all
+   suffix matches for an Option/Result return.
+3. **Mono'd Vec-method bodies broke on pointer arithmetic** (new exposure
+   once Vec.first/last/insert/remove mono'd): the BUILTIN Vec type_meta
+   registers `data` as "*UInt8" (i8*), so a mono'd body's `*(data + len -
+   1)` (a) hit the Str+Int CONCAT intercept (xiom_str_concat of the buffer
+   + len — garbage) and (b) even past that, `*T + i64` lowered via
+   ptrtoint/add/inttoptr — element-UNSCALED + BYTE load. Three coordinated
+   fixes: mono receiver-field binding types Vec.data as the CONCRETE
+   element pointer (i64* for Vec[Int]; i8* kept for struct/enum/pointer
+   elements) + records its XIOM type ("*Int") so the concat gate
+   (`expr_is_pointer`) skips buffers; BinOp Add/Sub now emits
+   `getelementptr` for pointer operands (element-scaled; Sub negates the
+   index) in BOTH the main path and the iterative fold path; the concat
+   intercept only fires when the i8* operand is a Str and the other side
+   is an integer (Str+Str / Str+buffer keep concatenation).
+4. **BUG 38b leaf-match hijack (regression caught by stdlib-exec
+   smoke_collect_cache):** with Vec.push now registered, the is_generic
+   leaf-name match made `g.edges.push(...)` (fn_key "Graph.push" — base
+   type of the FIELD receiver) resolve to the "Vec.push" decl → mono'd
+   @Graph.push_Int with a LITERAL-0 receiver → clang "integer constant
+   must have integer type". The leaf match now requires the fn_key's
+   receiver part to be an ABSTRACT (unregistered) type — exactly the rule
+   find_generic_decl already uses for Iterator[T].collect. ALSO fixed
+   `is_container_vec_field` to search ALL type_meta keys (two structs can
+   share a leaf name — collect.Graph vs math.graph_theory.Graph — the old
+   loop broke at the first suffix match and missed the other type's
+   fields).
+
+Verified: probes ve2/ve2b/ve2d/ve2e; smoke_collections_vec_edge,
+smoke_stress_collections_vec_first_last, smoke_stress_collections_slice,
+smoke_iter (leaf-match guard), smoke_collect_cache, 20-smoke Vec/collections
+battery; stdlib-exec 70/70 (+2 ignore); e2e `e2e_m37_round7_vec_pop_slot`
++ round6/gzip regressions; checker 178, parser 97, ctfe 97, feature-reg 510.
+
+FOLLOW-UPS (pre-existing, logged — NOT regressions):
+- smoke_collections_set_basic / set_ops: the compiler treats Set as an
+  i64-handle CONTAINER builtin while the stdlib declares `type Set[T] =
+  { items: Vec[T] }` (struct) — `Set[Int].new()` resolves the bare "new"
+  leaf to another type's ctor (Reverse.new/Vec.new by iteration order).
+  Failing at baseline (different failure modes); needs a compiler-side
+  decision on the Set container ABI or inline Set handlers.
+- smoke_collections_vec_narrow exit 5: inline pop/get on SIGNED narrow
+  elements (Int16 -30000) zext the bit pattern (35536) instead of
+  sign-extending (emit_elem_payload_load) — pre-existing, untouched.
+- math/graph_theory.Graph vs collect.Graph bare-name type collision: the
+  first registration (keep-first) wins the bare "Graph" layout; the other
+  module's functions compile against the wrong field offsets (their
+  `g.edges.push` stays a no-op stub — graph_theory fns were dead code at
+  baseline too).
 
 ### Round-6 findings FIXED (2026-08-19, round-6 commit) — Imply short-circuit, Try-bound Str payloads, substr handler, Str-builtin receiver guards, path.xi import
 
