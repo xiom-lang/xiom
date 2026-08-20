@@ -934,6 +934,9 @@ impl crate::IrEmitter {
         }
         if let Expr::Field(base, field_expr, _) = container {
             if let Some(base_ty) = self.infer_struct_type_name(base) {
+                // round-7 (ve2 regression): two structs can share a leaf name —
+                // search ALL suffix-matching keys (the old loop broke at the
+                // first match, missing fields of the other type).
                 for key in self.types.type_meta.keys() {
                     if key.ends_with(&base_ty) || key == &base_ty {
                         if let Some(meta) = self.types.type_meta.get(key) {
@@ -943,7 +946,6 @@ impl crate::IrEmitter {
                                 }
                             }
                         }
-                        break;
                     }
                 }
             }

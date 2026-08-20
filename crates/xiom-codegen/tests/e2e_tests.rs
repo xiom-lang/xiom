@@ -4483,5 +4483,17 @@ fn e2e_safety_probe() {
 // ============================================================================
 #[test] fn e2e_m37_round6_path_gzip() { assert_eq!(compile_and_run("tests\\regression\\m37_round6_path_gzip.xi"), Some(0)); }
 
+// ============================================================================
+// Round 7 (2026-08-20): inlined Vec.pop + match Option slot on an EMPTY vec
+// (bare "pop" resolved to no registered key → no scrutinee alloca → the match
+// took the Some arm unconditionally). Root: Vec/Set/Slice methods were never
+// injected (non-pub generic receivers whose type decl is a compiler builtin),
+// so Vec.first/last/clear/insert/remove were zero-param stubs and the inline
+// builtins' match scrutinees resolved to nothing. Also covers the mono'd
+// Vec-method pointer arithmetic (GEP element scaling + element-width loads)
+// and the *UInt8 buffer concat gate.
+// ============================================================================
+#[test] fn e2e_m37_round7_vec_pop_slot() { assert_eq!(compile_and_run("tests\\regression\\m37_round7_vec_pop_slot.xi"), Some(0)); }
+
 
 

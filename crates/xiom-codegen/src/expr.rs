@@ -117,13 +117,49 @@ impl IrEmitter {
         // first; replicate the check here for the iterative fold path. Integer
         // operands are formatted via @xiom_int_to_string (not inttoptr — garbage
         // pointer + AV), decided by the XIOM-level type verdict.
-        if matches!(op, BinOp::Add) && (lt == "i8*" || rt == "i8*") {
-            let lp = self.concat_val_to_i8ptr(l, lt, self.expr_is_integer(l_expr));
-            let rp = self.concat_val_to_i8ptr(r, rt, self.expr_is_integer(r_expr));
-            let res = self.fresh_tmp();
-            self.emitln(&format!("  {res} = call i8* @xiom_str_concat(i8* {lp}, i8* {rp})"));
-            return Ok((res, LLVM_STR_PTR.to_string()));
-        }
+                if matches!(op, BinOp::Add) && (lt == "i8*" || rt == "i8*")
+                    && !((lt == "i8*" && self.expr_is_pointer(l_expr) && self.expr_is_integer(r_expr))
+                        || (rt == "i8*" && self.expr_is_pointer(r_expr) && self.expr_is_integer(l_expr))) {
+                    let lp = self.concat_val_to_i8ptr(&l, &lt, self.expr_is_integer(l_expr));
+                    let rp = self.concat_val_to_i8ptr(&r, &rt, self.expr_is_integer(r_expr));
+                    let res = self.fresh_tmp();
+                    self.emitln(&format!("  {res} = call i8* @xiom_str_concat(i8* {lp}, i8* {rp})"));
+                    return Ok((res, LLVM_STR_PTR.to_string()));
+                }
+                // Pointer arithmetic: `p + i` / `p - i` on a REAL pointer
+                // (i64*/i32*/%struct.X*/double*... — the i8* Str case was caught
+                // by the concat intercept above) must GEP-scale by the ELEMENT
+                // size, not integer-add the raw index to the pointer bits. The
+                // old ptrtoint/add/inttoptr lowering also lost the pointee type,
+                // so `*(p + 1)` loaded a BYTE instead of the element (round-7
+                // ve2 follow-up: mono'd Vec.first/last/insert/remove bodies do
+                // `*(data + len - 1)` — byte offsets + byte loads on Vec[Int]).
+                if matches!(op, BinOp::Add | BinOp::Sub) {
+                    let (pval, pty, ival, ity) = if lt.ends_with('*') && !rt.ends_with('*') {
+                        (l.to_string(), lt.to_string(), r.to_string(), rt.to_string())
+                    } else if rt.ends_with('*') && !lt.ends_with('*') {
+                        (r.to_string(), rt.to_string(), l.to_string(), lt.to_string())
+                    } else {
+                        ("".to_string(), String::new(), "".to_string(), String::new())
+                    };
+                    if !pty.is_empty() {
+                        let pointee = pty.strip_suffix('*').unwrap_or(&pty).to_string();
+                        let idx = if ity == "i64" { ival.clone() } else {
+                            let w = self.fresh_tmp();
+                            self.emitln(&format!("  {w} = sext {ity} {ival} to i64"));
+                            w
+                        };
+                        let gep = self.fresh_tmp();
+                        if matches!(op, BinOp::Sub) {
+                            let neg = self.fresh_tmp();
+                            self.emitln(&format!("  {neg} = sub i64 0, {idx}"));
+                            self.emitln(&format!("  {gep} = getelementptr {pointee}, {pty} {pval}, i64 {neg}"));
+                        } else {
+                            self.emitln(&format!("  {gep} = getelementptr {pointee}, {pty} {pval}, i64 {idx}"));
+                        }
+                        return Ok((gep, pty));
+                    }
+                }
         let is_float = lt == "float" || lt == "double" || lt == "fp128" || rt == "float" || rt == "double" || rt == "fp128";
         let float_ty = if lt == "float" || rt == "float" { "float" } else if lt == "fp128" || rt == "fp128" { "fp128" } else { "double" };
         let is_add_sub_mul = matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul);
@@ -1157,12 +1193,52 @@ impl IrEmitter {
                 // Fires when EITHER operand is a Str pointer (the other side is
                 // coerced to i8*), which also keeps IR valid where a Str-returning
                 // callee was resolved to a fallback i64 signature.
-                if matches!(op, BinOp::Add) && (lt == "i8*" || rt == "i8*") {
+                // round-7 (ve2): a *UInt8 byte buffer is ALSO i8* at the ABI but
+                // must stay POINTER arithmetic — expr_is_pointer gates it out
+                // (only when the other operand is an integer; Str+Str and
+                // Str+buffer shapes keep concatenation).
+                if matches!(op, BinOp::Add) && (lt == "i8*" || rt == "i8*")
+                    && !((lt == "i8*" && self.expr_is_pointer(left) && self.expr_is_integer(right))
+                        || (rt == "i8*" && self.expr_is_pointer(right) && self.expr_is_integer(left))) {
                     let lp = self.concat_val_to_i8ptr(&l, &lt, self.expr_is_integer(left));
                     let rp = self.concat_val_to_i8ptr(&r, &rt, self.expr_is_integer(right));
                     let res = self.fresh_tmp();
                     self.emitln(&format!("  {res} = call i8* @xiom_str_concat(i8* {lp}, i8* {rp})"));
                     return Ok((res, LLVM_STR_PTR.to_string()));
+                }
+                // Pointer arithmetic: `p + i` / `p - i` on a REAL pointer
+                // (i64*/i32*/%struct.X*/double*/i8*-byte-buffer...) must
+                // GEP-scale by the ELEMENT size, not integer-add the raw index
+                // to the pointer bits. The old ptrtoint/add/inttoptr lowering
+                // also lost the pointee type, so `*(p + 1)` loaded a BYTE
+                // instead of the element (round-7 ve2 follow-up: mono'd
+                // Vec.first/last/insert/remove bodies do `*(data + len - 1)` —
+                // byte offsets + byte loads on Vec[Int]).
+                if matches!(op, BinOp::Add | BinOp::Sub) {
+                    let (pval, pty, ival, ity) = if lt.ends_with('*') && !rt.ends_with('*') {
+                        (l.clone(), lt.clone(), r.clone(), rt.clone())
+                    } else if rt.ends_with('*') && !lt.ends_with('*') {
+                        (r.clone(), rt.clone(), l.clone(), lt.clone())
+                    } else {
+                        ("".to_string(), String::new(), "".to_string(), String::new())
+                    };
+                    if !pty.is_empty() {
+                        let pointee = pty.strip_suffix('*').unwrap_or(&pty).to_string();
+                        let idx = if ity == "i64" { ival.clone() } else {
+                            let w = self.fresh_tmp();
+                            self.emitln(&format!("  {w} = sext {ity} {ival} to i64"));
+                            w
+                        };
+                        let gep = self.fresh_tmp();
+                        if matches!(op, BinOp::Sub) {
+                            let neg = self.fresh_tmp();
+                            self.emitln(&format!("  {neg} = sub i64 0, {idx}"));
+                            self.emitln(&format!("  {gep} = getelementptr {pointee}, {pty} {pval}, i64 {neg}"));
+                        } else {
+                            self.emitln(&format!("  {gep} = getelementptr {pointee}, {pty} {pval}, i64 {idx}"));
+                        }
+                        return Ok((gep, pty));
+                    }
                 }
                 let is_float = self.is_float_expr(left) || self.is_float_expr(right)
                     || lt == "float" || lt == "double" || lt == "fp128" || rt == "float" || rt == "double" || rt == "fp128";

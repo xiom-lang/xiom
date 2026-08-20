@@ -654,6 +654,58 @@ impl IrEmitter {
         }
     }
 
+    /// round-7 (ve2 follow-up): XIOM-level verdict — is this expression a
+    /// POINTER (raw `*T`, `&T`, `&mut T`), not a Str? The Str-concat intercept
+    /// fires on ANY i8* operand at the LLVM level, but a `*UInt8` byte buffer
+    /// (e.g. the Vec `data` field) is also i8* — `buf + i` must be byte
+    /// pointer arithmetic (GEP), never xiom_str_concat. Idents resolve through
+    /// the registered XIOM type (local_xiom_types wins over the LLVM reverse
+    /// lookup, which maps every i8* to "Str"); fields resolve through type_meta.
+    pub(crate) fn expr_is_pointer(&self, e: &Expr) -> bool {
+        match e {
+            Expr::Ident(id) => {
+                if let Some(t) = self.local.local_xiom_types.get(&id.name) {
+                    return t.starts_with('*') || t.starts_with('&');
+                }
+                // Fallback: raw pointer slot (i8*/i64*/%struct.X*) — but a
+                // plain Str local also slots as i8*. Only report pointer when
+                // the slot type is NOT i8* (i8* stays "possibly Str" so the
+                // concat path keeps working for untyped Str values).
+                if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
+                    if llvm_ty.ends_with('*') && llvm_ty != "i8*" {
+                        return true;
+                    }
+                }
+                false
+            }
+            Expr::Field(obj, field, _) => {
+                let struct_name = match self.infer_struct_type_name(obj) {
+                    Some(n) => n,
+                    None => return false,
+                };
+                let idx = match self.types.types.get(&struct_name) {
+                    Some(fields) => match fields.iter().position(|f| f == &field.name) {
+                        Some(i) => i,
+                        None => return false,
+                    },
+                    None => return false,
+                };
+                match self.types.type_meta.get(&struct_name) {
+                    Some(meta) => meta.fields.get(idx)
+                        .map(|(_, t)| t.starts_with('*') || t.starts_with('&'))
+                        .unwrap_or(false),
+                    None => false,
+                }
+            }
+            Expr::Paren(inner, _) => self.expr_is_pointer(inner),
+            Expr::As(_, ty, _) => {
+                let n = Self::type_from_ast(ty);
+                n.starts_with('*') || n.starts_with('&')
+            }
+            _ => false,
+        }
+    }
+
     /// Convert an i64 (recovered from the trampoline's TLS result slot on the
     /// SUCCESS path of a confined unsafe block) back to the block's actual tail
     /// LLVM type. Inverse of val_to_i64. Used by the Expr::Unsafe arm after a

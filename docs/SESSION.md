@@ -1,20 +1,61 @@
 # XIOM Compiler Session — Handoff (2026-08-19)
 
-## Session update (2026-08-20, round 7): stdlib sweep 779/907 — path family fully green; ONE new compiler bug (ve2 Vec.pop slot); ~128 documented failures remain
+## Session update (2026-08-20, round 7 FIXED): ve2 Vec.pop slot resolved — FOUR compiler roots; Vec/Set/Slice methods now inject & mono; pointer arithmetic GEP-scaled
 
-Round-6 compiler commits landed: `577a223e` (fix) + `6c60e477` (docs) on
-`feat/architect`. Stdlib session re-swept: **779/907 (+10), zero hangs,
-regression battery 24/24** (path/compress/char/cell/rc/core/sort/cmp/
-convert/sync/glob/semver). Path family 7/7 confirmed green
-(with_file_name, pop_clear, join, pathbuf_push, io_parent_file_name,
-with_extension, smoke_path); compress incl. gzip_bad_input green.
+Commit: `(pending)` — fix(codegen/check): round-7 — Vec/Set/Slice method
+injection, resolve_struct_return suffix scan, mono'd Vec-method element
+pointers + pointer-arithmetic GEP + concat gate, BUG 38b leaf-match
+abstract-receiver guard. e2e `e2e_m37_round7_vec_pop_slot`.
+
+The round-7 ve2 finding ("inlined Vec.pop + match Option slot on an EMPTY
+vec") was ONE SYMPTOM of a deeper registration hole: **Vec/Set/Slice methods
+were never injected** (checker `recv_is_nonpub_generic` skipped them because
+their type decls are non-pub generic — but Vec/Set/Slice are COMPILER
+BUILTINS in the PRIMITIVES list, so their type decl is NEVER injected and
+codegen KNOWS the types). Consequences fixed:
+
+1. All Vec methods now inject → `resolve_struct_return("pop")` finds the
+   Option return → match scrutinee alloca + REAL discriminant checks
+   (ve2 fixed; Vec.get no longer relies on the Map.get suffix luck).
+2. Non-inline Vec methods (first/last/clear/insert/remove/...) were
+   ZERO-PARAM STUBS — now real mono'd methods (smoke_collections_vec_edge
+   + smoke_stress_collections_vec_first_last green; Slice methods too).
+3. Mono'd Vec bodies broke on `*(data + len - 1)`: builtin Vec.data is
+   "*UInt8" → Str-concat hijack + byte-unsized arithmetic. Fixes: mono
+   receiver-field binding types data as the CONCRETE element pointer
+   (i64* for Vec[Int]) + records "*Int" XIOM type; BinOp Add/Sub now
+   emits element-scaled GEP (main + fold paths); the concat intercept is
+   gated by expr_is_pointer (byte buffers stay pointer arithmetic).
+4. Regression caught mid-round: the BUG 38b leaf-name match hijacked
+   `g.edges.push` ("Graph.push" key) onto the newly-injected "Vec.push"
+   (literal-0 receiver → invalid IR). Leaf match now requires an
+   ABSTRACT receiver (matches find_generic_decl's rule); plus
+   is_container_vec_field searches ALL type_meta keys (collect.Graph vs
+   math.graph_theory.Graph leaf collision).
+
+Verified: stdlib-exec 70/70 (+2 ignore), e2e_m37_round7_vec_pop_slot +
+round6/gzip e2e regressions, 20-smoke Vec/collections battery, smoke_iter,
+smoke_collect_cache, checker 178, parser 97, ctfe 97, feature-reg 510,
+full e2e pending. Pre-existing follow-ups logged in COMPILER_BUGS.md:
+Set-container ABI (Set smokes fail at baseline — compiler i64-handle vs
+stdlib struct), narrow-SIGNED inline pop/get zext, Graph/Graph type-name
+collision (graph_theory dead-code stubs at baseline).
 
 ### COMPILER-SIDE QUEUE (priority order — all documented in COMPILER_BUGS.md)
-1. **Vec.pop + match Option slot (NEW — probe ve2).** Inlined Vec.pop on an
+1. ~~**Vec.pop + match Option slot (NEW — probe ve2).** Inlined Vec.pop on an
    EMPTY vec returns Some at runtime while the IR is fully correct
    (len==0 → Option{tag=0, payload=0}): the match MISREADS the inlined
    Option slot. Vec.get's None path works; a bare `return None` works.
-   Blocks smoke_stress_collections_vec_edge + vec_first_last.
+   Blocks smoke_stress_collections_vec_edge + vec_first_last.~~ **FIXED
+   (round-7): Vec methods were never injected (recv_is_nonpub_generic ×
+   PRIMITIVES builtins) — no scrutinee type → no alloca → unconditional
+   first arm. Vec/Set/Slice methods now inject + mono; pointer arithmetic
+   GEP-scaled.**
+1. **Set-container ABI (NEW follow-up).** smoke_collections_set_basic etc.
+   fail at BASELINE: the compiler treats Set as an i64-handle container
+   builtin while the stdlib declares `type Set[T] = { items: Vec[T] }`;
+   `Set[Int].new()` resolves the bare "new" leaf onto another type's ctor.
+   Needs a Set-container decision (inline handlers or ABI alignment).
 2. **Closure B-007 layer.** fn-literal args (core_option_map/unwrap,
    array_sort_by, cmp_by, core_slice) — fail at BASELINE identically;
    ~28 smokes.

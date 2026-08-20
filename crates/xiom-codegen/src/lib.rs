@@ -4005,7 +4005,13 @@ impl IrEmitter {
                 }
             }
             let suffix = format!(".{}", fn_key);
-            if let Some((_, fd)) = self.mono.generic_fn_decls.iter().find(|(k, _)| k.ends_with(&suffix)) {
+            // Suffix search across ALL matching decls: a suffix can be shared by
+            // several receivers ("Vec.get"/"Map.get"/"HashMap.get") and the first
+            // hit may return a non-Option type — keep scanning for an
+            // Option/Result-returning match instead of giving up on the first
+            // (round-7 ve2: bare "pop" found nothing while "get" only worked by
+            // landing on Map.get).
+            for (_, fd) in self.mono.generic_fn_decls.iter().filter(|(k, _)| k.ends_with(&suffix)) {
                 if let Some(rt) = &fd.return_type {
                     let name = Self::type_from_ast(rt);
                     if name == "Option" || name == "Result" {
@@ -4925,6 +4931,37 @@ impl IrEmitter {
         }
     }
 
+    /// round-7 (ve2 follow-up): mono'd receiver-field binding for the BUILTIN
+    /// Vec receiver. type_meta registers Vec.data as "*UInt8" (the builtin
+    /// layout keeps the byte buffer), so a mono'd Vec method that does
+    /// ELEMENT pointer arithmetic (`*(data + len - 1)` in Vec.last) would read
+    /// `data` as i8* — byte offsets instead of elem_size scaling, AND the
+    /// `+` on an i8* operand gets hijacked by the Str+Int concat intercept
+    /// (xiom_str_concat of the buffer + len — garbage). Bind `data` as the
+    /// CONCRETE element pointer (i64* for Vec[Int]) so GEPs scale correctly.
+    fn mono_receiver_field_llvm_ty(
+        &self,
+        type_key: &str,
+        recv_type_name: &str,
+        field_name: &str,
+        idx: usize,
+        type_map: &std::collections::HashMap<String, String>,
+    ) -> String {
+        if field_name == "data" && (type_key == "Vec" || recv_type_name == "Vec") {
+            if let Some(elem) = type_map.values().next() {
+                if let Ok(base) = self.llvm_type_for(elem) {
+                    if base.starts_with('%') || base.ends_with('*') || base.starts_with('[') {
+                        // Struct/enum/pointer elements: still a byte buffer in the
+                        // Vec header; the codegen element-access paths (index,
+                        // emit_elem_*) scale by elem_size. Keep i8*.
+                        return "i8*".to_string();
+                    }
+                    return format!("{base}*");
+                }
+            }
+        }
+        self.field_llvm_type(type_key, idx)
+    }
     /// BUG 52 (2026-08-18): when a mono'd method binds its receiver's Vec-typed
     /// fields as locals, record the ELEMENT type so `values[i]` reads/writes
     /// take the struct/enum memcpy path (resolve_vec_elem_type â†’ Ident arm)
@@ -5435,11 +5472,21 @@ impl IrEmitter {
                             .or_else(|| self.types.types.keys().into_iter().find(|k| k.ends_with(&format!(".{recv_type_name}"))))
                             .unwrap_or_else(|| recv_type_name.clone());
                         for (idx, field_name) in names.iter().enumerate() {
-                            let field_llvm_ty = self.field_llvm_type(&type_key, idx);
+                            let field_llvm_ty = self.mono_receiver_field_llvm_ty(&type_key, recv_type_name, field_name, idx, &type_map);
                             let gep = self.fresh_tmp();
                             self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {loaded_ptr}, i32 0, i32 {idx}"));
                             self.add_local(field_name, gep, &field_llvm_ty);
                             self.record_field_vec_elem(field_name, &type_key, &recv_type_name.to_string(), &type_map);
+                            // round-7 (ve2): record the Vec.data field's XIOM type
+                            // ("*Int" for Vec[Int], "*UInt8" for Vec[UInt8]) so the
+                            // Str-concat intercept does not hijack `data + len`
+                            // (an i8*-typed UInt8 buffer reads as "Str" via the
+                            // LLVM reverse lookup).
+                            if field_name == "data" && (type_key == "Vec" || recv_type_name == "Vec") {
+                                if let Some(elem) = type_map.values().next() {
+                                    self.local.local_xiom_types.insert(field_name.clone(), format!("*{}", elem));
+                                }
+                            }
                         }
                     }
                 } else {
@@ -5466,11 +5513,16 @@ impl IrEmitter {
                             .or_else(|| self.types.types.keys().into_iter().find(|k| k.ends_with(&format!(".{recv_type_name}"))))
                             .unwrap_or_else(|| recv_type_name.clone());
                         for (idx, field_name) in names.iter().enumerate() {
-                            let field_llvm_ty = self.field_llvm_type(&type_key, idx);
+                            let field_llvm_ty = self.mono_receiver_field_llvm_ty(&type_key, recv_type_name, field_name, idx, &type_map);
                             let gep = self.fresh_tmp();
                             self.emitln(&format!("  {gep} = getelementptr {st}, {st}* {self_alloca}, i32 0, i32 {idx}"));
                             self.add_local(field_name, gep, &field_llvm_ty);
                             self.record_field_vec_elem(field_name, &type_key, &recv_type_name.to_string(), &type_map);
+                            if field_name == "data" && (type_key == "Vec" || recv_type_name == "Vec") {
+                                if let Some(elem) = type_map.values().next() {
+                                    self.local.local_xiom_types.insert(field_name.clone(), format!("*{}", elem));
+                                }
+                            }
                         }
                     }
                 }

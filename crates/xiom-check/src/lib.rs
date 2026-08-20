@@ -2219,7 +2219,18 @@ impl Checker {
                             // receiver-type check is the only guard that catches them.
                             let recv_is_nonpub_generic = fd.receiver.as_ref()
                                 .map(|r| generic_types.contains(&r.name)
-                                    && !pub_generic_types.contains(&r.name))
+                                    && !pub_generic_types.contains(&r.name)
+                                    // round-7 (ve2): compiler-BUILTIN receivers
+                                    // (Vec/Set/Slice are in PRIMITIVES — their type
+                                    // decl is NEVER injected) are known to codegen
+                                    // (%struct.Vec etc. + the inline builtin
+                                    // handlers); skipping their methods left every
+                                    // non-inline Vec method (first/last/clear/
+                                    // insert/remove/...) as a zero-param stub and
+                                    // broke match-scrutinee resolution for the
+                                    // inline ones. Exempt them so the methods are
+                                    // injected and monomorphised on demand.
+                                    && !primitives.contains(&r.name.as_str()))
                                 .unwrap_or(false);
                             // Deduplicate by the QUALIFIED key (`Receiver.method` for
                             // methods, bare name for free functions). Deduping by the
