@@ -2,7 +2,7 @@
 
 ## Session update (2026-08-20, round 7 FIXED): ve2 Vec.pop slot resolved — FOUR compiler roots; Vec/Set/Slice methods now inject & mono; pointer arithmetic GEP-scaled
 
-Commit: `(pending)` — fix(codegen/check): round-7 — Vec/Set/Slice method
+Commit: `2e0fbb6c` — fix(codegen/check): round-7 — Vec/Set/Slice method
 injection, resolve_struct_return suffix scan, mono'd Vec-method element
 pointers + pointer-arithmetic GEP + concat gate, BUG 38b leaf-match
 abstract-receiver guard. e2e `e2e_m37_round7_vec_pop_slot`.
