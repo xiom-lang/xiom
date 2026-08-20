@@ -1840,10 +1840,55 @@ BASELINE identically (B-007 closure layer — unchanged).
 
 - Vec.pop on an EMPTY vec returns Some at runtime while the IR is fully correct (probe ve2: len==0 → vec_pop_empty8 → Option{tag=0,payload=0}; the match still takes the Some arm). pop on non-empty works; bare eturn None fns work; Vec.get's None works. The inlined-pop Option slot is misread by the subsequent match — a slot-lifetime shape (single pop in the fn, probe ve2).
 - Also logged: the char smoke failures were NOT multi-match slot reuse — they were to_digit's redundant requires trapping (fixed stdlib-side, commit above).
-### Round-8 findings (2026-08-20) — catalog &mut-self receiver wiring for user generic structs
+### Round-8 findings FIXED (2026-08-20) — catalog &mut-self receiver wiring + Option<&T> reference payloads
 
-- VecDeque/LinkedList/Stack mutators (now &mut self with read-modify-write-back Vec fields — the production-correct form) LOSE ALL MUTATION through the catalog: dq.push_front(20) leaves len at 0, regardless of write mechanism (whole-value data = new_data AND write-back data = d both fail — probes vd6/vd2). User-space replicas of the IDENTICAL code pass (vd3/vd4/vd5 — explicit self, implicit &mut self, and VecDeque-named types all exit 0). The cell.xi &mut self "worked" only because its observable behavior (guard reads) doesn't depend on the borrow-count mutation persisting.
-- Likely the same family as the logged Set-container ABI mismatch (compiler i64-handle vs stdlib struct) — the catalog mono of user generic struct methods with &mut self receivers. The stdlib code is verified correct (user-space); blocked until the receiver wiring lands.
+- **VecDeque/LinkedList/Stack/Queue/BTreeMap/BTreeSet mutations entirely LOST
+  through the catalog** (probes vd2/vd6; identical code passes user-space in
+  vd3-vd5): `dq.push_front(20)` left len at 0. Same family as the Set
+  container gap.
+- **Option<&T> reference payloads** (rw1): rand.weighted_pick returns the
+  correct selection but the reference payload read gives garbage.
+
+**RESOLVED (round-8 commits, e2e `e2e_m38_round8_catalog_mut_self` +
+`e2e_m38_round8_ref_payload`):**
+
+1. **Non-pub generic TYPE DECLS were never injected** — the Type arm of
+   `collect_pub_decls` only injected `pub` types, so VecDeque/Stack/
+   LinkedList/Queue/BTreeMap/BTreeSet/BinaryHeap had no layout AND
+   `generic_type_names` missed their receivers; their methods were skipped
+   by `recv_is_nonpub_generic` (now dead — removed). Calls hijacked
+   same-leaf methods of OTHER types (`dq.push_front` → Reverse.push_front;
+   `VecDeque[Int].new()` → Reverse.new → dq typed %struct.Reverse). Fix:
+   inject non-pub GENERIC type decls (`td.is_pub || !td.generics.is_empty()`)
+   and drop the method skip — the BUG 38b parser fix captures receiver
+   generics, so every such method is mono-able; `recv_is_generic` blocks
+   concrete direct-emission. Unblocked the whole collections family.
+2. **Inline Vec/Slice handlers hijacked name-EMBEDDING types** (vd2):
+   `recv_ty.contains("struct.Vec")` matched "%struct.VecDeque" — `dq.len()`
+   ran the inline Vec.len on the WHOLE VecDeque struct (extractvalue
+   %struct.Vec on %struct.VecDeque → invalid IR). Fix: `is_llvm_struct_named`
+   — leaf-name exact match (bare/qualified/args-embedded/pointer forms).
+3. **`Option<&T>` payload auto-deref** (rw1): `Some(&items[i])` stores the T
+   SLOT ADDRESS; consumers (strcmp content compare, icmp) treated it as the
+   T VALUE — the address bytes were strcmp'd → garbage. The `&` was stripped
+   from XIOM type records at THREE sites: `type_string_full` (fn_return_xiom
+   "Option[&Str]"), param bindings (decl.rs `ref_preserving_name`), and the
+   match payload bindings (guarded arm: scrutinee_payload fallback; unguarded
+   arm: reference case + "&T" xiom record). `auto_deref_ref` now loads
+   through &T-typed operands in Eq/Ne (bitcast for pointer forms, inttoptr
+   for i64 bits) — covers payloads, &Str/&Int params, and `&local`.
+4. **Regression caught mid-round (geom + collect_cache):** with Vec.len now
+   registered, indexed-element `.len()` (`ac[0].len()` on Vec[Vec[Float64]])
+   typed the receiver as "%struct.Vec[Int]" — `is_llvm_struct_named` rejected
+   the args-embedded form → inline handler skipped → generic leaf-match mono'd
+   a garbage "@Vec[Int].len_Int" symbol (brackets invalid in LLVM idents).
+   Fix: `is_llvm_struct_named` splits container args ("%struct.Vec[Int]" →
+   "Vec"); VecDeque stays excluded ("VecDeque" ≠ "Vec").
+
+Verified: stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
+parser 97, ctfe 97, e2e round-8 fixtures + round-7 regressions, 39-smoke
+collections/rand/geom battery green (incl. smoke_collections_set_basic and
+smoke_rc_weak, previously failing).
 ### BUG 53 - &[N]T param element access emits invalid GEP — read FIXED (9757e864) + WRITE facet FIXED (round-3 commit)
 
 - **Construct:** n f(arr: &[5]Int) -> Int { return arr[0]; } ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the fixed-array reference param lowers to [5 x i64]** and element access emits getelementptr [5 x i64]*, [5 x i64]** %p, i64 0, i64 0 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â clang: invalid getelementptr indices. User-space probe (as2) reproduces; array.sort/sort_by and every &[N]T catalog fn is blocked.

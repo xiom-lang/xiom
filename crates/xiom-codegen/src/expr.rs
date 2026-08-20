@@ -1397,6 +1397,20 @@ impl IrEmitter {
                     // i64 whose real value is a Str pointer (e.g. `opt.unwrap() == "x"`
                     // where unwrap's ABI return is i64 but holds an i8*): coerce the
                     // i64 side to i8* so the content compare is well-typed.
+                    // round-8 (rw1): a reference-typed operand (&Str — from
+                    // `Some(&items[i])` payloads or `&local`) holds the T
+                    // SLOT ADDRESS (i64/i8**/i8* forms); load through it FIRST
+                    // so the condition sees the deref'd type and the content
+                    // compare reads the string, not the address bytes.
+                    // ASSIGN to the outer mut l/lt (a shadow would be lost
+                    // after this block — the generic icmp at the tail uses
+                    // the outer bindings).
+                    let (l2, lt2) = self.auto_deref_ref(left, &l, &lt);
+                    l = l2;
+                    lt = lt2;
+                    let (r2, rt2) = self.auto_deref_ref(right, &r, &rt);
+                    r = r2;
+                    rt = rt2;
                     if (lt == "i8*" || rt == "i8*") && (lt == "i8*" || lt == "i64") && (rt == "i8*" || rt == "i64") {
                         // 5c-E G6: pointer-to-null comparison. When comparing an i8*
                         // data pointer to literal 0, use icmp eq i8* NULL, not strcmp.
@@ -2508,9 +2522,8 @@ impl IrEmitter {
                     vec_val = vl;
                     vec_ty = "%struct.Vec".to_string();
                 }
-                let is_vec = vec_ty == "%struct.Vec" || vec_ty.ends_with(".Vec")
-                    || vec_ty.contains("struct.Vec")
-                    || vec_ty == "%struct.Slice" || vec_ty.contains("struct.Slice");
+let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
+|| Self::is_llvm_struct_named(&vec_ty, "Slice");
                 if is_vec {
                     // OPT-R7: Use extractvalue directly from the SSA struct value
                     // instead of creating a fresh alloca+memset+store+GEP+load cycle.
