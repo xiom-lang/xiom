@@ -1,5 +1,24 @@
 # XIOM Compiler Session — Handoff (2026-08-19)
 
+## Session update (2026-08-20, round 9 FIXED): Set container ABI mismatch
+
+Commit: `(pending)` — fix(check/codegen): round-9 — the compiler had NO
+builtin Set layout (Vec/Slice/Map register %struct layouts; Set was only the
+i64-erasure fallback), so Set values erased to i64 while the stdlib methods
+operated on %struct.Set. "Set" removed from the checker's PRIMITIVES (the
+stdlib `type Set[T]` now injects and Set resolves like any struct);
+is_container_vec_field accepts only Vec/Slice/Array fields; field receivers
+resolve generic-arg types ("Set[Int]" → "Set") for the fn_key; mono
+pointer-self passes the FIELD ADDRESS for field receivers; the pointer-len
+handler skips struct pointees (s.len() on &Set dispatches to Set.len).
+
+Verified: stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
+parser 97, ctfe 97, full e2e pending; 44-smoke battery green incl. all six
+Set smokes + set_probe edge shapes. NOT covered: `for x in set` iteration
+(For stmt is a hardcoded Range GEP — iterator-protocol queue item).
+
+### COMPILER-SIDE QUEUE (priority order — all documented in COMPILER_BUGS.md)
+
 ## Session update (2026-08-20, round 8 FIXED): catalog &mut-self wiring + Option<&T> payloads
 
 Commit: `0ca70cd6` — fix(check/codegen): round-8 — inject non-pub generic

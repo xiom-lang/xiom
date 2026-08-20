@@ -1656,11 +1656,22 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                         // Pointer-typed array references from monomorphised generics
                         // (e.g. &Slice[Int] -> i64*): length is at buf[0].
+                        // round-9 (Set ABI): NOT when the pointee is a REGISTERED
+                        // struct (&Set[Int] -> %struct.Set*): `s.len()` on a &Set
+                        // param must dispatch to the Set.len generic method, not
+                        // read the first field (the Vec's data pointer) as a length.
                         if recv_ty.ends_with('*') && recv_ty != "i8*" {
-                            let (recv_val, _) = self.compile_expr(receiver)?;
-                            let tmp = self.fresh_tmp();
-                            self.emitln(&format!("  {tmp} = load i64, {recv_ty} {recv_val}"));
-                            return Ok((tmp, LLVM_I64.to_string()));
+                            let pointee = &recv_ty[..recv_ty.len() - 1];
+                            let pointee_clean = pointee.strip_prefix("%struct.").unwrap_or(pointee);
+                            let is_struct_pointee = self.types.types.contains_key(&pointee_clean.to_string())
+                                || self.types.type_meta.contains_key(&pointee_clean.to_string())
+                                || self.types.type_meta.keys().into_iter().any(|k| k.ends_with(&format!(".{}", pointee_clean)));
+                            if !is_struct_pointee {
+                                let (recv_val, _) = self.compile_expr(receiver)?;
+                                let tmp = self.fresh_tmp();
+                                self.emitln(&format!("  {tmp} = load i64, {recv_ty} {recv_val}"));
+                                return Ok((tmp, LLVM_I64.to_string()));
+                            }
                         }
                         // Vec/Slice: length is field 1 of the {ptr, len, cap} struct.
                         if Self::is_llvm_struct_named(&recv_ty, "Vec")
@@ -3190,12 +3201,24 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                 if let Some((slot, _slot_ty)) = self.lookup_local(&id.name).cloned() {
                                                     (slot, format!("{recv_llvm_ty}*"))
                                                 // BUG 29 (Map.keys on module globals):
-                                                // the receiver is a MODULE-GLOBAL â€”
+                                                // the receiver is a MODULE-GLOBAL —
                                                 // pass the global's ADDRESS
                                                 // (@_coverage), not the loaded value.
                                                 } else if let Some((symbol, _)) = self.local.module_globals.get(&id.name).cloned() {
                                                     (format!("@{symbol}"), format!("{recv_llvm_ty}*"))
                                                 } else { (recv_val, recv_llvm_ty) }
+                                            } else if let Expr::Field(..) = &**receiver {
+                                                // round-9 (Set ABI): a FIELD receiver
+                                                // needing a pointer self (&mut self) —
+                                                // pass the field's ADDRESS (the Ref
+                                                // arm GEPs into the base struct), not
+                                                // the loaded value:
+                                                // `holder.s.insert(10)` must call
+                                                // @Set.insert_Int(%struct.Set* <field>),
+                                                // not cast the value to a pointer.
+                                                let (addr, _addr_ty) = self.compile_expr(
+                                                    &Expr::Ref(Box::new(receiver.as_ref().clone()), xiom_ast::Span::new(0, 0)))?;
+                                                (addr, format!("{recv_llvm_ty}*"))
                                             } else { (recv_val, recv_llvm_ty) }
                                         } else { (recv_val, recv_llvm_ty) }
                                     } else { (recv_val, recv_llvm_ty) }

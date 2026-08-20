@@ -4506,6 +4506,15 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m38_round8_catalog_mut_self() { assert_eq!(compile_and_run("tests\\regression\\m38_round8_catalog_mut_self.xi"), Some(0)); }
 #[test] fn e2e_m38_round8_ref_payload() { assert_eq!(compile_and_run("tests\\regression\\m38_round8_ref_payload.xi"), Some(0)); }
 
+// ============================================================================
+// Round 9 (2026-08-20): Set container ABI — the compiler had NO builtin Set
+// layout, so Set values erased to i64 while stdlib methods operated on
+// %struct.Set (new() hijacked Reverse.new; Set params/returns/fields compiled
+// as i64; field-receiver insert() mono'd Vec.insert). Now the stdlib Set type
+// injects and resolves like any struct.
+// ============================================================================
+#[test] fn e2e_m39_round9_set_abi() { assert_eq!(compile_and_run("tests\\regression\\m39_round9_set_abi.xi"), Some(0)); }
+
 
 
 
