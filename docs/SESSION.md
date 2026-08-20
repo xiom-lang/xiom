@@ -2,7 +2,7 @@
 
 ## Session update (2026-08-20, round 9 FIXED): Set container ABI mismatch
 
-Commit: `(pending)` — fix(check/codegen): round-9 — the compiler had NO
+Commit: `fe4e57ec` — fix(check/codegen): round-9 — the compiler had NO
 builtin Set layout (Vec/Slice/Map register %struct layouts; Set was only the
 i64-erasure fallback), so Set values erased to i64 while the stdlib methods
 operated on %struct.Set. "Set" removed from the checker's PRIMITIVES (the
