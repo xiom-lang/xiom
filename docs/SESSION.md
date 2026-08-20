@@ -2,7 +2,7 @@
 
 ## Session update (2026-08-20, round 10 FIXED): checker builtin Ord/Bounded resolution (C001)
 
-Commit: `(pending)` — fix(codegen) + fix(stdlib): round-10 — the stdlib's
+Commit: `1f762f76` — fix(codegen) + fix(stdlib): round-10 — the stdlib's
 new Ord tower was written `impl Ord[]` with empty brackets/param types (the
 Eq/Bounded towers use `impl Eq[Int]` with explicit types) — nothing
 registered, so num_checked/num_saturating stopped at C001 "missing method
