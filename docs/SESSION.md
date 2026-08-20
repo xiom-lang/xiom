@@ -2,7 +2,7 @@
 
 ## Session update (2026-08-20, round 8 FIXED): catalog &mut-self wiring + Option<&T> payloads
 
-Commit: `(pending)` — fix(check/codegen): round-8 — inject non-pub generic
+Commit: `0ca70cd6` — fix(check/codegen): round-8 — inject non-pub generic
 type decls (VecDeque/Stack/Queue/LinkedList/BTreeMap/BTreeSet/BinaryHeap
 family unblocked; mutations were silently lost via same-leaf method
 hijacks), is_llvm_struct_named leaf-exact Vec/Slice receiver test (the
