@@ -5097,7 +5097,12 @@ impl IrEmitter {
                             // fast-path in compile_expr's method dispatch.
                             let is_builtin_method = matches!(
                                 method_name.as_str(),
-                                "compare" | "eq" | "ne" | "lt" | "gt" | "le" | "ge" | "hash" | "clone"
+                                // round-10 (Ord tower): cmp/min/max are derivable
+                                // from the comparison ops (inline scalar handlers in
+                                // call.rs) — the math/interfaces.xi Ord interface
+                                // declares them, but no tower impls exist for them
+                                // (min(a,b) = a < b ? a : b).
+                                "compare" | "cmp" | "min" | "max" | "eq" | "ne" | "lt" | "gt" | "le" | "ge" | "hash" | "clone"
                             );
                             if is_builtin_method && Self::is_primitive_type_name(concrete_type) {
                                 continue;
@@ -5115,6 +5120,9 @@ impl IrEmitter {
                                 let pending = self.mono.generic_fn_decls.iter()
                                     .any(|(k, _)| k == &method_key || k.ends_with(&format!(".{method_key}")));
                                 if !qualified && !pending {
+                                    if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
+                                        eprintln!("[c001] bound={} type={} method={} key={method_key} qualified={qualified} pending={pending} funcs_have_cmp={} gfd_have_cmp={}", bound.name, concrete_type, method_name, self.types.functions.keys().into_iter().filter(|k| k.contains(".cmp") || k.contains("cmp.")).collect::<Vec<_>>().join(","), self.mono.generic_fn_decls.iter().map(|(k, _)| k.as_str()).filter(|k| k.contains("cmp")).collect::<Vec<_>>().join(","));
+                                    }
                                     return Err(format!(
                                         "type '{}' does not implement '{}': missing method '{}'",
                                         concrete_type, bound.name, method_name

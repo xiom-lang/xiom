@@ -1840,6 +1840,44 @@ BASELINE identically (B-007 closure layer — unchanged).
 
 - Vec.pop on an EMPTY vec returns Some at runtime while the IR is fully correct (probe ve2: len==0 → vec_pop_empty8 → Option{tag=0,payload=0}; the match still takes the Some arm). pop on non-empty works; bare eturn None fns work; Vec.get's None works. The inlined-pop Option slot is misread by the subsequent match — a slot-lifetime shape (single pop in the fn, probe ve2).
 - Also logged: the char smoke failures were NOT multi-match slot reuse — they were to_digit's redundant requires trapping (fixed stdlib-side, commit above).
+### Round-10 findings FIXED (2026-08-20) — checker builtin Ord/Bounded resolution (C001)
+
+- num_checked/num_saturating stopped at `error[C001]: type 'Int' does not
+  implement 'Ord': missing method 'cmp'` — the stdlib's new Ord tower
+  (compare+cmp on 15 types) did not register, and the math/interfaces.xi
+  Ord interface adds lt/le/gt/ge/min/max on top of core.xi's compare+cmp.
+
+**RESOLVED (round-10 commit, e2e `e2e_m40_round10_ord_bounded`):**
+
+1. **Stdlib fix**: the round-10 Ord tower was written `impl Ord[] { fn
+   compare(a: , b: ) ... }` — EMPTY brackets and empty param types (the
+   Eq/Bounded towers use `impl Eq[Int]` / `impl Bounded[Int]` with explicit
+   types). Nothing registered; the C001 check had no "Int.cmp" to find.
+   Rewrote the 14 malformed blocks as 15 properly-typed impls
+   (`impl Ord[Int] { fn compare(a: Int, b: Int) -> Int ... }` etc.).
+2. **C001 builtin fast-path**: "cmp" | "min" | "max" added to the
+   is_builtin_method list — min(a,b) = a < b ? a : b is derivable from the
+   comparison ops for primitives (no tower impls exist for them).
+3. **Inline scalar handlers**: cmp (the -1/0/1 select, same as compare) and
+   min/max (select on lt/gt) in the is_scalar section — the op match
+   previously `unreachable!()`'d on these names.
+4. **Generic-param static receivers**: `T.max_value()` inside a mono'd body
+   — "T" is a generic param, not a param name; receiver_is_instance(T) is
+   FALSE (T is not a registered type), so the fn_key degraded to a bare
+   "max_value" leaf → zero-param stub → 0 → checked_add's overflow guards
+   saw max_value = 0 and ALWAYS returned None. The fn_key construction now
+   resolves Ident receivers through current_type_map (the T→concrete
+   substitution recorded during mono body emission) FIRST → "Int.max_value".
+5. **Module-qualified impl suffix fallback**: the direct-call fallback only
+   tried the bare leaf; the Bounded impls register as "precision.Int.
+   max_value" — the call resolved "Int.max_value" → not found → 0. The
+   fallback now resolves the ".{Recv}.{method}" suffix (unique when it
+   exists) to the module-qualified key.
+
+Verified: e2e round-10/9/8/7 regressions, stdlib-exec 70/70 (+2 ignore),
+feature-reg 510, checker 178, parser 97, ctfe 97; 35-smoke battery green
+incl. num_checked/num_saturating/num/cmp_ordering and the BTree/Set towers.
+
 ### Round-9 findings FIXED (2026-08-20) — Set container ABI mismatch
 
 - The compiler had NO builtin Set layout (Vec/Slice/Map register %struct

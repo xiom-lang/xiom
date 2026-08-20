@@ -466,7 +466,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             } else {
                                 "0".to_string()
                             };
-                            if fn_name == "compare" {
+                            if fn_name == "compare" || fn_name == "cmp" {
                                 let (lt_op, gt_op) = if is_float {
                                     ("fcmp olt", "fcmp ogt")
                                 } else {
@@ -481,6 +481,20 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 self.emitln(&format!("  {s1} = select i1 {gt}, i64 1, i64 0"));
                                 self.emitln(&format!("  {res} = select i1 {lt}, i64 -1, i64 {s1}"));
                                 return Ok((res, LLVM_I64.to_string()));
+                            }
+                            // round-10 (Ord tower): min/max on scalar receivers —
+                            // min(a,b) = a < b ? a : b (select on the lt/gt result).
+                            if fn_name == "min" || fn_name == "max" {
+                                let op = if is_float {
+                                    if fn_name == "min" { "fcmp olt" } else { "fcmp ogt" }
+                                } else {
+                                    if fn_name == "min" { "icmp slt" } else { "icmp sgt" }
+                                };
+                                let cond = self.fresh_tmp();
+                                self.emitln(&format!("  {cond} = {op} {recv_llvm_ty} {recv_val}, {arg_val}"));
+                                let res = self.fresh_tmp();
+                                self.emitln(&format!("  {res} = select i1 {cond}, {recv_llvm_ty} {recv_val}, {recv_llvm_ty} {arg_val}"));
+                                return Ok((res, recv_llvm_ty.clone()));
                             }
                             let op = match (fn_name.as_str(), is_float) {
                                 ("eq", false) => "icmp eq",  ("eq", true) => "fcmp oeq",
@@ -2443,12 +2457,39 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 }
                 // Check if this is a call to a generic function and track instantiation
                 let fn_key = if let Some(receiver) = receiver_expr {
-                    if let Some(recv_type) = self.infer_struct_type_name(receiver) {
+                    // round-10 (Bounded tower): a GENERIC-PARAM receiver
+                    // (`T.max_value()` inside a mono'd generic body) is NOT a
+                    // value instance nor a registered type — resolve the param
+                    // to its concrete binding FIRST so the fn_key becomes
+                    // "Int.max_value" (the bare "max_value" leaf resolved to a
+                    // zero-param stub → 0, so checked_add's overflow guards saw
+                    // max_value = 0 and always returned None).
+                    if let Expr::Ident(id) = &**receiver {
+                        if let Some(concrete) = self.mono.current_type_map.get(&id.name)
+                            .or_else(|| self.mono.param_concrete_types.get(&id.name))
+                        {
+                            format!("{}.{}", concrete, fn_name)
+                        } else if let Some(recv_type) = self.infer_struct_type_name(receiver) {
+                            format!("{}.{}", recv_type, fn_name)
+                        } else if self.receiver_is_instance(receiver) {
+                            // Scalar value instance receiver (e.g. value.hash(hasher)
+                            // inside a generic monomorphised body).
+                            let obj_var_name = id.name.clone();
+                            if let Some(concrete) = self.mono.param_concrete_types.get(&obj_var_name) {
+                                format!("{}.{}", concrete, fn_name)
+                            } else if let Some((_, llvm_ty)) = self.lookup_local(&obj_var_name) {
+                                let ty_name = Self::xiom_type_name_from_llvm(llvm_ty);
+                                format!("{}.{}", ty_name, fn_name)
+                            } else {
+                                self.resolve_module_call(receiver, &fn_name)
+                            }
+                        } else {
+                            // Receiver is a module name (not a struct type).
+                            self.resolve_module_call(receiver, &fn_name)
+                        }
+                    } else if let Some(recv_type) = self.infer_struct_type_name(receiver) {
                         format!("{}.{}", recv_type, fn_name)
                     } else if self.receiver_is_instance(receiver) {
-                        // Scalar value instance receiver (e.g. `value.hash(hasher)`
-                        // inside a generic monomorphised body). Resolve via
-                        // param_concrete_types to get `Int.hash` not bare `hash`.
                         let obj_var_name = match &**receiver {
                             Expr::Ident(id) => id.name.clone(),
                             _ => String::new(),
@@ -2466,8 +2507,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             self.resolve_module_call(receiver, &fn_name)
                         }
                     } else {
-                        // Receiver is a module name (not a struct type) ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â resolve
-                        // to module-qualified function name if registered.
+                        // Receiver is a module name (not a struct type).
                         self.resolve_module_call(receiver, &fn_name)
                     }
                 } else {
@@ -2535,7 +2575,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     // BUG 22 #11 fix (qualified-call side of the BUG 12-18
                     // fn-key fix): the module-qualified key may NOT be
                     // registered while the DEFINITION exists under the BARE
-                    // leaf Ã¢â‚¬â€ fn_symbol dedup emits the bare symbol for the
+                    // leaf ― fn_symbol dedup emits the bare symbol for the
                     // first same-named fn. Resolve to the bare leaf when it
                     // is the registered/emitted definition; otherwise
                     // emit_undefined_symbol_stubs creates a zero-param
@@ -2552,6 +2592,28 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         && (self.types.functions.contains_key(&bare_leaf) || self.mono.emitted_fns.contains(&bare_leaf))
                     {
                         bare_leaf
+                    } else if !(self.types.functions.contains_key(&fn_key) || self.mono.emitted_fns.contains(&fn_key))
+                        && !fn_key.contains('[')
+                        && !bare_leaf.is_empty()
+                        && !self.types.functions.contains_key(&bare_leaf)
+                        && !self.mono.emitted_fns.contains(&bare_leaf)
+                    {
+                        // round-10 (Bounded tower): the DEFINITION may be
+                        // MODULE-QUALIFIED with the receiver suffix —
+                        // `T.max_value()` inside a mono'd generic resolves
+                        // fn_key "Int.max_value" while the impl registers as
+                        // "precision.Int.max_value". Resolve via the
+                        // ".{Recv}.{method}" suffix (unique when it exists);
+                        // otherwise keep the key and let the stub machinery
+                        // produce a diagnostic.
+                        let suffix = format!(".{}", fn_key);
+                        let hit = self.types.functions.keys().into_iter()
+                            .find(|k| k.ends_with(&suffix) && !k.starts_with("Tuple__") && !k.starts_with("Option__") && !k.starts_with("Result__"))
+                            .or_else(|| self.mono.emitted_fns.iter().find(|k| k.ends_with(&suffix)).cloned());
+                        match hit {
+                            Some(k) => k,
+                            None => fn_key,
+                        }
                     } else {
                         fn_key
                     }

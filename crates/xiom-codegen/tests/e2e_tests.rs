@@ -4515,6 +4515,15 @@ fn e2e_safety_probe() {
 // ============================================================================
 #[test] fn e2e_m39_round9_set_abi() { assert_eq!(compile_and_run("tests\\regression\\m39_round9_set_abi.xi"), Some(0)); }
 
+// ============================================================================
+// Round 10 (2026-08-20): checker builtin Ord/Bounded interface resolution
+// (C001) — the stdlib Ord tower (impl Ord[Int] with compare+cmp) registers;
+// cmp/min/max are compiler-derivable for primitives; generic-param static
+// receivers (T.max_value() in mono'd bodies) resolve via current_type_map;
+// checked/saturating arithmetic works through the Bounded + Ord bounds.
+// ============================================================================
+#[test] fn e2e_m40_round10_ord_bounded() { assert_eq!(compile_and_run("tests\\regression\\m40_round10_ord_bounded.xi"), Some(0)); }
+
 
 
 
