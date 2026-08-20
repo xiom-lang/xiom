@@ -2034,26 +2034,15 @@ impl Checker {
         }
 
         // Set of PUB generic type names. Methods on a generic type are only safe to
-        // inject when their receiver type decl is ALSO injected (pub) Ã¢â‚¬â€ codegen
+        // inject when their receiver type decl is ALSO injected (pub) — codegen
         // recognizes the receiver as generic (via that injected type decl) and then
         // monomorphises the method on demand instead of emitting a malformed
         // un-monomorphised concrete body. A method on a NON-pub generic type (e.g.
         // core's `BinaryHeap[T].new`) has no injected type decl, so codegen would
-        // treat it as concrete and emit broken IR Ã¢â‚¬â€ those stay skipped.
-        let mut pub_generic_type_names: HashSet<String> = HashSet::new();
-        fn collect_pub_generic_types(items: &[TopDecl], out: &mut HashSet<String>) {
-            for item in items {
-                match item {
-                    TopDecl::Type(td) if td.is_pub && !td.generics.is_empty() => { out.insert(td.name.name.clone()); }
-                    TopDecl::Enum(ed) if ed.is_pub && !ed.generics.is_empty() => { out.insert(ed.name.name.clone()); }
-                    TopDecl::Module(md) => collect_pub_generic_types(&md.items, out),
-                    _ => {}
-                }
-            }
-        }
-        for cached in self.catalog.all_cached() {
-            collect_pub_generic_types(&cached.program.items, &mut pub_generic_type_names);
-        }
+        // treat it as concrete and emit broken IR — those stay skipped.
+        // round-8 (vd2/vd6): SUPERSEDED — non-pub generic TYPE DECLS are now
+        // injected too (Type arm below), so every generic receiver is recognized
+        // and every method monomorphises; pub_generic_type_names was removed.
 
 
         // Walk the cached program items recursively and inject pub type/enum/fn decls
@@ -2065,7 +2054,6 @@ impl Checker {
                 existing: &mut HashSet<String>,
                 primitives: &[&str],
                 generic_types: &HashSet<String>,
-                pub_generic_types: &HashSet<String>,
                 module_name: &str,
                 user_free_fns: &HashSet<String>,
                 out: &mut Vec<TopDecl>,
@@ -2174,7 +2162,18 @@ impl Checker {
                 for item in items {
                     match item {
                         TopDecl::Type(td) => {
-                            if td.is_pub && !existing.contains(&td.name.name)
+                            // round-8 (vd2/vd6): inject NON-pub GENERIC type decls
+                            // too (VecDeque/Stack/LinkedList/Queue/BTreeMap/...).
+                            // Their methods are callable from the catalog (the
+                            // visibility gate is loose for file-level modules) but
+                            // without the type decl codegen has no layout AND
+                            // generic_type_names misses the receiver, so the calls
+                            // hijack same-leaf methods of OTHER types (Reverse).
+                            // Pub/non-pub non-generic private types stay excluded
+                            // (implementation details; referenced ones are injected
+                            // via the fn-signature walk below).
+                            if (td.is_pub || !td.generics.is_empty())
+                                && !existing.contains(&td.name.name)
                                 && !primitives.contains(&td.name.name.as_str()) {
                                 existing.insert(td.name.name.clone());
                                 out.push(TopDecl::Type(td.clone()));
@@ -2210,32 +2209,22 @@ impl Checker {
                             // `generic_fn_decls`, so the call falls back to an undefined
                             // bare `@get`/`@set` stub.
                             //
-                            // Methods on a NON-pub generic type (e.g. core's
-                            // `BinaryHeap[T].new`) stay SKIPPED: their type decl is not
-                            // injected, so codegen would treat the receiver as concrete
-                            // and emit a malformed un-monomorphised body. Note the
-                            // parser drops receiver generics for static constructors
-                            // (`fd.generics` is empty for `BinaryHeap[T].new`), so this
-                            // receiver-type check is the only guard that catches them.
-                            let recv_is_nonpub_generic = fd.receiver.as_ref()
-                                .map(|r| generic_types.contains(&r.name)
-                                    && !pub_generic_types.contains(&r.name)
-                                    // round-7 (ve2): compiler-BUILTIN receivers
-                                    // (Vec/Set/Slice are in PRIMITIVES — their type
-                                    // decl is NEVER injected) are known to codegen
-                                    // (%struct.Vec etc. + the inline builtin
-                                    // handlers); skipping their methods left every
-                                    // non-inline Vec method (first/last/clear/
-                                    // insert/remove/...) as a zero-param stub and
-                                    // broke match-scrutinee resolution for the
-                                    // inline ones. Exempt them so the methods are
-                                    // injected and monomorphised on demand.
-                                    && !primitives.contains(&r.name.as_str()))
-                                .unwrap_or(false);
+                            // round-8 (vd2/vd6): NON-pub generic receivers are no
+                            // longer skipped — their TYPE DECL is injected too (see
+                            // the Type arm), so `generic_type_names` recognizes them,
+                            // `recv_is_generic` blocks concrete direct-emission, and
+                            // the methods monomorphise on demand (the old comment
+                            // claimed `BinaryHeap[T].new` has empty fd.generics — the
+                            // BUG 38b parser fix captures receiver generics, so every
+                            // such method is mono-able). Without injection, calls like
+                            // `dq.push_front(20)` hijacked same-leaf methods of OTHER
+                            // types (Reverse.push_front) and every VecDeque/Stack/
+                            // LinkedList/Queue/BTreeMap/BTreeSet/BinaryHeap mutation
+                            // was silently lost.
                             // Deduplicate by the QUALIFIED key (`Receiver.method` for
                             // methods, bare name for free functions). Deduping by the
                             // bare name alone would drop distinct methods that share a
-                            // leaf name (e.g. `Layout.new`, `Vec.new`, `Rc.new`) Ã¢â‚¬â€
+                            // leaf name (e.g. `Layout.new`, `Vec.new`, `Rc.new`) —
                             // and since catalog iteration order is nondeterministic,
                             // which `new` survived would flip between builds.
                             let dedup_key = if fd.is_method() {
@@ -2250,15 +2239,14 @@ impl Checker {
                                 fd.name.name.clone()
                             } else if !module_name.is_empty() {
                                 // Module-qualified free fns (e.g. xiom.env.args vs
-                                // xiom.io.args) must NOT dedup against each other Ã¢â‚¬â€
+                                // xiom.io.args) must NOT dedup against each other —
                                 // bare-name dedup dropped one, leaving the other to
-                                // self-recursively resolve (env.args Ã¢â€ â€™ @args).
+                                // self-recursively resolve (env.args → @args).
                                 format!("{}.{}", module_name, fd.name.name)
                             } else {
                                 fd.name.name.clone()
                             };
-                            if !recv_is_nonpub_generic
-                                && !existing.contains(&dedup_key)
+                            if !existing.contains(&dedup_key)
                                 && !primitives.contains(&fd.name.name.as_str())
                                 && !(fd.receiver.is_none() && user_free_fns.contains(&fd.name.name)) {
                                 existing.insert(dedup_key);
@@ -2349,7 +2337,7 @@ impl Checker {
                             // external-decl injection, so wrapped decls would never
                             // reach codegen. Module context is preserved instead by
                             // leaf-qualifying free fn names above.
-                            collect_pub_decls(&md.items, existing, primitives, generic_types, pub_generic_types, module_name, user_free_fns, out);
+                            collect_pub_decls(&md.items, existing, primitives, generic_types, module_name, user_free_fns, out);
                         }
                         TopDecl::Extern(eb) => {
                             // Inject external modules' `extern "C"` blocks so their
@@ -2414,7 +2402,7 @@ impl Checker {
 
         for cached in self.catalog.all_cached() {
             let cached_module_name = cached.dotted_name.clone();
-            collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &pub_generic_type_names, &cached_module_name, &user_free_fns, &mut decls);
+            collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &cached_module_name, &user_free_fns, &mut decls);
         }
 
         // BUG 28 #4: submodules resolved via catalog PEEK during checking
@@ -2429,7 +2417,7 @@ impl Checker {
             let segs: Vec<String> = dotted.split('.').map(|s| s.to_string()).collect();
             if let Some(cached) = self.catalog.peek_owned(&segs) {
                 let cached_module_name = cached.dotted_name.clone();
-                collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &pub_generic_type_names, &cached_module_name, &user_free_fns, &mut decls);
+                collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &cached_module_name, &user_free_fns, &mut decls);
             }
         }
 

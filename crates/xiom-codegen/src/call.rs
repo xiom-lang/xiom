@@ -833,9 +833,9 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // element-address path handles the buffer GEP).
                         let is_indexed_vec_elem = matches!(receiver.as_ref(), Expr::Index(container, _, _) if {
                             let ct = self.infer_llvm_type(container);
-                            ct == "%struct.Vec" || ct.ends_with(".Vec") || ct.contains("struct.Vec")
+                            Self::is_llvm_struct_named(&ct, "Vec")
                         });
-                        let is_vec = recv_ty == "%struct.Vec" || recv_ty.ends_with(".Vec") || recv_ty.contains("struct.Vec")
+                        let is_vec = Self::is_llvm_struct_named(&recv_ty, "Vec")
                             || self.is_container_vec_field(receiver) || is_indexed_vec_elem;
                         if !is_vec {
                             // Not a Vec receiver ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ fall through to general method dispatch
@@ -1096,7 +1096,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 if fn_name == "clear" && args.is_empty() {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
-                        let is_vec = recv_ty == "%struct.Vec" || recv_ty.ends_with(".Vec") || recv_ty.contains("struct.Vec")
+                        let is_vec = Self::is_llvm_struct_named(&recv_ty, "Vec")
                             || self.is_container_vec_field(receiver);
                         if is_vec {
                             let (hdr, needs_store_back) = self.resolve_vec_receiver_ptr(receiver)?;
@@ -1125,7 +1125,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 if (fn_name == "insert" && args.len() == 2) || (fn_name == "remove" && args.len() == 1) {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
-                        let is_vec = recv_ty == "%struct.Vec" || recv_ty.ends_with(".Vec") || recv_ty.contains("struct.Vec")
+                        let is_vec = Self::is_llvm_struct_named(&recv_ty, "Vec")
                             || self.is_container_vec_field(receiver);
                         if is_vec {
                             let is_insert = fn_name == "insert";
@@ -1299,7 +1299,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 if fn_name == "pop" && args.is_empty() {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
-                        let is_vec = recv_ty == "%struct.Vec" || recv_ty.ends_with(".Vec") || recv_ty.contains("struct.Vec")
+                        let is_vec = Self::is_llvm_struct_named(&recv_ty, "Vec")
                             || self.is_container_vec_field(receiver);
                         if is_vec {
                             self.types.used_builtins.insert("Option".to_string());
@@ -1378,7 +1378,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 if fn_name == "set" && args.len() == 2 {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
-                        let is_vec = recv_ty == "%struct.Vec" || recv_ty.ends_with(".Vec") || recv_ty.contains("struct.Vec")
+                        let is_vec = Self::is_llvm_struct_named(&recv_ty, "Vec")
                             || self.is_container_vec_field(receiver);
                         if is_vec {
                             let (recv_val, recv_actual_ty) = self.compile_expr(receiver)?;
@@ -1428,7 +1428,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 if fn_name == "sort" && args.is_empty() {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
-                        let is_vec = recv_ty == "%struct.Vec" || recv_ty.ends_with(".Vec") || recv_ty.contains("struct.Vec")
+                        let is_vec = Self::is_llvm_struct_named(&recv_ty, "Vec")
                             || self.is_container_vec_field(receiver);
                         if is_vec {
                             self.emit_vec_sort(receiver, recv_ty)?;
@@ -1442,7 +1442,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 if fn_name == "get" && args.len() == 1 {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
-                        let is_vec = recv_ty == "%struct.Vec" || recv_ty.ends_with(".Vec") || recv_ty.contains("struct.Vec")
+                        let is_vec = Self::is_llvm_struct_named(&recv_ty, "Vec")
                             || self.is_container_vec_field(receiver);
                         if is_vec {
                             self.types.used_builtins.insert("Option".to_string());
@@ -1510,7 +1510,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 if fn_name == "clone" && args.is_empty() {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
-                        if recv_ty == "%struct.Vec" || recv_ty.contains("struct.Vec")
+                        if Self::is_llvm_struct_named(&recv_ty, "Vec")
                             || self.is_container_vec_field(receiver)
                         {
                             let (recv_raw, recv_raw_ty) = self.compile_expr(receiver)?;
@@ -1571,12 +1571,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // %struct.Vec ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â avoid routing to Str.len() below.
                         let is_vec_field = is_container
                             || is_unwrap_vec
-                            || recv_ty == "%struct.Vec"
-                            || recv_ty.ends_with(".Vec")
-                            || recv_ty == "%struct.Slice"
-                            || recv_ty.ends_with(".Slice")
-                            || recv_ty.contains("struct.Vec")
-                            || recv_ty.contains("struct.Slice")
+                            || Self::is_llvm_struct_named(&recv_ty, "Vec")
+                            || Self::is_llvm_struct_named(&recv_ty, "Slice")
                             || (recv_ty == "i64" && self.is_container_vec_field(receiver));
                         if !is_vec_field {
                             // Not a Vec/Slice receiver ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â fall through to Str.len() below
@@ -1667,14 +1663,13 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             return Ok((tmp, LLVM_I64.to_string()));
                         }
                         // Vec/Slice: length is field 1 of the {ptr, len, cap} struct.
-                        if recv_ty == "%struct.Vec" || recv_ty.ends_with(".Vec")
-                            || recv_ty == "%struct.Slice" || recv_ty.ends_with(".Slice")
-                            || recv_ty.contains("struct.Vec") || recv_ty.contains("struct.Slice")
+                        if Self::is_llvm_struct_named(&recv_ty, "Vec")
+                            || Self::is_llvm_struct_named(&recv_ty, "Slice")
                             || self.is_container_vec_field(receiver)
                             || (recv_ty == "i64" && matches!(&**receiver, Expr::Index(container, _, _)
                                 if {
                                     let ct = self.infer_llvm_type(container);
-                                    ct == "%struct.Vec" || ct.ends_with(".Vec") || ct.contains("struct.Vec")
+                                    Self::is_llvm_struct_named(&ct, "Vec")
                                 }))
                         {
                             let (recv_val, rty) = self.compile_expr(receiver)?;

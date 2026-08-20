@@ -36,7 +36,7 @@ impl IrEmitter {
         // the (often mis-inferred) struct type to fire at all.
         if let Expr::Index(container, idx, _) = receiver {
             let cont_ty = self.infer_llvm_type(container);
-            if cont_ty == "%struct.Vec" || cont_ty.ends_with(".Vec") || cont_ty.contains("struct.Vec") {
+            if Self::is_llvm_struct_named(&cont_ty, "Vec") {
                 if let Some(elem_ptr) = self.resolve_index_elem_ptr(container, idx) {
                     let vp = self.fresh_tmp();
                     self.emitln(&format!("  {vp} = bitcast i8* {elem_ptr} to %struct.Vec*"));
@@ -47,7 +47,7 @@ impl IrEmitter {
         if recv_ty == "i64" {
             if let Expr::Index(container, _, _) = receiver {
                 let cont_ty = self.infer_llvm_type(container);
-                if cont_ty == "%struct.Vec" || cont_ty.ends_with(".Vec") || cont_ty.contains("struct.Vec") {
+                if Self::is_llvm_struct_named(&cont_ty, "Vec") {
                     let vp = self.fresh_tmp();
                     self.emitln(&format!("  {vp} = inttoptr i64 {recv_val} to %struct.Vec*"));
                     return Ok((vp, false));
@@ -59,7 +59,7 @@ impl IrEmitter {
         if recv_ty == "%struct.Vec" {
             if let Expr::Index(container, idx, _) = receiver {
                 let cont_ty = self.infer_llvm_type(container);
-                if cont_ty == "%struct.Vec" || cont_ty.ends_with(".Vec") || cont_ty.contains("struct.Vec") {
+                if Self::is_llvm_struct_named(&cont_ty, "Vec") {
                     // Re-resolve the element pointer for mutation
                     if let Some(elem_ptr) = self.resolve_index_elem_ptr(container, idx) {
                         let vp = self.fresh_tmp();
@@ -163,7 +163,7 @@ impl IrEmitter {
         if t == "i64" {
             if let Expr::Index(container, _, _) = receiver {
                 let cont_ty = self.infer_llvm_type(container);
-                if cont_ty == "%struct.Vec" || cont_ty.ends_with(".Vec") || cont_ty.contains("struct.Vec") {
+                if Self::is_llvm_struct_named(&cont_ty, "Vec") {
                     let vp = self.fresh_tmp();
                     self.emitln(&format!("  {vp} = inttoptr i64 {v} to %struct.Vec*"));
                     let vl = self.fresh_tmp();
@@ -306,6 +306,86 @@ impl IrEmitter {
         }
         let loaded = self.emit_vec_load_fields(&vec_alloca);
         Ok((loaded, "%struct.Vec".to_string()))
+    }
+
+    /// True when `ty` is the LLVM type of a builtin container VALUE or POINTER
+    /// whose leaf struct name is exactly `name` — bare ("%struct.Vec"),
+    /// module-qualified ("%struct.xiom.collections.Vec"), container-args
+    /// ("%struct.Vec[Int]"/"%struct.Slice[Float64]"), or pointer forms.
+    /// round-8 (geom regression): the args-embedded form MUST match — an
+    /// indexed Vec element (`ac[0].len()`) types as "%struct.Vec[Int]" and
+    /// the OLD leaf test ("Vec[Int]" ≠ "Vec") skipped the inline Vec.len
+    /// handler, falling into the generic leaf-match which mono'd a garbage
+    /// "@Vec[Int].len_Int" symbol (brackets are invalid in LLVM identifiers).
+    /// The round-7 `ty.contains("struct.Vec")` test matched VecDeque etc.
+    /// (the bug this helper replaced) — splitting on '[' keeps both fixed.
+    pub(crate) fn is_llvm_struct_named(ty: &str, name: &str) -> bool {
+        let base = ty.trim_end_matches('*');
+        let leaf = base.strip_prefix("%struct.").unwrap_or(base);
+        let leaf = leaf.rsplit('.').next().unwrap_or(leaf);
+        let leaf = leaf.split('[').next().unwrap_or(leaf);
+        leaf == name
+    }
+
+    /// round-8 (rw1): AUTO-DEREF a reference-typed operand in VALUE positions.
+    /// `&T` compiles to the T slot's ADDRESS (i64 bits) — whether from
+    /// `Some(&items[i])` payloads, `&local`, or `&self.field`. Consumers that
+    /// treat the value as a T (strcmp content compare, icmp, arithmetic) must
+    /// LOAD THROUGH the address once; the old code inttoptr'd the address and
+    /// read garbage (rand.weighted_pick's Option<&Str> payload compared via
+    /// strcmp on the SLOT ADDRESS bytes). Returns (deref_val, pointee_ty) when
+    /// `expr`'s registered XIOM type is a reference; otherwise unchanged.
+    pub(crate) fn auto_deref_ref(&mut self, expr: &Expr, val: &str, llvm_ty: &str) -> (String, String) {
+        let (inner_name, is_ref) = match expr {
+            Expr::Ident(id) => {
+                let xiom = self.local.local_xiom_types.get(&id.name).cloned();
+                if xiom.as_deref().map_or(false, |t| t.starts_with('&')) {
+                    // &T-typed: params (decl.rs keeps the &), payload bindings
+                    // (stmt.rs scrutinee_payload fallback), annotated locals.
+                    (xiom.unwrap()[1..].trim_start().to_string(), true)
+                } else if self.local.ref_locals.contains(&id.name) {
+                    // BUG 44 ref-locals (`var r = &s`, `var r: &Str = ...`):
+                    // the tracked name is the POINTEE (type_from_ast strips &).
+                    (xiom.unwrap_or_else(|| "Int".to_string()), true)
+                } else {
+                    (String::new(), false)
+                }
+            }
+            Expr::Paren(inner, _) => match inner.as_ref() {
+                Expr::Ident(id) => {
+                    let xiom = self.local.local_xiom_types.get(&id.name).cloned();
+                    if xiom.as_deref().map_or(false, |t| t.starts_with('&')) {
+                        (xiom.unwrap()[1..].trim_start().to_string(), true)
+                    } else if self.local.ref_locals.contains(&id.name) {
+                        (xiom.unwrap_or_else(|| "Int".to_string()), true)
+                    } else {
+                        (String::new(), false)
+                    }
+                }
+                _ => (String::new(), false),
+            },
+            _ => (String::new(), false),
+        };
+        if !is_ref {
+            return (val.to_string(), llvm_ty.to_string());
+        }
+        let inner = inner_name.strip_prefix("mut ").unwrap_or(&inner_name);
+        let pointee = match self.llvm_type_for(inner) {
+            Ok(t) => t,
+            Err(_) => return (val.to_string(), llvm_ty.to_string()),
+        };
+        // The address may already be pointer-typed (i8** param, i64* param,
+        // i8* ref-local) or raw i64 bits (payload slots) — pointer-to-pointer
+        // casts must be bitcast, not inttoptr (invalid "cast from ptr to ptr").
+        let p = self.fresh_tmp();
+        if llvm_ty.ends_with('*') {
+            self.emitln(&format!("  {p} = bitcast {llvm_ty} {val} to {pointee}*"));
+        } else {
+            self.emitln(&format!("  {p} = inttoptr {llvm_ty} {val} to {pointee}*"));
+        }
+        let v = self.fresh_tmp();
+        self.emitln(&format!("  {v} = load {pointee}, {pointee}* {p}"));
+        (v, pointee)
     }
 
     /// Returns true if `container` is a field access on a struct and the

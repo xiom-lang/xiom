@@ -4495,5 +4495,17 @@ fn e2e_safety_probe() {
 // ============================================================================
 #[test] fn e2e_m37_round7_vec_pop_slot() { assert_eq!(compile_and_run("tests\\regression\\m37_round7_vec_pop_slot.xi"), Some(0)); }
 
+// ============================================================================
+// Round 8 (2026-08-20): catalog &mut self receiver wiring for user generic
+// structs — VecDeque/Stack/Queue/LinkedList/BTreeMap mutations were entirely
+// lost (non-pub generic type decls + methods were never injected; calls
+// hijacked same-leaf methods of other types). Plus Option<&T> reference
+// payloads (rand.weighted_pick): the slot ADDRESS was strcmp'd as the
+// string — &T value uses now auto-deref via the "&T" xiom record.
+// ============================================================================
+#[test] fn e2e_m38_round8_catalog_mut_self() { assert_eq!(compile_and_run("tests\\regression\\m38_round8_catalog_mut_self.xi"), Some(0)); }
+#[test] fn e2e_m38_round8_ref_payload() { assert_eq!(compile_and_run("tests\\regression\\m38_round8_ref_payload.xi"), Some(0)); }
+
+
 
 

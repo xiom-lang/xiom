@@ -1,5 +1,26 @@
 # XIOM Compiler Session — Handoff (2026-08-19)
 
+## Session update (2026-08-20, round 8 FIXED): catalog &mut-self wiring + Option<&T> payloads
+
+Commit: `(pending)` — fix(check/codegen): round-8 — inject non-pub generic
+type decls (VecDeque/Stack/Queue/LinkedList/BTreeMap/BTreeSet/BinaryHeap
+family unblocked; mutations were silently lost via same-leaf method
+hijacks), is_llvm_struct_named leaf-exact Vec/Slice receiver test (the
+contains("struct.Vec") substring test hijacked VecDeque — vd2), Option<&T>
+reference payload auto-deref (rw1 — weighted_pick's Some(&items[i]) payload
+read garbage; the & was stripped at type_string_full/param/match-binding
+records), and the args-embedded "%struct.Vec[Int]" indexed-element len
+(geom/collect_cache regression — invalid @Vec[Int].len_Int symbol).
+
+Verified: stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
+parser 97, ctfe 97, 39-smoke battery green (incl. set_basic + rc_weak),
+full e2e pending. Follow-ups logged: Set-container ABI now WORKS for the
+basic shape (set_basic green); the "cmp"/Ord gap (BTreeMap[Int,...]
+instantiation C001 — logged queue item), narrow-SIGNED inline pop/get zext,
+Graph/Graph type-name collision.
+
+### COMPILER-SIDE QUEUE (priority order — all documented in COMPILER_BUGS.md)
+
 ## Session update (2026-08-20, round 7 FIXED): ve2 Vec.pop slot resolved — FOUR compiler roots; Vec/Set/Slice methods now inject & mono; pointer arithmetic GEP-scaled
 
 Commit: `2e0fbb6c` — fix(codegen/check): round-7 — Vec/Set/Slice method

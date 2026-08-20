@@ -1435,6 +1435,13 @@ impl IrEmitter {
             Type::Vec(inner) => format!("Vec[{}]", Self::type_string_full(inner)),
             Type::Map(k, v) => format!("Map[{},{}]", Self::type_string_full(k), Self::type_string_full(v)),
             Type::Set(inner) => format!("Set[{}]", Self::type_string_full(inner)),
+            // round-8 (rw1): KEEP top-level references in the FULL string
+            // ("Option[&Str]") — type_from_ast strips them, and the & is the
+            // only way to tell a reference payload from a plain T when
+            // binding `match pick(&v) { Some(s) => ... }` (auto-deref on use).
+            Type::Ref(inner) => format!("&{}", Self::type_string_full(inner)),
+            Type::MutRef(inner) => format!("&mut {}", Self::type_string_full(inner)),
+            Type::Ptr(inner) => format!("*{}", Self::type_string_full(inner)),
             other => Self::type_from_ast(other),
         }
     }
@@ -6675,7 +6682,7 @@ impl IrEmitter {
                 // of id_Int, leading to inttoptr+load of the element value as a
                 // Vec pointer ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ ACCESS_VIOLATION.
                 let cont_ty = self.infer_llvm_type(container);
-                if cont_ty == "%struct.Vec" || cont_ty.contains("struct.Vec") {
+                if Self::is_llvm_struct_named(&cont_ty, "Vec") {
                     return "i64".to_string();
                 }
                 "i64".to_string()

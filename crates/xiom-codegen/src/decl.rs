@@ -1273,6 +1273,12 @@ impl IrEmitter {
             }
             // M17: Track parameter signedness for narrow-int widening.
             let xiom_ty_name = Self::type_from_ast(&param.ty);
+            // round-8 (rw1): KEEP a top-level reference in the tracked XIOM
+            // name ("&Str" / "&mut Int") — type_from_ast erases the ref, but a
+            // reference-typed value holds the T SLOT ADDRESS at the ABI and
+            // value uses (strcmp/icmp) must auto-deref it; the & is the only
+            // discriminator from a plain T. auto_deref_ref consumes this.
+            let xiom_ty_name = Self::ref_preserving_name(&param.ty).unwrap_or(xiom_ty_name.clone());
             self.local.local_xiom_types.insert(param.name.name.clone(), xiom_ty_name.clone());
             if Self::is_signed_xiom_type(&xiom_ty_name) {
                 self.local.signed_locals.insert(param.name.name.clone());
@@ -1760,6 +1766,18 @@ impl IrEmitter {
                 format!("Tuple__{}", parts.join("__"))
             }
             _ => "Int".to_string(),
+        }
+    }
+
+    /// round-8 (rw1): the declared name of `ty` KEEPING a top-level reference
+    /// ("&Str", "&mut Int") — type_from_ast erases the ref, but reference-typed
+    /// values hold the T SLOT ADDRESS at the ABI and value uses must auto-deref;
+    /// the & is the only discriminator from a plain T.
+    fn ref_preserving_name(ty: &Type) -> Option<String> {
+        match ty {
+            Type::Ref(inner) => Some(format!("&{}", Self::type_from_ast(inner))),
+            Type::MutRef(inner) => Some(format!("&mut {}", Self::type_from_ast(inner))),
+            _ => None,
         }
     }
 

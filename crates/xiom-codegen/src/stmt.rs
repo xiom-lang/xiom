@@ -631,9 +631,8 @@ impl IrEmitter {
                 if let Expr::Index(container, index, _) = place {
                     let (cont_val, cont_ty) = self.compile_expr(container)?;
                     let (vec_val, vec_ty) = self.resolve_vec_receiver(container, &cont_val, &cont_ty);
-                    let is_vec = vec_ty == "%struct.Vec" || vec_ty.ends_with(".Vec")
-                        || vec_ty.contains("struct.Vec")
-                        || vec_ty == "%struct.Slice" || vec_ty.contains("struct.Slice");
+let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
+|| Self::is_llvm_struct_named(&vec_ty, "Slice");
                     if is_vec {
                         let (idx_raw, idx_ty) = self.compile_expr(index)?;
                         let idx = self.val_to_i64(&idx_raw, &idx_ty);
@@ -1674,7 +1673,13 @@ impl IrEmitter {
                                     // SLOT, so passing the match-bound payload to a
                                     // `&Vec[T]` param read garbage (len=1 vs 2) and
                                     // crypto's aes_decrypt(&key, &ciphertext) crashed.
-                                    let payload_xiom = self.field_xiom_type(type_name, field_idx as usize);
+                                    let payload_xiom = self.field_xiom_type(type_name, field_idx as usize)
+                                        // round-8 (rw1): builtin Option/Result have no
+                                        // field_xiom_type — fall back to the
+                                        // SCRUTINEE's declared payload type
+                                        // ("Option[&Str]" → "&Str") so reference
+                                        // payloads keep the & and auto-deref on use.
+                                        .or_else(|| scrutinee_payload.clone());
                                     if field_llvm_ty == "i64" {
                                         if let Some(pt) = &payload_xiom {
                                             if pt.starts_with("Vec[") || pt.contains(".Vec") || pt.ends_with("]Vec") {
@@ -2008,6 +2013,14 @@ impl IrEmitter {
                                     // Struct payload: the i64 is a heap pointer to a
                                     // boxed struct (Option/Result/enum). Load the struct
                                     // so nested match dispatch works.
+                                    Some(decl) if field_ty == "i64" && decl.starts_with('&') => {
+                                        // round-8 (rw1): REFERENCE payloads
+                                        // (Option<&T> — rand.weighted_pick): the
+                                        // payload is the T SLOT ADDRESS. Bind it
+                                        // raw; the "&T" xiom record below makes
+                                        // value uses auto-deref.
+                                        (loaded.clone(), field_ty.clone())
+                                    }
                                     Some(decl) if field_ty == "i64" && !decl.starts_with("Vec[") => {
                                         let s_ty = self.llvm_type_for(decl).unwrap_or_else(|_| format!("%struct.{decl}"));
                                         if s_ty.starts_with('%') {
@@ -2056,6 +2069,15 @@ impl IrEmitter {
                                         if let Some(elem) = decl_ty.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
                                             self.local.local_vec_handle.insert(ident.name.clone(), elem.to_string());
                                         }
+                                    }
+                                }
+                                // round-8 (rw1): record REFERENCE payloads'
+                                // declared XIOM type ("&Str"/"&Int") so value
+                                // uses (strcmp/icmp) auto-deref the bound slot
+                                // address instead of reading it as a plain T.
+                                if let Some(decl_ty) = declared.as_deref() {
+                                    if decl_ty.starts_with('&') {
+                                        self.local.local_xiom_types.insert(ident.name.clone(), decl_ty.to_string());
                                     }
                                 }
                             }
