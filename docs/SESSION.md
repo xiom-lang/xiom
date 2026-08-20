@@ -1,8 +1,67 @@
 # XIOM Compiler Session — Handoff (2026-08-19)
 
+## Session update (2026-08-20, round 7): stdlib sweep 779/907 — path family fully green; ONE new compiler bug (ve2 Vec.pop slot); ~128 documented failures remain
+
+Round-6 compiler commits landed: `577a223e` (fix) + `6c60e477` (docs) on
+`feat/architect`. Stdlib session re-swept: **779/907 (+10), zero hangs,
+regression battery 24/24** (path/compress/char/cell/rc/core/sort/cmp/
+convert/sync/glob/semver). Path family 7/7 confirmed green
+(with_file_name, pop_clear, join, pathbuf_push, io_parent_file_name,
+with_extension, smoke_path); compress incl. gzip_bad_input green.
+
+### COMPILER-SIDE QUEUE (priority order — all documented in COMPILER_BUGS.md)
+1. **Vec.pop + match Option slot (NEW — probe ve2).** Inlined Vec.pop on an
+   EMPTY vec returns Some at runtime while the IR is fully correct
+   (len==0 → Option{tag=0, payload=0}): the match MISREADS the inlined
+   Option slot. Vec.get's None path works; a bare `return None` works.
+   Blocks smoke_stress_collections_vec_edge + vec_first_last.
+2. **Closure B-007 layer.** fn-literal args (core_option_map/unwrap,
+   array_sort_by, cmp_by, core_slice) — fail at BASELINE identically;
+   ~28 smokes.
+3. **Iter adapter chains (MEDIUM queue).** The stdlib's iter adapters
+   (map/filter/fold chains) — a documented layer; expect payload-slot /
+   closure-family overlap.
+4. **json enum-Vec-Map heap layer.** json_nested heap corruption
+   (enum-with-Vec-field payloads in Map values) — documented, flaky.
+5. **SIMD flags** (const-substituted SIMD_* refs) + **Bounded/is_finite
+   C001s** (checker) + **clang codegen variants** (16 families:
+   ptr/vec/hash/io/regex/btree/env/path) + gzip_large __chkstk + rc_weak
+   drop bookkeeping (exit 5).
+6. **Catalog-body type-check gap (item C).** path.xi's bare join_paths
+   stub showed catalog bodies are never checked — undefined bare names
+   silently become zero-param stubs (now fixed stdlib-side with the env
+   import, but the compiler gap remains).
+
+### KEY MECHANISMS (respect them — learned the hard way)
+- Generic fns register in generic_fn_decls (qualified keys) AND functions
+  (erased signatures); is_generic suffix matches need RECEIVER-QUALIFIED
+  fn_keys; bare keys keep the functions guard.
+- Match Some/Ok payload bindings need the scrutinee alloca
+  (struct_type_from_expr → fn_key → resolve_struct_return).
+- Payload-FIELD access (`r.value`/`ch.value`) resolves via
+  field_payload_xiom (local_opt_payload → local_opt_payload_xiom /
+  local_err_payload → declared local type); bindings record payload types
+  via infer_field_payload_xiom / infer_try_xiom_type / infer_if_xiom_type.
+- Expr::If result type is inferred from arm tails (all-agree struct >
+  pointer > all-agree float > i64); Expr::Imply SHORT-CIRCUITS its
+  consequence (guarded block + default-true store) — an unconditional
+  consequence unboxes NULL payloads on Err/None returns.
+- Str builtins slice/substr/starts_with/ends_with must verify the receiver
+  via receiver_is_str (they used to hijack same-named methods on Path
+  structs, boxing the struct and passing the box address as a string).
+- Vec methods get/push/pop/len/sort/set are INLINE builtins; Str methods
+  len/is_empty/byte_at/char_at/substr/slice/starts_with/ends_with are
+  INLINE builtins — new methods need inline handlers, never mono.
+- Contract exprs parse with struct-literal restriction; CTFE eval_block
+  stops after a return (CtfeContext.returned).
+- The e2e harness uses target/debug/xiom.exe — rebuild (`cargo build
+  --bin xiom`) BEFORE suites; never run two suites concurrently (file-lock
+  races). e2e_m16_scripting_exit_zero is an ENVIRONMENTAL Windows Defender
+  temp-dir heuristic (os error 225) — reproduces at baseline, ignore.
+
 ## Session update (2026-08-19, round 6): Imply short-circuit + Try-bound Str payloads + substr handler + Str-builtin guards + path.xi import
 
-Commit: `(pending)` — fix(codegen): round-6 — Imply consequence
+Commit: `577a223e` — fix(codegen): round-6 — Imply consequence
 short-circuit, Try-binding payload types, Str.substr inline handler,
 Str-builtin receiver guards, path.xi join_paths import.
 
