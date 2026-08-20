@@ -1659,6 +1659,24 @@ REMAINING in this area (documented, NOT fixed here):
 - The contract-ensure unbox (`result is Ok => result.len() >= 0`) loads
   the payload UNCONDITIONALLY — for an Err result it inttoptrs 0 and
   loads from NULL (swallowed by the guard-fault trap today; latent).
+### Round-7 finding (2026-08-20) — inlined Vec.pop + match Option slot (probe ve2)
+
+- **Construct:** inlined `Vec.pop` on an EMPTY vec returns Some at runtime
+  while the emitted IR is fully correct (len==0 → `Option{tag=0, payload=0}`)
+  — the CALLER's `match v.pop() { Some(x) => ..., None => ... }` misreads
+  the inlined Option slot. Vec.get's None path works; a bare `return None`
+  works; the pop builtin's own IR is right (verified: vec_pop_empty block
+  stores tag 0). Blocks smoke_stress_collections_vec_edge and
+  smoke_stress_collections_vec_first_last. The stdlib session's probe ve2
+  has the IR evidence; user-space replica of the same pop+match shape
+  passes — catalog/inlined-context only (likely the inline-expansion or
+  scrutinee-alloca resolution for the INLINE-builtin return, cf. the
+  scrutinee machinery in lib.rs).
+- **Next step:** build a minimal user probe with a fn returning
+  `Option{tag=0}` that is `alwaysinline` and matched by the caller; diff
+  the inlined vs non-inlined scrutinee alloca handling in expr.rs's
+  match-check code.
+
 ### Round-6 findings FIXED (2026-08-19, round-6 commit) — Imply short-circuit, Try-bound Str payloads, substr handler, Str-builtin receiver guards, path.xi import
 
 FIVE coordinated root causes, all reproduced with fresh probes in
