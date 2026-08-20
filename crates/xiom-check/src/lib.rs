@@ -2007,8 +2007,15 @@ impl Checker {
             "Bool", "Int", "Int8", "Int16", "Int32", "Int64",
             "UInt", "UInt8", "UInt16", "UInt32", "UInt64",
             "Float32", "Float64", "Char", "Str", "()", "!",
-            "Option", "Result", "Vec", "Slice", "Set",
+            "Option", "Result", "Vec", "Slice",
             "Ptr", "Array", "Tuple", "fn", "Tuple2",
+            // round-9 (Set ABI): "Set" was here — the compiler has NO builtin
+            // Set layout (unlike Vec/Slice/Map, which register %struct layouts
+            // in compile_program), so the stdlib's `type Set[T]` must inject
+            // and Set resolves like any struct. Keeping Set in PRIMITIVES left
+            // every Set value erased to i64 while the stdlib methods operate
+            // on %struct.Set — `Set[Int].new()` hijacked Reverse.new and
+            // Set-typed params/returns/fields compiled as i64.
         ];
 
         let mut decls: Vec<TopDecl> = Vec::new();

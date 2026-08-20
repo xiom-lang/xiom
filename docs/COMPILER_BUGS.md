@@ -1840,6 +1840,49 @@ BASELINE identically (B-007 closure layer — unchanged).
 
 - Vec.pop on an EMPTY vec returns Some at runtime while the IR is fully correct (probe ve2: len==0 → vec_pop_empty8 → Option{tag=0,payload=0}; the match still takes the Some arm). pop on non-empty works; bare eturn None fns work; Vec.get's None works. The inlined-pop Option slot is misread by the subsequent match — a slot-lifetime shape (single pop in the fn, probe ve2).
 - Also logged: the char smoke failures were NOT multi-match slot reuse — they were to_digit's redundant requires trapping (fixed stdlib-side, commit above).
+### Round-9 findings FIXED (2026-08-20) — Set container ABI mismatch
+
+- The compiler had NO builtin Set layout (Vec/Slice/Map register %struct
+  layouts in compile_program; Set was only the i64-erasure fallback in
+  xiom_to_llvm_type), while the stdlib implements `type Set[T] = { items:
+  Vec[T] }`. Every Set value erased to i64 while the injected methods
+  operated on %struct.Set: `Set[Int].new()` hijacked Reverse.new (the
+  type-receiver call degraded to a bare "new" leaf), Set-typed params/
+  returns/fields compiled as i64 (make_set() -> i64, Holder.s -> i64), and
+  `holder.s.insert(10)` mono'd Vec.insert with a %struct.Vec* receiver.
+
+**RESOLVED (round-9 commit, e2e `e2e_m39_round9_set_abi`):**
+
+1. **Inject the stdlib Set type**: "Set" removed from the checker's
+   PRIMITIVES ("types that should never be injected") — the stdlib
+   `type Set[T]` now registers %struct.Set and Set resolves like any
+   struct (methods were already injected since round-8).
+2. **is_container_vec_field tightened**: the regular-field path matched
+   ANY bracketed field type (`ftype.contains('[')`) — a `Set[Int]` field
+   fired the inline Vec.insert on the %struct.Set (invalid IR). Now only
+   Vec/Slice/Array bases (Map/Set fields route through their own
+   generic-mono methods).
+3. **Field-receiver fn_key**: infer_struct_type_name's instance-field arm
+   didn't split generic args — `Set[Int]`/`Vec[Int]` fields degraded to
+   None, so `holder.s.insert(10)` fell to a bare "insert" key (leaf-match
+   → Vec.insert mono). Split on '[' ("Set[Int]" → "Set") so the key is
+   "Set.insert".
+4. **Mono pointer-self for FIELD receivers**: the pointer-self branch
+   only handled Ident receivers (local slot / module global) — field
+   receivers passed the LOADED VALUE as the pointer. Now emits the field
+   ADDRESS via the Ref arm (`&holder.s` → GEP into the base struct).
+5. **Pointer-len guard**: the "&Slice[Int] -> i64*: length at buf[0]"
+   path fired for ANY pointer-typed receiver — `s.len()` on a &Set param
+   read the Vec's data pointer as the length. Skips when the pointee is a
+   registered struct (falls through to the generic Set.len dispatch).
+
+Verified: e2e round-9/8/7 regressions, stdlib-exec 70/70 (+2 ignore),
+feature-reg 510, checker 178, parser 97, ctfe 97; 44-smoke battery green
+incl. all six Set smokes + set_probe edge shapes (Set[Str], &Set params,
+Set returns, struct fields, union/intersection). NOT covered: `for x in
+set` iteration — the For stmt is a hardcoded Range GEP (fields 0/1) and
+needs the iterator-protocol work (iter adapter queue item).
+
 ### Round-8 findings FIXED (2026-08-20) — catalog &mut-self receiver wiring + Option<&T> reference payloads
 
 - **VecDeque/LinkedList/Stack/Queue/BTreeMap/BTreeSet mutations entirely LOST

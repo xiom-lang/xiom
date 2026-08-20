@@ -6269,14 +6269,19 @@ impl IrEmitter {
                             if let Some(meta) = self.types.type_meta.get(&key) {
                                 for (fname, ftype) in &meta.fields {
                                     if fname == &field.name {
-                                        // Strip leading `*` from pointer types (e.g. `*SqliteRow`).
-                                        let clean = ftype.trim_start_matches('*');
-                                        if self.types.type_meta.contains_key(&clean.to_string())
-                                            || self.types.types.contains_key(&clean.to_string())
+                                        // Strip leading `*` from pointer types (e.g. `*SqliteRow`)
+                                        // AND generic args (round-9 Set ABI: a `Set[Int]` /
+                                        // `Vec[Int]` field must resolve to "Set"/"Vec" so the
+                                        // fn_key is "Set.insert"/"Vec.push", not a bare leaf
+                                        // hijack — `holder.s.insert(10)` mono'd Vec.insert as
+                                        // @insert_Int with a %struct.Vec* receiver).
+                                        let clean = ftype.trim_start_matches('*').split('[').next().unwrap_or(ftype).trim().to_string();
+                                        if self.types.type_meta.contains_key(&clean)
+                                            || self.types.types.contains_key(&clean)
                                             || clean == "Vec" || clean == "Option"
                                             || clean == "Result" || clean == "Map"
                                             || clean == "Set" || clean == "Str" {
-                                            return Some(clean.to_string());
+                                            return Some(clean);
                                         }
                                         // Try suffix-match for module-qualified types
                                         for mk in self.types.type_meta.keys() {

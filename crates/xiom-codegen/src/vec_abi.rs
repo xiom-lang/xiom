@@ -438,7 +438,16 @@ impl IrEmitter {
                         if let Some(meta) = self.types.type_meta.get(&key) {
                             for (fname, ftype) in &meta.fields {
                                 if fname == &field_expr.name {
-                                    return ftype.contains('[');
+                                    // round-9 (Set ABI): the field must be an
+                                    // INLINE-handled container (Vec/Slice/Array).
+                                    // The OLD `ftype.contains('[')` matched ANY
+                                    // generic field — a `Set[Int]` field made
+                                    // `holder.s.insert(...)` fire the inline
+                                    // Vec.insert on the %struct.Set (invalid IR).
+                                    // Map/Set fields route through their own
+                                    // generic-mono methods.
+                                    let base = ftype.split('[').next().unwrap_or(ftype);
+                                    return base == "Vec" || base == "Slice" || base == "Array";
                                 }
                             }
                         }
