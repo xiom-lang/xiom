@@ -1,5 +1,24 @@
 # XIOM Compiler Session — Handoff (2026-08-19)
 
+## Session update (2026-08-20, round 10 FIXED): checker builtin Ord/Bounded resolution (C001)
+
+Commit: `(pending)` — fix(codegen) + fix(stdlib): round-10 — the stdlib's
+new Ord tower was written `impl Ord[]` with empty brackets/param types (the
+Eq/Bounded towers use `impl Eq[Int]` with explicit types) — nothing
+registered, so num_checked/num_saturating stopped at C001 "missing method
+'cmp'". Rewrote as 15 properly-typed impls; added cmp/min/max to the C001
+builtin fast-path + inline scalar handlers (select-based); the fn_key
+construction resolves GENERIC-PARAM static receivers (`T.max_value()` in
+mono'd bodies) via current_type_map → "Int.max_value"; the direct-call
+fallback resolves the ".{Recv}.{method}" suffix to the module-qualified
+impl ("precision.Int.max_value").
+
+Verified: stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
+parser 97, ctfe 97, full e2e pending; 35-smoke battery green incl.
+num_checked/num_saturating/cmp_ordering and the BTree/Set towers.
+
+### COMPILER-SIDE QUEUE (priority order — all documented in COMPILER_BUGS.md)
+
 ## Session update (2026-08-20, round 9 FIXED): Set container ABI mismatch
 
 Commit: `fe4e57ec` — fix(check/codegen): round-9 — the compiler had NO
