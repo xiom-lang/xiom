@@ -1840,6 +1840,10 @@ BASELINE identically (B-007 closure layer — unchanged).
 
 - Vec.pop on an EMPTY vec returns Some at runtime while the IR is fully correct (probe ve2: len==0 → vec_pop_empty8 → Option{tag=0,payload=0}; the match still takes the Some arm). pop on non-empty works; bare eturn None fns work; Vec.get's None works. The inlined-pop Option slot is misread by the subsequent match — a slot-lifetime shape (single pop in the fn, probe ve2).
 - Also logged: the char smoke failures were NOT multi-match slot reuse — they were to_digit's redundant requires trapping (fixed stdlib-side, commit above).
+### Round-8 findings (2026-08-20) — catalog &mut-self receiver wiring for user generic structs
+
+- VecDeque/LinkedList/Stack mutators (now &mut self with read-modify-write-back Vec fields — the production-correct form) LOSE ALL MUTATION through the catalog: dq.push_front(20) leaves len at 0, regardless of write mechanism (whole-value data = new_data AND write-back data = d both fail — probes vd6/vd2). User-space replicas of the IDENTICAL code pass (vd3/vd4/vd5 — explicit self, implicit &mut self, and VecDeque-named types all exit 0). The cell.xi &mut self "worked" only because its observable behavior (guard reads) doesn't depend on the borrow-count mutation persisting.
+- Likely the same family as the logged Set-container ABI mismatch (compiler i64-handle vs stdlib struct) — the catalog mono of user generic struct methods with &mut self receivers. The stdlib code is verified correct (user-space); blocked until the receiver wiring lands.
 ### BUG 53 - &[N]T param element access emits invalid GEP — read FIXED (9757e864) + WRITE facet FIXED (round-3 commit)
 
 - **Construct:** n f(arr: &[5]Int) -> Int { return arr[0]; } ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the fixed-array reference param lowers to [5 x i64]** and element access emits getelementptr [5 x i64]*, [5 x i64]** %p, i64 0, i64 0 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â clang: invalid getelementptr indices. User-space probe (as2) reproduces; array.sort/sort_by and every &[N]T catalog fn is blocked.
