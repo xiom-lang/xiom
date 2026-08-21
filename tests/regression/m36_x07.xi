@@ -1,4 +1,4 @@
-// M36-X07: Many function calls — deep call chain stress test
+// M36-X07: Many function calls -- deep call chain stress test
 fn f0(x: Int) -> Int { return x + 1; }
 fn f1(x: Int) -> Int { return f0(x) + 1; }
 fn f2(x: Int) -> Int { return f1(x) + 1; }

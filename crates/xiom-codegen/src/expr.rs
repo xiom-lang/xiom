@@ -1,4 +1,4 @@
-﻿use xiom_ast::*;
+use xiom_ast::*;
 use crate::llvm_consts::*;
 use crate::context::TypeMeta;
 
@@ -38,7 +38,7 @@ impl IrEmitter {
         self.emitln(&format!("  {alloca} = alloca {struct_ty}{}", self.alloca_align(&struct_ty)));
         for (i, (_, val)) in fields.iter().enumerate() {
             let field_llvm_ty = self.field_llvm_type(type_name, i);
-            // 5c.39: Empty array `[]` in a Vec-typed struct field — compile as
+            // 5c.39: Empty array `[]` in a Vec-typed struct field -- compile as
             // a proper empty Vec (heap-allocated buffer) instead of a raw i8*
             // array buffer that would be inttoptr'd to a 32-byte Vec struct.
             let (field_val, field_val_ty) = if let Expr::Array(elems, _) = val {
@@ -115,7 +115,7 @@ impl IrEmitter {
         // String concatenation: Add with i8* operands must call xiom_str_concat,
         // not emit `add i64` on pointer values. The normal BinOp path checks this
         // first; replicate the check here for the iterative fold path. Integer
-        // operands are formatted via @xiom_int_to_string (not inttoptr — garbage
+        // operands are formatted via @xiom_int_to_string (not inttoptr -- garbage
         // pointer + AV), decided by the XIOM-level type verdict.
                 if matches!(op, BinOp::Add) && (lt == "i8*" || rt == "i8*")
                     && !((lt == "i8*" && self.expr_is_pointer(l_expr) && self.expr_is_integer(r_expr))
@@ -127,13 +127,13 @@ impl IrEmitter {
                     return Ok((res, LLVM_STR_PTR.to_string()));
                 }
                 // Pointer arithmetic: `p + i` / `p - i` on a REAL pointer
-                // (i64*/i32*/%struct.X*/double*... — the i8* Str case was caught
+                // (i64*/i32*/%struct.X*/double*... -- the i8* Str case was caught
                 // by the concat intercept above) must GEP-scale by the ELEMENT
                 // size, not integer-add the raw index to the pointer bits. The
                 // old ptrtoint/add/inttoptr lowering also lost the pointee type,
                 // so `*(p + 1)` loaded a BYTE instead of the element (round-7
                 // ve2 follow-up: mono'd Vec.first/last/insert/remove bodies do
-                // `*(data + len - 1)` — byte offsets + byte loads on Vec[Int]).
+                // `*(data + len - 1)` -- byte offsets + byte loads on Vec[Int]).
                 if matches!(op, BinOp::Add | BinOp::Sub) {
                     let (pval, pty, ival, ity) = if lt.ends_with('*') && !rt.ends_with('*') {
                         (l.to_string(), lt.to_string(), r.to_string(), rt.to_string())
@@ -265,7 +265,7 @@ impl IrEmitter {
     ///   - Unary ops (negation `-`, boolean not `!`, bitwise not `~`)
     ///   - Binary ops: arithmetic (+ - * / %), comparison (== != < > <= >=),
     ///     boolean (and, or)
-    ///   - Const variable references — resolve through self.local.constants
+    ///   - Const variable references -- resolve through self.local.constants
     ///   - `sizeof::<T>()`, `align_of::<T>()`, `type_id::<T>()`,
     ///     `field_offset::<T>(name)` builtins
     ///   - `const { expr }` blocks (via Expr::ConstBlock)
@@ -274,7 +274,7 @@ impl IrEmitter {
     /// Returns the original expression unchanged if evaluation fails.
     ///
     /// Security review (2026-08-13): bounded by CONST_EVAL_BUDGET recursion
-    /// depth — a pathological const expression must not be able to hang the
+    /// depth -- a pathological const expression must not be able to hang the
     /// compiler (stack overflow / OOM) via unbounded CTFE recursion. On
     /// exceeding the budget the expression is returned UNEVALUATED, which is
     /// always safe: the constant then materializes at runtime like any other
@@ -292,11 +292,11 @@ impl IrEmitter {
 
     fn evaluate_const_init_inner(&self, expr: &Expr) -> Expr {
         match expr {
-            // Literals — already evaluated
+            // Literals -- already evaluated
             Expr::Int(..) | Expr::Float(..) | Expr::Bool(..) | Expr::Str(..) => expr.clone(),
 
 
-            // Enum constructors — evaluate inner expression
+            // Enum constructors -- evaluate inner expression
             Expr::Some(inner, span) => {
                 let v = self.evaluate_const_init(inner);
                 Expr::Some(Box::new(v), *span)
@@ -311,12 +311,12 @@ impl IrEmitter {
                 Expr::Err(Box::new(v), *span)
             }
 
-            // Const variable reference — substitute from self.local.constants
+            // Const variable reference -- substitute from self.local.constants
             Expr::Ident(ident) => {
                 if let Some(val) = self.local.constants.get(&ident.name) {
                     // Cycle detection: prevent infinite recursion on `const A = B; const B = A;`
                     // by tracking which constants are currently being evaluated.
-                    // Re-entering a constant we're already resolving means a cycle — bail out.
+                    // Re-entering a constant we're already resolving means a cycle -- bail out.
                     if self.local.const_eval_stack.borrow().contains(&ident.name) {
                         return expr.clone();
                     }
@@ -337,11 +337,11 @@ impl IrEmitter {
                         if let Expr::Float(v, _) = inner { return Expr::Float(-v, *span); }
                     }
                     UnaryOp::Not => {
-                        // Boolean not: `!true` → `false`, `!false` → `true`
+                        // Boolean not: `!true` -> `false`, `!false` -> `true`
                         if let Expr::Bool(v, _) = inner { return Expr::Bool(!v, *span); }
                     }
                     UnaryOp::BitNot => {
-                        // Bitwise not: `~expr` — only for integer expressions
+                        // Bitwise not: `~expr` -- only for integer expressions
                         if let Expr::Int(v, _) = inner { return Expr::Int(!v, *span); }
                     }
                     _ => {}
@@ -502,7 +502,7 @@ impl IrEmitter {
             // Parenthesized expressions
             Expr::Paren(inner, _) => self.evaluate_const_init(inner),
 
-            // if/else expression — evaluate condition and pick branch
+            // if/else expression -- evaluate condition and pick branch
             Expr::If(cond, then_block, elifs, else_block, span) => {
                 let cond_val = self.evaluate_const_init(cond);
                 if let Expr::Bool(true, _) = cond_val {
@@ -522,7 +522,7 @@ impl IrEmitter {
                 expr.clone()
             }
 
-            // match expression — evaluate scrutinee, match against literal patterns
+            // match expression -- evaluate scrutinee, match against literal patterns
             Expr::Match(scrutinee, arms, span) => {
                 let val = self.evaluate_const_init(scrutinee);
                 for arm in arms {
@@ -784,7 +784,7 @@ impl IrEmitter {
                     // Bare `null` in an expression is the NULL POINTER (0), not a
                     // function reference. Without this, the suffix search below
                     // matches `ptr.null` and emits `ptrtoint ... @null` (undefined
-                    // symbol) — e.g. contract checks like `result != null`.
+                    // symbol) -- e.g. contract checks like `result != null`.
                     if ident.name == "null" {
                         return Ok(("0".to_string(), LLVM_I64.to_string()));
                     }
@@ -806,7 +806,7 @@ impl IrEmitter {
                     }
                     // G-20: a bare receiver-FIELD reference in a method body with
                     // no receiver slot (no self param, no &T receiver-style param,
-                    // no `this` usage → no %param_self). Emitting the generic `0`
+                    // no `this` usage -> no %param_self). Emitting the generic `0`
                     // fallback here produced silent wrong values. Fail loudly with
                     // the fix.
                     if let Some(recv) = self.fctx.current_receiver.clone() {
@@ -820,7 +820,7 @@ impl IrEmitter {
                         if let Some(meta) = fields {
                             if meta.fields.iter().any(|(fname, _)| fname == &ident.name) {
                                 return Err(format!(
-                                    "receiver field '{0}' cannot be read bare in this method — use 'this.{0}' (bare fields need a `self` param, a `&{1}` receiver-style first param, or a `this`-based body)",
+                                    "receiver field '{0}' cannot be read bare in this method -- use 'this.{0}' (bare fields need a `self` param, a `&{1}` receiver-style first param, or a `this`-based body)",
                                     ident.name, recv
                                 ));
                             }
@@ -832,7 +832,7 @@ impl IrEmitter {
             Expr::Int(n, _) => {
                 Ok((format!("{n}"), LLVM_I64.to_string()))
             }
-            // D1: big literal (beyond u64) — emits an i128 constant. The value
+            // D1: big literal (beyond u64) -- emits an i128 constant. The value
             // is a bit pattern; signedness is applied by the surrounding cast.
             Expr::BigInt(n, _) => {
                 Ok((format!("{n}"), "i128".to_string()))
@@ -840,7 +840,7 @@ impl IrEmitter {
             Expr::Float(f, _) => {
                 // BUG 10 fix (2026-08-11): {:.6} truncated literals to 6
                 // decimals (0.123456789 -> 0.123457). {:.17e} gives 17
-                // significant digits — exact f64 round-trip, and LLVM accepts
+                // significant digits -- exact f64 round-trip, and LLVM accepts
                 // the exponent form (e.g. 1.23456789000000000e-1).
                 Ok((format!("{f:.17e}"), "double".to_string()))
             }
@@ -865,7 +865,7 @@ impl IrEmitter {
                     let elem_types: Vec<String> = items.iter()
                         .map(|i| {
                             // BUG 23 #7 fix: prefer the REGISTERED XIOM type for
-                            // idents — infer_llvm_type erases Bool→i64, which named
+                            // idents -- infer_llvm_type erases Bool->i64, which named
                             // (Bool, Bool) tuples "Tuple__Int__Int" and broke
                             // cross-module Bool-tuple field access.
                             if let Expr::Ident(id) = i {
@@ -873,12 +873,12 @@ impl IrEmitter {
                                     // BUG 52 follow-up (2026-08-18): container
                                     // bindings record ARG-bearing types
                                     // ("Vec[Int]", "Map[Str, MyVal]") for generic
-                                    // method inference — but TUPLE element names
+                                    // method inference -- but TUPLE element names
                                     // must stay bare ("Vec", "Map") to match the
                                     // decl-side registration (infer_expr_type_name
                                     // / type_from_ast drop the args); a bracketed
                                     // element name produced invalid LLVM
-                                    // identifiers ("Tuple__Vec[Int]__Vec[Int]" →
+                                    // identifiers ("Tuple__Vec[Int]__Vec[Int]" ->
                                     // clang "expected '=' after name") and broke
                                     // tuple types over containers (smoke_iter).
                                     return match xiom.find('[') {
@@ -888,10 +888,10 @@ impl IrEmitter {
                                 }
                             }
                             // BUG 29 (BUG 28 #6): name LITERALS by their XIOM type
-                            // too. infer_llvm_type erases Bool→i64→"Int", so
+                            // too. infer_llvm_type erases Bool->i64->"Int", so
                             // `(PathBuf, Bool)` returns built the expression
                             // "Tuple__PathBuf__Int" while the fn signature
-                            // registered "Tuple__PathBuf__Bool" — the expr-built
+                            // registered "Tuple__PathBuf__Bool" -- the expr-built
                             // type was never pre-registered, its definition
                             // emitted AFTER the alloca that used it, and clang
                             // rejected "Cannot allocate unsized type"
@@ -942,7 +942,7 @@ impl IrEmitter {
                             return Ok(("0".to_string(), LLVM_I64.to_string()));
                         }
                     }
-                    // Parse field types from struct name: %struct.Tuple_Float32_Int →
+                    // Parse field types from struct name: %struct.Tuple_Float32_Int ->
                     // field LLVM types: [float, i64]
                     let field_types = self.parse_struct_field_types(&struct_ty);
                     let alloca = self.fresh_tmp();
@@ -971,7 +971,7 @@ impl IrEmitter {
                 let tmp = self.fresh_tmp();
                 match op {
                     UnaryOp::Neg => {
-                        // BUG 31: fp128 (Float128) must also use `fneg` — the
+                        // BUG 31: fp128 (Float128) must also use `fneg` -- the
                         // integer `sub i64 0, %val` path made clang reject
                         // (`'%tmp' defined with type 'fp128' but expected 'i64'`).
                         if inner_ty == "double" || inner_ty == "float" || inner_ty == "fp128" {
@@ -1012,7 +1012,7 @@ impl IrEmitter {
                         if inner_ty.ends_with('*') {
                             // BUG 44: strip exactly ONE star. `trim_end_matches('*')`
                             // stripped ALL trailing stars, so deref of a `&Str`
-                            // (an `i8**` — pointer to the Str slot) emitted
+                            // (an `i8**` -- pointer to the Str slot) emitted
                             // `load i8, i8**` (a byte) instead of `load i8*, i8**`.
                             let pointee = inner_ty.strip_suffix('*').unwrap_or(&inner_ty).to_string();
                             self.emitln(&format!("  {tmp} = load {pointee}, {inner_ty} {val}"));
@@ -1028,7 +1028,7 @@ impl IrEmitter {
                             let pointee_llvm = if let Expr::Ident(id) = inner.as_ref() {
                                 // `&T` params carry the ADDRESS (i64); type_from_ast
                                 // strips the &, so local_xiom_types holds "Int" for a
-                                // `r: &Int` param — that IS the pointee type. This
+                                // `r: &Int` param -- that IS the pointee type. This
                                 // fixes `*r` loading i8 instead of the declared width.
                                 // BUG 44: ref-LOCALS (`var p = &s`, `var p: &Str = ..`)
                                 // follow the same rule via ref_locals.
@@ -1046,7 +1046,7 @@ impl IrEmitter {
                                 }
                             } else { None };
                             if let Some(pointee) = pointee_llvm {
-                                // `&T` params/locals carry the ADDRESS (as i64) —
+                                // `&T` params/locals carry the ADDRESS (as i64) --
                                 // inttoptr to the pointee type and load the value.
                                 let ptr = self.fresh_tmp();
                                 self.emitln(&format!("  {ptr} = inttoptr i64 {val} to {pointee}*"));
@@ -1130,8 +1130,8 @@ impl IrEmitter {
                     let rhs_block = self.fresh_block("logic_rhs");
                     let done_false = self.fresh_block("logic_done_false");
                     let done_block = self.fresh_block("logic_done");
-                    // && : LHS false → skip RHS, result 0.
-                    // || : LHS true  → skip RHS, result 1.
+                    // && : LHS false -> skip RHS, result 0.
+                    // || : LHS true  -> skip RHS, result 1.
                     let skip_cond = if is_or {
                         l_i1.clone()
                     } else {
@@ -1153,7 +1153,7 @@ impl IrEmitter {
                     // switches, nested &&/||). Its LAST block must terminate
                     // with a branch to %done so the phi below has a valid
                     // predecessor. If the RHS's last block already terminated
-                    // (rare — only statement-like expressions), fall back to
+                    // (rare -- only statement-like expressions), fall back to
                     // unconditional evaluation (correct result, no
                     // short-circuit) rather than emitting invalid IR.
                     if !self.current_block_terminated() {
@@ -1167,7 +1167,7 @@ impl IrEmitter {
                         self.emitln(&format!("  {phi} = phi i64 [ {skip_val}, %{done_false} ], [ {rhs_res}, %{rhs_last} ]"));
                         return Ok((phi, LLVM_I64.to_string()));
                     }
-                    // Fallback: RHS control flow already terminated — evaluate
+                    // Fallback: RHS control flow already terminated -- evaluate
                     // both sides unconditionally (pre-BUG-22 semantics).
                     let lw = if lt == "i64" { l.clone() } else {
                         let ext = self.fresh_tmp();
@@ -1194,7 +1194,7 @@ impl IrEmitter {
                 // coerced to i8*), which also keeps IR valid where a Str-returning
                 // callee was resolved to a fallback i64 signature.
                 // round-7 (ve2): a *UInt8 byte buffer is ALSO i8* at the ABI but
-                // must stay POINTER arithmetic — expr_is_pointer gates it out
+                // must stay POINTER arithmetic -- expr_is_pointer gates it out
                 // (only when the other operand is an integer; Str+Str and
                 // Str+buffer shapes keep concatenation).
                 if matches!(op, BinOp::Add) && (lt == "i8*" || rt == "i8*")
@@ -1212,7 +1212,7 @@ impl IrEmitter {
                 // to the pointer bits. The old ptrtoint/add/inttoptr lowering
                 // also lost the pointee type, so `*(p + 1)` loaded a BYTE
                 // instead of the element (round-7 ve2 follow-up: mono'd
-                // Vec.first/last/insert/remove bodies do `*(data + len - 1)` —
+                // Vec.first/last/insert/remove bodies do `*(data + len - 1)` --
                 // byte offsets + byte loads on Vec[Int]).
                 if matches!(op, BinOp::Add | BinOp::Sub) {
                     let (pval, pty, ival, ity) = if lt.ends_with('*') && !rt.ends_with('*') {
@@ -1248,7 +1248,7 @@ impl IrEmitter {
                 let float_ty = if lt == "float" || rt == "float" { "float" }
                     else if lt == "fp128" || rt == "fp128" { "fp128" }
                     else { "double" };
-                // D1 (2026-08-08): 128-bit integer detection — i128 operands
+                // D1 (2026-08-08): 128-bit integer detection -- i128 operands
                 // must NOT be widened to i64. This drives the integer binop
                 // type choice below (i128 vs i64).
                 let int128_ty = if lt == "i128" || rt == "i128" { "i128" } else { "i64" };
@@ -1281,10 +1281,10 @@ impl IrEmitter {
                         if self.types.functions.contains_key(&eq_fn) {
                             self.emitln(&format!("  {eq_result} = call i64 @{eq_fn}({lt} {l}, {rt} {r})"));
                         } else if lt_is_struct && rt_is_struct && lt == rt {
-                            // BUG 24 fix: no derived `.eq` registered — compare
+                            // BUG 24 fix: no derived `.eq` registered -- compare
                             // STRUCTURALLY over ALL fields instead of only field 0
                             // (the old fallback compared `sign` for BigFloat ==
-                            // BigFloat — silent miscompare). Mirrors compile_eq_impl:
+                            // BigFloat -- silent miscompare). Mirrors compile_eq_impl:
                             // scalars icmp/oeq, nested structs via their derived eq.
                             let l_a = self.fresh_tmp();
                             let r_a = self.fresh_tmp();
@@ -1397,13 +1397,13 @@ impl IrEmitter {
                     // i64 whose real value is a Str pointer (e.g. `opt.unwrap() == "x"`
                     // where unwrap's ABI return is i64 but holds an i8*): coerce the
                     // i64 side to i8* so the content compare is well-typed.
-                    // round-8 (rw1): a reference-typed operand (&Str — from
+                    // round-8 (rw1): a reference-typed operand (&Str -- from
                     // `Some(&items[i])` payloads or `&local`) holds the T
                     // SLOT ADDRESS (i64/i8**/i8* forms); load through it FIRST
                     // so the condition sees the deref'd type and the content
                     // compare reads the string, not the address bytes.
                     // ASSIGN to the outer mut l/lt (a shadow would be lost
-                    // after this block — the generic icmp at the tail uses
+                    // after this block -- the generic icmp at the tail uses
                     // the outer bindings).
                     let (l2, lt2) = self.auto_deref_ref(left, &l, &lt);
                     l = l2;
@@ -1469,7 +1469,7 @@ impl IrEmitter {
                 // struct value (e.g. %struct.Result from a contract's `result`)
                 // is compared with an integer, the struct's discriminant must be
                 // extracted first so the `icmp` operates on a scalar type.
-                // Skip pointer types (%struct.X*) — they should be compared as
+                // Skip pointer types (%struct.X*) -- they should be compared as
                 // pointers, not have their fields extracted.
                 if lt.starts_with("%struct.") && !lt.ends_with('*') && !rt.starts_with("%struct.") {
                     l = self.extract_scalar_field0(&l, &lt);
@@ -1481,7 +1481,7 @@ impl IrEmitter {
                 // emitting arithmetic, bitwise, shift, or comparison operations.
                 // This prevents LLVM type mismatches when Int8/Int16/Int32 values
                 // flow into binary ops that expect i64 operands. (B-004, B-005, B-006)
-                // D1: i128 operands are already wide — never widen them.
+                // D1: i128 operands are already wide -- never widen them.
                 if !is_float && !lt.contains('*') && !rt.contains('*') {
                     if int128_ty == "i128" {
                         // Widen narrow operands UP to i128 (sext/zext) so both
@@ -1519,7 +1519,7 @@ impl IrEmitter {
                     BinOp::BitOr => (int_ty, "or"),
                     BinOp::Shl => (int_ty, "shl"),
                     // BUG 14 fix (2026-08-11): UInt128 (and any unsigned
-                    // integer) right-shift must use LSHR — ashr sign-extends
+                    // integer) right-shift must use LSHR -- ashr sign-extends
                     // and corrupts values with the top bit set.
                     BinOp::Shr => {
                         let unsigned = self.expr_is_unsigned(left);
@@ -1527,7 +1527,7 @@ impl IrEmitter {
                     }
                     BinOp::Eq => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp oeq" } else { "icmp eq" }),
                     // BUG 19 fix (2026-08-11): float `!=` must lower to fcmp UNE
-                    // (unordered-or-not-equal), not `one` — for NaN operands `one`
+                    // (unordered-or-not-equal), not `one` -- for NaN operands `one`
                     // is FALSE, so `x != x` returned false and is_nan was impossible;
                     // IEEE requires NaN != NaN to be TRUE (`une`).
                     BinOp::Neq => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp une" } else { "icmp ne" }),
@@ -1582,7 +1582,7 @@ impl IrEmitter {
                     if lt == "i64" || (lt.starts_with("%struct.") && !lt.ends_with('*')) {
                         let conv = self.fresh_tmp();
                         // 5c.29: `opt.unwrap()` returns the float payload as RAW
-                        // BITS in an i64 (Some(x) stores via bitcast) â€” so the
+                        // BITS in an i64 (Some(x) stores via bitcast) -- so the
                         // conversion must bit-reinterpret, never sitofp.
                         if lt == "i64" && Self::expr_is_unwrap_call(left) {
                             if float_ty == "double" {
@@ -1612,7 +1612,7 @@ impl IrEmitter {
                         }
                         r = conv;
                     }
-                    // Narrow double ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ float when the operation uses float
+                    // Narrow double -> float when the operation uses float
                     // (Float32) but an operand is double (Float64 literal).
                     if is_float && float_ty == "float" {
                         if lt == "double" {
@@ -1740,7 +1740,7 @@ impl IrEmitter {
                             _ => None,
                         };
                         if let Some(name) = fn_name {
-                            // If function is defined and its return type is a struct with ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â°ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¤2 fields
+                            // If function is defined and its return type is a struct with <=2 fields
                             if let Some(field_names) = self.types.types.get(&name) {
                                 let opt_like = field_names.len() <= 2;
                                 if opt_like { self.types.used_builtins.insert("Option".to_string()); }
@@ -1844,9 +1844,9 @@ impl IrEmitter {
                 // after the consequence compiles. Without the scope, the
                 // rebind persisted in the locals map and every LATER
                 // contract check at another return site resolved `result`
-                // to the hoisted i64 payload slot → the i64-form Is()
+                // to the hoisted i64 payload slot -> the i64-form Is()
                 // inttoptr+load dereferenced the payload value as a
-                // pointer (uninitialized on Some-return paths) → AV.
+                // pointer (uninitialized on Some-return paths) -> AV.
                 self.push_scope();
                 // BUG 38: the bare-scrutinee payload rebind in Is()
                 // (`x is Some` rebinds x to the payload slot) is a
@@ -1861,10 +1861,10 @@ impl IrEmitter {
                 self.local.in_imply_lhs = saved_imply_lhs;
                 // bi4 fix (2026-08-19): SHORT-CIRCUIT the consequence.
                 // The old code compiled the right side unconditionally and
-                // masked it with `or (!l, r)` — for an Err result the
+                // masked it with `or (!l, r)` -- for an Err result the
                 // consequence's payload UNBOX (`result is Ok => result.len()`
                 // inttoptrs the payload slot and loads %struct.Vec) executed
-                // anyway → load from NULL (payload 0) → UB → the Err return
+                // anyway -> load from NULL (payload 0) -> UB -> the Err return
                 // value got corrupted and gzip_decompress returned Ok for
                 // garbage input. The consequence now runs only when the left
                 // side is true; the false path contributes literal 1.
@@ -1919,10 +1919,10 @@ impl IrEmitter {
                             self.emitln(&format!("  {loaded} = load i64, i64* {gep}"));
                             let cmp = self.fresh_tmp();
                             self.emitln(&format!("  {cmp} = icmp eq i64 {loaded}, {disc_val}"));
-                            // M18: Bind pattern variable (e.g. Some(n) → bind n).
+                            // M18: Bind pattern variable (e.g. Some(n) -> bind n).
                             // BUG 30: also rebind a BARE `is Some/Ok/Err` scrutinee
                             // ident (contract ensures `result is Ok => ...`) to the
-                            // payload slot — the consequence's method calls then
+                            // payload slot -- the consequence's method calls then
                             // dispatch on the payload (Vec.len unboxing), not the
                             // Result struct (which fell to generic Map.len).
                             if let xiom_ast::Pattern::Some(inner, _)
@@ -1933,7 +1933,7 @@ impl IrEmitter {
                                     xiom_ast::Pattern::Ident(id) => Some(id),
                                     // BUG 38: the bare `is Some` scrutinee-name
                                     // rebind is a contract-ensures convenience
-                                    // (BUG 29) — gate it to Imply-left contexts.
+                                    // (BUG 29) -- gate it to Imply-left contexts.
                                     _ => match expr.as_ref() {
                                         Expr::Ident(sid) if self.local.in_imply_lhs => Some(sid),
                                         _ => None,
@@ -1945,7 +1945,7 @@ impl IrEmitter {
                                     let payload_loaded = self.fresh_tmp();
                                     self.emitln(&format!("  {payload_loaded} = load i64, i64* {payload_gep}"));
                                     let inner_alloca = self.fresh_tmp();
-                                    // BUG 30: hoist — `&&` guard chains bind in
+                                    // BUG 30: hoist -- `&&` guard chains bind in
                                     // one block, read in a later one (dominance).
                                     self.local.hoisted_allocas.push((inner_alloca.clone(), "i64".to_string()));
                                     self.emitln(&format!("  store i64 {payload_loaded}, i64* {inner_alloca}"));
@@ -1982,7 +1982,7 @@ impl IrEmitter {
                             // `is Some` / `is Ok` / `is Err` pattern (no inner
                             // binding var) in a contract expression binds the
                             // payload to the SCRUTINEE's own name for the
-                            // consequence — `result is Some => result.len() >
+                            // consequence -- `result is Some => result.len() >
                             // 0` must call Str.len on the payload, not Map.len
                             // on the Option. Rebind the scrutinee ident to the
                             // payload slot.
@@ -2054,7 +2054,7 @@ impl IrEmitter {
                             // in one block but reads `v` in a LATER block that
                             // is also reachable via the false edge (e.g.
                             // `x if x is Some(inner) && inner is Some(v) && v > 0`)
-                            // — an inline alloca there does not dominate the
+                            // -- an inline alloca there does not dominate the
                             // use (LLVM: "Instruction does not dominate all
                             // uses"). Same treatment as the struct-form bind.
                             self.local.hoisted_allocas.push((inner_alloca.clone(), "i64".to_string()));
@@ -2147,10 +2147,10 @@ impl IrEmitter {
                                     // BUG 29 (BUG 27 #12): use resolve_field_index so
                                     // BOTH `pair._1` AND `pair.1` (numeric tuple field
                                     // syntax, as in crypto.xi's `&pair.0`/`&pair.1`
-                                    // AES-GCM smokes) resolve — the raw position() only
+                                    // AES-GCM smokes) resolve -- the raw position() only
                                     // matched the legacy `_N` form, so `pair.1` fell
-                                    // through to the Str.len handler (inttoptr 0 →
-                                    // garbage lengths → heap corruption in the gcm
+                                    // through to the Str.len handler (inttoptr 0 ->
+                                    // garbage lengths -> heap corruption in the gcm
                                     // smoke's decrypt roundtrip).
                                     if let Some(fi) = IrEmitter::resolve_field_index(&field_names, &field.name) {
                                         let sty = format!("%struct.{tn}");
@@ -2241,7 +2241,7 @@ impl IrEmitter {
                             {
                                 if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
                                     // BUG 25 #5 fix: Option/Result `.value`/`.error`
-                                    // field reads must use the ACTUAL payload type —
+                                    // field reads must use the ACTUAL payload type --
                                     // the static slot type is i64, so Str/Vec/Float
                                     // payloads read back as raw bits (pointer-as-
                                     // number, wrong len/bit pattern). Match
@@ -2258,14 +2258,14 @@ impl IrEmitter {
                                     // Result.error) resolve the payload type via
                                     // field_payload_xiom (local_opt_payload /
                                     // local_opt_payload_xiom / local_err_payload /
-                                    // declared local type) — NOT only the scalar
+                                    // declared local type) -- NOT only the scalar
                                     // local_opt_payload_xiom registry. Without it
                                     // `let decompressed = decoded.value;` bound the
                                     // raw BOXED POINTER as an i64 (and never
                                     // unboxed the heap Vec), so &decompressed
                                     // passed the i64 SLOT address as %struct.Vec*
-                                    // → crc32 read stack garbage as len/elem_size
-                                    // → 8-byte element load → 0xC0000005.
+                                    // -> crc32 read stack garbage as len/elem_size
+                                    // -> 8-byte element load -> 0xC0000005.
                                     let is_payload_field = (is_option || is_result)
                                         && (field.name == "value" || field.name == "error");
                                     if is_payload_field {
@@ -2303,7 +2303,7 @@ impl IrEmitter {
                                     let gep = self.fresh_tmp();
                                     self.emitln(&format!("  {gep} = getelementptr {llvm_ty}, {llvm_ty}* {struct_alloca}, i32 0, i32 {field_idx}"));
                                     let loaded = if payload_reinterpret {
-                                        // Payload override: the slot holds raw bits —
+                                        // Payload override: the slot holds raw bits --
                                         // load i64 and reinterpret to the payload type.
                                         let raw_loaded = self.fresh_tmp();
                                         self.emitln(&format!("  {raw_loaded} = load i64, i64* {gep}"));
@@ -2441,7 +2441,7 @@ impl IrEmitter {
             }
             Expr::GenericCall(func, types, args, _) => {
                 // D1: pass explicit type args so generic monomorphisation maps
-                // T→concrete correctly (e.g. `add2[Float32]` → Float32).
+                // T->concrete correctly (e.g. `add2[Float32]` -> Float32).
                 self.compile_call_with_types(func, args, Some(types))
             }
             Expr::Call(func, args, _) => self.compile_call(func, args),
@@ -2456,7 +2456,7 @@ impl IrEmitter {
                 // The buffer layout is: [length: i64][elem0: i64][elem1: i64]...
                 // Skip past the leading length slot and read the element at index+1.
                 // Also handles local variables bound from array literals (let arr = [...];
-                // arr[i]) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â detected by cont_ty == i8* and the ident resolves to a
+                // arr[i]) -- detected by cont_ty == i8* and the ident resolves to a
                 // buffer that wasn't interned as a C string.
                 let is_array_buf = cont_ty == "i8*" && (
                     matches!(container.as_ref(), Expr::Array(..))
@@ -2465,7 +2465,7 @@ impl IrEmitter {
                             // BUG 25 #10 (crypto): CONST fixed arrays
                             // (`const _AES_SBOX: [256]UInt8 = [...]`) substitute
                             // to an Expr::Array buffer at read sites but are NOT
-                            // in array_locals — without this, `_AES_SBOX[i]`
+                            // in array_locals -- without this, `_AES_SBOX[i]`
                             // read the LENGTH slot (buf[0]) as the first element
                             // and the whole AES S-box lookup returned garbage.
                             || self.local.constants.get(&ident.name).map_or(false, |v| matches!(v, Expr::Array(..)))
@@ -2537,7 +2537,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     self.emitln(&format!("  {data_ptr} = extractvalue %struct.Vec {vec_val}, 0"));
                     self.emitln(&format!("  {len_tmp} = extractvalue %struct.Vec {vec_val}, 1"));
                     self.emitln(&format!("  {esz_val} = extractvalue %struct.Vec {vec_val}, 3"));
-                    // S1: Bounds check — trap on out-of-bounds Vec indexing
+                    // S1: Bounds check -- trap on out-of-bounds Vec indexing
                     // when overflow checks are enabled.
                     if self.config.overflow_checks {
                         let idx_ge0 = self.fresh_tmp();
@@ -2560,7 +2560,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
                     // BUG 37/36 follow-up: Vec[Str] elements are STRING
                     // HANDLES (i8* in 8-byte slots). Load the handle and
-                    // inttoptr it back to i8* — the generic scalar path
+                    // inttoptr it back to i8* -- the generic scalar path
                     // returned a bare i64 which downstream Str consumers
                     // (println, Str params) mis-coerced into a single-byte
                     // temp (smoke_serialize yaml_emit_sequence garbage).
@@ -2574,7 +2574,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     // struct directly from Vec data via memcpy, bypassing the
                     // ptrtoint/inttoptr chain of emit_elem_load+val_to_struct.
                     if let Some(elem_type_name) = self.resolve_vec_elem_type(container) {
-                        // BUG 23 #2 fix: NESTED Vec[Vec[T]] — the element IS a
+                        // BUG 23 #2 fix: NESTED Vec[Vec[T]] -- the element IS a
                         // generic %struct.Vec (32 bytes); memcpy it like any
                         // struct element so `m[i][j]` / `m[i].len()` work.
                         let struct_ty = if elem_type_name.starts_with("Vec[") {
@@ -2593,7 +2593,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     }
                     // Fallback: use emit_elem_load for unknown element types.
                     let elem = self.emit_elem_load(&elem_ptr, &esz_val);
-                    // 5c.29: float elements round-trip as raw bits â€” reinterpret
+                    // 5c.29: float elements round-trip as raw bits -- reinterpret
                     // them instead of letting callers sitofp the bit pattern.
                     if let Some(fty) = self.vec_elem_float_type(container) {
                         if fty == "float" {
@@ -2613,16 +2613,16 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // Fixed-size stack array [N x T]: use the existing alloca for
                 // Ident containers (no fresh alloca per access) or stash into an
                 // alloca and GEP for non-local array values.
-                // BUG 53 (2026-08-18): EXCLUDE pointer-typed forms — a
+                // BUG 53 (2026-08-18): EXCLUDE pointer-typed forms -- a
                 // `&[N]T` param slot is `[5 x i64]*` (starts with '[' but is a
                 // POINTER); the old condition GEP'd the SLOT as the array
                 // (`getelementptr [5 x i64]*, [5 x i64]** %slot, i64 0, i64 0`
-                // — clang "invalid getelementptr indices"). Pointer-typed
+                // -- clang "invalid getelementptr indices"). Pointer-typed
                 // arrays fall through to the array-ref branch below.
                 if cont_ty.starts_with('[') && cont_ty.contains(" x ") && !cont_ty.ends_with('*') {
                     let (arr_ptr, arr_ptr_ty) = if let Expr::Ident(id) = &**container {
                         if let Some((slot, _slot_ty)) = self.lookup_local(&id.name) {
-                            // Use the existing alloca pointer directly ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â avoids
+                            // Use the existing alloca pointer directly -- avoids
                             // creating a fresh alloca on every loop iteration.
                             (slot.clone(), format!("{cont_ty}*"))
                         } else {
@@ -2647,7 +2647,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 }
                 // Handle pointer-typed array references from monomorphised generic params.
                 // NOTE: `&[N]T` params receive the array's DATA pointer (Vec data is
-                // headerless — array literals compile to %struct.Vec with pure
+                // headerless -- array literals compile to %struct.Vec with pure
                 // elements). The old "+1" assumed a raw buffer with a length header
                 // at [0], which misindexed every element by one and read one past
                 // the end (array smoke: contains() returned false / crashed).
@@ -2655,7 +2655,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     let elem_ty = cont_ty.trim_end_matches('*');
                     // BUG 53 (2026-08-18): `[N x T]*` pointers (non-generic
                     // `&[N]T` params lower to the typed array pointer) need a
-                    // TWO-INDEX GEP (`i64 0, i64 idx` — one index would scale
+                    // TWO-INDEX GEP (`i64 0, i64 idx` -- one index would scale
                     // by the whole array) and an ELEMENT-typed load; the old
                     // single-index GEP returned the array pointer and loaded
                     // the whole array (invalid/garbage).
@@ -2720,7 +2720,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                 }
                             }
                         } else if let Some((slot, slot_ty)) = self.lookup_local(&base_ident.name).cloned() {
-                            // 5c.30: `&local.field` â€” emit a REAL GEP into the
+                            // 5c.30: `&local.field` -- emit a REAL GEP into the
                             // local's storage. Previously the bare field name was
                             // looked up as a local, so `&addr3.ip` silently bound
                             // to an unrelated variable named `ip` (TFR test 7).
@@ -2774,7 +2774,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // corruption when the Vec is modified.
                 if let Expr::Array(elems, _) = inner.as_ref() {
                     let n = elems.len() as i64;
-                    // 5c-E: Empty array (n == 0) — construct a zeroed Vec without malloc.
+                    // 5c-E: Empty array (n == 0) -- construct a zeroed Vec without malloc.
                     // malloc(0) returns NULL on many platforms, causing a trap.
                     if n == 0 {
                         let vec_alloca = self.fresh_tmp();
@@ -2855,7 +2855,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {vec_alloca}"));
                     return Ok((loaded, struct_ty.to_string()));
                 }
-                // 5c.31: `&v[i]` on a Vec — return the ADDRESS of element i
+                // 5c.31: `&v[i]` on a Vec -- return the ADDRESS of element i
                 // within the Vec's data buffer, not the element VALUE.
                 // Computes data_ptr + i * elem_size and ptrtoint to i64.
                 if let Expr::Index(container, index, _) = inner.as_ref() {
@@ -2890,11 +2890,11 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     }
                 }
                 // BUG 25 #10 (crypto AES-NI follow-up): `&arr[i]` on a FIXED
-                // ARRAY local (`[N]T` — slot type `[16 x i8]`) must return the
+                // ARRAY local (`[N]T` -- slot type `[16 x i8]`) must return the
                 // element ADDRESS (GEP), not the loaded element value. The
                 // generic fallback compiled the Index as a VALUE, which the
                 // `as *T` cast then inttoptr'd (the byte value 0 became the
-                // NULL ciphertext pointer → 0xC0000005 in crypto's AES-NI FFI
+                // NULL ciphertext pointer -> 0xC0000005 in crypto's AES-NI FFI
                 // call). Mirrors the Vec element-address path above.
                 if let Expr::Index(container, index, _) = inner.as_ref() {
                     if let Expr::Ident(id) = container.as_ref() {
@@ -2907,7 +2907,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                     "  {gep} = getelementptr {slot_ty}, {slot_ty}* {slot}, i64 0, i64 {idx}"
                                 ));
                                 // GEP result type is the ELEMENT pointer:
-                                // `[16 x i8]` → `i8*`.
+                                // `[16 x i8]` -> `i8*`.
                                 let elem_ty = slot_ty
                                     .rsplit_once(" x ")
                                     .map(|(_, t)| t.trim_end_matches(']'))
@@ -2925,10 +2925,10 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // (this-based methods receive a proper pointer receiver).
                 // For scalar/handle idents, ptrtoint the alloca to i64 so
                 // *r can inttoptr back and load through the pointer.
-                // This fixes ACCESS_VIOLATION on &Int → *Int deref patterns.
+                // This fixes ACCESS_VIOLATION on &Int -> *Int deref patterns.
                 if let Expr::Ident(id) = inner.as_ref() {
                     if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
-                        // &array_local — the local is a Vec (array literal). A
+                        // &array_local -- the local is a Vec (array literal). A
                         // `&[N]T` parameter wants the DATA pointer (i64*), not
                         // the Vec struct or its alloca. Emit field-0 (data ptr).
                         if self.local.array_locals.contains(&id.name) && slot_ty == "%struct.Vec" {
@@ -2942,9 +2942,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         }
                         if slot_ty.starts_with("%struct.") {
                             // BUG 24 fix: `&x` where x is ALREADY a reference
-                            // (pointer-typed local — a `&Vec[Float64]`/`&BigFloat`
+                            // (pointer-typed local -- a `&Vec[Float64]`/`&BigFloat`
                             // param) is a DOUBLE-ADDRESS: the callee would read
-                            // the pointer SLOT as the struct (garbage → wrong
+                            // the pointer SLOT as the struct (garbage -> wrong
                             // values / AVs, per-program-shape). Reject it so the
                             // typo is a compile error, not silent corruption.
                             if slot_ty.ends_with('*') {
@@ -2966,7 +2966,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 }
                 // &literal (e.g. &30, &true): materialise a temp slot holding the
                 // value and return its ADDRESS. The old fallback returned the raw
-                // value which the caller inttoptr'd — turning the VALUE into its
+                // value which the caller inttoptr'd -- turning the VALUE into its
                 // own address (inttoptr i64 30 to i64*), so the callee loaded from
                 // address 0x1E instead of comparing with 30.
                 match inner.as_ref() {
@@ -3006,9 +3006,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // (e.g. a struct wrapping Option fields), use the default.
                 // 5c.35: Check that current_return_type is an Option-like struct.
                 // BUG 55: inside an unsafe-block fn, current_return_type is the
-                // block's i64 ABI — use the ENCLOSING fn's declared return so
+                // block's i64 ABI -- use the ENCLOSING fn's declared return so
                 // the ctor builds the CONCRETE container (Option__Rc), not the
-                // generic %struct.Option (payload-slot mismatch → corruption).
+                // generic %struct.Option (payload-slot mismatch -> corruption).
                 let ctor_ret = self.fctx.enclosing_return_type.clone()
                     .unwrap_or_else(|| self.fctx.current_return_type.clone());
                 let ret_is_option = ctor_ret.contains("Option");
@@ -3033,7 +3033,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     let store_val = self.val_to_i64(&val, &inner_ty);
                     self.emitln(&format!("  store i64 {store_val}, i64* {gep1}"));
                 } else {
-                    // Struct-typed value field — store the struct directly
+                    // Struct-typed value field -- store the struct directly
                     let store_val = self.coerce_value(&val, &inner_ty, &field_llvm_1);
                     self.emitln(&format!("  store {field_llvm_1} {store_val}, {field_llvm_1}* {gep1}"));
                 }
@@ -3110,7 +3110,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {result_ty}"));
                 // BUG 30: zero-init unused slots (Err payload for Ok, Ok payload
-                // for Err) — structural eq/Is reads must not see LLVM poison.
+                // for Err) -- structural eq/Is reads must not see LLVM poison.
                 self.emitln(&format!("  store {result_ty} zeroinitializer, {result_ty}* {alloca}"));
                 let gep0 = self.fresh_tmp();
                 self.emitln(&format!("  {gep0} = getelementptr {result_ty}, {result_ty}* {alloca}, i32 0, i32 0"));
@@ -3216,13 +3216,13 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
     .find(|k| k.ends_with(&format!(".{ek}")))
                     }
                 } else {
-                    // Bare variant: search all enums — BUT only when the name
+                    // Bare variant: search all enums -- BUT only when the name
                     // is NOT a known struct type. BUG 31 (bench_math native):
                     // `Node{ value: ...; children: ... }` (the bench_memory
                     // STRUCT) was hijacked by `enum BST[T] { Node(...) }`'s
-                    // Node VARIANT — the literal compiled as %struct.BST with
+                    // Node VARIANT -- the literal compiled as %struct.BST with
                     // the enum's payload slots (store %struct.BST %vecval at
-                    // field 2 → invalid IR).
+                    // field 2 -> invalid IR).
                     if !self.types.types.contains_key(&name.name)
                         && !self.types.type_meta.contains_key(&name.name)
                         && !self.types.generic_type_names.iter().any(|k| k == &name.name || k.ends_with(&format!(".{}", name.name)))
@@ -3247,7 +3247,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 let struct_ty = if let Some(ref ek) = parent_enum {
                     self.llvm_type_for(ek)?
                 } else if name.name == "_" {
-                    // Bare struct literal `{ field: value; }` — resolve from
+                    // Bare struct literal `{ field: value; }` -- resolve from
                     // return type context, or via field-name-based type lookup.
                     if !self.fctx.current_return_type.is_empty()
                         && self.fctx.current_return_type.starts_with('%')
@@ -3255,8 +3255,8 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         self.fctx.current_return_type.clone()
                     } else {
                         // 5c.31: Try resolve_bare_struct to match field names
-                        // against registered types (e.g. `{ v: 42 }` → L1,
-                        // `{ l6: { ... } }` → L7). This fixes deep struct
+                        // against registered types (e.g. `{ v: 42 }` -> L1,
+                        // `{ l6: { ... } }` -> L7). This fixes deep struct
                         // literal chains where the inner struct is a bare `_`
                         // literal whose type cannot be inferred from context.
                         match resolve_bare_struct(self, fields) {
@@ -3271,7 +3271,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 } else {
                     let mut ty = self.resolve_literal_struct_ty(&name.name);
                     // BUG 31: `Result[Unit, FmtError] { is_ok: ...; value: ();
-                    // error: ... }` — the parser drops the generic args, so the
+                    // error: ... }` -- the parser drops the generic args, so the
                     // literal resolves to the GENERIC template (%struct.Result,
                     // void Unit-field stores, ABI mismatch vs the fn signature).
                     // When the fn's return type is a CONCRETE instantiation of
@@ -3285,8 +3285,8 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     ty
                 };
                 if !struct_ty.starts_with('%') {
-                    // Scalar type — struct literal was resolved to a non-struct
-                    // type (e.g. `_` → i64). Return the last field value.
+                    // Scalar type -- struct literal was resolved to a non-struct
+                    // type (e.g. `_` -> i64). Return the last field value.
                     let mut last = ("0".to_string(), "i64".to_string());
                     for (_, val) in fields.iter() {
                         last = self.compile_expr(val)?;
@@ -3299,9 +3299,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 if let Some(ref enum_key) = parent_enum {
                     // BUG 30: zero-initialize the WHOLE enum literal before
                     // writing the discriminant/payloads. Unused payload slots
-                    // of other variants were left uninitialized → LLVM poison
-                    // → structural `==` (no derived eq) compared poison fields
-                    // → `br i1 poison` is UB and clang -O2 deterministically
+                    // of other variants were left uninitialized -> LLVM poison
+                    // -> structural `==` (no derived eq) compared poison fields
+                    // -> `br i1 poison` is UB and clang -O2 deterministically
                     // miscompiled it into an access violation (m35_z10/z29).
                     // Zeroed slots make the all-slots compare well-defined:
                     // same-variant payloads differ, other slots are 0 == 0.
@@ -3349,7 +3349,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     // not the bare `_` name from the struct literal.
                     let resolved_name = struct_ty.trim_start_matches("%struct.");
                     for (i, (_, val)) in fields.iter().enumerate() {
-                        // 5c.39: Empty array `[]` in Vec-typed field → compile as
+                        // 5c.39: Empty array `[]` in Vec-typed field -> compile as
                         // proper empty Vec, not raw i8* array buffer.
                         let (mut field_val, mut field_val_ty) = if let Expr::Array(elems, _) = val {
                             let fllvm = self.field_llvm_type(resolved_name, i);
@@ -3380,7 +3380,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         } else if field_llvm_ty == "i64" {
                             // For generic types, field_llvm_type may return "i64" for unresolved type params (like T).
                             // Fall back to the field value's actual compiled LLVM type.
-                            // BUG 31: NEVER adopt "void" — a Unit value (`value: ()`)
+                            // BUG 31: NEVER adopt "void" -- a Unit value (`value: ()`)
                             // must keep the i64 slot (`store void 0, void*` was
                             // invalid IR); the struct DEF degrades Unit fields to i64.
                             if field_val_ty != "i64" && field_val_ty != "void" {
@@ -3417,7 +3417,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
             }
             Expr::Array(elems, _) => {
                 // Materialize a fixed-size `[N]T` array literal. 5c-R: use the
-                // ACTUAL element LLVM type (Float64 → double, Int → i64, struct →
+                // ACTUAL element LLVM type (Float64 -> double, Int -> i64, struct ->
                 // %struct.Name) instead of always coercing to i64. The element
                 // type is determined from the first element's compiled type.
                 let n = elems.len() as i64;
@@ -3450,7 +3450,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 Ok((ptr, LLVM_STR_PTR.to_string()))
             }
             Expr::PipeClosure(params, body, _) => {
-                // M20-A1: Full closure implementation — capturing + non-capturing.
+                // M20-A1: Full closure implementation -- capturing + non-capturing.
                 let closure_id = self.tmp_counter;
                 self.tmp_counter += 1;
                 let fn_name = format!("__closure_{closure_id}");
@@ -3533,7 +3533,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // Strategy: heap-allocated env struct with { fn_ptr, captured_vals... }
                 // The thunk takes (env_ptr, params...) and loads captures from env.
                 
-                // Build the env struct type — defer to before function body
+                // Build the env struct type -- defer to before function body
                 let mut env_fields = vec!["i64".to_string()]; // field 0: fn_ptr
                 for (_cap_name, cap_llvm_ty) in &captures {
                     env_fields.push(cap_llvm_ty.clone());
@@ -3703,8 +3703,8 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     self.add_local(&p.name.name, a, "i64");
                     // round-12 (rm1/cb2): closure params arrive as i64 (the
                     // uniform thunk ABI) but their DECLARED XIOM types must be
-                    // tracked so value coercions inside the body (Str → i8*,
-                    // &T derefs) don't degrade the bits — a Str handle was
+                    // tracked so value coercions inside the body (Str -> i8*,
+                    // &T derefs) don't degrade the bits -- a Str handle was
                     // truncated to a single byte (corrupt map_err payloads).
                     let xiom_ty_name = Self::ref_preserving_name(&p.ty)
                         .unwrap_or_else(|| Self::type_from_ast(&p.ty));
@@ -3802,7 +3802,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // Extract the local ident from Ref(ident) / MutRef(ident) / bare Ident.
                 // BUG 32: the REF forms mean "address of the local" (&x as *T);
                 // the BARE-Ident form means "the local's VALUE as a pointer"
-                // (`h as *UInt8` where h holds ptrtoint bits) — it must
+                // (`h as *UInt8` where h holds ptrtoint bits) -- it must
                 // inttoptr the loaded value, never bitcast the slot address.
                 let is_ref_form = matches!(inner.as_ref(),
                     Expr::Ref(_, _) | Expr::MutRef(_, _)
@@ -3836,7 +3836,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             } else {
                                 // BUG 32: an INT-typed local holding pointer bits
                                 // (`var h = buf as Int; h as *UInt8`) must
-                                // inttoptr the loaded VALUE — the old code
+                                // inttoptr the loaded VALUE -- the old code
                                 // bitcast the slot ADDRESS (q == buf was false,
                                 // q[0] read stack bytes).
                                 let loaded = self.fresh_tmp();
@@ -3891,20 +3891,20 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         self.emitln(&format!("  {tmp} = fptosi double {val} to i64"));
                         Ok((tmp, LLVM_I64.to_string()))
                     }
-                    // M39: Float ↔ narrow int / float width conversions
+                    // M39: Float <-> narrow int / float width conversions
                     ("double", "i32") | ("float", "i32") => {
                         self.emitln(&format!("  {tmp} = fptosi {inner_llvm_ty} {val} to i32"));
                         Ok((tmp, "i32".to_string()))
                     }
                     ("double", "i8") | ("float", "i8") | ("double", "i16") | ("float", "i16") => {
-                        // Float → narrow int: fptosi to i64 then trunc to target width
+                        // Float -> narrow int: fptosi to i64 then trunc to target width
                         let mid = self.fresh_tmp();
                         self.emitln(&format!("  {mid} = fptosi {inner_llvm_ty} {val} to i64"));
                         self.emitln(&format!("  {tmp} = trunc i64 {mid} to {target_llvm_ty}"));
                         Ok((tmp, target_llvm_ty.to_string()))
                     }
                     ("i8", "double") | ("i16", "double") => {
-                        // Narrow int → float: sext to i64 then sitofp
+                        // Narrow int -> float: sext to i64 then sitofp
                         let mid = self.fresh_tmp();
                         self.emitln(&format!("  {mid} = sext {inner_llvm_ty} {val} to i64"));
                         self.emitln(&format!("  {tmp} = sitofp i64 {mid} to double"));
@@ -3944,7 +3944,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         Ok((tmp, LLVM_I64.to_string()))
                     }
                     (a, b) if a == b => Ok((val, target_llvm_ty.clone())),
-                    // D1: Float64 → Float128 (fpext). fpext of a double constant
+                    // D1: Float64 -> Float128 (fpext). fpext of a double constant
                     // yields a valid fp128 SSA value; the STORE then uses the
                     // register (clang rejects bare decimal fp128 literals in
                     // stores, so we never pass the constant through untyped).
@@ -3952,12 +3952,12 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         self.emitln(&format!("  {tmp} = fpext double {val} to fp128"));
                         Ok((tmp, "fp128".to_string()))
                     }
-                    // D1: Float32 → Float128 (fpext).
+                    // D1: Float32 -> Float128 (fpext).
                     ("float", "fp128") => {
                         self.emitln(&format!("  {tmp} = fpext float {val} to fp128"));
                         Ok((tmp, "fp128".to_string()))
                     }
-                    // D1: Float128 → Float64 (fptrunc) / Float128 → Float32.
+                    // D1: Float128 -> Float64 (fptrunc) / Float128 -> Float32.
                     ("fp128", "double") => {
                         self.emitln(&format!("  {tmp} = fptrunc fp128 {val} to double"));
                         Ok((tmp, "double".to_string()))
@@ -3968,7 +3968,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         self.emitln(&format!("  {tmp} = fptrunc double {mid} to float"));
                         Ok((tmp, "float".to_string()))
                     }
-                    // D1: Int ↔ Int128 conversions (sext/trunc handled by the
+                    // D1: Int <-> Int128 conversions (sext/trunc handled by the
                     // generic integer-width arm below via int_width; fp128
                     // integer conversions go through i64 then widen).
                     ("fp128", "i64") => {
@@ -3979,9 +3979,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         self.emitln(&format!("  {tmp} = sitofp i64 {val} to fp128"));
                         Ok((tmp, "fp128".to_string()))
                     }
-                    // BUG 37/36 follow-up (2026-08-17): Int128 ↔ Float128 casts
+                    // BUG 37/36 follow-up (2026-08-17): Int128 <-> Float128 casts
                     // fell through to the generic coerce path and emitted a
-                    // mis-typed store (i128 value stored as fp128 → clang
+                    // mis-typed store (i128 value stored as fp128 -> clang
                     // rejected; the LLVM libcalls __floattitf/__fixtfti now
                     // exist in fp128_helpers.c with matching shims).
                     ("i128", "fp128") => {
@@ -3992,7 +3992,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         self.emitln(&format!("  {tmp} = fptosi fp128 {val} to i128"));
                         Ok((tmp, "i128".to_string()))
                     }
-                    // 5e.2 G-34: fn-ptr ↔ Int casts.
+                    // 5e.2 G-34: fn-ptr <-> Int casts.
                     (inner_ty, target_fn_ptr) if target_fn_ptr.contains('(')
                         && target_fn_ptr.contains(')')
                         && target_fn_ptr.ends_with('*')
@@ -4002,7 +4002,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         self.emitln(&format!("  {ptr_reg} = inttoptr {inner_ty} {val} to {target_fn_ptr}"));
                         return Ok((ptr_reg, target_fn_ptr.to_string()));
                     }
-                    // Reverse: fn-ptr → Int (ptrtoint)
+                    // Reverse: fn-ptr -> Int (ptrtoint)
                     (src_fn_ptr, target_ty) if src_fn_ptr.contains('(')
                         && src_fn_ptr.contains(')')
                         && src_fn_ptr.ends_with('*')
@@ -4012,7 +4012,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         self.emitln(&format!("  {int_reg} = ptrtoint {src_fn_ptr} {val} to {target_ty}"));
                         return Ok((int_reg, target_ty.to_string()));
                     }
-                    // 5c-E G2: &local as Int — emit ADDRESS not VALUE
+                    // 5c-E G2: &local as Int -- emit ADDRESS not VALUE
                     (a, b) if matches!(inner.as_ref(), Expr::Ref(_, _) | Expr::MutRef(_, _))
                         && int_width(b).is_some()
                         && int_width(a).is_some() =>
@@ -4028,7 +4028,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                 }
                             }
                         }
-                        // Fallback: use fptosi for float→int, sitofp for int→float,
+                        // Fallback: use fptosi for float->int, sitofp for int->float,
                         // sext/trunc for integer width changes.
                         let op = if (a == "double" || a == "float") && int_width(b).is_some() {
                             "fptosi"
@@ -4044,7 +4044,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         self.emitln(&format!("  {tmp} = {op} {a} {val} to {b}"));
                         Ok((tmp, target_llvm_ty.clone()))
                     }
-                    // D1: big literal semantics — `9223372036854775808 as Int128`
+                    // D1: big literal semantics -- `9223372036854775808 as Int128`
                     // means the VALUE 2^63, not i64::MIN sign-extended. When the
                     // source is a plain Int literal whose u64 bit pattern is
                     // > i64::MAX and the target is i128, interpret the literal
@@ -4063,9 +4063,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             self.emitln(&format!("  {tmp} = trunc {a} {val} to {b}"));
                         } else {
                             // BUG 14 fix: unsigned sources must ZERO-extend when
-                            // widening (UInt64→UInt128, UInt8→Int128). Resolve the
+                            // widening (UInt64->UInt128, UInt8->Int128). Resolve the
                             // source's REGISTERED XIOM type (xiom_type_of_local
-                            // prefers local_xiom_types — the LLVM-slot-derived
+                            // prefers local_xiom_types -- the LLVM-slot-derived
                             // name loses signedness); unknown sources default to
                             // sext (historical behavior).
                             let src_signed = if let Expr::Ident(id) = inner.as_ref() {
@@ -4097,16 +4097,16 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
             Expr::Await(inner, _) => self.compile_expr(inner),
             Expr::Comptime(inner, _) => self.compile_expr(inner),
             Expr::Unsafe(block, _) => {
-                // D2.1 (Phase 5, requirement f — REVISED 2026-08-10): canonical
+                // D2.1 (Phase 5, requirement f -- REVISED 2026-08-10): canonical
                 // TRAP LOWERING. The inline VEH approach (xiom_trap_enter with
                 // RtlCaptureContext/RtlRestoreContext) is BROKEN: the captured
                 // context's RSP points into xiom_trap_enter's OWN frame, which
                 // is popped and reused before a fault deep in the block fires.
                 // RtlRestoreContext then restores RSP into that dead region, the
                 // epilogue `ret` pops a stale address, and control jumps back
-                // into the faulting block → infinite AV→restore→AV loop.
+                // into the faulting block -> infinite AV->restore->AV loop.
                 //
-                // Canonical fix (plan §2.7): lower the block to a STANDALONE
+                // Canonical fix (plan S2.7): lower the block to a STANDALONE
                 // function `int64_t __unsafe_block_N(uint8_t* ctx)` (captures =
                 // free variables packed in a ctx struct) and run it through the
                 // pre-compiled SEH trampoline xiom_trampoline_call, whose
@@ -4114,8 +4114,8 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // block_fn(ctx). On fault, __except returns a code 1-6 (no
                 // register-restore). Branch on the fault code.
                 //
-                // D2.1 (Phase 5, §2.13): a NESTED unsafe block (already inside an
-                // unsafe-block fn) must NOT create a second trampoline — the outer
+                // D2.1 (Phase 5, S2.13): a NESTED unsafe block (already inside an
+                // unsafe-block fn) must NOT create a second trampoline -- the outer
                 // SEH checkpoint already covers it. Compile it as a plain block
                 // (allocations still route to the guard arena via guard_heap_depth,
                 // and captured-variable access works directly since we are in the
@@ -4123,9 +4123,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // guard-arena/TLS state (observed: str_concat's unsafe block inside
                 // str_pad_left's unsafe block crashed).
                 if self.in_unsafe_block_fn {
-                    // Emit guard enter/arm (idempotent with the outer block's —
+                    // Emit guard enter/arm (idempotent with the outer block's --
                     // the outer block already entered; nested re-enter bumps depth,
-                    // re-exit decrements — so the arena stays active throughout).
+                    // re-exit decrements -- so the arena stays active throughout).
                     self.emitln("  call void @xiom_guard_heap_enter()");
                     self.emitln("  call void @xiom_guard_page_arm()");
                     self.guard_heap_depth += 1;
@@ -4182,7 +4182,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     self.emitln("  call void @xiom_guard_page_disarm()");
                     return Ok((last, last_ty));
                 }
-                // D2.1 (Phase 7): `#[unsafe_direct]` — trusted escape hatch.
+                // D2.1 (Phase 7): `#[unsafe_direct]` -- trusted escape hatch.
                 // The fn's unsafe blocks run as PLAIN unsafe blocks (no
                 // trampoline, no arena, no guard page): today's transparent
                 // lowering. Intended for stdlib/selfhost hot paths. Counted
@@ -4195,7 +4195,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             self.unsafe_direct_count, self.config.unsafe_direct_cap
                         ));
                     }
-                    // Compile as a plain block (no guard heap / page — trusted).
+                    // Compile as a plain block (no guard heap / page -- trusted).
                     let mut last = String::new();
                     let mut last_ty = String::new();
                     let n = block.stmts.len();
@@ -4261,14 +4261,14 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 let saved_ensures = std::mem::take(&mut self.fctx.current_ensures);
                 let saved_in_block_fn = self.in_unsafe_block_fn;
                 // BUG 22 #6: the block fn and the enclosing fn share
-                // self.local — isolate the hoisted-alloca list so each fn
+                // self.local -- isolate the hoisted-alloca list so each fn
                 // splices only its own loop-body allocas into its own entry.
                 let saved_hoisted = std::mem::take(&mut self.local.hoisted_allocas);
                 self.in_unsafe_block_fn = true;
                 self.tmp_counter = unsafe_id * 1000;
                 self.block_counter = unsafe_id * 1000;
                 // BUG 55: keep the ENCLOSING fn's declared return type for the
-                // Some/None/Ok/Err ctor decision (concrete Option__Rc) — the
+                // Some/None/Ok/Err ctor decision (concrete Option__Rc) -- the
                 // block-fn ABI stays i64 via current_return_type below.
                 self.fctx.enclosing_return_type = Some(saved_ret.clone());
                 self.fctx.current_return_type = LLVM_I64.to_string();
@@ -4377,7 +4377,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.fctx.current_ensures = saved_ensures;
                 self.in_unsafe_block_fn = saved_in_block_fn;
                 self.local.hoisted_allocas = saved_hoisted;
-                // BUG 55: the block fn is done — the enclosing return type
+                // BUG 55: the block fn is done -- the enclosing return type
                 // context is no longer needed.
                 self.fctx.enclosing_return_type = None;
 
@@ -4394,7 +4394,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         self.emitln(&format!("  {gep} = getelementptr %struct.{ctx_name}, %struct.{ctx_name}* {ctx_slot}, i32 0, i32 {i}"));
                         if let Some((slot, ty)) = self.lookup_local(cap_name).cloned() {
                             // BUG 22 #6: capture the ADDRESS of the enclosing
-                            // alloca directly (pointer capture — the block fn
+                            // alloca directly (pointer capture -- the block fn
                             // loads AND stores through it, so mutations write
                             // back). Loop-body binding allocas are HOISTED to
                             // the fn entry by the binding codegen, so every
@@ -4472,7 +4472,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 } else {
                     // Use a SEPARATE register for the enclosing-fn coercion: the
                     // block's `last` value must stay untouched for the normal_tail
-                    // path below (e.g. a pointer tail stays a pointer — coercing
+                    // path below (e.g. a pointer tail stays a pointer -- coercing
                     // it to the enclosing fn's i64 here previously leaked the
                     // i64 into `icmp eq ptr, i64` at the block's use site).
                     let coerced_last = self.coerce_value(&last, &last_ty, &enc_ret_ty);
@@ -4533,7 +4533,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
             }
             Expr::If(cond, then_block, elifs, else_block, _) => {
                 // Value-producing if-expression (e.g. `let x = if c { 1 } else { 0 }`).
-                // Emit conditional branches ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  la Stmt::If, but have each arm store its
+                // Emit conditional branches a la Stmt::If, but have each arm store its
                 // tail expression into a result alloca.  At the merge point, load the
                 // result and return it.
                 
@@ -4556,11 +4556,11 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 };
 
                 // gzip fix (2026-08-19): `let compressed = if c { rle_encode(data) }
-                // else { _store_encode(data) };` — the result alloca must keep the
+                // else { _store_encode(data) };` -- the result alloca must keep the
                 // arms' STRUCT type (%struct.Vec). The old hardcoded i64 coerced
                 // the Vec VALUE to field-0-as-i64 (the data pointer), so
                 // `compressed.len()` degraded to xiom_str_len and `compressed[i]`
-                // compiled to a literal 0 (payload of all zeros → wrong decode).
+                // compiled to a literal 0 (payload of all zeros -> wrong decode).
                 // Infer the result type from the arm tail expressions like
                 // infer_match_llvm_type does (struct > pointer > i64).
                 let mut arm_tys: Vec<String> = Vec::new();
@@ -4578,7 +4578,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     }
                 }
                 let result_ty = if let Some(st) = arm_tys.iter().find(|t| t.starts_with("%struct.")) {
-                    // Only use the struct type when ALL struct arms agree — mixed
+                    // Only use the struct type when ALL struct arms agree -- mixed
                     // struct types would emit invalid stores into one slot.
                     if arm_tys.iter().filter(|t| t.starts_with("%struct.")).all(|t| t == st) {
                         st.clone()
@@ -4589,7 +4589,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     pt.clone()
                 } else if arm_tys.iter().any(|t| t == "double") && arm_tys.iter().all(|t| t == "double") {
                     // Float64 arms keep the double bits (was bitcast-to-i64 +
-                    // sitofp on the return — wrong values).
+                    // sitofp on the return -- wrong values).
                     "double".to_string()
                 } else if arm_tys.iter().any(|t| t == "float") && arm_tys.iter().all(|t| t == "float") {
                     "float".to_string()
@@ -4659,7 +4659,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         merge_reachable = true;
                     }
                 } else if elifs.is_empty() {
-                    // No elifs, no else ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the original else_label IS the merge_label
+                    // No elifs, no else -- the original else_label IS the merge_label
                 } else if prev_label != merge_label {
                     self.emitln(&format!("\n{prev_label}:"));
                     self.emitln(&format!("  br label %{merge_label}"));
@@ -4719,7 +4719,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
     /// BUG 29 (contract Some-payload ensures): after binding a pattern
     /// variable from `expr is Some(x)` / `Ok(x)` / `Err(x)`, record the
     /// payload's XIOM type in local_xiom_types so method calls on the
-    /// bound var dispatch correctly — `result is Some => result.len() > 0`
+    /// bound var dispatch correctly -- `result is Some => result.len() > 0`
     /// was emitting Map.len (first generic match) instead of Str.len
     /// because the payload was an untracked i64.
     fn bind_is_payload_xiom(&mut self, scrutinee: &Expr, pat: &xiom_ast::Pattern, id: &Ident) {
@@ -4753,17 +4753,17 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
         match receiver {
             // A bare identifier is an instance only if it's a bound local/param
             // (a value). Bare type names (`LogLevel`) and module roots (`xiom`)
-            // are not locals — not instances.
+            // are not locals -- not instances.
             Expr::Ident(ident) => {
                 self.lookup_local(&ident.name).is_some()
                     // BUG 29 (Map.keys on module globals): a MODULE-GLOBAL var
-                    // (`var _coverage: Map[Str, Bool]`) is a VALUE — generic
+                    // (`var _coverage: Map[Str, Bool]`) is a VALUE -- generic
                     // method calls on it must pass the receiver instance.
                     || self.local.module_globals.contains_key(&ident.name)
             }
             // `a.b`: instance iff its base chain is rooted in a value (local/self),
             // e.g. `obj.field`. A module path like `xiom.char` is rooted in `xiom`
-            // (not a local) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ NOT an instance. Also an instance if the whole
+            // (not a local) -> NOT an instance. Also an instance if the whole
             // expression has a concrete struct type.
             Expr::Field(base, field, _) => {
                 // `module.Type` static path (e.g. `alloc.Layout`) is NOT an instance:
@@ -4779,7 +4779,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
             }
             // Calls / indexing / parens evaluate to values.
             Expr::Call(..) | Expr::GenericCall(..) | Expr::Paren(..) => true,
-            // D1: `Trait[Arg].method(...)` — an Index whose base is a known
+            // D1: `Trait[Arg].method(...)` -- an Index whose base is a known
             // interface name is a STATIC impl-dispatch receiver (e.g.
             // `Num[Int].add(a, b)`), NOT an instance. The codegen resolves the
             // call to the impl's `Type.method` freestanding fn directly.
@@ -4793,7 +4793,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 }
                 true
             }
-            // Any other receiver form evaluates to a value ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â preserve the prior
+            // Any other receiver form evaluates to a value -- preserve the prior
             // "complex receiver is an instance" behavior (only the Ident type-name
             // and Field module-path shapes above are treated as non-instances).
             _ => true,
@@ -4805,7 +4805,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
     /// bindings). Guards the Str builtin handlers (slice/substr/starts_with/
     /// ends_with) so `p.starts_with(b)` on a Path STRUCT falls through to the
     /// real method dispatch instead of the Str builtin (which BOXED the Path
-    /// and passed the box address as a string — always false / garbage).
+    /// and passed the box address as a string -- always false / garbage).
     pub(crate) fn receiver_is_str(&self, receiver: &Expr) -> bool {
         if self.infer_llvm_type(receiver) == "i8*" {
             return true;
@@ -4818,10 +4818,10 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
         false
     }
 
-    /// BUG 31: LLVM type for a STRUCT FIELD — degrades Unit to i64. The
+    /// BUG 31: LLVM type for a STRUCT FIELD -- degrades Unit to i64. The
     /// struct-def path emits Unit fields as i64, so the ctor stores must
     /// match (`store void 0, void*` was invalid IR; Ok(()) on
-    /// Result[Unit, FmtError] → "void type only allowed for function
+    /// Result[Unit, FmtError] -> "void type only allowed for function
     /// results").
     fn field_llvm_ty(&self, xiom_ty: &str) -> String {
         let t = self.llvm_type_for(xiom_ty).unwrap_or_else(|_| "i64".to_string());
@@ -4832,7 +4832,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
     /// args (`Result[Unit, FmtError]`) to the CONCRETE registered type
     /// (`%struct.Result__Unit__FmtError`). Without this, the literal built
     /// the GENERIC template (%struct.Result) while the fn signature used the
-    /// concrete type — the Unit field store emitted `store void 0, void*`
+    /// concrete type -- the Unit field store emitted `store void 0, void*`
     /// (invalid IR) and the return ABI mismatched.
     fn resolve_literal_struct_ty(&self, name: &str) -> String {
         if name.contains('[') {

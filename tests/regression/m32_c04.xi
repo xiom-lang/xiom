@@ -1,4 +1,4 @@
-// M32-C04: Multiple requires — transfer with three preconditions
+// M32-C04: Multiple requires -- transfer with three preconditions
 fn transfer(amount: Int, balance: Int, limit: Int) -> Int
   requires: amount > 0
   requires: balance >= amount

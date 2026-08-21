@@ -1,4 +1,4 @@
-// M32-T03: String concat — + operator
+// M32-T03: String concat -- + operator
 fn main() -> Int {
   var s: Str = "hello";
   var t: Str = " world";

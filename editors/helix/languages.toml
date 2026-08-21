@@ -1,4 +1,4 @@
-# XIOM language support for Helix — append to ~/.config/helix/languages.toml
+# XIOM language support for Helix -- append to ~/.config/helix/languages.toml
 # Requires xiom-lsp (and xiom-dbg for debugging) on PATH.
 
 [language-server.xiom-lsp]

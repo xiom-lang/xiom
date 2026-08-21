@@ -1,4 +1,4 @@
-// M36-R26: very deep nesting — if-else ladder stress test for parser recursion
+// M36-R26: very deep nesting -- if-else ladder stress test for parser recursion
 fn main() -> Int {
   var x: Int = 0;
   if true { x = 1; } else { x = 2; }

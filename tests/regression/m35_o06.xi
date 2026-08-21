@@ -1,4 +1,4 @@
-// M35-O06: Option[enum] — Option wrapping a user-defined enum
+// M35-O06: Option[enum] -- Option wrapping a user-defined enum
 enum Color { Red, Green, Blue(val: Int) }
 fn main() -> Int {
   var a: Option[Color] = Some(Color.Red);

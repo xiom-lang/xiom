@@ -1,4 +1,4 @@
-// M35-L22: Pointer to pointer — double indirection via pointer chain
+// M35-L22: Pointer to pointer -- double indirection via pointer chain
 fn deref_int(p: *Int) -> Int {
   var v: Int;
   unsafe { v = *p; }

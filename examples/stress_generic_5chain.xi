@@ -1,4 +1,4 @@
-// XIOM — stress_generic_5chain
+// XIOM -- stress_generic_5chain
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 

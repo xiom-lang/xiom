@@ -1,4 +1,4 @@
-// M36-S12: AST manipulation — rewrite node by replacing children
+// M36-S12: AST manipulation -- rewrite node by replacing children
 type AstTag = { node_type: Int; flags: Int; }
 type AstChild = { index: Int; node_id: Int; }
 type AstRewrite = { tag: AstTag; old_child: AstChild; new_child: AstChild; }

@@ -1,4 +1,4 @@
-// M32-T05: Char to Int — as cast from Char to Int
+// M32-T05: Char to Int -- as cast from Char to Int
 fn main() -> Int {
   var a: Int = 'A' as Int;
   var z: Int = 'Z' as Int;

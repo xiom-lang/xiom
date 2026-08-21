@@ -11,7 +11,7 @@ fn main() -> Int {
   var o = Some("hello");
   var v = o.value;
   if v != "hello" { return 1; }
-  // Vec payload — read, then use (push/len/index)
+  // Vec payload -- read, then use (push/len/index)
   var ov = Some(Vec[Int].new());
   var vec = ov.value;
   vec.push(5);

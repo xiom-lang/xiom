@@ -1,4 +1,4 @@
-// XIOM — Data Processing Benchmark
+// XIOM -- Data Processing Benchmark
 
 module benchmark.bench_data
 

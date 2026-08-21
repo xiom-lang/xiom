@@ -1,4 +1,4 @@
-// M33-P02: Wide function table stress — 50 one-line functions + 15 enum types + 20 struct types
+// M33-P02: Wide function table stress -- 50 one-line functions + 15 enum types + 20 struct types
 // Pattern: fn main() -> Int { ... return 0; }
 
 const VAL_BASE: Int = 100;

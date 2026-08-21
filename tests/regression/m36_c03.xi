@@ -1,4 +1,4 @@
-// M36-C03: Every match pattern with every enum shape — unit variants and single-payload variants, nested matches, guards
+// M36-C03: Every match pattern with every enum shape -- unit variants and single-payload variants, nested matches, guards
 enum Status1 { Pending }
 enum Status2 { Off, On }
 enum Status3 { Low, Mid, High }

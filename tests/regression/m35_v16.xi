@@ -1,4 +1,4 @@
-// M35-V16: Nested Vec — Vec[Vec[Int]] outer operations
+// M35-V16: Nested Vec -- Vec[Vec[Int]] outer operations
 use xiom.collections;
 
 fn main() -> Int {

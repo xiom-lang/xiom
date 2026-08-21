@@ -1,4 +1,4 @@
-// M34-O03: 2-chain ? — two consecutive ? in sequence
+// M34-O03: 2-chain ? -- two consecutive ? in sequence
 fn add_one(a: Int) -> Result[Int, Str] {
   if a < 0 { return Err("negative"); }
   return Ok(a + 1);

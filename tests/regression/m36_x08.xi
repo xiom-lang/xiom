@@ -1,4 +1,4 @@
-// M36-X08: Circular type references — mutually referencing type structures
+// M36-X08: Circular type references -- mutually referencing type structures
 type NodeRef = { id: Int; next_id: Int; color: ColorRef; }
 type ColorRef = { r: Int; g: Int; b: Int; owner_id: Int; }
 fn build_node(id: Int, next: Int) -> NodeRef {

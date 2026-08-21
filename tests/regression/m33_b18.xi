@@ -1,4 +1,4 @@
-// M33-B18: Struct borrow — &mut on struct, replace whole struct through reference
+// M33-B18: Struct borrow -- &mut on struct, replace whole struct through reference
 type Vec2 = { x: Int; y: Int; }
 fn set_x(v: &mut Vec2, val: Int) { *v = Vec2{ x: val; y: v.y; }; }
 fn set_y(v: &mut Vec2, val: Int) { *v = Vec2{ x: v.x; y: val; }; }

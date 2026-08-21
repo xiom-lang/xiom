@@ -1,4 +1,4 @@
-// M32-X06: Combinatorial + Differential — power loop vs recursion with struct+contract
+// M32-X06: Combinatorial + Differential -- power loop vs recursion with struct+contract
 type PowInput = { base: Int; exp: Int; }
 fn pow_loop(input: PowInput) -> Int
   requires: input.exp >= 0

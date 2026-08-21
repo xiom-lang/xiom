@@ -1,4 +1,4 @@
-// BUG 53 write-facet regression: &mut [N]T param element WRITES — the
+// BUG 53 write-facet regression: &mut [N]T param element WRITES -- the
 // pointer-typed array param (i64* mono ABI) had no index-write branch
 // (the write was silently dropped) and the caller's array-literal
 // binding stored the Vec data pointer as the array value.

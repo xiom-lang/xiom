@@ -1,4 +1,4 @@
-// M36-E27: Deep array indexing — chained array index computations
+// M36-E27: Deep array indexing -- chained array index computations
 fn main() -> Int {
   var arr = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
   var i = 0;

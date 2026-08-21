@@ -1,4 +1,4 @@
-// XIOM — Generics Stress Benchmark
+// XIOM -- Generics Stress Benchmark
 // Exercises generic functions, generic types, type constraints, and multiple type parameters.
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.

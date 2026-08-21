@@ -1,4 +1,4 @@
-// M34-D07: Mutual recursive types — type A points to B, type B points to A
+// M34-D07: Mutual recursive types -- type A points to B, type B points to A
 type A = { val: Int; peer: *B; }
 type B = { num: Int; buddy: *A; }
 

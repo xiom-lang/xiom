@@ -1,4 +1,4 @@
-// M35-O25: Result expect — .unwrap() with match validation
+// M35-O25: Result expect -- .unwrap() with match validation
 fn main() -> Int {
   var a: Result[Int, Str] = Ok(42);
   var b: Result[Int, Str] = Err("oops");

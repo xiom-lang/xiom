@@ -1,6 +1,6 @@
 module m37_u128
 // BUG 14 regression: UInt64->UInt128 must ZEXT (not sext) and UInt128 >>
-// must LSHR (not ashr) — top-bit-set values must not sign-extend.
+// must LSHR (not ashr) -- top-bit-set values must not sign-extend.
 
 fn main() -> Int {
   var lhs: UInt64 = 0x8000000000000000;

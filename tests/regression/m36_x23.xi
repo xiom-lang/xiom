@@ -1,4 +1,4 @@
-// M36-X23: Deep generics — nested generic type parameters and compositions
+// M36-X23: Deep generics -- nested generic type parameters and compositions
 fn compose[A, B, C](f: fn(B) -> C, g: fn(A) -> B, x: A) -> C {
   return f(g(x));
 }

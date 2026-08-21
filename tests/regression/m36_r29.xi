@@ -1,4 +1,4 @@
-// M36-R29: many consecutive newlines before valid code — parser must handle gap
+// M36-R29: many consecutive newlines before valid code -- parser must handle gap
 
 
 

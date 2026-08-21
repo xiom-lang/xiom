@@ -1,4 +1,4 @@
-// M35-C13: do-while pattern — execute body at least once before checking condition
+// M35-C13: do-while pattern -- execute body at least once before checking condition
 fn do_while_pattern(val: Int) -> Int {
   var x: Int = val;
   var count: Int = 0;

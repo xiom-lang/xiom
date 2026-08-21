@@ -1,4 +1,4 @@
-// M36-S09: Symbol table — insert, lookup, and hash key derivation
+// M36-S09: Symbol table -- insert, lookup, and hash key derivation
 type SymEntry = { name: Str; kind: Int; type_id: Int; offset: Int; }
 type SymTable = { count: Int; capacity: Int; }
 fn make_entry(name: Str, kind: Int, tid: Int, off: Int) -> SymEntry {

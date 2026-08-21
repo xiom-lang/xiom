@@ -1,4 +1,4 @@
-// M36-S30: Linker/loader — ELF/PE header simulation and symbol resolution
+// M36-S30: Linker/loader -- ELF/PE header simulation and symbol resolution
 type ElfIdent = { magic0: Int; magic1: Int; magic2: Int; magic3: Int; class: Int; endian: Int; }
 type ElfHeader = { ident: ElfIdent; e_type: Int; e_machine: Int; e_entry: Int; }
 type Symbol = { name: Str; addr: Int; size: Int; binding: Int; }

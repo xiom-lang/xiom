@@ -1,4 +1,4 @@
-// M34-O16: Result chain with map+? — Result.map combined with ?
+// M34-O16: Result chain with map+? -- Result.map combined with ?
 fn parse_int(s: Str) -> Result[Int, Str] {
   if s == "0" { return Ok(0); }
   if s == "1" { return Ok(1); }

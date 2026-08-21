@@ -1,4 +1,4 @@
-// M35-V20: Vec[Int] clone pattern — manual copy
+// M35-V20: Vec[Int] clone pattern -- manual copy
 use xiom.collections;
 
 fn clone_vec(src: &Vec[Int]) -> Vec[Int] {

@@ -1,4 +1,4 @@
-// M36-X26: String manipulation — string operations, comparisons, and concatenation
+// M36-X26: String manipulation -- string operations, comparisons, and concatenation
 fn greet(name: Str) -> Str { return name; }
 fn is_empty(s: Str) -> Bool {
   if s.len() == 0 { return true; }

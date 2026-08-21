@@ -1,4 +1,4 @@
-// M36-X28: Integer overflow edges — boundary values and edge cases
+// M36-X28: Integer overflow edges -- boundary values and edge cases
 fn main() -> Int {
   var max: Int = 2147483647;
   var min: Int = -2147483647 - 1;

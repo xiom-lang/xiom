@@ -1,5 +1,5 @@
-// M33-U13: Pointer return — a function returns a pointer it was given.
-// (Original form returned `&local` — dangling by design; rewritten to be
+// M33-U13: Pointer return -- a function returns a pointer it was given.
+// (Original form returned `&local` -- dangling by design; rewritten to be
 // well-defined: pointer in, pointer out.)
 fn get_addr(p: *Int) -> *Int {
   var q: *Int = p;

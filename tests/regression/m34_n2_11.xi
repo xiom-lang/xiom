@@ -1,4 +1,4 @@
-// M34-N2-11: Closure chain — closure calls another closure, multi-capture
+// M34-N2-11: Closure chain -- closure calls another closure, multi-capture
 fn main() -> Int {
   var a = 10;
   var b = 20;

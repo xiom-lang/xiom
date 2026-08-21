@@ -1,4 +1,4 @@
-// M35-C29: tail call pattern — recursive call in tail position with accumulator
+// M35-C29: tail call pattern -- recursive call in tail position with accumulator
 fn gcd(a: Int, b: Int) -> Int {
   if b == 0 { return a; }
   return gcd(b, a % b);

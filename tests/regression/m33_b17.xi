@@ -1,4 +1,4 @@
-// M33-B17: Array borrow — struct-as-tuple passed by &, read fields by index helper
+// M33-B17: Array borrow -- struct-as-tuple passed by &, read fields by index helper
 type Triple = { a: Int; b: Int; c: Int; }
 fn get_elem(t: &Triple, idx: Int) -> Int {
   if idx == 0 { return t.a; }

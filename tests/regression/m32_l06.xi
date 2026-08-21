@@ -1,4 +1,4 @@
-// M32-L06: While with early return — find first square > 50
+// M32-L06: While with early return -- find first square > 50
 fn main() -> Int {
   var i: Int = 1;
   while i < 20 {

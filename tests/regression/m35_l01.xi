@@ -1,4 +1,4 @@
-// M35-L01: Struct with Int fields — verify field layout and access
+// M35-L01: Struct with Int fields -- verify field layout and access
 type IntPair = { a: Int; b: Int; c: Int; d: Int; }
 
 fn main() -> Int {

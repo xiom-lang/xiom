@@ -1,4 +1,4 @@
-// M36-X01: Exit code based on computation — returns computed value not just 0
+// M36-X01: Exit code based on computation -- returns computed value not just 0
 fn factorial(n: Int) -> Int {
   if n <= 1 { return 1; }
   return n * factorial(n - 1);

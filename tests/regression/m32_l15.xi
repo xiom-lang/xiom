@@ -1,4 +1,4 @@
-// M32-L15: While loop with break on negative — sum positives until negative
+// M32-L15: While loop with break on negative -- sum positives until negative
 fn main() -> Int {
   var arr = [5, 12, 8, -3, 20, 15];
   var sum: Int = 0;

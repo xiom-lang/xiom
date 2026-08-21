@@ -1,4 +1,4 @@
-// XIOM — Satellite Motion + Trig Verification
+// XIOM -- Satellite Motion + Trig Verification
 // Uses cos/sin from xiom.math. Pure math checks, no string formatting.
 // Compile: xiom examples\satellite_motion.xi --run
 
@@ -8,7 +8,7 @@ use xiom.math;
 const GM: Float64 = 3.986e14;
 const EARTH_RADIUS: Float64 = 6371000.0;
 const ALTITUDE: Float64 = 408000.0;
-const R: Float64 = 6779000.0; // EARTH_RADIUS + ALTITUDE (const arithmetic gap — pre-computed)
+const R: Float64 = 6779000.0; // EARTH_RADIUS + ALTITUDE (const arithmetic gap -- pre-computed)
 
 fn main() -> Int {
   var fail = 0;
@@ -38,7 +38,7 @@ fn main() -> Int {
   var sp2 = math.sin(math.PI / 2.0);
   if math.abs_float(sp2 - 1.0) > 0.01 { fail = fail + 32; }
 
-  // Test 7: sin² + cos² = 1
+  // Test 7: sin2 + cos2 = 1
   var angle = 0.7;
   var s = math.sin(angle);
   var c = math.cos(angle);

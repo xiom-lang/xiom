@@ -1,4 +1,4 @@
-// M36-X03: External type references — type aliases and cross-referencing types
+// M36-X03: External type references -- type aliases and cross-referencing types
 type Celsius = Float64;
 type Fahrenheit = Float64;
 type TempReading = { c: Float64; f: Float64; }

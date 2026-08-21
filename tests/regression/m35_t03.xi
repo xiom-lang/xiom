@@ -1,4 +1,4 @@
-// M35-T03: Float64 in every context — var, param, return, struct, enum, array, if, while, operators
+// M35-T03: Float64 in every context -- var, param, return, struct, enum, array, if, while, operators
 type FloatBox = { value: Float64; }
 enum FloatOption { Some(v: Float64), None }
 fn float_add(a: Float64, b: Float64) -> Float64 { return a + b; }

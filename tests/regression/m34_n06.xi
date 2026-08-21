@@ -1,4 +1,4 @@
-// M34-N06: Enum with derive[Clone] — enum variant clone
+// M34-N06: Enum with derive[Clone] -- enum variant clone
 enum State { On, Off, Unknown } derive[Clone]
 fn main() -> Int {
   var a = State.On;

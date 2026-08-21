@@ -1,4 +1,4 @@
-// M36-C09: Every type alias with every target type — Bool, Int, Int8, Int16, Int32, Int64, Float64, Char, Str, struct, enum, pointer, Option, Result
+// M36-C09: Every type alias with every target type -- Bool, Int, Int8, Int16, Int32, Int64, Float64, Char, Str, struct, enum, pointer, Option, Result
 type MyBool = Bool;
 type MyInt = Int;
 type MyInt8 = Int8;

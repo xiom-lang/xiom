@@ -1,8 +1,8 @@
-// XIOM — Package Manager
+// XIOM -- Package Manager
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
-// M14.1: registry functions → registry.rs
+// M14.1: registry functions -> registry.rs
 
 mod registry;
 
@@ -334,7 +334,7 @@ fn publish_package(_args: &[String]) {
 
     match http_post_multipart(&format!("{}/publish", registry), &tarball_path, &pkg) {
         Ok(resp) => {
-            println!("Published {} v{} — {}", pkg.name, pkg.version, resp.trim());
+            println!("Published {} v{} -- {}", pkg.name, pkg.version, resp.trim());
             // Clean up temp file
             let _ = fs::remove_file(&tarball_path);
         }
@@ -363,7 +363,7 @@ fn create_tarball(dir: &std::path::Path, output: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    // On Windows, try PowerShell Compress-Archive → .zip → rename
+    // On Windows, try PowerShell Compress-Archive -> .zip -> rename
     #[cfg(windows)]
     {
         let zip_path = output.replace(".tar.gz", ".zip");
@@ -409,7 +409,7 @@ fn http_post_multipart(url: &str, file_path: &str, _pkg: &Package) -> Result<Str
 }
 
 /// Install a package from the local ecosystem directory or remote registry.
-/// 7F+: Local ecosystem resolution — copies from `<repo>/ecosystem/<pkg>/` to
+/// 7F+: Local ecosystem resolution -- copies from `<repo>/ecosystem/<pkg>/` to
 /// `<project>/vendor/<pkg>/` for development/prototyping before remote registry
 /// is available.
 fn install_package(args: &[String]) {
@@ -523,7 +523,7 @@ fn install_package_files(src_dir: &Path, pkg_name: &str) {
     let mut copied = 0usize;
     copy_dir_contents(src_dir, &dest_dir, &mut copied);
 
-    println!("xiom pkg: installed {} v{} → {} ({} files)",
+    println!("xiom pkg: installed {} v{} -> {} ({} files)",
         pkg_name, pkg_version, dest_dir.display(), copied);
     println!("xiom pkg: add to your package.xi:");
     println!("  dependencies = {{");
@@ -601,7 +601,7 @@ fn install_from_registry_download(name: &str, version: Option<&str>, registry: &
                 .status()
                 .map_err(|e| format!("tar: {e}"))?;
             if status.success() {
-                println!("xiom pkg: installed {} v{} → {}", name, latest, pkg_dir.display());
+                println!("xiom pkg: installed {} v{} -> {}", name, latest, pkg_dir.display());
                 Ok(())
             } else {
                 Err("tar extraction failed".to_string())
@@ -718,7 +718,7 @@ fn generate_lockfile() {
 }
 
 fn print_usage() {
-    eprintln!("XIOM Package v0.49.8 — Package Manager (local packages + remote registry)");
+    eprintln!("XIOM Package v0.49.8 -- Package Manager (local packages + remote registry)");
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("  xiom pkg [OPTIONS] --root <dir>");
@@ -729,7 +729,7 @@ fn print_usage() {
     eprintln!("  xiom pkg list                       List installed packages");
     eprintln!();
     eprintln!("Install locations:");
-    eprintln!("  Local packages: <repo>/packages/xiom-<pkg>/ → XIOM_HOME/packages/<pkg>-<ver>/");
+    eprintln!("  Local packages: <repo>/packages/xiom-<pkg>/ -> XIOM_HOME/packages/<pkg>-<ver>/");
     eprintln!();
     eprintln!("OPTIONS:");
     eprintln!("  --help        Show this help message");
@@ -952,7 +952,7 @@ version: "0.1.0";
 
         let tarball = std::env::temp_dir().join("xiom_test_publish.tar.gz");
         let result = create_tarball(&tmp_dir, &tarball.to_string_lossy());
-        // tar may not be available in all test environments — don't fail
+        // tar may not be available in all test environments -- don't fail
         if result.is_ok() {
             assert!(tarball.exists(), "tarball should exist");
             let size = fs::metadata(&tarball).unwrap().len();
@@ -962,7 +962,7 @@ version: "0.1.0";
         let _ = fs::remove_dir_all(&tmp_dir);
     }
 
-    // ── M21-5: Package manager edge cases ───────────────────────────────
+    // -- M21-5: Package manager edge cases -------------------------------
 
     // Version resolution
     #[test] fn test_parse_version_range() {

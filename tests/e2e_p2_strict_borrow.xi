@@ -10,7 +10,7 @@ fn take(s: Data) {
 fn main() -> Int {
     var x = Data { value: 42 };
     take(x);  // move x
-    // x is now moved — using it triggers E001
+    // x is now moved -- using it triggers E001
     var _ = x;  // E001: use of moved value
     return 0;
 }

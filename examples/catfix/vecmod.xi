@@ -2,7 +2,7 @@ module vecmod
 // BUG 8 fixture (docs/COMPILER_BUGS.md): an IMPORTED (catalog) module with
 // `&Vec[Int]` and `&struct` params. Before the fix these catalog fns emitted
 // empty/stubbed signatures (`define i64 @f()` with no params) while call sites
-// passed `%struct.Vec*` — deterministic access violation.
+// passed `%struct.Vec*` -- deterministic access violation.
 
 pub type Wrap = { a: Int; b: Int; }
 

@@ -1,4 +1,4 @@
-// M33-Z13: Compound assignment on struct field — mutate via field access
+// M33-Z13: Compound assignment on struct field -- mutate via field access
 type Data = { value: Int; }
 fn main() -> Int {
   var d = Data{ value: 10; };

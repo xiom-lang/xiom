@@ -1,4 +1,4 @@
-// M32: Int8 overflow guard — mul near max
+// M32: Int8 overflow guard -- mul near max
 fn main() -> Int {
   var a: Int8 = 64;
   var b: Int8 = 2;

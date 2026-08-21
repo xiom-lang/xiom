@@ -1,4 +1,4 @@
-// M33-B07: Return a value (move) — function takes ownership, returns owned value
+// M33-B07: Return a value (move) -- function takes ownership, returns owned value
 fn take_and_return(x: Int) -> Int { return x * 2; }
 fn main() -> Int {
   var a = 21;

@@ -1,4 +1,4 @@
-// M35-O28: Option of Result — Option and Result interaction via match
+// M35-O28: Option of Result -- Option and Result interaction via match
 enum OptRes { Has(v: Int), Missing, Failed(msg: Str) }
 fn safe_fetch(x: Int) -> OptRes {
   if x < 0 { return OptRes.Failed("negative"); }

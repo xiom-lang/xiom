@@ -1,4 +1,4 @@
-// M35-D11: Linked list — length and search via raw *Node pointers (null only)
+// M35-D11: Linked list -- length and search via raw *Node pointers (null only)
 type Node = { value: Int; next: *Node; }
 
 fn list_len(head: *Node) -> Int {

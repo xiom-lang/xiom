@@ -1,5 +1,5 @@
 // REPRO R5 (BUG 27 #10): tuple-with-Vec returns heap-corrupt (0xC0000374).
-// aes_encrypt_gcm returns Result[(Vec[UInt8], Vec[UInt8]), Str] — the tuple
+// aes_encrypt_gcm returns Result[(Vec[UInt8], Vec[UInt8]), Str] -- the tuple
 // payload with Vec elements corrupts memory at the catalog boundary.
 module repro_tuple_vec
 

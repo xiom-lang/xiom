@@ -1,4 +1,4 @@
-// M35-S10: Split by delimiter — find delimiter positions and extract parts
+// M35-S10: Split by delimiter -- find delimiter positions and extract parts
 use stdlib.xiom.string;
 fn first_split(s: Str, delim: Char) -> Str {
   if s.len() == 0 { return ""; }

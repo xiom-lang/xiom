@@ -1,6 +1,6 @@
 module m37_ptr_cast
 // BUG 25 #10 (crypto): `&arr[i] as *UInt8` on a FIXED ARRAY local compiled
-// the element VALUE (load i8) and inttoptr'd it — the byte value 0 became
+// the element VALUE (load i8) and inttoptr'd it -- the byte value 0 became
 // the NULL ciphertext pointer (AES-NI crash). The Ref must produce the
 // element ADDRESS. Also covers the checker's reference-to-pointer cast rule
 // (previously "unsupported type cast: UInt8 to *UInt8" in user modules).

@@ -1,4 +1,4 @@
-// M36-X18: Type alias resolution — complex nested type aliases
+// M36-X18: Type alias resolution -- complex nested type aliases
 type ID = Int;
 type Name = Str;
 type PlayerID = ID;

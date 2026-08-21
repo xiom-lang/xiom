@@ -1,4 +1,4 @@
-// M32-L07: If-elif-else chain (5 branches) — temperature classifier
+// M32-L07: If-elif-else chain (5 branches) -- temperature classifier
 fn main() -> Int {
   var temp: Int = 25;
   var zone: Int = 0;

@@ -1,16 +1,16 @@
 // gzip-DECOMPRESS regression (2026-08-19, queue item 1): the catalog
 // compress.gzip_decompress crashed with 0xC0000005 (crc32 element-load AV
-// from `let decompressed = decoded.value;` — the payload-FIELD access on a
+// from `let decompressed = decoded.value;` -- the payload-FIELD access on a
 // Result local bound the raw BOXED pointer as i64; `&decompressed` passed
-// the i64 slot address as %struct.Vec* → stack garbage len/elem_size →
+// the i64 slot address as %struct.Vec* -> stack garbage len/elem_size ->
 // 8-byte element load). The payload field is now unboxed via
 // field_payload_xiom (inttoptr + load %struct.Vec).
 //
 // Second root: `let compressed = if level == 0 { _store_encode(data) }
-// else { rle_encode(data) };` — the if-expression result slot was
+// else { rle_encode(data) };` -- the if-expression result slot was
 // hardcoded i64, so the Vec VALUE degraded to field-0-as-i64 (data ptr);
 // `compressed.len()` became xiom_str_len and `compressed[i]` compiled to
-// literal 0 → gzip payload of all zeros → wrong decode (len 3 of 0x00).
+// literal 0 -> gzip payload of all zeros -> wrong decode (len 3 of 0x00).
 // The if-expression result type is now inferred from the arm tails
 // (struct > pointer > i64), and the binding records the arm-tail XIOM
 // type so Vec.len/index dispatch correctly.

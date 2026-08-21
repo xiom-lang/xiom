@@ -1,4 +1,4 @@
-// M33-K10: Higher-order — function taking another function, verify with named fns
+// M33-K10: Higher-order -- function taking another function, verify with named fns
 fn apply(f: fn(Int) -> Int, x: Int) -> Int { return f(x); }
 fn dbl(x: Int) -> Int { return x * 2; }
 fn inc(x: Int) -> Int { return x + 1; }

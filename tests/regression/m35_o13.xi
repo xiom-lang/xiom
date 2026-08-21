@@ -1,4 +1,4 @@
-// M35-O13: Option is_some — direct .is_some() method call
+// M35-O13: Option is_some -- direct .is_some() method call
 fn main() -> Int {
   var a = Some(42);
   var b: Option[Int] = None;

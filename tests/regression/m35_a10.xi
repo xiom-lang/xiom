@@ -1,4 +1,4 @@
-// M35-A10: Fibonacci — iterative implementation using while loop
+// M35-A10: Fibonacci -- iterative implementation using while loop
 fn fib_iter(n: Int) -> Int {
   if n <= 1 { return n; }
   var a: Int = 0;

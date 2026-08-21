@@ -1,8 +1,8 @@
-// XIOM — Canonical Formatter (expression formatting)
+// XIOM -- Canonical Formatter (expression formatting)
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
-// M14.1: Extracted from lib.rs — expression formatting.
+// M14.1: Extracted from lib.rs -- expression formatting.
 
 use xiom_ast::*;
 

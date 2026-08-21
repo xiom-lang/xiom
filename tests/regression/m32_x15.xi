@@ -1,4 +1,4 @@
-// M32-X15: Combinatorial + Differential — all features: struct+enum+generic+match+contract
+// M32-X15: Combinatorial + Differential -- all features: struct+enum+generic+match+contract
 type Rect = { x: Int; y: Int; w: Int; h: Int; } derive[Eq]
 enum Method { SumLoop, SumFormula, ProdLoop, ProdFormula }
 fn sum_loop(lo: Int, hi: Int) -> Int

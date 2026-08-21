@@ -1,4 +1,4 @@
-// M34-Q11: Contract with arithmetic overflow — requires guards prevent overflow
+// M34-Q11: Contract with arithmetic overflow -- requires guards prevent overflow
 fn safe_add(a: Int, b: Int) -> Int
   requires: a >= 0
   requires: b >= 0

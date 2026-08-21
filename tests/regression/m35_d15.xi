@@ -1,4 +1,4 @@
-// M35-D15: LRU cache — recency via access counters
+// M35-D15: LRU cache -- recency via access counters
 fn main() -> Int {
   var t0: Int = 1;
   var t1: Int = 3;

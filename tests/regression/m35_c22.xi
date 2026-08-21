@@ -1,4 +1,4 @@
-// M35-C22: match on Bool — boolean dispatch
+// M35-C22: match on Bool -- boolean dispatch
 fn to_int(b: Bool) -> Int {
   match b {
     true => 1,

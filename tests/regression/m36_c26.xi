@@ -1,4 +1,4 @@
-// M36-C26: Every int pattern — add, sub, mul, div, mod, bitwise AND/OR/XOR/NOT, shift left/right, cmp, cast, negate
+// M36-C26: Every int pattern -- add, sub, mul, div, mod, bitwise AND/OR/XOR/NOT, shift left/right, cmp, cast, negate
 fn int_add(a: Int, b: Int) -> Int { return a + b; }
 fn int_sub(a: Int, b: Int) -> Int { return a - b; }
 fn int_mul(a: Int, b: Int) -> Int { return a * b; }

@@ -1,4 +1,4 @@
-// M34-O12: ? with compound expression — ? inside arithmetic expression
+// M34-O12: ? with compound expression -- ? inside arithmetic expression
 fn get(a: Int) -> Result[Int, Str] {
   if a < 0 { return Err("negative"); }
   return Ok(a);

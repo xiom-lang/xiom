@@ -1,4 +1,4 @@
-// M35-A29: Count set bits — Brian Kernighan's algorithm and loop-based popcount
+// M35-A29: Count set bits -- Brian Kernighan's algorithm and loop-based popcount
 fn popcount_kernighan(n: Int) -> Int {
   var x: Int = n;
   var c: Int = 0;

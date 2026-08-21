@@ -1,5 +1,5 @@
 // BUG 44 regression: deref/coercion of &Str must load i8* (the pointer),
-// not i8 (a byte). Also &Str → Str auto-coercion must deref to the VALUE.
+// not i8 (a byte). Also &Str -> Str auto-coercion must deref to the VALUE.
 module m37_bug44_str_deref
 
 fn read_via_deref(s: &Str) -> Str {

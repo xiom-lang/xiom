@@ -1,4 +1,4 @@
-// M34-W08: Bit isolation — mask & value extracts specific bits
+// M34-W08: Bit isolation -- mask & value extracts specific bits
 fn main() -> Int {
   var a: Int = 0xABCD;
   // low byte: a & 0xFF

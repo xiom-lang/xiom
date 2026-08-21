@@ -1,4 +1,4 @@
-// M35-D27: Skip list — multi-level sorted verification
+// M35-D27: Skip list -- multi-level sorted verification
 fn main() -> Int {
   var a: Int = 10;
   var b: Int = 30;

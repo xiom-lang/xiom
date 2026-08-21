@@ -1,4 +1,4 @@
-// M35-O01: Option[Int] create — Some and None construction with match
+// M35-O01: Option[Int] create -- Some and None construction with match
 fn main() -> Int {
   var a: Option[Int] = Some(42);
   var b: Option[Int] = None;

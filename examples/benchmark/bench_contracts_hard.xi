@@ -1,4 +1,4 @@
-// XIOM — Massive Contract Verification Benchmark
+// XIOM -- Massive Contract Verification Benchmark
 // Exercises generic invariants, contract chains, multi-ensures,
 // combined requires+ensures, and invariant-rich types.
 // Copyright (c) 2026 Eleftherios Notas
@@ -62,8 +62,8 @@ fn test_bounded_vec() -> Int {
 }
 
 // ============================================================
-// SECTION 2: Contract Chain — 3 Functions
-//   fn A with ensures → fn B with requires → fn C with requires
+// SECTION 2: Contract Chain -- 3 Functions
+//   fn A with ensures -> fn B with requires -> fn C with requires
 // ============================================================
 
 pub fn deposit_and_bonus(base: Int, extra: Int) -> Int

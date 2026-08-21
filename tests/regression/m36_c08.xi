@@ -1,4 +1,4 @@
-// M36-C08: Every module pattern with every visibility — pub/non-pub functions, types, constants; flat, nested, re-export
+// M36-C08: Every module pattern with every visibility -- pub/non-pub functions, types, constants; flat, nested, re-export
 const PI: Float64 = 3.14159;
 module math {
   pub const E: Float64 = 2.71828;

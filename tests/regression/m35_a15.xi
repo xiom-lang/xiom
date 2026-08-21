@@ -1,4 +1,4 @@
-// M35-A15: Sum of digits — compute sum of decimal digits via while loop
+// M35-A15: Sum of digits -- compute sum of decimal digits via while loop
 fn digit_sum(n: Int) -> Int {
   var x: Int = n;
   var s: Int = 0;

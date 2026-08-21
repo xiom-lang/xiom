@@ -1,4 +1,4 @@
-// M32: Float comparison edge cases — all six operators on Float64 and Float32
+// M32: Float comparison edge cases -- all six operators on Float64 and Float32
 fn main() -> Int {
   var f64a: Float64 = 100.0;
   var f64b: Float64 = 50.0;

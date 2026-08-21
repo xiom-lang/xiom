@@ -1,4 +1,4 @@
-// M34-N18: Struct with Hash + enum with Ord — hash consistency and ordering
+// M34-N18: Struct with Hash + enum with Ord -- hash consistency and ordering
 type Entry = { key: Int; val: Int; } derive[Hash]
 fn main() -> Int {
   var a = Entry{ key: 1; val: 100; };

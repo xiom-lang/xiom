@@ -1,4 +1,4 @@
-// M34-H01: Int8->Int16->Int32->Int64 widening chain — promotion preserves value
+// M34-H01: Int8->Int16->Int32->Int64 widening chain -- promotion preserves value
 fn main() -> Int {
   var a: Int8 = 42;
   var b: Int16 = a as Int16;

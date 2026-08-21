@@ -1,4 +1,4 @@
-// M34-J12: Private fn in module — private helper inaccessible from outside, accessed via pub fn
+// M34-J12: Private fn in module -- private helper inaccessible from outside, accessed via pub fn
 module guarded {
   fn secret(a: Int) -> Int { return a * a + a; }
   fn hidden(b: Int) -> Int { return b * b - b; }

@@ -1,4 +1,4 @@
-// M35-C02: if with else — two branches covering true/false
+// M35-C02: if with else -- two branches covering true/false
 fn main() -> Int {
   var x: Int = 10;
   var y: Int = 0;

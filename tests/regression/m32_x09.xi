@@ -1,4 +1,4 @@
-// M32-X09: Combinatorial + Differential — GCD while vs recursion with struct pair+contract
+// M32-X09: Combinatorial + Differential -- GCD while vs recursion with struct pair+contract
 type Pair = { x: Int; y: Int; }
 fn gcd_while(p: Pair) -> Int
   requires: p.x >= 0

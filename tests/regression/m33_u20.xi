@@ -1,4 +1,4 @@
-// M33-U20: Comprehensive unsafe/FFI — extern, ptr cast, contract, mixed
+// M33-U20: Comprehensive unsafe/FFI -- extern, ptr cast, contract, mixed
 extern "C" {
   fn calc_offset(base: *Int, idx: Int) -> *Int;
   fn get_magic() -> *Int;

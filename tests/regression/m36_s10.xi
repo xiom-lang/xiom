@@ -1,4 +1,4 @@
-// M36-S10: Symbol table — scope push/pop and nested resolution
+// M36-S10: Symbol table -- scope push/pop and nested resolution
 type Scope = { level: Int; parent: Int; entries: Int; }
 fn make_scope(level: Int, parent: Int, entries: Int) -> Scope {
   return Scope{ level: level; parent: parent; entries: entries; };

@@ -1,4 +1,4 @@
-// M35-D18: BST traversal — inorder, preorder, postorder sum/sequence verification
+// M35-D18: BST traversal -- inorder, preorder, postorder sum/sequence verification
 type BNode = { value: Int; left: *BNode; right: *BNode; }
 
 fn inorder_sum(n: *BNode) -> Int {

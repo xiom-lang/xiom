@@ -1,8 +1,8 @@
 //! `xiom.toml` project manifest parsing and source root resolution.
 //!
 //! Supports two formats:
-//! - `xiom.toml` (TOML) — the canonical Phase 7 manifest
-//! - `package.xi` (legacy) — fallback for backward compatibility
+//! - `xiom.toml` (TOML) -- the canonical Phase 7 manifest
+//! - `package.xi` (legacy) -- fallback for backward compatibility
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -247,7 +247,7 @@ fn parse_package_xi(path: &Path) -> Result<ProjectManifest, GraphError> {
     let name = extract_field(&content, "name").unwrap_or_else(|| "unnamed".to_string());
     // Extract version
     let version = extract_field(&content, "version").unwrap_or_else(|| "0.1.0".to_string());
-    // Extract root (from modules: ["src/main"] — take first segment as root)
+    // Extract root (from modules: ["src/main"] -- take first segment as root)
     let root = extract_modules_root(&content);
 
     // Extract dependencies
@@ -301,7 +301,7 @@ fn extract_modules_root(content: &str) -> Option<String> {
     for part in modules_str.split(',') {
         let cleaned = part.trim().trim_matches('"').trim();
         if !cleaned.is_empty() {
-            // "src/main" → "src"
+            // "src/main" -> "src"
             if let Some(slash_pos) = cleaned.find('/') {
                 return Some(cleaned[..slash_pos].to_string());
             }

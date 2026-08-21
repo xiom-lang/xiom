@@ -1,6 +1,6 @@
 module m37_inline_call_concat
 // BUG 22 #11 regression: method-call results used INLINE as concat
-// operands. "len = " + v.len() inttoptr'd the length (garbage pointer →
+// operands. "len = " + v.len() inttoptr'd the length (garbage pointer ->
 // AV); binding to a var first worked. The concat must format the call
 // result via xiom_int_to_string.
 

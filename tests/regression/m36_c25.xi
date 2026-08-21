@@ -1,4 +1,4 @@
-// M36-C25: Every float pattern — add, sub, mul, div, cmp, cast, negate, abs, param, return, struct field, array element
+// M36-C25: Every float pattern -- add, sub, mul, div, cmp, cast, negate, abs, param, return, struct field, array element
 fn float_add(a: Float64, b: Float64) -> Float64 { return a + b; }
 fn float_sub(a: Float64, b: Float64) -> Float64 { return a - b; }
 fn float_mul(a: Float64, b: Float64) -> Float64 { return a * b; }

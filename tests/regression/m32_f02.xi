@@ -1,4 +1,4 @@
-// M32: Float64 comparisons — <, >, ==, !=, <=, >=
+// M32: Float64 comparisons -- <, >, ==, !=, <=, >=
 fn main() -> Int {
   var a: Float64 = 3.14;
   var b: Float64 = 2.718;

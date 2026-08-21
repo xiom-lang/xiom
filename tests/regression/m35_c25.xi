@@ -1,4 +1,4 @@
-// M35-C25: match with wildcard — catch-all pattern _ for remaining cases
+// M35-C25: match with wildcard -- catch-all pattern _ for remaining cases
 enum Signal { High, Low, Off, Unknown }
 fn respond(s: Signal) -> Int {
   match s {

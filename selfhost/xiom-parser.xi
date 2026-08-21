@@ -1,4 +1,4 @@
-// XIOM — Self-Hosted Parser
+// XIOM -- Self-Hosted Parser
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -83,7 +83,7 @@ pub fn next_token(pos: &Int) -> Int {
   if p == 30 { return 54 * 1000000 + p + 1; }
   // }(53)
   if p == 31 { return 53 * 1000000 + p + 1; }
-  // }(53) — outer block
+  // }(53) -- outer block
   if p == 32 { return 53 * 1000000 + p + 1; }
   return p + 1; // EOF
 }

@@ -1,4 +1,4 @@
-// M36-C16: Every function chain length 1-10 — functions calling functions in chains of increasing depth
+// M36-C16: Every function chain length 1-10 -- functions calling functions in chains of increasing depth
 fn f1(x: Int) -> Int { return x + 1; }
 fn f2(x: Int) -> Int { return f1(x) + 1; }
 fn f3(x: Int) -> Int { return f2(x) + 1; }

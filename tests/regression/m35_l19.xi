@@ -1,4 +1,4 @@
-// M35-L19: Pointer to array — pointer to separate vars simulating array
+// M35-L19: Pointer to array -- pointer to separate vars simulating array
 fn main() -> Int {
   var a: Int = 11;
   var e: Int = 55;

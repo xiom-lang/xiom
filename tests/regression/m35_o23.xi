@@ -1,4 +1,4 @@
-// M35-O23: Result or_else — match-based or_else fallback
+// M35-O23: Result or_else -- match-based or_else fallback
 fn res_or_else(r: Result[Int, Str], fallback: fn(Str) -> Result[Int, Str]) -> Result[Int, Str] {
   match r { Ok(v) => Ok(v), Err(e) => fallback(e) }
 }

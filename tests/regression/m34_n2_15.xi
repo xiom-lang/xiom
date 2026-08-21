@@ -1,4 +1,4 @@
-// M34-N2-15: 8-level type alias chain — T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7
+// M34-N2-15: 8-level type alias chain -- T0 -> T1 -> T2 -> T3 -> T4 -> T5 -> T6 -> T7
 type T0 = Int;
 type T1 = T0;
 type T2 = T1;

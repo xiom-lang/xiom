@@ -1,4 +1,4 @@
-// M34-D14: Tree map — value transformation across binary tree nodes
+// M34-D14: Tree map -- value transformation across binary tree nodes
 type Node = { value: Int; left: *Node; right: *Node; }
 
 fn tree_double_values(n: *Node) -> Int {

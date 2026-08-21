@@ -1,4 +1,4 @@
-// XIOM — phase1_stress
+// XIOM -- phase1_stress
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 

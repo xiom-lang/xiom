@@ -1,4 +1,4 @@
-// M36-X29: Boolean logic chains — complex boolean expressions and short-circuit evaluation
+// M36-X29: Boolean logic chains -- complex boolean expressions and short-circuit evaluation
 fn main() -> Int {
   var a: Bool = true;
   var b: Bool = false;

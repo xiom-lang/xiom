@@ -1,4 +1,4 @@
-// XIOM — Math Stress Benchmark
+// XIOM -- Math Stress Benchmark
 // Pushes arithmetic, recursion, iteration, and numerical methods to extremes.
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
@@ -8,7 +8,7 @@ module benchmark.math
 use benchmark.main.BenchResult;
 
 // ============================================================
-// SECTION 1: Basic Arithmetic — verifying integer operations
+// SECTION 1: Basic Arithmetic -- verifying integer operations
 // ============================================================
 
 pub fn add_int(a: Int, b: Int) -> Int { return a + b; }
@@ -58,7 +58,7 @@ fn test_basic_arithmetic() -> Int {
 }
 
 // ============================================================
-// SECTION 2: Float Operations — Float64 arithmetic
+// SECTION 2: Float Operations -- Float64 arithmetic
 // ============================================================
 
 pub fn fadd(a: Float64, b: Float64) -> Float64 { return a + b; }
@@ -82,7 +82,7 @@ fn test_float_arithmetic() -> Int {
 }
 
 // ============================================================
-// SECTION 3: Factorial — iterative and recursive
+// SECTION 3: Factorial -- iterative and recursive
 // ============================================================
 
 pub fn factorial_rec(n: Int) -> Int {
@@ -122,7 +122,7 @@ fn test_factorial() -> Int {
 }
 
 // ============================================================
-// SECTION 4: Fibonacci — 3 implementations
+// SECTION 4: Fibonacci -- 3 implementations
 // ============================================================
 
 pub fn fibonacci_rec(n: Int) -> Int {

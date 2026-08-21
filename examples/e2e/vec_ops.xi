@@ -1,4 +1,4 @@
-// E2E regression: Vec builtins — new/push/len/index/pop/get.
+// E2E regression: Vec builtins -- new/push/len/index/pop/get.
 // Locks in inline Vec method dispatch + element coercion + Option payload.
 // Returns 0 on success.
 module e2e_vec_ops

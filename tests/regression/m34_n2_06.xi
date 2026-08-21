@@ -1,4 +1,4 @@
-// M34-N2-06: 6-level nested struct S1 → S2 → S3 → S4 → S5 → S6
+// M34-N2-06: 6-level nested struct S1 -> S2 -> S3 -> S4 -> S5 -> S6
 type S1 = { val: Int; }
 type S2 = { s1: S1; }
 type S3 = { s2: S2; }

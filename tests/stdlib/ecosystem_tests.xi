@@ -1,4 +1,4 @@
-// XIOM — Ecosystem Library Conformance Tests
+// XIOM -- Ecosystem Library Conformance Tests
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 

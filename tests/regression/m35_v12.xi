@@ -1,4 +1,4 @@
-// M35-V12: Vec[Int16] — small integer Vec stress
+// M35-V12: Vec[Int16] -- small integer Vec stress
 use xiom.collections;
 
 fn main() -> Int {

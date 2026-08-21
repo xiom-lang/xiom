@@ -1,4 +1,4 @@
-// M34-O09: ? with if guard — ? guarded by condition
+// M34-O09: ? with if guard -- ? guarded by condition
 fn maybe_val(flag: Bool) -> Result[Int, Str] {
   if flag { return Ok(100); }
   return Err("off");

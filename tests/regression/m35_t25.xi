@@ -1,4 +1,4 @@
-// M35-T25: Pointer exhaustive — deref, compare
+// M35-T25: Pointer exhaustive -- deref, compare
 fn deref_int(ptr: *Int) -> Int { var v: Int; unsafe { v = *ptr; } return v; }
 fn ptr_struct_deref(ptr: *Int) -> Int { var v: Int; unsafe { v = *ptr; } return v * 2; }
 fn ptr_compare(a: *Int, b: *Int) -> Bool { var va: Int; unsafe { va = *a; } var vb: Int; unsafe { vb = *b; } return va == vb; }

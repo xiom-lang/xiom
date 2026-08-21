@@ -1,4 +1,4 @@
-// M34-W20: Comprehensive bitwise stress — all operators on Int, Int32, UInt, UInt32
+// M34-W20: Comprehensive bitwise stress -- all operators on Int, Int32, UInt, UInt32
 fn main() -> Int {
   // --- Int (i64) ---
   var i: Int = 0xAAAAAAAA;

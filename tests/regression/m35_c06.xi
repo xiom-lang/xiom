@@ -1,4 +1,4 @@
-// M35-C06: while true loop — infinite loop with internal break
+// M35-C06: while true loop -- infinite loop with internal break
 fn main() -> Int {
   var count: Int = 0;
   while true {

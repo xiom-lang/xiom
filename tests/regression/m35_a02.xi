@@ -1,4 +1,4 @@
-// M35-A02: Linear search — inline sequential scan in main
+// M35-A02: Linear search -- inline sequential scan in main
 fn main() -> Int {
   var arr = [42, 17, 99, 3, 71, 56];
   var n: Int = 6;

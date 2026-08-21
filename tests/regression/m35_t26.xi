@@ -1,4 +1,4 @@
-// M35-T26: Struct exhaustive — nested structs
+// M35-T26: Struct exhaustive -- nested structs
 type Inner = { val: Int; }
 type Middle = { inner: Inner; flag: Bool; }
 type Outer = { mid: Middle; label: Str; count: Float64; }

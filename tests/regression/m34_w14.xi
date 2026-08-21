@@ -1,4 +1,4 @@
-// M34-W14: Bit rotation — rotl/rotr on Int using shift + OR
+// M34-W14: Bit rotation -- rotl/rotr on Int using shift + OR
 fn rotl8(x: Int) -> Int {
   var hi: Int = (x >> 56) & 0xFF;
   return ((x << 8) & (0xFFFFFFFFFFFFFF00 as Int)) | hi;

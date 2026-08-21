@@ -1,4 +1,4 @@
-// M36-E25: Multiple modules in one file — use multiple imported modules
+// M36-E25: Multiple modules in one file -- use multiple imported modules
 use stdlib.xiom.string;
 fn main() -> Int {
   var s = "hello world";

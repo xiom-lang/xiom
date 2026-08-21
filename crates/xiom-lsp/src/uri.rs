@@ -1,11 +1,11 @@
-// XIOM Language Server — URI helpers
+// XIOM Language Server -- URI helpers
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
 use std::path::PathBuf;
 
 /// Convert an LSP file URI to its parent directory path.
-/// `file:///e%3A/Projects/AXIOM/stdlib/xiom/alloc.xi` → `e:\Projects\AXIOM\stdlib\xiom`
+/// `file:///e%3A/Projects/AXIOM/stdlib/xiom/alloc.xi` -> `e:\Projects\AXIOM\stdlib\xiom`
 pub fn uri_to_parent_dir(uri: &str) -> Option<String> {
     uri_to_file_path(uri).and_then(|p| p.parent().map(|p| p.to_string_lossy().to_string()))
 }

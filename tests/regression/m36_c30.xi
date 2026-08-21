@@ -1,4 +1,4 @@
-// M36-C30: Combined mega test 3 — ALL_FEATURES: struct+enum+match+while+if+derive+module+Option+Result+array+pointer+unsafe+cast+compound_assign+const+type_alias+recursion
+// M36-C30: Combined mega test 3 -- ALL_FEATURES: struct+enum+match+while+if+derive+module+Option+Result+array+pointer+unsafe+cast+compound_assign+const+type_alias+recursion
 const MAGIC: Int = 42;
 type Entity = { hp: Int; mp: Int; alive: Bool; } derive[Eq]
 fn Entity.new() -> Entity { return Entity{ hp: 100; mp: 50; alive: true; }; }

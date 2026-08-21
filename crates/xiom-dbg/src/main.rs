@@ -1,7 +1,7 @@
-// XIOM Debug Adapter Protocol Server — contract-aware debugging
+// XIOM Debug Adapter Protocol Server -- contract-aware debugging
 // Phase 5d: DAP server for VS Code / JetBrains integration.
 // Backend: GDB/MI (Machine Interface) via subprocess. Production-grade.
-// M14.1: backend code → backend.rs
+// M14.1: backend code -> backend.rs
 
 mod backend;
 use backend::{GdbBackend, CdbBackend};
@@ -94,7 +94,7 @@ fn send_response(req_seq: u64, command: &str, success: bool, body: Option<Value>
 }
 
 // ============================================================================
-// Main — DAP stdio loop (5e.7a — auto-detect backend)
+// Main -- DAP stdio loop (5e.7a -- auto-detect backend)
 // ============================================================================
 
 fn detect_backend() -> Box<dyn DebuggerBackend> {
@@ -107,7 +107,7 @@ fn detect_backend() -> Box<dyn DebuggerBackend> {
 }
 
 // ============================================================================
-// Phase 8B: JSON API Mode — single-command structured output for GUI/scripts
+// Phase 8B: JSON API Mode -- single-command structured output for GUI/scripts
 // ============================================================================
 
 fn print_json(val: &Value) {
@@ -267,7 +267,7 @@ fn run_json_mode(args: &[String]) -> io::Result<()> {
             }
         }
         "help" => {
-            eprintln!("XIOM Debugger v0.49.7 — JSON API Mode");
+            eprintln!("XIOM Debugger v0.49.7 -- JSON API Mode");
             eprintln!("Usage: xiom-dbg --json --target <exe> <command> [args]");
             eprintln!();
             eprintln!("Commands:");
@@ -297,7 +297,7 @@ fn run_json_mode(args: &[String]) -> io::Result<()> {
 fn main() -> io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
-    // Phase 8B: --json mode — single-command JSON API for GUIs/scripts
+    // Phase 8B: --json mode -- single-command JSON API for GUIs/scripts
     if args.len() >= 2 && args[1] == "--json" {
         return run_json_mode(&args);
     }
@@ -474,7 +474,7 @@ fn handle_request(backend: &mut dyn DebuggerBackend, req: &DapRequest) {
             }
         }
 
-        // 6C.3: DAP evaluate handler — variable watch, REPL, hover
+        // 6C.3: DAP evaluate handler -- variable watch, REPL, hover
         "evaluate" => {
             let expr = args["expression"].as_str().unwrap_or("0");
             match backend.evaluate_expression(expr) {
@@ -572,7 +572,7 @@ mod tests {
     #[test]
     fn test_thread_info_parsing_empty() {
         let mut gdb = GdbBackend::new();
-        // No GDB session — should return error
+        // No GDB session -- should return error
         let result = gdb.thread_info();
         assert!(result.is_err());
     }
@@ -584,7 +584,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // ── M27-1: Debugger edge cases ──────────────────────────────────
+    // -- M27-1: Debugger edge cases ----------------------------------
 
     #[test] fn test_dbg_source_map_init() {
         // SourceMap concept: verify debugger handles empty state

@@ -1,4 +1,4 @@
-// M30: Struct with derive[Eq] — equality comparison
+// M30: Struct with derive[Eq] -- equality comparison
 type Vec2 = { x: Int; y: Int; } derive[Eq]
 fn main() -> Int {
   var a = Vec2{ x: 1; y: 2; };

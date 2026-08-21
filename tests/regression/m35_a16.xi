@@ -1,4 +1,4 @@
-// M35-A16: Reverse number — reverse decimal digits via while loop
+// M35-A16: Reverse number -- reverse decimal digits via while loop
 fn rev(n: Int) -> Int {
   var x: Int = n;
   var r: Int = 0;

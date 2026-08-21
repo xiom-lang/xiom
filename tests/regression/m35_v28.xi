@@ -3,7 +3,7 @@ use xiom.collections;
 
 fn main() -> Int {
   var v = Vec[Int].new();
-  // Insert at beginning — growing list
+  // Insert at beginning -- growing list
   v.insert(0, 30);
   v.insert(0, 20);
   v.insert(0, 10);

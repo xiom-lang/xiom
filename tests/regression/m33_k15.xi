@@ -1,4 +1,4 @@
-// M33-K15: Closure in match arm — enum dispatch via closure
+// M33-K15: Closure in match arm -- enum dispatch via closure
 type Op = enum { Add(a: Int, b: Int), Mul(a: Int, b: Int), }
 fn main() -> Int {
   var op = Op.Add(3, 4);

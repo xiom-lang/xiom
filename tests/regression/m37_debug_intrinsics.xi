@@ -1,9 +1,9 @@
 module m37_debug_intrinsics
-// BUG 27: in-code debug intrinsics — dbg!(expr) (print + return the value),
+// BUG 27: in-code debug intrinsics -- dbg!(expr) (print + return the value),
 // assert(cond[, "msg"]) (runtime-checked invariant, clean panic on
-// violation), debugger; (break into an attached debugger — no-op without
+// violation), debugger; (break into an attached debugger -- no-op without
 // one). todo!()/unimplemented!() panic with the source location (verified
-// manually — they exit 1 by design).
+// manually -- they exit 1 by design).
 
 use xiom.io;
 

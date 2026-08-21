@@ -1,4 +1,4 @@
-// G-15: sret ABI — C struct return on Linux SysV
+// G-15: sret ABI -- C struct return on Linux SysV
 // Verifies XIOM correctly handles extern C functions returning structs by value.
 
 type Small = { x: Int; y: Int; }

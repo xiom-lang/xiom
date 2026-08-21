@@ -1,4 +1,4 @@
-// M35-O09: Option and_then — match-based and_then chaining
+// M35-O09: Option and_then -- match-based and_then chaining
 fn safe_div(a: Int, b: Int) -> Option[Int] {
   if b == 0 { return None; }
   return Some(a / b);

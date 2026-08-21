@@ -1,4 +1,4 @@
-// XIOM — Mega Stress Benchmark (Combined Single-File)
+// XIOM -- Mega Stress Benchmark (Combined Single-File)
 // Pushes the selfhost compiler to its absolute limits.
 // 28 inline modules: 24 benchmarks + 3 data modules + 1 data processor
 // Total: ~10,000 lines of extreme compiler stress testing.

@@ -1,4 +1,4 @@
-// M35-A20: Factorial — recursion vs iteration equivalence test
+// M35-A20: Factorial -- recursion vs iteration equivalence test
 fn fact_rec(n: Int) -> Int {
   if n <= 1 { return 1; }
   return n * fact_rec(n - 1);

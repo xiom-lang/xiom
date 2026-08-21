@@ -1,4 +1,4 @@
-// M35-C10: while with nested break — inner loop break only
+// M35-C10: while with nested break -- inner loop break only
 fn nested_break_test() -> Int {
   var outer: Int = 0;
   var inner: Int = 0;

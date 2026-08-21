@@ -1,4 +1,4 @@
-// M36-C21: Every derive combination — Eq, Clone, Eq+Clone, Ord, Hash, Display, multi-combos on structs and enums
+// M36-C21: Every derive combination -- Eq, Clone, Eq+Clone, Ord, Hash, Display, multi-combos on structs and enums
 type A = { x: Int; } derive[Eq]
 type B = { y: Int; } derive[Clone]
 type C = { a: Int; b: Int; } derive[Eq, Clone]

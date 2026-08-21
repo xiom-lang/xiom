@@ -1,4 +1,4 @@
-// M36-X24: Pointer safety — pointer operations with unsafe blocks
+// M36-X24: Pointer safety -- pointer operations with unsafe blocks
 fn read_ptr(p: *Int) -> Int {
   var r: Int;
   unsafe { r = *p; }

@@ -1,6 +1,6 @@
 //! XIOM dependency graph, module system, and project manifest.
 //!
-//! Phase 7A — Foundation for the module system:
+//! Phase 7A -- Foundation for the module system:
 //! - `xiom.toml` project manifest parsing
 //! - Transitive .xi file discovery from source roots
 //! - Dependency graph construction from `use` declarations
@@ -62,7 +62,7 @@ impl std::fmt::Display for GraphError {
                 )
             }
             GraphError::CycleDetected(cycle) => {
-                write!(f, "circular dependency detected: {}", cycle.join(" → "))
+                write!(f, "circular dependency detected: {}", cycle.join(" -> "))
             }
             GraphError::IoError(msg) => write!(f, "I/O error: {}", msg),
         }

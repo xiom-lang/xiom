@@ -1,4 +1,4 @@
-// M35-D06: Priority queue — sorted insert pattern
+// M35-D06: Priority queue -- sorted insert pattern
 fn main() -> Int {
   var a: Int = 30;
   var b: Int = 20;

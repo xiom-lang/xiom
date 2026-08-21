@@ -1,4 +1,4 @@
-// M34-J15: Module with generic type — generic functions and types in modules
+// M34-J15: Module with generic type -- generic functions and types in modules
 module generic {
   pub fn ident[T](x: T) -> T { return x; }
   pub fn add[T](a: T, b: T) -> T { return a + b; }

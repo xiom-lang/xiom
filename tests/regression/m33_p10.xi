@@ -1,5 +1,5 @@
 // M33-P10: 30-fn chain + 20 struct + 15 enum + 10 const + 5 modules + all primitives 20-field
-// Deep call chain fn0→fn1→...→fn20 + wide function table + large match + 50 locals
+// Deep call chain fn0->fn1->...->fn20 + wide function table + large match + 50 locals
 // Pattern: fn main() -> Int { ... return 0; }
 
 const P10_PI: Int = 3;

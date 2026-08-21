@@ -1,4 +1,4 @@
-// M32-X10: Combinatorial + Differential — identity transform equivalence with generic+enum+contract
+// M32-X10: Combinatorial + Differential -- identity transform equivalence with generic+enum+contract
 enum TransformKind { AddOne, MulTwo, Negate }
 fn apply(kind: TransformKind, x: Int) -> Int
   ensures: result != x || kind == TransformKind.AddOne

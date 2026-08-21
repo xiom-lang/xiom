@@ -1,4 +1,4 @@
-// XIOM — Implicit main wrapping for scripting mode (M10)
+// XIOM -- Implicit main wrapping for scripting mode (M10)
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -19,7 +19,7 @@ pub fn wrap_implicit_main(source: &str) -> String {
         } else { source }
     } else { source };
 
-    // Already has an explicit fn main — don't wrap
+    // Already has an explicit fn main -- don't wrap
     if source.contains("fn main") {
         return add_default_imports(source);
     }
@@ -47,7 +47,7 @@ pub fn wrap_implicit_main(source: &str) -> String {
                 if is_decl {
                     in_decl = true;
                     depth = count_brace_delta(trimmed_line);
-                    // Single-line declaration — push it and move on.
+                    // Single-line declaration -- push it and move on.
                     if depth <= 0 {
                         in_decl = false;
                         depth = 0;
@@ -59,7 +59,7 @@ pub fn wrap_implicit_main(source: &str) -> String {
                 code_lines.push(trimmed_line.to_string());
             }
         } else {
-            // Inside a declaration — track brace depth
+            // Inside a declaration -- track brace depth
             depth += count_brace_delta(trimmed_line);
             declarations.push(trimmed_line.to_string());
             if depth <= 0 {

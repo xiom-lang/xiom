@@ -1,4 +1,4 @@
-// M35-C12: for-in pattern using while + index — simulate for loop over array-like logic
+// M35-C12: for-in pattern using while + index -- simulate for loop over array-like logic
 fn sum_array_elements(count: Int) -> Int {
   var total: Int = 0;
   var idx: Int = 0;

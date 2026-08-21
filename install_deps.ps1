@@ -322,7 +322,7 @@ if (Test-Command "git") {
 }
 
 # ============================================================================
-# 5. NASM (optional — hardware-accelerated stdlib functions)
+# 5. NASM (optional -- hardware-accelerated stdlib functions)
 # ============================================================================
 Write-Header "5. NASM (optional - crypto/memcpy/simd assembly acceleration)"
 

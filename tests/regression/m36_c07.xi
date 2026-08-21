@@ -1,4 +1,4 @@
-// M36-C07: Every method pattern with every type — method on struct for Int, Bool, Float64, Str
+// M36-C07: Every method pattern with every type -- method on struct for Int, Bool, Float64, Str
 type Counter = { val: Int; }
 fn Counter.new() -> Counter { return Counter{ val: 0; }; }
 fn Counter.inc(self) -> Counter { var r = self; r.val = r.val + 1; return r; }

@@ -1,4 +1,4 @@
-// XIOM — AI-Assisted Compilation Pipeline (Phase 5g)
+// XIOM -- AI-Assisted Compilation Pipeline (Phase 5g)
 // Supports: Ollama, DeepSeek, OpenAI, OpenRouter, Groq, and any OpenAI-compatible endpoint.
 // Secure config via .xiom_ai_config.json or environment variables.
 // Never modifies source files. Only writes .xiom_ai.json hints.
@@ -7,7 +7,7 @@ use sha2::{Sha256, Digest};
 use serde::{Serialize, Deserialize};
 
 // =========================================================================
-// Configuration — loaded from .xiom_ai_config.json, then env vars, then defaults
+// Configuration -- loaded from .xiom_ai_config.json, then env vars, then defaults
 // =========================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -272,7 +272,7 @@ pub fn inject_counterexample(ctx: &mut ContextSlice, z3_output: &str) {
 }
 
 // =========================================================================
-// Prompt Templates — provider-optimized
+// Prompt Templates -- provider-optimized
 // =========================================================================
 
 /// Load system prompt from stdlib/xiom/ai_prompt.txt, fall back to hardcoded.
@@ -296,14 +296,14 @@ fn load_system_prompt() -> String {
          - Reference the specific variable or expression that triggered the error\n\
          - If a contract is involved, explain which boundary condition fails\n\
          - Keep responses under 60 words\n\
-         - NEVER write full code — suggest the fix in plain English\n\
+         - NEVER write full code -- suggest the fix in plain English\n\
          - Confidence: HIGH for type/contract errors, MEDIUM for codegen/parse errors\n\n\
          Error categories:\n\
-         - T (Type): Type mismatch — check expression type vs declared type\n\
-         - C (Codegen): Compiler cannot lower this construct — unsupported pattern\n\
-         - P (Parse): Invalid syntax — missing semicolons, braces, or keywords\n\
-         - X (Contract): Contract violation — requires/ensures clause not satisfied\n\
-         - E (Borrow): Ownership error — use of moved value\n\
+         - T (Type): Type mismatch -- check expression type vs declared type\n\
+         - C (Codegen): Compiler cannot lower this construct -- unsupported pattern\n\
+         - P (Parse): Invalid syntax -- missing semicolons, braces, or keywords\n\
+         - X (Contract): Contract violation -- requires/ensures clause not satisfied\n\
+         - E (Borrow): Ownership error -- use of moved value\n\
          - L (Lexer): Invalid token or character"
     )
 }
@@ -329,7 +329,7 @@ fn build_chat_prompt(ctx: &ContextSlice) -> Vec<serde_json::Value> {
 }
 
 // =========================================================================
-// LLM Backend — unified OpenAI-compatible chat API
+// LLM Backend -- unified OpenAI-compatible chat API
 // =========================================================================
 
 fn call_llm_chat(endpoint: &str, api_key: &str, model: &str, messages: &[serde_json::Value], timeout_secs: u32) -> Result<String, String> {
@@ -408,11 +408,11 @@ pub fn run_ai_pipeline(config: &AiConfig, source: &str, source_path: &str, diagn
         let insight = if config.dry_run {
             let prompt = format!("[{}.{}] {}", ctx.error_code, ctx.error_type, ctx.function_body.lines().next().unwrap_or(""));
             if ctx.counterexample.is_some() {
-                eprintln!("[AI DRY RUN] {}:{}:{} (Z3 counterexample available) → {}", source_path, ctx.error_line, ctx.error_code, prompt);
+                eprintln!("[AI DRY RUN] {}:{}:{} (Z3 counterexample available) -> {}", source_path, ctx.error_line, ctx.error_code, prompt);
             } else {
-                eprintln!("[AI DRY RUN] {}:{}:{} → {}", source_path, ctx.error_line, ctx.error_code, prompt);
+                eprintln!("[AI DRY RUN] {}:{}:{} -> {}", source_path, ctx.error_line, ctx.error_code, prompt);
             }
-            "(dry run — no LLM call)".to_string()
+            "(dry run -- no LLM call)".to_string()
         } else {
             let result = if config.provider == "ollama" {
                 let mut prompt = format!("XIOM compiler error [{}] {} at line {}.\nCode:\n```xiom\n{}\n```\n",
@@ -459,7 +459,7 @@ pub fn run_ai_pipeline(config: &AiConfig, source: &str, source_path: &str, diagn
     std::fs::write(".xiom_ai.json", &json).map_err(|e| format!("Write error: {e}"))?;
 
     if !config.silent {
-        eprintln!("xiom --ai: {} hints → .xiom_ai.json ({} API, {} cached, provider: {})",
+        eprintln!("xiom --ai: {} hints -> .xiom_ai.json ({} API, {} cached, provider: {})",
             output.total_hints, api_calls, cached, config.provider);
     }
     if config.strict && !output.hints.is_empty() {
@@ -468,7 +468,7 @@ pub fn run_ai_pipeline(config: &AiConfig, source: &str, source_path: &str, diagn
     Ok(output)
 }
 
-/// 5f.3e: Batch AI pipeline — single .xiom_ai.json for all source files.
+/// 5f.3e: Batch AI pipeline -- single .xiom_ai.json for all source files.
 pub fn run_ai_pipeline_batch(
     config: &AiConfig,
     sources: &[(String, String)], // (path, source)
@@ -549,7 +549,7 @@ pub fn run_ai_pipeline_batch(
     std::fs::write(".xiom_ai.json", &json).map_err(|e| format!("Write error: {e}"))?;
 
     if !config.silent {
-        eprintln!("xiom --ai --batch: {} hints → .xiom_ai.json ({} API, {} cached)",
+        eprintln!("xiom --ai --batch: {} hints -> .xiom_ai.json ({} API, {} cached)",
             output.total_hints, api_calls, cached);
     }
     if config.strict && !output.hints.is_empty() {
@@ -646,7 +646,7 @@ fn hash_source(s: &str) -> String { let mut h = Sha256::new(); h.update(s); form
 fn hash_str(s: &str) -> String { let mut h = Sha256::new(); h.update(s); format!("{:x}", h.finalize())[..16].to_string() }
 
 // =========================================================================
-// Public API — called from CLI
+// Public API -- called from CLI
 // =========================================================================
 
 /// Print AI mode help text for --help output
@@ -654,7 +654,7 @@ pub fn ai_help_text() -> &'static str {
     r#"
 AI-ASSISTED COMPILATION (--ai):
   XIOM can call an LLM to explain compilation errors with actionable hints.
-  Results are written to .xiom_ai.json — NEVER modifies source files.
+  Results are written to .xiom_ai.json -- NEVER modifies source files.
 
   Quick Start:
     1. Install Ollama:   winget install Ollama.Ollama

@@ -1,4 +1,4 @@
-// M33-A13: Very large array — sum of 100 elements 0..99
+// M33-A13: Very large array -- sum of 100 elements 0..99
 fn main() -> Int {
   var i: Int = 0;
   var sum: Int = 0;

@@ -1,5 +1,5 @@
 #!/usr/bin/env xiom
-// XIOM JSON Parser — Gap Discovery Script
+// XIOM JSON Parser -- Gap Discovery Script
 // Usage: echo '{"key": "value"}' | xiom run tools/json_parser.xi
 // Tests: string ops, Result handling, recursion, Vec ops, match statements
 

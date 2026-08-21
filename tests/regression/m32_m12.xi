@@ -1,4 +1,4 @@
-// M32-M12: Dotted path for nested modules — deep import via use
+// M32-M12: Dotted path for nested modules -- deep import via use
 module alpha {
   pub fn get_a() -> Int { return 1; }
   module beta {

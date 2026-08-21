@@ -1,4 +1,4 @@
-// M33-Z03: Int *= — basic compound multiply
+// M33-Z03: Int *= -- basic compound multiply
 fn main() -> Int {
   var x: Int = 6;
   x *= 7;

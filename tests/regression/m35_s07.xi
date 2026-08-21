@@ -1,4 +1,4 @@
-// M35-S07: String to uppercase — build uppercase via ASCII char mapping
+// M35-S07: String to uppercase -- build uppercase via ASCII char mapping
 use stdlib.xiom.string;
 fn to_upper(s: Str) -> Str {
   var result: Str = "";

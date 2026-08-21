@@ -1,4 +1,4 @@
-// XIOM — Random Data Module
+// XIOM -- Random Data Module
 // Large static array of pseudo-random numbers for heavy processing benchmarks.
 // Generates 1000 values via a known seed for deterministic verification.
 // Copyright (c) 2026 Eleftherios Notas

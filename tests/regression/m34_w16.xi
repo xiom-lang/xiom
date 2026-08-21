@@ -1,4 +1,4 @@
-// M34-W16: Unsigned right shift — logical shift on UInt and UInt32
+// M34-W16: Unsigned right shift -- logical shift on UInt and UInt32
 fn main() -> Int {
   var x: UInt = 0xF000;
   var x32: UInt32 = 0xF000 as UInt32;

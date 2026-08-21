@@ -1,4 +1,4 @@
-// M32-M02: pub fn visibility — access pub fn via use import
+// M32-M02: pub fn visibility -- access pub fn via use import
 module calc {
   pub fn mul(a: Int, b: Int) -> Int { return a * b; }
 }

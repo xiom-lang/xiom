@@ -1,5 +1,5 @@
-// m38_round8_ref_payload — round-8 (2026-08-20) regression:
-// Option<&T> reference payloads — rand.weighted_pick's Some(&items[i])
+// m38_round8_ref_payload -- round-8 (2026-08-20) regression:
+// Option<&T> reference payloads -- rand.weighted_pick's Some(&items[i])
 // payload read gave garbage on comparison (the slot ADDRESS was strcmp'd
 // as the string; &T value uses now auto-deref via the "&T" xiom record).
 // Also covers plain &Str params compared as Str values.

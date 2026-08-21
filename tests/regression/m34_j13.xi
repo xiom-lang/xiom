@@ -1,4 +1,4 @@
-// M34-J13: Pub fn calling private fn — public wrapper around private implementation
+// M34-J13: Pub fn calling private fn -- public wrapper around private implementation
 module range {
   fn clamp_inner(v: Int, lo: Int, hi: Int) -> Int {
     if v < lo { return lo; }

@@ -1,5 +1,5 @@
 #!/usr/bin/env xiom
-// MD→HTML — v0.52.7+ with String Copy semantics
+// MD->HTML -- v0.52.7+ with String Copy semantics
 
 use xiom.io;
 use xiom.string;

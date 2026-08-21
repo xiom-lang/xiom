@@ -1,4 +1,4 @@
-// M34-D08: Recursive struct in enum payload — enum variant contains pointer to recursive struct
+// M34-D08: Recursive struct in enum payload -- enum variant contains pointer to recursive struct
 type Node = { value: Int; left: *Node; right: *Node; }
 
 enum TreeOp {

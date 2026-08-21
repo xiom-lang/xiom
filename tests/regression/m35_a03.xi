@@ -1,4 +1,4 @@
-// M35-A03: Verify sortedness — check if arrays are in ascending order
+// M35-A03: Verify sortedness -- check if arrays are in ascending order
 fn main() -> Int {
   var a = [1, 2, 3, 4, 5, 6, 7];
   var c = [7, 6, 5, 4, 3, 2, 1];

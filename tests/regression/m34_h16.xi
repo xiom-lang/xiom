@@ -1,4 +1,4 @@
-// M34-H16: Cast in enum payload — cast value before wrapping in variant
+// M34-H16: Cast in enum payload -- cast value before wrapping in variant
 enum Value { Small(v: Int8), Big(v: Int64) }
 fn main() -> Int {
   var raw: Int = 42;

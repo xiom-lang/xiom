@@ -1,4 +1,4 @@
-// M36-S22: File path manipulation — basename, dirname, extension extraction
+// M36-S22: File path manipulation -- basename, dirname, extension extraction
 fn is_separator(c: Char) -> Bool {
   return c == '/' || c == '\\';
 }

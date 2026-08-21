@@ -1,4 +1,4 @@
-# XIOM Compiler — 2 Bugs Blocking Benchmark Arena
+# XIOM Compiler -- 2 Bugs Blocking Benchmark Arena
 
 > **Status: BOTH FIXED (v0.56.0-pre)**  
 > Bug 1: `#ifdef _WIN32` guard added (commit: this session)  
@@ -8,7 +8,7 @@
 
 ---
 
-## Bug 1: Windows Runtime Leak — `GetSystemInfo` on Linux
+## Bug 1: Windows Runtime Leak -- `GetSystemInfo` on Linux
 
 ### Symptom
 ALL XIOM compilation fails on Linux/Docker with:
@@ -26,13 +26,13 @@ error: clang failed with exit code 1
 `E:\Projects\AXIOM\stdlib\runtime\xiom_runtime.c` lines ~4372-4374 have Windows-only API calls without `#ifdef` guards:
 
 ```c
-// Line 4372 — WINDOWS ONLY
+// Line 4372 -- WINDOWS ONLY
 SYSTEM_INFO si;
 GetSystemInfo(&si);
 num_workers = si.dwNumberOfProcessors;
 ```
 
-`SYSTEM_INFO`, `GetSystemInfo`, and `dwNumberOfProcessors` are Win32 API — they don't exist on Linux.
+`SYSTEM_INFO`, `GetSystemInfo`, and `dwNumberOfProcessors` are Win32 API -- they don't exist on Linux.
 
 ### Fix
 Add `#ifdef _WIN32` guard with a Linux fallback (`sysconf(_SC_NPROCESSORS_ONLN)`):
@@ -59,7 +59,7 @@ docker compose down
 docker compose build --no-cache
 docker compose up
 ```
-Select `systems-speed` profile → Run. All 5 XIOM systems tasks (t1-t5) should compile and pass (not crash).
+Select `systems-speed` profile -> Run. All 5 XIOM systems tasks (t1-t5) should compile and pass (not crash).
 
 ---
 
@@ -72,10 +72,10 @@ compiled: .../solution.xi.arena.out
 -- test runs, crashes immediately --
 status: FAIL, no metrics captured
 ```
-All 5 tasks fail identically. `xiom-run` (scripting/interpreter mode) works fine — only the standalone compiled path (`xiom --target native -o binary source.xi`) crashes.
+All 5 tasks fail identically. `xiom-run` (scripting/interpreter mode) works fine -- only the standalone compiled path (`xiom --target native -o binary source.xi`) crashes.
 
 ### Root Cause
-Unknown SEGFAULT in v0.53.0 compiled output. The compiler IR→LLVM codegen is producing invalid native code that crashes on entry.
+Unknown SEGFAULT in v0.53.0 compiled output. The compiler IR->LLVM codegen is producing invalid native code that crashes on entry.
 
 ### Test
 Verified: `./target/debug/xiom --release --run` on all 5 systems-arena tasks produces "OK" + exit code 0.
@@ -105,4 +105,4 @@ docker compose down
 docker compose build --no-cache
 docker compose up
 ```
-6. In dashboard, select `systems-speed` → Run → Verify all XIOM trials show PASS with metrics
+6. In dashboard, select `systems-speed` -> Run -> Verify all XIOM trials show PASS with metrics

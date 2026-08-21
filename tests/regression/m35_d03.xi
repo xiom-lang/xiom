@@ -1,4 +1,4 @@
-// M35-D03: Queue — enqueue/dequeue using array
+// M35-D03: Queue -- enqueue/dequeue using array
 fn main() -> Int {
   var data0: Int = 0;
   var data1: Int = 0;

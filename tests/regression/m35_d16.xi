@@ -1,4 +1,4 @@
-// M35-D16: Trie — prefix patterns represented as integer sequences
+// M35-D16: Trie -- prefix patterns represented as integer sequences
 fn main() -> Int {
   var n: Int = 0;
   var child_a: Int = 1;

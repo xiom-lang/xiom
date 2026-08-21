@@ -1,4 +1,4 @@
-// M36-E29: Function with no statements — just return
+// M36-E29: Function with no statements -- just return
 fn nop() -> Int { return 0; }
 fn identity(x: Int) -> Int { return x; }
 fn main() -> Int {

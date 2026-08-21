@@ -1,4 +1,4 @@
-// M35-D19: BST — insert, search, min, max on pointer-based tree nodes
+// M35-D19: BST -- insert, search, min, max on pointer-based tree nodes
 type BNode = { value: Int; left: *BNode; right: *BNode; }
 
 fn bst_search(n: *BNode, val: Int) -> Bool {

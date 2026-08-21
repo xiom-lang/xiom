@@ -1,4 +1,4 @@
-// M35-A17: Palindrome number — check if number reads the same forwards/backwards
+// M35-A17: Palindrome number -- check if number reads the same forwards/backwards
 fn rev(n: Int) -> Int {
   var x: Int = n;
   var r: Int = 0;

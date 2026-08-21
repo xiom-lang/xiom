@@ -1,4 +1,4 @@
-// M34-J11: Module re-export — pub use of items from another module
+// M34-J11: Module re-export -- pub use of items from another module
 module internal {
   pub fn compute(x: Int) -> Int { return x * 10; }
   pub type Value = { raw: Int; }

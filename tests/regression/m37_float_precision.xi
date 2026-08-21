@@ -1,6 +1,6 @@
 module m37_float_precision
 // BUG 10 regression (docs/COMPILER_BUGS.md): float literals were emitted
-// with {:.6} — 6 decimals — truncating 0.123456789 to 0.123457. The
+// with {:.6} -- 6 decimals -- truncating 0.123456789 to 0.123457. The
 // stored value must round-trip exactly (17 sig digits).
 
 fn main() -> Int {

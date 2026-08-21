@@ -1,4 +1,4 @@
-// XIOM — I/O and Serialization Stress Benchmark
+// XIOM -- I/O and Serialization Stress Benchmark
 // Exercises file I/O patterns, serialization, encoding, and data transformation.
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
@@ -8,7 +8,7 @@ module benchmark.serialize
 use benchmark.main.BenchResult;
 
 // ============================================================
-// SECTION 1: Int ↔ Str Conversion (simulated)
+// SECTION 1: Int <-> Str Conversion (simulated)
 // ============================================================
 
 pub fn int_to_digits(n: Int) -> Vec[Int] {

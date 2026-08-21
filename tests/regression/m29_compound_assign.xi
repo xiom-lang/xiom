@@ -1,4 +1,4 @@
-// M29: Compound assignment operators — verify runtime behavior
+// M29: Compound assignment operators -- verify runtime behavior
 fn main() -> Int {
   var x: Int = 10;
   var y: Int = 20;

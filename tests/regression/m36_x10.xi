@@ -1,4 +1,4 @@
-// M36-X10: --check mode patterns — syntax-only validation structures
+// M36-X10: --check mode patterns -- syntax-only validation structures
 enum Token { Ident, Number, String, LParen, RParen, LBrace, RBrace, Comma, Semicolon, Arrow, Eq, Plus, Minus, Star, Slash, Dot, Colon, Bang, Amp, Pipe, Lt, Gt, Eof }
 fn token_repr(t: Token) -> Int {
   match t {

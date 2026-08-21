@@ -1,4 +1,4 @@
-// M33-U05: Pointer to Int — read value through pointer deref
+// M33-U05: Pointer to Int -- read value through pointer deref
 fn main() -> Int {
   var x: Int = 7;
   var p: *Int;

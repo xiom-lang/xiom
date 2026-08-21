@@ -1,4 +1,4 @@
-// M36-E08: Nested if blocks 10 deep — control flow nesting stress
+// M36-E08: Nested if blocks 10 deep -- control flow nesting stress
 fn main() -> Int {
   var depth = 0;
   if true {

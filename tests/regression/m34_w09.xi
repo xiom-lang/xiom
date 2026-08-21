@@ -1,4 +1,4 @@
-// M34-W09: Sign bit manipulation — MSB test on Int (avoid -1 as Int32 codegen bug)
+// M34-W09: Sign bit manipulation -- MSB test on Int (avoid -1 as Int32 codegen bug)
 fn main() -> Int {
   var pos: Int = 1;
   var neg: Int = -1;

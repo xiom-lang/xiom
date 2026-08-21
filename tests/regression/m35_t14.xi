@@ -1,4 +1,4 @@
-// M35-T14: Const for each primitive — Bool, Int, Float64, Char, Str
+// M35-T14: Const for each primitive -- Bool, Int, Float64, Char, Str
 const C_BOOL: Bool = true;
 const C_INT: Int = 42;
 const C_FLOAT: Float64 = 3.14;

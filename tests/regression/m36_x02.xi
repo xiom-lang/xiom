@@ -1,4 +1,4 @@
-// M36-X02: Nested modules — modules within modules with public exports
+// M36-X02: Nested modules -- modules within modules with public exports
 module math {
   pub fn square(x: Int) -> Int { return x * x; }
   module advanced {

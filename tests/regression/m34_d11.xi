@@ -1,4 +1,4 @@
-// M34-D11: Tree construction from expressions — enum-based tree building and evaluation
+// M34-D11: Tree construction from expressions -- enum-based tree building and evaluation
 // Uses recursive enum with Int payload to represent expression trees
 enum Expr {
   Num(v: Int),

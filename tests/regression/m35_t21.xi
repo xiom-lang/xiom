@@ -1,4 +1,4 @@
-// M35-T21: Float64 exhaustive — every context: arith, cmp, cast, struct, enum, array, while
+// M35-T21: Float64 exhaustive -- every context: arith, cmp, cast, struct, enum, array, while
 fn fadd(a: Float64, b: Float64) -> Float64 { return a + b; }
 fn fsub(a: Float64, b: Float64) -> Float64 { return a - b; }
 fn fmul(a: Float64, b: Float64) -> Float64 { return a * b; }

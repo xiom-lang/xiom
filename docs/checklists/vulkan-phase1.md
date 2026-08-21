@@ -1,4 +1,4 @@
-# Vulkan Phase 1 — Production Bridge Implementation Plan
+# Vulkan Phase 1 -- Production Bridge Implementation Plan
 
 ## Status: IN PROGRESS
 
@@ -21,8 +21,8 @@ Expand `packages/xiom-vulkan/` from 22 toy-bridge functions to ~80 production-gr
 - **Affected**: `triangle.vert` (CCW), `quad.vert` (CCW)
 - **Unaffected**: `cube.vert` (CW), `particle.vert` (no culling)
 - **Fix**: Reorder triangle.vert and quad.vert vertices to CW winding
-- [ ] Fix `bridge/shaders/triangle.vert` — reorder vertex positions for CW
-- [ ] Fix `bridge/shaders/quad.vert` — change vertex generation for CW
+- [ ] Fix `bridge/shaders/triangle.vert` -- reorder vertex positions for CW
+- [ ] Fix `bridge/shaders/quad.vert` -- change vertex generation for CW
 
 ### Bug 2: set_clear_color Called After begin_frame
 - **Root cause**: `set_clear_color` updates `a->clear_r/g/b` but `begin_frame` already read them
@@ -33,7 +33,7 @@ Expand `packages/xiom-vulkan/` from 22 toy-bridge functions to ~80 production-gr
 - [ ] Fix `examples/demo_particles.xi`
 - [ ] Fix `examples/demo_shapes.xi`
 
-## Phase 1 Bridge API Expansion (22 → ~80 functions)
+## Phase 1 Bridge API Expansion (22 -> ~80 functions)
 
 ### A. Buffer Management (`xvk_buffer_*`)
 | Function | Purpose |
@@ -123,27 +123,27 @@ Expand `packages/xiom-vulkan/` from 22 toy-bridge functions to ~80 production-gr
 
 ## New Demos (~15)
 
-1. [x] `demo_2d` — Fixed triangle (exists)
-2. [x] `demo_3d` — Fixed cube (exists)
-3. [x] `demo_shapes` — Fixed quads + triangle (exists)
-4. [x] `demo_cubes` — Fixed cube grid (exists)
-5. [x] `demo_particles` — Fixed particles (exists)
-6. [ ] `demo_vertex_buffer` — Custom geometry via vertex buffer
-7. [ ] `demo_indexed_draw` — Indexed geometry
-8. [ ] `demo_texture` — Textured quad
-9. [ ] `demo_multipass` — Render to texture, then sample
-10. [ ] `demo_compute` — Compute shader (particle simulation on GPU)
-11. [ ] `demo_uniform_buffer` — Per-frame uniforms
-12. [ ] `demo_descriptor_sets` — Multiple textures + samplers
-13. [ ] `demo_lighting` — Normal mapping with descriptor sets
-14. [ ] `demo_instancing` — Instanced rendering
-15. [ ] `demo_post_process` — Bloom / blur post-processing
-16. [ ] `demo_game_objects` — Many objects with individual uniforms
-17. [ ] `demo_phong` — Phong lighting with uniform buffers
+1. [x] `demo_2d` -- Fixed triangle (exists)
+2. [x] `demo_3d` -- Fixed cube (exists)
+3. [x] `demo_shapes` -- Fixed quads + triangle (exists)
+4. [x] `demo_cubes` -- Fixed cube grid (exists)
+5. [x] `demo_particles` -- Fixed particles (exists)
+6. [ ] `demo_vertex_buffer` -- Custom geometry via vertex buffer
+7. [ ] `demo_indexed_draw` -- Indexed geometry
+8. [ ] `demo_texture` -- Textured quad
+9. [ ] `demo_multipass` -- Render to texture, then sample
+10. [ ] `demo_compute` -- Compute shader (particle simulation on GPU)
+11. [ ] `demo_uniform_buffer` -- Per-frame uniforms
+12. [ ] `demo_descriptor_sets` -- Multiple textures + samplers
+13. [ ] `demo_lighting` -- Normal mapping with descriptor sets
+14. [ ] `demo_instancing` -- Instanced rendering
+15. [ ] `demo_post_process` -- Bloom / blur post-processing
+16. [ ] `demo_game_objects` -- Many objects with individual uniforms
+17. [ ] `demo_phong` -- Phong lighting with uniform buffers
 
 ## AI_CONTEXT.md Update
 
-Add Section 8.28: `xiom.vulkan` — Complete production API reference with all types, functions, demos, and build instructions.
+Add Section 8.28: `xiom.vulkan` -- Complete production API reference with all types, functions, demos, and build instructions.
 
 ## Build Script Updates
 

@@ -1,4 +1,4 @@
-// M30: Differential — if-chain vs match must produce equivalent results
+// M30: Differential -- if-chain vs match must produce equivalent results
 fn via_if(x: Int) -> Int {
   if x == 1 { return 10; }
   elif x == 2 { return 20; }

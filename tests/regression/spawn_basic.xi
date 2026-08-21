@@ -1,9 +1,9 @@
-// Spawn Tests — v0.55
+// Spawn Tests -- v0.55
 // Verifies spawn { ... } compiles and the thread runtime links.
 // Returns 0 on success.
 
 fn main() -> Int {
-  // Basic spawn — creates an OS thread via xiom_thread_spawn
+  // Basic spawn -- creates an OS thread via xiom_thread_spawn
   spawn {
     var x: Int = 42;
   }

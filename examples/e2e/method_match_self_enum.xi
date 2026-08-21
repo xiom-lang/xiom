@@ -3,7 +3,7 @@
 // twice (once as the typed struct receiver, once as a phantom `i64` param from
 // the parser). The phantom shadowed the real `self`, so variant patterns in
 // `match self` degraded to variable bindings, causing arms to return bare `i64`
-// discriminants instead of properly-constructed enum structs — producing
+// discriminants instead of properly-constructed enum structs -- producing
 // `store %struct.MyEnum i64` (invalid LLVM IR).
 //
 // The fix skips the duplicate `self` param in codegen when a receiver is
@@ -36,10 +36,10 @@ fn main() -> Int {
   // If the phantom-self bug is present, `match self` in `reverse` treats
   // `self` as an `i64` phantom param, so `Red => Green` actually binds `Red`
   // as a variable holding the scrutinee's i64 discriminant, and the body
-  // `Green` is an undefined name → type error. The program won't compile.
+  // `Green` is an undefined name -> type error. The program won't compile.
   // If it does compile, the three calls all work and we return 0.
   // (In a full runtime test we'd compare discriminants; here the smoke is
-  // compile+link+run → exit 0.)
+  // compile+link+run -> exit 0.)
 
   return 0;
 }

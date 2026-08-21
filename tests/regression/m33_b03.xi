@@ -1,4 +1,4 @@
-// M33-B03: Multiple read borrows — several & references to structs coexist
+// M33-B03: Multiple read borrows -- several & references to structs coexist
 type Item = { n: Int; }
 fn get_n(a: &Item, b: &Item, c: &Item) -> Int { return a.n + b.n + c.n; }
 fn main() -> Int {

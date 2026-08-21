@@ -1,7 +1,7 @@
 // BUG 47 regression: `&T`-param names leaked across function compilations
 // (ref_params/param_locals never cleared). A fn with `b: &Int` compiled
 // before a fn whose VALUE param is also named `b` made `x.compare(&b)`
-// dereference the value (inttoptr 7 → load → AV). Repro combines an impl
+// dereference the value (inttoptr 7 -> load -> AV). Repro combines an impl
 // method named `compare` used via a generic bound + a fn-typed param fn.
 module m37_bug47_ref_params_leak
 use xiom.sort.heap;
@@ -25,7 +25,7 @@ fn max_of[T: Ord9](a: T, b: T) -> T {
   return b;
 }
 
-// A fn whose PARAMS are named a/b with &Int types — the leak source.
+// A fn whose PARAMS are named a/b with &Int types -- the leak source.
 fn cmp_int(a: &Int, b: &Int) -> Int {
   if *a < *b { return -1; }
   if *a > *b { return 1; }

@@ -1,4 +1,4 @@
-// M36-S29: Debug info generation — DWARF-like line table entries
+// M36-S29: Debug info generation -- DWARF-like line table entries
 type DebugLine = { addr: Int; file_id: Int; line: Int; col: Int; }
 type DebugFile = { id: Int; name: Str; dir_index: Int; }
 type DebugCU = { id: Int; name: Str; low_pc: Int; high_pc: Int; }

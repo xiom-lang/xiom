@@ -1,4 +1,4 @@
-// M35-C05: nested if 5 deep — cascading conditional logic
+// M35-C05: nested if 5 deep -- cascading conditional logic
 fn deep_nest(a: Int, b: Int, c: Int, d: Int, e: Int) -> Int {
   if a > 0 {
     if b > 0 {

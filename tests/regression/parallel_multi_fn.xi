@@ -1,4 +1,4 @@
-// E2E: Parallel codegen — multiple independent functions
+// E2E: Parallel codegen -- multiple independent functions
 use xiom.io;
 
 fn f1() -> Int { return 1; }

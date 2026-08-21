@@ -1,4 +1,4 @@
-# Phase 5d.1 — XIOM MCP Server (Model Context Protocol)
+# Phase 5d.1 -- XIOM MCP Server (Model Context Protocol)
 
 > **Status:** Planned. Depends on 5c (complete), 5c-S (planned), 5g (planned). MVP buildable NOW with 3 tools.  
 > **Target:** Every MCP-compatible agent (Claude, Cursor, Continue, etc.) can natively query the XIOM compiler without parsing CLI output or writing shell scripts. The compiler becomes a structured tool-calling API.
@@ -10,21 +10,21 @@
 ### The Problem Today
 ```
 Agent: "Compile this file and tell me what's wrong"
-  → Agent writes shell script
-  → Runs `xiom --diagnostics=json file.xi`
-  → Parses JSON from stdout (fragile, version-dependent)
-  → Tries to map errors to source lines
-  → Guesses at fixes
+  -> Agent writes shell script
+  -> Runs `xiom --diagnostics=json file.xi`
+  -> Parses JSON from stdout (fragile, version-dependent)
+  -> Tries to map errors to source lines
+  -> Guesses at fixes
 ```
 
 ### The MCP Solution
 ```
 Agent: calls tool `compile_and_analyze("file.xi")`
-  → MCP server runs `xiom --ai --diagnostics=json file.xi`
-  → Parses .xiom_ai.json internally
-  → Returns structured result directly in agent's context window
-  → Agent has error codes, line numbers, AI hints, and safety scores
-  → Agent calls `explain_error("X0100")` for deep reference
+  -> MCP server runs `xiom --ai --diagnostics=json file.xi`
+  -> Parses .xiom_ai.json internally
+  -> Returns structured result directly in agent's context window
+  -> Agent has error codes, line numbers, AI hints, and safety scores
+  -> Agent calls `explain_error("X0100")` for deep reference
 ```
 
 **The compiler is already a structured data oracle.** MCP just puts a standardized API in front of it so agents don't have to parse CLI output.
@@ -44,38 +44,38 @@ Agent: calls tool `compile_and_analyze("file.xi")`
 ## 2. Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  AGENT (Claude, Cursor, Aider, etc.)                     │
-│  Calls tools via MCP JSON-RPC                            │
-└────────────────────┬────────────────────────────────────┘
-                     │ MCP protocol (stdio or HTTP)
-┌────────────────────▼────────────────────────────────────┐
-│  XIOM MCP SERVER  (xiom-mcp crate)                      │
-│                                                         │
-│  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐  │
-│  │ compile_     │  │ explain_     │  │ audit_safety_ │  │
-│  │ and_analyze  │  │ error_code   │  │ sandbox       │  │
-│  └──────┬───────┘  └──────┬───────┘  └───────┬───────┘  │
-│         │                 │                  │           │
-│  ┌──────▼─────────────────▼──────────────────▼───────┐   │
-│  │              TOOL DISPATCHER                       │   │
-│  │  Routes tool calls → xiom CLI or internal APIs    │   │
-│  └──────┬──────────────────────────────────────┬──────┘   │
-│         │                                      │          │
-│  ┌──────▼──────┐                        ┌─────▼──────┐    │
-│  │ xiom CLI   │                        │ libxiom   │    │
-│  │ (subprocess)│                        │ (Rust API)  │    │
-│  │ --diagnostics│                       │ compile()   │    │
-│  │ --sandbox   │                        │ audit()     │    │
-│  │ --explain   │                        │ contracts() │    │
-│  │ --dump-contracts│                    │             │    │
-│  └─────────────┘                        └─────────────┘    │
-└─────────────────────────────────────────────────────────┘
++---------------------------------------------------------+
+|  AGENT (Claude, Cursor, Aider, etc.)                     |
+|  Calls tools via MCP JSON-RPC                            |
+`--------------------+------------------------------------+
+                     | MCP protocol (stdio or HTTP)
++--------------------v------------------------------------+
+|  XIOM MCP SERVER  (xiom-mcp crate)                      |
+|                                                         |
+|  +--------------+  +--------------+  +---------------+  |
+|  | compile_     |  | explain_     |  | audit_safety_ |  |
+|  | and_analyze  |  | error_code   |  | sandbox       |  |
+|  `------+-------+  `------+-------+  `-------+-------+  |
+|         |                 |                  |           |
+|  +------v-----------------v------------------v-------+   |
+|  |              TOOL DISPATCHER                       |   |
+|  |  Routes tool calls -> xiom CLI or internal APIs    |   |
+|  `------+--------------------------------------+------+   |
+|         |                                      |          |
+|  +------v------+                        +-----v------+    |
+|  | xiom CLI   |                        | libxiom   |    |
+|  | (subprocess)|                        | (Rust API)  |    |
+|  | --diagnostics|                       | compile()   |    |
+|  | --sandbox   |                        | audit()     |    |
+|  | --explain   |                        | contracts() |    |
+|  | --dump-contracts|                    |             |    |
+|  `-------------+                        `-------------+    |
+`---------------------------------------------------------+
 ```
 
 **Two integration modes:**
 1. **Subprocess mode** (MVP): MCP server shells out to `xiom`. Works today, no code changes to the compiler.
-2. **Library mode** (Phase 2): MCP server links `xiom` as a Rust library (`libxiom`). Faster, no process overhead. Requires the 5c-R lib/bin split (already done ✅).
+2. **Library mode** (Phase 2): MCP server links `xiom` as a Rust library (`libxiom`). Faster, no process overhead. Requires the 5c-R lib/bin split (already done [OK]).
 
 ---
 
@@ -182,7 +182,7 @@ Returns:
   - errors: [{ line, column, message }]
 ```
 
-### 3.8 `get_language_cheatsheet` ⭐ (Friction Point Solver)
+### 3.8 `get_language_cheatsheet` [STAR] (Friction Point Solver)
 
 ```
 Tool: get_language_cheatsheet
@@ -218,17 +218,17 @@ Returns:
     "Forgetting return type annotation on fn with return value",
     "Using `else if` instead of `elif`",
     "Putting ; after a tail expression",
-    "Using `self.x` inside methods — fields are implicit, just write `x`"
+    "Using `self.x` inside methods -- fields are implicit, just write `x`"
   ],
   "parser_errors_if_done_wrong": "X0001 (unexpected token), X0010 (type mismatch)"
 }
 ```
 
-**Why this tool is critical:** The chat analysis nailed it — "the agent will essentially learn the syntax via the compiler's rejection messages." This tool short-circuits that. The agent learns the syntax BEFORE writing code, not through 5 failed compilations. It turns "trial-and-error learning" into "reference-card programming."
+**Why this tool is critical:** The chat analysis nailed it -- "the agent will essentially learn the syntax via the compiler's rejection messages." This tool short-circuits that. The agent learns the syntax BEFORE writing code, not through 5 failed compilations. It turns "trial-and-error learning" into "reference-card programming."
 
 ---
 
-## 4. Friction Points — Honest Analysis
+## 4. Friction Points -- Honest Analysis
 
 The chat identified two real friction points. Here's how each is solved:
 
@@ -238,7 +238,7 @@ The chat identified two real friction points. Here's how each is solved:
 
 **How much this matters:** Medium. On a 5-compilation loop, the agent spends 80% of its time fixing syntax errors, 20% on logic. With `get_language_cheatsheet`, this inverts: 20% syntax, 80% logic.
 
-**Solution — `get_language_cheatsheet` tool (3.8):**
+**Solution -- `get_language_cheatsheet` tool (3.8):**
 
 Before writing code, the agent calls `get_language_cheatsheet("function")`. It gets:
 - A valid example it can pattern-match
@@ -246,17 +246,17 @@ Before writing code, the agent calls `get_language_cheatsheet("function")`. It g
 - Common mistakes untrained models make
 - Which error codes trigger if done wrong
 
-This tool is NOT a full language reference — it's a **structural template generator**. It gives the agent the exact shape of what to write, which is what untrained models need most.
+This tool is NOT a full language reference -- it's a **structural template generator**. It gives the agent the exact shape of what to write, which is what untrained models need most.
 
-**Economic impact:** 5 failed compilations → 1-2 failed compilations. Token savings: ~60% per new function.
+**Economic impact:** 5 failed compilations -> 1-2 failed compilations. Token savings: ~60% per new function.
 
 ### 4.2 Friction: "Error Messages ARE the Training Data"
 
-**Problem:** The agent learns XIOM syntax through compiler rejection. Every error message doubles as a training example. If the message says "expected ';', found '}'" without context, the agent learns nothing. If it says "every statement must end with ';' — the tail expression is the last expression in a block and must NOT have a semicolon" with a pointer to the exact location, the agent learns the rule.
+**Problem:** The agent learns XIOM syntax through compiler rejection. Every error message doubles as a training example. If the message says "expected ';', found '}'" without context, the agent learns nothing. If it says "every statement must end with ';' -- the tail expression is the last expression in a block and must NOT have a semicolon" with a pointer to the exact location, the agent learns the rule.
 
-**How much this matters:** CRITICAL. Bad error messages = slow agent learning = more iterations = more tokens = more cost. The compiler's error messages are NOT just diagnostics — they are the training curriculum.
+**How much this matters:** CRITICAL. Bad error messages = slow agent learning = more iterations = more tokens = more cost. The compiler's error messages are NOT just diagnostics -- they are the training curriculum.
 
-**Solution — Two-tier error system:**
+**Solution -- Two-tier error system:**
 
 | Tier | What | When | Format |
 |------|------|------|--------|
@@ -264,39 +264,39 @@ This tool is NOT a full language reference — it's a **structural template gene
 | **Tier 2: Training-quality** | "Function `add` is missing a return type annotation after the parameter list. All functions returning a value must declare `-> Type`." | MCP `compile_and_analyze` with AI enhancement | Full sentence, rule citation, line pointer |
 
 **Action items to make error messages training-quality:**
-1. Audit every error code (X0001–X7999, L001, P001, T001, C001, E001) for whether it teaches the rule or just states the fact
+1. Audit every error code (X0001-X7999, L001, P001, T001, C001, E001) for whether it teaches the rule or just states the fact
 2. For each "states the fact" error, add a `docs/error_codes/{CODE}.md` entry with the rule, bad example, and fix
 3. The MCP `compile_and_analyze` tool always includes the `--explain` text inline
 4. The `get_language_cheatsheet` tool pre-loads the agent with the most common rules
 
-**Current state:** 3 codes documented (X0010, X0011, X0100). Compiler emits at least 15+ distinct codes. Gap: ~12+ undocumented codes need `docs/error_codes/` pages. This is a ~1-day documentation task — no compiler changes needed.
+**Current state:** 3 codes documented (X0010, X0011, X0100). Compiler emits at least 15+ distinct codes. Gap: ~12+ undocumented codes need `docs/error_codes/` pages. This is a ~1-day documentation task -- no compiler changes needed.
 
 ### 4.3 Friction: "The Feedback Loop Must Be Fast"
 
 **Problem:** If each compilation takes 2 seconds, a 5-iteration loop takes 10 seconds. For an agent generating 100 functions, that's 200+ seconds of dead time. The agent's context window is burning tokens while waiting.
 
-**Solution — Tiered tool pipeline:**
+**Solution -- Tiered tool pipeline:**
 
 ```
 check_xiom_syntax (parse only, ~50ms)
-       │
-       ▼ FAIL
+       |
+       v FAIL
   fix syntax errors (0-2 iterations)
-       │ PASS
-       ▼
+       | PASS
+       v
 compile_and_analyze (full compile, ~500ms)
-       │
-       ▼ FAIL
+       |
+       v FAIL
   fix type/contract errors (0-3 iterations)
-       │ PASS
-       ▼
+       | PASS
+       v
 audit_safety_sandbox (optional, ~100ms)
-       │
-       ▼
-DONE — code is safe
+       |
+       v
+DONE -- code is safe
 ```
 
-**The key insight:** `check_xiom_syntax` catches 90% of syntax errors in <50ms without invoking the full compiler pipeline. The agent only pays for a full compile when the syntax is already clean. This is the same insight as Rust's `cargo check` vs `cargo build` — fast feedback on syntax, slow feedback on types.
+**The key insight:** `check_xiom_syntax` catches 90% of syntax errors in <50ms without invoking the full compiler pipeline. The agent only pays for a full compile when the syntax is already clean. This is the same insight as Rust's `cargo check` vs `cargo build` -- fast feedback on syntax, slow feedback on types.
 
 ### 4.4 Friction: "What If The Agent Gets Stuck In A Loop?"
 
@@ -304,7 +304,7 @@ DONE — code is safe
 
 **How much this matters:** HIGH for unsupervised loops. An agent can burn thousands of tokens re-compiling the same broken code.
 
-**Solution — Hash-based loop detection in the MCP server:**
+**Solution -- Hash-based loop detection in the MCP server:**
 
 ```rust
 // The MCP server tracks compilation attempts per session
@@ -326,7 +326,7 @@ This is a **circuit breaker**. It detects agent looping and provides an escalati
 
 **Problem:** Even with perfect syntax knowledge, the agent doesn't know which stdlib functions exist. It writes `array.len(arr)` when the function is `array.length(arr)` or vice versa.
 
-**Solution — `get_type_definition` + `get_contract_signature`:** These tools let the agent query the stdlib directly. If the agent needs to work with `Vec[T]`, it calls `get_type_definition("Vec")` and sees all available methods. No guessing, no reading docs, no training data needed.
+**Solution -- `get_type_definition` + `get_contract_signature`:** These tools let the agent query the stdlib directly. If the agent needs to work with `Vec[T]`, it calls `get_type_definition("Vec")` and sees all available methods. No guessing, no reading docs, no training data needed.
 
 ---
 
@@ -337,7 +337,7 @@ The chat's most important insight: **programming becomes a bounded search proble
 ```
 while !compiler.passes():
     error = compiler.compile(code)
-    if error is None: break      // SAFE — the compiler guarantees it
+    if error is None: break      // SAFE -- the compiler guarantees it
     code = agent.fix(code, error) // targeted fix based on precise error
 ```
 
@@ -345,17 +345,17 @@ This works because:
 1. The search space is finite: there's only one correct way to write a function signature
 2. Each iteration reduces the error count: errors never increase (no cascading from our ErrorGuaranteed fix)
 3. The compiler is deterministic: same code = same error every time (temperature 0 AI hints reinforce this)
-4. The exit condition is indisputable: `compiler.passes() → code is safe`
+4. The exit condition is indisputable: `compiler.passes() -> code is safe`
 
-**This is the paradigm shift.** The AI doesn't need to prove correctness — the compiler does. The AI just needs to be compliant enough to pass the gate.
+**This is the paradigm shift.** The AI doesn't need to prove correctness -- the compiler does. The AI just needs to be compliant enough to pass the gate.
 
 The MVP uses **subprocess mode** and ships with 3 tools that work TODAY:
 
 | Tool | Status | Backend |
 |------|--------|---------|
-| `explain_error_code` | ✅ Ready | `xiom --explain X0100` (reads docs/error_codes/ |
-| `compile_and_analyze` | ✅ Ready | `xiom --diagnostics=json` (parse stdout JSON) |
-| `get_contract_signature` | ✅ Ready | `xiom --dump-contracts` (parse stdout JSON) |
+| `explain_error_code` | [OK] Ready | `xiom --explain X0100` (reads docs/error_codes/ |
+| `compile_and_analyze` | [OK] Ready | `xiom --diagnostics=json` (parse stdout JSON) |
+| `get_contract_signature` | [OK] Ready | `xiom --dump-contracts` (parse stdout JSON) |
 
 ### MVP Server Implementation
 
@@ -431,7 +431,7 @@ fn handle_compile(params: &Value) -> ToolResult {
 | Phase | New Tools | Existing Tools Enhanced |
 |-------|-----------|------------------------|
 | **5c-S** (Sandbox) | `audit_safety_sandbox` | `compile_and_analyze` adds safety findings |
-| **5g.1** (AI MVP) | — | `compile_and_analyze` returns AI hints |
+| **5g.1** (AI MVP) | -- | `compile_and_analyze` returns AI hints |
 | **5g.5** (Batch) | `compile_project` (whole directory) | `compile_and_analyze` supports batch |
 | **5e** (Hot Reload) | `reload_module` | `compile_and_analyze` supports hot reload targets |
 
@@ -453,11 +453,11 @@ Default: **stdio** for local agents, **HTTP** on port 9300 for remote.
 
 ### Risk: Agent can compile arbitrary code
 
-This is the same risk as running `xiom` from the command line. The MCP server doesn't execute the compiled binary — it only compiles. The agent must explicitly request execution.
+This is the same risk as running `xiom` from the command line. The MCP server doesn't execute the compiled binary -- it only compiles. The agent must explicitly request execution.
 
 ### Risk: Agent can read arbitrary files
 
-The `compile_and_analyze` tool takes a file path. An agent could pass `/etc/passwd` — the compiler would just produce a parse error. To harden:
+The `compile_and_analyze` tool takes a file path. An agent could pass `/etc/passwd` -- the compiler would just produce a parse error. To harden:
 
 ```rust
 // Restrict file access to the project root
@@ -482,7 +482,7 @@ xiom --timeout=30 --memory-limit=512MB file.xi
 
 ## 8. Implementation Plan
 
-### 8.1 — MCP Server MVP (3–5 Days)
+### 8.1 -- MCP Server MVP (3-5 Days)
 
 - New crate: `crates/xiom-mcp/`
 - 3 tools: `explain_error_code`, `compile_and_analyze`, `get_contract_signature`
@@ -490,18 +490,18 @@ xiom --timeout=30 --memory-limit=512MB file.xi
 - stdio + HTTP transports
 - Error handling + timeouts
 
-### 8.2 — Library Mode Migration (1–2 Days)
+### 8.2 -- Library Mode Migration (1-2 Days)
 
-- Link `xiom` as a library (already lib/bin split ✅)
+- Link `xiom` as a library (already lib/bin split [OK])
 - Remove subprocess calls
 - Performance: ~10x faster (no process spawn)
 
-### 8.3 — Sandbox Tool (1 Day, after 5c-S)
+### 8.3 -- Sandbox Tool (1 Day, after 5c-S)
 
 - Add `audit_safety_sandbox` tool
 - Parse `.xiom_sandbox.json`
 
-### 8.4 — AI Integration (1 Day, after 5g.1)
+### 8.4 -- AI Integration (1 Day, after 5g.1)
 
 - Add `ai: true` parameter to `compile_and_analyze`
 - Parse `.xiom_ai.json` and include in response

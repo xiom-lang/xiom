@@ -1,4 +1,4 @@
-// M35-V25: Vec map pattern — transform each element
+// M35-V25: Vec map pattern -- transform each element
 fn map_double(v: &Vec[Int]) -> Vec[Int] {
   var result = Vec[Int].new();
   var i = 0;

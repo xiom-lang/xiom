@@ -1,4 +1,4 @@
-// XIOM — Borrow Checker Torture Benchmark
+// XIOM -- Borrow Checker Torture Benchmark
 // Exercises lexical borrows, multiple simultaneous reads, borrow-in-loop,
 // nested scope borrows, clone-to-extend-lifetime, and method borrows.
 // Copyright (c) 2026 Eleftherios Notas
@@ -119,7 +119,7 @@ fn test_move_after_borrows() -> Int {
 }
 
 // ============================================================
-// SECTION 4: Borrow in Loop Body — Expires Each Iteration
+// SECTION 4: Borrow in Loop Body -- Expires Each Iteration
 // ============================================================
 
 pub type Element = {

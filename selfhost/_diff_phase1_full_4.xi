@@ -1,4 +1,4 @@
-// XIOM — Self-Hosted Compiler v0.10.0
+// XIOM -- Self-Hosted Compiler v0.10.0
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -21,7 +21,7 @@ fn xiom_set_source(src: Int);
 fn xiom_ir_emit_program(val: Int);
 
 // === PARSER ===
-// Direct inline parsing — no helper function calls that conflict with borrow checker.
+// Direct inline parsing -- no helper function calls that conflict with borrow checker.
 // NOTE: Use `var done = 1 == 0` / `while !(done)` / `done = 1 == 1` pattern
 // to avoid XIOM borrow checker issues with `== 0` comparisons.
 fn parse_functions(src: &Int) -> Int {
@@ -258,7 +258,7 @@ fn main() -> Int {
   var fns = parse_functions(&src);
   if fns == 0 { return 3; }
 
-  // Type checking — validate function return types
+  // Type checking -- validate function return types
   var type_errors = check_types(&src);
   if type_errors > 0 {
     xiom_ir_open(0);
@@ -269,7 +269,7 @@ fn main() -> Int {
     return type_errors;
   }
 
-  // Borrow checking — validate ownership rules
+  // Borrow checking -- validate ownership rules
   var borrow_errors = check_borrows(&src);
   if borrow_errors > 0 {
     xiom_ir_open(0);

@@ -1,4 +1,4 @@
-// M34-Q09: Contract with pointer — contract-protected pointer deref chain
+// M34-Q09: Contract with pointer -- contract-protected pointer deref chain
 fn deref_ptr(ptr: *Int) -> Int
   ensures: result >= 0
 {

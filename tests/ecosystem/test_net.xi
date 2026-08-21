@@ -1,4 +1,4 @@
-// XIOM — Ecosystem Networking Types Hardening Tests
+// XIOM -- Ecosystem Networking Types Hardening Tests
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
@@ -8,7 +8,7 @@
 module tests.ecosystem.test_net
 
 // ============================================================================
-// Helper — Int to String
+// Helper -- Int to String
 // ============================================================================
 
 fn int_to_str(n: Int) -> Str {
@@ -119,7 +119,7 @@ fn hex_byte(val: Int) -> Str {
 }
 
 // ============================================================================
-// IP Address Formatting — Regular Functions
+// IP Address Formatting -- Regular Functions
 // ============================================================================
 
 fn ipv4_to_str(ip: &IpAddr) -> Str {
@@ -183,7 +183,7 @@ fn SocketAddr.to_str() -> Str {
 }
 
 // ============================================================================
-// Test Functions — IPv4
+// Test Functions -- IPv4
 // ============================================================================
 
 fn test_ipv4_new() -> Bool {
@@ -235,7 +235,7 @@ fn test_ipv4_not_v6() -> Bool {
 }
 
 // ============================================================================
-// Test Functions — IPv6
+// Test Functions -- IPv6
 // ============================================================================
 
 fn test_ipv6_new() -> Bool {
@@ -266,7 +266,7 @@ fn test_ipv6_method_to_str() -> Bool {
 }
 
 // ============================================================================
-// Test Functions — SocketAddr
+// Test Functions -- SocketAddr
 // ============================================================================
 
 fn test_socket_addr_new() -> Bool {
@@ -301,7 +301,7 @@ fn test_socket_addr_to_str_ipv6() -> Bool {
 }
 
 // ============================================================================
-// Test Functions — IpVersion Enum
+// Test Functions -- IpVersion Enum
 // ============================================================================
 
 fn test_ip_version_enum() -> Bool {
@@ -321,7 +321,7 @@ fn test_ip_version_enum() -> Bool {
 }
 
 // ============================================================================
-// Test Functions — Integration
+// Test Functions -- Integration
 // ============================================================================
 
 fn test_multiple_addresses() -> Bool {
@@ -350,7 +350,7 @@ fn test_ipv4_roundtrip() -> Bool {
 }
 
 // ============================================================================
-// Main — Run All Tests
+// Main -- Run All Tests
 // ============================================================================
 
 fn main() -> Int {

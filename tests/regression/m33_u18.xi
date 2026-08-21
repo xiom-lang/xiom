@@ -1,4 +1,4 @@
-// M33-U18: Pointer to multiple Int vars — simulate array with separate vars
+// M33-U18: Pointer to multiple Int vars -- simulate array with separate vars
 fn main() -> Int {
   var e0: Int = 1;
   var e1: Int = 2;

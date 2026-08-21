@@ -1,4 +1,4 @@
-// M36-X12: --no-contracts patterns — works both with and without contract checks
+// M36-X12: --no-contracts patterns -- works both with and without contract checks
 fn is_positive(x: Int) -> Bool {
   return x > 0;
 }

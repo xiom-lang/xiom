@@ -1,4 +1,4 @@
-// M34-Q08: Contract with Result — requires/ensures involving Result types
+// M34-Q08: Contract with Result -- requires/ensures involving Result types
 fn safe_div(a: Int, b: Int) -> Result[Int, Str]
   requires: b != 0
 {

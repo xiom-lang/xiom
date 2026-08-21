@@ -1,4 +1,4 @@
-// M34-O01: Simple ? on Ok — ? unwraps Ok value in Result-returning fn
+// M34-O01: Simple ? on Ok -- ? unwraps Ok value in Result-returning fn
 fn get_val() -> Result[Int, Str] { return Ok(42); }
 fn use_val() -> Result[Int, Str] {
   var v = get_val()?;

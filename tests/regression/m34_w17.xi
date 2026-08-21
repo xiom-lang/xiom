@@ -1,4 +1,4 @@
-// M34-W17: Hex literal masking — 0xFF & x extracts low byte across types
+// M34-W17: Hex literal masking -- 0xFF & x extracts low byte across types
 fn main() -> Int {
   var a: Int = 0x12345678;
   var b: Int32 = 0x5678 as Int32;

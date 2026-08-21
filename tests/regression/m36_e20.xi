@@ -1,4 +1,4 @@
-// M36-E20: Chained field access — 10-level nested struct field reads
+// M36-E20: Chained field access -- 10-level nested struct field reads
 type N1 = { f: Int; }
 type N2 = { f: Int; }
 type N3 = { f: Int; }

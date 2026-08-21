@@ -1,4 +1,4 @@
-// M35-V21: Vec reverse pattern — manual in-place reverse
+// M35-V21: Vec reverse pattern -- manual in-place reverse
 fn reverse_vec(v: &Vec[Int]) -> Vec[Int] {
   var result = Vec[Int].new();
   var i = v.len() - 1;

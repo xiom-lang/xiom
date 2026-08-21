@@ -1,8 +1,8 @@
-// XIOM — Package Manager (registry client)
+// XIOM -- Package Manager (registry client)
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
-// M14.1: Extracted from main.rs — registry download, search, install.
+// M14.1: Extracted from main.rs -- registry download, search, install.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -17,7 +17,7 @@ pub(crate) fn registry_url() -> String {
 }
 
 // ============================================================================
-// Native HTTP client — falls back from curl → PowerShell → built-in TCP
+// Native HTTP client -- falls back from curl -> PowerShell -> built-in TCP
 // ============================================================================
 
 pub(crate) fn http_get(url: &str) -> Result<String, String> {
@@ -194,7 +194,7 @@ pub(crate) fn http_get_binary(url: &str) -> Result<Vec<u8>, String> {
             return Ok(output.stdout);
         }
     }
-    // 6C.1: Fixed PowerShell fallback — use -OutFile for binary, then read file
+    // 6C.1: Fixed PowerShell fallback -- use -OutFile for binary, then read file
     #[cfg(windows)]
     {
         let tmp = std::env::temp_dir().join(format!("xiom_pkg_dl_{}", std::process::id()));

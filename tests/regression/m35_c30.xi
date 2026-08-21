@@ -1,4 +1,4 @@
-// M35-C30: all-in-one — combined control flow patterns in single test
+// M35-C30: all-in-one -- combined control flow patterns in single test
 enum Kind { Small, Medium, Large }
 type Item = { value: Int; kind: Kind; }
 fn process_item(it: Item) -> Int {

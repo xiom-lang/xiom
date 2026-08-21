@@ -1,4 +1,4 @@
-// M34-H19: Cast after arithmetic with overflow check — detect truncation loss
+// M34-H19: Cast after arithmetic with overflow check -- detect truncation loss
 fn main() -> Int {
   var a: Int16 = 100;
   var b: Int16 = 200;

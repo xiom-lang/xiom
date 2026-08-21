@@ -1,4 +1,4 @@
-// M34-J06: use module — various import forms
+// M34-J06: use module -- various import forms
 module util {
   pub fn add_one(x: Int) -> Int { return x + 1; }
   pub fn sub_one(x: Int) -> Int { return x - 1; }

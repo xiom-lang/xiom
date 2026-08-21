@@ -1,4 +1,4 @@
-// M32-C10: Multi-field invariant — range-constrained rectangle
+// M32-C10: Multi-field invariant -- range-constrained rectangle
 type Rectangle = { width: Int; height: Int; invariant: width > 0 && height > 0; }
 fn area(r: Rectangle) -> Int {
   return r.width * r.height;

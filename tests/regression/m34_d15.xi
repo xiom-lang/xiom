@@ -1,4 +1,4 @@
-// M34-D15: List filter — traverse linked list and count nodes matching predicates
+// M34-D15: List filter -- traverse linked list and count nodes matching predicates
 type Node = { value: Int; next: *Node; }
 
 fn count_positive(n: *Node) -> Int {

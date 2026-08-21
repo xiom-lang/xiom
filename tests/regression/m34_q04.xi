@@ -1,4 +1,4 @@
-// M34-Q04: Contract + method — impl methods with contracts calling each other
+// M34-Q04: Contract + method -- impl methods with contracts calling each other
 type Counter = { val: Int; }
 
 fn Counter.inc(self, by: Int) -> Int

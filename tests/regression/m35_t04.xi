@@ -1,4 +1,4 @@
-// M35-T04: Char in every context — var, param, return, struct, enum, if, array, generic
+// M35-T04: Char in every context -- var, param, return, struct, enum, if, array, generic
 type CharBox = { val: Char; }
 enum CharResult { Found(c: Char), NotFound }
 fn char_eq(a: Char, b: Char) -> Bool { return a == b; }

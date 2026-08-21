@@ -1,4 +1,4 @@
-// M25: Multiple requires — transfer with balance check
+// M25: Multiple requires -- transfer with balance check
 fn transfer(amount: Int, balance: Int) -> Int
   requires: amount > 0
   requires: balance >= amount

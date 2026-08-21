@@ -1,4 +1,4 @@
-// M34-Q17: Contract with recursion — recursive functions with contract chains
+// M34-Q17: Contract with recursion -- recursive functions with contract chains
 fn factorial(n: Int) -> Int
   requires: n >= 0
   requires: n <= 10

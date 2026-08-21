@@ -1,4 +1,4 @@
-// M32-M11: Wildcard import — use module.* to import all pub items
+// M32-M11: Wildcard import -- use module.* to import all pub items
 module math {
   pub fn add(a: Int, b: Int) -> Int { return a + b; }
   pub fn mul(a: Int, b: Int) -> Int { return a * b; }

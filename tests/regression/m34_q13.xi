@@ -1,4 +1,4 @@
-// M34-Q13: Contract with boolean precondition — chained Bool requires
+// M34-Q13: Contract with boolean precondition -- chained Bool requires
 fn is_even(x: Int) -> Bool
   ensures: result || !result
 {

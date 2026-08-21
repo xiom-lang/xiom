@@ -1,4 +1,4 @@
-// M35-L05: Struct with Char fields — verify char layout and encoding
+// M35-L05: Struct with Char fields -- verify char layout and encoding
 type CharPair = { first: Char; second: Char; third: Char; }
 
 fn main() -> Int {

@@ -1,4 +1,4 @@
-// XIOM Ã¢â‚¬â€ Stdlib Execution Tests
+// XIOM -- Stdlib Execution Tests
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
@@ -51,7 +51,7 @@ fn project_root() -> &'static Path {
 /// `target/debug/xiom.exe` while this suite runs, so a compile can race a
 /// half-written compiler binary and emit corrupted IR (observed: net_folder
 /// smoke returned exit 2 ~1-in-20, and the SAME preserved exe ran exit 0 on
-/// immediate rerun Ã¢â‚¬â€ proving the compile, not the program, was bad).
+/// immediate rerun -- proving the compile, not the program, was bad).
 fn compile_and_run(source_path: &str) -> Option<i32> {
     for attempt in 0..3 {
         let result = compile_and_run_once(source_path);
@@ -70,7 +70,7 @@ fn compile_and_run(source_path: &str) -> Option<i32> {
                 return retry;
             }
         } else {
-            return result; // genuine compile failure Ã¢â‚¬â€ no retry masks it
+            return result; // genuine compile failure -- no retry masks it
         }
     }
     None
@@ -120,7 +120,7 @@ fn compile_and_run_once(source_path: &str) -> Option<i32> {
 }
 
 // ============================================================================
-// Deterministic stdlib modules Ã¢â‚¬â€ strict Some(0) success by convention.
+// Deterministic stdlib modules -- strict Some(0) success by convention.
 // ============================================================================
 
 // ============================================================================
@@ -128,7 +128,7 @@ fn compile_and_run_once(source_path: &str) -> Option<i32> {
 // `impl Eq` for the concrete type, and the 2026-08-16 stdlib refactor ships
 // the `interface Eq` declaration with ZERO implementations anywhere in the
 // stdlib. `items[i].eq(&value)` therefore resolves to a stub returning false
-// → contains always false → smoke exits 1. This is a STDLIB-side gap (add
+// -> contains always false -> smoke exits 1. This is a STDLIB-side gap (add
 // `impl Eq for Int/Bool/...` in core.xi or change contains's constraint);
 // re-enable when the impls land.
 #[test]
@@ -281,10 +281,10 @@ fn stdlib_exec_error_runs() {
 // smoke_simd is #[ignore] (2026-08-17): a LATENT MSVC-CRT miscompile
 // (0xC0000005 inside a security-cookie'd CRT date/strtod-family function:
 // a CRT-internal call reads an uninitialized r9d and indexes a table OOB).
-// The fault is BINARY-layout-sensitive — identical sources build crashing
+// The fault is BINARY-layout-sensitive -- identical sources build crashing
 // or passing binaries across runs (~85% crash rate observed on this
 // machine), with the SAME xiom IR. Reproduced at baseline (pre-fp128-shims
-// commit) and with the fp128_helpers.c changes reverted — NOT a compiler
+// commit) and with the fp128_helpers.c changes reverted -- NOT a compiler
 // regression. Root-causing the CRT codegen belongs to a clang/lld toolchain
 // investigation; re-enable when the environment produces stable binaries.
 #[test]
@@ -294,7 +294,7 @@ fn stdlib_exec_simd_runs() {
 }
 
 // ============================================================================
-// Environment / nondeterministic modules Ã¢â‚¬â€ `#[ignore]` (compiled by cargo,
+// Environment / nondeterministic modules -- `#[ignore]` (compiled by cargo,
 // run on demand with `-- --ignored`). These assert only that they ran without
 // crashing (`.is_some()`), tolerating environment variance.
 // ============================================================================
@@ -350,7 +350,7 @@ fn stdlib_exec_env_runs() {
 }
 
 // ============================================================================
-// Cross-module program Ã¢â‚¬â€ exercises two stdlib modules together (serialize +
+// Cross-module program -- exercises two stdlib modules together (serialize +
 // convert). The parallel agent owns `examples/stdlib_smoke`, so this file may
 // not exist. Guard gracefully: skip (pass) with an eprintln rather than emit a
 // false failure when the program is absent.
@@ -360,7 +360,7 @@ fn stdlib_exec_env_runs() {
 fn stdlib_exec_cross_module_serialize_convert() {
     let rel = "examples\\stdlib_smoke\\smoke_cross_serialize_convert.xi";
     if !project_root().join(rel).exists() {
-        eprintln!("  [SKIP] {rel} not present (parallel agent owns examples/stdlib_smoke) Ã¢â‚¬â€ skipping cross-module test");
+        eprintln!("  [SKIP] {rel} not present (parallel agent owns examples/stdlib_smoke) -- skipping cross-module test");
         return;
     }
     assert_eq!(
@@ -371,7 +371,7 @@ fn stdlib_exec_cross_module_serialize_convert() {
 }
 
 // ============================================================================
-// Tier-2 stdlib modules (2026-08-07) Ã¢â‚¬â€ sort/search/bits/geom/complex/bigint/
+// Tier-2 stdlib modules (2026-08-07) -- sort/search/bits/geom/complex/bigint/
 // chacha/poly1305/ecc/rsa/des/utf8/platform/debug/misc/process
 // ============================================================================
 
@@ -456,7 +456,7 @@ fn stdlib_exec_process_runs() {
 }
 
 // ============================================================================
-// Folder modules (2026-08-07 refactor) Ã¢â‚¬â€ smoke programs in the same harness.
+// Folder modules (2026-08-07 refactor) -- smoke programs in the same harness.
 // ============================================================================
 
 #[test]

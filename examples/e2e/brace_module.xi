@@ -1,4 +1,4 @@
-// E2E: brace-form module `module x { }` — GAP-13 verification
+// E2E: brace-form module `module x { }` -- GAP-13 verification
 // The parser handles brace-form modules correctly.
 // Returns 0 on success.
 

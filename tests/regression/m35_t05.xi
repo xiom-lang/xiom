@@ -1,4 +1,4 @@
-// M35-T05: Str in every context — var, param, return, struct, enum, array, if, match, len
+// M35-T05: Str in every context -- var, param, return, struct, enum, array, if, match, len
 type StrBox = { val: Str; }
 enum StrOption { Some(s: Str), None }
 fn str_pass(s: Str) -> Str { return s; }

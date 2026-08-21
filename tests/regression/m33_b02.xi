@@ -1,4 +1,4 @@
-// M33-B02: Write borrow on local — &mut to mutate through reference
+// M33-B02: Write borrow on local -- &mut to mutate through reference
 fn inc_val(x: &mut Int) { *x = *x + 1; }
 fn main() -> Int {
   var a = 10;

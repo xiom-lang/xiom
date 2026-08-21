@@ -1,4 +1,4 @@
-// M35-D08: Max-heap — bubble-up verify
+// M35-D08: Max-heap -- bubble-up verify
 fn main() -> Int {
   var d0: Int = 50;
   var d1: Int = 30;

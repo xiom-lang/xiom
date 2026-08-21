@@ -1,4 +1,4 @@
-// M36-C18: Every contract clause count 1-5 — functions with increasing numbers of requires/ensures/invariant clauses
+// M36-C18: Every contract clause count 1-5 -- functions with increasing numbers of requires/ensures/invariant clauses
 type Safe = { val: Int; invariant: val >= 0; }
 type Guarded1 = { x: Int; invariant: x >= 0; }
 type Guarded2 = { x: Int; y: Int; invariant: x >= 0; }

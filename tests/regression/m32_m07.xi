@@ -1,4 +1,4 @@
-// M32-M07: pub const — public constant declared in module
+// M32-M07: pub const -- public constant declared in module
 module config {
   pub const MAX_SIZE: Int = 256;
 }

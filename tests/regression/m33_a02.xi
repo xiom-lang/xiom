@@ -1,4 +1,4 @@
-// M33-A02: Array indexing — access arr[0], arr[1], arr[2]
+// M33-A02: Array indexing -- access arr[0], arr[1], arr[2]
 fn main() -> Int {
   var arr = [42, 17, 99];
   var a: Int = arr[0];

@@ -1,4 +1,4 @@
-// M34-O20: ? with cross-function chain — standalone functions using ? together
+// M34-O20: ? with cross-function chain -- standalone functions using ? together
 fn safe_add(a: Int, b: Int) -> Result[Int, Str] {
   if a > 1000 || b > 1000 { return Err("overflow"); }
   return Ok(a + b);

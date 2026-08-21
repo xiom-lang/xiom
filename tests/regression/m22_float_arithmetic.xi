@@ -1,4 +1,4 @@
-// M22: Float64 arithmetic — verify runtime results
+// M22: Float64 arithmetic -- verify runtime results
 fn main() -> Int {
   var a: Float64 = 3.0;
   var b: Float64 = 4.0;

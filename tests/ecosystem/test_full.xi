@@ -1,4 +1,4 @@
-// XIOM — Ecosystem Full Feature Hardening Tests
+// XIOM -- Ecosystem Full Feature Hardening Tests
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
@@ -291,7 +291,7 @@ fn factorial(n: Int) -> Int
 
 fn safe_divide(a: Int, b: Int) -> Result[Int, Str]
 {
-  // safe_divide's whole purpose is to ACCEPT b == 0 and return Err —
+  // safe_divide's whole purpose is to ACCEPT b == 0 and return Err --
   // a `requires: b != 0` contract would trap before the guard runs.
   if b == 0 {
     return Err("division by zero");
@@ -548,7 +548,7 @@ fn test_while_accumulate() -> Bool {
     i = i + 1;
   }
   // evens 0+2+4+6+8 = 20, elif hits i=3 (+3) and i=9 (+9), else +1 for
-  // i=1,5,7 → 20+12+3 = 35. (The old expected value 26 encoded a codegen
+  // i=1,5,7 -> 20+12+3 = 35. (The old expected value 26 encoded a codegen
   // bug where the last elif arm fell through without executing.)
   return sum == 35;
 }

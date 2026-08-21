@@ -1,4 +1,4 @@
-// M34-V14: Float in generic — Option[Float64] pattern matching (arm correctness)
+// M34-V14: Float in generic -- Option[Float64] pattern matching (arm correctness)
 fn main() -> Int {
   var a = Some(1.0);
   var b = None;

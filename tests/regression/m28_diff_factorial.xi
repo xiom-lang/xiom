@@ -1,4 +1,4 @@
-// M28: Differential test — recursive vs iterative factorial
+// M28: Differential test -- recursive vs iterative factorial
 fn fact_rec(n: Int) -> Int {
   if n <= 1 { return 1; }
   return n * fact_rec(n - 1);

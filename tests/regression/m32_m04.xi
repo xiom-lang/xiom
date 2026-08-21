@@ -1,4 +1,4 @@
-// M32-M04: use module — import multiple functions via use
+// M32-M04: use module -- import multiple functions via use
 module ops {
   pub fn add(a: Int, b: Int) -> Int { return a + b; }
   pub fn sub(a: Int, b: Int) -> Int { return a - b; }

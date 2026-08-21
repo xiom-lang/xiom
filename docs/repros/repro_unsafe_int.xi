@@ -1,6 +1,6 @@
 // REPRO R3 (BUG 27 #14): Int returned from a catalog unsafe block.
 // io/fs.xi fs_move used this pattern: the file moved correctly but rc always
-// read non-zero — the return value through the unsafe trampoline corrupts.
+// read non-zero -- the return value through the unsafe trampoline corrupts.
 module repro_unsafe_int
 
 extern "C" {

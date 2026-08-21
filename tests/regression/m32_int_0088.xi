@@ -1,4 +1,4 @@
-// M32: Shift by zero — identity operation
+// M32: Shift by zero -- identity operation
 fn main() -> Int {
   var a: Int = 12345;
   var b: Int = a << 0;

@@ -1,4 +1,4 @@
-// M22: Integer type casts — upcast, downcast, signed/unsigned
+// M22: Integer type casts -- upcast, downcast, signed/unsigned
 fn main() -> Int {
   var a: Int8 = 42;
   var b: Int32 = a as Int32;

@@ -1,4 +1,4 @@
-// XIOM — Prime Number Stress Benchmark
+// XIOM -- Prime Number Stress Benchmark
 // Exercises prime generation, primality testing, and sieve algorithms.
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.

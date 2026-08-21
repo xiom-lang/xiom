@@ -1,4 +1,4 @@
-// M35-C24: match with guard — pattern matching with if condition inside arm body
+// M35-C24: match with guard -- pattern matching with if condition inside arm body
 enum Value { Num(n: Int), Fail(msg: Str), Nothing }
 fn process(v: Value) -> Int {
   match v {

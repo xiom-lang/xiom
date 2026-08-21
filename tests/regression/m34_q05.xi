@@ -1,4 +1,4 @@
-// M34-Q05: Contract + invariant + struct — struct with invariant, functions with contracts
+// M34-Q05: Contract + invariant + struct -- struct with invariant, functions with contracts
 type Bank = {
   balance: Int;
   invariant: balance >= 0;

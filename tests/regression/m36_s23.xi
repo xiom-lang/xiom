@@ -1,4 +1,4 @@
-// M36-S23: String interning pattern — hash-based lookup with deduplication
+// M36-S23: String interning pattern -- hash-based lookup with deduplication
 type InternEntry = { text: Str; id: Int; occupied: Bool; }
 fn make_entry(text: Str, id: Int) -> InternEntry {
   return InternEntry{ text: text; id: id; occupied: true; };

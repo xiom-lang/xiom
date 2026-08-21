@@ -1,4 +1,4 @@
-// M33-Z08: Float64 *= — basic compound multiply
+// M33-Z08: Float64 *= -- basic compound multiply
 fn main() -> Int {
   var f: Float64 = 4.0;
   f *= 2.5;

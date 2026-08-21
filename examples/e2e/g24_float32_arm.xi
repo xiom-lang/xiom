@@ -1,4 +1,4 @@
-// G-24: Float32 ARM ABI — verify Float32 operations are correct on ARM targets
+// G-24: Float32 ARM ABI -- verify Float32 operations are correct on ARM targets
 // ARM uses IEEE 754 single-precision same as x86; the IR must use `float` type.
 // Cross-compiled for aarch64-linux-gnu via clang.
 

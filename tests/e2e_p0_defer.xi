@@ -21,7 +21,7 @@ fn test_defer_lifo() -> Int {
 
 fn test_defer_with_return() -> Int {
     defer { defer_log = 99; }
-    // Early return — defer should still execute
+    // Early return -- defer should still execute
     if defer_log == 0 { return 0; }
     return 1;
 }
@@ -38,7 +38,7 @@ fn main() -> Int {
     defer_log = 0;
     var r2 = test_defer_lifo();  
     if r2 != 0 { return 3; }
-    if defer_log != 85 { return 4; }  // (0→42 → *2=84 → +1=85)
+    if defer_log != 85 { return 4; }  // (0->42 -> *2=84 -> +1=85)
 
     // Test 3: Defer with early return
     defer_log = 0;

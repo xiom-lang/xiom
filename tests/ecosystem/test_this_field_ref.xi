@@ -1,4 +1,4 @@
-// XIOM — Regression Test: Nested this-based method dispatch via &this.field
+// XIOM -- Regression Test: Nested this-based method dispatch via &this.field
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
@@ -73,7 +73,7 @@ fn main() -> Int {
   let ip2 = ipv4_new(10, 0, 0, 1);
   if IpAddr.to_str(&ip2) == "10.0.0.1" { passed = passed + 1; }
 
-  // Test 5: SocketAddr.to_str — calls IpAddr.to_str(&this.ip)
+  // Test 5: SocketAddr.to_str -- calls IpAddr.to_str(&this.ip)
   // This is the key regression: &this.ip must return the GEP pointer
   // to the ip field, not the loaded IpAddr value.
   total = total + 1;

@@ -1,4 +1,4 @@
-// M34-O18: ? with contract — ? inside contract-guarded function (fixed)
+// M34-O18: ? with contract -- ? inside contract-guarded function (fixed)
 fn safe_sqrt(n: Int) -> Result[Int, Int]
   requires: n >= 0
 {

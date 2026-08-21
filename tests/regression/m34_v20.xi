@@ -1,4 +1,4 @@
-// M34-V20: Float32 full coverage — all ops, comparisons, casts, array
+// M34-V20: Float32 full coverage -- all ops, comparisons, casts, array
 fn main() -> Int {
   var a: Float32 = 7.0;
   var b: Float32 = 3.0;

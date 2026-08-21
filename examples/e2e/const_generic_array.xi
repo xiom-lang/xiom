@@ -1,4 +1,4 @@
-// XIOM e2e test — const-generics with [N]T arrays
+// XIOM e2e test -- const-generics with [N]T arrays
 // Tests array indexing on let-bound and literal arrays (5a.7)
 // + const-declared loop size (5a.5)
 // Returns 0 on success.

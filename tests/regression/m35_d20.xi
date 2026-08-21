@@ -1,4 +1,4 @@
-// M35-D20: AVL rotation check — compute balance factor via depth recursion
+// M35-D20: AVL rotation check -- compute balance factor via depth recursion
 type AVLNode = { value: Int; left: *AVLNode; right: *AVLNode; }
 
 fn avl_depth(n: *AVLNode) -> Int {

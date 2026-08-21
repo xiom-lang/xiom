@@ -1,4 +1,4 @@
-// M36-C19: Every module nesting depth 1-5 — deeply nested modules with unique pub function names
+// M36-C19: Every module nesting depth 1-5 -- deeply nested modules with unique pub function names
 module a1 {
   pub fn val1() -> Int { return 1; }
   module a2 {

@@ -1,4 +1,4 @@
-// M35-C18: loop with flag — boolean flag controls loop termination
+// M35-C18: loop with flag -- boolean flag controls loop termination
 fn first_prime_below(n: Int) -> Int {
   var i: Int = n;
   var found: Bool = false;

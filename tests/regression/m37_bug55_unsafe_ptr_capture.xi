@@ -1,5 +1,5 @@
 // BUG 55 regression: unsafe-block context capture of POINTER-typed
-// variables — passing `p: *Int` across fn boundaries deref'd it (the
+// variables -- passing `p: *Int` across fn boundaries deref'd it (the
 // callee received x's VALUE as the pointer); and Option/Result ctors
 // inside confined-unsafe block fns built the GENERIC %struct.Option
 // while the fn returns the concrete Option__Rc (payload-slot mismatch

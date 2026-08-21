@@ -1,4 +1,4 @@
-// M34-D18: Recursive generic types — Tree[T] and List[T] with type parameters
+// M34-D18: Recursive generic types -- Tree[T] and List[T] with type parameters
 type TreeNode[T] = { value: T; left: *TreeNode[T]; right: *TreeNode[T]; }
 type ListNode[T] = { value: T; next: *ListNode[T]; }
 

@@ -1,4 +1,4 @@
-// M35-T24: Array exhaustive — multi-dimensional, nested access
+// M35-T24: Array exhaustive -- multi-dimensional, nested access
 fn sum_int(arr: Vec[Int], n: Int) -> Int { var i: Int = 0; var s: Int = 0; while i < n { s = s + arr[i]; i = i + 1; } return s; }
 fn first_char(arr: Vec[Char]) -> Char { return arr[0]; }
 fn array_if(arr: Vec[Int]) -> Int { if arr[0] > 0 { return arr[0]; } return -1; }

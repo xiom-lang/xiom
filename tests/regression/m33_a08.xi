@@ -1,4 +1,4 @@
-// M33-A08: Array in struct — struct containing an integer field and array ref via index
+// M33-A08: Array in struct -- struct containing an integer field and array ref via index
 type Container = { id: Int; val: Int; }
 fn main() -> Int {
   var items = [Container{ id: 1; val: 10; }, Container{ id: 2; val: 20; }, Container{ id: 3; val: 30; }];

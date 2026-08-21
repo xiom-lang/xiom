@@ -1,8 +1,8 @@
 module m37_numeric_policy
-// BUG 26 (secure numeric policy): INT ↔ FLOAT mixing requires an explicit
+// BUG 26 (secure numeric policy): INT <-> FLOAT mixing requires an explicit
 // `as` cast. Auto-widening stays for same-family; INT LITERALS may adopt
 // the float type (exact); FLOAT literals never adopt an integer type.
-// (The rejected cases are compile errors — verified manually; this test
+// (The rejected cases are compile errors -- verified manually; this test
 // covers the ALLOWED surface.)
 
 fn main() -> Int {

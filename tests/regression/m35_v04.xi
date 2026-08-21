@@ -1,4 +1,4 @@
-// M35-V04: Vec[Int] is_empty — verify empty/non-empty state
+// M35-V04: Vec[Int] is_empty -- verify empty/non-empty state
 fn main() -> Int {
   var v = Vec[Int].new();
   if v.len() != 0 { return 1; }

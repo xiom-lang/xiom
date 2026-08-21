@@ -1,4 +1,4 @@
-// M22: String operations — length, concat, char access
+// M22: String operations -- length, concat, char access
 fn main() -> Int {
   var s: Str = "hello";
   var t: Str = " world";

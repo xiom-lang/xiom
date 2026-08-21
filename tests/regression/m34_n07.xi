@@ -1,4 +1,4 @@
-// M34-N07: Nested struct derive[Clone] — clone propagates through nesting
+// M34-N07: Nested struct derive[Clone] -- clone propagates through nesting
 type Leaf = { val: Int; } derive[Clone]
 type Branch = { left: Leaf; right: Leaf; } derive[Clone]
 fn main() -> Int {

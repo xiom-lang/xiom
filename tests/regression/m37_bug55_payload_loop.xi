@@ -1,8 +1,8 @@
 // BUG 55 facet-2 regression: Some-payload reads from generic-method
 // call scrutinees (`match v.get(i) { Some(cur) => ... }`) bound literal 0
-// (no scrutinee alloca — the generic fn's return type didn't resolve),
-// and Vec.set (generic, never inlined) called the never-emitted def →
-// zero-param stub → swap-style sorts silently no-oped.
+// (no scrutinee alloca -- the generic fn's return type didn't resolve),
+// and Vec.set (generic, never inlined) called the never-emitted def ->
+// zero-param stub -> swap-style sorts silently no-oped.
 module m37_bug55_payload_loop
 use xiom.collections;
 

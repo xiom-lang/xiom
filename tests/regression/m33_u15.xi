@@ -1,4 +1,4 @@
-// M33-U15: Extern function returning pointer — declare only, no call
+// M33-U15: Extern function returning pointer -- declare only, no call
 extern "C" {
   fn get_magic() -> *Int;
 }

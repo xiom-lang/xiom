@@ -1,4 +1,4 @@
-// M34-O10: ? in loop — ? propagation inside while loop
+// M34-O10: ? in loop -- ? propagation inside while loop
 fn try_index(i: Int) -> Result[Int, Str] {
   if i < 0 { return Err("negative"); }
   if i > 100 { return Err("too large"); }

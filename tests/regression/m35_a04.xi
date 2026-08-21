@@ -1,4 +1,4 @@
-// M35-A04: Find minimum value — scan array and verify min index computation
+// M35-A04: Find minimum value -- scan array and verify min index computation
 fn main() -> Int {
   var arr = [29, 10, 14, 37, 13];
   var n: Int = 5;

@@ -1,4 +1,4 @@
-// M35-T23: Str exhaustive — every context: var, param, return, struct, enum, array, cmp, len
+// M35-T23: Str exhaustive -- every context: var, param, return, struct, enum, array, cmp, len
 fn str_eq(a: Str, b: Str) -> Bool { return a == b; }
 fn str_pass(s: Str) -> Str { return s; }
 fn check_prefix(s: Str) -> Bool { if s == "hello" { return true; } return false; }

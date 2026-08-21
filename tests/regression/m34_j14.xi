@@ -1,4 +1,4 @@
-// M34-J14: Cross-module type reference — modules referencing each other's types
+// M34-J14: Cross-module type reference -- modules referencing each other's types
 module types {
   pub type Coord = { x: Int; y: Int; }
   pub fn origin() -> Coord { return Coord{ x: 0; y: 0; }; }

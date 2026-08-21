@@ -1,4 +1,4 @@
-// Phase 5f — Verifier regression tests
+// Phase 5f -- Verifier regression tests
 // Tests SMT-LIB generation AND z3 execution (when z3 is available).
 
 use std::process::Command;
@@ -255,7 +255,7 @@ sat
     }
 }
 
-// ── M25: Extended verifier tests ──────────────────────────────────────
+// -- M25: Extended verifier tests --------------------------------------
 
 #[test]
 fn smt_sqrt_has_domain_constraints() {
@@ -337,7 +337,7 @@ fn parse_z3_timeout() {
     let output = "timeout\n";
     let runner = xiom_verify::Z3Runner::new();
     let results = runner.parse_z3_output(output);
-    // "timeout" is not recognized → falls through to Error with raw output
+    // "timeout" is not recognized -> falls through to Error with raw output
     assert!(!results.is_empty(), "must produce at least one result");
     assert!(matches!(&results[0], xiom_verify::VerifyResult::Error { .. }),
         "timeout should produce Error");
@@ -348,7 +348,7 @@ fn parse_z3_empty_output() {
     let output = "";
     let runner = xiom_verify::Z3Runner::new();
     let results = runner.parse_z3_output(output);
-    // Empty output → Error result
+    // Empty output -> Error result
     assert!(!results.is_empty(), "empty output must produce at least one result");
     assert!(matches!(&results[0], xiom_verify::VerifyResult::Error { .. }),
         "empty output should produce Error");

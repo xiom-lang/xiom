@@ -1,4 +1,4 @@
-// M36-C04: Every generic pattern — identity, swap, struct generic, multi-param, enum generic
+// M36-C04: Every generic pattern -- identity, swap, struct generic, multi-param, enum generic
 fn identity[T](x: T) -> T { return x; }
 fn pair[T, U](a: T, b: U) -> T { return a; }
 fn triple[T1, T2, T3](a: T1, b: T2, c: T3) -> T1 { return a; }

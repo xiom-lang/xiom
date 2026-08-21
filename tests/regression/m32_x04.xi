@@ -1,4 +1,4 @@
-// M32-X04: Combinatorial + Differential — compute-then-return vs direct-return with struct
+// M32-X04: Combinatorial + Differential -- compute-then-return vs direct-return with struct
 type Triple = { a: Int; b: Int; c: Int; }
 fn compute_then_return(t: Triple) -> Int {
   var sum: Int = t.a + t.b + t.c;

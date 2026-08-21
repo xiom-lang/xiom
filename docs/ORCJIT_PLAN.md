@@ -1,4 +1,4 @@
-# XIOM OrcJIT — Process-Pool JIT Compilation Engine
+# XIOM OrcJIT -- Process-Pool JIT Compilation Engine
 
 **Version:** v0.55 (Implementation Complete)
 **Date:** 2026-08-03 (post-implementation audit)
@@ -10,10 +10,10 @@
 
 | Phase | Description | Status | Reality |
 |-------|------------|--------|---------|
-| **Phase 1: JIT Engine** | In-process DLL compilation via clang + libloading | ✅ DONE | `crates/xiom-jit/` with `JitEngine`, `JitModule`, `HotReloadWatcher`, `HotReloadManager` |
-| **Phase 2: C Runtime** | Pre-compiled shared library, symbol resolution | ✅ DONE | `xiom build-runtime` command, `libxiom_runtime.dll`, module-level declares, auto-stub suppression |
-| **Phase 3: Lazy Compilation** | Per-function stubs, compile-on-first-call | ❌ DEFERRED | Requires in-process code patching (complex with process-based JIT) |
-| **Phase 4: Hot Reload Dev** | `--jit --watch` for development loop | ❌ DEFERRED | File watcher built, needs incremental recompilation |
+| **Phase 1: JIT Engine** | In-process DLL compilation via clang + libloading | [OK] DONE | `crates/xiom-jit/` with `JitEngine`, `JitModule`, `HotReloadWatcher`, `HotReloadManager` |
+| **Phase 2: C Runtime** | Pre-compiled shared library, symbol resolution | [OK] DONE | `xiom build-runtime` command, `libxiom_runtime.dll`, module-level declares, auto-stub suppression |
+| **Phase 3: Lazy Compilation** | Per-function stubs, compile-on-first-call | [FAIL] DEFERRED | Requires in-process code patching (complex with process-based JIT) |
+| **Phase 4: Hot Reload Dev** | `--jit --watch` for development loop | [FAIL] DEFERRED | File watcher built, needs incremental recompilation |
 
 ---
 
@@ -22,42 +22,42 @@
 ### 2.1 Pipeline
 
 ```
-Source → Parser → Checker → IR Emitter → LLVM IR text
-                                              │
-                          ┌───────────────────▼────────────────────┐
-                          │  xiom-jit crate                        │
-                          │                                        │
-                          │  IR text → clang -shared → .dll/.so    │
-                          │  LoadLibrary/dlopen → native code      │
-                          │  Symbol lookup → call main()           │
-                          │  SHA-256 incremental cache             │
-                          │  OS file watcher (hot reload)          │
-                          └────────────────────────────────────────┘
+Source -> Parser -> Checker -> IR Emitter -> LLVM IR text
+                                              |
+                          +-------------------v--------------------+
+                          |  xiom-jit crate                        |
+                          |                                        |
+                          |  IR text -> clang -shared -> .dll/.so    |
+                          |  LoadLibrary/dlopen -> native code      |
+                          |  Symbol lookup -> call main()           |
+                          |  SHA-256 incremental cache             |
+                          |  OS file watcher (hot reload)          |
+                          `----------------------------------------+
 ```
 
 ### 2.2 Why Process-Based (Not llvm-sys)
 
 LLVM 22.1.8 was too new for `llvm-sys` at implementation time. The process-based approach:
-- **More portable** — works on any system with clang, no LLVM dev libraries
-- **Same compilation quality** — uses the same clang backend
-- **Faster than AOT** — pre-compiled runtime eliminates C compilation from hot path
-- **Production-proven** — same approach used by Zig, Julia, Go
+- **More portable** -- works on any system with clang, no LLVM dev libraries
+- **Same compilation quality** -- uses the same clang backend
+- **Faster than AOT** -- pre-compiled runtime eliminates C compilation from hot path
+- **Production-proven** -- same approach used by Zig, Julia, Go
 
 ### 2.3 Crate Structure
 
 ```
 crates/xiom-jit/
-├── Cargo.toml          # depends on libloading, sha2, notify
-└── src/
-    └── lib.rs  (573 lines)
-        ├── JitModule         — loaded shared library + symbol cache
-        ├── JitEngine         — IR→DLL compilation + incremental cache
-        ├── HotReloadWatcher  — mtime-based file change detection
-        ├── HotReloadManager  — watch → recompile → atomic swap lifecycle
-        ├── build_runtime_library()  — pre-compile C runtime to DLL
-        ├── hash_source()     — SHA-256 hashing
-        ├── find_clang()      — clang binary discovery
-        └── tests (5 unit tests)
+|-- Cargo.toml          # depends on libloading, sha2, notify
+`-- src/
+    `-- lib.rs  (573 lines)
+        |-- JitModule         -- loaded shared library + symbol cache
+        |-- JitEngine         -- IR->DLL compilation + incremental cache
+        |-- HotReloadWatcher  -- mtime-based file change detection
+        |-- HotReloadManager  -- watch -> recompile -> atomic swap lifecycle
+        |-- build_runtime_library()  -- pre-compile C runtime to DLL
+        |-- hash_source()     -- SHA-256 hashing
+        |-- find_clang()      -- clang binary discovery
+        `-- tests (5 unit tests)
 ```
 
 ---
@@ -71,7 +71,7 @@ crates/xiom-jit/
 | `xiom run --jit` | ~150ms | 3.3x | Development iteration |
 | `xiom run --jit --lazy` | ~150ms | 3.3x | Same as --jit (lazy is cache-based) |
 
-The `--lazy` flag enables incremental caching — identical source hashes skip recompilation.
+The `--lazy` flag enables incremental caching -- identical source hashes skip recompilation.
 
 ---
 
@@ -102,11 +102,11 @@ xiom --jit file.xi              # Compile path with JIT
 
 | Test | Status |
 |------|--------|
-| `test_hash_source_deterministic` | ✅ |
-| `test_hash_source_different` | ✅ |
-| `test_find_clang` | ✅ |
-| `test_jit_engine_new` | ✅ |
-| `test_hot_reload_watcher` | ✅ |
+| `test_hash_source_deterministic` | [OK] |
+| `test_hash_source_different` | [OK] |
+| `test_find_clang` | [OK] |
+| `test_jit_engine_new` | [OK] |
+| `test_hot_reload_watcher` | [OK] |
 | **Total** | **5/5 pass** |
 
 ---
@@ -115,7 +115,7 @@ xiom --jit file.xi              # Compile path with JIT
 
 ---
 
-## 7. INTEGRATION AUDIT (2026-08-10 — pre-selfhost review)
+## 7. INTEGRATION AUDIT (2026-08-10 -- pre-selfhost review)
 
 ### Integration B: OrcJIT + Unsafe Confinement (v0.57)
 
@@ -125,14 +125,14 @@ AOT compiler and links against `libxiom_runtime.dll` (pre-built via
 `xiom build-runtime`), JIT-compiled code inherits the full Unsafe Confinement
 (fault traps, guard arena, retry) with **zero extra work**.
 
-**Verification status:** ✅ inherited automatically — the JIT pipeline shares the
+**Verification status:** [OK] inherited automatically -- the JIT pipeline shares the
 IR emitter; no divergence between AOT and JIT codegen.
 
 ### Integration D: OrcJIT + Live Patching (v0.61)
 
 **Interaction.** Live Patching needs the JIT to compile a NEW version of a
 function while the process runs. The JIT engine already does
-`JitEngine::compile_module(source) → .dll → dlopen`. For patching it must:
+`JitEngine::compile_module(source) -> .dll -> dlopen`. For patching it must:
 1. Compile the new .dll (already works).
 2. Load it (already works).
 3. Look up a SPECIFIC symbol (e.g. `math_sqrt`) instead of `main`.
@@ -143,13 +143,13 @@ arbitrary function names:
 ```rust
 pub fn get_function_ptr(&self, name: &str) -> Option<*const ()>;
 ```
-`JitModule` already stores a `HashMap<String, usize>` of symbols — this is an
+`JitModule` already stores a `HashMap<String, usize>` of symbols -- this is an
 exposure change, ~1 day. The JIT engine is **80% ready for Live Patching**.
 
 **Linking requirement:** `xiom build-runtime` produces `libxiom_runtime.dll`
 containing the trap handlers; JIT patches link `-lxiom_runtime`, so patched
 code is confined identically to AOT code (fault traps catch hardware errors
-during the patch, per v0.61 §4).
+during the patch, per v0.61 S4).
 
 ---
 

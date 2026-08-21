@@ -1,4 +1,4 @@
-// I1: Send enforcement — struct with Send fields must pass
+// I1: Send enforcement -- struct with Send fields must pass
 use xiom.io;
 
 type Point = {

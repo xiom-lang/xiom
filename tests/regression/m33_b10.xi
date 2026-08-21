@@ -1,4 +1,4 @@
-// M33-B10: Var reassignment — rebind var, verify old value replaced
+// M33-B10: Var reassignment -- rebind var, verify old value replaced
 fn main() -> Int {
   var x = 5;
   x = 10;

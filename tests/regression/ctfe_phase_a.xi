@@ -1,4 +1,4 @@
-// CTFE Phase A — Production Test Suite
+// CTFE Phase A -- Production Test Suite
 // Verifies compile-time constant evaluation for:
 //   - Arithmetic (+, -, *, /, %)
 //   - Comparison (==, !=, <, >, <=, >=)

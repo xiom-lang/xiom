@@ -5,7 +5,7 @@ fn main() -> Int {
     // Test 1: sizeof with single type (regression check)
     var s1 = sizeof::<Int>();
 
-    // Test 2: sizeof::<Int, Str, Bool> — multi-type turbofish parsing
+    // Test 2: sizeof::<Int, Str, Bool> -- multi-type turbofish parsing
     // (sizeof only uses the first type arg, but parsing multiple works)
     var s2 = sizeof::<Int, Str>();
 

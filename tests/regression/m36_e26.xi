@@ -1,4 +1,4 @@
-// M36-E26: Very long source file — 2000+ chars in one function (150 local vars)
+// M36-E26: Very long source file -- 2000+ chars in one function (150 local vars)
 fn main() -> Int {
   var v1 = 1;
   var v2 = 2;

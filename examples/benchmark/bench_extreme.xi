@@ -1,4 +1,4 @@
-// XIOM — Extreme Edge Case Stress
+// XIOM -- Extreme Edge Case Stress
 // Pushes the compiler with extreme patterns: deep nesting, large switch/match,
 // many function parameters, deeply nested expressions, and corner cases.
 // Copyright (c) 2026 Eleftherios Notas
@@ -109,7 +109,7 @@ fn test_many_args() -> Int {
 }
 
 // ============================================================
-// SECTION 3: Edge Cases — Zero, Negative, Boundary Values
+// SECTION 3: Edge Cases -- Zero, Negative, Boundary Values
 // ============================================================
 
 pub fn zero_division_handler(a: Int, b: Int) -> Int {

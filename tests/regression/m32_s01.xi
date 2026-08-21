@@ -1,4 +1,4 @@
-// M32-S01: Basic struct with Float64 fields — create/access/mutate
+// M32-S01: Basic struct with Float64 fields -- create/access/mutate
 type Point = { x: Float64; y: Float64; }
 fn main() -> Int {
   var p = Point{ x: 1.0; y: 2.0; };

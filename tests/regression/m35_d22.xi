@@ -1,4 +1,4 @@
-// M35-D22: Topological sort — in-degree calculation pattern
+// M35-D22: Topological sort -- in-degree calculation pattern
 fn main() -> Int {
   var d0: Int = 0;
   var d1: Int = 2;

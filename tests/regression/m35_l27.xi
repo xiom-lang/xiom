@@ -1,4 +1,4 @@
-// M35-L27: Alignment requirement — verify field alignment via struct literal access
+// M35-L27: Alignment requirement -- verify field alignment via struct literal access
 type Aligned8 = { a: Int; b: Float64; }
 
 fn check_fields(s: Aligned8) -> Int {

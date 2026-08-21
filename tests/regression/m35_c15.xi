@@ -1,4 +1,4 @@
-// M35-C15: loop with accumulator — building a value across loop iterations
+// M35-C15: loop with accumulator -- building a value across loop iterations
 fn factorial(n: Int) -> Int {
   var acc: Int = 1;
   var i: Int = 1;

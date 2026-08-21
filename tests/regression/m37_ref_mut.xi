@@ -1,7 +1,7 @@
 module m37_ref_mut
 // Struct `&T` param mutation regression (docs/COMPILER_BUGS.md): struct-typed
 // `&T` params were passed BY VALUE, so `x.v.pop()` inside the callee mutated a
-// discarded copy — the caller's Vec length never changed. Fix: plain-struct
+// discarded copy -- the caller's Vec length never changed. Fix: plain-struct
 // `&T` params pass the ADDRESS (%struct.X*), matching scalar `&T`.
 
 type W = { v: Vec[Int]; }

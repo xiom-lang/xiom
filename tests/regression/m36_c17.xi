@@ -1,4 +1,4 @@
-// M36-C17: Every generic instantiation count 1-5 per function — identity, pair, triple, quad, quintuple with different type args
+// M36-C17: Every generic instantiation count 1-5 per function -- identity, pair, triple, quad, quintuple with different type args
 fn id[T](x: T) -> T { return x; }
 fn pair2[T](a: T, b: T) -> T { if a == a { return a; } return b; }
 fn triple3[T](a: T, b: T, c: T) -> T { return a; }

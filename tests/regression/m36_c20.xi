@@ -1,4 +1,4 @@
-// M36-C20: Every type alias chain length 1-8 — chains of type aliases resolving through multiple levels
+// M36-C20: Every type alias chain length 1-8 -- chains of type aliases resolving through multiple levels
 type L1 = Int;
 type L2 = L1;
 type L3 = L2;

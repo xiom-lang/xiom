@@ -1,4 +1,4 @@
-// M35-O18: Option zip — combine two Options match-based (two Int values)
+// M35-O18: Option zip -- combine two Options match-based (two Int values)
 fn zip_both_some() -> Int {
   var a = Some(1);
   var b = Some(10);

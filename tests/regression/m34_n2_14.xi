@@ -1,4 +1,4 @@
-// M34-N2-14: Contract with multi-contract nesting — requires/ensures chain
+// M34-N2-14: Contract with multi-contract nesting -- requires/ensures chain
 fn scale_and_clamp(x: Int, lo: Int, hi: Int, factor: Int) -> Int
   requires: lo <= hi
   requires: factor > 0

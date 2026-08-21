@@ -1,4 +1,4 @@
-// M33-U17: Pointer chain — multiple pointers to same var, verify consistency
+// M33-U17: Pointer chain -- multiple pointers to same var, verify consistency
 fn main() -> Int {
   var x: Int = 100;
   var p1: *Int;

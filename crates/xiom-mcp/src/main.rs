@@ -1,4 +1,4 @@
-﻿// XIOM MCP Server â€” Model Context Protocol for AI agent tool-calling
+// XIOM MCP Server -- Model Context Protocol for AI agent tool-calling
 // Phase 5d.1-8.2: Library mode (xiom linked directly, no subprocess).
 // Transport: stdio (JSON-RPC 2.0). Production-grade error handling.
 
@@ -27,7 +27,7 @@ fn validate_file_path(path: &str) -> Result<String, String> {
     Ok(path.to_string())
 }
 
-/// Maximum time allowed for compilation (safety timeout â€” wired to compile_with_diagnostics config).
+/// Maximum time allowed for compilation (safety timeout -- wired to compile_with_diagnostics config).
 #[allow(dead_code)]
 const COMPILE_TIMEOUT_SECS: u64 = 120;
 
@@ -142,7 +142,7 @@ fn tool_compile_and_analyze(params: &Value) -> Result<Value, String> {
 
     // Phase 7A: Use project graph for automatic dependency discovery.
     // If a xiom.toml manifest is found, all project sources are compiled
-    // in topological order â€” no need for manual sibling discovery.
+    // in topological order -- no need for manual sibling discovery.
     // Falls back to discover_sibling_sources if no manifest is found.
     let file_path = std::path::Path::new(&file);
     let graph_sources = match xiom_graph::build_project_graph(file_path) {
@@ -158,7 +158,7 @@ fn tool_compile_and_analyze(params: &Value) -> Result<Value, String> {
         Err(_) => discover_sibling_sources(&file),
     };
 
-    // Phase 8.2: Library mode â€” calls xiom::compile_with_diagnostics directly.
+    // Phase 8.2: Library mode -- calls xiom::compile_with_diagnostics directly.
     let config = CompileConfig {
         diagnostics_json: true,
         dump_contracts: params["strict"].as_bool().unwrap_or(false),
@@ -263,7 +263,7 @@ fn tool_format_xiom_code(params: &Value) -> Result<Value, String> {
     Ok(json!({"success": output.status.success(), "formatted": String::from_utf8_lossy(&output.stdout).to_string(), "changed": source != String::from_utf8_lossy(&output.stdout)}))
 }
 
-/// Phase 5d.9: Sandbox safety audit tool â€” runs xiom --sandbox-report=json
+/// Phase 5d.9: Sandbox safety audit tool -- runs xiom --sandbox-report=json
 /// and returns structured safety findings for CI/CD gating.
 fn tool_audit_safety_sandbox(params: &Value) -> Result<Value, String> {
     let file = params["file"].as_str().ok_or("Missing required parameter: file")?;
@@ -276,7 +276,7 @@ fn tool_audit_safety_sandbox(params: &Value) -> Result<Value, String> {
     Ok(json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&report).unwrap_or_default()}]}))
 }
 
-/// Phase 5d.1: XIOM language cheatsheet â€” common patterns and idioms for AI agents.
+/// Phase 5d.1: XIOM language cheatsheet -- common patterns and idioms for AI agents.
 /// Returns canonical code snippets for functions, structs, enums, contracts,
 /// error handling, FFI, generics, ownership, and the standard library.
 fn tool_xiom_cheatsheet(params: &Value) -> Result<Value, String> {
@@ -310,7 +310,7 @@ pub type Color = { r: UInt8; g: UInt8; b: UInt8; }
 ```xiom
 pub type Color = enum { Red, Green, Blue, Custom(r: Int, g: Int, b: Int), }
 
-// Construct with TypeName.Variant(...) â€” DOT syntax, never ::
+// Construct with TypeName.Variant(...) -- DOT syntax, never ::
 let c = Color.Custom(255, 0, 0);
 
 // Match with BARE variant patterns:
@@ -367,13 +367,13 @@ fn safe_alloc(size: Int) -> Result[*UInt8, Str]
 // NOTE: raw-pointer-RETURNING fns (allocator pattern) transfer ownership to the
 // caller (T006 exemption). A NON-pointer fn must convert extern-returned *T to
 // an owned XIOM type before the unsafe block's tail (ffi.safe_ptr_from_raw /
-// box_from_ptr / vec_from_ptr_with_free / str_from_ptr_owned) â€” T006.
+// box_from_ptr / vec_from_ptr_with_free / str_from_ptr_owned) -- T006.
 ```"#,
         "unsafe" => r#"## Unsafe Confinement (v0.57)
 ```xiom
 // `unsafe` applies STRICTLY to the block. unsafe fn/module/struct = error.
 // Confined blocks get: guard-heap arena (isolated), stack guard page, and an
-// SEH/sigsetjmp fault trap â€” a hardware fault is caught and the block yields a
+// SEH/sigsetjmp fault trap -- a hardware fault is caught and the block yields a
 // recoverable zero; the process NEVER crashes on a confined fault.
 
 // Fault trap + transient retry (once, on a fresh arena slot):
@@ -382,13 +382,13 @@ unsafe {
                            // yields a recoverable zero (HardwareFault)
 }
 
-// #[unsafe_no_retry] â€” disable the once-only retry (deterministic faults):
+// #[unsafe_no_retry] -- disable the once-only retry (deterministic faults):
 #[unsafe_no_retry]
 fn deterministic() -> Int {
   unsafe { return risky_c(); }
 }
 
-// #[unsafe_direct] â€” trusted escape hatch (stdlib/selfhost only; user code
+// #[unsafe_direct] -- trusted escape hatch (stdlib/selfhost only; user code
 // needs --enable-unsafe-direct). No trampoline/arena/guard page:
 #[unsafe_direct]
 fn hot_path() -> Int {
@@ -397,7 +397,7 @@ fn hot_path() -> Int {
 
 // Zero-escape (T005): raw ptrs / refs / fn types cannot be a block's tail.
 // FFI ownership (T006): extern *T must convert before the tail (unless the fn
-// itself returns the raw pointer â€” allocator pattern, caller owns it).
+// itself returns the raw pointer -- allocator pattern, caller owns it).
 // Whole-body-unsafe fns must declare `requires` (T007).
 ```"#,
         "generics" => r#"## Generics
@@ -474,7 +474,7 @@ core.free(buf);
 | Borrow | `fn read(data: &Vec[Int])` |
 | Mutable borrow | `fn write(data: &mut Vec[Int])` |
 | Generic | `fn first[T](items: &Slice[T]) -> T { return items[0]; }` |
-| Unsafe | `unsafe { extern_c_call(args); }` â€” confined (trap/arena/retry); `#[unsafe_no_retry]` / `#[unsafe_direct]` |
+| Unsafe | `unsafe { extern_c_call(args); }` -- confined (trap/arena/retry); `#[unsafe_no_retry]` / `#[unsafe_direct]` |
 | Extern C | `extern "C" { fn malloc(size: UInt64) -> *UInt8; }` |
 | Module | `module my.module { pub fn helper() { ... } }` |
 | Use | `use xiom.core;` |
@@ -556,7 +556,7 @@ fn list_tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "xiom_stdlib_reference".into(),
-            description: "Query the XIOM standard library â€” LIVE parsed from stdlib source, always accurate. Without arguments: lists all modules with descriptions. With module name: full public API (function signatures, contracts, types). Use this to discover which stdlib functions exist and their exact signatures before calling them.".into(),
+            description: "Query the XIOM standard library -- LIVE parsed from stdlib source, always accurate. Without arguments: lists all modules with descriptions. With module name: full public API (function signatures, contracts, types). Use this to discover which stdlib functions exist and their exact signatures before calling them.".into(),
             input_schema: json!({"type":"object","properties":{"module":{"type":"string","description":"Module name (e.g. 'alloc', 'string', 'collections'). Omit to list all modules."}}}),
         },
         ToolDef {
@@ -593,7 +593,7 @@ fn list_tools() -> Vec<ToolDef> {
 }
 
 // ============================================================================
-// New MCP Tools (5g AI + 5e Hot Reload) â€” self-contained, no external deps
+// New MCP Tools (5g AI + 5e Hot Reload) -- self-contained, no external deps
 // ============================================================================
 
 fn tool_ai_diagnose(params: &Value) -> Result<String, String> {
@@ -637,9 +637,9 @@ fn tool_ai_diagnose(params: &Value) -> Result<String, String> {
                 Ok("# XIOM AI Diagnostic\n\nNo actionable hints generated. Source may compile cleanly.".into())
             } else {
                 let summary: Vec<String> = output.hints.iter().map(|h| {
-                    format!("**[{}] {}** ({}%, {}): {}\n  â†’ {}",
+                    format!("**[{}] {}** ({}%, {}): {}\n  -> {}",
                         h.error_code,
-                        if h.cached { "ðŸ“¦ cached" } else { "ðŸ¤– AI" },
+                        if h.cached { "[PKG] cached" } else { "[ROBOT] AI" },
                         h.confidence.as_deref().unwrap_or("?"),
                         h.error_type,
                         h.file,
@@ -694,7 +694,7 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
         return Ok(json!({
             "status": "ok",
             "errors": [],
-            "summary": "Source compiles cleanly â€” no errors found."
+            "summary": "Source compiles cleanly -- no errors found."
         }).to_string());
     }
 
@@ -737,13 +737,13 @@ fn tool_hot_reload_watch(params: &Value) -> Result<String, String> {
 
     let output = format!(
         "# XIOM Hot Reload\n\n**File:** {file}\n\n**Quick start:**\n\
-        1. `xiom --hot-reload \"{file}\"` â€” compiles to DLL and watches for changes\n\
-        2. `xiom --watch \"{file}\"` â€” watches and recompiles on change (no DLL)\n\
+        1. `xiom --hot-reload \"{file}\"` -- compiles to DLL and watches for changes\n\
+        2. `xiom --watch \"{file}\"` -- watches and recompiles on change (no DLL)\n\
         3. Press Ctrl+C to stop watching\n\n\
         **Architecture:** Function pointer table in `stdlib/runtime/xiom_hot_reload.c`.\n\
         **Status:** Foundation ready (--watch + --hot-reload flags, function table).\n\
         **Next:** Codegen indirect call thunks (5e.5a), DLL host executable (5e.5b).\n\n\
-        **Use case:** Game engines, robotics, live systems â€” `if it compiles, it won't crash`."
+        **Use case:** Game engines, robotics, live systems -- `if it compiles, it won't crash`."
     );
     Ok(output)
 }
@@ -756,9 +756,9 @@ fn tool_verify_contracts(params: &Value) -> Result<String, String> {
     let output = format!(
         "# XIOM Contract Verification\n\n**File:** {file}\n**Z3 Check:** {check_status}\n\n\
         **Quick start:**\n\
-        1. `xiom-verify \"{file}\"` â€” generates SMT-LIB verification conditions\n\
-        2. `xiom-verify \"{file}\" --check` â€” runs Z3 to prove contracts\n\
-        3. `xiom --verify \"{file}\"` â€” contract verification during compilation\n\n\
+        1. `xiom-verify \"{file}\"` -- generates SMT-LIB verification conditions\n\
+        2. `xiom-verify \"{file}\" --check` -- runs Z3 to prove contracts\n\
+        3. `xiom --verify \"{file}\"` -- contract verification during compilation\n\n\
         **Prerequisites:**\n\
         - Write `requires:` / `ensures:` clauses on functions\n\
         - Install Z3: `winget install z3` or download from GitHub\n\
@@ -853,7 +853,7 @@ fn handle_request(req: &RpcRequest) -> RpcResponse {
 }
 
 // ============================================================================
-// Main â€” stdio transport
+// Main -- stdio transport
 // ============================================================================
 
 fn main() -> io::Result<()> {
@@ -950,7 +950,7 @@ mod tests {
         assert!(result.is_ok(), "{:?}", result.err());
         let text = result.unwrap();
         // BUG 29 (new 512-module layout): alloc lives at
-        // stdlib/xiom/memory/alloc.xi â€” the bare "alloc" stem resolves to
+        // stdlib/xiom/memory/alloc.xi -- the bare "alloc" stem resolves to
         // the dotted "memory.alloc" module.
         assert!(text.contains("use xiom.memory.alloc;"), "must show import line, got: {text}");
         assert!(text.contains("GlobalAlloc"), "must show the allocator type");
@@ -1091,7 +1091,7 @@ mod tests {
         assert!(guide.contains("shebang") || guide.contains("#!"), "guide should mention shebang");
     }
 
-    // â”€â”€ M27-2: MCP server edge cases â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // -- M27-2: MCP server edge cases ---------------------------------
 
     // Tool execution: valid source
     #[test] fn test_compile_valid_source() {
@@ -1237,6 +1237,6 @@ mod tests {
         assert!(!text.is_empty(), "default cheatsheet must not be empty");
     }
 
-    // Cheatsheet helper removed â€” use tool_xiom_cheatsheet directly
+    // Cheatsheet helper removed -- use tool_xiom_cheatsheet directly
 }
 

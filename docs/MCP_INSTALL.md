@@ -1,10 +1,10 @@
-# XIOM MCP Server — Installation Guide
+# XIOM MCP Server -- Installation Guide
 
 > **What is this?** `xiom-mcp` is a Model Context Protocol server that gives ANY AI coding agent
 > deep XIOM compiler integration: compile + structured diagnostics, error explanations, contract
 > queries, syntax checking, formatting, safety audits, and a language cheatsheet.
 >
-> **LLM compatibility:** MCP is a client-side protocol. The LLM never talks to the server directly —
+> **LLM compatibility:** MCP is a client-side protocol. The LLM never talks to the server directly --
 > your agent does. Any MCP-capable agent works regardless of the LLM behind it (Claude, GPT,
 > Gemini, DeepSeek, Qwen, local models). No API keys needed by the server.
 
@@ -26,7 +26,7 @@ cargo build --release -p xiom-mcp
 ```
 
 **Important:** The tools `compile_and_analyze`, `get_contract_signature`, and `check_xiom_syntax`
-link the compiler directly (library mode — no subprocess). The tools `format_xiom_code` and
+link the compiler directly (library mode -- no subprocess). The tools `format_xiom_code` and
 `audit_safety_sandbox` spawn `xiom-fmt` / `xiom`, so keep all binaries in the same directory
 or on `PATH`.
 
@@ -44,8 +44,8 @@ or on `PATH`.
 | `format_xiom_code` | Canonical formatting | No (takes source string) |
 | `audit_safety_sandbox` | Unsafe-block audit with severity scoring for CI/CD | Yes |
 
-**Recommended agent workflow:** `xiom_cheatsheet` (learn patterns) → write code →
-`check_xiom_syntax` (fast validation) → `compile_and_analyze` (full check) →
+**Recommended agent workflow:** `xiom_cheatsheet` (learn patterns) -> write code ->
+`check_xiom_syntax` (fast validation) -> `compile_and_analyze` (full check) ->
 `audit_safety_sandbox` (before commit).
 
 ---
@@ -175,7 +175,7 @@ From a terminal, pipe an initialize request:
 {"jsonrpc":"2.0","id":2,"method":"tools/list"}' | & "C:\path\to\xiom-mcp.exe"
 ```
 
-Expected: two JSON lines — `serverInfo.name: "xiom-mcp"` and a `tools` array with 7 entries.
+Expected: two JSON lines -- `serverInfo.name: "xiom-mcp"` and a `tools` array with 7 entries.
 
 In your agent, ask: *"Use the xiom cheatsheet tool to show me how to write a XIOM function with contracts."*
 The agent should call `xiom_cheatsheet {section: "contracts"}` and get canonical patterns back.
@@ -186,17 +186,17 @@ The agent should call `xiom_cheatsheet {section: "contracts"}` and get canonical
 
 | Channel | How users get it |
 |---------|------------------|
-| **Release zip** | `bin/xiom-mcp.exe` ships alongside `xiom.exe` — one download, everything included |
+| **Release zip** | `bin/xiom-mcp.exe` ships alongside `xiom.exe` -- one download, everything included |
 | **Source build** | `cargo build --release -p xiom-mcp` |
 | **Future: registry** | `xiom pkg install xiom-mcp` (planned, registry.xiom-lang.com) |
 
-The MCP server is **bundled with the compiler toolchain** — not a separate install. If you have
+The MCP server is **bundled with the compiler toolchain** -- not a separate install. If you have
 XIOM, you have the MCP server. Agents just need the JSON config pointing at the binary.
 
 ### Why not auto-install into agents?
 
 Each agent has its own config location and security model (permissions, allowlists). We ship
-copy-paste configs (section 3) instead of writing into agent configs automatically — that would
+copy-paste configs (section 3) instead of writing into agent configs automatically -- that would
 be invasive and fragile across agent updates.
 
 ---
@@ -208,6 +208,6 @@ be invasive and fragile across agent updates.
 | Agent shows no xiom tools | Check the binary path in config is absolute and exists |
 | `format_xiom_code` fails | Put `xiom-fmt(.exe)` in the same dir as `xiom-mcp` or on PATH |
 | `audit_safety_sandbox` fails | Put `xiom(.exe)` in the same dir or on PATH |
-| Tools error "File not found" | Paths are relative to the agent's working directory — use absolute paths |
+| Tools error "File not found" | Paths are relative to the agent's working directory -- use absolute paths |
 | "Path traversal rejected" | The server blocks `..` in paths by design (security) |
 | Server exits immediately | Run the verify command (section 4) to see raw errors |

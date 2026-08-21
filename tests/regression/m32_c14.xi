@@ -1,4 +1,4 @@
-// M32-C14: Chained contracts — functions calling contracted functions
+// M32-C14: Chained contracts -- functions calling contracted functions
 fn double(x: Int) -> Int
   requires: x >= 0
   ensures: result == 2 * x

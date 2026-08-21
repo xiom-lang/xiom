@@ -1,4 +1,4 @@
-// M34-W06: Shift right by 1 — divide by 2 (signed) on multiple types
+// M34-W06: Shift right by 1 -- divide by 2 (signed) on multiple types
 fn main() -> Int {
   var a: Int = 128;
   var b: Int32 = 128 as Int32;

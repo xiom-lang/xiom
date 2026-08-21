@@ -1,6 +1,6 @@
-// B-003: Option<Str> from method returns with contracts — regression test
+// B-003: Option<Str> from method returns with contracts -- regression test
 // Verifies Path.file_name() and Path.file_stem() work correctly with contracts enabled.
-// NOTE: Do not test Path.new("") — the stdlib's file_name ensures
+// NOTE: Do not test Path.new("") -- the stdlib's file_name ensures
 //   `result is Some => result.len() > 0` is violated for empty strings
 //   (file_name("") returns Some("") with length 0). This is a stdlib bug,
 //   not a codegen issue.

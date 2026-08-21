@@ -1,4 +1,4 @@
-// M35-D21: Heap sort — verify array is sorted ascending
+// M35-D21: Heap sort -- verify array is sorted ascending
 fn main() -> Int {
   var a: Int = 5;
   var b: Int = 25;

@@ -1,4 +1,4 @@
-// M35-T22: Char exhaustive — every context: var, param, return, struct, enum, array, cmp
+// M35-T22: Char exhaustive -- every context: var, param, return, struct, enum, array, cmp
 fn char_eq(a: Char, b: Char) -> Bool { return a == b; }
 fn char_ne(a: Char, b: Char) -> Bool { return a != b; }
 fn char_pass(c: Char) -> Char { return c; }

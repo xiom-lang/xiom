@@ -1,4 +1,4 @@
-// G-40: repr(C) layout — C-compatible struct field offsets
+// G-40: repr(C) layout -- C-compatible struct field offsets
 // Verifies XIOM structs used in extern C match C layout.
 
 type MixedC = { a: Int8; b: Int16; c: Int32; d: Int64; e: Float32; f: Float64; }

@@ -1,4 +1,4 @@
-// XIOM â€” Self-Hosted Compiler v0.5.0
+// XIOM -- Self-Hosted Compiler v0.5.0
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 

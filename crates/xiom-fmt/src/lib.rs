@@ -1,8 +1,8 @@
-﻿// XIOM — Canonical Formatter
+// XIOM -- Canonical Formatter
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
-// M14.1: format_stmt → stmt.rs, format_expr → expr.rs
+// M14.1: format_stmt -> stmt.rs, format_expr -> expr.rs
 
 pub mod stmt;
 pub mod expr;
@@ -691,7 +691,7 @@ mod tests {
         assert!(formatted.contains("for i in [0, 1, 2] {"));
     }
 
-    // ── M3.4: AST round-trip tests ──────────────────────────────────────
+    // -- M3.4: AST round-trip tests --------------------------------------
 
     fn parse_program(source: &str) -> xiom_ast::Program {
         let mut lexer = Lexer::new(source);
@@ -727,7 +727,7 @@ mod tests {
         assert_round_trip("fn divide(a: Float64, b: Float64) -> Float64\n  requires: b != 0.0\n  ensures: result * b == a\n{ return a / b; }");
     }
 
-    // ── Edge cases ──────────────────────────────────────────────────────
+    // -- Edge cases ------------------------------------------------------
 
     #[test] fn test_rt_match_expr() {
         assert_round_trip("fn check(x: Option[Int]) -> Int { match x { Some(v) => v, None => 0, } }");
@@ -795,7 +795,7 @@ mod tests {
         assert_round_trip("fn load(path: Str) -> Result[Config, AppError] { let file = io.read_file(path)?; return Ok(file); }");
     }
 
-    // ── M21-1: Formatter edge cases ─────────────────────────────────────
+    // -- M21-1: Formatter edge cases -------------------------------------
 
     // Nested type definitions with 5+ levels of indentation
     #[test] fn test_rt_nested_type_deep() {

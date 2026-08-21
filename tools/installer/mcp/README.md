@@ -1,4 +1,4 @@
-# XIOM MCP Server — IDE Integration Guide
+# XIOM MCP Server -- IDE Integration Guide
 
 The XIOM MCP server provides AI-assisted compiler diagnostics, SMT-based
 contract verification, and code formatting to any MCP-compatible IDE or agent.
@@ -18,7 +18,7 @@ contract verification, and code formatting to any MCP-compatible IDE or agent.
 | **Cursor** | `cursor.json` | `.cursor/mcp.json` |
 | **Windsurf** | `windsurf.json` | `.windsurf/mcp.json` |
 | **Continue.dev** | `continue.json` | `~/.continue/config.json` (under `mcpServers`) |
-| **Cline (VS Code)** | `cline.json` | VS Code settings → Cline → MCP Servers |
+| **Cline (VS Code)** | `cline.json` | VS Code settings -> Cline -> MCP Servers |
 | **GitHub Copilot** | `github-copilot.json` | `.github/copilot-instructions.md` or MCP config |
 | **Aider** | `aider.json` | `.aider.conf.yml` (MCP section) |
 | **OpenAI Codex** | `codex.json` | `~/.codex/mcp.json` |
@@ -63,8 +63,8 @@ Add to your tool's MCP servers configuration:
 
 | Tool | Description |
 |------|-------------|
-| `compile_and_analyze` | Compile .xi file → structured diagnostics with fix suggestions |
-| `compile_and_fix` | Inline compile + AI diagnose — one-shot error analysis |
+| `compile_and_analyze` | Compile .xi file -> structured diagnostics with fix suggestions |
+| `compile_and_fix` | Inline compile + AI diagnose -- one-shot error analysis |
 | `verify_contracts` | SMT-based contract verification with Z3 counterexamples |
 | `format_code` | Format XIOM source code |
 

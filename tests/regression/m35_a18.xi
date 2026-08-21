@@ -1,4 +1,4 @@
-// M35-A18: Power function — compute a^b via iterative multiplication
+// M35-A18: Power function -- compute a^b via iterative multiplication
 fn pow(base: Int, exp: Int) -> Int {
   if exp == 0 { return 1; }
   var r: Int = 1;

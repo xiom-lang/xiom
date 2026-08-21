@@ -1,4 +1,4 @@
-// M35-M22: hailstone sequence — verify max value reached in Collatz sequence
+// M35-M22: hailstone sequence -- verify max value reached in Collatz sequence
 fn hailstone_max(n: Int) -> Int {
   if n <= 0 { return 0; }
   var max_val = n;

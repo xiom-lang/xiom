@@ -1,4 +1,4 @@
-// M33-U16: Mixed safe/unsafe — deref to temp, then safe arithmetic
+// M33-U16: Mixed safe/unsafe -- deref to temp, then safe arithmetic
 fn main() -> Int {
   var a: Int = 10;
   var b: Int = 20;

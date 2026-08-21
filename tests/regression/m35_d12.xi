@@ -1,4 +1,4 @@
-// M35-D12: Doubly linked list — forward/backward traversal verification (null only)
+// M35-D12: Doubly linked list -- forward/backward traversal verification (null only)
 type DNode = { value: Int; prev: *DNode; next: *DNode; }
 
 fn dll_forward_len(head: *DNode) -> Int {

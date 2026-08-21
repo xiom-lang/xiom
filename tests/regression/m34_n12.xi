@@ -1,4 +1,4 @@
-// M34-N12: Generic struct derive[Eq] with Int — equality on generic type
+// M34-N12: Generic struct derive[Eq] with Int -- equality on generic type
 type Container[T] = { data: T; tag: Int; } derive[Eq]
 fn main() -> Int {
   var a = Container[Int]{ data: 42; tag: 1; };

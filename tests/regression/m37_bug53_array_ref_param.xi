@@ -1,4 +1,4 @@
-// BUG 53 regression: &[N]T params — the caller's array-literal binding
+// BUG 53 regression: &[N]T params -- the caller's array-literal binding
 // stored the Vec data POINTER as the array value (invalid IR: store
 // [5 x i64] %ptr) and element access GEP'd the pointer SLOT as the
 // array ([5 x i64]**, clang "invalid getelementptr indices"). Covers

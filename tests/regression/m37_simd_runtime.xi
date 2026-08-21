@@ -2,10 +2,10 @@ module m37_simd_runtime
 // Compiler SIMD/ISA flags (-mavx -mavx2 -mavx512f/bw/dq/vl on native x86_64)
 // + stdlib/runtime/simd_runtime.c end-to-end. Exercises the SSE ops (always
 // available on x86-64) and the AVX ops (attribute-compiled, runtime-dispatched
-// via xiom_simd_has_avx2 — the production pattern: wide-ISA code only runs
+// via xiom_simd_has_avx2 -- the production pattern: wide-ISA code only runs
 // when CPUID says the CPU supports it). Also sanity-checks the detection
 // bitmask. The AVX-512 global flag exists so new runtime C can use _mm512
-// intrinsics without per-function attributes — execution must still be gated
+// intrinsics without per-function attributes -- execution must still be gated
 // by xiom_simd_has_avx512().
 
 extern "C" {
@@ -40,7 +40,7 @@ fn main() -> Int {
   o.push(0.0); o.push(0.0); o.push(0.0); o.push(0.0);
 
   unsafe {
-    // SSE: add/sub/mul — exact in f32 for integer operands
+    // SSE: add/sub/mul -- exact in f32 for integer operands
     xiom_simd_f32x4_add(a.data, b.data, o.data);
     if o[0] != 11.0 || o[3] != 44.0 { return 1; }
     xiom_simd_f32x4_sub(b.data, a.data, o.data);
@@ -67,7 +67,7 @@ fn main() -> Int {
     if d != 300.0 { return 8; }
   }
 
-  // SSE2 integer ops (Vec[Int32] stores 4-byte elements — matches int*)
+  // SSE2 integer ops (Vec[Int32] stores 4-byte elements -- matches int*)
   var ia = Vec[Int32].new();
   var ib = Vec[Int32].new();
   var io = Vec[Int32].new();
@@ -102,7 +102,7 @@ fn main() -> Int {
   if has_avx2 == 1 && has_avx != 1 { return 14; }
   if has_avx512 == 1 && has_avx2 != 1 { return 15; }
 
-  // AVX ops: attribute-compiled, dispatch-gated (production pattern) —
+  // AVX ops: attribute-compiled, dispatch-gated (production pattern) --
   // verify results only when the CPU supports AVX2; on older CPUs the
   // dispatch gate keeps the wide-ISA call off the execution path.
   if has_avx2 == 1 {

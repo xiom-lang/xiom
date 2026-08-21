@@ -1,4 +1,4 @@
-// XIOM — Recursion Stress Benchmark
+// XIOM -- Recursion Stress Benchmark
 // Tests deep recursion, mutual recursion, tail-call patterns,
 // divide-and-conquer, tree traversal, and recursive algorithms.
 // Copyright (c) 2026 Eleftherios Notas

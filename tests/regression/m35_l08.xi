@@ -1,4 +1,4 @@
-// M35-L08: Struct with pointer — verify pointer field access in structs directly
+// M35-L08: Struct with pointer -- verify pointer field access in structs directly
 type Node = { value: Int; next: *Node; }
 
 fn node_value_from_null() -> Int {

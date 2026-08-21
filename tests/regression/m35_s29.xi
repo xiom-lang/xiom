@@ -1,4 +1,4 @@
-// M35-S29: Wildcard match — match string against pattern with ? and *
+// M35-S29: Wildcard match -- match string against pattern with ? and *
 use stdlib.xiom.string;
 fn is_star(b: UInt8) -> Bool { return b == 42; }
 fn is_quest(b: UInt8) -> Bool { return b == 63; }

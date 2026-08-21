@@ -1,4 +1,4 @@
-// M32: Int32 overflow — mul wraps
+// M32: Int32 overflow -- mul wraps
 fn main() -> Int {
   var a: Int32 = 65536;
   var b: Int32 = 32768;

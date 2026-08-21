@@ -1,4 +1,4 @@
-// M32-M13: Combined pub const + pub fn — both in one module
+// M32-M13: Combined pub const + pub fn -- both in one module
 module lib {
   pub const FACTOR: Int = 10;
   pub fn scale(x: Int) -> Int { return x * FACTOR; }

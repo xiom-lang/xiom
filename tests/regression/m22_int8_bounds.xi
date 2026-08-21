@@ -1,4 +1,4 @@
-// M22: Int8 boundary values — verify min/max compile and compare correctly
+// M22: Int8 boundary values -- verify min/max compile and compare correctly
 fn main() -> Int {
   var min: Int8 = -128;
   var max: Int8 = 127;

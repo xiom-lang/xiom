@@ -1,4 +1,4 @@
-// M34-Q01: Chained requires — fn a requires calls fn b which requires fn c
+// M34-Q01: Chained requires -- fn a requires calls fn b which requires fn c
 fn is_valid(x: Int) -> Bool
   requires: x >= 0
 {

@@ -1,4 +1,4 @@
-// M35-L03: Struct with mixed fields — Int, Float64, Bool, Char, Str
+// M35-L03: Struct with mixed fields -- Int, Float64, Bool, Char, Str
 type Mixed = { id: Int; score: Float64; flag: Bool; ch: Char; name: Str; }
 
 fn main() -> Int {

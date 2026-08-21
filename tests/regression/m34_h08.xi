@@ -1,4 +1,4 @@
-// M34-H08: Float32->Float64 widening — single to double precision
+// M34-H08: Float32->Float64 widening -- single to double precision
 fn main() -> Int {
   var f32: Float32 = 2.71828;
   var f64: Float64 = f32 as Float64;

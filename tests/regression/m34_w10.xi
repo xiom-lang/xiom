@@ -1,4 +1,4 @@
-// M34-W10: Bit counting — popcount via while loop
+// M34-W10: Bit counting -- popcount via while loop
 fn popcount(x: Int) -> Int {
   var n: Int = x;
   var count: Int = 0;

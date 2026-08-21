@@ -1,4 +1,4 @@
-// CTFE Phase B — Function Evaluation Tests
+// CTFE Phase B -- Function Evaluation Tests
 // Verifies compile-time evaluation of pure functions:
 //   - Simple function calls with const args
 //   - Recursive functions (factorial)

@@ -1,4 +1,4 @@
-// M34-Q02: Chained ensures — ensures propagated through call chain
+// M34-Q02: Chained ensures -- ensures propagated through call chain
 fn add_one(x: Int) -> Int
   ensures: result == x + 1
 {

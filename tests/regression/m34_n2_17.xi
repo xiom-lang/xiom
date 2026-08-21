@@ -1,4 +1,4 @@
-// M34-N2-17: Deep match-with-if nesting — 4 levels of match+if interleaved
+// M34-N2-17: Deep match-with-if nesting -- 4 levels of match+if interleaved
 type N = enum { V(val: Int), }
 
 fn check(v: N) -> Int {

@@ -1,4 +1,4 @@
-// M32-S11: Struct mutation — mutate nested fields through arithmetic
+// M32-S11: Struct mutation -- mutate nested fields through arithmetic
 type Inner = { val: Int; scale: Float64; }
 type Outer = { inner: Inner; id: Int; }
 fn main() -> Int {

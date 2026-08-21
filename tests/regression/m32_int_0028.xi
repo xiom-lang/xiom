@@ -1,4 +1,4 @@
-// M32: Int32 overflow — add near max wraps
+// M32: Int32 overflow -- add near max wraps
 fn main() -> Int {
   var a: Int32 = 2147483647;
   var b: Int32 = 1;

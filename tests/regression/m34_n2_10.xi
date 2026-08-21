@@ -1,4 +1,4 @@
-// M34-N2-10: Function factory pattern — function creates and returns closure
+// M34-N2-10: Function factory pattern -- function creates and returns closure
 fn factory(n: Int) -> Int {
   var f = |x| n + x;
   return f(50);

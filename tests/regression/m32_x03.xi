@@ -1,4 +1,4 @@
-// M32-X03: Combinatorial + Differential — if-chain vs match with generic enum dispatch
+// M32-X03: Combinatorial + Differential -- if-chain vs match with generic enum dispatch
 enum Grade { A, B, C, D, F }
 fn classify_if(score: Int) -> Grade {
   if score >= 90 { return Grade.A; }

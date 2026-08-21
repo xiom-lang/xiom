@@ -1,4 +1,4 @@
-// M34-N2-13: Borrow-in-borrow pattern — deep reference chain &T → &U → read field
+// M34-N2-13: Borrow-in-borrow pattern -- deep reference chain &T -> &U -> read field
 type A = { val: Int; }
 type B = { a: A; }
 type C = { b: B; }

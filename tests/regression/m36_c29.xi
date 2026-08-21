@@ -1,4 +1,4 @@
-// M36-C29: Combined mega test 2 — modules, methods, enums, pointers, Result, strings, type aliases
+// M36-C29: Combined mega test 2 -- modules, methods, enums, pointers, Result, strings, type aliases
 type Score = { points: Int; id: Int; } derive[Eq]
 fn Score.read(self) -> Int { return self.points; }
 enum Status { Active, Paused, Stopped }

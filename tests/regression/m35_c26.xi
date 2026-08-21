@@ -1,4 +1,4 @@
-// M35-C26: if-let pattern — match on Option as control flow (XIOM uses match, not if-let)
+// M35-C26: if-let pattern -- match on Option as control flow (XIOM uses match, not if-let)
 fn maybe_double(opt: Option[Int]) -> Int {
   match opt {
     Some(v) => v * 2,

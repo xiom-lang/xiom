@@ -1,4 +1,4 @@
-// M32-M06: Dotted path access — dot notation for const and type
+// M32-M06: Dotted path access -- dot notation for const and type
 module lib {
   pub const MAGIC: Int = 42;
   pub type Flag = Bool;

@@ -1,5 +1,5 @@
 // M20-B1: XIOM AST Data Structures for Self-Hosting Compiler
-// Simplified — uses only supported XIOM features.
+// Simplified -- uses only supported XIOM features.
 
 // ============================================================================
 // Tokens

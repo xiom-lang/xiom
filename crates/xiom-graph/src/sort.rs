@@ -59,7 +59,7 @@ pub fn topological_sort(graph: &DependencyGraph) -> Result<Vec<usize>, GraphErro
     }
 
     if processed != n {
-        // Cycle detected — find the cycle for error reporting
+        // Cycle detected -- find the cycle for error reporting
         let remaining: Vec<usize> = (0..n).filter(|&i| remaining_deps[i] > 0).collect();
         let cycle = find_cycle(graph, &remaining);
         return Err(GraphError::CycleDetected(cycle));
@@ -103,7 +103,7 @@ fn dfs_cycle(
     path_set: &mut [bool],
 ) -> bool {
     if path_set[node] {
-        // Found cycle — trim path to only the cycle portion
+        // Found cycle -- trim path to only the cycle portion
         if let Some(pos) = path.iter().position(|&x| x == node) {
             path.drain(0..pos);
         }
@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn linear_chain() {
-        // main → utils → core
+        // main -> utils -> core
         let graph = make_graph(vec![
             ("main", vec!["utils"]),
             ("utils", vec!["core"]),
@@ -174,7 +174,7 @@ mod tests {
 
     #[test]
     fn diamond_deps() {
-        // app → a, app → b, a → common, b → common
+        // app -> a, app -> b, a -> common, b -> common
         let graph = make_graph(vec![
             ("app", vec!["a", "b"]),
             ("a", vec!["common"]),
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn cycle_detection() {
-        // a → b → c → a
+        // a -> b -> c -> a
         let graph = make_graph(vec![
             ("a", vec!["b"]),
             ("b", vec!["c"]),

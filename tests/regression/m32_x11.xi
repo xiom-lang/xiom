@@ -1,4 +1,4 @@
-// M32-X11: Combinatorial + Differential — nested compute vs flat compute with struct+match
+// M32-X11: Combinatorial + Differential -- nested compute vs flat compute with struct+match
 type Point = { x: Int; y: Int; }
 enum DistMethod { Nested, Flat }
 fn dist_nested(p1: Point, p2: Point) -> Int {

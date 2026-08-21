@@ -1,4 +1,4 @@
-// M35-O19: Result[Int,Str] create — Ok/Err construction and match
+// M35-O19: Result[Int,Str] create -- Ok/Err construction and match
 fn main() -> Int {
   var a: Result[Int, Str] = Ok(42);
   var b: Result[Int, Str] = Err("failed");

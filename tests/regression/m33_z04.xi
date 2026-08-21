@@ -1,4 +1,4 @@
-// M33-Z04: Int /= — basic compound divide
+// M33-Z04: Int /= -- basic compound divide
 fn main() -> Int {
   var x: Int = 100;
   x /= 4;

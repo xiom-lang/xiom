@@ -1,4 +1,4 @@
-// M24: Deep recursion — tail-recursive sum
+// M24: Deep recursion -- tail-recursive sum
 fn sum_to(n: Int, acc: Int) -> Int {
   if n == 0 { return acc; }
   return sum_to(n - 1, n + acc);

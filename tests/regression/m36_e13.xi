@@ -1,4 +1,4 @@
-// M36-E13: Mixed case identifiers — camelCase, PascalCase, snake_case
+// M36-E13: Mixed case identifiers -- camelCase, PascalCase, snake_case
 fn myFunc() -> Int { return 10; }
 type MyType = { MyField: Int; }
 fn main() -> Int {

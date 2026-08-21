@@ -1,4 +1,4 @@
-// M35-D09: Hash set — membership test with array
+// M35-D09: Hash set -- membership test with array
 fn main() -> Int {
   var present0: Bool = false;
   var present1: Bool = false;

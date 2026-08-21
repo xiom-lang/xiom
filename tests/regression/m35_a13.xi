@@ -1,4 +1,4 @@
-// M35-A13: LCM — compute via formula lcm(a,b) = a * b / gcd(a,b)
+// M35-A13: LCM -- compute via formula lcm(a,b) = a * b / gcd(a,b)
 fn gcd(m: Int, n: Int) -> Int {
   var x: Int = m;
   var y: Int = n;

@@ -1,4 +1,4 @@
-// M34-J03: Module with pub type — public struct types in modules
+// M34-J03: Module with pub type -- public struct types in modules
 module geometry {
   pub type Point = { x: Int; y: Int; }
   pub type Size = { w: Int; h: Int; }

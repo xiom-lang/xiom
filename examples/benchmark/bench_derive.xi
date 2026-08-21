@@ -1,4 +1,4 @@
-// XIOM — Derive Stress Benchmark
+// XIOM -- Derive Stress Benchmark
 // Exercises derive macros: Eq, Clone, Display, Hash, Ord on structs and enums.
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
@@ -285,7 +285,7 @@ fn test_nested_derive() -> Int {
 }
 
 // ============================================================
-// SECTION 7: Derive Stress — 25-field Struct
+// SECTION 7: Derive Stress -- 25-field Struct
 // ============================================================
 
 pub type Big25 = {

@@ -1,4 +1,4 @@
-// M35-A06: Merge simulation — count elements <= value across two sorted arrays
+// M35-A06: Merge simulation -- count elements <= value across two sorted arrays
 fn main() -> Int {
   var a = [1, 4, 7, 10];
   var b = [2, 5, 8, 11, 14];

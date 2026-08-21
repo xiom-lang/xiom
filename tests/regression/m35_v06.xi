@@ -1,4 +1,4 @@
-// M35-V06: Vec[Int] insert — insert elements at position
+// M35-V06: Vec[Int] insert -- insert elements at position
 use xiom.collections;
 
 fn main() -> Int {

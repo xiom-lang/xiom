@@ -1,4 +1,4 @@
-// M34-W05: Shift left by 1 — multiply by 2 on multiple types
+// M34-W05: Shift left by 1 -- multiply by 2 on multiple types
 fn main() -> Int {
   var a: Int = 7;
   var b: Int32 = 7 as Int32;

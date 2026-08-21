@@ -1,4 +1,4 @@
-// M32-X13: Combinatorial + Differential — contract check vs manual check with generic+enum
+// M32-X13: Combinatorial + Differential -- contract check vs manual check with generic+enum
 fn safe_div(a: Int, b: Int) -> Int
   requires: b != 0
   ensures: result * b == a

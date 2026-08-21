@@ -1,4 +1,4 @@
-// M34-J04: Module with pub enum — public enum types in modules
+// M34-J04: Module with pub enum -- public enum types in modules
 module result {
   pub enum Status { Success, Failure(code: Int), Pending }
   pub fn ok() -> Status { return Status.Success; }

@@ -1,4 +1,4 @@
-// M35-T15: Derive[Eq] on struct — equality comparison
+// M35-T15: Derive[Eq] on struct -- equality comparison
 type Vec2 = { x: Int; y: Int; } derive[Eq]
 type Triple = { a: Int; b: Int; c: Int; } derive[Eq]
 fn main() -> Int {

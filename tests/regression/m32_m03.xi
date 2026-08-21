@@ -1,4 +1,4 @@
-// M32-M03: Private fn — private helper called by pub fn
+// M32-M03: Private fn -- private helper called by pub fn
 module secrets {
   fn double(x: Int) -> Int { return x * 2; }
   pub fn quadruple(x: Int) -> Int { return double(double(x)); }

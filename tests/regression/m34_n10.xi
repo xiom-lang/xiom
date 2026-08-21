@@ -1,4 +1,4 @@
-// M34-N10: Struct with multiple derives (Eq+Clone) — test both operations
+// M34-N10: Struct with multiple derives (Eq+Clone) -- test both operations
 type Item = { id: Int; value: Int; } derive[Eq, Clone]
 fn main() -> Int {
   var a = Item{ id: 1; value: 100; };

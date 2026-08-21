@@ -1,4 +1,4 @@
-// M35-A23: Is perfect square — check if n is a perfect square via integer sqrt
+// M35-A23: Is perfect square -- check if n is a perfect square via integer sqrt
 fn is_perfect_square(n: Int) -> Int {
   if n < 0 { return 0; }
   if n == 0 { return 1; }

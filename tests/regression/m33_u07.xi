@@ -1,4 +1,4 @@
-// M33-U07: Pointer arithmetic — use two pointers to adjacent vars
+// M33-U07: Pointer arithmetic -- use two pointers to adjacent vars
 fn main() -> Int {
   var a: Int = 10;
   var b: Int = 20;

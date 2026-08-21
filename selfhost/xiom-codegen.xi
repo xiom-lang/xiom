@@ -1,4 +1,4 @@
-// XIOM — Self-Hosted Codegen
+// XIOM -- Self-Hosted Codegen
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 

@@ -1,4 +1,4 @@
-// M36-S13: AST manipulation — fold (reduce) over an expression tree
+// M36-S13: AST manipulation -- fold (reduce) over an expression tree
 type FoldNode = { value: Int; kind: Int; }
 type FoldResult = { total: Int; max_val: Int; min_val: Int; count: Int; }
 fn make_fold_node(v: Int, k: Int) -> FoldNode {

@@ -1,4 +1,4 @@
-// M33-K16: Closure in while loop — accumulator pattern
+// M33-K16: Closure in while loop -- accumulator pattern
 fn main() -> Int {
   var i: Int = 0;
   var sum: Int = 0;

@@ -1,4 +1,4 @@
-// M35-A26: Exponent by squaring — fast binary exponentiation a^b % m
+// M35-A26: Exponent by squaring -- fast binary exponentiation a^b % m
 fn pow_mod(base: Int, exp: Int, m: Int) -> Int {
   var r: Int = 1;
   var b: Int = base % m;

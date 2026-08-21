@@ -1,4 +1,4 @@
-// M32: Int64 overflow — add near max wraps
+// M32: Int64 overflow -- add near max wraps
 fn main() -> Int {
   var a: Int64 = 9223372036854775807;
   var b: Int64 = 1;

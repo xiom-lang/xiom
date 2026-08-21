@@ -8,13 +8,13 @@ impl IrEmitter {
     /// returns the original value and type unchanged.
     /// 5c.29: Resolve a Vec receiver to a %struct.Vec* header POINTER for
     /// in-place mutation (insert/remove). For i64 container-field handles the
-    /// box pointer itself is returned (authoritative — no store-back needed,
+    /// box pointer itself is returned (authoritative -- no store-back needed,
     /// second tuple element is false). Otherwise the header value is copied
     /// into a fresh alloca and the caller must store the mutated header back
     /// via `store_back_to_receiver` (second tuple element is true).
     ///
     /// For simple local-variable Ident receivers, this creates a new alloca
-    /// each call — which leaks stack space when called in loops (R4 fix).
+    /// each call -- which leaks stack space when called in loops (R4 fix).
     /// Prefer `resolve_vec_push_ptr` for push/in-place mutating operations
     /// that may execute inside loops.
     pub(crate) fn resolve_vec_receiver_ptr(&mut self, receiver: &Expr) -> Result<(String, bool), String> {
@@ -27,11 +27,11 @@ impl IrEmitter {
         // 5c.30: Indexed Vec element (e.g. outer[0] where outer: Vec[Vec[Int]]).
         // The index returns a loaded struct. For mutation (push), we need a pointer
         // into the outer Vec's data buffer so changes persist.
-        // BUG 34: `bs[i].push(x)` — an INDEXED element of a Vec whose elements
+        // BUG 34: `bs[i].push(x)` -- an INDEXED element of a Vec whose elements
         // are Vecs. The element must be mutated IN the outer data buffer: the
         // element-address path (GEP) is authoritative for ALL Index receivers
         // on Vec containers, whether the compiled element is an i64 or a
-        // %struct.Vec — the old i64 branch inttoptr'd the ELEMENT VALUE as a
+        // %struct.Vec -- the old i64 branch inttoptr'd the ELEMENT VALUE as a
         // pointer (mutations hit garbage) and the %struct.Vec branch needed
         // the (often mis-inferred) struct type to fire at all.
         if let Expr::Index(container, idx, _) = receiver {
@@ -78,7 +78,7 @@ impl IrEmitter {
 
     /// R4 fix: Resolve a Vec receiver to a %struct.Vec* pointer for push/in-place
     /// mutation WITHOUT creating a per-call scratch alloca. For simple local
-    /// variables (Ident), returns the local's original alloca directly — avoiding
+    /// variables (Ident), returns the local's original alloca directly -- avoiding
     /// the dynamic-alloca-in-loop stack bloat that caused ACCESS_VIOLATION for
     /// large Vec push loops (>100K iterations).
     ///
@@ -94,7 +94,7 @@ impl IrEmitter {
                 // If the local is a direct %struct.Vec alloca, use it as-is.
                 if llvm_ty == "%struct.Vec" {
                     // The local's alloca already stores a %struct.Vec value.
-                    // Push modifies it in-place — no copy needed, no store-back needed.
+                    // Push modifies it in-place -- no copy needed, no store-back needed.
                     return Ok((alloca, false));
                 }
                 // If the local is a pointer to Vec (&mut Vec[T]), we need to
@@ -109,7 +109,7 @@ impl IrEmitter {
 
     /// 5c.30: Load a Vec element as an i64 Option payload. Scalars load
     /// directly (1/2/4/8-byte widths); STRUCT elements are heap-copied and
-    /// the pointer stored as the payload — matching the val_to_i64 boxing
+    /// the pointer stored as the payload -- matching the val_to_i64 boxing
     /// convention consumed by FIELD-I64 access (`popped.unwrap().x`).
     pub(crate) fn emit_elem_payload_load(&mut self, container: &Expr, elem_ptr: &str, esz_val: &str) -> String {
         if self.resolve_vec_elem_type(container).is_some() {
@@ -159,7 +159,7 @@ impl IrEmitter {
             self.emitln(&format!("  {vl} = load volatile %struct.Vec, %struct.Vec* {vp}"));
             return (vl, "%struct.Vec".to_string());
         }
-        // 5c.30: Indexed Vec element — inttoptr + load the struct.
+        // 5c.30: Indexed Vec element -- inttoptr + load the struct.
         if t == "i64" {
             if let Expr::Index(container, _, _) = receiver {
                 let cont_ty = self.infer_llvm_type(container);
@@ -172,7 +172,7 @@ impl IrEmitter {
                 }
             }
         }
-        // M33: Handle i64 returned from Result.unwrap() — inttoptr+load
+        // M33: Handle i64 returned from Result.unwrap() -- inttoptr+load
         // the boxed Vec struct so the caller can use it as a Vec.
         if t == "i64" && self.receiver_is_unwrap_of_vec(receiver) {
             let vp = self.fresh_tmp();
@@ -309,16 +309,16 @@ impl IrEmitter {
     }
 
     /// True when `ty` is the LLVM type of a builtin container VALUE or POINTER
-    /// whose leaf struct name is exactly `name` — bare ("%struct.Vec"),
+    /// whose leaf struct name is exactly `name` -- bare ("%struct.Vec"),
     /// module-qualified ("%struct.xiom.collections.Vec"), container-args
     /// ("%struct.Vec[Int]"/"%struct.Slice[Float64]"), or pointer forms.
-    /// round-8 (geom regression): the args-embedded form MUST match — an
+    /// round-8 (geom regression): the args-embedded form MUST match -- an
     /// indexed Vec element (`ac[0].len()`) types as "%struct.Vec[Int]" and
-    /// the OLD leaf test ("Vec[Int]" ≠ "Vec") skipped the inline Vec.len
+    /// the OLD leaf test ("Vec[Int]" = "Vec") skipped the inline Vec.len
     /// handler, falling into the generic leaf-match which mono'd a garbage
     /// "@Vec[Int].len_Int" symbol (brackets are invalid in LLVM identifiers).
     /// The round-7 `ty.contains("struct.Vec")` test matched VecDeque etc.
-    /// (the bug this helper replaced) — splitting on '[' keeps both fixed.
+    /// (the bug this helper replaced) -- splitting on '[' keeps both fixed.
     pub(crate) fn is_llvm_struct_named(ty: &str, name: &str) -> bool {
         let base = ty.trim_end_matches('*');
         let leaf = base.strip_prefix("%struct.").unwrap_or(base);
@@ -328,7 +328,7 @@ impl IrEmitter {
     }
 
     /// round-8 (rw1): AUTO-DEREF a reference-typed operand in VALUE positions.
-    /// `&T` compiles to the T slot's ADDRESS (i64 bits) — whether from
+    /// `&T` compiles to the T slot's ADDRESS (i64 bits) -- whether from
     /// `Some(&items[i])` payloads, `&local`, or `&self.field`. Consumers that
     /// treat the value as a T (strcmp content compare, icmp, arithmetic) must
     /// LOAD THROUGH the address once; the old code inttoptr'd the address and
@@ -375,7 +375,7 @@ impl IrEmitter {
             Err(_) => return (val.to_string(), llvm_ty.to_string()),
         };
         // The address may already be pointer-typed (i8** param, i64* param,
-        // i8* ref-local) or raw i64 bits (payload slots) — pointer-to-pointer
+        // i8* ref-local) or raw i64 bits (payload slots) -- pointer-to-pointer
         // casts must be bitcast, not inttoptr (invalid "cast from ptr to ptr").
         let p = self.fresh_tmp();
         if llvm_ty.ends_with('*') {
@@ -390,7 +390,7 @@ impl IrEmitter {
 
     /// B-007: wrap a RAW fn-REFERENCE value (a code address as i64) into a
     /// closure ENV struct (field 0 = the fn ptr) so fn-typed params receive
-    /// the uniform env convention — the callee's M20-A1 path loads field 0
+    /// the uniform env convention -- the callee's M20-A1 path loads field 0
     /// and calls it with the ENV PREPENDED. Plain fns have no env param, so
     /// the wrap installs a FORWARDING THUNK (define {ret} @thunk(i64 %env,
     /// args...) { ret @fn_ref(args...) }) that drops the env. Passing the raw
@@ -411,9 +411,9 @@ impl IrEmitter {
             .unwrap_or_else(|| fn_name.to_string());
         let symbol = self.mono.fn_symbol_map.get(&symbol).cloned().unwrap_or(symbol);
         // Defer the thunk DEF to module level (the emitter sits inside a fn
-        // body — the same pattern as the closure thunks in expr.rs).
+        // body -- the same pattern as the closure thunks in expr.rs).
         // The thunk's signature MATCHES the M20-A1 closure call convention:
-        // (i64 %__env, i64 %a0, ...) — the M20-A1 passes every arg as i64
+        // (i64 %__env, i64 %a0, ...) -- the M20-A1 passes every arg as i64
         // (the closure-param ABI). The fn-ref's OWN params (i64* for &Int)
         // are restored via inttoptr inside the thunk so the forward call
         // matches the def exactly (clang inlines alwaysinline comparators).
@@ -544,12 +544,12 @@ impl IrEmitter {
             }
             if let Some(base_ty) = self.infer_struct_type_name(base) {
                 // round-7 (ve2 regression): two structs can share a leaf name
-                // (collect.Graph vs math.graph_theory.Graph) — the OLD loop
+                // (collect.Graph vs math.graph_theory.Graph) -- the OLD loop
                 // `break`t at the FIRST suffix-matching key, so a field of the
                 // OTHER type ("edges" of graph_theory.Graph) was never found
                 // and `g.edges.push(...)` missed the inline Vec handler (fell
-                // into the generic leaf-match → @Graph.push_Int mono with a
-                // literal 0 receiver → invalid IR). Search ALL matching keys.
+                // into the generic leaf-match -> @Graph.push_Int mono with a
+                // literal 0 receiver -> invalid IR). Search ALL matching keys.
                 for key in self.types.type_meta.keys() {
                     if key.ends_with(&base_ty) || key == base_ty {
                         if let Some(meta) = self.types.type_meta.get(&key) {
@@ -558,7 +558,7 @@ impl IrEmitter {
                                     // round-9 (Set ABI): the field must be an
                                     // INLINE-handled container (Vec/Slice/Array).
                                     // The OLD `ftype.contains('[')` matched ANY
-                                    // generic field — a `Set[Int]` field made
+                                    // generic field -- a `Set[Int]` field made
                                     // `holder.s.insert(...)` fire the inline
                                     // Vec.insert on the %struct.Set (invalid IR).
                                     // Map/Set fields route through their own
@@ -612,7 +612,7 @@ impl IrEmitter {
     /// return an i64 HANDLE (ptrtoint of the box). Generic container struct
     /// fields are declared as i64 handles (5c.28h); every reader dereferences
     /// the handle (Index handler inttoptr+load, val_to_struct memcpy), so
-    /// writers must store a pointer to a stable heap header — storing the
+    /// writers must store a pointer to a stable heap header -- storing the
     /// 32-byte header by value into the 8-byte slot corrupted the stack and
     /// made readers interpret element data as a Vec header (NET/VECTOR/HTTP/
     /// SQLITE ACCESS_VIOLATION).
@@ -755,7 +755,7 @@ impl IrEmitter {
         self.emitln(&format!("  {src64} = bitcast i8* {src} to i64*"));
         self.emitln(&format!("  {load64} = load i64, i64* {src64}"));
         self.emitln(&format!("  br label %{done}"));
-        // Done — phi node merges the four paths (no alloca+store+load)
+        // Done -- phi node merges the four paths (no alloca+store+load)
         self.emitln(&format!("\n{done}:"));
         let loaded = self.fresh_tmp();
         self.emitln(&format!("  {loaded} = phi i64 [ {e1}, %{l1} ], [ {e2}, %{l2} ], [ {e4}, %{l4} ], [ {load64}, %{l8} ]"));

@@ -1,4 +1,4 @@
-// M32-M10: Module exports — multiple pub items exported
+// M32-M10: Module exports -- multiple pub items exported
 module exports {
   pub fn add(a: Int, b: Int) -> Int { return a + b; }
   pub fn mul(a: Int, b: Int) -> Int { return a * b; }

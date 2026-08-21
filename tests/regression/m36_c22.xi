@@ -1,4 +1,4 @@
-// M36-C22: Every pointer pattern — null pointer, deref, pointer arithmetic, pointer chain, pointer cast, pointer in struct
+// M36-C22: Every pointer pattern -- null pointer, deref, pointer arithmetic, pointer chain, pointer cast, pointer in struct
 type Node = { val: Int; next: *Node; }
 fn ptr_null() -> Bool {
   var p: *Int;

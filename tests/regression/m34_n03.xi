@@ -1,4 +1,4 @@
-// M34-N03: Enum with derive[Eq] — enum variant equality
+// M34-N03: Enum with derive[Eq] -- enum variant equality
 enum Color { Red, Green, Blue } derive[Eq]
 fn main() -> Int {
   var a = Color.Red;

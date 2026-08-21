@@ -1,4 +1,4 @@
-// M32-S15: Struct composition — build up from sub-structs with field manipulation
+// M32-S15: Struct composition -- build up from sub-structs with field manipulation
 type Header = { id: Int; version: Int; }
 type Body = { message: Str; count: Int; }
 type Packet = { header: Header; body: Body; }

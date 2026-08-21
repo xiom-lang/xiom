@@ -1,4 +1,4 @@
-// M34-J07: use module.Type — import specific types from modules
+// M34-J07: use module.Type -- import specific types from modules
 module data {
   pub type Record = { id: Int; name: Str; score: Float64; }
   pub fn make(id: Int, n: Str, s: Float64) -> Record {

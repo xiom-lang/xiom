@@ -1,4 +1,4 @@
-// M35-A14: Prime check — trial division up to sqrt(n)
+// M35-A14: Prime check -- trial division up to sqrt(n)
 fn is_prime(n: Int) -> Int {
   if n <= 1 { return 0; }
   if n <= 3 { return 1; }

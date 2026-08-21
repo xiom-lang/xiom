@@ -1,4 +1,4 @@
-﻿// XIOM â€” E2E Tests
+// XIOM -- E2E Tests
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -39,7 +39,7 @@ fn compile_and_run(source_path: &str) -> Option<i32> {
 /// `target/debug/xiom.exe` while this suite runs, so a compile can race a
 /// half-written compiler binary and emit corrupted IR (observed:
 /// e2e_p1_contract_methods failed 1-in-2240 with a compile that succeeded
-/// on immediate rerun — the same disambiguation the stdlib-exec suite uses).
+/// on immediate rerun -- the same disambiguation the stdlib-exec suite uses).
 /// A non-zero exit is recompiled fresh and rerun; only a REPEAT of the same
 /// code is accepted as real. Genuine compile failures (None) are never
 /// retried, so no real compiler bug is masked.
@@ -59,7 +59,7 @@ fn compile_and_run_with_flags(source_path: &str, extra_args: &[&str]) -> Option<
                     return retry;
                 }
             }
-            None => return result, // genuine compile failure — no retry masks it
+            None => return result, // genuine compile failure -- no retry masks it
         }
     }
     None
@@ -71,7 +71,7 @@ fn compile_and_run_once_with_flags(source_path: &str, extra_args: &[&str]) -> Op
     let exe_name = format!("e2e_{}{}", source.file_stem()?.to_str()?, exe_suffix);
 
     // BUG 40-era hardening (2026-08-17): a STALE exe from an interrupted
-    // run can hold the output path open — clang then fails with
+    // run can hold the output path open -- clang then fails with
     // "permission denied" writing the new binary (observed for
     // e2e_main.exe / e2e_t3-hot-reload.exe in parallel suites). Best
     // effort delete before compiling; ignore failure (a genuinely running
@@ -585,10 +585,10 @@ fn e2e_runtime_ir_declares_externs() {
 
 #[test]
 fn e2e_selfhost_v10_self_compile() {
-    // Phase 4: Self-hosting bootstrap — the self-hosted compiler crashes
+    // Phase 4: Self-hosting bootstrap -- the self-hosted compiler crashes
     // at runtime (ACCESS_VIOLATION). Enable with XIOM_SELFHOST=1.
     if std::env::var("XIOM_SELFHOST").is_err() {
-        eprintln!("  [SKIP] Selfhost v10 — enable with XIOM_SELFHOST=1 (Phase 4)");
+        eprintln!("  [SKIP] Selfhost v10 -- enable with XIOM_SELFHOST=1 (Phase 4)");
         return;
     }
     let output = std::process::Command::new(xiom_path())
@@ -612,11 +612,11 @@ fn e2e_selfhost_v10_self_compile() {
 
 #[test]
 fn e2e_selfhost_v10_self_compile_to_native() {
-    // Phase 4: Self-hosting bootstrap â€” the v10 selfhost compiler
+    // Phase 4: Self-hosting bootstrap -- the v10 selfhost compiler
     // generates IR that needs updating to work with the v2.0 runtime.
     // This test will be re-enabled after Phase 3 (Z3, debugger, LSP).
     if std::env::var("XIOM_SELFHOST").is_err() {
-        eprintln!("  [SKIP] Selfhost native compile â€” enable with XIOM_SELFHOST=1 (Phase 4)");
+        eprintln!("  [SKIP] Selfhost native compile -- enable with XIOM_SELFHOST=1 (Phase 4)");
         return;
     }
     let output = std::process::Command::new(xiom_path())
@@ -645,7 +645,7 @@ fn e2e_selfhost_v10_self_compile_to_native() {
 }
 
 // ============================================================================
-// E2E: Selfhost v11_test â€” Parameter-counting compiler for demo_float.xi
+// E2E: Selfhost v11_test -- Parameter-counting compiler for demo_float.xi
 // ============================================================================
 
 #[test]
@@ -677,7 +677,7 @@ fn e2e_selfhost_v11_self_run() {
         eprintln!("  [SKIP] Selfhost v11 -- enable with XIOM_SELFHOST=1 (Phase 4)");
         return;
     }
-    // Compile v11_test to binary, run it — it should emit IR for demo_float.xi functions
+    // Compile v11_test to binary, run it -- it should emit IR for demo_float.xi functions
     let output = Command::new(xiom_path())
         .args(["-o", "e2e_v11_self.exe", "selfhost\\xiomc_v11_test.xi"])
         .current_dir(project_root())
@@ -699,7 +699,7 @@ fn e2e_selfhost_v11_self_run() {
 }
 
 // ============================================================================
-// E2E: Selfhost v093 / v095 â€” Pipeline compilation checks
+// E2E: Selfhost v093 / v095 -- Pipeline compilation checks
 // ============================================================================
 
 #[test]
@@ -723,7 +723,7 @@ fn e2e_selfhost_v095_compiles() {
 }
 
 // ============================================================================
-// E2E: Multi-File Module Catalog â€” Regression Tests
+// E2E: Multi-File Module Catalog -- Regression Tests
 // ============================================================================
 
 /// Compile and run test_mod/math.xi. Verifies catalog resolves cross-file
@@ -764,7 +764,7 @@ fn e2e_multifile_benchmark_main_compiles() {
 }
 
 // ============================================================================
-// E2E: CLI Flags â€” Timeout & Memory
+// E2E: CLI Flags -- Timeout & Memory
 // NOTE: Watchdog thread tests are inherently racy and environment-dependent.
 // Flag parsing correctness is verified via --help output test below.
 // The flags are tested in isolation via unit/integration tests.
@@ -785,12 +785,12 @@ fn e2e_help_shows_timeout_and_memory_flags() {
 }
 
 // ============================================================================
-// E2E: Regression â€” method `match self` on enum receiver
+// E2E: Regression -- method `match self` on enum receiver
 // ============================================================================
 /// Regression: a method that pattern-matches `self` on an enum receiver must
 /// treat self as the typed struct, NOT a phantom `i64` duplicate param.
 /// Without the fix, variant patterns become variable bindings and arms return
-/// raw i64 discriminants â†’ `store %struct.X i64` (invalid IR).
+/// raw i64 discriminants -> `store %struct.X i64` (invalid IR).
 /// Returns exit code 0 when the fix is present.
 #[test]
 fn e2e_method_match_self_enum() {
@@ -799,7 +799,7 @@ fn e2e_method_match_self_enum() {
 }
 
 // ============================================================================
-// E2E: Regression suite for Tier 2 codegen fixes (hermetic â€” no stdlib needed
+// E2E: Regression suite for Tier 2 codegen fixes (hermetic -- no stdlib needed
 // except where noted). Each program returns 0 on success, nonzero on failure.
 // These lock in fixes that were hard-won during the stdlib execution work.
 // ============================================================================
@@ -882,7 +882,7 @@ fn e2e_ptr_deref() {
 }
 
 // ============================================================================
-// E2E: Regression â€” field assignment + store-back (Clusters 1-3 fixes)
+// E2E: Regression -- field assignment + store-back (Clusters 1-3 fixes)
 // ============================================================================
 
 /// Struct field assignment (`self.field = expr`) emits a store instruction
@@ -943,7 +943,7 @@ fn e2e_b003_option_str_method() {
 }
 
 /// DJB2 hash monomorphized through the Hash interface.
-/// Same input â†’ same hash; different inputs â†’ different hashes.
+/// Same input -> same hash; different inputs -> different hashes.
 #[test]
 fn e2e_djb2_hash() {
     assert_eq!(compile_and_run("examples\\e2e\\djb2_hash.xi"), Some(0),
@@ -973,7 +973,7 @@ fn e2e_combined_patterns() {
         "combined store_back + hash + generics should work together");
 }
 
-// â”€â”€ Ecosystem Hardening Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- Ecosystem Hardening Tests ------------------------------------------
 
 #[test]
 fn eco_algo_89_tests() {
@@ -1066,7 +1066,7 @@ fn e2e_enum_this_match() {
 
 #[test]
 fn e2e_vec_of_struct() {
-    // Regression: Vec-of-struct inline storage (5c.21 â€” size-aware
+    // Regression: Vec-of-struct inline storage (5c.21 -- size-aware
     // elem_size with memcpy push/store/load for multi-field structs).
     assert_eq!(compile_and_run("tests\\ecosystem\\test_vec_of_struct.xi"), Some(0),
         "ecosystem: Vec[Struct] push/index/pop with multi-field structs");
@@ -1079,7 +1079,7 @@ fn eco_ffi_binding_gaps() {
         "ecosystem: FFI binding gaps (unit in Result, pub const, extern)");
 }
 
-/// 5e.3 G-31: cross-package use resolution â€” a file in one directory uses
+/// 5e.3 G-31: cross-package use resolution -- a file in one directory uses
 /// a module in another directory via `use`. Locks in the catalog's recursive
 /// source_dir scanning + walk-up project root detection.
 #[test]
@@ -1088,18 +1088,18 @@ fn e2e_cross_package_use() {
         "G-31: cross-package use math_utils should compile and return 0");
 }
 
-/// 5e.3 G-30: cross-package extern resolution â€” extern "C" declarations
+/// 5e.3 G-30: cross-package extern resolution -- extern "C" declarations
 /// in one module propagate correctly when used from another module via `use`.
 #[test]
 fn e2e_cross_package_extern() {
-    // Uses the math_utils.xi in examples/e2e/cross_pkg/ â€” verifies
+    // Uses the math_utils.xi in examples/e2e/cross_pkg/ -- verifies
     // cross-directory resolution works for any file in the tree.
     let result = compile_and_run("examples\\e2e\\cross_pkg\\main.xi");
     assert_eq!(result, Some(0),
         "G-30/G-31: cross-package use+extern should compile and run");
 }
 
-/// 5e G-15: sret ABI â€” C struct return on Linux SysV. Small structs
+/// 5e G-15: sret ABI -- C struct return on Linux SysV. Small structs
 /// (<16 bytes) return in registers; large structs (>16 bytes) use sret.
 /// Verifies XIOM emits correct struct-return IR for both cases.
 #[test]
@@ -1119,7 +1119,7 @@ fn e2e_g15_sret_abi() {
         "struct pass+return must work:\n{ir}");
 }
 
-/// 5e G-40: repr(C) layout â€” mixed-width C struct fields. Verifies XIOM
+/// 5e G-40: repr(C) layout -- mixed-width C struct fields. Verifies XIOM
 /// emits correct LLVM struct layout for Int8/Int16/Int32/Int64/Float32/Float64.
 #[test]
 fn e2e_g40_repc_layout() {
@@ -1138,7 +1138,7 @@ fn e2e_g40_repc_layout() {
     assert!(ir.contains("double"), "Must have double field for Float64:\n{ir}");
 }
 
-/// 5e G-24: Float32 ARM ABI â€” Float32 operations must produce valid IR
+/// 5e G-24: Float32 ARM ABI -- Float32 operations must produce valid IR
 /// for ARM targets (IEEE 754 single-precision). Cross-compiled for
 /// aarch64-linux-gnu via clang to verify.
 #[test]
@@ -1159,7 +1159,7 @@ fn e2e_g24_float32_arm_abi() {
 }
 
 // ============================================================================
-// 6A.1: Type Checker Hardening â€” Self + Interface compatibility e2e tests
+// 6A.1: Type Checker Hardening -- Self + Interface compatibility e2e tests
 // ============================================================================
 
 /// Verify Self compatibility is maintained (existing test proves this).
@@ -1278,9 +1278,9 @@ fn compile_and_get_ir(source: &str) -> String {
     String::from_utf8_lossy(&output.stdout).to_string()
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// M16 â€” Compiler Hardening: zero warnings, clean exit codes
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ===================================================================
+// M16 -- Compiler Hardening: zero warnings, clean exit codes
+// ===================================================================
 
 /// M16: Hello World with stdlib imports must produce ZERO warnings.
 /// Before M16: 5 warnings (T, Vec[UInt8] repeated).
@@ -1306,7 +1306,7 @@ fn e2e_m16_void_main_exit_zero() {
 }
 
 /// M16: Concrete Option/Result types with struct payloads work correctly.
-/// The 'J' type name is a single uppercase letter â€” tests registry-aware
+/// The 'J' type name is a single uppercase letter -- tests registry-aware
 /// struct detection (was broken: is_struct_type_name rejected single-char names).
 #[test]
 fn e2e_m16_option_struct_payload() {
@@ -1329,7 +1329,7 @@ fn e2e_m16_option_none() {
     assert_eq!(result, Some(0), "Option[P].is_none must return true for None");
 }
 
-/// M16: Result concrete type with struct payload â€” is_err should work.
+/// M16: Result concrete type with struct payload -- is_err should work.
 #[test]
 fn e2e_m16_result_struct_err() {
     let source = "type E = { code: Int; } fn f() -> Result[Int, E] { return Err(E { code: 1; }); } fn main() -> Int { let r = f(); if r.is_err { return 0; } return 1; }";
@@ -1454,10 +1454,10 @@ fn e2e_m19_enum_same_field_types() {
 }
 
 // ============================================================================
-// CTFE Phase A E2E Tests — Compile-Time Function Evaluation
+// CTFE Phase A E2E Tests -- Compile-Time Function Evaluation
 // ============================================================================
 
-/// CTFE-A: Comprehensive const evaluation — arithmetic, comparison, boolean,
+/// CTFE-A: Comprehensive const evaluation -- arithmetic, comparison, boolean,
 /// unary, const refs, if/else folding, builtins, const blocks.
 #[test]
 fn e2e_ctfe_phase_a_full() {
@@ -1468,7 +1468,7 @@ fn e2e_ctfe_phase_a_full() {
     );
 }
 
-/// CTFE-A: Builtins with struct types — sizeof, align_of, field_offset
+/// CTFE-A: Builtins with struct types -- sizeof, align_of, field_offset
 #[test]
 fn e2e_ctfe_builtins_struct() {
     assert_eq!(
@@ -1478,7 +1478,7 @@ fn e2e_ctfe_builtins_struct() {
     );
 }
 
-/// CTFE-B: Function evaluation — factorial, fibonacci, loops, branching
+/// CTFE-B: Function evaluation -- factorial, fibonacci, loops, branching
 #[test]
 fn e2e_ctfe_phase_b_functions() {
     assert_eq!(
@@ -1492,7 +1492,7 @@ fn e2e_ctfe_phase_b_functions() {
 // v0.55 Inline ASM E2E Tests
 // ============================================================================
 
-/// ASM: Basic inline assembly — nop, mov, constraints, clobbers
+/// ASM: Basic inline assembly -- nop, mov, constraints, clobbers
 #[test]
 fn e2e_asm_basic() {
     assert_eq!(
@@ -1522,7 +1522,7 @@ fn e2e_spawn_basic() {
     );
 }
 
-/// R2: Spawn capture — outer variables forwarded via heap-allocated env struct
+/// R2: Spawn capture -- outer variables forwarded via heap-allocated env struct
 #[test]
 fn e2e_spawn_capture() {
     assert_eq!(
@@ -1532,7 +1532,7 @@ fn e2e_spawn_capture() {
     );
 }
 
-/// I1: Send enforcement — Int captures are Send (must compile and run)
+/// I1: Send enforcement -- Int captures are Send (must compile and run)
 #[test]
 fn e2e_send_capture_ok() {
     assert_eq!(
@@ -1542,7 +1542,7 @@ fn e2e_send_capture_ok() {
     );
 }
 
-/// I1: Send enforcement — struct with primitives is Send (must compile and run)
+/// I1: Send enforcement -- struct with primitives is Send (must compile and run)
 #[test]
 fn e2e_send_struct_ok() {
     assert_eq!(
@@ -1556,7 +1556,7 @@ fn e2e_send_struct_ok() {
 // Chaos Benchmark E2E Tests
 // ============================================================================
 
-/// Chaos t1: Buddy allocator — 1M Vec elements + buddy splitting/coalescing
+/// Chaos t1: Buddy allocator -- 1M Vec elements + buddy splitting/coalescing
 /// Regression test for R4 (dynamic alloca in Vec::push) and R5 (recursion counter leak)
 #[test]
 fn e2e_chaos_t1_allocator() {
@@ -1569,7 +1569,7 @@ fn e2e_chaos_t1_allocator() {
     );
 }
 
-/// Chaos t2: SPSC concurrent queue — 1M enqueue/dequeue + AtomicInt ops
+/// Chaos t2: SPSC concurrent queue -- 1M enqueue/dequeue + AtomicInt ops
 /// Regression test for R4 (dynamic alloca in Vec::push) and R5 (recursion counter leak)
 #[test]
 fn e2e_chaos_t2_queue() {
@@ -1580,7 +1580,7 @@ fn e2e_chaos_t2_queue() {
     );
 }
 
-/// Chaos t3: Hot-reload module loader — 1000 load/call/reload cycles
+/// Chaos t3: Hot-reload module loader -- 1000 load/call/reload cycles
 #[test]
 fn e2e_chaos_t3_hot_reload() {
     assert_eq!(
@@ -1590,7 +1590,7 @@ fn e2e_chaos_t3_hot_reload() {
     );
 }
 
-/// Chaos t4: TCP packet parser — 1M packet updates
+/// Chaos t4: TCP packet parser -- 1M packet updates
 #[test]
 fn e2e_chaos_t4_packet() {
     assert_eq!(
@@ -1600,7 +1600,7 @@ fn e2e_chaos_t4_packet() {
     );
 }
 
-/// Chaos t5: B-tree file index — 50K inserts + 20K lookups
+/// Chaos t5: B-tree file index -- 50K inserts + 20K lookups
 #[test]
 fn e2e_chaos_t5_btree() {
     assert_eq!(
@@ -1610,7 +1610,7 @@ fn e2e_chaos_t5_btree() {
     );
 }
 
-/// I2: Parallel codegen — verify all 5 chaos tasks compile correctly with --parallel-codegen
+/// I2: Parallel codegen -- verify all 5 chaos tasks compile correctly with --parallel-codegen
 #[test]
 fn e2e_i2_parallel_codegen() {
     // Internal copies of the benchmark patterns (UTF-8) so the test does not
@@ -1631,7 +1631,7 @@ fn e2e_i2_parallel_codegen() {
     }
 }
 
-/// Systems-arena t8: Safety probe — must compile + output valid JSON
+/// Systems-arena t8: Safety probe -- must compile + output valid JSON
 #[test]
 fn e2e_safety_probe() {
     // Uses the internal copy of the safety-probe pattern (UTF-8) so the test
@@ -1644,7 +1644,7 @@ fn e2e_safety_probe() {
 }
 
 // ============================================================================
-// M20-A1 E2E Tests — Closure Codegen
+// M20-A1 E2E Tests -- Closure Codegen
 // ============================================================================
 
 #[test] fn e2e_m20_closure_capture()      { assert_eq!(compile_and_run("tests\\regression\\m20_closure_capture.xi"),       Some(0)); }
@@ -1655,7 +1655,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m20_closure_multi_capture(){ assert_eq!(compile_and_run("tests\\regression\\m20_closure_multi_capture.xi"), Some(0)); }
 
 // ============================================================================
-// v0.56 E2E Tests — Production Polish
+// v0.56 E2E Tests -- Production Polish
 // ============================================================================
 
 /// Spawn with multiple captures (3 Int vars forwarded via env struct)
@@ -1694,7 +1694,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m20_impl_two_methods()  { assert_eq!(compile_and_run("tests\\regression\\m20_impl_two_methods.xi"),   Some(0)); }
 #[test] fn e2e_m20_impl_generic()      { assert_eq!(compile_and_run("tests\\regression\\m20_impl_generic.xi"),       Some(0)); }
 
-// M20: Hardening tests â€” edge cases and stress
+// M20: Hardening tests -- edge cases and stress
 #[test] fn e2e_m20_harden_recursion()      { assert_eq!(compile_and_run("tests\\regression\\m20_harden_recursion.xi"),       Some(0)); }
 #[test] fn e2e_m20_harden_many_variants()  { assert_eq!(compile_and_run("tests\\regression\\m20_harden_many_variants.xi"),   Some(0)); }
 #[test] fn e2e_m20_harden_nested_struct()  { assert_eq!(compile_and_run("tests\\regression\\m20_harden_nested_struct.xi"),   Some(0)); }
@@ -1705,7 +1705,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m20_harden_option_chain()   { assert_eq!(compile_and_run("tests\\regression\\m20_harden_option_chain.xi"),    Some(0)); }
 #[test] fn e2e_m20_harden_control_flow()   { assert_eq!(compile_and_run("tests\\regression\\m20_harden_control_flow.xi"),    Some(0)); }
 
-// M20: Edge case tests â€” production-grade hardening
+// M20: Edge case tests -- production-grade hardening
 #[test] fn e2e_m20_edge_ffi_null()        { assert_eq!(compile_and_run("tests\\regression\\m20_edge_ffi_null.xi"),         Some(0)); }
 #[test] fn e2e_m20_edge_float_precision() { assert_eq!(compile_and_run("tests\\regression\\m20_edge_float_precision.xi"),  Some(0)); }
 #[test] fn e2e_m20_edge_deep_pattern()    { assert_eq!(compile_and_run("tests\\regression\\m20_edge_deep_pattern.xi"),     Some(0)); }
@@ -1793,7 +1793,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m20_stress_option_as_param(){ assert_eq!(compile_and_run("tests\\regression\\m20_stress_option_as_param.xi"), Some(0)); }
 #[test] fn e2e_m20_edge_type_alias()      { assert_eq!(compile_and_run("tests\\regression\\m20_edge_type_alias.xi"),       Some(0)); }
 
-// â”€â”€ M22 E2E: Compiler Correctness â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M22 E2E: Compiler Correctness -------------------------------------
 // M22-1: Integer type edge cases
 #[test] fn e2e_m22_int8_bounds()          { assert_eq!(compile_and_run("tests\\regression\\m22_int8_bounds.xi"),           Some(0)); }
 #[test] fn e2e_m22_uint8_max()            { assert_eq!(compile_and_run("tests\\regression\\m22_uint8_max.xi"),             Some(0)); }
@@ -1815,42 +1815,42 @@ fn e2e_safety_probe() {
 // M22-7: Pattern
 #[test] fn e2e_m22_pattern_guard()        { assert_eq!(compile_and_run("tests\\regression\\m22_pattern_guard.xi"),         Some(0)); }
 
-// â”€â”€ M24: Stress & Robustness E2E â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M24: Stress & Robustness E2E --------------------------------------
 #[test] fn e2e_m24_many_functions()       { assert_eq!(compile_and_run("tests\\regression\\m24_many_functions.xi"),        Some(0)); }
 #[test] fn e2e_m24_deep_recursion()       { assert_eq!(compile_and_run("tests\\regression\\m24_deep_recursion.xi"),        Some(0)); }
 #[test] fn e2e_m24_type_stress()          { assert_eq!(compile_and_run("tests\\regression\\m24_type_stress.xi"),           Some(0)); }
 #[test] fn e2e_m24_branch_stress()        { assert_eq!(compile_and_run("tests\\regression\\m24_branch_stress.xi"),         Some(0)); }
 
-// â”€â”€ M25: Contracts & Verification E2E â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M25: Contracts & Verification E2E ---------------------------------
 #[test] fn e2e_m25_contract_divide()       { assert_eq!(compile_and_run("tests\\regression\\m25_contract_divide.xi"),        Some(0)); }
 #[test] fn e2e_m25_contract_transfer()     { assert_eq!(compile_and_run("tests\\regression\\m25_contract_transfer.xi"),      Some(0)); }
 #[test] fn e2e_m25_invariant_positive()   { assert_eq!(compile_and_run("tests\\regression\\m25_invariant_positive.xi"),    Some(0)); }
 #[test] fn e2e_m25_contract_clamp()       { assert_eq!(compile_and_run("tests\\regression\\m25_contract_clamp.xi"),        Some(0)); }
 
-// â”€â”€ M29: Final Edge Cases E2E â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M29: Final Edge Cases E2E -----------------------------------------
 #[test] fn e2e_m29_compound_assign()      { assert_eq!(compile_and_run("tests\\regression\\m29_compound_assign.xi"),       Some(0)); }
 #[test] fn e2e_m29_loop_control()         { assert_eq!(compile_and_run("tests\\regression\\m29_loop_control.xi"),          Some(0)); }
 #[test] fn e2e_m29_if_expression()        { assert_eq!(compile_and_run("tests\\regression\\m29_if_expression.xi"),         Some(0)); }
 #[test] fn e2e_m29_type_alias()           { assert_eq!(compile_and_run("tests\\regression\\m29_type_alias.xi"),            Some(0)); }
 
-// â”€â”€ M28: Compiler Performance & Optimization E2E â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M28: Compiler Performance & Optimization E2E ----------------------
 #[test] fn e2e_m28_diff_loop_formula()    { assert_eq!(compile_and_run("tests\\regression\\m28_diff_loop_formula.xi"),     Some(0)); }
 #[test] fn e2e_m28_diff_factorial()       { assert_eq!(compile_and_run("tests\\regression\\m28_diff_factorial.xi"),        Some(0)); }
 #[test] fn e2e_m28_diff_commute()         { assert_eq!(compile_and_run("tests\\regression\\m28_diff_commute.xi"),          Some(0)); }
 #[test] fn e2e_m28_large_chain()          { assert_eq!(compile_and_run("tests\\regression\\m28_large_chain.xi"),           Some(0)); }
 
-// â”€â”€ M30: Release Readiness E2E â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M30: Release Readiness E2E ----------------------------------------
 #[test] fn e2e_m30_diff_if_match()        { assert_eq!(compile_and_run("tests\\regression\\m30_diff_if_match.xi"),         Some(0)); }
 #[test] fn e2e_m30_diff_gcd()             { assert_eq!(compile_and_run("tests\\regression\\m30_diff_gcd.xi"),              Some(0)); }
 #[test] fn e2e_m30_all_primitives()       { assert_eq!(compile_and_run("tests\\regression\\m30_all_primitives.xi"),        Some(0)); }
 #[test] fn e2e_m30_struct_derive_eq()     { assert_eq!(compile_and_run("tests\\regression\\m30_struct_derive_eq.xi"),      Some(0)); }
 
-// â”€â”€ M31: Combinatorial stress E2E â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M31: Combinatorial stress E2E -------------------------------------
 #[test] fn e2e_m31_diff_sum()             { assert_eq!(compile_and_run("tests\\regression\\m31_diff_sum.xi"),              Some(0)); }
 #[test] fn e2e_m31_diff_fib()             { assert_eq!(compile_and_run("tests\\regression\\m31_diff_fib.xi"),              Some(0)); }
 #[test] fn e2e_m31_all_types()            { assert_eq!(compile_and_run("tests\\regression\\m31_all_types.xi"),             Some(0)); }
 
-// â”€â”€ M32: Integer Types Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M32: Integer Types Stress Tests -----------------------------------
 // Int8 min/max, arithmetic, overflow
 #[test] fn e2e_m32_int_0001() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0001.xi"), Some(0)); }
 #[test] fn e2e_m32_int_0002() { assert_eq!(compile_and_run("tests\\regression\\m32_int_0002.xi"), Some(0)); }
@@ -2305,7 +2305,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m21_string_018() { assert_eq!(compile_and_run("tests\\regression\\m21_string_018.xi"), Some(0)); }
 #[test] fn e2e_m21_string_019() { assert_eq!(compile_and_run("tests\\regression\\m21_string_019.xi"), Some(0)); }
 
-// â”€â”€ M32-S: Struct Types Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M32-S: Struct Types Stress Tests ------------------------------------
 // Basic struct, nested structs, field copy, all primitives, array-like,
 // derive[Eq], struct return, struct param, spread, deep nesting,
 // mutation, multi-type interaction, Float64 arithmetic, mixed types, composition
@@ -2325,7 +2325,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m32_s14() { assert_eq!(compile_and_run("tests\\regression\\m32_s14.xi"), Some(0)); }
 #[test] fn e2e_m32_s15() { assert_eq!(compile_and_run("tests\\regression\\m32_s15.xi"), Some(0)); }
 
-// â”€â”€ M32: Float Types Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M32: Float Types Stress Tests ------------------------------------
 // Float64 arithmetic
 #[test] fn e2e_m32_f01() { assert_eq!(compile_and_run("tests\\regression\\m32_f01.xi"), Some(0)); }
 // Float64 comparisons
@@ -2405,7 +2405,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m32_i14() { assert_eq!(compile_and_run("tests\\regression\\m32_i14.xi"), Some(0)); }
 #[test] fn e2e_m32_i15() { assert_eq!(compile_and_run("tests\\regression\\m32_i15.xi"), Some(0)); }
 
-// â”€â”€ M32: Control Flow / Loop Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M32: Control Flow / Loop Tests -----------------------------------
 // while loop sum
 #[test] fn e2e_m32_l01() { assert_eq!(compile_and_run("tests\\regression\\m32_l01.xi"), Some(0)); }
 // while+break at threshold
@@ -2437,7 +2437,7 @@ fn e2e_safety_probe() {
 // for-in with break
 #[test] fn e2e_m32_l15() { assert_eq!(compile_and_run("tests\\regression\\m32_l15.xi"), Some(0)); }
 
-// â”€â”€ M32: String / Char / Unicode Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M32: String / Char / Unicode Tests --------------------------------
 // string literal
 #[test] fn e2e_m32_t01() { assert_eq!(compile_and_run("tests\\regression\\m32_t01.xi"), Some(0)); }
 // char literal
@@ -2458,7 +2458,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m32_t09() { assert_eq!(compile_and_run("tests\\regression\\m32_t09.xi"), Some(0)); }
 // multi-char string
 #[test] fn e2e_m32_t10() { assert_eq!(compile_and_run("tests\\regression\\m32_t10.xi"), Some(0)); }
-// unicode char 'Î»'
+// unicode char 'lambda'
 #[test] fn e2e_m32_t11() { assert_eq!(compile_and_run("tests\\regression\\m32_t11.xi"), Some(0)); }
 // escaped string with \n \t
 #[test] fn e2e_m32_t12() { assert_eq!(compile_and_run("tests\\regression\\m32_t12.xi"), Some(0)); }
@@ -2469,7 +2469,7 @@ fn e2e_safety_probe() {
 // string parameter/return
 #[test] fn e2e_m32_t15() { assert_eq!(compile_and_run("tests\\regression\\m32_t15.xi"), Some(0)); }
 
-// â”€â”€ M32-G: Generic Types & Traits Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M32-G: Generic Types & Traits Stress Tests --------------------------
 // Identity generic, two-param generic, generic struct, generic enum,
 // constrained generic, multi-constraint, method on generic, generic return,
 // nested Vec, generic array access, type alias, max comparator,
@@ -2490,7 +2490,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m32_g14() { assert_eq!(compile_and_run("tests\\regression\\m32_g14.xi"), Some(0)); }
 #[test] fn e2e_m32_g15() { assert_eq!(compile_and_run("tests\\regression\\m32_g15.xi"), Some(0)); }
 
-// â”€â”€ M32-M: Module System Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M32-M: Module System Tests ------------------------------------------
 // Module declaration, pub fn visibility, private fn, use module,
 // use type alias, dotted path access, pub const, pub type,
 // nested modules, module exports
@@ -2510,7 +2510,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m32_m14() { assert_eq!(compile_and_run("tests\\regression\\m32_m14.xi"), Some(0)); }
 #[test] fn e2e_m32_m15() { assert_eq!(compile_and_run("tests\\regression\\m32_m15.xi"), Some(0)); }
 
-// â”€â”€ M32-X: Combinatorial + Differential Correctness Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M32-X: Combinatorial + Differential Correctness Tests ----------------
 // Each test mixes struct+enum+match+generic+contract and verifies
 // two equivalent implementations produce the same result.
 #[test] fn e2e_m32_x01() { assert_eq!(compile_and_run("tests\\regression\\m32_x01.xi"), Some(0)); }
@@ -2529,7 +2529,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m32_x14() { assert_eq!(compile_and_run("tests\\regression\\m32_x14.xi"), Some(0)); }
 #[test] fn e2e_m32_x15() { assert_eq!(compile_and_run("tests\\regression\\m32_x15.xi"), Some(0)); }
 
-// â”€â”€ M33-Y: Deep Combinatorial Stress (7+ features per test) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M33-Y: Deep Combinatorial Stress (7+ features per test) -------------
 // Each test combines: struct + enum + generic + match + contract + method + module
 // with differential testing (two+ implementations produce the same result).
 #[test] fn e2e_m33_y01() { assert_eq!(compile_and_run("tests\\regression\\m33_y01.xi"), Some(0)); }
@@ -2553,7 +2553,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m33_y19() { assert_eq!(compile_and_run("tests\\regression\\m33_y19.xi"), Some(0)); }
 #[test] fn e2e_m33_y20() { assert_eq!(compile_and_run("tests\\regression\\m33_y20.xi"), Some(0)); }
 
-// â”€â”€ M33-K: Closure / Function Pointer Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M33-K: Closure / Function Pointer Tests ----------------------------
 // Pipe closures, block closures, function pointer types, higher-order,
 // closure chains, generic closures, struct fields, early return,
 // match arms, while loops, compound ops, returning closures
@@ -2599,7 +2599,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m33_r19() { assert_eq!(compile_and_run("tests\\regression\\m33_r19.xi"), Some(0)); }
 #[test] fn e2e_m33_r20() { assert_eq!(compile_and_run("tests\\regression\\m33_r20.xi"), Some(0)); }
 
-// â”€â”€ M33-A: Array / Slice Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M33-A: Array / Slice Stress Tests ---------------------------------
 // Array creation, indexing, length, Int/Float64/Bool/Str arrays,
 // array in struct, array in function param, array return,
 // multi-dimensional patterns, bounds checking, very large array,
@@ -2626,7 +2626,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m33_a19() { assert_eq!(compile_and_run("tests\\regression\\m33_a19.xi"), Some(0)); }
 #[test] fn e2e_m33_a20() { assert_eq!(compile_and_run("tests\\regression\\m33_a20.xi"), Some(0)); }
 
-// â”€â”€ M33-U: Unsafe / FFI Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M33-U: Unsafe / FFI Stress Tests ---------------------------------
 // unsafe {} block, extern "C" {}, pointer creation/deref/arith,
 // null ptr, ptr to struct, ptr cast, mixed safe/unsafe, ptr chain,
 // ptr to array, ptr with contract
@@ -2651,7 +2651,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m33_u19() { assert_eq!(compile_and_run("tests\\regression\\m33_u19.xi"), Some(0)); }
 #[test] fn e2e_m33_u20() { assert_eq!(compile_and_run("tests\\regression\\m33_u20.xi"), Some(0)); }
 
-// â”€â”€ M33-B: Borrow & Ownership Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M33-B: Borrow & Ownership Stress Tests -------------------------------
 // Read borrow on local, write borrow on local, multiple read borrows,
 // exclusive write borrow, borrow through function param, struct field
 // access through borrow, return a value (move), clone to duplicate,
@@ -2680,9 +2680,9 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m33_b19() { assert_eq!(compile_and_run("tests\\regression\\m33_b19.xi"), Some(0)); }
 #[test] fn e2e_m33_b20() { assert_eq!(compile_and_run("tests\\regression\\m33_b20.xi"), Some(0)); }
 
-// â”€â”€ M33-P: Large Program Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M33-P: Large Program Stress Tests ---------------------------------
 // Each file: 500+ lines, 30-fn chain, 20 struct types, 15 enum types,
-// 10 const declarations, 5 modules, deep call chain (fn0â†’...â†’fn20),
+// 10 const declarations, 5 modules, deep call chain (fn0->...->fn20),
 // wide function table (50 one-line fns), complex type graph (10+ types),
 // large match expression (20 arms), many local variables (50 per fn),
 // deeply nested blocks (10 levels), interleaved declarations,
@@ -2708,22 +2708,22 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m33_p19() { assert_eq!(compile_and_run("tests\\regression\\m33_p19.xi"), Some(0)); }
 #[test] fn e2e_m33_p20() { assert_eq!(compile_and_run("tests\\regression\\m33_p20.xi"), Some(0)); }
 
-// â”€â”€ M34-N2: Deep Nesting Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M34-N2: Deep Nesting Stress Tests ---------------------------------
 // 01: 10-deep if-else chain
 // 02: 10-deep while-with-while loop (2^10 = 1024 iterations)
 // 03: 20-deep addition expression ((((1+2)+3)...+20) = 210
-// 04: 5-level nested generic type chain L1[T]â†’L2â†’L3â†’L4â†’L5[T]
+// 04: 5-level nested generic type chain L1[T]->L2->L3->L4->L5[T]
 // 05: Nested enum in enum in enum (3 levels)
-// 06: 6-level nested struct S1â†’S2â†’S3â†’S4â†’S5â†’S6
+// 06: 6-level nested struct S1->S2->S3->S4->S5->S6
 // 07: 4-level nested match E1 inside E2 inside E3 inside E4
 // 08: 10-level nested blocks
 // 09: Array-of-array-of-array via chained vec indexing
-// 10: Function factory pattern â€” closure returned from function
+// 10: Function factory pattern -- closure returned from function
 // 11: Closure in closure capturing outer scope
-// 12: 5-level nested modules m1â†’m2â†’m3â†’m4â†’m5
-// 13: Borrow-in-borrow pattern &T â†’ &U chain
-// 14: Multi-contract nesting â€” requires/ensures chain
-// 15: 8-level type alias chain T0â†’T1â†’...â†’T7
+// 12: 5-level nested modules m1->m2->m3->m4->m5
+// 13: Borrow-in-borrow pattern &T -> &U chain
+// 14: Multi-contract nesting -- requires/ensures chain
+// 15: 8-level type alias chain T0->T1->...->T7
 // 16: 10-deep while-with-if alternating nesting
 // 17: Deep match-with-if interleaved nesting
 // 18: Deep tuple-like nesting via layered struct pairs
@@ -2750,8 +2750,8 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m34_n2_19() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_19.xi"), Some(0)); }
 #[test] fn e2e_m34_n2_20() { assert_eq!(compile_and_run("tests\\regression\\m34_n2_20.xi"), Some(0)); }
 
-// â”€â”€ M34-Q: Contract Chain Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// q01: Chained requires chain (fn a requires â†’ fn b requires â†’ fn c)
+// -- M34-Q: Contract Chain Stress Tests --------------------------------
+// q01: Chained requires chain (fn a requires -> fn b requires -> fn c)
 #[test] fn e2e_m34_q01() { assert_eq!(compile_and_run("tests\\regression\\m34_q01.xi"), Some(0), "q01: chained requires"); }
 // q02: Chained ensures propagated through call chain
 #[test] fn e2e_m34_q02() { assert_eq!(compile_and_run("tests\\regression\\m34_q02.xi"), Some(0), "q02: chained ensures"); }
@@ -2761,7 +2761,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m34_q04() { assert_eq!(compile_and_run("tests\\regression\\m34_q04.xi"), Some(0), "q04: contract+method"); }
 // q05: Contract + invariant on struct
 #[test] fn e2e_m34_q05() { assert_eq!(compile_and_run("tests\\regression\\m34_q05.xi"), Some(0), "q05: contract+invariant+struct"); }
-// q06: Contract runtime â€” valid paths pass, contract protects invariants
+// q06: Contract runtime -- valid paths pass, contract protects invariants
 #[test] fn e2e_m34_q06() { assert_eq!(compile_and_run("tests\\regression\\m34_q06.xi"), Some(0), "q06: contract runtime"); }
 // q07: Contract with Option types
 #[test] fn e2e_m34_q07() { assert_eq!(compile_and_run("tests\\regression\\m34_q07.xi"), Some(0), "q07: contract+Option"); }
@@ -2792,7 +2792,7 @@ fn e2e_safety_probe() {
 // q20: Combined mega stress (struct+enum+generic+module+method+closure+recursion+Option+Result+float+array)
 #[test] fn e2e_m34_q20() { assert_eq!(compile_and_run("tests\\regression\\m34_q20.xi"), Some(0), "q20: all patterns combined"); }
 
-// â”€â”€ M34-O: Error Propagation Chain Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M34-O: Error Propagation Chain Tests -------------------------------
 // ? operator on Result[T,E]: simple ? Ok, ? Err, 2-/3-/5-chain,
 // ? in Result fn, Option propagation, mixed with match/if-guard/loop,
 // early return, compound expr, generic result, custom error type,
@@ -2818,7 +2818,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m34_o19() { assert_eq!(compile_and_run("tests\\regression\\m34_o19.xi"), Some(0)); }
 #[test] fn e2e_m34_o20() { assert_eq!(compile_and_run("tests\\regression\\m34_o20.xi"), Some(0)); }
 
-// â”€â”€ M34-V: Float Special Values Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M34-V: Float Special Values Stress Tests ---------------------------
 // Very large/small values, zero/negative-zero, addition/multiplication
 // precision, division, Int-Float boundary, comparisons, epsilon equality,
 // multiply-accumulate, struct field, generic, const, parameter chain,
@@ -2844,7 +2844,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m34_v19() { assert_eq!(compile_and_run("tests\\regression\\m34_v19.xi"), Some(0)); }
 #[test] fn e2e_m34_v20() { assert_eq!(compile_and_run("tests\\regression\\m34_v20.xi"), Some(0)); }
 
-// â”€â”€ M34-N: Derive Operations Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M34-N: Derive Operations Stress Tests ---------------------------------
 // Tests: derive[Eq], derive[Clone], derive[Display], derive[Hash],
 // derive[Ord], derive[Debug] with structs, enums, generics, nesting.
 #[test] fn e2e_m34_n01() { assert_eq!(compile_and_run("tests\\regression\\m34_n01.xi"), Some(0)); }
@@ -2868,7 +2868,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m34_n19() { assert_eq!(compile_and_run("tests\\regression\\m34_n19.xi"), Some(0)); }
 #[test] fn e2e_m34_n20() { assert_eq!(compile_and_run("tests\\regression\\m34_n20.xi"), Some(0)); }
 
-// â”€â”€ M34-H: Type Coercion / Casting Edge Cases â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M34-H: Type Coercion / Casting Edge Cases --------------------------
 // Int8->Int16->Int32->Int64 chain, Int64->Int32->Int16->Int8 truncation,
 // unsigned <-> signed, Float64<->Int, Float<->Float narrowing/widening,
 // Char<->Int, Bool<->Int, cast in expression chain, function call,
@@ -2895,7 +2895,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m34_h19() { assert_eq!(compile_and_run("tests\\regression\\m34_h19.xi"), Some(0)); }
 #[test] fn e2e_m34_h20() { assert_eq!(compile_and_run("tests\\regression\\m34_h20.xi"), Some(0)); }
 
-// â”€â”€ M34-J: Cross-Module Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M34-J: Cross-Module Stress Tests ----------------------------------
 // Multiple modules in one file, pub fn/type/enum/const, use/use.Type/use as alias,
 // dotted paths, nested modules (3+), re-export, private fn,
 // cross-module type references, generics, contracts, invariants, derive, methods, all combined
@@ -2920,7 +2920,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m34_j19() { assert_eq!(compile_and_run("tests\\regression\\m34_j19.xi"), Some(0)); }
 #[test] fn e2e_m34_j20() { assert_eq!(compile_and_run("tests\\regression\\m34_j20.xi"), Some(0)); }
 
-// â”€â”€ M34-W: Bitwise/Bit-Level Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M34-W: Bitwise/Bit-Level Stress Tests ------------------------------
 // Operators: & | ^ ~ << >> on Int,Int8,Int16,Int32,Int64,UInt,UInt8,UInt16,UInt32
 // w01: AND identity (x & -1 == x) on Int,Int8,Int16,Int32,Int64
 #[test] fn e2e_m34_w01() { assert_eq!(compile_and_run("tests\\regression\\m34_w01.xi"), Some(0)); }
@@ -2963,7 +2963,7 @@ fn e2e_safety_probe() {
 // w20: Comprehensive bitwise stress (all operators on all 9 integer types)
 #[test] fn e2e_m34_w20() { assert_eq!(compile_and_run("tests\\regression\\m34_w20.xi"), Some(0)); }
 
-// â”€â”€ M34-Y: Fuzzing-Style Combinatorial Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M34-Y: Fuzzing-Style Combinatorial Stress Tests ------------------
 // Each test randomly combines 5-8 language features in unusual patterns:
 // struct, enum, match, while, if, closures, generics, contracts,
 // arrays, modules, pointers, Result, Option, compound assign, derive, impl, unsafe
@@ -2988,7 +2988,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m34_y19() { assert_eq!(compile_and_run("tests\\regression\\m34_y19.xi"), Some(0)); }
 #[test] fn e2e_m34_y20() { assert_eq!(compile_and_run("tests\\regression\\m34_y20.xi"), Some(0)); }
 
-// â”€â”€ M35-M: Math Function Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M35-M: Math Function Stress Tests -------------------------------
 // 01: sqrt via Newton method, 02: abs value, 03: min of 2/3/4, 04: max of 2/3/4
 // 05: integer pow, 06: factorial iterative, 07: factorial recursive
 // 08: is-prime trial division, 09: GCD Euclidean, 10: LCM from GCD
@@ -3030,111 +3030,111 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m35_m29() { assert_eq!(compile_and_run("tests\\regression\\m35_m29.xi"), Some(0)); }
 #[test] fn e2e_m35_m30() { assert_eq!(compile_and_run("tests\\regression\\m35_m30.xi"), Some(0)); }
 
-// â”€â”€ M34-D: Recursive Data Structures Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// d01: Binary tree â€” struct with left/right pointers
+// -- M34-D: Recursive Data Structures Stress Tests ----------------------
+// d01: Binary tree -- struct with left/right pointers
 #[test] fn e2e_m34_d01() { assert_eq!(compile_and_run("tests\\regression\\m34_d01.xi"), Some(0)); }
-// d02: Linked list â€” struct with next pointer
+// d02: Linked list -- struct with next pointer
 #[test] fn e2e_m34_d02() { assert_eq!(compile_and_run("tests\\regression\\m34_d02.xi"), Some(0)); }
-// d03: Tree count â€” recursive count of all nodes
+// d03: Tree count -- recursive count of all nodes
 #[test] fn e2e_m34_d03() { assert_eq!(compile_and_run("tests\\regression\\m34_d03.xi"), Some(0)); }
-// d04: Tree depth â€” max depth of binary tree
+// d04: Tree depth -- max depth of binary tree
 #[test] fn e2e_m34_d04() { assert_eq!(compile_and_run("tests\\regression\\m34_d04.xi"), Some(0)); }
-// d05: List traversals â€” multiple recursive traversals
+// d05: List traversals -- multiple recursive traversals
 #[test] fn e2e_m34_d05() { assert_eq!(compile_and_run("tests\\regression\\m34_d05.xi"), Some(0)); }
-// d06: Nested recursive types â€” two-level struct hierarchy
+// d06: Nested recursive types -- two-level struct hierarchy
 #[test] fn e2e_m34_d06() { assert_eq!(compile_and_run("tests\\regression\\m34_d06.xi"), Some(0)); }
-// d07: Mutual recursive types â€” Aâ†’B, Bâ†’A
+// d07: Mutual recursive types -- A->B, B->A
 #[test] fn e2e_m34_d07() { assert_eq!(compile_and_run("tests\\regression\\m34_d07.xi"), Some(0)); }
 // d08: Recursive struct in enum payload
 #[test] fn e2e_m34_d08() { assert_eq!(compile_and_run("tests\\regression\\m34_d08.xi"), Some(0)); }
-// d09: Recursive enum â€” enum variant with pointer to own type
+// d09: Recursive enum -- enum variant with pointer to own type
 #[test] fn e2e_m34_d09() { assert_eq!(compile_and_run("tests\\regression\\m34_d09.xi"), Some(0)); }
-// d10: Deep tree operations â€” depth 10+ recursion stress
+// d10: Deep tree operations -- depth 10+ recursion stress
 #[test] fn e2e_m34_d10() { assert_eq!(compile_and_run("tests\\regression\\m34_d10.xi"), Some(0)); }
-// d11: Tree construction from expressions â€” build and eval on stack
+// d11: Tree construction from expressions -- build and eval on stack
 #[test] fn e2e_m34_d11() { assert_eq!(compile_and_run("tests\\regression\\m34_d11.xi"), Some(0)); }
-// d12: List append/prepend â€” linked list on stack
+// d12: List append/prepend -- linked list on stack
 #[test] fn e2e_m34_d12() { assert_eq!(compile_and_run("tests\\regression\\m34_d12.xi"), Some(0)); }
-// d13: Tree fold â€” accumulation across tree
+// d13: Tree fold -- accumulation across tree
 #[test] fn e2e_m34_d13() { assert_eq!(compile_and_run("tests\\regression\\m34_d13.xi"), Some(0)); }
-// d14: Tree map â€” transform tree values
+// d14: Tree map -- transform tree values
 #[test] fn e2e_m34_d14() { assert_eq!(compile_and_run("tests\\regression\\m34_d14.xi"), Some(0)); }
-// d15: List filter â€” count/skip nodes by predicate
+// d15: List filter -- count/skip nodes by predicate
 #[test] fn e2e_m34_d15() { assert_eq!(compile_and_run("tests\\regression\\m34_d15.xi"), Some(0)); }
-// d16: Tree comparison â€” structural equality of two trees
+// d16: Tree comparison -- structural equality of two trees
 #[test] fn e2e_m34_d16() { assert_eq!(compile_and_run("tests\\regression\\m34_d16.xi"), Some(0)); }
-// d17: List reverse â€” verify traversal order
+// d17: List reverse -- verify traversal order
 #[test] fn e2e_m34_d17() { assert_eq!(compile_and_run("tests\\regression\\m34_d17.xi"), Some(0)); }
-// d18: Recursive generic types â€” Tree[T] and List[T]
+// d18: Recursive generic types -- Tree[T] and List[T]
 #[test] fn e2e_m34_d18() { assert_eq!(compile_and_run("tests\\regression\\m34_d18.xi"), Some(0)); }
-// d19: Diamond-shaped type graph â€” Aâ†’B,C; B,Câ†’D
+// d19: Diamond-shaped type graph -- A->B,C; B,C->D
 #[test] fn e2e_m34_d19() { assert_eq!(compile_and_run("tests\\regression\\m34_d19.xi"), Some(0)); }
 // d20: Recursive invariant + serialization pattern
 #[test] fn e2e_m34_d20() { assert_eq!(compile_and_run("tests\\regression\\m34_d20.xi"), Some(0)); }
 
-// â”€â”€ M35-S: String Manipulation Algorithms â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// s01: String reverse â€” manual loop building reversed string
+// -- M35-S: String Manipulation Algorithms -------------------------------
+// s01: String reverse -- manual loop building reversed string
 #[test] fn e2e_m35_s01() { assert_eq!(compile_and_run("tests\\regression\\m35_s01.xi"), Some(0)); }
-// s02: Palindrome check â€” reverse and compare
+// s02: Palindrome check -- reverse and compare
 #[test] fn e2e_m35_s02() { assert_eq!(compile_and_run("tests\\regression\\m35_s02.xi"), Some(0)); }
-// s03: Substring search â€” manual needle-in-haystack check
+// s03: Substring search -- manual needle-in-haystack check
 #[test] fn e2e_m35_s03() { assert_eq!(compile_and_run("tests\\regression\\m35_s03.xi"), Some(0)); }
-// s04: Count character occurrences â€” loop and count matching bytes
+// s04: Count character occurrences -- loop and count matching bytes
 #[test] fn e2e_m35_s04() { assert_eq!(compile_and_run("tests\\regression\\m35_s04.xi"), Some(0)); }
-// s05: Remove character â€” build new string without target char
+// s05: Remove character -- build new string without target char
 #[test] fn e2e_m35_s05() { assert_eq!(compile_and_run("tests\\regression\\m35_s05.xi"), Some(0)); }
-// s06: Replace substring â€” find and replace first occurrence
+// s06: Replace substring -- find and replace first occurrence
 #[test] fn e2e_m35_s06() { assert_eq!(compile_and_run("tests\\regression\\m35_s06.xi"), Some(0)); }
-// s07: String to uppercase â€” build uppercase via ASCII char mapping
+// s07: String to uppercase -- build uppercase via ASCII char mapping
 #[test] fn e2e_m35_s07() { assert_eq!(compile_and_run("tests\\regression\\m35_s07.xi"), Some(0)); }
-// s08: String to lowercase â€” build lowercase via ASCII char mapping
+// s08: String to lowercase -- build lowercase via ASCII char mapping
 #[test] fn e2e_m35_s08() { assert_eq!(compile_and_run("tests\\regression\\m35_s08.xi"), Some(0)); }
-// s09: Trim spaces â€” remove leading and trailing spaces
+// s09: Trim spaces -- remove leading and trailing spaces
 #[test] fn e2e_m35_s09() { assert_eq!(compile_and_run("tests\\regression\\m35_s09.xi"), Some(0)); }
-// s10: Split by delimiter â€” find delimiter position and extract parts
+// s10: Split by delimiter -- find delimiter position and extract parts
 #[test] fn e2e_m35_s10() { assert_eq!(compile_and_run("tests\\regression\\m35_s10.xi"), Some(0)); }
-// s11: Join strings â€” concatenate with delimiter between
+// s11: Join strings -- concatenate with delimiter between
 #[test] fn e2e_m35_s11() { assert_eq!(compile_and_run("tests\\regression\\m35_s11.xi"), Some(0)); }
-// s12: String comparison â€” character-by-character lexicographic order
+// s12: String comparison -- character-by-character lexicographic order
 #[test] fn e2e_m35_s12() { assert_eq!(compile_and_run("tests\\regression\\m35_s12.xi"), Some(0)); }
-// s13: String prefix check â€” character-by-character prefix verification
+// s13: String prefix check -- character-by-character prefix verification
 #[test] fn e2e_m35_s13() { assert_eq!(compile_and_run("tests\\regression\\m35_s13.xi"), Some(0)); }
-// s14: String suffix check â€” character-by-character suffix verification
+// s14: String suffix check -- character-by-character suffix verification
 #[test] fn e2e_m35_s14() { assert_eq!(compile_and_run("tests\\regression\\m35_s14.xi"), Some(0)); }
-// s15: Find first occurrence â€” return index of first match or -1
+// s15: Find first occurrence -- return index of first match or -1
 #[test] fn e2e_m35_s15() { assert_eq!(compile_and_run("tests\\regression\\m35_s15.xi"), Some(0)); }
-// s16: Find last occurrence â€” return index of last match or -1
+// s16: Find last occurrence -- return index of last match or -1
 #[test] fn e2e_m35_s16() { assert_eq!(compile_and_run("tests\\regression\\m35_s16.xi"), Some(0)); }
-// s17: Extract substring â€” build substring from start to end index
+// s17: Extract substring -- build substring from start to end index
 #[test] fn e2e_m35_s17() { assert_eq!(compile_and_run("tests\\regression\\m35_s17.xi"), Some(0)); }
-// s18: Word count â€” count spaces to determine word count
+// s18: Word count -- count spaces to determine word count
 #[test] fn e2e_m35_s18() { assert_eq!(compile_and_run("tests\\regression\\m35_s18.xi"), Some(0)); }
-// s19: Character frequency count â€” count occurrences of each char
+// s19: Character frequency count -- count occurrences of each char
 #[test] fn e2e_m35_s19() { assert_eq!(compile_and_run("tests\\regression\\m35_s19.xi"), Some(0)); }
-// s20: Longest word â€” find word with maximum length
+// s20: Longest word -- find word with maximum length
 #[test] fn e2e_m35_s20() { assert_eq!(compile_and_run("tests\\regression\\m35_s20.xi"), Some(0)); }
-// s21: Shortest word â€” find word with minimum non-zero length
+// s21: Shortest word -- find word with minimum non-zero length
 #[test] fn e2e_m35_s21() { assert_eq!(compile_and_run("tests\\regression\\m35_s21.xi"), Some(0)); }
-// s22: Capitalize first letter â€” convert first char to uppercase
+// s22: Capitalize first letter -- convert first char to uppercase
 #[test] fn e2e_m35_s22() { assert_eq!(compile_and_run("tests\\regression\\m35_s22.xi"), Some(0)); }
-// s23: Check anagrams â€” compare character frequency counts
+// s23: Check anagrams -- compare character frequency counts
 #[test] fn e2e_m35_s23() { assert_eq!(compile_and_run("tests\\regression\\m35_s23.xi"), Some(0)); }
-// s24: Common prefix â€” find longest shared prefix between two strings
+// s24: Common prefix -- find longest shared prefix between two strings
 #[test] fn e2e_m35_s24() { assert_eq!(compile_and_run("tests\\regression\\m35_s24.xi"), Some(0)); }
-// s25: String compression â€” run-length encoding
+// s25: String compression -- run-length encoding
 #[test] fn e2e_m35_s25() { assert_eq!(compile_and_run("tests\\regression\\m35_s25.xi"), Some(0)); }
-// s26: String expansion â€” expand repeated characters
+// s26: String expansion -- expand repeated characters
 #[test] fn e2e_m35_s26() { assert_eq!(compile_and_run("tests\\regression\\m35_s26.xi"), Some(0)); }
-// s27: Rotation check â€” check if one string is a rotation of another
+// s27: Rotation check -- check if one string is a rotation of another
 #[test] fn e2e_m35_s27() { assert_eq!(compile_and_run("tests\\regression\\m35_s27.xi"), Some(0)); }
-// s28: String distance â€” Hamming distance between equal-length strings
+// s28: String distance -- Hamming distance between equal-length strings
 #[test] fn e2e_m35_s28() { assert_eq!(compile_and_run("tests\\regression\\m35_s28.xi"), Some(0)); }
-// s29: Wildcard match â€” match string against pattern with ? and *
+// s29: Wildcard match -- match string against pattern with ? and *
 #[test] fn e2e_m35_s29() { assert_eq!(compile_and_run("tests\\regression\\m35_s29.xi"), Some(0)); }
-// s30: Balanced brackets â€” check (), [], {} balancing via depth counters
+// s30: Balanced brackets -- check (), [], {} balancing via depth counters
 #[test] fn e2e_m35_s30() { assert_eq!(compile_and_run("tests\\regression\\m35_s30.xi"), Some(0)); }
 
-// â”€â”€ M35-Z: Combinatorial Mega Stress (30 tests) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M35-Z: Combinatorial Mega Stress (30 tests) -----------------------
 #[test] fn e2e_m35_z01() { assert_eq!(compile_and_run("tests\\regression\\m35_z01.xi"), Some(0)); }
 #[test] fn e2e_m35_z02() { assert_eq!(compile_and_run("tests\\regression\\m35_z02.xi"), Some(0)); }
 #[test] fn e2e_m35_z03() { assert_eq!(compile_and_run("tests\\regression\\m35_z03.xi"), Some(0)); }
@@ -3166,7 +3166,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m35_z29() { assert_eq!(compile_and_run("tests\\regression\\m35_z29.xi"), Some(0)); }
 #[test] fn e2e_m35_z30() { assert_eq!(compile_and_run("tests\\regression\\m35_z30.xi"), Some(0)); }
 
-// â”€â”€ M35-V: Vec[DATA] Collection Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M35-V: Vec[DATA] Collection Stress Tests ---------------------------
 // Vec[Int] create/push/pop/len, get/set, first/last, is_empty, clear,
 // insert, remove, iteration, resize, Float64, Int16, struct, enum,
 // Option, nested Vec, generic T, Vec param/return, clone, reverse,
@@ -3202,69 +3202,69 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m35_v29() { assert_eq!(compile_and_run("tests\\regression\\m35_v29.xi"), Some(0)); }
 #[test] fn e2e_m35_v30() { assert_eq!(compile_and_run("tests\\regression\\m35_v30.xi"), Some(0)); }
 
-// â”€â”€ M35-C: Control Flow Exhaustive Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// c01: if without else â€” single branch
+// -- M35-C: Control Flow Exhaustive Stress Tests -------------------------
+// c01: if without else -- single branch
 #[test] fn e2e_m35_c01() { assert_eq!(compile_and_run("tests\\regression\\m35_c01.xi"), Some(0)); }
-// c02: if with else â€” two branches
+// c02: if with else -- two branches
 #[test] fn e2e_m35_c02() { assert_eq!(compile_and_run("tests\\regression\\m35_c02.xi"), Some(0)); }
-// c03: if elif else (3+ branches) â€” three-way branching
+// c03: if elif else (3+ branches) -- three-way branching
 #[test] fn e2e_m35_c03() { assert_eq!(compile_and_run("tests\\regression\\m35_c03.xi"), Some(0)); }
-// c04: if elif elif elif else (5+ branches) â€” deep multi-way dispatch
+// c04: if elif elif elif else (5+ branches) -- deep multi-way dispatch
 #[test] fn e2e_m35_c04() { assert_eq!(compile_and_run("tests\\regression\\m35_c04.xi"), Some(0)); }
-// c05: nested if 5 deep â€” cascading conditional logic
+// c05: nested if 5 deep -- cascading conditional logic
 #[test] fn e2e_m35_c05() { assert_eq!(compile_and_run("tests\\regression\\m35_c05.xi"), Some(0)); }
-// c06: while true loop â€” infinite loop with internal break
+// c06: while true loop -- infinite loop with internal break
 #[test] fn e2e_m35_c06() { assert_eq!(compile_and_run("tests\\regression\\m35_c06.xi"), Some(0)); }
-// c07: while with condition â€” standard while loop
+// c07: while with condition -- standard while loop
 #[test] fn e2e_m35_c07() { assert_eq!(compile_and_run("tests\\regression\\m35_c07.xi"), Some(0)); }
-// c08: while with break â€” early loop termination
+// c08: while with break -- early loop termination
 #[test] fn e2e_m35_c08() { assert_eq!(compile_and_run("tests\\regression\\m35_c08.xi"), Some(0)); }
-// c09: while with continue â€” skip iterations inside loop
+// c09: while with continue -- skip iterations inside loop
 #[test] fn e2e_m35_c09() { assert_eq!(compile_and_run("tests\\regression\\m35_c09.xi"), Some(0)); }
-// c10: while with nested break â€” inner loop break only
+// c10: while with nested break -- inner loop break only
 #[test] fn e2e_m35_c10() { assert_eq!(compile_and_run("tests\\regression\\m35_c10.xi"), Some(0)); }
-// c11: while with return inside â€” function return from within loop
+// c11: while with return inside -- function return from within loop
 #[test] fn e2e_m35_c11() { assert_eq!(compile_and_run("tests\\regression\\m35_c11.xi"), Some(0)); }
 // c12: for-in pattern using while + index
 #[test] fn e2e_m35_c12() { assert_eq!(compile_and_run("tests\\regression\\m35_c12.xi"), Some(0)); }
-// c13: do-while pattern â€” execute body at least once
+// c13: do-while pattern -- execute body at least once
 #[test] fn e2e_m35_c13() { assert_eq!(compile_and_run("tests\\regression\\m35_c13.xi"), Some(0)); }
-// c14: infinite loop with break â€” while true with multiple break conditions
+// c14: infinite loop with break -- while true with multiple break conditions
 #[test] fn e2e_m35_c14() { assert_eq!(compile_and_run("tests\\regression\\m35_c14.xi"), Some(0)); }
-// c15: loop with accumulator â€” building value across iterations
+// c15: loop with accumulator -- building value across iterations
 #[test] fn e2e_m35_c15() { assert_eq!(compile_and_run("tests\\regression\\m35_c15.xi"), Some(0)); }
-// c16: loop with multiple accumulators â€” tracking several values
+// c16: loop with multiple accumulators -- tracking several values
 #[test] fn e2e_m35_c16() { assert_eq!(compile_and_run("tests\\regression\\m35_c16.xi"), Some(0)); }
-// c17: loop with early exit â€” return immediately when condition met
+// c17: loop with early exit -- return immediately when condition met
 #[test] fn e2e_m35_c17() { assert_eq!(compile_and_run("tests\\regression\\m35_c17.xi"), Some(0)); }
-// c18: loop with flag â€” boolean flag controls loop termination
+// c18: loop with flag -- boolean flag controls loop termination
 #[test] fn e2e_m35_c18() { assert_eq!(compile_and_run("tests\\regression\\m35_c18.xi"), Some(0)); }
-// c19: loop with counter â€” counting iterations
+// c19: loop with counter -- counting iterations
 #[test] fn e2e_m35_c19() { assert_eq!(compile_and_run("tests\\regression\\m35_c19.xi"), Some(0)); }
-// c20: if-expression â€” let binding with if expression value
+// c20: if-expression -- let binding with if expression value
 #[test] fn e2e_m35_c20() { assert_eq!(compile_and_run("tests\\regression\\m35_c20.xi"), Some(0)); }
-// c21: match on Int â€” integer value dispatch
+// c21: match on Int -- integer value dispatch
 #[test] fn e2e_m35_c21() { assert_eq!(compile_and_run("tests\\regression\\m35_c21.xi"), Some(0)); }
-// c22: match on Bool â€” boolean dispatch
+// c22: match on Bool -- boolean dispatch
 #[test] fn e2e_m35_c22() { assert_eq!(compile_and_run("tests\\regression\\m35_c22.xi"), Some(0)); }
-// c23: match on enum â€” dispatch through enum variants with payloads
+// c23: match on enum -- dispatch through enum variants with payloads
 #[test] fn e2e_m35_c23() { assert_eq!(compile_and_run("tests\\regression\\m35_c23.xi"), Some(0)); }
-// c24: match with guard â€” if condition inside arm body
+// c24: match with guard -- if condition inside arm body
 #[test] fn e2e_m35_c24() { assert_eq!(compile_and_run("tests\\regression\\m35_c24.xi"), Some(0)); }
-// c25: match with wildcard â€” catch-all pattern _
+// c25: match with wildcard -- catch-all pattern _
 #[test] fn e2e_m35_c25() { assert_eq!(compile_and_run("tests\\regression\\m35_c25.xi"), Some(0)); }
-// c26: if-let pattern â€” match on Option as control flow
+// c26: if-let pattern -- match on Option as control flow
 #[test] fn e2e_m35_c26() { assert_eq!(compile_and_run("tests\\regression\\m35_c26.xi"), Some(0)); }
-// c27: while-let pattern â€” loop while match on Option/Result
+// c27: while-let pattern -- loop while match on Option/Result
 #[test] fn e2e_m35_c27() { assert_eq!(compile_and_run("tests\\regression\\m35_c27.xi"), Some(0)); }
-// c28: early return from function â€” multiple return points
+// c28: early return from function -- multiple return points
 #[test] fn e2e_m35_c28() { assert_eq!(compile_and_run("tests\\regression\\m35_c28.xi"), Some(0)); }
-// c29: tail call pattern â€” recursive call in tail position
+// c29: tail call pattern -- recursive call in tail position
 #[test] fn e2e_m35_c29() { assert_eq!(compile_and_run("tests\\regression\\m35_c29.xi"), Some(0)); }
-// c30: all-in-one â€” combined control flow patterns
+// c30: all-in-one -- combined control flow patterns
 #[test] fn e2e_m35_c30() { assert_eq!(compile_and_run("tests\\regression\\m35_c30.xi"), Some(0)); }
 
-// â”€â”€ M35-A: Algorithm Correctness Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M35-A: Algorithm Correctness Stress Tests ----------------------------
 // Binary search, linear search, bubble/selection/insertion sort,
 // merge sort, quick sort partition, factorial, fibonacci (3 ways),
 // GCD, LCM, prime check, sum of digits, reverse number, palindrome,
@@ -3303,7 +3303,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m35_a29() { assert_eq!(compile_and_run("tests\\regression\\m35_a29.xi"), Some(0)); }
 #[test] fn e2e_m35_a30() { assert_eq!(compile_and_run("tests\\regression\\m35_a30.xi"), Some(0)); }
 
-// â”€â”€ M35-L: Memory Layout / Pointer Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M35-L: Memory Layout / Pointer Stress Tests -------------------------
 // l01: Struct with Int fields
 #[test] fn e2e_m35_l01() { assert_eq!(compile_and_run("tests\\regression\\m35_l01.xi"), Some(0)); }
 // l02: Struct with Float64 fields
@@ -3365,7 +3365,7 @@ fn e2e_safety_probe() {
 // l30: Pointer iteration
 #[test] fn e2e_m35_l30() { assert_eq!(compile_and_run("tests\\regression\\m35_l30.xi"), Some(0)); }
 
-// â”€â”€ M35-D: Data Structure Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M35-D: Data Structure Stress Tests ----------------------------------
 // Stack (push/pop/peek/empty), Queue (enqueue/dequeue/peek/empty),
 // Deque, Priority Queue, Min-Heap, Max-Heap, Hash Set, Hash Map,
 // Linked List, Doubly Linked List, Circular Buffer, Ring Buffer,
@@ -3404,69 +3404,69 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m35_d29() { assert_eq!(compile_and_run("tests\\regression\\m35_d29.xi"), Some(0)); }
 #[test] fn e2e_m35_d30() { assert_eq!(compile_and_run("tests\\regression\\m35_d30.xi"), Some(0)); }
 
-// â”€â”€ M35-T: Type System Exhaustive Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// t01: Bool in every context â€” var, param, return, struct, enum, array, generic, if, while, match
+// -- M35-T: Type System Exhaustive Stress Tests -------------------------
+// t01: Bool in every context -- var, param, return, struct, enum, array, generic, if, while, match
 #[test] fn e2e_m35_t01() { assert_eq!(compile_and_run("tests\\regression\\m35_t01.xi"), Some(0)); }
-// t02: Int in every context â€” var, param, return, struct, enum, array, generic, if, while, match
+// t02: Int in every context -- var, param, return, struct, enum, array, generic, if, while, match
 #[test] fn e2e_m35_t02() { assert_eq!(compile_and_run("tests\\regression\\m35_t02.xi"), Some(0)); }
-// t03: Float64 in every context â€” var, param, return, struct, enum, array, generic, if, while, match, operators
+// t03: Float64 in every context -- var, param, return, struct, enum, array, generic, if, while, match, operators
 #[test] fn e2e_m35_t03() { assert_eq!(compile_and_run("tests\\regression\\m35_t03.xi"), Some(0)); }
-// t04: Char in every context â€” var, param, return, struct, enum, if, match, array, generic
+// t04: Char in every context -- var, param, return, struct, enum, if, match, array, generic
 #[test] fn e2e_m35_t04() { assert_eq!(compile_and_run("tests\\regression\\m35_t04.xi"), Some(0)); }
-// t05: Str in every context â€” var, param, return, struct, enum, array, if, match, len
+// t05: Str in every context -- var, param, return, struct, enum, array, if, match, len
 #[test] fn e2e_m35_t05() { assert_eq!(compile_and_run("tests\\regression\\m35_t05.xi"), Some(0)); }
-// t06: Unit/void returns â€” functions returning nothing, calling void functions
+// t06: Unit/void returns -- functions returning nothing, calling void functions
 #[test] fn e2e_m35_t06() { assert_eq!(compile_and_run("tests\\regression\\m35_t06.xi"), Some(0)); }
-// t07: Array in every context â€” var, param, return, indexing, vec! literal
+// t07: Array in every context -- var, param, return, indexing, vec! literal
 #[test] fn e2e_m35_t07() { assert_eq!(compile_and_run("tests\\regression\\m35_t07.xi"), Some(0)); }
-// t08: Nested arrays 3-deep â€” Vec[Vec[Vec[Int]]]
+// t08: Nested arrays 3-deep -- Vec[Vec[Vec[Int]]]
 #[test] fn e2e_m35_t08() { assert_eq!(compile_and_run("tests\\regression\\m35_t08.xi"), Some(0)); }
-// t09: Pointers in every context â€” var, param, return, deref, address-of, *Int, *Bool, *Float64
+// t09: Pointers in every context -- var, param, return, deref, address-of, *Int, *Bool, *Float64
 #[test] fn e2e_m35_t09() { assert_eq!(compile_and_run("tests\\regression\\m35_t09.xi"), Some(0)); }
-// t10: Struct with all field types â€” Bool, Int, Int8, Int16, Int32, Int64, Float64, Char, Str
+// t10: Struct with all field types -- Bool, Int, Int8, Int16, Int32, Int64, Float64, Char, Str
 #[test] fn e2e_m35_t10() { assert_eq!(compile_and_run("tests\\regression\\m35_t10.xi"), Some(0)); }
-// t11: Enum with all variant types â€” unit, Int, Float64, Bool, Str, struct payload
+// t11: Enum with all variant types -- unit, Int, Float64, Bool, Str, struct payload
 #[test] fn e2e_m35_t11() { assert_eq!(compile_and_run("tests\\regression\\m35_t11.xi"), Some(0)); }
-// t12: Generic with all constraints â€” identity, struct, enum, array, pointer
+// t12: Generic with all constraints -- identity, struct, enum, array, pointer
 #[test] fn e2e_m35_t12() { assert_eq!(compile_and_run("tests\\regression\\m35_t12.xi"), Some(0)); }
-// t13: Type alias for each primitive â€” Bool, Int, Int8, Int16, Int32, Int64, Float64, Char, Str
+// t13: Type alias for each primitive -- Bool, Int, Int8, Int16, Int32, Int64, Float64, Char, Str
 #[test] fn e2e_m35_t13() { assert_eq!(compile_and_run("tests\\regression\\m35_t13.xi"), Some(0)); }
-// t14: Const for each primitive â€” Bool, Int, Float64, Char, Str
+// t14: Const for each primitive -- Bool, Int, Float64, Char, Str
 #[test] fn e2e_m35_t14() { assert_eq!(compile_and_run("tests\\regression\\m35_t14.xi"), Some(0)); }
-// t15: Derive[Eq] on struct â€” multiple struct types
+// t15: Derive[Eq] on struct -- multiple struct types
 #[test] fn e2e_m35_t15() { assert_eq!(compile_and_run("tests\\regression\\m35_t15.xi"), Some(0)); }
-// t16: Method on each type â€” impl for struct wrapper, enum
+// t16: Method on each type -- impl for struct wrapper, enum
 #[test] fn e2e_m35_t16() { assert_eq!(compile_and_run("tests\\regression\\m35_t16.xi"), Some(0)); }
-// t17: Interface on each type â€” multiple interfaces, cross-type impl
+// t17: Interface on each type -- multiple interfaces, cross-type impl
 #[test] fn e2e_m35_t17() { assert_eq!(compile_and_run("tests\\regression\\m35_t17.xi"), Some(0)); }
-// t18: Module exporting each type â€” Bool, Int, Float64, Char, Str, struct, enum
+// t18: Module exporting each type -- Bool, Int, Float64, Char, Str, struct, enum
 #[test] fn e2e_m35_t18() { assert_eq!(compile_and_run("tests\\regression\\m35_t18.xi"), Some(0)); }
-// t19: Bool exhaustive â€” every context deeply exercised
+// t19: Bool exhaustive -- every context deeply exercised
 #[test] fn e2e_m35_t19() { assert_eq!(compile_and_run("tests\\regression\\m35_t19.xi"), Some(0)); }
-// t20: Int exhaustive â€” every context with all integer subtypes
+// t20: Int exhaustive -- every context with all integer subtypes
 #[test] fn e2e_m35_t20() { assert_eq!(compile_and_run("tests\\regression\\m35_t20.xi"), Some(0)); }
-// t21: Float64 exhaustive â€” every context: arith, cmp, cast, struct, enum, array, while
+// t21: Float64 exhaustive -- every context: arith, cmp, cast, struct, enum, array, while
 #[test] fn e2e_m35_t21() { assert_eq!(compile_and_run("tests\\regression\\m35_t21.xi"), Some(0)); }
-// t22: Char exhaustive â€” every context: var, param, return, struct, enum, array, cmp, match
+// t22: Char exhaustive -- every context: var, param, return, struct, enum, array, cmp, match
 #[test] fn e2e_m35_t22() { assert_eq!(compile_and_run("tests\\regression\\m35_t22.xi"), Some(0)); }
-// t23: Str exhaustive â€” every context: var, param, return, struct, enum, array, cmp, match, len
+// t23: Str exhaustive -- every context: var, param, return, struct, enum, array, cmp, match, len
 #[test] fn e2e_m35_t23() { assert_eq!(compile_and_run("tests\\regression\\m35_t23.xi"), Some(0)); }
-// t24: Array exhaustive â€” every type in arrays, multi-dimensional, nested access patterns
+// t24: Array exhaustive -- every type in arrays, multi-dimensional, nested access patterns
 #[test] fn e2e_m35_t24() { assert_eq!(compile_and_run("tests\\regression\\m35_t24.xi"), Some(0)); }
-// t25: Pointer exhaustive â€” deref chain, double pointer, in struct, to array, cast
+// t25: Pointer exhaustive -- deref chain, double pointer, in struct, to array, cast
 #[test] fn e2e_m35_t25() { assert_eq!(compile_and_run("tests\\regression\\m35_t25.xi"), Some(0)); }
-// t26: Struct exhaustive â€” all field types, nested structs, struct array, pointer
+// t26: Struct exhaustive -- all field types, nested structs, struct array, pointer
 #[test] fn e2e_m35_t26() { assert_eq!(compile_and_run("tests\\regression\\m35_t26.xi"), Some(0)); }
-// t27: Enum exhaustive â€” payload variants, nested enums, Option, Result patterns
+// t27: Enum exhaustive -- payload variants, nested enums, Option, Result patterns
 #[test] fn e2e_m35_t27() { assert_eq!(compile_and_run("tests\\regression\\m35_t27.xi"), Some(0)); }
-// t28: Generic exhaustive â€” struct, enum, function, multiple params, constraints
+// t28: Generic exhaustive -- struct, enum, function, multiple params, constraints
 #[test] fn e2e_m35_t28() { assert_eq!(compile_and_run("tests\\regression\\m35_t28.xi"), Some(0)); }
-// t29: Mixed combinators â€” all types combined in complex expressions
+// t29: Mixed combinators -- all types combined in complex expressions
 #[test] fn e2e_m35_t29() { assert_eq!(compile_and_run("tests\\regression\\m35_t29.xi"), Some(0)); }
-// t30: Mega stress test â€” everything combined: generics, contracts, closures, modules, pointers
+// t30: Mega stress test -- everything combined: generics, contracts, closures, modules, pointers
 #[test] fn e2e_m35_t30() { assert_eq!(compile_and_run("tests\\regression\\m35_t30.xi"), Some(0)); }
 
-// â”€â”€ M35-O: Option / Result Combinators Exhaustive Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M35-O: Option / Result Combinators Exhaustive Tests -----------------
 // o01: Option[Int] create             o02: Option[Float64] create
 // o03: Option[Str] create             o04: Option[Bool] create
 // o05: Option[struct]                 o06: Option[enum]
@@ -3514,7 +3514,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m35_o30() { assert_eq!(compile_and_run("tests\\regression\\m35_o30.xi"), Some(0));
 }
 
-// â”€â”€ M36-R: Parser Error Recovery Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M36-R: Parser Error Recovery Stress Tests -------------------------
 // r01: unclosed string               r02: unclosed block comment
 // r03: extra closing brace           r04: missing semicolon
 // r05: wrong keyword                 r06: extra comma
@@ -3561,7 +3561,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m36_r29() { assert_eq!(compile_and_run("tests\\regression\\m36_r29.xi"), Some(0)); }
 #[test] fn e2e_m36_r30() { assert_eq!(compile_and_run("tests\\regression\\m36_r30.xi"), Some(0)); }
 
-// â”€â”€ M36-S: Self-Host Preparation Compiler Patterns (30 tests) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M36-S: Self-Host Preparation Compiler Patterns (30 tests) ----------
 // s01: Lexer char classification       s02: Lexer token patterns
 // s03: Parser AST node construction    s04: Parser tree traversal
 // s05: Type checker comparison         s06: Type checker subtyping
@@ -3608,7 +3608,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m36_s29() { assert_eq!(compile_and_run("tests\\regression\\m36_s29.xi"), Some(0)); }
 #[test] fn e2e_m36_s30() { assert_eq!(compile_and_run("tests\\regression\\m36_s30.xi"), Some(0)); }
 
-// â”€â”€ M36-E: Edge Case Fuzzing Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M36-E: Edge Case Fuzzing Tests ------------------------------------
 // e01: empty struct                       e02: single-field struct
 // e03: 50-field struct                    e04: minimal enum
 // e05: single-variant enum                e06: 25-variant enum
@@ -3655,7 +3655,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m36_e29() { assert_eq!(compile_and_run("tests\\regression\\m36_e29.xi"), Some(0)); }
 #[test] fn e2e_m36_e30() { assert_eq!(compile_and_run("tests\\regression\\m36_e30.xi"), Some(0)); }
 
-// â”€â”€ M36-X: Self-Hosting & Release Validation Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- M36-X: Self-Hosting & Release Validation Stress Tests ------------------
 // x01: Exit code based on computation (returns computed value, not just 0)
 // x02: Nested modules (modules within modules, pub fn, use)
 // x03: External type references (type aliases, cross-referencing types)
@@ -3717,37 +3717,37 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m36_x29() { assert_eq!(compile_and_run("tests\\regression\\m36_x29.xi"), Some(0)); }
 #[test] fn e2e_m36_x30() { assert_eq!(compile_and_run("tests\\regression\\m36_x30.xi"), Some(0)); }
 
-// â”€â”€ M36-C: Combinatorial Exhaustive Stress Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// c01: Every operator with every type â€” arithmetic, bitwise, shift, cmp, logic, bool across all numeric types + Float64 + Bool + Char
-// c02: Every control flow with every type â€” if/else, while, match on Bool, Int, Float64, Char, Str, Option, enum, struct
-// c03: Every match pattern with every enum shape â€” 1-10 variants, payloads, nested matches, guards, wildcards
-// c04: Every generic pattern with every constraint â€” identity, swap, struct generic, enum generic, multi-param, bounded
-// c05: Every contract pattern with every function shape â€” requires, ensures, invariant, multi-clause
-// c06: Every derive with every struct shape â€” Eq, Clone, Eq+Clone, Ord, Hash, Display, combinations
-// c07: Every method pattern with every type â€” method on struct, enum, Bool, Int, Float64, Str, generic
-// c08: Every module pattern with every visibility â€” pub/non-pub functions, types, constants; flat, nested, re-export
-// c09: Every type alias with every target type â€” Bool, Int, Int8, Int16, Int32, Int64, Float64, Char, Str, struct, enum, pointer, Option, Result
-// c10: Every cast direction between numeric types â€” Intâ†”Int8, Intâ†”Int16, Intâ†”Int32, Intâ†”Float64, pointerâ†”Int, Boolâ†”Int
-// c11: Every array size 1-2-5-10-50 â€” Vec operations, indexing, sum, find
-// c12: Every loop pattern â€” while true, while cond, while break, while continue, nested, infinite+break
-// c13: Every recursion depth 1-2-5-10-20 â€” factorial, sum, power, fib, ackermann
-// c14: Every struct nesting depth 1-6 â€” deeply nested struct field access at all levels
-// c15: Every enum variant count 1-10 â€” match across all variants
-// c16: Every function chain length 1-10 â€” linear chains, recursive doubling, mixed chains
-// c17: Every generic instantiation count 1-5 per function â€” identity, pair, triple, quad, quintuple
-// c18: Every contract clause count 1-5 â€” requires, ensures, invariant at increasing complexity
-// c19: Every module nesting depth 1-5 â€” deeply nested modules with pub functions
-// c20: Every type alias chain length 1-8 â€” chains of type aliases resolving through multiple levels
-// c21: Every derive combination â€” Eq, Clone, Eq+Clone, Ord, Hash, Display, multi-combos on structs and enums
-// c22: Every pointer pattern â€” null pointer, deref, pointer arithmetic, pointer chain, pointer cast, pointer in struct
-// c23: Every array pattern â€” literal array, index, loop over array, param, return, Vec operations
-// c24: Every string pattern â€” literal, concat, len, byte_at, comparison, return, param, store
-// c25: Every float pattern â€” add, sub, mul, div, cmp, cast, negate, abs, param, return, struct field
-// c26: Every int pattern â€” add, sub, mul, div, mod, bitwise AND/OR/XOR/NOT, shift left/right, cmp, cast, negate
-// c27: Every bool pattern â€” not, and, or, if, while, match, composite, short-circuit, de_morgan
-// c28: Combined mega test 1 â€” structs, generics, enums, match, contracts, recursion, loops, pointers, Option
-// c29: Combined mega test 2 â€” modules, interfaces, impls, generics, pointers, Result, strings, type aliases
-// c30: Combined mega test 3 â€” ALL_FEATURES including compound_assign, closures, tickable, combat
+// -- M36-C: Combinatorial Exhaustive Stress Tests --------------------------
+// c01: Every operator with every type -- arithmetic, bitwise, shift, cmp, logic, bool across all numeric types + Float64 + Bool + Char
+// c02: Every control flow with every type -- if/else, while, match on Bool, Int, Float64, Char, Str, Option, enum, struct
+// c03: Every match pattern with every enum shape -- 1-10 variants, payloads, nested matches, guards, wildcards
+// c04: Every generic pattern with every constraint -- identity, swap, struct generic, enum generic, multi-param, bounded
+// c05: Every contract pattern with every function shape -- requires, ensures, invariant, multi-clause
+// c06: Every derive with every struct shape -- Eq, Clone, Eq+Clone, Ord, Hash, Display, combinations
+// c07: Every method pattern with every type -- method on struct, enum, Bool, Int, Float64, Str, generic
+// c08: Every module pattern with every visibility -- pub/non-pub functions, types, constants; flat, nested, re-export
+// c09: Every type alias with every target type -- Bool, Int, Int8, Int16, Int32, Int64, Float64, Char, Str, struct, enum, pointer, Option, Result
+// c10: Every cast direction between numeric types -- Int<->Int8, Int<->Int16, Int<->Int32, Int<->Float64, pointer<->Int, Bool<->Int
+// c11: Every array size 1-2-5-10-50 -- Vec operations, indexing, sum, find
+// c12: Every loop pattern -- while true, while cond, while break, while continue, nested, infinite+break
+// c13: Every recursion depth 1-2-5-10-20 -- factorial, sum, power, fib, ackermann
+// c14: Every struct nesting depth 1-6 -- deeply nested struct field access at all levels
+// c15: Every enum variant count 1-10 -- match across all variants
+// c16: Every function chain length 1-10 -- linear chains, recursive doubling, mixed chains
+// c17: Every generic instantiation count 1-5 per function -- identity, pair, triple, quad, quintuple
+// c18: Every contract clause count 1-5 -- requires, ensures, invariant at increasing complexity
+// c19: Every module nesting depth 1-5 -- deeply nested modules with pub functions
+// c20: Every type alias chain length 1-8 -- chains of type aliases resolving through multiple levels
+// c21: Every derive combination -- Eq, Clone, Eq+Clone, Ord, Hash, Display, multi-combos on structs and enums
+// c22: Every pointer pattern -- null pointer, deref, pointer arithmetic, pointer chain, pointer cast, pointer in struct
+// c23: Every array pattern -- literal array, index, loop over array, param, return, Vec operations
+// c24: Every string pattern -- literal, concat, len, byte_at, comparison, return, param, store
+// c25: Every float pattern -- add, sub, mul, div, cmp, cast, negate, abs, param, return, struct field
+// c26: Every int pattern -- add, sub, mul, div, mod, bitwise AND/OR/XOR/NOT, shift left/right, cmp, cast, negate
+// c27: Every bool pattern -- not, and, or, if, while, match, composite, short-circuit, de_morgan
+// c28: Combined mega test 1 -- structs, generics, enums, match, contracts, recursion, loops, pointers, Option
+// c29: Combined mega test 2 -- modules, interfaces, impls, generics, pointers, Result, strings, type aliases
+// c30: Combined mega test 3 -- ALL_FEATURES including compound_assign, closures, tickable, combat
 #[test] fn e2e_m36_c01() { assert_eq!(compile_and_run("tests\\regression\\m36_c01.xi"), Some(0)); }
 #[test] fn e2e_m36_c02() { assert_eq!(compile_and_run("tests\\regression\\m36_c02.xi"), Some(0)); }
 #[test] fn e2e_m36_c03() { assert_eq!(compile_and_run("tests\\regression\\m36_c03.xi"), Some(0)); }
@@ -4372,13 +4372,13 @@ fn e2e_safety_probe() {
 // P0-4 Performance Test: Math builtin interception (v0.56)
 #[test] fn e2e_p0_math_builtin() { assert_eq!(compile_and_run("tests\\e2e_p0_math_builtin.xi"), Some(0)); }
 
-// Deprioritized Items — Verified as Production-Grade (v0.56)
+// Deprioritized Items -- Verified as Production-Grade (v0.56)
 #[test] fn e2e_p1_contract_methods() { assert_eq!(compile_and_run("tests\\e2e_p1_contract_methods.xi"), Some(0)); }
 #[test] fn e2e_p2_try_return() { assert_eq!(compile_and_run("tests\\e2e_p2_try_return.xi"), Some(0)); }
 #[test] fn e2e_p2_turbofish() { assert_eq!(compile_and_run("tests\\e2e_p2_turbofish.xi"), Some(0)); }
 
 // ============================================================================
-// M37 — 2026-08-11 compiler-hardening bug-fix regressions
+// M37 -- 2026-08-11 compiler-hardening bug-fix regressions
 // (docs/COMPILER_BUGS.md: BUG 1 tuple-of-struct codegen, struct &T param
 // mutation, parser index-arithmetic, BUG 8 catalog &Vec[Int] params,
 // circular-import termination)
@@ -4424,7 +4424,7 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m37_from_bytes_fn() { assert_eq!(compile_and_run("tests\\regression\\m37_from_bytes_fn.xi"), Some(0)); }
 // BUG 25 #5: Option/Result .value/.error payload-aware reads
 #[test] fn e2e_m37_opt_payload_value() { assert_eq!(compile_and_run("tests\\regression\\m37_opt_payload_value.xi"), Some(0)); }
-// BUG 26: int↔float mixing requires explicit `as` (allowed surface)
+// BUG 26: int<->float mixing requires explicit `as` (allowed surface)
 #[test] fn e2e_m37_numeric_policy() { assert_eq!(compile_and_run("tests\\regression\\m37_numeric_policy.xi"), Some(0)); }
 // Labeled break/continue
 #[test] fn e2e_m37_labeled_loops() { assert_eq!(compile_and_run("tests\\regression\\m37_labeled_loops.xi"), Some(0)); }
@@ -4432,12 +4432,12 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m37_debug_intrinsics() { assert_eq!(compile_and_run("tests\\regression\\m37_debug_intrinsics.xi"), Some(0)); }
 
 // ============================================================================
-// BUG 43–47 batch (2026-08-18) — docs/COMPILER_BUGS.md
+// BUG 43-47 batch (2026-08-18) -- docs/COMPILER_BUGS.md
 // BUG 43: Result[Float64, Str] payload read via sitofp (bitcast needed)
 // BUG 44: deref/coercion of &Str loaded a byte instead of the pointer
-// BUG 45: method-form interface dispatch inside generic-bound fns → stub
+// BUG 45: method-form interface dispatch inside generic-bound fns -> stub
 // BUG 46: generic &UserStruct[T] param field reads returned garbage
-// BUG 47: ref_params/param_locals leaked across fns (fn-param → AV)
+// BUG 47: ref_params/param_locals leaked across fns (fn-param -> AV)
 // ============================================================================
 #[test] fn e2e_m37_bug43_result_f64_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_bug43_result_f64_payload.xi"), Some(0)); }
 #[test] fn e2e_m37_bug44_str_deref() { assert_eq!(compile_and_run("tests\\regression\\m37_bug44_str_deref.xi"), Some(0)); }
@@ -4485,7 +4485,7 @@ fn e2e_safety_probe() {
 
 // ============================================================================
 // Round 7 (2026-08-20): inlined Vec.pop + match Option slot on an EMPTY vec
-// (bare "pop" resolved to no registered key → no scrutinee alloca → the match
+// (bare "pop" resolved to no registered key -> no scrutinee alloca -> the match
 // took the Some arm unconditionally). Root: Vec/Set/Slice methods were never
 // injected (non-pub generic receivers whose type decl is a compiler builtin),
 // so Vec.first/last/clear/insert/remove were zero-param stubs and the inline
@@ -4497,17 +4497,17 @@ fn e2e_safety_probe() {
 
 // ============================================================================
 // Round 8 (2026-08-20): catalog &mut self receiver wiring for user generic
-// structs — VecDeque/Stack/Queue/LinkedList/BTreeMap mutations were entirely
+// structs -- VecDeque/Stack/Queue/LinkedList/BTreeMap mutations were entirely
 // lost (non-pub generic type decls + methods were never injected; calls
 // hijacked same-leaf methods of other types). Plus Option<&T> reference
 // payloads (rand.weighted_pick): the slot ADDRESS was strcmp'd as the
-// string — &T value uses now auto-deref via the "&T" xiom record.
+// string -- &T value uses now auto-deref via the "&T" xiom record.
 // ============================================================================
 #[test] fn e2e_m38_round8_catalog_mut_self() { assert_eq!(compile_and_run("tests\\regression\\m38_round8_catalog_mut_self.xi"), Some(0)); }
 #[test] fn e2e_m38_round8_ref_payload() { assert_eq!(compile_and_run("tests\\regression\\m38_round8_ref_payload.xi"), Some(0)); }
 
 // ============================================================================
-// Round 9 (2026-08-20): Set container ABI — the compiler had NO builtin Set
+// Round 9 (2026-08-20): Set container ABI -- the compiler had NO builtin Set
 // layout, so Set values erased to i64 while stdlib methods operated on
 // %struct.Set (new() hijacked Reverse.new; Set params/returns/fields compiled
 // as i64; field-receiver insert() mono'd Vec.insert). Now the stdlib Set type
@@ -4517,7 +4517,7 @@ fn e2e_safety_probe() {
 
 // ============================================================================
 // Round 10 (2026-08-20): checker builtin Ord/Bounded interface resolution
-// (C001) — the stdlib Ord tower (impl Ord[Int] with compare+cmp) registers;
+// (C001) -- the stdlib Ord tower (impl Ord[Int] with compare+cmp) registers;
 // cmp/min/max are compiler-derivable for primitives; generic-param static
 // receivers (T.max_value() in mono'd bodies) resolve via current_type_map;
 // checked/saturating arithmetic works through the Bounded + Ord bounds.
@@ -4525,20 +4525,20 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m40_round10_ord_bounded() { assert_eq!(compile_and_run("tests\\regression\\m40_round10_ord_bounded.xi"), Some(0)); }
 
 // ============================================================================
-// Round 11 (2026-08-20): B-007 closures — fn-typed PARAMS hold a closure ENV
+// Round 11 (2026-08-20): B-007 closures -- fn-typed PARAMS hold a closure ENV
 // pointer (field 0 = the fn ptr). Calling f(x) inside a generic body goes
 // through the M20-A1 closure path: the param must be registered as a closure
-// local (the ENV pointer was inttoptr'd as a CODE pointer — 0xC0000005 in
+// local (the ENV pointer was inttoptr'd as a CODE pointer -- 0xC0000005 in
 // Option.map), and the closure's REAL return type drives the fn-pointer
-// signature (struct returns are BY VALUE — 0xC0000005 in Option.and_then).
+// signature (struct returns are BY VALUE -- 0xC0000005 in Option.and_then).
 // ============================================================================
 #[test] fn e2e_m41_round11_b007_closures() { assert_eq!(compile_and_run("tests\\regression\\m41_round11_b007_closures.xi"), Some(0)); }
 
 // ============================================================================
-// Round 12 (2026-08-21): Str-returning closures through Result/Err — closure
+// Round 12 (2026-08-21): Str-returning closures through Result/Err -- closure
 // thunk params are i64 (uniform env-first ABI) but their DECLARED XIOM types
 // were not tracked: a Str param used inside the body degraded to a scalar
-// (alloca i8 + trunc i64 of the string HANDLE) — corrupt map_err payloads.
+// (alloca i8 + trunc i64 of the string HANDLE) -- corrupt map_err payloads.
 // Fix: closure params record local_xiom_types/ref_params/signed_locals, and
 // the mono fn-typed param's return type resolves through type_map.
 // ============================================================================

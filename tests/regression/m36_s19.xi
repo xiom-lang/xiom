@@ -1,4 +1,4 @@
-// M36-S19: Optimization — inlining simulation (heuristic decision)
+// M36-S19: Optimization -- inlining simulation (heuristic decision)
 type InlineCandidate = { fn_id: Int; body_size: Int; call_count: Int; has_loop: Bool; }
 fn make_candidate(id: Int, size: Int, calls: Int, loop: Bool) -> InlineCandidate {
   return InlineCandidate{ fn_id: id; body_size: size; call_count: calls; has_loop: loop; };

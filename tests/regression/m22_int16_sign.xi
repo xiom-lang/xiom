@@ -1,4 +1,4 @@
-// M22: Int16 sign extension — negative values must work
+// M22: Int16 sign extension -- negative values must work
 fn main() -> Int {
   var neg: Int16 = -1;
   var pos: Int16 = 1;

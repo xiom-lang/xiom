@@ -1,0 +1,29 @@
+#!/bin/sh
+# Pre-commit hook: reject commits that add non-ASCII bytes to tracked text
+# files (mojibake / UTF-8 double-encoding prevention).
+#
+# Enable with:  git config core.hooksPath .githooks
+#
+# Files that intentionally contain non-ASCII (UTF-8 test data, package
+# registry metadata, playground lessons) are excluded inside
+# tools/ascii_guard.py (EXCLUDED_PREFIXES).
+
+PY=""
+for c in python3 python py; do
+    if command -v "$c" >/dev/null 2>&1 && "$c" -c "import sys" >/dev/null 2>&1; then
+        PY="$c"
+        break
+    fi
+done
+
+if [ -z "$PY" ]; then
+    echo "pre-commit (encoding guard): no working Python found; skipping check"
+    exit 0
+fi
+
+if ! "$PY" tools/ascii_guard.py check --staged; then
+    echo "Aborting commit: non-ASCII bytes in staged files."
+    echo "Fix with: $PY tools/ascii_guard.py repair --apply"
+    exit 1
+fi
+exit 0

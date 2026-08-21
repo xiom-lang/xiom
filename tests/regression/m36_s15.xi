@@ -1,4 +1,4 @@
-// M36-S15: Pretty printer — indentation and prefix-based formatting
+// M36-S15: Pretty printer -- indentation and prefix-based formatting
 type PPDoc = { indent: Int; content: Str; is_break: Bool; }
 fn make_doc(indent: Int, content: Str, br: Bool) -> PPDoc {
   return PPDoc{ indent: indent; content: content; is_break: br; };

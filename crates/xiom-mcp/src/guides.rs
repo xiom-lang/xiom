@@ -1,4 +1,4 @@
-// XIOM MCP — Language & Workflow Guides
+// XIOM MCP -- Language & Workflow Guides
 // Deep curated reference for agents with no XIOM training data.
 
 /// Deep language semantics by topic.
@@ -28,16 +28,16 @@ pub fn workflow_guide(topic: &str) -> String {
     }
 }
 
-const OVERVIEW: &str = r#"# XIOM Language Guide — Topics
+const OVERVIEW: &str = r#"# XIOM Language Guide -- Topics
 
 Call `xiom_language_guide {topic}` with one of:
-- `types` — primitives, structs, enums, derive, generics
-- `ownership` — move semantics, borrows, clone, common E001 fixes
-- `contracts` — requires/ensures/invariant, result, @pre, implication
-- `modules` — module decl, use imports, visibility, multi-file builds
-- `error-handling` — Option/Result, match, ? operator, traps
-- `unsafe-ffi` — extern "C", unsafe blocks, pointer rules, symbol shadowing
-- `debugging` — reading diagnostics, --explain codes, common error fixes
+- `types` -- primitives, structs, enums, derive, generics
+- `ownership` -- move semantics, borrows, clone, common E001 fixes
+- `contracts` -- requires/ensures/invariant, result, @pre, implication
+- `modules` -- module decl, use imports, visibility, multi-file builds
+- `error-handling` -- Option/Result, match, ? operator, traps
+- `unsafe-ffi` -- extern "C", unsafe blocks, pointer rules, symbol shadowing
+- `debugging` -- reading diagnostics, --explain codes, common error fixes
 
 Quick facts:
 - Files end in `.xi`. Entry point: `fn main() -> Int`.
@@ -74,7 +74,7 @@ NAMED (`Circle(r: Float64)`). Construction uses DOT syntax (`Shape.Circle(2.0)`)
 never `Shape::Circle`. Match patterns use bare variant names.
 `derive[Clone, Eq]` works on enums including heap payloads (Str/Vec).
 
-## Generics — square brackets
+## Generics -- square brackets
 ```xiom
 fn first[T](items: &Slice[T]) -> T { return items[0]; }
 fn max[T: Ord](a: T, b: T) -> T { if a > b { return a; } return b; }
@@ -101,11 +101,11 @@ XIOM uses move semantics with borrow checking.
 5. Borrows end at scope end.
 6. `.clone()` deep-copies, keeping the original usable.
 
-## Common errors → fixes
+## Common errors -> fixes
 - E001 "use after move": pass `&value` instead, or `.clone()` first.
 - "cannot borrow as mutable while borrowed": narrow borrow scopes.
-- Returning `&local`: rejected — return by value instead.
-- Struct fields cannot store borrows — structs own their data.
+- Returning `&local`: rejected -- return by value instead.
+- Struct fields cannot store borrows -- structs own their data.
 
 ## Patterns
 ```xiom
@@ -133,18 +133,18 @@ pub type PositiveInt = Int invariant: this > 0;
 ```
 
 ## Special forms
-- `result` — return value (ensures only)
-- `x@pre` — entry value of x (ensures only)
-- `a => b` — implication
-- `result is Ok => result != null` — pattern implication
+- `result` -- return value (ensures only)
+- `x@pre` -- entry value of x (ensures only)
+- `a => b` -- implication
+- `result is Ok => result != null` -- pattern implication
 
 ## Behavior
-- Violation → trap with contract name.
+- Violation -> trap with contract name.
 - `xiom --no-contracts` disables runtime checks.
 - `xiom --dump-contracts` exports JSON (also: get_contract_signature MCP tool).
 
 ## Best practices
-1. Null/range checks belong in requires — callers see them in the signature.
+1. Null/range checks belong in requires -- callers see them in the signature.
 2. FFI wrappers MUST declare `ensures: result != null` or handle failure.
 3. Contract expressions must be pure (no side effects)."#;
 
@@ -162,23 +162,23 @@ use xiom.string;
 ```
 
 ## Resolution order
-File's own dir → ./stdlib → XIOM_STDLIB env → exe-adjacent stdlib/ (release).
+File's own dir -> ./stdlib -> XIOM_STDLIB env -> exe-adjacent stdlib/ (release).
 A catalog index gives O(1) module lookup.
 
 ## Visibility
 `pub` = exported. Private items are module-internal.
 
 ## Multi-file builds
-`xiom -o app.exe main.xi lib.xi extra.xi` — files merge into one program;
+`xiom -o app.exe main.xi lib.xi extra.xi` -- files merge into one program;
 cross-file types resolve automatically.
 
 ## Errors
-- "unknown module" → file not in a scanned dir; pass on CLI or set XIOM_STDLIB.
-- private access → add `pub` at the declaration."#;
+- "unknown module" -> file not in a scanned dir; pass on CLI or set XIOM_STDLIB.
+- private access -> add `pub` at the declaration."#;
 
 const ERROR_HANDLING: &str = r#"# XIOM Error Handling
 
-## Option[T] — bare Some/None constructors
+## Option[T] -- bare Some/None constructors
 ```xiom
 fn find(v: &Vec[Int], x: Int) -> Option[Int] {
   var i = 0;
@@ -195,7 +195,7 @@ match find(&v, 42) {
 let idx = find(&v, 42).unwrap_or(0);
 ```
 
-## Result[T, E] — bare Ok/Err constructors
+## Result[T, E] -- bare Ok/Err constructors
 ```xiom
 fn parse(s: Str) -> Result[Int, Str] {
   if s.len() == 0 { return Err("empty"); }
@@ -212,13 +212,13 @@ if r.is_err() { let msg = r.unwrap_err(); }
 let n = parse(input)?;   // ? unwraps Ok or early-returns Err
 ```
 
-IMPORTANT: constructors are BARE — `Ok(x)`, `Err(e)`, `Some(x)`, `None`.
+IMPORTANT: constructors are BARE -- `Ok(x)`, `Err(e)`, `Some(x)`, `None`.
 There is NO `Result::Ok` / `Option::Some` path syntax in XIOM.
 
 ## Guidance
-- Recoverable failures → Result.
-- Absence → Option.
-- Programmer errors / invariant violations → contracts (trap on violation)."#;
+- Recoverable failures -> Result.
+- Absence -> Option.
+- Programmer errors / invariant violations -> contracts (trap on violation)."#;
 
 const UNSAFE_FFI: &str = r#"# XIOM Unsafe & C FFI (v0.57 Unsafe Confinement)
 
@@ -240,18 +240,18 @@ pub fn alloc(size: Int) -> *mut UInt8
 }
 ```
 
-## Rules (v0.57 — all enforced by the compiler)
-1. `unsafe` applies STRICTLY to the block `{ }` — `unsafe fn/module/struct` is a
+## Rules (v0.57 -- all enforced by the compiler)
+1. `unsafe` applies STRICTLY to the block `{ }` -- `unsafe fn/module/struct` is a
    hard error.
 2. Every extern call requires `unsafe { }` (T002). Exempt: fns declaring
    `requires`/`ensures` contracts (safe-wrapper pattern).
-3. Raw deref `*ptr` and Int↔Ptr casts require unsafe.
+3. Raw deref `*ptr` and Int<->Ptr casts require unsafe.
 4. A safe fn cannot return a raw pointer (T003) unless its body contains unsafe
    (unsafe-internal helper exemption).
 5. A fn whose ENTIRE body is one unsafe block must declare `requires` (T007).
 6. Confined blocks are TRAPPED: a hardware fault is caught by the SEH/sigsetjmp
    trampoline, retried once on a fresh arena slot, then the block yields a
-   recoverable zero (HardwareFault) — the process never crashes.
+   recoverable zero (HardwareFault) -- the process never crashes.
 7. `#[unsafe_no_retry]` disables the once-only transient retry; `#[unsafe_direct]`
    is the trusted escape hatch (stdlib/selfhost; `--enable-unsafe-direct` for
    user code).
@@ -259,19 +259,19 @@ pub fn alloc(size: Int) -> *mut UInt8
    tail; Str tails are Copy-Out'd to the main heap before the arena resets.
 9. FFI ownership (T006): an extern-returned `*T` in a confined block must be
    converted to an owned XIOM type before the tail (ffi.safe_ptr_from_raw /
-   box_from_ptr / vec_from_ptr_with_free / str_from_ptr_owned) — UNLESS the fn
+   box_from_ptr / vec_from_ptr_with_free / str_from_ptr_owned) -- UNLESS the fn
    itself returns the raw pointer (allocator pattern: caller owns it).
-10. NEVER name a wrapper after a C symbol (e.g. `pub fn realloc`) — it collides
+10. NEVER name a wrapper after a C symbol (e.g. `pub fn realloc`) -- it collides
     with the extern declaration and is silently dropped. Use `realloc_sized`.
-11. `unsafe { ...; return x; }` as the whole body is fine — divergence analysis
+11. `unsafe { ...; return x; }` as the whole body is fine -- divergence analysis
     accepts blocks where every path returns.
 
 ## Safety audit
-`xiom --sandbox file.xi` scores unsafe blocks (legacy audit — confinement gates
+`xiom --sandbox file.xi` scores unsafe blocks (legacy audit -- confinement gates
 are the primary layer):
-- extern call without contract → HIGH
-- pointer arithmetic without bounds → HIGH
-- unsafe in pub fn → MEDIUM
+- extern call without contract -> HIGH
+- pointer arithmetic without bounds -> HIGH
+- unsafe in pub fn -> MEDIUM
 CI gate: `xiom --sandbox=strict` (exit 3 on HIGH). JSON: `--sandbox-report=json`
 (MCP audit_safety_sandbox passes `--sandbox` first)."#;
 
@@ -283,23 +283,23 @@ Codes: L001 lexer, P001 parser, T001 types, E001 borrow/move, C001 codegen.
 `xiom --explain T001` prints the full reference for a code.
 MCP: explain_error_code {code}.
 
-## Frequent errors → fixes
-- T001 "return type mismatch: expected X, found ()" — a code path falls off
+## Frequent errors -> fixes
+- T001 "return type mismatch: expected X, found ()" -- a code path falls off
   the end. Ensure every path returns (if/else both branches).
-- E001 "use after move" — borrow (&x) or clone before the move.
-- P001 "expected one of ..." — check semicolons and brackets; generics use [ ].
-- "unknown module" — add the file to the CLI invocation or fix `use` path.
+- E001 "use after move" -- borrow (&x) or clone before the move.
+- P001 "expected one of ..." -- check semicolons and brackets; generics use [ ].
+- "unknown module" -- add the file to the CLI invocation or fix `use` path.
 
 ## Runtime debugging
 1. Compile with symbols: `xiom -g -o app.exe main.xi`
 2. VS Code: install the XIOM extension, F5 with type "xiom" (uses xiom-dbg + GDB).
-3. Contract violations trap — the debugger's exception filter
+3. Contract violations trap -- the debugger's exception filter
    "Contract Violations" breaks at the violating check.
 
 ## Breakpoints
 Source-level breakpoints are set by file and line number:
 - VS Code: click the gutter next to the line number
-- JSON API: `xiom-dbg --json` → `set-breakpoint main.xi 43`
+- JSON API: `xiom-dbg --json` -> `set-breakpoint main.xi 43`
 - GDB directly: `break main.xi:43`
 - DAP: `setBreakpoints` request with `source.path` and `breakpoints[].line`
 
@@ -316,26 +316,26 @@ Breakpoint features:
 | Continue | continue | continue | c |
 | Step over | next | step | n |
 | Step into | stepIn | step-in | s |
-| Pause | pause | — | Ctrl+C |
+| Pause | pause | -- | Ctrl+C |
 
 ## Variable inspection
 - VS Code: hover over variable or use Variables panel
 - JSON API: `variables` (locals), `evaluate "expr"` (any expression)
 - GDB: `info locals`, `print expr`
-- Memory: `xiom-dbg --json` → `memory <addr> <size>` (hex dump)
+- Memory: `xiom-dbg --json` -> `memory <addr> <size>` (hex dump)
 
 ## Structured output for tools
-`xiom --diagnostics=json file.xi` — machine-readable diagnostics.
+`xiom --diagnostics=json file.xi` -- machine-readable diagnostics.
 MCP compile_and_analyze returns the same structure."#;
 
 const W_OVERVIEW: &str = r#"# XIOM Toolchain Workflows
 
 Call `xiom_workflow_guide {topic}` with one of:
-- `compile` — build binaries, IR, WASM; flags reference
-- `test` — write and run XIOM tests
-- `debug` — symbols, debugger, contract traps
-- `package` — package.xi manifest, lockfile, publish to registry
-- `sandbox` — safety audit + CI/CD gating
+- `compile` -- build binaries, IR, WASM; flags reference
+- `test` -- write and run XIOM tests
+- `debug` -- symbols, debugger, contract traps
+- `package` -- package.xi manifest, lockfile, publish to registry
+- `sandbox` -- safety audit + CI/CD gating
 
 ## Toolchain binaries
 | Tool | Purpose |
@@ -346,7 +346,7 @@ Call `xiom_workflow_guide {topic}` with one of:
 | xiom-dbg | DAP debug adapter (VS Code/JetBrains) |
 | xiom-pkg | Package manager (install/publish/lock) |
 | xiom-doc | Markdown doc generator |
-| xiom-ffigen | C header → XIOM bindings |
+| xiom-ffigen | C header -> XIOM bindings |
 | xiom-verify | SMT-LIB contract export (Z3) |
 | xiom-mcp | This MCP server |"#;
 
@@ -421,10 +421,10 @@ Uses xiom-dbg (DAP) over GDB/MI: breakpoints, step, locals, stack.
 
 ## 3. Breakpoints
 - VS Code: click gutter next to line number
-- JSON API: `xiom-dbg --json` → `set-breakpoint main.xi 43`
+- JSON API: `xiom-dbg --json` -> `set-breakpoint main.xi 43`
 - GDB: `break main.xi:43`
-- List: `xiom-dbg --json` → `breakpoints`
-- Delete: `xiom-dbg --json` → `delete-breakpoint <id>`
+- List: `xiom-dbg --json` -> `breakpoints`
+- Delete: `xiom-dbg --json` -> `delete-breakpoint <id>`
 Set at any executable .xi line. Function-name breakpoints also work.
 
 ## 4. Stepping
@@ -441,7 +441,7 @@ breaks there; the IR carries `; contract:` comments mapping trap -> clause.
 - VS Code: Variables panel, hover evaluation
 - JSON API: `variables` (locals), `evaluate "expr"` (any expression)
 - GDB: `info locals`, `print expr`
-- Memory: `memory <addr> <size>` — hex dump
+- Memory: `memory <addr> <size>` -- hex dump
 
 ## 7. Expression evaluation
 Supported in all modes: DAP hover, json evaluate, GDB print.
@@ -452,13 +452,13 @@ gdb ./app.exe  (DWARF symbols work in any GDB-compatible debugger)"#;
 
 const W_SCRIPT: &str = r#"# Scripting & JIT Workflows
 
-## xiom run — execute scripts immediately
+## xiom run -- execute scripts immediately
 xiom run script.xi              # Execute a .xi script (auto-wraps in fn main())
 xiom run -e "print(42)"         # Execute inline expression
 echo "print(1+1)" | xiom run -  # Execute from stdin
 xiom run --watch script.xi      # Watch file, re-run on changes
 
-## Implicit main — no boilerplate needed
+## Implicit main -- no boilerplate needed
 Scripts can write statements directly at the top level. The compiler
 automatically wraps them in `fn main()` and adds `use xiom.io;`.
 
@@ -471,13 +471,13 @@ xiom scripts can use #!/usr/bin/env xiom as the first line:
 io.println("hello from executable script");
 chmod +x script.xi && ./script.xi
 
-## xiom --standalone — script-to-binary
+## xiom --standalone -- script-to-binary
 Converts a script into a production binary with --release optimizations:
 xiom --standalone script.xi -o mytool
 xiom --standalone --scaffold script.xi  # Also create project structure
 
 ## Script cache
-Repeated runs of the same script are instant — binaries are content-hash
+Repeated runs of the same script are instant -- binaries are content-hash
 cached in ~/.xiom/jit/. No recompilation needed.
 
 ## AI agent usage (MCP)
@@ -507,17 +507,17 @@ xiom-pkg publish                # publish current package
 ## Registry
 Default: https://registry.xiom-lang.com
 Override: XIOM_REGISTRY=https://my-registry.example.com
-Lockfile (xiom.lock) pins dep versions — commit it."#;
+Lockfile (xiom.lock) pins dep versions -- commit it."#;
 
 const W_SANDBOX: &str = r#"# Safety Audit (Sandbox) Workflows
 
 > v0.57 note: Unsafe Confinement gates (T002/T003/T005/T006/T007) are the PRIMARY
-> safety layer — they make violations COMPILE ERRORS. The sandbox audit below is
+> safety layer -- they make violations COMPILE ERRORS. The sandbox audit below is
 > the legacy scoring layer (report + CI gating). Both remain active.
 
 ## Run
 xiom --sandbox file.xi                  # human-readable report
-xiom --sandbox --sandbox-report=json file.xi   # JSON (CI parsing) — MUST include --sandbox first
+xiom --sandbox --sandbox-report=json file.xi   # JSON (CI parsing) -- MUST include --sandbox first
 xiom --sandbox --sandbox-report=out.json file.xi # write to file
 xiom --sandbox=strict file.xi           # exit 3 if HIGH findings
 

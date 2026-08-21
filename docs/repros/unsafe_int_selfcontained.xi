@@ -1,4 +1,4 @@
-﻿// Self-contained repro of the unsafe-return pattern (BUG 27 #14):
+// Self-contained repro of the unsafe-return pattern (BUG 27 #14):
 // extern "C" fn returning Int32, cast to Int, returned from an unsafe block
 // through the trampoline. fs_move's failure: rc always read non-zero even
 // when the underlying call succeeded.

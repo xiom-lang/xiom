@@ -1,4 +1,4 @@
-// M35-S11: Join strings — concatenate with delimiter between
+// M35-S11: Join strings -- concatenate with delimiter between
 fn join(a: Str, b: Str, delim: Str) -> Str {
   if a.len() == 0 { return b; }
   if b.len() == 0 { return a; }

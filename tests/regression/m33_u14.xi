@@ -1,4 +1,4 @@
-// M33-U14: Pointer as param — pass pointer to function, deref via temp
+// M33-U14: Pointer as param -- pass pointer to function, deref via temp
 fn read_ptr(p: *Int) -> Int {
   var r: Int;
   unsafe { r = *p; }

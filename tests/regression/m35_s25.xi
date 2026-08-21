@@ -1,4 +1,4 @@
-// M35-S25: String compression — deduplicate consecutive chars via loop
+// M35-S25: String compression -- deduplicate consecutive chars via loop
 use stdlib.xiom.string;
 fn compress(s: Str) -> Str {
   if s.len() == 0 { return ""; }

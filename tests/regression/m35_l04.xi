@@ -1,4 +1,4 @@
-// M35-L04: Struct with Bool fields — verify bool layout and bit pattern
+// M35-L04: Struct with Bool fields -- verify bool layout and bit pattern
 type Flags = { a: Bool; b: Bool; c: Bool; d: Bool; }
 
 fn main() -> Int {

@@ -1,4 +1,4 @@
-// M36-X15: Derive on all types — derive[Eq] on structs
+// M36-X15: Derive on all types -- derive[Eq] on structs
 type Point2D = { x: Int; y: Int; } derive[Eq]
 type Point3D = { x: Int; y: Int; z: Int; } derive[Eq]
 type Color = { r: Int; g: Int; b: Int; } derive[Eq]

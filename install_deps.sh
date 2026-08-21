@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# XIOM Dependency Auto-Installer — macOS & Linux
+# XIOM Dependency Auto-Installer -- macOS & Linux
 # ============================================================================
 # Detects OS/distro, checks for required build/runtime dependencies,
 # and auto-installs any that are missing.
@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-# ── Colors ──────────────────────────────────────────────────────────────
+# -- Colors --------------------------------------------------------------
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; GRAY='\033[0;90m'; MAGENTA='\033[0;35m'; NC='\033[0m'
 
@@ -26,14 +26,14 @@ header(){ echo -e "\n  ${CYAN}$1${NC}"; }
 
 installed=0; skipped=0; failed=0
 
-# ── Banner ──────────────────────────────────────────────────────────────
+# -- Banner --------------------------------------------------------------
 clear 2>/dev/null || true
 echo ""
 echo -e "  ${MAGENTA}XIOM Dependency Installer (macOS / Linux)${NC}"
 echo -e "  ${MAGENTA}------------------------------------------${NC}"
 echo ""
 
-# ── OS Detection ────────────────────────────────────────────────────────
+# -- OS Detection --------------------------------------------------------
 OS="$(uname -s)"
 case "$OS" in
     Darwin)  OS_TYPE="macos" ;;
@@ -64,14 +64,14 @@ info "Distro:  $DISTRO"
 info "Package managers: $(command -v brew >/dev/null 2>&1 && echo -n 'brew ' || true)$(command -v apt-get >/dev/null 2>&1 && echo -n 'apt ' || true)$(command -v dnf >/dev/null 2>&1 && echo -n 'dnf ' || true)$(command -v pacman >/dev/null 2>&1 && echo -n 'pacman ' || true)$(command -v apk >/dev/null 2>&1 && echo -n 'apk ' || true)"
 echo ""
 
-# ── Helper: detect sudo ─────────────────────────────────────────────────
+# -- Helper: detect sudo -------------------------------------------------
 if command -v sudo >/dev/null 2>&1 && [ "$(id -u)" -ne 0 ]; then
     SUDO="sudo"
 else
     SUDO=""
 fi
 
-# ── Helper: install via detected package manager ─────────────────────────
+# -- Helper: install via detected package manager -------------------------
 install_pkg() {
     local name="$1"
     local brew_pkg="${2:-$1}"
@@ -121,10 +121,10 @@ install_pkg() {
 header "1. Rust (rustc + cargo)"
 
 if command -v rustc >/dev/null 2>&1; then
-    ok "already installed — $(rustc --version 2>/dev/null)"
+    ok "already installed -- $(rustc --version 2>/dev/null)"
     ((skipped++))
 else
-    info "Rust not found — installing via rustup..."
+    info "Rust not found -- installing via rustup..."
     if command -v rustup >/dev/null 2>&1; then
         rustup toolchain install stable 2>&1
     else
@@ -137,7 +137,7 @@ else
     export PATH="$HOME/.cargo/bin:$PATH"
 
     if command -v rustc >/dev/null 2>&1; then
-        ok "Rust installed — $(rustc --version 2>/dev/null)"
+        ok "Rust installed -- $(rustc --version 2>/dev/null)"
         ((installed++))
     else
         fail "Rust installation failed. Install manually: https://rustup.rs"
@@ -151,10 +151,10 @@ fi
 header "2. C Build Tools (cc + linker)"
 
 if command -v cc >/dev/null 2>&1; then
-    ok "cc already available — $(cc --version 2>/dev/null | head -1)"
+    ok "cc already available -- $(cc --version 2>/dev/null | head -1)"
     ((skipped++))
 else
-    info "C compiler not found — installing build tools..."
+    info "C compiler not found -- installing build tools..."
     case "$OS_TYPE" in
         macos)
             # Xcode Command Line Tools
@@ -181,10 +181,10 @@ fi
 header "3. LLVM / clang (required to compile IR to native binary)"
 
 if command -v clang >/dev/null 2>&1; then
-    ok "already installed — $(clang --version 2>/dev/null | head -1)"
+    ok "already installed -- $(clang --version 2>/dev/null | head -1)"
     ((skipped++))
 else
-    info "clang not found — installing..."
+    info "clang not found -- installing..."
     installed_clang=false
 
     # Try package manager
@@ -205,7 +205,7 @@ else
             install_pkg "clang" "" "clang lld" "" "" && installed_clang=true
             ;;
         *)
-            warn "Unknown distro — attempting rustup + manual LLVM"
+            warn "Unknown distro -- attempting rustup + manual LLVM"
             ;;
     esac
 
@@ -260,28 +260,28 @@ fi
 # ========================================================================
 # 4. Git (optional)
 # ========================================================================
-header "4. Git (optional — for package manager)"
+header "4. Git (optional -- for package manager)"
 
 if command -v git >/dev/null 2>&1; then
-    ok "already installed — $(git --version 2>/dev/null)"
+    ok "already installed -- $(git --version 2>/dev/null)"
     ((skipped++))
 else
-    info "Git not found — optional, only needed for 'xiom pkg install'"
+    info "Git not found -- optional, only needed for 'xiom pkg install'"
     install_pkg "git" && ((installed++)) || {
         warn "Could not auto-install Git (non-critical)."
     }
 fi
 
 # ========================================================================
-# 5. NASM (optional — hardware-accelerated stdlib functions)
+# 5. NASM (optional -- hardware-accelerated stdlib functions)
 # ========================================================================
-header "5. NASM (optional — crypto/memcpy/simd assembly acceleration)"
+header "5. NASM (optional -- crypto/memcpy/simd assembly acceleration)"
 
 if command -v nasm >/dev/null 2>&1; then
-    ok "already installed — $(nasm --version 2>/dev/null | head -1)"
+    ok "already installed -- $(nasm --version 2>/dev/null | head -1)"
     ((skipped++))
 else
-    info "NASM not found — optional, enables AES-NI, fast memcpy, context switching"
+    info "NASM not found -- optional, enables AES-NI, fast memcpy, context switching"
     info "  Install: brew install nasm (macOS) / apt install nasm (Linux)"
     info "  Without NASM: stdlib falls back to C software implementations."
 fi

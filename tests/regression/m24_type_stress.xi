@@ -1,4 +1,4 @@
-// M24: Type stress — many types, generics, nesting
+// M24: Type stress -- many types, generics, nesting
 type Point2D = { x: Float64; y: Float64; }
 type Point3D = { x: Float64; y: Float64; z: Float64; }
 type Named = { name: Str; val: Int; }

@@ -1,4 +1,4 @@
-// XIOM — Collections Stress Benchmark
+// XIOM -- Collections Stress Benchmark
 // Exercises Vec, Map, Set operations at scale.
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.

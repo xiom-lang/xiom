@@ -1,4 +1,4 @@
-// M35-C08: while with break — early loop termination
+// M35-C08: while with break -- early loop termination
 fn find_first_even(start: Int, limit: Int) -> Int {
   var i: Int = start;
   while i <= limit {

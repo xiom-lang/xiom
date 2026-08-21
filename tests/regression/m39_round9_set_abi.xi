@@ -1,12 +1,12 @@
-// m39_round9_set_abi — round-9 (2026-08-20) regression:
-// Set container ABI mismatch — the compiler had NO builtin Set layout
+// m39_round9_set_abi -- round-9 (2026-08-20) regression:
+// Set container ABI mismatch -- the compiler had NO builtin Set layout
 // (unlike Vec/Slice/Map), so every Set value erased to i64 while the
 // stdlib's methods operated on %struct.Set. `Set[Int].new()` hijacked
 // Reverse.new, Set-typed params/returns/fields compiled as i64, and
 // `holder.s.insert(10)` mono'd Vec.insert with a %struct.Vec* receiver.
 // Fixes: inject the stdlib Set type (drop "Set" from checker PRIMITIVES),
 // is_container_vec_field accepts only Vec/Slice/Array fields, field
-// receivers resolve generic-arg types ("Set[Int]" → "Set") for the fn_key,
+// receivers resolve generic-arg types ("Set[Int]" -> "Set") for the fn_key,
 // mono pointer-self passes the FIELD ADDRESS for field receivers, and the
 // pointer-len handler skips struct pointees.
 module m39_round9_set_abi

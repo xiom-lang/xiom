@@ -1,5 +1,5 @@
 #!/usr/bin/env xiom
-// XIOM CSV → HTML Converter — Gap Discovery Script
+// XIOM CSV -> HTML Converter -- Gap Discovery Script
 // Usage: xiom run tools/csv_to_html.xi
 // Tests: file I/O, string splitting, Vec ops, loops, HTML generation
 // Note: reads tools/_sample.csv via absolute path (G12: relative paths resolve from temp dir)

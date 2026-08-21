@@ -1,4 +1,4 @@
-// M35-A22: Count divisors — count all positive divisors of n
+// M35-A22: Count divisors -- count all positive divisors of n
 fn count_divisors(n: Int) -> Int {
   if n <= 0 { return 0; }
   var c: Int = 0;

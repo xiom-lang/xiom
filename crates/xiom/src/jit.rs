@@ -1,8 +1,8 @@
-// XIOM — True JIT Execution via shared library loading (M10)
+// XIOM -- True JIT Execution via shared library loading (M10)
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
-// Pipeline: .xi source → AOT → .dll/.so → load in-process → call main() → result
+// Pipeline: .xi source -> AOT -> .dll/.so -> load in-process -> call main() -> result
 
 use std::path::PathBuf;
 use crate::CompileConfig;
@@ -10,7 +10,7 @@ use crate::CompileConfig;
 /// JIT-compile XIOM source to a shared library, load it, and call main().
 /// Returns the exit code from main(), or an error message.
 pub fn jit_execute(source: &str) -> Result<i32, String> {
-    // Unique temp dir per invocation — parallel JIT calls (e.g. tests) must
+    // Unique temp dir per invocation -- parallel JIT calls (e.g. tests) must
     // not collide on a shared _jit.xi/_jit.dll path.
     let tmp_dir = std::env::temp_dir().join(format!("xiom_jit_{}", std::process::id()));
     std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("cannot create temp dir: {e}"))?;

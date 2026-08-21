@@ -1,4 +1,4 @@
-// M32-X01: Combinatorial + Differential — while vs recursive sum with generic+contract
+// M32-X01: Combinatorial + Differential -- while vs recursive sum with generic+contract
 fn sum_while(n: Int) -> Int
   requires: n >= 0
   ensures: result >= 0

@@ -1,4 +1,4 @@
-// M35-S30: Balanced brackets — check (), [], {} balancing using depth counters
+// M35-S30: Balanced brackets -- check (), [], {} balancing using depth counters
 use stdlib.xiom.string;
 fn is_balanced(s: Str) -> Bool {
   var depth_paren: Int = 0;

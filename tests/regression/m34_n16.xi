@@ -1,4 +1,4 @@
-// M34-N16: Derive comparison chain — field-based Ord on struct
+// M34-N16: Derive comparison chain -- field-based Ord on struct
 type Score = { points: Int; level: Int; } derive[Eq]
 fn main() -> Int {
   var a = Score{ points: 10; level: 1; };

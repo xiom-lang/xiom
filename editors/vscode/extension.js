@@ -4,15 +4,15 @@ const { spawn, spawnSync } = require('child_process');
 /**
  * Resolve a XIOM toolchain binary. Production resolution order:
  *   1. Explicit VS Code setting (highest priority)
- *   2. PATH — the installed release toolchain (standard for end users)
- *   3. Workspace target/release, target/debug — compiler developers
- *   4. Extension directory — bundled binaries
+ *   2. PATH -- the installed release toolchain (standard for end users)
+ *   3. Workspace target/release, target/debug -- compiler developers
+ *   4. Extension directory -- bundled binaries
  * Returns the resolved path/command or null.
  */
 async function resolveXiomBinary(name, settingValue, context) {
   if (settingValue) return settingValue;
 
-  // 2. PATH resolution via where/which — end-user installs
+  // 2. PATH resolution via where/which -- end-user installs
   const probe = process.platform === 'win32' ? 'where' : 'which';
   try {
     const res = spawnSync(probe, [name], { encoding: 'utf8', timeout: 3000 });
@@ -22,7 +22,7 @@ async function resolveXiomBinary(name, settingValue, context) {
     }
   } catch { /* where/which unavailable */ }
 
-  // 3. Workspace target dirs — developing the compiler itself
+  // 3. Workspace target dirs -- developing the compiler itself
   const rootFolder = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
   const fileNames = process.platform === 'win32' ? [`${name}.exe`, name] : [name];
   const candidates = [];
@@ -32,7 +32,7 @@ async function resolveXiomBinary(name, settingValue, context) {
       candidates.push(vscode.Uri.joinPath(vscode.Uri.file(rootFolder), 'target', 'debug', fn));
     }
   }
-  // 4. Extension directory — bundled
+  // 4. Extension directory -- bundled
   if (context?.extensionUri) {
     for (const fn of fileNames) {
       candidates.push(vscode.Uri.joinPath(context.extensionUri, fn));
@@ -55,7 +55,7 @@ function activate(context) {
   // LSP client
   client = new LspClient(context);
   client.start().catch(() => {
-    console.log('XIOM LSP not available — syntax highlighting only');
+    console.log('XIOM LSP not available -- syntax highlighting only');
   });
 
   // DAP debug adapter
@@ -77,7 +77,7 @@ function deactivate() {
 }
 
 // ============================================================================
-// Debug Adapter Descriptor Factory — resolves xiom-dbg binary path
+// Debug Adapter Descriptor Factory -- resolves xiom-dbg binary path
 // ============================================================================
 
 class XiomDebugAdapterDescriptorFactory {
@@ -100,7 +100,7 @@ class XiomDebugAdapterDescriptorFactory {
 }
 
 // ============================================================================
-// Debug Configuration Provider — provides default launch configs
+// Debug Configuration Provider -- provides default launch configs
 // ============================================================================
 
 class XiomDebugConfigProvider {

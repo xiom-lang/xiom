@@ -1,4 +1,4 @@
-// M33-A06: Array of Bool — creation and explicit bool variable checks
+// M33-A06: Array of Bool -- creation and explicit bool variable checks
 fn main() -> Int {
   var arr = [true, false, true, false, true];
   var a: Bool = arr[0];

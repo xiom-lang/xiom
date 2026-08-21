@@ -1,4 +1,4 @@
-// M35-V26: Vec fold/sum pattern — accumulate over Vec
+// M35-V26: Vec fold/sum pattern -- accumulate over Vec
 fn vec_sum(v: &Vec[Int]) -> Int {
   var acc = 0;
   var i = 0;

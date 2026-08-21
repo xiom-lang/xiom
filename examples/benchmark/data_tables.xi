@@ -1,4 +1,4 @@
-// XIOM — Mathematical Tables Data Module
+// XIOM -- Mathematical Tables Data Module
 // Pre-computed lookup tables: factorials, powers, Fibonacci, squares, cubes.
 // These stress the compiler's ability to handle large static data initialization.
 // Copyright (c) 2026 Eleftherios Notas
@@ -95,7 +95,7 @@ pub fn fibonacci_table() -> Vec[Int] {
 }
 
 // ============================================================
-// TABLE 3: Powers of 2 — 2^0 through 2^30
+// TABLE 3: Powers of 2 -- 2^0 through 2^30
 // ============================================================
 pub fn powers_of_two() -> Vec[Int] {
   var p = Vec[Int].new();
@@ -134,7 +134,7 @@ pub fn powers_of_two() -> Vec[Int] {
 }
 
 // ============================================================
-// TABLE 4: Powers of 3 — 3^0 through 3^15
+// TABLE 4: Powers of 3 -- 3^0 through 3^15
 // ============================================================
 pub fn powers_of_three() -> Vec[Int] {
   var p = Vec[Int].new();

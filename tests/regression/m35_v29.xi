@@ -1,4 +1,4 @@
-// M35-V29: Vec iteration with while — scan forward and backward
+// M35-V29: Vec iteration with while -- scan forward and backward
 use xiom.collections;
 
 fn main() -> Int {

@@ -1,4 +1,4 @@
-// M35-T30: Mega stress — types, generics, impl, variant
+// M35-T30: Mega stress -- types, generics, impl, variant
 type All = { b: Bool; i: Int; s: Str; }
 enum Variant { Unit, IntVal(v: Int), StrVal(v: Str) }
 interface Score { fn score(self) -> Int; }

@@ -1,8 +1,8 @@
-// m37_round7_vec_pop_slot — round-7 (2026-08-20) regression:
-// inlined Vec.pop + match Option slot on an EMPTY vec — the caller's match
+// m37_round7_vec_pop_slot -- round-7 (2026-08-20) regression:
+// inlined Vec.pop + match Option slot on an EMPTY vec -- the caller's match
 // must read the inlined Option discriminant (the bare "pop" key resolved to
-// nothing → no scrutinee alloca → unconditional Some arm → exit 1).
-// Also covers: Vec.first/last (mono'd — were zero-param stubs), Vec.remove
+// nothing -> no scrutinee alloca -> unconditional Some arm -> exit 1).
+// Also covers: Vec.first/last (mono'd -- were zero-param stubs), Vec.remove
 // (pointer-arithmetic GEP scaling + element-width loads in mono'd bodies),
 // and the *UInt8 buffer concat-gate (Vec[UInt8].first on an i8* buffer).
 module m37_round7_vec_pop_slot
@@ -15,12 +15,12 @@ fn main() -> Int {
     Some(_) => { return 1; }
     None => { }
   }
-  // 2. get's None path (already worked — keep pinned).
+  // 2. get's None path (already worked -- keep pinned).
   match v.get(0) {
     Some(_) => { return 2; }
     None => { }
   }
-  // 3. first/last on a populated vec (mono'd methods — were zero-param stubs).
+  // 3. first/last on a populated vec (mono'd methods -- were zero-param stubs).
   v.push(42);
   v.push(99);
   match v.first() {
@@ -50,13 +50,13 @@ fn main() -> Int {
     Some(x) => { if x != 3000 { return 9; } }
     None => { return 10; }
   }
-  // 6. Vec.remove — mono'd body with element shift loop.
+  // 6. Vec.remove -- mono'd body with element shift loop.
   match w.remove(0) {
     Some(x) => { if x != 1000 { return 11; } }
     None => { return 12; }
   }
   if w.len() != 2 { return 13; }
-  // 7. Vec[UInt8] first/last — i8* byte buffer must NOT hit the Str-concat
+  // 7. Vec[UInt8] first/last -- i8* byte buffer must NOT hit the Str-concat
   //    intercept (`data + len` stays pointer arithmetic).
   var u = Vec[UInt8].new();
   u.push(10);

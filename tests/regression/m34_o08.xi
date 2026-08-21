@@ -1,4 +1,4 @@
-// M34-O08: ? mixed with match — ? propagation inside match arms (fixed)
+// M34-O08: ? mixed with match -- ? propagation inside match arms (fixed)
 fn div(a: Int, b: Int) -> Result[Int, Str] {
   if b == 0 { return Err("div0"); }
   return Ok(a / b);

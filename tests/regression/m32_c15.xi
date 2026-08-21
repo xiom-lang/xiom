@@ -1,4 +1,4 @@
-// M32-C15: Complex contract — multiplicative inverse with comprehensive checks
+// M32-C15: Complex contract -- multiplicative inverse with comprehensive checks
 fn inverse(x: Float64) -> Float64
   requires: x != 0.0
   ensures: result * x == 1.0

@@ -9,12 +9,12 @@ impl IrEmitter {
     pub(crate) fn coerce_arg_for_param(&mut self, arg_expr: &Expr, pre_val: &str, pre_ty: &str, param_ty: &str) -> String {
         // By-value struct params: `&Vec[T]`/`&Slice[T]` receive the STRUCT value
         // (%struct.Vec), NOT the address. For a `Ref(lvalue)` arg, compile the
-        // inner value directly — otherwise the caller passes the Vec's data
+        // inner value directly -- otherwise the caller passes the Vec's data
         // pointer (i8*) which coerces via inttoptr+load into a GARBAGE struct
-        // (reading the element buffer as the Vec header — ACCESS_VIOLATION).
+        // (reading the element buffer as the Vec header -- ACCESS_VIOLATION).
         // Scalar `&T` params are EXCLUDED: they carry the ADDRESS as i64
         // (the &literal/&local temp path in expr.rs supplies it).
-        // Pointer params (`%struct.Vec2*` for &mut Vec2) are also EXCLUDED —
+        // Pointer params (`%struct.Vec2*` for &mut Vec2) are also EXCLUDED --
         // they must receive the lvalue's slot ADDRESS so mutations propagate
         // (m33_b18: `set_x(&mut p, 3)` writes through the caller's alloca).
         if param_ty.starts_with("%struct.") && !param_ty.ends_with('*') {
@@ -25,11 +25,11 @@ impl IrEmitter {
             }
         }
         if param_ty.ends_with('*') {
-            // BUG 44: `&T` → T auto-coercion for POINTER-pointee types (Str).
+            // BUG 44: `&T` -> T auto-coercion for POINTER-pointee types (Str).
             // An arg carrying an ADDRESS (`&s`, or a ref-local/ref-param
             // ident `p: &Str`) must be DEREF'd when the param expects the
-            // pointee VALUE (`expect_str(&s)` — the old code passed the slot
-            // ADDRESS, or worse truncated it to a byte). Scalar `&T` → T is
+            // pointee VALUE (`expect_str(&s)` -- the old code passed the slot
+            // ADDRESS, or worse truncated it to a byte). Scalar `&T` -> T is
             // ambiguous with `&T` params at this layer (both lower to "i64")
             // and keeps the established address-passthrough; `i8**` params
             // (&Str) want the address itself.
@@ -44,19 +44,19 @@ impl IrEmitter {
                 _ => None,
             };
             if let Some(Expr::Ident(id)) = lvalue {
-                // &array_local → pass the Vec's DATA pointer (field 0), not the
+                // &array_local -> pass the Vec's DATA pointer (field 0), not the
                 // Vec alloca address. The `&[N]T` callee indexes the data buffer.
                 // BUG 30: ONLY for fixed-array-style params (i64*, [N x T]*).
                 // A `%struct.Vec*` param (&Vec[T]) must receive the HEADER
-                // alloca address — the data-pointer path made len() read the
-                // first ELEMENT as the length → OOB → AV (eco test_algo).
+                // alloca address -- the data-pointer path made len() read the
+                // first ELEMENT as the length -> OOB -> AV (eco test_algo).
                 if self.local.array_locals.contains(&id.name) && !param_ty.contains("%struct.") {
                     if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
                         // BUG 53 (2026-08-18): FIXED-ARRAY slots (`var a:
-                        // [5]Int = [...]` → slot `[5 x i64]`) — the element
+                        // [5]Int = [...]` -> slot `[5 x i64]`) -- the element
                         // pointer is GEP 0,0 of the array; the old code GEP'd
                         // the slot AS %struct.Vec and loaded "field 0" (the
-                        // first ELEMENT, e.g. 10) as the data pointer →
+                        // first ELEMENT, e.g. 10) as the data pointer ->
                         // garbage reads in every &[N]T fn.
                         if slot_ty.starts_with('[') && slot_ty.contains(" x ") {
                             let elem_ptr = self.fresh_tmp();
@@ -85,18 +85,18 @@ impl IrEmitter {
                 }
             }
             // NOTE: non-ident `&expr` lvalues (Index/Field/Call) MUST NOT be
-            // re-compiled here — the Expr::Ref/MutRef codegen arm already
-            // lowers them (Index → element ADDRESS as i64, Field → GEP pointer,
-            // Call → value). Falling through to coerce_value preserves that:
+            // re-compiled here -- the Expr::Ref/MutRef codegen arm already
+            // lowers them (Index -> element ADDRESS as i64, Field -> GEP pointer,
+            // Call -> value). Falling through to coerce_value preserves that:
             // an i64 address inttoptrs to the real pointer, a struct value
-            // takes the existing struct→pointer slot path (coerce_value),
+            // takes the existing struct->pointer slot path (coerce_value),
             // and a Vec data pointer coerces directly.
-            // BUG 52 (2026-08-18): `key: &K` with K=Str — the mono param is
+            // BUG 52 (2026-08-18): `key: &K` with K=Str -- the mono param is
             // `i8**` (address OF a slot holding the string handle). A Str
             // VALUE arg (`m.get("b")`, a Vec[Str] element) must be
             // MATERIALIZED into an i8* slot so the callee's `*key` loads the
-            // handle — passing the handle itself as i8** made `*key` read
-            // the string's first 8 BYTES as a pointer (garbage → strcmp AV;
+            // handle -- passing the handle itself as i8** made `*key` read
+            // the string's first 8 BYTES as a pointer (garbage -> strcmp AV;
             // Map.get with Str keys crashed for Int AND enum values alike).
             // Skip when the arg is already an address (ref-locals: i8**).
             if param_ty == "i8**" && pre_ty == "i8*" && lvalue.is_none() {
@@ -107,20 +107,20 @@ impl IrEmitter {
             }
             if lvalue.is_none() && !pre_ty.ends_with('*') && !param_ty.starts_with("%struct.") {
                 // BUG 31: a plain VALUE arg (literal etc.) to a `&T`/pointer
-                // param must be MATERIALIZED into a temp — the inttoptr
+                // param must be MATERIALIZED into a temp -- the inttoptr
                 // fallback treated the VALUE as an address
-                // (Map.get(1) → callee's `*key` derefs address 1 → AV).
+                // (Map.get(1) -> callee's `*key` derefs address 1 -> AV).
                 // Only for scalar pointees (i64*/i8*/double*); array and
                 // struct-pointer params keep their existing paths.
                 // BUG 37/36 follow-up (2026-08-17): a Str-typed arg in i64
                 // form (Vec[Str] element read, Option payload, etc.) is a
-                // STRING HANDLE, not a byte value — materializing it as a
+                // STRING HANDLE, not a byte value -- materializing it as a
                 // single-byte temp printed garbage (smoke_serialize yaml
                 // sequence). The i64 handle must inttoptr to i8* instead.
                 let pointee = param_ty.trim_end_matches('*');
                 if matches!(pointee, "i1" | "i8" | "i16" | "i32" | "i64" | "float" | "double" | "fp128") {
                     // Args whose XIOM type is Str (string handle) or a raw
-                    // pointer (`*T` — e.g. `var p = ptr.null[Int]()`) carry
+                    // pointer (`*T` -- e.g. `var p = ptr.null[Int]()`) carry
                     // POINTER BITS in i64 form; they must inttoptr to the
                     // param type, not materialize a single-element temp
                     // (smoke_serialize yaml sequence; smoke_ptr is_null).
@@ -146,14 +146,14 @@ impl IrEmitter {
     }
 
     /// BUG 44: when a call arg carries an ADDRESS but the param expects the
-    /// pointee VALUE (auto-coercion `&Str` → `Str`), deref the address and
+    /// pointee VALUE (auto-coercion `&Str` -> `Str`), deref the address and
     /// return the loaded pointee value. Handles both `&ident` REF EXPR args
     /// and ref-local/ref-param IDENT args (`p: &Str` passed to a `Str` param).
     /// Only fires when the param type EXACTLY equals the pointee's LLVM type
-    /// (i8* for Str) — `&T` params (i64 / i8**) keep receiving the address.
+    /// (i8* for Str) -- `&T` params (i64 / i8**) keep receiving the address.
     fn coerce_ref_arg_to_pointee(&mut self, arg_expr: &Expr, param_ty: &str) -> Option<String> {
         match arg_expr {
-            // `&s` / `&mut s`: compile the INNER lvalue — its value IS the
+            // `&s` / `&mut s`: compile the INNER lvalue -- its value IS the
             // pointee. (`f(&x)` to a `&T` param never reaches here: `&T`
             // params are i64/i8** and the inner value type won't match.)
             Expr::Ref(inner, _) | Expr::MutRef(inner, _) => {
@@ -165,18 +165,18 @@ impl IrEmitter {
                 None
             }
             // `p` where p is a ref-local/ref-param (`var p = &s`, `s: &Str`):
-            // the ident holds the ADDRESS — inttoptr (if i64) + load.
+            // the ident holds the ADDRESS -- inttoptr (if i64) + load.
             Expr::Ident(id) => {
                 let is_ref = self.local.ref_params.contains(&id.name)
                     || self.local.ref_locals.contains(&id.name);
                 if !is_ref { return None; }
                 // BUG 55 (2026-08-18): RAW-POINTER locals (`var p: *Int = &x`,
-                // `p: *Str`) are POINTER-VALUED — the recorded XIOM type is the
-                // raw pointer ("*Int" → i64*). Passing `p` to a `*Int` param
+                // `p: *Str`) are POINTER-VALUED -- the recorded XIOM type is the
+                // raw pointer ("*Int" -> i64*). Passing `p` to a `*Int` param
                 // must pass the pointer ITSELF; the old code treated every
                 // ref-tracked local as address-carrying and DEREF'd it
-                // (`%tmp9 = load i64*, i64** %tmp8` — x's VALUE became the
-                // pointer arg → null/garbage at the callee → AV/wrong reads
+                // (`%tmp9 = load i64*, i64** %tmp8` -- x's VALUE became the
+                // pointer arg -> null/garbage at the callee -> AV/wrong reads
                 // across fn/unsafe-block boundaries; the payload-corruption
                 // family root). The auto-deref applies ONLY to `&T` ref-locals
                 // whose recorded type is the bare pointee ("Int"/"Str").
@@ -302,7 +302,7 @@ impl IrEmitter {
             self.emitln(&format!("  {t} = fptrunc double {val} to float"));
             return t;
         }
-        // BUG 13 fix: Float128 (fp128) coercions — the As-cast handler had
+        // BUG 13 fix: Float128 (fp128) coercions -- the As-cast handler had
         // fp128 arms but coerce_value (stores/params/returns) had none, so
         // `var n: Float128 = 5` emitted `store fp128 5` (clang rejects the
         // integer constant) and fp128 flows silently passed values through.
@@ -400,11 +400,11 @@ impl IrEmitter {
             };
             return self.coerce_value(&scalar, "i64", to);
         }
-        // No known cast — return unchanged (best effort).
+        // No known cast -- return unchanged (best effort).
         val.to_string()
     }
 
-    /// Extract field 0 (the leading scalar — e.g. an enum discriminant or an
+    /// Extract field 0 (the leading scalar -- e.g. an enum discriminant or an
     /// Option/Result's first slot) from a by-value struct `val` of type
     /// `struct_ty`, returning the loaded `i64` scalar register. Used when a
     /// single-scalar-backed struct value appears in an integer context (e.g.
@@ -414,7 +414,7 @@ impl IrEmitter {
         if !struct_ty.starts_with("%struct.") {
             return val.to_string();
         }
-        // Empty (zero-sized) structs have no field 0 — GEP would be invalid.
+        // Empty (zero-sized) structs have no field 0 -- GEP would be invalid.
         let type_name = &struct_ty[8..];
         let is_empty = self.types.type_meta.get(&type_name.to_string()).map(|m| m.fields.is_empty()).unwrap_or(false);
         if is_empty {
@@ -518,14 +518,14 @@ impl IrEmitter {
     }
 
     /// Concatenation-operand conversion for `Str + X`. Pointer operands bitcast
-    /// (or pass through for i8*); INTEGER operands (Int/Int8..UInt128/Char —
+    /// (or pass through for i8*); INTEGER operands (Int/Int8..UInt128/Char --
     /// `is_int` verdict from the XIOM-level type) are FORMATTED via
     /// @xiom_int_to_string instead of inttoptr, which produced a garbage
-    /// pointer and crashed at runtime ("y = " + 42 → AV). FLOAT operands
-    /// (double/float — BUG 19 fix) are formatted via @xiom_double_to_string
-    /// (shortest round-trip; NaN → "nan", ±inf → "inf"/"-inf") — the previous
+    /// pointer and crashed at runtime ("y = " + 42 -> AV). FLOAT operands
+    /// (double/float -- BUG 19 fix) are formatted via @xiom_double_to_string
+    /// (shortest round-trip; NaN -> "nan", +/-inf -> "inf"/"-inf") -- the previous
     /// inttoptr path bitcast the FP bits to a pointer, crashing or printing
-    /// garbage ("c = " + NaN → AV / sentinel text).
+    /// garbage ("c = " + NaN -> AV / sentinel text).
     pub(crate) fn concat_val_to_i8ptr(&mut self, val: &str, ty: &str, is_int: bool) -> String {
         if ty == "i8*" {
             return val.to_string();
@@ -568,7 +568,7 @@ impl IrEmitter {
                 if let Some(t) = self.local.local_xiom_types.get(&id.name) {
                     return is_int_name(t);
                 }
-                // Module-global fallback: the LLVM slot verdict — a non-pointer
+                // Module-global fallback: the LLVM slot verdict -- a non-pointer
                 // integer slot (i64/i32/...) is an Int/UInt global.
                 if let Some((_, llvm_ty)) = self.local.module_globals.get(&id.name) {
                     return llvm_ty.starts_with('i') && !llvm_ty.ends_with('*') && llvm_ty != "i1" && llvm_ty != "i8*";
@@ -581,8 +581,8 @@ impl IrEmitter {
             Expr::As(_, ty, _) => is_int_name(&Self::type_from_ast(ty)),
             Expr::Paren(inner, _) => self.expr_is_integer(inner),
             // BUG 22 #11: a parenthesized ARITHMETIC expression of integers is
-            // an integer (`"sum = " + (v[0] + v[1])`) — previously fell through
-            // to inttoptr (garbage pointer → AV).
+            // an integer (`"sum = " + (v[0] + v[1])`) -- previously fell through
+            // to inttoptr (garbage pointer -> AV).
             Expr::Binary(l, op, r, _) => matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor)
                 && self.expr_is_integer(l) && self.expr_is_integer(r),
             // Vec element reads: the registered element type decides
@@ -617,14 +617,14 @@ impl IrEmitter {
             Expr::Call(callee, ..) | Expr::GenericCall(callee, ..) => {
                 // BUG 22 #11 fix: resolve the callee's REGISTERED return type
                 // (bare leaf, receiver-qualified "Vec.len", or module-qualified
-                // keys — the previous key construction used the receiver
+                // keys -- the previous key construction used the receiver
                 // EXPRESSION name ("v.len"), which never matched, so inline
                 // method-call operands like `"len = " + v.len()` fell through
-                // to inttoptr (garbage pointer → AV).
+                // to inttoptr (garbage pointer -> AV).
                 if let Some(rt) = self.callee_return_xiom(callee) {
                     return is_int_name(&rt);
                 }
-                // Inline Vec builtins have no registered signature: len → Int.
+                // Inline Vec builtins have no registered signature: len -> Int.
                 if let Expr::Field(obj, m, _) = callee.as_ref() {
                     let is_vec_recv = self.infer_struct_type_name(obj)
                         .map(|n| n == "Vec" || n.ends_with(".Vec"))
@@ -654,10 +654,10 @@ impl IrEmitter {
         }
     }
 
-    /// round-7 (ve2 follow-up): XIOM-level verdict — is this expression a
+    /// round-7 (ve2 follow-up): XIOM-level verdict -- is this expression a
     /// POINTER (raw `*T`, `&T`, `&mut T`), not a Str? The Str-concat intercept
     /// fires on ANY i8* operand at the LLVM level, but a `*UInt8` byte buffer
-    /// (e.g. the Vec `data` field) is also i8* — `buf + i` must be byte
+    /// (e.g. the Vec `data` field) is also i8* -- `buf + i` must be byte
     /// pointer arithmetic (GEP), never xiom_str_concat. Idents resolve through
     /// the registered XIOM type (local_xiom_types wins over the LLVM reverse
     /// lookup, which maps every i8* to "Str"); fields resolve through type_meta.
@@ -667,7 +667,7 @@ impl IrEmitter {
                 if let Some(t) = self.local.local_xiom_types.get(&id.name) {
                     return t.starts_with('*') || t.starts_with('&');
                 }
-                // Fallback: raw pointer slot (i8*/i64*/%struct.X*) — but a
+                // Fallback: raw pointer slot (i8*/i64*/%struct.X*) -- but a
                 // plain Str local also slots as i8*. Only report pointer when
                 // the slot type is NOT i8* (i8* stays "possibly Str" so the
                 // concat path keeps working for untyped Str values).

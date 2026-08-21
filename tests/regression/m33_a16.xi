@@ -1,4 +1,4 @@
-// M33-A16: Array of struct — array of Point structs
+// M33-A16: Array of struct -- array of Point structs
 type Point = { x: Float64; y: Float64; }
 fn main() -> Int {
   var pts = [Point{ x: 1.0; y: 2.0; }, Point{ x: 3.0; y: 4.0; }, Point{ x: 5.0; y: 6.0; }];

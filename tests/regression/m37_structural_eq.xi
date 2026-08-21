@@ -1,7 +1,7 @@
 module m37_structural_eq
 // BUG 24 residual fix: `==`/`!=` on same-type structs WITHOUT a derived eq
 // must compare ALL fields structurally. The old fallback compared only
-// field 0 (a multi-field struct compared its first field — silent
+// field 0 (a multi-field struct compared its first field -- silent
 // miscompare).
 
 type Pt = { x: Int; y: Int; }

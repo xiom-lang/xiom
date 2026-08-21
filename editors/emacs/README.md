@@ -11,7 +11,7 @@ Add `xiom.el` to your config (`load` it from init.el, or paste the contents).
 (load "~/path/to/xiom.el")
 ```
 
-Open a `.xi` file → `M-x eglot` (or it auto-starts) → diagnostics, hover
+Open a `.xi` file -> `M-x eglot` (or it auto-starts) -> diagnostics, hover
 (`M-x eldoc`), completion, rename (`M-x eglot-rename`), references (`M-x xref-find-references`).
 
 ## Debugging with dape

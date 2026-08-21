@@ -1,4 +1,4 @@
-// M32: Float32 arithmetic — add, sub, mul, div
+// M32: Float32 arithmetic -- add, sub, mul, div
 fn main() -> Int {
   var a: Float32 = 8.0;
   var b: Float32 = 3.0;

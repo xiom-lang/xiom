@@ -1,4 +1,4 @@
-// M32-M09: Nested modules — modules declared inside modules
+// M32-M09: Nested modules -- modules declared inside modules
 module outer {
   pub fn val_a() -> Int { return 10; }
   module inner {

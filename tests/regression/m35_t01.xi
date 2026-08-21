@@ -1,4 +1,4 @@
-// M35-T01: Bool in every context — var, param, return, struct, enum, array, generic, if, while, match
+// M35-T01: Bool in every context -- var, param, return, struct, enum, array, generic, if, while, match
 fn negate(b: Bool) -> Bool { return !b; }
 fn and_both(a: Bool, b: Bool) -> Bool { return a && b; }
 fn or_either(a: Bool, b: Bool) -> Bool { return a || b; }

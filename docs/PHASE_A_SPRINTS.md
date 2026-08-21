@@ -1,29 +1,29 @@
-# Ecosystem — Phase A: Clean Architecture
+# Ecosystem -- Phase A: Clean Architecture
 
 **Goal**: Decouple windowing from rendering. Every package has ONE responsibility.
 **Principle**: "If it compiles, it won't crash." All public functions have contracts.
-**Status**: Sprint A1 → A4 planned. Implementation starting now.
+**Status**: Sprint A1 -> A4 planned. Implementation starting now.
 
 ---
 
 ## Architecture Target
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                  XIOM Application                    │
-├─────────────────────────────────────────────────────┤
-│  xiom-imgui (GUI widgets, Dear ImGui)               │
-│  depends: xiom-glfw (input) + xiom-vulkan (render)  │
-├─────────────────────────────────────────────────────┤
-│  xiom-vulkan (GPU rendering, compute)                │
-│  depends: xiom-glfw (window surface handle only)     │
-├─────────────────────────────────────────────────────┤
-│  xiom-glfw (window, input, DPI, monitors, events)    │
-│  depends: nothing (standalone C bridge)              │
-├─────────────────────────────────────────────────────┤
-│  xiom.ffi (stdlib: malloc/free/memcpy, SafePtr,      │
-│            FFIBuffer, FFIError, struct marshal)      │
-└─────────────────────────────────────────────────────┘
++-----------------------------------------------------+
+|                  XIOM Application                    |
+|-----------------------------------------------------|
+|  xiom-imgui (GUI widgets, Dear ImGui)               |
+|  depends: xiom-glfw (input) + xiom-vulkan (render)  |
+|-----------------------------------------------------|
+|  xiom-vulkan (GPU rendering, compute)                |
+|  depends: xiom-glfw (window surface handle only)     |
+|-----------------------------------------------------|
+|  xiom-glfw (window, input, DPI, monitors, events)    |
+|  depends: nothing (standalone C bridge)              |
+|-----------------------------------------------------|
+|  xiom.ffi (stdlib: malloc/free/memcpy, SafePtr,      |
+|            FFIBuffer, FFIError, struct marshal)      |
+`-----------------------------------------------------+
 
 Future packages (Phase B): xiom-SDL3, xiom-ffmpeg, xiom-assimp
 All follow the same pattern: thin C bridge .obj + XIOM safe wrappers.
@@ -50,13 +50,13 @@ Message to users:
 ### Files to create:
 ```
 packages/xiom-glfw/
-├── package.xi          # name: "xiom-glfw", version: "0.1.0"
-├── README.md           # User docs: install GLFW, env vars, usage
-├── glfw.xi             # XIOM FFI + safe wrappers with contracts
-└── bridge/
-    ├── glfw_bridge.h   # C ABI: 15-20 functions (window, input, monitor)
-    ├── glfw_bridge.c   # Implementation
-    └── build.ps1       # Compile glfw_bridge.obj
+|-- package.xi          # name: "xiom-glfw", version: "0.1.0"
+|-- README.md           # User docs: install GLFW, env vars, usage
+|-- glfw.xi             # XIOM FFI + safe wrappers with contracts
+`-- bridge/
+    |-- glfw_bridge.h   # C ABI: 15-20 functions (window, input, monitor)
+    |-- glfw_bridge.c   # Implementation
+    `-- build.ps1       # Compile glfw_bridge.obj
 ```
 
 ### C bridge functions (extracted from xvk_app.c):
@@ -127,11 +127,11 @@ let app = xiom_vulkan.create_app(win)?;
 ### Files affected:
 ```
 packages/xiom-vulkan/
-├── vulkan.xi          # create_app signature change
-├── src/wrapper.xi     # VulkanApp.new takes Window
-├── bridge/xvk_app.c   # Accept GLFWwindow*, remove window creation
-├── bridge/xvk_frame.c # Remove glfwPollEvents, glfwGetKey
-└── examples/          # Update all ~12 demos
+|-- vulkan.xi          # create_app signature change
+|-- src/wrapper.xi     # VulkanApp.new takes Window
+|-- bridge/xvk_app.c   # Accept GLFWwindow*, remove window creation
+|-- bridge/xvk_frame.c # Remove glfwPollEvents, glfwGetKey
+`-- examples/          # Update all ~12 demos
 ```
 
 ---
@@ -158,10 +158,10 @@ xiom_imgui.init(win)?;  // registers callbacks via GLFW bridge
 ### Files affected:
 ```
 packages/xiom-imgui/
-├── imgui.xi           # init takes xiom_glfw.Window
-├── bridge/            # Remove imgui_impl_glfw.*
-├── build.ps1          # Remove imgui_impl_glfw.obj from link
-└── tests/demo_imgui.xi
+|-- imgui.xi           # init takes xiom_glfw.Window
+|-- bridge/            # Remove imgui_impl_glfw.*
+|-- build.ps1          # Remove imgui_impl_glfw.obj from link
+`-- tests/demo_imgui.xi
 ```
 
 ---
@@ -179,9 +179,9 @@ packages/xiom-imgui/
 
 ### Files affected by dependency chain:
 ```
-xiom-glfw (new)           → 0 deps
-xiom-vulkan (update)      → dep: xiom-glfw
-xiom-imgui (update)       → dep: xiom-glfw + xiom-vulkan
+xiom-glfw (new)           -> 0 deps
+xiom-vulkan (update)      -> dep: xiom-glfw
+xiom-imgui (update)       -> dep: xiom-glfw + xiom-vulkan
 ```
 
 ---
@@ -189,9 +189,9 @@ xiom-imgui (update)       → dep: xiom-glfw + xiom-vulkan
 ## Phase B (deferred): New packages
 
 ```
-xiom-SDL3     → window/input alternative to GLFW
-xiom-ffmpeg   → media decode/encode
-xiom-assimp   → 3D asset import
+xiom-SDL3     -> window/input alternative to GLFW
+xiom-ffmpeg   -> media decode/encode
+xiom-assimp   -> 3D asset import
 ```
 
 All follow the Phase A pattern: thin C bridge + XIOM safe wrappers + system-installed deps.

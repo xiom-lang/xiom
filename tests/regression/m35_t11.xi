@@ -1,4 +1,4 @@
-// M35-T11: Enum with all variant types — unit, Int payload, Float64 payload, Bool payload, Str payload, struct payload
+// M35-T11: Enum with all variant types -- unit, Int payload, Float64 payload, Bool payload, Str payload, struct payload
 type Point = { x: Int; y: Int; }
 enum MixedEnum {
   A,

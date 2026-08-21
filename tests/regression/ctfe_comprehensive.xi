@@ -1,4 +1,4 @@
-// CTFE comprehensive — 14 const assertions
+// CTFE comprehensive -- 14 const assertions
 const A: Int = 42;
 const B: Int = A * 2;        // 84
 const C: Int = B - 10;       // 74

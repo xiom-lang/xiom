@@ -1,4 +1,4 @@
-// M35-O07: Option unwrap_or — match-based unwrap_or implementation
+// M35-O07: Option unwrap_or -- match-based unwrap_or implementation
 fn unwrap_or_int(o: Option[Int], default: Int) -> Int {
   match o { Some(v) => { return v; } None => { return default; } }
 }

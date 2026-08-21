@@ -1,4 +1,4 @@
-// M32-C07: Float contract — Float64 precision guard
+// M32-C07: Float contract -- Float64 precision guard
 fn scale(value: Float64, factor: Float64) -> Float64
   requires: factor != 0.0
   ensures: result / factor == value

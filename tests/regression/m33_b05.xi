@@ -1,4 +1,4 @@
-// M33-B05: Borrow through function param — pass &mut, read after write, verify sequencing
+// M33-B05: Borrow through function param -- pass &mut, read after write, verify sequencing
 fn double_it(x: &mut Int) { *x = *x * 2; }
 fn add_ten(x: &mut Int) { *x = *x + 10; }
 fn main() -> Int {

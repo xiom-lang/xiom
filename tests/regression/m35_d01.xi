@@ -1,4 +1,4 @@
-// M35-D01: Stack — push/pop/peek with array
+// M35-D01: Stack -- push/pop/peek with array
 fn main() -> Int {
   var data0: Int = 0;
   var data1: Int = 0;

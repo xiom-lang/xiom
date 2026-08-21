@@ -1,4 +1,4 @@
-// XIOM Codegen — IrEmitter sub-contexts (M4.1: god object decomposition)
+// XIOM Codegen -- IrEmitter sub-contexts (M4.1: god object decomposition)
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -9,7 +9,7 @@ use std::sync::{Arc, RwLock};
 use std::hash::Hash;
 
 // ============================================================================
-// v0.54: SyncRegistry — Thread-safe HashMap wrapper for parallel compilation.
+// v0.54: SyncRegistry -- Thread-safe HashMap wrapper for parallel compilation.
 //
 // Wraps an Arc<RwLock<HashMap<K,V>>> and provides a HashMap-like API where
 // .get() returns Option<V> (cloned). Multiple readers can access concurrently;
@@ -30,12 +30,12 @@ impl<K: Eq + Hash, V> Default for SyncRegistry<K, V> {
 }
 
 impl<K: Eq + Hash + Clone, V: Clone> SyncRegistry<K, V> {
-    /// Thread-safe read access — clones the value.
+    /// Thread-safe read access -- clones the value.
     pub fn get(&self, key: &K) -> Option<V> {
         self.inner.read().unwrap().get(key).cloned()
     }
 
-    /// Thread-safe write access — inserts a value, returns the old value if any.
+    /// Thread-safe write access -- inserts a value, returns the old value if any.
     pub fn insert(&self, key: K, value: V) -> Option<V> {
         self.inner.write().unwrap().insert(key, value)
     }
@@ -75,7 +75,7 @@ impl<K: Eq + Hash + Clone, V: Clone> SyncRegistry<K, V> {
 }
 
 // ============================================================================
-// CodegenConfig — Compilation flags and target configuration
+// CodegenConfig -- Compilation flags and target configuration
 // ============================================================================
 
 #[derive(Clone)]
@@ -106,7 +106,7 @@ pub struct CodegenConfig {
     pub debug_symbols: bool,
     /// R1: Source file path for DWARF DIFile metadata
     pub source_file: String,
-    /// D2.1 (Phase 7): `#[unsafe_direct]` — trusted escape hatch. When true,
+    /// D2.1 (Phase 7): `#[unsafe_direct]` -- trusted escape hatch. When true,
     /// user code may tag unsafe blocks `#[unsafe_direct]` (bypass confinement:
     /// no trampoline/arena/guard page, runs as today's plain unsafe block).
     /// Restricted to stdlib/trusted packages by default; `--enable-unsafe-direct`
@@ -114,7 +114,7 @@ pub struct CodegenConfig {
     pub enable_unsafe_direct: bool,
     /// D2.1 (Phase 7): counted cap of `#[unsafe_direct]` blocks allowed.
     pub unsafe_direct_cap: u32,
-    /// BUG 25 #2 fix: `use X.Y.f as alias;` — alias name → the FULL dotted
+    /// BUG 25 #2 fix: `use X.Y.f as alias;` -- alias name -> the FULL dotted
     /// use path (recorded by the checker; the driver strips UseDecls before
     /// codegen). The codegen resolves each path to its registered fn key at
     /// preassign time so bare calls through the alias work.
@@ -155,7 +155,7 @@ impl Default for CodegenConfig {
 }
 
 // ============================================================================
-// TypeContext — Type system registration and interface/enum metadata
+// TypeContext -- Type system registration and interface/enum metadata
 // ============================================================================
 
 #[derive(Clone, Default)]
@@ -169,8 +169,8 @@ pub struct TypeContext {
     /// BUG 52 (2026-08-18): GENERIC type decls' field types WITH their type
     /// args ("Vec[K]", "Vec[V]") keyed by bare type name ("Map"). The builtin
     /// Map/Set registrations pre-empt type_meta with bare "Vec" field types,
-    /// so the stdlib's generic-arg field types are lost — this map keeps them
-    /// so mono'd method bodies can substitute the concrete args ("V"→"MyVal")
+    /// so the stdlib's generic-arg field types are lost -- this map keeps them
+    /// so mono'd method bodies can substitute the concrete args ("V"->"MyVal")
     /// for struct/enum Vec-element reads/writes.
     pub generic_type_field_types: HashMap<String, Vec<(String, String)>>,
     /// Known function signatures: name -> (param_llvm_types, return_llvm_type_or_empty)
@@ -183,7 +183,7 @@ pub struct TypeContext {
     pub interfaces: SyncRegistry<String, Vec<(String, Vec<String>)>>,
     /// Concrete types that implement each interface
     pub interface_impls: SyncRegistry<String, HashSet<String>>,
-    /// Method keys that take `self` by value (not `&self`) — need store_back
+    /// Method keys that take `self` by value (not `&self`) -- need store_back
     pub by_value_self_methods: HashSet<String>,
     /// Enum variants registry: name -> vec of (variant_name, field_names)
     pub enum_variants: SyncRegistry<String, Vec<(String, Vec<String>)>>,
@@ -191,14 +191,14 @@ pub struct TypeContext {
     pub enum_variant_field_types: SyncRegistry<String, Vec<(String, Vec<String>)>>,
     /// Builtin types whose impls have been referenced
     pub used_builtins: HashSet<String>,
-    /// M36: Type alias map — alias name → resolved XIOM type name
+    /// M36: Type alias map -- alias name -> resolved XIOM type name
     pub type_aliases: SyncRegistry<String, String>,
     /// M19: Default method bodies from interfaces, keyed by "Interface.method".
     pub interface_defaults: SyncRegistry<String, FnDecl>,
 }
 
 // ============================================================================
-// FunctionContext — Per-function compilation state
+// FunctionContext -- Per-function compilation state
 // ============================================================================
 
 #[derive(Clone, Default)]
@@ -208,11 +208,11 @@ pub struct FunctionContext {
     /// Return type of current function (empty = void)
     pub current_return_type: String,
     /// BUG 55 (2026-08-18): inside a confined-unsafe BLOCK fn,
-    /// current_return_type is the block's i64 ABI — this holds the
+    /// current_return_type is the block's i64 ABI -- this holds the
     /// ENCLOSING fn's declared return type so Some/None/Ok/Err ctors
     /// build the CONCRETE container (Option__Rc), not the generic
     /// %struct.Option (whose i64 payload slot corrupted the concrete
-    /// inline-struct field — the Option/Result payload family root).
+    /// inline-struct field -- the Option/Result payload family root).
     pub enclosing_return_type: Option<String>,
     /// String constants to emit at the top
     pub strings: Vec<String>,
@@ -222,7 +222,7 @@ pub struct FunctionContext {
     pub current_ensures: Vec<Expr>,
     /// Current method's receiver TYPE NAME
     pub current_receiver: Option<String>,
-    /// Local variables: name -> (alloca_register, llvm_type) — scope stack
+    /// Local variables: name -> (alloca_register, llvm_type) -- scope stack
     pub locals: Vec<HashMap<String, (String, String)>>,
     /// Pre-state value of self (for self@pre in ensures)
     pub self_pre_value: Option<String>,
@@ -242,14 +242,14 @@ pub struct FunctionContext {
     /// (deterministic faults shouldn't retry). Default: true (retry once).
     pub unsafe_allow_retry: bool,
     /// D2.1 (Phase 7): whether the current function's unsafe blocks run
-    /// `#[unsafe_direct]` — trusted, no trampoline/arena/guard page (plain
+    /// `#[unsafe_direct]` -- trusted, no trampoline/arena/guard page (plain
     /// unsafe). Restricted to stdlib/trusted, or user code with
     /// --enable-unsafe-direct.
     pub unsafe_direct: bool,
 }
 
 // ============================================================================
-// MonoContext — Monomorphisation state
+// MonoContext -- Monomorphisation state
 // ============================================================================
 
 #[derive(Clone, Default)]
@@ -258,7 +258,7 @@ pub struct MonoContext {
     pub generic_fn_decls: Vec<(String, FnDecl)>,
     /// B-007: fn key -> (param index, declared RETURN XIOM type) for every
     /// fn-typed (closure) PARAM. Populated at declaration registration for
-    /// EVERY fn (generic or not) — the direct call path needs it to wrap raw
+    /// EVERY fn (generic or not) -- the direct call path needs it to wrap raw
     /// fn-REFERENCE args into closure envs with a forwarding THUNK (the
     /// thunk's signature needs the return type; the erased signature can't
     /// tell a fn-typed param from a plain Int).
@@ -286,7 +286,7 @@ pub struct MonoContext {
     /// rewritten to the qualified key so the emitted symbol matches the
     /// definition. Keep-first: a user-defined bare fn wins over injection.
     pub bare_fn_aliases: HashMap<String, String>,
-    /// BUG 25 #2 fix: `use X.Y.f as alias;` — alias name → the registered fn
+    /// BUG 25 #2 fix: `use X.Y.f as alias;` -- alias name -> the registered fn
     /// key. The checker binds the alias for type checking, but the codegen's
     /// bare-call resolution had no alias table, so `af(-4.0)` through an
     /// alias resolved to the wrong symbol (wrong returns). Populated from the
@@ -297,14 +297,14 @@ pub struct MonoContext {
     /// program order, using fn_symbol's dedup rule: the first same-key fn
     /// emits the bare symbol, later ones qualify). Definitions AND call
     /// sites consult this map so a call compiled before its def can never
-    /// emit a qualified symbol the def went bare on (zero-param stub →
+    /// emit a qualified symbol the def went bare on (zero-param stub ->
     /// garbage). Keys cover the bare key, the leaf-qualified alias, and the
     /// module-qualified call key.
     pub fn_symbol_map: HashMap<String, String>,
 }
 
 // ============================================================================
-// LocalContext — Local variable tracking and module-level state
+// LocalContext -- Local variable tracking and module-level state
 // ============================================================================
 
 #[derive(Clone, Default)]
@@ -321,11 +321,11 @@ pub struct LocalContext {
     pub local_array_elem: HashMap<String, String>,
     /// Fixed-size array-local bindings (var name -> N elements)
     pub local_array_sizes: HashMap<String, i64>,
-    /// BUG 22 #6: while/for nesting depth — bindings compiled at depth > 0
+    /// BUG 22 #6: while/for nesting depth -- bindings compiled at depth > 0
     /// hoist their alloca to the fn entry (loop-body allocas do not dominate
     /// later blocks, which broke unsafe-block ctx captures referencing them).
     pub loop_depth: u32,
-    /// BUG 22 #6: (alloca_reg, llvm_ty) pairs hoisted from loop bodies —
+    /// BUG 22 #6: (alloca_reg, llvm_ty) pairs hoisted from loop bodies --
     /// spliced into the fn's entry block at fn end.
     pub hoisted_allocas: Vec<(String, String)>,
     /// Local Vec bindings' declared element type name
@@ -333,7 +333,7 @@ pub struct LocalContext {
     /// Option locals whose payload is a heap-boxed STRUCT pointer
     pub local_opt_payload: HashMap<String, String>,
     /// BUG 22 #4 fix: the SCALAR XIOM payload type of a Some/Ok/Err binding
-    /// (`var o = Some(5.0)` → "Float64"). Some(5.0) stores the DOUBLE BITS in
+    /// (`var o = Some(5.0)` -> "Float64"). Some(5.0) stores the DOUBLE BITS in
     /// the i64 payload slot; the match extraction must bitcast back. Struct
     /// payloads stay in local_opt_payload (boxed); scalars land here.
     pub local_opt_payload_xiom: HashMap<String, String>,
@@ -349,7 +349,7 @@ pub struct LocalContext {
     pub defer_stack: Vec<Block>,
     /// Module/global const values
     pub constants: HashMap<String, Expr>,
-    /// Cycle detection stack for const evaluation — tracks which constants
+    /// Cycle detection stack for const evaluation -- tracks which constants
     /// are currently being resolved. Prevents infinite recursion on cycles
     /// like `const A = B; const B = A;`.
     pub const_eval_stack: RefCell<HashSet<String>>,
@@ -369,7 +369,7 @@ pub struct LocalContext {
     /// Ordered list of module-global definitions to emit
     pub module_global_defs: Vec<(String, String, String)>,
     /// Module-level `var` globals whose initializer is a RUNTIME expression
-    /// (fn call, etc.) — cannot be a compile-time constant. The global is
+    /// (fn call, etc.) -- cannot be a compile-time constant. The global is
     /// emitted zero-initialized and a @llvm.global_ctors entry runs the
     /// initializer at startup (BUG 3 fix).
     pub global_runtime_inits: Vec<(String, String, Expr)>,
@@ -392,7 +392,7 @@ pub struct LocalContext {
     pub closure_locals: HashSet<String>,
     /// B-007: closure/fn-typed local -> declared RETURN XIOM type name
     /// ("Option[Int]", "Int", ...). The M20-A1 closure call path must use the
-    /// real return type for the fn-pointer signature and the call — struct
+    /// real return type for the fn-pointer signature and the call -- struct
     /// returns (%struct.Option) are BY VALUE; hardcoding `call i64` +
     /// inttoptr turned a by-value struct return into a pointer deref
     /// (0xC0000005 in Option.and_then's closure call).
@@ -400,20 +400,20 @@ pub struct LocalContext {
     /// M17: Set of local variable names whose declared XIOM type is a signed integer
     /// (Int, Int8, Int16, Int32, Int64). Used by widen_to_i64 to select sext vs zext.
     pub signed_locals: HashSet<String>,
-    /// M17: XIOM type name for each local. Maps local name → XIOM type string
-    /// (e.g. "x" → "Int8", "y" → "UInt16"). Populated from declared type annotations.
+    /// M17: XIOM type name for each local. Maps local name -> XIOM type string
+    /// (e.g. "x" -> "Int8", "y" -> "UInt16"). Populated from declared type annotations.
     pub local_xiom_types: HashMap<String, String>,
     /// Names of the CURRENT function's parameters. Used to distinguish by-value
-    /// `&T` params (ABI passes the VALUE — `*r` is a no-op) from local variables
-    /// that HOLD an address (`var r = &x` — `*r` must deref).
+    /// `&T` params (ABI passes the VALUE -- `*r` is a no-op) from local variables
+    /// that HOLD an address (`var r = &x` -- `*r` must deref).
     pub param_locals: HashSet<String>,
     /// Params declared with a plain `&T` reference type (address carried as i64).
     /// `&mut T` / `*T` params are real pointers (i64*) and are NOT listed here.
     pub ref_params: HashSet<String>,
     /// BUG 44: LOCALS bound from `&expr` or annotated `&T` (`var p = &s;`,
     /// `var p: &Str = ...`). They hold an ADDRESS (as i64 or a real pointer
-    /// for Str pointees) — deref (`*p`) must load through, and auto-coercion
-    /// to the pointee value (&Str → Str) must deref instead of treating the
+    /// for Str pointees) -- deref (`*p`) must load through, and auto-coercion
+    /// to the pointee value (&Str -> Str) must deref instead of treating the
     /// address as a byte value. Mirrors ref_params for non-param bindings.
     pub ref_locals: HashSet<String>,
     /// M17: Tracks which SSA register names hold signed integer values.
@@ -422,7 +422,7 @@ pub struct LocalContext {
     pub reg_signed: HashMap<String, bool>,
     /// BUG 38: true while compiling the LEFT side of an `=>` Imply
     /// (contract ensures). The BUG 29 bare `is Some/Ok/Err` scrutinee-name
-    /// payload rebind fires ONLY here — in if/while conditions it poisoned
+    /// payload rebind fires ONLY here -- in if/while conditions it poisoned
     /// the subsequent `match` on the same value (the scrutinee read as an
     /// i64 payload, so Some(v) arms bound 0 and skipped the disc check).
     pub in_imply_lhs: bool,

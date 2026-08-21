@@ -1,4 +1,4 @@
-// XIOM — Checker Types
+// XIOM -- Checker Types
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -12,7 +12,7 @@ use xiom_ast::*;
 use std::fmt;
 
 // ============================================================================
-// Type Interning (5c-R: TypeId + arena — rustc lesson from TyCtxt)
+// Type Interning (5c-R: TypeId + arena -- rustc lesson from TyCtxt)
 // ============================================================================
 
 /// Opaque index into the type arena. O(1) equality, zero heap indirection.
@@ -71,10 +71,10 @@ impl TypeArena {
 /// interface types, generic parameters, and `impl Trait` opaque types.
 ///
 /// Notable variants:
-/// - [`CheckedType::Named`] — user-defined types with optional generic arguments
-/// - [`CheckedType::Error`] — poison type used after a type error to suppress cascading errors
-/// - [`CheckedType::Wildcard`] — the `_` type, compatible with anything
-/// - [`CheckedType::ImplTrait`] — opaque existential return type
+/// - [`CheckedType::Named`] -- user-defined types with optional generic arguments
+/// - [`CheckedType::Error`] -- poison type used after a type error to suppress cascading errors
+/// - [`CheckedType::Wildcard`] -- the `_` type, compatible with anything
+/// - [`CheckedType::ImplTrait`] -- opaque existential return type
 pub enum CheckedType {
     Bool,
     Int, Int8, Int16, Int32, Int64, Int128,
@@ -90,7 +90,7 @@ pub enum CheckedType {
     Generic(String),
     /// Function pointer type: fn(T, U) -> V
     Fn(Vec<CheckedType>, Box<CheckedType>),
-    /// Error type — used when type checking fails
+    /// Error type -- used when type checking fails
     Error,
     /// Opaque impl Trait return type (M9.6)
     ImplTrait(Vec<String>),
@@ -104,10 +104,10 @@ impl CheckedType {
             Type::Ref(inner) => CheckedType::from_ast_type(inner),
             Type::MutRef(inner) => CheckedType::from_ast_type(inner),
             // BUG 51 (2026-08-18): PRESERVE container type args so match
-            // payload bindings get the inner type ("Option[MyRc]" → Some(up)
-            // binds up: MyRc) — the erased "Option" forced payload bindings to
+            // payload bindings get the inner type ("Option[MyRc]" -> Some(up)
+            // binds up: MyRc) -- the erased "Option" forced payload bindings to
             // the `_` wildcard, and method calls on them fell to the sorted
-            // wildcard lookup (Option.get before MyRc.get → "cannot compare
+            // wildcard lookup (Option.get before MyRc.get -> "cannot compare
             // Option with Int").
             Type::Option(inner) => CheckedType::Named(format!("Option[{}]", CheckedType::from_ast_type(inner).name())),
             Type::Result(ok, err) => CheckedType::Named(format!(
@@ -125,7 +125,7 @@ impl CheckedType {
             Type::Slice(inner) => CheckedType::Named(format!("Slice[{}]", CheckedType::from_ast_type(inner).name())),
             Type::Tuple(types) => {
                 // M20: Include element types in tuple name to avoid collisions
-                // (Int, Str) → Tuple__Int__Str, not just Tuple2
+                // (Int, Str) -> Tuple__Int__Str, not just Tuple2
                 let elem_names: Vec<String> = types.iter()
                     .map(|t| CheckedType::from_ast_type(t).name())
                     .collect();
@@ -303,7 +303,7 @@ pub struct FnSig {
 // ============================================================================
 
 // ============================================================================
-// TypeCause — error provenance (5c-R: 8 reason codes, rustc ObligationCause)
+// TypeCause -- error provenance (5c-R: 8 reason codes, rustc ObligationCause)
 // ============================================================================
 
 /// Why a type error occurred. Threaded through every error() call so

@@ -31,7 +31,7 @@ pub fn hash_str(data: &str) -> String {
 }
 
 /// Truncate a full SHA-256 hex hash to a shorter cache key.
-/// Default: first 16 characters (64 bits of entropy — sufficient for cache keys).
+/// Default: first 16 characters (64 bits of entropy -- sufficient for cache keys).
 pub fn short_hash(full_hash: &str) -> &str {
     &full_hash[..full_hash.len().min(16)]
 }

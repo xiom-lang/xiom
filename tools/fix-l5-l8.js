@@ -40,8 +40,8 @@ function ensureXiomString(code) {
 }
 
 // ---------------------------------------------------------------------------
-// 3) fix double conversion: string.int_to_str(X.to_str())  →  X.to_str()
-//    and string.float_to_str(X.to_str()) → X.to_str()
+// 3) fix double conversion: string.int_to_str(X.to_str())  ->  X.to_str()
+//    and string.float_to_str(X.to_str()) -> X.to_str()
 // ---------------------------------------------------------------------------
 function fixDoubleConversion(code) {
   // This regex captures string.int_to_str( ... .to_str() ) patterns
@@ -116,11 +116,11 @@ function needsParenWrap(expr) {
   // compound expressions containing arithmetic/comparison/logical operators
   // need parentheses so .to_str() binds correctly
   const trimmed = expr.trim();
-  // if there are no spaces, it's a simple term — no parens needed
+  // if there are no spaces, it's a simple term -- no parens needed
   if (!/\s/.test(trimmed)) return false;
   // if it looks like a method chain: x.y().z() etc
   if (/^[\w.]+\(\)$/.test(trimmed)) return false;
-  // contains these operators (outside parens) → compound
+  // contains these operators (outside parens) -> compound
   return /[*/%]|==|!=|<=|>=|&&|\|\||[&|](?!=)/.test(trimmed);
 }
 
@@ -241,6 +241,6 @@ for (const fp of sample) {
     JSON.parse(fs.readFileSync(fp, 'utf8'));
     console.log(`  OK: ${path.basename(fp)}`);
   } catch (e) {
-    console.error(`  FAIL: ${path.basename(fp)} — ${e.message}`);
+    console.error(`  FAIL: ${path.basename(fp)} -- ${e.message}`);
   }
 }

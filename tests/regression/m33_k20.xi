@@ -1,4 +1,4 @@
-// M33-K20: Full closure composition — fn ptr + pipe + block + chain
+// M33-K20: Full closure composition -- fn ptr + pipe + block + chain
 fn apply(f: fn(Int) -> Int, x: Int) -> Int { return f(x); }
 fn dbl_named(x: Int) -> Int { return x * 2; }
 fn main() -> Int {

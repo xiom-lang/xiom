@@ -1,4 +1,4 @@
-// M35-V09: Vec[Int] resize — push many elements past initial capacity
+// M35-V09: Vec[Int] resize -- push many elements past initial capacity
 fn main() -> Int {
   var v = Vec[Int].new();
   var i = 0;

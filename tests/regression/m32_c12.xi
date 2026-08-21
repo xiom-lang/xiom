@@ -1,4 +1,4 @@
-// M32-C12: Contract fail — contracts trap on violation (safe usage shown)
+// M32-C12: Contract fail -- contracts trap on violation (safe usage shown)
 fn withdraw(balance: Int, amount: Int) -> Int
   requires: amount > 0
   requires: balance >= amount

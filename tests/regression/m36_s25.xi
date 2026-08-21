@@ -1,4 +1,4 @@
-// M36-S25: Reference counting pattern — increment/decrement and release
+// M36-S25: Reference counting pattern -- increment/decrement and release
 type RcObj = { id: Int; ref_count: Int; data: Int; dropped: Bool; }
 fn make_rc(id: Int, data: Int) -> RcObj {
   return RcObj{ id: id; ref_count: 1; data: data; dropped: false; };

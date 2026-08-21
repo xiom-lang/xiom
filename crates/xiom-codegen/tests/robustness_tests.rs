@@ -1,5 +1,5 @@
-// XIOM — Compiler Robustness Tests
-// Verifies the compiler never panics — always returns Result, never crashes.
+// XIOM -- Compiler Robustness Tests
+// Verifies the compiler never panics -- always returns Result, never crashes.
 
 use xiom_lexer::Lexer;
 use xiom_parser::Parser;
@@ -8,7 +8,7 @@ use xiom_codegen::IrEmitter;
 /// Attempt full compile. Returns Ok(ir) or Err(msg). MUST NOT panic.
 fn try_compile(source: &str) -> Result<String, String> {
     // Run on a dedicated big-stack thread: `compile_expr` has very large
-    // debug-build frames and Rust test threads default to a 2MB stack —
+    // debug-build frames and Rust test threads default to a 2MB stack --
     // nested expressions overflowed at trivial depth (5c.30).
     let src = source.to_string();
     std::thread::Builder::new()
@@ -141,7 +141,7 @@ fn robust_unsafe_block() { assert_no_panic("fn main() -> Int { unsafe { var x = 
 
 #[test]
 fn robust_break_continue_outside_loop() {
-    // break/continue outside a loop — must not panic (may error)
+    // break/continue outside a loop -- must not panic (may error)
     assert_no_panic("fn main() -> Int { break; return 0; }");
     assert_no_panic("fn main() -> Int { continue; return 0; }");
 }
@@ -164,7 +164,7 @@ fn robust_mod_by_zero() { assert_no_panic("fn main() -> Int { return 1 % 0; }");
 #[test]
 fn robust_huge_int_literal() { assert_no_panic("fn main() -> Int { return 999999999999999999; }"); }
 
-// ── M24-1: Large file / many declarations ─────────────────────────────
+// -- M24-1: Large file / many declarations -----------------------------
 
 #[test] fn robust_100_functions() {
     let mut src = String::new();
@@ -222,7 +222,7 @@ fn robust_huge_int_literal() { assert_no_panic("fn main() -> Int { return 999999
     assert_no_panic(&src);
 }
 
-// ── M24-2: Deep recursion ─────────────────────────────────────────────
+// -- M24-2: Deep recursion ---------------------------------------------
 
 #[test] fn robust_deep_recursion_100() {
     let mut src = String::from("fn deep(n: Int) -> Int { if n == 0 { return 0; } return 1 + deep(n - 1); }\n");
@@ -260,7 +260,7 @@ fn robust_huge_int_literal() { assert_no_panic("fn main() -> Int { return 999999
     assert_no_panic(src);
 }
 
-// ── M24-3: Memory / layout stress ─────────────────────────────────────
+// -- M24-3: Memory / layout stress -------------------------------------
 
 #[test] fn robust_large_array_literal() {
     let elements: String = (0..100).map(|i| i.to_string()).collect::<Vec<_>>().join(", ");
@@ -298,7 +298,7 @@ fn robust_huge_int_literal() { assert_no_panic("fn main() -> Int { return 999999
     assert_no_panic("fn main() -> Int { return 100 % 0; }");
 }
 
-// ── M24-4: FFI / unsafe stress ────────────────────────────────────────
+// -- M24-4: FFI / unsafe stress ----------------------------------------
 
 #[test] fn robust_unsafe_block_basic() {
     assert_no_panic("fn main() -> Int { unsafe { var x: Int = 42; return x; } }");
@@ -325,7 +325,7 @@ fn robust_huge_int_literal() { assert_no_panic("fn main() -> Int { return 999999
     assert_no_panic("fn main() -> Int { var p: *UInt8 = null; var q: *UInt8 = p + 8; return 0; }");
 }
 
-// ── M24-5: Error recovery stress ──────────────────────────────────────
+// -- M24-5: Error recovery stress --------------------------------------
 
 #[test] fn robust_50_type_errors() {
     let mut src = String::new();
@@ -357,7 +357,7 @@ fn robust_huge_int_literal() { assert_no_panic("fn main() -> Int { return 999999
     assert_no_panic(&format!("{}\nfn main() -> Int {{ return 0; }}", garbage));
 }
 
-// ── M24-6: Fuzzing / differential / determinism ───────────────────────
+// -- M24-6: Fuzzing / differential / determinism -----------------------
 
 #[test] fn robust_random_valid_functions() {
     let mut seed: u64 = 12345; let mut src = String::new();

@@ -1,4 +1,4 @@
-// M35-V24: Vec filter pattern — keep only elements matching predicate
+// M35-V24: Vec filter pattern -- keep only elements matching predicate
 use xiom.collections;
 
 fn filter_evens(v: &Vec[Int]) -> Vec[Int] {

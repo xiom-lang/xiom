@@ -1,4 +1,4 @@
-// M35-V13: Vec of struct — Vec[Point] index access
+// M35-V13: Vec of struct -- Vec[Point] index access
 use xiom.collections;
 
 type Point = { x: Int; y: Int; }

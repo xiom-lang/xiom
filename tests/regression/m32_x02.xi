@@ -1,4 +1,4 @@
-// M32-X02: Combinatorial + Differential — loop sum vs formula with struct+enum
+// M32-X02: Combinatorial + Differential -- loop sum vs formula with struct+enum
 type Params = { lo: Int; hi: Int; }
 enum CalcMode { SumLoop, SumFormula }
 fn sum_loop(p: Params) -> Int {

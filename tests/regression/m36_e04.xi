@@ -1,4 +1,4 @@
-// M36-E04: Empty enum — minimal enum with no payload variants (unit variants only)
+// M36-E04: Empty enum -- minimal enum with no payload variants (unit variants only)
 enum VoidE { None }
 fn main() -> Int {
   var v = VoidE.None;

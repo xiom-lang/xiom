@@ -1,4 +1,4 @@
-// XIOM — Cryptographic Algorithm Stress Benchmark
+// XIOM -- Cryptographic Algorithm Stress Benchmark
 // Exercises hashing, encryption, and encoding algorithm patterns.
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
@@ -58,7 +58,7 @@ fn test_hashes() -> Int {
   var h3 = simple_hash(&data);
   if h3 != 0 { score = score + 1; }
 
-  // Determinism: same input → same hash
+  // Determinism: same input -> same hash
   if djb2_hash(&data) == djb2_hash(&data) { score = score + 1; }
   if simple_hash(&data) == simple_hash(&data) { score = score + 1; }
 
@@ -224,7 +224,7 @@ fn test_key_derivation() -> Int {
   var k2 = pbkdf2_simple(pwd, salt, 100);
   if k1 == k2 { score = score + 1; }
 
-  // Different password → different key
+  // Different password -> different key
   var pwd2 = [1, 2, 3, 5];
   var k3 = pbkdf2_simple(pwd2, salt, 100);
   if k1 != k3 { score = score + 1; }

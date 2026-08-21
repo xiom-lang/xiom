@@ -1,4 +1,4 @@
-// M34-Q14: Contract with string length — chained requires on string properties
+// M34-Q14: Contract with string length -- chained requires on string properties
 fn str_nonempty(s: Str) -> Bool {
   return s != "";
 }

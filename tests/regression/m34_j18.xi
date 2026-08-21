@@ -1,4 +1,4 @@
-// M34-J18: Module with derive — struct with derive inside modules
+// M34-J18: Module with derive -- struct with derive inside modules
 module models {
   pub type Point = { x: Int; y: Int; } derive[Eq]
   pub type Vec3 = { a: Float64; b: Float64; c: Float64; } derive[Eq]

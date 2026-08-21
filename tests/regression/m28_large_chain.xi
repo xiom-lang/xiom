@@ -1,4 +1,4 @@
-// M28: Large program stress — 80 functions, 80 consts, mixed types
+// M28: Large program stress -- 80 functions, 80 consts, mixed types
 const C0: Int = 0;
 const C1: Int = 1;
 fn f0() -> Int { return C0; }

@@ -1,4 +1,4 @@
-// M34-V10: Float comparisons — >= operator stress
+// M34-V10: Float comparisons -- >= operator stress
 fn main() -> Int {
   var a: Float64 = 5.0;
   var b: Float64 = 5.0;

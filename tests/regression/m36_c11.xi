@@ -1,4 +1,4 @@
-// M36-C11: Every array size — literal arrays of sizes 1, 2, 5, 10, 50 using Vec-like patterns and indexing
+// M36-C11: Every array size -- literal arrays of sizes 1, 2, 5, 10, 50 using Vec-like patterns and indexing
 fn sum_arr(arr: Vec[Int]) -> Int { var s = 0; var i = 0; while i < arr.len() { s = s + arr[i]; i = i + 1; } return s; }
 fn find_arr(arr: Vec[Int], target: Int) -> Bool { var i = 0; while i < arr.len() { if arr[i] == target { return true; } i = i + 1; } return false; }
 fn main() -> Int {

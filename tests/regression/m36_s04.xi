@@ -1,4 +1,4 @@
-// M36-S04: Parser tree traversal — pre-order and post-order walk
+// M36-S04: Parser tree traversal -- pre-order and post-order walk
 type Tree = { value: Int; left: Int; right: Int; }
 fn make_tree(v: Int, l: Int, r: Int) -> Tree {
   return Tree{ value: v; left: l; right: r; };

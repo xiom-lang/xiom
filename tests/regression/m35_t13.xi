@@ -1,4 +1,4 @@
-// M35-T13: Type alias for primitives — no arithmetic on alias, only assignment
+// M35-T13: Type alias for primitives -- no arithmetic on alias, only assignment
 type MyBool = Bool;
 type MyInt = Int;
 type MyInt8 = Int8;

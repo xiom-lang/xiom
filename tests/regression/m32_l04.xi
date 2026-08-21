@@ -1,4 +1,4 @@
-// M32-L04: Nested while — multiplication table sum (1..5 × 1..5)
+// M32-L04: Nested while -- multiplication table sum (1..5 x 1..5)
 fn main() -> Int {
   var i: Int = 1;
   var sum: Int = 0;
@@ -10,7 +10,7 @@ fn main() -> Int {
     }
     i += 1;
   }
-  // sum of all i*j for i,j in 1..5 = (1+2+3+4+5)² = 15² = 225
+  // sum of all i*j for i,j in 1..5 = (1+2+3+4+5)2 = 152 = 225
   if sum == 225 { return 0; }
   return 1;
 }

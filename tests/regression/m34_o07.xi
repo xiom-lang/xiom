@@ -1,4 +1,4 @@
-// M34-O07: ? in function returning Option — match-based Option propagation
+// M34-O07: ? in function returning Option -- match-based Option propagation
 fn try_get(flag: Bool) -> Option[Int] {
   if flag { return Some(42); }
   return None;

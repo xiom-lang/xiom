@@ -1,4 +1,4 @@
-// M35-A05: Insertion position — find where a value belongs in sorted array
+// M35-A05: Insertion position -- find where a value belongs in sorted array
 fn main() -> Int {
   var arr = [5, 6, 11, 12, 15];
   var n: Int = 5;

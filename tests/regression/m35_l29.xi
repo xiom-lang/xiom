@@ -1,4 +1,4 @@
-// M35-L29: Union pattern via pointer cast — reinterpreting memory via type casts
+// M35-L29: Union pattern via pointer cast -- reinterpreting memory via type casts
 type RawBlock = { tag: Int; data: Int; }
 
 fn first_field(r: RawBlock) -> Int {

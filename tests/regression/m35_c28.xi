@@ -1,4 +1,4 @@
-// M35-C28: early return from function — return at multiple points based on guard conditions
+// M35-C28: early return from function -- return at multiple points based on guard conditions
 fn safe_divide(a: Int, b: Int) -> Int {
   if b == 0 { return 0; }
   return a / b;

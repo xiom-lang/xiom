@@ -1,4 +1,4 @@
-// M36-S02: Lexer token patterns — identifier/keyword recognition
+// M36-S02: Lexer token patterns -- identifier/keyword recognition
 fn is_identifier_start(c: Int) -> Bool {
   return (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || c == 95;
 }

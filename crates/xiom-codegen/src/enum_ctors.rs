@@ -39,7 +39,7 @@ impl IrEmitter {
             // destroy the fraction (Real(2.718) became 2).
             // 5c.30: by-value STRUCT payloads (Vec headers, nested structs)
             // are heap-boxed via val_to_i64 (malloc+store+ptrtoint) so the
-            // i64 slot holds a stable handle â€” coerce_value extracted only
+            // i64 slot holds a stable handle -- coerce_value extracted only
             // the FIRST FIELD (JsonValue.Array held Vec.data, not a header).
             let store_val = if field_llvm_ty == "i64"
                 && (val_ty == "double" || val_ty == "float"

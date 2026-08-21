@@ -1,9 +1,9 @@
 #!/usr/bin/env xiom
-// XIOM Test Runner — Gap Discovery Script
+// XIOM Test Runner -- Gap Discovery Script
 // Usage: xiom run tools/test_runner.xi
 // Tests: closures, Result handling, string formatting, Vec ops, JSON parsing
 
-// Mini assertion framework (avoids xiom.test import — tests compiler directly)
+// Mini assertion framework (avoids xiom.test import -- tests compiler directly)
 fn assert(condition: Bool, name: Str) {
   if condition {
     io.println("  PASS: " + name);

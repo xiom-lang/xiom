@@ -1,4 +1,4 @@
-// M36-X14: All type casts — comprehensive cast operations between types
+// M36-X14: All type casts -- comprehensive cast operations between types
 fn main() -> Int {
   var i: Int = 42;
   var f: Float64 = i as Float64;

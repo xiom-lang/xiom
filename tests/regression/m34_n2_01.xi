@@ -1,4 +1,4 @@
-// M34-N2-01: 10-deep if-else chain — pushes conditional nesting limit
+// M34-N2-01: 10-deep if-else chain -- pushes conditional nesting limit
 fn main() -> Int {
   var x = 1;
   if x == 1 { if x == 1 { if x == 1 { if x == 1 { if x == 1 {

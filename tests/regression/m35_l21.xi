@@ -1,4 +1,4 @@
-// M35-L21: Array of struct with pointers — verify pointer semantics in struct arrays
+// M35-L21: Array of struct with pointers -- verify pointer semantics in struct arrays
 type Cell = { data: Int; next_id: Int; }
 
 fn get_data(c: Cell) -> Int {

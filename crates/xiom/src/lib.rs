@@ -46,11 +46,11 @@ pub struct CompileConfig {
     pub hot_reload: bool,
     /// 7D.3: verify contracts before hot-swapping function pointers
     pub hot_reload_contracts: bool,
-    /// 5e.5f: incremental compilation Ã¢â‚¬â€ cache IR, skip unchanged files
+    /// 5e.5f: incremental compilation -- cache IR, skip unchanged files
     pub incremental: bool,
-    /// 5e.5f: force recompilation Ã¢â‚¬â€ ignore all caches
+    /// 5e.5f: force recompilation -- ignore all caches
     pub force: bool,
-    /// 7C: parallel compilation Ã¢â‚¬â€ use rayon thread pool for lex+parse
+    /// 7C: parallel compilation -- use rayon thread pool for lex+parse
     pub parallel: bool,
     /// 7C: maximum number of parallel jobs (0 = num_cpus)
     pub jobs: usize,
@@ -75,16 +75,16 @@ pub struct CompileConfig {
     pub link_libs: Vec<String>,
     pub link_paths: Vec<String>,
     pub c_sources: Vec<String>,
-    /// M12: Scripting mode Ã¢â‚¬â€ apply implicit main wrapping if no fn main found
+    /// M12: Scripting mode -- apply implicit main wrapping if no fn main found
     pub script_mode: bool,
-    /// v0.54: Binary cache Ã¢â‚¬â€ hash source with SHA-256, cache compiled binary
-    /// for instant re-execution (~500ms Ã¢â€ â€™ ~5ms). Applies to --run mode.
+    /// v0.54: Binary cache -- hash source with SHA-256, cache compiled binary
+    /// for instant re-execution (~500ms -> ~5ms). Applies to --run mode.
     pub cache: bool,
     /// v0.56: ThinLTO link-time optimization (--lto flag)
     pub lto: bool,
-    /// I2: Parallel codegen Ã¢â‚¬â€ rayon-based per-function IR emission (--parallel-codegen)
+    /// I2: Parallel codegen -- rayon-based per-function IR emission (--parallel-codegen)
     pub parallel_codegen: bool,
-    /// D2.1 (Phase 7): `--enable-unsafe-direct` â€” allow `#[unsafe_direct]`
+    /// D2.1 (Phase 7): `--enable-unsafe-direct` -- allow `#[unsafe_direct]`
     /// (trusted escape hatch) in user code (stdlib/selfhost always allowed).
     pub enable_unsafe_direct: bool,
 }
@@ -175,7 +175,7 @@ pub struct CompileResult {
 /// no project manifest is found or the graph cannot be built.
 ///
 /// **Important:** The graph is only used for source directory discovery.
-/// The returned source list is the original list Ã¢â‚¬â€ specific file compilation
+/// The returned source list is the original list -- specific file compilation
 /// should not expand to the entire project. The graph source roots are
 /// returned separately so the Checker catalog can resolve `use` imports.
 ///
@@ -191,7 +191,7 @@ pub fn expand_sources_with_graph(source_paths: &[String]) -> (Vec<String>, Vec<S
     }
 
     // Try building the project graph for catalog/checker source dirs only.
-    // We do NOT replace the source file list Ã¢â‚¬â€ explicit compilation of
+    // We do NOT replace the source file list -- explicit compilation of
     // specific files must work without pulling in the entire project.
     match xiom_graph::build_project_graph(first) {
         Ok(graph) if !graph.is_empty() => {
@@ -231,11 +231,11 @@ pub fn expand_sources_with_graph(source_paths: &[String]) -> (Vec<String>, Vec<S
             (source_paths.to_vec(), extra_dirs)
         }
         Ok(_) => {
-            // Empty graph Ã¢â‚¬â€ fall back
+            // Empty graph -- fall back
             (source_paths.to_vec(), Vec::new())
         }
         Err(e) => {
-            // No project found or parse error Ã¢â‚¬â€ fall back silently
+            // No project found or parse error -- fall back silently
             if !matches!(e, xiom_graph::GraphError::NoProjectFound(_)) {
                 eprintln!("xiom: warning: {}", e);
             }
@@ -266,7 +266,7 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
         source_paths
     };
 
-    // 5e.5f / 7B: Incremental compilation Ã¢â‚¬â€ check graph-aware cache
+    // 5e.5f / 7B: Incremental compilation -- check graph-aware cache
     if config.incremental && !config.force && effective_sources.len() >= 1 {
         let sp = &effective_sources[0];
         if let Some(cached_ir) = incremental_check(sp) {
@@ -545,7 +545,7 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     emitter.set_debug_symbols(config.debug_symbols);
     emitter.set_enable_unsafe_direct(config.enable_unsafe_direct);
     // BUG 25 #2 fix: surface the checker's use-alias bindings (`use X.f as
-    // alias`) to the codegen — the driver strips UseDecls before codegen.
+    // alias`) to the codegen -- the driver strips UseDecls before codegen.
     emitter.set_use_alias_paths(checker.use_alias_paths.clone());
     if !effective_sources.is_empty() {
         emitter.set_source_file(effective_sources[0].clone());
@@ -584,7 +584,7 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
 }
 
 pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Vec<String>> {
-    // v0.54: Binary cache Ã¢â‚¬â€ check for cached binary before compilation.
+    // v0.54: Binary cache -- check for cached binary before compilation.
     // When --run --cache is used, skip the full compile pipeline if the
     // source hasn't changed since the last compilation.
     if config.cache && config.do_run && source_paths.len() == 1 {
@@ -602,7 +602,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                         eprintln!("  cached run exit code: {}", s.code().unwrap_or(-1));
                         return Ok(());
                     }
-                    Err(_) => { /* stale cache entry or binary removed Ã¢â‚¬â€ proceed */ }
+                    Err(_) => { /* stale cache entry or binary removed -- proceed */ }
                 }
             }
         }
@@ -652,7 +652,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         let source = fs::read_to_string(source_path)
             .map_err(|e| { eprintln!("error: cannot read '{source_path}': {e}"); vec![format!("cannot read '{source_path}': {e}")] })?;
 
-        // M12: Scripting mode Ã¢â‚¬â€ apply implicit main wrapping.
+        // M12: Scripting mode -- apply implicit main wrapping.
         // In script_mode (xiom run), always wrap.
         // In --check mode, wrap only if source has no fn main (script-like).
         let source = if config.script_mode {
@@ -683,7 +683,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             Ok(p) => {
                 // Surface RECOVERED parse errors (panic-mode recovery returns
                 // Ok with a partial AST). Without this, a malformed declaration
-                // is silently DROPPED Ã¢â‚¬â€ e.g. a trailing-comma fn disappeared
+                // is silently DROPPED -- e.g. a trailing-comma fn disappeared
                 // with no diagnostic and callers got 'undefined variable'.
                 if !parser.errors().is_empty() {
                     for e in parser.errors() {
@@ -771,7 +771,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         if !is_multi_file {
             return Err(vec!["compilation failed".to_string()]);
         }
-        eprintln!("note: {} type errors Ã¢â‚¬â€ aborting codegen", errors.len());
+        eprintln!("note: {} type errors -- aborting codegen", errors.len());
         return Err(vec!["compilation failed".to_string()]);
     }
 
@@ -791,7 +791,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             println!("{}", smt);
         }
         if let Ok(_) = std::process::Command::new("z3").arg("-version").output() {
-            eprintln!("Z3 found Ã¢â‚¬â€ use 'z3 file.smt2' to verify");
+            eprintln!("Z3 found -- use 'z3 file.smt2' to verify");
         }
         return Ok(());
     }
@@ -826,7 +826,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                     eprintln!("error[E001]: {l}:{c}: {m}", l = err.span.line, c = err.span.col, m = err.message);
                 }
             }
-            eprintln!("note: {} borrow errors Ã¢â‚¬â€ aborting compilation (--strict mode)", errors.len());
+            eprintln!("note: {} borrow errors -- aborting compilation (--strict mode)", errors.len());
             eprintln!("  = help: Fix ownership violations or remove --strict to treat as warnings.");
             return Err(vec!["compilation failed".to_string()]);
         } else {
@@ -892,7 +892,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     emitter.set_debug_symbols(config.debug_symbols);
     emitter.set_enable_unsafe_direct(config.enable_unsafe_direct);
     // BUG 25 #2 fix: surface the checker's use-alias bindings (`use X.f as
-    // alias`) to the codegen — the driver strips UseDecls before codegen.
+    // alias`) to the codegen -- the driver strips UseDecls before codegen.
     emitter.set_use_alias_paths(checker.use_alias_paths.clone());
     if !effective_sources.is_empty() {
         emitter.set_source_file(effective_sources[0].clone());
@@ -932,7 +932,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         return Ok(());
     }
 
-    // M12: Fix codegen bug Ã¢â‚¬â€ inttoptr-to-i8* registers stored as i8 instead of i8*
+    // M12: Fix codegen bug -- inttoptr-to-i8* registers stored as i8 instead of i8*
     // The codegen may emit: %X = inttoptr i64 %Y to i8*; store i8 %X, i8** %A
     // which is a type mismatch. Fix: store i8* %X, i8** %A.
     let llvm_ir = fix_inttoptr_store_mismatch(&llvm_ir);
@@ -1061,7 +1061,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             // (simd_runtime.c already uses __attribute__((target(...))) where it
             // needs them; the global flags remove that requirement for new code).
             // PRODUCTION RULE: wide-ISA execution MUST be gated at runtime via the
-            // CPUID dispatch in simd_runtime.c (xiom_simd_has_avx2/avx512/...) —
+            // CPUID dispatch in simd_runtime.c (xiom_simd_has_avx2/avx512/...) --
             // the -O2 vectorizer can also emit wide instructions in hot loops, so
             // only dispatch-gated code paths may rely on AVX-512 presence.
             if config.target == Target::Native && cfg!(target_arch = "x86_64") {
@@ -1071,7 +1071,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 // BUG 20 fix (2026-08-12): AVX-512 flags are HOST-CPUID-gated.
                 // The -O2 vectorizer emits AVX-512 (zmm) in ORDINARY float loops,
                 // which traps 0xC000001D on CPUs without AVX-512 (Zen 2 CI
-                // machine) — the runtime's CPUID dispatch gates only the
+                // machine) -- the runtime's CPUID dispatch gates only the
                 // INTENTIONAL SIMD calls, never the vectorizer, so the FLAGS
                 // themselves must match the host. Builds on AVX-512 machines
                 // still get the full set; the simd_runtime dispatch covers
@@ -1086,7 +1086,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             if asm_objects.is_empty() { cmd.arg("-DXIOM_NO_ASM"); }
             if config.debug_symbols { cmd.arg("-g"); }
             // v0.56: Apply optimization level to clang (same as opt passes).
-            // D1: default -O2 (see opt-level comment above Ã¢â‚¬â€ -O0/-O1
+            // D1: default -O2 (see opt-level comment above -- -O0/-O1
             // miscompile native-Int128 loop + Vec IR shapes).
             if config.release { cmd.arg("-O3"); } else { cmd.arg("-O2"); }
             // v0.56: ThinLTO for 20-40% smaller/faster binaries
@@ -1102,7 +1102,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 cmd.arg("-Wno-deprecated-declarations");
             }
             // POSIX (Linux/WSL) native links need the math library for the
-            // stdlib's extern math fns (exp/ln/sqrt/etc. — math.xi FFI).
+            // stdlib's extern math fns (exp/ln/sqrt/etc. -- math.xi FFI).
             if !cfg!(windows) && config.target == Target::Native {
                 cmd.arg("-lm");
             }
@@ -1202,7 +1202,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                     let _ = fs::remove_file(&ir_path);
                     eprintln!("  compiled: {output}");
 
-                    // v0.54: Binary cache Ã¢â‚¬â€ store compiled binary keyed by SHA-256 of source.
+                    // v0.54: Binary cache -- store compiled binary keyed by SHA-256 of source.
                     // Subsequent runs with --run --cache skip the entire compile pipeline.
                     if config.cache && source_paths.len() == 1 {
                         let source_path = &source_paths[0];
@@ -1264,7 +1264,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             }
         }
         None => {
-            eprintln!("note: clang not found Ã¢â‚¬â€ LLVM IR written to {ir_path}");
+            eprintln!("note: clang not found -- LLVM IR written to {ir_path}");
             match config.target {
                 Target::Wasm => {
                     eprintln!("  compile manually: clang --target=wasm32-unknown-unknown -nostdlib -Wl,--no-entry -Wl,--export-all -o {output} {ir_path}");
@@ -1618,10 +1618,10 @@ pub fn find_project_root(file_path: &Path) -> Option<PathBuf> {
 
 pub fn find_runtime_c() -> Option<String> {
     // Walk UP from the xiom binary (up to 8 levels) looking for the standard
-    // layouts. This is the reliable path for dev (`target/debug/xiom.exe` →
+    // layouts. This is the reliable path for dev (`target/debug/xiom.exe` ->
     // `<repo>/stdlib/runtime/xiom_runtime.c`) AND for the playground server
     // whose cwd is NOT the repo root. The old exe.parent().parent() guess
-    // (`target/debug` → `target`) never reached the project root.
+    // (`target/debug` -> `target`) never reached the project root.
     if let Ok(exe) = std::env::current_exe() {
         let mut search = exe.parent();
         for _ in 0..8 {
@@ -1681,7 +1681,7 @@ fn fix_inttoptr_store_mismatch(ir: &str) -> String {
 
     if i8p_regs.is_empty() { return ir.to_string(); }
 
-    // Fix lines: `store i8 %reg, i8** %ptr` Ã¢â€ â€™ `store i8* %reg, i8** %ptr`
+    // Fix lines: `store i8 %reg, i8** %ptr` -> `store i8* %reg, i8** %ptr`
     // Only when the target is i8** (pointer-to-pointer, from alloca i8*)
     let mut result = String::with_capacity(ir.len());
     for line in ir.lines() {
@@ -1709,7 +1709,7 @@ fn fix_inttoptr_store_mismatch(ir: &str) -> String {
 }
 
 pub fn find_runtime_c_files() -> Vec<String> {
-    // XIOM_RUNTIME_DIR override Ã¢â‚¬â€ production deployments set this explicitly
+    // XIOM_RUNTIME_DIR override -- production deployments set this explicitly
     if let Ok(rt_dir) = std::env::var("XIOM_RUNTIME_DIR") {
         let dir = std::path::Path::new(&rt_dir);
         if dir.is_dir() {
@@ -1732,8 +1732,8 @@ pub fn find_runtime_c_files() -> Vec<String> {
         "runtime".to_string(),
     ];
 
-    // Walk UP from the xiom binary (up to 8 levels) — reliable for dev
-    // (target/debug/xiom.exe → <repo>/stdlib/runtime) and for servers whose
+    // Walk UP from the xiom binary (up to 8 levels) -- reliable for dev
+    // (target/debug/xiom.exe -> <repo>/stdlib/runtime) and for servers whose
     // cwd is not the repo root (playground).
     if let Ok(exe) = std::env::current_exe() {
         let mut search = exe.parent();
@@ -1856,7 +1856,7 @@ pub fn explain_error(code: &str) {
     match std::fs::read_to_string(&path) {
         Ok(content) => {
             println!("{content}");
-            println!("Ã¢â€â‚¬Ã¢â€â‚¬");
+            println!("--");
             println!("For the full error-code index: docs/error_codes/README.md");
         }
         Err(_) => {
@@ -2112,7 +2112,7 @@ fn fn_signature_string(fd: &FnDecl) -> String {
     sig
 }
 
-/// Phase 5d: Public API Ã¢â‚¬â€ dump all contract signatures as JSON.
+/// Phase 5d: Public API -- dump all contract signatures as JSON.
 pub fn dump_contracts_json(program: &Program) -> String {
     let mut items: Vec<String> = Vec::new();
 
@@ -2233,7 +2233,7 @@ fn dump_module_contracts(md: &ModuleDecl) -> Vec<String> {
 
 // ============================================================================
 // ============================================================================
-// Phase 7B: Industrial Incremental Compilation Ã¢â‚¬â€ Graph-aware Cache
+// Phase 7B: Industrial Incremental Compilation -- Graph-aware Cache
 // ============================================================================
 
 /// Get or create the project-level cache database.
@@ -2351,7 +2351,7 @@ pub fn incremental_save(source_path: &str, ir: &str) {
 }
 
 // ============================================================================
-// Tests Ã¢â‚¬â€ compile_with_diagnostics
+// Tests -- compile_with_diagnostics
 // ============================================================================
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-// M35-O26: Result[Float64,Int] — float Ok, int Err construction and match
+// M35-O26: Result[Float64,Int] -- float Ok, int Err construction and match
 fn main() -> Int {
   var a: Result[Float64, Int] = Ok(3.0);
   match a { Ok(_) => {} Err(_) => { return 1; } }

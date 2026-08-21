@@ -5,7 +5,7 @@ module m37_catalog_boundary
 // 22.4 cross-module match on Option[Int] payload
 // 23.7 cross-module (Bool, Bool) tuple fields (misregistered Int__Int)
 // 22.3 cross-module 3-tuple .1/.2 field access
-// 23.8 catalog &Vec[T] param mutation (silent no-op — by-value ABI)
+// 23.8 catalog &Vec[T] param mutation (silent no-op -- by-value ABI)
 // 23.9 unary minus on a catalog-returned float
 
 use m37_catmod;
