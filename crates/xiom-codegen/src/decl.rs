@@ -523,6 +523,17 @@ impl IrEmitter {
                 .unwrap_or_else(|| "void".to_string());
             let key = self.fn_key(fd);
             self.types.functions.insert(key.clone(), (param_types.clone(), ret_type.clone()));
+            // B-007: record fn-typed (closure) param positions + return types
+            // for the call sites — the direct path must wrap raw fn-REFERENCE
+            // args into closure envs (the erased signature can't tell them
+            // apart; the ret type drives the forwarding thunk).
+            let fn_param_indices: Vec<(usize, String)> = fd.params.iter().enumerate()
+                .filter(|(_, p)| matches!(&p.ty, Type::Fn(..)))
+                .map(|(i, p)| (i, match &p.ty { Type::Fn(_, ret) => Self::type_from_ast(ret), _ => "Int".to_string() }))
+                .collect();
+            if !fn_param_indices.is_empty() {
+                self.mono.fn_typed_params.insert(key.clone(), fn_param_indices);
+            }
             // Injected stdlib free fns arrive leaf-qualified ("array.contains")
             // because the driver merge drops TopDecl::Module wrappers. Register a
             // bare-leaf alias ("contains" -> "array.contains") so unqualified
@@ -1280,6 +1291,14 @@ impl IrEmitter {
             // discriminator from a plain T. auto_deref_ref consumes this.
             let xiom_ty_name = Self::ref_preserving_name(&param.ty).unwrap_or(xiom_ty_name.clone());
             self.local.local_xiom_types.insert(param.name.name.clone(), xiom_ty_name.clone());
+            // B-007: fn-typed PARAMS hold a closure ENV pointer (field 0 =
+            // the fn ptr) — calling `f(x)` inside the body must go through
+            // the M20-A1 closure path (load the fn ptr from the env struct),
+            // NOT inttoptr the env pointer as a code pointer (0xC0000005).
+            if let Type::Fn(_, ret) = &param.ty {
+                self.local.closure_locals.insert(param.name.name.clone());
+                self.local.fn_local_returns.insert(param.name.name.clone(), Self::type_from_ast(ret));
+            }
             if Self::is_signed_xiom_type(&xiom_ty_name) {
                 self.local.signed_locals.insert(param.name.name.clone());
             } else {

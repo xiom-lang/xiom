@@ -128,12 +128,23 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let param_types: Vec<String> = closure_args.iter()
                                 .map(|(_, t)| t.clone())
                                 .collect();
-                            let fn_ptr_ty = format!("i64 ({})*", param_types.join(", "));
+                            // B-007: the closure's REAL return type (by-value
+                            // struct returns — Option/Result — are NOT
+                            // pointers; hardcoding i64 + inttoptr deref'd the
+                            // struct bits and crashed Option.and_then).
+                            let ret_llvm = self.local.fn_local_returns.get(name)
+                                .and_then(|rt| self.llvm_type_for(rt).ok())
+                                .unwrap_or_else(|| LLVM_I64.to_string());
+                            let fn_ptr_ty = format!("{ret_llvm} ({})*", param_types.join(", "));
                             let fn_ptr = self.fresh_tmp();
                             self.emitln(&format!("  {fn_ptr} = inttoptr i64 {loaded_fn} to {fn_ptr_ty}"));
                             let tmp = self.fresh_tmp();
-                            self.emitln(&format!("  {tmp} = call i64 {fn_ptr}({args_str})"));
-                            return Ok((tmp, LLVM_I64.to_string()));
+                            if ret_llvm == "void" {
+                                self.emitln(&format!("  call {ret_llvm} {fn_ptr}({args_str})"));
+                                return Ok((String::new(), "void".to_string()));
+                            }
+                            self.emitln(&format!("  {tmp} = call {ret_llvm} {fn_ptr}({args_str})"));
+                            return Ok((tmp, ret_llvm));
                         }
                     }
                 }
@@ -857,11 +868,50 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         let (recv_val, recv_actual_ty) = self.compile_expr(receiver)?;
                         let (recv_vec, _) = self.resolve_vec_receiver(receiver, &recv_val, &recv_actual_ty);
                         // Convert array literals ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ Vec structs for push arguments
-                        let (val_raw, val_ty) = if let Expr::Array(elems, _) = &args[0] {
+                        let (mut val_raw, val_ty) = if let Expr::Array(elems, _) = &args[0] {
                             self.compile_array_as_vec(elems, "Int")?
                         } else {
                             self.compile_expr(&args[0])?
                         };
+                        // B-007: pushing a bare fn-REFERENCE into a Vec[fn()] must
+                        // wrap it in a closure ENV (the element is called env-first
+                        // via the M20-A1 / index-call paths — a raw code address
+                        // would be deref'd as an env struct).
+                        {
+                            let elem_xiom = match &**receiver {
+                                Expr::Ident(id) => self.local.local_vec_elem.get(&id.name).cloned(),
+                                Expr::Field(..) => self.resolve_vec_container_elem_xiom(receiver),
+                                _ => None,
+                            };
+                            let mut wrapped = None;
+                            if elem_xiom.as_deref().map_or(false, |x| x.starts_with("fn(")) {
+                                if let Some(ae) = args.first() {
+                                    let is_fn_ref = matches!(ae, Expr::Ident(id)
+                                        if (self.types.functions.contains_key(&id.name)
+                                            || self.types.functions.keys().into_iter().any(|k| k.ends_with(&format!(".{}", id.name)))
+                                            || self.mono.emitted_fns.contains(&id.name))
+                                            && !self.local.closure_locals.contains(&id.name));
+                                    if is_fn_ref {
+                                        if let Expr::Ident(id) = ae {
+                                            let params = self.types.functions.get(&id.name)
+                                                .map(|(p, _)| p.clone())
+                                                .or_else(|| {
+                                                    let suffix = format!(".{}", id.name);
+                                                    self.types.functions.entries().into_iter()
+                                                        .find(|(k, _)| k.ends_with(&suffix))
+                                                        .map(|(_, (p, _))| p.clone())
+                                                })
+                                                .unwrap_or_default();
+                                            let ret = elem_xiom.as_deref().unwrap_or("Int").to_string();
+                                            wrapped = Some(self.wrap_fn_ref_env(&id.name, &val_raw, &ret, params));
+                                        }
+                                    }
+                                }
+                            }
+                            if let Some(w) = wrapped {
+                                val_raw = w;
+                            }
+                        }
                         // G4: Float64->Float32 coercion for Vec[Float32] push.
                         // val_to_i64 bitcasts doubleÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢i64 preserving all 64 bits,
                         // but emit_elem_store truncates to i32 for 4-byte slots,
@@ -2646,7 +2696,6 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 let is_generic = self.mono.generic_fn_decls.iter().any(|(k, _)| k == &fn_key)
                     || (!self.types.functions.contains_key(&fn_key)
                         && (self.mono.generic_fn_decls.iter().any(|(k, _)| k.ends_with(&format!(".{}", fn_key)))
-                            // BUG 38b (iter family): RECEIVER-KEYED generic methods —
                             // `iter.range(1, 4).collect()` resolves fn_key to
                             // "Range.collect", but the generic decl is registered
                             // as "Iterator[T].collect". Match on the LEAF method
@@ -3224,6 +3273,9 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         let mut all_args: Vec<String> = compiled_args.iter().map(|(v, _)| v.clone()).collect();
                         let mut all_arg_types: Vec<String> = compiled_args.iter().map(|(_, t)| t.clone()).collect();
                         let mut all_param_types = param_types.clone();
+                        // B-007: hoisted — the fn-typed param positions need to
+                        // know whether the receiver occupies fd.params[0].
+                        let receiver_in_params = !all_param_types.is_empty() && all_param_types.len() > all_args.len();
                         if let Some(receiver) = receiver_expr {
                             let is_instance = self.receiver_is_instance(receiver);
                             // Check if param_types already includes a receiver (from monomorphised registration)
@@ -3305,12 +3357,28 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // a struct while the callee expects that struct). A pointer
                         // param fed `&x`/`&mut x` receives the scalar's slot address.
                         let arg_offset = all_args.len().saturating_sub(args.len());
+                        // B-007: the callee's fn-typed PARAM positions (Type::Fn)
+                        // so raw fn-REFERENCE args get wrapped into closure envs.
+                        // Precomputed OUTSIDE the args closure (borrow rules).
+                        let callee_fd = self.mono.generic_fn_decls.iter()
+                            .find(|(k, _)| k == &fn_key || k.ends_with(&format!(".{}", fn_key)))
+                            .map(|(_, f)| f);
+                        let fn_typed_args: Vec<Option<String>> = (0..args.len()).map(|j| {
+                            let pidx = j + (if receiver_in_params { 1 } else { 0 });
+                            callee_fd.and_then(|fd| fd.params.get(pidx)).and_then(|p| match &p.ty {
+                                Type::Fn(_, ret) => Some(Self::type_from_ast(ret)),
+                                _ => None,
+                            })
+                        }).collect();
+                        if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
+                            eprintln!("[fta] fn={fn_name} key={fn_key} nargs={} typed={:?} has_fd={}", args.len(), fn_typed_args, callee_fd.is_some());
+                        }
                         let args_str = all_args.iter().enumerate()
                             .map(|(i, arg)| {
                                 let pty = all_param_types.get(i).cloned()
                                     .unwrap_or_else(|| all_arg_types.get(i).cloned().unwrap_or_else(|| LLVM_I64.to_string()));
                                 let from = all_arg_types.get(i).cloned().unwrap_or_else(|| pty.clone());
-                                let coerced = if i >= arg_offset {
+                                let mut coerced = if i >= arg_offset {
                                     match args.get(i - arg_offset) {
                                         Some(ae) => self.coerce_arg_for_param(ae, arg, &from, &pty),
                                         None => self.coerce_value(arg, &from, &pty),
@@ -3318,6 +3386,51 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 } else {
                                     self.coerce_value(arg, &from, &pty)
                                 };
+                                // round-11 (B-007): fn-typed params receive a
+                                // closure ENV (field 0 = fn ptr). A bare
+                                // fn-REFERENCE arg (cmp_int, is_even) compiles
+                                // to the raw code address — wrap it in a
+                                // forwarding thunk env; closure literals and
+                                // closure locals are already envs.
+                                if i >= arg_offset {
+                                if let Some(ret_xiom) = fn_typed_args.get(i - arg_offset).and_then(|o| o.clone()) {
+                                    if let Some(ae) = args.get(i - arg_offset) {
+                                        let is_fn_ref = matches!(ae, Expr::Ident(id)
+                                            if (self.types.functions.contains_key(&id.name)
+                                                || self.types.functions.keys().into_iter().any(|k| k.ends_with(&format!(".{}", id.name)))
+                                                || self.mono.emitted_fns.contains(&id.name))
+                                                // B-007: a fn-typed PARAM re-passed as an
+                                                // arg is ALREADY an env — wrapping it
+                                                // again double-wraps (heap_sort_by ->
+                                                // heap_sift_down_by's `compare` arg also
+                                                // matched the registered Int.compare
+                                                // suffix and got wrapped -> the inner
+                                                // M20-A1 read field 0 = the inner env
+                                                // pointer as a code pointer).
+                                                && !self.local.closure_locals.contains(&id.name));
+                                        if is_fn_ref {
+                                            let (ref_name, ref_params) = match ae {
+                                                Expr::Ident(id) => {
+                                                    let p = self.types.functions.get(&id.name)
+                                                        .map(|(p, _)| p.clone())
+                                                        .or_else(|| {
+                                                            let suffix = format!(".{}", id.name);
+                                                            self.types.functions.entries().into_iter()
+                                                                .find(|(k, _)| k.ends_with(&suffix))
+                                                                .map(|(_, (p, _))| p.clone())
+                                                        })
+                                                        .unwrap_or_default();
+                                                    (id.name.clone(), p)
+                                                }
+                                                _ => (String::new(), Vec::new()),
+                                            };
+                                            if !ref_name.is_empty() {
+                                                coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
+                                            }
+                                        }
+                                    }
+                                }
+                                }
                                 format!("{pty} {coerced}")
                             })
                             .collect::<Vec<_>>()
@@ -3504,15 +3617,48 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             };
                             // When registered, param types include the receiver at [0];
                             // explicit args map to [1..].
+                            let fta: Vec<Option<String>> = (0..compiled_args.len()).map(|j| {
+                                self.mono.fn_typed_params.get(&resolved_fn_key)
+                                    .and_then(|v| v.iter().find(|(idx, _)| *idx == j + 1).map(|(_, r)| r.clone()))
+                            }).collect();
                             let rest_str: Vec<String> = compiled_args.iter().enumerate()
                                 .map(|(i, (arg_val, arg_ty))| {
                                     let pty = callee_pts.as_ref()
                                         .and_then(|p| p.get(i + 1).cloned())
                                         .unwrap_or_else(|| arg_ty.clone());
-                                    let coerced = match args.get(i) {
+                                    let mut coerced = match args.get(i) {
                                         Some(ae) => self.coerce_arg_for_param(ae, arg_val, arg_ty, &pty),
                                         None => self.coerce_value(arg_val, arg_ty, &pty),
                                     };
+                                    // B-007: wrap raw fn-REFERENCE args for fn-typed params.
+                                    if let Some(ret_xiom) = fta.get(i).and_then(|o| o.clone()) {
+                                        if let Some(ae) = args.get(i) {
+                                            let is_fn_ref = matches!(ae, Expr::Ident(id)
+                                                if self.types.functions.contains_key(&id.name)
+                                                    || self.types.functions.keys().into_iter().any(|k| k.ends_with(&format!(".{}", id.name)))
+                                                    || self.mono.emitted_fns.contains(&id.name));
+                                            if is_fn_ref {
+                                                let (ref_name, ref_params) = match ae {
+                                                    Expr::Ident(id) => {
+                                                        let p = self.types.functions.get(&id.name)
+                                                            .map(|(p, _)| p.clone())
+                                                            .or_else(|| {
+                                                                let suffix = format!(".{}", id.name);
+                                                                self.types.functions.entries().into_iter()
+                                                                    .find(|(k, _)| k.ends_with(&suffix))
+                                                                    .map(|(_, (p, _))| p.clone())
+                                                            })
+                                                            .unwrap_or_default();
+                                                        (id.name.clone(), p)
+                                                    }
+                                                    _ => (String::new(), Vec::new()),
+                                                };
+                                                if !ref_name.is_empty() {
+                                                    coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
+                                                }
+                                            }
+                                        }
+                                    }
                                     format!("{pty} {coerced}")
                                 })
                                 .collect();
@@ -3526,15 +3672,48 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // each arg to the callee's declared param type (its real
                             // compiled type may differ, e.g. an enum-variant arg
                             // compiled to a struct while the callee expects it).
+                            let fta2: Vec<Option<String>> = (0..compiled_args.len()).map(|j| {
+                                self.mono.fn_typed_params.get(&resolved_fn_key)
+                                    .and_then(|v| v.iter().find(|(idx, _)| *idx == j).map(|(_, r)| r.clone()))
+                            }).collect();
                             compiled_args.iter().enumerate()
                                 .map(|(i, (arg_val, arg_ty))| {
                                     let pty = callee_pts.as_ref()
                                         .and_then(|p| p.get(i).cloned())
                                         .unwrap_or_else(|| arg_ty.clone());
-                                    let coerced = match args.get(i) {
+                                    let mut coerced = match args.get(i) {
                                         Some(ae) => self.coerce_arg_for_param(ae, arg_val, arg_ty, &pty),
                                         None => self.coerce_value(arg_val, arg_ty, &pty),
                                     };
+                                    // B-007: wrap raw fn-REFERENCE args for fn-typed params.
+                                    if let Some(ret_xiom) = fta2.get(i).and_then(|o| o.clone()) {
+                                        if let Some(ae) = args.get(i) {
+                                            let is_fn_ref = matches!(ae, Expr::Ident(id)
+                                                if self.types.functions.contains_key(&id.name)
+                                                    || self.types.functions.keys().into_iter().any(|k| k.ends_with(&format!(".{}", id.name)))
+                                                    || self.mono.emitted_fns.contains(&id.name));
+                                            if is_fn_ref {
+                                                let (ref_name, ref_params) = match ae {
+                                                    Expr::Ident(id) => {
+                                                        let p = self.types.functions.get(&id.name)
+                                                            .map(|(p, _)| p.clone())
+                                                            .or_else(|| {
+                                                                let suffix = format!(".{}", id.name);
+                                                                self.types.functions.entries().into_iter()
+                                                                    .find(|(k, _)| k.ends_with(&suffix))
+                                                                    .map(|(_, (p, _))| p.clone())
+                                                            })
+                                                            .unwrap_or_default();
+                                                        (id.name.clone(), p)
+                                                    }
+                                                    _ => (String::new(), Vec::new()),
+                                                };
+                                                if !ref_name.is_empty() {
+                                                    coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
+                                                }
+                                            }
+                                        }
+                                    }
                                     format!("{pty} {coerced}")
                                 })
                                 .collect::<Vec<_>>()
@@ -3591,14 +3770,57 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // if any). pi must offset by the INITIAL parts length, not
                             // the live length which grows as we push.
                             let base = parts.len();
+                            // B-007: fn-typed param positions for the raw fn-REF wrap.
+                            let fta3: Vec<Option<String>> = (0..compiled_args.len()).map(|j| {
+                                self.mono.fn_typed_params.get(&resolved_fn_key)
+                                    .and_then(|v| v.iter().find(|(idx, _)| *idx == j + base).map(|(_, r)| r.clone()))
+                            }).collect();
                             for (i, (arg_val, arg_ty)) in compiled_args.iter().enumerate() {
                                 let pi = i + base;
                                 if pi >= pts.len() { break; }
                                 let pty = pts[pi].clone();
-                                let coerced = match args.get(i) {
+                                let mut coerced = match args.get(i) {
                                     Some(ae) => self.coerce_arg_for_param(ae, arg_val, arg_ty, &pty),
                                     None => self.coerce_value(arg_val, arg_ty, &pty),
                                 };
+                                // B-007: wrap raw fn-REFERENCE args into closure envs.
+                                if let Some(ret_xiom) = fta3.get(i).and_then(|o| o.clone()) {
+                                    if let Some(ae) = args.get(i) {
+                                        let is_fn_ref = matches!(ae, Expr::Ident(id)
+                                            if (self.types.functions.contains_key(&id.name)
+                                                || self.types.functions.keys().into_iter().any(|k| k.ends_with(&format!(".{}", id.name)))
+                                                || self.mono.emitted_fns.contains(&id.name))
+                                                // B-007: a fn-typed PARAM re-passed as an
+                                                // arg is ALREADY an env — wrapping it
+                                                // again double-wraps (heap_sort_by ->
+                                                // heap_sift_down_by's `compare` arg also
+                                                // matched the registered Int.compare
+                                                // suffix and got wrapped -> the inner
+                                                // M20-A1 read field 0 = the inner env
+                                                // pointer as a code pointer).
+                                                && !self.local.closure_locals.contains(&id.name));
+                                        if is_fn_ref {
+                                            let (ref_name, ref_params) = match ae {
+                                                Expr::Ident(id) => {
+                                                    let p = self.types.functions.get(&id.name)
+                                                        .map(|(p, _)| p.clone())
+                                                        .or_else(|| {
+                                                            let suffix = format!(".{}", id.name);
+                                                            self.types.functions.entries().into_iter()
+                                                                .find(|(k, _)| k.ends_with(&suffix))
+                                                                .map(|(_, (p, _))| p.clone())
+                                                        })
+                                                        .unwrap_or_default();
+                                                    (id.name.clone(), p)
+                                                }
+                                                _ => (String::new(), Vec::new()),
+                                            };
+                                            if !ref_name.is_empty() {
+                                                coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
+                                            }
+                                        }
+                                    }
+                                }
                                 parts.push(format!("{pty} {coerced}"));
                             }
                             parts.join(", ")

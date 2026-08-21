@@ -256,6 +256,13 @@ pub struct FunctionContext {
 pub struct MonoContext {
     /// Generic function ASTs stored for later monomorphisation
     pub generic_fn_decls: Vec<(String, FnDecl)>,
+    /// B-007: fn key -> (param index, declared RETURN XIOM type) for every
+    /// fn-typed (closure) PARAM. Populated at declaration registration for
+    /// EVERY fn (generic or not) — the direct call path needs it to wrap raw
+    /// fn-REFERENCE args into closure envs with a forwarding THUNK (the
+    /// thunk's signature needs the return type; the erased signature can't
+    /// tell a fn-typed param from a plain Int).
+    pub fn_typed_params: HashMap<String, Vec<(usize, String)>>,
     /// Tracked generic instantiations: (fn_original_name, vec![concrete_type_names])
     pub generic_instantiations: Vec<(String, Vec<String>)>,
     /// Const-generic value map: monomorphised_fn_name -> {const_param_name -> value}
@@ -383,6 +390,13 @@ pub struct LocalContext {
     /// M20-A1: Set of local variable names that hold closure values.
     /// Used by the call dispatch to detect closure calls vs regular function calls.
     pub closure_locals: HashSet<String>,
+    /// B-007: closure/fn-typed local -> declared RETURN XIOM type name
+    /// ("Option[Int]", "Int", ...). The M20-A1 closure call path must use the
+    /// real return type for the fn-pointer signature and the call — struct
+    /// returns (%struct.Option) are BY VALUE; hardcoding `call i64` +
+    /// inttoptr turned a by-value struct return into a pointer deref
+    /// (0xC0000005 in Option.and_then's closure call).
+    pub fn_local_returns: HashMap<String, String>,
     /// M17: Set of local variable names whose declared XIOM type is a signed integer
     /// (Int, Int8, Int16, Int32, Int64). Used by widen_to_i64 to select sext vs zext.
     pub signed_locals: HashSet<String>,
