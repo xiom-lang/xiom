@@ -215,6 +215,17 @@ impl IrEmitter {
                     // [Str, Str]).
                     self.local.local_xiom_types.insert(name.name.clone(), rt);
                 }
+                // round-13 (tuple payloads): derive the Vec ELEMENT type from
+                // the recorded XIOM type ("Vec[(Int, Int)]" -> "(Int, Int)") so
+                // resolve_vec_elem_type finds it for METHOD-CHAIN returns
+                // (iter.range(...).enumerate().collect() -- callee_return_xiom
+                // can't resolve the chained receiver, so the elem lookup failed
+                // and get() loaded the first 8 bytes of the 16-byte tuple slot).
+                if let Some(xiom_ty) = self.local.local_xiom_types.get(&name.name) {
+                    if let Some(elem) = xiom_ty.strip_prefix("Vec[").and_then(|r| r.strip_suffix(']')) {
+                        self.local.local_vec_elem.entry(name.name.clone()).or_insert_with(|| elem.to_string());
+                    }
+                }
                 // BUG 44: `var p = &s` / `var p: &Str = ...` -- track ref-locals
                 // (address-carrying) so deref and &T->T coercion load through.
                 self.track_ref_local(&name.name, _ty.as_deref(), value);
@@ -463,6 +474,17 @@ impl IrEmitter {
                     // args (m.get("b") must mono Map.get[Str, MyVal], not
                     // [Str, Str]).
                     self.local.local_xiom_types.insert(name.name.clone(), rt);
+                }
+                // round-13 (tuple payloads): derive the Vec ELEMENT type from
+                // the recorded XIOM type ("Vec[(Int, Int)]" -> "(Int, Int)") so
+                // resolve_vec_elem_type finds it for METHOD-CHAIN returns
+                // (iter.range(...).enumerate().collect() -- callee_return_xiom
+                // can't resolve the chained receiver, so the elem lookup failed
+                // and get() loaded the first 8 bytes of the 16-byte tuple slot).
+                if let Some(xiom_ty) = self.local.local_xiom_types.get(&name.name) {
+                    if let Some(elem) = xiom_ty.strip_prefix("Vec[").and_then(|r| r.strip_suffix(']')) {
+                        self.local.local_vec_elem.entry(name.name.clone()).or_insert_with(|| elem.to_string());
+                    }
                 }
                 // BUG 44: `var p = &s` / `var p: &Str = ...` -- track ref-locals
                 // (address-carrying) so deref and &T->T coercion load through.
@@ -1138,6 +1160,30 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             scrutinee_llvm_ty = struct_ty;
                             scrutinee_type = Some(ek);
                         }
+                    }
+                }
+                // round-13 (cb2 residual): a call-scrutinee with an UNKNOWN
+                // resolved type but a CONCRETE struct VALUE -- e.g. a closure
+                // local's call returning %struct.Ordering
+                // (`match compare(&a, &b) { Less => a; ... }` in cmp.min_by,
+                // where `compare` is a fn-typed param, not a registered fn),
+                // or an fn-typed FIELD call returning %struct.Option
+                // (`match self.next_fn() { Some(v) => ... }` in the iter
+                // adapters). Adopt the struct as the scrutinee type so the
+                // discriminant checks emit -- otherwise the match branched
+                // STRAIGHT to the last arm (min_by always returned b;
+                // MapIter.next applied f to the None case).
+                if scrutinee_type.is_none()
+                    && scrutinee_llvm_ty.starts_with("%struct.")
+                    && !scrutinee_llvm_ty.ends_with('*')
+                {
+                    let name = scrutinee_llvm_ty[8..].trim_end_matches('*').to_string();
+                    // Registered enums, Option/Result (field 0 = discriminant /
+                    // is_some/is_ok) and any other registered struct type.
+                    let is_registered = self.types.types.contains_key(&name)
+                        || self.types.types.keys().into_iter().any(|k| k.ends_with(&format!(".{name}")));
+                    if is_registered {
+                        scrutinee_type = Some(name);
                     }
                 }
 
@@ -2035,14 +2081,24 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                         (loaded.clone(), field_ty.clone())
                                     }
                                     Some(decl) if field_ty == "i64" && !decl.starts_with("Vec[") => {
-                                        let s_ty = self.llvm_type_for(decl).unwrap_or_else(|_| format!("%struct.{decl}"));
+                                        // round-13 (tuple payloads -- iter
+                                        // enumerate/zip, btree first_entry):
+                                        // normalize "(Int, Int)" -> "Tuple__Int__Int"
+                                        // so the boxed-tuple deref resolves (the
+                                        // raw "(Int, Int)" failed llvm_type_for and
+                                        // the binding kept the box pointer -- Vec
+                                        // pushes stored 8 bytes into 16-byte slots).
+                                        let norm = Self::tuple_xiom_to_struct_name(decl);
+                                        let s_ty = self.llvm_type_for(&norm)
+                                            .or_else(|_| self.llvm_type_for(decl))
+                                            .unwrap_or_else(|_| format!("%struct.{norm}"));
                                         if s_ty.starts_with('%') {
                                             let sptr = self.fresh_tmp();
                                             self.emitln(&format!("  {sptr} = inttoptr i64 {loaded} to {s_ty}*"));
                                             let sload = self.fresh_tmp();
                                             self.emitln(&format!("  {sload} = load volatile {s_ty}, {s_ty}* {sptr}"));
                                             // Track inner variable's struct type for subsequent matches
-                                            self.local.local_boxed_struct.insert(ident.name.clone(), decl.to_string());
+                                            self.local.local_boxed_struct.insert(ident.name.clone(), norm.clone());
                                             (sload, s_ty)
                                         } else {
                                             (loaded.clone(), field_ty.clone())
@@ -2091,6 +2147,44 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                 if let Some(decl_ty) = declared.as_deref() {
                                     if decl_ty.starts_with('&') {
                                         self.local.local_xiom_types.insert(ident.name.clone(), decl_ty.to_string());
+                                    }
+                                }
+                            } else if let Pattern::Tuple(elements, _) = inner {
+                                // round-13 (TUPLE payloads -- iter enumerate/zip,
+                                // btree first_entry): `Some((a, b))` -- the payload
+                                // slot is an i64 BOX POINTER to a heap
+                                // %struct.Tuple__X__Y (val_to_i64 boxing). Deref the
+                                // box and bind each tuple element. The old code
+                                // skipped the payload binding for non-Ident inner
+                                // patterns -- the elements read literal 0.
+                                if field_ty == "i64" {
+                                    if let Some(decl) = self.scrutinee_payload_xiom(expr_match, val_field) {
+                                        let norm = Self::tuple_xiom_to_struct_name(&decl);
+                                        let s_ty = self.llvm_type_for(&norm)
+                                            .or_else(|_| self.llvm_type_for(&decl))
+                                            .unwrap_or_else(|_| format!("%struct.{norm}"));
+                                        if s_ty.starts_with('%') {
+                                            let sptr = self.fresh_tmp();
+                                            self.emitln(&format!("  {sptr} = inttoptr i64 {loaded} to {s_ty}*"));
+                                            let sload = self.fresh_tmp();
+                                            self.emitln(&format!("  {sload} = load volatile {s_ty}, {s_ty}* {sptr}"));
+                                            let t_alloca = self.fresh_tmp();
+                                            self.emitln(&format!("  {t_alloca} = alloca {s_ty}"));
+                                            self.emitln(&format!("  store {s_ty} {sload}, {s_ty}* {t_alloca}"));
+                                            for (ti, elem) in elements.iter().enumerate() {
+                                                let gep = self.fresh_tmp();
+                                                self.emitln(&format!("  {gep} = getelementptr {s_ty}, {s_ty}* {t_alloca}, i32 0, i32 {ti}"));
+                                                let field_llvm_ty = self.field_llvm_type(&norm, ti);
+                                                let eload = self.fresh_tmp();
+                                                self.emitln(&format!("  {eload} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+                                                let e_alloca = self.fresh_tmp();
+                                                self.emitln(&format!("  {e_alloca} = alloca {field_llvm_ty}"));
+                                                self.emitln(&format!("  store {field_llvm_ty} {eload}, {field_llvm_ty}* {e_alloca}"));
+                                                if let Pattern::Ident(ident) = elem {
+                                                    self.add_local(&ident.name, e_alloca, &field_llvm_ty);
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

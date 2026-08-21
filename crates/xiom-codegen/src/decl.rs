@@ -188,13 +188,25 @@ impl IrEmitter {
                 if let Some(ct) = type_map.get(&id.name) {
                     Type::Named(Ident::new(ct, id.span), args.clone())
                 } else {
-                    inner.clone()
+                    // round-13 (tuple payloads): recurse into the type ARGS
+                    // ("Vec[(Int, T)]" -- the Tuple arg's T must substitute).
+                    // The old code kept args untouched, so generic tuple
+                    // returns ("Option[(Int, T)]" from EnumerateIter.next)
+                    // never concretized and the payload/vec-elem tracking
+                    // dropped them.
+                    let new_args: Vec<Type> = args.iter()
+                        .map(|a| Self::substitute_type(a, a, type_map))
+                        .collect();
+                    Type::Named(id.clone(), new_args)
                 }
             }
             // Recursively substitute type params in composite types.
             Type::Array(size, elem) => {
                 Type::Array(size.clone(), Box::new(Self::substitute_type(inner, elem, type_map)))
             }
+            Type::Tuple(elems) => Type::Tuple(
+                elems.iter().map(|e| Self::substitute_type(e, e, type_map)).collect()
+            ),
             Type::Option(e) => Type::Option(Box::new(Self::substitute_type(inner, e, type_map))),
             Type::Result(ok, err) => Type::Result(
                 Box::new(Self::substitute_type(inner, ok, type_map)),

@@ -3964,6 +3964,94 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         self.emitln(&format!("  {tmp} = call i64 {fn_ptr}({args_str})"));
                         return Ok((tmp, LLVM_I64.to_string()));
                     }
+                    // round-13 (iter adapters): FN-TYPED FIELD call on an
+                    // INSTANCE receiver (`self.next_fn()`, `self.f(v)`,
+                    // `self.predicate(&v)` in MapIter.next/FilterIter.next/
+                    // ChainIter.next/ZipIter.next). The field holds a closure
+                    // ENV pointer (uniform env-first convention), but the
+                    // method dispatch resolved no fn for "{Struct}.{field}"
+                    // and the call fell to a zero-param stub
+                    // (@FilterIter.next_fn ret 0 -> the Option payload read
+                    // garbage -> 0xC000001D in chained adapters). Detect a
+                    // local/self receiver whose struct type_meta declares a
+                    // fn-marker field ("fn(...)"), load the field (the env
+                    // bits), load env field 0, and call env-first with the
+                    // field's declared return type (struct returns by value).
+                    let instance_fn_field: Option<(String, usize, String)> = (|| {
+                        if receiver_expr.is_none() { return None; }
+                        if self.types.functions.get(&resolved_fn_key).is_some() { return None; }
+                        if self.mono.generic_fn_decls.iter().any(|(k, _)| k == &resolved_fn_key) { return None; }
+                        let receiver = receiver_expr?;
+                        let Expr::Ident(obj_id) = receiver.as_ref() else { return None; };
+                        if !(self.lookup_local(&obj_id.name).is_some() || obj_id.name == "self") { return None; }
+                        let st = self.infer_struct_type_name(receiver)?;
+                        let field_idx = self.types.type_meta.get(&st)?.fields.iter().position(|(fname, fty)| {
+                            fname == &fn_name && fty.trim_start().starts_with("fn(")
+                        })?;
+                        let fty = self.types.type_meta.get(&st)?.fields.get(field_idx)
+                            .map(|(_, f)| f.clone()).unwrap_or_default();
+                        Some((st, field_idx, fty))
+                    })();
+                    if let Some((struct_name, field_idx, fn_field_xiom)) = instance_fn_field {
+                        let (recv_val, recv_llvm_ty) = self.compile_expr(receiver_expr.expect("checked above"))?;
+                        // The receiver may be a POINTER-typed value (&self /
+                        // %struct.X* param -- the ThreadLocal tls_get shape): the
+                        // field GEP indexes the POINTEE directly. By-value struct
+                        // receivers are materialized into an alloca first.
+                        let (field_gep, _field_base_ty) = if recv_llvm_ty.ends_with('*') && !recv_llvm_ty.ends_with("**") {
+                            let gep_ty = recv_llvm_ty.trim_end_matches('*').to_string();
+                            let gep = self.fresh_tmp();
+                            self.emitln(&format!("  {gep} = getelementptr {gep_ty}, {recv_llvm_ty} {recv_val}, i32 0, i32 {field_idx}"));
+                            (gep, gep_ty)
+                        } else {
+                            // Materialize the receiver into an alloca to GEP the field.
+                            let recv_alloca = self.fresh_tmp();
+                            self.emitln(&format!("  {recv_alloca} = alloca {recv_llvm_ty}"));
+                            self.emitln(&format!("  store {recv_llvm_ty} {recv_val}, {recv_llvm_ty}* {recv_alloca}"));
+                            let gep = self.fresh_tmp();
+                            self.emitln(&format!("  {gep} = getelementptr {recv_llvm_ty}, {recv_llvm_ty}* {recv_alloca}, i32 0, i32 {field_idx}"));
+                            (gep, recv_llvm_ty.clone())
+                        };
+                        let env_bits = self.fresh_tmp();
+                        let env_ptr = self.fresh_tmp();
+                        let loaded_fn = self.fresh_tmp();
+                        // The field is typed as a fn pointer ("{ret} ({params})*")
+                        // but holds the closure ENV pointer bits.
+                        let field_llvm = self.llvm_type_for_fallback(&fn_field_xiom);
+                        self.emitln(&format!("  {env_bits} = load {field_llvm}, {field_llvm}* {field_gep}"));
+                        self.emitln(&format!("  {env_ptr} = bitcast {field_llvm} {env_bits} to i64*"));
+                        self.emitln(&format!("  {loaded_fn} = load i64, i64* {env_ptr}"));
+                        // Parse the field's declared return LLVM type from the
+                        // fn-ptr field type ("%struct.Option ()*" -> "%struct.Option",
+                        // "i64 (i64)*" -> "i64"). Struct returns stay BY VALUE.
+                        let ret_llvm = field_llvm
+                            .rsplit_once('(')
+                            .map(|(r, _)| r.trim().to_string())
+                            .filter(|r| !r.is_empty())
+                            .unwrap_or_else(|| LLVM_I64.to_string());
+                        let compiled_args: Vec<(String, String)> = args.iter()
+                            .map(|a| self.compile_expr(a).map(|(v, t)| (v, t)))
+                            .collect::<Result<Vec<_>, _>>()?;
+                        let env_i64 = self.fresh_tmp();
+                        self.emitln(&format!("  {env_i64} = ptrtoint i64* {env_ptr} to i64"));
+                        let mut closure_args = vec![(env_i64, "i64".to_string())];
+                        for a in &compiled_args { closure_args.push(a.clone()); }
+                        let args_str = closure_args.iter()
+                            .map(|(v, t)| format!("{t} {v}"))
+                            .collect::<Vec<_>>().join(", ");
+                        let param_types: Vec<String> = closure_args.iter()
+                            .map(|(_, t)| t.clone()).collect();
+                        let fn_ptr_ty = format!("{ret_llvm} ({})*", param_types.join(", "));
+                        let fn_ptr = self.fresh_tmp();
+                        self.emitln(&format!("  {fn_ptr} = inttoptr i64 {loaded_fn} to {fn_ptr_ty}"));
+                        let tmp = self.fresh_tmp();
+                        if ret_llvm == "void" {
+                            self.emitln(&format!("  call {ret_llvm} {fn_ptr}({args_str})"));
+                            return Ok((String::new(), "void".to_string()));
+                        }
+                        self.emitln(&format!("  {tmp} = call {ret_llvm} {fn_ptr}({args_str})"));
+                        return Ok((tmp, ret_llvm));
+                    }
                     // BUG 22 #11 fix: emit the PRE-ASSIGNED symbol for the
                     // resolved key (bare or qualified) -- definitions and call
                     // sites agree even when the call compiles before its def;

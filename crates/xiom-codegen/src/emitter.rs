@@ -93,6 +93,52 @@ impl IrEmitter {
             if token.len() == 1
                 && token.chars().next().map_or(false, |c| c.is_ascii_uppercase())
             {
+                // round-13 (tuple payloads): a MONO-REGISTERED generic name
+                // ("Vec[Tuple__Int__T]" -- the tuple type was concretely
+                // registered by the mono machinery with the RIGHT layout) is
+                // RESOLVED despite the generic-looking token -- accept it so
+                // the Vec element / Option payload tracking keeps the type
+                // (rejecting it dropped the record: `var items =
+                // ...enumerate().collect()` -> get() loaded the first 8
+                // bytes of the 16-byte tuple slot).
+                let contains_registered = self.types.types.keys().into_iter()
+                    .any(|k| rt.contains(k.as_str()))
+                    || self.types.type_meta.keys().into_iter()
+                        .any(|k| rt.contains(k.as_str()));
+                if contains_registered {
+                    return Some(rt.clone());
+                }
+                // round-13 (tuple payloads): the GENERIC return has
+                // placeholders (e.g. "Vec[(Int, T)]" from the declared
+                // EnumerateIter[T].collect) -- substitute the concrete types
+                // from the recorded mono instantiation
+                // ("EnumerateIter.collect" + [Int] -> T=Int) so the binding
+                // tracks the CONCRETE Vec element / Option payload type
+                // ("Vec[(Int, Int)]") instead of dropping the record.
+                if let Expr::Field(recv, f, _) = func {
+                    let fn_key = self.infer_struct_type_name(recv)
+                        .map(|r| format!("{r}.{}", f.name))
+                        .unwrap_or_else(|| f.name.clone());
+                    if let Some((_, cts)) = self.mono.generic_instantiations.iter()
+                        .find(|(k, _)| k == &fn_key)
+                    {
+                        if let Some((_, fd)) = self.find_generic_decl(&fn_key) {
+                            let mut type_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+                            for (gp, ct) in fd.generics.iter().zip(cts.iter()) {
+                                if !gp.is_const { type_map.insert(gp.name.name.clone(), ct.clone()); }
+                            }
+                            if let Some(ret) = fd.return_type.as_ref() {
+                                let subst = Self::substitute_type(ret, ret, &type_map);
+                                let name = Self::type_string_full(&subst);
+                                let still_placeholder = name.split(|c: char| !c.is_ascii_alphanumeric())
+                                    .any(|t| t.len() == 1 && t.chars().next().map_or(false, |c| c.is_ascii_uppercase()));
+                                if !still_placeholder {
+                                    return Some(name);
+                                }
+                            }
+                        }
+                    }
+                }
                 return None;
             }
         }

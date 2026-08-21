@@ -2067,6 +2067,80 @@ btree_map first_entry/last_entry (exit 7) + smoke_stress_collections_
 btreemap (exit 2) -- the tuple-payload queue item; smoke_error_edge +
 smoke_iter_edge (exit 1 at baseline).
 
+### Round-13 findings FIXED (2026-08-22) -- closure-env family + tuple payloads
+
+The closure-based iter adapter build (stdlib) was blocked on four
+compiler roots. All four are RESOLVED (e2e `e2e_m43_round13_closure_
+adapters` + `e2e_m44_round13_tuple_payloads`):
+
+1. **Closure env STRUCT NAME collisions**: identical capture shapes in
+   DIFFERENT mono fns redefined `%struct.__closure_env_N` (clang:
+   redefinition of type -- smoke_iter_take_skip/chain/pipeline failed to
+   compile). tmp_counter resets per fn (compile_generic_monomorphisations
+   zeroes it), so every mono fn's first closure was `__closure_0`. Fix
+   (lib.rs): a new GLOBAL `closure_counter` (never reset, mirroring
+   unsafe_block_counter) names `__closure_N` / `__closure_env_N` /
+   `__fnwrap_N` (expr.rs x3 + vec_abi.rs).
+2. **Captured-state MUTATION did not persist**: the closure thunk copied
+   captures into locals at entry -- `r.next()`'s implicit-self write only
+   touched the copy, so the env's Range never advanced (Range.count/fold
+   hung forever; take/skip countdowns never decremented). Fix (expr.rs):
+   bind each capture DIRECTLY to its env-struct field GEP (reads load
+   through, writes store through -- persistent across invocations).
+3. **FN-TYPED FIELD calls compiled to zero-param stubs**: `self.next_fn()`
+   resolved no fn for "{Struct}.{field}" and fell to @FilterIter.next_fn
+   ret 0 -- the field holds a closure ENV (uniform convention), not a code
+   pointer (0xC000001D in MapIter.next/FilterIter.next). Fix (call.rs):
+   an instance-receiver fn-marker field ("fn(...)" in type_meta) loads
+   the field (env bits), loads env field 0, and calls env-first with the
+   field's declared return type (parsed from the fn-ptr field type --
+   struct returns by value). Pointer-typed receivers GEP the pointee
+   (ThreadLocal* tls_get shape -- the first cut emitted an invalid
+   `getelementptr %struct.X*, %struct.X**`).
+4. **TUPLE PAYLOADS through Option/Vec** (the first_entry family -- queue
+   item 2): `Some((i, v))` bound the elements as literal 0 (the payload
+   binding only handled Ident inner patterns -- the box was never
+   deref'd); Vec[(Int, Int)] slots held 8 of 16 bytes (the push stored
+   the box pointer; get() loaded a half-slot); "(Int, Int)" never
+   resolved to the registered "Tuple__Int__Int" key; and the generic
+   mono returns ("Vec[(Int, T)]") were rejected by the binding tracking.
+   Fixes (stmt.rs/lib.rs/emitter.rs/decl.rs): (a) scrutinee_payload_xiom
+   derives the payload from the RECEIVER's concrete Vec elem type for
+   get/pop; (b) infer_call_return_xiom accepts mono-registered generic
+   names (Vec[Tuple__Int__T] -- the registered layout is authoritative)
+   and substitutes placeholders from the recorded mono instantiation;
+   (c) substitute_type recurses into Named type ARGS + Type::Tuple;
+   (d) resolve_vec_elem_type normalizes "(Int, Int)" ->
+   "Tuple__Int__Int"; (e) the payload binding handles Tuple inner
+   patterns (inttoptr the box, load the tuple, bind each element) and
+   normalizes tuple names in the Ident-inner struct-deref arm.
+   UNBLOCKED: smoke_collections_btree_map (exit 7 at baseline) now
+   PASSES; enumerate/zip smokes pass.
+5. **Enum-return scrutinees from closure calls**: `match compare(&a, &b)`
+   (cmp.min_by) emitted NO discriminant checks (branched to the last
+   arm) -- the scrutinee fallback only adopted enum_variants-registered
+   names; Option/Result are structs. Broadened to any registered
+   `%struct.X` (field 0 = discriminant/is_some/is_ok for all of them).
+
+Stdlib fixes (iter.xi): the adapter TERMINAL helpers must call the
+adapter's `.next()` METHOD (the raw `next_fn` closure bypasses map/filter/
+take semantics); the chain delegates' next_fn consumed r2 AND second()
+replayed its own copy of r2 (double-capture -- chain counted 9). Smoke
+expectation fixes: smoke_iter_chain_zip (6 not 5 / 3 not 2),
+smoke_iter_pipeline (225 not 729 -- take(5) of the squared multiples),
+smoke_stress_collections_btreemap (`contains` -> `contains_key`).
+
+Verified: stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
+parser 97, ctfe 97, full e2e pending; 19/20 iter smokes green +
+btree_map/btreemap + the full closure family. PRE-EXISTING (unchanged,
+baseline-confirmed via stash): smoke_iter_collect + smoke_array_sort_by
+AV at STARTUP for the empty-range/combined shapes -- the documented
+clang -O2 / MSVC-CRT layout miscompile family (m34_y15/y20, queue items
+5/7) -- the combined m43-style module flips the CRT startup crash, so the
+e2e fixtures are split to stay below the flip; smoke_iter_find_all_any /
+nth_last / edge fail at the CHECKER (find/all/any/nth/last are not in
+the stdlib iter API -- planned feature gap).
+
 ### Round-13 finding (2026-08-21) -- closure-env struct name collision
 
 - **Construct:** multiple closures in one program with IDENTICAL capture shapes (e.g. Range.map's n() -> Option[Int] { r.next() } and Range.take's same-shape closure -- both capture one Range). The mono names both envs %struct.__closure_env_10 -> clang: error: redefinition of type. Reproduces with the new iter adapter build (smoke_iter_take_skip/smoke_iter_max_min/smoke_iter_pipeline fail at clang; map/filter run but crash 0xC000001D -- likely the same env-shape issue at runtime).

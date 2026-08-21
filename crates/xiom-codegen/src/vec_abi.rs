@@ -417,8 +417,11 @@ impl IrEmitter {
         // (the closure-param ABI). The fn-ref's OWN params (i64* for &Int)
         // are restored via inttoptr inside the thunk so the forward call
         // matches the def exactly (clang inlines alwaysinline comparators).
-        let thunk = format!("__fnwrap_{}", self.tmp_counter);
-        self.tmp_counter += 1;
+        // round-13: fnwrap thunks emit GLOBAL defs while tmp_counter resets
+        // per fn -- use the global closure_counter so two mono fns wrapping
+        // fn-ref args never collide on the same __fnwrap_N symbol.
+        let thunk = format!("__fnwrap_{}", self.closure_counter);
+        self.closure_counter += 1;
         let saved_output = std::mem::take(&mut self.output);
         let mut params = Vec::new();
         for (k, _pt) in param_llvm.iter().enumerate() {

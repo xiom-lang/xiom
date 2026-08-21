@@ -57,6 +57,14 @@ pub struct IrEmitter {
     /// are reset per function by compile_fn), this monotonically increases so
     /// deferred block fn symbols never collide across enclosing functions.
     pub unsafe_block_counter: u32,
+    /// round-13: globally-unique counter for closure thunk fns
+    /// (`__closure_N`), their env structs (`%struct.__closure_env_N`) and
+    /// fn-ref forwarding thunks (`__fnwrap_N`). These emit GLOBAL definitions
+    /// (deferred to module level) while tmp_counter resets per function --
+    /// identical capture shapes in DIFFERENT mono fns previously collided
+    /// on the same `%struct.__closure_env_N` name (clang: redefinition of
+    /// type -- smoke_iter_take_skip/chain/pipeline).
+    pub closure_counter: u32,
     /// D2.1 (Phase 5): 1 while compiling the standalone fn body of an unsafe
     /// block. When set, a `Stmt::Return` inside the block fn emits a
     /// @xiom_trampoline_set_returned() call first, so the call site knows to
@@ -101,6 +109,7 @@ impl IrEmitter {
             has_llvm_trap_decl: false,
     guard_heap_depth: 0,
             unsafe_block_counter: 0,
+            closure_counter: 0,
             in_unsafe_block_fn: false,
             unsafe_direct_count: 0,
             config: CodegenConfig::default(),
@@ -1866,6 +1875,19 @@ impl IrEmitter {
                     }
                 }
             }
+            // round-13 (tuple payloads): METHOD-CHAIN receivers
+            // (`...enumerate().collect()`): the receiver is a CALL -- resolve
+            // its return type to the receiver NAME ("EnumerateIter") so the
+            // "{Type}.{leaf}" key resolves. The bare-leaf suffix match is
+            // ambiguous across the 7 adapter collect/fold/count methods (all
+            // share the ".collect" suffix with different returns -> None ->
+            // the Vec element type was never tracked -> get() loaded the
+            // first 8 bytes of the 16-byte tuple slot).
+            if let Some(recv_ty) = self.infer_struct_type_name(recv) {
+                if let Some(rt) = self.types.fn_return_xiom.get(&format!("{recv_ty}.{leaf}")) {
+                    return Some(rt.clone());
+                }
+            }
             return self.callee_return_xiom_suffix(&leaf);
         }
         let leaf = match func {
@@ -2426,16 +2448,55 @@ impl IrEmitter {
                 }
             }
             Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
-                self.callee_return_xiom(func).and_then(|full| {
+                let payload = self.callee_return_xiom(func).and_then(|full| {
                     if field_idx == 2 {
                         Self::option_result_err_payload(&full)
                     } else {
                         Self::option_result_payload(&full)
                     }
-                })
+                });
+                // round-13 (tuple payloads): the GENERIC Vec.get/pop decl
+                // returns "Option[T]" -- the payload resolves to the bare
+                // generic param ("T") which can't map to a struct. Derive it
+                // from the RECEIVER's concrete element type instead
+                // ("Vec[(Int, Int)]" -> "(Int, Int)"), so `match
+                // items.get(0) { Some((i, v)) => ... }` binds the boxed
+                // tuple elements instead of literals.
+                let is_generic_param = payload.as_deref().map_or(false, |p| {
+                    p.len() == 1 && p.chars().next().map_or(false, |c| c.is_ascii_uppercase())
+                });
+                if (is_generic_param || payload.is_none()) && field_idx == 1 {
+                    if let Expr::Field(recv, f, _) = func.as_ref() {
+                        if matches!(f.name.as_str(), "get" | "pop" | "first" | "last") {
+                            if let Expr::Ident(rid) = recv.as_ref() {
+                                if let Some(xiom_ty) = self.local.local_xiom_types.get(&rid.name) {
+                                    if let Some(elem) = xiom_ty.strip_prefix("Vec[").and_then(|r| r.strip_suffix(']')) {
+                                        return Some(elem.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                payload
             }
             _ => None,
         }
+    }
+
+    /// round-13 (tuple payloads): normalize a tuple XIOM name ("(Int, Int)") to
+    /// the registered struct key ("Tuple__Int__Int") so the boxed-payload deref
+    /// can resolve the LLVM type. Non-tuple names pass through unchanged.
+    pub(crate) fn tuple_xiom_to_struct_name(decl: &str) -> String {
+        let trimmed = decl.trim();
+        if trimmed.starts_with('(') && trimmed.ends_with(')') {
+            let inner = &trimmed[1..trimmed.len() - 1];
+            let parts: Vec<&str> = inner.split(',').map(|p| p.trim()).collect();
+            if !parts.is_empty() && parts.iter().all(|p| !p.is_empty()) {
+                return format!("Tuple__{}", parts.join("__"));
+            }
+        }
+        decl.to_string()
     }
 
     /// gzip-DECOMPRESS fix (2026-08-19): resolve the declared payload XIOM type
@@ -2513,11 +2574,16 @@ impl IrEmitter {
             // element memcpy path too -- enums register in enum_variants,
             // not types. Without this the read fell to the scalar i64 load
             // (tag only, payload garbage -> float_to_string crash).
+            // round-13 (tuple payloads): "(Int, Int)" elements normalize to
+            // the registered "Tuple__Int__Int" key -- without this, the
+            // Vec[(Int, Int)] elem lookup failed and get() loaded the first
+            // 8 bytes of the 16-byte slot as the Option payload.
+            let elem_norm = Self::tuple_xiom_to_struct_name(elem);
             return self.types.types.keys().into_iter()
-    .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
+    .find(|k| k.ends_with(&format!(".{}", elem_norm)) || k.as_str() == elem_norm)
                 .or_else(|| {
                     self.types.enum_variants.keys().into_iter()
-                        .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
+                        .find(|k| k.ends_with(&format!(".{}", elem_norm)) || k.as_str() == elem_norm)
                 });
         }
         if let Expr::Field(base, field_expr, _) = container {
