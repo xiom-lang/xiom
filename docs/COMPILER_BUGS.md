@@ -2017,6 +2017,12 @@ Verified: stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
 parser 97, ctfe 97, e2e round-8 fixtures + round-7 regressions, 39-smoke
 collections/rand/geom battery green (incl. smoke_collections_set_basic and
 smoke_rc_weak, previously failing).
+### Round-12 residual closure/payload shapes (2026-08-21, post B-007)
+
+The B-007 closure fix landed the Int-returning closure family (option map/filter/unwrap/deep_chain, and_then, core_slice, async, thread all exit 0). Three residual shapes remain, all with correct stdlib logic (probe-verified):
+1. Str-returning closures through Result/Err construction: err.map_err(fn(e: Str) -> Str { str_concat("ERR_", e) }) produces a corrupted payload (rm1 probe prints garbage bytes). Int-returning map is fine.
+2. Option[(K, V)] TUPLE payloads: BTreeMap.first_entry's Some((keys[0], values[0])) returns a corrupt tuple (the keys[0]/values[0] reads are verified fine standalone) — smoke_collections_btree_map exit 7 / btreemap exit 2.
+3. Ordering-returning closures with &T params: cmp.min_by's comparator (n(&T, &T) -> Ordering) returns the wrong Ordering (cb2 probe) — the &-arg + enum-return closure shape.
 ### BUG 53 - &[N]T param element access emits invalid GEP — read FIXED (9757e864) + WRITE facet FIXED (round-3 commit)
 
 - **Construct:** n f(arr: &[5]Int) -> Int { return arr[0]; } ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the fixed-array reference param lowers to [5 x i64]** and element access emits getelementptr [5 x i64]*, [5 x i64]** %p, i64 0, i64 0 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â clang: invalid getelementptr indices. User-space probe (as2) reproduces; array.sort/sort_by and every &[N]T catalog fn is blocked.
