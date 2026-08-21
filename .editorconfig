@@ -1,0 +1,13 @@
+# EditorConfig: keep the whole tree UTF-8 (no BOM) so mojibake cannot
+# reappear through editor re-saves in Windows-1252 or other codepages.
+# Line endings are handled by git's core.autocrlf; do not override here.
+
+root = true
+
+[*]
+charset = utf-8
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+trim_trailing_whitespace = false

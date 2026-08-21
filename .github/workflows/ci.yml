@@ -31,6 +31,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Encoding guard (no mojibake / non-ASCII in tracked text files)
+        run: python tools/ascii_guard.py check
+        shell: bash
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
