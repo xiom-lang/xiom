@@ -3451,8 +3451,13 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
             }
             Expr::PipeClosure(params, body, _) => {
                 // M20-A1: Full closure implementation -- capturing + non-capturing.
-                let closure_id = self.tmp_counter;
-                self.tmp_counter += 1;
+                // round-13: closure ids come from the GLOBAL closure_counter
+                // (never reset per fn) -- the defs are emitted at module level
+                // and tmp_counter resets per function, so identical capture
+                // shapes in different mono fns collided on the same
+                // %struct.__closure_env_N (clang redefinition).
+                let closure_id = self.closure_counter;
+                self.closure_counter += 1;
                 let fn_name = format!("__closure_{closure_id}");
                 let env_name = format!("__closure_env_{closure_id}");
                 
@@ -3577,17 +3582,15 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.emitln(&format!("  %__env_alloca = alloca %struct.{env_name}*"));
                 self.emitln(&format!("  store %struct.{env_name}* %__env_ptr, %struct.{env_name}** %__env_alloca"));
                 
-                // Load captured variables from env struct into locals
+                // Bind captured variables DIRECTLY to their env-struct field
+                // GEPs (round-13: the local-copy approach lost mutations --
+                // writes to the copy never reached the env, so captured
+                // iterator state never advanced between calls).
                 for (field_idx, (cap_name, cap_llvm_ty)) in captures.iter().enumerate() {
                     let gep = self.fresh_tmp();
-                    let loaded = self.fresh_tmp();
-                    let alloca = self.fresh_tmp();
                     let llvm_field_idx = field_idx + 1; // field 0 is fn_ptr
                     self.emitln(&format!("  {gep} = getelementptr %struct.{env_name}, %struct.{env_name}* %__env_ptr, i32 0, i32 {llvm_field_idx}"));
-                    self.emitln(&format!("  {loaded} = load {cap_llvm_ty}, {cap_llvm_ty}* {gep}"));
-                    self.emitln(&format!("  {alloca} = alloca {cap_llvm_ty}"));
-                    self.emitln(&format!("  store {cap_llvm_ty} {loaded}, {cap_llvm_ty}* {alloca}"));
-                    self.add_local(cap_name, alloca, cap_llvm_ty);
+                    self.add_local(cap_name, gep, cap_llvm_ty);
                 }
                 
                 // Store params as locals
@@ -3646,8 +3649,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
             }
             Expr::Closure(params, ret_ty, body, _) => {
                 // M20-A1: Block-style closure (fn(x) { body; return expr; })
-                let closure_id = self.tmp_counter;
-                self.tmp_counter += 1;
+                // round-13: global closure_counter (see PipeClosure above).
+                let closure_id = self.closure_counter;
+                self.closure_counter += 1;
                 let fn_name = format!("__closure_{closure_id}");
                 let env_name = format!("__closure_env_{closure_id}");
                 
@@ -3679,18 +3683,22 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     .collect::<Vec<_>>().join(", ");
                 self.output.push_str(&format!("define {ret_llvm} @{fn_name}({all_params}) {{\nentry:\n"));
                 
-                // Load captured variables from env if any
+                // Load captured variables from env if any.
+                // round-13 (iter adapters): bind each capture DIRECTLY to its
+                // env-struct field GEP (no local copy alloca). The old code
+                // copied the capture into a local at entry -- mutations inside
+                // the closure body (r.next()'s implicit-self write, whole-value
+                // reassignment) only touched the copy, so the env's copy never
+                // advanced (Range.count/fold/max/min hung forever). Reads load
+                // through the field; writes store through it -- persistent
+                // across closure invocations.
                 if !captures.is_empty() {
                     self.emitln(&format!("  %__env_ptr = inttoptr i64 %__env to %struct.{env_name}*"));
                     for (field_idx, (cap_name, cap_llvm_ty)) in captures.iter().enumerate() {
-                        let gep = self.fresh_tmp(); let loaded = self.fresh_tmp();
-                        let alloca = self.fresh_tmp();
+                        let gep = self.fresh_tmp();
                         let llvm_idx = field_idx + 1;
                         self.emitln(&format!("  {gep} = getelementptr %struct.{env_name}, %struct.{env_name}* %__env_ptr, i32 0, i32 {llvm_idx}"));
-                        self.emitln(&format!("  {loaded} = load {cap_llvm_ty}, {cap_llvm_ty}* {gep}"));
-                        self.emitln(&format!("  {alloca} = alloca {cap_llvm_ty}"));
-                        self.emitln(&format!("  store {cap_llvm_ty} {loaded}, {cap_llvm_ty}* {alloca}"));
-                        self.add_local(cap_name, alloca, cap_llvm_ty);
+                        self.add_local(cap_name, gep, cap_llvm_ty);
                     }
                 }
                 

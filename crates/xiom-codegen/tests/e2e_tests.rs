@@ -4544,6 +4544,28 @@ fn e2e_safety_probe() {
 // ============================================================================
 #[test] fn e2e_m42_round12_str_closures() { assert_eq!(compile_and_run("tests\\regression\\m42_round12_str_closures.xi"), Some(0)); }
 
+// ============================================================================
+// Round 13 (2026-08-22): closure-based iter adapters -- (1) closure env
+// STRUCT NAME collisions (identical capture shapes redefined
+// %struct.__closure_env_N); (2) captured-state MUTATION persisted via
+// direct env-field GEP binding (count/fold hung); (3) FN-TYPED FIELD
+// calls go env-first (`self.next_fn()` was a zero-param stub);
+// (4) enum-return scrutinees from closure calls get discriminant checks.
+// The enumerate/zip/btree tuple-payload half lives in e2e_m44 (the
+// combined module flips the documented clang -O2/MSVC-CRT crash).
+// ============================================================================
+#[test] fn e2e_m43_round13_closure_adapters() { assert_eq!(compile_and_run("tests\\regression\\m43_round13_closure_adapters.xi"), Some(0)); }
+
+// ============================================================================
+// Round 13 (2026-08-22): TUPLE PAYLOADS through Option/Vec -- Some((a, b))
+// payload bindings deref the heap box; Vec[(Int, Int)] slots store the
+// full 16-byte element; "(Int, Int)" normalizes to the registered
+// "Tuple__Int__Int"; generic mono returns (Vec[Tuple__Int__T]) stay
+// tracked. Unblocks enumerate/zip AND BTreeMap.first_entry/last_entry
+// (smoke_collections_btree_map was exit 7 at baseline).
+// ============================================================================
+#[test] fn e2e_m44_round13_tuple_payloads() { assert_eq!(compile_and_run("tests\\regression\\m44_round13_tuple_payloads.xi"), Some(0)); }
+
 
 
 

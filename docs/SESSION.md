@@ -1,68 +1,83 @@
 # XIOM Compiler Session -- Handoff (2026-08-19)
 
-## Session update (2026-08-21, round 12 FIXED -- compiler): rm1 Str-return closures + cb2 enum-variant receivers; stdlib sweep 801/907, tuple payloads remain
+## Session update (2026-08-22, round 13 FIXED -- compiler): closure-env family + tuple payloads; the iter adapter build flips green
 
-Compiler session (round 12, commit pending) closed TWO of the three
-residual closure shapes:
+Compiler session (round 13) closed the FOUR roots that blocked the
+stdlib session's closure-based iter adapter build, plus the tuple-payload
+family (queue item 2):
 
-1. **Str-returning closures through Err construction FIXED** (rm1):
-   `err.map_err(fn(e: Str) -> Str { str_concat("ERR_", e) })` corrupted
-   the payload -- the closure thunk registered params as i64 locals WITHOUT
-   their declared XIOM types, so a Str param used in the body resolved to
-   "Int" and the materialize path TRUNCATED the string handle to a byte
-   (`alloca i8; trunc i64 to i8`). Fix: closure params now record
-   local_xiom_types/ref_params/signed_locals (mirroring decl.rs); the mono
-   fn-typed param's ret also substitutes through type_map (latent struct-
-   return ABI hazard). smoke_core_result_map/deep_chain/chains exit 0.
-2. **Ordering-returning &T-param closures FIXED** (cb2, deeper root):
-   probing then_with/reverse exposed the real bug -- MODULE-QUALIFIED
-   ENUM-VARIANT receivers (`cmp.Less.reverse()`) were DROPPED from method
-   calls (`call @Ordering.reverse()` with no self; `then` lost its second
-   arg) because infer_struct_type_name's Field arm had no enum-variant
-   resolution -> receiver_is_instance=false. Passed by luck in script mode;
-   garbage at -O2 (the e2e `-o` path). Fix: resolve the variant's parent
-   enum via resolve_enum_for_variant. The full cmp battery
-   (cmp_by/array_sort_by/reverse/then/then_with/zero-arg/capturing/
-   struct-T) is green in BOTH run and -o modes.
+1. **Closure env STRUCT NAME collisions FIXED**: identical capture shapes
+   in different mono fns redefined `%struct.__closure_env_N` (clang:
+   redefinition) -- tmp_counter resets per fn, so every mono fn's first
+   closure was `__closure_0`. New global `closure_counter` (never reset)
+   names `__closure_N`/`__closure_env_N`/`__fnwrap_N`.
+2. **Captured-state MUTATION persistence FIXED**: closure thunks bound
+   captures to LOCAL copies -- `r.next()`'s implicit-self write never
+   reached the env (count/fold hung; take/skip never decremented). Captures
+   now bind DIRECTLY to their env-struct field GEPs (persistent across
+   invocations).
+3. **FN-TYPED FIELD calls FIXED**: `self.next_fn()`/`self.f(v)` compiled to
+   zero-param stubs (the field holds a closure ENV, not a code pointer --
+   0xC000001D in MapIter.next/FilterIter.next). Instance-receiver fn-marker
+   fields now load the env, load field 0, and call env-first with the
+   field's declared return type.
+4. **TUPLE PAYLOADS through Option/Vec FIXED** (the first_entry family --
+   queue item 2): `Some((i, v))` bound literals (the box was never
+   deref'd); Vec[(Int, Int)] slots held 8 of 16 bytes; "(Int, Int)" never
+   resolved to "Tuple__Int__Int"; generic mono returns (Vec[Tuple__Int__T])
+   were dropped by the binding tracking. Multi-part fix (scrutinee payload
+   derivation from the receiver's elem type, mono-return substitution,
+   substitute_type Named-arg/Tuple recursion, elem-name normalization,
+   Tuple-inner payload binding). **smoke_collections_btree_map (exit 7 at
+   baseline) now PASSES**; enumerate/zip pass.
+5. **Enum-return scrutinees from closure calls FIXED** (cmp.min_by's
+   comparator match had no discriminant checks): the scrutinee fallback now
+   adopts any registered `%struct.X` (Option/Result included).
 
-**REMAINING COMPILER-SIDE QUEUE (~104 documented, each with minimal repros
+Stdlib fixes (iter.xi): adapter TERMINAL helpers call the adapter's
+`.next()` METHOD (raw next_fn bypasses map/filter/take semantics); the
+chain delegates' next_fn no longer consumes r2 (double-capture --
+second() replayed its own copy). Smoke expectation fixes: chain_zip
+(6/3 not 5/2), pipeline (225 not 729), btreemap (`contains` ->
+`contains_key`).
+
+Verified: stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
+parser 97, ctfe 97, full e2e pending; 19/20 iter smokes green +
+btree_map/btreemap + the full closure/cmp family.
+
+**REMAINING COMPILER-SIDE QUEUE (~100 documented, each with minimal repros
 + user-space proofs in COMPILER_BUGS.md):**
 
-1. **Option[(K, V)] TUPLE payloads** (BTreeMap.first_entry):
-   `Some((keys[0], values[0]))` corrupts -- the index reads verify
-   standalone, so the tuple-payload CONSTRUCTION through the Option is the
-   suspect (the Tuple__K__V struct inside the Option payload slot -- the
-   match-arm binding / payload field handling for 2-slot tuples).
-   Blocks btree_map / btreemap (first_entry/last_entry -- pre-existing,
-   exit 7 / exit 2 at baseline).
-2. **Iter-adapter feature gap** (9 smokes): Range has only next/len/
-   contains/sum/product -- the map/filter/collect ADAPTER CHAIN doesn't
-   exist in the stdlib (targets the planned API). Needs the iterator
-   PROTOCOL (the For stmt is a hardcoded Range GEP -- `for x in set` also
-   blocked on this) + the closure ABI (now available). Stdlib-side work.
+1. **clang -O2 / MSVC-CRT startup crash family** (queue 5/7): empty-range
+   collect shapes (smoke_iter_collect, smoke_array_sort_by) and the
+   COMBINED adapter module AV at STARTUP (BEX64 in ntdll) while the same
+   sections pass individually -- the m34_y15/y20 layout miscompile. The
+   e2e fixtures are split to stay below the flip; the SIMD flags / 16
+   clang-variant matrix is the fix target.
+2. **Iter-adapter feature gap**: find/all/any/nth/last are NOT in the
+   stdlib iter API (smoke_iter_find_all_any/nth_last/edge fail at the
+   checker -- planned feature, stdlib-side).
 3. **narrow-SIGNED zext** (smoke_stress_collections_vec_narrow exit 5):
-   the inline pop/get on SIGNED narrow elements (Int16 -30000) zext the
-   bit pattern (35536) instead of sign-extending (emit_elem_payload_load).
-4. **json enum-Vec-Map heap layer** (smoke_stress_serialize_json_nested --
-   flaky; the json value enum with Vec/Map payloads through the heap).
-5. **SIMD flags** (smoke_simd -- flaky across builds; the m34_y15/y20
-   pattern -- clang -O2 codegen of the linked MSVC CRT is layout-sensitive;
-   sorted emission fixed the flip, the SIMD flag set may still be off).
-6. **The 16 clang codegen variants** (the documented C001-checker/
-   clang-flags matrix).
-7. **Pre-existing, unchanged**: smoke_collections_btree_map (exit 7) +
-   smoke_stress_collections_btreemap (exit 2) -- the first_entry/last_entry
-   traversal (the tuple-payload item above likely unblocks these);
-   smoke_error_edge + smoke_iter_edge (exit 1 at baseline).
+   the inline pop/get on SIGNED narrow elements zext the bit pattern
+   instead of sign-extending (emit_elem_payload_load).
+4. **json enum-Vec-Map heap layer** (smoke_stress_serialize_json_nested).
+5. **Checker generic-tuple substitution**: the Str element of a
+   `Some((k, v))` tuple pattern from BTreeMap.first_entry types as Int
+   ("cannot compare Int with Str") -- fixtures use key-only patterns.
+6. **Pre-existing**: smoke_error_edge + smoke_iter_edge (exit 1 at
+   baseline); the empty-range CRT crash family (above).
 
 Campaign trajectory: 516 -> 621 -> 679 -> 738 -> 765 -> 779 -> 793 -> 799 -> 801.
 Compiler-side closed roots: BUG 31-56 + the round-fixes (gzip decompress
 payloads, path.xi env import, Vec/Set/Slice method injection + pointer
 arithmetic GEP, non-pub generic type decls + is_llvm_struct_named, ref
 payload auto-deref, Set ABI, Ord/Bounded C001, B-007 closures, round-12
-rm1 Str-return closures + cb2 enum-variant receivers).
+rm1 Str-return closures + cb2 enum-variant receivers, round-13 closure-
+env family + tuple payloads).
 Stdlib-side hardened: RefCell, PathBuf, gcd, crc32, VecDeque, Set/Queue/
-Stack, redundant requires traps, prose ensures, smoke semantics.
+Stack, redundant requires traps, prose ensures, smoke semantics; the
+closure-based iter adapter build (map/filter/take/skip/chain/zip/
+enumerate/collect/fold/count/max/min).
 
 **WORKFLOW (unchanged):** probe -> IR-diff -> fix -> verify probe + stdlib
 smoke + e2e regression (tests/regression/m3x_*.xi + e2e_mXX registration)
