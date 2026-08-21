@@ -1792,7 +1792,7 @@ impl IrEmitter {
     /// ("&Str", "&mut Int") — type_from_ast erases the ref, but reference-typed
     /// values hold the T SLOT ADDRESS at the ABI and value uses must auto-deref;
     /// the & is the only discriminator from a plain T.
-    fn ref_preserving_name(ty: &Type) -> Option<String> {
+    pub(crate) fn ref_preserving_name(ty: &Type) -> Option<String> {
         match ty {
             Type::Ref(inner) => Some(format!("&{}", Self::type_from_ast(inner))),
             Type::MutRef(inner) => Some(format!("&mut {}", Self::type_from_ast(inner))),

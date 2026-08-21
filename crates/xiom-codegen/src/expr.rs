@@ -3701,6 +3701,26 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     self.emitln(&format!("  {a} = alloca i64"));
                     self.emitln(&format!("  store i64 {preg}, i64* {a}"));
                     self.add_local(&p.name.name, a, "i64");
+                    // round-12 (rm1/cb2): closure params arrive as i64 (the
+                    // uniform thunk ABI) but their DECLARED XIOM types must be
+                    // tracked so value coercions inside the body (Str → i8*,
+                    // &T derefs) don't degrade the bits — a Str handle was
+                    // truncated to a single byte (corrupt map_err payloads).
+                    let xiom_ty_name = Self::ref_preserving_name(&p.ty)
+                        .unwrap_or_else(|| Self::type_from_ast(&p.ty));
+                    self.local.local_xiom_types.insert(p.name.name.clone(), xiom_ty_name.clone());
+                    self.local.param_locals.insert(p.name.name.clone());
+                    if let Type::Ref(inner) = &p.ty {
+                        let inner_llvm = self.llvm_type_for(&Self::type_from_ast(inner)).unwrap_or_else(|_| "i64".to_string());
+                        if !inner_llvm.starts_with("%struct.") {
+                            self.local.ref_params.insert(p.name.name.clone());
+                        }
+                    }
+                    if Self::is_signed_xiom_type(&xiom_ty_name) {
+                        self.local.signed_locals.insert(p.name.name.clone());
+                    } else {
+                        self.local.signed_locals.remove(&p.name.name);
+                    }
                 }
                 
                 // Compile block body

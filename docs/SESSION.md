@@ -1,43 +1,40 @@
 # XIOM Compiler Session — Handoff (2026-08-19)
 
-## Session update (2026-08-21, round 12 IN PROGRESS): stdlib sweep 801/907 — three residual closure shapes + the remaining queue
+## Session update (2026-08-21, round 12 FIXED — compiler): rm1 Str-return closures + cb2 enum-variant receivers; stdlib sweep 801/907, tuple payloads remain
 
-Stdlib session (round 12) re-swept: **801/907 (+3), zero hangs**. The
-B-007 closure fix (round 11, `93545e56`) landed the biggest remaining
-family — option_map/filter/unwrap/deep_chain, result_and_then, core_slice,
-async, thread all exit 0. The unified env-first closure convention holds.
+Compiler session (round 12, commit pending) closed TWO of the three
+residual closure shapes:
 
-**THREE RESIDUAL CLOSURE SHAPES logged with probes (stdlib logic verified
-correct in user space — the compiler must fix them):**
+1. **Str-returning closures through Err construction FIXED** (rm1):
+   `err.map_err(fn(e: Str) -> Str { str_concat("ERR_", e) })` corrupted
+   the payload — the closure thunk registered params as i64 locals WITHOUT
+   their declared XIOM types, so a Str param used in the body resolved to
+   "Int" and the materialize path TRUNCATED the string handle to a byte
+   (`alloca i8; trunc i64 to i8`). Fix: closure params now record
+   local_xiom_types/ref_params/signed_locals (mirroring decl.rs); the mono
+   fn-typed param's ret also substitutes through type_map (latent struct-
+   return ABI hazard). smoke_core_result_map/deep_chain/chains exit 0.
+2. **Ordering-returning &T-param closures FIXED** (cb2, deeper root):
+   probing then_with/reverse exposed the real bug — MODULE-QUALIFIED
+   ENUM-VARIANT receivers (`cmp.Less.reverse()`) were DROPPED from method
+   calls (`call @Ordering.reverse()` with no self; `then` lost its second
+   arg) because infer_struct_type_name's Field arm had no enum-variant
+   resolution → receiver_is_instance=false. Passed by luck in script mode;
+   garbage at -O2 (the e2e `-o` path). Fix: resolve the variant's parent
+   enum via resolve_enum_for_variant. The full cmp battery
+   (cmp_by/array_sort_by/reverse/then/then_with/zero-arg/capturing/
+   struct-T) is green in BOTH run and -o modes.
 
-1. **Str-returning closures through Err construction** (probe rm1):
-   `err.map_err(fn(e: Str) -> Str {...})` yields a CORRUPTED payload
-   (garbage bytes on print); the Int-returning map is fine. Blocks
-   result_map / result_chains. Suspect: the M20-A1 call's ret handling or
-   the closure thunk's Str (i8*) return through the env convention — the
-   by-value struct case (Option) was fixed in round 11; i8* (Str) returns
-   may still be mis-handled at the call site (val_to_i64?) or the thunk.
-2. **Option[(K, V)] tuple payloads** (BTreeMap.first_entry):
+**REMAINING COMPILER-SIDE QUEUE (~104 documented, each with minimal repros
++ user-space proofs in COMPILER_BUGS.md):**
+
+1. **Option[(K, V)] TUPLE payloads** (BTreeMap.first_entry):
    `Some((keys[0], values[0]))` corrupts — the index reads verify
    standalone, so the tuple-payload CONSTRUCTION through the Option is the
    suspect (the Tuple__K__V struct inside the Option payload slot — the
    match-arm binding / payload field handling for 2-slot tuples).
-   Blocks btree_map / btreemap (first_entry/last_entry — pre-existing).
-3. **Ordering-returning &T-param closures** (probe cb2):
-   `cmp.min_by`'s comparator returns the WRONG Ordering (the closure's
-   &T params — &Int — arrive as addresses; the closure body derefs; the
-   returned Ordering (an enum/struct) is corrupted). Blocks
-   cmp_by / array_sort_by. Suspect: the Ordering ENUM return through the
-   M20-A1 env-first call (enum returns are structs {i64 tag,...} — the
-   fn_ptr signature / ret handling), or the &T closure-param ABI through
-   the thunk.
-
-**REMAINING COMPILER-SIDE QUEUE (~106 documented, each with minimal repros
-+ user-space proofs in COMPILER_BUGS.md):**
-
-1. **Three residual closure shapes** (above — rm1, first_entry tuple,
-   cb2 probes) — the immediate next targets: Str returns via Err/map_err,
-   Option[(K,V)] tuple payloads, Ordering enum returns via closures.
+   Blocks btree_map / btreemap (first_entry/last_entry — pre-existing,
+   exit 7 / exit 2 at baseline).
 2. **Iter-adapter feature gap** (9 smokes): Range has only next/len/
    contains/sum/product — the map/filter/collect ADAPTER CHAIN doesn't
    exist in the stdlib (targets the planned API). Needs the iterator
@@ -55,13 +52,15 @@ correct in user space — the compiler must fix them):**
    clang-flags matrix).
 7. **Pre-existing, unchanged**: smoke_collections_btree_map (exit 7) +
    smoke_stress_collections_btreemap (exit 2) — the first_entry/last_entry
-   traversal (the tuple-payload item above likely unblocks these).
+   traversal (the tuple-payload item above likely unblocks these);
+   smoke_error_edge + smoke_iter_edge (exit 1 at baseline).
 
 Campaign trajectory: 516 → 621 → 679 → 738 → 765 → 779 → 793 → 799 → 801.
 Compiler-side closed roots: BUG 31–56 + the round-fixes (gzip decompress
 payloads, path.xi env import, Vec/Set/Slice method injection + pointer
 arithmetic GEP, non-pub generic type decls + is_llvm_struct_named, ref
-payload auto-deref, Set ABI, Ord/Bounded C001, B-007 closures).
+payload auto-deref, Set ABI, Ord/Bounded C001, B-007 closures, round-12
+rm1 Str-return closures + cb2 enum-variant receivers).
 Stdlib-side hardened: RefCell, PathBuf, gcd, crc32, VecDeque, Set/Queue/
 Stack, redundant requires traps, prose ensures, smoke semantics.
 
