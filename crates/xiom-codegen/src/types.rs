@@ -480,6 +480,10 @@ impl crate::IrEmitter {
         match ty {
             Type::Vec(inner) => format!("Vec[{}]", Self::type_from_ast_with_args(inner)),
             Type::Map(k, v) => format!("Map[{},{}]", Self::type_from_ast_with_args(k), Self::type_from_ast_with_args(v)),
+            // B-007: keep a "fn(...)" MARKER for fn-typed fields/elements so
+            // closure-valued container elements (Vec[fn()]) can be detected at
+            // binding/call time — the ABI still erases to i64.
+            Type::Fn(params, ret) => format!("fn({}) -> {}", params.iter().map(Self::type_from_ast).collect::<Vec<_>>().join(", "), Self::type_from_ast(ret)),
             Type::Set(inner) => format!("Set[{}]", Self::type_from_ast_with_args(inner)),
             other => Self::type_from_ast(other),
         }

@@ -86,6 +86,13 @@ impl IrEmitter {
                 let is_closure = |e: &Expr| -> bool {
                     matches!(e, Expr::PipeClosure(..) | Expr::Closure(..))
                     || matches!(e, Expr::Paren(inner, _) if matches!(inner.as_ref(), Expr::Closure(..) | Expr::PipeClosure(..)))
+                    // B-007: a local bound from an fn-typed CONTAINER ELEMENT
+                    // (`var t = tw.tasks[i]; t();` — Vec[fn()]) holds a closure
+                    // ENV — calling it must go through the M20-A1 env path.
+                    || matches!(e, Expr::Index(container, _, _) if {
+                        let elem = self.resolve_vec_container_elem_xiom(container);
+                        elem.map_or(false, |x| x.starts_with("fn("))
+                    })
                 };
                 if is_closure(value) {
                     self.local.closure_locals.insert(name.name.clone());
@@ -279,8 +286,14 @@ impl IrEmitter {
             }
             Stmt::Var(name, _ty, value, _) => {
                 // M20-A1: Track closure bindings (also through parens)
+                // B-007: plus locals bound from fn-typed container ELEMENTS
+                // (`var t = tw.tasks[i]; t();` — Vec[fn()] holds closure envs).
                 if matches!(value, Expr::PipeClosure(..) | Expr::Closure(..))
                     || matches!(value, Expr::Paren(inner, _) if matches!(inner.as_ref(), Expr::Closure(..) | Expr::PipeClosure(..)))
+                    || matches!(value, Expr::Index(container, _, _) if {
+                        self.resolve_vec_container_elem_xiom(container)
+                            .map_or(false, |x| x.starts_with("fn("))
+                    })
                 {
                     self.local.closure_locals.insert(name.name.clone());
                 }

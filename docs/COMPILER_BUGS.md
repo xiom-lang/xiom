@@ -1840,6 +1840,53 @@ BASELINE identically (B-007 closure layer — unchanged).
 
 - Vec.pop on an EMPTY vec returns Some at runtime while the IR is fully correct (probe ve2: len==0 → vec_pop_empty8 → Option{tag=0,payload=0}; the match still takes the Some arm). pop on non-empty works; bare eturn None fns work; Vec.get's None works. The inlined-pop Option slot is misread by the subsequent match — a slot-lifetime shape (single pop in the fn, probe ve2).
 - Also logged: the char smoke failures were NOT multi-match slot reuse — they were to_digit's redundant requires trapping (fixed stdlib-side, commit above).
+### Round-11 findings FIXED (2026-08-20) — B-007 closures (fn-typed params)
+
+- core_option_map/unwrap/filter, array_sort_by, cmp_by, core_slice crashed
+  (0xC0000005) or returned garbage: fn-typed PARAMS hold a closure ENV
+  pointer (field 0 = the fn ptr) — calling `f(x)` inside a body must go
+  through the M20-A1 env path, and fn-REFERENCE args must be wrapped into
+  envs with a forwarding thunk.
+
+**RESOLVED (round-11 commit, e2e `e2e_m41_round11_b007_closures`):**
+
+1. **Fn-typed params registered as closure locals** (decl.rs compile_fn +
+   the mono body binding): the param was NOT in closure_locals, so `f(x)`
+   inttoptr'd the ENV as a CODE pointer (0xC0000005 in Option.map). The
+   param binding now registers Type::Fn params + their declared RETURN
+   type (fn_local_returns) — the M20-A1 call uses the REAL return type
+   (struct returns are BY VALUE — Option.and_then's closure crashed
+   inttoptr'ing the by-value Option bits as a pointer).
+2. **fn-REFERENCE args wrapped in a forwarding THUNK env**: passing
+   `cmp_int` to a fn-typed param passed the RAW code address; the callee's
+   M20-A1 loads field 0 = the first 8 bytes of CODE. The wrap emits
+   `define {ret} @__fnwrap_N(i64 %__env, i64 %a0, ...) { inttoptr the
+   params to the fn-ref's real types; ret call @fn_ref(...) }` and stores
+   the thunk in the env. The thunk's signature MATCHES the M20-A1 call
+   (all-i64 args) — pointer params restored via inttoptr inside (the
+   baseline sort's comparator call typed i64* matched the def; the first
+   thunk version forwarded i64 to i64* params — clang couldn't inline
+   alwaysinline comparators and the heap sort corrupted the last pair).
+3. **Re-pass double-wrap guard**: heap_sort_by → heap_sift_down_by's
+   `compare` arg ALSO matched the registered `Int.compare` suffix (the
+   is_fn_ref suffix scan) — the already-env param got wrapped AGAIN (env
+   of env → the inner M20-A1 read field 0 = the inner env ptr as code).
+   is_fn_ref now excludes closure_locals.
+4. **fn-typed container elements** (timer_wheel_tick's `var t = tw.tasks[i];
+   t();` — Vec[fn()]): the fn-marker arm of type_from_ast_with_args keeps
+   "Vec[fn() -> Unit]" in the type_meta field strings; `var`/`let`
+   bindings from fn-typed elements register as closure locals (M20-A1
+   env-first calls); Vec.push of a bare fn-REF into a Vec[fn()] wraps it
+   (uniform env convention — the raw-address form crashed the indexed
+   call); compile_index_fn_ptr_call (`tasks[i]()`) loads field 0 + env-first.
+5. **Zero-arg thunks**: the trailing-comma `(i64, )` signature fixed.
+
+Verified: stdlib-exec 70/70 (+2 ignore — async/thread restored), e2e round
+regressions, feature-reg 510, checker 178, parser 97, ctfe 97, 54-smoke
+battery green incl. the full closure family + search/sort/async/thread.
+Pre-existing (baseline-failing, unchanged): smoke_collections_btree_map
+first_entry/last_entry (exit 7) + smoke_stress_collections_btreemap (exit 2).
+
 ### Round-10 findings FIXED (2026-08-20) — checker builtin Ord/Bounded resolution (C001)
 
 - num_checked/num_saturating stopped at `error[C001]: type 'Int' does not

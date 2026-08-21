@@ -4524,6 +4524,16 @@ fn e2e_safety_probe() {
 // ============================================================================
 #[test] fn e2e_m40_round10_ord_bounded() { assert_eq!(compile_and_run("tests\\regression\\m40_round10_ord_bounded.xi"), Some(0)); }
 
+// ============================================================================
+// Round 11 (2026-08-20): B-007 closures — fn-typed PARAMS hold a closure ENV
+// pointer (field 0 = the fn ptr). Calling f(x) inside a generic body goes
+// through the M20-A1 closure path: the param must be registered as a closure
+// local (the ENV pointer was inttoptr'd as a CODE pointer — 0xC0000005 in
+// Option.map), and the closure's REAL return type drives the fn-pointer
+// signature (struct returns are BY VALUE — 0xC0000005 in Option.and_then).
+// ============================================================================
+#[test] fn e2e_m41_round11_b007_closures() { assert_eq!(compile_and_run("tests\\regression\\m41_round11_b007_closures.xi"), Some(0)); }
+
 
 
 

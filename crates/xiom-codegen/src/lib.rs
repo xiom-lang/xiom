@@ -1420,6 +1420,10 @@ impl IrEmitter {
             Type::Vec(inner) => format!("Vec[{}]", Self::type_from_ast_with_args(inner)),
             Type::Map(k, v) => format!("Map[{},{}]", Self::type_from_ast_with_args(k), Self::type_from_ast_with_args(v)),
             Type::Set(inner) => format!("Set[{}]", Self::type_from_ast_with_args(inner)),
+            // B-007: keep a "fn(...)" MARKER for fn-typed fields/elements so
+            // closure-valued container elements (Vec[fn()]) can be detected at
+            // binding/call time — the ABI still erases to i64.
+            Type::Fn(params, ret) => format!("fn({}) -> {}", params.iter().map(Self::type_from_ast).collect::<Vec<_>>().join(", "), Self::type_from_ast(ret)),
             other => Self::type_from_ast(other),
         }
     }
@@ -4050,19 +4054,30 @@ impl IrEmitter {
         let (elem_val, elem_ty) = self.compile_expr(&idx_expr)?;
         // Convert the element to i64 (it may already be i64 from Vec indexing).
         let i64_val = self.val_to_i64(&elem_val, &elem_ty);
+        // B-007: fn-typed VALUES (incl. Vec[fn()] elements) are closure ENVs —
+        // field 0 = the fn ptr; call env-first (mirrors the M20-A1 path —
+        // `tasks[i]()` inttoptr'd the ENV as a code pointer → 0xC0000005).
+        let env_ptr = self.fresh_tmp();
+        self.emitln(&format!("  {env_ptr} = inttoptr i64 {i64_val} to i64*"));
+        let loaded_fn = self.fresh_tmp();
+        self.emitln(&format!("  {loaded_fn} = load i64, i64* {env_ptr}"));
         // Build the function pointer type from args.
         let compiled_args: Vec<(String, String)> = args.iter()
             .map(|a| self.compile_expr(a).map(|(v, t)| (v, t)))
             .collect::<Result<Vec<_>, _>>()?;
-        let args_str = compiled_args.iter()
+        let mut closure_args = vec![(i64_val.clone(), "i64".to_string())];
+        for a in &compiled_args {
+            closure_args.push(a.clone());
+        }
+        let args_str = closure_args.iter()
             .map(|(v, t)| format!("{t} {v}"))
             .collect::<Vec<_>>().join(", ");
-        let param_types: Vec<String> = args.iter()
-            .map(|a| self.infer_llvm_type(a))
+        let param_types: Vec<String> = closure_args.iter()
+            .map(|(_, t)| t.clone())
             .collect();
         let fn_ptr_ty = format!("i64 ({})*", param_types.join(", "));
         let fn_ptr = self.fresh_tmp();
-        self.emitln(&format!("  {fn_ptr} = inttoptr i64 {i64_val} to {fn_ptr_ty}"));
+        self.emitln(&format!("  {fn_ptr} = inttoptr i64 {loaded_fn} to {fn_ptr_ty}"));
         let tmp = self.fresh_tmp();
         self.emitln(&format!("  {tmp} = call i64 {fn_ptr}({args_str})"));
         Ok((tmp, "i64".to_string()))
@@ -5557,6 +5572,16 @@ impl IrEmitter {
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
                 self.emitln(&format!("  store {llvm_ty} %param{param_idx}, {llvm_ty}* {alloca}"));
                 self.add_local(&param.name.name, alloca, &llvm_ty);
+                // B-007: fn-typed params hold a closure ENV pointer (field 0
+                // = the fn ptr) — calling `f(x)` must go through the M20-A1
+                // closure path (load the fn ptr from the env struct), NOT
+                // inttoptr the env pointer as a code pointer (0xC0000005).
+                // The declared RETURN type drives the fn-pointer signature
+                // (struct returns are BY VALUE, never pointer derefs).
+                if let Type::Fn(_, ret) = &param.ty {
+                    self.local.closure_locals.insert(param.name.name.clone());
+                    self.local.fn_local_returns.insert(param.name.name.clone(), Self::type_from_ast(ret));
+                }
                 // Track params whose original type is a generic parameter being monomorphised
                 let xiom_ty = Self::type_from_ast(&param.ty);
                 if type_map.contains_key(&xiom_ty) {

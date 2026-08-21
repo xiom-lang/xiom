@@ -388,7 +388,124 @@ impl IrEmitter {
         (v, pointee)
     }
 
-    /// Returns true if `container` is a field access on a struct and the
+    /// B-007: wrap a RAW fn-REFERENCE value (a code address as i64) into a
+    /// closure ENV struct (field 0 = the fn ptr) so fn-typed params receive
+    /// the uniform env convention — the callee's M20-A1 path loads field 0
+    /// and calls it with the ENV PREPENDED. Plain fns have no env param, so
+    /// the wrap installs a FORWARDING THUNK (define {ret} @thunk(i64 %env,
+    /// args...) { ret @fn_ref(args...) }) that drops the env. Passing the raw
+    /// code address made the callee read the first 8 bytes of CODE as the fn
+    /// ptr (0xC0000005 in binary_search_by(v, t, cmp_int)).
+    /// Returns the env pointer as i64.
+    pub(crate) fn wrap_fn_ref_env(&mut self, fn_name: &str, fn_addr: &str, ret_xiom: &str, param_llvm: Vec<String>) -> String {
+        let ret_llvm = self.llvm_type_for(ret_xiom).unwrap_or_else(|_| "i64".to_string());
+        // Resolve the callee's emitted SYMBOL (the registered key, or the
+        // pre-assigned symbol map entry).
+        let symbol = self.types.functions.contains_key(&fn_name.to_string())
+            .then(|| fn_name.to_string())
+            .or_else(|| {
+                let suffix = format!(".{}", fn_name);
+                self.types.functions.keys().into_iter()
+                    .find(|k| k.ends_with(&suffix))
+            })
+            .unwrap_or_else(|| fn_name.to_string());
+        let symbol = self.mono.fn_symbol_map.get(&symbol).cloned().unwrap_or(symbol);
+        // Defer the thunk DEF to module level (the emitter sits inside a fn
+        // body — the same pattern as the closure thunks in expr.rs).
+        // The thunk's signature MATCHES the M20-A1 closure call convention:
+        // (i64 %__env, i64 %a0, ...) — the M20-A1 passes every arg as i64
+        // (the closure-param ABI). The fn-ref's OWN params (i64* for &Int)
+        // are restored via inttoptr inside the thunk so the forward call
+        // matches the def exactly (clang inlines alwaysinline comparators).
+        let thunk = format!("__fnwrap_{}", self.tmp_counter);
+        self.tmp_counter += 1;
+        let saved_output = std::mem::take(&mut self.output);
+        let mut params = Vec::new();
+        for (k, _pt) in param_llvm.iter().enumerate() {
+            params.push(format!("i64 %a{k}"));
+        }
+        let types_only: Vec<String> = (0..param_llvm.len()).map(|_| "i64".to_string()).collect();
+        let params_str = if params.is_empty() { String::new() } else { format!(", {}", params.join(", ")) };
+        let types_str = if types_only.is_empty() { String::new() } else { format!(", {}", types_only.join(", ")) };
+        self.emitln(&format!("define {ret_llvm} @{thunk}(i64 %__env{params_str}) {{"));
+        self.emitln("entry:");
+        let mut fwd = Vec::new();
+        for (k, pt) in param_llvm.iter().enumerate() {
+            if pt.ends_with('*') {
+                let cast = format!("%p{k}");
+                self.emitln(&format!("  {cast} = inttoptr i64 %a{k} to {pt}"));
+                fwd.push(format!("{pt} {cast}"));
+            } else if pt == "i64" {
+                fwd.push(format!("i64 %a{k}"));
+            } else if pt == "i8" || pt == "i16" || pt == "i32" {
+                let cast = format!("%p{k}");
+                self.emitln(&format!("  {cast} = trunc i64 %a{k} to {pt}"));
+                fwd.push(format!("{pt} {cast}"));
+            } else if pt == "float" || pt == "double" {
+                let cast = format!("%p{k}");
+                self.emitln(&format!("  {cast} = sitofp i64 %a{k} to {pt}"));
+                fwd.push(format!("{pt} {cast}"));
+            } else {
+                fwd.push(format!("i64 %a{k}"));
+            }
+        }
+        if ret_llvm == "void" {
+            self.emitln(&format!("  call void @{symbol}({})", fwd.join(", ")));
+            self.emitln("  ret void");
+        } else {
+            self.emitln(&format!("  %r = call {ret_llvm} @{symbol}({})", fwd.join(", ")));
+            self.emitln(&format!("  ret {ret_llvm} %r"));
+        }
+        self.emitln("}\n");
+        let thunk_ir = std::mem::take(&mut self.output);
+        self.local.deferred_closure_defs.push(thunk_ir);
+        self.output = saved_output;
+        // Build the env in the current body: { fn_ptr = @thunk }.
+        let env = self.fresh_tmp();
+        self.emitln(&format!("  {env} = call i8* @malloc(i64 8)"));
+        let slot = self.fresh_tmp();
+        self.emitln(&format!("  {slot} = bitcast i8* {env} to i64*"));
+        let thunk_addr = self.fresh_tmp();
+        self.emitln(&format!("  {thunk_addr} = ptrtoint {ret_llvm} (i64{types_str})* @{thunk} to i64"));
+        self.emitln(&format!("  store i64 {thunk_addr}, i64* {slot}"));
+        let _ = fn_addr;
+        let env_i64 = self.fresh_tmp();
+        self.emitln(&format!("  {env_i64} = ptrtoint i8* {env} to i64"));
+        env_i64
+    }
+
+    /// B-007: the XIOM ELEMENT type of a Vec container expression ("fn() -> Int"
+    /// for `tasks: Vec[fn()]`, "Int" for Vec[Int]). Resolves Vec[..] fields via
+    /// type_meta (the round-11 fn-marker arm of type_from_ast_with_args keeps
+    /// "fn(...)" in the field string) and locals via local_vec_elem.
+    pub(crate) fn resolve_vec_container_elem_xiom(&self, container: &Expr) -> Option<String> {
+        match container {
+            Expr::Field(base, field_expr, _) => {
+                let base_ty = self.infer_struct_type_name(base)?;
+                for key in self.types.type_meta.keys() {
+                    if key.ends_with(&base_ty) || key == base_ty {
+                        if let Some(meta) = self.types.type_meta.get(&key) {
+                            for (fname, ftype) in &meta.fields {
+                                if fname == &field_expr.name {
+                                    if let Some(rest) = ftype.strip_prefix("Vec[") {
+                                        if let Some(inner) = rest.strip_suffix(']') {
+                                            return Some(inner.to_string());
+                                        }
+                                    }
+                                    return None;
+                                }
+                            }
+                        }
+                    }
+                }
+                None
+            }
+            Expr::Ident(id) => self.local.local_vec_elem.get(&id.name).cloned(),
+            _ => None,
+        }
+    }
+
+    /// True when `container` is a field access on a struct and the
     /// field's type in type_meta is a generic container (Vec[..], Map[..], etc.)
     pub(crate) fn is_container_vec_field(&self, container: &Expr) -> bool {
         // 5c.30: locals bound to an i64 container handle (match-arm payload

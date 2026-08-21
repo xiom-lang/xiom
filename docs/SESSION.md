@@ -1,5 +1,28 @@
 # XIOM Compiler Session — Handoff (2026-08-19)
 
+## Session update (2026-08-20, round 11 FIXED): B-007 closures — fn-typed params
+
+Commit: `(pending)` — fix(codegen): round-11 — fn-typed PARAMS hold a
+closure ENV pointer; calling `f(x)` inside a body goes through the M20-A1
+env path (params now registered as closure locals + their return types —
+struct returns are BY VALUE); fn-REFERENCE args (cmp_int, is_even) get
+wrapped in a forwarding-thunk env whose signature matches the M20-A1 call
+(i64 args, inttoptr to the fn-ref's real param types inside — clang must
+inline alwaysinline comparators); re-passed fn-typed params are NOT
+re-wrapped (the Int.compare suffix scan double-wrapped heap_sort_by's
+compare); Vec[fn()] elements (timer wheel tasks) carry a "fn(...)" marker
+through type_meta — var/let bindings from them register as closures and
+indexed calls load field 0 + env-first; Vec.push of a fn-ref into Vec[fn()]
+wraps it.
+
+Verified: stdlib-exec 70/70 (+2 ignore; async/thread restored), feature-reg
+510, checker 178, parser 97, ctfe 97, full e2e pending; 54-smoke battery
+green incl. the full closure family (option map/unwrap/filter/deep_chain,
+array_sort_by, cmp_by, slice, search, sort, async, thread). Pre-existing
+(baseline-failing): the btree_map first_entry pair.
+
+### COMPILER-SIDE QUEUE (priority order — all documented in COMPILER_BUGS.md)
+
 ## Session update (2026-08-20, round 10 FIXED): checker builtin Ord/Bounded resolution (C001)
 
 Commit: `1f762f76` — fix(codegen) + fix(stdlib): round-10 — the stdlib's
