@@ -2,7 +2,7 @@
 
 ## Session update (2026-08-20, round 11 FIXED): B-007 closures — fn-typed params
 
-Commit: `(pending)` — fix(codegen): round-11 — fn-typed PARAMS hold a
+Commit: `93545e56` — fix(codegen): round-11 — fn-typed PARAMS hold a
 closure ENV pointer; calling `f(x)` inside a body goes through the M20-A1
 env path (params now registered as closure locals + their return types —
 struct returns are BY VALUE); fn-REFERENCE args (cmp_int, is_even) get
