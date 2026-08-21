@@ -1,4 +1,4 @@
-// M36-S20: Serialization — binary format encode/decode patterns
+// M36-S20: Serialization -- binary format encode/decode patterns
 type BinHeader = { magic: Int; version: Int; flags: Int; size: Int; }
 type SerValue = { tag: Int; int_val: Int; float_val: Float64; str_len: Int; }
 fn make_header(magic: Int, ver: Int, flags: Int, size: Int) -> BinHeader {

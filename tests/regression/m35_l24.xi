@@ -1,4 +1,4 @@
-// M35-L24: Pointer cast — cast pointer to Int and back, verify value integrity
+// M35-L24: Pointer cast -- cast pointer to Int and back, verify value integrity
 fn main() -> Int {
   var x: Int = 123;
   var p: *Int;

@@ -1,4 +1,4 @@
-// XIOM — Canonical Formatter
+// XIOM -- Canonical Formatter
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -84,7 +84,7 @@ fn main() {
 }
 
 fn print_usage() {
-    eprintln!("XIOM Format v0.47.6 — Canonical Formatter");
+    eprintln!("XIOM Format v0.47.6 -- Canonical Formatter");
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("  xiom fmt [OPTIONS] <file.xi> [file2.xi ...]");

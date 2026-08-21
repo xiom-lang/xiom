@@ -1,7 +1,7 @@
-# XIOM — Live Patching & Hot-Swap Architecture (v0.61)
+# XIOM -- Live Patching & Hot-Swap Architecture (v0.61)
 
 **Version:** Design Spec v1.0 | **Target:** Post-Selfhost + Post-Scale (v0.61)
-**Status:** DESIGN ONLY — implementation begins after v0.60 (Scaling stable).
+**Status:** DESIGN ONLY -- implementation begins after v0.60 (Scaling stable).
 **Branch (future):** `feat/architect/live-patching`
 **Owner:** Compiler + Runtime Team
 **Source:** Pre-selfhost design review (2026-08-10); supersedes earlier hot-reload-only plans.
@@ -48,7 +48,7 @@ typedef struct {
 extern XiomPatchSlot XIOM_PATCH_TABLE[];
 ```
 
-**Compiler codegen** — for a function marked `#[patchable]`:
+**Compiler codegen** -- for a function marked `#[patchable]`:
 
 ```xiom
 #[patchable]
@@ -63,7 +63,7 @@ pub fn sqrt(x: Float64) -> Float64
 ```
 
 **Performance:** a table lookup is a single `jmp *table` (~1 cycle slower than a
-direct call) — zero measurable impact.
+direct call) -- zero measurable impact.
 
 ### 1.2 The JIT Pipeline (the "Patch Factory")
 
@@ -71,8 +71,8 @@ When the AI (or the developer) submits a new version of `sqrt`:
 
 1. **Source Ingest:** the runtime receives a string containing the new source.
 2. **Compilation:** the runtime spins up the XIOM JIT compiler (same backend as
-   `xiom run`). LLVM IR → native machine code. It does NOT link into the main
-   binary yet — it allocates a new executable memory page
+   `xiom run`). LLVM IR -> native machine code. It does NOT link into the main
+   binary yet -- it allocates a new executable memory page
    (`PAGE_EXECUTE_READWRITE` / `mmap PROT_EXEC`) and writes the code there.
 3. **Sandbox Verification:** the JIT executes the new code in a sandbox using the
    Unsafe Confinement traps (v0.57), feeds it a read-only copy of current live
@@ -85,9 +85,9 @@ If the sandbox passes:
 
 1. **Quiescent State:** the runtime waits for all threads to reach a safe point
    (end of the current main loop, or a yield/await boundary). Pauses all threads
-   briefly (~50 µs).
+   briefly (~50 us).
 2. **Pointer Swap:** atomic compare-and-swap (CAS) on
-   `XIOM_PATCH_TABLE[slot].fn_ptr` → new machine code.
+   `XIOM_PATCH_TABLE[slot].fn_ptr` -> new machine code.
 3. **Version Bump:** increment `version`.
 4. **Resume:** all threads resume. Every subsequent call executes the new code.
 
@@ -106,8 +106,8 @@ If the sandbox passes:
 ### Phase 2 detail (JIT sandbox)
 
 Reuse:
-- `JitEngine::compile_module(source)` → `.dll` (already works).
-- `JitModule::get_function_ptr(name)` (exposure change — see OrcJIT_PLAN §7).
+- `JitEngine::compile_module(source)` -> `.dll` (already works).
+- `JitModule::get_function_ptr(name)` (exposure change -- see OrcJIT_PLAN S7).
 - Unsafe Confinement traps (`xiom_trampoline_call`, guard arena) for isolation.
 
 ### Phase 4 detail (rollback triggers)
@@ -144,7 +144,7 @@ Reuse:
 | Patch violates `requires` | Sandbox execution detects; patch rejected; logs contract violation. |
 | Patch crashes (SIGSEGV) | Unsafe confinement trap catches it; `Err(HardwareFault)`; patch rejected; process stays alive. |
 | Patch hangs (infinite loop) | Per-function watchdog timer (>50 ms) aborts the thread and rolls back the pointer. |
-| Rollback failure | Corrupt rollback pointer → panic that thread only; main process keeps running. |
+| Rollback failure | Corrupt rollback pointer -> panic that thread only; main process keeps running. |
 
 ---
 
@@ -164,11 +164,11 @@ Reuse:
 |--------|---------------------|
 | AI writes bad code | JIT Sandbox + Z3 contracts block bad logic before it touches the live system. |
 | AI writes crashing code | Unsafe Confinement + SIGSEGV traps block hardware faults. |
-| Hardware failure during patch | SIGBUS during code memcpy → runtime retries the patch on a new physical memory slot. |
+| Hardware failure during patch | SIGBUS during code memcpy -> runtime retries the patch on a new physical memory slot. |
 | Malicious patch | Contract system confines raw pointers; unsafe blocks enforce memory ownership. |
 
 **Implementation note:** the JIT Pipeline (Phase 2) uses the exact same LLVM
-backend as `xiom build` — no divergence between "compiled at build time" and
+backend as `xiom build` -- no divergence between "compiled at build time" and
 "compiled at runtime". This guarantees ABI stability and eliminates runtime vs
 compile-time inconsistency.
 
@@ -177,10 +177,10 @@ compile-time inconsistency.
 ## 7. Dependencies & Start Condition
 
 - **Start condition:** v0.60 (Scaling) must be stable. Live Patching extends the
-  scaling architecture — the file-watching + dependency-graph intelligence from
+  scaling architecture -- the file-watching + dependency-graph intelligence from
   Scaling knows which functions changed so only those are patched.
 - **CTFE:** contract pre-simplification (Integration A in CTFE_PLAN) applies
-  here — `requires` checks in the sandbox may be CTFE-reduced when arguments are
+  here -- `requires` checks in the sandbox may be CTFE-reduced when arguments are
   constant.
-- **OrcJIT:** `JitModule::get_function_ptr()` exposure (OrcJIT_PLAN §7) is the
+- **OrcJIT:** `JitModule::get_function_ptr()` exposure (OrcJIT_PLAN S7) is the
   only prerequisite JIT work.

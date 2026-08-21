@@ -1,4 +1,4 @@
-// XIOM e2e test — Phase 5c.7 ecosystem gap fixes
+// XIOM e2e test -- Phase 5c.7 ecosystem gap fixes
 // Tests all 7 compiler fixes delivered in Phase 5c hardening
 // Returns 0 on success.
 

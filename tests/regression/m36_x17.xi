@@ -1,4 +1,4 @@
-// M36-X17: Method resolution — method calls on types with self methods
+// M36-X17: Method resolution -- method calls on types with self methods
 type Counter = { value: Int; }
 fn Counter.new() -> Counter { return Counter{ value: 0; }; }
 fn Counter.incr(self) -> Counter {

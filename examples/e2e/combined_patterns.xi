@@ -1,4 +1,4 @@
-// E2E: combined features — store_back + hash + generic monomorphization
+// E2E: combined features -- store_back + hash + generic monomorphization
 // Returns 0 on success.
 module e2e_combined
 use xiom.hash;

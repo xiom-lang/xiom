@@ -3887,10 +3887,10 @@ fn main() -> Int { return 0; }
 }
 
 // ============================================================================
-// M19 Regression Tests — verify bugfixes don't regress
+// M19 Regression Tests -- verify bugfixes don't regress
 // ============================================================================
 
-/// M19-R01: Result[Str, E].unwrap() must return i8* not ptrtoint→i64.
+/// M19-R01: Result[Str, E].unwrap() must return i8* not ptrtoint->i64.
 /// Verifies that unwrap on concrete Result__Str__IOError emits `load i8*`
 /// from field 1, not `load i64` followed by ptrtoint corruption.
 #[test]
@@ -3930,7 +3930,7 @@ fn main() -> Int {
 }
 "#;
     let ir = compile(src).unwrap();
-    // The offset call must be inlined — either as getelementptr (for real pointers)
+    // The offset call must be inlined -- either as getelementptr (for real pointers)
     // or as add i64 (for ptrtoint'd pointers). Must NOT be a call to @offset.
     assert!(
         ir.contains("getelementptr i8, i8*") || ir.contains("add i64"),
@@ -3955,7 +3955,7 @@ fn main() -> Int {
 "#;
     let ir = compile(src).unwrap();
     // The deref on *ptr (where ptr is stored as i64 from ptrtoint)
-    // must emit inttoptr i64→i8* then load i8, not just return the i64.
+    // must emit inttoptr i64->i8* then load i8, not just return the i64.
     assert!(
         ir.contains("inttoptr i64") || ir.contains("load i8, i8*"),
         "M19-R03: deref on ptrtoint'd pointer must load byte"
@@ -3998,9 +3998,9 @@ fn main() -> Int {
     assert!(ir.contains("strcmp"), "M19-R04: Str comparison via strcmp");
 }
 
-/// M19-R05: io.read_file() end-to-end — write file, read back, verify content.
+/// M19-R05: io.read_file() end-to-end -- write file, read back, verify content.
 /// This is a runtime test that exercises the full M19 fix chain:
-/// read_file → offset → deref → from_utf8 → Ok → unwrap.
+/// read_file -> offset -> deref -> from_utf8 -> Ok -> unwrap.
 #[test]
 fn regress_m19_r05_read_file_content() {
     // We use a compile+IR check since we can't do full runtime in this test file.
@@ -4042,7 +4042,7 @@ fn main() -> Int {
 }
 
 // ============================================================================
-// M20-A1 Regression Tests — Closure Codegen
+// M20-A1 Regression Tests -- Closure Codegen
 // ============================================================================
 
 /// M20-A1-R01: Pipe closure (|x, y| expr) must compile to a function definition
@@ -4123,7 +4123,7 @@ fn main() -> Int {
 }
 
 // ============================================================================
-// M20-A3 Regression Tests — Or-Pattern Codegen
+// M20-A3 Regression Tests -- Or-Pattern Codegen
 // ============================================================================
 
 /// M20-A3-R01: Integer or-patterns must compile correctly.
@@ -4160,7 +4160,7 @@ fn main() -> Int {
     assert!(ir.contains("Color"), "M20-A3: Color enum type");
 }
 
-// ── M22-1: Integer type edge cases ────────────────────────────────────
+// -- M22-1: Integer type edge cases ------------------------------------
 
 #[test] fn regress_m22_int8_bounds() {
     let src = "fn main() -> Int8 { var x: Int8 = 127; var y: Int8 = -128; return x; }";
@@ -4370,7 +4370,7 @@ fn main() -> Int { var v = Value.Large(42); return extract(v) as Int; }";
     assert!(ir.contains("sdiv"), "M22: signed int64 division must use sdiv");
 }
 
-// ── M22-2: Float edge cases ───────────────────────────────────────────
+// -- M22-2: Float edge cases -------------------------------------------
 
 #[test] fn regress_m22_float32_identity() {
     let src = "fn main() -> Float32 { var x: Float32 = 3.14; return x; }";
@@ -4511,7 +4511,7 @@ fn main() -> Float64 { return dist(0.0, 0.0, 3.0, 4.0); }";
     assert!(ir.contains("fmul"), "M22: float multiplication in function");
 }
 
-// ── M22-3: String encoding ─────────────────────────────────────────────
+// -- M22-3: String encoding ---------------------------------------------
 
 #[test] fn regress_m22_str_literal() {
     let src = r#"fn main() -> Int { var s: Str = "hello"; return s.len() as Int; }"#;
@@ -4591,7 +4591,7 @@ fn main() -> Float64 { return dist(0.0, 0.0, 3.0, 4.0); }";
     assert!(ir.contains("xiom_str_slice"), "M22: str slice must use xiom_str_slice");
 }
 
-// ── M22-4: Enum completeness ──────────────────────────────────────────
+// -- M22-4: Enum completeness ------------------------------------------
 
 #[test] fn regress_m22_enum_simple() {
     let src = "enum Color { Red, Green, Blue } fn main() -> Int { var c = Color.Red; match c { Color.Red => 0, Color.Green => 1, Color.Blue => 2, } }";
@@ -4664,7 +4664,7 @@ fn main() -> Int {
     assert!(ir.contains("define"), "M22: enum return must compile");
 }
 
-// ── M22-5: Struct completeness ─────────────────────────────────────────
+// -- M22-5: Struct completeness -----------------------------------------
 
 #[test] fn regress_m22_struct_nested_init() {
     let src = "\
@@ -4752,7 +4752,7 @@ fn main() -> Int {
     assert!(ir.contains("define"), "M22: deeply nested struct access must compile");
 }
 
-// ── M22-6: Generic completeness ────────────────────────────────────────
+// -- M22-6: Generic completeness ----------------------------------------
 
 #[test] fn regress_m22_generic_identity_fn() {
     let src = "fn id[T](x: T) -> T { return x; } fn main() -> Int { return id(42); }";
@@ -4832,7 +4832,7 @@ fn main() -> Int { return apply(square, 5); }";
     assert!(ir.contains("define"), "M22: generic fn ptr must compile");
 }
 
-// ── M22-7: Pattern matching ────────────────────────────────────────────
+// -- M22-7: Pattern matching --------------------------------------------
 
 #[test] fn regress_m22_pat_deep_nested_match() {
     let src = "\
@@ -4934,7 +4934,7 @@ fn main() -> Int { var s = sign(0); return 0; }";
     assert!(ir.contains("define"), "M22: match return must compile");
 }
 
-// ── M24: Stress & Robustness (IR verification) ────────────────────────
+// -- M24: Stress & Robustness (IR verification) ------------------------
 
 #[test] fn regress_m24_stress_large_ir() {
     let mut src = String::new();
@@ -5015,7 +5015,7 @@ fn main() -> Float64 { return compose(1.0); }";
     assert!(ir.contains("fsub"), "M24: float chain must use fsub");
 }
 
-// ── M25-1: Contract requires/ensures edge cases ────────────────────────
+// -- M25-1: Contract requires/ensures edge cases ------------------------
 
 #[test] fn regress_m25_contract_simple_requires() {
     let src = "fn div(a: Int, b: Int) -> Int requires: b != 0 { return a / b; } fn main() -> Int { return div(10, 2); }";
@@ -5090,7 +5090,7 @@ fn main() -> Int { return max(10, 20); }";
     assert!(ir.contains("define"), "M25: generic contract must compile");
 }
 
-// ── M25-2: Contract inheritance ───────────────────────────────────────
+// -- M25-2: Contract inheritance ---------------------------------------
 
 #[test] fn regress_m25_contract_interface_requires() {
     let src = "\
@@ -5130,7 +5130,7 @@ fn main() -> Int {
     assert!(ir.contains("define"), "M25: chained contracts must compile");
 }
 
-// ── M25-3: Invariant checking ─────────────────────────────────────────
+// -- M25-3: Invariant checking -----------------------------------------
 
 #[test] fn regress_m25_invariant_simple() {
     let src = "\
@@ -5165,7 +5165,7 @@ fn main() -> Int { var r = Range{ lo: 0; hi: 100; }; return r.hi; }";
     assert!(ir.contains("define") || ir.contains("Range"), "M25: field comparison invariant must compile");
 }
 
-// ── M25-4: Z3 / formal verification ───────────────────────────────────
+// -- M25-4: Z3 / formal verification -----------------------------------
 
 #[test] fn regress_m25_verify_abs_pattern() {
     let src = "\
@@ -5191,7 +5191,7 @@ fn main() -> Int { return checked_mul(10, 20); }";
     assert!(ir.contains("define"), "M25: overflow check contract must compile");
 }
 
-// ── M25-5: Runtime contract behavior ──────────────────────────────────
+// -- M25-5: Runtime contract behavior ----------------------------------
 
 #[test] fn regress_m25_contract_fail_trap() {
     let src = "fn nonzero(x: Int) -> Int requires: x != 0 { return x; } fn main() -> Int { return nonzero(0); }";
@@ -5251,7 +5251,7 @@ fn main() -> Int { return public_api(5); }";
     assert!(ir.contains("define"), "M25: public fn contract must compile");
 }
 
-// ── M29-1: Language corner cases ──────────────────────────────────────
+// -- M29-1: Language corner cases --------------------------------------
 
 // Compound assignment operators
 #[test] fn regress_m29_compound_add() {
@@ -5527,7 +5527,7 @@ fn main() -> Int { return complex(); }";
     assert!(ir.contains("define"), "M29: complex control flow must compile");
 }
 
-// ── M29-2: Type system corners ────────────────────────────────────────
+// -- M29-2: Type system corners ----------------------------------------
 
 #[test] fn regress_m29_impl_trait_return() {
     let src = "fn get_value() -> impl Display { return 42; }";
@@ -5638,7 +5638,7 @@ fn main() -> Float64 { var p = Point{ x: 1.0; y: 2.0; }; return p.x; }";
     assert!(ir.contains("define"), "M29: use alias type must compile");
 }
 
-// ── M29-3: Combinatorial stress ───────────────────────────────────────
+// -- M29-3: Combinatorial stress ---------------------------------------
 
 #[test] fn regress_m29_stress_mix_all_features() {
     let src = "\
@@ -5709,7 +5709,7 @@ fn main() -> Int { return wrap5(42); }";
     assert!(ir.contains("define"), "M29: 40-field struct must compile");
 }
 
-// ── M28-2: Optimization correctness ───────────────────────────────────
+// -- M28-2: Optimization correctness -----------------------------------
 
 // Constant folding: compile-time arithmetic (compiler may or may not fold)
 #[test] fn regress_m28_const_fold_add() {
@@ -5901,7 +5901,7 @@ fn main() -> Int {
     assert!(ir.contains("define"), "M28: mul assoc must compile");
 }
 
-// Large function stress — tests optimization pipeline on big functions
+// Large function stress -- tests optimization pipeline on big functions
 #[test] fn regress_m28_large_fn_many_ops() {
     let mut body = String::from("fn compute(x: Int) -> Int { var r: Int = x;\n");
     for _ in 0..50 {
@@ -5921,7 +5921,7 @@ fn main() -> Int { return 0; }";
     assert!(ir.contains("define"), "M28: sizeof must compile");
 }
 
-// ── M30-1: Self-host preparation — differential & IR consistency ──────
+// -- M30-1: Self-host preparation -- differential & IR consistency ------
 
 // Differential: function order independence
 #[test] fn regress_m30_diff_fn_order() {
@@ -6207,7 +6207,7 @@ type Reader = {
 }
 fn Reader.process(self, buf: Str) -> Int {
     // 'buf' must refer to the Str parameter, NOT the Vec[UInt8] field
-    return buf.len();   // Str.len() — would fail if shadowed by Vec
+    return buf.len();   // Str.len() -- would fail if shadowed by Vec
 }
 fn main() -> Int {
     var r = Reader{ buf: Vec[UInt8].new() };
@@ -6295,7 +6295,7 @@ fn regress_checker_scope_while_body_block() {
 }
 
 // =====================================================================
-// P3-1 (M1): Char type mapping consistency — Char must be i32, not i8
+// P3-1 (M1): Char type mapping consistency -- Char must be i32, not i8
 // =====================================================================
 
 #[test]
@@ -6318,7 +6318,7 @@ fn main() -> Int { var t = make_token('A'); return t.kind as Int; }";
 }
 
 // =====================================================================
-// P1-4: Contract collection methods — none(), is_sorted(), contains_fn(),
+// P1-4: Contract collection methods -- none(), is_sorted(), contains_fn(),
 // contains_type(), all_clauses(), filter_nonempty()
 // =====================================================================
 
@@ -6449,7 +6449,7 @@ fn main() -> Int {
 }
 
 // =====================================================================
-// OPT-R5: Vec.push loop optimization — skip redundant extractvalue+store
+// OPT-R5: Vec.push loop optimization -- skip redundant extractvalue+store
 // when push operates on a local Vec variable (needs_store_back=false).
 // This eliminates 12 LLVM instructions per push iteration.
 // =====================================================================
@@ -6459,7 +6459,7 @@ fn regress_opt_r5_vec_push_loop_no_extractvalue_redundancy() {
     let src = "\
 fn main() -> Int {
     var pool: Vec[UInt8] = Vec[UInt8].with_capacity(1000);
-    // Tight push loop — each iteration must NOT emit redundant
+    // Tight push loop -- each iteration must NOT emit redundant
     // extractvalue+store preamble (12 instructions saved per push)
     var i: Int = 0;
     while i < 1000 {
@@ -6475,7 +6475,7 @@ fn main() -> Int {
 }
 
 // =====================================================================
-// OPT-R6: emit_elem_load phi-node optimisation — replaces alloca+store+load
+// OPT-R6: emit_elem_load phi-node optimisation -- replaces alloca+store+load
 // with a direct phi node, saving 3 instructions per Vec element read.
 // =====================================================================
 

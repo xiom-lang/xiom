@@ -1,4 +1,4 @@
-// M33-B04: Exclusive write borrow — single &mut with exclusive access
+// M33-B04: Exclusive write borrow -- single &mut with exclusive access
 fn add_five(x: &mut Int) { *x = *x + 5; }
 fn main() -> Int {
   var a = 20;

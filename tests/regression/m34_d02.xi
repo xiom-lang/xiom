@@ -1,4 +1,4 @@
-// M34-D02: Linked list — struct with next recursive pointer
+// M34-D02: Linked list -- struct with next recursive pointer
 type Node = { value: Int; next: *Node; }
 
 fn list_length(n: *Node, acc: Int) -> Int {

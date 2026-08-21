@@ -1,4 +1,4 @@
-// M33-Z05: Int %= — basic compound modulo
+// M33-Z05: Int %= -- basic compound modulo
 fn main() -> Int {
   var x: Int = 17;
   x %= 5;

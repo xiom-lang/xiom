@@ -1,4 +1,4 @@
-// M32-M14: Private fn vs pub fn — pub wraps private, only pub accessible
+// M32-M14: Private fn vs pub fn -- pub wraps private, only pub accessible
 module container {
   fn secret(x: Int) -> Int { return x + 1; }
   pub fn public_api(x: Int) -> Int { return secret(x) * 2; }

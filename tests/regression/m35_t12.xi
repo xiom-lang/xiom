@@ -1,4 +1,4 @@
-// M35-T12: Generic constraints — identity, struct, enum unwrap
+// M35-T12: Generic constraints -- identity, struct, enum unwrap
 fn id[T](x: T) -> T { return x; }
 type Pair[T] = { first: T; second: T; }
 enum Option[T] { Some(val: T), None }

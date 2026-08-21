@@ -1,4 +1,4 @@
-// M34-W15: Right-shift sign extension — arithmetic shift on signed Int
+// M34-W15: Right-shift sign extension -- arithmetic shift on signed Int
 fn main() -> Int {
   var neg: Int = -256;
   var pos: Int = 256;

@@ -1,8 +1,8 @@
-// XIOM Codegen — JIT execution via shared library loading (M10)
+// XIOM Codegen -- JIT execution via shared library loading (M10)
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
-// Pipeline: .xi source → AOT → shared library (.dll/.so) → dlopen → call main() → result
+// Pipeline: .xi source -> AOT -> shared library (.dll/.so) -> dlopen -> call main() -> result
 
 use std::path::PathBuf;
 

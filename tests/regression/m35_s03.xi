@@ -1,4 +1,4 @@
-// M35-S03: Substring search — manual needle-in-haystack check
+// M35-S03: Substring search -- manual needle-in-haystack check
 use stdlib.xiom.string;
 fn contains(haystack: Str, needle: Str) -> Bool {
   if needle.len() == 0 { return true; }

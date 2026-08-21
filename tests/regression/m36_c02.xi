@@ -1,4 +1,4 @@
-// M36-C02: Every control flow with every type — if/else, while, match on Bool, Int, Float64, Char, Str, Option, enum, struct
+// M36-C02: Every control flow with every type -- if/else, while, match on Bool, Int, Float64, Char, Str, Option, enum, struct
 enum Color { Red, Green, Blue }
 type Box = { width: Int; height: Int; }
 fn check_int_type(x: Int) -> Int {

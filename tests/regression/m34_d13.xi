@@ -1,4 +1,4 @@
-// M34-D13: Tree fold — accumulation across binary tree with null pointers
+// M34-D13: Tree fold -- accumulation across binary tree with null pointers
 type Node = { value: Int; left: *Node; right: *Node; }
 
 fn fold_sum(n: *Node, acc: Int) -> Int {

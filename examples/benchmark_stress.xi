@@ -1,4 +1,4 @@
-// XIOM â€” Mega Stress Benchmark (Combined Single-File)
+// XIOM -- Mega Stress Benchmark (Combined Single-File)
 // Pushes the selfhost compiler to its absolute limits.
 // 28 inline modules: 24 benchmarks + 3 data modules + 1 data processor
 // Total: ~10,000 lines of extreme compiler stress testing.
@@ -226,7 +226,7 @@ module data_tables {
   }
 
   // ============================================================
-  // TABLE 3: Powers of 2 Ã¢â‚¬â€ 2^0 through 2^30
+  // TABLE 3: Powers of 2 -- 2^0 through 2^30
   // ============================================================
   pub fn powers_of_two() -> Vec[Int] {
     var p = Vec[Int].new();
@@ -265,7 +265,7 @@ module data_tables {
   }
 
   // ============================================================
-  // TABLE 4: Powers of 3 Ã¢â‚¬â€ 3^0 through 3^15
+  // TABLE 4: Powers of 3 -- 3^0 through 3^15
   // ============================================================
   pub fn powers_of_three() -> Vec[Int] {
     var p = Vec[Int].new();
@@ -622,7 +622,7 @@ module math {
 
 
   // ============================================================
-  // SECTION 1: Basic Arithmetic Ã¢â‚¬â€ verifying integer operations
+  // SECTION 1: Basic Arithmetic -- verifying integer operations
   // ============================================================
 
   pub fn add_int(a: Int, b: Int) -> Int { return a + b; }
@@ -672,7 +672,7 @@ module math {
   }
 
   // ============================================================
-  // SECTION 2: Float Operations Ã¢â‚¬â€ Float64 arithmetic
+  // SECTION 2: Float Operations -- Float64 arithmetic
   // ============================================================
 
   pub fn fadd(a: Float64, b: Float64) -> Float64 { return a + b; }
@@ -696,7 +696,7 @@ module math {
   }
 
   // ============================================================
-  // SECTION 3: Factorial Ã¢â‚¬â€ iterative and recursive
+  // SECTION 3: Factorial -- iterative and recursive
   // ============================================================
 
   pub fn factorial_rec(n: Int) -> Int {
@@ -736,7 +736,7 @@ module math {
   }
 
   // ============================================================
-  // SECTION 4: Fibonacci Ã¢â‚¬â€ 3 implementations
+  // SECTION 4: Fibonacci -- 3 implementations
   // ============================================================
 
   pub fn fibonacci_rec(n: Int) -> Int {
@@ -1755,11 +1755,11 @@ module primes {
 
   fn test_factorization() -> Int {
     var score = 0;
-    // 12 = 2*2*3 Ã¢â€ â€™ 3 prime factors
+    // 12 = 2*2*3 -> 3 prime factors
     if factor_count(12) == 3 { score = score + 1; }
-    // 28 = 2*2*7 Ã¢â€ â€™ 3 prime factors
+    // 28 = 2*2*7 -> 3 prime factors
     if factor_count(28) == 3 { score = score + 1; }
-    // 100 = 2*2*5*5 Ã¢â€ â€™ 4 prime factors
+    // 100 = 2*2*5*5 -> 4 prime factors
     if factor_count(100) == 4 { score = score + 1; }
     // Prime has 1 factor
     if factor_count(17) == 1 { score = score + 1; }
@@ -2372,7 +2372,7 @@ module control {
     var light4 = light3.next();
     if light4.is_green() { score = score + 1; }
 
-    // Cycle full: greenÃ¢â€ â€™yellowÃ¢â€ â€™redÃ¢â€ â€™green
+    // Cycle full: green->yellow->red->green
     var cycle = TrafficLight.new();
     var c1 = cycle.next();
     var c2 = c1.next();
@@ -3827,7 +3827,7 @@ module memory {
   }
 
   // ============================================================
-  // SECTION 4: Allocation Stress Ã¢â‚¬â€ Vec Push/Pop
+  // SECTION 4: Allocation Stress -- Vec Push/Pop
   // ============================================================
 
   pub fn alloc_stress_vec(count: Int) -> Int {
@@ -6044,7 +6044,7 @@ module derive {
   }
 
   // ============================================================
-  // SECTION 7: Derive Stress Ã¢â‚¬â€ 25-field Struct
+  // SECTION 7: Derive Stress -- 25-field Struct
   // ============================================================
 
   pub type Big25 = {
@@ -8184,7 +8184,7 @@ module extreme {
   }
 
   // ============================================================
-  // SECTION 3: Edge Cases Ã¢â‚¬â€ Zero, Negative, Boundary Values
+  // SECTION 3: Edge Cases -- Zero, Negative, Boundary Values
   // ============================================================
 
   pub fn zero_division_handler(a: Int, b: Int) -> Int {
@@ -8800,7 +8800,7 @@ module crypto {
     var h3 = simple_hash(&data);
     if h3 != 0 { score = score + 1; }
 
-    // Determinism: same input Ã¢â€ â€™ same hash
+    // Determinism: same input -> same hash
     if djb2_hash(&data) == djb2_hash(&data) { score = score + 1; }
     if simple_hash(&data) == simple_hash(&data) { score = score + 1; }
 
@@ -8966,7 +8966,7 @@ module crypto {
     var k2 = pbkdf2_simple(pwd, salt, 100);
     if k1 == k2 { score = score + 1; }
 
-    // Different password Ã¢â€ â€™ different key
+    // Different password -> different key
     var pwd2 = [1, 2, 3, 5];
     var k3 = pbkdf2_simple(pwd2, salt, 100);
     if k1 != k3 { score = score + 1; }
@@ -9690,7 +9690,7 @@ module serialize {
 
 
   // ============================================================
-  // SECTION 1: Int Ã¢â€ â€ Str Conversion (simulated)
+  // SECTION 1: Int <-> Str Conversion (simulated)
   // ============================================================
 
   pub fn int_to_digits(n: Int) -> Vec[Int] {

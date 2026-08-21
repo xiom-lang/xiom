@@ -1,4 +1,4 @@
-// M30: GCD — while-loop vs recursive must produce identical results
+// M30: GCD -- while-loop vs recursive must produce identical results
 fn gcd_while(a: Int, b: Int) -> Int {
   var x = a;
   var y = b;

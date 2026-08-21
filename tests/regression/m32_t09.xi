@@ -1,4 +1,4 @@
-// M32-T09: String comparison — == and != operators
+// M32-T09: String comparison -- == and != operators
 fn main() -> Int {
   var a: Str = "apple";
   var b: Str = "apple";

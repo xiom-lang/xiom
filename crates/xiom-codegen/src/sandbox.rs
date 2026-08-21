@@ -1,4 +1,4 @@
-// XIOM Safety Audit — Phase 5d.9 Sandbox Pass
+// XIOM Safety Audit -- Phase 5d.9 Sandbox Pass
 // -----------------------------------------------------------------------
 // Walks the AST enumerating every `unsafe` block, categorising operations,
 // scoring severity (HIGH/MEDIUM/LOW), and producing a structured safety
@@ -85,20 +85,20 @@ impl SafetyReport {
 
     pub fn to_text(&self) -> String {
         let mut out = String::new();
-        out.push_str(&format!("═══ XIOM Safety Audit: {} ═══\n\n", self.file));
+        out.push_str(&format!("=== XIOM Safety Audit: {} ===\n\n", self.file));
         out.push_str(&format!("  {} unsafe blocks  |  {} HIGH  |  {} MEDIUM  |  {} LOW  |  Score: {}\n\n",
             self.summary.total_unsafe_blocks, self.summary.high_severity, self.summary.medium_severity, self.summary.low_severity, self.summary.safety_score));
         for severity in &["HIGH", "MEDIUM", "LOW"] {
             let findings: Vec<&SafetyFinding> = self.findings.iter().filter(|f| &f.severity == severity).collect();
             if findings.is_empty() { continue; }
-            out.push_str(&format!("━━━ {} ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n", severity));
+            out.push_str(&format!("--- {} --------------------------------------------------\n", severity));
             for f in &findings {
                 let pub_marker = if f.is_public { " (pub)" } else { "" };
-                out.push_str(&format!("[{}] line {}: {}\n  fn {}{}\n  {}\n  → {}\n\n",
+                out.push_str(&format!("[{}] line {}: {}\n  fn {}{}\n  {}\n  -> {}\n\n",
                     f.severity, f.line, f.category, f.function, pub_marker, f.description, f.suggestion));
             }
         }
-        out.push_str("═══ End of report ═══\n");
+        out.push_str("=== End of report ===\n");
         out
     }
 }
@@ -339,11 +339,11 @@ impl SafetyAuditor {
                 "Use explicit memory reinterpretation with documented layout assumptions, or use a union/safe wrapper.".into(),
             ),
             "large_unsafe_block" => (
-                "Large unsafe block (>10 statements) — high risk surface area.".into(),
+                "Large unsafe block (>10 statements) -- high risk surface area.".into(),
                 "Split into smaller unsafe blocks, each scoped to the minimum required operation.".into(),
             ),
             "unsafe_in_public_api" => (
-                format!("Unsafe block in public function `{}` — exposed to external callers.", self.current_function),
+                format!("Unsafe block in public function `{}` -- exposed to external callers.", self.current_function),
                 "Document the safety invariants in a `// SAFETY:` comment. Consider making the function non-public or adding contracts.".into(),
             ),
             _ => (

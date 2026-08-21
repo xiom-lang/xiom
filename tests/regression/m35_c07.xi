@@ -1,4 +1,4 @@
-// M35-C07: while with condition — standard while loop with condition
+// M35-C07: while with condition -- standard while loop with condition
 fn sum_to(n: Int) -> Int {
   var total: Int = 0;
   var i: Int = 1;

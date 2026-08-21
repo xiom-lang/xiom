@@ -1,4 +1,4 @@
-// M33-B11: Borrow in if scope — & ref to struct used within conditional branch
+// M33-B11: Borrow in if scope -- & ref to struct used within conditional branch
 type Cell = { v: Int; }
 fn read_cell(c: &Cell) -> Int { return c.v; }
 fn main() -> Int {

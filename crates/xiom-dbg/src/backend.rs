@@ -1,5 +1,5 @@
-// XIOM Debug Adapter Protocol Server — backends
-// M14.1: Extracted from main.rs — GDB, CDB backends
+// XIOM Debug Adapter Protocol Server -- backends
+// M14.1: Extracted from main.rs -- GDB, CDB backends
 
 use serde_json::{json, Value};
 use std::collections::HashMap;

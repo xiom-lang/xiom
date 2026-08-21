@@ -1,4 +1,4 @@
-// M35-S22: Capitalize first letter — convert first char to uppercase if lowercase
+// M35-S22: Capitalize first letter -- convert first char to uppercase if lowercase
 use stdlib.xiom.string;
 fn capitalize(s: Str) -> Str {
   if s.len() == 0 { return ""; }

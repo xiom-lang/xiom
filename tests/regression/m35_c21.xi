@@ -1,4 +1,4 @@
-// M35-C21: match on Int — integer value dispatch with multiple arms
+// M35-C21: match on Int -- integer value dispatch with multiple arms
 fn classify_value(x: Int) -> Int {
   match x {
     0 => 0,

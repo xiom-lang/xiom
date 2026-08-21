@@ -1,4 +1,4 @@
-// M34-Q06: Contract runtime — valid path succeeds, contract protects invariants
+// M34-Q06: Contract runtime -- valid path succeeds, contract protects invariants
 fn safe_sqrt(x: Int) -> Int
   requires: x >= 0
   ensures: result * result <= x

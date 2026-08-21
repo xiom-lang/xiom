@@ -1,4 +1,4 @@
-// M35-T20: Int exhaustive — every context with all integer subtypes
+// M35-T20: Int exhaustive -- every context with all integer subtypes
 fn int_add(a: Int, b: Int) -> Int { return a + b; }
 fn int_sub(a: Int, b: Int) -> Int { return a - b; }
 fn int_mul(a: Int, b: Int) -> Int { return a * b; }

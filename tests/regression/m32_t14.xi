@@ -1,4 +1,4 @@
-// M32-T14: String in array — an array of strings
+// M32-T14: String in array -- an array of strings
 type Entry = { key: Str; value: Str; }
 fn main() -> Int {
   var a = Entry{ key: "name"; value: "Kilo"; };

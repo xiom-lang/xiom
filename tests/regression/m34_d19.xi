@@ -1,4 +1,4 @@
-// M34-D19: Diamond-shaped type graph — A→B,C; B,C→D forming diamond dependency
+// M34-D19: Diamond-shaped type graph -- A->B,C; B,C->D forming diamond dependency
 type D = { label: Int; }
 type B = { bval: Int; ref: *D; }
 type C = { cval: Int; ref: *D; }

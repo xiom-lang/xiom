@@ -1,4 +1,4 @@
-// M35-S12: String comparison — character-by-character lexicographic order
+// M35-S12: String comparison -- character-by-character lexicographic order
 use stdlib.xiom.string;
 fn strcmp(a: Str, b: Str) -> Int {
   var i: Int = 0;

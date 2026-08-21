@@ -1,4 +1,4 @@
-// XIOM — Loan Tracking with Place Model (5c-R: field-granular borrows)
+// XIOM -- Loan Tracking with Place Model (5c-R: field-granular borrows)
 // Extends the existing lexical BorrowChecker with Place-level conflict detection.
 
 use super::place::{Place, PlaceConflict, places_conflict};
@@ -119,7 +119,7 @@ mod tests {
         let mut ls = LoanSet::new();
         let a = Place::from_local("p").field("x");
         let b = Place::from_local("p").field("y");
-        // Read a.x, write a.y — disjoint fields, no conflict
+        // Read a.x, write a.y -- disjoint fields, no conflict
         assert_eq!(ls.grant(Loan::read(a)), LoanResult::Granted);
         assert_eq!(ls.grant(Loan::write(b)), LoanResult::Granted);
     }
@@ -129,7 +129,7 @@ mod tests {
         let mut ls = LoanSet::new();
         let a = Place::from_local("a").field("b");
         let b = Place::from_local("a").field("b").field("c");
-        // Write a.b, then read a.b.c — prefix => conflict
+        // Write a.b, then read a.b.c -- prefix => conflict
         assert_eq!(ls.grant(Loan::write(a)), LoanResult::Granted);
         assert!(matches!(ls.grant(Loan::read(b)), LoanResult::Conflict(_)));
     }

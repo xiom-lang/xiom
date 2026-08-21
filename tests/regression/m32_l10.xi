@@ -1,4 +1,4 @@
-// M32-L10: Infinite loop with break guard — while true { ... }
+// M32-L10: Infinite loop with break guard -- while true { ... }
 fn main() -> Int {
   var sum: Int = 0;
   var n: Int = 1;

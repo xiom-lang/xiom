@@ -1,4 +1,4 @@
-// M34-O19: ? with method — struct with associated function using ?
+// M34-O19: ? with method -- struct with associated function using ?
 type Token = { kind: Int; val: Int; }
 
 fn token_to_val(t: Token) -> Result[Int, Str] {

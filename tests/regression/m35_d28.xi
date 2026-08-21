@@ -1,4 +1,4 @@
-// M35-D28: Segment tree — range sum verification
+// M35-D28: Segment tree -- range sum verification
 fn main() -> Int {
   var t0: Int = 36;
   var t1: Int = 9;

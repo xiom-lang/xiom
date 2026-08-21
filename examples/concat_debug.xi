@@ -2127,7 +2127,7 @@ module benchmark {
     var light4 = light3.next();
     if light4.is_green() { score = score + 1; }
   
-    // Cycle full: green→yellow→red→green
+    // Cycle full: green->yellow->red->green
     var cycle = TrafficLight.new();
     var c1 = cycle.next();
     var c2 = c1.next();
@@ -2356,7 +2356,7 @@ module benchmark {
     var h3 = simple_hash(&data);
     if h3 != 0 { score = score + 1; }
   
-    // Determinism: same input → same hash
+    // Determinism: same input -> same hash
     if djb2_hash(&data) == djb2_hash(&data) { score = score + 1; }
     if simple_hash(&data) == simple_hash(&data) { score = score + 1; }
   
@@ -2522,7 +2522,7 @@ module benchmark {
     var k2 = pbkdf2_simple(pwd, salt, 100);
     if k1 == k2 { score = score + 1; }
   
-    // Different password → different key
+    // Different password -> different key
     var pwd2 = [1, 2, 3, 5];
     var k3 = pbkdf2_simple(pwd2, salt, 100);
     if k1 != k3 { score = score + 1; }
@@ -3161,7 +3161,7 @@ module benchmark {
   }
   
   // ============================================================
-  // SECTION 7: Derive Stress — 25-field Struct
+  // SECTION 7: Derive Stress -- 25-field Struct
   // ============================================================
   
   pub type Big25 = {
@@ -4153,7 +4153,7 @@ module benchmark {
   }
   
   // ============================================================
-  // SECTION 3: Edge Cases — Zero, Negative, Boundary Values
+  // SECTION 3: Edge Cases -- Zero, Negative, Boundary Values
   // ============================================================
   
   pub fn zero_division_handler(a: Int, b: Int) -> Int {
@@ -5061,7 +5061,7 @@ module benchmark {
   use benchmark.main.BenchResult;
   
   // ============================================================
-  // SECTION 1: Basic Arithmetic — verifying integer operations
+  // SECTION 1: Basic Arithmetic -- verifying integer operations
   // ============================================================
   
   pub fn add_int(a: Int, b: Int) -> Int { return a + b; }
@@ -5111,7 +5111,7 @@ module benchmark {
   }
   
   // ============================================================
-  // SECTION 2: Float Operations — Float64 arithmetic
+  // SECTION 2: Float Operations -- Float64 arithmetic
   // ============================================================
   
   pub fn fadd(a: Float64, b: Float64) -> Float64 { return a + b; }
@@ -5135,7 +5135,7 @@ module benchmark {
   }
   
   // ============================================================
-  // SECTION 3: Factorial — iterative and recursive
+  // SECTION 3: Factorial -- iterative and recursive
   // ============================================================
   
   pub fn factorial_rec(n: Int) -> Int {
@@ -5175,7 +5175,7 @@ module benchmark {
   }
   
   // ============================================================
-  // SECTION 4: Fibonacci — 3 implementations
+  // SECTION 4: Fibonacci -- 3 implementations
   // ============================================================
   
   pub fn fibonacci_rec(n: Int) -> Int {
@@ -6134,7 +6134,7 @@ module benchmark {
   }
   
   // ============================================================
-  // SECTION 4: Allocation Stress — Vec Push/Pop
+  // SECTION 4: Allocation Stress -- Vec Push/Pop
   // ============================================================
   
   pub fn alloc_stress_vec(count: Int) -> Int {
@@ -6773,11 +6773,11 @@ module benchmark {
   
   fn test_factorization() -> Int {
     var score = 0;
-    // 12 = 2*2*3 → 3 prime factors
+    // 12 = 2*2*3 -> 3 prime factors
     if factor_count(12) == 3 { score = score + 1; }
-    // 28 = 2*2*7 → 3 prime factors
+    // 28 = 2*2*7 -> 3 prime factors
     if factor_count(28) == 3 { score = score + 1; }
-    // 100 = 2*2*5*5 → 4 prime factors
+    // 100 = 2*2*5*5 -> 4 prime factors
     if factor_count(100) == 4 { score = score + 1; }
     // Prime has 1 factor
     if factor_count(17) == 1 { score = score + 1; }
@@ -7747,7 +7747,7 @@ module benchmark {
   use benchmark.main.BenchResult;
   
   // ============================================================
-  // SECTION 1: Int ↔ Str Conversion (simulated)
+  // SECTION 1: Int <-> Str Conversion (simulated)
   // ============================================================
   
   pub fn int_to_digits(n: Int) -> Vec[Int] {
@@ -9944,7 +9944,7 @@ module benchmark {
   }
   
   // ============================================================
-  // TABLE 3: Powers of 2 — 2^0 through 2^30
+  // TABLE 3: Powers of 2 -- 2^0 through 2^30
   // ============================================================
   pub fn powers_of_two() -> Vec[Int] {
     var p = Vec[Int].new();
@@ -9983,7 +9983,7 @@ module benchmark {
   }
   
   // ============================================================
-  // TABLE 4: Powers of 3 — 3^0 through 3^15
+  // TABLE 4: Powers of 3 -- 3^0 through 3^15
   // ============================================================
   pub fn powers_of_three() -> Vec[Int] {
     var p = Vec[Int].new();

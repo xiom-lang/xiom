@@ -1,4 +1,4 @@
-// M35-D17: Graph adjacency list — vertex edges as integer pairs
+// M35-D17: Graph adjacency list -- vertex edges as integer pairs
 fn main() -> Int {
   var v0: Int = 0;
   var v1: Int = 1;

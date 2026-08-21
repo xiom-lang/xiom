@@ -1,4 +1,4 @@
-// M35-S21: Shortest word — find word with minimum non-zero length
+// M35-S21: Shortest word -- find word with minimum non-zero length
 use stdlib.xiom.string;
 fn shortest_word_len(s: Str) -> Int {
   if s.len() == 0 { return 0; }

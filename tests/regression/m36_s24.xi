@@ -1,4 +1,4 @@
-// M36-S24: Garbage collection simulation — mark/sweep phases
+// M36-S24: Garbage collection simulation -- mark/sweep phases
 type GcObj = { id: Int; marked: Bool; reachable: Bool; size: Int; freed: Bool; }
 fn make_obj(id: Int, sz: Int) -> GcObj {
   return GcObj{ id: id; marked: false; reachable: false; size: sz; freed: false; };

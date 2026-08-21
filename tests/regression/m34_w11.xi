@@ -1,4 +1,4 @@
-// M34-W11: Power-of-2 check — (x & (x - 1)) == 0
+// M34-W11: Power-of-2 check -- (x & (x - 1)) == 0
 fn is_pow2(x: Int) -> Int {
   if x <= 0 { return 0; }
   if (x & (x - 1)) == 0 { return 1; }

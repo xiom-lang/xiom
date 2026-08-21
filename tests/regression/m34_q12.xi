@@ -1,4 +1,4 @@
-// M34-Q12: Contract with float domain — requires guards for float operations
+// M34-Q12: Contract with float domain -- requires guards for float operations
 fn safe_div_float(a: Float64, b: Float64) -> Float64
   requires: b != 0.0
   ensures: result * b == a

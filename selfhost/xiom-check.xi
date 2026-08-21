@@ -1,4 +1,4 @@
-// XIOM — Self-Hosted Type Checker
+// XIOM -- Self-Hosted Type Checker
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -41,14 +41,14 @@ pub fn types_compatible(a: CheckedType, b: CheckedType) -> Bool {
   if a.kind == 9 { return true; }  // Error type compatible with anything
   if b.kind == 9 { return true; }
   if a.kind == b.kind { return true; }
-  // Int → Float64 promotion
+  // Int -> Float64 promotion
   if a.kind == 1 && b.kind == 3 { return true; }
   // Unit compatible with anything
   if b.kind == 5 { return true; }
   return false;
 }
 
-// Check a binary expression: left OP right → result type
+// Check a binary expression: left OP right -> result type
 pub fn check_binary(left_ty: CheckedType, op: Int, right_ty: CheckedType) -> CheckedType {
   // Comparison ops (>, <, ==, !=, <=, >=) always return Bool
   if op == 57 { return bool_type(); }  // >
@@ -94,7 +94,7 @@ pub fn check_return(expr_ty: CheckedType, expected_ret: CheckedType) -> CheckedT
 
 // Check a let/var binding
 pub fn check_let(val_ty: CheckedType, annot_ty: CheckedType) -> CheckedType {
-  if annot_ty.kind == 0 { return val_ty; }  // No annotation — infer
+  if annot_ty.kind == 0 { return val_ty; }  // No annotation -- infer
   if types_compatible(val_ty, annot_ty) {
     return annot_ty;
   }
@@ -102,7 +102,7 @@ pub fn check_let(val_ty: CheckedType, annot_ty: CheckedType) -> CheckedType {
 }
 
 // ============================================================================
-// Test harness — verify type checker rules
+// Test harness -- verify type checker rules
 // ============================================================================
 
 pub fn test_int_compatible() -> Int {
@@ -182,7 +182,7 @@ use checker.test_return_mismatch;
 use checker.test_let_inference;
 
 // ============================================================================
-// Entry point — runs all tests
+// Entry point -- runs all tests
 // ============================================================================
 fn main() -> Int {
   var exit = 0;

@@ -63,7 +63,7 @@ pub struct CacheTiers {
 pub struct CacheDb {
     /// Cache directory on disk: typically `<project_root>/.xi_cache/`.
     pub cache_dir: PathBuf,
-    /// In-memory index: module_path → CacheEntry.
+    /// In-memory index: module_path -> CacheEntry.
     entries: Arc<RwLock<HashMap<String, CacheEntry>>>,
     /// Maximum number of cached entries before GC triggers.
     pub max_entries: usize,
@@ -170,7 +170,7 @@ impl CacheDb {
                 && !old.fingerprint.signature_hash.is_empty()
                 && !entry.fingerprint.signature_hash.is_empty()
             {
-                // Signature changed — invalidate all dependents transitively
+                // Signature changed -- invalidate all dependents transitively
                 let mut to_invalidate: Vec<String> = old.dependents.clone();
                 let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
 
@@ -367,7 +367,7 @@ mod tests {
         cache.insert(entry);
         assert!(cache.is_valid("mod", &module));
 
-        // Now modify the file — cache should be invalidated
+        // Now modify the file -- cache should be invalidated
         std::fs::write(&tmp, "fn main() -> Int { return 2; }").unwrap();
         assert!(!cache.is_valid("mod", &module));
 

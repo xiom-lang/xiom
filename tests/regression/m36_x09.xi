@@ -1,4 +1,4 @@
-// M36-X09: Error message patterns — exercise various error path scenarios
+// M36-X09: Error message patterns -- exercise various error path scenarios
 enum MathErr { DivByZero, Overflow, Underflow, Invalid }
 fn checked_div(a: Int, b: Int) -> Result[Int, MathErr] {
   if b == 0 { return Err(MathErr.DivByZero); }

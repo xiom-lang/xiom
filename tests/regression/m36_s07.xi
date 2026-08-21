@@ -1,4 +1,4 @@
-// M36-S07: Codegen — instruction emission patterns and opcode assignments
+// M36-S07: Codegen -- instruction emission patterns and opcode assignments
 type Instr = { opcode: Int; rd: Int; rs1: Int; rs2: Int; imm: Int; }
 fn make_instr(op: Int, rd: Int, rs1: Int, rs2: Int, imm: Int) -> Instr {
   return Instr{ opcode: op; rd: rd; rs1: rs1; rs2: rs2; imm: imm; };

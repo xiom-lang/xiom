@@ -1,4 +1,4 @@
-// M35-L25: Stack allocation pattern — multiple struct stack allocations with interleaved access
+// M35-L25: Stack allocation pattern -- multiple struct stack allocations with interleaved access
 type Frame = { id: Int; next_id: Int; data: Int; }
 
 fn main() -> Int {

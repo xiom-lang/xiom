@@ -1,4 +1,4 @@
-// M35-V23: Vec[Int] min/max — find min and max values
+// M35-V23: Vec[Int] min/max -- find min and max values
 fn vec_min(v: &Vec[Int]) -> Option[Int] {
   if v.len() == 0 { return None; }
   var m = v[0];

@@ -1,4 +1,4 @@
-// M32-C03: Requires + ensures — division with both checks
+// M32-C03: Requires + ensures -- division with both checks
 fn divide(a: Float64, b: Float64) -> Float64
   requires: b != 0.0
   ensures: result * b == a

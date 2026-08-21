@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    XIOM Binary Signing — Authenticode code signing for Windows executables.
+    XIOM Binary Signing -- Authenticode code signing for Windows executables.
 .DESCRIPTION
     Signs all .exe/.dll files in a directory using a code signing certificate.
     Supports self-signed certs (dev), .pfx imports (CI), and Windows certificate store.
@@ -10,7 +10,7 @@
     Directory containing binaries to sign (e.g., release/xiom-v0.48.9/bin/).
 
 .PARAMETER CertificatePath
-    Path to .pfx or .cer certificate file (optional — uses cert: thumbprint or store lookup).
+    Path to .pfx or .cer certificate file (optional -- uses cert: thumbprint or store lookup).
 
 .PARAMETER CertificateThumbprint
     Thumbprint of a certificate already in the user's certificate store.
@@ -161,10 +161,10 @@ foreach ($binary in $binaries) {
             if ($sig.Status -eq "Valid") {
                 Write-Host "    [SIGNED] $name" -ForegroundColor Green
             } else {
-                Write-Host "    [WARN] $name — status: $($sig.Status)" -ForegroundColor Yellow
+                Write-Host "    [WARN] $name -- status: $($sig.Status)" -ForegroundColor Yellow
             }
         } catch {
-            Write-Host "    [FAIL] $name — $_" -ForegroundColor Red
+            Write-Host "    [FAIL] $name -- $_" -ForegroundColor Red
         }
     }
 }

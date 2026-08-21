@@ -1,4 +1,4 @@
-// XIOM — Huge Monomorphisation Benchmark
+// XIOM -- Huge Monomorphisation Benchmark
 // Forces the compiler to generate 15+ struct instantiations, 10+ function
 // instantiations, nested generics, and cross-product instantiations.
 // Copyright (c) 2026 Eleftherios Notas
@@ -132,7 +132,7 @@ fn test_10_fn_instantiations() -> Int {
 }
 
 // ============================================================
-// SECTION 3: Nested Generics — Vec of Option of Pair
+// SECTION 3: Nested Generics -- Vec of Option of Pair
 // ============================================================
 
 pub type Pair[A, B] = {

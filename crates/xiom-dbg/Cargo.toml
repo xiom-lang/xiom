@@ -2,7 +2,7 @@
 name = "xiom-dbg"
 version = "0.1.0"
 edition = "2024"
-description = "XIOM Debug Adapter Protocol server — contract-aware debugging for VS Code / JetBrains"
+description = "XIOM Debug Adapter Protocol server -- contract-aware debugging for VS Code / JetBrains"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

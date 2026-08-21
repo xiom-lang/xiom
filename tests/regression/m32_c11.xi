@@ -1,4 +1,4 @@
-// M32-C11: Contract with generic — identity with ensures equality
+// M32-C11: Contract with generic -- identity with ensures equality
 fn id[T](x: T) -> T
   ensures: result == x
 {

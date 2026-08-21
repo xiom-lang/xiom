@@ -1,4 +1,4 @@
-// M35-S01: String reverse — manual loop building reversed string
+// M35-S01: String reverse -- manual loop building reversed string
 use stdlib.xiom.string;
 fn reverse(s: Str) -> Str {
   var result: Str = "";

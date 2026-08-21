@@ -1,4 +1,4 @@
-// M33-U09: Unsafe read from pointer — deref and use value
+// M33-U09: Unsafe read from pointer -- deref and use value
 fn main() -> Int {
   var v: Int = 123;
   var p: *Int;

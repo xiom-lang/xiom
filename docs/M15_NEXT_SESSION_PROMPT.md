@@ -1,11 +1,11 @@
 Continue XIOM M15 self-hosting hardening from SESSION.md. Branch: feat/architect.
 
 CURRENT STATE:
-- v0.51.0 "Production Hardening" — 1049/1049 ALL TESTS PASS
+- v0.51.0 "Production Hardening" -- 1049/1049 ALL TESTS PASS
 - Self-hosting readiness: 8/10
 - All P0, P1, M1-M12 complete
 - M14.3-M14.7 complete
-- M14.1 file splits: 3/14 done (fmt, pkg, dbg) — remaining 11 are cosmetic, DEFERRED
+- M14.1 file splits: 3/14 done (fmt, pkg, dbg) -- remaining 11 are cosmetic, DEFERRED
 
 M15 TARGET: Fix 3 codegen bugs to reach 10/10 self-hosting.
 

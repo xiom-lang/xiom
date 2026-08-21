@@ -1,4 +1,4 @@
-// M32-X05: Combinatorial + Differential — add-then-mul vs mul-then-add with contract+generic
+// M32-X05: Combinatorial + Differential -- add-then-mul vs mul-then-add with contract+generic
 enum Op { AddFirst, MulFirst }
 fn compute(op: Op, a: Int, b: Int, c: Int) -> Int
   requires: a >= 0

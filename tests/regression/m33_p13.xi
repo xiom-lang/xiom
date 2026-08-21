@@ -1,4 +1,4 @@
-﻿// M33-P13: 30-fn deep chain + 20 struct + 15 enum + 10 const + 5 modules all interleaved + big match + 50 vars
+// M33-P13: 30-fn deep chain + 20 struct + 15 enum + 10 const + 5 modules all interleaved + big match + 50 vars
 // Pattern: fn main() -> Int { ... return 0; }
 
 const P13_KK0: Int = 0; const P13_KK1: Int = 1; const P13_KK2: Int = 2; const P13_KK3: Int = 3; const P13_KK4: Int = 4;

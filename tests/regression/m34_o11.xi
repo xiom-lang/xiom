@@ -1,4 +1,4 @@
-// M34-O11: ? with early return — ? followed by early return in branch
+// M34-O11: ? with early return -- ? followed by early return in branch
 fn check(a: Int) -> Result[Int, Str] {
   if a < 0 { return Err("negative"); }
   return Ok(a);

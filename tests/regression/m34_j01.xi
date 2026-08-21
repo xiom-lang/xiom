@@ -1,4 +1,4 @@
-// M34-J01: Multiple modules in one file — basic cross-module calls
+// M34-J01: Multiple modules in one file -- basic cross-module calls
 module math_a {
   pub fn add(a: Int, b: Int) -> Int { return a + b; }
 }

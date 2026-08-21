@@ -1,4 +1,4 @@
-// M35-O02: Option[Float64] create — Some/None construction and match extraction
+// M35-O02: Option[Float64] create -- Some/None construction and match extraction
 fn main() -> Int {
   var a = Some(1.0);
   match a { Some(_) => {} None => { return 1; } }

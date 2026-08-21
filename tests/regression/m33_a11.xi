@@ -1,4 +1,4 @@
-// M33-A11: Multi-dimensional patterns — nested array indexing simulation
+// M33-A11: Multi-dimensional patterns -- nested array indexing simulation
 type Triple = { a: Int; b: Int; c: Int; }
 fn main() -> Int {
   var r0 = Triple{ a: 1; b: 2; c: 3; };

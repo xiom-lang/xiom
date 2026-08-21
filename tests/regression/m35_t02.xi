@@ -1,4 +1,4 @@
-// M35-T02: Int in every context — var, param, return, struct, enum, array, generic, if, while, match, operators
+// M35-T02: Int in every context -- var, param, return, struct, enum, array, generic, if, while, match, operators
 type IntBox = { value: Int; }
 enum IntOption { Some(v: Int), None }
 fn int_add(a: Int, b: Int) -> Int { return a + b; }

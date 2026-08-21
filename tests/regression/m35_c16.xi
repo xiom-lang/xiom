@@ -1,4 +1,4 @@
-// M35-C16: loop with multiple accumulators — tracking several values simultaneously
+// M35-C16: loop with multiple accumulators -- tracking several values simultaneously
 fn multi_accum(n: Int) -> Int {
   var sum: Int = 0;
   var prod: Int = 1;

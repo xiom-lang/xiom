@@ -1,4 +1,4 @@
-// M35-V15: Vec[Option[Int]] — Vec of optional integers, len verification
+// M35-V15: Vec[Option[Int]] -- Vec of optional integers, len verification
 fn main() -> Int {
   var v = Vec[Option[Int]].new();
   v.push(Some(10));

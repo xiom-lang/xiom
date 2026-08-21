@@ -2,7 +2,7 @@ use xiom.io;
 use xiom.time;
 
 // Reference implementation: Hot-Reload Module Loader (XIOM)
-// Systems Arena — simulates dynamic module loading and hot-reload pattern.
+// Systems Arena -- simulates dynamic module loading and hot-reload pattern.
 // NOTE: Full hot-reload requires OS-level dlopen/dlsym support via unsafe FFI.
 // This stub provides the benchmark measurement structure.
 
@@ -79,7 +79,7 @@ fn ModuleLoader.unload(name: Str) {
 fn main() {
   let start = time.Instant.now();
 
-  io.println("Hot-Reload Module Loader — Reference Benchmark");
+  io.println("Hot-Reload Module Loader -- Reference Benchmark");
 
   var loader = ModuleLoader{
     modules: Vec[Module].with_capacity(16)
@@ -106,7 +106,7 @@ fn main() {
 
   let elapsed = start.elapsed();
   let ms = elapsed.as_millis();
-  let ms_f64 = ms;  // Int → Float64 implicit for display
+  let ms_f64 = ms;  // Int -> Float64 implicit for display
 
   io.println("OK");
 }

@@ -1,4 +1,4 @@
-// M35-D23: Shortest path — verify distance computation
+// M35-D23: Shortest path -- verify distance computation
 fn main() -> Int {
   var d0: Int = 0;
   var d1: Int = 4;

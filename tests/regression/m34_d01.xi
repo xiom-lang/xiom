@@ -1,4 +1,4 @@
-// M34-D01: Binary tree — struct with left/right recursive pointers
+// M34-D01: Binary tree -- struct with left/right recursive pointers
 type Node = { value: Int; left: *Node; right: *Node; }
 
 fn tree_sum(n: *Node) -> Int {

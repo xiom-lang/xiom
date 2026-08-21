@@ -1,11 +1,11 @@
-# XIOM — Checklist: Multi-File Module Catalog
+# XIOM -- Checklist: Multi-File Module Catalog
 
 **Branch:** `feat/ecosystem`
 **Date:** 2026-07-03
 
 > Step-by-step execution checklist. Mark `- [x]` when a step is verified green.
 
-## Wave 1 — xiom-check catalog
+## Wave 1 -- xiom-check catalog
 
 ### 1.1 Add to_ast_type on CheckedType
 - [x] Add `CheckedType::to_ast_type(&self) -> Type` method in `crates/xiom-check/src/lib.rs`
@@ -56,16 +56,16 @@
   - Functions get empty bodies (stubs for codegen to resolve symbols).
 
 ### 1.8 Verify checker
-- [ ] `cargo test -p xiom-check` — 44/44.
-- [ ] `cargo test -p xiom-codegen` — 139/139 (post v10 flake fix).
+- [ ] `cargo test -p xiom-check` -- 44/44.
+- [ ] `cargo test -p xiom-codegen` -- 139/139 (post v10 flake fix).
 
-## Wave 1 — xiom wiring
+## Wave 1 -- xiom wiring
 
 ### 1.9 Auto-add source directories
 - [x] Replace direct `checker.source_dirs.push()` in `crates/xiom/src/main.rs` with
   `checker.add_source_dir()` calls for:
   - Parent directory of the primary source file.
-  - Project `examples/` root (derived from `CARGO_MANIFEST_DIR` → parent → parent → join("examples")).
+  - Project `examples/` root (derived from `CARGO_MANIFEST_DIR` -> parent -> parent -> join("examples")).
 
 ### 1.10 Inject external decls before codegen
 - [x] After `checker.check_program()`, call `checker.collect_external_decls(&program)`.
@@ -73,25 +73,25 @@
 - [x] Keep the `is_multi_file` soft-error gate logic unchanged.
 
 ### 1.11 Verify examples
-- [ ] `cargo run -p xiom -- --run examples\test_mod\math.xi` → exit 34.
-- [ ] `cargo run -p xiom -- --run examples\benchmark\bench_math.xi` → compiles and runs.
-- [ ] `cargo run -p xiom -- --run examples\benchmark\main.xi` → compiles and runs.
+- [ ] `cargo run -p xiom -- --run examples\test_mod\math.xi` -> exit 34.
+- [ ] `cargo run -p xiom -- --run examples\benchmark\bench_math.xi` -> compiles and runs.
+- [ ] `cargo run -p xiom -- --run examples\benchmark\main.xi` -> compiles and runs.
 
-## Wave 2 — Codegen visibility
+## Wave 2 -- Codegen visibility
 
 ### 2.1 Codegen honors injected stubs
 - [ ] Ensure `IrEmitter::compile_program` processes injected `TopDecl::Type` stubs to emit
   `%struct.BenchResult` with correct field types.
 - [ ] Ensure injected `TopDecl::Fn` stubs become `declare` entries in LLVM IR so cross-file calls
   (e.g., `@make_result`, `@benchmark_math_run_all`) resolve at link time.
-- [ ] Fix the `getelementptr i64, i64* … i32 0, i32 0` error by ensuring struct types from
+- [ ] Fix the `getelementptr i64, i64* ... i32 0, i32 0` error by ensuring struct types from
   external modules have proper LLVM type tags (not defaulted to `i64`).
 
 ### 2.2 Verify codegen
-- [ ] `cargo test -p xiom-codegen` — all 139 pass.
-- [ ] `cargo run -p xiom -- --run examples\test_mod\math.xi` — exit 34.
+- [ ] `cargo test -p xiom-codegen` -- all 139 pass.
+- [ ] `cargo run -p xiom -- --run examples\test_mod\math.xi` -- exit 34.
 
-## Wave 3 — Stability + cleanup
+## Wave 3 -- Stability + cleanup
 
 ### 3.1 Isolate v10 selfhost tests
 - [x] Unique output filenames: `e2e_v10_self_compile.exe` vs `e2e_v10_self_bootstrap_src.exe`.
@@ -108,10 +108,10 @@
   comparison warnings (caused by `min_fns = 0` in `diff_error` macro expansion).
 
 ### 3.3 Final verification
-- [ ] `cargo test` (full workspace) — green except pre-known tuple-return issue.
+- [ ] `cargo test` (full workspace) -- green except pre-known tuple-return issue.
 - [ ] No warnings from `cargo build` on xiom-check and xiom-codegen.
 
-## Wave 4 — Regression + docs
+## Wave 4 -- Regression + docs
 
 ### 4.1 E2E regression tests
 - [ ] Add test `e2e_testmod_math_runs` in `crates/xiom-codegen/tests/e2e_tests.rs`: compiles
@@ -128,4 +128,4 @@
   183/0 instead of the logged 60 passed/1 failed.
 
 ### 4.3 Final check
-- [ ] `cargo test` — all green.
+- [ ] `cargo test` -- all green.

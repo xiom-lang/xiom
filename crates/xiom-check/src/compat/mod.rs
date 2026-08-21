@@ -1,4 +1,4 @@
-// XIOM Check — Type Compatibility Rules
+// XIOM Check -- Type Compatibility Rules
 // Sprint 6B.3: extracted from lib.rs (was impl Checker method)
 use std::collections::HashMap;
 use crate::types::CheckedType;
@@ -11,7 +11,7 @@ pub(crate) fn types_compatible(
     expected: &CheckedType,
     interfaces: &HashMap<String, Vec<(String, Vec<String>, Option<String>)>>,
 ) -> bool {
-    // v0.55: Never type (!) is the bottom type — compatible with everything.
+    // v0.55: Never type (!) is the bottom type -- compatible with everything.
     // Functions returning ! never return; match arms with ! bodies are exhaustive.
     if matches!(found, CheckedType::Never) || matches!(expected, CheckedType::Never) {
         return true;
@@ -88,7 +88,7 @@ pub(crate) fn types_compatible(
         (CheckedType::UInt, CheckedType::UInt32) | (CheckedType::UInt32, CheckedType::UInt) => true,
         (CheckedType::UInt, CheckedType::UInt16) | (CheckedType::UInt16, CheckedType::UInt) => true,
         (CheckedType::UInt, CheckedType::UInt8)  | (CheckedType::UInt8,  CheckedType::UInt) => true,
-        // Signed↔unsigned (FFI common)
+        // Signed<->unsigned (FFI common)
         (CheckedType::Int,    CheckedType::UInt32) | (CheckedType::UInt32, CheckedType::Int) => true,
         (CheckedType::Int32,  CheckedType::UInt32) | (CheckedType::UInt32, CheckedType::Int32) => true,
         (CheckedType::Int,    CheckedType::UInt)   | (CheckedType::UInt,   CheckedType::Int) => true,
@@ -98,7 +98,7 @@ pub(crate) fn types_compatible(
     }
 }
 
-/// Normalize "Bool" (Named) → Bool (checked type variant).
+/// Normalize "Bool" (Named) -> Bool (checked type variant).
 fn from_str(ty: &CheckedType) -> CheckedType {
     match ty {
         CheckedType::Named(n) => match n.as_str() {

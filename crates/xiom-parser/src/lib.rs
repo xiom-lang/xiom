@@ -1,8 +1,8 @@
-// XIOM â€” Parser
+// XIOM -- Parser
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
-//! XIOM Parser â€” recursive descent, LL(1), single deterministic parse path.
+//! XIOM Parser -- recursive descent, LL(1), single deterministic parse path.
 //! Converts the token stream into a typed AST.
 //! Implements the full EBNF grammar from Section 3 of the language spec.
 
@@ -29,8 +29,8 @@ pub struct Parser {
 }
 
 /// Maximum expression/type nesting depth. A recursive-descent parser recurses
-/// once per nesting level, with ~16 intermediate frames per level. 24 levels Ã—
-/// 16 frames â‰ˆ 384 stack frames â‰ˆ 768KB â€” well within the 1MB test-thread stack.
+/// once per nesting level, with ~16 intermediate frames per level. 24 levels x
+/// 16 frames ~= 384 stack frames ~= 768KB -- well within the 1MB test-thread stack.
 /// Prevents STACK_OVERFLOW on deeply nested input like 500-parenthesized exprs.
 const MAX_EXPR_DEPTH: usize = 24;
 
@@ -48,7 +48,7 @@ impl Parser {
         let err = ParseError { message: msg, span };
         self.errors.push(err);
         if self.errors.len() >= Self::MAX_PARSE_ERRORS {
-            Err(ParseError { message: "too many parse errors â€” aborting".to_string(), span })
+            Err(ParseError { message: "too many parse errors -- aborting".to_string(), span })
         } else {
             Ok(())
         }
@@ -71,7 +71,7 @@ impl Parser {
     /// Panic-mode statement recovery (rustc lesson: `recover_stmt_` in
     /// `compiler/rustc_parse/src/parser/diagnostics.rs` ~60 lines).
     /// Skip tokens to the next statement boundary (`;` or `}`) while tracking
-    /// brace depth â€” increment on `{`, decrement on `}`, stop when depth â‰¤ 0
+    /// brace depth -- increment on `{`, decrement on `}`, stop when depth <= 0
     /// and we hit `;` or `}`. This keeps recovery scoped to the current block
     /// instead of leaking into enclosing scopes.
     fn recover_stmt(&mut self) {
@@ -95,7 +95,7 @@ impl Parser {
                     }
                     self.advance();
                 }
-                // Stop at fn/type/enum/etc. â€” likely start of next item
+                // Stop at fn/type/enum/etc. -- likely start of next item
                 TokenKind::Fn | TokenKind::Type | TokenKind::Enum
                 | TokenKind::Interface | TokenKind::Impl | TokenKind::Module | TokenKind::Pub
                 | TokenKind::Const | TokenKind::Use | TokenKind::Extern => {
@@ -117,7 +117,7 @@ impl Parser {
     fn enter_expr(&mut self) -> Result<(), ParseError> {
         self.depth += 1;
         if self.depth > MAX_EXPR_DEPTH {
-            return Err(self.error("expression nesting too deep (max 24 levels) â€” simplify the expression"));
+            return Err(self.error("expression nesting too deep (max 24 levels) -- simplify the expression"));
         }
         Ok(())
     }
@@ -294,7 +294,7 @@ impl Parser {
                     let span = e.span;
                     let _ = self.recoverable_error(e.message, span);
                     if self.errors.len() >= Self::MAX_PARSE_ERRORS {
-                        return Err(ParseError { message: "too many parse errors â€” aborting".to_string(), span });
+                        return Err(ParseError { message: "too many parse errors -- aborting".to_string(), span });
                     }
                     // 5c-R: use brace-depth-aware statement recovery instead of
                     // top-level-only sync (rustc lesson: panic-mode recovery)
@@ -304,7 +304,7 @@ impl Parser {
         }
         // If we have recovered items AND errors, return what we have
         if !self.errors.is_empty() && !items.is_empty() {
-            // Return partial program â€” caller can still type-check recovered AST
+            // Return partial program -- caller can still type-check recovered AST
         }
         if let Some(path) = file_module_path {
             let wrapped = Self::build_file_module_result(path, items, start);
@@ -473,7 +473,7 @@ impl Parser {
             return Ok(TopDecl::Enum(EnumDecl { is_pub, name, generics, variants, derives, span: start }));
         }
         if self.check(|k| matches!(k, TokenKind::LParen)) {
-            // 8B/M9: Tuple struct â€” `type Foo = (Int, Str) [derive[...]]`
+            // 8B/M9: Tuple struct -- `type Foo = (Int, Str) [derive[...]]`
             let tuple_types = self.parse_tuple_type_args()?;
             let derives = if self.skip(TokenKind::Derive) { self.parse_derive_list()? } else { Vec::new() };
             self.skip(TokenKind::Semicolon);
@@ -497,7 +497,7 @@ impl Parser {
         let mut derived_fields = Vec::new();
         let mut invariants = Vec::new();
         while !self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Eof)) {
-            // 5c-R: contextual keyword â€” `invariant` is an Ident, not a reserved token
+            // 5c-R: contextual keyword -- `invariant` is an Ident, not a reserved token
             if self.check(|k| matches!(k, TokenKind::Ident(s) if s == "invariant")) {
                 self.advance();
                 self.expect_kind(TokenKind::Colon, "':'")?;
@@ -633,7 +633,7 @@ impl Parser {
         let start = self.advance().span; // consume `impl`
         let trait_name = self.parse_ident()?;
         let mut trait_args: Vec<Type> = Vec::new();
-        // D1 (2026-08-08): `impl Num[Int]` â€” generic args on the trait.
+        // D1 (2026-08-08): `impl Num[Int]` -- generic args on the trait.
         if self.peek_kind() == &TokenKind::LBracket {
             self.advance(); // consume '['
             while !self.check(|k| matches!(k, TokenKind::RBracket | TokenKind::Eof)) {
@@ -717,7 +717,7 @@ impl Parser {
         // Only skip `[...]` when it is immediately followed by `.` (a method receiver);
         // otherwise it is a generic function's own params (e.g. `fn max[T](...)`), so restore.
         // BUG 38b: the receiver's generic param NAMES are captured into fd.generics
-        // (receiver-first) instead of being dropped â€” `Iterator[T].collect(self)`
+        // (receiver-first) instead of being dropped -- `Iterator[T].collect(self)`
         // must monomorphise like the equivalent `Rc.get[T](self)` form; without
         // them the decl was registered with an erased i64 receiver ABI.
         let mut receiver_generics: Vec<String> = Vec::new();
@@ -731,7 +731,7 @@ impl Parser {
                     TokenKind::RBracket => { depth -= 1; self.advance(); }
                     // Single-uppercase-letter type-param names at depth 1
                     // (convention: T, U, K, V, E, B...). Multi-char names are
-                    // concrete type args (Vec, Str, Foo) â€” never captured.
+                    // concrete type args (Vec, Str, Foo) -- never captured.
                     TokenKind::Ident(s) if depth == 1 && s.len() == 1
                         && s.chars().next().map_or(false, |c| c.is_ascii_uppercase()) => {
                         receiver_generics.push(s.clone());
@@ -741,14 +741,14 @@ impl Parser {
                 }
             }
             if !self.check(|k| matches!(k, TokenKind::Dot)) {
-                self.pos = saved; // not a method receiver â€” leave `[...]` for generic params
+                self.pos = saved; // not a method receiver -- leave `[...]` for generic params
                 receiver_generics.clear();
             }
         }
         let (receiver, name) = if self.skip(TokenKind::Dot) { (Some(first), self.parse_ident()?) } else { (None, first) };
         let mut generics = self.parse_optional_generic_params()?;
         // BUG 38b: receiver generics come FIRST (they bind the receiver type
-        // param, e.g. `Iterator[T].chain[U]` â†’ generics [T, U]), deduped by name.
+        // param, e.g. `Iterator[T].chain[U]` -> generics [T, U]), deduped by name.
         for rg in receiver_generics.into_iter().rev() {
             if !generics.iter().any(|g| g.name.name == rg) {
                 generics.insert(0, GenericParam {
@@ -799,10 +799,10 @@ impl Parser {
             self.advance();
             self.expect_kind(TokenKind::Colon, "':'")?;
             // BUG 56 (2026-08-18): a trailing `{` after a contract expr starts
-            // the fn BODY — parse the expr with struct-literal restriction (the
+            // the fn BODY -- parse the expr with struct-literal restriction (the
             // parse_cond pattern). Without it, `ensures: result == x { x }`
             // parsed `x { x }` as a STRUCT LITERAL, consuming the body block
-            // (fd.body = None → the fn emitted ret 0 / param dropped).
+            // (fd.body = None -> the fn emitted ret 0 / param dropped).
             let saved_restrict = self.restrict_struct;
             self.restrict_struct = true;
             // Parse first expression
@@ -927,7 +927,7 @@ impl Parser {
         loop {
             params.push(self.parse_param()?);
             if !self.skip(TokenKind::Comma) { break; }
-            // Trailing comma: `fn f(a: Int, b: Int,)` â€” accepted like call
+            // Trailing comma: `fn f(a: Int, b: Int,)` -- accepted like call
             // args/arrays. Previously this made parse_param fail on `)` and
             // the whole function was silently dropped by error recovery.
             if self.check(|k| matches!(k, TokenKind::RParen)) { break; }
@@ -1020,7 +1020,7 @@ impl Parser {
     }
 
     fn parse_type_base(&mut self) -> Result<Type, ParseError> {
-        // v0.55: Never type â€” `!` as bottom type
+        // v0.55: Never type -- `!` as bottom type
         if self.peek_kind() == &TokenKind::Bang {
             let _ = self.advance();
             return Ok(Type::Never);
@@ -1056,7 +1056,7 @@ impl Parser {
             return Ok(Type::Ptr(Box::new(base)));
         }
         if self.skip(TokenKind::LParen) {
-            // `()` â€” empty parens = unit type (for `Result[(), E]` and similar).
+            // `()` -- empty parens = unit type (for `Result[(), E]` and similar).
             if self.check(|k| matches!(k, TokenKind::RParen)) {
                 self.advance(); // consume ')'
                 return Ok(Type::Named(Ident::new("()", self.peek().span), vec![]));
@@ -1075,7 +1075,7 @@ impl Parser {
             let ret = if self.skip(TokenKind::Arrow) { self.parse_type()? } else { Type::Named(Ident::new("Unit", Span::new(0, 0)), vec![]) };
             return Ok(Type::Fn(param_types, Box::new(ret)));
         }
-        // 5c.33: Anonymous struct type `{ field: Type; field: Type; }` â€”
+        // 5c.33: Anonymous struct type `{ field: Type; field: Type; }` --
         // used in generic function signatures like `fn f(p: {a: A; b: B}) -> {c: C}`.
         if self.peek_kind() == &TokenKind::LBrace {
             let start = self.advance().span;
@@ -1140,7 +1140,7 @@ impl Parser {
             TokenKind::Let => { let stmt = self.parse_let_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::Var => { let stmt = self.parse_var_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
             TokenKind::Const => {
-                // Local `const NAME: T = value;` â€” treated as an immutable let.
+                // Local `const NAME: T = value;` -- treated as an immutable let.
                 let span = self.advance().span;
                 let name = self.parse_ident()?;
                 let ty = if self.skip(TokenKind::Colon) { Some(Box::new(self.parse_type()?)) } else { None };
@@ -1153,7 +1153,7 @@ impl Parser {
             TokenKind::Break => { let span = self.advance().span; let label = self.parse_optional_label(); self.skip(TokenKind::Semicolon); Ok(StmtOrExpr::Stmt(Stmt::Break(label, span))) }
             TokenKind::Continue => { let span = self.advance().span; let label = self.parse_optional_label(); self.skip(TokenKind::Semicolon); Ok(StmtOrExpr::Stmt(Stmt::Continue(label, span))) }
             TokenKind::If => { let stmt = self.parse_if_stmt()?; Ok(StmtOrExpr::Stmt(stmt)) }
-            // BUG 27: `assert(cond)` / `assert(cond, "msg")` â€” a runtime-checked
+            // BUG 27: `assert(cond)` / `assert(cond, "msg")` -- a runtime-checked
             // invariant statement (panics cleanly on violation).
             TokenKind::Ident(name) if name == "assert" && self.peek_ahead(1) == Some(&TokenKind::LParen) => {
                 let span = self.advance().span;
@@ -1168,7 +1168,7 @@ impl Parser {
                 self.skip(TokenKind::Semicolon);
                 Ok(StmtOrExpr::Stmt(Stmt::Assert(cond, msg, span)))
             }
-            // BUG 27: `debugger;` / `debugger();` â€” break into the attached
+            // BUG 27: `debugger;` / `debugger();` -- break into the attached
             // debugger (no-op without one).
             TokenKind::Ident(name) if name == "debugger" => {
                 let span = self.advance().span;
@@ -1327,7 +1327,7 @@ impl Parser {
         Ok(Expr::Struct(Ident::new(type_name.to_string(), span), fields, spread, span))
     }
 
-    /// Parse integer suffix: "42i8" â†’ Int8, "255u8" â†’ UInt8, etc.
+    /// Parse integer suffix: "42i8" -> Int8, "255u8" -> UInt8, etc.
     /// Returns Some(Type) if the lexeme has a valid suffix, None otherwise.
     fn parse_int_suffix(lexeme: &str) -> Option<Type> {
         if let Some(pos) = lexeme.find(|c: char| c == 'i' || c == 'u') {
@@ -1347,7 +1347,7 @@ impl Parser {
         None
     }
 
-    /// Parse float suffix: "3.14f32" â†’ Float32, "1.0f64" â†’ Float64
+    /// Parse float suffix: "3.14f32" -> Float32, "1.0f64" -> Float64
     fn parse_float_suffix(lexeme: &str) -> Option<Type> {
         if let Some(pos) = lexeme.find('f') {
             let suffix = &lexeme[pos..];
@@ -1425,7 +1425,7 @@ impl Parser {
     /// BUG 23 #4 fix: parse the tail of an `if`/`if let` after `else`.
     /// Supports BOTH `else { ... }` and the two-word `else if <cond> { ... }`
     /// chain (desugared to a nested if statement inside the else block, so
-    /// `else if A { } else if B { } else { }` chains parse recursively â€” the
+    /// `else if A { } else if B { } else { }` chains parse recursively -- the
     /// same shape `elif` already supports).
     fn parse_else_tail(&mut self) -> Result<Option<Block>, ParseError> {
         if !self.skip(TokenKind::Else) {
@@ -1694,7 +1694,7 @@ impl Parser {
             TokenKind::LParen => {
                 let span = self.advance().span;
                 if self.skip(TokenKind::RParen) {
-                    // Unit pattern `()` â€” treat as wildcard (unit has a single value)
+                    // Unit pattern `()` -- treat as wildcard (unit has a single value)
                     return Ok(Pattern::Wildcard(span));
                 }
                 let first = self.parse_pattern()?;
@@ -1712,7 +1712,7 @@ impl Parser {
             }
             _ => {
                 // `ref` / `ref mut` in patterns are binding modifiers.
-                // In XIOM's value semantics, they're syntactic sugar â€” the
+                // In XIOM's value semantics, they're syntactic sugar -- the
                 // compiler treats them as regular bindings. Parse and discard
                 // them silently so patterns like `Array(ref mut items)` work.
                 let mut _is_ref = false;
@@ -1738,7 +1738,7 @@ impl Parser {
                     loop {
                         // Skip `ref` / `ref mut` in variant constructor patterns
                         // (e.g. `JsonValue.Array(ref mut items)`). XIOM uses value
-                        // semantics â€” these are syntactic sugar accepted for
+                        // semantics -- these are syntactic sugar accepted for
                         // compatibility but treated as regular bindings.
                         if let TokenKind::Ident(s) = self.peek_kind() {
                             if s == "ref" { self.advance(); if let TokenKind::Ident(s2) = self.peek_kind() { if s2 == "mut" { self.advance(); } } }
@@ -1880,7 +1880,7 @@ impl Parser {
         match self.peek_kind() {
             TokenKind::Bang => { self.advance(); let inner = self.parse_unary_expr()?; Ok(Expr::Unary(UnaryOp::Not, Box::new(inner), span)) }
             TokenKind::Minus => { self.advance(); let inner = self.parse_unary_expr()?; 
-                // Fold `-128i8` â†’ `As(Int(-128), Int8)` so the negation is computed
+                // Fold `-128i8` -> `As(Int(-128), Int8)` so the negation is computed
                 // at the literal level before the narrow-int cast, not after.
                 if let Expr::As(ref base, ref ty, ref ispan) = inner {
                     if let Expr::Int(n, ref ispan2) = **base {
@@ -1901,7 +1901,7 @@ impl Parser {
 
     fn parse_postfix_expr(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_primary()?;
-        // 8B/M9: Range syntax after primary â€” `expr..expr` or `expr..=expr`
+        // 8B/M9: Range syntax after primary -- `expr..expr` or `expr..=expr`
         if self.peek_kind() == &TokenKind::Dot && self.peek_ahead(1) == Some(&TokenKind::Dot) {
             self.advance(); self.advance(); // skip ..
             let inclusive = self.peek_kind() == &TokenKind::Eq;
@@ -1919,8 +1919,8 @@ impl Parser {
             match self.peek_kind() {
                 TokenKind::ColonColon => {
                     // v0.54: `::` has two meanings:
-                    //   1. Turbofish: expr::<Type>(args) â€” builtins (align_of, type_id, field_offset)
-                    //   2. Static method: Type::method â€” associated item access
+                    //   1. Turbofish: expr::<Type>(args) -- builtins (align_of, type_id, field_offset)
+                    //   2. Static method: Type::method -- associated item access
                     self.advance(); // consume ::
                     if self.peek_kind() == &TokenKind::Lt {
                         // P2-6: Turbofish with multiple type args: ::<Type1, Type2>(args)
@@ -1959,7 +1959,7 @@ impl Parser {
                     self.advance();
                     if self.check(|k| matches!(k, TokenKind::RParen)) {
                         self.advance(); let span = expr.span();
-                        // D1: `fn[T]()` â€” merge into the GenericCall if present.
+                        // D1: `fn[T]()` -- merge into the GenericCall if present.
                         if let Expr::GenericCall(base, types, _, _) = expr {
                             expr = Expr::GenericCall(base, types, Vec::new(), span);
                         } else {
@@ -1976,7 +1976,7 @@ impl Parser {
                             expr = Expr::Struct(type_name, fields, None, span);
                         } else {
                             let args = self.parse_arg_list()?; self.expect_kind(TokenKind::RParen, "')'")?; let span = expr.span();
-                            // D1: `fn[T](args)` â€” the bracket arm wrapped the base
+                            // D1: `fn[T](args)` -- the bracket arm wrapped the base
                             // in GenericCall with empty args; fill the args in.
                             if let Expr::GenericCall(base, types, _, _) = expr {
                                 expr = Expr::GenericCall(base, types, args, span);
@@ -1998,12 +1998,12 @@ impl Parser {
                     {
                         let saved = self.pos;
                         // NOTE: `[` was already consumed by the LBracket arm's
-                        // self.advance() above â€” do NOT advance again here.
+                        // self.advance() above -- do NOT advance again here.
                         // Speculative scan (no commit): this bracket group could
                         // be explicit generic args (`add2[Float32](...)`) OR an
                         // index expression whose first token is an uppercase
                         // ident (`bits[L - 1]`, `buf[Head]`). Only the generic
-                        // form is immediately followed by `(` â€” commit to it
+                        // form is immediately followed by `(` -- commit to it
                         // ONLY then; otherwise restore and parse as an index
                         // expression. Previously the type-args parse committed
                         // eagerly and errored on `bits[L - 1]` ("expected ']',
@@ -2021,7 +2021,7 @@ impl Parser {
                         self.pos = saved;
                         if is_generic_call {
                         // D1: capture the explicit generic type args instead of
-                        // discarding them â€” `add2[Float32](...)` must preserve
+                        // discarding them -- `add2[Float32](...)` must preserve
                         // Float32 so generic monomorphisation resolves the
                         // correct concrete type (was silently resolving to Int).
                         let mut types: Vec<Type> = Vec::new();
@@ -2035,7 +2035,7 @@ impl Parser {
                         if self.peek_kind() == &TokenKind::LParen {
                             // Wrap the callee in a GenericCall so codegen sees
                             // the explicit type args: GenericCall(base, types,
-                            // args) â€” the `(` below will fill the args.
+                            // args) -- the `(` below will fill the args.
                             let span = expr.span();
                             expr = Expr::GenericCall(Box::new(expr), types, Vec::new(), span);
                             continue;
@@ -2061,7 +2061,7 @@ impl Parser {
                     if is_type_like {
                         // When the first token inside brackets is `fn`, it is
                         // unequivocally a function type (e.g. `Vec[fn()]`).  Parse
-                        // it as a type argument directly â€” no heuristic needed.
+                        // it as a type argument directly -- no heuristic needed.
                         if matches!(self.peek_kind(), TokenKind::Fn | TokenKind::Star
                             | TokenKind::Ampersand | TokenKind::LBracket | TokenKind::LParen)
                         {
@@ -2245,7 +2245,7 @@ impl Parser {
                     _ => false,
                 };
                 if looks_like_struct {
-                    // Anonymous struct â€” type resolved by checker from context
+                    // Anonymous struct -- type resolved by checker from context
                     self.parse_struct_literal_body("_", span)
                 } else {
                     Err(self.error("expected expression, found '{'"))
@@ -2288,7 +2288,7 @@ impl Parser {
                 self.expect_kind(TokenKind::RBrace, "'}'")?;
                 Ok(Expr::ConstBlock(Box::new(inner), span))
             }
-            // BUG 27: debug intrinsics â€” `dbg!(expr)`, `todo!()`,
+            // BUG 27: debug intrinsics -- `dbg!(expr)`, `todo!()`,
             // `unimplemented!()` parse as plain calls to the builtin names
             // (the checker/codegen treat them as builtins when no user fn
             // with the name is registered).
@@ -2368,7 +2368,7 @@ impl Parser {
             _ => return None,
         };
         let rhs = self.parse_expr().ok()?;
-        // Desugar: x += y  â†’  x = x + y
+        // Desugar: x += y  ->  x = x + y
         Some(Expr::Binary(Box::new(lhs.clone()), binop, Box::new(rhs), span))
     }
 
@@ -2382,7 +2382,7 @@ impl Parser {
         }
         None
     }
-    /// `(Int, Float64, Str)` â†’ `vec![Int, Float64, Str]`
+    /// `(Int, Float64, Str)` -> `vec![Int, Float64, Str]`
     /// Convert a parsed Type into an Expr for `Vec[T]`-style Index type-arg
     /// capture. Tuples are preserved so `Vec[(Str, Str)]` keeps a real
     /// `Expr::Tuple` node (previously collapsed to `_`, losing the element
@@ -2419,7 +2419,7 @@ impl Parser {
     }
 
     /// Render a single-arg generic container type as an Index expression
-    /// `Ctor[<rendered inner name>]` (BUG 23 #2 â€” see type_to_expr_ident).
+    /// `Ctor[<rendered inner name>]` (BUG 23 #2 -- see type_to_expr_ident).
     fn generic_type_expr(&mut self, ctor: &str, inner: &Type) -> Expr {
         Expr::Index(
             Box::new(Expr::Ident(Ident::new(ctor, self.peek().span))),
@@ -2605,7 +2605,7 @@ mod tests {
     #[test]
     fn test_deep_nesting_errors_cleanly() {
         // 500 nested parens must NOT crash (stack overflow). The parser may
-        // survive with error recovery or hit the error limit â€” both are valid.
+        // survive with error recovery or hit the error limit -- both are valid.
         let src = format!("fn main() -> Int {{ return {}1{}; }}", "(".repeat(500), ")".repeat(500));
         let tokens = Lexer::new(&src).tokenize();
         let result = Parser::new(tokens).parse_program();
@@ -2622,7 +2622,7 @@ mod tests {
         assert!(result.is_ok(), "moderate nesting should parse: {:?}", result.err());
     }
 
-    /// 8B/M5: Fuzz harness â€” feed random tokens to parser, verify no panics.
+    /// 8B/M5: Fuzz harness -- feed random tokens to parser, verify no panics.
     #[test]
     fn fuzz_parser_random_input() {
         let mut seed: u64 = 54321;
@@ -2638,12 +2638,12 @@ mod tests {
             }
             let tokens = Lexer::new(&input).tokenize();
             let result = Parser::new(tokens).parse_program();
-            // Must not panic â€” error recovery should handle any input
+            // Must not panic -- error recovery should handle any input
             assert!(result.is_ok() || result.is_err(), "parser must not panic on random input of length {len}");
         }
     }
 
-    /// 8B/M5: Fuzz harness â€” edge cases for parser error recovery.
+    /// 8B/M5: Fuzz harness -- edge cases for parser error recovery.
     #[test]
     fn fuzz_parser_edge_cases() {
         let edge_cases = vec![
@@ -2719,7 +2719,7 @@ mod tests {
         }
     }
 
-    // M10: Shebang support â€” `#!` line is treated as a comment.
+    // M10: Shebang support -- `#!` line is treated as a comment.
     #[test] fn test_shebang_skipped() {
         let src = "#!/usr/bin/env xiom\nfn main() -> Int { return 42; }";
         let prog = parse(src).unwrap();
@@ -2736,11 +2736,11 @@ mod tests {
     #[test] fn test_no_shebang_normal() {
         let src = "# not a shebang\nfn main() -> Int { return 0; }";
         let _prog = parse(src).unwrap();
-        // `#` at start without `!` is NOT a shebang â€” should be a lex error or parse error
-        // This is fine behavior â€” XIOM has no preprocessor
+        // `#` at start without `!` is NOT a shebang -- should be a lex error or parse error
+        // This is fine behavior -- XIOM has no preprocessor
     }
 
-    // â”€â”€ M21-2: Parser error recovery â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // -- M21-2: Parser error recovery ------------------------------------
 
     /// Helper: returns errors reported by the parser.
     fn parse_with_errors(source: &str) -> (Result<Program, ParseError>, Vec<ParseError>) {
@@ -2811,7 +2811,7 @@ mod tests {
     // Recovery: valid code after invalid
     #[test] fn test_recover_valid_fn_after_garbage() {
         let (result, _errors) = parse_with_errors("!@#$%^&*\nfn ok() -> Int { return 42; }");
-        // Should either fail or recover â€” must not panic
+        // Should either fail or recover -- must not panic
         assert!(result.is_ok() || result.is_err());
     }
 

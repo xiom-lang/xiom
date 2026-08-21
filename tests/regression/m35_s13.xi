@@ -1,4 +1,4 @@
-// M35-S13: String prefix check — verify s starts with prefix character-by-character
+// M35-S13: String prefix check -- verify s starts with prefix character-by-character
 use stdlib.xiom.string;
 fn starts_with(s: Str, prefix: Str) -> Bool {
   if prefix.len() > s.len() { return false; }

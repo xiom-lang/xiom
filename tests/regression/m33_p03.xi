@@ -1,4 +1,4 @@
-// M33-P03: Complex type graph — 10 inter-dependent types + large match with 20 arms + deep nesting
+// M33-P03: Complex type graph -- 10 inter-dependent types + large match with 20 arms + deep nesting
 // Pattern: fn main() -> Int { ... return 0; }
 
 type Node = { id: Int; parent: Int; data: Data; }

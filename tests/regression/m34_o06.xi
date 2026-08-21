@@ -1,4 +1,4 @@
-// M34-O06: ? in function returning Result — ? inside nested computation
+// M34-O06: ? in function returning Result -- ? inside nested computation
 fn safe_mul(a: Int, b: Int) -> Result[Int, Str] {
   if a > 1000 { return Err("overflow"); }
   if b > 1000 { return Err("overflow"); }

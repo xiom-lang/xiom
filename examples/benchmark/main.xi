@@ -1,4 +1,4 @@
-// XIOM — Benchmark Suite Entry Point
+// XIOM -- Benchmark Suite Entry Point
 // Orchestrates all 20 stress-test modules and reports results.
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.

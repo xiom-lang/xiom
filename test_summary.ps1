@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 <#
-.SYNOPSIS XIOM Test Suite — run all tests with progress, logs, and summary.
+.SYNOPSIS XIOM Test Suite -- run all tests with progress, logs, and summary.
 .DESCRIPTION
   .\test_summary.ps1               # Full suite
   .\test_summary.ps1 -Fast          # Skip E2E/full-diff/fuzz

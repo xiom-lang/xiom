@@ -1,4 +1,4 @@
-// M34-W02: OR zero — x | 0 == x on unsigned integer types
+// M34-W02: OR zero -- x | 0 == x on unsigned integer types
 fn main() -> Int {
   var a: UInt = 99;
   var a8: UInt8 = 99 as UInt8;

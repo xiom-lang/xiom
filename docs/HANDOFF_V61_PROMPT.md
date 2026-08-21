@@ -9,11 +9,11 @@ Continue from V61 handoff. Full context in BENCHMARK-SESSION.md.
 - TCO fix deployed (dummy[0] after recursive call) but may need verification
 
 ### 2. Zig t5-btree still FAIL in systems + contracts arenas
-@intCast fix deployed (pure usize arithmetic in btreeInsertNonfull). Reference files at reference/*/t5-btree.zig. Verify after Docker rebuild — check if Zig 0.13.0 has union/zeroes compatibility issue.
+@intCast fix deployed (pure usize arithmetic in btreeInsertNonfull). Reference files at reference/*/t5-btree.zig. Verify after Docker rebuild -- check if Zig 0.13.0 has union/zeroes compatibility issue.
 
 ### 3. XIOM-run scripting (JIT variants) FAIL
 - JIT: `--lazy` removed, now `xiom run --jit --cache`
-- AOT: linker error `xiom_str_len` undefined — needs runtime rebuild in XIOM repo
+- AOT: linker error `xiom_str_len` undefined -- needs runtime rebuild in XIOM repo
 - Need Docker rebuild with new XIOM binary
 
 ### 4. Ada/SPARK contracts (t1,t2,t4,t5) FAIL

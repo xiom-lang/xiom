@@ -1,4 +1,4 @@
-// M32-T10: Multi-char string — longer string with concat and len
+// M32-T10: Multi-char string -- longer string with concat and len
 fn main() -> Int {
   var s: Str = "abcdefghij";
   var t: Str = "klmnopqrst";

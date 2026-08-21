@@ -1,4 +1,4 @@
-﻿// XIOM â€” Differential Tests
+// XIOM -- Differential Tests
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -263,7 +263,7 @@ fn test_selfhost_bootstrap_v050() {
 
     // The v0.5.0 selfhost compiler embeds xiomc.xi source and returns a structural hash.
     // The Rust compiler, processing the same v0.5.0 source, must produce a binary
-    // that exits with the SAME hash â€” proving bootstrap correctness.
+    // that exits with the SAME hash -- proving bootstrap correctness.
     let project_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent().unwrap().parent().unwrap();
 

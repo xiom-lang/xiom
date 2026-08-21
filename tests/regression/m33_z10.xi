@@ -1,4 +1,4 @@
-// M33-Z10: Compound assignment in while loop — accumulate sum
+// M33-Z10: Compound assignment in while loop -- accumulate sum
 fn main() -> Int {
   var i: Int = 0;
   var sum: Int = 0;

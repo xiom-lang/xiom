@@ -1,4 +1,4 @@
-// M36-S03: Parser AST node construction — tree node types and factory functions
+// M36-S03: Parser AST node construction -- tree node types and factory functions
 type AstKind = { kind: Int; line: Int; col: Int; }
 type AstExpr = { kind: Int; left: Int; right: Int; value: Int; }
 type AstNode = { tag: Int; data: Int; children_count: Int; }

@@ -1,4 +1,4 @@
-// M32: Division by zero guard — runtime check returns non-zero on div by zero
+// M32: Division by zero guard -- runtime check returns non-zero on div by zero
 fn main() -> Int {
   var a: Int = 10;
   var b: Int = 0;

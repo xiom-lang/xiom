@@ -1,4 +1,4 @@
-// M24: Branch stress — deeply nested if-else chain
+// M24: Branch stress -- deeply nested if-else chain
 fn classify(x: Int) -> Int {
   if x == 0 { return 0; }
   if x == 1 { return 1; }

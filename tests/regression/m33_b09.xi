@@ -1,4 +1,4 @@
-// M33-B09: Let binding copies — new let reads original, both independent
+// M33-B09: Let binding copies -- new let reads original, both independent
 fn main() -> Int {
   let a = 33;
   let b = a;

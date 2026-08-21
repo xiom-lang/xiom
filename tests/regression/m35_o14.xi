@@ -1,4 +1,4 @@
-// M35-O14: Option is_none — direct .is_none() method call
+// M35-O14: Option is_none -- direct .is_none() method call
 fn main() -> Int {
   var a = Some(42);
   var b: Option[Int] = None;

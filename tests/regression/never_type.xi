@@ -1,10 +1,10 @@
-// Never Type Tests — v0.55
+// Never Type Tests -- v0.55
 // Verifies ! (never) type parsing and basic compilation.
 // Returns 0 on success.
 
 // Function declaring never-return type
 fn wont_return() -> ! {
-  // Infinite loop — never returns
+  // Infinite loop -- never returns
   while true { }
 }
 

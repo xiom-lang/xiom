@@ -8,10 +8,10 @@
 // Usage: xiom_hot_host.exe <source.xi> [xiom args...]
 //
 // Workflow:
-//   1. Compile source.xi → source.dll (via xiom --shared --hot-reload)
+//   1. Compile source.xi -> source.dll (via xiom --shared --hot-reload)
 //   2. Load source.dll, call xiom_hot_init(), then main()
 //   3. Watch source.xi for changes (poll 500ms)
-//   4. On change: recompile → FreeLibrary old DLL → LoadLibrary new DLL
+//   4. On change: recompile -> FreeLibrary old DLL -> LoadLibrary new DLL
 //   5. Thunks in new DLL self-register via xiom_hot_get_ptr on first call
 //   6. Ctrl+C to exit
 
@@ -31,7 +31,7 @@ static HMODULE        g_dll = NULL;   // Currently loaded DLL handle
 static char           g_dll_path[MAX_PATH];
 
 // ---------------------------------------------------------------------------
-// Signal handler — graceful shutdown on Ctrl+C
+// Signal handler -- graceful shutdown on Ctrl+C
 // ---------------------------------------------------------------------------
 
 static BOOL WINAPI ctrl_handler(DWORD ctrl_type) {
@@ -166,7 +166,7 @@ static uint64_t file_mtime(const char* path) {
 
 // ---------------------------------------------------------------------------
 // Build the DLL output path from the source path.
-// "src\foo.xi" → "src\foo.dll"
+// "src\foo.xi" -> "src\foo.dll"
 // ---------------------------------------------------------------------------
 
 static void make_dll_path(const char* src, char* out, size_t out_sz) {
@@ -239,7 +239,7 @@ int main(int argc, char** argv) {
 
     HANDLE hChange = FindFirstChangeNotificationA(
         src_dir,
-        FALSE,  // watch subtree? no — just the directory
+        FALSE,  // watch subtree? no -- just the directory
         FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME);
 
     if (hChange == INVALID_HANDLE_VALUE || hChange == NULL) {
@@ -256,7 +256,7 @@ int main(int argc, char** argv) {
         if (hChange) {
             DWORD wait_rc = WaitForSingleObject(hChange, 500);
             if (wait_rc == WAIT_OBJECT_0) {
-                // Change detected — proceed to check file
+                // Change detected -- proceed to check file
                 FindNextChangeNotification(hChange);
             }
         } else {
@@ -267,7 +267,7 @@ int main(int argc, char** argv) {
 
         uint64_t current_mtime = file_mtime(src_path);
         if (current_mtime == 0) {
-            // File disappeared — keep waiting
+            // File disappeared -- keep waiting
             continue;
         }
 

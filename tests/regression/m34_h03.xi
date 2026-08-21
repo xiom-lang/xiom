@@ -1,4 +1,4 @@
-// M34-H03: UInt->Int (unsigned to signed) — small values preserve identity
+// M34-H03: UInt->Int (unsigned to signed) -- small values preserve identity
 fn main() -> Int {
   var u: UInt8 = 100;
   var s: Int8 = u as Int8;

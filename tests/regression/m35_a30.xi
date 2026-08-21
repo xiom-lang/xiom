@@ -1,4 +1,4 @@
-// M35-A30: Rotate array — verify element positions after left rotation
+// M35-A30: Rotate array -- verify element positions after left rotation
 fn main() -> Int {
   var n: Int = 7;
   var k: Int = 2;

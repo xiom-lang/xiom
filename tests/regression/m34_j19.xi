@@ -1,4 +1,4 @@
-// M34-J19: Module with method definition — impl blocks and interfaces in modules
+// M34-J19: Module with method definition -- impl blocks and interfaces in modules
 module impl_mod {
   pub type Counter = { value: Int; step: Int; }
   pub fn make(start: Int, step: Int) -> Counter {

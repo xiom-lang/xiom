@@ -1,4 +1,4 @@
-// M33-U08: Raw pointer cast — cast between pointer types
+// M33-U08: Raw pointer cast -- cast between pointer types
 fn main() -> Int {
   var x: Int = 65;
   var pi: *Int;

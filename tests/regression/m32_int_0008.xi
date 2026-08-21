@@ -1,4 +1,4 @@
-// M32: Int8 overflow guard — add near max
+// M32: Int8 overflow guard -- add near max
 fn main() -> Int {
   var a: Int8 = 120;
   var b: Int8 = 10;

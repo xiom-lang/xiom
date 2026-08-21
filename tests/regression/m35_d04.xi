@@ -1,4 +1,4 @@
-// M35-D04: Queue — data structure verification
+// M35-D04: Queue -- data structure verification
 fn main() -> Int {
   var data0: Int = 0;
   var data1: Int = 0;

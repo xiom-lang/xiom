@@ -1,4 +1,4 @@
-//! Build graph visualization — outputs the project dependency graph
+//! Build graph visualization -- outputs the project dependency graph
 //! in DOT (GraphViz) or Mermaid format for documentation and debugging.
 
 use std::path::Path;
@@ -6,9 +6,9 @@ use std::path::Path;
 /// Output format for dependency graph visualization.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GraphFormat {
-    /// GraphViz DOT format — render with `dot -Tpng graph.dot -o graph.png`
+    /// GraphViz DOT format -- render with `dot -Tpng graph.dot -o graph.png`
     Dot,
-    /// Mermaid markdown format — render in GitHub/GitLab markdown
+    /// Mermaid markdown format -- render in GitHub/GitLab markdown
     Mermaid,
 }
 

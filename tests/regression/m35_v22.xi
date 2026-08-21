@@ -1,4 +1,4 @@
-// M35-V22: Vec sort-like check — verify is_sorted predicate
+// M35-V22: Vec sort-like check -- verify is_sorted predicate
 fn is_sorted(v: &Vec[Int]) -> Bool {
   var i = 1;
   while i < v.len() {

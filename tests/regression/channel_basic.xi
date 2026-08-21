@@ -1,4 +1,4 @@
-// Channel Tests — v0.55
+// Channel Tests -- v0.55
 // Verifies Channel[T] compile-time type registration and linking.
 // Returns 0 on success.
 

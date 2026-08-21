@@ -1,4 +1,4 @@
-// XIOM Language Server — Diagnostics helpers
+// XIOM Language Server -- Diagnostics helpers
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 

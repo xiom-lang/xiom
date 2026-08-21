@@ -1,4 +1,4 @@
-// M33-B16: Shadowing with ownership — shadowed let creates new binding, original inaccessible
+// M33-B16: Shadowing with ownership -- shadowed let creates new binding, original inaccessible
 fn main() -> Int {
   let a = 1;
   let a = a + 10;

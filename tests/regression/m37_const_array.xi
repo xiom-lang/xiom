@@ -1,6 +1,6 @@
 module m37_const_array
 // BUG 25 #10 (crypto): const fixed-array element reads read the LENGTH slot
-// (buf[0]) instead of the element — the whole AES S-box lookup returned
+// (buf[0]) instead of the element -- the whole AES S-box lookup returned
 // garbage. A const `[N]T = [...]` must read elements at index+1.
 
 const _T: [4]UInt8 = [ 0x63, 0x7c, 0x77, 0x7b ];

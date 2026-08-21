@@ -1,4 +1,4 @@
-// M33-U01: Unsafe block basic — assign and read in unsafe
+// M33-U01: Unsafe block basic -- assign and read in unsafe
 fn main() -> Int {
   var x: Int = 0;
   unsafe { x = 42; }

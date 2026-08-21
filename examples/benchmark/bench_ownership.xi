@@ -1,4 +1,4 @@
-// XIOM — Deep Ownership Chains Benchmark
+// XIOM -- Deep Ownership Chains Benchmark
 // Exercises ownership transfer, clone-before-move, conditional moves,
 // struct-embedded Vec ownership, and interleaved borrow patterns.
 // Copyright (c) 2026 Eleftherios Notas

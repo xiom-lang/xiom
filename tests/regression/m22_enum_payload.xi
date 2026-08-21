@@ -1,4 +1,4 @@
-// M22: Enum with payload — match and extract
+// M22: Enum with payload -- match and extract
 enum Number { IntVal(v: Int), FloatVal(v: Float64) }
 fn extract(n: Number) -> Float64 {
   match n {

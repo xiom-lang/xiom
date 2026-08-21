@@ -1,4 +1,4 @@
-// M36-E22: Arithmetic at type boundaries — Int min / Int max
+// M36-E22: Arithmetic at type boundaries -- Int min / Int max
 fn main() -> Int {
   var max_val = 2147483647; var min_val = -2147483648;
   var near_max = max_val - 1;

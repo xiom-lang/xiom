@@ -1,4 +1,4 @@
-// M35-S17: Extract substring — build substring from start to end index
+// M35-S17: Extract substring -- build substring from start to end index
 use stdlib.xiom.string;
 fn substring(s: Str, start: Int, end: Int) -> Str {
   return string.str_slice(s, start, end);

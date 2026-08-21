@@ -1,4 +1,4 @@
-﻿// XIOM â€” Module Catalog
+// XIOM -- Module Catalog
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 /// Fast 64-bit content hash (FNV-1a) for Level 0 incremental caching.
-/// Not cryptographic â€” collision resistance is unnecessary for build caches.
+/// Not cryptographic -- collision resistance is unnecessary for build caches.
 fn hash_bytes(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
     for &b in bytes {
@@ -32,7 +32,7 @@ pub enum ModuleExport {
 }
 
 // ============================================================================
-// Module Catalog â€” lazy multi-file resolution
+// Module Catalog -- lazy multi-file resolution
 // ============================================================================
 
 /// A cached entry for one resolved external module file.
@@ -42,11 +42,11 @@ pub struct CachedModule {
     pub dotted_name: String,
     /// The parsed AST of the entire file.
     pub program: Program,
-    /// Bare type-name â†’ CheckedType for pub types/enums declared in this file.
+    /// Bare type-name -> CheckedType for pub types/enums declared in this file.
     pub types: HashMap<String, CheckedType>,
-    /// Key â†’ FnSig for pub functions declared in this file.
+    /// Key -> FnSig for pub functions declared in this file.
     pub functions: HashMap<String, FnSig>,
-    /// Type-name â†’ field-name â†’ CheckedType for structs declared in this file.
+    /// Type-name -> field-name -> CheckedType for structs declared in this file.
     pub type_fields: HashMap<String, HashMap<String, CheckedType>>,
     /// 5c-R: Content hash of the source file (Level 0 incremental cache).
     /// Computed from the raw file bytes. If the hash matches the previous
@@ -72,7 +72,7 @@ impl ModuleCatalog {
         }
     }
 
-    /// Pre-build a module_path â†’ file_path index so all lookups are O(1).
+    /// Pre-build a module_path -> file_path index so all lookups are O(1).
     pub fn build_index(&mut self) {
         self.module_index.clear();
         for dir in &self.source_dirs.clone() {
@@ -144,7 +144,7 @@ impl ModuleCatalog {
     /// Parse a module WITHOUT caching it (lazy resolution peek). Used by the
     /// qualified-call walk to descend into submodule segments
     /// (`os.platform.platform_name()` after `use xiom.os;`) without adding
-    /// the submodule to the INJECTION set — eager caching perturbed
+    /// the submodule to the INJECTION set -- eager caching perturbed
     /// bare-alias keep-first resolution for unrelated programs (crypto
     /// sha256 broke when os/* submodules entered the graph).
     pub fn peek_owned(&mut self, path_segments: &[String]) -> Option<CachedModule> {
@@ -155,10 +155,10 @@ impl ModuleCatalog {
         self.load_module(path_segments)
     }
 
-    /// Names of DIRECT submodules of a dotted module path (e.g. "xiom.os" â†’
+    /// Names of DIRECT submodules of a dotted module path (e.g. "xiom.os" ->
     /// ["env", "filesystem", "path", "platform", ...]). Derived from the
     /// module index so directory modules (os/ has os.xi + platform.xi) expose
-    /// their submodules to `use`-importers â€” without this, `use xiom.os;`
+    /// their submodules to `use`-importers -- without this, `use xiom.os;`
     /// followed by `os.platform.platform_name()` cannot resolve the
     /// "platform" segment (regression from the 4c439e6a batch).
     pub fn submodule_names(&self, dotted: &str) -> Vec<String> {
@@ -178,7 +178,7 @@ impl ModuleCatalog {
     }
 
     /// Returns all cached modules as owned clones (for snapshot iteration).
-    pub fn all_cached(&self) -> Vec<CachedModule> {        // BUG 23 #5 fix: deterministic ORDER â€” the cache is a HashMap, so
+    pub fn all_cached(&self) -> Vec<CachedModule> {        // BUG 23 #5 fix: deterministic ORDER -- the cache is a HashMap, so
         // iteration order is randomized per process. collect_external_decls
         // walks this list to inject decls into the program; with random order
         // the codegen's first-registered-wins symbol assignment for
@@ -191,7 +191,7 @@ impl ModuleCatalog {
 
     /// Scan source_dirs for a file whose declared module matches path_segments.
     fn load_module(&self, path_segments: &[String]) -> Option<CachedModule> {
-        // Strategy a: path-based lookup â€” <source_dir>/<p0>/<p1>/.../<pn>.xi
+        // Strategy a: path-based lookup -- <source_dir>/<p0>/<p1>/.../<pn>.xi
         for dir in &self.source_dirs {
             let file_path = format!("{}/{}.xi", dir, path_segments.join("/"));
             if Path::new(&file_path).exists() {
@@ -234,15 +234,15 @@ impl ModuleCatalog {
             return Some(cached);
         }
 
-        // Strategy b: scan-based â€” walk source_dirs for any .xi file whose declared
+        // Strategy b: scan-based -- walk source_dirs for any .xi file whose declared
         // module name (parsed from the file's header) matches path_segments.
         // ONLY used when the index was never built (e.g. catalog unit tests):
         // when `build_index` has run, the module_index already covers every
         // file this scan could find (both index the same dirs with the same
-        // header check), so the scan would be pure waste â€” and it is
+        // header check), so the scan would be pure waste -- and it is
         // PATHOLOGICAL on a source_dir that is a project root or the working
         // directory (walking the whole tree per failed leaf lookup, e.g.
-        // `use xiom.core.to_int` where to_int is a fn/const, not a module â€”
+        // `use xiom.core.to_int` where to_int is a fn/const, not a module --
         // observed multi-minute hangs). The index is authoritative; skip the
         // scan entirely.
         if self.module_index.is_empty() {

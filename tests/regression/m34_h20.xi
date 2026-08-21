@@ -1,4 +1,4 @@
-// M34-H20: Cast in generic context — generic identity then cast to Int
+// M34-H20: Cast in generic context -- generic identity then cast to Int
 fn id[T](x: T) -> T { return x; }
 fn main() -> Int {
   var a: Int8 = 77;

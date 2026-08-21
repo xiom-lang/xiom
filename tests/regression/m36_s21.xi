@@ -1,4 +1,4 @@
-// M36-S21: CLI argument parsing — flag detection and value extraction
+// M36-S21: CLI argument parsing -- flag detection and value extraction
 type CliFlag = { name: Str; has_value: Bool; present: Bool; value: Str; }
 fn make_flag(name: Str, hv: Bool) -> CliFlag {
   return CliFlag{ name: name; has_value: hv; present: false; value: ""; };

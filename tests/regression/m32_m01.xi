@@ -1,4 +1,4 @@
-// M32-M01: Module declaration — basic module with pub fn
+// M32-M01: Module declaration -- basic module with pub fn
 module math {
   pub fn add(a: Int, b: Int) -> Int { return a + b; }
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# XIOM Test Artifact Cleanup — macOS & Linux
+# XIOM Test Artifact Cleanup -- macOS & Linux
 # ============================================================================
 # Cleans up e2e test artifacts from project root
 # Usage: ./cleanup_tests.sh

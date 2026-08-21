@@ -1,4 +1,4 @@
-// M36-X20: Dead code paths — conditional branches that are unreachable
+// M36-X20: Dead code paths -- conditional branches that are unreachable
 fn always_true() -> Bool { return true; }
 fn always_false() -> Bool { return false; }
 fn classify(n: Int) -> Int {

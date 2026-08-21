@@ -1,4 +1,4 @@
-// M34-Q15: Multi-function contract chain — 8 functions calling each other with contracts
+// M34-Q15: Multi-function contract chain -- 8 functions calling each other with contracts
 fn f1(x: Int) -> Int
   requires: x >= 0
   ensures: result == x

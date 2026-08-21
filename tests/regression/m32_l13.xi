@@ -1,4 +1,4 @@
-// M32-L13: Nested break — break from inner loop, check condition in outer
+// M32-L13: Nested break -- break from inner loop, check condition in outer
 fn main() -> Int {
   var i: Int = 1;
   var found: Int = 0;

@@ -1,4 +1,4 @@
-// M35-C11: while with return inside — function return from within loop body
+// M35-C11: while with return inside -- function return from within loop body
 fn find_divisor(n: Int, divisor: Int) -> Int {
   var i: Int = 1;
   while i <= n {

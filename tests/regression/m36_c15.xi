@@ -1,4 +1,4 @@
-// M36-C15: Every enum variant count 1-10 — enums with increasing variant count, tested via match
+// M36-C15: Every enum variant count 1-10 -- enums with increasing variant count, tested via match
 enum V1 { A }
 enum V2 { A, B }
 enum V3 { A, B, C }

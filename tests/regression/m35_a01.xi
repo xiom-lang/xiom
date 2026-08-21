@@ -1,4 +1,4 @@
-// M35-A01: Binary search on sorted array — inline divide-and-conquer in main
+// M35-A01: Binary search on sorted array -- inline divide-and-conquer in main
 fn main() -> Int {
   var arr = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19];
   var n: Int = 10;

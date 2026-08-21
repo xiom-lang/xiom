@@ -1,4 +1,4 @@
-// M34-O05: 5-chain ? — five consecutive ? in sequence
+// M34-O05: 5-chain ? -- five consecutive ? in sequence
 fn step(a: Int, delta: Int) -> Result[Int, Str] {
   if a < 0 { return Err("negative"); }
   return Ok(a + delta);

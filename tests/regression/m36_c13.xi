@@ -1,4 +1,4 @@
-// M36-C13: Every recursion depth — 1, 2, 5, 10, 20 via factorial, sum, power, fib, countdown patterns
+// M36-C13: Every recursion depth -- 1, 2, 5, 10, 20 via factorial, sum, power, fib, countdown patterns
 fn depth1(n: Int) -> Int { return n; }
 fn depth2(n: Int) -> Int { return depth1(n) + 1; }
 fn depth5(n: Int) -> Int {

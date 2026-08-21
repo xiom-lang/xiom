@@ -1,4 +1,4 @@
-// M35-O24: Result unwrap_or — match-based unwrap_or implementation
+// M35-O24: Result unwrap_or -- match-based unwrap_or implementation
 fn unwrap_or_result(r: Result[Int, Str], default: Int) -> Int {
   match r { Ok(v) => v, Err(_) => default }
 }

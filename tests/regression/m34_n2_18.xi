@@ -1,4 +1,4 @@
-// M34-N2-18: Deep tuple-like nesting via layered struct pairs — 10-level chain
+// M34-N2-18: Deep tuple-like nesting via layered struct pairs -- 10-level chain
 type P1 = { x: Int; y: Int; }
 type P2 = { a: P1; b: P1; }
 type P3 = { l: P2; r: P2; }

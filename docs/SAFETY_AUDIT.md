@@ -1,7 +1,7 @@
-# Phase 5c-S — Compiler Safety Audit (Sandbox Pass)
+# Phase 5c-S -- Compiler Safety Audit (Sandbox Pass)
 
 > **Status:** Planned. Zero dependencies on Z3 or AI. Buildable now.  
-> **Prerequisites:** None — AST, borrow checker, and contract data already available.  
+> **Prerequisites:** None -- AST, borrow checker, and contract data already available.  
 > **Target:** Before code executes, the compiler audits every unsafe boundary and produces a structured safety report. Works standalone (`--sandbox`) or enhanced with AI explanations (`--sandbox --ai`).
 
 ---
@@ -9,30 +9,30 @@
 ## 1. Philosophy: Deterministic Safety, Optional AI
 
 ```
-┌──────────────────────────────────────────────────────┐
-│                 COMPILER PIPELINE                     │
-│                                                      │
-│  .xi → [Parse] → [Collect] → [Check] → [Contracts]   │
-│                                          │           │
-│                          ┌───────────────┤           │
-│                          │               │           │
-│                    ┌─────▼─────┐   ┌────▼─────┐      │
-│                    │ --sandbox │   │  Borrow   │      │
-│                    │  (ALWAYS  │   │  Checker  │      │
-│                    │   PASS)   │   │           │      │
-│                    └─────┬─────┘   └──────────┘      │
-│                          │                           │
-│              ┌───────────┤                           │
-│              │           │                           │
-│         ┌────▼────┐ ┌───▼────┐                       │
-│         │ Stand-  │ │ --ai   │                       │
-│         │ alone   │ │ enhance │                      │
-│         │ JSON    │ │ report  │                      │
-│         └─────────┘ └────────┘                       │
-│                                                      │
-│              ↓                                       │
-│         [Codegen] → [Binary]                         │
-└──────────────────────────────────────────────────────┘
++------------------------------------------------------+
+|                 COMPILER PIPELINE                     |
+|                                                      |
+|  .xi -> [Parse] -> [Collect] -> [Check] -> [Contracts]   |
+|                                          |           |
+|                          +---------------|           |
+|                          |               |           |
+|                    +-----v-----+   +----v-----+      |
+|                    | --sandbox |   |  Borrow   |      |
+|                    |  (ALWAYS  |   |  Checker  |      |
+|                    |   PASS)   |   |           |      |
+|                    `-----+-----+   `----------+      |
+|                          |                           |
+|              +-----------|                           |
+|              |           |                           |
+|         +----v----+ +---v----+                       |
+|         | Stand-  | | --ai   |                       |
+|         | alone   | | enhance |                      |
+|         | JSON    | | report  |                      |
+|         `---------+ `--------+                       |
+|                                                      |
+|              v                                       |
+|         [Codegen] -> [Binary]                         |
+`------------------------------------------------------+
 ```
 
 **The `--sandbox` pass is always deterministic.** It enumerates unsafe blocks, categorizes their contents, scores severity, and produces a structured report. It never makes an LLM call. It never blocks compilation (unless `--sandbox=strict` is used).
@@ -63,7 +63,7 @@ xiom --sandbox-report=silent source.xi # Suppress output; only exit code
 
 ---
 
-## 3. Safety Audit Pass — What It Checks
+## 3. Safety Audit Pass -- What It Checks
 
 ### 3.1 Unsafe Block Enumeration (Always On)
 
@@ -139,28 +139,28 @@ These require value-range analysis and are deferred to Phase 5f:
 ### 4.2 Human-Readable Format (stdout default)
 
 ```
-═══ XIOM Safety Audit: src/vulkan/vulkan_safe.xi ═══
+=== XIOM Safety Audit: src/vulkan/vulkan_safe.xi ===
 
  12 unsafe blocks  |  3 HIGH  |  5 MEDIUM  |  4 LOW  |  Score: MEDIUM
 
-━━━ HIGH ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--- HIGH --------------------------------------------------
 [HIGH] line 142: extern_c_call_without_contract
   fn vk_allocate_buffer (pub)
   extern C call xvk_allocate_buffer has no requires/ensures
   contract. Returned pointer used without null check.
-  → Add `requires: size > 0; ensures: result != null;`
+  -> Add `requires: size > 0; ensures: result != null;`
 
 [HIGH] line 205: raw_pointer_arithmetic  
   fn vk_map_memory (pub)
   Unsafe pointer arithmetic (vk_ptr + offset) without bounds
   check. If offset exceeds allocation, this is OOB access.
-  → Wrap in bounds check: `if offset >= allocation_size { return; }`
+  -> Wrap in bounds check: `if offset >= allocation_size { return; }`
 
-━━━ MEDIUM ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--- MEDIUM ------------------------------------------------
 [MEDIUM] line 89: extern_c_call_unchecked_return
   ...
 
-═══ End of report ═══
+=== End of report ===
 ```
 
 ---
@@ -203,7 +203,7 @@ When `--sandbox --ai` is combined, sandbox findings are injected into the AI pro
 File: src/vulkan/vulkan_safe.xi
 Total unsafe blocks: 12 (3 HIGH, 5 MEDIUM)
 Top finding: extern_c_call_without_contract at line 142
-  fn vk_allocate_buffer — extern call without contract, no null check on return
+  fn vk_allocate_buffer -- extern call without contract, no null check on return
 
 [Compiler Error]
 Error Code: T001
@@ -230,7 +230,7 @@ When AI is active, each finding in `.xiom_sandbox.json` gets an additional `ai_i
 
 ## 7. Implementation Plan
 
-### 7.1 — Sandbox Pass Core (3–5 Days)
+### 7.1 -- Sandbox Pass Core (3-5 Days)
 
 - New file: `crates/xiom-check/src/sandbox.rs`
 - `SandboxPass` struct with `audit(program: &Program) -> SafetyReport`
@@ -239,20 +239,20 @@ When AI is active, each finding in `.xiom_sandbox.json` gets an additional `ai_i
 - Severity scoring algorithm
 - JSON + text output formatters
 
-### 7.2 — CLI Integration (1 Day)
+### 7.2 -- CLI Integration (1 Day)
 
 - `--sandbox` flag in `crates/xiom/src/main.rs`
 - `--sandbox-report=json|text|silent`
 - `--sandbox=strict` mode (abort on HIGH)
 - Exit code mapping (0/1/2/3)
 
-### 7.3 — AI Integration (1–2 Days)
+### 7.3 -- AI Integration (1-2 Days)
 
 - When `--sandbox --ai` combined, inject sandbox context into AI prompt
 - Add `ai_insight` field to findings via LLM call
 - Add `ai_confidence` to each finding
 
-### 7.4 — CI/CD Integration (1 Day)
+### 7.4 -- CI/CD Integration (1 Day)
 
 - `.xiom_sandbox.json` output path configurable
 - `--sandbox=strict` as CI gate: any HIGH = build fails
@@ -263,18 +263,18 @@ When AI is active, each finding in `.xiom_sandbox.json` gets an additional `ai_i
 ## 8. Dependency Chain
 
 ```
-Phase 5c (Production) ✅ ────────┐
-Phase 5c-R (Refactor) ✅ ────────┤
-Phase 5c-E (Ecosystem) ✅ ───────┤
-                                 ├──→ Phase 5c-S (Safety Audit)
-Existing AST ✅ ─────────────────┤     ├ 7.1: Sandbox pass core
-Existing Borrow Checker ✅ ──────┤     ├ 7.2: CLI integration
-Existing Contracts ✅ ───────────┤     ├ 7.3: AI integration (optional)
-                                 │     └ 7.4: CI/CD integration
-Phase 5g (AI Pipeline) ──────────┘     (AI-enhanced findings)
+Phase 5c (Production) [OK] --------+
+Phase 5c-R (Refactor) [OK] --------|
+Phase 5c-E (Ecosystem) [OK] -------|
+                                 |---> Phase 5c-S (Safety Audit)
+Existing AST [OK] -----------------|     | 7.1: Sandbox pass core
+Existing Borrow Checker [OK] ------|     | 7.2: CLI integration
+Existing Contracts [OK] -----------|     | 7.3: AI integration (optional)
+                                 |     ` 7.4: CI/CD integration
+Phase 5g (AI Pipeline) ----------+     (AI-enhanced findings)
 ```
 
-**Zero dependencies.** The sandbox pass uses only the AST, borrow checker data, and contract metadata — all of which exist today. It can be built and shipped in v0.47.0.
+**Zero dependencies.** The sandbox pass uses only the AST, borrow checker data, and contract metadata -- all of which exist today. It can be built and shipped in v0.47.0.
 
 ---
 
@@ -290,6 +290,6 @@ Phase 5g (AI Pipeline) ──────────┘     (AI-enhanced findin
 
 ## Reference
 
-- `docs/NAMING_CONVENTIONS.md` — API stability rules (apply to sandbox output schema)
-- `docs/AI_PIPELINE.md` — AI integration design
-- `tests/ecosystem/test_full.xi` — contracts and unsafe blocks for testing
+- `docs/NAMING_CONVENTIONS.md` -- API stability rules (apply to sandbox output schema)
+- `docs/AI_PIPELINE.md` -- AI integration design
+- `tests/ecosystem/test_full.xi` -- contracts and unsafe blocks for testing

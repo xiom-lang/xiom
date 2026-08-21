@@ -1,4 +1,4 @@
-// I1: Send enforcement — Int capture (Send, must pass)
+// I1: Send enforcement -- Int capture (Send, must pass)
 use xiom.io;
 
 fn main() -> Int {

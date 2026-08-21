@@ -1,4 +1,4 @@
-// M36-X19: Const folding — constant expression evaluation at compile time
+// M36-X19: Const folding -- constant expression evaluation at compile time
 const MAX: Int = 100;
 const HALF: Int = MAX / 2;
 const DOUBLE: Int = HALF * 4;

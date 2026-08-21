@@ -1,4 +1,4 @@
-// M35-O04: Option[Bool] create — Some/None with boolean values
+// M35-O04: Option[Bool] create -- Some/None with boolean values
 fn main() -> Int {
   var a = Some(true);
   var b = Some(false);

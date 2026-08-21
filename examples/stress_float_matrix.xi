@@ -1,4 +1,4 @@
-// XIOM — stress_float_matrix
+// XIOM -- stress_float_matrix
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 

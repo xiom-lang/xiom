@@ -1,4 +1,4 @@
-// M35-O27: Result[Bool,Bool] — bool success, bool error
+// M35-O27: Result[Bool,Bool] -- bool success, bool error
 fn validate(x: Int) -> Result[Bool, Bool] {
   if x > 0 { return Ok(true); }
   return Err(false);

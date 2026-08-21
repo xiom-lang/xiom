@@ -1,4 +1,4 @@
-// M35-S02: Palindrome check — reverse and compare
+// M35-S02: Palindrome check -- reverse and compare
 use stdlib.xiom.string;
 fn reverse(s: Str) -> Str {
   var result: Str = "";

@@ -1,4 +1,4 @@
-// M32-X14: Combinatorial + Differential — Fibonacci while vs recursion with struct+generic+contract
+// M32-X14: Combinatorial + Differential -- Fibonacci while vs recursion with struct+generic+contract
 type FibInput = { n: Int; }
 fn fib_iter(inp: FibInput) -> Int
   requires: inp.n >= 0

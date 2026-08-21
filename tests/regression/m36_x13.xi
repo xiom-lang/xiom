@@ -1,4 +1,4 @@
-// M36-X13: Overflow checks — integer overflow/underflow boundary behavior
+// M36-X13: Overflow checks -- integer overflow/underflow boundary behavior
 fn main() -> Int {
   var max_int: Int = 2147483647;
   var min_int: Int = -2147483647 - 1;

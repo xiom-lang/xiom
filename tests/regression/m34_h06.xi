@@ -1,4 +1,4 @@
-// M34-H06: Int->Float64 promotion — integer widened to float
+// M34-H06: Int->Float64 promotion -- integer widened to float
 fn main() -> Int {
   var i: Int = 42;
   var f: Float64 = i as Float64;

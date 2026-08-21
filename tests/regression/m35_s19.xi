@@ -1,4 +1,4 @@
-// M35-S19: Character frequency count — count occurrences of each char in string
+// M35-S19: Character frequency count -- count occurrences of each char in string
 use stdlib.xiom.string;
 fn freq_count(s: Str, target: Char) -> Int {
   var count: Int = 0;

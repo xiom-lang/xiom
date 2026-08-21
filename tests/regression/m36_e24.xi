@@ -1,4 +1,4 @@
-// M36-E24: Mixed type operations — Int and Float64 interplay
+// M36-E24: Mixed type operations -- Int and Float64 interplay
 fn main() -> Int {
   var i: Int = 10;
   var f: Float64 = 3.5;

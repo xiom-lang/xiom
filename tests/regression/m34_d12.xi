@@ -1,4 +1,4 @@
-// M34-D12: List append/prepend — linked list with recursive pointer and length computation
+// M34-D12: List append/prepend -- linked list with recursive pointer and length computation
 type Node = { value: Int; next: *Node; }
 
 fn list_length(n: *Node, acc: Int) -> Int {

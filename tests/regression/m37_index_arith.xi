@@ -1,6 +1,6 @@
 module m37_index_arith
-// Parser regression (docs/COMPILER_BUGS.md): `bits[L - 1]` — an index whose
-// expression starts with an UPPERCASE ident — was mis-parsed as explicit
+// Parser regression (docs/COMPILER_BUGS.md): `bits[L - 1]` -- an index whose
+// expression starts with an UPPERCASE ident -- was mis-parsed as explicit
 // generic call args (`fn[Type](...)`) and errored ("expected ']', found -").
 // The generic-args heuristic now commits only when `]` is followed by `(`.
 

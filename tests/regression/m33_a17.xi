@@ -1,4 +1,4 @@
-// M33-A17: Array of enum — enum values passed through struct wrapper fields
+// M33-A17: Array of enum -- enum values passed through struct wrapper fields
 enum Color { Red, Green, Blue }
 fn color_val(c: Color) -> Int {
   match c { Red => 1, Green => 2, Blue => 3, }

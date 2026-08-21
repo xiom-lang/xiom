@@ -1,7 +1,7 @@
 module m37_tuple_struct
 // BUG 1 regression (docs/COMPILER_BUGS.md): tuple returns containing structs.
 // Before the fix, the fn signature used bare element names (Tuple__Big__Big)
-// while the body used module-qualified names — clang rejected the IR ("Cannot
+// while the body used module-qualified names -- clang rejected the IR ("Cannot
 // allocate unsized type") or the tuple slots were truncated to the first i64
 // of each struct (garbage Vec pointers at runtime). Also covers the
 // copy-from-tuple pattern and 3-element tuples.

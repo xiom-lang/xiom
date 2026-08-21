@@ -14,7 +14,7 @@ impl super::IrEmitter {
         };
         let ok_label = self.fresh_block("contract_ok");
         let fail_label = self.fresh_block("contract_fail");
-        // Ensure we have an i1 for the branch — some expressions (or/and) return i64.
+        // Ensure we have an i1 for the branch -- some expressions (or/and) return i64.
         // `expr_ty` is the value's real LLVM type as returned by compile_expr.
         let cond_i1 = if expr_ty == "i1" {
             cond_val
@@ -44,9 +44,9 @@ impl super::IrEmitter {
         self.emitln(&format!("  {msg_ptr} = getelementptr [{len} x i8], [{len} x i8]* {label}, i64 0, i64 0",
             len = msg.len() + 1));
         self.emitln(&format!("  call i32 @puts(i8* {msg_ptr})"));
-        // BUG 22 #5 fix (2026-08-12): a contract violation is a LOGIC error —
+        // BUG 22 #5 fix (2026-08-12): a contract violation is a LOGIC error --
         // fail FAST with the message visible and a clean exit code, not a
-        // hardware trap. The old `llvm.trap()` (ud2 → 0xC000001D) crashed the
+        // hardware trap. The old `llvm.trap()` (ud2 -> 0xC000001D) crashed the
         // process with any buffered output lost, and inside unsafe blocks the
         // VEH caught the trap as a recoverable "illegal instruction" fault,
         // silently swallowing real contract violations.
@@ -149,7 +149,7 @@ impl super::IrEmitter {
     /// `receiver` so in-place mutation (`Vec.push`/`Vec.pop`) persists the result.
     /// Handles bare locals AND struct field access (e.g. `h.entries.push(...)`).
     pub(crate) fn store_back_to_receiver(&mut self, receiver: &Expr, val: &str, ty: &str) {
-        // Case 1: bare local variable — store to its alloca slot.
+        // Case 1: bare local variable -- store to its alloca slot.
         if let Expr::Ident(id) = receiver {
             if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
                 if slot_ty == ty {
@@ -181,7 +181,7 @@ impl super::IrEmitter {
                 }
             }
         }
-        // Case 3: Index expression (e.g. outer[0].push(x)) — store the
+        // Case 3: Index expression (e.g. outer[0].push(x)) -- store the
         // modified struct back to the element position in the buffer.
         if let Expr::Index(container, idx, _) = receiver {
             if let Some(elem_ptr) = self.resolve_index_elem_ptr(container, idx) {
@@ -191,7 +191,7 @@ impl super::IrEmitter {
                 return;
             }
         }
-        // Case 2: struct field access — GEP into the base struct and store.
+        // Case 2: struct field access -- GEP into the base struct and store.
         if let Expr::Field(base, field_expr, _) = receiver {
             if let Expr::Ident(base_id) = &**base {
                 if let Some((slot, slot_ty)) = self.lookup_local(&base_id.name).cloned() {
@@ -227,7 +227,7 @@ impl super::IrEmitter {
                             // 5c.29: Generic container fields are i64 HANDLES
                             // (5c.28h): the slot holds a pointer to a heap-boxed
                             // header. Store the updated header THROUGH the handle
-                            // (in-place box update) — never the 32-byte header
+                            // (in-place box update) -- never the 32-byte header
                             // by value into the 8-byte slot.
                             let is_handle_field = ty.starts_with("%struct.")
                                 && !ty.ends_with('*')

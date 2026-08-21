@@ -1,4 +1,4 @@
-// M36-S05: Type checker — type comparison and equality
+// M36-S05: Type checker -- type comparison and equality
 type TypeInfo = { tid: Int; size: Int; align: Int; }
 fn type_eq(a: TypeInfo, b: TypeInfo) -> Bool {
   return a.tid == b.tid && a.size == b.size && a.align == b.align;

@@ -1,4 +1,4 @@
-// M35-T19: Bool exhaustive — every context
+// M35-T19: Bool exhaustive -- every context
 type BoolBox = { val: Bool; }
 enum BoolResult { Yes, No, Flip(b: Bool) }
 fn not_fn(b: Bool) -> Bool { return !b; }

@@ -1,4 +1,4 @@
-// M34-J05: Module with pub const — exported constants in modules
+// M34-J05: Module with pub const -- exported constants in modules
 module config {
   pub const MAX_USERS: Int = 100;
   pub const RATE: Float64 = 1.5;

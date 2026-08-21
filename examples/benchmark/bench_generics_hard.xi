@@ -1,4 +1,4 @@
-// XIOM — Heavy Generics + Comptime Benchmark
+// XIOM -- Heavy Generics + Comptime Benchmark
 // Exercises complex generic types, multi-param generics, generic enums,
 // nested generics, and generic methods on generic structs.
 // Copyright (c) 2026 Eleftherios Notas
@@ -100,7 +100,7 @@ fn test_multi_param_constrained() -> Int {
 }
 
 // ============================================================
-// SECTION 3: Nested Generic — Vec[Pair[Int, Float64]]
+// SECTION 3: Nested Generic -- Vec[Pair[Int, Float64]]
 // ============================================================
 
 pub type Pair[A, B] = {

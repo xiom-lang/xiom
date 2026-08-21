@@ -1,4 +1,4 @@
-// M32-T04: String length — .len() returns Int
+// M32-T04: String length -- .len() returns Int
 fn main() -> Int {
   var s: Str = "hello";
   var n: Int = s.len();

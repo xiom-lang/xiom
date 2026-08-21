@@ -15,7 +15,7 @@ use super::graph::ModuleNode;
 pub struct ModuleDiscovery {
     /// All discovered modules, keyed by their dotted module path (e.g. "xiom.math").
     pub modules: Vec<ModuleNode>,
-    /// Fast lookup: dotted module path → index into `modules`.
+    /// Fast lookup: dotted module path -> index into `modules`.
     pub index: HashMap<String, usize>,
     /// All source file paths discovered (for backward compat with CLI file lists).
     pub source_files: Vec<PathBuf>,
@@ -122,7 +122,7 @@ fn quick_parse_module(file_path: &Path, source_root: &Path) -> Option<ModuleNode
 
         match kind {
             xiom_lexer::TokenKind::Module => {
-                // Parse `module a.b.c;` — collect dot-separated idents
+                // Parse `module a.b.c;` -- collect dot-separated idents
                 if !saw_module_kw {
                     let path_parts = parse_dotted_path(&tokens, i + 1);
                     if !path_parts.is_empty() {
@@ -166,7 +166,7 @@ fn parse_dotted_path(tokens: &[xiom_lexer::Token], start: usize) -> Vec<String> 
                 // Continue after dot (expect another ident)
             }
             xiom_lexer::TokenKind::Star => {
-                // `use a.b.*;` — star terminates the path
+                // `use a.b.*;` -- star terminates the path
                 break;
             }
             xiom_lexer::TokenKind::Semicolon => {
@@ -186,7 +186,7 @@ fn parse_dotted_path(tokens: &[xiom_lexer::Token], start: usize) -> Vec<String> 
 
 /// Infer a module path from a file path relative to the source root.
 ///
-/// Example: `src/xiom/math/trig.xi` with root `src/` → `xiom.math.trig`
+/// Example: `src/xiom/math/trig.xi` with root `src/` -> `xiom.math.trig`
 fn infer_module_path(file_path: &Path, source_root: &Path) -> String {
     let relative = file_path
         .strip_prefix(source_root)

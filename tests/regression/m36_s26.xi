@@ -1,4 +1,4 @@
-// M36-S26: Virtual machine — stack push/pop and arithmetic operations
+// M36-S26: Virtual machine -- stack push/pop and arithmetic operations
 type StackFrame = { sp: Int; bp: Int; ip: Int; }
 type StackVal = { tag: Int; int_val: Int; }
 fn make_frame(sp: Int, bp: Int, ip: Int) -> StackFrame {

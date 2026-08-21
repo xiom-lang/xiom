@@ -1,4 +1,4 @@
-// XIOM — FFI Binding Generator
+// XIOM -- FFI Binding Generator
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -546,7 +546,7 @@ library "example" {
         assert!(contracts.contains(&"ensures: result != null".to_string()));
     }
 
-    // ── M21-6: FFI Generator edge cases ─────────────────────────────────
+    // -- M21-6: FFI Generator edge cases ---------------------------------
 
     // Complex C structs with nested types
     #[test] fn test_parse_struct_spec() {

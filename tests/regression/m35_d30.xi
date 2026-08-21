@@ -1,4 +1,4 @@
-// M35-D30: Combined stress — stack + heap integration
+// M35-D30: Combined stress -- stack + heap integration
 fn main() -> Int {
   var s0: Int = 10;
   var s1: Int = 20;

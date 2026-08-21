@@ -1,4 +1,4 @@
-// XIOM — Language Server
+// XIOM -- Language Server
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -19,7 +19,7 @@ use transport::{LspReader, write_lsp_message};
 use std::env;
 
 // ============================================================================
-// Main dispatch — thin router to handler modules
+// Main dispatch -- thin router to handler modules
 // ============================================================================
 
 pub fn handle_lsp_message(msg: &serde_json::Value, backend: &Backend) -> Vec<serde_json::Value> {
@@ -527,7 +527,7 @@ mod tests {
             .expect("should have codeAction response");
         let actions = ca_response["result"].as_array()
             .expect("result should be array");
-        // May have suggestions or be empty — both are valid
+        // May have suggestions or be empty -- both are valid
         assert!(!actions.is_empty() || actions.is_empty(), "code actions should be an array");
     }
 
@@ -557,7 +557,7 @@ mod tests {
         assert_eq!(actions.len(), 0, "no diagnostics should yield no code actions");
     }
 
-    // ── M21-4: LSP edge cases ──────────────────────────────────────────
+    // -- M21-4: LSP edge cases ------------------------------------------
 
     // Completion in various contexts
     #[test] fn test_completion_after_dot() {
@@ -759,13 +759,13 @@ mod tests {
         assert!(responses.iter().all(|r| r.get("id").is_none()), "initialized should not produce id responses");
     }
 
-    // Document formatting (may not be implemented yet — must not panic)
+    // Document formatting (may not be implemented yet -- must not panic)
     #[test] fn test_formatting_request() {
         let backend = Backend::new();
         open_document(&backend, "file:///test.xi", "fn main() -> Int{return 42;}");
         let msg = parse_msg(r#"{"jsonrpc":"2.0","id":90,"method":"textDocument/formatting","params":{"textDocument":{"uri":"file:///test.xi"},"options":{"tabSize":2,"insertSpaces":true}}}"#);
         let _responses = handle_lsp_message(&msg, &backend);
-        // Must not panic — feature may not be implemented
+        // Must not panic -- feature may not be implemented
     }
 
     #[test] fn test_range_formatting_request() {
@@ -773,7 +773,7 @@ mod tests {
         open_document(&backend, "file:///test.xi", "fn main() -> Int{return 42;}");
         let msg = parse_msg(r#"{"jsonrpc":"2.0","id":91,"method":"textDocument/rangeFormatting","params":{"textDocument":{"uri":"file:///test.xi"},"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":999}},"options":{"tabSize":2,"insertSpaces":true}}}"#);
         let _responses = handle_lsp_message(&msg, &backend);
-        // Must not panic — feature may not be implemented
+        // Must not panic -- feature may not be implemented
     }
 
     // Semantic tokens

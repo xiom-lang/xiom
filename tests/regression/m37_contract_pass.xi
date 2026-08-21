@@ -1,5 +1,5 @@
 module m37_contract_pass
-// BUG 22 #5: contract checks must not break normal execution — a
+// BUG 22 #5: contract checks must not break normal execution -- a
 // SATISFIED requires/ensures still runs the body (regression guard for
 // the xiom_panic clean-exit change; violations themselves print
 // "contract violated: ..." to stderr and exit 1).

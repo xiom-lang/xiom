@@ -1,4 +1,4 @@
-// M34-Q03: Contract + generic — generic fn with requires and ensures
+// M34-Q03: Contract + generic -- generic fn with requires and ensures
 fn max[T](a: T, b: T) -> T
   requires: a >= 0
   requires: b >= 0

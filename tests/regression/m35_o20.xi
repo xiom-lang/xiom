@@ -1,4 +1,4 @@
-// M35-O20: Result map — match-based map over Ok value
+// M35-O20: Result map -- match-based map over Ok value
 fn result_map_int(r: Result[Int, Str], f: fn(Int) -> Int) -> Result[Int, Str] {
   match r { Ok(v) => Ok(f(v)), Err(e) => Err(e) }
 }

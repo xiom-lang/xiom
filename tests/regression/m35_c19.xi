@@ -1,4 +1,4 @@
-// M35-C19: loop with counter — counting iterations with various termination conditions
+// M35-C19: loop with counter -- counting iterations with various termination conditions
 fn count_divisible(limit: Int, d: Int) -> Int {
   var i: Int = 1;
   var count: Int = 0;

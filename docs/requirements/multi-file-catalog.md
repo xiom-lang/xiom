@@ -1,4 +1,4 @@
-# XIOM — Requirements: Multi-File Module Catalog
+# XIOM -- Requirements: Multi-File Module Catalog
 
 **Date:** 2026-07-03
 **Branch:** `feat/ecosystem`
@@ -7,7 +7,7 @@
 ## Background
 
 The session document (`SESSION.md`) describes a `ModuleCatalog` architecture with `CachedModule`,
-`register_all_types_into`, `collect_external_decls`, and `CheckedType::to_ast_type` — none of
+`register_all_types_into`, `collect_external_decls`, and `CheckedType::to_ast_type` -- none of
 these exist in the codebase (verified via grep of `crates/`). The actual module resolution in
 `crates/xiom-check/src/lib.rs` uses only `load_external_module` (single-segment, looks up
 `{source_dir}/{name}.xi`) and the nested-path variant `load_external_module_path` is dead code
@@ -19,7 +19,7 @@ As a result, three multi-file example programs fail:
 |---------|---------|-----------|
 | `examples/test_mod/math.xi` | `undefined variable 'make_result'` | External `main.xi` function not registered; codegen emits `@make_result` undefined |
 | `examples/benchmark/bench_math.xi` | `unknown type 'BenchResult'` at 937:10 + `getelementptr i64, i64*` invalid | Type from external `main.xi` not visible to codegen |
-| `examples/benchmark/main.xi` | 51 type errors — all 24 imported submodules undefined | None of the `use benchmark.<sub>;` declarations resolve |
+| `examples/benchmark/main.xi` | 51 type errors -- all 24 imported submodules undefined | None of the `use benchmark.<sub>;` declarations resolve |
 
 Secondary defect: `build_module_map_inner` (lib.rs ~743) only registers an external file's
 functions if they already exist in `self.functions`, which is impossible for a freshly loaded
@@ -39,14 +39,14 @@ file. External functions are silently dropped.
    parent directory to `checker.source_dirs`.
 5. Codegen must emit `%struct.BenchResult`, `@make_result`, and module-call thunks
    (`@benchmark_math_run_all`, etc.) for the injected stubs.
-6. Fix the `getelementptr i64, i64* … i32 0, i32 0` invalid-indices error that occurs when
+6. Fix the `getelementptr i64, i64* ... i32 0, i32 0` invalid-indices error that occurs when
    struct types from external modules are treated as `i64`.
 
 ## Non-Goals
 
-- Tuple-return codegen — separate pre-existing issue (benchmark_stress `partition()`).
+- Tuple-return codegen -- separate pre-existing issue (benchmark_stress `partition()`).
 - Removing pre-existing `use of moved value` borrow warnings (146 non-fatal warnings).
-- Full-function-body injection — stubs only for types and function declarations to enable
+- Full-function-body injection -- stubs only for types and function declarations to enable
   type-checking and codegen linking. (Bodies come from multi-file merging when all files are
   passed explicitly.)
 
@@ -66,16 +66,16 @@ file. External functions are silently dropped.
 ```powershell
 cd E:\Projects\XIOM
 
-# Checker tests — must stay 44/44
+# Checker tests -- must stay 44/44
 cargo test -p xiom-check
 
-# Codegen tests — must stay green
+# Codegen tests -- must stay green
 cargo test -p xiom-codegen
 
 # Full suite
 cargo test
 
-# Multi-file examples — all must compile and run
+# Multi-file examples -- all must compile and run
 cargo run -p xiom -- --run examples\test_mod\math.xi
 cargo run -p xiom -- --run examples\benchmark\bench_math.xi
 cargo run -p xiom -- --run examples\benchmark\main.xi

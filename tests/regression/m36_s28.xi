@@ -1,4 +1,4 @@
-// M36-S28: JIT compilation — code buffer allocation and relocation patterns
+// M36-S28: JIT compilation -- code buffer allocation and relocation patterns
 type JitCodeBuf = { base_addr: Int; size: Int; used: Int; executable: Bool; }
 type JitReloc = { offset: Int; target: Int; kind: Int; }
 fn make_code_buf(addr: Int, sz: Int) -> JitCodeBuf {

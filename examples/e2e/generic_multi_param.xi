@@ -7,7 +7,7 @@ module e2e_generic_multi
 type Pair = { a: Int; b: Int; }
 
 fn make_pair[T](x: T, y: T) -> Pair {
-  // Not using T directly — just verifying monomorphization
+  // Not using T directly -- just verifying monomorphization
   Pair { a: 0; b: 0; }
 }
 

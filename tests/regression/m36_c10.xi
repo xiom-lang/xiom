@@ -1,4 +1,4 @@
-// M36-C10: Every cast direction between numeric types â€” Intâ†”Int8, Intâ†”Int16, Intâ†”Int32, Intâ†”Float64, Float64â†”Int, pointer casts
+// M36-C10: Every cast direction between numeric types -- Int<->Int8, Int<->Int16, Int<->Int32, Int<->Float64, Float64<->Int, pointer casts
 fn cast_i_to_i8(v: Int) -> Int8 { return v as Int8; }
 fn cast_i8_to_i(v: Int8) -> Int { return v as Int; }
 fn cast_i_to_i16(v: Int) -> Int16 { return v as Int16; }

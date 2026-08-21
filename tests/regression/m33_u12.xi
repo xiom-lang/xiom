@@ -1,4 +1,4 @@
-// M33-U12: Pointer comparison to null — test null and non-null
+// M33-U12: Pointer comparison to null -- test null and non-null
 fn main() -> Int {
   var x: Int = 5;
   var p: *Int;

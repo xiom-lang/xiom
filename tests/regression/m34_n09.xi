@@ -1,4 +1,4 @@
-// M34-N09: Enum with derive[Ord] — ordinal position comparison via rank function
+// M34-N09: Enum with derive[Ord] -- ordinal position comparison via rank function
 enum Priority { Low, Medium, High, Critical } derive[Ord, Eq]
 fn rank(p: Priority) -> Int {
   match p {

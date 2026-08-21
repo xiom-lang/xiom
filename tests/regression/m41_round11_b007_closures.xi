@@ -1,10 +1,10 @@
-// m41_round11_b007_closures — round-11 (2026-08-20) regression:
-// B-007 closures — fn-typed PARAMS hold a closure ENV pointer (field 0 =
+// m41_round11_b007_closures -- round-11 (2026-08-20) regression:
+// B-007 closures -- fn-typed PARAMS hold a closure ENV pointer (field 0 =
 // the fn ptr). Calling `f(x)` inside a generic body must go through the
 // M20-A1 closure path: (1) the param must be registered as a closure local
-// (otherwise the ENV pointer was inttoptr'd as a CODE pointer — 0xC0000005
+// (otherwise the ENV pointer was inttoptr'd as a CODE pointer -- 0xC0000005
 // in Option.map), and (2) the closure's REAL return type drives the
-// fn-pointer signature — struct returns (Option[Int]) are BY VALUE, never
+// fn-pointer signature -- struct returns (Option[Int]) are BY VALUE, never
 // pointer derefs (0xC0000005 in Option.and_then).
 module m41_round11_b007_closures
 use xiom.core;

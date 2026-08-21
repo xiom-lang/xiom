@@ -1,4 +1,4 @@
-// M35-O10: Option filter — match-based filter implementation
+// M35-O10: Option filter -- match-based filter implementation
 fn opt_filter(o: Option[Int], pred: fn(Int) -> Bool) -> Option[Int] {
   match o {
     Some(v) => { if pred(v) { return Some(v); } return None; }

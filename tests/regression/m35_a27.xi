@@ -1,4 +1,4 @@
-// M35-A27: Maximum subarray sum — Kadane's algorithm on an integer array
+// M35-A27: Maximum subarray sum -- Kadane's algorithm on an integer array
 fn main() -> Int {
   var arr = [-2, 1, -3, 4, -1, 2, 1, -5, 4];
   var n: Int = 9;

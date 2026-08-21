@@ -1,4 +1,4 @@
-// M35-O03: Option[Str] create — Some/None with string values
+// M35-O03: Option[Str] create -- Some/None with string values
 fn main() -> Int {
   var a = Some("hello");
   var b: Option[Str] = None;

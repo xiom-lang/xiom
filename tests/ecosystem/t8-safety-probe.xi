@@ -1,20 +1,20 @@
-// t8-safety-probe — Language Safety Index (XIOM)
+// t8-safety-probe -- Language Safety Index (XIOM)
 //
 // Honest, empirically-measured probe. No hardcoded scores.
 //
 // Methodology: each probe runs in an isolated child process (self re-exec via
 // os.system). The parent observes the child's exit status:
-//   - killed by signal (segfault/abort)  → os_crash      → score 2
-//   - non-zero exit (runtime trap/panic) → runtime_panic → score 6
-//   - zero exit                          → silent        → score 0
-//   - construct rejected at compile time → compile_error → score 10
+//   - killed by signal (segfault/abort)  -> os_crash      -> score 2
+//   - non-zero exit (runtime trap/panic) -> runtime_panic -> score 6
+//   - zero exit                          -> silent        -> score 0
+//   - construct rejected at compile time -> compile_error -> score 10
 //
 // Scoring ladder identical across ALL languages (C, C++, Rust, Zig, Go, Ada,
-// XIOM, scripting): 10/6/2/0 — we measure WHAT happened, not WHY.
+// XIOM, scripting): 10/6/2/0 -- we measure WHAT happened, not WHY.
 //
 // Arena build flags: --release --target native --no-contracts --overflow-checks
 // (documented in the arena harness). With contracts enabled, XIOM rejects more
-// constructs at compile time — that is measured by the contracts arena.
+// constructs at compile time -- that is measured by the contracts arena.
 
 use xiom.io;
 use xiom.os;
@@ -26,7 +26,7 @@ use xiom.convert;
 
 const N_PROBES: Int = 8;
 
-// ── Probe implementations ────────────────────────────────────────────────────
+// -- Probe implementations ----------------------------------------------------
 
 fn probe_use_after_free() -> Int {
   var p = alloc(8);
@@ -88,7 +88,7 @@ fn recurse(d: Int) -> Int {
   return d;
 }
 
-// ── Child mode: run ONE probe and exit ──────────────────────────────────────
+// -- Child mode: run ONE probe and exit --------------------------------------
 
 fn run_probe(probe_id: Int) -> Int {
   if probe_id == 0 { return probe_use_after_free(); }
@@ -102,7 +102,7 @@ fn run_probe(probe_id: Int) -> Int {
   return 0;
 }
 
-// ── Parent: isolate each probe, measure exit status ─────────────────────────
+// -- Parent: isolate each probe, measure exit status -------------------------
 
 fn measure(probe_id: Int, self_path: Str) -> Int {
   // Re-exec self as a child: <binary> --probe <id>
@@ -110,7 +110,7 @@ fn measure(probe_id: Int, self_path: Str) -> Int {
   // crash/signal is captured in the wait status and decoded below.
   var cmd = self_path + " --probe " + int_to_string(probe_id);
   var rc = os.system(cmd);
-  // Spawn failure (e.g., binary not executable): report as os_crash — the
+  // Spawn failure (e.g., binary not executable): report as os_crash -- the
   // harness sees a non-zero status and the probe result is conservative.
   if rc < 0 {
     return 2;
@@ -121,12 +121,12 @@ fn measure(probe_id: Int, self_path: Str) -> Int {
   var sig = rc & 127;
   var code = (rc >> 8) & 255;
   if sig != 0 and sig != 127 {
-    return 2; // killed by signal → os_crash
+    return 2; // killed by signal -> os_crash
   }
   if code != 0 {
-    return 6; // non-zero exit → runtime_panic
+    return 6; // non-zero exit -> runtime_panic
   }
-  return 0; // clean exit → silent
+  return 0; // clean exit -> silent
 }
 
 fn main() -> Int {

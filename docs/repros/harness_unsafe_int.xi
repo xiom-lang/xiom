@@ -1,7 +1,7 @@
-﻿use unsafe_int_selfcontained;
+use unsafe_int_selfcontained;
 
 fn main() -> Int {
-  // abs(-7) = 7 â€” must read EXACTLY 7 through the trampoline.
+  // abs(-7) = 7 -- must read EXACTLY 7 through the trampoline.
   var r1 = abs_rc(-7);
   if r1 != 7 { return 1; }
   // abs(3) = 3.

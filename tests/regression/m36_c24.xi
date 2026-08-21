@@ -1,4 +1,4 @@
-// M36-C24: Every string pattern — string literal, concatenation, len, byte_at/slice-like, comparison, return, param, store
+// M36-C24: Every string pattern -- string literal, concatenation, len, byte_at/slice-like, comparison, return, param, store
 use stdlib.xiom.string;
 fn string_literal() -> Str { return "hello"; }
 fn string_concat(a: Str, b: Str) -> Str { return a + b; }

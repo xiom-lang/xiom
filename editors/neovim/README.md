@@ -20,5 +20,5 @@ or paste into `init.lua`).
 - Native tree-sitter highlighting is planned; until then LSP provides diagnostics
   and you can enable basic keyword highlighting with `vim.cmd('runtime! syntax/c.vim')`
   as a rough fallback, or use a TextMate-grammar plugin.
-- Debug target defaults to `a.exe`/`a.out` in the workspace root — compile first:
+- Debug target defaults to `a.exe`/`a.out` in the workspace root -- compile first:
   `xiom -g -o a.exe main.xi`.

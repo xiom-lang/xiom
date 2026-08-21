@@ -1,4 +1,4 @@
-// M34-J20: Module with all features combined — pub fn/type/enum/const/generic/contract/invariant/derive/method/impl + cross-ref
+// M34-J20: Module with all features combined -- pub fn/type/enum/const/generic/contract/invariant/derive/method/impl + cross-ref
 module all_in_one {
   pub fn add(a: Int, b: Int) -> Int { return a + b; }
   pub type Coord = { x: Int; y: Int; } derive[Eq]

@@ -1,4 +1,4 @@
-// M34-W03: XOR self — x ^ x == 0 on multiple types
+// M34-W03: XOR self -- x ^ x == 0 on multiple types
 fn main() -> Int {
   var a: Int = 12345;
   var b: Int32 = 12345 as Int32;

@@ -1,4 +1,4 @@
-// M35-D07: Min-heap — bubble-up verify
+// M35-D07: Min-heap -- bubble-up verify
 fn main() -> Int {
   var d0: Int = 10;
   var d1: Int = 20;

@@ -1,4 +1,4 @@
-// M32: UInt32 overflow — add wraps
+// M32: UInt32 overflow -- add wraps
 fn main() -> Int {
   var a: UInt32 = 4294967295;
   var b: UInt32 = 1;

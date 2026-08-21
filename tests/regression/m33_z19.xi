@@ -1,4 +1,4 @@
-// M33-Z19: Compound assignment near overflow edge — Int8 near bounds
+// M33-Z19: Compound assignment near overflow edge -- Int8 near bounds
 fn main() -> Int {
   var a: Int8 = 120;
   var b: Int8 = 5;

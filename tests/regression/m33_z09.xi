@@ -1,4 +1,4 @@
-// M33-Z09: Float64 /= — basic compound divide
+// M33-Z09: Float64 /= -- basic compound divide
 fn main() -> Int {
   var f: Float64 = 15.0;
   f /= 3.0;

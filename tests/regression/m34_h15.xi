@@ -1,4 +1,4 @@
-// M34-H15: Cast in struct field — narrow field assignment via cast
+// M34-H15: Cast in struct field -- narrow field assignment via cast
 type Point = { x: Int32; y: Int32; }
 fn main() -> Int {
   var bigX: Int64 = 100;

@@ -1,4 +1,4 @@
-// XIOM CodeGen — LLVM Type Constants
+// XIOM CodeGen -- LLVM Type Constants
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
@@ -23,7 +23,7 @@ pub const LLVM_DOUBLE: &str = "double";
 pub const LLVM_VOID: &str = "void";
 
 // === Pointer types ===
-/// `i8*` — generic byte pointer (also used for XIOM `Str` at the ABI)
+/// `i8*` -- generic byte pointer (also used for XIOM `Str` at the ABI)
 pub const LLVM_STR_PTR: &str = "i8*";
 
 // === Struct prefix ===

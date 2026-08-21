@@ -1,4 +1,4 @@
-// M35-S06: Replace substring — find and replace first occurrence
+// M35-S06: Replace substring -- find and replace first occurrence
 use stdlib.xiom.string;
 fn replace_first(s: Str, from: Str, to: Str) -> Str {
   if from.len() == 0 { return s; }

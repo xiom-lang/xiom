@@ -1,4 +1,4 @@
-// XIOM Contract Verifier — CLI entry point (Phase 5f Stage 0)
+// XIOM Contract Verifier -- CLI entry point (Phase 5f Stage 0)
 // Generates corrected SMT-LIB 2.6 with body encoding and optionally invokes Z3.
 //
 // Usage:
@@ -119,14 +119,14 @@ fn main() {
             match result {
                 VerifyResult::Proven => {
                     proven += 1;
-                    eprintln!("  ✅ VERIFIED");
+                    eprintln!("  [OK] VERIFIED");
                 }
                 VerifyResult::Violated { code, message, span, counterexample } => {
                     violated += 1;
                     if let Some(loc) = span {
-                        eprintln!("  ❌ VIOLATED [{code}] at {loc}: {message}");
+                        eprintln!("  [FAIL] VIOLATED [{code}] at {loc}: {message}");
                     } else {
-                        eprintln!("  ❌ VIOLATED [{code}]: {message}");
+                        eprintln!("  [FAIL] VIOLATED [{code}]: {message}");
                     }
                     if let Some(ce) = counterexample {
                         if !ce.values.is_empty() {
@@ -138,11 +138,11 @@ fn main() {
                 }
                 VerifyResult::Inconclusive { reason } => {
                     inconclusive += 1;
-                    eprintln!("  ⚠️  UNKNOWN: {reason}");
+                    eprintln!("  [WARN]  UNKNOWN: {reason}");
                 }
                 VerifyResult::Error { message } => {
                     errors += 1;
-                    eprintln!("  🔴 ERROR: {message}");
+                    eprintln!("  [RED] ERROR: {message}");
                 }
             }
         }

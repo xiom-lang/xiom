@@ -1,4 +1,4 @@
-// M35-D13: Circular buffer — wraparound pattern
+// M35-D13: Circular buffer -- wraparound pattern
 fn main() -> Int {
   var b0: Int = 0;
   var b1: Int = 0;

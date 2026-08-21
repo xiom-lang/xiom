@@ -1,6 +1,6 @@
-# XIOM Selfhost Plan — Byte-Identical Self-Hosting (2026-08-11)
+# XIOM Selfhost Plan -- Byte-Identical Self-Hosting (2026-08-11)
 
-**Author:** Kilo (compiler-hardening session) | **Baseline:** fast suite 1112/1/1 (only the documented pre-existing `test_diff_test_produces_correct_ir` fails), e2e 2237/2240 → **all 3 remaining failures fixed and verified** (m19_read_file_content, safety_probe, i2_parallel_codegen), stdlib-exec 72/72, warning gates 0/0.
+**Author:** Kilo (compiler-hardening session) | **Baseline:** fast suite 1112/1/1 (only the documented pre-existing `test_diff_test_produces_correct_ir` fails), e2e 2237/2240 -> **all 3 remaining failures fixed and verified** (m19_read_file_content, safety_probe, i2_parallel_codegen), stdlib-exec 72/72, warning gates 0/0.
 
 ---
 
@@ -17,9 +17,9 @@ not bytes.
 
 This plan takes the selfhost compiler from signature-extractor to a **100%
 XIOM compiler that emits byte-identical IR to the Rust compiler**, compiles
-itself (self1 ≡ self2 by sha256), and passes the full e2e + full-diff suites.
+itself (self1 == self2 by sha256), and passes the full e2e + full-diff suites.
 It includes two interleaved optimization passes (O1: selfhost code quality,
-O2: bootstrap-chain performance) — both are required, not optional.
+O2: bootstrap-chain performance) -- both are required, not optional.
 
 ## 2. Honest current state (verified 2026-08-11)
 
@@ -27,7 +27,7 @@ O2: bootstrap-chain performance) — both are required, not optional.
 |-----------|-------|
 | Rust compiler (crates/xiom-*) | Production-grade; 0 warnings; e2e 2237/2240 |
 | selfhost/xiomc_v10.xi (9.5 KB) | Signature extractor + C-FFI body emission. NOT selfhosting |
-| selfhost/xiomc_v050.xi (809 KB) | Obsolete embedded-source compiler — archive/delete |
+| selfhost/xiomc_v050.xi (809 KB) | Obsolete embedded-source compiler -- archive/delete |
 | selfhost/lexer_v2.xi, xiom-lexer.xi, xiom-parser.xi, xiom-check.xi, xiom-codegen.xi, xiomc.xi | Early stage modules (compile, but no parity gates) |
 | full_diff_tests.rs | `#[ignore]`d; compares feature counts + fn names |
 | Bootstrap e2e (v10 self-compile) | `XIOM_SELFHOST=1`-gated; v10 crashes on complex input |
@@ -37,14 +37,14 @@ O2: bootstrap-chain performance) — both are required, not optional.
 Byte-identical IR means the selfhost emitter must reproduce the Rust
 emitter's **determinism exactly**:
 
-1. **Register numbering order** — `%tmpN` increments in the same order
+1. **Register numbering order** -- `%tmpN` increments in the same order
    (tmp_counter advances identically through every expression/statement).
-2. **String interning order** — `@.strN` numbering and `fctx.strings`
+2. **String interning order** -- `@.strN` numbering and `fctx.strings`
    emission order.
-3. **Type-name generation order** — `%struct.Tuple__...`, `%struct.__unsafe_ctx_N`,
+3. **Type-name generation order** -- `%struct.Tuple__...`, `%struct.__unsafe_ctx_N`,
    generic monomorphisation naming.
-4. **Float literal formatting** — `{:.17e}` (fixed in BUG 10; byte-stable).
-5. **Module/catalog load order** — the external-decl injection order.
+4. **Float literal formatting** -- `{:.17e}` (fixed in BUG 10; byte-stable).
+5. **Module/catalog load order** -- the external-decl injection order.
 
 Because XIOM's codegen will be a *port* of the Rust emitter's control flow
 (not a reimplementation), determinism is achievable: the port preserves the
@@ -71,9 +71,9 @@ flowchart LR
     end
 ```
 
-- `selfhost/src/*.xi` — one file per stage, mirroring
+- `selfhost/src/*.xi` -- one file per stage, mirroring
   `crates/xiom-{lexer,parser,check,codegen}/src`.
-- `selfhost/src/runtime_ffi.xi` — pure-XIOM reimplementations of the C
+- `selfhost/src/runtime_ffi.xi` -- pure-XIOM reimplementations of the C
   helpers v10 currently imports (`xiom_str_len`, `xiom_char_at`,
   `xiom_intern`, `xiom_fn_table_*`, `xiom_ir_*`). These must be ported to
   stdlib operations so the selfhost compiler has **no C dependency for
@@ -97,63 +97,63 @@ Plus the bootstrap gate: `xiom.exe selfhost/src/main.xi -o self1.exe`;
 
 ## 5. Phases (each ends at a gate; checklists in docs/checklists/)
 
-### Phase 0 — Foundations (gate: T1 harness green on the corpus)
+### Phase 0 -- Foundations (gate: T1 harness green on the corpus)
 - Upgrade `full_diff_tests.rs` to T1/T2/T3 tiers; add the corpus manifest.
 - Create `selfhost/src/` skeleton + `runtime_ffi.xi` (port the C helpers used
   by v10; verify behavior against the C versions via the existing v10 tests).
 - Archive `xiomc_v050.xi` (move to `selfhost/archive/`).
 - Checklist: `docs/checklists/selfhost-phase0.md`.
 
-### Phase 1 — Lexer parity (gate: token-dump equality for the corpus)
+### Phase 1 -- Lexer parity (gate: token-dump equality for the corpus)
 Port `crates/xiom-lexer` to `lexer.xi`. Add a `--dump-tokens` mode to both
 compilers; gate on byte-equal dumps. TokenKind ordering and Span handling
 must match exactly.
 
-### Phase 2 — Parser parity (gate: AST-dump equality)
+### Phase 2 -- Parser parity (gate: AST-dump equality)
 Port `crates/xiom-parser` (incl. the 2026-08-11 generic-args heuristic fix
 and M19 tuple/struct literals). Gate: `--dump-ast` byte-equal on the corpus.
-This is the largest single phase; sub-slices: statements/exprs → types →
-patterns → modules/imports → contracts → generics.
+This is the largest single phase; sub-slices: statements/exprs -> types ->
+patterns -> modules/imports -> contracts -> generics.
 
-### Phase 3 — Checker parity (gate: diagnostics + type-annotation equality)
+### Phase 3 -- Checker parity (gate: diagnostics + type-annotation equality)
 Port `crates/xiom-check` (T-gates, borrow checker, contracts, catalog/module
 resolution). Gate: same diagnostics (order + text) and same accepted/rejected
 set on the corpus.
 
-### Phase 4 — Codegen: function headers (gate: T3 header IR equality)
+### Phase 4 -- Codegen: function headers (gate: T3 header IR equality)
 The current v10 scope, made byte-exact: fn signatures, param types, tuple
-names, `alwaysinline`/`inlinehint` policy (size-based — port `approx_block_cost`).
+names, `alwaysinline`/`inlinehint` policy (size-based -- port `approx_block_cost`).
 
-### **O1 — Selfhost code-quality pass** (after Phase 4)
+### **O1 -- Selfhost code-quality pass** (after Phase 4)
 - Remove v10's "avoid the borrow checker" workarounds (`var done = 1 == 0`
-  patterns) — the checker parity from Phase 3 makes idiomatic code legal.
+  patterns) -- the checker parity from Phase 3 makes idiomatic code legal.
 - Enforce contracts (`requires`/`ensures`) on the ported modules.
 - Target: selfhost source compiles under `--strict` with zero warnings.
 
-### Phase 5 — Codegen: bodies, scalars + control flow (gate: T3 full-IR equality, scalar corpus)
+### Phase 5 -- Codegen: bodies, scalars + control flow (gate: T3 full-IR equality, scalar corpus)
 Arithmetic, comparisons, if/while/for/match, calls, returns, strings, floats.
 Port the Rust emitter's exact statement order.
 
-### Phase 6 — Codegen: structs, tuples, generics, unsafe (gate: T3 full-IR equality, whole corpus)
+### Phase 6 -- Codegen: structs, tuples, generics, unsafe (gate: T3 full-IR equality, whole corpus)
 Struct/field lowering, tuple naming (BUG 1 fix parity), Option/Result
 payloads, generics monomorphisation, the unsafe-block trampoline lowering
-(captures, ctx structs, fault/retry paths — port the 2026-08-11 fixes).
+(captures, ctx structs, fault/retry paths -- port the 2026-08-11 fixes).
 
-### Phase 7 — Self-compile + bootstrap chain (gate: self1 ≡ self2 sha256)
+### Phase 7 -- Self-compile + bootstrap chain (gate: self1 == self2 sha256)
 - `self1 = xiom.exe(selfhost/src/main.xi)`; `self2 = self1(selfhost/src/main.xi)`.
 - Diff IR of self1 vs self2 on the corpus (T3).
 - Un-gate `e2e_selfhost_v10_self_compile` (rename to v11+) and
   `e2e_selfhost_v10_self_compile_to_native`.
 
-### **O2 — Bootstrap-chain performance pass** (after Phase 7)
+### **O2 -- Bootstrap-chain performance pass** (after Phase 7)
 - Profile self1 compiling `selfhost/src/main.xi` (target: < 60 s on this
   machine; the Rust compiler does the corpus in ~10 s).
 - Hot paths: string ops (avoid repeated concat), hash maps, fn-table lookups.
-- Target: self1 compile-time within 2× of xiom.exe on the corpus.
+- Target: self1 compile-time within 2x of xiom.exe on the corpus.
 
-### Phase 8 — Full green (gate: full suite, nothing ignored)
+### Phase 8 -- Full green (gate: full suite, nothing ignored)
 - Un-ignore `full_diff_tests` (T3), run the full e2e suite on BOTH compilers
-  (Rust-compiled and self1-compiled binaries) — identical results.
+  (Rust-compiled and self1-compiled binaries) -- identical results.
 - Fast suite + e2e + stdlib suites green for the selfhost binary.
 
 ## 6. Risks & mitigations
@@ -169,7 +169,7 @@ payloads, generics monomorphisation, the unsafe-block trampoline lowering
 
 ## 7. Definition of done (all must hold)
 
-1. `self1.exe` and `self2.exe` byte-identical (sha256) — the compiler
+1. `self1.exe` and `self2.exe` byte-identical (sha256) -- the compiler
    reproduces itself.
 2. T3 byte-identical IR on the full corpus (full_diff_tests un-ignored,
    green).
@@ -177,4 +177,4 @@ payloads, generics monomorphisation, the unsafe-block trampoline lowering
    ignore) with the same results as the Rust binary.
 4. Zero C-codegen dependency (runtime_ffi.xi in pure XIOM).
 5. Zero warnings on the selfhost sources under `--strict`.
-6. Selfhost compile-time within 2× of the Rust compiler on the corpus (O2).
+6. Selfhost compile-time within 2x of the Rust compiler on the corpus (O2).

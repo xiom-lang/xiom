@@ -1,17 +1,17 @@
-// XIOM MCP — Knowledge Tools (Phase 5d.1 expansion)
+// XIOM MCP -- Knowledge Tools (Phase 5d.1 expansion)
 // -----------------------------------------------------------------------
 // Makes any MCP-capable agent an instant XIOM expert, regardless of LLM
 // training data. Three tools:
-//   xiom_stdlib_reference — LIVE parsed from stdlib/*.xi (always in sync)
-//   xiom_language_guide   — deep language semantics by topic
-//   xiom_workflow_guide   — toolchain operations (build/test/debug/publish)
+//   xiom_stdlib_reference -- LIVE parsed from stdlib/*.xi (always in sync)
+//   xiom_language_guide   -- deep language semantics by topic
+//   xiom_workflow_guide   -- toolchain operations (build/test/debug/publish)
 
 use xiom_ast::*;
 use xiom_lexer::Lexer;
 use xiom_parser::Parser;
 
 // ============================================================================
-// Live stdlib reference — parses real source, never goes stale
+// Live stdlib reference -- parses real source, never goes stale
 // ============================================================================
 
 /// List all stdlib modules, or describe one module's full public API.
@@ -24,7 +24,7 @@ pub fn stdlib_reference(module_filter: Option<&str>) -> Result<String, String> {
     // Recursive scan of stdlib/xiom/**/*.xi (the 512-module layout uses
     // subdirectories: os/file.xi -> module xiom.os.file). Module names are
     // the dotted relative path ("memory.alloc"), and the LEGACY bare stem
-    // ("alloc") resolves when unique — keeps old tooling/agents working
+    // ("alloc") resolves when unique -- keeps old tooling/agents working
     // against the frozen layout.
     let mut modules: Vec<(String, std::path::PathBuf)> = Vec::new(); // (dotted name, path)
     for dir in &dirs {
@@ -75,8 +75,8 @@ pub fn stdlib_reference(module_filter: Option<&str>) -> Result<String, String> {
     for (name, f) in &modules {
         let source = std::fs::read_to_string(f).unwrap_or_default();
         let desc = source.lines()
-            .find(|l| l.starts_with("// XIOM") && l.contains('—'))
-            .and_then(|l| l.split('—').nth(1))
+            .find(|l| l.starts_with("// XIOM") && l.contains("--"))
+            .and_then(|l| l.split("--").nth(1))
             .map(|s| s.trim().to_string())
             .unwrap_or_default();
         let (fn_count, ty_count) = count_pub_items(&source);

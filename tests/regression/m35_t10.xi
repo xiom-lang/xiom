@@ -1,4 +1,4 @@
-// M35-T10: Struct with all field types — Bool, Int, Int8/16/32/64, Float64, Str (no Char in large struct)
+// M35-T10: Struct with all field types -- Bool, Int, Int8/16/32/64, Float64, Str (no Char in large struct)
 type MegaStruct = {
   f_bool: Bool;
   f_int: Int;

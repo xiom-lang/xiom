@@ -1,4 +1,4 @@
-// M32-C08: Method contract — impl method with requires/ensures
+// M32-C08: Method contract -- impl method with requires/ensures
 interface Check {
   fn between(self, lo: Int, hi: Int) -> Bool;
 }

@@ -1,4 +1,4 @@
-// M35-C14: infinite loop with break — while true with multiple break conditions
+// M35-C14: infinite loop with break -- while true with multiple break conditions
 fn collatz_steps(n: Int) -> Int {
   var x: Int = n;
   var steps: Int = 0;

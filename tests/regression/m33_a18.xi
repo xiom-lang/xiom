@@ -1,4 +1,4 @@
-// M33-A18: Array comparison — element-by-element comparison of two arrays
+// M33-A18: Array comparison -- element-by-element comparison of two arrays
 fn main() -> Int {
   var a = [1, 2, 3, 4, 5];
   var b = [1, 2, 3, 4, 5];

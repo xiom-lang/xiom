@@ -1,4 +1,4 @@
-// M35-C09: while with continue — skip iterations inside loop
+// M35-C09: while with continue -- skip iterations inside loop
 fn sum_odd_to(n: Int) -> Int {
   var total: Int = 0;
   var i: Int = 1;

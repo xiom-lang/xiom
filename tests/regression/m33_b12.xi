@@ -1,4 +1,4 @@
-// M33-B12: Borrow in while scope — &mut reference used inside loop, conditionally
+// M33-B12: Borrow in while scope -- &mut reference used inside loop, conditionally
 fn dec(x: &mut Int) { *x = *x - 1; }
 fn main() -> Int {
   var a = 5;

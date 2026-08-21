@@ -1,4 +1,4 @@
-// M34-N01: Struct with derive[Eq] — basic struct equality
+// M34-N01: Struct with derive[Eq] -- basic struct equality
 type Point = { x: Int; y: Int; } derive[Eq]
 fn main() -> Int {
   var a = Point{ x: 1; y: 2; };

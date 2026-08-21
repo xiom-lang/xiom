@@ -1,4 +1,4 @@
-// M35-O17: Option transpose — simulate Option[Result] pattern using flat matches
+// M35-O17: Option transpose -- simulate Option[Result] pattern using flat matches
 fn div_result(a: Int, b: Int) -> Result[Int, Str] {
   if b == 0 { return Err("div0"); }
   return Ok(a / b);

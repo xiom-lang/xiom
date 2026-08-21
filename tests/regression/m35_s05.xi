@@ -1,4 +1,4 @@
-// M35-S05: Remove character — build new string without target char
+// M35-S05: Remove character -- build new string without target char
 use stdlib.xiom.string;
 fn remove_char(s: Str, ch: Char) -> Str {
   var result: Str = "";

@@ -1,4 +1,4 @@
-// M35-T28: Generic exhaustive — struct, enum, function, multiple params
+// M35-T28: Generic exhaustive -- struct, enum, function, multiple params
 fn id[T](x: T) -> T { return x; }
 type Box[T] = { val: T; }
 type Pair[T, U] = { first: T; second: U; }

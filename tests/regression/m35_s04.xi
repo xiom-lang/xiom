@@ -1,4 +1,4 @@
-// M35-S04: Count character occurrences — loop and count matching bytes
+// M35-S04: Count character occurrences -- loop and count matching bytes
 use stdlib.xiom.string;
 fn count_char(s: Str, ch: Char) -> Int {
   var count: Int = 0;

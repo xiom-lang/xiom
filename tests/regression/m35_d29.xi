@@ -1,4 +1,4 @@
-// M35-D29: Fenwick tree — prefix sum verification
+// M35-D29: Fenwick tree -- prefix sum verification
 fn main() -> Int {
   var sum1: Int = 5;
   var sum2: Int = 15;

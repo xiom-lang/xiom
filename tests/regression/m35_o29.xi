@@ -1,4 +1,4 @@
-// M35-O29: Result of Option — Result and Option interaction via match
+// M35-O29: Result of Option -- Result and Option interaction via match
 enum ResOpt { Found(v: Int), NotFound, Error(reason: Str) }
 fn safe_lookup(idx: Int) -> ResOpt {
   if idx < 0 { return ResOpt.Error("bad index"); }

@@ -1,4 +1,4 @@
-// xiom-display — Shared type/expression display utilities
+// xiom-display -- Shared type/expression display utilities
 // Sprint 6B.2: Deduplicates type_to_string/format_fn_signature/op_to_str
 // across xiom-lsp, xiom-doc, xiom-fmt, xiom-mcp, xiom-ffigen.
 

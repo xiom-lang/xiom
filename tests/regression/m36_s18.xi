@@ -1,4 +1,4 @@
-// M36-S18: Optimization — dead code elimination analysis
+// M36-S18: Optimization -- dead code elimination analysis
 type DefUse = { id: Int; defined: Bool; used: Bool; reachable: Bool; }
 fn make_def_use(id: Int, def: Bool, used: Bool, reach: Bool) -> DefUse {
   return DefUse{ id: id; defined: def; used: used; reachable: reach; };

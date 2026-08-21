@@ -1,4 +1,4 @@
-// M36-S27: Virtual machine — bytecode instruction dispatch (switch/match simulation)
+// M36-S27: Virtual machine -- bytecode instruction dispatch (switch/match simulation)
 type Bytecode = { op: Int; operand_a: Int; operand_b: Int; operand_c: Int; }
 fn make_bc(op: Int, a: Int, b: Int, c: Int) -> Bytecode {
   return Bytecode{ op: op; operand_a: a; operand_b: b; operand_c: c; };

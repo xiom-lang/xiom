@@ -1,11 +1,11 @@
 # XIOM Programming Language
 
-**Safe · Verified · Precise** — A systems programming language with first-class contracts.
+**Safe - Verified - Precise** -- A systems programming language with first-class contracts.
 
 [![Tests](https://img.shields.io/badge/tests-246%20passed-brightgreen)]()
 [![Version](https://img.shields.io/badge/version-0.20.0-blue)]()
 
-XIOM is a compiled, statically typed, memory-safe systems programming language. It compiles to native code via LLVM and supports x86_64, ARM, RISC-V, and WebAssembly. The compiler is self-hosted — it compiles itself.
+XIOM is a compiled, statically typed, memory-safe systems programming language. It compiles to native code via LLVM and supports x86_64, ARM, RISC-V, and WebAssembly. The compiler is self-hosted -- it compiles itself.
 
 ## Quick Start
 
@@ -20,7 +20,7 @@ cd XIOM
 
 # After restarting terminal:
 xiom --version
-# → XIOM Compiler v0.20.0 "Hardened"
+# -> XIOM Compiler v0.20.0 "Hardened"
 ```
 
 ### One-Command Install (macOS / Linux)
@@ -57,7 +57,7 @@ Download the latest `xiom-v0.20.0-windows-x64.zip` from [Releases](https://githu
 | **stdlib** | Copied from repo | Included |
 | **`.xi` icon** | Registered (optional) | Registered (optional) |
 
-\* clang is a runtime dependency — xiom emits LLVM IR, clang compiles it to native binary. Without clang, use `xiom --emit-ir file.xi` to view IR.
+\* clang is a runtime dependency -- xiom emits LLVM IR, clang compiles it to native binary. Without clang, use `xiom --emit-ir file.xi` to view IR.
 
 ### Creating a Release
 
@@ -65,20 +65,20 @@ Download the latest `xiom-v0.20.0-windows-x64.zip` from [Releases](https://githu
 # Build all tools + create portable folder + ZIP
 .\package.ps1 -Version 0.20.0
 # Produces:
-#   release\xiom-v0.20.0\                 ← portable folder
-#   release\xiom-v0.20.0-windows-x64.zip   ← distributable ZIP
+#   release\xiom-v0.20.0\                 <- portable folder
+#   release\xiom-v0.20.0-windows-x64.zip   <- distributable ZIP
 ```
 
 Release folder structure:
 ```
 xiom-v0.20.0\
-├── bin\              xiom.exe, xiom-fmt.exe, xiom-doc.exe,
-│                     xiom-ffigen.exe, xiom-pkg.exe, xiom-lsp.exe,
-│                     xiom-icon.ico
-├── lib\              Standard library (.xi source files)
-├── runtime\          C runtime (xiom_runtime.c)
-├── install.bat       Double-click Windows installer
-└── README.txt
+|-- bin\              xiom.exe, xiom-fmt.exe, xiom-doc.exe,
+|                     xiom-ffigen.exe, xiom-pkg.exe, xiom-lsp.exe,
+|                     xiom-icon.ico
+|-- lib\              Standard library (.xi source files)
+|-- runtime\          C runtime (xiom_runtime.c)
+|-- install.bat       Double-click Windows installer
+`-- README.txt
 ```
 
 Install from a release:
@@ -110,18 +110,18 @@ The XIOM compiler can compile itself. The bootstrap chain begins with the Rust-c
 
 ```
    Rust xiom (bootstrap)
-        │
-        ▼ compiles selfhost/xiom_v10.xi
-        │
-   xiom.exe  ─── stage 1 selfhost binary
-        │
-        ▼ reads its own source, emits LLVM IR
-        │
+        |
+        v compiles selfhost/xiom_v10.xi
+        |
+   xiom.exe  --- stage 1 selfhost binary
+        |
+        v reads its own source, emits LLVM IR
+        |
    bootstrap_output.ll  (18 function definitions)
-        │
-        ▼ compiled by clang + xiom_runtime.c
-        │
-   xiom_stage2.exe  ─── stage 2 selfhost binary (target)
+        |
+        v compiled by clang + xiom_runtime.c
+        |
+   xiom_stage2.exe  --- stage 2 selfhost binary (target)
 ```
 
 ```powershell
@@ -130,26 +130,26 @@ cargo run -p xiom -- -o xiom.exe selfhost/xiom_v10.xi
 
 # Step 2: The resulting xiom.exe is the XIOM compiler
 .\xiom.exe --help
-# → XIOM Compiler v0.12.0
+# -> XIOM Compiler v0.12.0
 
 # Step 3: Use it to compile XIOM code
 .\xiom.exe examples/demo_float.xi --emit-ir
 
 # Step 4: Self-host the bootstrap
 .\xiom.exe selfhost/xiom_v10.xi --emit-ir
-# → produces LLVM IR for all 18 functions
+# -> produces LLVM IR for all 18 functions
 ```
 
 Latest verification (2026-07-01, feat/ecosystem branch):
 
 | Step | Command | Result |
 |------|---------|--------|
-| 1 | `cargo run -p xiom -- -o bootstrap_selfhost.exe selfhost\xiom_v10.xi` | ✅ Compiled, exit 0 |
-| 2 | `.\bootstrap_selfhost.exe` | ✅ Emits `define i64 @main()` + 17 other functions |
-| 3 | `.\bootstrap_selfhost.exe > bootstrap_output.ll` | ✅ 18 function definitions captured |
-| 4 | `clang -o bootstrap_stage2.exe bootstrap_output.ll stdlib\runtime\xiom_runtime.c` | ❌ IR syntax issues (named SSA values in calls lack `%` prefix) |
+| 1 | `cargo run -p xiom -- -o bootstrap_selfhost.exe selfhost\xiom_v10.xi` | [OK] Compiled, exit 0 |
+| 2 | `.\bootstrap_selfhost.exe` | [OK] Emits `define i64 @main()` + 17 other functions |
+| 3 | `.\bootstrap_selfhost.exe > bootstrap_output.ll` | [OK] 18 function definitions captured |
+| 4 | `clang -o bootstrap_stage2.exe bootstrap_output.ll stdlib\runtime\xiom_runtime.c` | [FAIL] IR syntax issues (named SSA values in calls lack `%` prefix) |
 
-**Status**: The Rust→selfhost→IR pipeline is fully verified. The selfhost compiler emits valid LLVM IR structurally (18 functions, proper module triple) but has two known IR emission bugs: (1) named SSA values in `call` operands lack `%` prefix, (2) string literal arguments are not properly quoted. These affect `codegen/expr.xi` in the selfhost source. Once fixed, `clang` will produce a working stage-2 binary, completing the bootstrap loop.
+**Status**: The Rust->selfhost->IR pipeline is fully verified. The selfhost compiler emits valid LLVM IR structurally (18 functions, proper module triple) but has two known IR emission bugs: (1) named SSA values in `call` operands lack `%` prefix, (2) string literal arguments are not properly quoted. These affect `codegen/expr.xi` in the selfhost source. Once fixed, `clang` will produce a working stage-2 binary, completing the bootstrap loop.
 
 **Bootstrap verified (partial)**: The XIOM compiler, compiled by Rust, can read and compile its own source, producing structured LLVM IR with 18 function definitions. Rust is the permanent bootstrap fallback; the selfhost compiler is IR-verified and awaiting codegen fixes for full stage-2 closure.
 
@@ -157,7 +157,7 @@ Latest verification (2026-07-01, feat/ecosystem branch):
 
 | Command | Description |
 |---------|-------------|
-| `xiom` | Compiler — compiles .xi to native binary |
+| `xiom` | Compiler -- compiles .xi to native binary |
 | `xiom fmt` | Canonical formatter |
 | `xiom doc` | Documentation generator |
 | `xiom lsp` | Language server |
@@ -196,17 +196,17 @@ OPTIONS:
 
 | Feature | Status |
 |---------|--------|
-| Ownership / Borrow Checker | ✅ Lexical scope: &T, &mut T, move semantics |
-| Contracts (requires/ensures/invariant) | ✅ Runtime guards with @llvm.trap |
-| derive (Eq, Clone, Display, Hash, Ord) | ✅ Compiler-generated implementations |
-| Generics with inline constraints | ✅ Monomorphisation ([T: Ord]) |
-| Error handling (Result, Option, ?) | ✅ |
-| Module system (module/use/pub) | ✅ |
-| Async / Channels | ✅ Parsed + checked (codegen deferred) |
-| C FFI (extern) | ✅ Zero-cost interop |
-| Match / Pattern matching | ✅ Exhaustion checking |
-| Structs + Enums | ✅ With derive support |
-| Interfaces (structural) | ✅ |
+| Ownership / Borrow Checker | [OK] Lexical scope: &T, &mut T, move semantics |
+| Contracts (requires/ensures/invariant) | [OK] Runtime guards with @llvm.trap |
+| derive (Eq, Clone, Display, Hash, Ord) | [OK] Compiler-generated implementations |
+| Generics with inline constraints | [OK] Monomorphisation ([T: Ord]) |
+| Error handling (Result, Option, ?) | [OK] |
+| Module system (module/use/pub) | [OK] |
+| Async / Channels | [OK] Parsed + checked (codegen deferred) |
+| C FFI (extern) | [OK] Zero-cost interop |
+| Match / Pattern matching | [OK] Exhaustion checking |
+| Structs + Enums | [OK] With derive support |
+| Interfaces (structural) | [OK] |
 
 ## Platform Build Matrix
 
@@ -214,9 +214,9 @@ OPTIONS:
 
 | Platform | Rust compiler | Selfhost |
 |----------|--------------|----------|
-| Windows x64 | ✅ | ✅ |
-| macOS ARM | ✅ (via CI) | ⏳ |
-| Linux x64 | ✅ (via CI) | ⏳ |
+| Windows x64 | [OK] | [OK] |
+| macOS ARM | [OK] (via CI) | [WIP] |
+| Linux x64 | [OK] (via CI) | [WIP] |
 
 ### Build from Source Requirements
 
@@ -225,7 +225,7 @@ OPTIONS:
 | **Rust** | 1.75+ | `rustup` recommended |
 | **LLVM/clang** | 15+ | For native compilation |
 | **Windows SDK** | 10.0+ | Included with Visual Studio |
-| **WebAssembly** | — | Built-in via LLVM |
+| **WebAssembly** | -- | Built-in via LLVM |
 
 ```powershell
 # Install Rust
@@ -273,9 +273,9 @@ See [RELEASES.md](RELEASES.md) for full version history with changelog, test cou
 
 | Library | Purpose | Status |
 |---------|---------|--------|
-| `xiom-http` | HTTP client (libcurl) | 🚧 |
-| `xiom-crypto` | Cryptography (OpenSSL) | 🚧 |
-| `xiom-sql` | SQL database (SQLite) | 🚧 |
+| `xiom-http` | HTTP client (libcurl) | [WIP] |
+| `xiom-crypto` | Cryptography (OpenSSL) | [WIP] |
+| `xiom-sql` | SQL database (SQLite) | [WIP] |
 
 ## Package Registry
 
@@ -284,7 +284,7 @@ XIOM has a local package registry. Start the server, then publish and install pa
 ```powershell
 # Start the registry
 python registry/server.py
-# → http://localhost:8080
+# -> http://localhost:8080
 
 # Publish a package
 xiom pkg publish
@@ -300,29 +300,29 @@ xiom pkg install xiom-http
 
 ```
 XIOM/
-├── crates/           # Rust bootstrap compiler (12 crates)
-│   ├── xiom/       #   Compiler CLI
-│   ├── xiom-ast/    #   AST definitions
-│   ├── xiom-lexer/  #   Tokenizer
-│   ├── xiom-parser/ #   Recursive descent parser
-│   ├── xiom-check/  #   Type checker + borrow checker
-│   ├── xiom-codegen/#   LLVM IR emitter
-│   └── ...           #   fmt, doc, lsp, pkg, ffigen, verify
-├── selfhost/         # XIOM self-hosted compiler
-│   └── xiom_v10.xi #   Main compiler source
-├── stdlib/           # Standard library
-│   ├── xiom/        #   core, io, collections, string, math, ffi, async
-│   └── runtime/      #   C runtime (xiom_runtime.c)
-├── examples/         # Example programs (21)
-├── ecosystem/        # Ecosystem libraries
-│   ├── xiom-http/   #   HTTP (libcurl)
-│   ├── xiom-crypto/ #   Cryptography (OpenSSL)
-│   └── xiom-sql/    #   SQL (SQLite)
-├── editors/vscode/   # VS Code extension
-├── playground/       # WASM playground
-├── dist/             # Distribution packages
-├── specs/            # Language specification + build strategy
-└── docs/             # Documentation
+|-- crates/           # Rust bootstrap compiler (12 crates)
+|   |-- xiom/       #   Compiler CLI
+|   |-- xiom-ast/    #   AST definitions
+|   |-- xiom-lexer/  #   Tokenizer
+|   |-- xiom-parser/ #   Recursive descent parser
+|   |-- xiom-check/  #   Type checker + borrow checker
+|   |-- xiom-codegen/#   LLVM IR emitter
+|   `-- ...           #   fmt, doc, lsp, pkg, ffigen, verify
+|-- selfhost/         # XIOM self-hosted compiler
+|   `-- xiom_v10.xi #   Main compiler source
+|-- stdlib/           # Standard library
+|   |-- xiom/        #   core, io, collections, string, math, ffi, async
+|   `-- runtime/      #   C runtime (xiom_runtime.c)
+|-- examples/         # Example programs (21)
+|-- ecosystem/        # Ecosystem libraries
+|   |-- xiom-http/   #   HTTP (libcurl)
+|   |-- xiom-crypto/ #   Cryptography (OpenSSL)
+|   `-- xiom-sql/    #   SQL (SQLite)
+|-- editors/vscode/   # VS Code extension
+|-- playground/       # WASM playground
+|-- dist/             # Distribution packages
+|-- specs/            # Language specification + build strategy
+`-- docs/             # Documentation
 ```
 
 ## License

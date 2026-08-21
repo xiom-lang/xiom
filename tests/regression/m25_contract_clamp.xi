@@ -1,4 +1,4 @@
-// M25: Clamp with ensures — result must be within range
+// M25: Clamp with ensures -- result must be within range
 fn clamp(x: Int, lo: Int, hi: Int) -> Int
   ensures: result >= lo
   ensures: result <= hi

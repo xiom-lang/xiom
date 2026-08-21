@@ -1,4 +1,4 @@
-// M34-O04: 3-chain ? — three consecutive ? in sequence
+// M34-O04: 3-chain ? -- three consecutive ? in sequence
 fn validate(v: Int) -> Result[Int, Str] {
   if v < 0 { return Err("negative"); }
   return Ok(v);

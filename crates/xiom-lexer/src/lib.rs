@@ -1,8 +1,8 @@
-// XIOM — Lexer
+// XIOM -- Lexer
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
-//! XIOM Lexer — converts UTF-8 source to a flat token stream.
+//! XIOM Lexer -- converts UTF-8 source to a flat token stream.
 //! No whitespace significance except within string literals.
 
 use xiom_ast::Span;
@@ -23,7 +23,7 @@ pub enum TokenKind {
     Type, Enum, Interface, Derive, Impl,
     // requires/ensures/invariant are CONTEXTUAL keywords (5c-R: interned symbols,
     // rustc lesson). They are tokenized as regular Ident and only recognized
-    // as keywords at specific parser positions — so `var requires = 5;` works.
+    // as keywords at specific parser positions -- so `var requires = 5;` works.
     True, False, Self_,
     Some, None, Ok_, Err_,
     Unsafe, Extern, Is,
@@ -89,7 +89,7 @@ pub struct Lexer {
 impl Lexer {
     pub fn new(source: &str) -> Self {
         // BUG 23 #6 fix: a UTF-8 BOM (U+FEFF) at the start of a source file must
-        // be stripped — previously it surfaced as `unexpected character` at 1:1
+        // be stripped -- previously it surfaced as `unexpected character` at 1:1
         // and silently broke module registration for catalog files saved with a
         // BOM (writer tools / Windows editors). All leading BOMs are dropped
         // (a double-BOM file is malformed but should still parse).
@@ -159,7 +159,7 @@ impl Lexer {
     }
 
     pub fn tokenize(&mut self) -> Vec<Token> {
-        // M10: Shebang support — skip `#!/usr/bin/env xiom` on line 1.
+        // M10: Shebang support -- skip `#!/usr/bin/env xiom` on line 1.
         // The shebang line is treated as a comment for line-number preservation.
         if self.pos == 0 && self.peek() == Some('#') && self.peek_n(1) == Some('!') {
             self.advance_while(|c| c != '\n');
@@ -274,7 +274,7 @@ impl Lexer {
                     let num_u128: u128 = clean.parse().unwrap_or(0);
                     let suffix = self.parse_numeric_suffix();
                     let lexeme = if suffix.is_empty() { int_part } else { format!("{int_part}{suffix}") };
-                    // D1: overflow u64 → BigInt token for native Int128 literals.
+                    // D1: overflow u64 -> BigInt token for native Int128 literals.
                     if num_u128 > u64::MAX as u128 {
                         return Token::new(TokenKind::BigInt(num_u128), start, lexeme);
                     }
@@ -533,7 +533,7 @@ impl Lexer {
             "interface" => TokenKind::Interface,
             "derive"    => TokenKind::Derive,
             "impl"      => TokenKind::Impl,
-            // requires/ensures/invariant — contextuel keywords (5c-R).
+            // requires/ensures/invariant -- contextuel keywords (5c-R).
             // Removed from reserved set; tokenized as regular Ident.
             "true"      => TokenKind::True,
             "false"     => TokenKind::False,
@@ -725,7 +725,7 @@ mod tests {
         assert_eq!(tokens[8], TokenKind::Str("\x0C".into()));
     }
 
-    /// 8B/M5: Fuzz harness — feed random bytes to lexer, verify no panics.
+    /// 8B/M5: Fuzz harness -- feed random bytes to lexer, verify no panics.
     /// Uses a simple LCG for deterministic randomness.
     #[test]
     fn fuzz_lexer_random_input() {
@@ -745,7 +745,7 @@ mod tests {
         }
     }
 
-    /// 8B/M5: Fuzz harness — edge cases (unterminated strings, nested comments, binary)
+    /// 8B/M5: Fuzz harness -- edge cases (unterminated strings, nested comments, binary)
     #[test]
     fn fuzz_lexer_edge_cases() {
         let edge_cases = vec![

@@ -1,4 +1,4 @@
-// M36-C14: Every struct nesting depth 1-6 — deeply nested structs with field access through all levels
+// M36-C14: Every struct nesting depth 1-6 -- deeply nested structs with field access through all levels
 type L1 = { a: Int; }
 type L2 = { inner: L1; b: Int; }
 type L3 = { inner: L2; c: Int; }

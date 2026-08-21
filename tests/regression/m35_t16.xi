@@ -1,4 +1,4 @@
-// M35-T16: Method on each type — impl for struct wrapper, enum
+// M35-T16: Method on each type -- impl for struct wrapper, enum
 interface GetValue { fn get(self) -> Int; }
 type IntHolder = { val: Int; }
 impl GetValue for IntHolder { fn get(self) -> Int { return self.val; } }

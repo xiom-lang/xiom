@@ -1,29 +1,29 @@
-// XIOM — Place Model (5c-R: field-granular borrows, WS2 #1)
+// XIOM -- Place Model (5c-R: field-granular borrows, WS2 #1)
 // Direct transplant from rustc: `compiler/rustc_middle/src/mir/syntax.rs` (~line 1162)
 // and `compiler/rustc_borrowck/src/places_conflict.rs`.
 
 // ============================================================================
-// Projection — one step in a place path
+// Projection -- one step in a place path
 // ============================================================================
 
 /// A single access step along a borrow path. `a.b[i].c` is:
 ///   root local "a" + [Field("b"), Index, Field("c")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Projection {
-    /// `expr.field` — named struct field access
+    /// `expr.field` -- named struct field access
     Field(String),
-    /// `expr[idx]` — runtime index (Array/Vec/Map access)
+    /// `expr[idx]` -- runtime index (Array/Vec/Map access)
     Index,
-    /// `*expr` — pointer dereference
+    /// `*expr` -- pointer dereference
     Deref,
-    /// `expr as Type` — type cast
+    /// `expr as Type` -- type cast
     Cast,
     /// Sub-slice `expr[start..end]`
     Subslice,
 }
 
 // ============================================================================
-// Place — a rooted path
+// Place -- a rooted path
 // ============================================================================
 
 /// A place is a root local variable with zero or more projections.
@@ -61,7 +61,7 @@ impl Place {
         self
     }
 
-    /// True when this place is a prefix of `other` — e.g., `a.b` is a prefix
+    /// True when this place is a prefix of `other` -- e.g., `a.b` is a prefix
     /// of `a.b.c`. The prefix rule: if one place is a prefix of another, they
     /// conflict.
     pub fn is_prefix_of(&self, other: &Place) -> bool {
@@ -72,16 +72,16 @@ impl Place {
 }
 
 // ============================================================================
-// places_conflict — the lockstep walk (directly portable from rustc)
+// places_conflict -- the lockstep walk (directly portable from rustc)
 // ============================================================================
 
 /// Result of the place-conflict walk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlaceConflict {
     /// The two places are provably disjoint (different struct fields,
-    /// different enum variants, etc.) — no conflict.
+    /// different enum variants, etc.) -- no conflict.
     Disjoint,
-    /// The two places definitely overlap — conflict.
+    /// The two places definitely overlap -- conflict.
     Overlap,
     /// At least one Index projection prevented resolving the overlap;
     /// the caller must conservatively assume conflict.
@@ -91,16 +91,16 @@ pub enum PlaceConflict {
 /// Determine whether two places conflict. This is a lockstep walk:
 /// walk both projection lists element by element until either:
 ///   - They diverge at a Field(`name_a`) vs Field(`name_b`) with name_a != name_b
-///     → DISJOINT (different fields of the same struct are non-overlapping)
+///     -> DISJOINT (different fields of the same struct are non-overlapping)
 ///   - One list is exhausted while the other still has elements
-///     → the shorter is a prefix of the longer → OVERLAP
-///   - Both lists exhaust simultaneously → OVERLAP (same place)
-///   - An Index projection is encountered → AMBIGUOUS (runtime index)
-///   - A Deref projection is encountered → OVERLAP (conservative)
+///     -> the shorter is a prefix of the longer -> OVERLAP
+///   - Both lists exhaust simultaneously -> OVERLAP (same place)
+///   - An Index projection is encountered -> AMBIGUOUS (runtime index)
+///   - A Deref projection is encountered -> OVERLAP (conservative)
 ///
 /// Direct transplant from `compiler/rustc_borrowck/src/places_conflict.rs`.
 pub fn places_conflict(a: &Place, b: &Place) -> PlaceConflict {
-    // Different root locals — no conflict (stack slots don't alias).
+    // Different root locals -- no conflict (stack slots don't alias).
     if a.local != b.local {
         return PlaceConflict::Disjoint;
     }
@@ -111,21 +111,21 @@ pub fn places_conflict(a: &Place, b: &Place) -> PlaceConflict {
 
     for i in 0..min_len {
         match (&a_projs[i], &b_projs[i]) {
-            // Same element — continue walking
+            // Same element -- continue walking
             (Projection::Field(a_name), Projection::Field(b_name))
                 if a_name == b_name => continue,
-            // Different named fields — provably disjoint
+            // Different named fields -- provably disjoint
             (Projection::Field(_), Projection::Field(_)) => return PlaceConflict::Disjoint,
             // Index: runtime value, can't prove disjointness
             (Projection::Index, _) | (_, Projection::Index) => return PlaceConflict::Ambiguous,
             // Deref: always conservatively assume overlap
             (Projection::Deref, _) | (_, Projection::Deref) => return PlaceConflict::Overlap,
-            // Different projection kinds (e.g., Field vs Index) — ambiguous
+            // Different projection kinds (e.g., Field vs Index) -- ambiguous
             _ => return PlaceConflict::Ambiguous,
         }
     }
 
-    // Walk exhausted for both — same place (overlap)
+    // Walk exhausted for both -- same place (overlap)
     // or one is a prefix of the other (also overlap)
     PlaceConflict::Overlap
 }
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn test_places_conflict_prefix_rule() {
-        // &a.b vs use of a.b.c — prefix → conflict
+        // &a.b vs use of a.b.c -- prefix -> conflict
         let a = Place::from_local("a").field("b");
         let b = Place::from_local("a").field("b").field("c");
         assert_eq!(places_conflict(&a, &b), PlaceConflict::Overlap);

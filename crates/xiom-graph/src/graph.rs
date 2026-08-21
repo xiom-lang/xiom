@@ -19,7 +19,7 @@ pub struct ModuleNode {
     /// Absolute path to the `.xi` source file.
     pub file_path: PathBuf,
     /// Dotted module paths this file imports via `use`.
-    /// These are the raw paths from `use` declarations — not yet resolved
+    /// These are the raw paths from `use` declarations -- not yet resolved
     /// to specific graph nodes.
     pub dependencies: Vec<String>,
     /// Content hash for incremental compilation (SHA-256 of source).
@@ -39,13 +39,13 @@ pub struct DependencyGraph {
     pub nodes: Vec<ModuleNode>,
     /// Source root directories.
     pub source_roots: Vec<PathBuf>,
-    /// Adjacency list: `node_index → [dep_node_indices]`.
+    /// Adjacency list: `node_index -> [dep_node_indices]`.
     pub edges: Vec<Vec<usize>>,
-    /// Reverse adjacency: `node_index → [dependent_node_indices]`.
+    /// Reverse adjacency: `node_index -> [dependent_node_indices]`.
     pub reverse_edges: Vec<Vec<usize>>,
-    /// Fast lookup: dotted module path → node index.
+    /// Fast lookup: dotted module path -> node index.
     pub path_to_idx: HashMap<String, usize>,
-    /// Fast lookup: file path → node index.
+    /// Fast lookup: file path -> node index.
     pub file_to_idx: HashMap<PathBuf, usize>,
 }
 
@@ -110,7 +110,7 @@ impl DependencyGraph {
                 if matching.len() == 1 {
                     self.add_edge(i, matching[0]);
                 } else if !matching.is_empty() {
-                    // Multiple match — prefer the most specific (longest path)
+                    // Multiple match -- prefer the most specific (longest path)
                     let best = matching
                         .into_iter()
                         .max_by_key(|&j| self.nodes[j].module_path.len())
@@ -120,11 +120,11 @@ impl DependencyGraph {
                     // Try loading from external catalog (stdlib, registry packages)
                     // For now, external packages from the registry/stdlib are resolved
                     // at check-time by the Checker. We only track internal deps.
-                    // External deps are not added as edges — they'll be resolved by
+                    // External deps are not added as edges -- they'll be resolved by
                     // the Checker's catalog at compile time.
                 }
                 // If dep_path has no dots (single-segment), it's likely a local module
-                // or a builtin. Don't error — the Checker will handle resolution.
+                // or a builtin. Don't error -- the Checker will handle resolution.
             }
         }
 

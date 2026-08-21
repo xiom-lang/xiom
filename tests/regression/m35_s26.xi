@@ -1,4 +1,4 @@
-// M35-S26: String expansion — expand repeated chars (a3b2 → aaabb)
+// M35-S26: String expansion -- expand repeated chars (a3b2 -> aaabb)
 use stdlib.xiom.string;
 fn expand(s: Str) -> Str {
   if s.len() == 0 { return ""; }

@@ -1,4 +1,4 @@
-// M35-D10: Hash map — key-value storage pattern
+// M35-D10: Hash map -- key-value storage pattern
 fn main() -> Int {
   var key0: Int = 1;
   var val0: Int = 100;

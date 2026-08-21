@@ -1,9 +1,9 @@
 module m37_nan_ieee
 // BUG 19 regression: IEEE-754 NaN/Inf semantics + Str + Float64 concat.
-// 1) float `!=` must lower to fcmp UNE — `x != x` is TRUE for NaN (the old
+// 1) float `!=` must lower to fcmp UNE -- `x != x` is TRUE for NaN (the old
 //    `fcmp one` made it false, so is_nan() was impossible).
 // 2) NaN-producing ops (0.0/0.0, inf*0.0, inf-inf) must yield real NaN values
-//    (the old concat path inttoptr'd the FP bits → AV / garbage sentinels).
+//    (the old concat path inttoptr'd the FP bits -> AV / garbage sentinels).
 // 3) Str + Float64 concat must FORMAT via xiom_double_to_string ("nan",
 //    "inf", "-inf", shortest round-trip for finite values).
 

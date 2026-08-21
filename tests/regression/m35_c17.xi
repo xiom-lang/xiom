@@ -1,4 +1,4 @@
-// M35-C17: loop with early exit — return immediately when condition met
+// M35-C17: loop with early exit -- return immediately when condition met
 fn find_index(needle: Int, max: Int) -> Int {
   var i: Int = 0;
   while i < max {

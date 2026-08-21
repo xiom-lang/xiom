@@ -1,4 +1,4 @@
-// M34-O13: ? with generic result — ? on Result[T, E] with type param
+// M34-O13: ? with generic result -- ? on Result[T, E] with type param
 fn ok_or_default[T](r: Result[T, Str], default: T) -> T {
   match r { Ok(v) => v, Err(_) => default }
 }

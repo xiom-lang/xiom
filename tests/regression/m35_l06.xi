@@ -1,4 +1,4 @@
-// M35-L06: Struct with Str fields — verify string layout in struct
+// M35-L06: Struct with Str fields -- verify string layout in struct
 type Labeled = { key: Str; value: Int; note: Str; }
 
 fn main() -> Int {

@@ -1,4 +1,4 @@
-// M34-J17: Module with invariant — invariant types defined inside modules
+// M34-J17: Module with invariant -- invariant types defined inside modules
 module non_zero {
   pub type Positive = { val: Int; invariant: val > 0; }
   pub fn make_pos(v: Int) -> Positive { return Positive{ val: v; }; }

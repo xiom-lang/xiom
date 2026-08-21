@@ -1,4 +1,4 @@
-// XIOM Codegen â€” Statement compilation (extracted from expr.rs, M4.2)
+// XIOM Codegen -- Statement compilation (extracted from expr.rs, M4.2)
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -12,7 +12,7 @@ impl IrEmitter {
     pub(crate) fn compile_stmt_impl(&mut self, stmt: &Stmt) -> Result<(), String> {
         match stmt {
             Stmt::Let(name, _ty, value, _) => {
-                // 5c.30: Empty array `[]` assigned to a Vec-typed variable â€” emit
+                // 5c.30: Empty array `[]` assigned to a Vec-typed variable -- emit
                 // proper Vec initialization instead of coercing i8* to %struct.Vec.
                 let is_empty_array_to_vec = matches!(value, Expr::Array(elems, _) if elems.is_empty())
                     && _ty.as_ref().map_or(false, |t| {
@@ -87,8 +87,8 @@ impl IrEmitter {
                     matches!(e, Expr::PipeClosure(..) | Expr::Closure(..))
                     || matches!(e, Expr::Paren(inner, _) if matches!(inner.as_ref(), Expr::Closure(..) | Expr::PipeClosure(..)))
                     // B-007: a local bound from an fn-typed CONTAINER ELEMENT
-                    // (`var t = tw.tasks[i]; t();` — Vec[fn()]) holds a closure
-                    // ENV — calling it must go through the M20-A1 env path.
+                    // (`var t = tw.tasks[i]; t();` -- Vec[fn()]) holds a closure
+                    // ENV -- calling it must go through the M20-A1 env path.
                     || matches!(e, Expr::Index(container, _, _) if {
                         let elem = self.resolve_vec_container_elem_xiom(container);
                         elem.map_or(false, |x| x.starts_with("fn("))
@@ -111,8 +111,8 @@ impl IrEmitter {
                         self.local.local_err_payload.entry(name.name.clone()).or_insert(err_val);
                     }
                 }
-                // 5c.30: Empty array `[]` assigned to Vec-typed variable â€” emit
-                // proper Vec initialization to avoid i8* â†’ %struct.Vec coercion.
+                // 5c.30: Empty array `[]` assigned to Vec-typed variable -- emit
+                // proper Vec initialization to avoid i8* -> %struct.Vec coercion.
                 if is_empty_array_to_vec {
                     let elem_size: i64 = _ty.as_ref()
                         .and_then(|t| Self::vec_elem_from_type_annotation(t))
@@ -162,7 +162,7 @@ impl IrEmitter {
                 }
                 let (val, val_llvm_ty) = if let Expr::Array(elems, _) = value {
                     // M33: Non-empty array literal assigned to a Let binding
-                    // â€” convert to Vec so `&arr` produces a proper Vec pointer
+                    // -- convert to Vec so `&arr` produces a proper Vec pointer
                     // instead of an i8* buffer pointer. Fixes ACCESS_VIOLATION
                     // on `binary_search(&arr, ...)` where arr is a let-bound array.
                     let elem_ty = _ty.as_ref()
@@ -189,34 +189,34 @@ impl IrEmitter {
                         self.local.signed_locals.remove(&name.name);
                     }
                 } else if let Some(inferred) = Self::infer_value_xiom_type(value) {
-                    // BUG 14: `var big = x as UInt128` â€” infer signedness from
+                    // BUG 14: `var big = x as UInt128` -- infer signedness from
                     // the cast target when there is no annotation.
                     self.local.local_xiom_types.insert(name.name.clone(), inferred);
                 } else if let Some(ix) = self.infer_if_xiom_type(value) {
                     // gzip fix (2026-08-19): `let v = if c { f() } else { g() };`
-                    // — the binding keeps the arm tail's XIOM type ("Vec[UInt8]").
+                    // -- the binding keeps the arm tail's XIOM type ("Vec[UInt8]").
                     self.local.local_xiom_types.insert(name.name.clone(), ix);
                 } else if let Some(tx) = self.infer_try_xiom_type(value) {
-                    // Round-6 fix (2026-08-19): `let name = f()?;` — the binding
+                    // Round-6 fix (2026-08-19): `let name = f()?;` -- the binding
                     // keeps the Option/Result payload XIOM type ("Str") so
                     // method dispatch on it works.
                     self.local.local_xiom_types.insert(name.name.clone(), tx);
                 } else if let Some(px) = self.infer_field_payload_xiom(value) {
-                    // gzip-DECOMPRESS fix (2026-08-19): `let v = r.value;` â€”
+                    // gzip-DECOMPRESS fix (2026-08-19): `let v = r.value;` --
                     // the binding keeps the Option/Result payload type
                     // ("Vec[UInt8]") so method dispatch/indexing/&passing on it
-                    // work (was untyped â†’ degraded to Str/i64 â†’ AV).
+                    // work (was untyped -> degraded to Str/i64 -> AV).
                     self.local.local_xiom_types.insert(name.name.clone(), px);
                 } else if let Some(rt) = self.infer_call_return_xiom(value) {
-                    // BUG 52: `var m = make_map()` â€” a local bound to a fn
+                    // BUG 52: `var m = make_map()` -- a local bound to a fn
                     // call keeps the callee's declared return type ("Map[Str,
                     // MyVal]") so generic METHOD calls on it can infer type
                     // args (m.get("b") must mono Map.get[Str, MyVal], not
                     // [Str, Str]).
                     self.local.local_xiom_types.insert(name.name.clone(), rt);
                 }
-                // BUG 44: `var p = &s` / `var p: &Str = ...` â€” track ref-locals
-                // (address-carrying) so deref and &Tâ†’T coercion load through.
+                // BUG 44: `var p = &s` / `var p: &Str = ...` -- track ref-locals
+                // (address-carrying) so deref and &T->T coercion load through.
                 self.track_ref_local(&name.name, _ty.as_deref(), value);
                 // Use declared struct type when available (handles Option.unwrap
                 // round-trip where the value is a heap pointer i64 but the declared
@@ -228,7 +228,7 @@ impl IrEmitter {
                 } else if let Some(ref d) = declared_llvm_ty {
                     // M17: For primitive declared types, prefer the declared type
                     // when it differs from the compiled value's LLVM type.
-                    // This ensures Int8â†’i8, Int16â†’i16, Int32â†’i32, Float32â†’float.
+                    // This ensures Int8->i8, Int16->i16, Int32->i32, Float32->float.
                     // For i64 declared types where the value is also i64, keep i64.
                     if d != &val_llvm_ty || val_llvm_ty == "void" || val.is_empty() {
                         d.clone()
@@ -287,7 +287,7 @@ impl IrEmitter {
             Stmt::Var(name, _ty, value, _) => {
                 // M20-A1: Track closure bindings (also through parens)
                 // B-007: plus locals bound from fn-typed container ELEMENTS
-                // (`var t = tw.tasks[i]; t();` — Vec[fn()] holds closure envs).
+                // (`var t = tw.tasks[i]; t();` -- Vec[fn()] holds closure envs).
                 if matches!(value, Expr::PipeClosure(..) | Expr::Closure(..))
                     || matches!(value, Expr::Paren(inner, _) if matches!(inner.as_ref(), Expr::Closure(..) | Expr::PipeClosure(..)))
                     || matches!(value, Expr::Index(container, _, _) if {
@@ -333,7 +333,7 @@ impl IrEmitter {
                         Expr::Ident(id) => self.local.local_vec_elem.get(&id.name).cloned(),
                         Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => {
                             // BUG 23 #1 fix: inherit from the callee's DECLARED
-                            // return type as well as from the first argument â€”
+                            // return type as well as from the first argument --
                             // `var v = module.mk_vecf()` (catalog fn returning
                             // Vec[Float64]) must register "Float64", otherwise
                             // v[i] element reads degrade to the elem_size switch
@@ -350,7 +350,7 @@ impl IrEmitter {
                                 })
                             })
                         }
-                        // M33: Array literal bound to Var â€” keep the element
+                        // M33: Array literal bound to Var -- keep the element
                         // type that was inferred above (from first struct element).
                         // The `remove` below would otherwise clear it.
                         Expr::Array(..) => self.local.local_vec_elem.get(&name.name).cloned(),
@@ -376,7 +376,7 @@ impl IrEmitter {
                         self.local.local_err_payload.entry(name.name.clone()).or_insert(err_val);
                     }
                 }
-                // 5c.30: Empty array `[]` assigned to Vec-typed variable â€” emit
+                // 5c.30: Empty array `[]` assigned to Vec-typed variable -- emit
                 // proper Vec initialization.
                 let is_empty_array_to_vec_var = matches!(value, Expr::Array(elems, _) if elems.is_empty())
                     && _ty.as_ref().map_or(false, |t| {
@@ -438,41 +438,41 @@ impl IrEmitter {
                         self.local.signed_locals.remove(&name.name);
                     }
                 } else if let Some(inferred) = Self::infer_value_xiom_type(value) {
-                    // BUG 14: `var big = x as UInt128` â€” infer signedness from
+                    // BUG 14: `var big = x as UInt128` -- infer signedness from
                     // the cast target when there is no annotation.
                     self.local.local_xiom_types.insert(name.name.clone(), inferred);
                 } else if let Some(ix) = self.infer_if_xiom_type(value) {
                     // gzip fix (2026-08-19): `let v = if c { f() } else { g() };`
-                    // — the binding keeps the arm tail's XIOM type ("Vec[UInt8]").
+                    // -- the binding keeps the arm tail's XIOM type ("Vec[UInt8]").
                     self.local.local_xiom_types.insert(name.name.clone(), ix);
                 } else if let Some(tx) = self.infer_try_xiom_type(value) {
-                    // Round-6 fix (2026-08-19): `let name = f()?;` — the binding
+                    // Round-6 fix (2026-08-19): `let name = f()?;` -- the binding
                     // keeps the Option/Result payload XIOM type ("Str") so
                     // method dispatch on it works.
                     self.local.local_xiom_types.insert(name.name.clone(), tx);
                 } else if let Some(px) = self.infer_field_payload_xiom(value) {
-                    // gzip-DECOMPRESS fix (2026-08-19): `let v = r.value;` â€”
+                    // gzip-DECOMPRESS fix (2026-08-19): `let v = r.value;` --
                     // the binding keeps the Option/Result payload type
                     // ("Vec[UInt8]") so method dispatch/indexing/&passing on it
-                    // work (was untyped â†’ degraded to Str/i64 â†’ AV).
+                    // work (was untyped -> degraded to Str/i64 -> AV).
                     self.local.local_xiom_types.insert(name.name.clone(), px);
                 } else if let Some(rt) = self.infer_call_return_xiom(value) {
-                    // BUG 52: `var m = make_map()` â€” a local bound to a fn
+                    // BUG 52: `var m = make_map()` -- a local bound to a fn
                     // call keeps the callee's declared return type ("Map[Str,
                     // MyVal]") so generic METHOD calls on it can infer type
                     // args (m.get("b") must mono Map.get[Str, MyVal], not
                     // [Str, Str]).
                     self.local.local_xiom_types.insert(name.name.clone(), rt);
                 }
-                // BUG 44: `var p = &s` / `var p: &Str = ...` — track ref-locals
-                // (address-carrying) so deref and &T→T coercion load through.
+                // BUG 44: `var p = &s` / `var p: &Str = ...` -- track ref-locals
+                // (address-carrying) so deref and &T->T coercion load through.
                 self.track_ref_local(&name.name, _ty.as_deref(), value);
                 let (val, val_llvm_ty) = if let Expr::Array(elems, _) = value {
                     // BUG 53 (2026-08-18): FIXED-ARRAY annotated bindings
                     // (`var a: [5]Int = [10, ...]`) store elements DIRECTLY
                     // into the [N x T] slot. The old path converted the
                     // literal to a %struct.Vec and coerced the Vec VALUE to
-                    // the declared [N x T] type — coerce_value extracted
+                    // the declared [N x T] type -- coerce_value extracted
                     // field 0 (the data POINTER) and stored it as the array
                     // (invalid IR: `store [5 x i64] %data_ptr`; reads then
                     // returned garbage). Register the local and return.
@@ -499,7 +499,7 @@ impl IrEmitter {
                         return Ok(());
                     }
                     // 5c.39: Non-empty array literal assigned to a Vec-typed
-                    // variable â€” convert to Vec via compile_array_as_vec.
+                    // variable -- convert to Vec via compile_array_as_vec.
                     // M33: Infer element type from first element for struct
                     // arrays when no type annotation is present. Defaults to
                     // "Int" for scalar elements. This ensures struct elements
@@ -517,14 +517,14 @@ impl IrEmitter {
                 };
                 let orig_val_ty = val_llvm_ty.clone();
                 // M17: Use declared type for alloca width when present, falling back
-                // to value type. Special cases preserved for zero-init and floatâ†’double.
+                // to value type. Special cases preserved for zero-init and float->double.
                 let llvm_ty = if val_llvm_ty == "i64" && val == "0" {
                     declared_llvm_ty.clone().unwrap_or(val_llvm_ty)
                 } else if val_llvm_ty == "void" || val.is_empty() {
                     declared_llvm_ty.clone().unwrap_or_else(|| LLVM_I64.to_string())
                 } else if let Some(ref d) = declared_llvm_ty {
                     // M17: When a type annotation exists, prefer the declared type
-                    // for the alloca width. This ensures Int8â†’i8, Int16â†’i16, etc.
+                    // for the alloca width. This ensures Int8->i8, Int16->i16, etc.
                     // Struct types (starts_with '%') and Float32 special case were
                     // already handled; this generalizes to all declared types.
                     if d.starts_with('%') || d != &val_llvm_ty {
@@ -588,7 +588,7 @@ impl IrEmitter {
                         self.emitln(&format!("  store {pointee} {store_val}, {ptr_ty} {ptr_val}"));
                         return Ok(());
                     }
-                    // 5c.31: Legacy erased-to-i64 path â€” the pointer value is
+                    // 5c.31: Legacy erased-to-i64 path -- the pointer value is
                     // held as an i64 (e.g. from `&mut x` ptrtoint). Resolve the
                     // pointee type from the inner expression's XIOM type and
                     // emit inttoptr + store through the real pointer.
@@ -639,7 +639,7 @@ impl IrEmitter {
                     }
                 }
                 // Indexed assignment: `container[idx] = value` into a Vec (builtin
-                // {i8*, i64, i64}) ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â write an i64-wide slot at data[idx]. Str is
+                // {i8*, i64, i64}) -- write an i64-wide slot at data[idx]. Str is
                 // immutable at the ABI, so only Vec/Slice are handled.
                 if let Expr::Index(container, index, _) = place {
                     let (cont_val, cont_ty) = self.compile_expr(container)?;
@@ -667,12 +667,12 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         let elem_ptr = self.fresh_tmp();
                         self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
                         // BUG 52 (2026-08-18): STRUCT/ENUM elements must be
-                        // memcpy'd INLINE into the slot — the old val_to_i64
+                        // memcpy'd INLINE into the slot -- the old val_to_i64
                         // path stored a BOXED POINTER as the first 8 bytes and
                         // emit_elem_store wrote only that i64, so a 16-byte
                         // enum element was (a) truncated to the boxed handle
                         // and (b) read back as 16 bytes from the handle +
-                        // adjacent slot bytes (garbage payload → AV in
+                        // adjacent slot bytes (garbage payload -> AV in
                         // Map.insert's duplicate-key update `values[i] = v`).
                         let mut stored_struct = false;
                         if val_ty.starts_with('%') {
@@ -700,7 +700,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         let (idx_raw, idx_ty) = self.compile_expr(index)?;
                         let idx = self.val_to_i64(&idx_raw, &idx_ty);
                         // Use the existing local alloca when the container is an
-                        // Ident ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â avoids fresh alloca/load/store on every write.
+                        // Ident -- avoids fresh alloca/load/store on every write.
                         let mut is_ident = false;
                         let mut arr_ptr = String::new();
                         let mut arr_ptr_ty = String::new();
@@ -729,9 +729,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         }
                     } else if cont_ty.ends_with('*') && cont_ty != "i8*" {
                         // BUG 53 write-facet (2026-08-18): `&mut [N]T` params
-                        // lower to the ELEMENT pointer (i64*/double*/... — the
+                        // lower to the ELEMENT pointer (i64*/double*/... -- the
                         // mono subst + the caller's array-local coercion). The
-                        // old code had no branch for these — the write was
+                        // old code had no branch for these -- the write was
                         // DROPPED (array.sort/sort_by silently no-oped, and
                         // `set_first(&mut a, 99)` left the array unchanged).
                         let (idx_raw, idx_ty) = self.compile_expr(index)?;
@@ -745,7 +745,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         // Raw byte-buffer store: `buf[i] = v` where `buf: *UInt8`.
                         // The element is one byte; truncate the value to i8. Without
                         // this, `buf[i] = ...` silently emitted nothing (the store was
-                        // dropped), leaving heap buffers uninitialized ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ crashes in
+                        // dropped), leaving heap buffers uninitialized -> crashes in
                         // str_concat/str_upper/str_slice and other manual builders.
                         let (idx_raw, idx_ty) = self.compile_expr(index)?;
                         let idx = self.val_to_i64(&idx_raw, &idx_ty);
@@ -869,7 +869,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
             }
             Stmt::Return(expr, _) => {
                 if self.fctx.is_never_return {
-                    // P2-4: Never-returning functions â€” compile the expression
+                    // P2-4: Never-returning functions -- compile the expression
                     // (which may itself be a !-returning call), then unreachable.
                     if let Some(e) = expr {
                         let _ = self.compile_expr(e)?;
@@ -879,18 +879,18 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     // Value sink: use the value's real LLVM type from compile_expr.
                     let (mut val, val_ty) = self.compile_expr(e)?;
                     let ret_ty = self.fctx.current_return_type.clone();
-                    // D2.1 (Unsafe Confinement Phase 3, requirement i â€” Copy-Out):
+                    // D2.1 (Unsafe Confinement Phase 3, requirement i -- Copy-Out):
                     // a `return` INSIDE an unsafe block returns a value whose heap
                     // payload lives on the guard arena. It must be COPIED to the
                     // main heap BEFORE the arena resets at block exit, or the
                     // caller's Str/Vec would dangle (use-after-free).
-                    // Uses xiom_guard_copy_str (single C call) â€” NOT inline
-                    // strlen â€” which would leak the recursion counter in the
+                    // Uses xiom_guard_copy_str (single C call) -- NOT inline
+                    // strlen -- which would leak the recursion counter in the
                     // confined block (alwaysinline imbalance, 500-depth trap).
                     // D2.1 (Phase 3/4): a `return` INSIDE an unsafe block must
                     // (a) Copy-Out a Str tail to the main heap before the arena
                     // resets (UAF fix), and (b) ALWAYS discard the guard arena
-                    // + disarm the stack guard page â€” the block-exit emission
+                    // + disarm the stack guard page -- the block-exit emission
                     // after the tail loop is skipped for early returns.
                     if self.guard_heap_depth > 0 {
                         if val_ty == LLVM_STR_PTR {
@@ -1065,12 +1065,12 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         merge_reachable = true;
                     }
                 } else if elifs.is_empty() && prev_label != merge_label {
-                    // No else case for simple if ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â the else block is just a merge jump
+                    // No else case for simple if -- the else block is just a merge jump
                     self.emitln(&format!("\n{prev_label}:"));
                     self.emitln(&format!("  br label %{merge_label}"));
                     merge_reachable = true;
                 } else if elifs.is_empty() {
-                    // prev_label == merge_label ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€š skip redundant label emission
+                    // prev_label == merge_label --  skip redundant label emission
                     merge_reachable = true;
                 } else if prev_label != merge_label {
                     self.emitln(&format!("\n{prev_label}:"));
@@ -1152,7 +1152,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         scrutinee_llvm_ty.clone()
                     } else if scrutinee_llvm_ty.starts_with("%struct.") && scrutinee_llvm_ty.ends_with('*') {
                         // Pointer-to-struct scrutinee (e.g. %struct.JsonValue*):
-                        // deref for the match alloca â€” the discriminant GEP must
+                        // deref for the match alloca -- the discriminant GEP must
                         // index the STRUCT, not the pointer.
                         scrutinee_llvm_ty.trim_end_matches('*').to_string()
                     } else {
@@ -1236,7 +1236,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // `arm_is_checked[i]` is `true`, so it can never outrun
                 // `check_labels`. Every index into `check_labels`/`arm_labels`
                 // is additionally bounds-guarded so that even a future codegen
-                // bug degrades to a branch-to-merge instead of a panic ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â a
+                // bug degrades to a branch-to-merge instead of a panic -- a
                 // compiler must never crash.
                 let mut check_idx: usize = 0;
                 for (i, arm) in arms.iter().enumerate() {
@@ -1250,7 +1250,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     let this_label = if check_idx < check_labels.len() {
                         check_labels[check_idx].clone()
                     } else {
-                        // Safety fallback ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â unreachable once the build/emit
+                        // Safety fallback -- unreachable once the build/emit
                         // loops are symmetric. Emit a diagnostic comment and
                         // skip this (impossible) arm rather than panicking.
                         self.emitln(&format!(
@@ -1480,7 +1480,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             self.emitln(&format!("  br i1 {check}, label %{arm_label}, label %{next}"));
                         }
                         Pattern::Lit(Literal::Float(f, _)) => {
-                            // P1-3: Float literal pattern â€” use fcmp for double-precision comparison.
+                            // P1-3: Float literal pattern -- use fcmp for double-precision comparison.
                             let fval = if scrutinee_llvm_ty == "double" || scrutinee_llvm_ty == "float" {
                                 val.clone()
                             } else {
@@ -1649,7 +1649,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                     let loaded = self.fresh_tmp();
                                     self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
                                     // BUG 22 #4 fix: Some(5.0)/Ok(2.5) store the
-                                    // FLOAT BITS in the i64 payload slot â€” bitcast
+                                    // FLOAT BITS in the i64 payload slot -- bitcast
                                     // back when the payload's XIOM type is a float,
                                     // so match-bound vars carry real doubles/floats
                                     // (unary minus / arithmetic on them was garbage).
@@ -1688,9 +1688,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                     // crypto's aes_decrypt(&key, &ciphertext) crashed.
                                     let payload_xiom = self.field_xiom_type(type_name, field_idx as usize)
                                         // round-8 (rw1): builtin Option/Result have no
-                                        // field_xiom_type — fall back to the
+                                        // field_xiom_type -- fall back to the
                                         // SCRUTINEE's declared payload type
-                                        // ("Option[&Str]" → "&Str") so reference
+                                        // ("Option[&Str]" -> "&Str") so reference
                                         // payloads keep the & and auto-deref on use.
                                         .or_else(|| scrutinee_payload.clone());
                                     if field_llvm_ty == "i64" {
@@ -1869,7 +1869,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                                 self.emitln(&format!("  {f} = bitcast i32 {t32} to float"));
                                                 (f, "float".to_string())
                                             }
-                                            // M19: Str payload stored in i64 slot via ptrtoint â€”
+                                            // M19: Str payload stored in i64 slot via ptrtoint --
                                             // convert back to i8* for string operations.
                                             ("i64", Some("Str")) => {
                                                 let sptr = self.fresh_tmp();
@@ -1883,7 +1883,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                         self.emitln(&format!("  store {bind_ty} {bind_val}, {bind_ty}* {field_alloca}"));
                                         self.add_local(&field_ident.name, field_alloca, &bind_ty);
                                         // 5c.30: a generic-container payload
-                                        // (Vec[T]) binds the i64 HANDLE Ã¢â‚¬â€ record
+                                        // (Vec[T]) binds the i64 HANDLE -- record
                                         // it so `items.push(..)` / `items.len()`
                                         // dereference the boxed header and
                                         // mutations alias the original enum.
@@ -1968,7 +1968,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     // Err(inner) extracts field 2 (the error payload).
                     // 5d: bindings are TYPED from the scrutinee's declared payload
                     // types (local_opt_payload / local_err_payload) so `.len()` etc.
-                    // dispatch correctly (fixes match Ok(bytes) â†’ bytes.len()).
+                    // dispatch correctly (fixes match Ok(bytes) -> bytes.len()).
                     let payload_binding: Option<(&Pattern, i32)> = match &arm.pattern {
                         Pattern::Some(inner, _) | Pattern::Ok(inner, _) => Some((inner.as_ref(), 1)),
                         Pattern::Err(inner, _) => Some((inner.as_ref(), 2)),
@@ -1984,7 +1984,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             if let Pattern::Ident(ident) = inner {
                                 // Declared payload type from scrutinee tracking
                                 // (BUG 22 #4: scalar float payloads come from
-                                // local_opt_payload_xiom â€” `var o = Some(5.0)` â€”
+                                // local_opt_payload_xiom -- `var o = Some(5.0)` --
                                 // struct payloads from local_opt_payload).
                                 // BUG 43: direct-call scrutinees resolve the
                                 // callee's declared Option/Result return type.
@@ -2028,7 +2028,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                     // so nested match dispatch works.
                                     Some(decl) if field_ty == "i64" && decl.starts_with('&') => {
                                         // round-8 (rw1): REFERENCE payloads
-                                        // (Option<&T> — rand.weighted_pick): the
+                                        // (Option<&T> -- rand.weighted_pick): the
                                         // payload is the T SLOT ADDRESS. Bind it
                                         // raw; the "&T" xiom record below makes
                                         // value uses auto-deref.
@@ -2137,7 +2137,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 };
                 self.emitln(&format!("  br i1 {cond_val}, label %{loop_body}, label %{loop_exit}"));
                 self.emitln(&format!("\n{loop_body}:"));
-                // P0-3 fix: the labeled-loop field (5th) must reach the stack â€”
+                // P0-3 fix: the labeled-loop field (5th) must reach the stack --
                 // previously dropped, so `break @label` fell back to the
                 // innermost loop.
                 let label_name = label.as_ref().map(|l| l.name.clone());
@@ -2252,13 +2252,13 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 }
             }
             Stmt::Spawn(body, _span, _move) => {
-                // v0.55/R2: Spawn â€” compile body as separate function, call xiom_thread_spawn.
+                // v0.55/R2: Spawn -- compile body as separate function, call xiom_thread_spawn.
                 // (xiom_thread_spawn is already declared at module level in compile_program)
                 let spawn_id = self.local.spawn_counter;
                 self.local.spawn_counter += 1;
                 let fn_name = format!("_xiom_spawn_{spawn_id}");
 
-                // R2: Collect captured variables â€” names used in body that are
+                // R2: Collect captured variables -- names used in body that are
                 // declared in outer scopes (not inside the spawn block itself).
                 let captures: Vec<String> = self.collect_spawn_captures(body);
 
@@ -2394,12 +2394,12 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     self.emitln(&format!("\n{dead}:"));
                 }
             }
-            // BUG 27: assert(cond[, "msg"]) â€” runtime-checked invariant.
+            // BUG 27: assert(cond[, "msg"]) -- runtime-checked invariant.
             // On false the message (or a default with the source location)
             // goes through xiom_panic (clean stderr + exit 1).
             Stmt::Assert(cond, msg, span) => {
                 // Security review (2026-08-13): release builds strip assert
-                // statements (Rust debug_assert! policy) — no assertion
+                // statements (Rust debug_assert! policy) -- no assertion
                 // messages or debug-only logic in shipped binaries.
                 if self.config.strip_debug_checks {
                     return Ok(());
@@ -2418,7 +2418,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     Some(m) => {
                         let (mv, mt) = self.compile_expr(m)?;
                         if mt == "i8*" {
-                            // Str message — use the compiled pointer directly.
+                            // Str message -- use the compiled pointer directly.
                             mv
                         } else {
                             let fallback = format!("assertion failed at {}:{}", span.line, span.col);
@@ -2431,7 +2431,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.emitln("  unreachable");
                 self.emitln(&format!("\n{ok_block}:"));
             }
-            // BUG 27: debugger; â€” break into the attached debugger (no-op
+            // BUG 27: debugger; -- break into the attached debugger (no-op
             // without one; used with the xiom-dbg DAP server).
             Stmt::Debugger(_) => {
                 // Security review (2026-08-13): debugger; is stripped from
@@ -2477,7 +2477,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
         Ok(())
     }
 
-    /// R2: Collect variable names captured by a spawn block â€” names referenced
+    /// R2: Collect variable names captured by a spawn block -- names referenced
     /// inside the body that are available in the current scope (not declared
     /// within the spawn block itself).
     fn collect_spawn_captures(&self, body: &Block) -> Vec<String> {
@@ -2582,7 +2582,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
 
     // P0-2: Emit all deferred blocks in LIFO order at scope exit.
     // Called before `ret` instructions to guarantee defer execution.
-    // Does NOT pop the defer_stack â€” multiple return paths must all emit
+    // Does NOT pop the defer_stack -- multiple return paths must all emit
     // the same defers. The stack is cleared at function epilogue.
     pub(crate) fn compile_deferred_cleanups(&mut self) -> Result<(), String> {
         let blocks: Vec<Block> = self.local.defer_stack.iter().rev().cloned().collect();

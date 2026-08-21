@@ -1,4 +1,4 @@
-// M36-X04: Contract chains — requires/ensures on function call chains
+// M36-X04: Contract chains -- requires/ensures on function call chains
 fn safe_divide(a: Int, b: Int) -> Int
   requires: b != 0
   ensures: result * b == a

@@ -1,4 +1,4 @@
-// M35-C27: while-let pattern — loop while match on Option/Result succeeds
+// M35-C27: while-let pattern -- loop while match on Option/Result succeeds
 fn sum_while_some(limit: Int) -> Int {
   var n: Int = 0;
   var acc: Int = 0;

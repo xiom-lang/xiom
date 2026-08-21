@@ -1,4 +1,4 @@
-// M32: UInt arithmetic — no negative values
+// M32: UInt arithmetic -- no negative values
 fn main() -> Int {
   var a: UInt = 100;
   var b: UInt = 200;

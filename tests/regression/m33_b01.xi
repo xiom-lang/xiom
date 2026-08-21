@@ -1,4 +1,4 @@
-// M33-B01: Read borrow on local — & ref to struct, read field without moving
+// M33-B01: Read borrow on local -- & ref to struct, read field without moving
 type Wrapper = { val: Int; }
 fn read_val(w: &Wrapper) -> Int { return w.val; }
 fn main() -> Int {

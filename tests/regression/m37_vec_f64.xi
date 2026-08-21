@@ -1,6 +1,6 @@
 module m37_vec_f64
 // BUG 12/17 regression: Vec[Float64] and Vec[Str] element reads through
-// &Vec[T] PARAMS (catalog style) must preserve the element type — Float64
+// &Vec[T] PARAMS (catalog style) must preserve the element type -- Float64
 // loads double (not i64+sitofp of the bit pattern), Str compares via
 // strcmp (not pointer compare).
 

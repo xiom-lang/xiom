@@ -1,4 +1,4 @@
-// M34-N2-16: 10-deep while-with-if nesting — alternating while/if depth stress
+// M34-N2-16: 10-deep while-with-if nesting -- alternating while/if depth stress
 fn main() -> Int {
   var i = 0;
   var ok = 1;

@@ -1,4 +1,4 @@
-// M28: Differential test — loop sum vs formula must produce same result
+// M28: Differential test -- loop sum vs formula must produce same result
 fn sum_loop(n: Int) -> Int {
   var total: Int = 0;
   var i: Int = 1;

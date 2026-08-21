@@ -1,4 +1,4 @@
-// M35-L10: Struct alignment check — verify field layout via struct literal and access
+// M35-L10: Struct alignment check -- verify field layout via struct literal and access
 type Aligned = { a: Int; b: Float64; c: Bool; d: Char; }
 
 fn main() -> Int {

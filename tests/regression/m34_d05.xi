@@ -1,4 +1,4 @@
-// M34-D05: List traversal — multiple recursive traversals on linked list
+// M34-D05: List traversal -- multiple recursive traversals on linked list
 type Node = { value: Int; next: *Node; }
 
 fn list_sum(n: *Node, acc: Int) -> Int {

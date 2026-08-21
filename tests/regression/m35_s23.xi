@@ -1,4 +1,4 @@
-// M35-S23: Check anagrams — compare character frequency arrays
+// M35-S23: Check anagrams -- compare character frequency arrays
 use stdlib.xiom.string;
 fn char_count(s: Str, ch: Char) -> Int {
   var count: Int = 0;

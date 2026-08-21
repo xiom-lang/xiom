@@ -1,4 +1,4 @@
-// M33-P06: Deepest call chain — 30 functions chained + deeply nested blocks + large match
+// M33-P06: Deepest call chain -- 30 functions chained + deeply nested blocks + large match
 // Pattern: fn main() -> Int { ... return 0; }
 
 const P06_K0: Int = 0;

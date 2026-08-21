@@ -1,4 +1,4 @@
-// M32: Integer comparison chain — all operators
+// M32: Integer comparison chain -- all operators
 fn main() -> Int {
   var a: Int = 10;
   var b: Int = 5;

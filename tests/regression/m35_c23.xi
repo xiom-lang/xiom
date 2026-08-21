@@ -1,4 +1,4 @@
-// M35-C23: match on enum — dispatch through enum variants with payloads
+// M35-C23: match on enum -- dispatch through enum variants with payloads
 enum Color { Red, Green, Blue }
 enum Shape { Circle(r: Int), Square(s: Int), Point }
 fn area(s: Shape) -> Int {

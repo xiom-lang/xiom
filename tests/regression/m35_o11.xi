@@ -1,4 +1,4 @@
-// M35-O11: Option or_else — match-based or_else fallback
+// M35-O11: Option or_else -- match-based or_else fallback
 fn opt_or_else(o: Option[Int], fallback: fn() -> Option[Int]) -> Option[Int] {
   match o { Some(v) => Some(v), None => fallback() }
 }

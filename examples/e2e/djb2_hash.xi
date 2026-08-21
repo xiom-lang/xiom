@@ -11,9 +11,9 @@ fn main() -> Int {
   let h1 = hash.hash(42);
   let h2 = hash.hash(42);
   let h3 = hash.hash(43);
-  // Same input → same hash
+  // Same input -> same hash
   if h1 != h2 { return 1; }
-  // Different inputs → different hashes
+  // Different inputs -> different hashes
   if h1 == h3 { return 1; }
   // Hash must be non-zero
   if h1 == 0 { return 1; }

@@ -1,4 +1,4 @@
-// M35-S28: String distance — Hamming distance between equal-length strings
+// M35-S28: String distance -- Hamming distance between equal-length strings
 use stdlib.xiom.string;
 fn hamming(a: Str, b: Str) -> Int {
   if a.len() != b.len() { return -1; }

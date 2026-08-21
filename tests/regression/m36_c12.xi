@@ -1,4 +1,4 @@
-// M36-C12: Every loop pattern — while true, while cond, while break, while continue, nested loops, infinite+break
+// M36-C12: Every loop pattern -- while true, while cond, while break, while continue, nested loops, infinite+break
 fn test_while_true() -> Int {
   var i = 0;
   var acc = 0;

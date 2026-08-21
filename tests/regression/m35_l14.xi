@@ -1,4 +1,4 @@
-// M35-L14: Pointer arithmetic — deref and sum integer values from multiple pointers
+// M35-L14: Pointer arithmetic -- deref and sum integer values from multiple pointers
 fn main() -> Int {
   var a: Int = 10;
   var b: Int = 20;

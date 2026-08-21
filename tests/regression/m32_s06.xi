@@ -1,4 +1,4 @@
-// M32-S06: Struct with derive[Eq] — equality comparison
+// M32-S06: Struct with derive[Eq] -- equality comparison
 type Vec3 = { x: Float64; y: Float64; z: Float64; } derive[Eq]
 fn main() -> Int {
   var a = Vec3{ x: 1.0; y: 2.0; z: 3.0; };

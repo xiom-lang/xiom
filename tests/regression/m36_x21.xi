@@ -1,4 +1,4 @@
-// M36-X21: Tail recursion — deep recursive calls optimized for tail position
+// M36-X21: Tail recursion -- deep recursive calls optimized for tail position
 fn tail_sum(n: Int, acc: Int) -> Int {
   if n <= 0 { return acc; }
   return tail_sum(n - 1, acc + n);

@@ -1,4 +1,4 @@
-// M34-D09: Recursive enum — enum variant contains pointer to its own type (Expr = Num | Add | Mul)
+// M34-D09: Recursive enum -- enum variant contains pointer to its own type (Expr = Num | Add | Mul)
 // Tests: recursive enum type definition, match destructuring, null-pointer recursion
 enum Expr {
   Num(v: Int),

@@ -1,4 +1,4 @@
-// M32-M15: Complex module — fn, type, const, nested module all exported
+// M32-M15: Complex module -- fn, type, const, nested module all exported
 module core {
   pub const VERSION: Int = 1;
   pub type Id = Int;

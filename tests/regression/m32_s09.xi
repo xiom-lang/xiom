@@ -1,4 +1,4 @@
-// M32-S09: Struct spread — copy struct with field override via helper
+// M32-S09: Struct spread -- copy struct with field override via helper
 type Point = { x: Float64; y: Float64; }
 fn copy_point(p: Point) -> Point { return Point{ x: p.x; y: p.y; }; }
 fn with_x(p: Point, nx: Float64) -> Point { return Point{ x: nx; y: p.y; }; }

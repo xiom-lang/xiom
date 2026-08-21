@@ -1,4 +1,4 @@
-// M34-D17: List reverse — compute reversed list properties without mutation
+// M34-D17: List reverse -- compute reversed list properties without mutation
 type Node = { value: Int; next: *Node; }
 
 fn list_sum(n: *Node) -> Int {

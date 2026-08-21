@@ -1,4 +1,4 @@
-// M33-A12: Array bounds checking — verify all indices accessible within array
+// M33-A12: Array bounds checking -- verify all indices accessible within array
 fn main() -> Int {
   var arr = [5, 10, 15, 20, 25];
   var n: Int = 5;

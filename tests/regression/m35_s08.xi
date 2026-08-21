@@ -1,4 +1,4 @@
-// M35-S08: String to lowercase — build lowercase via ASCII char mapping
+// M35-S08: String to lowercase -- build lowercase via ASCII char mapping
 use stdlib.xiom.string;
 fn to_lower(s: Str) -> Str {
   var result: Str = "";

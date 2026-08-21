@@ -1,4 +1,4 @@
-// XIOM — Memory/Ownership Stress Benchmark
+// XIOM -- Memory/Ownership Stress Benchmark
 // Exercises moves, clones, borrows, ownership patterns, and allocation pressure.
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
@@ -143,7 +143,7 @@ fn test_clone_heavy() -> Int {
 }
 
 // ============================================================
-// SECTION 4: Allocation Stress — Vec Push/Pop
+// SECTION 4: Allocation Stress -- Vec Push/Pop
 // ============================================================
 
 pub fn alloc_stress_vec(count: Int) -> Int {

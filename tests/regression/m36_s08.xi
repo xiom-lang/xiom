@@ -1,4 +1,4 @@
-// M36-S08: Codegen — register allocation simulation (linear scan style)
+// M36-S08: Codegen -- register allocation simulation (linear scan style)
 type RegState = { allocated: Bool; spill: Bool; temp: Bool; }
 fn init_reg(alloc: Bool, sp: Bool, tmp: Bool) -> RegState {
   return RegState{ allocated: alloc; spill: sp; temp: tmp; };

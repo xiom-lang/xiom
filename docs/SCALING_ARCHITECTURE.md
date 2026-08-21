@@ -1,7 +1,7 @@
-# XIOM — Scaling Architecture (10K+ Files, Millions of Lines)
+# XIOM -- Scaling Architecture (10K+ Files, Millions of Lines)
 
-**Version:** Design Spec v0.2 | **Target:** Post-Selfhost (v0.58–v0.60)
-**Status:** DESIGN ONLY — no implementation until selfhost complete. v0.2 incorporates the pre-selfhost architecture review (Sealed Generics/Pre-Mono Table, Layout Hash, Compiler Daemon — see §12).
+**Version:** Design Spec v0.2 | **Target:** Post-Selfhost (v0.58-v0.60)
+**Status:** DESIGN ONLY -- no implementation until selfhost complete. v0.2 incorporates the pre-selfhost architecture review (Sealed Generics/Pre-Mono Table, Layout Hash, Compiler Daemon -- see S12).
 
 ---
 
@@ -11,7 +11,7 @@ XIOM v0.56 is a single-translation-unit compiler. All source files are merged in
 
 | Bottleneck | Limit | Root Cause |
 |-----------|-------|------------|
-| Memory | ~100 MB heap at 50K LOC → ~2 GB at 1M LOC | Full AST in memory |
+| Memory | ~100 MB heap at 50K LOC -> ~2 GB at 1M LOC | Full AST in memory |
 | Stack | ~1000 nesting levels | Recursive-descent parser + checker |
 | Codegen | Single String buffer for entire .ll file | No streaming |
 | Build time | Full rebuild on any change | No incremental compilation |
@@ -25,42 +25,42 @@ XIOM v0.56 is a single-translation-unit compiler. All source files are merged in
 
 ```
                               .xi Source Tree
-                                   │
-                    ┌──────────────┼──────────────┐
-                    │              │              │
-              ┌─────▼─────┐  ┌─────▼─────┐  ┌─────▼─────┐
-              │  Parser   │  │  Parser   │  │  Parser   │   (Parallel per-file)
-              │  file1.xi │  │  file2.xi │  │  fileN.xi │
-              └─────┬─────┘  └─────┬─────┘  └─────┬─────┘
-                    │              │              │
-              ┌─────▼─────┐  ┌─────▼─────┐  ┌─────▼─────┐
-              │  Checker  │  │  Checker  │  │  Checker  │   (Parallel per-file)
-              │  file1.xi │  │  file2.xi │  │  fileN.xi │
-              └─────┬─────┘  └─────┬─────┘  └─────┬─────┘
-                    │              │              │
-              ┌─────▼─────┐  ┌─────▼─────┐  ┌─────▼─────┐
-              │  Codegen  │  │  Codegen  │  │  Codegen  │   (Parallel per-file)
-              │  file1.ll │  │  file2.ll │  │  fileN.ll │
-              └─────┬─────┘  └─────┬─────┘  └─────┬─────┘
-                    │              │              │
-              ┌─────▼─────┐  ┌─────▼─────┐  ┌─────▼─────┐
-              │ clang -c  │  │ clang -c  │  │ clang -c  │   (Parallel per-object)
-              │ file1.o   │  │ file2.o   │  │ fileN.o   │
-              └─────┬─────┘  └─────┬─────┘  └─────┬─────┘
-                    │              │              │
-                    └──────────────┼──────────────┘
-                                   │
-                          ┌────────▼────────┐
-                          │   Linker         │   (clang/lld — single pass)
-                          │   final binary   │
-                          └─────────────────┘
+                                   |
+                    +--------------+--------------+
+                    |              |              |
+              +-----v-----+  +-----v-----+  +-----v-----+
+              |  Parser   |  |  Parser   |  |  Parser   |   (Parallel per-file)
+              |  file1.xi |  |  file2.xi |  |  fileN.xi |
+              `-----+-----+  `-----+-----+  `-----+-----+
+                    |              |              |
+              +-----v-----+  +-----v-----+  +-----v-----+
+              |  Checker  |  |  Checker  |  |  Checker  |   (Parallel per-file)
+              |  file1.xi |  |  file2.xi |  |  fileN.xi |
+              `-----+-----+  `-----+-----+  `-----+-----+
+                    |              |              |
+              +-----v-----+  +-----v-----+  +-----v-----+
+              |  Codegen  |  |  Codegen  |  |  Codegen  |   (Parallel per-file)
+              |  file1.ll |  |  file2.ll |  |  fileN.ll |
+              `-----+-----+  `-----+-----+  `-----+-----+
+                    |              |              |
+              +-----v-----+  +-----v-----+  +-----v-----+
+              | clang -c  |  | clang -c  |  | clang -c  |   (Parallel per-object)
+              | file1.o   |  | file2.o   |  | fileN.o   |
+              `-----+-----+  `-----+-----+  `-----+-----+
+                    |              |              |
+                    `--------------+--------------+
+                                   |
+                          +--------v--------+
+                          |   Linker         |   (clang/lld -- single pass)
+                          |   final binary   |
+                          `-----------------+
 ```
 
 ### 1.2 Key Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
-| **File = compilation unit** | One .xi file → one .o object. Same granularity as C/C++. |
+| **File = compilation unit** | One .xi file -> one .o object. Same granularity as C/C++. |
 | **Separate type checking per file** | Files check independently; cross-file type errors caught at link time. |
 | **Keep LLVM IR text emission** | Still text-based (no llvm-sys dependency). Each file produces its own .ll. |
 | **clang -c per object** | Same backend. Parallelizes naturally. |
@@ -70,20 +70,20 @@ XIOM v0.56 is a single-translation-unit compiler. All source files are merged in
 
 ## 2. Separate Compilation Units
 
-### 2.1 File → Object Mapping
+### 2.1 File -> Object Mapping
 
 ```
 project/
   src/
-    main.xi          →  main.o       (entry point)
-    lexer.xi         →  lexer.o       (selfhost)
-    parser.xi        →  parser.o      (selfhost)
-    check.xi         →  check.o       (selfhost)
-    codegen.xi       →  codegen.o     (selfhost)
+    main.xi          ->  main.o       (entry point)
+    lexer.xi         ->  lexer.o       (selfhost)
+    parser.xi        ->  parser.o      (selfhost)
+    check.xi         ->  check.o       (selfhost)
+    codegen.xi       ->  codegen.o     (selfhost)
     ...
   lib/
-    xiom/std/io.xi   →  io.o          (stdlib)
-    xiom/std/math.xi →  math.o        (stdlib)
+    xiom/std/io.xi   ->  io.o          (stdlib)
+    xiom/std/math.xi ->  math.o        (stdlib)
 ```
 
 ### 2.2 Compilation Command
@@ -126,8 +126,8 @@ overflow-checks = true
 ### 3.1 Export Model (Per-File Symbol Table)
 
 Each compiled file produces:
-1. `.o` — standard object file (ELF/COFF/Mach-O)
-2. `.xiom.sym` — JSON symbol table (for cross-file type checking + incremental rebuild tracking)
+1. `.o` -- standard object file (ELF/COFF/Mach-O)
+2. `.xiom.sym` -- JSON symbol table (for cross-file type checking + incremental rebuild tracking)
 
 ```
 // lexer.xiom.sym
@@ -167,7 +167,7 @@ Cross-file type errors are caught when generating the `.xiom.sym` index:
 
 ```bash
 xiom check-types                    # reads all .xiom.sym files, validates consistency
-# Error: src/lexer.xi: Tokenizer source type 'Str' ≠ lib/xtd.xi: Str (different definitions)
+# Error: src/lexer.xi: Tokenizer source type 'Str' = lib/xtd.xi: Str (different definitions)
 ```
 
 ---
@@ -263,12 +263,12 @@ impl FileEmitter {
 Module-level content (type definitions, globals, declare statements) is emitted once at file start and doesn't grow with function count:
 
 ```llvm
-; Module header (emitted once per file) — constant size
+; Module header (emitted once per file) -- constant size
 %struct.Vec = type { i8*, i64, i64, i64 }
 @xiom_recursion_counter = internal thread_local global i64 0
 declare i8* @malloc(i64)
 
-; Function bodies (streamed per-function) — variable size
+; Function bodies (streamed per-function) -- variable size
 define i64 @tokenize(i8* %source) { ... }
 define %struct.Token @Lexer.next(%struct.Lexer %self) { ... }
 ```
@@ -290,35 +290,35 @@ define %struct.Token @Lexer.next(%struct.Lexer %self) { ... }
 
 ```
 main.xi
-  ├── lexer.xi          (imports: Str, Vec)
-  │   └── xiom/string.xi
-  │   └── xiom/collections.xi
-  ├── parser.xi         (imports: Lexer, Token)
-  │   └── lexer.xi       ← dependency
-  └── check.xi          (imports: Parser, AST)
-      └── parser.xi      ← dependency
+  |-- lexer.xi          (imports: Str, Vec)
+  |   `-- xiom/string.xi
+  |   `-- xiom/collections.xi
+  |-- parser.xi         (imports: Lexer, Token)
+  |   `-- lexer.xi       <- dependency
+  `-- check.xi          (imports: Parser, AST)
+      `-- parser.xi      <- dependency
 ```
 
 When `lexer.xi` changes:
-1. SHA-256 of `lexer.xi` changes → dirty
-2. Walk dependency graph: `parser.xi` depends on `lexer.xi` → dirty
-3. `check.xi` depends on `parser.xi` → dirty
-4. Rebuild: lexer.xi → parser.xi → check.xi (topological order)
-5. Files with unchanged SHA-256 → cache hit, skip
+1. SHA-256 of `lexer.xi` changes -> dirty
+2. Walk dependency graph: `parser.xi` depends on `lexer.xi` -> dirty
+3. `check.xi` depends on `parser.xi` -> dirty
+4. Rebuild: lexer.xi -> parser.xi -> check.xi (topological order)
+5. Files with unchanged SHA-256 -> cache hit, skip
 
 ### 6.3 Cache Structure
 
 ```
 ~/.xiom/cache/
-  ├── sha256_abc123/
-  │   ├── lexer.ll          (LLVM IR text)
-  │   ├── lexer.o           (compiled object)
-  │   └── lexer.xiom.sym    (symbol table)
-  ├── sha256_def456/
-  │   ├── parser.ll
-  │   ├── parser.o
-  │   └── parser.xiom.sym
-  └── cache_index.json      (LRU tracking, 100 MB limit)
+  |-- sha256_abc123/
+  |   |-- lexer.ll          (LLVM IR text)
+  |   |-- lexer.o           (compiled object)
+  |   `-- lexer.xiom.sym    (symbol table)
+  |-- sha256_def456/
+  |   |-- parser.ll
+  |   |-- parser.o
+  |   `-- parser.xiom.sym
+  `-- cache_index.json      (LRU tracking, 100 MB limit)
 ```
 
 ---
@@ -339,7 +339,7 @@ fn compile_project(files: &[PathBuf], config: &CompileConfig) -> Result<()> {
         .map(|path| (path, parse_file(path)))
         .collect();
 
-    // Phase 2: Resolve imports (sequential — dependency graph)
+    // Phase 2: Resolve imports (sequential -- dependency graph)
     let dep_graph = build_dep_graph(&parsed);
     let sorted = dep_graph.topological_sort();
 
@@ -349,7 +349,7 @@ fn compile_project(files: &[PathBuf], config: &CompileConfig) -> Result<()> {
             check_file(program, &dependency_types(path, &dep_graph));
         });
 
-    // Phase 4: Codegen in parallel (already working — I2)
+    // Phase 4: Codegen in parallel (already working -- I2)
     sorted.par_iter()
         .for_each(|(path, program)| {
             codegen_file(program, path);
@@ -395,41 +395,41 @@ The XIOM C runtime (`libxiom_runtime.a` / `.dll`) is linked once at the final st
 
 ```bash
 xiom build-runtime                  # Builds libxiom_runtime.a
-xiom build                          # Compiles all .xi → .o, links with runtime
+xiom build                          # Compiles all .xi -> .o, links with runtime
 ```
 
 ---
 
 ## 9. Migration Path (Incremental, Non-Breaking)
 
-### Phase 1: Enable File-Level Compilation (v0.58 — 2 weeks)
+### Phase 1: Enable File-Level Compilation (v0.58 -- 2 weeks)
 - Add `-c` flag: compile one file to one object (`xiom -c file.xi -o file.o`)
 - Emit `.xiom.sym` alongside `.o`
 - Keep existing monolithic mode as default
 
-### Phase 2: Dependency Resolution (v0.58 — 2 weeks)
+### Phase 2: Dependency Resolution (v0.58 -- 2 weeks)
 - Resolve `use` statements to file paths
 - Load `.xiom.sym` from dependencies
 - Type-check against imported symbol tables
 - Link-time type validation (`xiom check-types`)
 
-### Phase 3: Incremental Build (v0.59 — 2 weeks)
+### Phase 3: Incremental Build (v0.59 -- 2 weeks)
 - SHA-256 per-file source hashing
 - Dependency graph construction
-- Dirty propagation (change → rebuild dependents)
+- Dirty propagation (change -> rebuild dependents)
 - Cache `.ll` + `.o` + `.xiom.sym` per SHA-256
 
-### Phase 4: Stack-Safe + Streaming (v0.59 — 2 weeks)
+### Phase 4: Stack-Safe + Streaming (v0.59 -- 2 weeks)
 - Trampolined parser
 - Streaming codegen (per-function FileEmitter)
 - Stack-safe checker (work-queue pattern)
 
-### Phase 5: Parallel Frontend (v0.60 — 2 weeks)
+### Phase 5: Parallel Frontend (v0.60 -- 2 weeks)
 - Parallel parse + check (respecting dependency order)
 - Thread-safe per-file TypeRegistry
 - Parallel clang -c invocations
 
-### Phase 6: Build System (v0.60 — 1 week)
+### Phase 6: Build System (v0.60 -- 1 week)
 - `xiom build` command with xiom.toml
 - `xiom build --incremental`
 - `xiom build --jobs=N`
@@ -441,10 +441,10 @@ xiom build                          # Compiles all .xi → .o, links with runtim
 
 | Metric | Current (v0.56) | Target (v0.58+) | Improvement |
 |--------|----------------|-----------------|-------------|
-| 1 file, 100 LOC | ~200ms | ~200ms | — |
+| 1 file, 100 LOC | ~200ms | ~200ms | -- |
 | 100 files, 10K LOC | ~45s | ~8s (parallel) | 5.6x |
 | 1,000 files, 100K LOC | OOM | ~30s | Infinite |
-| 10,000 files, 1M LOC | Impossible | ~2-3 min (parallel) | ∞ |
+| 10,000 files, 1M LOC | Impossible | ~2-3 min (parallel) | inf |
 | Incremental (1 file changed) | ~45s (full rebuild) | ~0.5s (1 file recompile + link) | 90x |
 | Memory (100K LOC project) | ~200 MB | ~50 MB (per-worker) | 4x |
 
@@ -462,7 +462,7 @@ xiom build                          # Compiles all .xi → .o, links with runtim
 
 ---
 
-## 12. Architecture Review — 3 Critical Gaps (2026-08-10, pre-selfhost review)
+## 12. Architecture Review -- 3 Critical Gaps (2026-08-10, pre-selfhost review)
 
 An external production-compiler review of this design surfaced **three architectural
 gaps** that, if unaddressed, will make the scaling architecture collapse during the
@@ -473,7 +473,7 @@ bullet-proof refinement and a revised migration path.
 
 **Problem.** With per-file codegen, `Vec[Int]` used in File A and File B is
 monomorphized in BOTH objects. Without LTO, duplicate symbols explode the binary;
-with LTO, compilation times skyrocket — defeating parallel compilation.
+with LTO, compilation times skyrocket -- defeating parallel compilation.
 
 **Bullet-Proof Fix: Sealed Generics + Pre-Mono Table.**
 
@@ -481,45 +481,45 @@ with LTO, compilation times skyrocket — defeating parallel compilation.
    are "sealed" when the stdlib is compiled. `libxiom_std.a` ships a
    **Pre-Monomorphized Table** of function bodies for all primitive types
    (`Int`, `Float64`, `Str`, `Bool`, `UInt8`, ...) as generic-erased symbols.
-2. User files calling `Vec[Int]` do NOT generate code — they call the
+2. User files calling `Vec[Int]` do NOT generate code -- they call the
    pre-compiled, generic-erased functions from `libxiom_std.a`.
 3. User generics over their own types (`Vec[MyStruct]`) are monomorphized
    locally and emitted as **Weak Symbols** in the `.o`; the linker keeps the
    first definition and discards the rest.
 
-**Design change to §3:**
+**Design change to S3:**
 - `.xiom.sym` gains a `"generics"` section listing the sealed generic
-  instantiations provided by the file/object (name → instantiation set).
+  instantiations provided by the file/object (name -> instantiation set).
 - Codegen, when emitting a generic call, consults the pre-mono table first;
   only user-type instantiations are emitted locally (weak).
 
 ### Gap 2: Stable Type Layouts in `.xiom.sym` (the "Recompile the World" Trap)
 
 **Problem.** Changing `Vec`'s layout in `stdlib.xi` triggers a full dirty
-propagation → recompiles all 10,000 user files (2–3 minutes) even when only a
+propagation -> recompiles all 10,000 user files (2-3 minutes) even when only a
 method body changed and the ABI is identical.
 
 **Bullet-Proof Fix: Layout Hash + Forced Recheck.**
 
-1. `.xiom.sym` stores a **Layout Hash** — SHA-256 of the struct's FIELD TYPES
+1. `.xiom.sym` stores a **Layout Hash** -- SHA-256 of the struct's FIELD TYPES
    and ALIGNMENT only, NOT the source code.
 2. The dependency graph distinguishes **signature changes** (rebuild dependents)
    from **layout-hash changes**:
-   - Layout hash unchanged → ABI identical → dependents keep their cached `.o`
+   - Layout hash unchanged -> ABI identical -> dependents keep their cached `.o`
      (only re-emit signatures, which are unchanged).
-   - Layout hash changed → only files that embed the type in THEIR OWN layout
+   - Layout hash changed -> only files that embed the type in THEIR OWN layout
      fully recompile (typically ~1% of the codebase).
 3. Cache keeps the object under the layout-hash key, so old/new coexist during
    migration.
 
-**Design change to §6.1/§6.3:** dirty-propagation table becomes:
+**Design change to S6.1/S6.3:** dirty-propagation table becomes:
 
 | What changes | Rebuild | Detection |
 |-------------|---------|-----------|
 | Function body | File only | SHA-256 of source |
 | Function signature | File + importers | `.xiom.sym` signature hash |
 | Type layout (field set/order/types) | File + files embedding the type | `.xiom.sym` **layout hash** |
-| Method body only (layout unchanged) | File only | layout hash unchanged → ABI-fast path |
+| Method body only (layout unchanged) | File only | layout hash unchanged -> ABI-fast path |
 
 ### Gap 3: The Compiler Daemon (why `xiom build` alone bottlenecks at 10K files)
 
@@ -533,13 +533,13 @@ hundreds of ms in process spawn + `stat()` scans of 10,000 files.
 2. File-system notifications (inotify / ReadDirectoryChangesW) trigger a
    **Delta analysis**: which imports changed, which signatures changed.
 3. Only dirty files spawn compiler workers (pre-warmed pool).
-4. Target: 1-line change on a 10K-file project → **~200 ms** (1 dirty file +
+4. Target: 1-line change on a 10K-file project -> **~200 ms** (1 dirty file +
    relink), matching Bazel/cargo-check behavior.
 
-**Design addition to §7/§9:** a new Phase 6b for the daemon; the watcher
+**Design addition to S7/S9:** a new Phase 6b for the daemon; the watcher
 infrastructure already exists (OrcJIT `HotReloadWatcher`).
 
-### Revised Migration Path (v0.58–v0.60)
+### Revised Migration Path (v0.58-v0.60)
 
 | Phase | Original Plan | Revised Additions (Critical) | Effort |
 |-------|---------------|------------------------------|--------|
@@ -553,7 +553,7 @@ infrastructure already exists (OrcJIT `HotReloadWatcher`).
 ### Review Verdict (recorded)
 
 - The blueprint (parallel units, symbol tables, SHA caching) is the exact pattern
-  used by `go build` and rustc incremental — it scales logarithmically.
+  used by `go build` and rustc incremental -- it scales logarithmically.
 - Layout Hash + Pre-mono Table are REQUIRED or the linker chokes on duplicate
   symbols at ~5K files and stdlib layout changes trigger full rebuilds.
 - Selfhost (~200 files) does NOT need these; the true test is user projects.
@@ -568,10 +568,10 @@ infrastructure already exists (OrcJIT `HotReloadWatcher`).
 
 | Component | Approach | Effort | Dependencies |
 |-----------|----------|--------|-------------|
-| Separate compilation | `xiom -c file.xi -o file.o` | 2 weeks | — |
+| Separate compilation | `xiom -c file.xi -o file.o` | 2 weeks | -- |
 | Symbol tables | `.xiom.sym` JSON per file | 2 weeks | Separate compilation |
 | Dependency graph | Topological sort + dirty propagation | 2 weeks | Symbol tables |
-| Stack-safe parser | Trampolined Pratt parser | 1 week | — |
+| Stack-safe parser | Trampolined Pratt parser | 1 week | -- |
 | Streaming codegen | BufWriter per-file emitter | 2 weeks | Per-function codegen (already done) |
 | Parallel frontend | Rayon per-file parse+check | 2 weeks | Thread-safe registry (already done) |
 | Incremental build | SHA-256 per-file + graph | 2 weeks | Dependency graph |
@@ -580,4 +580,4 @@ infrastructure already exists (OrcJIT `HotReloadWatcher`).
 | Compiler daemon | `xiom daemon` / `--persistent` (Gap 3) | 1 week | Incremental build |
 | **Total estimated effort** | | **~15 weeks** | |
 
-**Start condition:** Selfhost complete (v0.57). Don't start before then — scaling architecture needs to be designed against a language that has been proven correct through self-compilation.
+**Start condition:** Selfhost complete (v0.57). Don't start before then -- scaling architecture needs to be designed against a language that has been proven correct through self-compilation.

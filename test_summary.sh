@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# XIOM Test Suite v3 — Linux/macOS
+# XIOM Test Suite v3 -- Linux/macOS
 # Usage: ./test_summary.sh [flags]
 #   -fast          Skip E2E/full-diff/fuzz
 #   -e2eonly       Just 13 core gate tests  

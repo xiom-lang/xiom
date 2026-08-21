@@ -1,4 +1,4 @@
-// M35-O16: Option cloned pattern — extract value from Option by match
+// M35-O16: Option cloned pattern -- extract value from Option by match
 fn main() -> Int {
   var opt: Option[Int] = Some(42);
   match opt { Some(v) => { var cloned = v; if cloned != 42 { return 1; } } None => { return 2; } }

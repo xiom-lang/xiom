@@ -1,4 +1,4 @@
-// M33-B13: Borrow in match — borrow enum, match owned enum to extract payload
+// M33-B13: Borrow in match -- borrow enum, match owned enum to extract payload
 type Opt = enum { Has(v: Int), Empty, }
 fn classify(x: &Opt) -> Int {
   return 1;

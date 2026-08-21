@@ -1,4 +1,4 @@
-// XIOM — Stdlib Conformance Test Suite
+// XIOM -- Stdlib Conformance Test Suite
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
@@ -157,7 +157,7 @@ fn test_ownership_move() -> TestResult {
   var v = Vec[Int].new();
   v.push(42);
   consume(v);
-  // v is moved — we can't use it
+  // v is moved -- we can't use it
   return assert(true, "ownership move");
 }
 

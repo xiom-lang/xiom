@@ -1,6 +1,6 @@
-// XIOM — Primes Data Module
+// XIOM -- Primes Data Module
 // Large static table of prime numbers for benchmark processing.
-// First 500 primes — used to verify prime generation algorithms.
+// First 500 primes -- used to verify prime generation algorithms.
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 

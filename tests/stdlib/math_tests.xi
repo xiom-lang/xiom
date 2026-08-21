@@ -1,4 +1,4 @@
-// XIOM — Math & Random Library Conformance Tests
+// XIOM -- Math & Random Library Conformance Tests
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -8,35 +8,35 @@ use xiom.math;
 use xiom.rand;
 
 // ============================================================
-// SECTION: math — sqrt
+// SECTION: math -- sqrt
 // ============================================================
 
 fn test_sqrt_4() -> TestResult {
   var r = math.sqrt(4.0);
-  if math.abs_float(r - 2.0) < 0.0001 { return assert(true, "math::sqrt(4) ≈ 2"); }
-  return assert(false, "math::sqrt(4) ≈ 2");
+  if math.abs_float(r - 2.0) < 0.0001 { return assert(true, "math::sqrt(4) ~= 2"); }
+  return assert(false, "math::sqrt(4) ~= 2");
 }
 
 fn test_sqrt_9() -> TestResult {
   var r = math.sqrt(9.0);
-  if math.abs_float(r - 3.0) < 0.0001 { return assert(true, "math::sqrt(9) ≈ 3"); }
-  return assert(false, "math::sqrt(9) ≈ 3");
+  if math.abs_float(r - 3.0) < 0.0001 { return assert(true, "math::sqrt(9) ~= 3"); }
+  return assert(false, "math::sqrt(9) ~= 3");
 }
 
 fn test_sqrt_16() -> TestResult {
   var r = math.sqrt(16.0);
-  if math.abs_float(r - 4.0) < 0.0001 { return assert(true, "math::sqrt(16) ≈ 4"); }
-  return assert(false, "math::sqrt(16) ≈ 4");
+  if math.abs_float(r - 4.0) < 0.0001 { return assert(true, "math::sqrt(16) ~= 4"); }
+  return assert(false, "math::sqrt(16) ~= 4");
 }
 
 fn test_sqrt_100() -> TestResult {
   var r = math.sqrt(100.0);
-  if math.abs_float(r - 10.0) < 0.0001 { return assert(true, "math::sqrt(100) ≈ 10"); }
-  return assert(false, "math::sqrt(100) ≈ 10");
+  if math.abs_float(r - 10.0) < 0.0001 { return assert(true, "math::sqrt(100) ~= 10"); }
+  return assert(false, "math::sqrt(100) ~= 10");
 }
 
 // ============================================================
-// SECTION: math — abs_int
+// SECTION: math -- abs_int
 // ============================================================
 
 fn test_abs_int_positive() -> TestResult {
@@ -55,7 +55,7 @@ fn test_abs_int_zero() -> TestResult {
 }
 
 // ============================================================
-// SECTION: math — abs_float
+// SECTION: math -- abs_float
 // ============================================================
 
 fn test_abs_float_positive() -> TestResult {
@@ -74,7 +74,7 @@ fn test_abs_float_zero() -> TestResult {
 }
 
 // ============================================================
-// SECTION: math — min / max (int)
+// SECTION: math -- min / max (int)
 // ============================================================
 
 fn test_min_int() -> TestResult {
@@ -92,7 +92,7 @@ fn test_max_int() -> TestResult {
 }
 
 // ============================================================
-// SECTION: math — min / max (float)
+// SECTION: math -- min / max (float)
 // ============================================================
 
 fn test_min_float() -> TestResult {
@@ -110,7 +110,7 @@ fn test_max_float() -> TestResult {
 }
 
 // ============================================================
-// SECTION: math — floor
+// SECTION: math -- floor
 // ============================================================
 
 fn test_floor_positive() -> TestResult {
@@ -128,7 +128,7 @@ fn test_floor_negative() -> TestResult {
 }
 
 // ============================================================
-// SECTION: math — ceil
+// SECTION: math -- ceil
 // ============================================================
 
 fn test_ceil_positive() -> TestResult {
@@ -146,7 +146,7 @@ fn test_ceil_negative() -> TestResult {
 }
 
 // ============================================================
-// SECTION: math — round
+// SECTION: math -- round
 // ============================================================
 
 fn test_round() -> TestResult {
@@ -158,7 +158,7 @@ fn test_round() -> TestResult {
 }
 
 // ============================================================
-// SECTION: math — pow
+// SECTION: math -- pow
 // ============================================================
 
 fn test_pow_2_3() -> TestResult {
@@ -180,85 +180,85 @@ fn test_pow_5_0() -> TestResult {
 }
 
 // ============================================================
-// SECTION: math — trig
+// SECTION: math -- trig
 // ============================================================
 
 fn test_sin_zero() -> TestResult {
   var r = math.sin(0.0);
-  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::sin(0) ≈ 0"); }
-  return assert(false, "math::sin(0) ≈ 0");
+  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::sin(0) ~= 0"); }
+  return assert(false, "math::sin(0) ~= 0");
 }
 
 fn test_sin_pi_half() -> TestResult {
   var r = math.sin(math.PI / 2.0);
-  if math.abs_float(r - 1.0) < 0.01 { return assert(true, "math::sin(PI/2) ≈ 1"); }
-  return assert(false, "math::sin(PI/2) ≈ 1");
+  if math.abs_float(r - 1.0) < 0.01 { return assert(true, "math::sin(PI/2) ~= 1"); }
+  return assert(false, "math::sin(PI/2) ~= 1");
 }
 
 fn test_sin_pi() -> TestResult {
   var r = math.sin(math.PI);
-  if math.abs_float(r - 0.0) < 0.01 { return assert(true, "math::sin(PI) ≈ 0"); }
-  return assert(false, "math::sin(PI) ≈ 0");
+  if math.abs_float(r - 0.0) < 0.01 { return assert(true, "math::sin(PI) ~= 0"); }
+  return assert(false, "math::sin(PI) ~= 0");
 }
 
 fn test_cos_zero() -> TestResult {
   var r = math.cos(0.0);
-  if math.abs_float(r - 1.0) < 0.0001 { return assert(true, "math::cos(0) ≈ 1"); }
-  return assert(false, "math::cos(0) ≈ 1");
+  if math.abs_float(r - 1.0) < 0.0001 { return assert(true, "math::cos(0) ~= 1"); }
+  return assert(false, "math::cos(0) ~= 1");
 }
 
 fn test_cos_pi() -> TestResult {
   var r = math.cos(math.PI);
-  if math.abs_float(r + 1.0) < 0.01 { return assert(true, "math::cos(PI) ≈ -1"); }
-  return assert(false, "math::cos(PI) ≈ -1");
+  if math.abs_float(r + 1.0) < 0.01 { return assert(true, "math::cos(PI) ~= -1"); }
+  return assert(false, "math::cos(PI) ~= -1");
 }
 
 fn test_cos_pi_half() -> TestResult {
   var r = math.cos(math.PI / 2.0);
-  if math.abs_float(r - 0.0) < 0.01 { return assert(true, "math::cos(PI/2) ≈ 0"); }
-  return assert(false, "math::cos(PI/2) ≈ 0");
+  if math.abs_float(r - 0.0) < 0.01 { return assert(true, "math::cos(PI/2) ~= 0"); }
+  return assert(false, "math::cos(PI/2) ~= 0");
 }
 
 fn test_tan_zero() -> TestResult {
   var r = math.tan(0.0);
-  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::tan(0) ≈ 0"); }
-  return assert(false, "math::tan(0) ≈ 0");
+  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::tan(0) ~= 0"); }
+  return assert(false, "math::tan(0) ~= 0");
 }
 
 fn test_tan_pi_quarter() -> TestResult {
   var r = math.tan(math.PI / 4.0);
-  if math.abs_float(r - 1.0) < 0.05 { return assert(true, "math::tan(PI/4) ≈ 1"); }
-  return assert(false, "math::tan(PI/4) ≈ 1");
+  if math.abs_float(r - 1.0) < 0.05 { return assert(true, "math::tan(PI/4) ~= 1"); }
+  return assert(false, "math::tan(PI/4) ~= 1");
 }
 
 fn test_asin_zero() -> TestResult {
   var r = math.asin(0.0);
-  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::asin(0) ≈ 0"); }
-  return assert(false, "math::asin(0) ≈ 0");
+  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::asin(0) ~= 0"); }
+  return assert(false, "math::asin(0) ~= 0");
 }
 
 fn test_asin_one() -> TestResult {
   var r = math.asin(1.0);
-  if math.abs_float(r - math.PI / 2.0) < 0.01 { return assert(true, "math::asin(1) ≈ PI/2"); }
-  return assert(false, "math::asin(1) ≈ PI/2");
+  if math.abs_float(r - math.PI / 2.0) < 0.01 { return assert(true, "math::asin(1) ~= PI/2"); }
+  return assert(false, "math::asin(1) ~= PI/2");
 }
 
 fn test_acos_one() -> TestResult {
   var r = math.acos(1.0);
-  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::acos(1) ≈ 0"); }
-  return assert(false, "math::acos(1) ≈ 0");
+  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::acos(1) ~= 0"); }
+  return assert(false, "math::acos(1) ~= 0");
 }
 
 fn test_acos_zero() -> TestResult {
   var r = math.acos(0.0);
-  if math.abs_float(r - math.PI / 2.0) < 0.01 { return assert(true, "math::acos(0) ≈ PI/2"); }
-  return assert(false, "math::acos(0) ≈ PI/2");
+  if math.abs_float(r - math.PI / 2.0) < 0.01 { return assert(true, "math::acos(0) ~= PI/2"); }
+  return assert(false, "math::acos(0) ~= PI/2");
 }
 
 fn test_atan_zero() -> TestResult {
   var r = math.atan(0.0);
-  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::atan(0) ≈ 0"); }
-  return assert(false, "math::atan(0) ≈ 0");
+  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::atan(0) ~= 0"); }
+  return assert(false, "math::atan(0) ~= 0");
 }
 
 fn test_atan2_x_axis() -> TestResult {
@@ -269,18 +269,18 @@ fn test_atan2_x_axis() -> TestResult {
 
 fn test_atan2_y_axis() -> TestResult {
   var r = math.atan2(1.0, 0.0);
-  if math.abs_float(r - math.PI / 2.0) < 0.01 { return assert(true, "math::atan2(1,0) ≈ PI/2"); }
-  return assert(false, "math::atan2(1,0) ≈ PI/2");
+  if math.abs_float(r - math.PI / 2.0) < 0.01 { return assert(true, "math::atan2(1,0) ~= PI/2"); }
+  return assert(false, "math::atan2(1,0) ~= PI/2");
 }
 
-// Trig identity: sin² + cos² = 1
+// Trig identity: sin2 + cos2 = 1
 fn test_trig_identity_sin2_cos2() -> TestResult {
   var x = 0.7;
   var s = math.sin(x);
   var c = math.cos(x);
   var sum = s * s + c * c;
-  if math.abs_float(sum - 1.0) < 0.0001 { return assert(true, "math::sin²+cos²=1"); }
-  return assert(false, "math::sin²+cos²=1");
+  if math.abs_float(sum - 1.0) < 0.0001 { return assert(true, "math::sin2+cos2=1"); }
+  return assert(false, "math::sin2+cos2=1");
 }
 
 // Trig identity: tan = sin / cos
@@ -296,20 +296,20 @@ fn test_trig_identity_tan() -> TestResult {
 
 fn test_sin_pure_zero() -> TestResult {
   var r = math.sin_pure(0.0);
-  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::sin_pure(0) ≈ 0"); }
-  return assert(false, "math::sin_pure(0) ≈ 0");
+  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::sin_pure(0) ~= 0"); }
+  return assert(false, "math::sin_pure(0) ~= 0");
 }
 
 fn test_cos_pure_zero() -> TestResult {
   var r = math.cos_pure(0.0);
-  if math.abs_float(r - 1.0) < 0.0001 { return assert(true, "math::cos_pure(0) ≈ 1"); }
-  return assert(false, "math::cos_pure(0) ≈ 1");
+  if math.abs_float(r - 1.0) < 0.0001 { return assert(true, "math::cos_pure(0) ~= 1"); }
+  return assert(false, "math::cos_pure(0) ~= 1");
 }
 
 fn test_atan_pure_zero() -> TestResult {
   var r = math.atan_pure(0.0);
-  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::atan_pure(0) ≈ 0"); }
-  return assert(false, "math::atan_pure(0) ≈ 0");
+  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::atan_pure(0) ~= 0"); }
+  return assert(false, "math::atan_pure(0) ~= 0");
 }
 
 // Verify pure and FFI implementations agree within tolerance
@@ -330,29 +330,29 @@ fn test_cos_pure_vs_ffi() -> TestResult {
 }
 
 // ============================================================
-// SECTION: math — exp / ln
+// SECTION: math -- exp / ln
 // ============================================================
 
 fn test_exp_zero() -> TestResult {
   var r = math.exp(0.0);
-  if math.abs_float(r - 1.0) < 0.0001 { return assert(true, "math::exp(0) ≈ 1"); }
-  return assert(false, "math::exp(0) ≈ 1");
+  if math.abs_float(r - 1.0) < 0.0001 { return assert(true, "math::exp(0) ~= 1"); }
+  return assert(false, "math::exp(0) ~= 1");
 }
 
 fn test_exp_one() -> TestResult {
   var r = math.exp(1.0);
-  if math.abs_float(r - math.E) < 0.01 { return assert(true, "math::exp(1) ≈ E"); }
-  return assert(false, "math::exp(1) ≈ E");
+  if math.abs_float(r - math.E) < 0.01 { return assert(true, "math::exp(1) ~= E"); }
+  return assert(false, "math::exp(1) ~= E");
 }
 
 fn test_ln_one() -> TestResult {
   var r = math.ln(1.0);
-  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::ln(1) ≈ 0"); }
-  return assert(false, "math::ln(1) ≈ 0");
+  if math.abs_float(r - 0.0) < 0.0001 { return assert(true, "math::ln(1) ~= 0"); }
+  return assert(false, "math::ln(1) ~= 0");
 }
 
 // ============================================================
-// SECTION: math — clamp
+// SECTION: math -- clamp
 // ============================================================
 
 fn test_clamp_in_range() -> TestResult {
@@ -374,13 +374,13 @@ fn test_clamp_above() -> TestResult {
 }
 
 // ============================================================
-// SECTION: math — lerp
+// SECTION: math -- lerp
 // ============================================================
 
 fn test_lerp() -> TestResult {
   var r = math.lerp(0.0, 10.0, 0.5);
-  if math.abs_float(r - 5.0) < 0.0001 { return assert(true, "math::lerp(0,10,0.5) ≈ 5"); }
-  return assert(false, "math::lerp(0,10,0.5) ≈ 5");
+  if math.abs_float(r - 5.0) < 0.0001 { return assert(true, "math::lerp(0,10,0.5) ~= 5"); }
+  return assert(false, "math::lerp(0,10,0.5) ~= 5");
 }
 
 fn test_lerp_zero() -> TestResult {
@@ -396,7 +396,7 @@ fn test_lerp_one() -> TestResult {
 }
 
 // ============================================================
-// SECTION: math — is_nan / is_inf
+// SECTION: math -- is_nan / is_inf
 // ============================================================
 
 fn test_is_nan() -> TestResult {
@@ -422,7 +422,7 @@ fn test_is_inf_false() -> TestResult {
 }
 
 // ============================================================
-// SECTION: math — bitwise
+// SECTION: math -- bitwise
 // ============================================================
 
 fn test_bit_and() -> TestResult {
@@ -447,7 +447,7 @@ fn test_bit_xor() -> TestResult {
 }
 
 // ============================================================
-// SECTION: math — shift
+// SECTION: math -- shift
 // ============================================================
 
 fn test_shl() -> TestResult {
@@ -465,7 +465,7 @@ fn test_shr() -> TestResult {
 }
 
 // ============================================================
-// SECTION: math — constants
+// SECTION: math -- constants
 // ============================================================
 
 fn test_constants() -> TestResult {
@@ -476,7 +476,7 @@ fn test_constants() -> TestResult {
 }
 
 // ============================================================
-// SECTION: rand — random()
+// SECTION: rand -- random()
 // ============================================================
 
 fn test_random_in_range() -> TestResult {
@@ -492,7 +492,7 @@ fn test_random_in_range() -> TestResult {
 }
 
 // ============================================================
-// SECTION: rand — random_int
+// SECTION: rand -- random_int
 // ============================================================
 
 fn test_random_int_bounds() -> TestResult {
@@ -508,7 +508,7 @@ fn test_random_int_bounds() -> TestResult {
 }
 
 // ============================================================
-// SECTION: rand — seed determinism
+// SECTION: rand -- seed determinism
 // ============================================================
 
 fn test_seed_deterministic() -> TestResult {
@@ -528,7 +528,7 @@ fn test_seed_from_entropy() -> TestResult {
 }
 
 // ============================================================
-// SECTION: rand — shuffle
+// SECTION: rand -- shuffle
 // ============================================================
 
 fn test_shuffle_preserves_length() -> TestResult {
@@ -544,7 +544,7 @@ fn test_shuffle_preserves_length() -> TestResult {
 }
 
 // ============================================================
-// SECTION: rand — pick
+// SECTION: rand -- pick
 // ============================================================
 
 fn test_pick_returns_element() -> TestResult {
@@ -565,7 +565,7 @@ fn test_pick_empty_returns_none() -> TestResult {
 }
 
 // ============================================================
-// SECTION: rand — uuid_v4
+// SECTION: rand -- uuid_v4
 // ============================================================
 
 fn test_uuid_v4_length() -> TestResult {
@@ -587,7 +587,7 @@ fn test_uuid_v4_dashes() -> TestResult {
 }
 
 // ============================================================
-// SECTION: rand — StdRng
+// SECTION: rand -- StdRng
 // ============================================================
 
 fn test_stdrng_deterministic() -> TestResult {
@@ -600,7 +600,7 @@ fn test_stdrng_deterministic() -> TestResult {
 }
 
 // ============================================================
-// SECTION: math — additional edge cases
+// SECTION: math -- additional edge cases
 // ============================================================
 
 fn test_pow_zero_base() -> TestResult {

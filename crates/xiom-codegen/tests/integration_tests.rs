@@ -1,4 +1,4 @@
-// XIOM — Integration Tests
+// XIOM -- Integration Tests
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -324,7 +324,7 @@ fn test_vec_push_realloc_null_trap() {
 fn test_vec_capacity_guard_max() {
     let ir = compile("fn push_one(v: Vec[Int]) { v.push(1); }").unwrap();
     assert!(ir.contains("vec_cap_trap"), "should have max-capacity trap block");
-    // The capacity limit may vary — check that SOME limit exists
+    // The capacity limit may vary -- check that SOME limit exists
     assert!(ir.contains("1048576") || ir.contains("2097152") || ir.contains("524288") || ir.contains("icmp ule"),
         "should have capacity guard with unsigned comparison");
 }
@@ -378,7 +378,7 @@ fn test_float_div_no_zero_guard() {
 
 #[test]
 fn test_mixed_float_div_no_integer_guard() {
-    // Int-to-float coercion before division — result is float, no zero-guard needed
+    // Int-to-float coercion before division -- result is float, no zero-guard needed
     let src = "fn mixed(a: Float64, b: Int) -> Float64 { return a / b; }";
     let ir = compile(src).unwrap();
     assert!(!ir.contains("div_zero_trap"), "float division after coercion should not have int guard");
@@ -408,7 +408,7 @@ fn test_monomorphisation_dedup_single_definition() {
 fn id[T](x: T) -> T { return x; }
 fn main() -> Int { return id(1) + id(2) + id(3) + id(4) + id(5); }";
     let ir = compile(src).unwrap();
-    // The specialized version should exist — exact naming depends on internal format
+    // The specialized version should exist -- exact naming depends on internal format
     let has_specialized = ir.contains("id_") || ir.contains("id.");
     assert!(has_specialized, "specialized id function should exist in IR");
     let define_count = ir.match_indices("define ").count();
@@ -613,7 +613,7 @@ fn main() -> Int { alloc_and_free(); return 0; }";
 }
 
 // ============================================================================
-// Parser Feature E2E Tests — verify new syntax compiles to IR
+// Parser Feature E2E Tests -- verify new syntax compiles to IR
 // ============================================================================
 
 #[test]
@@ -707,7 +707,7 @@ fn main() -> Int { var c = Counter{ val: 0 }; return c.inc(); }";
 }
 
 // ============================================================================
-// Real-World Pattern Tests — stdlib-like code that exercises multiple features
+// Real-World Pattern Tests -- stdlib-like code that exercises multiple features
 // ============================================================================
 
 #[test]
@@ -841,7 +841,7 @@ fn main() -> Int { var d = Data{ val: 42 }; return process(d); }";
 }
 
 // ============================================================================
-// Advanced Pattern Tests — real-world XIOM patterns
+// Advanced Pattern Tests -- real-world XIOM patterns
 // ============================================================================
 
 #[test]
@@ -1027,7 +1027,7 @@ fn main() -> Int { var o = Outer{ inner: Inner{ val: 42 }, tag: 1 }; return o.in
 }
 
 // ============================================================================
-// Edge Case Tests — patterns from stdlib compilation findings
+// Edge Case Tests -- patterns from stdlib compilation findings
 // ============================================================================
 
 #[test]
@@ -1231,13 +1231,13 @@ fn classify(t: Token) -> Int {
 fn main() -> Int { return 0; }";
     // Regression: mixed variant/binding arms previously desynced the two
     // match-codegen loops and panicked with an out-of-bounds index into
-    // `check_labels`. The compiler must never panic — compile must return a
+    // `check_labels`. The compiler must never panic -- compile must return a
     // value (Ok or Err), not unwind.
     let result = compile(src);
     assert!(result.is_ok() || result.is_err()); // just must not panic
 }
 
-// ── M30+: Deep combinatorial & differential stress ────────────────────
+// -- M30+: Deep combinatorial & differential stress --------------------
 
 // 5 features interacting: struct + enum + generic + match + contract
 #[test] fn test_combo_5_features() {
@@ -1296,7 +1296,7 @@ fn main() -> Int {
     assert!(ir.contains("define"), "diff 3 sum styles must compile");
 }
 
-// Differential: Fibonacci — recursive, iterative, and match-based
+// Differential: Fibonacci -- recursive, iterative, and match-based
 #[test] fn test_diff_fib_three_ways() {
     let src = "\
 fn fib_rec(n: Int) -> Int { if n <= 1 { return n; } return fib_rec(n - 1) + fib_rec(n - 2); }

@@ -1,4 +1,4 @@
-// M35-S16: Find last occurrence — return index of last match or -1
+// M35-S16: Find last occurrence -- return index of last match or -1
 use stdlib.xiom.string;
 fn last_index_of(s: Str, ch: Char) -> Int {
   var target = ch as Int;

@@ -1,4 +1,4 @@
-// M35-S18: Word count — count spaces to determine word count
+// M35-S18: Word count -- count spaces to determine word count
 use stdlib.xiom.string;
 fn word_count(s: Str) -> Int {
   if s.len() == 0 { return 0; }

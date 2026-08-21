@@ -10,7 +10,7 @@ fn main() -> Int {
   var acc = 0;
   var i = 0;
   while i < 2 {
-    let c = i * 10;        // outer loop's c — alloca used to live in the loop
+    let c = i * 10;        // outer loop's c -- alloca used to live in the loop
     acc = acc + c;
     i = i + 1;
   }
@@ -18,7 +18,7 @@ fn main() -> Int {
   unsafe {
     var j = 0;
     while j < 3 {
-      let c = j * 2;       // the block's OWN c — shadows the outer one
+      let c = j * 2;       // the block's OWN c -- shadows the outer one
       out = out + c;
       j = j + 1;
     }

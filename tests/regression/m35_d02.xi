@@ -1,4 +1,4 @@
-// M35-D02: Stack overflow — push beyond capacity
+// M35-D02: Stack overflow -- push beyond capacity
 fn main() -> Int {
   var data0: Int = 0;
   var data1: Int = 0;

@@ -1,4 +1,4 @@
-// M35-A28: Binary conversion — verify integer to binary digit extraction correctness
+// M35-A28: Binary conversion -- verify integer to binary digit extraction correctness
 fn count_bits(n: Int) -> Int {
   var x: Int = n;
   var c: Int = 0;

@@ -1,4 +1,4 @@
-// M35-L30: Pointer iteration — iterate over adjacently allocated vars via pointer
+// M35-L30: Pointer iteration -- iterate over adjacently allocated vars via pointer
 fn get_next(p: *Int, stride: Int) -> *Int {
   var addr: Int;
   unsafe { addr = p as Int; }

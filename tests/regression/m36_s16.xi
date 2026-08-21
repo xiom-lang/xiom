@@ -1,4 +1,4 @@
-// M36-S16: Pretty printer — advanced formatting with alignment rules
+// M36-S16: Pretty printer -- advanced formatting with alignment rules
 type PPStyle = { spaces_per_indent: Int; max_width: Int; use_tabs: Bool; }
 type PPLine = { text: Str; depth: Int; align_col: Int; }
 fn make_style(spi: Int, mw: Int, tabs: Bool) -> PPStyle {

@@ -1,4 +1,4 @@
-// M36-S11: Error reporting — error type construction with location and severity
+// M36-S11: Error reporting -- error type construction with location and severity
 type SourceLoc = { file: Str; line: Int; col: Int; }
 type ErrorKind = { code: Int; severity: Int; }
 type CompileError = { loc: SourceLoc; kind: ErrorKind; message: Str; }

@@ -1,6 +1,6 @@
 // BUG 48-adjacent regression: generic fns taking &Vec[T] params. The caller
 // passed the Vec BY VALUE while the mono def GEPs through a %struct.Vec*
-// param — the callee read the data pointer as the Vec header (AV in every
+// param -- the callee read the data pointer as the Vec header (AV in every
 // contains-style generic fn). Also covers the associated-form interface
 // dispatch (Eq[T].eq) inside generic fns.
 module m37_bug48_associated_generic_vec

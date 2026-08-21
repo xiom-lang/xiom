@@ -1,4 +1,4 @@
-// XIOM — Stdlib Compilation Tests
+// XIOM -- Stdlib Compilation Tests
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
@@ -30,7 +30,7 @@ fn project_root() -> &'static Path {
     }).as_path()
 }
 
-/// All stdlib .xi files to compile (module name → relative path from project root)
+/// All stdlib .xi files to compile (module name -> relative path from project root)
 fn stdlib_modules() -> Vec<(&'static str, &'static str)> {
     vec![
         ("core",        "stdlib/xiom/core.xi"),
@@ -72,8 +72,8 @@ fn stdlib_modules() -> Vec<(&'static str, &'static str)> {
         ("alloc",       "stdlib/xiom/alloc.xi"),
         ("env",         "stdlib/xiom/env.xi"),
         ("error",       "stdlib/xiom/error.xi"),
-        // Folder modules (2026-08-07 refactor) — resolved via catalog strategy a:
-        // `use xiom.foo.bar` → stdlib/xiom/foo/bar.xi
+        // Folder modules (2026-08-07 refactor) -- resolved via catalog strategy a:
+        // `use xiom.foo.bar` -> stdlib/xiom/foo/bar.xi
         ("collect.tree",   "stdlib/xiom/collect/tree.xi"),
         ("collect.heap",   "stdlib/xiom/collect/heap.xi"),
         ("collect.cache",  "stdlib/xiom/collect/cache.xi"),
@@ -106,7 +106,7 @@ fn stdlib_all_modules_compile_to_ir() {
     // Compile ALL stdlib modules TOGETHER in a single compilation unit
     // so cross-module references (e.g. core.xi::from_cstring used by
     // string.xi) are resolved. Isolated per-file compilation was failing
-    // because modules depend on each other — not because of checker bugs.
+    // because modules depend on each other -- not because of checker bugs.
     let modules = stdlib_modules();
     let total = modules.len();
     let project_dir = project_root().display().to_string();

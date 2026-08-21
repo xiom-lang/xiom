@@ -1,4 +1,4 @@
-// M32: Float64 arithmetic — add, sub, mul, div
+// M32: Float64 arithmetic -- add, sub, mul, div
 fn main() -> Int {
   var a: Float64 = 10.0;
   var b: Float64 = 4.0;

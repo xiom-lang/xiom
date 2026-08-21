@@ -1,4 +1,4 @@
-// M36-C27: Every bool pattern — not, and, or, if, while, match, composite expressions, short-circuit eval
+// M36-C27: Every bool pattern -- not, and, or, if, while, match, composite expressions, short-circuit eval
 fn bool_not(b: Bool) -> Bool { return !b; }
 fn bool_and(a: Bool, b: Bool) -> Bool { return a && b; }
 fn bool_or(a: Bool, b: Bool) -> Bool { return a || b; }

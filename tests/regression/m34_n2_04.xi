@@ -1,4 +1,4 @@
-// M34-N2-04: 5-level nested generic type chain L1[T] → L2[T] → L3[T] → L4[T] → L5[T]
+// M34-N2-04: 5-level nested generic type chain L1[T] -> L2[T] -> L3[T] -> L4[T] -> L5[T]
 type L1[T] = { val: T; }
 type L2[T] = { val: L1[T]; }
 type L3[T] = { val: L2[T]; }

@@ -1,4 +1,4 @@
-// M33-B06: Struct field access through borrow — read struct fields via & reference
+// M33-B06: Struct field access through borrow -- read struct fields via & reference
 type Point = { x: Int; y: Int; }
 fn get_x(p: &Point) -> Int { return p.x; }
 fn main() -> Int {

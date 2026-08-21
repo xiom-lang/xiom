@@ -1,4 +1,4 @@
-// M36-X05: Generic dispatch — generic functions with multiple type parameters
+// M36-X05: Generic dispatch -- generic functions with multiple type parameters
 fn max(a: Int, b: Int) -> Int {
   if a > b { return a; }
   return b;

@@ -1,4 +1,4 @@
-// M35-L07: Struct with array — struct containing array-like access via separate fields
+// M35-L07: Struct with array -- struct containing array-like access via separate fields
 type DataBlock = { count: Int; tag: Char; }
 
 fn main() -> Int {

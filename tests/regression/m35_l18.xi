@@ -1,4 +1,4 @@
-// M35-L18: Pointer to struct — deref struct via function parameter pointer
+// M35-L18: Pointer to struct -- deref struct via function parameter pointer
 type Vec2 = { x: Int; y: Int; }
 
 fn get_x(p: *Vec2) -> Int {

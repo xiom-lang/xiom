@@ -1,5 +1,5 @@
-// m38_round8_catalog_mut_self — round-8 (2026-08-20) regression:
-// catalog &mut self receiver wiring for user generic structs —
+// m38_round8_catalog_mut_self -- round-8 (2026-08-20) regression:
+// catalog &mut self receiver wiring for user generic structs --
 // VecDeque/Stack/Queue/LinkedList/BTreeMap mutations were entirely LOST
 // through the catalog (calls hijacked same-leaf methods of other types
 // like Reverse.push_front because the non-pub generic type decls +

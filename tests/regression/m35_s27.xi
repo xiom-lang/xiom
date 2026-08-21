@@ -1,4 +1,4 @@
-// M35-S27: Rotation check — check if one string is a rotation of another
+// M35-S27: Rotation check -- check if one string is a rotation of another
 use stdlib.xiom.string;
 fn seems_rotation(a: Str, b: Str) -> Bool {
   if a.len() != b.len() { return false; }

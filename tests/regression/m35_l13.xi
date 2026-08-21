@@ -1,4 +1,4 @@
-// M35-L13: Result size pattern — verify Result[Int, Str] layout via match
+// M35-L13: Result size pattern -- verify Result[Int, Str] layout via match
 fn main() -> Int {
   var a: Result[Int, Str] = Ok(100);
   match a {

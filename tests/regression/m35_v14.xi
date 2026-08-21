@@ -1,4 +1,4 @@
-// M35-V14: Vec of enum — Vec[Color] simple variant push/access
+// M35-V14: Vec of enum -- Vec[Color] simple variant push/access
 use xiom.collections;
 
 type Color = enum { Red, Green, Blue, }

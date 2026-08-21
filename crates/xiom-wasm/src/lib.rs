@@ -1,5 +1,5 @@
-//! XIOM WASM — Browser-based compiler for the playground
-//! Compiles XIOM source → LLVM IR and diagnostics entirely in the browser.
+//! XIOM WASM -- Browser-based compiler for the playground
+//! Compiles XIOM source -> LLVM IR and diagnostics entirely in the browser.
 //! No file system, no process spawning, no external dependencies.
 
 use wasm_bindgen::prelude::*;

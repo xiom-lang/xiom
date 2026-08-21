@@ -1,4 +1,4 @@
-// M34-J02: Module with pub fn — multiple public functions
+// M34-J02: Module with pub fn -- multiple public functions
 module calc {
   pub fn double(x: Int) -> Int { return x * 2; }
   pub fn triple(x: Int) -> Int { return x * 3; }

@@ -1,4 +1,4 @@
-// XIOM — Documentation Generator
+// XIOM -- Documentation Generator
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -270,7 +270,7 @@ mod tests {
 /// 8B/M8: Generate HTML documentation output.
 fn generate_docs_html(program: &Program, source_file: &str) {
     println!("<!DOCTYPE html>");
-    println!("<html><head><meta charset=\"utf-8\"><title>XIOM API — {source_file}</title>");
+    println!("<html><head><meta charset=\"utf-8\"><title>XIOM API -- {source_file}</title>");
     println!("<style>body{{font-family:system-ui,sans-serif;max-width:900px;margin:0 auto;padding:20px;}}");
     println!("h1{{color:#333}}h2{{border-bottom:2px solid #eee;padding-bottom:4px}}");
     println!(".fn{{background:#f5f5f5;padding:12px;border-radius:4px;margin:8px 0}}");
@@ -338,7 +338,7 @@ fn generate_docs_html_items(items: &[TopDecl], depth: usize) {
 }
 
 fn print_usage() {
-    eprintln!("XIOM Doc v{} — Documentation Generator", VERSION);
+    eprintln!("XIOM Doc v{} -- Documentation Generator", VERSION);
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("  xiom doc <file.xi> [--html]");

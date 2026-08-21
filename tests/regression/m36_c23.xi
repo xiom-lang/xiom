@@ -1,4 +1,4 @@
-// M36-C23: Every array pattern — Vec literal push, index, loop sum, param, return
+// M36-C23: Every array pattern -- Vec literal push, index, loop sum, param, return
 fn array_param(arr: Vec[Int]) -> Int {
   if arr.len() == 0 { return -1; }
   return arr[0];

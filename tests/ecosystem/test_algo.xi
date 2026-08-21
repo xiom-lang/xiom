@@ -1,4 +1,4 @@
-// XIOM — Ecosystem Algorithm Hardening Tests
+// XIOM -- Ecosystem Algorithm Hardening Tests
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
@@ -258,7 +258,7 @@ fn vec_eq(a: &Vec[Int], b: &Vec[Int]) -> Bool {
 }
 
 // ============================================================================
-// Test Functions — Binary Search
+// Test Functions -- Binary Search
 // ============================================================================
 
 fn test_binary_search_found() -> Bool {
@@ -304,7 +304,7 @@ fn test_binary_search_single_not_found() -> Bool {
 }
 
 // ============================================================================
-// Test Functions — Quicksort
+// Test Functions -- Quicksort
 // ============================================================================
 
 fn test_quicksort_empty() -> Bool {
@@ -354,7 +354,7 @@ fn test_quicksort_all_equal() -> Bool {
 }
 
 // ============================================================================
-// Test Functions — Merge Sort
+// Test Functions -- Merge Sort
 // ============================================================================
 
 fn test_merge_sort_empty() -> Bool {
@@ -397,7 +397,7 @@ fn test_merge_sort_two_elements() -> Bool {
 }
 
 // ============================================================================
-// Test Functions — GCD
+// Test Functions -- GCD
 // ============================================================================
 
 fn test_gcd_basic() -> Bool {
@@ -421,7 +421,7 @@ fn test_gcd_large() -> Bool {
 }
 
 // ============================================================================
-// Test Functions — Fibonacci
+// Test Functions -- Fibonacci
 // ============================================================================
 
 fn test_fibonacci_zero() -> Bool {
@@ -453,7 +453,7 @@ fn test_fibonacci_fifteen() -> Bool {
 }
 
 // ============================================================================
-// Test Functions — Sieve of Eratosthenes
+// Test Functions -- Sieve of Eratosthenes
 // ============================================================================
 
 fn test_sieve_primes_up_to_10() -> Bool {
@@ -480,7 +480,7 @@ fn test_sieve_large() -> Bool {
 }
 
 // ============================================================================
-// Test Functions — Is Prime
+// Test Functions -- Is Prime
 // ============================================================================
 
 fn test_is_prime_zero() -> Bool {
@@ -516,7 +516,7 @@ fn test_is_prime_perfect_square() -> Bool {
 }
 
 // ============================================================================
-// Test Functions — Factorial
+// Test Functions -- Factorial
 // ============================================================================
 
 fn test_factorial_zero() -> Bool {
@@ -540,7 +540,7 @@ fn test_factorial_twenty() -> Bool {
 }
 
 // ============================================================================
-// Test Functions — LCM
+// Test Functions -- LCM
 // ============================================================================
 
 fn test_lcm_basic() -> Bool {
@@ -564,7 +564,7 @@ fn test_lcm_one() -> Bool {
 }
 
 // ============================================================================
-// Test Functions — Power
+// Test Functions -- Power
 // ============================================================================
 
 fn test_power_exp_zero() -> Bool {
@@ -592,7 +592,7 @@ fn test_power_base_zero() -> Bool {
 }
 
 // ============================================================================
-// Test Functions — Is Sorted
+// Test Functions -- Is Sorted
 // ============================================================================
 
 fn test_is_sorted_empty() -> Bool {
@@ -626,7 +626,7 @@ fn test_is_sorted_descending() -> Bool {
 }
 
 // ============================================================================
-// Test Functions — Reverse
+// Test Functions -- Reverse
 // ============================================================================
 
 fn test_reverse_empty() -> Bool {
@@ -655,7 +655,7 @@ fn test_reverse_two() -> Bool {
 }
 
 // ============================================================================
-// Test Functions — Concat
+// Test Functions -- Concat
 // ============================================================================
 
 fn test_concat_both_nonempty() -> Bool {
@@ -690,7 +690,7 @@ fn test_concat_both_empty() -> Bool {
 }
 
 // ============================================================================
-// Test Functions — Unique
+// Test Functions -- Unique
 // ============================================================================
 
 fn test_unique_empty() -> Bool {
@@ -727,7 +727,7 @@ fn test_unique_all_same() -> Bool {
 }
 
 // ============================================================================
-// Test Functions — Max Subarray Sum (Kadane)
+// Test Functions -- Max Subarray Sum (Kadane)
 // ============================================================================
 
 fn test_max_subarray_all_positive() -> Bool {
@@ -761,7 +761,7 @@ fn test_max_subarray_empty() -> Bool {
 }
 
 // ============================================================================
-// Integration Tests — Cross-Algorithm
+// Integration Tests -- Cross-Algorithm
 // ============================================================================
 
 fn test_sort_then_binary_search() -> Bool {
@@ -803,7 +803,7 @@ fn test_factorial_identity() -> Bool {
 }
 
 // ============================================================================
-// Main — Run All Tests
+// Main -- Run All Tests
 // ============================================================================
 
 fn main() -> Int {

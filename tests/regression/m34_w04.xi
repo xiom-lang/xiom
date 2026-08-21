@@ -1,4 +1,4 @@
-// M34-W04: Double NOT — ~(~x) == x on Int and UInt (avoid small-type ~ bug)
+// M34-W04: Double NOT -- ~(~x) == x on Int and UInt (avoid small-type ~ bug)
 fn main() -> Int {
   var v_i: Int = 0x55AA;
   var v_u: UInt = 170;

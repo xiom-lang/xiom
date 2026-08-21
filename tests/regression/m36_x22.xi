@@ -1,4 +1,4 @@
-// M36-X22: Mutual recursion — functions that call each other
+// M36-X22: Mutual recursion -- functions that call each other
 fn is_even(n: Int) -> Bool {
   if n == 0 { return true; }
   return is_odd(n - 1);

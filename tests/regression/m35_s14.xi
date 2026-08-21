@@ -1,4 +1,4 @@
-// M35-S14: String suffix check — verify s ends with suffix character-by-character
+// M35-S14: String suffix check -- verify s ends with suffix character-by-character
 use stdlib.xiom.string;
 fn ends_with(s: Str, suffix: Str) -> Bool {
   if suffix.len() > s.len() { return false; }

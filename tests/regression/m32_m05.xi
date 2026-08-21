@@ -1,4 +1,4 @@
-// M32-M05: use type alias — import pub type from module
+// M32-M05: use type alias -- import pub type from module
 module types {
   pub type Score = Int;
   pub fn create_score(n: Int) -> Score { return n; }

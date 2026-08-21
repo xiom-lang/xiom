@@ -1,4 +1,4 @@
-// M35-V02: Vec[Int] get/set index — verify index-based read/write
+// M35-V02: Vec[Int] get/set index -- verify index-based read/write
 use xiom.collections;
 
 fn main() -> Int {

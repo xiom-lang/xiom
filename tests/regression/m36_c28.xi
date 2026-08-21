@@ -1,4 +1,4 @@
-// M36-C28: Combined mega test 1 — structs, enums, match, recursion, loops, Option
+// M36-C28: Combined mega test 1 -- structs, enums, match, recursion, loops, Option
 type Stats = { sum: Int; count: Int; } derive[Eq]
 fn Stats.new() -> Stats { return Stats{ sum: 0; count: 0; }; }
 fn Stats.add(self, n: Int) -> Stats { var r = self; r.sum = r.sum + n; r.count = r.count + 1; return r; }

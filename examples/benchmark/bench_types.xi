@@ -1,4 +1,4 @@
-// XIOM — Type System Stress Benchmark
+// XIOM -- Type System Stress Benchmark
 // Exercises struct definitions, field access, type nesting, and complex types.
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.

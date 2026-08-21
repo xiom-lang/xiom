@@ -1,4 +1,4 @@
-// XIOM — Selfhost Compiler Benchmark
+// XIOM -- Selfhost Compiler Benchmark
 // Exercises all language features at scale.
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.

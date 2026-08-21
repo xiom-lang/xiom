@@ -1,4 +1,4 @@
-// M32-C05: Multiple ensures — range guarantees on clamp
+// M32-C05: Multiple ensures -- range guarantees on clamp
 fn clamp(val: Int, lo: Int, hi: Int) -> Int
   ensures: result >= lo
   ensures: result <= hi

@@ -1,4 +1,4 @@
-// XIOM — Self-Hosted Lexer
+// XIOM -- Self-Hosted Lexer
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
@@ -137,47 +137,47 @@ pub fn source_len() -> Int {
 // ============================================================================
 
 pub fn match_keyword(first: Int, second: Int, third: Int, fourth: Int, fifth: Int, sixth: Int) -> Int {
-  // "fn" — f(102) + n(110)
+  // "fn" -- f(102) + n(110)
   if first == 102 && second == 110 {
     return 1;
   }
-  // "return" — r(114)+e(101)+t(116)+u(117)+r(114)+n(110)
+  // "return" -- r(114)+e(101)+t(116)+u(117)+r(114)+n(110)
   if first == 114 && second == 101 && third == 116 && fourth == 117 && fifth == 114 && sixth == 110 {
     return 2;
   }
-  // "if" — i(105)+f(102)
+  // "if" -- i(105)+f(102)
   if first == 105 && second == 102 {
     return 3;
   }
-  // "else" — e(101)+l(108)+s(115)+e(101)
+  // "else" -- e(101)+l(108)+s(115)+e(101)
   if first == 101 && second == 108 && third == 115 && fourth == 101 {
     return 4;
   }
-  // "let" — l(108)+e(101)+t(116)
+  // "let" -- l(108)+e(101)+t(116)
   if first == 108 && second == 101 && third == 116 {
     return 5;
   }
-  // "var" — v(118)+a(97)+r(114)
+  // "var" -- v(118)+a(97)+r(114)
   if first == 118 && second == 97 && third == 114 {
     return 6;
   }
-  // "while" — w(119)+h(104)+i(105)+l(108)+e(101)
+  // "while" -- w(119)+h(104)+i(105)+l(108)+e(101)
   if first == 119 && second == 104 && third == 105 && fourth == 108 && fifth == 101 {
     return 7;
   }
-  // "Int" — I(73)+n(110)+t(116)
+  // "Int" -- I(73)+n(110)+t(116)
   if first == 73 && second == 110 && third == 116 {
     return 8;
   }
-  // "Bool" — B(66)+o(111)+o(111)+l(108)
+  // "Bool" -- B(66)+o(111)+o(111)+l(108)
   if first == 66 && second == 111 && third == 111 && fourth == 108 {
     return 9;
   }
-  // "type" — t(116)+y(121)+p(112)+e(101)
+  // "type" -- t(116)+y(121)+p(112)+e(101)
   if first == 116 && second == 121 && third == 112 && fourth == 101 {
     return 10;
   }
-  // Not a keyword — it's an identifier
+  // Not a keyword -- it's an identifier
   return 100;
 }
 
@@ -237,7 +237,7 @@ pub fn scan_word(pos: &Int, line: Int, col: Int, c1: Int) -> Int {
     // type = 4 chars
     np = pos + 3;
   } else {
-    // Identifier — scan past alphanumeric chars
+    // Identifier -- scan past alphanumeric chars
     np = pos + 1;
     var done = 1 == 0;
     while !(done) {
@@ -302,7 +302,7 @@ pub fn tokenize() -> Int {
       line = line + 1;
       col = 1;
     }
-    // Alphabetic — identifier or keyword
+    // Alphabetic -- identifier or keyword
     elif is_alpha(c + 0) || c == 95 {
       let res = scan_word(&pos, line + 0, col + 0, c + 0);
       let kind = res / 1000000;
@@ -311,7 +311,7 @@ pub fn tokenize() -> Int {
       col = col + 1;
       count = count + 1;
     }
-    // Digit — number literal
+    // Digit -- number literal
     elif is_digit(c + 0) {
       let res = scan_number(&pos);
       let kind = res / 1000000;
@@ -366,12 +366,12 @@ pub fn tokenize() -> Int {
     } elif c == 46 {
       pos = pos + 1; col = col + 1; count = count + 1;
     } elif c == 47 {
-      // '/' — skip comment to end of line
+      // '/' -- skip comment to end of line
       var np = pos + 1;
       if np < max_pos {
         let nc = source_at(np + 0);
         if nc == 47 {
-          // // comment — skip to newline
+          // // comment -- skip to newline
           var found_nl = 1 == 0;
           while !(found_nl) && np < max_pos {
             if source_at(np + 0) == 10 {
@@ -418,7 +418,7 @@ pub fn tokenize() -> Int {
         pos = pos + 1; col = col + 1; count = count + 1;
       }
     } else {
-      // Unknown character — skip
+      // Unknown character -- skip
       pos = pos + 1;
       col = col + 1;
     }
@@ -464,7 +464,7 @@ fn test_keywords() -> Int {
   if match_keyword(73,110,116,0,0,0) != 8 { return 3; }
   // "let" = l,e,t
   if match_keyword(108,101,116,0,0,0) != 5 { return 4; }
-  // gibberish → identifier
+  // gibberish -> identifier
   if match_keyword(120,120,120,0,0,0) != 100 { return 5; }
   return 0;
 }

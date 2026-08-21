@@ -1,4 +1,4 @@
-// M35-A25: Digit sum recursive — compute sum of digits via recursion
+// M35-A25: Digit sum recursive -- compute sum of digits via recursion
 fn digit_sum_rec(n: Int) -> Int {
   if n == 0 { return 0; }
   return n % 10 + digit_sum_rec(n / 10);

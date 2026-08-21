@@ -1,4 +1,4 @@
-// M34-D04: Tree depth — compute max depth of binary tree
+// M34-D04: Tree depth -- compute max depth of binary tree
 type Node = { value: Int; left: *Node; right: *Node; }
 
 fn max2(a: Int, b: Int) -> Int {

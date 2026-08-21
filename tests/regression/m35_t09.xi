@@ -1,4 +1,4 @@
-// M35-T09: Pointers in every context — var, param, return, deref, address-of
+// M35-T09: Pointers in every context -- var, param, return, deref, address-of
 fn deref_int(ptr: *Int) -> Int { var v: Int; unsafe { v = *ptr; } return v; }
 fn ptr_if(ptr: *Int) -> Int { var v: Int; unsafe { v = *ptr; } if v > 0 { return v; } return 0; }
 fn ptr_struct_deref(ptr: *Int) -> Int { var v: Int; unsafe { v = *ptr; } return v * 2; }

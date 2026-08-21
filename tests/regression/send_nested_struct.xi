@@ -1,4 +1,4 @@
-// E2E: Send enforcement — nested struct with all-Send fields
+// E2E: Send enforcement -- nested struct with all-Send fields
 use xiom.io;
 
 type Inner = { x: Int; y: Int; }

@@ -1,4 +1,4 @@
-# XIOM Self-Hosting Readiness Audit — v0.52.9
+# XIOM Self-Hosting Readiness Audit -- v0.52.9
 
 **Date:** 2026-07-27 | **Test baseline: 1067/1067** | **Auditor: Kilo (automated deep audit)**
 
@@ -32,11 +32,11 @@ XIOM, to compile itself end-to-end with no C dependency for codegen.
   in `stdlib/runtime/xiom_runtime.c`, function `emit_body_ir()`).
 - The XIOM portion is essentially a function-signature extractor + metadata feeder.
 - The canonical `xiomc.xi` (672 lines) has **hardcoded IR strings** printed via
-  `io.println()` — it does NOT generate IR programmatically.
+  `io.println()` -- it does NOT generate IR programmatically.
 
 ---
 
-## DIMENSION 1: LANGUAGE FEATURE COVERAGE — 7/10
+## DIMENSION 1: LANGUAGE FEATURE COVERAGE -- 7/10
 
 ### SUPPORTED (sufficient for self-hosting)
 | Feature | Status |
@@ -60,8 +60,8 @@ XIOM, to compile itself end-to-end with no C dependency for codegen.
 ### PARTIAL (usable but limited)
 | Feature | Limitation |
 |---------|-----------|
-| Interfaces (traits) | Structural satisfaction only — no `impl Trait for Type` syntax. Method name coincidence is the only way to satisfy an interface. |
-| Or-patterns in match | Parser supports `A \| B`, checker validates, but codegen has `TODO` — not compiled yet |
+| Interfaces (traits) | Structural satisfaction only -- no `impl Trait for Type` syntax. Method name coincidence is the only way to satisfy an interface. |
+| Or-patterns in match | Parser supports `A \| B`, checker validates, but codegen has `TODO` -- not compiled yet |
 | Const-generics | Basic support but size inference relies on heuristics |
 
 ### MISSING (hard blockers)
@@ -72,7 +72,7 @@ XIOM, to compile itself end-to-end with no C dependency for codegen.
 
 ---
 
-## DIMENSION 2: SELF-HOSTING COMPILER STATUS — 2/10
+## DIMENSION 2: SELF-HOSTING COMPILER STATUS -- 2/10
 
 ### What Exists (23 files in selfhost/)
 | Component | File | Status |
@@ -98,17 +98,17 @@ XIOM, to compile itself end-to-end with no C dependency for codegen.
 ### The v10/v11 "Self-Hosting" Reality
 ```
 xiomc_v10.xi does:
-  1. xiom_read_file(path) → raw source bytes (C FFI)
+  1. xiom_read_file(path) -> raw source bytes (C FFI)
   2. Scan for "fn" keyword, extract name/signature
   3. Record metadata in C function table (xiom_fn_table_add)
-  4. Call xiom_fn_emit_all() → C runtime does ALL body parsing + IR emission
+  4. Call xiom_fn_emit_all() -> C runtime does ALL body parsing + IR emission
 ```
 
 The XIOM code is a thin shell. **Every byte of LLVM IR comes from C.**
 
 ---
 
-## DIMENSION 3: RUST-HOSTED COMPILER — 8/10
+## DIMENSION 3: RUST-HOSTED COMPILER -- 8/10
 
 This is the compiler users actually run (`xiom.exe`). It is production-grade.
 
@@ -133,7 +133,7 @@ This is the compiler users actually run (`xiom.exe`). It is production-grade.
 
 ---
 
-## DIMENSION 4: STDLIB — 7/10
+## DIMENSION 4: STDLIB -- 7/10
 
 ### Complete (self-hosting ready)
 - File I/O: read_file, write_file, file_exists, remove_file, create_dir, list_dir
@@ -157,7 +157,7 @@ This is the compiler users actually run (`xiom.exe`). It is production-grade.
 
 ---
 
-## DIMENSION 5: TOOLCHAIN — 9/10
+## DIMENSION 5: TOOLCHAIN -- 9/10
 
 | Tool | Status |
 |------|--------|
@@ -221,8 +221,8 @@ This is the compiler users actually run (`xiom.exe`). It is production-grade.
 ### Phase M20-C: Bootstrapping & Validation (weeks 7-8)
 | # | Task | Priority |
 |---|------|----------|
-| M20-C1 | Self-compile: xiom.exe compiles xiomc.xi → xiomc.exe | **CRITICAL** |
-| M20-C2 | Round-trip: xiomc.exe compiles xiomc.xi → xiomc2.exe, binary identical | **CRITICAL** |
+| M20-C1 | Self-compile: xiom.exe compiles xiomc.xi -> xiomc.exe | **CRITICAL** |
+| M20-C2 | Round-trip: xiomc.exe compiles xiomc.xi -> xiomc2.exe, binary identical | **CRITICAL** |
 | M20-C3 | Self-host test suite: xiomc passes all test suites | **CRITICAL** |
 | M20-C4 | Performance parity: self-hosted compiler within 2x of Rust compiler | MEDIUM |
 | M20-C5 | **Stdlib self-compilation**: the selfhosted compiler must also compile the stdlib (io.xi, string.xi, collections, etc.) and produce correct binaries. Without this, you have a compiler that can only compile itself, not real programs. | **CRITICAL** |
@@ -275,7 +275,7 @@ Every M19 bug fix re-tested through the selfhost compiler path:
 | T-B-3 | Result[Str, E].unwrap() via selfhost |
 | T-B-4 | ptr.offset() inline via selfhost |
 | T-B-5 | *deref on ptrtoint'd pointer via selfhost |
-| T-B-6 | Large markdown → HTML via selfhost |
+| T-B-6 | Large markdown -> HTML via selfhost |
 | T-B-7 | String concatenation heavy load |
 | T-B-8 | Recursive functions |
 | T-B-9 | Generic function monomorphisation |
@@ -284,7 +284,7 @@ Every M19 bug fix re-tested through the selfhost compiler path:
 ### Projected test count
 | Phase | Current | After |
 |-------|---------|-------|
-| Today | 1067 | — |
+| Today | 1067 | -- |
 | M20-A complete | 1067 | 1082 (+15: closures + impl Trait) |
 | M20-B complete | 1082 | 1112 (+30: selfhost regression + differential) |
 | M20-C complete | 1112 | 1117 (+5: bootstrap) |
@@ -294,5 +294,5 @@ Every M19 bug fix re-tested through the selfhost compiler path:
 
 ## CURRENT SESSION.md CORRECTION NEEDED
 
-SESSION.md line 4: `Self-hosting readiness: 10/10` → should be `3/10`
+SESSION.md line 4: `Self-hosting readiness: 10/10` -> should be `3/10`
 with honest notes about the C runtime dependency and missing language features.

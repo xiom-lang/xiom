@@ -1,4 +1,4 @@
-// M34-J10: Nested modules (3+ levels) — deep nesting
+// M34-J10: Nested modules (3+ levels) -- deep nesting
 module l1 {
   pub fn v1() -> Int { return 1; }
   module l2 {

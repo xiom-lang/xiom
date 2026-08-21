@@ -1,6 +1,6 @@
-// M33-P01: Large program stress — deep call chain, 20 structs, 15 enums, 10 consts, 5 modules
+// M33-P01: Large program stress -- deep call chain, 20 structs, 15 enums, 10 consts, 5 modules
 // Pattern: fn main() -> Int { ... return 0; }
-// Stress: 30-fn call chain, deep call chain fn0→fn1→...→fn20, all primitives struct, interleaved decls
+// Stress: 30-fn call chain, deep call chain fn0->fn1->...->fn20, all primitives struct, interleaved decls
 
 const C_START: Int = 0;
 const D0: Int = 0;

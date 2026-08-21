@@ -1,4 +1,4 @@
-# M10 — XIOM Scripting / JIT Mode
+# M10 -- XIOM Scripting / JIT Mode
 
 **Date:** 2026-07-24 | **Status:** Design Phase | **Target:** v0.50.0 "Scripting Edition"
 **Dependency:** M1-M9 complete. Requires `xiom run` CLI + JIT backend.
@@ -8,12 +8,12 @@ with complete error handling, documentation, TDD test suite, and self-host diffe
 ## 1. Motivation
 
 XIOM is a compiled, statically-typed systems language that produces native binaries via LLVM.
-Users and AI agents want the same "write and run" experience as Python scripts — no compile/link
+Users and AI agents want the same "write and run" experience as Python scripts -- no compile/link
 cycle, no build artifacts, instant feedback.
 
-Because XIOM's compiler pipeline (lex → parse → check → IR) is already modular, we can add a JIT
+Because XIOM's compiler pipeline (lex -> parse -> check -> IR) is already modular, we can add a JIT
 execution path that shares the same AST, type checker, and contract system as AOT compilation.
-This means **scripts are NOT a different language** — they are the same XIOM code routed through
+This means **scripts are NOT a different language** -- they are the same XIOM code routed through
 a different execution backend. A script can be "graduated" into a production binary with zero code
 changes by switching from `xiom run` to `xiom build`.
 
@@ -30,28 +30,28 @@ changes by switching from `xiom run` to `xiom build`.
 
 ```
                        SAME XIOM AST / CONTRACTS / CHECKER
-                                    │
-         ┌──────────────────────────┴──────────────────────────┐
-         ▼                                                      ▼
-┌─────────────────────┐                            ┌─────────────────────┐
-│  SCRIPTING / JIT MODE                             │  PRODUCTION / AOT MODE
-│                                                    │
-│  xiom run script.xi                                │  xiom build script.xi -o bin
-│  xiom run -e "print(42)"                           │  xiom build --release
-│  #!/usr/bin/env xiom (shebang)                     │
-│                                                    │
-│  Pipeline:                                         │  Pipeline:
-│  1. Lex → Parse → Check                            │  1. Lex → Parse → Check
-│  2. Wrap top-level stmts in implicit main()        │  2. Full LLVM -O3 passes
-│  3. JIT via inkwell (or Cranelift)                 │  3. Emit native binary to disk
-│  4. Execute immediately in-process                 │  4. No runtime dependency
-│                                                    │
-│  Characteristics:                                  │  Characteristics:
-│  - O0 / fast compilation                           │  - O3 / full optimization
-│  - Zero disk artifacts                             │  - Static binary
-│  - 10-50ms startup for small scripts               │  - C/Rust-level performance
-│  - Interactive REPL (later)                        │  - Production deployment
-└─────────────────────┘                            └─────────────────────┘
+                                    |
+         +--------------------------+--------------------------+
+         v                                                      v
++---------------------+                            +---------------------+
+|  SCRIPTING / JIT MODE                             |  PRODUCTION / AOT MODE
+|                                                    |
+|  xiom run script.xi                                |  xiom build script.xi -o bin
+|  xiom run -e "print(42)"                           |  xiom build --release
+|  #!/usr/bin/env xiom (shebang)                     |
+|                                                    |
+|  Pipeline:                                         |  Pipeline:
+|  1. Lex -> Parse -> Check                            |  1. Lex -> Parse -> Check
+|  2. Wrap top-level stmts in implicit main()        |  2. Full LLVM -O3 passes
+|  3. JIT via inkwell (or Cranelift)                 |  3. Emit native binary to disk
+|  4. Execute immediately in-process                 |  4. No runtime dependency
+|                                                    |
+|  Characteristics:                                  |  Characteristics:
+|  - O0 / fast compilation                           |  - O3 / full optimization
+|  - Zero disk artifacts                             |  - Static binary
+|  - 10-50ms startup for small scripts               |  - C/Rust-level performance
+|  - Interactive REPL (later)                        |  - Production deployment
+`---------------------+                            `---------------------+
 ```
 
 ### Self-hosting consideration
@@ -59,28 +59,28 @@ changes by switching from `xiom run` to `xiom build`.
 When XIOM is self-hosted (compiler written in XIOM, compiled by XIOM), the JIT mode MUST
 be able to JIT-compile the compiler itself. This means:
 
-1. **The JIT backend must support the full XIOM language** — no subset, no shortcuts.
+1. **The JIT backend must support the full XIOM language** -- no subset, no shortcuts.
    Self-hosting the compiler exercises every language feature (generics, contracts, async,
    unsafe, FFI).
 
 2. **Inkwell (LLVM-C API) is the recommended JIT backend** because:
-   - It wraps the same LLVM that AOT mode uses — same IR, same lowering
+   - It wraps the same LLVM that AOT mode uses -- same IR, same lowering
    - LLVM ORC JITv2 supports lazy compilation (compile functions on first call)
    - Cross-platform (Windows/Linux/macOS)
    - Already a Rust crate with active maintenance
 
-3. **Cranelift is the fallback for ultra-fast startup** — if LLVM JIT initialization
+3. **Cranelift is the fallback for ultra-fast startup** -- if LLVM JIT initialization
    latency (100-200ms) is unacceptable for tiny scripts, Cranelift can serve as a
    lighter JIT for the O0 tier. The trade-off is that Cranelift may not support every
    LLVM feature the self-host compiler needs.
 
-4. **The JIT path must be tested with the full selfhost compiler** — differential testing:
+4. **The JIT path must be tested with the full selfhost compiler** -- differential testing:
    JIT the selfhost compiler, use it to compile a test program, compare the output with
    the AOT-compiled selfhost compiler. Results must be identical.
 
 ## 3. Feature Breakdown
 
-### 3.1 `xiom run` — JIT Execution (Phase 1, 3d)
+### 3.1 `xiom run` -- JIT Execution (Phase 1, 3d)
 
 ```bash
 # Execute a .xi file as a script
@@ -148,7 +148,7 @@ chmod +x script.xi
 **Implementation:** In the lexer, if the first two characters of the file are `#!`, skip the
 entire first line. No other changes needed.
 
-### 3.4 `xiom build --standalone` — Script-to-Binary (Phase 2, 2d)
+### 3.4 `xiom build --standalone` -- Script-to-Binary (Phase 2, 2d)
 
 "Graduate" a script into a production binary:
 
@@ -160,7 +160,7 @@ xiom build script.xi --standalone -o tool.exe
 1. If the script uses implicit main, extract it into an explicit `fn main() -> Int`
 2. Wrap top-level code in a proper module structure if needed
 3. Run full LLVM -O3 optimization
-4. Emit a static native binary — zero dependencies beyond libc
+4. Emit a static native binary -- zero dependencies beyond libc
 
 ```bash
 # Optional: also generate a standardized project structure
@@ -282,41 +282,41 @@ Subcommand::Run { file: Option<String>, expr: Option<String>, args: Vec<String> 
 
 ### 6.1 Parser tests (shebang)
 ```
-test_shebang_skipped — #!/usr/bin/env xiom followed by valid code parses correctly
-test_shebang_preserves_line_numbers — error messages report correct lines after shebang
-test_no_shebang_normal — normal file without shebang still works
+test_shebang_skipped -- #!/usr/bin/env xiom followed by valid code parses correctly
+test_shebang_preserves_line_numbers -- error messages report correct lines after shebang
+test_no_shebang_normal -- normal file without shebang still works
 ```
 
 ### 6.2 Implicit main tests
 ```
-test_implicit_main_simple — top-level print → wrapped in main()
-test_implicit_main_with_types — type/enum/const decls stay at top, code in main()
-test_implicit_main_explicit_main_exists — file with fn main() is NOT wrapped
-test_implicit_main_module_first — module declaration stays at top
-test_implicit_main_return_value — last expression Int → main returns Int
-test_implicit_main_void — no return expression → main returns void
+test_implicit_main_simple -- top-level print -> wrapped in main()
+test_implicit_main_with_types -- type/enum/const decls stay at top, code in main()
+test_implicit_main_explicit_main_exists -- file with fn main() is NOT wrapped
+test_implicit_main_module_first -- module declaration stays at top
+test_implicit_main_return_value -- last expression Int -> main returns Int
+test_implicit_main_void -- no return expression -> main returns void
 ```
 
 ### 6.3 JIT execution tests
 ```
-test_jit_simple_int — fn main() -> Int { return 42; } JIT-executes, exit code 42
-test_jit_print — fn main() { io.println("hello"); } JIT-executes, stdout captured
-test_jit_contracts — fn with requires catches violation at JIT runtime
-test_jit_generics — generic fn JIT-executes correctly
-test_jit_stdlib — uses Vec, Option, Result via JIT
+test_jit_simple_int -- fn main() -> Int { return 42; } JIT-executes, exit code 42
+test_jit_print -- fn main() { io.println("hello"); } JIT-executes, stdout captured
+test_jit_contracts -- fn with requires catches violation at JIT runtime
+test_jit_generics -- generic fn JIT-executes correctly
+test_jit_stdlib -- uses Vec, Option, Result via JIT
 ```
 
 ### 6.4 Script-to-binary tests
 ```
-test_standalone_build — implicit main script → xiom build --standalone → runs identically
-test_standalone_perf — standalone binary's IR matches AOT IR (differential)
+test_standalone_build -- implicit main script -> xiom build --standalone -> runs identically
+test_standalone_perf -- standalone binary's IR matches AOT IR (differential)
 ```
 
 ### 6.5 Self-hosting JIT test (critical)
 ```
-test_jit_selfhost_lexer — JIT the selfhost lexer, use it to lex a test file
-test_jit_selfhost_parser — JIT the selfhost parser, use it to parse a test file
-test_jit_selfhost_full — JIT the full selfhost compiler, compile a test.xi → run → verify output
+test_jit_selfhost_lexer -- JIT the selfhost lexer, use it to lex a test file
+test_jit_selfhost_parser -- JIT the selfhost parser, use it to parse a test file
+test_jit_selfhost_full -- JIT the full selfhost compiler, compile a test.xi -> run -> verify output
 ```
 
 ## 7. Phase Schedule (All Production-Grade)
@@ -350,7 +350,7 @@ test_jit_selfhost_full — JIT the full selfhost compiler, compile a test.xi →
 5. `xiom run selfhost/codegen.xi < test.xi` emits identical LLVM IR to AOT
 6. `xiom run selfhost/compiler.xi examples/demo_float.xi` produces binary that runs and returns same exit code as AOT-compiled selfhost
 7. `xiom build --standalone myscript.xi -o mytool.exe` produces a binary that runs identically to `xiom run myscript.xi`
-8. `xiom repl` session: define variable, use in expression, shadow it, inspect type — all correct
+8. `xiom repl` session: define variable, use in expression, shadow it, inspect type -- all correct
 9. `xiom run --watch script.xi` re-executes on file save within 50ms
 10. All existing 934 tests pass with zero regressions
 11. New test suite: 50+ JIT-specific tests covering every phase
@@ -361,9 +361,9 @@ test_jit_selfhost_full — JIT the full selfhost compiler, compile a test.xi →
 ## 10. Post-M10 Vision
 
 With JIT/Scripting mode operational:
-- XIOM becomes a **single-language stack** — scripts, tools, and core engines all in XIOM
+- XIOM becomes a **single-language stack** -- scripts, tools, and core engines all in XIOM
 - AI agents get instant feedback via `xiom run -e` in MCP tool calls
 - DevOps replaces Bash/Python scripts with verified, static XIOM scripts
-- Self-host development cycle: edit → `xiom run` → test → `xiom build --release` → deploy
+- Self-host development cycle: edit -> `xiom run` -> test -> `xiom build --release` -> deploy
 - Interactive data science / exploration via REPL (Phase 3)
 - Game engine scripting with hot-reload JIT (Phase 3)

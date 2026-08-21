@@ -1,4 +1,4 @@
-// M34-N02: Nested struct derive[Eq] — equality through nested fields
+// M34-N02: Nested struct derive[Eq] -- equality through nested fields
 type Inner = { val: Int; } derive[Eq]
 type Outer = { inner: Inner; tag: Int; } derive[Eq]
 fn main() -> Int {

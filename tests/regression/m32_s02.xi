@@ -1,4 +1,4 @@
-// M32-S02: Nested structs — Point inside Rect
+// M32-S02: Nested structs -- Point inside Rect
 type Point = { x: Float64; y: Float64; }
 type Rect = { top_left: Point; bottom_right: Point; }
 fn main() -> Int {

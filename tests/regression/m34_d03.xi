@@ -1,4 +1,4 @@
-// M34-D03: Tree count — recursive count of all nodes in binary tree
+// M34-D03: Tree count -- recursive count of all nodes in binary tree
 type Node = { value: Int; left: *Node; right: *Node; }
 
 fn node_count(n: *Node) -> Int {

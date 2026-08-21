@@ -1,4 +1,4 @@
-// M33-A20: Array with contract — function with requires/ensures on array length
+// M33-A20: Array with contract -- function with requires/ensures on array length
 fn triple(x: Int) -> Int
   requires: x >= 0
   ensures: result >= 0

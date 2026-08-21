@@ -1,4 +1,4 @@
-// M34-O15: Option chain with match propagation — sequential Option unwraps (fixed)
+// M34-O15: Option chain with match propagation -- sequential Option unwraps (fixed)
 fn try_half(a: Int) -> Option[Int] {
   if a % 2 == 0 { return Some(a / 2); }
   return None;

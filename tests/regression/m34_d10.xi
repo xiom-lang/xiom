@@ -1,4 +1,4 @@
-// M34-D10: Deep tree operations — stress deep recursion with pointer tree (depth 10+)
+// M34-D10: Deep tree operations -- stress deep recursion with pointer tree (depth 10+)
 type Node = { value: Int; left: *Node; right: *Node; }
 
 fn tree_height(n: *Node) -> Int {

@@ -1,4 +1,4 @@
-// M33-A09: Array in function param — pass inline array elements explicitly
+// M33-A09: Array in function param -- pass inline array elements explicitly
 fn sum_two(a: Int, b: Int, c: Int) -> Int {
   return a + b + c;
 }

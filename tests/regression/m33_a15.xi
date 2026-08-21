@@ -1,4 +1,4 @@
-// M33-A15: Array iteration — while loop over array with multiple accumulators
+// M33-A15: Array iteration -- while loop over array with multiple accumulators
 fn main() -> Int {
   var arr = [2, 4, 6, 8, 10];
   var sum: Int = 0;

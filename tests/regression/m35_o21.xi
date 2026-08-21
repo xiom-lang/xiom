@@ -1,4 +1,4 @@
-// M35-O21: Result map_err — match-based map over Err value
+// M35-O21: Result map_err -- match-based map over Err value
 fn result_map_err(r: Result[Int, Str], f: fn(Str) -> Str) -> Result[Int, Str] {
   match r { Ok(v) => Ok(v), Err(e) => Err(f(e)) }
 }

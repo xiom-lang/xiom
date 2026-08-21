@@ -1,4 +1,4 @@
-// XIOM — Safe Stress Benchmark (v2)
+// XIOM -- Safe Stress Benchmark (v2)
 // Uses ONLY patterns confirmed working in benchmark_selfhost.xi:
 //   - module Name { ... } inline blocks
 //   - pub fn, var, if/elif/else, while, match, return
@@ -10,7 +10,7 @@
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
 // ============================================================
-// MODULE: math — Arithmetic and number theory
+// MODULE: math -- Arithmetic and number theory
 // ============================================================
 module math_lib {
   pub fn factorial(n: Int) -> Int {
@@ -86,7 +86,7 @@ module math_lib {
 }
 
 // ============================================================
-// MODULE: control — Control flow
+// MODULE: control -- Control flow
 // ============================================================
 module control {
   pub fn fizzbuzz(n: Int) -> Int {
@@ -136,7 +136,7 @@ module control {
 }
 
 // ============================================================
-// MODULE: structures — Struct types and operations
+// MODULE: structures -- Struct types and operations
 // ============================================================
 module structures {
   pub type Point = { x: Float64; y: Float64; }
@@ -173,7 +173,7 @@ module structures {
 }
 
 // ============================================================
-// MODULE: errors — Option and Result
+// MODULE: errors -- Option and Result
 // ============================================================
 module errors {
   pub fn safe_div(a: Int, b: Int) -> Option[Int] {
@@ -207,7 +207,7 @@ module errors {
 }
 
 // ============================================================
-// MODULE: contracts — Contract types
+// MODULE: contracts -- Contract types
 // ============================================================
 module contracts {
   pub type Counter = {
@@ -251,7 +251,7 @@ module contracts {
 }
 
 // ============================================================
-// MODULE: recursions — Recursive patterns
+// MODULE: recursions -- Recursive patterns
 // ============================================================
 module recursions {
   pub fn countdown(n: Int) -> Int {
@@ -277,7 +277,7 @@ module recursions {
 }
 
 // ============================================================
-// MAIN — Aggregate all scores
+// MAIN -- Aggregate all scores
 // ============================================================
 use math_lib.run_math;
 use control.run_control;

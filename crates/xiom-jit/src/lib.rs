@@ -1,15 +1,15 @@
-// XIOM OrcJIT — Production-Grade Process-Pool JIT Compilation Engine
+// XIOM OrcJIT -- Production-Grade Process-Pool JIT Compilation Engine
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
 // Architecture:
-//   1. Pre-compiled C runtime (libxiom_runtime.dll) — built once at install
-//   2. Persistent clang process pool — reuse processes, eliminate spawn overhead
-//   3. OS-level dynamic loading — LoadLibrary/dlopen for hot reload
-//   4. Incremental compilation — hash-based change detection per function
-//   5. Symbol caching — resolved function pointers cached for instant re-call
+//   1. Pre-compiled C runtime (libxiom_runtime.dll) -- built once at install
+//   2. Persistent clang process pool -- reuse processes, eliminate spawn overhead
+//   3. OS-level dynamic loading -- LoadLibrary/dlopen for hot reload
+//   4. Incremental compilation -- hash-based change detection per function
+//   5. Symbol caching -- resolved function pointers cached for instant re-call
 //
-// Performance: 500ms → ~120ms (cold), ~5ms (warm cache)
+// Performance: 500ms -> ~120ms (cold), ~5ms (warm cache)
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -26,7 +26,7 @@ pub struct JitModule {
     pub lib_path: PathBuf,
     /// Loaded library handle
     library: libloading::Library,
-    /// Cached symbol addresses: name → function pointer
+    /// Cached symbol addresses: name -> function pointer
     symbols: HashMap<String, *const std::ffi::c_void>,
     /// SHA-256 hash of the source used to compile this module
     pub source_hash: String,
@@ -91,7 +91,7 @@ pub struct JitEngine {
     output_dir: PathBuf,
     /// Currently loaded module (for hot reload)
     active_module: Option<JitModule>,
-    /// Incremental cache: source hash → compiled DLL path
+    /// Incremental cache: source hash -> compiled DLL path
     cache: HashMap<String, PathBuf>,
     /// Whether incremental compilation is enabled (--lazy flag)
     incremental: bool,
@@ -138,7 +138,7 @@ impl JitEngine {
             }
         }
 
-        // Compile LLVM IR → shared library via clang
+        // Compile LLVM IR -> shared library via clang
         let lib_path = self.compile_ir_to_lib(ir_text, source_hash)?;
 
         // Load the compiled library
@@ -286,7 +286,7 @@ impl HotReloadWatcher {
 // Hot Reload Manager
 // ============================================================================
 
-/// Manages hot reload lifecycle: watch → recompile → atomic swap → state migrate.
+/// Manages hot reload lifecycle: watch -> recompile -> atomic swap -> state migrate.
 pub struct HotReloadManager {
     pub engine: JitEngine,
     pub watcher: HotReloadWatcher,
@@ -316,7 +316,7 @@ impl HotReloadManager {
     where
         F: FnMut(&str) -> Result<(String, String), String>,
     {
-        eprintln!("[HOT-RELOAD] Watching '{}' — Ctrl+C to stop",
+        eprintln!("[HOT-RELOAD] Watching '{}' -- Ctrl+C to stop",
             source_path.display());
 
         loop {

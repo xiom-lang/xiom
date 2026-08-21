@@ -1,4 +1,4 @@
-// M35-T06: Unit/void returns — functions returning nothing, calling void functions
+// M35-T06: Unit/void returns -- functions returning nothing, calling void functions
 fn nop1() { return; }
 fn nop2() { return; }
 fn nop3() { var x = 1; x = x + 1; return; }

@@ -1,4 +1,4 @@
-// M32: Int32 modulo — 2000000000 % 9999 = 20
+// M32: Int32 modulo -- 2000000000 % 9999 = 20
 fn main() -> Int {
   var a: Int32 = 2000000000;
   var b: Int32 = 9999;

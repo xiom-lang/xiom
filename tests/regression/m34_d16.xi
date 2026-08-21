@@ -1,4 +1,4 @@
-// M34-D16: Tree comparison — structural equality check for two binary trees
+// M34-D16: Tree comparison -- structural equality check for two binary trees
 type Node = { value: Int; left: *Node; right: *Node; }
 
 fn tree_equal(a: *Node, b: *Node) -> Bool {

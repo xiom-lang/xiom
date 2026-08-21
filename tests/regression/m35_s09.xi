@@ -1,4 +1,4 @@
-// M35-S09: Trim spaces — remove leading and trailing spaces
+// M35-S09: Trim spaces -- remove leading and trailing spaces
 use stdlib.xiom.string;
 fn trim(s: Str) -> Str {
   var start: Int = 0;

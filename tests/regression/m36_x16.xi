@@ -1,4 +1,4 @@
-// M36-X16: Interface dispatch — multiple interfaces with multiple implementations
+// M36-X16: Interface dispatch -- multiple interfaces with multiple implementations
 interface Measurable {
   fn measure(self) -> Int;
 }

@@ -1,4 +1,4 @@
-// M35-D26: Bloom filter — multiple hash indexes pattern
+// M35-D26: Bloom filter -- multiple hash indexes pattern
 fn main() -> Int {
   var b0: Bool = false;
   var b1: Bool = false;

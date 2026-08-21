@@ -1,4 +1,4 @@
-// M34-H04: Int->UInt (signed to unsigned) — positive values preserve identity
+// M34-H04: Int->UInt (signed to unsigned) -- positive values preserve identity
 fn main() -> Int {
   var s: Int8 = 100;
   var u: UInt8 = s as UInt8;

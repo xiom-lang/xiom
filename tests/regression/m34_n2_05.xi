@@ -1,4 +1,4 @@
-// M34-N2-05: Nested enum in enum in enum — 3 levels of enum payload nesting
+// M34-N2-05: Nested enum in enum in enum -- 3 levels of enum payload nesting
 type InnerE = enum { I(val: Int), }
 type MiddleE = enum { M(inner: InnerE), }
 type OuterE = enum { O(mid: MiddleE), }

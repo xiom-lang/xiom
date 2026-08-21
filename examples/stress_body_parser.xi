@@ -1,4 +1,4 @@
-// XIOM — Body Parser Edge Case Stress Test
+// XIOM -- Body Parser Edge Case Stress Test
 // Exercises every corner of the C runtime body parser.
 
 fn test_negative() -> Int { return -(5); }

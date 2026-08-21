@@ -1,4 +1,4 @@
-// M36-E07: Deeply nested if/elif — 20 levels (via elif cascade)
+// M36-E07: Deeply nested if/elif -- 20 levels (via elif cascade)
 fn nest20(x: Int) -> Int {
   if x == 1 { return 10; }
   elif x == 2 { return 20; }

@@ -1,4 +1,4 @@
-// M34-N11: Enum with Clone+Eq — clone then compare equality
+// M34-N11: Enum with Clone+Eq -- clone then compare equality
 enum Token { Plus, Minus, Star, Slash } derive[Eq, Clone]
 fn main() -> Int {
   var a = Token.Plus;

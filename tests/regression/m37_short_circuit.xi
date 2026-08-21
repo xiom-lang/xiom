@@ -1,6 +1,6 @@
 module m37_short_circuit
 // BUG 22 #1 regression: && and || must SHORT-CIRCUIT.
-// The old bitwise lowering evaluated both operands — a div-by-zero in the
+// The old bitwise lowering evaluated both operands -- a div-by-zero in the
 // RHS trapped (0xC000001D) even when the LHS already decided the result.
 
 fn side() -> Int {

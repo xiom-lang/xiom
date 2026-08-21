@@ -1,4 +1,4 @@
-// M34-O14: ? with custom error type — ? on Result[T, MyError]
+// M34-O14: ? with custom error type -- ? on Result[T, MyError]
 enum CalcError { Overflow, Underflow, DivByZero }
 fn mul(a: Int, b: Int) -> Result[Int, CalcError] {
   if a > 10000 || b > 10000 { return Err(CalcError.Overflow); }

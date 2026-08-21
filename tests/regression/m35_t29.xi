@@ -1,4 +1,4 @@
-// M35-T29: Mixed combinators — all types combined in complex expressions
+// M35-T29: Mixed combinators -- all types combined in complex expressions
 type Record = { b: Bool; i: Int; f: Float64; c: Char; s: Str; }
 enum Shape { Circle(r: Float64), Square(s: Int), Label(t: Str) }
 fn process(r: Record) -> Int {

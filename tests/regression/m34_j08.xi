@@ -1,4 +1,4 @@
-// M34-J08: use module as alias — module alias imports
+// M34-J08: use module as alias -- module alias imports
 module network {
   pub fn ping() -> Int { return 200; }
   pub fn timeout() -> Int { return 408; }

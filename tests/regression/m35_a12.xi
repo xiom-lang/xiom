@@ -1,4 +1,4 @@
-// M35-A12: GCD — Euclidean algorithm via while loop
+// M35-A12: GCD -- Euclidean algorithm via while loop
 fn gcd(a: Int, b: Int) -> Int {
   var x: Int = a;
   var y: Int = b;

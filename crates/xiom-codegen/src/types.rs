@@ -1,10 +1,10 @@
 //! LLVM type system utilities for the XIOM code generator.
 //!
 //! Bridges the XIOM type system and the LLVM IR type system. Key functions:
-//! - [`IrEmitter::type_from_ast`] — XIOM AST types to LLVM type strings
-//! - [`IrEmitter::zero_val_for`] — LLVM zero initializers
-//! - [`IrEmitter::xiom_to_llvm_type`] — XIOM type names to LLVM primitives
-//! - [`IrEmitter::infer_struct_type_name`] — resolve struct types from expressions
+//! - [`IrEmitter::type_from_ast`] -- XIOM AST types to LLVM type strings
+//! - [`IrEmitter::zero_val_for`] -- LLVM zero initializers
+//! - [`IrEmitter::xiom_to_llvm_type`] -- XIOM type names to LLVM primitives
+//! - [`IrEmitter::infer_struct_type_name`] -- resolve struct types from expressions
 
 use xiom_ast::*;
 use crate::llvm_consts::*;
@@ -39,7 +39,7 @@ impl crate::IrEmitter {
     /// Produce a valid LLVM *constant* initializer for a module-level `var`
     /// global of type `llvm_ty` from its initializer expression. Only simple
     /// scalar literals (int/bool/float/char, with optional unary negation) are
-    /// materialized to their real value — these are the initializers that
+    /// materialized to their real value -- these are the initializers that
     /// currently-passing modules depend on (e.g. `_global_state = 12345`).
     /// Anything more complex (enum variants, struct/aggregate values,
     /// constructor calls like `Vec[T]::new()`) is zero-initialized: a valid,
@@ -199,7 +199,7 @@ impl crate::IrEmitter {
         })
     }
 
-    /// G-20: does the method body reference receiver STATE — either `this`
+    /// G-20: does the method body reference receiver STATE -- either `this`
     /// or a BARE receiver-field ident (e.g. `val` in `fn Counter.inc() ->
     /// Int { return val + 1; }`)? Used by registration + definition to emit
     /// a %param_self slot so the prologue can bind bare fields via GEP.
@@ -264,7 +264,7 @@ impl crate::IrEmitter {
             | Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _)
             | Expr::As(e, _, _) => Self::expr_mentions_any_ident(e, names),
             Expr::Binary(a, _, b, _) => Self::expr_mentions_any_ident(a, names) || Self::expr_mentions_any_ident(b, names),
-            // obj.FIELD: the field NAME is not a bare ident — only scan the object.
+            // obj.FIELD: the field NAME is not a bare ident -- only scan the object.
             Expr::Field(obj, _, _) => Self::expr_mentions_any_ident(obj, names),
             Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => Self::expr_mentions_any_ident(func, names) || args.iter().any(|a| Self::expr_mentions_any_ident(a, names)),
             Expr::Index(arr, idx, _) => Self::expr_mentions_any_ident(arr, names) || Self::expr_mentions_any_ident(idx, names),
@@ -316,7 +316,7 @@ impl crate::IrEmitter {
             "Unit" => "i64",
             "Vec" | "Map" | "Set" | "Option" | "Result" => "i64",
             _ => {
-                // Generic params (T, K, V) and Self — silent i64 defaults.
+                // Generic params (T, K, V) and Self -- silent i64 defaults.
                 if xiom_ty.len() == 1 && xiom_ty.chars().next().map_or(false, |c| c.is_uppercase()) {
                     return "i64";
                 }
@@ -368,7 +368,7 @@ impl crate::IrEmitter {
     }
 
     pub fn xiom_type_name_from_llvm(llvm_ty: &str) -> String {
-        // Check pointer types before stripping `*` — `i8*` is Str, not Int8.
+        // Check pointer types before stripping `*` -- `i8*` is Str, not Int8.
         if llvm_ty == "i8*" { return "Str".to_string(); }
         let base = llvm_ty
             .trim_start_matches("%struct.")
@@ -414,7 +414,7 @@ impl crate::IrEmitter {
         }
     }
 
-    /// Returns `true` when `name` is NOT a known primitive/scalar/container —
+    /// Returns `true` when `name` is NOT a known primitive/scalar/container --
     /// i.e., it is a user-defined named struct that needs concrete monomorphisation
     /// inside Result/Option generic types (B-001).
     pub fn is_struct_type_name(name: &str) -> bool {
@@ -482,7 +482,7 @@ impl crate::IrEmitter {
             Type::Map(k, v) => format!("Map[{},{}]", Self::type_from_ast_with_args(k), Self::type_from_ast_with_args(v)),
             // B-007: keep a "fn(...)" MARKER for fn-typed fields/elements so
             // closure-valued container elements (Vec[fn()]) can be detected at
-            // binding/call time — the ABI still erases to i64.
+            // binding/call time -- the ABI still erases to i64.
             Type::Fn(params, ret) => format!("fn({}) -> {}", params.iter().map(Self::type_from_ast).collect::<Vec<_>>().join(", "), Self::type_from_ast(ret)),
             Type::Set(inner) => format!("Set[{}]", Self::type_from_ast_with_args(inner)),
             other => Self::type_from_ast(other),
@@ -490,7 +490,7 @@ impl crate::IrEmitter {
     }
 
     /// 5c.30: FULL type string including Option/Result payload args
-    /// ("Result[Vec[Int], Str]"). Used ONLY for fn_return_xiom — the field
+    /// ("Result[Vec[Int], Str]"). Used ONLY for fn_return_xiom -- the field
     /// registration keeps type_from_ast_with_args so Option/Result struct
     /// fields keep their by-value layout.
     pub fn type_string_full(ty: &Type) -> String {
@@ -509,7 +509,7 @@ impl crate::IrEmitter {
     /// `Vec[HttpHeader]` in type_meta. This extracts `HttpHeader` (fully qualified).
     /// 5c.30: For an Option[X]/Result[X, E] type string, return X (the
     /// success payload), respecting nested brackets ("Result[Vec[Int], Str]"
-    /// → "Vec[Int]").
+    /// -> "Vec[Int]").
     pub fn option_result_payload(s: &str) -> Option<String> {
         let open = s.find('[')?;
         let head = &s[..open];
@@ -572,10 +572,10 @@ impl crate::IrEmitter {
     }
 
     /// Extract the element type name from a `Vec[T]` type annotation.
-    /// e.g. `Vec[Float64]` → Some("Float64"), `Vec[Int]` → Some("Int").
+    /// e.g. `Vec[Float64]` -> Some("Float64"), `Vec[Int]` -> Some("Int").
     pub fn vec_elem_from_type_annotation(ty: &Type) -> Option<String> {
         // Unwrap reference wrappers: catalog fns take `&Vec[T]`/`&mut Vec[T]`
-        // params, which must STILL register the element type — otherwise
+        // params, which must STILL register the element type -- otherwise
         // `v[0]` on a `&Vec[Float64]` param falls back to the width-based i64
         // load + sitofp (the f64 bit pattern converted as an int, BUG 12) and
         // `Str` elements lose the strcmp equality lowering (BUG 17).
@@ -676,7 +676,7 @@ impl crate::IrEmitter {
     }
 
     pub fn llvm_type_for(&self, type_name: &str) -> Result<String, String> {
-        // Parse array types like [N x ElementType] — used for fixed-size stack arrays.
+        // Parse array types like [N x ElementType] -- used for fixed-size stack arrays.
         if type_name.starts_with('[') {
             if let Some(rest) = type_name.strip_prefix('[') {
                 if let Some(x_pos) = rest.find(" x ") {
@@ -698,7 +698,7 @@ impl crate::IrEmitter {
                     }
                     // If the size is an ident we can't resolve (e.g. a const-generic
                     // param N), fall through and let the rest of llvm_type_for attempt
-                    // to resolve it as a struct name or builtin — the caller will get
+                    // to resolve it as a struct name or builtin -- the caller will get
                     // an error if the type is genuinely unresolvable.
                 }
             }
@@ -729,11 +729,11 @@ impl crate::IrEmitter {
         }
         // Search for any module-qualified variant ending with .type_name.
         // BUG 16-family fix (2026-08-11): skip GENERATED aggregate keys
-        // (`Tuple__...`, `Option__...`, `Result__...`, `_Anon__...`) — their
+        // (`Tuple__...`, `Option__...`, `Result__...`, `_Anon__...`) -- their
         // names end with `.Type` too (e.g. `Tuple__m.Big__m.Big` ends with
         // `.Big`), so a bare `Big` could resolve to the TUPLE key depending
         // on HashMap iteration order (regression: m37_tuple_struct emitted
-        // `Tuple__Big__Big` whose fields were 3-element tuples → llvm.trap).
+        // `Tuple__Big__Big` whose fields were 3-element tuples -> llvm.trap).
         for (key, _) in self.types.type_meta.entries() {
             if key.ends_with(&format!(".{type_name}"))
                 && !key.contains("Tuple__")
@@ -763,7 +763,7 @@ impl crate::IrEmitter {
         // without this an enum-typed function return/param would resolve to the
         // `i64` fallback while `infer_llvm_type` resolves it to `%struct.Name`,
         // producing store/return/arg type mismatches. Match exact, module-qualified,
-        // then suffix — mirroring the struct lookup above.
+        // then suffix -- mirroring the struct lookup above.
         if self.types.enum_variants.contains_key(&type_name.to_string()) {
             return Ok(format!("%struct.{type_name}"));
         }
@@ -781,7 +781,7 @@ impl crate::IrEmitter {
         match type_name {
             "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
             | "Bool" | "Float32" | "Float64" | "Str" | "Char" | "()" => Ok(builtin.to_string()),
-            _ => Err(format!("unknown type '{}' — not a registered struct, enum, or builtin", type_name)),
+            _ => Err(format!("unknown type '{}' -- not a registered struct, enum, or builtin", type_name)),
         }
     }
 
@@ -803,7 +803,7 @@ impl crate::IrEmitter {
                         return format!("%struct.{key}");
                     }
                 }
-                // Also check generic_type_names — generic types may not
+                // Also check generic_type_names -- generic types may not
                 // be in type_meta/types with bare names but ARE registered
                 // as structs (e.g. Cell[T], Map[K,V]).
                 for key in self.types.generic_type_names.iter() {
@@ -821,7 +821,7 @@ impl crate::IrEmitter {
 
     /// Compute the in-memory byte size of a struct using its declared field
     /// types (type_meta), recursing into nested structs. Generic-container
-    /// fields contribute their own size — the old `field_count × 8` math
+    /// fields contribute their own size -- the old `field_count x 8` math
     /// undercounted (JsonEntry { key: Str, value: JsonValue } is 24 bytes,
     /// not 16), truncating Vec elements on push/index.
     pub fn struct_byte_size(&self, type_name: &str) -> i64 {
@@ -846,7 +846,7 @@ impl crate::IrEmitter {
                 total += 8;
                 continue;
             }
-            // Fixed-size arrays `[N x T]`: N × 8.
+            // Fixed-size arrays `[N x T]`: N x 8.
             if fty.starts_with('[') {
                 if let Some(x_pos) = fty.find(" x ") {
                     if let Ok(n) = fty[1..x_pos].trim().parse::<i64>() {
@@ -877,7 +877,7 @@ impl crate::IrEmitter {
                     self.types.type_meta.get(&qualified)
                 } else {
         // Array literals: infer element type from first element.
-        // e.g. [1.5, 2.5] → Float64, [1, 2, 3] → Int
+        // e.g. [1.5, 2.5] -> Float64, [1, 2, 3] -> Int
         if let Expr::Array(elems, _) = expr {
             if let Some(first) = elems.first() {
                 match first {
@@ -938,7 +938,7 @@ impl crate::IrEmitter {
         }
         if let Expr::Field(base, field_expr, _) = container {
             if let Some(base_ty) = self.infer_struct_type_name(base) {
-                // round-7 (ve2 regression): two structs can share a leaf name —
+                // round-7 (ve2 regression): two structs can share a leaf name --
                 // search ALL suffix-matching keys (the old loop broke at the
                 // first match, missing fields of the other type).
                 for key in self.types.type_meta.keys() {
@@ -964,7 +964,7 @@ impl crate::IrEmitter {
     pub fn ident_is_enum_variant(&self, scrutinee_type: &Option<String>, name: &str) -> bool {
         if let Some(type_name) = scrutinee_type {
             // 5c.29: qualified variant idents (`SqliteValue.Null`) carry the
-            // enum qualifier — compare the LEAF segment. Also tolerate
+            // enum qualifier -- compare the LEAF segment. Also tolerate
             // qualified/unqualified enum keys.
             let leaf = name.rsplit('.').next().unwrap_or(name);
             let variants = self.types.enum_variants.get(&type_name.to_string())
@@ -1018,7 +1018,7 @@ impl crate::IrEmitter {
     ) {
         if let Some((alloca, type_name, struct_ty)) = scrutinee_alloca_info {
             // 5c.29: qualified variant patterns (`SqliteValue.Integer(v)`)
-            // carry the enum qualifier in the name — compare against the LEAF
+            // carry the enum qualifier in the name -- compare against the LEAF
             // segment. Also tolerate qualified/unqualified enum keys.
             let leaf = variant_name.rsplit('.').next().unwrap_or(variant_name);
             let variants = self.types.enum_variants.get(&type_name.to_string())
@@ -1078,7 +1078,7 @@ impl crate::IrEmitter {
                         return Some(key.clone());
                     }
                 }
-                // Fallback: search generic_type_names — generic types may not
+                // Fallback: search generic_type_names -- generic types may not
                 // be in type_meta (injection chain can block Type while allowing
                 // its methods), but they ARE registered as structs (e.g. Map[K,V]).
                 for key in self.types.generic_type_names.iter() {
@@ -1105,9 +1105,9 @@ impl crate::IrEmitter {
                 // Type-parameterized STATIC receiver (`Map[Str, Bool].new()`,
                 // `Option[Int].unwrap()`): the base is a KNOWN TYPE name and
                 // the index is a type-argument expression. Resolve to the
-                // BASE type so the fn_key becomes "Map.new" — previously the
+                // BASE type so the fn_key becomes "Map.new" -- previously the
                 // bare-key fallback hijacked another module's generic `new`
-                // (stub body returning 0 → runtime crash in module-global
+                // (stub body returning 0 -> runtime crash in module-global
                 // initializers like core/contracts.xi's `_coverage`).
                 let base_is_type = match container.as_ref() {
                     Expr::Ident(id) => {
@@ -1184,7 +1184,7 @@ impl crate::IrEmitter {
             Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
                 // Infer type from the return type of a method/function call
                 let fn_key = if let Expr::Field(obj, field, _) = func.as_ref() {
-                    // Try module-qualified resolution first (e.g. iter.range — xiom.iter.range)
+                    // Try module-qualified resolution first (e.g. iter.range -- xiom.iter.range)
                     if let Some(recv_type) = self.infer_struct_type_name(obj.as_ref()) {
                         format!("{}.{}", recv_type, field.name)
                     } else {

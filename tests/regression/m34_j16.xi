@@ -1,4 +1,4 @@
-// M34-J16: Module with contract — requires/ensures on module functions
+// M34-J16: Module with contract -- requires/ensures on module functions
 module safe {
   pub fn divide(a: Int, b: Int) -> Int
     requires: b != 0

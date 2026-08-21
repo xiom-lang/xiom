@@ -1,4 +1,4 @@
-// M35-S24: Common prefix — find longest shared prefix between two strings
+// M35-S24: Common prefix -- find longest shared prefix between two strings
 use stdlib.xiom.string;
 fn common_prefix_len(a: Str, b: Str) -> Int {
   var i: Int = 0;

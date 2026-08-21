@@ -1,4 +1,4 @@
-// M35-S15: Find first occurrence — return index of first match or -1
+// M35-S15: Find first occurrence -- return index of first match or -1
 use stdlib.xiom.string;
 fn index_of(s: Str, ch: Char) -> Int {
   var target = ch as Int;

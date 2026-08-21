@@ -1,4 +1,4 @@
-// M32-L03: While with continue — skip even numbers, sum odds 1..19
+// M32-L03: While with continue -- skip even numbers, sum odds 1..19
 fn main() -> Int {
   var i: Int = 0;
   var sum: Int = 0;

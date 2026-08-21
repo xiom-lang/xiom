@@ -1,4 +1,4 @@
-// M36-X11: --emit-ir patterns — structures that produce interesting IR
+// M36-X11: --emit-ir patterns -- structures that produce interesting IR
 enum ExprKind { Const, Add, Sub, Mul, Div, Neg }
 type Expr = { kind: ExprKind; left: Int; right: Int; value: Int; }
 fn eval_expr(e: Expr) -> Int {

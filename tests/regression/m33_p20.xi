@@ -1,4 +1,4 @@
-// M33-P20: Combinatorial stress — all patterns at once: 30-chain + 20-struct + 15-enum + 10-const
+// M33-P20: Combinatorial stress -- all patterns at once: 30-chain + 20-struct + 15-enum + 10-const
 // 5-module + mega-20-field + 50-wide-fn + big-match-20 + deep-nest-10 + 50-locals + type-graph
 // Final stress: 500+ lines, interleaved declarations
 // Pattern: fn main() -> Int { ... return 0; }

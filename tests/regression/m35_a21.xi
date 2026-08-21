@@ -1,4 +1,4 @@
-// M35-A21: Collatz conjecture — count steps to reach 1 for given n
+// M35-A21: Collatz conjecture -- count steps to reach 1 for given n
 fn collatz_steps(n: Int) -> Int {
   var x: Int = n;
   var c: Int = 0;

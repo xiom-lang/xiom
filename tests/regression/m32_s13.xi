@@ -1,4 +1,4 @@
-// M32-S13: Struct with Float64 arithmetic — operations on fields
+// M32-S13: Struct with Float64 arithmetic -- operations on fields
 type Vec2 = { x: Float64; y: Float64; }
 fn add(a: Vec2, b: Vec2) -> Vec2 { return Vec2{ x: a.x + b.x; y: a.y + b.y; }; }
 fn scale(v: Vec2, s: Float64) -> Vec2 { return Vec2{ x: v.x * s; y: v.y * s; }; }

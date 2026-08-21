@@ -1,4 +1,4 @@
-// M20-B2a: Minimal Lexer — read real files, tokenize, NO &mut
+// M20-B2a: Minimal Lexer -- read real files, tokenize, NO &mut
 use stdlib.xiom.io;
 use stdlib.xiom.string;
 
@@ -176,7 +176,7 @@ pub fn next_token(l: Lexer) -> (Token, Lexer) {
 
 // ============================================================================
 fn main() -> Int {
-  io.println("Lexer v2 — value-passing style");
+  io.println("Lexer v2 -- value-passing style");
   let file_result = io.read_file("selfhost/ast.xi");
   match file_result {
     Ok(source) => {

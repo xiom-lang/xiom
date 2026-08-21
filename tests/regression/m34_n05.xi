@@ -1,4 +1,4 @@
-// M34-N05: Struct with derive[Clone] — struct clone
+// M34-N05: Struct with derive[Clone] -- struct clone
 type Data = { val: Int; name: Str; } derive[Clone]
 fn main() -> Int {
   var a = Data{ val: 42; name: "test"; };

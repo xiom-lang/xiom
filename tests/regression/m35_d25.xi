@@ -1,4 +1,4 @@
-// M35-D25: Disjoint set — verify union by size
+// M35-D25: Disjoint set -- verify union by size
 fn main() -> Int {
   var r0: Int = 0;
   var r1: Int = 0;

@@ -1,4 +1,4 @@
-// M35-O15: Option as_ref pattern — pass Option by reference, match on &Option
+// M35-O15: Option as_ref pattern -- pass Option by reference, match on &Option
 fn examine(o: &Option[Int]) -> Int {
   match o {
     Some(v) => { return v * 2; }

@@ -1,4 +1,4 @@
-// M35-S20: Longest word — find word with maximum length
+// M35-S20: Longest word -- find word with maximum length
 use stdlib.xiom.string;
 fn longest_word_len(s: Str) -> Int {
   if s.len() == 0 { return 0; }

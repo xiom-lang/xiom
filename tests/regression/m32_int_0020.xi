@@ -1,4 +1,4 @@
-// M32: Int16 — zero identity
+// M32: Int16 -- zero identity
 fn main() -> Int {
   var a: Int16 = 12345;
   var b: Int16 = 0;

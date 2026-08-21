@@ -1,4 +1,4 @@
-// M35-L11: Enum memory pattern — verify enum tag + payload memory layout
+// M35-L11: Enum memory pattern -- verify enum tag + payload memory layout
 enum Shape { Circle(r: Float64), Rect(w: Int, h: Int), Point }
 
 fn main() -> Int {

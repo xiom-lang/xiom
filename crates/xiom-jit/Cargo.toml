@@ -2,7 +2,7 @@
 name = "xiom-jit"
 version = "0.1.0"
 edition = "2024"
-description = "XIOM OrcJIT — Production-grade JIT via process-pool clang + OS dynamic loading"
+description = "XIOM OrcJIT -- Production-grade JIT via process-pool clang + OS dynamic loading"
 
 [dependencies]
 libloading = "0.8"

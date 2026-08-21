@@ -1,4 +1,4 @@
-// M35-C03: if elif else (3+ branches) — three-way branching via nested else-if
+// M35-C03: if elif else (3+ branches) -- three-way branching via nested else-if
 fn main() -> Int {
   var val: Int = 15;
   var result: Int = 0;

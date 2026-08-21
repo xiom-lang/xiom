@@ -1,4 +1,4 @@
-// M36-E30: Very long expression — all binary operators chained
+// M36-E30: Very long expression -- all binary operators chained
 fn main() -> Int {
   var result = 1 + 2 * 3 - 4 / 2 + 10 % 7 + 6 * 1 - 0 + 100 - 50 + 25 * 2 - 30 / 3 + 7 % 5 + 1 * 1 - 1 + 1;
   if result != 107 { return 1; }

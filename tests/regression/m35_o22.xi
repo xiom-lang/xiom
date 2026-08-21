@@ -1,4 +1,4 @@
-// M35-O22: Result and_then — match-based and_then chaining
+// M35-O22: Result and_then -- match-based and_then chaining
 fn safe_div(a: Int, b: Int) -> Result[Int, Str] {
   if b == 0 { return Err("div0"); }
   return Ok(a / b);

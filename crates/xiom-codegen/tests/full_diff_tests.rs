@@ -1,4 +1,4 @@
-// XIOM — Comprehensive Differential Tests
+// XIOM -- Comprehensive Differential Tests
 // Compares Rust compiler IR against Selfhost compiler IR for all examples.
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
@@ -45,7 +45,7 @@ fn rust_ir(source: &str) -> Vec<String> {
 /// Creates a temp copy of selfhost/xiomc_v10.xi with the source path
 /// replaced to point at the desired example, compiles it with xiomc,
 /// then runs the resulting binary which emits IR for the example.
-/// NOTE: does NOT check process exit code — the selfhost emitter may crash
+/// NOTE: does NOT check process exit code -- the selfhost emitter may crash
 /// on complex type patterns, but stdout IR is still captured for comparison.
 fn selfhost_ir(example: &str) -> Vec<String> {
     let id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -85,7 +85,7 @@ fn selfhost_ir(example: &str) -> Vec<String> {
     let _ = fs::remove_file(root.join(&temp_src));
     let _ = fs::remove_file(root.join(&temp_exe));
 
-    // Always capture stdout — don't check exit code, as the selfhost emitter
+    // Always capture stdout -- don't check exit code, as the selfhost emitter
     // may crash on complex type handling but still produce valid IR before crash.
     let stdout = String::from_utf8_lossy(&run.stdout);
     stdout.lines().map(|l| l.to_string()).collect()
@@ -134,11 +134,11 @@ fn matching_function_names<'a>(rust: &'a [String], selfhost: &'a [String]) -> Ve
 //   diff_test!(name, file, min_fns, fn_lo, name_match, fn_hi, ret_hi)
 //
 // Default tolerances:
-//   fn_lo  = 0.5   — min function ratio (selfhost/rust)
-//   fn_hi  = 1.5   — max function ratio
-//   name_match = 0.4 — min fraction of function names matching
-//   ret_lo = 0.5   — min return count ratio
-//   ret_hi = 2.0   — max return count ratio
+//   fn_lo  = 0.5   -- min function ratio (selfhost/rust)
+//   fn_hi  = 1.5   -- max function ratio
+//   name_match = 0.4 -- min fraction of function names matching
+//   ret_lo = 0.5   -- min return count ratio
+//   ret_hi = 2.0   -- max return count ratio
 // ============================================================================
 
 macro_rules! diff_test {
@@ -262,43 +262,43 @@ diff_test!(diff_selfhost, "phase1_selfhost.xi", 1);
 diff_test!(diff_stress_borrow, "stress_borrow_10level.xi", 10);
 diff_test!(diff_stress_float, "stress_float_matrix.xi", 1);
 
-// Derive/enum — Rust generates derived fns; selfhost also generates some via C runtime
+// Derive/enum -- Rust generates derived fns; selfhost also generates some via C runtime
 diff_test!(diff_derive, "phase1_derive.xi", 3, 0.5, 0.4);
 diff_test!(diff_generics, "phase1_generics.xi", 1, 0.5, 0.4);
 diff_test!(diff_enum, "phase1_enum.xi", 2, 0.5, 0.4);
 diff_test!(diff_derive_enum, "phase1_derive_enum.xi", 1, 0.5, 0.4, 1.5, 2.0, 0.4);
 diff_test!(diff_full, "phase1_full.xi", 3, 0.5, 0.4);
 
-// Contracts — Rust handles contract codegen; selfhost also emits invariant_check etc.
+// Contracts -- Rust handles contract codegen; selfhost also emits invariant_check etc.
 diff_test!(diff_contracts, "phase1_contracts.xi", 2, 0.5, 0.4);
 
-// Error — uses Result[T,E] type; selfhost crashes on body emission before any
+// Error -- uses Result[T,E] type; selfhost crashes on body emission before any
 // IR is flushed to stdout. Test verifies Rust IR is valid and selfhost
 // at least attempted compilation (exit code non-zero allowed).
 diff_test!(diff_error, "phase1_error.xi", 0, 0.0, 0.0, 3.0, 3.0, 0.0);
 
-// Hardening — large file with many modules, types, generics, contracts.
+// Hardening -- large file with many modules, types, generics, contracts.
 // Selfhost's emit_body_ir may crash on complex patterns, but captures extensive IR before crash.
 // fn_lo=0.3 to tolerate truncated output. ret_lo=0.3 because return count is ~30 vs 68.
 // name_match=0.2 because module-relative function names and monomorphized generics
 // don't match between Rust (fully qualified) and selfhost (simple names).
 diff_test!(diff_hardening, "phase1_hardening.xi", 5, 0.3, 0.2, 3.0, 3.0, 0.3);
 
-// Stress — types inside modules; selfhost skips derive emission for module-scoped types.
+// Stress -- types inside modules; selfhost skips derive emission for module-scoped types.
 // Rust finds 8 (4 user + 4 derived), selfhost finds 4 = ratio 0.5.
 diff_test!(diff_stress, "phase1_stress.xi", 4, 0.4, 0.4);
 
-// Derive stress — all 50 fields types, selfhost derives eq/clone/hash for the single type
+// Derive stress -- all 50 fields types, selfhost derives eq/clone/hash for the single type
 // but Rust generates more elaborate per-field comparisons
 diff_test!(diff_stress_derive, "stress_derive_50field.xi", 1, 0.5, 0.4);
 
-// Generic chain — Rust monomorphizes to id_Int/wrap_Int/double_Int/triple_Int/quad_Int;
+// Generic chain -- Rust monomorphizes to id_Int/wrap_Int/double_Int/triple_Int/quad_Int;
 // selfhost emits generic names without type suffix. Only 'main' matches.
-// name_match = 0.16 = 1/6 ≈ 0.1667, so 0.16 rounds safely below.
+// name_match = 0.16 = 1/6 ~= 0.1667, so 0.16 rounds safely below.
 diff_test!(diff_stress_generic, "stress_generic_5chain.xi", 1, 0.5, 0.16, 1.5, 2.0, 0.5);
 
 // ============================================================================
-// Selfhost Compiler Benchmark — comprehensive 500+ line stress test
+// Selfhost Compiler Benchmark -- comprehensive 500+ line stress test
 // ============================================================================
 
 #[test]
@@ -349,7 +349,7 @@ fn diff_benchmark() {
 }
 
 // ============================================================================
-// Body Parser Stress Test — edge case coverage for C runtime emit_body_ir
+// Body Parser Stress Test -- edge case coverage for C runtime emit_body_ir
 // ============================================================================
 
 #[test]

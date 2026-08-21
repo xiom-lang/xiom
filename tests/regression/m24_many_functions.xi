@@ -1,4 +1,4 @@
-// M24: Large file stress — many functions calling each other
+// M24: Large file stress -- many functions calling each other
 fn f0() -> Int { return 0; }
 fn f1() -> Int { return 1 + f0(); }
 fn f2() -> Int { return 2 + f1(); }

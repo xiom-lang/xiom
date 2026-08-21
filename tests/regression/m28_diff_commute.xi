@@ -1,4 +1,4 @@
-// M28: Correctness — commutative and associative properties
+// M28: Correctness -- commutative and associative properties
 fn add_ab(a: Int, b: Int) -> Int { return a + b; }
 fn add_ba(a: Int, b: Int) -> Int { return b + a; }
 fn mul_abc(a: Int, b: Int, c: Int) -> Int { return (a * b) * c; }

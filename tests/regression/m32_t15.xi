@@ -1,4 +1,4 @@
-// M32-T15: String parameter/return — function with Str param and return
+// M32-T15: String parameter/return -- function with Str param and return
 fn greet(name: Str) -> Str {
   return "Hello, " + name;
 }

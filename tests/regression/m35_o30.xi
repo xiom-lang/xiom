@@ -1,4 +1,4 @@
-// M35-O30: nested Option/Option and Result/Result — double nesting via custom types
+// M35-O30: nested Option/Option and Result/Result -- double nesting via custom types
 enum DoubleOpt { First(v: Int), Second, Neither }
 fn classify_opt(o: Option[Int]) -> DoubleOpt {
   match o { Some(v) => { if v > 0 { return DoubleOpt.First(v); } return DoubleOpt.Second; } None => DoubleOpt.Neither }

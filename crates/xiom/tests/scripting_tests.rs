@@ -29,7 +29,7 @@ fn xiom_binary() -> String {
     })
 }
 
-/// Unique temp script per test — avoids cross-test file collisions.
+/// Unique temp script per test -- avoids cross-test file collisions.
 fn tmp_script(prefix: &str, content: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join("xiom_script_tests");
     std::fs::create_dir_all(&dir).unwrap();
@@ -69,8 +69,8 @@ fn build_standalone(content: &str) -> std::process::Output {
     let script = tmp_script("s.xi", content);
     // Output path must derive from the UNIQUE script name: the standalone
     // tests run in parallel (--test-threads=32) and a shared "s_out" path
-    // made them race on the same output file (Windows sharing violation →
-    // intermittent "Access is denied" → flaky non-success status).
+    // made them race on the same output file (Windows sharing violation ->
+    // intermittent "Access is denied" -> flaky non-success status).
     let out = script.with_extension(if cfg!(windows) { "exe" } else { "" });
     let _ = std::fs::remove_file(&out);
 
@@ -85,7 +85,7 @@ fn build_standalone(content: &str) -> std::process::Output {
 }
 
 // ============================================================================
-// COMPILE tests — verify scripting pipeline (shebang, implicit main, etc.)
+// COMPILE tests -- verify scripting pipeline (shebang, implicit main, etc.)
 // ============================================================================
 
 #[test] fn test_compile_simple() {
@@ -149,7 +149,7 @@ fn build_standalone(content: &str) -> std::process::Output {
 #[test] fn test_compile_early_return() {
     assert!(check_script("if true { io.println(\"early\"); } io.println(\"after\");\n").status.success());
 }
-// Declaration tests — verify type/enum/interface/module stay at top level
+// Declaration tests -- verify type/enum/interface/module stay at top level
 #[test] fn test_compile_with_enum_decl() {
     assert!(check_script("enum Color { Red, Green, Blue }\n").status.success());
 }
@@ -173,14 +173,14 @@ fn build_standalone(content: &str) -> std::process::Output {
 }
 
 // ============================================================================
-// ERROR tests — verify proper error handling in scripting mode
+// ERROR tests -- verify proper error handling in scripting mode
 // ============================================================================
 
 #[test] fn test_error_parse() {
     assert!(!check_script("var x =\n").status.success(), "parse error should fail");
 }
 #[test] fn test_error_type_mismatch() {
-    // Returning wrong type from implicit main — should fail
+    // Returning wrong type from implicit main -- should fail
     assert!(!check_script("fn main() -> Int { return \"not int\"; }\n").status.success(), "type error should fail");
 }
 #[test] fn test_error_undefined() {
@@ -188,7 +188,7 @@ fn build_standalone(content: &str) -> std::process::Output {
 }
 
 // ============================================================================
-// STANDALONE tests — verify script-to-binary pipeline
+// STANDALONE tests -- verify script-to-binary pipeline
 // ============================================================================
 
 #[test] fn test_standalone_simple() {
@@ -198,7 +198,7 @@ fn build_standalone(content: &str) -> std::process::Output {
     assert!(build_standalone("#!/usr/bin/env xiom\nio.println(\"ok\");\n").status.success());
 }
 
-/// Self-host differential test — verify scripting mode produces same IR as AOT.
+/// Self-host differential test -- verify scripting mode produces same IR as AOT.
 #[test] fn test_diff_script_vs_aot() {
     let src = "fn add(a: Int, b: Int) -> Int { return a + b; }\nfn main() -> Int { return add(1, 2); }\n";
     // Compile via script path
@@ -213,7 +213,7 @@ fn build_standalone(content: &str) -> std::process::Output {
 }
 
 // ============================================================================
-// CACHE tests — verify content-hash cache behavior
+// CACHE tests -- verify content-hash cache behavior
 // ============================================================================
 
 #[test] fn test_cache_no_panic() {
@@ -230,7 +230,7 @@ fn build_standalone(content: &str) -> std::process::Output {
 }
 
 // ============================================================================
-// EXECUTION tests — full compile+run (may skip in CI without runtime)
+// EXECUTION tests -- full compile+run (may skip in CI without runtime)
 // ============================================================================
 
 #[cfg(feature = "full-e2e")]

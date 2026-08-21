@@ -1,13 +1,13 @@
 #!/bin/bash
 # ============================================================================
-# XIOM Compiler v0.49.8 â€” Cross-Platform Installer (Linux/macOS)
+# XIOM Compiler v0.49.8 -- Cross-Platform Installer (Linux/macOS)
 # ============================================================================
 set -e
 
 VERSION="0.49.8"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# â”€â”€ ASCII Art â”€â”€
+# -- ASCII Art --
 cat << 'EOF'
 
   |\  /|  |\    /|  |\     /|  |\  /|  v0.49.8
@@ -16,7 +16,7 @@ cat << 'EOF'
   |    |  |      |  |       |  |    |  Production Release
 
   ================================================================
-    XIOM COMPILER â€” Lightning-fast systems programming language.
+    XIOM COMPILER -- Lightning-fast systems programming language.
     Zero-cost abstractions, contract verification, hot reload.
     Built for games, engines, embedded, and high-performance apps.
   ================================================================
@@ -26,14 +26,14 @@ cat << 'EOF'
 
 EOF
 
-# â”€â”€ Detect platform â”€â”€
+# -- Detect platform --
 case "$(uname -s)" in
   Linux*)  PLATFORM="linux"   ; DEFAULT_INSTALL="$HOME/.local/share/xiom" ;;
   Darwin*) PLATFORM="macos"   ; DEFAULT_INSTALL="$HOME/Library/Application Support/xiom" ;;
   *)       echo "Unsupported platform: $(uname -s)"; exit 1 ;;
 esac
 
-# â”€â”€ Choose install directory â”€â”€
+# -- Choose install directory --
 echo "  [1/5] Install directory"
 read -p "  Location [$DEFAULT_INSTALL]: " XIOM_DIR
 XIOM_DIR="${XIOM_DIR:-$DEFAULT_INSTALL}"
@@ -44,7 +44,7 @@ echo ""
 echo "  Installing to $XIOM_DIR..."
 mkdir -p "$XIOM_BIN" "$XIOM_DIR/lib" "$XIOM_DIR/runtime" "$XIOM_MCP"
 
-# â”€â”€ Copy binaries â”€â”€
+# -- Copy binaries --
 echo "  [2/5] Copying binaries..."
 if [ -d "$SCRIPT_DIR/bin" ]; then
   cp "$SCRIPT_DIR/bin/"* "$XIOM_BIN/" 2>/dev/null || true
@@ -53,16 +53,16 @@ if [ -d "$SCRIPT_DIR/bin" ]; then
   echo "    + xiom-dbg, xiom-verify, z3"
 fi
 
-# â”€â”€ Copy stdlib â”€â”€
+# -- Copy stdlib --
 echo "  [3/5] Copying standard library..."
 cp -r "$SCRIPT_DIR/lib/"* "$XIOM_DIR/lib/" 2>/dev/null || true
 echo "    + Standard library installed"
 
-# â”€â”€ Copy runtime â”€â”€
+# -- Copy runtime --
 cp -r "$SCRIPT_DIR/runtime/"* "$XIOM_DIR/runtime/" 2>/dev/null || true
 echo "    + Runtime installed"
 
-# â”€â”€ Copy MCP configs â”€â”€
+# -- Copy MCP configs --
 echo "  [4/5] Setting up MCP configurations..."
 if [ -d "$SCRIPT_DIR/mcp" ]; then
   cp -r "$SCRIPT_DIR/mcp/"* "$XIOM_MCP/" 2>/dev/null || true
@@ -82,9 +82,9 @@ cat > "$XIOM_MCP/xiom-mcp-config.json" << MCPEOF
 MCPEOF
 echo "    + MCP configs installed to $XIOM_MCP"
 
-# â”€â”€ AI Configuration â”€â”€
+# -- AI Configuration --
 echo ""
-echo "  [5/5] AI Configuration (optional â€” press Enter to skip)"
+echo "  [5/5] AI Configuration (optional -- press Enter to skip)"
 echo "  -------------------------------------------------------"
 echo "  XIOM integrates with AI providers for error diagnostics."
 echo "  Supported: OpenAI, Anthropic, Ollama, DeepSeek, LiteLLM"
@@ -103,7 +103,7 @@ XIOM_AI_MODEL=$AI_MODEL
 XIOM_AI_TIMEOUT=30
 XIOM_AI_CACHE_DIR=$XIOM_DIR
 
-# MCP Server â€” start with: xiom-mcp
+# MCP Server -- start with: xiom-mcp
 # The MCP server provides AI-assisted diagnostics.
 # See $XIOM_MCP/ for integration guides.
 AIEOF
@@ -111,7 +111,7 @@ AIEOF
   echo "    + AI configuration saved"
 fi
 
-# â”€â”€ Create xiom wrapper script â”€â”€
+# -- Create xiom wrapper script --
 cat > "$XIOM_BIN/xiom" << 'WRAPPER'
 #!/bin/bash
 XIOM_BIN="__XIOM_BIN__"
@@ -139,12 +139,12 @@ sed -i "s|__XIOM_BIN__|$XIOM_BIN|g" "$XIOM_BIN/xiom"
 sed -i "s|__XIOM_HOME__|$XIOM_DIR|g" "$XIOM_BIN/xiom"
 chmod +x "$XIOM_BIN/xiom"
 
-# â”€â”€ Add to PATH â”€â”€
+# -- Add to PATH --
 echo ""
 echo "  PATH Configuration"
 echo "  ------------------"
-echo "  [S] Shell config  â€” add to ~/.bashrc / ~/.zshrc (recommended)"
-echo "  [N] Skip          â€” add manually later"
+echo "  [S] Shell config  -- add to ~/.bashrc / ~/.zshrc (recommended)"
+echo "  [N] Skip          -- add manually later"
 echo ""
 read -p "  Choose [S/n]: " PATH_CHOICE
 PATH_CHOICE="${PATH_CHOICE:-S}"
@@ -168,7 +168,7 @@ if [ "$PATH_CHOICE" != "n" ] && [ "$PATH_CHOICE" != "N" ]; then
   fi
 fi
 
-# â”€â”€ Create uninstaller â”€â”€
+# -- Create uninstaller --
 cat > "$XIOM_BIN/uninstall.sh" << UNEOF
 #!/bin/bash
 echo "XIOM Uninstaller v$VERSION"
@@ -181,7 +181,7 @@ echo "Check ~/.bashrc or ~/.zshrc for XIOM entries."
 UNEOF
 chmod +x "$XIOM_BIN/uninstall.sh"
 
-# â”€â”€ Final message â”€â”€
+# -- Final message --
 cat << EOF
 
   =========================================

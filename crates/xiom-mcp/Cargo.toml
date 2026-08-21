@@ -2,7 +2,7 @@
 name = "xiom-mcp"
 version = "0.1.0"
 edition = "2024"
-description = "XIOM Model Context Protocol server — AI agent tool-calling API"
+description = "XIOM Model Context Protocol server -- AI agent tool-calling API"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

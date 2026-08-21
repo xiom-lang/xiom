@@ -1,4 +1,4 @@
-// M32: Division by zero guard — Int16
+// M32: Division by zero guard -- Int16
 fn main() -> Int {
   var a: Int16 = 100;
   var b: Int16 = 0;

@@ -1,4 +1,4 @@
-// M34-H13: Cast in expression chain — multiple casts in a single expression
+// M34-H13: Cast in expression chain -- multiple casts in a single expression
 fn main() -> Int {
   var a: Int8 = 10;
   var b: Int16 = 20;

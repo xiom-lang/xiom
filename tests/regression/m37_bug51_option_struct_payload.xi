@@ -1,4 +1,4 @@
-// BUG 51 regression: Option[UserStruct] payloads — the Some-bound name must
+// BUG 51 regression: Option[UserStruct] payloads -- the Some-bound name must
 // (a) type-check method calls against the payload's methods (the `_` wildcard
 // fell to the sorted wildcard lookup: Option.get before MyRc.get -> "cannot
 // compare Option with Int") and (b) read the correct payload at runtime.

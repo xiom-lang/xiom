@@ -1,7 +1,7 @@
 module m37_shr_builtin
 use xiom.math;
 // BUG 15 regression: a USER fn named shr/shl (e.g. a masked logical
-// shift) must be CALLED, not replaced by a bare ashr instruction — the
+// shift) must be CALLED, not replaced by a bare ashr instruction -- the
 // old math-builtin intercept matched any bare `shr` name and dropped the
 // body's mask statements. Also verifies the real xiom.math.shr still
 // intercepts (perf path preserved).

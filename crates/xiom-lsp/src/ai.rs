@@ -1,4 +1,4 @@
-// XIOM Language Server — AI insight integration for hover
+// XIOM Language Server -- AI insight integration for hover
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 

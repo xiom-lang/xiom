@@ -1,4 +1,4 @@
-// M34-W07: Shift by 0 — identity on multiple types
+// M34-W07: Shift by 0 -- identity on multiple types
 fn main() -> Int {
   var a: Int = 999;
   var b: Int32 = 999 as Int32;

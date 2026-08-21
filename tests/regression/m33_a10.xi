@@ -1,4 +1,4 @@
-// M33-A10: Array return — function returns a computed array element
+// M33-A10: Array return -- function returns a computed array element
 fn compute_result() -> Int {
   return 42;
 }

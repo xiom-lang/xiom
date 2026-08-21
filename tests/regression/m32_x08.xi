@@ -1,4 +1,4 @@
-// M32-X08: Combinatorial + Differential — factorial loop vs recursion with generic+contract
+// M32-X08: Combinatorial + Differential -- factorial loop vs recursion with generic+contract
 fn fact_loop(n: Int) -> Int
   requires: n >= 0
   ensures: result >= 1

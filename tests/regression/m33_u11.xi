@@ -1,4 +1,4 @@
-// M33-U11: Multiple extern function declarations — two extern blocks
+// M33-U11: Multiple extern function declarations -- two extern blocks
 extern "C" {
   fn c_add(a: Int, b: Int) -> Int;
 }

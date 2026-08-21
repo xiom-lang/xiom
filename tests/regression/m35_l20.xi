@@ -1,4 +1,4 @@
-// M35-L20: Pointer to function — function pointer pattern via indirect call
+// M35-L20: Pointer to function -- function pointer pattern via indirect call
 fn add(a: Int, b: Int) -> Int { return a + b; }
 fn mul(a: Int, b: Int) -> Int { return a * b; }
 

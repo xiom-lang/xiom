@@ -1,4 +1,4 @@
-// M33-A14: Array mutation — mutate via struct wrapper with mutable fields
+// M33-A14: Array mutation -- mutate via struct wrapper with mutable fields
 type Cell = { val: Int; }
 fn main() -> Int {
   var a = Cell{ val: 1; };

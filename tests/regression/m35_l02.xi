@@ -1,4 +1,4 @@
-// M35-L02: Struct with Float64 fields — verify float field layout
+// M35-L02: Struct with Float64 fields -- verify float field layout
 type Vec3 = { x: Float64; y: Float64; z: Float64; }
 
 fn main() -> Int {

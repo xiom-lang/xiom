@@ -1,4 +1,4 @@
-// M35-L28: Packed struct pattern — tightly packed fields with verification
+// M35-L28: Packed struct pattern -- tightly packed fields with verification
 type Packed = { flag: Bool; tag: Char; count: Int; }
 
 fn main() -> Int {

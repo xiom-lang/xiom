@@ -1,4 +1,4 @@
-// M34-Q19: Contract with module — cross-module contract chain
+// M34-Q19: Contract with module -- cross-module contract chain
 module math_utils {
   pub fn abs(x: Int) -> Int
     ensures: result >= 0

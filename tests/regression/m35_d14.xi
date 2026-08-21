@@ -1,4 +1,4 @@
-// M35-D14: Ring buffer — oldest overwritten
+// M35-D14: Ring buffer -- oldest overwritten
 fn main() -> Int {
   var b0: Int = 10;
   var b1: Int = 20;

@@ -1,4 +1,4 @@
-// M34-O17: Chained ? with and_then pattern — manual and_then via match+?
+// M34-O17: Chained ? with and_then pattern -- manual and_then via match+?
 fn validate_positive(n: Int) -> Result[Int, Str] {
   if n > 0 { return Ok(n); }
   return Err("not positive");

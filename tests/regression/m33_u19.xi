@@ -1,4 +1,4 @@
-// M33-U19: Pointer with contract — contract-guarded pointer access via temp
+// M33-U19: Pointer with contract -- contract-guarded pointer access via temp
 fn safe_deref(p: *Int) -> Int
   requires: p != (0 as *Int)
 {

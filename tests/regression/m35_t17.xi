@@ -1,4 +1,4 @@
-// M35-T17: Interface on each type — multiple interfaces, cross-type impl
+// M35-T17: Interface on each type -- multiple interfaces, cross-type impl
 interface Identifiable { fn id(self) -> Int; }
 interface Describable { fn desc(self) -> Str; }
 interface Measurable { fn size(self) -> Int; }

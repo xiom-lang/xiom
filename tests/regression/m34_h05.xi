@@ -1,4 +1,4 @@
-// M34-H05: Float64->Int truncation — fractional part discarded
+// M34-H05: Float64->Int truncation -- fractional part discarded
 fn main() -> Int {
   var f: Float64 = 3.7;
   var i: Int = f as Int;

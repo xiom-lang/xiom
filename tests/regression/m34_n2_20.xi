@@ -1,4 +1,4 @@
-// M34-N2-20: Deep match nesting with multi-variant enums — 3-level pattern depth
+// M34-N2-20: Deep match nesting with multi-variant enums -- 3-level pattern depth
 type X1 = enum { A(val: Int), B(val: Int), }
 type X2 = enum { W(a: X1), X(a: X1), }
 type X3 = enum { P(x2: X2), Q(x2: X2), }

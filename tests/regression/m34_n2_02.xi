@@ -1,4 +1,4 @@
-// M34-N2-02: 10-deep while-with-while — pushes loop nesting limit
+// M34-N2-02: 10-deep while-with-while -- pushes loop nesting limit
 fn main() -> Int {
   var i0 = 0;
   var sum = 0;

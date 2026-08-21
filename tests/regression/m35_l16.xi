@@ -1,4 +1,4 @@
-// M35-L16: Pointer comparison — compare pointers for equality and null
+// M35-L16: Pointer comparison -- compare pointers for equality and null
 fn main() -> Int {
   var v: Int = 42;
   var p: *Int;

@@ -1,4 +1,4 @@
-// M34-H18: Cast in while condition — loop guard with cast expression
+// M34-H18: Cast in while condition -- loop guard with cast expression
 fn main() -> Int {
   var x: Int64 = 5;
   var count: Int = 0;

@@ -1,4 +1,4 @@
-// M34-N20: Manual eq vs derive Eq — dual validation with nested and generic types
+// M34-N20: Manual eq vs derive Eq -- dual validation with nested and generic types
 type Node = { val: Int; next: Int; } derive[Eq]
 type Entry[T] = { key: T; tag: Int; } derive[Eq]
 fn manual_eq(a: Node, b: Node) -> Bool { return a.val == b.val && a.next == b.next; }

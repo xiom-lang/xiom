@@ -1,4 +1,4 @@
-// M35-L12: Option size pattern — verify Option layout via match
+// M35-L12: Option size pattern -- verify Option layout via match
 fn main() -> Int {
   var a: Option[Int] = Some(42);
   match a {

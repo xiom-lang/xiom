@@ -1,4 +1,4 @@
-// M32-S05: Struct in array-like context — multiple Vec3 accessed sequentially
+// M32-S05: Struct in array-like context -- multiple Vec3 accessed sequentially
 type Vec3 = { x: Float64; y: Float64; z: Float64; }
 fn sum(v: Vec3) -> Float64 { return v.x + v.y + v.z; }
 fn main() -> Int {

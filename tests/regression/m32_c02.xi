@@ -1,4 +1,4 @@
-// M32-C02: Simple ensures — result equals input squared
+// M32-C02: Simple ensures -- result equals input squared
 fn square(x: Int) -> Int
   ensures: result == x * x
 {

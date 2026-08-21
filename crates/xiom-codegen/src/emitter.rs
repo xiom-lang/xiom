@@ -59,7 +59,7 @@ impl IrEmitter {
     /// For array-literal locals (in `array_locals`), returns the ELEMENT type
     /// (e.g. "Int" for `[5]Int`) instead of the buffer pointer type ("Str").
     /// NOTE: derives from the LLVM slot type (generic inference depends on
-    /// this mapping — do NOT prefer local_xiom_types here; use
+    /// this mapping -- do NOT prefer local_xiom_types here; use
     /// `xiom_type_of_local` when the REGISTERED type is needed).
     pub(crate) fn resolve_local_xiom_type(&self, name: &str) -> Option<String> {
         if let Some((_, llvm_ty)) = self.lookup_local(name) {
@@ -100,7 +100,7 @@ impl IrEmitter {
     }
 
     /// BUG 14 fix: infer a binding's XIOM type from its VALUE expression when
-    /// no explicit type annotation is present — `var big = x as UInt128` must
+    /// no explicit type annotation is present -- `var big = x as UInt128` must
     /// register "UInt128" so signedness-aware lowering (zext/lshr) works.
     pub(crate) fn infer_value_xiom_type(value: &Expr) -> Option<String> {
         match value {
@@ -108,14 +108,14 @@ impl IrEmitter {
             Expr::Paren(inner, _) => Self::infer_value_xiom_type(inner),
             Expr::Binary(l, BinOp::Shl | BinOp::Shr, _, _) => Self::infer_value_xiom_type(l),
             // BUG 31: literal bindings must register their XIOM type so method
-            // dispatch on the local resolves (`var v = 0.0; v.to_str()` → the
-            // Float64.to_str method; previously the bare `@to_str` stub → AV).
+            // dispatch on the local resolves (`var v = 0.0; v.to_str()` -> the
+            // Float64.to_str method; previously the bare `@to_str` stub -> AV).
             Expr::Float(..) => Some("Float64".to_string()),
             Expr::Int(..) => Some("Int".to_string()),
             Expr::Bool(..) => Some("Bool".to_string()),
             Expr::Str(..) => Some("Str".to_string()),
             Expr::Char(..) => Some("Char".to_string()),
-            // BUG 37/36 follow-up: `var p = ptr.null[Int]()` — the inline
+            // BUG 37/36 follow-up: `var p = ptr.null[Int]()` -- the inline
             // handler returns pointer BITS in an i64 register; record the
             // value as pointer-valued so downstream coercion (is_null's
             // *const T param) inttoptrs instead of materializing the value
@@ -138,7 +138,7 @@ impl IrEmitter {
                     return Some("*T".to_string());
                 }
                 // BUG 52 (2026-08-18): typed static-receiver ctors
-                // (`Map[Str, MyVal].new()`, `Vec[MyVal].new()`) — record the
+                // (`Map[Str, MyVal].new()`, `Vec[MyVal].new()`) -- record the
                 // FULL container type so generic METHOD calls on the binding
                 // (`m.get("b")`, `m.len()`) can infer the type args instead
                 // of defaulting to Int/Str (mono'd Map.get_Str_Str etc.).
@@ -191,7 +191,7 @@ impl IrEmitter {
     }
 
     /// gzip-DECOMPRESS fix (2026-08-19): `let v = r.value;` / `var v = r.error;`
-    /// — record the payload XIOM type of a payload-FIELD access so method
+    /// -- record the payload XIOM type of a payload-FIELD access so method
     /// dispatch on the binding sees "Vec[UInt8]" instead of degrading to
     /// Str/i64 (`decompressed.len()` was calling xiom_str_len on the raw boxed
     /// pointer). Resolution mirrors field_payload_xiom (lib.rs).
@@ -203,7 +203,7 @@ impl IrEmitter {
         }
     }
 
-    /// gzip fix (2026-08-19): `let v = if c { f() } else { g() };` — record the
+    /// gzip fix (2026-08-19): `let v = if c { f() } else { g() };` -- record the
     /// arm tail's XIOM type (e.g. "Vec[UInt8]") so method dispatch on the
     /// binding (`v.len()`, `v[i]`) works. Without it, the if-expression binding
     /// stayed untyped and `.len()` degraded to xiom_str_len.
@@ -233,7 +233,7 @@ impl IrEmitter {
         None
     }
 
-    /// Round-6 fix (2026-08-19): `let name = io.file_name(p)?;` — the `?`
+    /// Round-6 fix (2026-08-19): `let name = io.file_name(p)?;` -- the `?`
     /// (Try) binding keeps the payload XIOM type ("Str") so method dispatch
     /// on the binding (`name.byte_at(i)`, `name.substr(...)`) coerces the
     /// i64-slot string handle correctly instead of passing the slot ADDRESS.
@@ -251,7 +251,7 @@ impl IrEmitter {
         }
     }
     /// BUG 14 fix: true when the expression's XIOM type is an UNSIGNED integer
-    /// (UInt8/16/32/64/128) — used to pick `lshr` over `ashr` for right shifts.
+    /// (UInt8/16/32/64/128) -- used to pick `lshr` over `ashr` for right shifts.
     /// Idents resolve through the registered type; casts check the target type
     /// name; shifts inherit the left operand's unsignedness.
     pub(crate) fn expr_is_unsigned(&self, e: &Expr) -> bool {
@@ -307,7 +307,7 @@ impl IrEmitter {
                     let elem_ty = base_ptr_ty.trim_end_matches('*').to_string();
                     Some((base_ptr, base_ptr_ty, elem_ty))
                 } else if let Some((symbol, llvm_ty)) = self.local.module_globals.get(&id.name).cloned() {
-                    // BUG 2 fix: a mutable module-level `var` IS its own storage —
+                    // BUG 2 fix: a mutable module-level `var` IS its own storage --
                     // GEP directly on @symbol so field writes (`g.v = 5`) write
                     // through to the global instead of being silently dropped.
                     // Pointer-typed globals load the pointer value first, mirroring
@@ -342,7 +342,7 @@ impl IrEmitter {
                 let ptr_ty = format!("{field_llvm_ty}*");
                 Some((gep, ptr_ty, field_llvm_ty))
             }
-            // 5c.38: `container[i]` — compute the element address within a
+            // 5c.38: `container[i]` -- compute the element address within a
             // Vec/Slice data buffer so field mutations (e.g. `items[0].x = v`)
             // can store through the resulting lvalue pointer.
             Expr::Index(container, index, _) => {
@@ -445,7 +445,7 @@ impl IrEmitter {
             }
         }
         // BUG 22 #6 fix: names BOUND inside the unsafe block (its own
-        // let/var/for/match bindings) SHADOW same-named enclosing locals —
+        // let/var/for/match bindings) SHADOW same-named enclosing locals --
         // they must never be captured. The block fn compiles them as its own
         // locals; capturing the outer (loop-body) alloca instead produced
         // "Instruction does not dominate all uses!" (str_reverse's inner
@@ -464,12 +464,12 @@ impl IrEmitter {
             eprintln!("[collect_block_free_vars] used={:?} bound={:?} captures={:?}", used, bound, captures);
         }
         // BUG 30: sort captures by name. `used` is a HashSet whose iteration
-        // order varies per collection (per-process RandomState seed) — the
+        // order varies per collection (per-process RandomState seed) -- the
         // unsafe block fn, its ctx struct type, and the caller's ctx stores
         // are each emitted from this list, and a generic fn's block can be
-        // compiled in different passes with DIFFERENT hash seeds → the block
+        // compiled in different passes with DIFFERENT hash seeds -> the block
         // read slot0 as the value while the caller stored inner there
-        // (Rc.new_Int: wrote fields through the VALUE 42 as a pointer → all
+        // (Rc.new_Int: wrote fields through the VALUE 42 as a pointer -> all
         // Rc fields garbage; smoke_rc/cell return 1). Sorting makes every
         // pass agree on slot order.
         captures.sort_by(|a, b| a.0.cmp(&b.0));
@@ -526,7 +526,7 @@ impl IrEmitter {
             // BUG fix (2026-08-11, m19_read_file "use of undefined value"):
             // these arms were MISSING, so free variables referenced inside them
             // (e.g. `path` inside `Err(IOError{ message: "..." + path, .. })`)
-            // were never collected as unsafe-block captures — the block fn then
+            // were never collected as unsafe-block captures -- the block fn then
             // emitted stale references to the ENCLOSING fn's registers.
             Expr::Struct(_, fields, spread, _) => {
                 for (_, e) in fields { self.collect_ident_names(e, out); }
@@ -659,8 +659,8 @@ impl IrEmitter {
 
     /// BUG 22 #6: splice allocas hoisted from loop bodies into the current
     /// function's ENTRY block (right after the entry label). Called at fn
-    /// end — the hoisted set is only known after the body compiles. Locates
-    /// the entry label by scanning (position-independent — byte offsets
+    /// end -- the hoisted set is only known after the body compiles. Locates
+    /// the entry label by scanning (position-independent -- byte offsets
     /// drift when the fn body is assembled across buffer swaps).
     pub(crate) fn finish_hoisted_allocas(&mut self) {
         let hoisted = std::mem::take(&mut self.local.hoisted_allocas);
@@ -746,10 +746,10 @@ impl IrEmitter {
         self.emitln("declare i32 @sprintf(i8*, i8*, ...)");
         self.emitln("declare i32 @puts(i8*)");
         // BUG 22 #5: clean contract-violation termination (message to stderr,
-        // flush, exit code 1) — implemented in xiom_runtime.c; a bare @exit
+        // flush, exit code 1) -- implemented in xiom_runtime.c; a bare @exit
         // call would collide with the stdlib io module's extern decl.
         self.emitln("declare void @xiom_panic(i8*)");
-        // BUG 27: `debugger;` — break into an attached debugger.
+        // BUG 27: `debugger;` -- break into an attached debugger.
         self.emitln("declare void @xiom_debugger_break()");
         self.emitln("declare void @llvm.trap()");
         self.emitln("@xiom_recursion_counter = internal thread_local global i64 0");
@@ -789,23 +789,23 @@ impl IrEmitter {
         self.emitln("declare void @xiom_free(i8*)");
         self.emitln("declare i8 @xiom_char_at(i8*, i64)");
         self.emitln("declare i64 @xiom_str_len(i8*)");
-        // Always declare strcmp — used for Str == / != content comparison.
+        // Always declare strcmp -- used for Str == / != content comparison.
         // (Identical duplicate declares are legal in LLVM; the metadata-table
         // path may also emit it, which is harmless.)
         self.emitln("declare i32 @strcmp(i8*, i8*)");
-        // Runtime string concatenation — used for Str + Str lowering.
+        // Runtime string concatenation -- used for Str + Str lowering.
         self.emitln("declare i8* @xiom_str_concat(i8*, i8*)");
         // D1 hardening: NUL-terminating copy for Str::from_utf8(Vec[UInt8]).
         self.emitln("declare i8* @xiom_str_from_vec(i8*, i64)");
-        // M12/P1: Runtime string slice/starts_with/ends_with — scripting ergonomics.
+        // M12/P1: Runtime string slice/starts_with/ends_with -- scripting ergonomics.
         self.emitln("declare i8* @xiom_str_slice(i8*, i64, i64)");
         self.emitln("declare i1 @xiom_str_starts_with(i8*, i8*)");
         self.emitln("declare i1 @xiom_str_ends_with(i8*, i8*)");
-        // Runtime integer→string — used for to_string(Int) / Int.to_str().
+        // Runtime integer->string -- used for to_string(Int) / Int.to_str().
         self.emitln("declare i8* @xiom_int_to_string(i64)");
-        // Runtime float→string (BUG 19): IEEE-aware shortest-round-trip
-        // formatting for `Str + Float64/Float32` concat (NaN → "nan",
-        // ±inf → "inf"/"-inf"). MUST be declared or the undefined-symbol
+        // Runtime float->string (BUG 19): IEEE-aware shortest-round-trip
+        // formatting for `Str + Float64/Float32` concat (NaN -> "nan",
+        // +/-inf -> "inf"/"-inf"). MUST be declared or the undefined-symbol
         // stub pass emits a conflicting zero-param definition.
         self.emitln("declare i8* @xiom_double_to_string(double)");
         // String interning
@@ -859,7 +859,7 @@ impl IrEmitter {
         if self.config.hot_reload {
             self.emitln("declare i64 @xiom_hot_get_ptr(i64)");
             self.emitln("declare void @xiom_hot_set_ptr(i64, i64)");
-            // 5e.5c: state migration — file I/O for global save/restore
+            // 5e.5c: state migration -- file I/O for global save/restore
             self.emitln("declare i8* @fopen(i8*, i8*)");
             self.emitln("declare i64 @fwrite(i8*, i64, i64, i8*)");
             self.emitln("declare i64 @fread(i8*, i64, i64, i8*)");
@@ -945,7 +945,7 @@ impl IrEmitter {
                     }
                 }
             }
-            // Match `... call <rettype> @name(` — capture the token before '@'.
+            // Match `... call <rettype> @name(` -- capture the token before '@'.
             if let Some(cpos) = t.find("call ") {
                 let after = &t[cpos + 5..];
                 if let Some(at) = after.find('@') {
@@ -982,7 +982,7 @@ impl IrEmitter {
                     && name != "xiom_threadpool_init"
                     && name != "xiom_threadpool_spawn"
                     // D1 hardening: provided by xiom_runtime.c (Str::from_utf8
-                    // NUL-termination helper). Must not be auto-stubbed — the
+                    // NUL-termination helper). Must not be auto-stubbed -- the
                     // runtime defines it, so a stub would duplicate the symbol.
                     && name != "xiom_str_from_vec"
                     // BUG 22 #5: exit/fflush resolve to the C runtime or the
@@ -1087,7 +1087,7 @@ impl IrEmitter {
         self.emitln("; ---- XIOM additive metadata (RTTI / contracts) ----");
         // NOTE: strcmp is already declared unconditionally in the main declare
         // block (used for Str == / != content comparison), so we must NOT declare
-        // it again here — LLVM rejects duplicate function declarations.
+        // it again here -- LLVM rejects duplicate function declarations.
         if want_reflect {
             self.emit_rtti_table();
         }
@@ -1097,7 +1097,7 @@ impl IrEmitter {
         self.emitln("");
     }
 
-    /// PART A — read-only RTTI table + accessors for `reflect`.
+    /// PART A -- read-only RTTI table + accessors for `reflect`.
     pub(crate) fn emit_rtti_table(&mut self) {
         // Collect user types in a deterministic (sorted) order, excluding the
         // compiler's builtin/synthetic types. The type id is the index here.
@@ -1167,7 +1167,7 @@ impl IrEmitter {
         self.emitln(&format!("  ret i64 {n}"));
         self.emitln("}\n");
 
-        // i8* @xiom_type_name(i64 %id) — name or "unknown" if out of range.
+        // i8* @xiom_type_name(i64 %id) -- name or "unknown" if out of range.
         self.types.functions
             .insert("xiom_type_name".to_string(), (vec![LLVM_I64.to_string()], LLVM_STR_PTR.to_string()));
         self.emitln("define i8* @xiom_type_name(i64 %id) {");
@@ -1187,7 +1187,7 @@ impl IrEmitter {
         self.emitln("  ret i8* %v");
         self.emitln("}\n");
 
-        // i64 @xiom_type_field_count(i64 %id) — 0 if out of range.
+        // i64 @xiom_type_field_count(i64 %id) -- 0 if out of range.
         self.types.functions
             .insert("xiom_type_field_count".to_string(), (vec![LLVM_I64.to_string()], LLVM_I64.to_string()));
         self.emitln("define i64 @xiom_type_field_count(i64 %id) {");
@@ -1206,7 +1206,7 @@ impl IrEmitter {
         self.emitln("  ret i64 %v");
         self.emitln("}\n");
 
-        // i64 @xiom_type_id_by_name(i8* %name) — linear search, -1 if absent.
+        // i64 @xiom_type_id_by_name(i8* %name) -- linear search, -1 if absent.
         self.types.functions
             .insert("xiom_type_id_by_name".to_string(), (vec![LLVM_STR_PTR.to_string()], LLVM_I64.to_string()));
         self.emitln("define i64 @xiom_type_id_by_name(i8* %name) {");
@@ -1234,7 +1234,7 @@ impl IrEmitter {
         self.emitln("}\n");
     }
 
-    /// PART B — read-only contract metadata table + accessors for `contracts`.
+    /// PART B -- read-only contract metadata table + accessors for `contracts`.
     pub(crate) fn emit_contract_table(&mut self, program: &Program) {
         let mut entries: Vec<(String, usize, usize)> = Vec::new();
         IrEmitter::collect_contract_fns(&program.items, &mut entries);

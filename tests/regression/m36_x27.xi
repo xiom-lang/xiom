@@ -1,4 +1,4 @@
-// M36-X27: Float precision — floating point operations and epsilon comparisons
+// M36-X27: Float precision -- floating point operations and epsilon comparisons
 const EPSILON: Float64 = 0.0001;
 fn approx_eq(a: Float64, b: Float64) -> Bool {
   var diff: Float64 = a - b;

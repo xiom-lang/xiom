@@ -1,4 +1,4 @@
-// M25: Contract runtime — requires and ensures enforce correctness
+// M25: Contract runtime -- requires and ensures enforce correctness
 fn divide(a: Float64, b: Float64) -> Float64
   requires: b != 0.0
   ensures: result * b == a

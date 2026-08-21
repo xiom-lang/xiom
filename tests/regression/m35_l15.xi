@@ -1,4 +1,4 @@
-// M35-L15: Pointer difference — compare two related pointers
+// M35-L15: Pointer difference -- compare two related pointers
 fn main() -> Int {
   var x: Int = 5;
   var y: Int = 10;

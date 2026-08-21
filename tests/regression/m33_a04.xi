@@ -1,4 +1,4 @@
-// M33-A04: Array of Int — creation and sum of all elements
+// M33-A04: Array of Int -- creation and sum of all elements
 fn main() -> Int {
   var arr = [7, 14, 21, 28];
   var sum: Int = 0;

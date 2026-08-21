@@ -1,4 +1,4 @@
-// M35-O05: Option[struct] — struct wrapped in enum (workaround for Option-struct field access)
+// M35-O05: Option[struct] -- struct wrapped in enum (workaround for Option-struct field access)
 type Data = { a: Int; b: Int; }
 enum MaybeData { Present(d: Data), Absent }
 fn main() -> Int {

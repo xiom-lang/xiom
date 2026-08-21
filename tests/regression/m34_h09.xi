@@ -1,4 +1,4 @@
-// M34-H09: Char->Int — character to its integer codepoint
+// M34-H09: Char->Int -- character to its integer codepoint
 fn main() -> Int {
   var c: Char = 'A';
   var i: Int = c as Int;

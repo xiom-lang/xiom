@@ -1,4 +1,4 @@
-// M34-N15: Derive on type with optional-like fields — struct with Eq using Int fields only
+// M34-N15: Derive on type with optional-like fields -- struct with Eq using Int fields only
 type Config = { port: Int; host_id: Int; } derive[Eq]
 fn main() -> Int {
   var a = Config{ port: 8080; host_id: 1; };

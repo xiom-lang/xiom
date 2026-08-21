@@ -1,4 +1,4 @@
-// M32-L01: Simple while loop — sum 0..9
+// M32-L01: Simple while loop -- sum 0..9
 fn main() -> Int {
   var i: Int = 0;
   var sum: Int = 0;

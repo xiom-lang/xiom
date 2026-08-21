@@ -1,4 +1,4 @@
-// M35-T27: Enum — simple variants with match
+// M35-T27: Enum -- simple variants with match
 enum Color { Red, Green, Blue }
 fn is_red(c: Color) -> Bool { match c { Color.Red => true, _ => false } }
 fn main() -> Int {

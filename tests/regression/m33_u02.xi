@@ -1,4 +1,4 @@
-// M33-U02: Extern function declarations — multiple fn signatures, no calls
+// M33-U02: Extern function declarations -- multiple fn signatures, no calls
 extern "C" {
   fn dummy_abs(x: Int) -> Int;
   fn dummy_min(a: Int, b: Int) -> Int;

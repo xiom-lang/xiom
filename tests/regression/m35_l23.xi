@@ -1,4 +1,4 @@
-// M35-L23: Unsafe block with raw pointer — raw pointer cast and deref
+// M35-L23: Unsafe block with raw pointer -- raw pointer cast and deref
 fn main() -> Int {
   var x: Int = 65;
   var pi: *Int;

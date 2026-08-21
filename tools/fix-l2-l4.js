@@ -67,14 +67,14 @@ function ensureXiomString(code) {
 }
 
 // ---------------------------------------------------------------------------
-// 4) fix bare println() → io.println()
+// 4) fix bare println() -> io.println()
 // ---------------------------------------------------------------------------
 function fixBarePrintln(code) {
   return code.replace(/(?<![a-zA-Z_.])println\s*\(/g, 'io.println(');
 }
 
 // ---------------------------------------------------------------------------
-// 5) fix type annotations: : [Str] → : Vec[Str], : [Int] → : Vec[Int]
+// 5) fix type annotations: : [Str] -> : Vec[Str], : [Int] -> : Vec[Int]
 // ---------------------------------------------------------------------------
 function fixTypeAnnotations(code) {
   code = code.replace(/:\s*\[Str\]/g, ': Vec[Str]');
@@ -85,7 +85,7 @@ function fixTypeAnnotations(code) {
 }
 
 // ---------------------------------------------------------------------------
-// 6) fix double conversion: string.int_to_str(X.to_str()) → X.to_str()
+// 6) fix double conversion: string.int_to_str(X.to_str()) -> X.to_str()
 // ---------------------------------------------------------------------------
 function fixDoubleConversion(code) {
   code = code.replace(
@@ -143,7 +143,7 @@ function ensureSemicolons(code) {
 }
 
 // ---------------------------------------------------------------------------
-// 8) cleanup artifacts: ,; → ,  (comma-semicolon from bad semicolon insertion)
+// 8) cleanup artifacts: ,; -> ,  (comma-semicolon from bad semicolon insertion)
 // ---------------------------------------------------------------------------
 function cleanupCommaSemicolon(code) {
   return code.replace(/,;/g, ',');

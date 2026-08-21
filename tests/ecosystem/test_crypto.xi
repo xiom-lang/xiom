@@ -1,4 +1,4 @@
-// XIOM — Ecosystem Crypto Hardening Tests
+// XIOM -- Ecosystem Crypto Hardening Tests
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
@@ -203,7 +203,7 @@ fn sha256_compress(h: &mut Vec[Int], chunk: &Vec[Int]) {
 }
 
 // ============================================================================
-// SHA-256: Main entry point — returns 32-byte hash as Vec[Int]
+// SHA-256: Main entry point -- returns 32-byte hash as Vec[Int]
 // ============================================================================
 
 fn sha256(data: &Vec[Int]) -> Vec[Int] {

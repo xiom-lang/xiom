@@ -1,4 +1,4 @@
-// M35-A24: Sieve-like prime count — count primes up to n using trial division
+// M35-A24: Sieve-like prime count -- count primes up to n using trial division
 fn is_prime(x: Int) -> Int {
   if x <= 1 { return 0; }
   var d: Int = 2;

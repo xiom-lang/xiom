@@ -1,4 +1,4 @@
-// M34-W18: Bitwise compound patterns — sequential & | ^ operations
+// M34-W18: Bitwise compound patterns -- sequential & | ^ operations
 fn main() -> Int {
   var x: Int = 0x0F;
   var y: Int = 0xF0;

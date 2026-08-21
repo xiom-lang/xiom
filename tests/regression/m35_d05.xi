@@ -1,4 +1,4 @@
-// M35-D05: Deque — double-ended queue verification
+// M35-D05: Deque -- double-ended queue verification
 fn main() -> Int {
   var d0: Int = 0;
   var d1: Int = 0;

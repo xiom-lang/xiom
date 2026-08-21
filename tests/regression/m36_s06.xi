@@ -1,4 +1,4 @@
-// M36-S06: Type checker — subtype and assignability checking
+// M36-S06: Type checker -- subtype and assignability checking
 type TypeSig = { id: Int; flags: Int; base: Int; }
 fn is_subtype(sub: TypeSig, sup: TypeSig) -> Bool {
   if sub.id == sup.id { return true; }

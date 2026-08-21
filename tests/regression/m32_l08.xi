@@ -1,4 +1,4 @@
-// M32-L08: Compound assignment in loop — +=, -=, *=, /= inside while
+// M32-L08: Compound assignment in loop -- +=, -=, *=, /= inside while
 fn main() -> Int {
   var x: Int = 1;
   var i: Int = 0;
@@ -6,7 +6,7 @@ fn main() -> Int {
     x += 3;
     i += 1;
   }
-  // x: 1→4→7→10→13
+  // x: 1->4->7->10->13
   x -= 5;
   // x: 13-5 = 8
   x *= 3;

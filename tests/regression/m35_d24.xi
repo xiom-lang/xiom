@@ -1,4 +1,4 @@
-// M35-D24: Union-Find — path compression verification
+// M35-D24: Union-Find -- path compression verification
 fn main() -> Int {
   var p0: Int = 0;
   var p1: Int = 0;

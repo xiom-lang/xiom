@@ -1,4 +1,4 @@
-// M34-J09: Dotted path: module.submodule.fn() — deep module paths
+// M34-J09: Dotted path: module.submodule.fn() -- deep module paths
 module root {
   pub fn head() -> Int { return 1; }
   module branch {

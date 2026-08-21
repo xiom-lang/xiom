@@ -1,4 +1,4 @@
-// XIOM — Error Handling Stress Benchmark
+// XIOM -- Error Handling Stress Benchmark
 // Exercises Result[T,E], Option[T], match, ? operator, and error type hierarchies.
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.

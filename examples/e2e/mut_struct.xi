@@ -1,4 +1,4 @@
-// E2E: &mut Struct pointer passing — mutations propagate to caller
+// E2E: &mut Struct pointer passing -- mutations propagate to caller
 // Verifies ARC C: &mut Struct parameters are real pointers.
 // Returns 0 on success.
 

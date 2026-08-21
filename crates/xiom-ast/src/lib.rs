@@ -1,13 +1,13 @@
-// XIOM — AST
+// XIOM -- AST
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
-//! XIOM Abstract Syntax Tree — every construct from the EBNF grammar.
+//! XIOM Abstract Syntax Tree -- every construct from the EBNF grammar.
 //! This is the single source of truth for what the parser produces
 //! and what every downstream pass consumes.
 
 // ============================================================================
-// Applicability — suggestion confidence contract (5c-R, rustc lesson)
+// Applicability -- suggestion confidence contract (5c-R, rustc lesson)
 // ============================================================================
 
 /// How confident the compiler is that a suggested fix is correct.
@@ -15,13 +15,13 @@
 /// Direct transplant from rustc's `Applicability` enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Applicability {
-    /// The suggestion is definitely correct — safe to auto-apply.
+    /// The suggestion is definitely correct -- safe to auto-apply.
     MachineApplicable,
     /// The suggestion may be correct but the compiler cannot guarantee it.
     MaybeIncorrect,
     /// The suggestion contains placeholder types that need resolution first.
     HasPlaceholders,
-    /// The suggestion is untested / ad-hoc — never auto-apply.
+    /// The suggestion is untested / ad-hoc -- never auto-apply.
     Unspecified,
 }
 
@@ -98,12 +98,12 @@ pub enum Type {
     Array(Box<Expr>, Box<Type>),
     /// `fn(T, U) -> V` (function pointer)
     Fn(Vec<Type>, Box<Type>),
-    /// `impl Trait` — opaque return type (existential)
+    /// `impl Trait` -- opaque return type (existential)
     ImplTrait(Vec<Ident>),
-    /// Anonymous struct type `{ field: Type; ... }` — used in generic
+    /// Anonymous struct type `{ field: Type; ... }` -- used in generic
     /// function signatures where the struct has no standalone name.
     AnonStruct(Vec<FieldDecl>),
-    /// v0.55: `!` — the Never type (bottom type). Functions returning `!`
+    /// v0.55: `!` -- the Never type (bottom type). Functions returning `!`
     /// never return (infinite loop, exit, panic). Enables exhaustiveness
     /// proofs in match expressions.
     Never,
@@ -132,7 +132,7 @@ pub enum Expr {
     Ident(Ident),
     /// Integer literal
     Int(u64, Span),
-    /// D1 (2026-08-08): integer literal beyond u64 (fits u128/i128) — used for
+    /// D1 (2026-08-08): integer literal beyond u64 (fits u128/i128) -- used for
     /// native Int128/UInt128 literals. Produced by the lexer's BigInt token.
     BigInt(u128, Span),
     /// Float literal
@@ -149,26 +149,26 @@ pub enum Expr {
     Unary(UnaryOp, Box<Expr>, Span),
     /// `left op right`
     Binary(Box<Expr>, BinOp, Box<Expr>, Span),
-    /// `expr?` — error propagation
+    /// `expr?` -- error propagation
     Try(Box<Expr>, Span),
-    /// `expr => expr` — implication (in contracts)
+    /// `expr => expr` -- implication (in contracts)
     Imply(Box<Expr>, Box<Expr>, Span),
-    /// `expr is Pattern` — type test
+    /// `expr is Pattern` -- type test
     Is(Box<Expr>, Pattern, Span),
-    /// `expr.field` — field access
+    /// `expr.field` -- field access
     Field(Box<Expr>, Ident, Span),
-    /// `expr(args)` — function call
+    /// `expr(args)` -- function call
     Call(Box<Expr>, Vec<Expr>, Span),
-    /// v0.56/P2-6: `expr::<Type1, Type2>(args)` — turbofish call (multiple generic type args).
+    /// v0.56/P2-6: `expr::<Type1, Type2>(args)` -- turbofish call (multiple generic type args).
     /// Stores the parsed types for CTFE builtins and generic specialization.
     GenericCall(Box<Expr>, Vec<Type>, Vec<Expr>, Span),
-    /// `expr[index]` — index
+    /// `expr[index]` -- index
     Index(Box<Expr>, Box<Expr>, Span),
-    /// `expr@pre` — pre-state (in contracts)
+    /// `expr@pre` -- pre-state (in contracts)
     AtPre(Box<Expr>, Span),
-    /// `&expr` — reference
+    /// `&expr` -- reference
     Ref(Box<Expr>, Span),
-    /// `&mut expr` — mutable reference
+    /// `&mut expr` -- mutable reference
     MutRef(Box<Expr>, Span),
     /// `Some(expr)`
     Some(Box<Expr>, Span),
@@ -178,28 +178,28 @@ pub enum Expr {
     Ok(Box<Expr>, Span),
     /// `Err(expr)`
     Err(Box<Expr>, Span),
-    /// `Type{ field: val, ... }` — struct literal
+    /// `Type{ field: val, ... }` -- struct literal
     Struct(Ident, Vec<(Ident, Expr)>, Option<Box<Expr>>, Span),
-    /// `[expr, ...]` — array literal
+    /// `[expr, ...]` -- array literal
     Array(Vec<Expr>, Span),
-    /// `{ stmt; ... }` — bare block expression
+    /// `{ stmt; ... }` -- bare block expression
     BlockExpr(Block, Span),
-    /// v0.54: `const { expr }` — compile-time constant block expression.
+    /// v0.54: `const { expr }` -- compile-time constant block expression.
     /// Evaluated by CTFE Phase A; the result replaces the node before codegen.
     ConstBlock(Box<Expr>, Span),
-    /// `fn(params) -> RetType { ... }` — closure
+    /// `fn(params) -> RetType { ... }` -- closure
     Closure(Vec<Param>, Option<Box<Type>>, Block, Span),
-    /// `|x, y| expr` — pipe closure
+    /// `|x, y| expr` -- pipe closure
     PipeClosure(Vec<Ident>, Box<Expr>, Span),
     /// `await expr`
     Await(Box<Expr>, Span),
     /// `comptime expr`
     Comptime(Box<Expr>, Span),
-    /// `expr as Type` — type cast
+    /// `expr as Type` -- type cast
     As(Box<Expr>, Type, Span),
-    /// `(a, b, ...)` — tuple expression
+    /// `(a, b, ...)` -- tuple expression
     Tuple(Vec<Expr>, Span),
-    /// `if cond { then } else { else }` — if-expression
+    /// `if cond { then } else { else }` -- if-expression
     If(Box<Expr>, Block, Vec<(Expr, Block)>, Option<Block>, Span),
     /// `match expr { arms }` as an expression
     Match(Box<Expr>, Vec<MatchArm>, Span),
@@ -214,8 +214,8 @@ pub enum Expr {
 /// Zero-sized proof that a diagnostic has been emitted for this error.
 /// Cannot be constructed outside this crate; downstream passes check
 /// `expr.is_error()` before processing to avoid cascading diagnostics.
-/// Cannot be serialized — panics on encode (prevents caching errors).
-/// (Direct transplant from rustc's `ErrorGuaranteed` — see docs/rust/05-diagnostics.md)
+/// Cannot be serialized -- panics on encode (prevents caching errors).
+/// (Direct transplant from rustc's `ErrorGuaranteed` -- see docs/rust/05-diagnostics.md)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ErrorGuaranteed {
     _private: (),
@@ -247,7 +247,7 @@ impl Expr {
     }
 
     /// True when this node was error-poisoned and carries no meaningful value.
-    /// Downstream passes should skip silently — the diagnostic was already emitted.
+    /// Downstream passes should skip silently -- the diagnostic was already emitted.
     pub fn is_error(&self) -> bool {
         matches!(self, Expr::Error(..))
     }
@@ -308,15 +308,15 @@ impl fmt::Display for BinOp {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
-    /// `_` — wildcard
+    /// `_` -- wildcard
     Wildcard(Span),
-    /// `ident` — variable binding
+    /// `ident` -- variable binding
     Ident(Ident),
-    /// `Variant(field1, field2)` — enum variant pattern
+    /// `Variant(field1, field2)` -- enum variant pattern
     Variant(Ident, Vec<Ident>, Span),
-    /// v0.56/P1-1: `TypeName { field1, field2: pat2 }` — struct destructure pattern
+    /// v0.56/P1-1: `TypeName { field1, field2: pat2 }` -- struct destructure pattern
     Struct(Ident, Vec<(Ident, Pattern)>, Span),
-    /// v0.56/P1-2: `(a, b, c)` — tuple destructure pattern
+    /// v0.56/P1-2: `(a, b, c)` -- tuple destructure pattern
     Tuple(Vec<Pattern>, Span),
     /// Literal pattern (Int, Float, Bool, Str, Char)
     Lit(Literal),
@@ -328,7 +328,7 @@ pub enum Pattern {
     Ok(Box<Pattern>, Span),
     /// `Err(pattern)`
     Err(Box<Pattern>, Span),
-    /// `A | B | C` — or-pattern (matches if any alternative matches)
+    /// `A | B | C` -- or-pattern (matches if any alternative matches)
     Or(Vec<Pattern>, Span),
 }
 
@@ -346,15 +346,15 @@ pub enum Stmt {
     Assign(Expr, Expr, Span),
     /// `return [expr];`
     Return(Option<Expr>, Span),
-    /// `expr;` — expression statement
+    /// `expr;` -- expression statement
     Expr(Expr, Span),
     /// `if expr block {elif expr block} [else block]`
     If(Expr, Block, Vec<(Expr, Block)>, Option<Block>, Span),
     /// `match expr { arms }`
     Match(Expr, Vec<MatchArm>, Span),
-    /// `while expr [invariant: expr] block` — optional loop label for break/continue targeting
+    /// `while expr [invariant: expr] block` -- optional loop label for break/continue targeting
     While(Expr, Block, Option<Expr>, Span, Option<Ident>),
-    /// `for ident in expr block` — optional loop label for break/continue targeting
+    /// `for ident in expr block` -- optional loop label for break/continue targeting
     For(Ident, Expr, Block, Span, Option<Ident>),
     /// `spawn [move] { block }`
     Spawn(Block, Span, /* move */ bool),
@@ -364,19 +364,19 @@ pub enum Stmt {
     Break(Option<Ident>, Span),
     /// `continue;` or `continue 'label;`
     Continue(Option<Ident>, Span),
-    /// v0.55: `asm("...")` — inline assembly statement
+    /// v0.55: `asm("...")` -- inline assembly statement
     Asm(AsmBlock),
-    /// v0.55: `defer { expr }` — guaranteed scope-exit execution
+    /// v0.55: `defer { expr }` -- guaranteed scope-exit execution
     Defer(Block, Span),
-    /// BUG 27: `assert(cond)` / `assert(cond, "msg")` — runtime-checked
+    /// BUG 27: `assert(cond)` / `assert(cond, "msg")` -- runtime-checked
     /// invariant (panics cleanly on violation via xiom_panic).
     Assert(Expr, Option<Expr>, Span),
-    /// BUG 27: `debugger;` — break into the attached debugger (no-op
+    /// BUG 27: `debugger;` -- break into the attached debugger (no-op
     /// without one). Used with the xiom-dbg DAP server.
     Debugger(Span),
 }
 
-/// v0.55: Inline assembly block — `asm("template" : outputs : inputs : clobbers)`
+/// v0.55: Inline assembly block -- `asm("template" : outputs : inputs : clobbers)`
 #[derive(Debug, Clone, PartialEq)]
 pub struct AsmBlock {
     /// Assembly template string (Intel syntax)
@@ -589,7 +589,7 @@ pub struct ConstDecl {
     /// read via `load` / written via `store`); `false` for an immutable `const`
     /// (compile-time value substituted at each read site).
     pub is_mut: bool,
-    /// `true` when declared as `pub const` — enables cross-module visibility.
+    /// `true` when declared as `pub const` -- enables cross-module visibility.
     pub is_pub: bool,
     pub span: Span,
 }
@@ -640,13 +640,13 @@ pub enum TopDecl {
 }
 
 // ============================================================================
-// ImplDecl — impl Trait for Type { ... }
+// ImplDecl -- impl Trait for Type { ... }
 // ============================================================================
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImplDecl {
     pub trait_name: Ident,
-    /// Generic args applied to the trait (e.g. `impl Num[Int]` → [Int]).
+    /// Generic args applied to the trait (e.g. `impl Num[Int]` -> [Int]).
     /// Empty for the `impl Trait for Type` form.
     pub trait_args: Vec<Type>,
     pub type_name: Ident,
@@ -673,7 +673,7 @@ pub struct Program {
 }
 
 /// D1 (2026-08-08): extract the type name from a Type AST node
-/// (e.g. `impl Num[Int]` → "Int"). Free function so nested helpers can use it.
+/// (e.g. `impl Num[Int]` -> "Int"). Free function so nested helpers can use it.
 pub fn type_name_from_ast(ty: &Type) -> String {
     match ty {
         Type::Named(id, _) => id.name.clone(),
@@ -779,7 +779,7 @@ pub fn expand_impl_blocks(&self) -> Program {
                 Expr::Is(e, _, _) => rewrite_expr(e, iface_methods, span),
                 Expr::Array(items, _) => for e in items { rewrite_expr(e, iface_methods, span); },
                 Expr::Closure(_, _, _body, _) => {
-                    // Don't recurse into closures — they have their own scope
+                    // Don't recurse into closures -- they have their own scope
                 }
                 _ => {}
             }
@@ -907,7 +907,7 @@ pub fn expand_impl_blocks(&self) -> Program {
             for item in items {
                 match item {
                     TopDecl::Impl(impl_decl) => {
-                        // D1: `impl Num[Int]` (no `for Type`) — the implementing
+                        // D1: `impl Num[Int]` (no `for Type`) -- the implementing
                         // type is the first trait arg. `impl Trait for Type` uses
                         // type_name directly.
                         let type_name = if impl_decl.type_name.name != "_" {
@@ -919,7 +919,7 @@ pub fn expand_impl_blocks(&self) -> Program {
                         };
                         // D1: `impl Trait for Type` methods get a receiver
                         // (`fn Type.method(self, ...)`); `impl Trait[Args]`
-                        // methods are STATIC (no self — the arg IS the impl
+                        // methods are STATIC (no self -- the arg IS the impl
                         // type). Only set the receiver for the `for` form.
                         let has_for_type = impl_decl.type_name.name != "_";
                         let iface_name = impl_decl.trait_name.name.clone();

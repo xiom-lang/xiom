@@ -1,4 +1,4 @@
-// M34-Q07: Contract with Option — requires/ensures involving Option types
+// M34-Q07: Contract with Option -- requires/ensures involving Option types
 fn get_positive(x: Int) -> Option[Int]
   requires: x > -100
   ensures: result.is_some || result.is_none

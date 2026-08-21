@@ -1,4 +1,4 @@
-// M34-Q20: Combined contract chain stress — struct+enum+generic+module+contract+Option+Result
+// M34-Q20: Combined contract chain stress -- struct+enum+generic+module+contract+Option+Result
 type Pair = { a: Int; b: Int; }
 enum Op { Add, Mul }
 module ops {

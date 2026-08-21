@@ -1,4 +1,4 @@
-// M34-D20: Recursive invariant + serialization pattern — depth-bounded tree walk with value collection
+// M34-D20: Recursive invariant + serialization pattern -- depth-bounded tree walk with value collection
 type Node = { value: Int; left: *Node; right: *Node; }
 
 fn tree_depth(n: *Node) -> Int {
