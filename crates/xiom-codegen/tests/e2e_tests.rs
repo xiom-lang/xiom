@@ -4534,6 +4534,16 @@ fn e2e_safety_probe() {
 // ============================================================================
 #[test] fn e2e_m41_round11_b007_closures() { assert_eq!(compile_and_run("tests\\regression\\m41_round11_b007_closures.xi"), Some(0)); }
 
+// ============================================================================
+// Round 12 (2026-08-21): Str-returning closures through Result/Err — closure
+// thunk params are i64 (uniform env-first ABI) but their DECLARED XIOM types
+// were not tracked: a Str param used inside the body degraded to a scalar
+// (alloca i8 + trunc i64 of the string HANDLE) — corrupt map_err payloads.
+// Fix: closure params record local_xiom_types/ref_params/signed_locals, and
+// the mono fn-typed param's return type resolves through type_map.
+// ============================================================================
+#[test] fn e2e_m42_round12_str_closures() { assert_eq!(compile_and_run("tests\\regression\\m42_round12_str_closures.xi"), Some(0)); }
+
 
 
 

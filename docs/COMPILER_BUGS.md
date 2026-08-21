@@ -2023,6 +2023,50 @@ The B-007 closure fix landed the Int-returning closure family (option map/filter
 1. Str-returning closures through Result/Err construction: err.map_err(fn(e: Str) -> Str { str_concat("ERR_", e) }) produces a corrupted payload (rm1 probe prints garbage bytes). Int-returning map is fine.
 2. Option[(K, V)] TUPLE payloads: BTreeMap.first_entry's Some((keys[0], values[0])) returns a corrupt tuple (the keys[0]/values[0] reads are verified fine standalone) — smoke_collections_btree_map exit 7 / btreemap exit 2.
 3. Ordering-returning closures with &T params: cmp.min_by's comparator (n(&T, &T) -> Ordering) returns the wrong Ordering (cb2 probe) — the &-arg + enum-return closure shape.
+### Round-12 findings FIXED (2026-08-21) — rm1 Str-return closures + cb2 enum-variant receivers
+
+- smoke_core_result_map/deep_chain/chains exited 5/4/4 — `err.map_err(fn(e:
+  Str) -> Str { str_concat("ERR_", e) })` produced a CORRUPTED payload
+  (garbage bytes). The Int-returning map was fine.
+
+**RESOLVED (round-12 commit, e2e `e2e_m42_round12_str_closures`):**
+
+1. **Closure thunk params lost their XIOM types** (rm1): the Expr::Closure
+   thunk stored every param as an i64 local (`add_local(name, alloca,
+   "i64")`) WITHOUT recording the declared XIOM type — a Str param used
+   inside the body resolved to "Int" (via the i64 slot reverse lookup), so
+   coerce_arg_for_param's materialize path fired: `alloca i8; trunc i64 to
+   i8; store` — the string HANDLE was truncated to a single byte and
+   passed as i8* to str_concat (garbage payload). Fix (expr.rs Closure
+   thunk): mirror decl.rs's param binding — record local_xiom_types
+   (ref_preserving_name keeps "&T"), ref_params for scalar-pointee &T
+   params, signed_locals, param_locals. Verified in the IR: the body now
+   emits `inttoptr i64 %e_0 to i8*` instead of `trunc i64 %e_0 to i8`.
+2. **Mono fn_local_returns not substituted** (latent): the generic decl's
+   `fn(E) -> F` ret was registered RAW ("F") — llvm_type_for fails — the
+   M20-A1 call site degraded the fn-ptr signature to i64 (benign for
+   8-byte returns, ABI-breaking for struct returns > 8 bytes). Fix
+   (lib.rs mono body): substitute the Fn ret through type_map first.
+3. **Module-qualified ENUM-VARIANT receivers dropped** (cb2, found while
+   probing then_with/reverse): `cmp.Less.reverse()` emitted
+   `call %struct.Ordering @Ordering.reverse()` with NO receiver arg, and
+   `Ordering.then` lost its second arg — infer_struct_type_name's Field
+   arm had no enum-variant resolution, so receiver_is_instance returned
+   FALSE and the receiver was skipped (undefined self at -O2 — passed by
+   luck in script mode, garbage in `-o`/e2e mode). Fix (lib.rs Field arm):
+   resolve the variant's parent enum via resolve_enum_for_variant before
+   the instance-field fallthrough. Verified: `-o` mode 0/0 on the
+   reverse/then/then_with battery.
+
+Verified: stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
+parser 97, ctfe 97, e2e round regressions incl. e2e_m42; the full closure
+family green (result map/deep_chain/chains, option map/filter/unwrap/
+deep_chain, cmp_by, array_sort_by, cb2 zero-arg + capturing + struct-T
+probes). Pre-existing (baseline-failing, unchanged): smoke_collections_
+btree_map first_entry/last_entry (exit 7) + smoke_stress_collections_
+btreemap (exit 2) — the tuple-payload queue item; smoke_error_edge +
+smoke_iter_edge (exit 1 at baseline).
+
 ### BUG 53 - &[N]T param element access emits invalid GEP — read FIXED (9757e864) + WRITE facet FIXED (round-3 commit)
 
 - **Construct:** n f(arr: &[5]Int) -> Int { return arr[0]; } ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the fixed-array reference param lowers to [5 x i64]** and element access emits getelementptr [5 x i64]*, [5 x i64]** %p, i64 0, i64 0 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â clang: invalid getelementptr indices. User-space probe (as2) reproduces; array.sort/sort_by and every &[N]T catalog fn is blocked.

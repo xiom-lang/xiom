@@ -5578,9 +5578,14 @@ impl IrEmitter {
                 // inttoptr the env pointer as a code pointer (0xC0000005).
                 // The declared RETURN type drives the fn-pointer signature
                 // (struct returns are BY VALUE, never pointer derefs).
+                // round-12 (rm1): the ret is GENERIC-typed in the decl
+                // (`fn(E) -> F`) — substitute through type_map first, else
+                // the raw "F" fails llvm_type_for and the call site degrades
+                // to i64 (benign for 8-byte returns, breaks struct returns).
                 if let Type::Fn(_, ret) = &param.ty {
                     self.local.closure_locals.insert(param.name.name.clone());
-                    self.local.fn_local_returns.insert(param.name.name.clone(), Self::type_from_ast(ret));
+                    let subst_ret = Self::type_from_ast(&Self::substitute_type(ret, ret, &type_map));
+                    self.local.fn_local_returns.insert(param.name.name.clone(), subst_ret);
                 }
                 // Track params whose original type is a generic parameter being monomorphised
                 let xiom_ty = Self::type_from_ast(&param.ty);
@@ -6290,6 +6295,18 @@ impl IrEmitter {
                         if key.ends_with(&format!(".{}", field.name)) || key == &field.name {
                             return Some(key.clone());
                         }
+                    }
+                    // round-12 (cb2): MODULE-QUALIFIED ENUM VARIANT receiver
+                    // (`cmp.Less.reverse()`, `cmp.Greater.then_with(f)`): the
+                    // leaf names a VARIANT of a registered enum and the base is
+                    // the module (or the enum type). Resolve to the ENUM type so
+                    // the receiver is recognized as an INSTANCE VALUE and passed
+                    // to the method call — previously it was treated as a
+                    // non-instance and DROPPED (reverse() called with an
+                    // undefined self; then_with lost its arg → wrong Ordering
+                    // / garbage at -O2).
+                    if let Some(enum_key) = self.resolve_enum_for_variant(obj.as_ref(), &field.name) {
+                        return Some(enum_key);
                     }
                 }
                 // Instance field access (e.g. `row.values.push(..)`):
