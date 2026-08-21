@@ -1,5 +1,81 @@
 # XIOM Compiler Session — Handoff (2026-08-19)
 
+## Session update (2026-08-21, round 12 IN PROGRESS): stdlib sweep 801/907 — three residual closure shapes + the remaining queue
+
+Stdlib session (round 12) re-swept: **801/907 (+3), zero hangs**. The
+B-007 closure fix (round 11, `93545e56`) landed the biggest remaining
+family — option_map/filter/unwrap/deep_chain, result_and_then, core_slice,
+async, thread all exit 0. The unified env-first closure convention holds.
+
+**THREE RESIDUAL CLOSURE SHAPES logged with probes (stdlib logic verified
+correct in user space — the compiler must fix them):**
+
+1. **Str-returning closures through Err construction** (probe rm1):
+   `err.map_err(fn(e: Str) -> Str {...})` yields a CORRUPTED payload
+   (garbage bytes on print); the Int-returning map is fine. Blocks
+   result_map / result_chains. Suspect: the M20-A1 call's ret handling or
+   the closure thunk's Str (i8*) return through the env convention — the
+   by-value struct case (Option) was fixed in round 11; i8* (Str) returns
+   may still be mis-handled at the call site (val_to_i64?) or the thunk.
+2. **Option[(K, V)] tuple payloads** (BTreeMap.first_entry):
+   `Some((keys[0], values[0]))` corrupts — the index reads verify
+   standalone, so the tuple-payload CONSTRUCTION through the Option is the
+   suspect (the Tuple__K__V struct inside the Option payload slot — the
+   match-arm binding / payload field handling for 2-slot tuples).
+   Blocks btree_map / btreemap (first_entry/last_entry — pre-existing).
+3. **Ordering-returning &T-param closures** (probe cb2):
+   `cmp.min_by`'s comparator returns the WRONG Ordering (the closure's
+   &T params — &Int — arrive as addresses; the closure body derefs; the
+   returned Ordering (an enum/struct) is corrupted). Blocks
+   cmp_by / array_sort_by. Suspect: the Ordering ENUM return through the
+   M20-A1 env-first call (enum returns are structs {i64 tag,...} — the
+   fn_ptr signature / ret handling), or the &T closure-param ABI through
+   the thunk.
+
+**REMAINING COMPILER-SIDE QUEUE (~106 documented, each with minimal repros
++ user-space proofs in COMPILER_BUGS.md):**
+
+1. **Three residual closure shapes** (above — rm1, first_entry tuple,
+   cb2 probes) — the immediate next targets: Str returns via Err/map_err,
+   Option[(K,V)] tuple payloads, Ordering enum returns via closures.
+2. **Iter-adapter feature gap** (9 smokes): Range has only next/len/
+   contains/sum/product — the map/filter/collect ADAPTER CHAIN doesn't
+   exist in the stdlib (targets the planned API). Needs the iterator
+   PROTOCOL (the For stmt is a hardcoded Range GEP — `for x in set` also
+   blocked on this) + the closure ABI (now available). Stdlib-side work.
+3. **narrow-SIGNED zext** (smoke_stress_collections_vec_narrow exit 5):
+   the inline pop/get on SIGNED narrow elements (Int16 -30000) zext the
+   bit pattern (35536) instead of sign-extending (emit_elem_payload_load).
+4. **json enum-Vec-Map heap layer** (smoke_stress_serialize_json_nested —
+   flaky; the json value enum with Vec/Map payloads through the heap).
+5. **SIMD flags** (smoke_simd — flaky across builds; the m34_y15/y20
+   pattern — clang -O2 codegen of the linked MSVC CRT is layout-sensitive;
+   sorted emission fixed the flip, the SIMD flag set may still be off).
+6. **The 16 clang codegen variants** (the documented C001-checker/
+   clang-flags matrix).
+7. **Pre-existing, unchanged**: smoke_collections_btree_map (exit 7) +
+   smoke_stress_collections_btreemap (exit 2) — the first_entry/last_entry
+   traversal (the tuple-payload item above likely unblocks these).
+
+Campaign trajectory: 516 → 621 → 679 → 738 → 765 → 779 → 793 → 799 → 801.
+Compiler-side closed roots: BUG 31–56 + the round-fixes (gzip decompress
+payloads, path.xi env import, Vec/Set/Slice method injection + pointer
+arithmetic GEP, non-pub generic type decls + is_llvm_struct_named, ref
+payload auto-deref, Set ABI, Ord/Bounded C001, B-007 closures).
+Stdlib-side hardened: RefCell, PathBuf, gcd, crc32, VecDeque, Set/Queue/
+Stack, redundant requires traps, prose ensures, smoke semantics.
+
+**WORKFLOW (unchanged):** probe → IR-diff → fix → verify probe + stdlib
+smoke + e2e regression (tests/regression/m3x_*.xi + e2e_mXX registration)
+→ quick suites (checker/parser/ctfe/feature-reg/stdlib-exec) → full e2e in
+the background → update COMPILER_BUGS.md + SESSION.md → commit
+(conventional messages) → report to the stdlib session for the re-sweep.
+Full suite: cargo test -p xiom-check, -p xiom-parser, -p xiom-ctfe,
+-p xiom-codegen --test {feature_regression_tests,stdlib_execution_tests,
+stdlib_tests,e2e_tests}. Build target/debug/xiom.exe BEFORE suites; NEVER
+run two suites concurrently; e2e_m16_scripting_exit_zero is an
+environmental fail (ignore).
+
 ## Session update (2026-08-20, round 11 FIXED): B-007 closures — fn-typed params
 
 Commit: `93545e56` — fix(codegen): round-11 — fn-typed PARAMS hold a
