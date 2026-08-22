@@ -1681,18 +1681,35 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         } else { false };
                         // 5c.30: Indexed Vec elements (e.g. outer[1] from Vec[Vec[Int]])
                         // return i64 but are NOT strings -- exclude them from the Str.len() path.
+                        // round-14 (Vec[Str] elements): only the i64-typed index case is
+                        // excluded -- a Vec[Str] ELEMENT compiles to i8* (recv_ty == "i8*")
+                        // and MUST take the Str.len path. The blanket exclusion made
+                        // `v[0].len()` fall to the generic dispatch, which GEP'd the i8*
+                        // receiver as a struct (getelementptr i8*, i8**, 0, 1 -- invalid).
                         let is_vec_index = matches!(&**receiver, Expr::Index(..));
+                        // round-14 (Vec[Str] elements): an Index receiver whose
+                        // CONTAINER's element type is Str compiles to an i8*
+                        // string VALUE (the elem-load switch yields i64, so
+                        // infer_llvm_type can't see it) -- it must take the
+                        // Str.len path, NOT the Vec-handle exclusion.
+                        let is_vec_str_elem = self.is_vec_str_elem_receiver(receiver);
                         // Also skip module-level globals whose type is a named struct
                         // (like Map[K,V]) -- they're not strings.
                         let is_struct_global = if let Expr::Ident(id) = &**receiver {
                             self.local.module_globals.get(&id.name)
                                 .map_or(false, |(_, ty)| ty.starts_with("%struct.") || ty.ends_with(".Map") || ty.ends_with(".Vec"))
                         } else { false };
-                        if (recv_ty == "i8*" || recv_ty == "ptr" || (recv_ty == "i64" && !is_vec_index && !is_struct_global && !is_vec_handle_local) || is_str_type)
-                            && !is_vec_index && !is_struct_global && !is_vec_handle_local
+                        let is_vec_handle_index = is_vec_index && recv_ty == "i64" && !is_vec_str_elem;
+                        if (recv_ty == "i8*" || recv_ty == "ptr" || is_vec_str_elem || (recv_ty == "i64" && !is_vec_handle_index && !is_struct_global && !is_vec_handle_local) || is_str_type)
+                            && !is_vec_handle_index && !is_struct_global && !is_vec_handle_local
                         {
-                            let (recv_val, _) = self.compile_expr(receiver)?;
-                            let str_ptr = if recv_ty == "i64" {
+                            let (recv_val, recv_val_ty) = self.compile_expr(receiver)?;
+                            // round-14 (Vec[Str] elements): the compiled value
+                            // may already be i8* (the elem-load path derefs the
+                            // box) while the STATIC recv_ty is i64 -- cast only
+                            // when the compiled type is actually an integer
+                            // (inttoptr i8* -> i8* is invalid IR).
+                            let str_ptr = if recv_ty == "i64" && recv_val_ty == "i64" {
                                 let tmp = self.fresh_tmp();
                                 self.emitln(&format!("  {tmp} = inttoptr i64 {recv_val} to i8*"));
                                 tmp

@@ -2072,6 +2072,57 @@ btree_map first_entry/last_entry (exit 7) + smoke_stress_collections_
 btreemap (exit 2) -- the tuple-payload queue item; smoke_error_edge +
 smoke_iter_edge (exit 1 at baseline).
 
+### Round-14 findings FIXED (2026-08-22) -- aggregate closure params + Vec[Str] elements + narrow-SIGNED loads
+
+The stdlib session's round-13/14 sweep (819/907) surfaced three compiler
+roots. All three are RESOLVED (e2e `e2e_m45_round14_aggregate_closure_
+params` + `e2e_m46_round14_vec_str_elems_narrow`):
+
+1. **AGGREGATE-typed closure params corrupt on call** (the ZipIter tuple
+   predicates / EnumerateIter.map blocker): the closure thunk declared
+   EVERY param as `i64` while the call site passed structs/tuples BY
+   VALUE (a 16-byte %struct.Point splits across two registers; the i64
+   thunk param read only the first -- p.x garbage, tuple elements bound
+   literal 0, &Vec params garbage). Top-level fns were correct (decl.rs
+   binds real param types). Fix (expr.rs Closure thunk + vec_abi.rs
+   __fnwrap): params keep their REAL LLVM types when they cannot marshal
+   through an i64 register -- struct/tuple values declare by value and
+   bind typed (p.x GEPs the struct), struct-pointee refs declare
+   %struct.X*; scalars/scalar-refs keep the uniform i64 convention.
+   Verified: struct/tuple/&struct/&Vec params by value + match-
+   destructure + fn-REFERENCE aggregate args (the __fnwrap path).
+2. **Method call on a Vec[Str] ELEMENT emits invalid GEP** (context.xi
+   pretty-print family): `v[0].len()`, `h.names[i].starts_with(..)` --
+   the elem-load switch yields i64 so infer_llvm_type can't see the
+   string; the Str builtin guards (len/slice/substr/starts_with/
+   ends_with) EXCLUDED Index receivers (the 5c.30 Vec[Vec] handle rule)
+   and the generic dispatch GEP'd the i8* receiver as a struct
+   (getelementptr i8*, i8**, 0, 1 -- clang reject). Fix (call.rs +
+   expr.rs): a shared `resolve_vec_elem_xiom(container)` (local_vec_elem
+   / local_xiom_types "Vec[X]" / struct-FIELD type_meta) drives
+   `is_vec_str_elem_receiver`; receiver_is_str now recognizes Vec[Str]
+   element receivers so all Str builtins fire; the len handler only
+   excludes i64-typed indexes (Vec handles) and casts the compiled value
+   only when it is actually i64 (the elem path already returns i8*).
+3. **narrow-SIGNED Vec loads zext** (queue item 3, re-confirmed by
+   probe_narrow_zext): emit_elem_load hardcoded zext for 1/2/4-byte
+   loads -- Int16 -30000 popped as 35536. Fix (vec_abi.rs): the loads
+   take a `signed` flag from the container's element XIOM
+   (vec_elem_signed via resolve_vec_elem_xiom -- Int8/Int16/Int32/Int64
+   sext, UInt8../Char stay zext); emit_elem_payload_load (pop/get/remove)
+   and the index-read paths pass it. smoke_collections_vec_narrow now
+   PASSES (the old stress variant was renamed/removed by the stdlib
+   session).
+
+Verified: stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
+parser 97, ctfe 97, full e2e pending; the iter/cmp/closure family + the
+new find/all/any/nth/last smokes (smoke_iter_find_all_any/nth_last/edge)
+all green. PRE-EXISTING (unchanged, baseline-confirmed): smoke_iter_
+collect + smoke_array_sort_by startup AV (clang -O2/MSVC-CRT layout
+family -- queue 5/7), smoke_error2's has-mid layout flip (same family),
+multibyte char len_utf8 (BUG 26 #7), the checker generic-tuple Str-
+element typing gap.
+
 ### Round-13 findings FIXED (2026-08-22) -- closure-env family + tuple payloads
 
 The closure-based iter adapter build (stdlib) was blocked on four

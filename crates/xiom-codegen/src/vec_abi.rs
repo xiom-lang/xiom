@@ -129,7 +129,42 @@ impl IrEmitter {
             self.emitln(&format!("  {h} = ptrtoint i8* {raw} to i64"));
             return h;
         }
-        self.emit_elem_load(elem_ptr, esz_val)
+        // round-14 (narrow-SIGNED zext): SIGNED narrow elements (Int16
+        // -30000, Int8 -5) must sign-extend -- the old zext widened the
+        // bit pattern (35536 for -30000) silently corrupting every
+        // pop/get on signed narrow Vecs. Signedness comes from the
+        // container's element XIOM type.
+        let signed = self.vec_elem_signed(container);
+        self.emit_elem_load(elem_ptr, esz_val, signed)
+    }
+
+    /// round-14: resolve the element XIOM type name of a Vec container
+    /// expression ("Int16", "Str", "Tuple__Int__Int", "Vec[Int]") from
+    /// local_vec_elem / local_xiom_types ("Vec[X]") or a struct FIELD's
+    /// declared type_meta ("Vec[X]"). None when unknown.
+    pub(crate) fn resolve_vec_elem_xiom(&self, container: &Expr) -> Option<String> {
+        match container {
+            Expr::Ident(cid) => self.local.local_vec_elem.get(&cid.name).cloned()
+                .or_else(|| self.local.local_xiom_types.get(&cid.name).cloned()
+                    .and_then(|t| t.strip_prefix("Vec[").and_then(|r| r.strip_suffix(']')).map(|s| s.to_string()))),
+            Expr::Field(base, fname, _) => {
+                let base_ty = self.infer_struct_type_name(base)?;
+                let meta_key = self.types.type_meta.keys().into_iter()
+                    .find(|k| k.ends_with(&base_ty) || k.as_str() == base_ty)?;
+                self.types.type_meta.get(&meta_key)?.fields.iter()
+                    .find(|(fn2, _)| fn2 == &fname.name)
+                    .map(|(_, ft)| ft.clone())
+                    .and_then(|ft| ft.strip_prefix("Vec[").and_then(|r| r.strip_suffix(']')).map(|s| s.to_string()))
+            }
+            _ => None,
+        }
+    }
+
+    /// round-14: true when the Vec container's element type is a SIGNED
+    /// narrow int (Int8/Int16/Int32/Int64...) -- narrow loads must sext.
+    pub(crate) fn vec_elem_signed(&self, container: &Expr) -> bool {
+        self.resolve_vec_elem_xiom(container)
+            .map_or(false, |e| Self::is_signed_xiom_type(&e))
     }
 
     pub(crate) fn resolve_vec_value(&mut self, val: &str, ty: &str) -> (String, String) {
@@ -424,17 +459,32 @@ impl IrEmitter {
         self.closure_counter += 1;
         let saved_output = std::mem::take(&mut self.output);
         let mut params = Vec::new();
-        for (k, _pt) in param_llvm.iter().enumerate() {
-            params.push(format!("i64 %a{k}"));
+        let mut types_only: Vec<String> = Vec::new();
+        for (k, pt) in param_llvm.iter().enumerate() {
+            // round-14 (aggregate closure params): struct/tuple params pass
+            // BY VALUE -- a 16-byte struct splits across two registers and
+            // cannot marshal through an i64 (the old i64 param read only the
+            // first register: p.x garbage). Declare the param as the struct
+            // type and forward it directly.
+            if pt.starts_with("%struct.") && !pt.ends_with('*') {
+                params.push(format!("{pt} %a{k}"));
+                types_only.push(pt.clone());
+            } else {
+                params.push(format!("i64 %a{k}"));
+                types_only.push("i64".to_string());
+            }
         }
-        let types_only: Vec<String> = (0..param_llvm.len()).map(|_| "i64".to_string()).collect();
         let params_str = if params.is_empty() { String::new() } else { format!(", {}", params.join(", ")) };
         let types_str = if types_only.is_empty() { String::new() } else { format!(", {}", types_only.join(", ")) };
         self.emitln(&format!("define {ret_llvm} @{thunk}(i64 %__env{params_str}) {{"));
         self.emitln("entry:");
         let mut fwd = Vec::new();
         for (k, pt) in param_llvm.iter().enumerate() {
-            if pt.ends_with('*') {
+            if pt.starts_with("%struct.") && !pt.ends_with('*') {
+                // Aggregate by value -- forwarded unchanged (declared in the
+                // thunk signature above).
+                fwd.push(format!("{pt} %a{k}"));
+            } else if pt.ends_with('*') {
                 let cast = format!("%p{k}");
                 self.emitln(&format!("  {cast} = inttoptr i64 %a{k} to {pt}"));
                 fwd.push(format!("{pt} {cast}"));
@@ -717,7 +767,7 @@ impl IrEmitter {
     /// This saves 3 LLVM instructions per element load (alloca + store + reload).
     /// In packet-processing loops with 46M element accesses, this eliminates
     /// ~138M redundant instructions.
-    pub(crate) fn emit_elem_load(&mut self, src: &str, esz_val: &str) -> String {
+    pub(crate) fn emit_elem_load(&mut self, src: &str, esz_val: &str, signed: bool) -> String {
         let l1 = self.fresh_block("elem_load1");
         let l2 = self.fresh_block("elem_load2");
         let l4 = self.fresh_block("elem_load4");
@@ -731,7 +781,9 @@ impl IrEmitter {
         let v1 = self.fresh_tmp();
         let e1 = self.fresh_tmp();
         self.emitln(&format!("  {v1} = load i8, i8* {src}"));
-        self.emitln(&format!("  {e1} = zext i8 {v1} to i64"));
+        // round-14 (narrow-SIGNED zext): signed elements sext, unsigned zext.
+        let ext1 = if signed { "sext" } else { "zext" };
+        self.emitln(&format!("  {e1} = {ext1} i8 {v1} to i64"));
         self.emitln(&format!("  br label %{done}"));
         // 2-byte path
         self.emitln(&format!("\n{l2}:"));
@@ -740,7 +792,8 @@ impl IrEmitter {
         let e2 = self.fresh_tmp();
         self.emitln(&format!("  {p2} = bitcast i8* {src} to i16*"));
         self.emitln(&format!("  {v2} = load i16, i16* {p2}"));
-        self.emitln(&format!("  {e2} = zext i16 {v2} to i64"));
+        let ext2 = if signed { "sext" } else { "zext" };
+        self.emitln(&format!("  {e2} = {ext2} i16 {v2} to i64"));
         self.emitln(&format!("  br label %{done}"));
         // 4-byte path
         self.emitln(&format!("\n{l4}:"));
@@ -749,7 +802,8 @@ impl IrEmitter {
         let e4 = self.fresh_tmp();
         self.emitln(&format!("  {p4} = bitcast i8* {src} to i32*"));
         self.emitln(&format!("  {v4} = load i32, i32* {p4}"));
-        self.emitln(&format!("  {e4} = zext i32 {v4} to i64"));
+        let ext4 = if signed { "sext" } else { "zext" };
+        self.emitln(&format!("  {e4} = {ext4} i32 {v4} to i64"));
         self.emitln(&format!("  br label %{done}"));
         // 8-byte path (default)
         self.emitln(&format!("\n{l8}:"));
