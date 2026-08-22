@@ -2269,6 +2269,37 @@ the stdlib iter API -- planned feature gap).
   keep the unsubstituted '[N x T]' form); the literal-inference path
   already produces the correct type.
 
+### Round-14 finding (2026-08-22, stdlib session) -- by-value self methods returning the SAME type write the result back into the receiver
+
+- **Construct:** any method call `r = s.m(...)` where the method takes
+  `self` BY VALUE and returns the SAME type as the receiver: the call site
+  emits the result TWICE -- once into the lhs slot AND once into the
+  RECEIVER's local slot (`store {res}, {recv_slot}`). The receiver
+  variable is silently overwritten. Even a method that never reads self
+  triggers it (`fn Dur.identity(self) -> Dur { Dur{secs:42,...} }`
+  clobbers d1 -- probe_dur7 prints d1.secs=42 after
+  `var r = d1.identity()`).
+- **Probes (C:\Users\lefte\AppData\Local\Temp\kilo\):** probe_dur7.xi
+  (identity clobbers d1; different-return-type methods are safe --
+  to_other leaves d1 intact), probe_dur6.xi / probe_dur5.xi
+  (`var r1 = d1.sum(d2); var r2 = d1.diff(d2)` -> r2 computes against the
+  OVERWRITTEN d1: sum=8 then diff=5 instead of 2), probe_dur2.xi
+  (stdlib-shaped replica: add=8, sub=5, div=2). IR evidence in
+  probe_dur5.ir.ll: the spurious `store %tmp15, %tmp7` right after the
+  call.
+- **Impact (stdlib):** smoke_time_duration_ops (sub/mul/div wrong),
+  smoke_time_duration_negative, smoke_stress_time_duration_add_sub,
+  smoke_stress_time_duration_negative, smoke_time_normalize -- the whole
+  time.Duration family (by-value pure methods). ANY module that calls a
+  same-type-returning by-value self method and then reads the receiver
+  again is corrupted. The error/chain "immutable push/pop" pattern
+  (`e = error_chain_push(e, ...)`) is MASKED by the explicit lhs rebind
+  (both stores hit the same slot) -- removal is safe for it.
+- **Fix direction:** delete the unconditional result write-back into the
+  receiver slot at the call site. The lhs assignment (`var r = s.m(...)`)
+  and explicit rebinds (`s = s.m(...)`) are sufficient in every observed
+  case; the write-back only corrupts.
+
 ### Round-14 finding (2026-08-22, stdlib session) -- generic fns with fn-typed params break on aggregate instantiations
 
 - **Construct:** a GENERIC catalog fn whose parameter is a fn type
