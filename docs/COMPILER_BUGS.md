@@ -2247,6 +2247,28 @@ the stdlib iter API -- planned feature gap).
   != 2). stdlib code verified correct; the smoke comment documents this
   as BUG 26 #7.
 
+### Round-14 finding (2026-08-22, stdlib session) -- typed [N]T let declarations lose the const N
+
+- **Construct:** `let a: [3]Int = [1, 2, 3];` (annotated declaration with a
+  literal) fails to compile: "unknown type ''", "unknown type '[N x T]'"
+  warnings + clang reject `%tmp29 defined with type i64 but expected
+  [3 x i64]` (probe_arr0c.xi). The UNINITIALIZED form `let a: [3]Int;`
+  compiles but `array.len(&a)` returns garbage for ANY N (probe_arr0b:
+  [3]Int and [1]Int both wrong; [0]Int wrong -- smoke_array_len_empty
+  exit 3). Only pure-literal inference works (`let a = [1,2,3];` then
+  len(&a) == 3).
+- **Probes (C:\Users\lefte\AppData\Local\Temp\kilo\):** probe_arr0c.xi
+  (annotated+literal -> COMPILE FAIL), probe_arr0b.xi (annotated only ->
+  len garbage), probe_arr0.xi (smoke replica).
+- **Impact (stdlib):** smoke_array_len_empty blocked; any user code
+  declaring typed fixed arrays with const-N annotations is affected
+  (the array/array.xi generic fns themselves are correct -- the const
+  N param resolution is the gap).
+- **Fix direction:** resolve `[N]T` type annotations in local
+  declarations to the concrete const N (the checker/codegen appears to
+  keep the unsubstituted '[N x T]' form); the literal-inference path
+  already produces the correct type.
+
 ### Round-14 finding (2026-08-22, stdlib session) -- generic fns with fn-typed params break on aggregate instantiations
 
 - **Construct:** a GENERIC catalog fn whose parameter is a fn type
