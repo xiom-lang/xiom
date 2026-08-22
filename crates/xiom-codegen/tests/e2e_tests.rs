@@ -4593,6 +4593,19 @@ fn e2e_safety_probe() {
 // ============================================================================
 #[test] fn e2e_m47_round14b_multibyte_chars() { assert_eq!(compile_and_run("tests\\regression\\m47_round14b_multibyte_chars.xi"), Some(0)); }
 
+// ============================================================================
+// Round 14 (2026-08-22): by-value self methods returning the SAME type no
+// longer write the result back into the receiver's slot (the time.Duration
+// family -- identity/sum/diff clobbered the receiver); generic fns with
+// fn-typed params resolve AGGREGATE instantiations (ZipIter find/all/any/
+// nth with fn(&(Int, Int)) -> Bool -- the mono'd _find_via_Tuple__Int__Int
+// path + box-deref payload bindings); negative Int->narrow as casts
+// compare signed (inferred signed_locals); const-generic [N]T arrays
+// (array.map[T, U, const N] mono'd with N=2 + T=U=Int16 -- [2 x i16]
+// params/returns at both def and call sites).
+// ============================================================================
+#[test] fn e2e_m48_round14c_writeback_aggregates() { assert_eq!(compile_and_run("tests\\regression\\m48_round14c_writeback_aggregates.xi"), Some(0)); }
+
 
 
 

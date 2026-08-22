@@ -2072,6 +2072,69 @@ btree_map first_entry/last_entry (exit 7) + smoke_stress_collections_
 btreemap (exit 2) -- the tuple-payload queue item; smoke_error_edge +
 smoke_iter_edge (exit 1 at baseline).
 
+### Round-14c findings FIXED (2026-08-22) -- write-back bug + generic fn-param aggregates + narrow casts + const-N arrays
+
+Follow-up session closed four of the stdlib session's six new findings
+(e2e `e2e_m48_round14c_writeback_aggregates`):
+
+1. **By-value self methods returning the SAME type wrote the result back
+   into the receiver's slot** (the time.Duration family -- `d1.identity()`
+   clobbered d1 even though identity never read self; sum/diff computed
+   against the overwritten receiver). The call site emitted the result
+   TWICE -- once into the lhs AND once into the receiver's local slot
+   (the "Counter.inc(self)" store-back, which fired for ALL %struct-
+   returning by-value self methods). Removed the store-back entirely
+   (hot-reload + direct call paths); the lhs assignment and explicit
+   rebinds cover every observed case. The whole time.Duration battery
+   (35 smokes incl. duration_ops/negative/normalize + the stress family)
+   now PASSES.
+2. **Generic fns with fn-typed params broke on AGGREGATE instantiations**
+   (ZipIter.find/all/any with fn(&(T, U)) -> Bool): (a) a TUPLE type arg
+   with a SINGLE generic param is the tuple TYPE itself
+   (_find_via[(T, U)]) -- the dispatch took element 0 ("T") and emitted
+   the generic _find_via_T symbol; now the tuple-TYPE case builds
+   "Tuple__Int__Int" with the enclosing mono fn's generic map
+   (mono.current_type_map). (b) the fn-typed param binding used
+   type_from_ast, DROPPING the Option args ("Option") -- switched to
+   type_string_full ("Option[Tuple__Int__Int]") so the payload tracking
+   records the tuple; (c) `var item = next_fn()` (a closure-local
+   callee) never recorded the Option payload -- the Some(v) binding kept
+   the box pointer raw and predicate(&item) passed the i64-slot address
+   (tuple reads garbage). track_boxed_payload_binding now falls back to
+   fn_local_returns for closure-local callees. ZipIter find/all/any/nth
+   with tuple predicates all green.
+3. **Negative Int->narrow as casts widened ZEXT** (smoke_string_narrow
+   `n8 != -128 as Int8` -- 128 != -128): the inferred let/var bindings
+   recorded local_xiom_types but NOT signed_locals (`var n8 = n as
+   Int8` widened the load zext). Both binding paths now track
+   signed_locals from the inferred type.
+4. **Const-generic [N]T declarations lost the const N and the element
+   type** (smoke_array_narrow): (a) llvm_type_for's array arm now
+   resolves the size from mono.current_const_map (published BEFORE the
+   param bindings) and the element from current_type_map (single-
+   uppercase generic names resolve via the type map first -- the old
+   silent-i64 default won); (b) UNANNOTATED VAR array literals compile
+   as FIXED arrays ("[2 x Int16]" -- the new compile_fixed_array_literal)
+   -- the array module's fns take [N]T/&[N]T; the Vec conversion stays
+   for the LET path (the core/slice fns take &Slice[T]) and annotated
+   Vec targets; (c) the generic-arg inference extracts the array's
+   ELEMENT from array locals (&arr args unwrapped, Ref-Array params
+   matched); (d) the call-site's &[N]T param is the ELEMENT pointer
+   (was hardcoded i64* -- mismatched i8-elem arrays -> clang symbol
+   clash); (e) the call site publishes its const_values for the ret
+   resolution ("[N]U" -> "[2 x i16]"). array.map[Int16, Int16, 2] over
+   an Int16 fixed array compiles + runs.
+
+Verified: stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
+parser 97, ctfe 97, full e2e pending. PRE-EXISTING (unchanged): the
+clang -O2/MSVC-CRT layout family (smoke_iter_collect/smoke_array_sort_by
+startup AVs + smoke_error2's has-mid flip); smoke_array_narrow's FIRST
+section (a LET array + array.len/first -- the M33 let->Vec conversion
+conflicts with the array module's &[N]T fns; the VAR + map path works);
+smoke_array_edge; smoke_geom_vec; smoke_convert_narrow_roundtrip;
+smoke_array_narrow's let-array tail (the fixed-array-vs-Vec
+representation conflict for LET arrays is a stdlib-design item).
+
 ### Round-14b findings FIXED (2026-08-22) -- checker generic-tuple substitution + multibyte Char family
 
 Follow-up session (while the stdlib sweep runs) closed two more roots

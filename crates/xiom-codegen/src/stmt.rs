@@ -191,7 +191,15 @@ impl IrEmitter {
                 } else if let Some(inferred) = Self::infer_value_xiom_type(value) {
                     // BUG 14: `var big = x as UInt128` -- infer signedness from
                     // the cast target when there is no annotation.
-                    self.local.local_xiom_types.insert(name.name.clone(), inferred);
+                    // round-14c: ALSO track signed_locals -- `var n8 = n as
+                    // Int8` widened the load ZEXT (128 != -128 in
+                    // smoke_string_narrow) because the local was unsigned.
+                    self.local.local_xiom_types.insert(name.name.clone(), inferred.clone());
+                    if Self::is_signed_xiom_type(&inferred) {
+                        self.local.signed_locals.insert(name.name.clone());
+                    } else {
+                        self.local.signed_locals.remove(&name.name);
+                    }
                 } else if let Some(ix) = self.infer_if_xiom_type(value) {
                     // gzip fix (2026-08-19): `let v = if c { f() } else { g() };`
                     // -- the binding keeps the arm tail's XIOM type ("Vec[UInt8]").
@@ -451,7 +459,13 @@ impl IrEmitter {
                 } else if let Some(inferred) = Self::infer_value_xiom_type(value) {
                     // BUG 14: `var big = x as UInt128` -- infer signedness from
                     // the cast target when there is no annotation.
-                    self.local.local_xiom_types.insert(name.name.clone(), inferred);
+                    // round-14c: ALSO track signed_locals (see the let arm).
+                    self.local.local_xiom_types.insert(name.name.clone(), inferred.clone());
+                    if Self::is_signed_xiom_type(&inferred) {
+                        self.local.signed_locals.insert(name.name.clone());
+                    } else {
+                        self.local.signed_locals.remove(&name.name);
+                    }
                 } else if let Some(ix) = self.infer_if_xiom_type(value) {
                     // gzip fix (2026-08-19): `let v = if c { f() } else { g() };`
                     // -- the binding keeps the arm tail's XIOM type ("Vec[UInt8]").

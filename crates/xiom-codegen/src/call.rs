@@ -2770,6 +2770,31 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 } else if let Some(ta) = type_arg {
                                     match ta {
                                         Expr::Ident(id) if fd.generics.len() == 1 => Some(id.name.clone()),
+                                        // round-14c (generic fn-param aggregates):
+                                        // a TUPLE type arg with a SINGLE generic
+                                        // param is the tuple TYPE itself
+                                        // (_find_via[(T, U)] -- one type arg), NOT
+                                        // an arg list. Substitute the elements via
+                                        // the ENCLOSING mono'd fn's generic map
+                                        // ((T, U) inside ZipIter[T, U].find with
+                                        // T=Int, U=Int -> "Tuple__Int__Int") --
+                                        // the old code took element 0 ("T") and
+                                        // emitted the generic _find_via_T symbol
+                                        // (predicate reads garbage -> find None).
+                                        Expr::Tuple(elems, _) if fd.generics.len() == 1 => {
+                                            // The enclosing mono'd fn's generic map
+                                            // (mono.current_type_map: {T: Int, U: Int}
+                                            // inside ZipIter[T, U].all_Int_Int).
+                                            let subst = &self.mono.current_type_map;
+                                            let parts: Vec<String> = elems.iter().map(|e| {
+                                                if let Expr::Ident(id) = e {
+                                                    subst.get(&id.name).cloned().unwrap_or_else(|| id.name.clone())
+                                                } else {
+                                                    "Int".to_string()
+                                                }
+                                            }).collect();
+                                            if parts.is_empty() { None } else { Some(format!("Tuple__{}", parts.join("__"))) }
+                                        }
                                         Expr::Tuple(elems, _) => elems.get(idx)
                                             .and_then(|e| if let Expr::Ident(id) = e { Some(id.name.clone()) } else { None }),
                                         _ => None,
@@ -2904,6 +2929,47 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     concrete_types.push(concrete_ty);
                                     inferred = true;
                                     break;
+                                }
+                                // round-14c (typed [N]T declarations):
+                                // `arr: [N]T` or `arr: &[N]T` -- the generic is
+                                // the array's ELEMENT. Extract it from the
+                                // arg's array-typed local ("[2 x Int16]" ->
+                                // "Int16") so array.map[Int16, Int16, 2]
+                                // monomorphises with T=Int16 (the old Int
+                                // default bound the arr param as [2 x i64] ->
+                                // ret [2 x i16] mismatch ->
+                                // smoke_array_narrow clang reject).
+                                let param_elem = match &param.ty {
+                                    Type::Array(_, e) => Some(e.as_ref()),
+                                    Type::Ref(inner) | Type::Ptr(inner) | Type::MutRef(inner) => {
+                                        if let Type::Array(_, e) = inner.as_ref() { Some(e.as_ref()) } else { None }
+                                    }
+                                    _ => None,
+                                };
+                                if let Some(elem) = param_elem {
+                                    if Self::type_from_ast(elem) == gp.name.name {
+                                        // `&arr` args arrive as Ref/Unary-Ref --
+                                        // unwrap to the Ident (mirrors the const
+                                        // collection above).
+                                        let inner_expr = match arg_expr {
+                                            Expr::Ref(i, _) | Expr::MutRef(i, _)
+                                            | Expr::Unary(UnaryOp::Ref, i, _)
+                                            | Expr::Unary(UnaryOp::MutRef, i, _) => i.as_ref(),
+                                            other => other,
+                                        };
+                                        if let Expr::Ident(id) = inner_expr {
+                                            // Array locals: resolve_local_xiom_type
+                                            // returns the ELEMENT type already --
+                                            // use it directly.
+                                            if let Some(lxiom) = self.resolve_local_xiom_type(&id.name) {
+                                                if lxiom != "Int" {
+                                                    concrete_types.push(lxiom);
+                                                    inferred = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                                 // Nested generic: e.g. `Option[T]` -> extract T from type args
                                 let arg_names = Self::extract_type_arg_names(&param.ty);
@@ -3060,9 +3126,26 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                 let base = self.llvm_type_for(&name).unwrap_or_else(|_| "i64".to_string());
                                                 format!("{base}*")
                                             }
-                                            // &[N]T fixed-array ref -> Vec data pointer
+                                            // &[N]T fixed-array ref -> the ELEMENT
+                                            // pointer (mirrors the mono def's
+                                            // subst Ref-Array arm: "{elem_llvm}*").
+                                            // round-14c: the hardcoded "i64*" below
+                                            // mismatched i8-elem arrays (the call
+                                            // passed i64* against the def's i8* ->
+                                            // clang symbol-type clash -> AV).
                                             Type::Ref(inner) => match inner.as_ref() {
-                                                Type::Array(_, _) => "i64*".to_string(),
+                                                Type::Array(_, elem) => {
+                                                    let mut subst_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+                                                    for (gi, gp) in fd.generics.iter().enumerate() {
+                                                        if let Some(c) = concrete_types.get(gi) {
+                                                            subst_map.insert(gp.name.name.clone(), c.clone());
+                                                        }
+                                                    }
+                                                    let subst = Self::substitute_type(elem, elem, &subst_map);
+                                                    let name = Self::type_from_ast(&subst);
+                                                    let base = self.llvm_type_for(&name).unwrap_or_else(|_| "i64".to_string());
+                                                    format!("{base}*")
+                                                },
                                                 // &Slice[T] -> by-value Vec struct (the
                                                 // mono def's subst lowers Slice to
                                                 // %struct.Vec -- the body calls
@@ -3211,6 +3294,15 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // concrete type map), use THAT -- fixes generic
                             // Float64/float ops returning garbage (the call was
                             // emitted as i64 while the fn returns double).
+                            // round-14c (typed [N]T declarations): the call's
+                            // const-generic values (N=2 for the array arg) must
+                            // be visible to the ret's llvm_type_for resolution
+                            // ("[N]U" -> "[2 x i16]") -- the current_const_map is
+                            // empty outside mono bodies. Save/restore.
+                            let saved_const_map = self.mono.current_const_map.clone();
+                            for (k, v) in &const_values {
+                                self.mono.current_const_map.insert(k.clone(), *v);
+                            }
                             let generic_ret = if let Some((_, fd)) = generic_fd {
                                 if let Some(ret_ty) = fd.return_type.as_ref() {
                                     // D1: substitute T with the CONCRETE type from
@@ -3289,6 +3381,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             } else {
                                 generic_ret.clone()
                             };
+                            self.mono.current_const_map = saved_const_map;
                             (generic_ret, inferred_types)
                         };
                         // Include receiver argument only if it's an actual struct instance
@@ -4115,14 +4208,6 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             Ok((String::new(), "void".to_string()))
                     } else {
                         self.emitln(&format!("  {tmp} = call {ret_ty} @{thunk_name}({args_str})"));
-                        // Store result back to receiver for by-value self methods
-                        // (Counter.inc(self) pattern). &self (reference) methods
-                        // mutate through the pointer and don't need store-back.
-                        if let Some(receiver) = receiver_expr {
-                            if ret_ty.starts_with("%struct.") && self.should_store_back_method(&resolved_fn_key) {
-                                self.store_back_to_receiver(receiver, &tmp, &ret_ty);
-                            }
-                        }
                         Ok((tmp, ret_ty.clone()))
                     }
                     } else if ret_ty == "void" {
@@ -4130,15 +4215,39 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         Ok((String::new(), "void".to_string()))
                     } else {
                         self.emitln(&format!("  {tmp} = call {ret_ty} @{call_symbol}({args_str})"));
-                        if let Some(receiver) = receiver_expr {
-                            if ret_ty.starts_with("%struct.") && self.should_store_back_method(&resolved_fn_key) {
-                                self.store_back_to_receiver(receiver, &tmp, &ret_ty);
-                            }
-                        }
                         Ok((tmp, ret_ty.clone()))
                     }
                 }
             }
+
+    /// round-14c (generic fn-param aggregates): the ENCLOSING mono'd fn's
+    /// generic substitution map (generic param name -> concrete type),
+    /// reconstructed from the current fn's instantiation
+    /// (fctx.current_fn "ZipIter.find_Int_Int" -> the generic_instantiations
+    /// entry ("ZipIter.find", [Int, Int]) -> {T: Int, U: Int}). Used to
+    /// substitute TUPLE type-arg elements inside generic bodies
+    /// (`_find_via[(T, U)]` must mono as _find_via_Tuple__Int__Int).
+    pub(crate) fn current_mono_subst(&self) -> HashMap<String, String> {
+        let mut map: HashMap<String, String> = HashMap::new();
+        if let Some(cur) = &self.fctx.current_fn {
+            for (k, cts) in &self.mono.generic_instantiations {
+                if cur == k.as_str() || cur.starts_with(&format!("{k}_")) {
+                    if let Some((_, fd)) = self.find_generic_decl(k) {
+                        for (gp, ct) in fd.generics.iter().zip(cts.iter()) {
+                            if !gp.is_const {
+                                map.insert(gp.name.name.clone(), ct.clone());
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+            if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
+                eprintln!("[cms] cur={cur} insts={:?} map={:?}", self.mono.generic_instantiations.iter().map(|(k, c)| format!("{k}:{c:?}")).collect::<Vec<_>>(), map);
+            }
+        }
+        map
+    }
 
     /// D1 (2026-08-08): resolve a `Trait[Arg]` (or `Trait`) receiver to the
     /// implementing type registered by `impl Trait[Arg] { ... }`.

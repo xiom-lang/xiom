@@ -682,7 +682,14 @@ impl crate::IrEmitter {
                 if let Some(x_pos) = rest.find(" x ") {
                     let n_str = rest[..x_pos].trim();
                     let elem_name = rest[x_pos + 3..].trim();
+                    // round-14c (typed [N]T declarations): the element may be
+                    // a GENERIC param ("[N]U" annotations inside mono'd
+                    // bodies) -- resolve via the mono fn's type map first.
                     let elem_llvm = self.llvm_type_for(elem_name)
+                        .or_else(|_| {
+                            self.mono.current_type_map.get(elem_name)
+                                .and_then(|ct| self.llvm_type_for(ct))
+                        })
                         .unwrap_or_else(|_| Self::xiom_to_llvm_type(elem_name).to_string());
                     // Literal integer size (e.g. [4 x i64]).
                     if let Ok(n) = n_str.parse::<u64>() {
@@ -695,6 +702,16 @@ impl crate::IrEmitter {
                             let n = *n as u64;
                             return Ok(format!("[{n} x {elem_llvm}]"));
                         }
+                    }
+                    // round-14c (typed [N]T declarations): CONST-GENERIC param
+                    // size -- `var result: [N]U;` inside
+                    // `fn map[T, U, const N: Int]` mono'd with N=2 must
+                    // resolve to "[2 x i16]" (the old code fell through and
+                    // the alloca degraded to i64 -> "unknown type '[N x T]'"
+                    // warnings + `ret [2 x i16]` with an i64 value ->
+                    // smoke_array_narrow clang reject).
+                    if let Some(n) = self.mono.current_const_map.get(n_str) {
+                        return Ok(format!("[{n} x {elem_llvm}]"));
                     }
                     // If the size is an ident we can't resolve (e.g. a const-generic
                     // param N), fall through and let the rest of llvm_type_for attempt
