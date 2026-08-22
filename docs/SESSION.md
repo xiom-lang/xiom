@@ -1,36 +1,39 @@
 # XIOM Compiler Session -- Handoff (2026-08-19)
 
-## Session update (2026-08-22, round 14b FIXED -- compiler): checker generic-tuple substitution + multibyte Char family
+## Session update (2026-08-22, round 14c FIXED -- compiler): write-back bug + generic fn-param aggregates + narrow casts + const-N arrays
 
-Follow-up session (while the stdlib sweep continues) closed two more
-roots:
+Follow-up session closed four of the stdlib session's six new findings:
 
-1. **Checker generic-tuple substitution FIXED**: the Str element of
-   `Some((k, v))` from a generic return (BTreeMap.first_entry) typed as
-   Int ("cannot compare Int with Str"). The checker dropped the
-   receiver's concrete args at ctor bindings and Index type-exprs, and
-   the method-return substitution only replaced whole names. Now:
-   generic_ctor_type_name renders any Type[args].new() binding fully;
-   Index type-exprs keep the args; receiver-method returns substitute
-   generic TOKENS with the receiver's args (arity-gated);
-   parse_tuple_elem_types accepts "(A, B)" and "Tuple__A__B"; payload
-   bindings pass the payload type to inner patterns. The upgraded m44
-   fixture asserts the Str element through the tuple pattern.
-2. **Multibyte Char family FIXED** (BUG 26 #7; smoke_string_slice):
-   xiom_char_at returned the raw BYTE -- now decodes the UTF-8
-   CODEPOINT (i64 ABI; the old i8 couldn't hold codepoints); byte_at
-   reused xiom_char_at and double-decoded -- new xiom_byte_at raw
-   accessor; Vec[Char] slots were 1 byte (codepoints > 255 truncated) --
-   now 4 bytes; the `as` widening hardcoded sext (a UInt8 byte as Int
-   was -50) -- now consults the source XIOM type for UInt*-returning
-   calls. smoke_string_slice + smoke_convert_utf (mojibake strings
-   restored) PASS.
+1. **Write-back bug FIXED** (the time.Duration family root): by-value
+   self methods returning the SAME type stored the result into the
+   receiver's slot (d1.identity() clobbered d1). The store-back (a
+   "Counter.inc" pattern) fired for ALL %struct-returning by-value self
+   methods -- removed entirely. The whole Duration battery (35 smokes)
+   PASSES.
+2. **Generic fn-param aggregates FIXED** (ZipIter tuple predicates):
+   tuple type args with a single generic param are the tuple TYPE
+   (_find_via[(T, U)] -> _find_via_Tuple__Int__Int via
+   current_type_map); fn_local_returns keeps the Option[...] args
+   (type_string_full); closure-local callee payloads track via
+   fn_local_returns (Some(v) derefs the box). ZipIter find/all/any/nth
+   green.
+3. **Negative Int->narrow as casts FIXED** (smoke_string_narrow):
+   inferred bindings now track signed_locals (`var n8 = n as Int8`
+   widens sext).
+4. **Const-generic [N]T arrays FIXED** (smoke_array_narrow map path):
+   llvm_type_for resolves [N]T sizes from the mono const map (published
+   early) and generic elems from the type map; unannotated VAR array
+   literals are FIXED arrays (compile_fixed_array_literal) -- the Vec
+   conversion stays for LET arrays (the core/slice fns take &Slice[T]);
+   the generic-arg inference extracts array elements (Ref-unwrapped);
+   the call-side &[N]T is the element pointer; call-site consts publish
+   for the ret resolution. array.map[Int16, Int16, 2] works.
 
 Verified: stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
-parser 97, ctfe 97, full e2e pending (new e2e_m47_round14b_multibyte_
-chars); the iter/cmp/collections/utf/error family all green.
+parser 97, ctfe 97, full e2e pending (new e2e_m48_round14c_writeback_
+aggregates); the time/iter/cmp/utf/narrow families all green.
 
-**REMAINING COMPILER-SIDE QUEUE (~90 documented, each with minimal repros
+**REMAINING COMPILER-SIDE QUEUE (~85 documented, each with minimal repros
 + user-space proofs in COMPILER_BUGS.md):**
 
 1. **clang -O2 / MSVC-CRT startup crash family** (queue 5/7): smoke_iter_
@@ -38,14 +41,15 @@ chars); the iter/cmp/collections/utf/error family all green.
    flip -- deterministic per source, flips with unrelated stdlib code
    (m34_y15/y20). The SIMD flags / 16 clang-variant matrix is the fix
    target.
-2. **narrow-cast signedness residuals**: smoke_string_narrow's
-   `n8 != -128 as Int8` comparison (exit 4) + smoke_convert_narrow_
-   roundtrip (exit 3) -- the Int->Int8/Int8->Int comparison paths (the
-   Vec-load and as-cast widening signedness are fixed; these remain).
-3. **Fixed-array typing**: smoke_array_narrow -- "unknown type '[N x T]'"
-   warnings -- the [N x T] type in annotations.
-4. **Pre-existing**: smoke_geom_vec (exit 57), the empty-range CRT crash
-   family (above).
+2. **LET-array representation conflict**: smoke_array_narrow's FIRST
+   section (a LET array + array.len/first) -- the M33 let->Vec
+   conversion satisfies the core/slice fns (&Slice[T]) but breaks the
+   array module's &[N]T fns; VAR arrays are now fixed arrays. A
+   stdlib-design item (which representation LET arrays should take).
+3. **array.first's element-0 read** (the mono'd &[N]T body reads
+   offset+1 -- an off-by-one in the fixed-array index path).
+4. **Pre-existing**: smoke_array_edge, smoke_geom_vec (exit 57),
+   smoke_convert_narrow_roundtrip (exit 3), the CRT crash family (above).
 
 Campaign trajectory: 516 -> 621 -> 679 -> 738 -> 765 -> 779 -> 793 -> 799 -> 801 -> 819.
 Compiler-side closed roots: BUG 31-56 + the round-fixes (gzip decompress
@@ -55,12 +59,14 @@ payload auto-deref, Set ABI, Ord/Bounded C001, B-007 closures, round-12
 rm1 Str-return closures + cb2 enum-variant receivers, round-13 closure-
 env family + tuple payloads, round-14 aggregate closure params + Vec[Str]
 elements + narrow-SIGNED loads, round-14b checker generic-tuple
-substitution + multibyte Char family).
-Stdlib-side hardened: RefCell, PathBuf, gcd, crc32, VecDeque, Set/Queue/
-Stack, redundant requires traps, prose ensures, smoke semantics, the
-closure-based iter adapter build (map/filter/take/skip/chain/zip/
-enumerate/collect/fold/count/max/min + find/all/any/nth/last), sync
-Once, error pretty-print family, string requires cleanup.
+substitution + multibyte Char family, round-14c write-back + generic
+fn-param aggregates + narrow casts + const-N arrays).
+Stdlib-side hardened: RefCell (incl. replace &mut self), PathBuf, gcd,
+crc32, VecDeque, Set/Queue/Stack, redundant requires traps, prose
+ensures, smoke semantics, the closure-based iter adapter build (map/
+filter/take/skip/chain/zip/enumerate/collect/fold/count/max/min +
+find/all/any/nth/last), sync Once, error pretty-print family, string
+requires cleanup, Str.is_empty method.
 
 **WORKFLOW (unchanged):** probe -> IR-diff -> fix -> verify probe + stdlib
 smoke + e2e regression (tests/regression/m3x_*.xi + e2e_mXX registration)

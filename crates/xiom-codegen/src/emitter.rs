@@ -161,6 +161,17 @@ impl IrEmitter {
             Expr::Bool(..) => Some("Bool".to_string()),
             Expr::Str(..) => Some("Str".to_string()),
             Expr::Char(..) => Some("Char".to_string()),
+            // round-14c (typed [N]T declarations): fixed-array literals keep
+            // their element type (`[100 as Int16, 200 as Int16]` ->
+            // "[2 x Int16]") so generic args inferred from array locals
+            // (array.map[T, U, const N]) resolve T=Int16, not the Int
+            // default (the arr param bound [2 x i64] -> ret [2 x i16]
+            // mismatch -> smoke_array_narrow clang reject).
+            Expr::Array(elems, _) => {
+                let elem = elems.first().and_then(Self::infer_value_xiom_type)
+                    .unwrap_or_else(|| "Int".to_string());
+                Some(format!("[{} x {elem}]", elems.len()))
+            }
             // BUG 37/36 follow-up: `var p = ptr.null[Int]()` -- the inline
             // handler returns pointer BITS in an i64 register; record the
             // value as pointer-valued so downstream coercion (is_null's

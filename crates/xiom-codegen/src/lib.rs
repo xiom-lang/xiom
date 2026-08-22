@@ -2031,6 +2031,30 @@ impl IrEmitter {
                 if let Some(err_payload) = Self::option_result_err_payload(&ret) {
                     self.local.local_err_payload.insert(name.to_string(), err_payload);
                 }
+            } else if let Expr::Ident(id) = func.as_ref() {
+                // round-14c (generic fn-param aggregates): CLOSURE-LOCAL
+                // callees (fn-typed params like `next_fn: fn() ->
+                // Option[T]` in the mono'd _find_via) -- the declared
+                // return is in fn_local_returns. Without this, `var item
+                // = next_fn()` never recorded the Option payload, the
+                // Some(v) binding kept the BOX POINTER raw, and
+                // `predicate(&item)` passed the address of the i64 slot
+                // (the tuple read garbage -> ZipIter.find returned None).
+                if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
+                    eprintln!("[tbp] name={} callee={} flr={:?}", name, id.name, self.local.fn_local_returns.get(&id.name));
+                }
+                if let Some(rt) = self.local.fn_local_returns.get(&id.name) {
+                    if let Some(payload) = Self::option_result_payload(rt) {
+                        let stored = if payload.contains('[') {
+                            payload
+                        } else {
+                            self.types.types.keys().into_iter()
+    .find(|k| k.ends_with(&format!(".{payload}")) || k.as_str() == payload)
+                                .unwrap_or(payload)
+                        };
+                        self.local.local_opt_payload.insert(name.to_string(), stored);
+                    }
+                }
             }
         }
     }
@@ -2639,8 +2663,26 @@ impl IrEmitter {
                     // i64 degradation -> corrupted fixed-array locals like
                     // bigint's `var digits: [10]Int`).
                     let elem_name = rest[x_pos + 3..].trim_end_matches(']').trim();
-                    let elem_llvm = self.llvm_type_for(elem_name)
-                        .unwrap_or_else(|_| Self::xiom_to_llvm_type(elem_name).to_string());
+                    // round-14c (typed [N]T declarations): the element may be
+                    // a GENERIC param ("[N]U" annotations inside mono'd
+                    // bodies). Single-uppercase names silently resolve to i64
+                    // later in llvm_type_for -- resolve via the mono fn's
+                    // type map FIRST so "[N]U" with U=Int16 -> i16.
+                    let elem_llvm = if elem_name.len() == 1 && elem_name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                        match self.mono.current_type_map.get(elem_name) {
+                            Some(ct) => self.llvm_type_for(ct.as_str()).unwrap_or_else(|_| "i64".to_string()),
+                            None => "i64".to_string(),
+                        }
+                    } else {
+                        self.llvm_type_for(elem_name)
+                            .or_else(|_| {
+                                match self.mono.current_type_map.get(elem_name) {
+                                    Some(ct) => self.llvm_type_for(ct.as_str()),
+                                    None => Err(format!("unknown elem {elem_name}")),
+                                }
+                            })
+                            .unwrap_or_else(|_| Self::xiom_to_llvm_type(elem_name).to_string())
+                    };
                     // Literal integer size (e.g. [4 x i64]).
                     if let Ok(n) = n_str.parse::<u64>() {
                         return Ok(format!("[{n} x {elem_llvm}]"));
@@ -2652,6 +2694,16 @@ impl IrEmitter {
                             let n = *n as u64;
                             return Ok(format!("[{n} x {elem_llvm}]"));
                         }
+                    }
+                    // round-14c (typed [N]T declarations): CONST-GENERIC param
+                    // size -- `var result: [N]U;` inside
+                    // `fn map[T, U, const N: Int]` mono'd with N=2 must
+                    // resolve to "[2 x i16]" (the old code fell through and
+                    // the alloca degraded to i64 -> "unknown type '[N x T]'"
+                    // warnings + `ret [2 x i16]` with an i64 value ->
+                    // smoke_array_narrow clang reject).
+                    if let Some(n) = self.mono.current_const_map.get(n_str) {
+                        return Ok(format!("[{n} x {elem_llvm}]"));
                     }
                     // If the size is an ident we can't resolve (e.g. a const-generic
                     // param N), fall through and let the rest of llvm_type_for attempt
@@ -5218,6 +5270,12 @@ impl IrEmitter {
             // Build type substitution map: generic param name -> concrete type name
             let mut type_map: HashMap<String, String> = HashMap::new();
             let const_map: HashMap<String, i64> = self.mono.const_value_map.get(&specialized_name).cloned().unwrap_or_default();
+            // round-14c: publish the const map BEFORE the param bindings -- the
+            // mono'd params' LLVM types resolve [N]T arrays via
+            // current_const_map (llvm_type_for's const-generic size arm); the
+            // old assignment after the param loop left "[N x T]" unresolvable
+            // (unknown type warnings + i64 arrays -> smoke_array_narrow).
+            self.mono.current_const_map = const_map.clone();
             for (gp, ct) in fd.generics.iter().zip(concrete_types.iter()) {
                 if gp.is_const { continue; } // const params use const_map, not type_map
                 type_map.insert(gp.name.name.clone(), ct.clone());
@@ -5650,7 +5708,12 @@ impl IrEmitter {
                 // to i64 (benign for 8-byte returns, breaks struct returns).
                 if let Type::Fn(_, ret) = &param.ty {
                     self.local.closure_locals.insert(param.name.name.clone());
-                    let subst_ret = Self::type_from_ast(&Self::substitute_type(ret, ret, &type_map));
+                    // round-14c: type_string_full PRESERVES the Option/Result
+                    // args ("Option[Tuple__Int__Int]") -- type_from_ast dropped
+                    // them ("Option"), so the payload tracking never recorded
+                    // the tuple and Some(v) bound the box pointer raw
+                    // (predicate(&item) read garbage -> ZipIter.find None).
+                    let subst_ret = Self::type_string_full(&Self::substitute_type(ret, ret, &type_map));
                     self.local.fn_local_returns.insert(param.name.name.clone(), subst_ret);
                 }
                 // Track params whose original type is a generic parameter being monomorphised
