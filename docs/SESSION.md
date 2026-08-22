@@ -998,3 +998,30 @@ fixed. Remaining queue is item 0 (re-triage) + C above.
 - Never stash/revert uncommitted stdlib work without a fresh backup.
 - The stdlib session's next message should include the D-section survey so
   they can fix the stdlib-side half of the smoke failures.
+
+---
+
+## 2026-08-22 -- stdlib session handoff (read docs/stdlib_session.md for the full handoff)
+
+State: sweep 802/907 PASS, zero hangs. The closure-based iter adapter build is
+FULLY GREEN after round-13 (map/filter/take_skip/max_min/pipeline/chain_zip/
+count/fold/enumerate + btree_map/btreemap tuple payloads + cmp_by + result
+family all exit 0 -- verified 15/16, only array_sort_by remains at the
+pre-existing CRT-layout baseline AV).
+
+Stdlib-side wins this campaign (all committed on feat/architect):
+- Real stdlib bugs fixed: RefCell/PathBuf/Set/Queue/Stack &mut-self + write-back,
+  VecDeque live-range rebuild, gcd abs, crc32 bitwise (real-gzip compatible),
+  redundant requires removed (io/compress/char/Vec), identity ensure, Bounded/
+  Ord/Eq towers (12+15+15 impls), global_alloc signature
+- Feature build: closure-based iter adapters (~440 lines) -- now green
+- ~60 smokes realigned to implemented APIs + stray-brace fixes + missing imports
+
+Remaining queue (all documented with probes in COMPILER_BUGS.md): CRT-layout
+startup AVs (array_sort_by/iter_collect), missing iter find/all/any/nth/last
+API, narrow-SIGNED zext, json heap layer, SIMD flags, clang variants, checker
+builtin Ord resolution, Set iteration (iterator protocol).
+
+Next stdlib session: re-run the sweep, triage with the probe->log->verify
+loop, and pick up the iter find/all/any/nth/last methods once the checker
+generic-tuple gap closes.
