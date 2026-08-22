@@ -2141,6 +2141,38 @@ e2e fixtures are split to stay below the flip; smoke_iter_find_all_any /
 nth_last / edge fail at the CHECKER (find/all/any/nth/last are not in
 the stdlib iter API -- planned feature gap).
 
+### Round-13 finding (2026-08-22, stdlib session) -- aggregate-typed CLOSURE params corrupt on call
+
+- **Construct:** any closure whose parameter is an AGGREGATE type -- user
+  struct (`fn(p: Point) -> Bool { p.x == 3 }`), tuple (`fn(p: (Int, Int)) ->
+  Bool { p.0 == 3 }`), or container (`fn(p: &Vec[Int]) -> Int { p.len() }`,
+  by value or by `&` reference). The closure body reads garbage from the
+  param (field access, deref, destructure, or len() all wrong). Top-level
+  (non-closure) fns with identical shapes are CORRECT (probe_zip_d passes
+  by-value tuple AND `&(Int, Int)` params), and scalar closure params work
+  (the green iter smokes exercise `fn(&Int) -> Bool` predicates).
+- **Probes (C:\Users\lefte\AppData\Local\Temp\kilo\):** probe_zip_f.xi
+  (struct param by value + &ref -- W5/W6 fail), probe_zip_c2/c3.xi (tuple by
+  value -- fail), probe_zip_b.xi (`&(Int, Int)` param -- fail), probe_zip_e.xi
+  (match-destructure of tuple param -- fail), probe_zip_g.xi (Vec[Int] and
+  &Vec[Int] params -- fail). Controls: probe_zip_c4.xi (local tuple field
+  access -- PASS), probe_zip_d.xi (top-level fns, tuple and &tuple params --
+  PASS).
+- **Impact (stdlib):** the new iter find/all/any methods on tuple-yielding
+  adapters (ZipIter.find/all/any with `fn(&(T, U)) -> Bool`, shipped in
+  iter.xi this round) compile but cannot be exercised until this is fixed;
+  the pre-existing `EnumerateIter[T].map[U]` (`f: fn((Int, T)) -> U`) has the
+  same latent corruption (never called by any smoke). Any future stdlib
+  closure taking a struct/Vec/tuple param is affected (e.g. fold accumulators
+  of aggregate type).
+- **Fix direction:** the closure thunk/`__fnwrap` call convention marshals
+  aggregate-typed arguments incorrectly (probably the param's LLVM type in
+  the thunk signature or the arg coercion at closure call sites); top-level
+  fns demonstrate the correct lowering.
+- **Not to be confused with:** BUG 46 (generic &UserStruct[T] PARAM field
+  reads -- that's a non-closure generic fn shape, already fixed); this is
+  the closure-call path only.
+
 ### Round-13 finding (2026-08-21) -- closure-env struct name collision
 
 - **Construct:** multiple closures in one program with IDENTICAL capture shapes (e.g. Range.map's n() -> Option[Int] { r.next() } and Range.take's same-shape closure -- both capture one Range). The mono names both envs %struct.__closure_env_10 -> clang: error: redefinition of type. Reproduces with the new iter adapter build (smoke_iter_take_skip/smoke_iter_max_min/smoke_iter_pipeline fail at clang; map/filter run but crash 0xC000001D -- likely the same env-shape issue at runtime).
