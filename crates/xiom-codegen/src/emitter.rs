@@ -833,7 +833,12 @@ impl IrEmitter {
         self.emitln("declare i8* @xiom_read_file(i8*)");
         self.emitln("declare i64 @xiom_file_size(i8*)");
         self.emitln("declare void @xiom_free(i8*)");
-        self.emitln("declare i8 @xiom_char_at(i8*, i64)");
+        // round-14 (BUG 26 #7): xiom_char_at returns the UTF-8 CODEPOINT
+        // (i64) -- the old i8 returned a raw byte (multibyte chars broke
+        // len_utf8/str_chars). xiom_byte_at (the raw-byte accessor) is
+        // declared by the stdlib extern block (Int -> i64) -- no manual
+        // declare here (duplicates are clang-rejected).
+        self.emitln("declare i64 @xiom_char_at(i8*, i64)");
         self.emitln("declare i64 @xiom_str_len(i8*)");
         // Always declare strcmp -- used for Str == / != content comparison.
         // (Identical duplicate declares are legal in LLVM; the metadata-table
