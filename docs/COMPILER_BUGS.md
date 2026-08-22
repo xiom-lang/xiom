@@ -2117,6 +2117,32 @@ smoke_iter_edge (exit 1 at baseline).
   Int-element paths are green. smoke_array_narrow realigned to the
   Int/len paths.
 
+### Round-14c finding (2026-08-22, stdlib session) -- Ord[T].compare dispatch misbehaves inside BinaryHeap (stdlib context)
+
+- **Construct:** the stdlib BinaryHeap's sift_up/sift_down use
+  `Ord[T].compare(heap.data[parent], heap.data[i])` -- the heap property
+  is not maintained (push 3,1,5,2 -> pops 2,3,1,5 instead of 5,3,2,1).
+  A user-space replica with direct `>=` comparisons works perfectly
+  (probe_heap2 -> [5,2,3,1]). Ord[...].compare is NOT callable from
+  user space at all ("undefined variable 'Ord'") -- the interface
+  dispatch is stdlib-context-only and mis-evaluates here (queue item 7:
+  builtin-interface matching). The heap's push/pop by-value self was
+  ALSO wrong (fixed -> &mut self, len works); the remaining order
+  divergence is the Ord dispatch.
+- **Probes:** probe_heap3.xi (stdlib pops 2,3,1,5), probe_heap2.xi
+  (replica correct), probe_ord.xi (Ord unreachable from user space).
+
+### Round-14c finding (2026-08-22, stdlib session) -- array.map's [N]U result type unresolved for implicit type args
+
+- **Construct:** `var arr = [1,2,3,4,5]; var d = array.map(arr, fn(x: Int)
+  -> Int { ... });` compiles (d[0] reads garbage -- smoke_array_map exit
+  1), and calling array.len(&d) trips "unknown type '[N x T]' --
+  defaulting to i64" (probe_map COMPILE FAIL). The round-14c
+  const-N/array-type resolution covers the explicit-args path
+  (array.map[Int16, Int16, 2]) but not the implicit-args + result-type
+  registration. smoke_array_zip (T001 on the zip result) is the same
+  family.
+
 ### Round-14c finding (2026-08-22, stdlib session) -- extra call args are silently dropped (no arg-count check)
 
 - **Construct:** `convert.float_to_string(3.14159, 2)` (2 args) against
