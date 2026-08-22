@@ -2247,6 +2247,37 @@ the stdlib iter API -- planned feature gap).
   != 2). stdlib code verified correct; the smoke comment documents this
   as BUG 26 #7.
 
+### Round-14 finding (2026-08-22, stdlib session) -- generic fns with fn-typed params break on aggregate instantiations
+
+- **Construct:** a GENERIC catalog fn whose parameter is a fn type
+  (`fn _find_via[T](next_fn: fn() -> Option[T], predicate: fn(&T) -> Bool)`)
+  called with an AGGREGATE instantiation (T = (Int, Int)): the mono'd
+  fn-param forwarding corrupts -- the predicate always returns false /
+  reads garbage from its argument (find returns None). The checker also
+  DEGRADES the generic by-value form: `fn apply_g[T](f: fn(T) -> Bool,
+  v: T)` instantiated with T = (Int, Int) infers `f` as `()` (error:
+  "cannot logically negate type ()").
+- **What WORKS (round-14 verified):** direct closure calls with
+  struct/tuple/Vec params by value or &ref (probe_zip_f/g/e/c), and
+  NON-GENERIC fns with fn-typed aggregate params (probe_zip_k Z1:
+  `apply_v(f: fn((Int, Int)) -> Bool, v)` passes). The remaining gap is
+  exactly the generic-mono path (probe_zip_k Z3 fails at runtime;
+  probe_zip_j Z2 fails at the checker).
+- **Probes (C:\Users\lefte\AppData\Local\Temp\kilo\):** probe_zip_k.xi
+  (Z1 passes, Z3 fails), probe_zip_j.xi (Z2 checker degrade),
+  probe_zip_h.xi (generic &T-predicate tuple case returns None).
+- **Impact (stdlib):** ZipIter.find/all/any with `fn(&(T, U)) -> Bool`
+  and the generic _find_via/_all_via/_any_via helpers stay blocked for
+  tuple-yielding adapters (shipped in iter.xi; scalar adapters fine --
+  Range/Map/Filter/Take/Skip/Chain predicate smokes green). The by-value
+  predicate variant (`fn(T) -> Bool`) hits the same checker degrade, so
+  no stdlib-side signature change can dodge it.
+- **Fix direction:** the mono instantiation of fn-typed params must
+  rebuild the fn type with the substituted concrete argument types
+  (same substitution machinery as the round-13 mono-return fix), and the
+  checker's inference must not collapse `fn(T) -> Bool` to unit when T is
+  a registered tuple type.
+
 ### Round-13 finding (2026-08-22, stdlib session) -- aggregate-typed CLOSURE params corrupt on call
 
 - **Construct:** any closure whose parameter is an AGGREGATE type -- user
