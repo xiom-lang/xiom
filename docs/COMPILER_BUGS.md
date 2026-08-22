@@ -1747,6 +1747,11 @@ FOLLOW-UPS (pre-existing, logged -- NOT regressions):
 - smoke_collections_vec_narrow exit 5: inline pop/get on SIGNED narrow
   elements (Int16 -30000) zext the bit pattern (35536) instead of
   sign-extending (emit_elem_payload_load) -- pre-existing, untouched.
+  RE-CONFIRMED on the round-13 binary (2026-08-22): probe_narrow_zext.xi
+  proves pop() returns 35536 for `-30000 as Int16` (pure zext, not sext);
+  probe_narrow_get16.xi (Int16 get(1) negative) and probe_narrow_get8.xi
+  (Int8 get(0) = -5) fail too -- the whole narrow-SIGNED inline get/pop
+  read path is affected. Positives read back correctly.
 - math/graph_theory.Graph vs collect.Graph bare-name type collision: the
   first registration (keep-first) wins the bare "Graph" layout; the other
   module's functions compile against the wrong field offsets (their
