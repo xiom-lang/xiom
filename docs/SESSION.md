@@ -1,83 +1,69 @@
 # XIOM Compiler Session -- Handoff (2026-08-19)
 
-## Session update (2026-08-22, round 13 FIXED -- compiler): closure-env family + tuple payloads; the iter adapter build flips green
+## Session update (2026-08-22, round 14 FIXED -- compiler): aggregate closure params + Vec[Str] elements + narrow-SIGNED loads
 
-Compiler session (round 13) closed the FOUR roots that blocked the
-stdlib session's closure-based iter adapter build, plus the tuple-payload
-family (queue item 2):
+Compiler session (round 14) closed the three roots surfaced by the
+stdlib session's 819/907 sweep:
 
-1. **Closure env STRUCT NAME collisions FIXED**: identical capture shapes
-   in different mono fns redefined `%struct.__closure_env_N` (clang:
-   redefinition) -- tmp_counter resets per fn, so every mono fn's first
-   closure was `__closure_0`. New global `closure_counter` (never reset)
-   names `__closure_N`/`__closure_env_N`/`__fnwrap_N`.
-2. **Captured-state MUTATION persistence FIXED**: closure thunks bound
-   captures to LOCAL copies -- `r.next()`'s implicit-self write never
-   reached the env (count/fold hung; take/skip never decremented). Captures
-   now bind DIRECTLY to their env-struct field GEPs (persistent across
-   invocations).
-3. **FN-TYPED FIELD calls FIXED**: `self.next_fn()`/`self.f(v)` compiled to
-   zero-param stubs (the field holds a closure ENV, not a code pointer --
-   0xC000001D in MapIter.next/FilterIter.next). Instance-receiver fn-marker
-   fields now load the env, load field 0, and call env-first with the
-   field's declared return type.
-4. **TUPLE PAYLOADS through Option/Vec FIXED** (the first_entry family --
-   queue item 2): `Some((i, v))` bound literals (the box was never
-   deref'd); Vec[(Int, Int)] slots held 8 of 16 bytes; "(Int, Int)" never
-   resolved to "Tuple__Int__Int"; generic mono returns (Vec[Tuple__Int__T])
-   were dropped by the binding tracking. Multi-part fix (scrutinee payload
-   derivation from the receiver's elem type, mono-return substitution,
-   substitute_type Named-arg/Tuple recursion, elem-name normalization,
-   Tuple-inner payload binding). **smoke_collections_btree_map (exit 7 at
-   baseline) now PASSES**; enumerate/zip pass.
-5. **Enum-return scrutinees from closure calls FIXED** (cmp.min_by's
-   comparator match had no discriminant checks): the scrutinee fallback now
-   adopts any registered `%struct.X` (Option/Result included).
-
-Stdlib fixes (iter.xi): adapter TERMINAL helpers call the adapter's
-`.next()` METHOD (raw next_fn bypasses map/filter/take semantics); the
-chain delegates' next_fn no longer consumes r2 (double-capture --
-second() replayed its own copy). Smoke expectation fixes: chain_zip
-(6/3 not 5/2), pipeline (225 not 729), btreemap (`contains` ->
-`contains_key`).
+1. **AGGREGATE-typed closure params FIXED** (the ZipIter tuple predicates
+   / EnumerateIter.map blocker): the closure thunk declared EVERY param
+   as i64 while the call site passed structs/tuples BY VALUE (a 16-byte
+   struct splits across two registers; the i64 param read only the
+   first -- p.x garbage, tuple elements literal 0). The thunk now
+   declares aggregate params with their REAL LLVM types (by value,
+   typed binding) and struct-pointee refs as %struct.X*; __fnwrap
+   forwards aggregates by value. Scalar params keep the uniform i64
+   convention.
+2. **Vec[Str] ELEMENT method calls FIXED** (context.xi pretty-print
+   family): `v[0].len()` emitted getelementptr i8*, i8**, 0, 1 -- the
+   Str builtin guards excluded Index receivers (the Vec[Vec] handle
+   rule) and the generic dispatch GEP'd the i8* as a struct. New
+   resolve_vec_elem_xiom(container) (local_vec_elem / local_xiom_types /
+   struct-field type_meta) drives is_vec_str_elem_receiver; receiver_
+   is_str recognizes Vec[Str] elements so len/slice/substr/starts_with/
+   ends_with all fire; the len handler casts only when the compiled
+   value is really i64.
+3. **narrow-SIGNED Vec loads FIXED** (queue item 3): emit_elem_load
+   hardcoded zext -- Int16 -30000 popped as 35536. The loads now sext
+   when the container's element type is signed (Int8/16/32/64);
+   unsigned stays zext. smoke_collections_vec_narrow now PASSES.
 
 Verified: stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
-parser 97, ctfe 97, full e2e pending; 19/20 iter smokes green +
-btree_map/btreemap + the full closure/cmp family.
+parser 97, ctfe 97, full e2e pending (new e2e_m45_round14_aggregate_
+closure_params + e2e_m46_round14_vec_str_elems_narrow); the iter/cmp/
+closure family + the new find/all/any/nth/last smokes all green.
 
-**REMAINING COMPILER-SIDE QUEUE (~100 documented, each with minimal repros
+**REMAINING COMPILER-SIDE QUEUE (~95 documented, each with minimal repros
 + user-space proofs in COMPILER_BUGS.md):**
 
-1. **clang -O2 / MSVC-CRT startup crash family** (queue 5/7): empty-range
-   collect shapes (smoke_iter_collect, smoke_array_sort_by) and the
-   COMBINED adapter module AV at STARTUP (BEX64 in ntdll) while the same
-   sections pass individually -- the m34_y15/y20 layout miscompile. The
-   e2e fixtures are split to stay below the flip; the SIMD flags / 16
-   clang-variant matrix is the fix target.
-2. **Iter-adapter feature gap**: find/all/any/nth/last are NOT in the
-   stdlib iter API (smoke_iter_find_all_any/nth_last/edge fail at the
-   checker -- planned feature, stdlib-side).
-3. **narrow-SIGNED zext** (smoke_stress_collections_vec_narrow exit 5):
-   the inline pop/get on SIGNED narrow elements zext the bit pattern
-   instead of sign-extending (emit_elem_payload_load).
-4. **json enum-Vec-Map heap layer** (smoke_stress_serialize_json_nested).
-5. **Checker generic-tuple substitution**: the Str element of a
-   `Some((k, v))` tuple pattern from BTreeMap.first_entry types as Int
+1. **clang -O2 / MSVC-CRT startup crash family** (queue 5/7): smoke_iter_
+   collect / smoke_array_sort_by startup AVs and smoke_error2's has-mid
+   layout flip -- deterministic per source, flips with unrelated stdlib
+   code (m34_y15/y20). The SIMD flags / 16 clang-variant matrix is the
+   fix target.
+2. **Multibyte char len_utf8** (BUG 26 #7 family): xiom_char_at of a
+   2-byte UTF-8 char reports the wrong len_utf8 -- blocks
+   smoke_string_slice's chars check (str_chars itself verified correct).
+3. **Checker generic-tuple substitution**: the Str element of a
+   `Some((k, v))` tuple pattern from a generic return types as Int
    ("cannot compare Int with Str") -- fixtures use key-only patterns.
-6. **Pre-existing**: smoke_error_edge + smoke_iter_edge (exit 1 at
-   baseline); the empty-range CRT crash family (above).
+4. **Pre-existing**: smoke_error_edge + smoke_iter_edge were landed by
+   the stdlib session's find/all/any/nth/last API work; the empty-range
+   CRT crash family remains (above).
 
-Campaign trajectory: 516 -> 621 -> 679 -> 738 -> 765 -> 779 -> 793 -> 799 -> 801.
+Campaign trajectory: 516 -> 621 -> 679 -> 738 -> 765 -> 779 -> 793 -> 799 -> 801 -> 819.
 Compiler-side closed roots: BUG 31-56 + the round-fixes (gzip decompress
 payloads, path.xi env import, Vec/Set/Slice method injection + pointer
 arithmetic GEP, non-pub generic type decls + is_llvm_struct_named, ref
 payload auto-deref, Set ABI, Ord/Bounded C001, B-007 closures, round-12
 rm1 Str-return closures + cb2 enum-variant receivers, round-13 closure-
-env family + tuple payloads).
+env family + tuple payloads, round-14 aggregate closure params + Vec[Str]
+elements + narrow-SIGNED loads).
 Stdlib-side hardened: RefCell, PathBuf, gcd, crc32, VecDeque, Set/Queue/
-Stack, redundant requires traps, prose ensures, smoke semantics; the
+Stack, redundant requires traps, prose ensures, smoke semantics, the
 closure-based iter adapter build (map/filter/take/skip/chain/zip/
-enumerate/collect/fold/count/max/min).
+enumerate/collect/fold/count/max/min + find/all/any/nth/last), sync
+Once, error pretty-print family, string requires cleanup.
 
 **WORKFLOW (unchanged):** probe -> IR-diff -> fix -> verify probe + stdlib
 smoke + e2e regression (tests/regression/m3x_*.xi + e2e_mXX registration)

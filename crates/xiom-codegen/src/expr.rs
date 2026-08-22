@@ -2565,7 +2565,8 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     // (println, Str params) mis-coerced into a single-byte
                     // temp (smoke_serialize yaml_emit_sequence garbage).
                     if self.vec_elem_is_str(container) {
-                        let elem = self.emit_elem_load(&elem_ptr, &esz_val);
+                        let signed = self.vec_elem_signed(container);
+                        let elem = self.emit_elem_load(&elem_ptr, &esz_val, signed);
                         let sp = self.fresh_tmp();
                         self.emitln(&format!("  {sp} = inttoptr i64 {elem} to i8*"));
                         return Ok((sp, "i8*".to_string()));
@@ -2592,7 +2593,8 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         return Ok((loaded, struct_ty));
                     }
                     // Fallback: use emit_elem_load for unknown element types.
-                    let elem = self.emit_elem_load(&elem_ptr, &esz_val);
+                    let signed = self.vec_elem_signed(container);
+                    let elem = self.emit_elem_load(&elem_ptr, &esz_val, signed);
                     // 5c.29: float elements round-trip as raw bits -- reinterpret
                     // them instead of letting callers sitofp the bit pattern.
                     if let Some(fty) = self.vec_elem_float_type(container) {
@@ -3674,12 +3676,32 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.push_scope();
                 
                 // Build thunk header: fn(i64 %__env, params...)
-                let param_str: Vec<String> = params.iter().enumerate()
-                    .map(|(i, p)| format!("%{}_{}", p.name.name, i))
-                    .collect();
+                // round-14 (aggregate closure params): params keep their REAL
+                // LLVM types when they cannot marshal through an i64 register --
+                // struct/tuple values pass BY VALUE (%struct.Point %p_0 -- the
+                // call site splits a 16-byte struct across two registers, the
+                // i64 thunk param read only the first: p.x garbage) and
+                // struct-pointee refs are real %struct.X* pointers. Scalars and
+                // scalar refs keep the uniform i64 convention.
+                let param_llvm_types: Vec<String> = params.iter().map(|p| {
+                    match &p.ty {
+                        Type::Ref(inner) | Type::MutRef(inner) | Type::Ptr(inner) => {
+                            let inner_llvm = self.llvm_type_for(&Self::type_from_ast(inner)).unwrap_or_else(|_| "i64".to_string());
+                            if inner_llvm.starts_with("%struct.") {
+                                format!("{inner_llvm}*")
+                            } else {
+                                "i64".to_string()
+                            }
+                        }
+                        _ => {
+                            let llvm = self.llvm_type_for(&Self::type_from_ast(&p.ty)).unwrap_or_else(|_| "i64".to_string());
+                            if llvm.starts_with("%struct.") { llvm } else { "i64".to_string() }
+                        }
+                    }
+                }).collect();
                 let all_params = std::iter::once("i64 %__env".to_string())
-                    .chain(param_str.iter().enumerate()
-                        .map(|(_, s)| format!("i64 {}", s)))
+                    .chain(params.iter().enumerate()
+                        .map(|(i, p)| format!("{} %{}_{}", param_llvm_types[i], p.name.name, i)))
                     .collect::<Vec<_>>().join(", ");
                 self.output.push_str(&format!("define {ret_llvm} @{fn_name}({all_params}) {{\nentry:\n"));
                 
@@ -3706,9 +3728,10 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 for (i, p) in params.iter().enumerate() {
                     let preg = format!("%{}_{}", p.name.name, i);
                     let a = format!("%{}_{}_alloca", p.name.name, i);
-                    self.emitln(&format!("  {a} = alloca i64"));
-                    self.emitln(&format!("  store i64 {preg}, i64* {a}"));
-                    self.add_local(&p.name.name, a, "i64");
+                    let p_llvm = param_llvm_types.get(i).cloned().unwrap_or_else(|| "i64".to_string());
+                    self.emitln(&format!("  {a} = alloca {p_llvm}"));
+                    self.emitln(&format!("  store {p_llvm} {preg}, {p_llvm}* {a}"));
+                    self.add_local(&p.name.name, a, &p_llvm);
                     // round-12 (rm1/cb2): closure params arrive as i64 (the
                     // uniform thunk ABI) but their DECLARED XIOM types must be
                     // tracked so value coercions inside the body (Str -> i8*,
@@ -4823,7 +4846,21 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 return true;
             }
         }
+        // round-14 (Vec[Str] elements): `v[0].len()` / `h.names[i].starts_with(..)`
+        // -- the elem-load switch yields i64 so infer_llvm_type can't see the
+        // string. The container's element type is Str (from local_vec_elem /
+        // local_xiom_types / struct-field type_meta).
+        if self.is_vec_str_elem_receiver(receiver) {
+            return true;
+        }
         false
+    }
+
+    /// round-14 (Vec[Str] elements): true when the receiver is an INDEX into a
+    /// Vec whose element type is Str (`v[0]`, `h.names[i]`, `&Vec[Str]` params).
+    pub(crate) fn is_vec_str_elem_receiver(&self, receiver: &Expr) -> bool {
+        let Expr::Index(container, _, _) = receiver else { return false; };
+        self.resolve_vec_elem_xiom(container).as_deref() == Some("Str")
     }
 
     /// BUG 31: LLVM type for a STRUCT FIELD -- degrades Unit to i64. The

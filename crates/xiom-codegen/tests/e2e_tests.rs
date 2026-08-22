@@ -4566,6 +4566,23 @@ fn e2e_safety_probe() {
 // ============================================================================
 #[test] fn e2e_m44_round13_tuple_payloads() { assert_eq!(compile_and_run("tests\\regression\\m44_round13_tuple_payloads.xi"), Some(0)); }
 
+// ============================================================================
+// Round 14 (2026-08-22): AGGREGATE-typed closure params -- the closure thunk
+// declared every param as i64 while the call site passed structs/tuples BY
+// VALUE (16 bytes split across registers; the i64 param read only the
+// first). Thunks now declare aggregate params with their real LLVM types
+// (by-value) and bind them typed; __fnwrap forwards aggregates by value.
+// ============================================================================
+#[test] fn e2e_m45_round14_aggregate_closure_params() { assert_eq!(compile_and_run("tests\\regression\\m45_round14_aggregate_closure_params.xi"), Some(0)); }
+
+// ============================================================================
+// Round 14 (2026-08-22): Vec[Str] ELEMENT method calls (v[0].len() emitted
+// an invalid GEP -- the i8* receiver was GEP'd as a struct) + narrow-SIGNED
+// Vec loads (Int16 -30000 zext'd to 35536 -- emit_elem_load now sexts when
+// the container's element type is signed).
+// ============================================================================
+#[test] fn e2e_m46_round14_vec_str_elems_narrow() { assert_eq!(compile_and_run("tests\\regression\\m46_round14_vec_str_elems_narrow.xi"), Some(0)); }
+
 
 
 
