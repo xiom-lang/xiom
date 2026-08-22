@@ -2146,6 +2146,30 @@ e2e fixtures are split to stay below the flip; smoke_iter_find_all_any /
 nth_last / edge fail at the CHECKER (find/all/any/nth/last are not in
 the stdlib iter API -- planned feature gap).
 
+### Round-13 finding (2026-08-22, stdlib session) -- method call on a Vec[Str] ELEMENT emits invalid GEP
+
+- **Construct:** any method call whose receiver is a Vec[Str] element
+  expression -- `e.free[0].len()`, `items[i].len()` (both by-value Vec and
+  `&Vec[Str]` params). IR: `getelementptr i8*, i8** %slot, i32 0, i32 1` --
+  the element slot pointer (i8**) is indexed as if the STRING (i8*) were a
+  struct -- clang: invalid getelementptr indices.
+- **Probes (C:\Users\lefte\AppData\Local\Temp\kilo\):** probe_err_ctx_g.xi
+  (minimal user-space repro, struct with Vec[Str] fields), probe_err_ctx_i.xi
+  (&Vec[Str] param variant) -- both COMPILE FAIL. Workaround PROVEN:
+  binding the element to a local first (`let s = v[i]; s.len()`) compiles
+  and runs correctly (probe_err_ctx_h.xi).
+- **Impact (stdlib):** context.xi's error_pretty_print/pretty_print_chain
+  (FIXED stdlib-side with local binding -- smoke_error2 green), and latent
+  in format/text.xi, textual.xi, fmt.xi text_columns/format_columns
+  (FIXED, verified by probe_fmt_cols). Struct-element receivers
+  (Vec[Vec[Float64]] `ac[0].len()`) compile fine -- Str (i8*) is the only
+  affected element type (the BUG 44-era "Str receiver treated as struct
+  pointer" family -- the round-6 fix #2 covered Str.to_str passthrough but
+  not element-receiver method calls).
+- **Fix direction:** when a method call's receiver is a Vec element of type
+  Str, load the element (i8*) BEFORE lowering the self access -- the
+  receiver currently resolves to the SLOT address (i8**).
+
 ### Round-13 finding (2026-08-22, stdlib session) -- aggregate-typed CLOSURE params corrupt on call
 
 - **Construct:** any closure whose parameter is an AGGREGATE type -- user
