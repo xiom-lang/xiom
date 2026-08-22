@@ -2170,6 +2170,32 @@ the stdlib iter API -- planned feature gap).
   Str, load the element (i8*) BEFORE lowering the self access -- the
   receiver currently resolves to the SLOT address (i8**).
 
+### Round-13 finding (2026-08-22, stdlib session) -- smoke_error2 flips PASS/FAIL with unrelated stdlib code (layout family)
+
+- **Observation:** smoke_error2 (chain + context + backtrace + io) fails
+  at `chain.error_chain_has(e, "mid")` (exit 1) on the current tree, yet
+  the IDENTICAL chain-section sequence passes as a chain-only program
+  (probe_err_chain2.xi -- same chain.xi code, same ops). It also PASSED
+  on the build right after the context.xi fix, and re-PASSES when
+  error.xi's `wrap_error` is reverted to the pre-fix `[T, E: Error]`
+  bound body (verified: "smoke_error2 OK", exit 0). The wrap_error fix
+  itself is required (unblocks smoke_error_chain/edge) -- the chain
+  module's has-mid behavior must not depend on it.
+- **Construct:** error_chain_has loops `let m = e.messages[i]; if str_eq(m, message)`; str_eq compares via string.byte_at. Top/root/len checks in the same program pass; only the mid element comparison fails, and only in the full-program layout.
+- **Conclusion:** same family as the documented clang -O2/MSVC-CRT layout miscompiles (m34_y15/y20, smoke_iter_collect/array_sort_by startup AVs, json flakiness): deterministic per source, flips with unrelated stdlib code in the program. Compiler-side (emitted IR for chain/str_eq/byte_at is layout-sensitive). stdlib-side code verified correct by the chain-only probe.
+- **Probes:** probe_err_chain2.xi (chain-only, PASS), smoke_error2 with error.xi reverted (PASS), current tree (FAIL at has-mid).
+
+### Round-13 finding (2026-08-22, stdlib session) -- multibyte char length via xiom_char_at reports wrong len_utf8
+
+- **Construct:** `char.len_utf8(xiom_char_at("eOmega", 1))` returns != 2
+  for the 2-byte UTF-8 char at byte 1 (probe_char_utf8.xi, exit 1). The
+  runtime char reader / Char payload is byte-oriented (BUG 26 #7 family:
+  chr() payload corruption). slice.str_chars (correct: advances by
+  char.len_utf8) therefore returns the BYTE count for multibyte strings
+  -- smoke_string_slice check 25 ("chars-5", str_chars("eOmega").len()
+  != 2). stdlib code verified correct; the smoke comment documents this
+  as BUG 26 #7.
+
 ### Round-13 finding (2026-08-22, stdlib session) -- aggregate-typed CLOSURE params corrupt on call
 
 - **Construct:** any closure whose parameter is an AGGREGATE type -- user
