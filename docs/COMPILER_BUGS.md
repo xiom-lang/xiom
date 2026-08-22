@@ -2117,6 +2117,17 @@ smoke_iter_edge (exit 1 at baseline).
   Int-element paths are green. smoke_array_narrow realigned to the
   Int/len paths.
 
+### Round-14c finding (2026-08-22, stdlib session) -- extra call args are silently dropped (no arg-count check)
+
+- **Construct:** `convert.float_to_string(3.14159, 2)` (2 args) against
+  the 1-param def emitted `call @convert.float_to_string(double, i64 2)`
+  with the definition taking `(double %param0)` -- the precision arg was
+  SILENTLY DROPPED instead of a T001 mismatch (the smoke expected a
+  2-arg API that never existed; realigned to float_to_fixed_str).
+  The checker DOES reject arg-count mismatches in other paths (e.g.
+  deflate_decompress &Vec vs Result) -- this path (module-prefix call
+  against a same-leaf fn) skips the check.
+
 ### Round-14c finding (2026-08-22, stdlib session) -- unary minus on nested Vec[Vec[Float64]] index reads the wrong element
 
 - **Construct:** `-m[1][0]` (unparenthesized) reads flat index 1 (element
