@@ -4583,6 +4583,16 @@ fn e2e_safety_probe() {
 // ============================================================================
 #[test] fn e2e_m46_round14_vec_str_elems_narrow() { assert_eq!(compile_and_run("tests\\regression\\m46_round14_vec_str_elems_narrow.xi"), Some(0)); }
 
+// ============================================================================
+// Round 14 (2026-08-22): multibyte Char family (BUG 26 #7) -- xiom_char_at
+// decodes the UTF-8 CODEPOINT (i64 ABI; was a raw byte); xiom_byte_at is
+// the raw-byte accessor (byte_at double-decoded once char_at was fixed);
+// Vec[Char] slots are 4 bytes (codepoints > 255 truncated to their low
+// byte); the as-cast widening zexts UInt*-returning calls. smoke_string_
+// slice + smoke_convert_utf (mojibake-restored) green.
+// ============================================================================
+#[test] fn e2e_m47_round14b_multibyte_chars() { assert_eq!(compile_and_run("tests\\regression\\m47_round14b_multibyte_chars.xi"), Some(0)); }
+
 
 
 
