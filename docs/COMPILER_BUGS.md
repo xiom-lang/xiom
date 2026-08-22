@@ -2269,6 +2269,36 @@ the stdlib iter API -- planned feature gap).
   keep the unsubstituted '[N x T]' form); the literal-inference path
   already produces the correct type.
 
+### Round-14 finding (2026-08-22, stdlib session) -- runtime string-literal conversion mangles multibyte content (program-dependent)
+
+- **Construct:** non-ASCII string literals compile to CORRECT UTF-8 IR
+  (verified raw: `c"[U+041F]\00"` = D0 9F in the .ll for every probe), but the
+  runtime's literal-to-Str conversion produces different bytes per
+  program: probe_cyr.xi ("[U+041F]" + "e") reads back D0 9F / C3 A9 (correct);
+  probe_slice.xi ("[U+041F][U+0440][U+0438][U+0432][U+0435][U+0442]") reads back 1F 9F ... ([U+041F] = U+041F LOW BYTE +
+  continuation!). Deterministic per source+binary (text2 rebuilds 4x,
+  all fail), flips with unrelated program content -- same family as the
+  documented clang -O2 layout miscompiles and the BUG 26 #7 internal
+  string encoding (U+00FC stored as FC BC, not C3 BC).
+- **3-byte literals mangle deterministically:** the circled-one char
+  (E2 91 A0 = U+2460) and the CJK char (E4 B8 AD = U+4E2D) read back as
+  the code point's LOW BYTE + original continuation bytes (60 91 A0 /
+  2D B8 AD) in EVERY file (probe_uni, probe_uni2) -- the UTF-8 decode in
+  the literal path truncates.
+- **Probes (C:\Users\lefte\AppData\Local\Temp\kilo\):** probe_cyr.xi
+  (correct), probe_slice.xi (mangled -- the contrast pair),
+  probe_uni.xi / probe_uni2.xi (3-byte truncation), probe_puny.xi
+  (decode-side FC BC output), probe_escape.xi (`\u{fc}` produces FC BC,
+  not C3 BC).
+- **Impact (stdlib):** smoke_text2 (transliterate_to_ascii("[U+041F][U+0440][U+0438][U+0432][U+0435][U+0442]") ->
+  garbage; single-call transliterate_cyrillic works -- the 9-call chain
+  feeds mangled literals) fails deterministically; smoke_string_unicode/
+  ea_width/emoji fail transiently (they passed on fresh compiles after
+  the sweep -- the sweep's failures were mid-sweep stdlib states).
+  The transliterate/unicode modules' code is verified correct (IR and
+  single-call paths). The runtime encoding layer (BUG 26 #7 family) is
+  the root.
+
 ### Round-14 finding (2026-08-22, stdlib session) -- by-value self methods returning the SAME type write the result back into the receiver
 
 - **Construct:** any method call `r = s.m(...)` where the method takes
