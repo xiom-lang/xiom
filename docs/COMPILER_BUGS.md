@@ -2072,6 +2072,51 @@ btree_map first_entry/last_entry (exit 7) + smoke_stress_collections_
 btreemap (exit 2) -- the tuple-payload queue item; smoke_error_edge +
 smoke_iter_edge (exit 1 at baseline).
 
+### Round-14b findings FIXED (2026-08-22) -- checker generic-tuple substitution + multibyte Char family
+
+Follow-up session (while the stdlib sweep runs) closed two more roots
+(e2e `e2e_m47_round14b_multibyte_chars` + the upgraded `e2e_m44`):
+
+1. **Checker generic-tuple substitution** ("cannot compare Int with Str"
+   on the Str element of `Some((k, v))` from a generic return like
+   BTreeMap.first_entry): the checker dropped the receiver's concrete
+   args (`var bm = BTreeMap[Int, Str].new()` bound "BTreeMap"; the
+   Index type-expr returned the bare container name), and the method-
+   return substitution only replaced the WHOLE name ("Option[Tuple__K__V]"
+   stayed generic). Fixes (xiom-check): `generic_ctor_type_name` renders
+   ANY `Type[args].new()` binding's full type; the Index type-expr arm
+   keeps the args; the receiver-method return substitutes generic TOKENS
+   with the receiver's args (arity-gated); parse_tuple_elem_types accepts
+   BOTH "(A, B)" and the registered "Tuple__A__B" form; the Some/Ok/Err
+   payload binding passes the PAYLOAD type to inner patterns. The
+   upgraded m44 fixture now asserts the Str element through the tuple
+   pattern (was key-only).
+2. **Multibyte Char family** (BUG 26 #7; smoke_string_slice chars check):
+   (a) xiom_char_at returned the raw BYTE -- a 2-byte char yielded 0xCE
+   instead of the codepoint 0x03A9, so len_utf8()/str_chars mis-counted.
+   The runtime now decodes the UTF-8 codepoint (i64 ABI; the old i8
+   return couldn't hold codepoints). (b) byte_at REUSED xiom_char_at --
+   once char_at decoded, byte_at double-decoded (byte consumers got
+   430080 for the Omega byte pair). New xiom_byte_at runtime accessor +
+   extern; byte_at uses it. (c) Vec[Char] slots held 1 byte -- codepoints
+   > 255 truncated to their low byte (str_chars("eOmega") stored 169).
+   Char element storage is now 4 bytes (i32). (d) `as`-cast widening
+   hardcoded sext -- `byte_at(s, 1) as Int` on a UInt8 byte (0xCE = 206)
+   sext'd to -50; the integer-width arm now consults the source's XIOM
+   type for UInt*-RETURNING CALLS (the BUG-14 fix only covered Ident
+   sources). smoke_string_slice + smoke_convert_utf (mojibake strings
+   "hello" restored to "hello", expectations re-derived: 5 sequences,
+   6 bytes) now PASS.
+
+Verified: stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
+parser 97, ctfe 97, full e2e pending. PRE-EXISTING (unchanged,
+baseline-confirmed): the clang -O2/MSVC-CRT layout family (smoke_iter_
+collect/smoke_array_sort_by startup AVs + smoke_error2's has-mid flip --
+smoke_error2 passes on some builds, fails on others per the layout);
+smoke_string_narrow's `as Int8` comparison (exit 4); smoke_convert_narrow
+_roundtrip (exit 3); smoke_array_narrow (fixed-array "[N x T]" typing);
+smoke_geom_vec (exit 57).
+
 ### Round-14 findings FIXED (2026-08-22) -- aggregate closure params + Vec[Str] elements + narrow-SIGNED loads
 
 The stdlib session's round-13/14 sweep (819/907) surfaced three compiler

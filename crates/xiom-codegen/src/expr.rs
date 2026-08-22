@@ -2504,10 +2504,11 @@ impl IrEmitter {
                 // Str: char access via the raw runtime accessor, returned as i64.
                 if cont_ty == "i8*" {
                     let ch = self.fresh_tmp();
-                    self.emitln(&format!("  {ch} = call i8 @xiom_char_at(i8* {cont_val}, i64 {idx})"));
-                    let ext = self.fresh_tmp();
-                    self.emitln(&format!("  {ext} = zext i8 {ch} to i64"));
-                    return Ok((ext, LLVM_I64.to_string()));
+                    // round-14 (BUG 26 #7): the runtime returns the UTF-8
+                    // CODEPOINT as i64 -- no i8 zext (the old i8 returned a
+                    // raw byte; multibyte chars broke len_utf8/str_chars).
+                    self.emitln(&format!("  {ch} = call i64 @xiom_char_at(i8* {cont_val}, i64 {idx})"));
+                    return Ok((ch, LLVM_I64.to_string()));
                 }
                 // Vec/Slice: element is an i64-wide slot at data[index].
                 let (mut vec_val, mut vec_ty) = self.resolve_vec_value(&cont_val, &cont_ty);
@@ -4099,12 +4100,19 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             // prefers local_xiom_types -- the LLVM-slot-derived
                             // name loses signedness); unknown sources default to
                             // sext (historical behavior).
-                            let src_signed = if let Expr::Ident(id) = inner.as_ref() {
-                                self.xiom_type_of_local(&id.name)
+                            let src_signed = match inner.as_ref() {
+                                Expr::Ident(id) => self.xiom_type_of_local(&id.name)
                                     .map(|xiom_ty| Self::is_signed_xiom_type(&xiom_ty))
-                                    .unwrap_or(true)
-                            } else {
-                                true
+                                    .unwrap_or(true),
+                                // round-14 (BUG 26 #7): UInt*-RETURNING CALLS
+                                // widen zext -- `byte_at(s, 1) as Int` on a
+                                // UInt8 byte (0xCE = 206) was sext'd to -50.
+                                Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+                                    self.callee_return_xiom(func)
+                                        .map(|xiom_ty| Self::is_signed_xiom_type(&xiom_ty))
+                                        .unwrap_or(true)
+                                }
+                                _ => true,
                             };
                             let extop = if src_signed { "sext" } else { "zext" };
                             self.emitln(&format!("  {tmp} = {extop} {a} {val} to {b}"));

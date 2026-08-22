@@ -737,7 +737,10 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     type_name
                                 };
                                 match type_name.as_str() {
-                                    "UInt8" | "Int8" | "Char" | "Bool" => 1,
+                                    // round-14 (BUG 26 #7): Char is a 32-bit
+                                    // codepoint -- 4-byte slots (was 1).
+                                    "UInt8" | "Int8" | "Bool" => 1,
+                                    "Char" => 4,
                                     "Int16" | "UInt16" => 2,
                                     "Int32" | "UInt32" | "Float32" => 4,
                                     _ => {
@@ -809,7 +812,9 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     _ => "Int".to_string(),
                                 };
                                 match type_name.as_str() {
-                                    "UInt8" | "Int8" | "Char" | "Bool" => 1,
+                                    // round-14 (BUG 26 #7): Char is a 32-bit codepoint.
+                                    "UInt8" | "Int8" | "Bool" => 1,
+                                    "Char" => 4,
                                     "Int16" | "UInt16" => 2,
                                     "Int32" | "UInt32" | "Float32" => 4,
                                     _ => self.vec_elem_storage_size(&type_name),
@@ -2065,11 +2070,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     let (src, src_ty) = self.compile_expr(&args[0])?;
                     let (pos, _) = self.compile_expr(&args[1])?;
                     let tmp = self.fresh_tmp();
-                    let tmp_ext = self.fresh_tmp();
                     let src_ptr = self.val_to_i8ptr(&src, &src_ty);
-                    self.emitln(&format!("  {tmp} = call i8 @xiom_char_at(i8* {src_ptr}, i64 {pos})"));
-                    self.emitln(&format!("  {tmp_ext} = zext i8 {tmp} to i64"));
-                    return Ok((tmp_ext, LLVM_I64.to_string()));
+                    // round-14 (BUG 26 #7): the runtime returns the UTF-8
+                    // CODEPOINT as i64 -- no i8 zext (the old i8 returned a
+                    // raw byte; multibyte chars broke len_utf8/str_chars).
+                    self.emitln(&format!("  {tmp} = call i64 @xiom_char_at(i8* {src_ptr}, i64 {pos})"));
+                    return Ok((tmp, LLVM_I64.to_string()));
                 }
                 if fn_name == "xiom_str_len" && args.len() >= 1 {
                     let (src, src_ty) = self.compile_expr(&args[0])?;

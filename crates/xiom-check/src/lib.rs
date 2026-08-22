@@ -512,7 +512,11 @@ impl Checker {
         // Register additional Vec methods that have inline codegen support.
         for (method, ret, param) in &[
             ("insert", CheckedType::Unit, vec![("self", CheckedType::Named("Vec".into())), ("idx", CheckedType::Int), ("val", CheckedType::Named("T".into()))]),
-            ("remove", CheckedType::Named("T".into()), vec![("self", CheckedType::Named("Vec".into())), ("idx", CheckedType::Int)]),
+            // round-14b: remove returns Option[T] (Some(popped)/None) -- the
+            // registered "T" was WRONG; the generic leniency masked it until
+            // the method-return substitution concretized it to Int
+            // ("cannot compare Int with Option[Int]" -- m35 v07/v28/v30).
+            ("remove", CheckedType::Named("Option".into()), vec![("self", CheckedType::Named("Vec".into())), ("idx", CheckedType::Int)]),
             ("clear", CheckedType::Unit, vec![("self", CheckedType::Named("Vec".into()))]),
             ("is_empty", CheckedType::Bool, vec![("self", CheckedType::Named("Vec".into()))]),
         ] {
@@ -700,7 +704,14 @@ impl Checker {
                         self.add_local(&name.name, bind_ty);
                     }
                 } else {
-                    self.add_pattern_bindings(inner, scrutinee_type);
+                    // round-14 (tuple payloads): `Some((k, v))` / `Ok((a, b))` --
+                    // the INNER pattern must bind against the PAYLOAD type
+                    // ("(Int, Str)"), not the whole Option[...] scrutinee -- the
+                    // old code re-passed scrutinee_type, so the Tuple arm below
+                    // saw the container name and fell back to Int for every
+                    // element (v compared as Int: "cannot compare Int with Str").
+                    let inner_scrutinee = payload_ty.unwrap_or_else(|| scrutinee_type.clone());
+                    self.add_pattern_bindings(inner, &inner_scrutinee);
                 }
             }
             Pattern::Or(alts, _) => {
@@ -722,12 +733,84 @@ impl Checker {
                 }
             }
             Pattern::Tuple(elements, _) => {
-                // P1-2: Bind each element as Int (simplified). 
-                for elem in elements {
-                    self.add_pattern_bindings(elem, &CheckedType::Int);
+                // round-14 (tuple payloads): bind each element from the
+                // tuple's declared element types ("(Int, Str)" -> Int, Str).
+                // The old "simplified" binding made every element Int, so the
+                // Str element of `Some((k, v))` from a generic return
+                // (BTreeMap.first_entry) compared as Int.
+                let elem_types = Self::parse_tuple_elem_types(scrutinee_type);
+                for (i, elem) in elements.iter().enumerate() {
+                    let elem_ty = elem_types.get(i).cloned()
+                        .unwrap_or_else(|| CheckedType::Int);
+                    self.add_pattern_bindings(elem, &elem_ty);
                 }
             }
             Pattern::Wildcard(_) | Pattern::None(_) | Pattern::Lit(_) => {}
+        }
+    }
+
+    /// round-14 (tuple payloads): split a tuple-typed CheckedType into its
+    /// element types. Accepts BOTH the parenthesized form ("(Int, Str)")
+    /// and the REGISTERED form ("Tuple__Int__Str" -- generic returns keep
+    /// the registered key, e.g. "Option[Tuple__K__V]"). Returns an empty
+    /// vec for non-tuple types (callers fall back to the old Int binding).
+    fn parse_tuple_elem_types(ty: &CheckedType) -> Vec<CheckedType> {
+        let CheckedType::Named(n) = ty else { return Vec::new(); };
+        let s = n.trim();
+        if s.starts_with('(') && s.ends_with(')') {
+            let inner = &s[1..s.len() - 1];
+            inner.split(',')
+                .map(|p| CheckedType::from_str(p.trim()))
+                .collect()
+        } else if let Some(rest) = s.strip_prefix("Tuple__") {
+            // registered form: "Tuple__Int__Str" -> [Int, Str] (split on the
+            // "__" separator; the first segment is the "Tuple" marker).
+            rest.split("__")
+                .map(|p| CheckedType::from_str(p))
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// round-14 (tuple payloads): substitute generic PARAM tokens inside a
+    /// CheckedType's NAME ("Option[(K, V)]" -> "Option[(Int, Str)]") using
+    /// STANDALONE token boundaries (single uppercase letters delimited by
+    /// non-alphanumerics) -- naive replace("V", ...) would corrupt "Vec".
+    /// Returns None when nothing changed (callers keep the original).
+    fn substitute_generic_type(ty: &CheckedType, subst: &HashMap<String, CheckedType>) -> Option<CheckedType> {
+        match ty {
+            CheckedType::Named(n) => {
+                if let Some(c) = subst.get(n) {
+                    return Some(c.clone());
+                }
+                let mut out = String::new();
+                let mut cur = String::new();
+                let mut changed = false;
+                let mut flush = |cur: &mut String, out: &mut String, changed: &mut bool, subst: &HashMap<String, CheckedType>| {
+                    if cur.len() == 1 && cur.chars().next().map_or(false, |c| c.is_ascii_uppercase()) {
+                        if let Some(v) = subst.get(cur.as_str()) {
+                            out.push_str(&v.name());
+                            *changed = true;
+                            cur.clear();
+                            return;
+                        }
+                    }
+                    out.push_str(cur);
+                    cur.clear();
+                };
+                for c in n.chars() {
+                    if c.is_ascii_alphanumeric() {
+                        cur.push(c);
+                    } else {
+                        flush(&mut cur, &mut out, &mut changed, subst);
+                        out.push(c);
+                    }
+                }
+                flush(&mut cur, &mut out, &mut changed, subst);
+                if changed { Some(CheckedType::from_str(&out)) } else { None }
+            }
+            _ => None,
         }
     }
 
@@ -3727,7 +3810,10 @@ impl Checker {
                 }
                 // BUG 26: Vec-ctor bindings register their FULL generic type
                 // ("Vec[Vec[Float64]]") so element reads resolve precisely.
-                let bind_ty = self.vec_ctor_type_name(value)
+                // round-14: generalized to ANY generic ctor ("BTreeMap[Int, Str]")
+                // so the local carries its concrete args for method-return
+                // substitution (first_entry -> Option[Tuple__Int__Str]).
+                let bind_ty = self.generic_ctor_type_name(value)
                     .map(|s| CheckedType::from_str(&s))
                     .unwrap_or(val_ty.clone());
                 self.add_local(&name.name, bind_ty);
@@ -3777,7 +3863,8 @@ impl Checker {
                     return;
                 }
                 // BUG 26: Vec-ctor bindings register their FULL generic type.
-                let bind_ty = self.vec_ctor_type_name(value)
+                // round-14: generalized to ANY generic ctor (see the let arm).
+                let bind_ty = self.generic_ctor_type_name(value)
                     .map(|s| CheckedType::from_str(&s))
                     .unwrap_or(val_ty.clone());
                 self.add_local(&name.name, bind_ty);
@@ -4040,6 +4127,43 @@ impl Checker {
             }
         }
         Some(format!("Vec[{}]", render(idx)))
+    }
+
+    /// round-14 (tuple payloads): render ANY generic ctor binding's full type
+    /// ("BTreeMap[Int, Str]") so the local carries its CONCRETE args -- the
+    /// generic-return substitution for method calls (`bm.first_entry()` ->
+    /// "Option[Tuple__K__V]" with K=Int, V=Str) derives the receiver's args
+    /// from the local's registered type. Vec delegates to vec_ctor_type_name
+    /// (which renders nested Vec[Vec[...]]).
+    fn generic_ctor_type_name(&mut self, value: &Expr) -> Option<String> {
+        let func = match value {
+            Expr::Call(f, ..) | Expr::GenericCall(f, ..) => f.as_ref(),
+            _ => return None,
+        };
+        let (obj, method) = match func {
+            Expr::Field(o, m, _) => (o, &m.name),
+            _ => return None,
+        };
+        if method != "new" && method != "with_capacity" {
+            return None;
+        }
+        let (base, idx) = match obj.as_ref() {
+            Expr::Index(b, i, _) => (b, i),
+            _ => return None,
+        };
+        let Expr::Ident(base_id) = base.as_ref() else { return None; };
+        if base_id.name == "Vec" {
+            return self.vec_ctor_type_name(value);
+        }
+        let args: Vec<String> = match idx.as_ref() {
+            Expr::Tuple(items, _) => items.iter().map(|t| self.check_expr(t).name()).collect(),
+            Expr::Ident(_) => vec![self.check_expr(idx).name()],
+            _ => Vec::new(),
+        };
+        if args.is_empty() {
+            return None;
+        }
+        Some(format!("{}[{}]", base_id.name, args.join(", ")))
     }
 
     fn check_expr(&mut self, expr: &Expr) -> CheckedType {
@@ -4629,7 +4753,34 @@ impl Checker {
                                     }
                                 }
                             }
-                            return sig.return_type.unwrap_or(CheckedType::Unit);
+                            let mut ret_ty = sig.return_type.unwrap_or(CheckedType::Unit);
+                            // round-14 (tuple payloads): substitute the method's
+                            // generic params with the RECEIVER's concrete type
+                            // args ("BTreeMap[Int, Str]" -> K=Int, V=Str) so
+                            // `bm.first_entry()` returns "Option[(Int, Str)]"
+                            // instead of the raw generic "Option[(K, V)]" -- the
+                            // tuple pattern bindings then type the Str element
+                            // correctly ("cannot compare Int with Str"). Gated
+                            // on ARITY so receiver+method generics (Result[T, E]
+                            // methods with their own [F]) don't misalign.
+                            if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() && method.name == "first_entry" {
+                                let pg = Self::parse_generic_type(type_name);
+                                eprintln!("[fe] type_name={type_name} generics={:?} ret={} parsed={:?}", sig.generics, ret_ty.name(), pg.map(|(b, a)| (b, a)));
+                            }
+                            if !sig.generics.is_empty() {
+                                if let Some((_, recv_args)) = Self::parse_generic_type(type_name) {
+                                    if recv_args.len() == sig.generics.len() {
+                                        let subst: HashMap<String, CheckedType> = sig.generics.iter()
+                                            .zip(recv_args.iter())
+                                            .map(|(g, a)| (g.clone(), CheckedType::from_str(a)))
+                                            .collect();
+                                        if let Some(substituted) = Self::substitute_generic_type(&ret_ty, &subst) {
+                                            ret_ty = substituted;
+                                        }
+                                    }
+                                }
+                            }
+                            return ret_ty;
                         }
                     }
                     // Primitive types implicitly support the builtin interface methods
@@ -5115,8 +5266,23 @@ impl Checker {
                        container_ident.name == "Range" || container_ident.name == "Nested";
                     let is_local = self.lookup_local(&container_ident.name).is_some();
                     if is_type_name && !is_local {
-                        // Type parameter expression -- return the container type
-                        return CheckedType::Named(container_ident.name.clone());
+                        // Type parameter expression -- return the container type.
+                        // round-14 (tuple payloads): KEEP the concrete type args
+                        // ("BTreeMap[Int, Str]") instead of dropping them -- the
+                        // generic-return substitution for method calls
+                        // (`bm.first_entry()` -> "Option[Tuple__K__V]" with
+                        // K=Int, V=Str) derives the receiver's args from this
+                        // name. Field access already falls back to the base via
+                        // name.split('[') (BUG 51).
+                        let args_str: Vec<String> = match idx.as_ref() {
+                            Expr::Tuple(items, _) => items.iter().map(|t| self.check_expr(t).name()).collect(),
+                            Expr::Ident(_) => vec![self.check_expr(idx).name()],
+                            _ => Vec::new(),
+                        };
+                        if args_str.is_empty() {
+                            return CheckedType::Named(container_ident.name.clone());
+                        }
+                        return CheckedType::Named(format!("{}[{}]", container_ident.name, args_str.join(", ")));
                     }
                 }
                 // Regular index: arr[idx]

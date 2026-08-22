@@ -1,55 +1,51 @@
 # XIOM Compiler Session -- Handoff (2026-08-19)
 
-## Session update (2026-08-22, round 14 FIXED -- compiler): aggregate closure params + Vec[Str] elements + narrow-SIGNED loads
+## Session update (2026-08-22, round 14b FIXED -- compiler): checker generic-tuple substitution + multibyte Char family
 
-Compiler session (round 14) closed the three roots surfaced by the
-stdlib session's 819/907 sweep:
+Follow-up session (while the stdlib sweep continues) closed two more
+roots:
 
-1. **AGGREGATE-typed closure params FIXED** (the ZipIter tuple predicates
-   / EnumerateIter.map blocker): the closure thunk declared EVERY param
-   as i64 while the call site passed structs/tuples BY VALUE (a 16-byte
-   struct splits across two registers; the i64 param read only the
-   first -- p.x garbage, tuple elements literal 0). The thunk now
-   declares aggregate params with their REAL LLVM types (by value,
-   typed binding) and struct-pointee refs as %struct.X*; __fnwrap
-   forwards aggregates by value. Scalar params keep the uniform i64
-   convention.
-2. **Vec[Str] ELEMENT method calls FIXED** (context.xi pretty-print
-   family): `v[0].len()` emitted getelementptr i8*, i8**, 0, 1 -- the
-   Str builtin guards excluded Index receivers (the Vec[Vec] handle
-   rule) and the generic dispatch GEP'd the i8* as a struct. New
-   resolve_vec_elem_xiom(container) (local_vec_elem / local_xiom_types /
-   struct-field type_meta) drives is_vec_str_elem_receiver; receiver_
-   is_str recognizes Vec[Str] elements so len/slice/substr/starts_with/
-   ends_with all fire; the len handler casts only when the compiled
-   value is really i64.
-3. **narrow-SIGNED Vec loads FIXED** (queue item 3): emit_elem_load
-   hardcoded zext -- Int16 -30000 popped as 35536. The loads now sext
-   when the container's element type is signed (Int8/16/32/64);
-   unsigned stays zext. smoke_collections_vec_narrow now PASSES.
+1. **Checker generic-tuple substitution FIXED**: the Str element of
+   `Some((k, v))` from a generic return (BTreeMap.first_entry) typed as
+   Int ("cannot compare Int with Str"). The checker dropped the
+   receiver's concrete args at ctor bindings and Index type-exprs, and
+   the method-return substitution only replaced whole names. Now:
+   generic_ctor_type_name renders any Type[args].new() binding fully;
+   Index type-exprs keep the args; receiver-method returns substitute
+   generic TOKENS with the receiver's args (arity-gated);
+   parse_tuple_elem_types accepts "(A, B)" and "Tuple__A__B"; payload
+   bindings pass the payload type to inner patterns. The upgraded m44
+   fixture asserts the Str element through the tuple pattern.
+2. **Multibyte Char family FIXED** (BUG 26 #7; smoke_string_slice):
+   xiom_char_at returned the raw BYTE -- now decodes the UTF-8
+   CODEPOINT (i64 ABI; the old i8 couldn't hold codepoints); byte_at
+   reused xiom_char_at and double-decoded -- new xiom_byte_at raw
+   accessor; Vec[Char] slots were 1 byte (codepoints > 255 truncated) --
+   now 4 bytes; the `as` widening hardcoded sext (a UInt8 byte as Int
+   was -50) -- now consults the source XIOM type for UInt*-returning
+   calls. smoke_string_slice + smoke_convert_utf (mojibake strings
+   restored) PASS.
 
 Verified: stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
-parser 97, ctfe 97, full e2e pending (new e2e_m45_round14_aggregate_
-closure_params + e2e_m46_round14_vec_str_elems_narrow); the iter/cmp/
-closure family + the new find/all/any/nth/last smokes all green.
+parser 97, ctfe 97, full e2e pending (new e2e_m47_round14b_multibyte_
+chars); the iter/cmp/collections/utf/error family all green.
 
-**REMAINING COMPILER-SIDE QUEUE (~95 documented, each with minimal repros
+**REMAINING COMPILER-SIDE QUEUE (~90 documented, each with minimal repros
 + user-space proofs in COMPILER_BUGS.md):**
 
 1. **clang -O2 / MSVC-CRT startup crash family** (queue 5/7): smoke_iter_
    collect / smoke_array_sort_by startup AVs and smoke_error2's has-mid
-   layout flip -- deterministic per source, flips with unrelated stdlib
-   code (m34_y15/y20). The SIMD flags / 16 clang-variant matrix is the
-   fix target.
-2. **Multibyte char len_utf8** (BUG 26 #7 family): xiom_char_at of a
-   2-byte UTF-8 char reports the wrong len_utf8 -- blocks
-   smoke_string_slice's chars check (str_chars itself verified correct).
-3. **Checker generic-tuple substitution**: the Str element of a
-   `Some((k, v))` tuple pattern from a generic return types as Int
-   ("cannot compare Int with Str") -- fixtures use key-only patterns.
-4. **Pre-existing**: smoke_error_edge + smoke_iter_edge were landed by
-   the stdlib session's find/all/any/nth/last API work; the empty-range
-   CRT crash family remains (above).
+   flip -- deterministic per source, flips with unrelated stdlib code
+   (m34_y15/y20). The SIMD flags / 16 clang-variant matrix is the fix
+   target.
+2. **narrow-cast signedness residuals**: smoke_string_narrow's
+   `n8 != -128 as Int8` comparison (exit 4) + smoke_convert_narrow_
+   roundtrip (exit 3) -- the Int->Int8/Int8->Int comparison paths (the
+   Vec-load and as-cast widening signedness are fixed; these remain).
+3. **Fixed-array typing**: smoke_array_narrow -- "unknown type '[N x T]'"
+   warnings -- the [N x T] type in annotations.
+4. **Pre-existing**: smoke_geom_vec (exit 57), the empty-range CRT crash
+   family (above).
 
 Campaign trajectory: 516 -> 621 -> 679 -> 738 -> 765 -> 779 -> 793 -> 799 -> 801 -> 819.
 Compiler-side closed roots: BUG 31-56 + the round-fixes (gzip decompress
@@ -58,7 +54,8 @@ arithmetic GEP, non-pub generic type decls + is_llvm_struct_named, ref
 payload auto-deref, Set ABI, Ord/Bounded C001, B-007 closures, round-12
 rm1 Str-return closures + cb2 enum-variant receivers, round-13 closure-
 env family + tuple payloads, round-14 aggregate closure params + Vec[Str]
-elements + narrow-SIGNED loads).
+elements + narrow-SIGNED loads, round-14b checker generic-tuple
+substitution + multibyte Char family).
 Stdlib-side hardened: RefCell, PathBuf, gcd, crc32, VecDeque, Set/Queue/
 Stack, redundant requires traps, prose ensures, smoke semantics, the
 closure-based iter adapter build (map/filter/take/skip/chain/zip/
