@@ -2117,6 +2117,44 @@ smoke_iter_edge (exit 1 at baseline).
   Int-element paths are green. smoke_array_narrow realigned to the
   Int/len paths.
 
+### Round-14c finding (2026-08-22, stdlib session) -- unary minus on nested Vec[Vec[Float64]] index reads the wrong element
+
+- **Construct:** `-m[1][0]` (unparenthesized) reads flat index 1 (element
+  [0][1]) instead of [1][0] -- the minus binds to the ROW read before the
+  index (probe_neg: -m[1][0] == -2.0 bits for m=[[1,2],[3,4]]).
+  Parenthesized `-(m[1][0])` and `0.0 - m[1][0]` are CORRECT (probe_neg3).
+- **Impact (stdlib):** 10 sites across geom/linear, math/approximation,
+  factorial, finance, numerical used the unparenthesized form -- all
+  parenthesized (committed). is_skew_symmetric's check still fails for a
+  DIFFERENT reason (see next finding).
+
+### Round-14c finding (2026-08-22, stdlib session) -- nested Vec[Vec[Float64]] element reads through &Vec[Vec[Float64]] PARAMS return garbage
+
+- **Construct:** inside a fn taking `m: &Vec[Vec[Float64]]`, `m[1][0]`
+  reads garbage (-4.0 bits for m = [[0,1],[-1,0]] -- the value is NOT in
+  the data; probe_skew3/4). The same access on LOCALS in main is correct
+  (probe_neg2/neg4). The mono'd param marshaling for nested-Vec Float64
+  element reads is broken (the outer element read degrades to a raw i64
+  slot read).
+- **Impact (stdlib):** geom/linear is_skew_symmetric (and every matrix
+  predicate with &Vec[Vec[Float64]] params) -- smoke_geom_vec (l-skew),
+  smoke_geom_mat (m-identity), smoke_geom_quat, and the math matrix
+  family. The stdlib code is verified correct (user-space replicas fail
+  identically). Compiler-side (the round-14c note's "mono'd &[N]T body
+  reads offset+1" family).
+
+### Round-14c finding (2026-08-22, stdlib session) -- fn-typed params returning Float64 return 0
+
+- **Construct:** a module fn with a Float64 RETURN passed as an fn-typed
+  arg and called through the wrapper returns 0 (probe_fnv:
+  apply(sqminus2, 2.0) -> 0 instead of 2.0; the fn-ref wrapper's uniform
+  i64 return convention loses the double). i8*-returning fn-refs work
+  (transliterate family).
+- **Impact (stdlib):** smoke_math_numerical (bisection/newton/...),
+  smoke_math_analysis (euler), smoke_math_calculus (derivative),
+  smoke_math_integral (trapezoid), smoke_math_optimization (sa) -- all
+  pass fns with Float64 returns. Compiler-side.
+
 ### Round-14c findings FIXED (2026-08-22) -- write-back bug + generic fn-param aggregates + narrow casts + const-N arrays
 
 Follow-up session closed four of the stdlib session's six new findings
