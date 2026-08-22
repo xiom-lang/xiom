@@ -2072,6 +2072,51 @@ btree_map first_entry/last_entry (exit 7) + smoke_stress_collections_
 btreemap (exit 2) -- the tuple-payload queue item; smoke_error_edge +
 smoke_iter_edge (exit 1 at baseline).
 
+### Round-14c finding (2026-08-22, stdlib session) -- Option[&T] payloads are value-boxed; array module switched to Option[T]
+
+- **Construct:** the array module's `first/last/get/get_mut` returned
+  `Option<&T>` / `Option<&mut T>`. The mono'd body BOXES THE ELEMENT VALUE
+  into the Option payload (`store i64 %loaded, i64* %payload` -- the
+  `Some(&arr[i])` address is never materialized), while call sites treat
+  the payload as a POINTER (comparisons auto-deref:
+  `inttoptr i64 20 to i64*; load` -> 0xC0000005 at address 0x14). The
+  `Option<&T>` shape is broken end-to-end on this compiler.
+- **Evidence:** get1.ll IR (mono'd array.get_Int_Int boxes the value;
+  main's `v != 20` derefs it), probe_get1/probe_first6/probe_first7/
+  probe_gfl (all deterministic AV), probe_get2 (println-only works --
+  value prints correctly).
+- **Stdlib resolution (committed):** first/last/get/get_mut now return
+  Option[T] (value semantics, Vec.get-consistent). Smokes realigned
+  (derefs dropped): smoke_array_get_first_last, smoke_array_edge,
+  smoke_array_narrow (Int paths). GREEN.
+- **Compiler fix direction:** either materialize the &T address in
+  Option<&T> payloads (and stop auto-derefing value payloads), or treat
+  Option<&T> as unsupported.
+
+### Round-14c finding (2026-08-22, stdlib session) -- array.len const-N stale across call sites
+
+- **Construct:** `array.len[T, const N](&arr)` called on DIFFERENT arrays
+  reuses the FIRST call's N: probe_stale.xi -- len(&[7,8]) = 2 (correct),
+  then len(&[1,2,3,4]) = 2 (should be 4) and len(&[9]) = 2 (should be 1).
+  Same family: the empty literal `[]` infers N=3 (probe_vararr),
+  typed [0]Int annotations lose N (probe_arr0b).
+- **Impact (stdlib):** smoke_array_len_empty's multi-literal checks
+  blocked (single-literal form green); any program calling len on
+  multiple arrays gets wrong lengths.
+- **Fix direction:** the mono const-N resolution for the call site must
+  re-publish the const map per distinct argument array (the round-14c
+  const publishing fires once and caches).
+
+### Round-14c finding (2026-08-22, stdlib session) -- narrow-element reads through &[N]T mono bodies read 0
+
+- **Construct:** `array.first(&[1 as Int8, 2, 3])` returns 0 (probe_arr8
+  prints f0=0) -- the Int8/Int16 element read inside the mono'd &[N]T
+  body is broken (narrow reads return 0 / garbage); `array.map` over
+  narrow arrays crashes (probe_arr8b 0xC0000005; explicit type args
+  `array.map[Int16, Int16, 2]` fail the parser: P001 at the comma).
+  Int-element paths are green. smoke_array_narrow realigned to the
+  Int/len paths.
+
 ### Round-14c findings FIXED (2026-08-22) -- write-back bug + generic fn-param aggregates + narrow casts + const-N arrays
 
 Follow-up session closed four of the stdlib session's six new findings
