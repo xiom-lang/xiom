@@ -2269,6 +2269,21 @@ the stdlib iter API -- planned feature gap).
   keep the unsubstituted '[N x T]' form); the literal-inference path
   already produces the correct type.
 
+### Round-14 finding (2026-08-22, stdlib session) -- `as` casts of negative runtime Int values to Int8/Int16 are wrong
+
+- **Construct:** `var m: Int = -128; var m8 = m as Int8; if m8 != -128 as
+  Int8` FAILS (probe_narrow_cast2 check 3); `n as Int8` where n comes from
+  to_int_from_str("-128") fails the same way (smoke_string_narrow check 4,
+  smoke_convert_narrow_roundtrip check 3 -- exit 3/4). Literal casts
+  (`-128 as Int8`), positive-value casts, and typed-local compares all
+  PASS. The value read back is the zext pattern (0x80 -> 128) -- the
+  cast/read of the narrow SIGNED local does not sign-extend.
+- **Relation:** same family as the round-14 Vec narrow fix (that covered
+  emit_elem_load for CONTAINER elements only); the plain narrow-LOCAL
+  read/cast path is still hardcoded zext.
+- **Probes:** probe_narrow_cast2.xi (A/B/D/E pass, C fails),
+  probe_narrow_str.xi (parse ok, cast fails).
+
 ### Round-14 finding (2026-08-22, stdlib session) -- runtime string-literal conversion mangles multibyte content (program-dependent)
 
 - **Construct:** non-ASCII string literals compile to CORRECT UTF-8 IR
