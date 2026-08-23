@@ -519,10 +519,12 @@ impl crate::IrEmitter {
         let inner = &s[open + 1..s.rfind(']')?];
         let mut depth = 0i32;
         let mut end = inner.len();
+        // round-15 (probe_zip_k): PARENTHESES nest too -- "Option[(Int, Int)]"
+        // must not split at the tuple's inner comma.
         for (i, c) in inner.char_indices() {
             match c {
-                '[' => depth += 1,
-                ']' => depth -= 1,
+                '[' | '(' => depth += 1,
+                ']' | ')' => depth -= 1,
                 ',' if depth == 0 => { end = i; break; }
                 _ => {}
             }
