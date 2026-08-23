@@ -33,23 +33,57 @@ Verified: stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
 parser 97, ctfe 97, full e2e pending (new e2e_m48_round14c_writeback_
 aggregates); the time/iter/cmp/utf/narrow families all green.
 
-**REMAINING COMPILER-SIDE QUEUE (~85 documented, each with minimal repros
-+ user-space proofs in COMPILER_BUGS.md):**
+**REMAINING COMPILER-SIDE QUEUE (consolidated 2026-08-23, ~85 documented,
++ user-space proofs / probes in COMPILER_BUGS.md + docs/stdlib_session.md;
++ priority order -- the stdlib session's next-session queue):**
 
-1. **clang -O2 / MSVC-CRT startup crash family** (queue 5/7): smoke_iter_
-   collect / smoke_array_sort_by startup AVs and smoke_error2's has-mid
-   flip -- deterministic per source, flips with unrelated stdlib code
-   (m34_y15/y20). The SIMD flags / 16 clang-variant matrix is the fix
-   target.
-2. **LET-array representation conflict**: smoke_array_narrow's FIRST
-   section (a LET array + array.len/first) -- the M33 let->Vec
-   conversion satisfies the core/slice fns (&Slice[T]) but breaks the
-   array module's &[N]T fns; VAR arrays are now fixed arrays. A
-   stdlib-design item (which representation LET arrays should take).
-3. **array.first's element-0 read** (the mono'd &[N]T body reads
-   offset+1 -- an off-by-one in the fixed-array index path).
-4. **Pre-existing**: smoke_array_edge, smoke_geom_vec (exit 57),
-   smoke_convert_narrow_roundtrip (exit 3), the CRT crash family (above).
+1. **Fn-typed params returning Float64 return 0** (stdlib finding 8 --
+   blocks the math numerical family): the fn-ref/closure wrapper
+   marshals i64 but a Float64-returning fn-typed param comes back 0
+   (the fn_local_returns/M20-A1 ret handling for double returns through
+   the env convention). Probes: math analysis/calculus/integral/
+   numerical/optimization + smoke_math_analysis/calculus (exit -1).
+2. **Nested `&Vec[Vec[Float64]]` param reads garbage** (stdlib finding 7
+   -- the mono'd param path; the "offset+1" family): blocks geom/mat/
+   quat, math_finance, math_edge. Same root family as array.first's
+   element-0 read (the mono'd &[N]T body reads offset+1).
+3. **Ord[T].compare dispatch in stdlib contexts** (stdlib finding 10):
+   smoke_core_binary_heap exit 4 -- the heap order diverges while a
+   user-space replica is correct (the Ord interface dispatch inside
+   catalog modules).
+4. **Const-N array residuals** (stdlib finding 4, PARTIAL): (a) array.len
+   const-N STALE across call sites (probe_stale: len(&[7,8]) = 2 then
+   len(&[1,2,3,4]) = 2); (b) typed [N]T ANNOTATIONS lose N; (c)
+   array.map's [N]U result type unresolved implicitly (probe_map);
+   (d) array_zip T001; (e) array_len_empty [0] single-literal case;
+   (f) array_slice/fold AVs; (g) array.first's off-by-one (element 0
+   read at offset+1).
+5. **Generic fn-param BY-VALUE residual** (stdlib finding 2 residual):
+   `fn(T) -> Bool` with T = a tuple still degrades at the CHECKER (T ->
+   unit -- probe_zip_j/k); the &-form is fixed (round-14c).
+6. **Unary minus on nested index** (stdlib finding 6): `-m[r][c]` binds
+   to the row -- stdlib parenthesized at 10 sites; the parser/codegen
+   root remains.
+7. **Extra call args silently dropped** (stdlib finding 9): no arg-count
+   check on module-prefix calls (a wrong-arity call compiles and drops
+   the extras).
+8. **CRT-layout family** (queue 5/7): smoke_iter_collect, smoke_array_
+   sort_by, smoke_array_slice/fold, smoke_convert_url, smoke_core_box,
+   smoke_stress_regex_find/match_count, smoke_stress_serialize_jsonvalue_
+   get/parse_nested (startup AVs, deterministic per source, flips with
+   unrelated code) + smoke_error2's has-mid flip. The SIMD flags / 16
+   clang-variant matrix is the fix target.
+9. **json heap** (queue 4, 0xC0000374): json_nested, json_parse_valid,
+   json_parse_nested.
+10. **Stack cookie**: smoke_math_edge, stress_crypto_argon2/pbkdf2 x2,
+    stress_io_bufreader.
+11. **Clang variants** (queue 6): ptr_offset, io_copy, io_copy_file,
+    io_read_int_float, hash_values, convert_escape, regex_captures x4.
+12. **LET-array representation conflict** (mine): the M33 let->Vec
+    conversion satisfies the core/slice fns (&Slice[T]) but breaks the
+    array module's &[N]T fns (smoke_array_narrow's first section).
+13. **Pre-existing**: smoke_array_edge (AV), smoke_geom_vec (exit 57),
+    smoke_convert_narrow_roundtrip (exit 3).
 
 Campaign trajectory: 516 -> 621 -> 679 -> 738 -> 765 -> 779 -> 793 -> 799 -> 801 -> 819.
 Compiler-side closed roots: BUG 31-56 + the round-fixes (gzip decompress
@@ -66,7 +100,11 @@ crc32, VecDeque, Set/Queue/Stack, redundant requires traps, prose
 ensures, smoke semantics, the closure-based iter adapter build (map/
 filter/take/skip/chain/zip/enumerate/collect/fold/count/max/min +
 find/all/any/nth/last), sync Once, error pretty-print family, string
-requires cleanup, Str.is_empty method.
+requires cleanup, Str.is_empty method, array Option[T] value semantics,
+unary-minus parens, sync Arc/Atomic ctor prefixes, compress sublib
+delegation, base64url ensures, serialize.is_valid_bytes, str_slice/
+str_concat byte-copy, str_lower/str_upper byte-safe ASCII, BinaryHeap
+&mut self, regex replace_all engine-qualified.
 
 **WORKFLOW (unchanged):** probe -> IR-diff -> fix -> verify probe + stdlib
 smoke + e2e regression (tests/regression/m3x_*.xi + e2e_mXX registration)
