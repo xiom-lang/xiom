@@ -2333,9 +2333,10 @@ Follow-up session closed five roots (e2e `e2e_m49_round15_fnfloat_constarrays`):
    over arg inference). probe_zip_j Z1/Z2 checker-clean; probe_zip_k
    runtime re-verified after the checker round.
 
-Verified: stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
+Verified: full e2e 2294/2294 (incl. e2e_m49_round15_fnfloat_constarrays),
+stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
 parser 97, ctfe 97, 47-smoke regression battery (array/heap/math/iter/
-collections/string/rc/sync families) all green, full e2e pending.
+collections/string/rc/sync families) all green.
 PRE-EXISTING (unchanged, baseline-confirmed): the CRT-layout family
 (smoke_iter_collect/array_sort_by/array_slice/fold startup AVs,
 smoke_geom_vec exit 57 / smoke_geom_mat exit 4 / smoke_geom_quat exit 18
