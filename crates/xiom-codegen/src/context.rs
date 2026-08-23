@@ -319,6 +319,11 @@ pub struct LocalContext {
     pub array_value_regs: HashSet<String>,
     /// LLVM element type for local array bindings
     pub local_array_elem: HashMap<String, String>,
+    /// round-15: XIOM element NAME for local array bindings ("UInt8" for
+    /// `[200 as UInt8, ...]` -- the LLVM map only knows the width and would
+    /// degrade signedness to "Int8"). Consumed by resolve_local_xiom_type so
+    /// generic-arg inference monomorphises &[N]UInt8 bodies (zext reads).
+    pub local_array_elem_xiom: HashMap<String, String>,
     /// Fixed-size array-local bindings (var name -> N elements)
     pub local_array_sizes: HashMap<String, i64>,
     /// BUG 22 #6: while/for nesting depth -- bindings compiled at depth > 0

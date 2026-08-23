@@ -2255,6 +2255,95 @@ smoke_array_edge; smoke_geom_vec; smoke_convert_narrow_roundtrip;
 smoke_array_narrow's let-array tail (the fixed-array-vs-Vec
 representation conflict for LET arrays is a stdlib-design item).
 
+### Round-15 findings FIXED (2026-08-23) -- fn-typed Float64 thunks + Ord-interface injection + const-N arrays + checker generic bare calls
+
+Follow-up session closed five roots (e2e `e2e_m49_round15_fnfloat_constarrays`):
+
+1. **Fn-typed params returning Float64 returned 0** (stdlib finding 8 --
+   smoke_math_numerical/analysis/calculus/integral/optimization all
+   blocked). The fn-REF wrapper thunk (`__fnwrap_N`, vec_abi.rs
+   wrap_fn_ref_env) declared every non-aggregate param as `i64` and
+   restored the callee's real types via casts INSIDE the thunk
+   (`sitofp i64 %a0 to double`). The M20-A1 call site passes the REAL
+   arg types (`double` in XMM registers on Win64) -- the i64 declaration
+   read RDX garbage and sitofp corrupted the bit pattern
+   (apply(sqminus2, 2.0) -> 0). Fix: float/double/fp128 params declare
+   REAL types in the thunk signature and forward unchanged (like the
+   round-14 aggregate params). The BLOCK-STYLE closure thunk (expr.rs
+   Closure arm) had the same defect (`_ =>` collapsed "double" to
+   "i64") -- fixed the same way. probe_fnv + probe_fnv2 (mixed
+   fn(Int)->Int + fn(Float64)->Float64, Float32 closure) green; all five
+   math smokes exit 0.
+2. **Ord[T].compare dispatch inside mono'd stdlib bodies** (stdlib
+   finding 10 -- smoke_core_binary_heap popped 2,3,1,5). The checker's
+   collect_external_decls injected catalog INTERFACES only when
+   `id.is_pub` -- core.xi's `interface Ord[T]` (and Eq/Bounded/...) are
+   non-pub, so codegen never registered them: `Ord[T].compare(a, b)`
+   in mono'd sift_up was misread as a VALUE-INSTANCE method (receiver_
+   is_instance's interfaces check missed) and the inline scalar compare
+   fired with a LITERAL-0 receiver (`compare(0, data[parent]) >= 0` ->
+   heap order broke). Fix: inject all interfaces (pure declarations, no
+   layout -- same rationale as the round-8 non-pub TYPE injection).
+   probe_heap3 pops 5,3,2,1; smoke_core_binary_heap exit 0.
+3. **Const-N array residuals** (stdlib finding 4):
+   (a) array.len const-N STALE across call sites (probe_stale: l4=2,
+   l1=2) -- the const-generic inference pushed the literal "Int" into
+   concrete_types, so len(&[7,8]) and len(&[1,2,3,4]) both specialized
+   to `array.len_Int_Int` and the first call's const map {N: 2} won.
+   The mono name now embeds the VALUE (`array.len_Int_2` vs
+   `_Int_4`), and the const inference also extracts N from a
+   call-returned fixed-array local's slot ("[5 x i64]" -> 5).
+   (b) NARROW-element reads through &[N]T mono bodies (probe_arr8:
+   array.first on [1 as Int8, 2, 3] returned Some(0); probe_arr8b:
+   UInt8 200 -> -56) -- THREE coordinated roots: (i) the CALLER's array
+   locals leaked into mono bodies (array_locals/local_array_elem were
+   never cleared per fn -- BUG 47 family), so the mono'd `arr[0]`
+   misrouted through the array-BUFFER path (length-at-[0], index+1);
+   (ii) `[1 as Int8, ...]` built an 8-byte-slot Vec (elem "Int"
+   default) while the mono body read i8 elements; (iii) i8* elem
+   pointers were ambiguous with Str (xiom_char_at) and the widening
+   defaulted to sext. Fixes: per-fn + mono-body clears of the array
+   metadata sets; Ref-Array mono params register their ELEMENT type
+   (substituted XIOM name -- "UInt8", not the LLVM-width "Int8");
+   a dedicated i8* array-param index path reads data[idx] with the
+   elem width and widens with the registered signedness; VAR array
+   literals infer the scalar element type (`[200 as UInt8, ...]` ->
+   1-byte-element Vec); a new local_array_elem_xiom map keeps the
+   As-target name for generic-arg inference. probe_arr8b full battery
+   (Int8 first/get/last, UInt8, Int16 negatives) green; smoke_array_
+   narrow/edge/len_empty/get_first_last all exit 0.
+   (c) array.map's [N]U result (probe_map -- was clang reject then
+   AV then len=0): the BY-VALUE `[N]T` param had NO call-side type arm
+   (the default used the ARG's type: %struct.Vec against the mono
+   def's "[5 x i64]" -> ABI mismatch), and the caller passed the Vec
+   header. Fix: call-side Type::Array arm resolves "[N x T]" from the
+   substituted elem + const N, and coerce_arg_for_param MATERIALIZES
+   the aggregate from a Vec value (data + i*elem_size -> insertvalue).
+   probe_map: len=5, d0=2, d4=10; smoke_array_map exit 0.
+   NOT covered (unchanged): array_zip T001 (CHECKER rejects the
+   `(T, U)` element store -- "cannot access field on non-struct type
+   Int"), array_slice/fold AVs (CRT-layout family).
+4. **Checker: type-parameterized bare calls** `apply_g[(Int, Int)](...)`
+   (stdlib finding 2 residual -- probe_zip_j/k): the callee parses as
+   Expr::Call(Expr::Index(Ident(fn), types), args) and the checker
+   treated the Index as a VALUE expression -> Unit -> "cannot logically
+   negate type ()". Fix (xiom-check): unwrap the Index callee to the
+   bare Ident when the base is a registered FUNCTION (not a type) and
+   feed the explicit type args into the generic substitution (they win
+   over arg inference). probe_zip_j Z1/Z2 checker-clean; probe_zip_k
+   runtime re-verified after the checker round.
+
+Verified: stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
+parser 97, ctfe 97, 47-smoke regression battery (array/heap/math/iter/
+collections/string/rc/sync families) all green, full e2e pending.
+PRE-EXISTING (unchanged, baseline-confirmed): the CRT-layout family
+(smoke_iter_collect/array_sort_by/array_slice/fold startup AVs,
+smoke_geom_vec exit 57 / smoke_geom_mat exit 4 / smoke_geom_quat exit 18
+/ smoke_math_edge AV -- these FLIP with unrelated IR: each reproduced
+identically at baseline and passed on intermediate builds),
+smoke_error2's has-mid flip, smoke_convert_narrow_roundtrip, the
+LET-array representation conflict (stdlib-design item).
+
 ### Round-14b findings FIXED (2026-08-22) -- checker generic-tuple substitution + multibyte Char family
 
 Follow-up session (while the stdlib sweep runs) closed two more roots

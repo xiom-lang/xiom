@@ -2872,10 +2872,37 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                 const_values.insert(gp.name.name.clone(), *size);
                                                 break;
                                             }
+                                            // round-15 (probe_map): the arg may be
+                                            // bound from a CALL returning [N]T
+                                            // (`var doubled = array.map(...)` ->
+                                            // slot "[5 x i64]"): extract N from the
+                                            // local's fixed-array slot type so
+                                            // `array.len(&doubled)` mono's with
+                                            // N=5 (the old fallback left N
+                                            // unresolved -> ret 0 -> len=0).
+                                            if let Some((_, slot_ty)) = self.lookup_local(&id.name) {
+                                                if let Some(n) = Self::extract_array_len(&slot_ty) {
+                                                    const_values.insert(gp.name.name.clone(), n);
+                                                    break;
+                                                }
+                                            }
                                         }
                                     }
                                 }
-                                concrete_types.push("Int".to_string());
+                                // round-15 (stale const-N): embed the const VALUE
+                                // in the mono name -- two calls with DIFFERENT N
+                                // must specialize to DIFFERENT bodies
+                                // (array.len_Int_2 vs array.len_Int_4). The old
+                                // "Int" placeholder made every N collide on
+                                // array.len_Int_Int: the first call's const map
+                                // {N: 2} won, and len(&[1,2,3,4]) returned 2
+                                // (probe_stale: l4=2, l1=2). Falls back to "Int"
+                                // when the value can't be inferred (degraded path).
+                                let const_val = const_values.get(&gp.name.name).copied();
+                                concrete_types.push(match const_val {
+                                    Some(v) => v.to_string(),
+                                    None => "Int".to_string(),
+                                });
                                 continue;
                             }
                             // Find a function parameter whose type directly uses this generic (not wrapped)
@@ -3187,6 +3214,31 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                 }
                                             },
                                             _ => {
+                                                // round-15 (smoke_array_map): a BY-VALUE
+                                                // [N]T param (array.map/zip's arr/a/b)
+                                                // resolves to the fixed aggregate
+                                                // "[N x T]" -- the old default used the
+                                                // ARG's type (%struct.Vec for VAR array
+                                                // literals) and the call passed the Vec
+                                                // HEADER against the mono def's
+                                                // "[5 x i64]" -> ABI mismatch -> AV.
+                                                if let Type::Array(size_expr, elem) = &p.ty {
+                                                    let mut subst_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+                                                    for (gi, gp) in fd.generics.iter().enumerate() {
+                                                        if let Some(c) = concrete_types.get(gi) {
+                                                            subst_map.insert(gp.name.name.clone(), c.clone());
+                                                        }
+                                                    }
+                                                    let subst = Self::substitute_type(elem, elem, &subst_map);
+                                                    let name = Self::type_from_ast(&subst);
+                                                    let elem_llvm = self.llvm_type_for(&name).unwrap_or_else(|_| "i64".to_string());
+                                                    let n: u64 = match size_expr.as_ref() {
+                                                        Expr::Int(n, _) => *n as u64,
+                                                        Expr::Ident(id) => const_values.get(&id.name).copied().unwrap_or(0) as u64,
+                                                        _ => 0,
+                                                    };
+                                                    if n == 0 { elem_llvm } else { format!("[{n} x {elem_llvm}]") }
+                                                } else {
                                                 // BUG 52 (2026-08-18): by-VALUE generic
                                                 // params (`value: V`) must resolve the
                                                 // CONCRETE type from the call's type
@@ -3210,6 +3262,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                     self.llvm_type_for(&name).unwrap_or_else(|_| "i64".to_string())
                                                 } else {
                                                     self.infer_llvm_type(a)
+                                                }
                                                 }
                                             }
                                         }

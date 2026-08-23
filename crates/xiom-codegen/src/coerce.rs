@@ -7,6 +7,47 @@ use crate::llvm_consts::*;
 
 impl IrEmitter {
     pub(crate) fn coerce_arg_for_param(&mut self, arg_expr: &Expr, pre_val: &str, pre_ty: &str, param_ty: &str) -> String {
+        // round-15 (probe_map): a BY-VALUE [N]T param (array.map/zip) receiving
+        // a %struct.Vec VALUE (unannotated VAR array literals convert to Vec
+        // -- M33) -- the mono def declares "[5 x i64]" and reads the aggregate,
+        // so the caller must MATERIALIZE it from the Vec's data buffer
+        // (element i at data + i*elem_size). The old pass-through fed the Vec
+        // HEADER bits as the array -> garbage/AV (smoke_array_map exit 1).
+        if param_ty.starts_with('[') && param_ty.contains(" x ") && !param_ty.ends_with('*') {
+            if let (Some(n), elem_llvm) = (Self::extract_array_len(param_ty), Self::extract_array_elem_ty(param_ty)) {
+                if pre_ty == "%struct.Vec" && n > 0 {
+                    let v_alloca = self.fresh_tmp();
+                    self.emitln(&format!("  {v_alloca} = alloca %struct.Vec"));
+                    self.emitln(&format!("  store %struct.Vec {pre_val}, %struct.Vec* {v_alloca}"));
+                    let dp_gep = self.fresh_tmp();
+                    self.emitln(&format!("  {dp_gep} = getelementptr %struct.Vec, %struct.Vec* {v_alloca}, i32 0, i32 0"));
+                    let data = self.fresh_tmp();
+                    self.emitln(&format!("  {data} = load i8*, i8** {dp_gep}"));
+                    let esz_gep = self.fresh_tmp();
+                    self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {v_alloca}, i32 0, i32 3"));
+                    let esz = self.fresh_tmp();
+                    self.emitln(&format!("  {esz} = load i64, i64* {esz_gep}"));
+                    let agg = self.fresh_tmp();
+                    self.emitln(&format!("  {agg} = alloca {param_ty}"));
+                    for i in 0..n {
+                        let off = self.fresh_tmp();
+                        self.emitln(&format!("  {off} = mul i64 {i}, {esz}"));
+                        let ep = self.fresh_tmp();
+                        self.emitln(&format!("  {ep} = getelementptr i8, i8* {data}, i64 {off}"));
+                        let eptr = self.fresh_tmp();
+                        self.emitln(&format!("  {eptr} = bitcast i8* {ep} to {elem_llvm}*"));
+                        let ev = self.fresh_tmp();
+                        self.emitln(&format!("  {ev} = load {elem_llvm}, {elem_llvm}* {eptr}"));
+                        let agep = self.fresh_tmp();
+                        self.emitln(&format!("  {agep} = getelementptr {param_ty}, {param_ty}* {agg}, i64 0, i64 {i}"));
+                        self.emitln(&format!("  store {elem_llvm} {ev}, {elem_llvm}* {agep}"));
+                    }
+                    let loaded = self.fresh_tmp();
+                    self.emitln(&format!("  {loaded} = load {param_ty}, {param_ty}* {agg}"));
+                    return loaded;
+                }
+            }
+        }
         // By-value struct params: `&Vec[T]`/`&Slice[T]` receive the STRUCT value
         // (%struct.Vec), NOT the address. For a `Ref(lvalue)` arg, compile the
         // inner value directly -- otherwise the caller passes the Vec's data

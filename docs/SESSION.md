@@ -1,5 +1,83 @@
 # XIOM Compiler Session -- Handoff (2026-08-19)
 
+## Session update (2026-08-23, round 15 FIXED -- compiler): fn-typed Float64 thunks + Ord-interface injection + const-N arrays + checker generic bare calls
+
+Closed FIVE more queue items (e2e `e2e_m49_round15_fnfloat_constarrays`,
+commits pending on feat/architect):
+
+1. **Fn-typed params returning Float64 returned 0** (queue 1 -- the math
+   numerical family): the `__fnwrap_N` fn-ref thunk declared every
+   non-aggregate param as i64 and restored the callee's real types via
+   casts INSIDE the thunk (`sitofp i64 %a0 to double`). The M20-A1 call
+   site passes REAL arg types (`double` in XMM on Win64) -- the i64
+   declaration read RDX garbage + sitofp corrupted the bits
+   (apply(sqminus2, 2.0) -> 0). Thunk params now declare real
+   float/double/fp128 types and forward unchanged; the block-style
+   closure thunk (expr.rs) had the same defect. All FIVE blocked math
+   smokes (numerical/analysis/calculus/integral/optimization) exit 0.
+2. **Ord[T].compare dispatch in stdlib contexts** (queue 3 --
+   smoke_core_binary_heap exit 4): the checker's collect_external_decls
+   injected catalog INTERFACES only when `id.is_pub`; core.xi's
+   `interface Ord[T]` is non-pub, so codegen never registered it and
+   `Ord[T].compare(a, b)` in mono'd sift_up was misread as a
+   value-instance method (inline compare with a LITERAL-0 receiver).
+   Interfaces now inject unconditionally (decl-only, no layout).
+   probe_heap3 pops 5,3,2,1; smoke_core_binary_heap exit 0.
+3. **Const-N array residuals** (queue 4): (a) array.len const-N STALE
+   across call sites -- the mono name now embeds the VALUE
+   (`array.len_Int_2` vs `_Int_4`; the old "Int" placeholder made every
+   N collide on the first call's const map); (b) narrow-element reads
+   through &[N]T mono bodies -- the caller's array locals LEAKED into
+   mono bodies (never cleared per fn -- BUG 47 family) and misrouted
+   `arr[0]` through the +1 array-buffer path; Ref-Array mono params now
+   register their element type (substituted XIOM name -- "UInt8" not
+   "Int8"), i8* array params get a dedicated data[idx] index path with
+   signedness-aware widening, VAR array literals infer scalar element
+   types, and a new local_array_elem_xiom keeps As-target names for
+   generic-arg inference (probe_arr8/arr8b green: Int8/UInt8/Int16);
+   (c) array.map's [N]U result -- the call-side param type for BY-VALUE
+   [N]T params resolves "[N x T]" (was the arg's %struct.Vec) and
+   coerce_arg_for_param MATERIALIZES the aggregate from a Vec value
+   (probe_map: len=5, d0=2, d4=10; smoke_array_map exit 0).
+   smoke_array_edge/len_empty/get_first_last/narrow all exit 0.
+4. **Generic fn-param BY-VALUE residual** (queue 5 -- probe_zip_j/k):
+   (a) CHECKER: type-parameterized bare calls `apply_g[(Int, Int)](...)`
+   parse as Call(Index(Ident, types), args) and resolved to Unit
+   ("cannot logically negate type ()") -- the checker now unwraps the
+   Index callee when the base is a registered function and feeds the
+   explicit type args into the generic substitution; (b) CODEGEN: the
+   generic-call scrutinee's payload type resolves through
+   callee_return_xiom's new Index arm (substituted return
+   "Option[Tuple__Int__Int]") and the option/result payload extractors
+   now count PARENTHESES as nesting ("Option[(Int, Int)]" no longer
+   splits at the tuple's comma -- the Some(p) binding derefs the box).
+   Both probes exit 0 (find_via_val[(Int, Int)] with by-value
+   fn(T) -> Bool predicates).
+
+Verified: full e2e 2293/2293 (round-15 codegen binary), checker 178,
+parser 97, ctfe 97, feature-reg 510, stdlib-exec 70/70 (+2 ignore),
+47-smoke battery (array/heap/math/iter/collections/string/rc/sync),
+7 probes (fnv/fnv2/map/stale/arr8/arr8b/zip_j/zip_k). PRE-EXISTING
+(unchanged, baseline-confirmed): the CRT-layout family
+(smoke_iter_collect/array_sort_by/array_slice/fold startup AVs +
+smoke_geom_vec exit 57 / smoke_geom_mat exit 4 / smoke_geom_quat exit 18
+/ smoke_math_edge AV -- all reproduce identically at BASELINE and flip
+with unrelated IR; smoke_error2's has-mid flip), smoke_convert_narrow_
+roundtrip, the LET-array representation conflict (stdlib-design item),
+array_zip's checker T001 ((T, U) element store), queue 7 (extra call
+args silently dropped), json heap / stack cookie / clang variants.
+
+**WORKFLOW (unchanged):** probe -> IR-diff -> fix -> verify probe + stdlib
+smoke + e2e regression (tests/regression/m3x_*.xi + e2e_mXX registration)
+-> quick suites (checker/parser/ctfe/feature-reg/stdlib-exec) -> full e2e in
+the background -> update COMPILER_BUGS.md + SESSION.md -> commit
+(conventional messages) -> report to the stdlib session for the re-sweep.
+Full suite: cargo test -p xiom-check, -p xiom-parser, -p xiom-ctfe,
+-p xiom-codegen --test {feature_regression_tests,stdlib_execution_tests,
+stdlib_tests,e2e_tests}. Build target/debug/xiom.exe BEFORE suites; NEVER
+run two suites concurrently; e2e_m16_scripting_exit_zero is an
+environmental fail (ignore).
+
 ## Session update (2026-08-22, round 14c FIXED -- compiler): write-back bug + generic fn-param aggregates + narrow casts + const-N arrays
 
 Follow-up session closed four of the stdlib session's six new findings:

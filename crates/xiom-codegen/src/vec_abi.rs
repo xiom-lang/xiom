@@ -466,7 +466,16 @@ impl IrEmitter {
             // cannot marshal through an i64 (the old i64 param read only the
             // first register: p.x garbage). Declare the param as the struct
             // type and forward it directly.
+            // round-15 (fn-typed Float64 returns): float/double params are
+            // passed in XMM registers by the M20-A1 call site (the call uses
+            // the REAL arg types) -- declaring i64 made the thunk read RDX
+            // garbage and the sitofp corrupted the bit pattern (probe_fnv:
+            // apply(sqminus2, 2.0) returned 0). Declare them real and
+            // forward unchanged, like aggregates.
             if pt.starts_with("%struct.") && !pt.ends_with('*') {
+                params.push(format!("{pt} %a{k}"));
+                types_only.push(pt.clone());
+            } else if pt == "float" || pt == "double" || pt == "fp128" {
                 params.push(format!("{pt} %a{k}"));
                 types_only.push(pt.clone());
             } else {
@@ -494,10 +503,10 @@ impl IrEmitter {
                 let cast = format!("%p{k}");
                 self.emitln(&format!("  {cast} = trunc i64 %a{k} to {pt}"));
                 fwd.push(format!("{pt} {cast}"));
-            } else if pt == "float" || pt == "double" {
-                let cast = format!("%p{k}");
-                self.emitln(&format!("  {cast} = sitofp i64 %a{k} to {pt}"));
-                fwd.push(format!("{pt} {cast}"));
+            } else if pt == "float" || pt == "double" || pt == "fp128" {
+                // Declared real in the thunk signature (see above) -- forward
+                // unchanged; the old sitofp-from-i64 corrupted the bit pattern.
+                fwd.push(format!("{pt} %a{k}"));
             } else {
                 fwd.push(format!("i64 %a{k}"));
             }

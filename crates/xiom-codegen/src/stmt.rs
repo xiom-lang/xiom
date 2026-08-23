@@ -9,6 +9,23 @@ use crate::llvm_consts::*;
 use super::IrEmitter;
 
 impl IrEmitter {
+    /// round-15: infer the XIOM element NAME of a scalar array-literal
+    /// element -- As-target aware so `200 as UInt8` yields "UInt8" (not the
+    /// LLVM-width "Int8"). Falls back to the local's registered type for
+    /// Ident elements; structs/tuples return None (handled elsewhere).
+    pub(crate) fn infer_scalar_elem_xiom(&self, e: &Expr) -> Option<String> {
+        match e {
+            Expr::As(_, ty, _) => Some(Self::type_from_ast(ty)),
+            Expr::Int(..) => Some("Int".to_string()),
+            Expr::Float(..) => Some("Float64".to_string()),
+            Expr::Bool(..) => Some("Bool".to_string()),
+            Expr::Char(..) => Some("Char".to_string()),
+            Expr::Str(..) => Some("Str".to_string()),
+            Expr::Ident(id) => self.xiom_type_of_local(&id.name),
+            _ => None,
+        }
+    }
+
     pub(crate) fn compile_stmt_impl(&mut self, stmt: &Stmt) -> Result<(), String> {
         match stmt {
             Stmt::Let(name, _ty, value, _) => {
@@ -29,6 +46,12 @@ impl IrEmitter {
                             if elem_ty != "i64" {
                                 self.local.local_array_elem.insert(name.name.clone(), elem_ty);
                             }
+                        }
+                        // round-15: record the XIOM element NAME (As-target
+                        // aware) so generic-arg inference keeps signedness
+                        // (`[200 as UInt8, ...]` -> "UInt8", not "Int8").
+                        if let Some(elem_xiom) = elems.first().and_then(|e| self.infer_scalar_elem_xiom(e)) {
+                            self.local.local_array_elem_xiom.insert(name.name.clone(), elem_xiom);
                         }
                         // 5c.30: record array size for const-generic inference
                         self.local.local_array_sizes.insert(name.name.clone(), elems.len() as i64);
@@ -327,6 +350,12 @@ impl IrEmitter {
                                 self.local.local_array_elem.insert(name.name.clone(), elem_ty);
                             }
                         }
+                        // round-15: record the XIOM element NAME (As-target
+                        // aware) so generic-arg inference keeps signedness
+                        // (`[200 as UInt8, ...]` -> "UInt8", not "Int8").
+                        if let Some(elem_xiom) = elems.first().and_then(|e| self.infer_scalar_elem_xiom(e)) {
+                            self.local.local_array_elem_xiom.insert(name.name.clone(), elem_xiom);
+                        }
                         // 5c.30: record array size for const-generic inference
                         self.local.local_array_sizes.insert(name.name.clone(), elems.len() as i64);
                         // M33: track Vec element type for array-literal-to-Vec conversion
@@ -535,6 +564,7 @@ impl IrEmitter {
                         return Ok(());
                     }
                     // 5c.39: Non-empty array literal assigned to a Vec-typed
+                    // 5c.39: Non-empty array literal assigned to a Vec-typed
                     // variable -- convert to Vec via compile_array_as_vec.
                     // M33: Infer element type from first element for struct
                     // arrays when no type annotation is present. Defaults to
@@ -545,6 +575,17 @@ impl IrEmitter {
                         .and_then(|t| Self::vec_elem_from_type_annotation(t))
                         .or_else(|| {
                             elems.first().and_then(|e| self.infer_struct_type_name(e))
+                        })
+                        .or_else(|| {
+                            // round-15 (narrow VAR array literals): infer the
+                            // SCALAR element type from the first element --
+                            // `var arr8 = [1 as Int8, 2, 3]` must build a
+                            // 1-byte-element Vec. The old "Int" default made
+                            // 8-byte slots while the mono'd &[N]T body reads
+                            // data[idx] as i8 -- every element except 0 read
+                            // garbage (probe_arr8: first returned 0). The
+                            // As-aware helper keeps signedness ("UInt8").
+                            elems.first().and_then(|e| self.infer_scalar_elem_xiom(e))
                         })
                         .unwrap_or_else(|| "Int".to_string());
                     self.compile_array_as_vec(elems, &elem_ty)?
