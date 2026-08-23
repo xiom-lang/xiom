@@ -2452,6 +2452,42 @@ impl IrEmitter {
                 let (cont_val, cont_ty) = self.compile_expr(container)?;
                 let (idx_raw, idx_ty) = self.compile_expr(index)?;
                 let idx = self.val_to_i64(&idx_raw, &idx_ty);
+                // round-15 (&[N]T mono params): the mono param lowers to a
+                // bare ELEMENT pointer -- "i8*" for [N]Int8. i8* is ambiguous
+                // with Str, so check the recorded array-param element type
+                // FIRST (the mono param binding registers local_array_elem for
+                // Ref-Array params; the caller's array locals are cleared at
+                // mono body start). Read data[idx] with the elem type -- the
+                // Str path (xiom_char_at) and the array-buffer path (offset+1)
+                // both misread narrow-element arrays (probe_arr8: array.first
+                // on [1 as Int8, 2, 3] returned 0 instead of 1).
+                if cont_ty == "i8*" && self.is_array_elem_param(container) {
+                    let elem_ty = self.local.local_array_elem.get(
+                        match container.as_ref() { Expr::Ident(id) => &id.name, _ => return Ok(("0".to_string(), LLVM_I64.to_string())) }
+                    ).cloned().unwrap_or_else(|| "i8".to_string());
+                    let elem_ptr = self.fresh_tmp();
+                    self.emitln(&format!("  {elem_ptr} = getelementptr {elem_ty}, {elem_ty}* {cont_val}, i64 {idx}"));
+                    let elem = self.fresh_tmp();
+                    self.emitln(&format!("  {elem} = load {elem_ty}, {elem_ty}* {elem_ptr}"));
+                    // Widen immediately with the param's registered signedness --
+                    // UInt8 elements must ZERO-extend (200 -> 200, not -56); the
+                    // default val_to_i64 sext corrupted unsigned narrow arrays
+                    // (probe_arr8b u0=-56).
+                    if elem_ty != "i64" {
+                        let xiom_name = match container.as_ref() {
+                            Expr::Ident(id) => self.local.local_xiom_types.get(&id.name).cloned(),
+                            _ => None,
+                        };
+                        let signed = xiom_name.as_deref()
+                            .map(Self::is_signed_xiom_type)
+                            .unwrap_or(true);
+                        let ext = if signed { "sext" } else { "zext" };
+                        let wide = self.fresh_tmp();
+                        self.emitln(&format!("  {wide} = {ext} {elem_ty} {elem} to i64"));
+                        return Ok((wide, LLVM_I64.to_string()));
+                    }
+                    return Ok((elem, elem_ty));
+                }
                 // Index into an Expr::Array literal buffer (i8* with length at [0]).
                 // The buffer layout is: [length: i64][elem0: i64][elem1: i64]...
                 // Skip past the leading length slot and read the element at index+1.
@@ -2461,6 +2497,9 @@ impl IrEmitter {
                 let is_array_buf = cont_ty == "i8*" && (
                     matches!(container.as_ref(), Expr::Array(..))
                     || (if let Expr::Ident(ident) = container.as_ref() {
+                        if std::env::var_os("XIOM_TRACE_ARRIDX").is_some() {
+                            eprintln!("[arridx] {} cont_ty={} array_locals={} consts={}", ident.name, cont_ty, self.local.array_locals.contains(&ident.name), self.local.constants.get(&ident.name).map_or(false, |v| matches!(v, Expr::Array(..))));
+                        }
                         self.local.array_locals.contains(&ident.name)
                             // BUG 25 #10 (crypto): CONST fixed arrays
                             // (`const _AES_SBOX: [256]UInt8 = [...]`) substitute
@@ -3696,7 +3735,12 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         }
                         _ => {
                             let llvm = self.llvm_type_for(&Self::type_from_ast(&p.ty)).unwrap_or_else(|_| "i64".to_string());
-                            if llvm.starts_with("%struct.") { llvm } else { "i64".to_string() }
+                            // round-15: float/double params keep their REAL
+                            // types -- the M20-A1 call site passes them in XMM
+                            // registers (the old i64 declaration read RDX
+                            // garbage: fn(Float64) -> Float64 closures returned
+                            // 0/wrong values).
+                            if llvm.starts_with("%struct.") || llvm == "float" || llvm == "double" || llvm == "fp128" { llvm } else { "i64".to_string() }
                         }
                     }
                 }).collect();
@@ -4869,6 +4913,18 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
     pub(crate) fn is_vec_str_elem_receiver(&self, receiver: &Expr) -> bool {
         let Expr::Index(container, _, _) = receiver else { return false; };
         self.resolve_vec_elem_xiom(container).as_deref() == Some("Str")
+    }
+
+    /// round-15: true when `container` is an IDENT bound from a mono'd
+    /// `&[N]T` PARAM (registered in local_array_elem by the mono param
+    /// binding) -- the elem pointer must index data[idx] directly, NOT via
+    /// the array-buffer (+1) or Str (xiom_char_at) conventions. Excludes
+    /// array-LITERAL locals (also in local_array_elem): those use the
+    /// is_array_buf buffer layout.
+    pub(crate) fn is_array_elem_param(&self, container: &Expr) -> bool {
+        let Expr::Ident(id) = container else { return false; };
+        self.local.param_locals.contains(&id.name)
+            && self.local.local_array_elem.contains_key(&id.name)
     }
 
     /// BUG 31: LLVM type for a STRUCT FIELD -- degrades Unit to i64. The

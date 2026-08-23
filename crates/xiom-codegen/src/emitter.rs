@@ -64,10 +64,27 @@ impl IrEmitter {
     pub(crate) fn resolve_local_xiom_type(&self, name: &str) -> Option<String> {
         if let Some((_, llvm_ty)) = self.lookup_local(name) {
             if self.local.array_locals.contains(name) {
+                // round-15: prefer the recorded XIOM element name -- the LLVM
+                // mapping loses signedness ("i8" -> "Int8", so
+                // `[200 as UInt8, ...]` monomorphised &[N]Int8 and the mono
+                // body SEXT'd 200 -> -56).
+                if let Some(xiom) = self.local.local_array_elem_xiom.get(name) {
+                    return Some(xiom.clone());
+                }
                 if let Some(elem_llvm) = self.local.local_array_elem.get(name) {
                     return Some(Self::xiom_type_name_from_llvm(elem_llvm));
                 }
                 return Some("Int".to_string());
+            }
+            // round-15: an ARRAY-VALUE local (bound from a call returning
+            // [N]T, e.g. `var doubled = array.map(...)` -- slot "[5 x i64]")
+            // must resolve to its ELEMENT type for generic-arg inference
+            // (`array.len(&doubled)` -> T=Int; the old fallback returned the
+            // raw LLVM array type and emitted the invalid symbol
+            // `array.len_[5 x i64]_Int` -> clang reject, probe_map).
+            if llvm_ty.starts_with('[') && llvm_ty.contains(" x ") && llvm_ty.ends_with(']') {
+                let elem_llvm = Self::extract_array_elem_ty(llvm_ty);
+                return Some(Self::xiom_type_name_from_llvm(&elem_llvm));
             }
             Some(Self::xiom_type_name_from_llvm(llvm_ty))
         } else {

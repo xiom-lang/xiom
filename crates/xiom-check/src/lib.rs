@@ -2279,8 +2279,18 @@ impl Checker {
                         // 3c (2026-08-10): inject catalog-loaded INTERFACES so the
                         // codegen can register them for impl-dispatch resolution
                         // (`Num[T].add` -> `core.Float64.add`).
+                        // round-15 (Ord dispatch): NON-pub interfaces must inject
+                        // too -- core.xi's `interface Ord[T]` (and Eq/Bounded/...)
+                        // are non-pub, so codegen never registered them and
+                        // `Ord[T].compare(a, b)` inside mono'd stdlib bodies was
+                        // misread as a VALUE INSTANCE method: the inline scalar
+                        // compare fired with a literal-0 receiver
+                        // (`compare(0, data[parent])` -> heap order broke:
+                        // smoke_core_binary_heap popped 2,3,1,5). Interfaces are
+                        // pure declarations (no layout), so injection is harmless
+                        // (same rationale as the round-8 non-pub TYPE injection).
                         TopDecl::Interface(id) => {
-                            if id.is_pub && !existing.contains(&id.name.name) {
+                            if !existing.contains(&id.name.name) {
                                 existing.insert(id.name.name.clone());
                                 out.push(TopDecl::Interface(id.clone()));
                             }
@@ -4589,8 +4599,30 @@ impl Checker {
                 // Method call or module-qualified call: receiver.method(args) or module.func(args)
                 // Also handle type-parameterized calls like Stack.new[Int]() which parse as
                 // Expr::Call(Expr::Index(Expr::Field(Expr::Ident("Stack"), "new"), [Expr::Ident("Int")]), [])
-                let method_target = match func.as_ref() {
-                    Expr::Field(..) => Some(func.as_ref()),
+                // round-15 (probe_zip_j/k): a TYPE-PARAMETERIZED BARE call
+                // `apply_g[(Int, Int)](...)` parses as
+                // Expr::Call(Expr::Index(Ident(fn), types), args) -- unwrap it
+                // to the bare Ident so the fn-signature resolution below fires
+                // (the old flow checked the Index as a VALUE expression -> Unit
+                // -> "cannot logically negate type ()" on `!apply_g[...](...)`).
+                // Only when the base is NOT a type name (a plain value index
+                // like `handlers[i](...)` must keep the value path).
+                let mut explicit_type_args: Option<Vec<CheckedType>> = None;
+                let func_unwrapped: &Expr = match func.as_ref() {
+                    Expr::Index(base, idx, _) if matches!(base.as_ref(), Expr::Ident(id)
+                        if !self.contains_type(&id.name)
+                            && self.functions.contains_key(&id.name)) =>
+                    {
+                        explicit_type_args = Some(match idx.as_ref() {
+                            Expr::Tuple(items, _) => items.iter().map(|t| self.check_expr(t)).collect(),
+                            other => vec![self.check_expr(other)],
+                        });
+                        base.as_ref()
+                    }
+                    other => other,
+                };
+                let method_target = match func_unwrapped {
+                    Expr::Field(..) => Some(func_unwrapped),
                     Expr::Index(field_expr, _, _) if matches!(field_expr.as_ref(), Expr::Field(..)) => Some(field_expr.as_ref()),
                     _ => None,
                 };
@@ -4998,7 +5030,9 @@ impl Checker {
                     return CheckedType::Error;
                 }
                 // Look up the function by name if it's a simple identifier
-                if let Expr::Ident(name) = func.as_ref() {
+                // (round-15: func_unwrapped -- a type-parameterized bare call
+                // `f[T](...)` unwraps to the Ident above).
+                if let Expr::Ident(name) = func_unwrapped {
                     // D2.1 (T002): extern "C" functions are confined to unsafe
                     // blocks (Unsafe Confinement requirement a). Calling one from
                     // safe code (depth 0) is a hard error -- EXCEPT inside a fn
@@ -5057,14 +5091,25 @@ impl Checker {
                         None
                     };
                     if let Some(sig) = fn_sig.cloned() {
-                        // Build generic substitution map from the call arguments
+                        // Build generic substitution map from the call arguments.
+                        // round-15 (probe_zip_j/k): explicit type args from
+                        // `apply_g[(Int, Int)](...)` win over arg inference --
+                        // they cover generic params that don't appear in any
+                        // param type (e.g. `fn() -> Option[T]` helpers).
                         let mut subst: HashMap<String, CheckedType> = HashMap::new();
                         if !sig.generics.is_empty() {
+                            if let Some(explicit) = explicit_type_args.as_ref() {
+                                for (gi, g) in sig.generics.iter().enumerate() {
+                                    if let Some(t) = explicit.get(gi) {
+                                        subst.insert(g.clone(), t.clone());
+                                    }
+                                }
+                            }
                             for (i, arg) in args.iter().enumerate() {
                                 if i < sig.params.len() {
                                     let pname = &sig.params[i].1.name();
                                     if sig.generics.iter().any(|g| g == pname) {
-                                        subst.insert(pname.clone(), self.check_expr(arg));
+                                        subst.entry(pname.clone()).or_insert_with(|| self.check_expr(arg));
                                     }
                                 }
                             }
@@ -5205,7 +5250,7 @@ impl Checker {
                     }
                 }
                 // Check if callee is an enum variant constructor (positional args)
-                if let Expr::Ident(name) = func.as_ref() {
+                if let Expr::Ident(name) = func_unwrapped {
                     if self.enum_variants.contains_key(&name.name) || self.resolve_enum_variant(&name.name).is_some() {
                         // Enum variant constructor with positional args -- typecheck args loosely
                         for arg in args { let _ = self.check_expr(arg); }
@@ -5218,7 +5263,7 @@ impl Checker {
                     }
                 }
                 // Check if callee evaluates to a function pointer type
-                let callee_ty = self.check_expr(func);
+                let callee_ty = self.check_expr(func_unwrapped);
                 if let CheckedType::Fn(param_types, ret_ty) = &callee_ty {
                     for (i, arg) in args.iter().enumerate() {
                         let arg_ty = self.check_expr(arg);

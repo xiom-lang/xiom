@@ -962,6 +962,15 @@ impl IrEmitter {
         self.local.local_xiom_types.clear();
         self.local.reg_signed.clear();
         self.local.ref_locals.clear();
+        // round-15 (array.first off-by-one): array-binding metadata must not
+        // leak between functions -- a caller's `var arr = [...]` left "arr" in
+        // array_locals/local_array_elem, so a LATER fn's &[N]T param body
+        // misrouted arr[0] through the array-BUFFER path (index+1, probe_arr8).
+        self.local.array_locals.clear();
+        self.local.local_array_elem.clear();
+        self.local.local_array_elem_xiom.clear();
+        self.local.local_array_sizes.clear();
+        self.local.array_value_regs.clear();
         // BUG 47 (2026-08-18): param_locals/ref_params were NEVER cleared
         // between functions. A `&T` param named "b" in an earlier fn (e.g.
         // `cmp_int(a: &Int, b: &Int)`) left a stale entry, so a LATER fn's

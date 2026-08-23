@@ -1768,10 +1768,13 @@ impl IrEmitter {
         let inner = &s[open + 1..s.rfind(']')?];
         let mut depth = 0i32;
         let mut end = inner.len();
+        // round-15 (probe_zip_k): PARENTHESES nest too -- "Option[(Int, Int)]"
+        // must not split at the tuple's inner comma (the old scan split at
+        // depth 0 and returned "(Int" -- the match payload bound raw).
         for (i, c) in inner.char_indices() {
             match c {
-                '[' => depth += 1,
-                ']' => depth -= 1,
+                '[' | '(' => depth += 1,
+                ']' | ')' => depth -= 1,
                 ',' if depth == 0 => { end = i; break; }
                 _ => {}
             }
@@ -1821,10 +1824,11 @@ impl IrEmitter {
         }
         let inner = &s[open + 1..s.rfind(']')?];
         let mut depth = 0i32;
+        // round-15: parentheses nest too (tuple error payloads).
         for (i, c) in inner.char_indices() {
             match c {
-                '[' => depth += 1,
-                ']' => depth -= 1,
+                '[' | '(' => depth += 1,
+                ']' | ')' => depth -= 1,
                 ',' if depth == 0 => {
                     return Some(inner[i + 1..].trim().to_string());
                 }
@@ -1892,6 +1896,54 @@ impl IrEmitter {
         }
         let leaf = match func {
             Expr::Ident(id) => id.name.clone(),
+            // round-15 (probe_zip_k): a TYPE-PARAMETERIZED bare call
+            // `find_via_val[(Int, Int)](...)` -- the callee is
+            // Expr::Index(Ident(fn), types). Resolve the generic decl's
+            // DECLARED return with the explicit type args substituted
+            // ("Option[T]" + T=(Int, Int) -> "Option[Tuple__Int__Int]")
+            // so match scrutinees bind the boxed tuple payload instead of
+            // the raw box pointer (p.0 read literal 0).
+            Expr::Index(base, idx, _) => {
+                let name = match base.as_ref() {
+                    Expr::Ident(id) => id.name.clone(),
+                    _ => return None,
+                };
+                let decl = self.find_generic_decl(&name).map(|(_, f)| f);
+                if let Some(fd) = decl {
+                    let type_args: Vec<String> = match idx.as_ref() {
+                        // a TUPLE type arg with a SINGLE generic param is the
+                        // tuple TYPE itself (find_via_val[(Int, Int)] -- one
+                        // arg, not a list): render "(Int, Int)".
+                        Expr::Tuple(items, _) if fd.generics.iter().filter(|g| !g.is_const).count() == 1 => {
+                            let parts: Vec<String> = items.iter().map(|t| match t {
+                                Expr::Ident(id) => id.name.clone(),
+                                _ => "Int".to_string(),
+                            }).collect();
+                            vec![format!("({})", parts.join(", "))]
+                        }
+                        Expr::Tuple(items, _) => items.iter().map(|t| match t {
+                            Expr::Ident(id) => id.name.clone(),
+                            _ => "Int".to_string(),
+                        }).collect(),
+                        Expr::Ident(_) => vec![match idx.as_ref() { Expr::Ident(id) => id.name.clone(), _ => "Int".to_string() }],
+                        _ => Vec::new(),
+                    };
+                    if let Some(ret) = fd.return_type.as_ref() {
+                        let mut type_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+                        for (gp, ct) in fd.generics.iter().zip(type_args.iter()) {
+                            if !gp.is_const {
+                                type_map.insert(gp.name.name.clone(), ct.clone());
+                            }
+                        }
+                        let subst = Self::substitute_type(ret, ret, &type_map);
+                        let rendered = Self::type_string_full(&subst);
+                        if !rendered.is_empty() {
+                            return Some(rendered);
+                        }
+                    }
+                }
+                return None;
+            }
             _ => return None,
         };
         if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
@@ -5567,6 +5619,19 @@ impl IrEmitter {
             self.push_scope();
             self.block_counter = 0;
             self.tmp_counter = 0;
+            // round-15 (array.first off-by-one): clear the array-binding
+            // metadata at MONO body start -- it leaks from the CALLER's body
+            // (`var arr = [1 as Int8, ...]` in main leaves "arr" in
+            // array_locals/local_array_elem). The mono'd &[N]T body's
+            // `arr[0]` then misrouted through the array-BUFFER path
+            // (length-at-[0] convention, index+1) and read element 1 as 0
+            // (probe_arr8: first(&[1 as Int8, 2, 3]) returned Some(0)). The
+            // mono param binding re-registers &[N]T params explicitly.
+            self.local.array_locals.clear();
+            self.local.local_array_elem.clear();
+            self.local.local_array_elem_xiom.clear();
+            self.local.local_array_sizes.clear();
+            self.local.array_value_regs.clear();
 
             self.fctx.current_return_type = specialized_ret_type.clone();
             self.fctx.current_param_llvm_types = specialized_param_types.clone();
@@ -5696,6 +5761,30 @@ impl IrEmitter {
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
                 self.emitln(&format!("  store {llvm_ty} %param{param_idx}, {llvm_ty}* {alloca}"));
                 self.add_local(&param.name.name, alloca, &llvm_ty);
+                // round-15 (&[N]T params): the mono param lowers to a bare
+                // ELEMENT pointer ("i8*" for [N]Int8, "i64*" for [N]Int).
+                // Record the element type so the body's arr[i] reads
+                // data[idx] with the right width -- the Str path
+                // (xiom_char_at) and the leaky array-buffer path (offset+1)
+                // both misread narrow-element arrays (probe_arr8: array.first
+                // on [1 as Int8, 2, 3] returned 0 instead of 1). The XIOM
+                // name comes from the SUBSTITUTED type ("UInt8", not the
+                // LLVM-width "Int8") so unsigned elements ZERO-extend
+                // (probe_arr8b: 200 as UInt8 must read 200, not -56).
+                if let Type::Ref(inner) = &param.ty {
+                    if let Type::Array(_, elem) = inner.as_ref() {
+                        let subst_elem = Self::substitute_type(elem, elem, &type_map);
+                        let elem_xiom = Self::type_from_ast(&subst_elem);
+                        let elem_llvm = self.llvm_type_for(&elem_xiom).unwrap_or_else(|_| "i8".to_string());
+                        if !elem_llvm.is_empty()
+                            && !elem_llvm.starts_with('[')
+                            && !elem_llvm.starts_with('%')
+                        {
+                            self.local.local_array_elem.insert(param.name.name.clone(), elem_llvm.clone());
+                            self.local.local_xiom_types.insert(param.name.name.clone(), elem_xiom);
+                        }
+                    }
+                }
                 // B-007: fn-typed params hold a closure ENV pointer (field 0
                 // = the fn ptr) -- calling `f(x)` must go through the M20-A1
                 // closure path (load the fn ptr from the env struct), NOT
@@ -6635,6 +6724,17 @@ impl IrEmitter {
             }
         }
         "i64".to_string()
+    }
+
+    /// round-15: extract the LENGTH from an LLVM array type like `[64 x i64]`
+    /// -> 64. None for non-array types.
+    fn extract_array_len(array_ty: &str) -> Option<i64> {
+        if let Some(rest) = array_ty.strip_prefix('[') {
+            if let Some(x_pos) = rest.find(" x ") {
+                return rest[..x_pos].trim().parse::<i64>().ok();
+            }
+        }
+        None
     }
 
     /// True when `expr` refers to a raw-pointer local/param (`*T`, tracked in

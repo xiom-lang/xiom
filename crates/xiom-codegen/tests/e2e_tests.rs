@@ -4606,6 +4606,22 @@ fn e2e_safety_probe() {
 // ============================================================================
 #[test] fn e2e_m48_round14c_writeback_aggregates() { assert_eq!(compile_and_run("tests\\regression\\m48_round14c_writeback_aggregates.xi"), Some(0)); }
 
+// ============================================================================
+// Round 15 (2026-08-23): fn-typed params marshal Float64 through the
+// __fnwrap/closure thunks with REAL double types (the uniform-i64
+// convention read the wrong register class + sitofp'd the bit pattern --
+// apply(sqminus2, 2.0) returned 0); const-generic [N]T arrays re-publish
+// N per distinct argument array (array.len stale across call sites) and
+// narrow-element reads through &[N]T mono bodies (array.first on
+// [1 as Int8, ...] -- the caller's array local leaked into the mono body
+// and the +1 array-buffer path fired; UInt8 zero-extends); array.map's
+// [N]U result resolves implicitly (by-value [N]T params + Vec->aggregate
+// materialization); NON-pub catalog interfaces inject so Ord[T].compare
+// dispatches inside mono'd stdlib bodies (BinaryHeap order).
+// ============================================================================
+#[test] fn e2e_m49_round15_fnfloat_constarrays() { assert_eq!(compile_and_run("tests\\regression\\m49_round15_fnfloat_constarrays.xi"), Some(0)); }
+
+
 
 
 
