@@ -2,8 +2,9 @@
 
 ## Session update (2026-08-23, round 15 FIXED -- compiler): fn-typed Float64 thunks + Ord-interface injection + const-N arrays + checker generic bare calls
 
-Closed FIVE more queue items (e2e `e2e_m49_round15_fnfloat_constarrays`,
-commits pending on feat/architect):
+Commits: `bcf3ead3` (round-15 batch) + `6a442777` (types.rs extractor
+follow-up) -- fix(codegen,check): round-15. Closed FIVE queue items
+(e2e `e2e_m49_round15_fnfloat_constarrays`):
 
 1. **Fn-typed params returning Float64 returned 0** (queue 1 -- the math
    numerical family): the `__fnwrap_N` fn-ref thunk declared every
@@ -49,23 +50,20 @@ commits pending on feat/architect):
    generic-call scrutinee's payload type resolves through
    callee_return_xiom's new Index arm (substituted return
    "Option[Tuple__Int__Int]") and the option/result payload extractors
-   now count PARENTHESES as nesting ("Option[(Int, Int)]" no longer
-   splits at the tuple's comma -- the Some(p) binding derefs the box).
-   Both probes exit 0 (find_via_val[(Int, Int)] with by-value
-   fn(T) -> Bool predicates).
+   (BOTH copies: lib.rs + types.rs) now count PARENTHESES as nesting
+   ("Option[(Int, Int)]" no longer splits at the tuple's comma -- the
+   Some(p) binding derefs the box). Both probes exit 0 (find_via_val
+   [(Int, Int)] with by-value fn(T) -> Bool predicates).
 
-Verified: full e2e 2293/2293 (round-15 codegen binary), checker 178,
-parser 97, ctfe 97, feature-reg 510, stdlib-exec 70/70 (+2 ignore),
-47-smoke battery (array/heap/math/iter/collections/string/rc/sync),
-7 probes (fnv/fnv2/map/stale/arr8/arr8b/zip_j/zip_k). PRE-EXISTING
-(unchanged, baseline-confirmed): the CRT-layout family
-(smoke_iter_collect/array_sort_by/array_slice/fold startup AVs +
-smoke_geom_vec exit 57 / smoke_geom_mat exit 4 / smoke_geom_quat exit 18
-/ smoke_math_edge AV -- all reproduce identically at BASELINE and flip
-with unrelated IR; smoke_error2's has-mid flip), smoke_convert_narrow_
-roundtrip, the LET-array representation conflict (stdlib-design item),
-array_zip's checker T001 ((T, U) element store), queue 7 (extra call
-args silently dropped), json heap / stack cookie / clang variants.
+Verified: full e2e 2294/2294 (incl. e2e_m49; the final binary also has
+the checker + extractor fixes), checker 178, parser 97, ctfe 97,
+feature-reg 510, stdlib-exec 70/70 (+2 ignore), 47-smoke battery
+(array/heap/math/iter/collections/string/rc/sync), 8 probes
+(fnv/fnv2/map/stale/arr8/arr8b/zip_j/zip_k).
+
+**NEXT SESSION:** the updated REMAINING COMPILER-SIDE QUEUE (priority
+order) + FOR THE STDLIB SESSION + OPERATIONAL LESSONS are in the
+round-14c section below (the queue header was rewritten 2026-08-23).
 
 **WORKFLOW (unchanged):** probe -> IR-diff -> fix -> verify probe + stdlib
 smoke + e2e regression (tests/regression/m3x_*.xi + e2e_mXX registration)
@@ -111,57 +109,48 @@ Verified: stdlib-exec 70/70 (+2 ignore), feature-reg 510, checker 178,
 parser 97, ctfe 97, full e2e pending (new e2e_m48_round14c_writeback_
 aggregates); the time/iter/cmp/utf/narrow families all green.
 
-**REMAINING COMPILER-SIDE QUEUE (consolidated 2026-08-23, ~85 documented,
-+ user-space proofs / probes in COMPILER_BUGS.md + docs/stdlib_session.md;
-+ priority order -- the stdlib session's next-session queue):**
+**REMAINING COMPILER-SIDE QUEUE (updated 2026-08-23 after round-15;
++ priority order -- the stdlib session's next-session queue; probes in
++ C:\Users\lefte\AppData\Local\Temp\kilo\*.xi + COMPILER_BUGS.md):**
 
-1. **Fn-typed params returning Float64 return 0** (stdlib finding 8 --
-   blocks the math numerical family): the fn-ref/closure wrapper
-   marshals i64 but a Float64-returning fn-typed param comes back 0
-   (the fn_local_returns/M20-A1 ret handling for double returns through
-   the env convention). Probes: math analysis/calculus/integral/
-   numerical/optimization + smoke_math_analysis/calculus (exit -1).
-2. **Nested `&Vec[Vec[Float64]]` param reads garbage** (stdlib finding 7
-   -- the mono'd param path; the "offset+1" family): blocks geom/mat/
-   quat, math_finance, math_edge. Same root family as array.first's
-   element-0 read (the mono'd &[N]T body reads offset+1).
-3. **Ord[T].compare dispatch in stdlib contexts** (stdlib finding 10):
-   smoke_core_binary_heap exit 4 -- the heap order diverges while a
-   user-space replica is correct (the Ord interface dispatch inside
-   catalog modules).
-4. **Const-N array residuals** (stdlib finding 4, PARTIAL): (a) array.len
-   const-N STALE across call sites (probe_stale: len(&[7,8]) = 2 then
-   len(&[1,2,3,4]) = 2); (b) typed [N]T ANNOTATIONS lose N; (c)
-   array.map's [N]U result type unresolved implicitly (probe_map);
-   (d) array_zip T001; (e) array_len_empty [0] single-literal case;
-   (f) array_slice/fold AVs; (g) array.first's off-by-one (element 0
-   read at offset+1).
-5. **Generic fn-param BY-VALUE residual** (stdlib finding 2 residual):
-   `fn(T) -> Bool` with T = a tuple still degrades at the CHECKER (T ->
-   unit -- probe_zip_j/k); the &-form is fixed (round-14c).
-6. **Unary minus on nested index** (stdlib finding 6): `-m[r][c]` binds
-   to the row -- stdlib parenthesized at 10 sites; the parser/codegen
-   root remains.
-7. **Extra call args silently dropped** (stdlib finding 9): no arg-count
-   check on module-prefix calls (a wrong-arity call compiles and drops
-   the extras).
-8. **CRT-layout family** (queue 5/7): smoke_iter_collect, smoke_array_
-   sort_by, smoke_array_slice/fold, smoke_convert_url, smoke_core_box,
-   smoke_stress_regex_find/match_count, smoke_stress_serialize_jsonvalue_
-   get/parse_nested (startup AVs, deterministic per source, flips with
-   unrelated code) + smoke_error2's has-mid flip. The SIMD flags / 16
-   clang-variant matrix is the fix target.
-9. **json heap** (queue 4, 0xC0000374): json_nested, json_parse_valid,
+1. **CRT-layout family (queue 8, the biggest remaining cluster).**
+   Deterministic per source, flips with UNRELATED code (each repro is
+   baseline-identical; the same smoke passes on intermediate builds):
+   smoke_iter_collect / smoke_array_sort_by / smoke_array_slice /
+   smoke_array_fold (startup AVs), smoke_convert_url, smoke_core_box,
+   smoke_stress_regex_find/match_count, smoke_stress_serialize_
+   jsonvalue_get/parse_nested, smoke_error2's has-mid flip, AND the
+   geom/math flips: smoke_geom_vec (exit 57), smoke_geom_mat (exit 4),
+   smoke_geom_quat (exit 18), smoke_math_edge (AV -- also listed under
+   stack cookie). The SIMD flags / 16 clang-variant matrix is the fix
+   target. VERIFICATION DISCIPLINE: always compare against the baseline
+   binary (git stash + rebuild) before calling a change a regression.
+2. **array_zip checker T001** (queue 4d residual): the CHECKER rejects
+   `result[i] = (a[i], b[i])` on a `[N](T, U)` array element store
+   ("cannot access field on non-struct type Int" at the tuple store;
+   smoke_array_zip). The checker's array-element WRITE path doesn't
+   type the tuple element. Compiler-side, the zip DEF is fine
+   (probe-level verification pending a checker fix).
+3. **Extra call args silently dropped** (queue 7 -- stdlib finding 9):
+   no arg-count check on module-prefix calls (a wrong-arity call
+   compiles and drops the extras -- `convert.float_to_string(3.14159,
+   2)` vs the 1-param def).
+4. **json heap** (queue 9, 0xC0000374): json_nested, json_parse_valid,
    json_parse_nested.
-10. **Stack cookie**: smoke_math_edge, stress_crypto_argon2/pbkdf2 x2,
-    stress_io_bufreader.
-11. **Clang variants** (queue 6): ptr_offset, io_copy, io_copy_file,
-    io_read_int_float, hash_values, convert_escape, regex_captures x4.
-12. **LET-array representation conflict** (mine): the M33 let->Vec
-    conversion satisfies the core/slice fns (&Slice[T]) but breaks the
-    array module's &[N]T fns (smoke_array_narrow's first section).
-13. **Pre-existing**: smoke_array_edge (AV), smoke_geom_vec (exit 57),
-    smoke_convert_narrow_roundtrip (exit 3).
+5. **Stack cookie**: stress_crypto_argon2/pbkdf2 x2, stress_io_bufreader
+   (smoke_math_edge's AV is the CRT-layout flake, see item 1).
+6. **Clang variants** (queue 6): ptr_offset, io_copy, io_copy_file,
+   io_read_int_float, hash_values, convert_escape, regex_captures x4.
+7. **LET-array representation conflict** (queue 12 -- stdlib-design
+   item): the M33 let->Vec conversion satisfies the core/slice fns
+   (&Slice[T]) but breaks the array module's &[N]T fns (smoke_array_
+   narrow's first section).
+8. **Pre-existing**: smoke_convert_narrow_roundtrip (exit 3).
+   NOTE: smoke_array_edge and smoke_geom_vec were on the old list --
+   array_edge is FIXED (round-15), geom_vec is the CRT-layout flake
+   (item 1), and queues 2/6 (nested &Vec[Vec[Float64]] reads, unary
+   minus on nested index) are NOT reproducible anymore (probe_skew3/4,
+   probe_neg all green at baseline -- stale handoff entries).
 
 Campaign trajectory: 516 -> 621 -> 679 -> 738 -> 765 -> 779 -> 793 -> 799 -> 801 -> 819.
 Compiler-side closed roots: BUG 31-56 + the round-fixes (gzip decompress
@@ -172,7 +161,10 @@ rm1 Str-return closures + cb2 enum-variant receivers, round-13 closure-
 env family + tuple payloads, round-14 aggregate closure params + Vec[Str]
 elements + narrow-SIGNED loads, round-14b checker generic-tuple
 substitution + multibyte Char family, round-14c write-back + generic
-fn-param aggregates + narrow casts + const-N arrays).
+fn-param aggregates + narrow casts + const-N arrays, round-15 fn-typed
+Float64 thunks + Ord-interface injection + const-N mono names/narrow
+reads/map results + checker generic bare calls + tuple-paren payload
+extractors).
 Stdlib-side hardened: RefCell (incl. replace &mut self), PathBuf, gcd,
 crc32, VecDeque, Set/Queue/Stack, redundant requires traps, prose
 ensures, smoke semantics, the closure-based iter adapter build (map/
@@ -184,16 +176,31 @@ delegation, base64url ensures, serialize.is_valid_bytes, str_slice/
 str_concat byte-copy, str_lower/str_upper byte-safe ASCII, BinaryHeap
 &mut self, regex replace_all engine-qualified.
 
-**WORKFLOW (unchanged):** probe -> IR-diff -> fix -> verify probe + stdlib
-smoke + e2e regression (tests/regression/m3x_*.xi + e2e_mXX registration)
--> quick suites (checker/parser/ctfe/feature-reg/stdlib-exec) -> full e2e in
-the background -> update COMPILER_BUGS.md + SESSION.md -> commit
-(conventional messages) -> report to the stdlib session for the re-sweep.
-Full suite: cargo test -p xiom-check, -p xiom-parser, -p xiom-ctfe,
--p xiom-codegen --test {feature_regression_tests,stdlib_execution_tests,
-stdlib_tests,e2e_tests}. Build target/debug/xiom.exe BEFORE suites; NEVER
-run two suites concurrently; e2e_m16_scripting_exit_zero is an
-environmental fail (ignore).
+**FOR THE STDLIB SESSION (re-sweep targets after round-15):**
+- Findings 7/8/10/4 from the round-14c report are CLEARED except
+  array_zip: re-test geom/mat/quat/finance/edge (watch the CRT-layout
+  flake -- a single build may pass or fail), binary_heap, array_map/
+  len_empty/get_first_last/narrow, and the math numerical family.
+- smoke_array_narrow's LET-array first section (item 7 above) is a
+  stdlib-design decision.
+- Probes to reuse: probe_fnv/fnv2, probe_stale, probe_map, probe_arr8/
+  arr8b, probe_zip_j/k, probe_heap3 (all green on this binary).
+
+**OPERATIONAL LESSONS (round-15, read before probing):**
+- `xiom --run` prints the PROGRAM's exit code as an "exit code: N"
+  line but the xiom process itself exits 0 -- read the printed line,
+  NEVER $LASTEXITCODE (PowerShell shows 0 for both pass and fail).
+- Probe discipline: `xiom file.xi` only DUMPS IR (stdout); use
+  `xiom --run -o out.exe file.xi` and capture both streams to a file.
+- CRT-layout flakes: before blaming a change for a smoke failure,
+  verify the SAME smoke fails identically on the baseline binary
+  (`git stash push -- crates/` + rebuild + rerun + `git stash pop`).
+- The e2e harness needs the exe free: wait for a running e2e suite to
+  finish before `cargo build` (the rebuild fails while e2e holds the
+  binary).
+- Commit hook: the ascii_guard rejects non-ASCII bytes in STAGED
+  files -- run `python tools/ascii_guard.py repair --apply` when a
+  commit aborts.
 
 ## Session update (2026-08-20, round 11 FIXED): B-007 closures -- fn-typed params
 
