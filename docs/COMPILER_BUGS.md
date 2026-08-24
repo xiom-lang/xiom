@@ -7,6 +7,66 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-08-24 -- compiler session, Stage 0 ground truth (fresh laptop environment)
+
+Readiness plan created: `docs/COMPILER_READINESS_PLAN.md` (merges the round-15
+campaign queue + audit findings #1-20 into staged work; this file's OPEN queue
+cross-references those stages).
+
+### BUG 57 (verdict CONFIRMED): nested &Vec[Vec[Float64]] param reads garbage in module fns
+
+The round-15 handoff contradicted itself: SESSION.md claimed probe_skew3/4
+"green at baseline -- stale handoff entries"; stdlib_session.md (later that
+evening) reported garbage reads. RESOLVED on a fresh machine at HEAD `81ed009a`:
+
+- `tmp/bug_probes/probe_geom1.xi` -- identity(2) RETURNED from one fn, then
+  trace/det take &Vec[Vec[Float64]] and use the stdlib defensive-copy pattern
+  (`ac.push(a[i])` then double-index). Result: trace printed
+  **9.21436483760003e+18** (garbage bits), exit 1.
+- `tmp/bug_probes/probe_geom2.xi` -- RAW param read `m[0][1]` in a fn body:
+  printed **-4.6094342186137e+18**, exit 1. Unary-minus-on-nested-index in main
+  was NOT reached (blocked by the param read). The stdlib_session "-4.0 bits"
+  family is confirmed.
+
+Both probes print values via convert.float_to_string; run with
+`xiom --run -o out.exe probe.xi` and read the PRINTED exit-code line.
+
+Coverage gap: NO e2e test exercises nested &Vec[Vec[Float64]] PARAM reads in
+module fns (e2e_m37_nested_vec covers direct indexing on LOCALS only) -- which
+is how 2294/2292 green e2e coexists with this bug. Stage 4 fix must add
+e2e_m57_geom_nested_param (identity->trace/det + raw m[0][1] + skew compare).
+Fix direction per stdlib_session: the &Vec[Vec[Float64]] mono'd-body element
+read path (the "mono'd &[N]T body offset+1" family); locals in main are known
+good. Affected smokes: geom_vec/mat/quat, matrix.det/trace/rank consumers,
+curves/bezier family.
+
+### Round-15 quick suites re-verified on this machine
+
+checker 178/178, parser 97/97, ctfe 97/97 (match the desktop numbers exactly);
+full e2e running at doc time. Build from clean target: 1m07s, no new warnings
+beyond the known xiom-check unused_mut + codegen dead-code set.
+
+### Stage 0 RESULTS (2026-08-24 evening, post-baseline)
+
+- Full e2e on the untouched round-15 binary: **2293/2294**. The single fail,
+  e2e_m37_simd_runtime (Some(15) vs Some(0)), reproduces WITHOUT any local
+  change -- SIMD CPU-dispatch environment fail on this laptop (same class as
+  the old smoke_simd CRT ignore). Desktop remains the reference for
+  SIMD-sensitive tests.
+- stdlib_exec_log_runs ALSO fails at BASELINE here (verified stash+rebuild):
+  machine-environmental until the desktop re-confirms. stdlib-exec 69/70(+2).
+- Stage 1 CTFE rewrite landed; see SESSION.md round-16a header for the full
+  defect-to-fix map. New ctfe suite: 36/36 (recursion-no-ICE, RecursionLimit-
+  diagnostic, session fuel, overflow hard-error, exact float eq, for-range/
+  array iteration, break/continue/return-in-loop, block-tail sequential exec,
+  try_to_expr aggregate reconstruction with NO Int(0) sentinel).
+- GOTCHA for future edits: Expr::Int stores the i64 bit pattern as u64 --
+  checked arithmetic must run via `as i64` FIRST (naive unsigned checked ops
+  return None for -X / 0-X and silently unfolded consts; caught by
+  regress_5e7f_const_arithmetic_neg against baseline within minutes).
+
+---
+
 ## STATUS SUMMARY -- authoritative (2026-08-11 16:3x, compiler session)
 
 > Read this first. Older dated sections below may contradict it (e.g. the
