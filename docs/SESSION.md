@@ -66,6 +66,40 @@ honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
 module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
 Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
 
+### Round-16c (2026-08-25, early am): Stage 2a LANDED -- byte-offset spans + trivia + literal honesty + reserved words
+
+Commits: f30cc25f (spans/trivia/#15) + a9258be ascii fix + this one
+(reserved-vs-soft keywords, rest of audit #16). All complete-compilable
+slices; parallel stdlib session never saw a broken tree.
+
+1. Span carries half-open BYTE ranges [start,end) (post-BOM) alongside
+   line/col. Equality/Hash intentionally (line,col)-only -> zero semantic
+   drift for existing comparisons; range()/byte_range()/same_range() added.
+   Lexer tracks len_utf8 bytes: multibyte sources keep char-columns AND
+   byte offsets correct simultaneously (tested). Token ranges provably
+   cover their lexemes (tests slice the source).
+2. Comments/shebang PRESERVED: tokenize_with_trivia() returns
+   Vec<Trivia>{kind,text,span} (line/block/shebang); tokenize() unchanged.
+   fmt/docgen unblocked for Stage 5.
+3. AUDIT #15 CLOSED: >u128 integer literals and malformed floats are ERROR
+   TOKENS now (were silent 0/0.0); \xNN >= 0x80 rejected with \u{...}
+   guidance (raw-byte smuggling into char fixed). u128::MAX boundary
+   still lexes as BigInt.
+4. AUDIT #16 CLOSED (both halves): parse_ident enforces RESERVED vs SOFT.
+   RESERVED = structural keywords (let/var/fn/if/.../as/is/and/or/not/
+   Some/None/Ok/Err) -> "reserved keyword" error. SOFT stays legal because
+   stdlib depends on it (Executor.spawn, Scope.spawn, xiom.thread.spawn
+   module paths; contextual requires/ensures/invariant remain Idents).
+   `let let = 5;` now errors loudly.
+
+VERIFIED after each slice: lexer 29/29 (+11 new), parser 99/99 (+2 new),
+checker 178/178 transparent, feature-reg 510/510, stdlib-exec 70/70 (+2 ign;
+log_runs PASSED this run -- confirmed flaky CRT-layout family, item 1 of
+queue, NOT a permanent fail). Full e2e running at doc time.
+
+AUDIT SCORECARD: #15 #16 fully closed. Stage 2 remaining: interning/
+structural TypeId (#6 class + contract field-receiver gap), expand_impl_
+blocks lowering pass + ErrorGuaranteed wiring.
 ### Round-16b (2026-08-25): R16c verifier honesty LANDED -- Stage 1 COMPLETE
 
 Commit: verifier rewrite + CLI report wiring + suite 27->31 tests, 31/31

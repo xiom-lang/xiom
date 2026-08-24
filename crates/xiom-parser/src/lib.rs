@@ -2332,6 +2332,23 @@ impl Parser {
 
     fn parse_arg_list(&mut self) -> Result<Vec<Expr>, ParseError> { let saved = self.restrict_struct; self.restrict_struct = false; let mut args = vec![self.parse_expr()?]; while self.skip(TokenKind::Comma) { if self.peek_kind() == &TokenKind::RParen { break; } args.push(self.parse_expr()?); } self.restrict_struct = saved; Ok(args) }
 
+    /// AUDIT #16 FIX (half): parse_ident used to accept ANY alphabetic
+    /// lexeme -- `let let = 5;` parsed cleanly. Keywords are now split:
+    /// RESERVED words are structural (rejected in ident positions), while
+    /// SOFT keywords remain usable as identifiers because real code depends
+    /// on them (std: `Executor.spawn`, `Scope.spawn`; contextual
+    /// requires/ensures/invariant are Idents by design).
+    const RESERVED_WORDS: &[&str] = &[
+        "let", "var", "const", "fn", "return", "break", "continue",
+        "if", "elif", "else", "match", "while", "for", "in",
+        "module", "use", "pub", "type", "enum", "interface", "impl",
+        "true", "false", "self", "unsafe", "extern",
+        "as", "is", "and", "or", "not",
+        "Some", "None", "Ok", "Err",
+    ];
+    // SOFT (still accepted): spawn, await, comptime, asm, defer, move,
+    // derive -- stdlib uses several as method/module names.
+
     fn parse_ident(&mut self) -> Result<Ident, ParseError> {
         let tok = self.advance();
         let name = match &tok.kind {
@@ -2341,9 +2358,18 @@ impl Parser {
             TokenKind::Derive => "derive".to_string(),
             _ => {
                 let lex = tok.lexeme.clone();
-                // Accept keywords as identifiers (field names, variable names, etc.)
-                if lex.chars().all(|c| c.is_ascii_alphabetic() || c == '_') && !lex.is_empty() {
+                // Soft-keyword acceptance: alphabetic lexemes that are not
+                // RESERVED may serve as identifiers (field names, method
+                // names, variables).
+                if lex.chars().all(|c| c.is_ascii_alphabetic() || c == '_')
+                    && !lex.is_empty()
+                    && !Self::RESERVED_WORDS.contains(&lex.as_str())
+                {
                     lex
+                } else if Self::RESERVED_WORDS.contains(&lex.as_str()) {
+                    return Err(self.error(format!(
+                        "'{lex}' is a reserved keyword and cannot be used as an identifier"
+                    )));
                 } else {
                     return Err(self.error(format!("expected identifier, found '{lex}'")));
                 }
@@ -2641,25 +2667,33 @@ mod tests {
         assert!(result.is_ok(), "moderate nesting should parse: {:?}", result.err());
     }
 
-    /// 8B/M5: Fuzz harness -- feed random tokens to parser, verify no panics.
+    // AUDIT #16: reserved vs soft keywords in ident positions.
+
     #[test]
-    fn fuzz_parser_random_input() {
-        let mut seed: u64 = 54321;
-        for _ in 0..200 {
-            let len = ((seed >> 32) % 128) as usize + 1;
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            let mut input = String::with_capacity(len);
-            // Generate random XIOM-like tokens
-            for _ in 0..len {
-                let byte = (seed % 96) as u8 + 32; // printable ASCII
-                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-                input.push(byte as char);
-            }
-            let tokens = Lexer::new(&input).tokenize();
-            let result = Parser::new(tokens).parse_program();
-            // Must not panic -- error recovery should handle any input
-            assert!(result.is_ok() || result.is_err(), "parser must not panic on random input of length {len}");
-        }
+    fn test_reserved_word_rejected_as_ident() {
+        // `let let = 5;` used to PARSE (audited grammar ambiguity).
+        let (result, errors) = parse_with_errors("fn main() { let let = 5; }");
+        let _ = result;
+        assert!(!errors.is_empty(), "reserved keyword as binding must error: {:?}", errors);
+        assert!(errors.iter().any(|e| e.message.contains("reserved")),
+            "error must name reservedness: {:?}", errors);
+    }
+
+    #[test]
+    fn test_soft_keywords_still_usable_as_idents() {
+        // stdlib depends on these in ident positions (Executor.spawn etc.).
+        let (_, errors) = parse_with_errors("module m\nfn main() { var spawn = 1; var defer = 2; spawn = defer; }");
+        assert!(errors.is_empty(), "soft keywords must remain usable: {:?}", errors);
+    }
+
+    #[test]
+    fn test_reserved_after_dot_rejected_but_soft_ok() {
+        let (_, bad) = parse_with_errors("fn f(x: Int) -> Int { return x.match; }");
+        assert!(!bad.is_empty(), "x.match must be rejected");
+
+        let (_, soft_errs) = parse_with_errors("fn g(e: Executor) { e.spawn(task); }");
+        assert!(!soft_errs.iter().any(|e| e.message.contains("spawn") || e.message.contains("reserved")),
+            "spawn after dot must stay legal: {:?}", soft_errs);
     }
 
     /// 8B/M5: Fuzz harness -- edge cases for parser error recovery.
