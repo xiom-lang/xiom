@@ -46,6 +46,37 @@ checker 178/178, parser 97/97, ctfe 97/97 (match the desktop numbers exactly);
 full e2e running at doc time. Build from clean target: 1m07s, no new warnings
 beyond the known xiom-check unused_mut + codegen dead-code set.
 
+### R16c -- verifier honesty LANDED (2026-08-25, audit #3/#8/#14 CLOSED)
+
+crates/xiom-verify rewritten production-grade; suite 31/31 (27 kept + 4 new
+regression tests). Defect-to-fix map:
+- #3 fail-closed-by-false: unsupported obligations are SKIPPED and reported
+  as UNKNOWN with reasons (GenReport/SkippedObligation; CLI prints
+  "[WARN] UNKNOWN"). A body-incomplete function gates ALL its obligations
+  (unconstrained |result| used to fire spurious VIOLATED).
+- #8 sort mismatch: ONE numeric story -- all integer widths -> SMT Int,
+  floats -> Real (decimal literals, no exponent form); sort-aware operators
+  (div vs /); mismatches -> UNKNOWN. The old BitVec/FloatingPoint mapping
+  made every such query ill-sorted. NOTE: the old test
+  smt_has_correct_type_map CODEFIED the bug (asserted BV32) -- rewritten.
+- #8 undeclared field fns: mappable structs emit declare-datatype; field
+  access uses real selectors (Point-x). Unmappable receivers -> UNKNOWN.
+- #14 z3 deadlock: input via UNIQUE TEMP FILE (no stdin pipe to deadlock);
+  -T now passed in SECONDS correctly (was milliseconds into a seconds flag);
+  parent polls try_wait + kills at 1.5x budget.
+- ALSO FIXED en route: contract-axiom forall bound the RETURN SORT STRING as
+  a variable (invalid SMT); if/else branches were CONJOINED (contradictory
+  contexts made obligations UNSAT = VACUOUS Proven for clamp/max shapes) --
+  branches are guarded implications with definite-return fall-through
+  threading; SSA reads use the LATEST binding; naked while loops -> UNKNOWN;
+  type invariants are REAL check-sat VCs (were TODO comments); xiom-verify
+  CLI forgot parser take_errors() (the audited partial-AST hazard) --
+  malformed input now fails loudly.
+- CHECKER LIMITATION found while probing (log for Stage 2/3): contracts
+  referencing struct-field RECEIVERS (`requires: p.y == 0`) fail checker
+  typing ("left operand must be numeric, found <error>") even though plain
+  body field access works. Fix lands with structural types (Stage 2).
+
 ### Stage 0 RESULTS (2026-08-24 evening, post-baseline)
 
 - Full e2e on the untouched round-15 binary: **2293/2294**. The single fail,

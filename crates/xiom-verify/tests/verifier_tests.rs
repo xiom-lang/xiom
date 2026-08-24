@@ -91,6 +91,10 @@ fn smt_buggy_generates_output() {
 
 #[test]
 fn smt_has_correct_type_map() {
+    // AUDIT #8 FIX: ONE numeric story. The OLD mapping sent Int32 to a
+    // BitVec sort and Float64 to FloatingPoint while every operator was
+    // emitted as Int arithmetic -- any such operand made the query
+    // ill-sorted. Integer widths are now unbounded Int, floats map to Real.
     let src = r#"
 module test_types
 fn check_types(a: Int32, b: Float64, c: Bool) -> Int32
@@ -102,9 +106,111 @@ fn check_types(a: Int32, b: Float64, c: Bool) -> Int32
     std::fs::write(&tmp, src).expect("write test file");
     let smt = smt_for(tmp.to_str().unwrap());
     let _ = std::fs::remove_file(&tmp);
-    assert!(smt.contains("(_ BitVec 32)"), "Int32 must map to BV32");
-    assert!(smt.contains("(_ FloatingPoint 11 53)"), "Float64 must map to FP");
+    assert!(smt.contains("declare-const a Int"), "Int32 must map to unbounded Int (got sorts consistent with emitted ops)");
+    assert!(smt.contains("(> a 0)"), "requires must be well-sorted Int arithmetic");
+    assert!(smt.contains("declare-const b Real"), "Float64 must map to Real");
     assert!(smt.contains("Bool"), "Bool must map to Bool");
+    assert!(!smt.contains("BitVec"), "NO BitVec sorts may be emitted (audit #8)");
+    assert!(!smt.contains("FloatingPoint"), "NO FloatingPoint sorts may be emitted (audit #8)");
+}
+
+// =========================================================================
+// AUDIT #3 FIX -- unsupported obligations are UNKNOWN, never false
+// =========================================================================
+
+#[test]
+fn smt_unsupported_never_emits_false() {
+    // Array indexing is not encodable; the OLD generator emitted the literal
+    // `false` for it -> guaranteed spurious VIOLATED. Now the obligation is
+    // skipped with a marker and NO fabricated term appears.
+    let src = r#"
+module test_unsup
+fn first(arr: [3]Int) -> Int
+    ensures: result >= -1000
+{ return arr[0]; }
+"#;
+    let tmp = unique_temp_name("unsup");
+    std::fs::write(&tmp, src).expect("write test file");
+    let smt = smt_for(tmp.to_str().unwrap());
+    let _ = std::fs::remove_file(&tmp);
+    assert!(smt.contains("; skipped:"), "unsupported obligation must be marked skipped");
+    assert!(!smt.contains(")false"), "no fabricated `false` term may appear in any s-expression");
+}
+
+#[test]
+fn generate_report_lists_skips() {
+    // Library-level check: GenReport carries the UNKNOWN reasons.
+    use xiom_lexer::Lexer;
+    use xiom_parser::Parser;
+    use xiom_check::Checker;
+    use xiom_verify::SMTGenerator;
+
+    let src = r#"
+module rep
+fn f(arr: [2]Int) -> Int
+    ensures: result >= 0
+{ return arr[1]; }
+"#;
+    let tokens = Lexer::new(src).tokenize();
+    let program = Parser::new(tokens).parse_program().expect("parse");
+    let mut checker = Checker::new();
+    let _ = checker.check_program(&program);
+    let mut generator = SMTGenerator::new();
+    let (_smt, report) = generator.generate_with_report(&program);
+    assert!(!report.skipped.is_empty(), "array indexing must produce a skip entry");
+    assert!(report.skipped.iter().any(|s| s.reason.contains("array indexing")),
+        "reason must name the construct, got {:?}", report.skipped);
+}
+
+// =========================================================================
+// AUDIT #8 FIX -- struct fields via SMT datatypes (well-typed selectors)
+// =========================================================================
+
+#[test]
+fn smt_struct_fields_use_datatype_selectors() {
+    // The OLD generator emitted (|x| obj) with x UNDECLARED -> z3 error on
+    // every field-touching contract. Structs now become datatypes and field
+    // access uses the generated selector Point-x. (NOTE: contracts
+    // referencing struct-field receivers are a CHECKER limitation today --
+    // the contract here stays on `result`; the field access lives in the
+    // body, which is exactly where the old undeclared-fn bug fired.)
+    let src = r#"
+module test_struct
+type Point = {
+  x: Int;
+  y: Int;
+}
+fn lift(p: Point) -> Int
+    ensures: result >= -1000
+{
+    let px = p.x;
+    let py = p.y;
+    return px + py * px;
+}
+"#;
+    let tmp = unique_temp_name("struct");
+    std::fs::write(&tmp, src).expect("write test file");
+    let smt = smt_for(tmp.to_str().unwrap());
+    let _ = std::fs::remove_file(&tmp);
+    assert!(smt.contains("(declare-datatype Point ((mk-Point (x Int) (y Int))))"),
+        "struct must become an SMT datatype:\n{smt}");
+    assert!(smt.contains("(Point-x ") && smt.contains("(Point-y "),
+        "field access must use the datatype selectors:\n{smt}");
+    assert!(!smt.contains("(|x| ") && !smt.contains("(|y| "), "no undeclared field functions may be emitted");
+}
+
+// =========================================================================
+// VACUOUS-PROOF HOLE -- guarded branch encoding
+// =========================================================================
+
+#[test]
+fn smt_branch_returns_are_guarded() {
+    // Both branches asserting result unconditionally used to CONJOIN into a
+    // contradiction -> (not ensures) UNSAT -> vacuous Proven. Returns under
+    // guards must now appear as implications.
+    let smt = smt_for("tests/verify/test_max.xi");
+    assert!(smt.contains("(=> |guard") || smt.contains("(assert (=> "),
+        "branch returns must be guarded implications:\n{smt}");
 }
 
 #[test]

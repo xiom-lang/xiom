@@ -66,6 +66,37 @@ honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
 module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
 Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
 
+### Round-16b (2026-08-25): R16c verifier honesty LANDED -- Stage 1 COMPLETE
+
+Commit: verifier rewrite + CLI report wiring + suite 27->31 tests, 31/31
+green. Audit #3/#8/#14 CLOSED (full defect-to-fix map in COMPILER_BUGS.md
+"R16c" section). Highlights:
+- UNKNOWN is now an honest verdict: unsupported/inexpressible obligations are
+  skipped with reasons and surfaced via GenReport -> CLI "[WARN] UNKNOWN";
+  the literal-false spurious-VIOLATED machine is gone (#3).
+- ONE numeric story: int widths -> Int, floats -> Real, sort-aware operators;
+  structs emit declare-datatype with real selectors for field access (#8).
+- z3 runs from a unique temp file: the stdin pipe-deadlock is structurally
+  impossible; -T units fixed (seconds); parent-side kill at 1.5x budget (#14).
+- Vacuous-proof hole CLOSED: branches encode as guarded implications with
+  definite-return fall-through threading (old conjoint encoding made
+  clamp/max proofs UNSAT-vacuous). Axiom forall binders fixed (return-sort
+  string was bound as a variable). Invariants = real VCs. xiom-verify CLI
+  now honors parser take_errors() (audited partial-AST hazard).
+- feature-regression 510/510 after rebuild (no cross-crate regressions);
+  no z3 on this laptop -- z3 integration tests SKIP here, desktop re-runs.
+- NEW checker limitation logged (Stage 2/3): contracts cannot reference
+  struct-field receivers yet (`requires: p.y == 0` -> <error> typing).
+
+AUDIT SCORECARD after this commit: top-20 findings -- #1 #2 #7 #3 #8 #14
+FIXED (+ halves of #16/#18), remaining open: #4 #5 (supply chain/Stage 5),
+#6 (Stage 2 interning), #9 #10 #11 #12 #13 #19 #20 (Stage 5 tooling),
+#17 (Stage 4 JIT), #15 (Stage 2 lexer), keyword-as-ident half of #16,
+[compiler]-config half of #18.
+
+NEXT: Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md
+(byte-offset spans -> symbol interning/structural TypeId ->
+expand_impl_blocks lowering pass -> lexer trivia + numeric error tokens).
 ### Round-16a PROGRESS UPDATE (same evening): quick wins LANDED
 
 Commits: `f1c8b707` (CTFE rewrite + folder hardening + readiness plan) +
