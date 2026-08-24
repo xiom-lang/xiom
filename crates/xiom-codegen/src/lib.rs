@@ -4220,7 +4220,7 @@ impl IrEmitter {
     /// in the Vec's data buffer). Load it, inttoptr, and call.
     fn compile_index_fn_ptr_call(&mut self, container: &Expr, index: &Expr, args: &[Expr]) -> Result<(String, String), String> {
         // Compile the container[index] expression to get the element value.
-        let idx_expr = Expr::Index(Box::new(container.clone()), Box::new(index.clone()), xiom_ast::Span { line: 0, col: 0 });
+        let idx_expr = Expr::Index(Box::new(container.clone()), Box::new(index.clone()), xiom_ast::Span::new(0, 0));
         let (elem_val, elem_ty) = self.compile_expr(&idx_expr)?;
         // Convert the element to i64 (it may already be i64 from Vec indexing).
         let i64_val = self.val_to_i64(&elem_val, &elem_ty);

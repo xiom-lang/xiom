@@ -2480,7 +2480,7 @@ impl Parser {
     }
 }
 
-static EOF_TOKEN: Token = Token { kind: TokenKind::Eof, span: Span { line: 0, col: 0 }, lexeme: String::new() };
+static EOF_TOKEN: Token = Token { kind: TokenKind::Eof, span: Span::new(0, 0), lexeme: String::new() };
 
 #[derive(Debug, Clone)]
 pub struct ParseError { pub message: String, pub span: Span }

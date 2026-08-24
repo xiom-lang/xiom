@@ -4,6 +4,21 @@
 
 //! XIOM Lexer -- converts UTF-8 source to a flat token stream.
 //! No whitespace significance except within string literals.
+//!
+//! AUDIT FIXES (readiness Stage 2):
+//! - Byte-offset spans: every token carries a half-open BYTE range
+//!   [byte_start, byte_end) into the source (post-BOM), alongside the
+//!   1-based line/column. This unlocks precise diagnostics, LSP UTF-16
+//!   math, incremental change detection and DWARF line tables downstream.
+//!   Multi-byte characters advance bytes faster than columns -- both stay
+//!   correct by construction.
+//! - Comment/sheaang TRIVIA PRESERVATION: comments are no longer destroyed;
+//!   `tokenize_with_trivia()` returns them alongside the tokens so fmt can
+//!   preserve them and docgen can render doc-comments (previously lost).
+//! - Numeric literals that overflow u128 and malformed float text now emit
+//!   ERROR TOKENS instead of silently lexing as 0 / 0.0 (audited silent
+//!   value corruption). `\xNN` escapes >= 0x80 are rejected (use `\u{...}`
+//!   for non-ASCII); previously they smuggled raw bytes into `char`.
 
 use xiom_ast::Span;
 
@@ -76,6 +91,30 @@ impl Token {
 }
 
 // ============================================================================
+// Trivia (comment/shebang preservation -- audit Stage 2)
+// ============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TriviaKind {
+    /// `// ...` line comment (text excludes the trailing newline)
+    LineComment,
+    /// `/* ... */` block comment (text includes delimiters)
+    BlockComment,
+    /// `#!...` first-line shebang (text excludes the trailing newline)
+    Shebang,
+}
+
+/// Preserved non-token source text: comments and the shebang line.
+/// Downstream consumers (fmt round-trips, docgen /// rendering) opt in via
+/// `tokenize_with_trivia()`; plain `tokenize()` behavior is unchanged.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Trivia {
+    pub kind: TriviaKind,
+    pub text: String,
+    pub span: Span,
+}
+
+// ============================================================================
 // Lexer
 // ============================================================================
 
@@ -84,6 +123,9 @@ pub struct Lexer {
     pos: usize,
     line: u32,
     col: u32,
+    /// BYTE offset into the (post-BOM) source -- advances by len_utf8().
+    byte: usize,
+    trivia: Vec<Trivia>,
 }
 
 impl Lexer {
@@ -93,6 +135,8 @@ impl Lexer {
         // and silently broke module registration for catalog files saved with a
         // BOM (writer tools / Windows editors). All leading BOMs are dropped
         // (a double-BOM file is malformed but should still parse).
+        //
+        // NOTE: byte offsets in spans are relative to the POST-BOM source.
         let chars: Vec<char> = source.chars().collect();
         let mut start = 0;
         while chars.get(start) == Some(&'\u{FEFF}') { start += 1; }
@@ -102,11 +146,26 @@ impl Lexer {
             pos: 0,
             line: 1,
             col: 1,
+            byte: 0,
+            trivia: Vec::new(),
         }
     }
 
+    /// Current position as a ZERO-WIDTH span (used for EOF and errors at pos).
     fn span(&self) -> Span {
-        Span::new(self.line, self.col)
+        Span::range(self.line, self.col, self.byte as u32, self.byte as u32)
+    }
+
+    /// Span from a recorded START (line/col/byte) to the CURRENT position.
+    /// Every real token is built through this so its byte range covers the
+    /// exact consumed text.
+    fn end_span(&self, start_line: u32, start_col: u32, start_byte: usize) -> Span {
+        Span::range(
+            start_line,
+            start_col,
+            start_byte as u32,
+            self.byte as u32,
+        )
     }
 
     fn peek(&self) -> Option<char> {
@@ -121,6 +180,7 @@ impl Lexer {
         let ch = self.source.get(self.pos).copied();
         if let Some(c) = ch {
             self.pos += 1;
+            self.byte += c.len_utf8();
             if c == '\n' {
                 self.line += 1;
                 self.col = 1;
@@ -159,17 +219,32 @@ impl Lexer {
     }
 
     pub fn tokenize(&mut self) -> Vec<Token> {
+        let (tokens, _) = self.tokenize_with_trivia();
+        tokens
+    }
+
+    /// Tokenize AND preserve comments/shebang as structured trivia.
+    /// The token stream itself is identical to `tokenize()`.
+    pub fn tokenize_with_trivia(&mut self) -> (Vec<Token>, Vec<Trivia>) {
         // M10: Shebang support -- skip `#!/usr/bin/env xiom` on line 1.
-        // The shebang line is treated as a comment for line-number preservation.
+        // The shebang line is treated as a comment for line-number preservation,
+        // and is PRESERVED as trivia (fmt/docgen need it -- audited loss).
         if self.pos == 0 && self.peek() == Some('#') && self.peek_n(1) == Some('!') {
-            self.advance_while(|c| c != '\n');
+            let sl = self.line; let sc = self.col; let sb = self.byte;
+            let text = self.advance_while(|c| c != '\n');
             // Advance past the newline if present
             if self.peek() == Some('\n') {
                 self.advance();
             }
-            // Re-sync line/col after skipping shebang
+            // Re-sync line/col after skipping shebang (byte already advanced
+            // through the newline via advance(); no manual adjustment).
             self.line = 1;
             self.col = 1;
+            self.trivia.push(Trivia {
+                kind: TriviaKind::Shebang,
+                text,
+                span: Span::range(sl, sc, sb as u32, (self.byte - 1) as u32),
+            });
         }
         let mut tokens = Vec::new();
         loop {
@@ -178,34 +253,52 @@ impl Lexer {
             tokens.push(tok);
             if is_eof { break; }
         }
-        tokens
+        let trivia = std::mem::take(&mut self.trivia);
+        (tokens, trivia)
     }
 
     fn next_token(&mut self) -> Token {
-        // Skip whitespace and comments
+        // Skip whitespace and comments (PRESERVED as trivia).
         loop {
             match self.peek() {
                 Some(c) if c.is_whitespace() => { self.advance(); }
                 Some('/') if self.peek_n(1) == Some('/') => {
-                    self.advance_while(|c| c != '\n');
+                    let sl = self.line; let sc = self.col; let sb = self.byte;
+                    let text = self.advance_while(|c| c != '\n');
+                    self.trivia.push(Trivia {
+                        kind: TriviaKind::LineComment,
+                        text,
+                        span: Span::range(sl, sc, sb as u32, self.byte as u32),
+                    });
                 }
                 Some('/') if self.peek_n(1) == Some('*') => {
+                    let sl = self.line; let sc = self.col; let sb = self.byte;
                     self.advance(); self.advance(); // skip /*
+                    let mut text = String::from("/*");
                     loop {
                         if self.peek() == Some('*') && self.peek_n(1) == Some('/') {
                             self.advance(); self.advance(); // skip */
+                            text.push_str("*/");
                             break;
                         }
-                        if self.advance().is_none() {
-                            return self.error("unterminated block comment");
+                        match self.advance() {
+                            Some(c) => text.push(c),
+                            None => {
+                                return self.error_at(sl, sc, sb, "unterminated block comment");
+                            }
                         }
                     }
+                    self.trivia.push(Trivia {
+                        kind: TriviaKind::BlockComment,
+                        text,
+                        span: Span::range(sl, sc, sb as u32, self.byte as u32),
+                    });
                 }
                 _ => break,
             }
         }
 
-        let start = self.span();
+        let sl = self.line; let sc = self.col; let sb = self.byte;
         let ch = match self.peek() {
             Some(c) => c,
             None => return Token::new(TokenKind::Eof, self.span(), ""),
@@ -216,7 +309,7 @@ impl Lexer {
             c if c.is_ascii_alphabetic() || c == '_' => {
                 let ident = self.advance_while(|c| c.is_ascii_alphanumeric() || c == '_');
                 let kind = Self::keyword_or_ident(&ident);
-                Token::new(kind, start, ident)
+                Token::new(kind, self.end_span(sl, sc, sb), ident)
             }
 
             // --- Numbers ---
@@ -228,13 +321,26 @@ impl Lexer {
                     let hex = self.advance_while(|c| c.is_ascii_hexdigit() || c == '_');
                     let clean = hex.replace('_', "");
                     // D1: prefer u128 so literals beyond u64 work for Int128/UInt128.
-                    let num_u128: u128 = u128::from_str_radix(&clean, 16).unwrap_or(0);
+                    // AUDIT #15 FIX: overflow beyond u128 used to silently lex
+                    // as 0 (unwrap_or(0)) -- now an explicit error token.
+                    let num_u128 = match u128::from_str_radix(&clean, 16) {
+                        Ok(n) => n,
+                        Err(_) => {
+                            let lexeme = format!("0x{hex}");
+                            return Token::new(
+                                TokenKind::Error(format!(
+                                    "hex integer literal 0x{hex} does not fit in 128 bits")),
+                                self.end_span(sl, sc, sb),
+                                lexeme,
+                            );
+                        }
+                    };
                     let suffix = self.parse_numeric_suffix();
                     let lexeme = if suffix.is_empty() { format!("0x{hex}") } else { format!("0x{hex}{suffix}") };
                     if num_u128 > u64::MAX as u128 {
-                        return Token::new(TokenKind::BigInt(num_u128), start, lexeme);
+                        return Token::new(TokenKind::BigInt(num_u128), self.end_span(sl, sc, sb), lexeme);
                     }
-                    return Token::new(TokenKind::Int(num_u128 as u64), start, lexeme);
+                    return Token::new(TokenKind::Int(num_u128 as u64), self.end_span(sl, sc, sb), lexeme);
                 }
                 let int_part = self.advance_while(|c| c.is_ascii_digit() || c == '_');
                 if self.peek() == Some('.') && self.peek_n(1).map_or(false, |c| c.is_ascii_digit()) {
@@ -251,10 +357,20 @@ impl Lexer {
                         exp.push_str(&exp_digits);
                     }
                     let full = format!("{int_part}.{frac}{exp}");
-                    let num: f64 = full.parse().unwrap_or(0.0);
+                    // AUDIT #15 FIX: malformed float text used to lex as 0.0.
+                    let num: f64 = match full.parse() {
+                        Ok(v) => v,
+                        Err(_) => {
+                            return Token::new(
+                                TokenKind::Error(format!("malformed float literal {full}")),
+                                self.end_span(sl, sc, sb),
+                                full,
+                            );
+                        }
+                    };
                     let suffix = self.parse_numeric_suffix();
                     let lexeme = if suffix.is_empty() { full } else { format!("{full}{suffix}") };
-                    Token::new(TokenKind::Float(num), start, lexeme)
+                    Token::new(TokenKind::Float(num), self.end_span(sl, sc, sb), lexeme)
                 } else {
                     // Also handle integer scientific notation: 1e10
                     if matches!(self.peek(), Some('e' | 'E')) {
@@ -265,20 +381,41 @@ impl Lexer {
                         }
                         let exp_digits = self.advance_while(|c| c.is_ascii_digit());
                         exp.push_str(&exp_digits);
-                        let num: f64 = exp.parse().unwrap_or(0.0);
+                        let num: f64 = match exp.parse() {
+                            Ok(v) => v,
+                            Err(_) => {
+                                return Token::new(
+                                    TokenKind::Error(format!("malformed float literal {exp}")),
+                                    self.end_span(sl, sc, sb),
+                                    exp,
+                                );
+                            }
+                        };
                         let suffix = self.parse_numeric_suffix();
                         let lexeme = if suffix.is_empty() { exp } else { format!("{exp}{suffix}") };
-                        return Token::new(TokenKind::Float(num), start, lexeme);
+                        return Token::new(TokenKind::Float(num), self.end_span(sl, sc, sb), lexeme);
                     }
                     let clean = int_part.replace('_', "");
-                    let num_u128: u128 = clean.parse().unwrap_or(0);
+                    // AUDIT #15 FIX: decimal overflow beyond u128 used to
+                    // silently lex as 0 -- now an explicit error token.
+                    let num_u128: u128 = match clean.parse() {
+                        Ok(n) => n,
+                        Err(_) => {
+                            return Token::new(
+                                TokenKind::Error(format!(
+                                    "integer literal {int_part} does not fit in 128 bits")),
+                                self.end_span(sl, sc, sb),
+                                int_part.clone(),
+                            );
+                        }
+                    };
                     let suffix = self.parse_numeric_suffix();
                     let lexeme = if suffix.is_empty() { int_part } else { format!("{int_part}{suffix}") };
                     // D1: overflow u64 -> BigInt token for native Int128 literals.
                     if num_u128 > u64::MAX as u128 {
-                        return Token::new(TokenKind::BigInt(num_u128), start, lexeme);
+                        return Token::new(TokenKind::BigInt(num_u128), self.end_span(sl, sc, sb), lexeme);
                     }
-                    Token::new(TokenKind::Int(num_u128 as u64), start, lexeme)
+                    Token::new(TokenKind::Int(num_u128 as u64), self.end_span(sl, sc, sb), lexeme)
                 }
             }
 
@@ -288,7 +425,7 @@ impl Lexer {
                 let mut s = String::new();
                 loop {
                     match self.peek() {
-                        None => return self.error_at(start, "unterminated string literal"),
+                        None => return self.error_at(sl, sc, sb, "unterminated string literal"),
                         Some('"') => { self.advance(); break; }
                     Some('\\') => {
                         self.advance();
@@ -307,26 +444,34 @@ impl Lexer {
                                 let h2 = self.advance().unwrap_or('0');
                                 let d1 = h1.to_digit(16).unwrap_or(0) as u8;
                                 let d2 = h2.to_digit(16).unwrap_or(0) as u8;
-                                s.push(((d1 << 4) | d2) as char);
+                                let val = (d1 << 4) | d2;
+                                // AUDIT hygiene fix: values >= 0x80 were pushed
+                                // into a `char` unchecked (raw byte smuggling).
+                                // Non-ASCII needs the explicit \u{...} form.
+                                if val >= 0x80 {
+                                    return self.error_at(sl, sc, sb,
+                                        "hex escape \\xNN must be < 0x80 -- use \\u{...} for non-ASCII");
+                                }
+                                s.push(val as char);
                             }
                             Some('u') => {
                                 if self.advance() != Some('{') {
-                                    return self.error("expected '{' after \\u");
+                                    return self.error_at(sl, sc, sb, "expected '{' after \\u");
                                 }
                                 let hex = self.advance_while(|c| c.is_ascii_hexdigit());
                                 if self.advance() != Some('}') {
-                                    return self.error("expected '}' after \\u hex digits");
+                                    return self.error_at(sl, sc, sb, "expected '}' after \\u hex digits");
                                 }
                                 let codepoint = u32::from_str_radix(&hex, 16).unwrap_or(0xFFFD);
                                 s.push(char::from_u32(codepoint).unwrap_or('\u{FFFD}'));
                             }
-                            _ => return self.error("invalid escape sequence"),
+                            _ => return self.error_at(sl, sc, sb, "invalid escape sequence"),
                         }
                     }
                         Some(c) => { self.advance(); s.push(c); }
                     }
                 }
-                Token::new(TokenKind::Str(s.clone()), start, format!("\"{s}\""))
+                Token::new(TokenKind::Str(s.clone()), self.end_span(sl, sc, sb), format!("\"{s}\""))
             }
 
             // --- Char literals ---
@@ -349,152 +494,157 @@ impl Lexer {
                             let h2 = self.advance().unwrap_or('\0');
                             let d1 = h1.to_digit(16).unwrap_or(0) as u8;
                             let d2 = h2.to_digit(16).unwrap_or(0) as u8;
-                            ((d1 << 4) | d2) as char
+                            let val = (d1 << 4) | d2;
+                            if val >= 0x80 {
+                                return self.error_at(sl, sc, sb,
+                                    "hex escape \\xNN must be < 0x80 -- use \\u{...} for non-ASCII");
+                            }
+                            val as char
                         }
-                        _ => return self.error("invalid escape in char literal"),
+                        _ => return self.error_at(sl, sc, sb, "invalid escape in char literal"),
                     },
                     Some(c) if c != '\'' => c,
-                    _ => return self.error("empty char literal"),
+                    _ => return self.error_at(sl, sc, sb, "empty char literal"),
                 };
                 if self.advance() != Some('\'') {
-                    return self.error("unterminated char literal");
+                    return self.error_at(sl, sc, sb, "unterminated char literal");
                 }
-                Token::new(TokenKind::Char(c), start, format!("'{c}'"))
+                Token::new(TokenKind::Char(c), self.end_span(sl, sc, sb), format!("'{c}'"))
             }
 
             // --- Operators and punctuation ---
-            '.' => { self.advance(); Token::new(TokenKind::Dot, start, ".") }
-            ',' => { self.advance(); Token::new(TokenKind::Comma, start, ",") }
-            ';' => { self.advance(); Token::new(TokenKind::Semicolon, start, ";") }
+            '.' => { self.advance(); Token::new(TokenKind::Dot, self.end_span(sl, sc, sb), ".") }
+            ',' => { self.advance(); Token::new(TokenKind::Comma, self.end_span(sl, sc, sb), ",") }
+            ';' => { self.advance(); Token::new(TokenKind::Semicolon, self.end_span(sl, sc, sb), ";") }
             ':' => {
                 self.advance();
                 if self.peek() == Some(':') {
                     self.advance();
-                    Token::new(TokenKind::ColonColon, start, "::")
+                    Token::new(TokenKind::ColonColon, self.end_span(sl, sc, sb), "::")
                 } else {
-                    Token::new(TokenKind::Colon, start, ":")
+                    Token::new(TokenKind::Colon, self.end_span(sl, sc, sb), ":")
                 }
             }
-            '(' => { self.advance(); Token::new(TokenKind::LParen, start, "(") }
-            ')' => { self.advance(); Token::new(TokenKind::RParen, start, ")") }
-            '{' => { self.advance(); Token::new(TokenKind::LBrace, start, "{") }
-            '}' => { self.advance(); Token::new(TokenKind::RBrace, start, "}") }
-            '[' => { self.advance(); Token::new(TokenKind::LBracket, start, "[") }
-            ']' => { self.advance(); Token::new(TokenKind::RBracket, start, "]") }
-            '@' => { self.advance(); Token::new(TokenKind::At, start, "@") }
-            '#' => { self.advance(); Token::new(TokenKind::Hash, start, "#") }
-            '?' => { self.advance(); Token::new(TokenKind::Question, start, "?") }
+            '(' => { self.advance(); Token::new(TokenKind::LParen, self.end_span(sl, sc, sb), "(") }
+            ')' => { self.advance(); Token::new(TokenKind::RParen, self.end_span(sl, sc, sb), ")") }
+            '{' => { self.advance(); Token::new(TokenKind::LBrace, self.end_span(sl, sc, sb), "{") }
+            '}' => { self.advance(); Token::new(TokenKind::RBrace, self.end_span(sl, sc, sb), "}") }
+            '[' => { self.advance(); Token::new(TokenKind::LBracket, self.end_span(sl, sc, sb), "[") }
+            ']' => { self.advance(); Token::new(TokenKind::RBracket, self.end_span(sl, sc, sb), "]") }
+            '@' => { self.advance(); Token::new(TokenKind::At, self.end_span(sl, sc, sb), "@") }
+            '#' => { self.advance(); Token::new(TokenKind::Hash, self.end_span(sl, sc, sb), "#") }
+            '?' => { self.advance(); Token::new(TokenKind::Question, self.end_span(sl, sc, sb), "?") }
             '+' => {
                 self.advance();
                 if self.peek() == Some('=') {
                     self.advance();
-                    Token::new(TokenKind::PlusEq, start, "+=")
+                    Token::new(TokenKind::PlusEq, self.end_span(sl, sc, sb), "+=")
                 } else {
-                    Token::new(TokenKind::Plus, start, "+")
+                    Token::new(TokenKind::Plus, self.end_span(sl, sc, sb), "+")
                 }
             }
             '-' => {
                 self.advance();
                 if self.peek() == Some('>') {
                     self.advance();
-                    Token::new(TokenKind::Arrow, start, "->")
+                    Token::new(TokenKind::Arrow, self.end_span(sl, sc, sb), "->")
                 } else if self.peek() == Some('=') {
                     self.advance();
-                    Token::new(TokenKind::MinusEq, start, "-=")
+                    Token::new(TokenKind::MinusEq, self.end_span(sl, sc, sb), "-=")
                 } else {
-                    Token::new(TokenKind::Minus, start, "-")
+                    Token::new(TokenKind::Minus, self.end_span(sl, sc, sb), "-")
                 }
             }
             '*' => {
                 self.advance();
                 if self.peek() == Some('=') {
                     self.advance();
-                    Token::new(TokenKind::StarEq, start, "*=")
+                    Token::new(TokenKind::StarEq, self.end_span(sl, sc, sb), "*=")
                 } else {
-                    Token::new(TokenKind::Star, start, "*")
+                    Token::new(TokenKind::Star, self.end_span(sl, sc, sb), "*")
                 }
             }
             '/' => {
                 self.advance();
                 if self.peek() == Some('=') {
                     self.advance();
-                    Token::new(TokenKind::SlashEq, start, "/=")
+                    Token::new(TokenKind::SlashEq, self.end_span(sl, sc, sb), "/=")
                 } else {
-                    Token::new(TokenKind::Slash, start, "/")
+                    Token::new(TokenKind::Slash, self.end_span(sl, sc, sb), "/")
                 }
             }
             '%' => {
                 self.advance();
                 if self.peek() == Some('=') {
                     self.advance();
-                    Token::new(TokenKind::PercentEq, start, "%=")
+                    Token::new(TokenKind::PercentEq, self.end_span(sl, sc, sb), "%=")
                 } else {
-                    Token::new(TokenKind::Percent, start, "%")
+                    Token::new(TokenKind::Percent, self.end_span(sl, sc, sb), "%")
                 }
             }
-            '^' => { self.advance(); Token::new(TokenKind::Caret, start, "^") }
-            '~' => { self.advance(); Token::new(TokenKind::Tilde, start, "~") }
+            '^' => { self.advance(); Token::new(TokenKind::Caret, self.end_span(sl, sc, sb), "^") }
+            '~' => { self.advance(); Token::new(TokenKind::Tilde, self.end_span(sl, sc, sb), "~") }
             '!' => {
                 self.advance();
                 if self.peek() == Some('=') {
                     self.advance();
-                    Token::new(TokenKind::Neq, start, "!=")
+                    Token::new(TokenKind::Neq, self.end_span(sl, sc, sb), "!=")
                 } else {
-                    Token::new(TokenKind::Bang, start, "!")
+                    Token::new(TokenKind::Bang, self.end_span(sl, sc, sb), "!")
                 }
             }
             '&' => {
                 self.advance();
                 if self.peek() == Some('&') {
                     self.advance();
-                    Token::new(TokenKind::AndAnd, start, "&&")
+                    Token::new(TokenKind::AndAnd, self.end_span(sl, sc, sb), "&&")
                 } else {
-                    Token::new(TokenKind::Ampersand, start, "&")
+                    Token::new(TokenKind::Ampersand, self.end_span(sl, sc, sb), "&")
                 }
             }
             '|' => {
                 self.advance();
                 if self.peek() == Some('|') {
                     self.advance();
-                    Token::new(TokenKind::OrOr, start, "||")
+                    Token::new(TokenKind::OrOr, self.end_span(sl, sc, sb), "||")
                 } else {
-                    Token::new(TokenKind::Pipe, start, "|")
+                    Token::new(TokenKind::Pipe, self.end_span(sl, sc, sb), "|")
                 }
             }
             '=' => {
                 self.advance();
                 if self.peek() == Some('=') {
                     self.advance();
-                    Token::new(TokenKind::EqEq, start, "==")
+                    Token::new(TokenKind::EqEq, self.end_span(sl, sc, sb), "==")
                 } else if self.peek() == Some('>') {
                     self.advance();
-                    Token::new(TokenKind::FatArrow, start, "=>")
+                    Token::new(TokenKind::FatArrow, self.end_span(sl, sc, sb), "=>")
                 } else {
-                    Token::new(TokenKind::Eq, start, "=")
+                    Token::new(TokenKind::Eq, self.end_span(sl, sc, sb), "=")
                 }
             }
             '<' => {
                 self.advance();
                 if self.peek() == Some('=') {
                     self.advance();
-                    Token::new(TokenKind::Le, start, "<=")
+                    Token::new(TokenKind::Le, self.end_span(sl, sc, sb), "<=")
                 } else {
-                    Token::new(TokenKind::Lt, start, "<")
+                    Token::new(TokenKind::Lt, self.end_span(sl, sc, sb), "<")
                 }
             }
             '>' => {
                 self.advance();
                 if self.peek() == Some('=') {
                     self.advance();
-                    Token::new(TokenKind::Ge, start, ">=")
+                    Token::new(TokenKind::Ge, self.end_span(sl, sc, sb), ">=")
                 } else {
-                    Token::new(TokenKind::Gt, start, ">")
+                    Token::new(TokenKind::Gt, self.end_span(sl, sc, sb), ">")
                 }
             }
 
             _ => {
                 self.advance();
-                Token::new(TokenKind::Error(format!("unexpected character: '{ch}'")), start, ch.to_string())
+                Token::new(TokenKind::Error(format!("unexpected character: '{ch}'")), self.end_span(sl, sc, sb), ch.to_string())
             }
         }
     }
@@ -555,8 +705,10 @@ impl Lexer {
         Token::new(TokenKind::Error(msg.into()), self.span(), "")
     }
 
-    fn error_at(&self, span: Span, msg: impl Into<String>) -> Token {
-        Token::new(TokenKind::Error(msg.into()), span, "")
+    /// Error token whose span covers everything consumed since the recorded
+    /// start (so diagnostics underline the whole malformed literal).
+    fn error_at(&self, sl: u32, sc: u32, sb: usize, msg: impl Into<String>) -> Token {
+        Token::new(TokenKind::Error(msg.into()), self.end_span(sl, sc, sb), "")
     }
 }
 
@@ -659,6 +811,135 @@ mod tests {
             _ => None,
         }).collect();
         assert_eq!(idents, vec!["x", "y", "z"]);
+    }
+
+    // =====================================================================
+    // Byte-offset spans (readiness Stage 2)
+    // =====================================================================
+
+    #[test]
+    fn test_byte_offsets_ascii() {
+        let src = "let x = 42;";
+        let toks = Lexer::new(src).tokenize();
+        // "let" [0,3), "x" [4,5), "=" [6,7), "42" [8,10), ";" [10,11)
+        assert_eq!(toks[0].span.byte_range(), Some((0, 3)));
+        assert_eq!(toks[1].span.byte_range(), Some((4, 5)));
+        assert_eq!(toks[2].span.byte_range(), Some((6, 7)));
+        assert_eq!(toks[3].span.byte_range(), Some((8, 10)));
+        assert_eq!(toks[4].span.byte_range(), Some((10, 11)));
+        // Lexemes agree with the ranges.
+        for t in &toks {
+            if let Some((s, e)) = t.span.byte_range() {
+                assert_eq!(&src[s as usize..e as usize], t.lexeme, "range must cover the lexeme");
+            }
+        }
+    }
+
+    #[test]
+    fn test_byte_offsets_multibyte() {
+        // Multi-byte chars: columns count CHARS, bytes count BYTES.
+        let src = "var s = \"h\u{00E9}\"; var n = 1;"; // é is 2 bytes
+        let toks = Lexer::new(src).tokenize();
+        // The string token starts at byte 8 ("var s = "), and its lexeme
+        // "\"h\u{00E9}\"" is 4 chars but 5 bytes -> range (8, 13).
+        let stok = toks.iter().find(|t| matches!(t.kind, TokenKind::Str(_))).expect("string");
+        let (ss, se) = stok.span.byte_range().unwrap();
+        assert_eq!((ss, se), (8, 13), "string byte length must include the 2-byte e-acute");
+        assert_eq!(stok.lexeme.chars().count(), 4);
+        assert_eq!(&src[ss as usize..se as usize], stok.lexeme);
+        // The first semicolon sits right after the string at byte 13.
+        let semi = &toks[toks.iter().position(|t| t.kind == TokenKind::Semicolon).unwrap()];
+        assert_eq!(semi.span.byte_range(), Some((13, 14)));
+    }
+
+    #[test]
+    fn test_offset_lines_track_newlines() {
+        let src = "let a = 1;\nlet b = 2;";
+        let toks = Lexer::new(src).tokenize();
+        let second_let = &toks[5];
+        assert_eq!(second_let.span.line, 2);
+        assert_eq!(second_let.span.col, 1);
+        assert_eq!(second_let.span.byte_range(), Some((11, 14)));
+    }
+
+    // =====================================================================
+    // Trivia preservation (audit Stage 2)
+    // =====================================================================
+
+    #[test]
+    fn test_trivia_preserved() {
+        let src = "// leading\nlet x; /* mid */ fn f() {}";
+        let (_, trivia) = Lexer::new(src).tokenize_with_trivia();
+        assert_eq!(trivia.len(), 2);
+        assert_eq!(trivia[0].kind, TriviaKind::LineComment);
+        assert_eq!(trivia[0].text, "// leading");
+        assert_eq!(trivia[0].span.line, 1);
+        assert_eq!(trivia[1].kind, TriviaKind::BlockComment);
+        assert_eq!(trivia[1].text, "/* mid */");
+        // Ranges align with the source text exactly.
+        for t in &trivia {
+            let (s, e) = t.span.byte_range().unwrap();
+            assert_eq!(&src[s as usize..e as usize], t.text);
+        }
+    }
+
+    #[test]
+    fn test_shebang_preserved_as_trivia() {
+        let src = "#!/usr/bin/env xiom\nfn main() {}";
+        let (_, trivia) = Lexer::new(src).tokenize_with_trivia();
+        assert_eq!(trivia.len(), 1);
+        assert_eq!(trivia[0].kind, TriviaKind::Shebang);
+        assert_eq!(trivia[0].text, "#!/usr/bin/env xiom");
+        let (s, e) = trivia[0].span.byte_range().unwrap();
+        assert_eq!(&src[s as usize..e as usize], trivia[0].text);
+    }
+
+    #[test]
+    fn test_plain_tokenize_still_works_with_comments() {
+        // tokenize() behavior unchanged: same token kinds with or without comments.
+        let with_c = lex("let x /* c */ = 1;");
+        let without_c = lex("let x = 1;");
+        assert_eq!(with_c, without_c);
+    }
+
+    // =====================================================================
+    // AUDIT #15 -- numeric overflow and escape honesty
+    // =====================================================================
+
+    #[test]
+    fn test_decimal_overflow_beyond_u128_is_error_not_zero() {
+        let toks = Lexer::new("340282366920938463463374607431768211456").tokenize(); // 2^128 > u128::MAX
+        assert!(matches!(&toks[0].kind, TokenKind::Error(m) if m.contains("does not fit")),
+            "overflow must be an error token, got {:?}", toks[0].kind);
+    }
+
+    #[test]
+    fn test_hex_overflow_beyond_u128_is_error_not_zero() {
+        // 33 hex digits = >128 bits.
+        let toks = Lexer::new("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").tokenize();
+        assert!(matches!(&toks[0].kind, TokenKind::Error(m) if m.contains("does not fit")),
+            "got {:?}", toks[0].kind);
+    }
+
+    #[test]
+    fn test_u128_max_boundary_still_lexes() {
+        let toks = Lexer::new("340282366920938463463374607431768211455").tokenize(); // u128::MAX
+        assert!(matches!(&toks[0].kind, TokenKind::BigInt(_)), "got {:?}", toks[0].kind);
+    }
+
+    #[test]
+    fn test_hex_escape_above_7f_rejected() {
+        let toks = lex("\"\\x80\"");
+        assert!(matches!(&toks[0], TokenKind::Error(m) if m.contains("\\xNN")),
+            "\\x80 must be rejected (use \\u{{...}}), got {:?}", toks[0]);
+        let ctoks = lex("'\\xFF'");
+        assert!(matches!(&ctoks[0], TokenKind::Error(_)));
+    }
+
+    #[test]
+    fn test_ascii_hex_escape_still_works() {
+        let tokens = lex("\"\\x41\\x00\\x7F\"");
+        assert_eq!(tokens[0], TokenKind::Str("A\u{0}\u{7F}".into()));
     }
 
     #[test]
