@@ -333,7 +333,15 @@ impl IrEmitter {
                 let inner = self.evaluate_const_init(inner);
                 match op {
                     UnaryOp::Neg => {
-                        if let Expr::Int(v, _) = inner { return Expr::Int(v.wrapping_neg(), *span); }
+                        if let Expr::Int(v, _) = inner {
+                            // Expr::Int stores the i64 bit pattern as u64;
+                            // negate in the SIGNED domain so -5 folds to its
+                            // two's-complement bits. True i64 overflow
+                            // (MIN) stays unevaluated (checked policy).
+                            let sv = v as i64;
+                            if let Some(neg) = sv.checked_neg() { return Expr::Int(neg as u64, *span); }
+                            return expr.clone();
+                        }
                         if let Expr::Float(v, _) = inner { return Expr::Float(-v, *span); }
                     }
                     UnaryOp::Not => {
@@ -355,14 +363,19 @@ impl IrEmitter {
                 let r = self.evaluate_const_init(rhs);
 
                 // --- Integer pairs ---
+                // Expr::Int stores the i64 bit pattern as u64; all checked
+                // arithmetic runs in the SIGNED domain (i64) and stores back
+                // as bits. True i64 overflow leaves the expression
+                // unevaluated so runtime semantics apply (checked policy --
+                // was silent wrapping, audited).
                 if let (Expr::Int(a, _), Expr::Int(b, _)) = (&l, &r) {
+                    let (a, b) = (*a as i64, *b as i64);
                     let result: Expr = match op {
-                        // Arithmetic
-                        BinOp::Add => Expr::Int(a.wrapping_add(*b), *span),
-                        BinOp::Sub => Expr::Int(a.wrapping_sub(*b), *span),
-                        BinOp::Mul => Expr::Int(a.wrapping_mul(*b), *span),
-                        BinOp::Div => if *b != 0 { Expr::Int(a / b, *span) } else { return expr.clone(); },
-                        BinOp::Rem => if *b != 0 { Expr::Int(a % b, *span) } else { return expr.clone(); },
+                        BinOp::Add => match a.checked_add(b) { Some(v) => Expr::Int(v as u64, *span), None => return expr.clone() },
+                        BinOp::Sub => match a.checked_sub(b) { Some(v) => Expr::Int(v as u64, *span), None => return expr.clone() },
+                        BinOp::Mul => match a.checked_mul(b) { Some(v) => Expr::Int(v as u64, *span), None => return expr.clone() },
+                        BinOp::Div => if b != 0 && !(a == i64::MIN && b == -1) { Expr::Int((a / b) as u64, *span) } else { return expr.clone(); },
+                        BinOp::Rem => if b != 0 && !(a == i64::MIN && b == -1) { Expr::Int((a % b) as u64, *span) } else { return expr.clone(); },
                         // Comparison (integer)
                         BinOp::Eq  => Expr::Bool(a == b, *span),
                         BinOp::Neq => Expr::Bool(a != b, *span),
@@ -371,11 +384,11 @@ impl IrEmitter {
                         BinOp::Le  => Expr::Bool(a <= b, *span),
                         BinOp::Ge  => Expr::Bool(a >= b, *span),
                         // Bitwise
-                        BinOp::Shl => Expr::Int(a.wrapping_shl(*b as u32), *span),
-                        BinOp::Shr => Expr::Int(a.wrapping_shr(*b as u32), *span),
-                        BinOp::BitAnd => Expr::Int(a & b, *span),
-                        BinOp::BitOr  => Expr::Int(a | b, *span),
-                        BinOp::BitXor => Expr::Int(a ^ b, *span),
+                        BinOp::Shl => match a.checked_shl(b as u32).filter(|_| (0..64).contains(&b)) { Some(v) => Expr::Int(v as u64, *span), None => return expr.clone() },
+                        BinOp::Shr => match a.checked_shr(b as u32).filter(|_| (0..64).contains(&b)) { Some(v) => Expr::Int(v as u64, *span), None => return expr.clone() },
+                        BinOp::BitAnd => Expr::Int((a & b) as u64, *span),
+                        BinOp::BitOr  => Expr::Int((a | b) as u64, *span),
+                        BinOp::BitXor => Expr::Int((a ^ b) as u64, *span),
                         _ => return expr.clone(),
                     };
                     return result;
@@ -491,7 +504,14 @@ impl IrEmitter {
                             if let Ok(result) = self.ctfe.borrow_mut().eval_function(
                                 &fid.name, &arg_vals, 0,
                             ) {
-                                return xiom_ctfe::CtfeEngine::to_expr(&result);
+                                // try_to_expr returns None for values with no
+                                // faithful AST form (Ptr/Null/Range/custom
+                                // variants). The audited Int(0) SENTINEL is
+                                // gone: fall back to the UNEVALUATED call so
+                                // the constant materializes at runtime.
+                                if let Some(folded) = xiom_ctfe::CtfeEngine::try_to_expr(&result) {
+                                    return folded;
+                                }
                             }
                         }
                     }
@@ -506,17 +526,25 @@ impl IrEmitter {
             Expr::If(cond, then_block, elifs, else_block, span) => {
                 let cond_val = self.evaluate_const_init(cond);
                 if let Expr::Bool(true, _) = cond_val {
-                    return self.eval_block_last(&then_block.stmts, *span);
+                    if let Some(v) = self.eval_block_last(&then_block.stmts, *span) {
+                        return v;
+                    }
+                    return expr.clone();
                 }
                 if let Expr::Bool(false, _) = cond_val {
                     for (elif_cond, elif_block) in elifs {
                         let ec = self.evaluate_const_init(elif_cond);
                         if let Expr::Bool(true, _) = ec {
-                            return self.eval_block_last(&elif_block.stmts, *span);
+                            if let Some(v) = self.eval_block_last(&elif_block.stmts, *span) {
+                                return v;
+                            }
+                            return expr.clone();
                         }
                     }
                     if let Some(else_block) = else_block {
-                        return self.eval_block_last(&else_block.stmts, *span);
+                        if let Some(v) = self.eval_block_last(&else_block.stmts, *span) {
+                            return v;
+                        }
                     }
                 }
                 expr.clone()
@@ -528,14 +556,20 @@ impl IrEmitter {
                 for arm in arms {
                     let mut bindings: std::collections::HashMap<String, Expr> = std::collections::HashMap::new();
                     if self.pattern_matches_const_with_bindings(&arm.pattern, &val, &mut bindings) {
-                        return match &arm.body {
+                        let folded = match &arm.body {
                             xiom_ast::MatchBody::Block(block) => {
                                 self.eval_block_last(&block.stmts, *span)
                             }
                             xiom_ast::MatchBody::Expr(e) => {
-                                self.evaluate_const_init_with_bindings(e, &bindings)
+                                Some(self.evaluate_const_init_with_bindings(e, &bindings))
                             }
                         };
+                        // Non-foldable arm -> keep the WHOLE match unevaluated
+                        // (the old Int(0) sentinel is gone).
+                        if let Some(v) = folded {
+                            return v;
+                        }
+                        return expr.clone();
                     }
                 }
                 expr.clone()
@@ -546,23 +580,78 @@ impl IrEmitter {
         }
     }
 
-    /// Evaluate the last expression in a block for CTFE if/match folding.
-    /// Walks statements in reverse to find the final expression.
-    fn eval_block_last(&self, stmts: &[xiom_ast::StmtOrExpr], span: Span) -> Expr {
-        for stmt in stmts.iter().rev() {
+    /// Evaluate a block for const if/match folding and return its tail value.
+    ///
+    /// PRODUCTION FIX (readiness Stage 1): the old implementation walked the
+    /// statements in REVERSE, evaluated only the final expression, and
+    /// skipped every preceding statement -- `{ let a = 21; a * 2 }` folded
+    /// with `a` unknown (or read a stale outer binding). Blocks now execute
+    /// SEQUENTIALLY with a local constant environment. Returns None when the
+    /// block is not const-foldable -- callers must keep the original
+    /// expression unevaluated (the fabricated Int(0) fallback is gone).
+    fn eval_block_last(
+        &self,
+        stmts: &[xiom_ast::StmtOrExpr],
+        _span: Span,
+    ) -> Option<Expr> {
+        let mut locals: std::collections::HashMap<String, Expr> = std::collections::HashMap::new();
+        for stmt in stmts.iter() {
             match stmt {
                 xiom_ast::StmtOrExpr::Expr(e) => {
-                    return self.evaluate_const_init(e);
+                    return Some(self.evaluate_const_init_with_bindings(e, &locals));
                 }
-                xiom_ast::StmtOrExpr::Stmt(s) => {
-                    if let xiom_ast::Stmt::Expr(e, _) = s {
-                        return self.evaluate_const_init(e);
+                xiom_ast::StmtOrExpr::Stmt(s) => match s {
+                    xiom_ast::Stmt::Expr(e, _) => {
+                        return Some(self.evaluate_const_init_with_bindings(e, &locals));
                     }
-                    continue;
-                }
+                    xiom_ast::Stmt::Let(id, _, init, _) | xiom_ast::Stmt::Var(id, _, init, _) => {
+                        let folded = self.evaluate_const_init_with_bindings(init, &locals);
+                        if !Self::is_const_literal(&folded) {
+                            // Depends on a runtime value: block is not
+                            // compile-time computable.
+                            return None;
+                        }
+                        locals.insert(id.name.clone(), folded);
+                    }
+                    xiom_ast::Stmt::Assign(target, rhs, _) => {
+                        let name = match *target {
+                            xiom_ast::Expr::Ident(ref id) => id.name.clone(),
+                            _ => return None,
+                        };
+                        if !locals.contains_key(&name) {
+                            // Assignment to a non-local: not a pure const block.
+                            return None;
+                        }
+                        let folded = self.evaluate_const_init_with_bindings(rhs, &locals);
+                        if !Self::is_const_literal(&folded) {
+                            return None;
+                        }
+                        locals.insert(name, folded);
+                    }
+                    // Control flow / returns inside folded arms are not
+                    // supported by this folder (the CTFE engine handles full
+                    // function bodies).
+                    _ => return None,
+                },
             }
         }
-        Expr::Int(0, span)
+        // Empty block has no value form.
+        None
+    }
+
+    /// True when the expression is a fully-folded compile-time literal.
+    fn is_const_literal(e: &xiom_ast::Expr) -> bool {
+        match e {
+            xiom_ast::Expr::Int(..)
+            | xiom_ast::Expr::Float(..)
+            | xiom_ast::Expr::Bool(..)
+            | xiom_ast::Expr::Str(..)
+            | xiom_ast::Expr::Char(..)
+            | xiom_ast::Expr::None(_) => true,
+            xiom_ast::Expr::Some(inner, _) | xiom_ast::Expr::Ok(inner, _)
+            | xiom_ast::Expr::Err(inner, _) => Self::is_const_literal(inner),
+            _ => false,
+        }
     }
 
     /// Check whether a compile-time pattern matches a const-evaluated literal,
@@ -584,7 +673,7 @@ impl IrEmitter {
                 match (lit, value) {
                     (xiom_ast::Literal::Bool(a, _), Expr::Bool(b, _)) => a == b,
                     (xiom_ast::Literal::Int(a, _), Expr::Int(b, _)) => a == b,
-                    (xiom_ast::Literal::Float(a, _), Expr::Float(b, _)) => (a - b).abs() < 1e-15,
+                    (xiom_ast::Literal::Float(a, _), Expr::Float(b, _)) => a == b,
                     (xiom_ast::Literal::Str(a, _), Expr::Str(b, _)) => a == b,
                     (xiom_ast::Literal::Char(a, _), Expr::Char(b, _)) => a == b,
                     _ => false,

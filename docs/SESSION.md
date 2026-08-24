@@ -1,3 +1,70 @@
+# XIOM Compiler Session -- Handoff (2026-08-24)
+
+## Session update (2026-08-24, round 16a IN PROGRESS -- readiness Stage 0/1): CTFE explicit-stack rewrite + const-folder hardening
+
+Master plan created: docs/COMPILER_READINESS_PLAN.md (merges the round-15
+queue + compiler-audit findings #1-20 into staged work; stdlib audit belongs
+to the PARALLEL STDLIB SESSION -- this lane never edits stdlib/).
+
+### DONE this round so far
+
+1. **Stage 0 ground truth (fresh laptop):** checker 178/178, parser 97/97,
+   ctfe 97->36/36 (rewritten suite), feature-reg 510/510, full e2e BASELINE
+   2293/2294 (the one fail, e2e_m37_simd_runtime Some(15) vs Some(0), is a
+   SIMD CPU-dispatch ENVIRONMENTAL fail on this machine -- reproduces on the
+   untouched round-15 binary; same class as the old smoke_simd CRT ignore).
+   stdlib-exec 69/70 (+2 ign) -- stdlib_exec_log_runs ALSO fails at BASELINE
+   here (verified via stash+rebuild); treat as machine-environmental until
+   the desktop re-confirms.
+2. **BUG 57 verdict (geom family): CONFIRMED REAL.** SESSION round-15 note
+   ("probe_skew3/4 green -- stale handoff entries") was WRONG;
+   stdlib_session.md's evening report is correct. Fresh probes committed:
+   tmp/bug_probes/probe_geom1.xi (identity->trace/det chain prints garbage
+   9.214e18) + probe_geom2.xi (raw m[0][1] param read prints -4.609e18).
+   NO e2e covers nested &Vec[Vec[Float64]] PARAM reads in module fns --
+   Stage 4 fix must add e2e_m57_geom_nested_param.
+3. **Stage 1 CTFE REWRITE LANDED (crates/xiom-ctfe/src/lib.rs, ~1200 lines):
+   explicit work-stack MACHINE replaces the recursive tree-walker.**
+   - Fixes audit #1: user recursion no longer grows the native stack --
+     RecursionLimit(1000) is reachable and returns a diagnostic (regression-
+     tested: factorial(20) evaluates; infinite recursion errors cleanly).
+   - Fixes audit #2: to_expr -> try_to_expr returning Option; Struct/Variant/
+     Array reconstruct faithfully; Ptr/Null/Range/custom variants return None
+     and the CODEGEN CALLER NOW FALLS BACK TO UNEVALUATED (runtime
+     materialization), never the Int(0) sentinel.
+   - Fixes audit #7: for-loops iterate fully over ranges (parser-desugared
+     range/range_inclusive calls), array literals, and array locals; unlabeled
+     break/continue supported; labeled forms rejected with clear errors.
+   - Overflow policy (audit three-model inconsistency): checked arithmetic,
+     overflow = hard compile error (rustc precedent). Float ==/!= EXACT IEEE
+     (epsilon 1e-15 removed there AND in the codegen folder's pattern matcher).
+   - Session-wide fuel on the engine (was per-frame, multiplied by depth).
+   - Arena-cap panic -> Err(ArenaOverflow).
+   - Block tails: statements execute sequentially; frame.last carries each
+     expression-statement value ({ let a = 21; a * 2 } folds to 42 -- the
+     old eval_block_last SKIPPED preceding statements entirely, an audited +
+     newly-found defect; fixed in BOTH the engine and codegen's folder, whose
+     if/match folding now returns Option<Expr> instead of fabricating Int(0)).
+4. **Codegen const-folder hardened (crates/xiom-codegen/src/expr.rs):**
+   wrapping arithmetic -> CHECKED in the SIGNED domain (Expr::Int stores the
+   i64 bit pattern as u64 -- negate/subtract via s i64 first; naive
+   unsigned checked ops broke -X/0-X folding and was caught by
+   regress_5e7f_const_arithmetic_neg within minutes: baseline-compare
+   discipline works). True i64 overflow leaves expressions unevaluated.
+   CtfeEngine call site uses try_to_expr with unevaluated fallback.
+
+### Verification state of THIS round's changes
+
+ctfe 36/36 (new suite incl. ICE/sentinel/for-loop/overflow/block-tail
+regressions), checker 178/178, parser 97/97, feature-reg 510/510,
+stdlib-exec 69/70 (+2 ign; log_runs = baseline env fail), geom probes
+unchanged (BUG 57 still open, Stage 4). FULL E2E ON THE NEW BINARY RUNNING
+AT DOC TIME (baseline comparison target: 2293/2294 + simd env-fail).
+
+**NEXT:** confirm e2e -> commit discipline -> Stage 1 remainder (verifier
+honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
+module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
+Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
 # XIOM Compiler Session -- Handoff (2026-08-19)
 
 ## Session update (2026-08-23, round 15 FIXED -- compiler): fn-typed Float64 thunks + Ord-interface injection + const-N arrays + checker generic bare calls
@@ -1137,3 +1204,4 @@ builtin Ord resolution, Set iteration (iterator protocol).
 Next stdlib session: re-run the sweep, triage with the probe->log->verify
 loop, and pick up the iter find/all/any/nth/last methods once the checker
 generic-tuple gap closes.
+
