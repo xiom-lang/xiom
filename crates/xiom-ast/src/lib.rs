@@ -31,16 +31,67 @@ use std::fmt;
 // Source location
 // ============================================================================
 
-/// A position in source code: line and column, both 1-based.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// A position in source code: line/column (1-based) plus BYTE OFFSETS.
+///
+/// AUDIT FIX (readiness Stage 2, finding: "line/col pairs without offsets or
+/// end positions"): Spans now carry a half-open byte range [byte_start,
+/// byte_end) into the tokenized source (post-BOM), which unlocks precise
+/// diagnostic ranges, LSP UTF-16 math, incremental change detection and
+/// DWARF line tables without touching any existing consumer.
+///
+/// COMPATIBILITY: `new(line, col)` still constructs a span WITHOUT offsets
+/// (byte range 0..0 -- used by synthetic/dummy sites until they are
+/// migrated). Equality and hashing deliberately consider ONLY (line, col),
+/// preserving every pre-existing span-comparison semantic; use
+/// `same_range()` for offset-aware comparison.
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Span {
     pub line: u32,
     pub col: u32,
+    pub byte_start: u32,
+    pub byte_end: u32,
+}
+
+impl PartialEq for Span {
+    fn eq(&self, other: &Self) -> bool {
+        self.line == other.line && self.col == other.col
+    }
+}
+impl Eq for Span {}
+impl std::hash::Hash for Span {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.line.hash(state);
+        self.col.hash(state);
+    }
 }
 
 impl Span {
     pub const fn new(line: u32, col: u32) -> Self {
-        Self { line, col }
+        Self { line, col, byte_start: 0, byte_end: 0 }
+    }
+
+    /// Full-fidelity constructor: position PLUS byte range.
+    pub const fn range(line: u32, col: u32, byte_start: u32, byte_end: u32) -> Self {
+        Self { line, col, byte_start, byte_end }
+    }
+
+    /// The byte range, or None for synthetic spans constructed via
+    /// `new()` (no offset information).
+    pub fn byte_range(&self) -> Option<(u32, u32)> {
+        if self.byte_start == 0 && self.byte_end == 0 {
+            None
+        } else {
+            Some((self.byte_start, self.byte_end))
+        }
+    }
+
+    /// True when both spans carry offsets and their byte ranges match
+    /// exactly (stronger than PartialEq).
+    pub fn same_range(&self, other: &Span) -> bool {
+        match (self.byte_range(), other.byte_range()) {
+            (Some(a), Some(b)) => a == b && self.line == other.line,
+            _ => false,
+        }
     }
 }
 
