@@ -502,7 +502,20 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     }
     checker.build_catalog_index();
 
-    if let Err(errors) = checker.check_program(&program) {
+    // AUDIT FIX (readiness Stage 1): surface checker warnings on the SUCCESS
+    // path too -- check_program used to drop them when there were no errors.
+    let check_outcome = checker.check_program(&program);
+    for w in checker.take_warnings() {
+        result.diagnostics.push(Diagnostic {
+            kind: "warning".into(), code: "W000".into(),
+            message: w.message.clone(),
+            line: w.span.line, col: w.span.col, file: "<unknown>".into(),
+            suggestion: None,
+            help: None, note: None,
+        });
+        warnings.push(w.message.clone());
+    }
+    if let Err(errors) = check_outcome {
         for err in &errors {
             let suggestion = suggest_fix(&err.message);
             let (help, note) = diagnostic_for(&err.message);

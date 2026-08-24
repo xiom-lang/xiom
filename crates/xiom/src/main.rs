@@ -161,6 +161,21 @@ fn run_repl() {
 }
 
 fn main() {
+    // Deep recursion (parser depth cap 128, codegen visitors) needs far more
+    // than the default 1MB Windows main-thread stack. rustc runs its compiler
+    // on a big-stack thread for the same reason. All work happens here;
+    // process::exit calls inside real_main still terminate immediately.
+    let child = std::thread::Builder::new()
+        .stack_size(512 * 1024 * 1024)
+        .spawn(real_main)
+        .expect("failed to spawn compiler worker thread");
+    if child.join().is_err() {
+        // A panic escaped real_main; mirror the standard panic exit code.
+        std::process::exit(101);
+    }
+}
+
+fn real_main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 || args.iter().any(|a| a == "--help") {
         print_usage();
