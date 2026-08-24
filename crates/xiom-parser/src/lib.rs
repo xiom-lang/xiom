@@ -28,11 +28,13 @@ pub struct Parser {
     expected: u128,
 }
 
-/// Maximum expression/type nesting depth. A recursive-descent parser recurses
-/// once per nesting level, with ~16 intermediate frames per level. 24 levels x
-/// 16 frames ~= 384 stack frames ~= 768KB -- well within the 1MB test-thread stack.
-/// Prevents STACK_OVERFLOW on deeply nested input like 500-parenthesized exprs.
-const MAX_EXPR_DEPTH: usize = 24;
+/// Maximum expression/type nesting depth (rustc uses 128). Each level costs
+/// ~32KB of native stack (~16 intermediate frames), so depth 128 requires
+/// >=4MB -- THE DRIVER RUNS COMPILATION ON A BIG-STACK THREAD for this reason
+/// (see crates/xiom/src/main.rs). Library embedders on small stacks keep the
+/// structured error instead of a stack overflow; legitimately deep user code
+/// is no longer rejected at 24 levels (audited finding).
+const MAX_EXPR_DEPTH: usize = 128;
 
 impl Parser {
         pub fn errors(&self) -> &[ParseError] { &self.errors }
@@ -117,7 +119,7 @@ impl Parser {
     fn enter_expr(&mut self) -> Result<(), ParseError> {
         self.depth += 1;
         if self.depth > MAX_EXPR_DEPTH {
-            return Err(self.error("expression nesting too deep (max 24 levels) -- simplify the expression"));
+            return Err(self.error("expression nesting too deep (max 128 levels) -- simplify the expression"));
         }
         Ok(())
     }
@@ -140,8 +142,16 @@ impl Parser {
     }
 
     fn advance(&mut self) -> &Token {
+        // Invariant (audited): the token stream ALWAYS ends with Eof, so
+        // pos-1 is valid after the increment. Enforce it in debug builds --
+        // indexing past a malformed stream would otherwise be silent UB.
+        debug_assert!(
+            self.pos < self.tokens.len(),
+            "advance() walked past the end of the token stream: the stream must terminate with Eof"
+        );
+        let prev = self.pos;
         self.pos += 1;
-        &self.tokens[self.pos - 1]
+        &self.tokens[prev]
     }
 
     fn check(&self, kind: fn(&TokenKind) -> bool) -> bool {
@@ -2605,12 +2615,21 @@ mod tests {
     #[test]
     fn test_deep_nesting_errors_cleanly() {
         // 500 nested parens must NOT crash (stack overflow). The parser may
-        // survive with error recovery or hit the error limit -- both are valid.
+        // survive with error recovery or hit the depth error at 128 -- both
+        // are valid. Depth 128 costs ~4MB of native stack (~32KB/level), so
+        // run on a big-stack thread EXACTLY like the driver does; libtest
+        // threads default to a small stack.
         let src = format!("fn main() -> Int {{ return {}1{}; }}", "(".repeat(500), ")".repeat(500));
-        let tokens = Lexer::new(&src).tokenize();
-        let result = Parser::new(tokens).parse_program();
-        // 5c-R: improved error recovery may survive; just assert no crash
-        assert!(result.is_ok() || result.is_err(), "deep nesting must not panic");
+        let child = std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(move || {
+                let tokens = Lexer::new(&src).tokenize();
+                let result = Parser::new(tokens).parse_program();
+                // 5c-R: improved error recovery may survive; just assert no crash
+                assert!(result.is_ok() || result.is_err(), "deep nesting must not panic");
+            })
+            .expect("spawn");
+        child.join().expect("deep-nesting parse must not abort");
     }
 
     #[test]

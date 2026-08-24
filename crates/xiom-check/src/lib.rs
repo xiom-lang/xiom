@@ -1105,6 +1105,9 @@ impl Checker {
 
         // S2: Append warnings to errors for display, but only if there are
         // already real errors (warnings alone don't block compilation).
+        // AUDIT FIX (readiness Stage 1): on the SUCCESS path warnings were
+        // silently DISCARDED here. They now stay in self.warnings; callers
+        // surface them via take_warnings().
         if !self.errors.is_empty() {
             self.errors.append(&mut self.warnings);
         }
@@ -1114,6 +1117,12 @@ impl Checker {
         } else {
             Err(std::mem::take(&mut self.errors))
         }
+    }
+
+    /// Drain accumulated warnings (success path of check_program keeps them
+    /// here instead of dropping them -- audited finding).
+    pub fn take_warnings(&mut self) -> Vec<CheckError> {
+        std::mem::take(&mut self.warnings)
     }
 
     fn register_type_decl(&mut self, item: &TopDecl) {
@@ -3127,6 +3136,15 @@ impl Checker {
             let sig_key = format!("{}.{}", impl_ty, method.name);
             let sig = self.functions.get(&sig_key).cloned();
             if let Some(sig) = sig {
+                // AUDIT FIX (readiness Stage 1): arity was never checked --
+                // extra arguments were silently DROPPED at codegen.
+                if args.len() > sig.params.len() {
+                    self.error(
+                        format!("{} expects {} argument(s), found {}",
+                            sig_key, sig.params.len(), args.len()),
+                        span,
+                    );
+                }
                 for (i, arg) in args.iter().enumerate() {
                     let arg_ty = self.check_expr(arg);
                     if i < sig.params.len() {
@@ -3176,6 +3194,16 @@ impl Checker {
         let sig = self.resolve_module_function(&path)?;
         let sig = sig.clone();
 
+        // AUDIT FIX (readiness Stage 1): arity was never checked on
+        // module-prefix calls -- `convert.float_to_string(3.14159, 2)` against
+        // the 1-param def compiled and silently dropped the extra argument.
+        if args.len() > sig.params.len() {
+            self.error(
+                format!("{} expects {} argument(s), found {}",
+                    path.join("."), sig.params.len(), args.len()),
+                span,
+            );
+        }
         for (i, arg) in args.iter().enumerate() {
             let arg_ty = self.check_expr(arg);
             if i < sig.params.len() {
@@ -7402,9 +7430,17 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
         src.push_str("0");
         for _ in 0..200 { src.push(')'); }
         src.push_str("; }");
-        let result = check(&src);
-        // Must not panic -- may produce errors or succeed, but must not crash
-        assert!(result.is_ok() || result.is_err());
+        // Parser depth 128 + the checker's recursive expr walk cost several
+        // MB of stack; run on a big-stack thread exactly like the driver.
+        let child = std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(move || {
+                let result = check(&src);
+                // Must not panic -- may produce errors or succeed
+                assert!(result.is_ok() || result.is_err());
+            })
+            .expect("spawn");
+        child.join().expect("deep-nesting check must not abort");
     }
 
     /// Type checker must be consistent: checking the same program twice
