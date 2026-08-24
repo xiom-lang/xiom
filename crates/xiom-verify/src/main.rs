@@ -39,11 +39,21 @@ fn main() {
     });
 
     // Parse
-    let tokens = Lexer::new(&source).tokenize();
-    let program = Parser::new(tokens).parse_program().unwrap_or_else(|e| {
+    let mut parser = Parser::new(Lexer::new(&source).tokenize());
+    let program = parser.parse_program().unwrap_or_else(|e| {
         eprintln!("Parse error: {e}");
         process::exit(1);
     });
+    // AUDITED HAZARD FIX: parse_program returns a PARTIAL program with errors
+    // stashed in the parser -- callers that forget take_errors() ship broken
+    // ASTs silently (the type-field fixtures used to "pass" this way).
+    let parse_errors = parser.take_errors();
+    if !parse_errors.is_empty() {
+        for e in &parse_errors {
+            eprintln!("Parse error: {e:?}");
+        }
+        process::exit(1);
+    }
 
     // Type check
     let mut checker = Checker::new();
@@ -57,9 +67,10 @@ fn main() {
         process::exit(1);
     }
 
-    // Generate SMT-LIB
+    // Generate SMT-LIB (+ the list of obligations we had to SKIP -- they are
+    // reported as UNKNOWN, never as silent failures or fabricated proofs).
     let mut generator = SMTGenerator::new();
-    let smt_output = generator.generate(&program);
+    let (smt_output, report) = generator.generate_with_report(&program);
 
     // Parse CLI args
     let mut output_file = None;
@@ -108,7 +119,16 @@ fn main() {
     // Check with Z3
     if do_check {
         let runner = Z3Runner::new().with_z3_path(&z3_path);
-        let results = runner.verify(&smt_output);
+
+        let mut results: Vec<VerifyResult> = Vec::new();
+        // Skipped obligations first: honest UNKNOWN verdicts.
+        for skip in &report.skipped {
+            eprintln!("  [WARN]  UNKNOWN: {} (in {}) -- {}", skip.code, skip.owner, skip.reason);
+            results.push(VerifyResult::Inconclusive {
+                reason: format!("{} ({}): {}", skip.code, skip.owner, skip.reason),
+            });
+        }
+        results.extend(runner.verify(&smt_output));
 
         let mut proven = 0;
         let mut violated = 0;
