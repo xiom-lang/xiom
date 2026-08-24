@@ -838,7 +838,7 @@ mod tests {
     #[test]
     fn test_byte_offsets_multibyte() {
         // Multi-byte chars: columns count CHARS, bytes count BYTES.
-        let src = "var s = \"h\u{00E9}\"; var n = 1;"; // é is 2 bytes
+        let src = "var s = \"h\u{00E9}\"; var n = 1;"; // U+00E9 is 2 bytes
         let toks = Lexer::new(src).tokenize();
         // The string token starts at byte 8 ("var s = "), and its lexeme
         // "\"h\u{00E9}\"" is 4 chars but 5 bytes -> range (8, 13).
