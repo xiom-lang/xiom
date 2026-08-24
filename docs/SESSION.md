@@ -65,6 +65,46 @@ AT DOC TIME (baseline comparison target: 2293/2294 + simd env-fail).
 honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
 module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
 Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
+
+### Round-16a PROGRESS UPDATE (same evening): quick wins LANDED
+
+Commits: `f1c8b707` (CTFE rewrite + folder hardening + readiness plan) +
+`786851b3` (quick wins). **Stage-1 full e2e on the new binary:
+2293/2294 -- IDENTICAL to baseline** (the one fail is the machine-env
+simd_runtime; zero regressions from the whole rewrite).
+
+Quick wins landed and verified:
+1. Module-prefix ARITY CHECK (both check_module_call branches) -- extra args
+   are now T001 errors instead of silent drops. feature-reg 510/510 = zero
+   false positives over the entire stdlib surface.
+2. Checker warnings SURFACED on the success path (take_warnings() + W000
+   diagnostics); previously dropped whenever the error list was empty.
+3. MAX_EXPR_DEPTH 24 -> 128 (rustc parity) + advance() Eof-invariant
+   debug_assert. The driver now runs ALL compilation on a 512MB-stack worker
+   thread (128 levels x ~32KB > the default 1MB Windows main stack);
+   deep-nesting tests updated to big-stack threads accordingly. Verified:
+   55-level nesting compiles and runs (was rejected at 24).
+4. GOTCHA recorded in COMPILER_BUGS.md: Expr::Int is a u64 BIT PATTERN --
+   checked const arithmetic must cast `as i64` first (unsigned checked ops
+   return None for -X / 0-X and silently unfold consts; caught by
+   regress_5e7f_const_arithmetic_neg via baseline-compare within minutes).
+
+Suite state after all Stage-0/1 changes: parser 97/97, checker 178/178,
+ctfe 36/36 (new suite), feature-reg 510/510, stdlib-exec 69/70 (+2 ign;
+log_runs = BASELINE env fail on this laptop), e2e 2293/2294 (simd_runtime =
+BASELINE env fail). Both env-fails reproduce on the untouched round-15
+binary here; desktop remains reference for SIMD/log-sensitive tests.
+
+**REMAINING Stage 1 (next block): R16c verifier honesty (sort-consistent SMT
+encoding, struct-field encodings, UNKNOWN as distinct verdict -- never
+literal false, bounded z3 sessions with concurrent drain, invariant
+emission). Then Stage 2 structural foundations (spans -> interning ->
+expand_impl_blocks move -> lexer trivia) per docs/COMPILER_READINESS_PLAN.md.**
+
+NOTE: a parallel STDLIB session is ACTIVE in this repo right now
+(stdlib/runtime/sha256_sw.c + crypto.xi modified, new docs appearing).
+Compiler lane must NOT touch stdlib/** or their docs; baseline-compare
+(stash+rebuild) before blaming any smoke/e2e flip on compiler commits.
 # XIOM Compiler Session -- Handoff (2026-08-19)
 
 ## Session update (2026-08-23, round 15 FIXED -- compiler): fn-typed Float64 thunks + Ord-interface injection + const-N arrays + checker generic bare calls
