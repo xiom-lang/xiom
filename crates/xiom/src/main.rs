@@ -651,26 +651,27 @@ fn real_main() {
         return;
     }
 
-    let config = CompileConfig {
-        target,
-        emit_ir,
-        do_run,
-        check_only,
-        release,
-        check_contracts,
-        diagnostics_json,
-        strict_mode,
-        debug_symbols,
-        shared_lib,
-        static_lib,
-        max_recursion_depth,
-        dump_contracts: args.iter().any(|a| a == "--dump-contracts"),
-        verify,
-        verify_output,
-        output_file,
-        link_libs,
-        link_paths,
-        c_sources,
+    let config = {
+        let mut config = CompileConfig {
+            target,
+            emit_ir,
+            do_run,
+            check_only,
+            release,
+            check_contracts,
+            diagnostics_json,
+            strict_mode,
+            debug_symbols,
+            shared_lib,
+            static_lib,
+            max_recursion_depth,
+            dump_contracts: args.iter().any(|a| a == "--dump-contracts"),
+            verify,
+            verify_output,
+            output_file,
+            link_libs,
+            link_paths,
+            c_sources,
         hot_reload: false,  // set to true by hot reload loop below
         hot_reload_contracts,
         sanitize,
@@ -688,6 +689,47 @@ fn real_main() {
         lto: use_lto,
         parallel_codegen,
         enable_unsafe_direct,
+    };
+
+    // AUDIT #18 FIX (second half): the xiom.toml `[compiler]` table was
+    // PARSED but IGNORED -- project settings never reached compilation.
+    // Manifest values now act as PROJECT DEFAULTS; explicit CLI flags keep
+    // precedence (a flag absent = field not chosen by the user).
+    if let Some(first_src) = source_paths.first() {
+        if let Ok(manifest) = xiom_graph::manifest::find_and_parse_manifest(
+            std::path::Path::new(first_src))
+        {
+            let cc = &manifest.compiler;
+            if cc.release && !release {
+                config.release = true;
+            }
+            if cc.incremental && !incremental {
+                config.incremental = true;
+            }
+            if let Some(d) = cc.max_depth {
+                if parse_flag_value(&args, "--max-depth").is_none() {
+                    config.max_recursion_depth = d;
+                }
+            }
+            if let Some(t) = &cc.target {
+                if !args.iter().any(|a| a == "--target") {
+                    match t.as_str() {
+                        "wasm" => config.target = Target::Wasm,
+                        "wasi" => config.target = Target::Wasi,
+                        "arm" => config.target = Target::Arm,
+                        "riscv" => config.target = Target::RisCv,
+                        "native" => config.target = Target::Native,
+                        other => eprintln!("warning: ignoring unknown [compiler] target '{other}'"),
+                    }
+                }
+            }
+            if std::env::var("XIOM_VERBOSE_CONFIG").as_deref() == Ok("1") {
+                eprintln!("[config] manifest applied: release={} incremental={} max_depth={:?}",
+                    config.release, config.incremental, cc.max_depth);
+            }
+        }
+    }
+    config
     };
 
     // 7F.2: Build graph visualization
