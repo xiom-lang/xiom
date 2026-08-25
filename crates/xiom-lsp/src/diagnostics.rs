@@ -17,7 +17,9 @@ pub fn make_range(span: &xiom_ast::Span) -> serde_json::Value {
 pub fn diagnostic_from_parse_error(err: &ParseError) -> serde_json::Value {
     serde_json::json!({
         "range": make_range(&err.span),
-        "severity": "Error",
+        // AUDIT #9 FIX: LSP severities are INTEGERS (1=Error). The string
+        // "Error" violated the spec and was dropped by conforming clients.
+        "severity": 1,
         "message": format!("Parse error: {}", err.message)
     })
 }
@@ -25,7 +27,7 @@ pub fn diagnostic_from_parse_error(err: &ParseError) -> serde_json::Value {
 pub fn diagnostic_from_check_error(err: &CheckError) -> serde_json::Value {
     serde_json::json!({
         "range": make_range(&err.span),
-        "severity": "Error",
+        "severity": 1,
         "message": format!("Type error: {}", err.message)
     })
 }

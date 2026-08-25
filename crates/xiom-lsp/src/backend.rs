@@ -52,7 +52,11 @@ impl Backend {
                         "start": { "line": line, "character": col },
                         "end": { "line": line, "character": col + 1 }
                     },
-                    "severity": "Error",
+                    // AUDIT #9 FIX: LSP severity is an INTEGER (1=Error,
+                    // 2=Warning, 3=Information, 4=Hint). The string "Error"
+                    // violated the spec and was dropped by conforming
+                    // clients, silencing lex errors entirely.
+                    "severity": 1,
                     "message": format!("Lex error: {}", msg)
                 }));
             }

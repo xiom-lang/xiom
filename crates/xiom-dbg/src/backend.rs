@@ -15,6 +15,26 @@ pub(crate) struct GdbBackend {
     pub(crate) program_path: Option<String>,
 }
 
+/// AUDIT #20 FIX: GDB/MI string quoting. Inside MI double-quoted strings,
+/// backslashes, double quotes, and non-printables must be escaped --
+/// raw interpolation let IDE-supplied text inject arbitrary GDB commands.
+fn mi_quote(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\{:03o}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
 impl GdbBackend {
     pub(crate) fn new() -> Self {
         GdbBackend { child: None, reader: None, breakpoints: HashMap::new(), next_breakpoint_id: 1, program_path: None }
@@ -53,7 +73,12 @@ impl GdbBackend {
     }
 
     fn set_breakpoint_impl(&mut self, source: &str, line: u64) -> Result<Breakpoint, String> {
-        let resp = self.send_mi(&format!("-break-insert --source \"{source}\" --line {line}"))?;
+        // AUDIT #20 FIX: source paths were interpolated raw into the MI
+        // command -- a crafted filename (or IDE input) could inject
+        // arbitrary GDB commands. All user strings are now MI-quoted.
+        let resp = self.send_mi(&format!(
+            "-break-insert --source {} --line {}",
+            mi_quote(source), line))?;
         let verified = resp.contains("^done");
         let bp = Breakpoint { id: self.next_breakpoint_id, source_path: source.to_string(), line, verified };
         self.breakpoints.insert(bp.id, bp.clone());
@@ -202,7 +227,10 @@ impl DebuggerBackend for GdbBackend {
         Err("no reader".to_string())
     }
     fn evaluate_expression(&mut self, expr: &str) -> Result<String, String> {
-        let resp = self.send_mi(&format!("-data-evaluate-expression \"{expr}\""))?;
+        // AUDIT #20 FIX: the evaluate box fed raw user text into the MI
+        // stream -- `x" && shell` style payloads injected GDB commands.
+        let resp = self.send_mi(&format!(
+            "-data-evaluate-expression {}", mi_quote(expr)))?;
         if let Some(val_start) = resp.find("value=\"") {
             let after = &resp[val_start + 7..];
             if let Some(val_end) = after.find('"') { return Ok(after[..val_end].to_string()); }
