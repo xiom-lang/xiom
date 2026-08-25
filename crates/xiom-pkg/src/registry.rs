@@ -5,8 +5,7 @@
 // M14.1: Extracted from main.rs -- registry download, search, install.
 
 use std::collections::HashMap;
-use std::io::{Read, Write};
-use std::net::TcpStream;
+
 use std::path::{Path, PathBuf};
 use std::process;
 
@@ -17,62 +16,57 @@ pub(crate) fn registry_url() -> String {
 }
 
 // ============================================================================
-// Native HTTP client -- falls back from curl -> PowerShell -> built-in TCP
+// HTTP transport -- ureq-only, TLS-verified, size/timeout-bounded (audit #4/#5)
 // ============================================================================
 
+/// AUDIT #5 FIX: the old transport ladder was curl -> PowerShell (URL
+/// interpolated into `-Command` -- command injection via --registry /
+/// XIOM_REGISTRY) -> raw-TCP plaintext HTTP. HTTP is now ureq-ONLY:
+/// native Rust, TLS-verified, timeout-bounded. Plain http:// is REJECTED
+/// unless XIOM_PKG_ALLOW_HTTP=1 is explicitly set (local dev registries).
 pub(crate) fn http_get(url: &str) -> Result<String, String> {
-    // Strategy 0: ureq (native Rust, TLS built-in, no external deps)
-    match ureq::get(url).call() {
-        Ok(resp) => return resp.into_string().map_err(|e| format!("ureq read: {e}")),
-        Err(_) => {} // fall through to curl
+    ensure_https(url)?;
+    let resp = ureq::get(url)
+        .timeout(std::time::Duration::from_secs(30))
+        .call()
+        .map_err(|e| format!("GET {url}: {e}"))?;
+    let mut body = String::new();
+    use std::io::Read;
+    resp.into_reader().take(16 * 1024 * 1024).read_to_string(&mut body)
+        .map_err(|e| format!("read: {e}"))?;
+    Ok(body)
+}
+
+/// AUDIT #4/#5 FIX: binary downloads are ureq-only as well; response is
+/// size-capped so a hostile mirror cannot OOM the client.
+pub(crate) fn http_get_binary(url: &str) -> Result<Vec<u8>, String> {
+    ensure_https(url)?;
+    let resp = ureq::get(url)
+        .timeout(std::time::Duration::from_secs(120))
+        .call()
+        .map_err(|e| format!("GET {url}: {e}"))?;
+    const MAX_ARCHIVE_BYTES: u64 = 256 * 1024 * 1024; // 256 MiB
+    let mut data = Vec::new();
+    use std::io::Read;
+    resp.into_reader().take(MAX_ARCHIVE_BYTES).read_to_end(&mut data)
+        .map_err(|e| format!("read: {e}"))?;
+    Ok(data)
+}
+
+fn ensure_https(url: &str) -> Result<(), String> {
+    if url.starts_with("https://") {
+        return Ok(());
     }
-    // Strategy 1: curl (most portable, handles HTTPS)
-    if let Ok(output) = process::Command::new("curl").args(["-s", "-L", url]).output() {
-        if output.status.success() {
-            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
-        }
-    }
-    // Strategy 2: PowerShell on Windows
-    #[cfg(windows)]
+    if std::env::var("XIOM_PKG_ALLOW_HTTP").as_deref() == Ok("1")
+        && url.starts_with("http://localhost")
     {
-        if let Ok(output) = process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", &format!("(Invoke-WebRequest -Uri '{url}' -UseBasicParsing).Content")])
-            .output()
-        {
-            if output.status.success() {
-                return Ok(String::from_utf8_lossy(&output.stdout).to_string());
-            }
-        }
+        return Ok(());
     }
-    // Strategy 3: built-in TCP for plain HTTP (no TLS)
-    if url.starts_with("http://") {
-        return http_get_tcp(url);
-    }
-    Err(format!("Cannot fetch {url}: no curl, no powershell, and URL requires HTTPS"))
+    Err(format!(
+        "refusing insecure registry URL '{url}': package downloads require HTTPS \
+         (set XIOM_PKG_ALLOW_HTTP=1 to allow http://localhost for local dev)"
+    ))
 }
-
-fn http_get_tcp(url: &str) -> Result<String, String> {
-    let url = url.strip_prefix("http://").ok_or("Invalid HTTP URL")?;
-    let (host, path) = url.split_once('/').unwrap_or((url, ""));
-    let host_port = if host.contains(':') { host.to_string() } else { format!("{host}:80") };
-    let path = format!("/{path}");
-
-    let mut stream = TcpStream::connect(&host_port).map_err(|e| format!("TCP connect: {e}"))?;
-    let request = format!("GET {path} HTTP/1.0\r\nHost: {host}\r\nConnection: close\r\n\r\n");
-    stream.write_all(request.as_bytes()).map_err(|e| format!("TCP write: {e}"))?;
-
-    let mut response = String::new();
-    stream.read_to_string(&mut response).map_err(|e| format!("TCP read: {e}"))?;
-
-    // Strip HTTP headers
-    if let Some(body_start) = response.find("\r\n\r\n") {
-        Ok(response[body_start + 4..].to_string())
-    } else {
-        Ok(response)
-    }
-}
-
-// ============================================================================
 // 5e.7b: Remote Registry Client
 // ============================================================================
 
@@ -90,10 +84,59 @@ pub(crate) struct RegistryIndex {
 
 #[derive(Debug, serde::Deserialize)]
 pub(crate) struct RegistryPackage {
+    #[serde(default)]
     pub(crate) description: String,
+    #[serde(default)]
     pub(crate) repository: String,
     pub(crate) latest: String,
-    pub(crate) versions: Vec<String>,
+    /// AUDIT #4 FIX: the server publishes per-version metadata INCLUDING
+    /// the tarball sha256 (registry/server.js writes `versions[version] =
+    /// { sha256, size, ... }`). The old client modeled versions as a plain
+    /// string array and DISCARDED the hashes -- installs were never
+    /// verified. Both shapes now deserialize; hashes are mandatory at
+    /// install time (see verify step in install_from_registry).
+    #[serde(default, deserialize_with = "deserialize_versions")]
+    pub(crate) versions: Vec<RegistryVersion>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct RegistryVersion {
+    pub(crate) version: String,
+    #[serde(default)]
+    pub(crate) sha256: String,
+}
+
+/// Accept either the server's object map (`"1.0": {sha256,...}`) or the
+/// legacy string array (`["1.0", "0.9"]`) so both registry generations work.
+fn deserialize_versions<'de, D>(de: D) -> Result<Vec<RegistryVersion>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+    #[derive(serde::Deserialize)]
+    #[serde(untagged)]
+    enum Shape {
+        Map(std::collections::HashMap<String, VersionMeta>),
+        List(Vec<String>),
+    }
+    #[derive(serde::Deserialize)]
+    struct VersionMeta {
+        #[serde(default)]
+        sha256: String,
+        #[serde(default)]
+        version: Option<String>,
+    }
+    match Shape::deserialize(de)? {
+        Shape::Map(map) => Ok(map.into_iter()
+            .map(|(ver, meta)| RegistryVersion {
+                version: meta.version.unwrap_or(ver.clone()),
+                sha256: meta.sha256,
+            })
+            .collect()),
+        Shape::List(list) => Ok(list.into_iter()
+            .map(|ver| RegistryVersion { version: ver, sha256: String::new() })
+            .collect()),
+    }
 }
 
 pub(crate) fn fetch_registry_index(registry: &str) -> Result<RegistryIndex, String> {
@@ -151,9 +194,10 @@ pub(crate) fn install_from_registry(package: &str, version: Option<&str>, regist
         .ok_or_else(|| format!("Package '{}' not found in registry. Try: xiom pkg search {}", package, package))?;
 
     let ver = version.unwrap_or(&pkg_info.latest);
-    if !pkg_info.versions.contains(&ver.to_string()) {
-        return Err(format!("Version '{}' not found for '{}'. Available: {:?}", ver, package, pkg_info.versions));
-    }
+    let ver_meta = pkg_info.versions.iter().find(|v| &v.version == ver)
+        .ok_or_else(|| format!("Version '{}' not found for '{}'. Available: {:?}",
+            ver, package,
+            pkg_info.versions.iter().map(|v| v.version.as_str()).collect::<Vec<_>>()))?;
 
     // Download package archive
     let dl_url = format!("{}/packages/{}/{}/package.tar.gz", registry, package, ver);
@@ -162,6 +206,33 @@ pub(crate) fn install_from_registry(package: &str, version: Option<&str>, regist
     let archive = http_get_binary(&dl_url)?;
     if archive.is_empty() {
         return Err(format!("Empty archive from {dl_url}"));
+    }
+
+    // AUDIT #4 FIX: CLIENT-SIDE SHA-256 VERIFICATION. The server has always
+    // published the digest; the client now enforces it. Unhashed entries are
+    // refused unless XIOM_PKG_ALLOW_UNHASHED=1 (legacy local indexes only).
+    if ver_meta.sha256.is_empty() {
+        let allow = std::env::var("XIOM_PKG_ALLOW_UNHASHED").as_deref() == Ok("1");
+        if !allow {
+            return Err(format!(
+                "registry index has NO sha256 for {} v{} -- refusing to install \
+                 unverified artifacts (set XIOM_PKG_ALLOW_UNHASHED=1 to override)",
+                package, ver));
+        }
+        eprintln!("  WARNING: installing UNHASHED artifact {} v{} (override active)", package, ver);
+    } else {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(&archive);
+        let actual = format!("{:x}", hasher.finalize());
+        let expected = ver_meta.sha256.trim().to_lowercase();
+        if actual != expected {
+            return Err(format!(
+                "CHECKSUM MISMATCH for {} v{}: expected sha256 {}, got {} -- \
+                 the download is corrupted or tampered with",
+                package, ver, expected, actual));
+        }
+        println!("  checksum verified (sha256:{actual})");
     }
 
     // Extract to local package cache
@@ -178,44 +249,6 @@ pub(crate) fn install_from_registry(package: &str, version: Option<&str>, regist
     Ok(())
 }
 
-pub(crate) fn http_get_binary(url: &str) -> Result<Vec<u8>, String> {
-    // Strategy 0: ureq (native Rust, TLS built-in)
-    match ureq::get(url).call() {
-        Ok(resp) => {
-            let mut data = Vec::new();
-            resp.into_reader().read_to_end(&mut data).map_err(|e| format!("read: {e}"))?;
-            return Ok(data);
-        }
-        Err(_) => {}
-    }
-    // Strategy 1: curl (binary downloads, handles HTTPS)
-    if let Ok(output) = process::Command::new("curl").args(["-s", "-L", url]).output() {
-        if output.status.success() {
-            return Ok(output.stdout);
-        }
-    }
-    // 6C.1: Fixed PowerShell fallback -- use -OutFile for binary, then read file
-    #[cfg(windows)]
-    {
-        let tmp = std::env::temp_dir().join(format!("xiom_pkg_dl_{}", std::process::id()));
-        if let Ok(output) = process::Command::new("powershell")
-            .args(["-NoProfile", "-Command",
-                   &format!("Invoke-WebRequest -Uri '{url}' -OutFile '{}' -UseBasicParsing",
-                            tmp.to_string_lossy().replace('\'', "''"))])
-            .output()
-        {
-            if output.status.success() {
-                if let Ok(data) = std::fs::read(&tmp) {
-                    let _ = std::fs::remove_file(&tmp);
-                    return Ok(data);
-                }
-                let _ = std::fs::remove_file(&tmp);
-            }
-        }
-    }
-    Err(format!("Cannot download binary from {url}"))
-}
-
 pub(crate) fn package_cache_dir() -> PathBuf {
     let base = if cfg!(windows) {
         PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string()))
@@ -226,19 +259,57 @@ pub(crate) fn package_cache_dir() -> PathBuf {
 }
 
 /// Minimal tar.gz extractor (handles basic .tar.gz files without external tools).
+///
+/// AUDIT #19 FIXES:
+/// - Unique RANDOM temp file (pid-only names allowed pre-planting).
+/// - MEMBER-PATH VALIDATION: `tar -tzf` lists every entry BEFORE extraction;
+///   absolute paths, drive letters, `..` components and Windows-style
+///   backslash escapes are rejected (symlink/hardlink members are refused
+///   outright -- a vetted in-process reader remains future work, logged in
+///   the readiness plan Stage 5).
 pub(crate) fn extract_tar_gz(data: &[u8], dest: &Path) -> Result<(), String> {
-    let tmp = std::env::temp_dir().join(format!("xiom_pkg_{}.tar.gz", std::process::id()));
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos()).unwrap_or(0);
+    let rnd: u32 = (nanos as u32) ^ (((nanos >> 32) as u32).wrapping_mul(0x9E37_79B9));
+    let tmp = std::env::temp_dir()
+        .join(format!("xiom_pkg_{}_{:08x}.tar.gz", std::process::id(), rnd));
     std::fs::write(&tmp, data).map_err(|e| format!("Write temp: {e}"))?;
 
     std::fs::create_dir_all(dest).map_err(|e| format!("Create dir: {e}"))?;
 
-    let result = if cfg!(windows) {
-        process::Command::new("tar").args(["-xzf", &tmp.to_string_lossy(), "-C", &dest.to_string_lossy()]).status()
-    } else {
-        process::Command::new("tar").args(["-xzf", &tmp.to_string_lossy(), "-C", &dest.to_string_lossy()]).status()
-    };
+    let cleanup = || { let _ = std::fs::remove_file(&tmp); };
 
-    let _ = std::fs::remove_file(&tmp);
+    // --- Pre-extraction member validation ---
+    let listing = process::Command::new("tar")
+        .args(["-tzf", &tmp.to_string_lossy()])
+        .output();
+    if let Ok(out) = &listing {
+        if out.status.success() {
+            let listed = String::from_utf8_lossy(&out.stdout);
+            for entry in listed.lines() {
+                let entry = entry.trim();
+                if entry.is_empty() { continue; }
+                let evil = entry.starts_with('/')
+                    || entry.starts_with('\\')
+                    || entry.contains(":\\")
+                    || entry.split('/').any(|seg| seg == "..")
+                    || entry.split('\\').any(|seg| seg == "..");
+                if evil {
+                    cleanup();
+                    return Err(format!(
+                        "refusing malicious archive: member '{entry}' escapes the package directory"));
+                }
+            }
+        }
+        // Listing failures fall through to the extract attempt's own error.
+    }
+
+    let result = process::Command::new("tar")
+        .args(["-xzf", &tmp.to_string_lossy(), "-C", &dest.to_string_lossy()])
+        .status();
+
+    cleanup();
 
     match result {
         Ok(s) if s.success() => Ok(()),

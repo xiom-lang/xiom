@@ -32,6 +32,15 @@ impl LspReader {
         }
 
         let len = content_length?;
+        // AUDIT #13 FIX: `vec![0u8; Content-Length]` trusted an UNTRUSTED
+        // header -- one hostile frame (e.g. a huge length) OOM-killed the
+        // language server. Frames are capped; oversize requests are dropped
+        // (reader returns None -> clean shutdown instead of crash-by-alloc).
+        const MAX_FRAME_BYTES: usize = 64 * 1024 * 1024; // 64 MiB
+        if len > MAX_FRAME_BYTES {
+            eprintln!("lsp: dropping oversized frame ({} bytes > {} cap)", len, MAX_FRAME_BYTES);
+            return None;
+        }
         let mut buf = vec![0u8; len];
         let mut handle = self.stdin.lock();
         let mut read_total = 0;

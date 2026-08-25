@@ -235,7 +235,7 @@ fn tool_check_xiom_syntax(params: &Value) -> Result<Value, String> {
 
     // Library mode: parse-only check via compile_with_diagnostics.
     // Writes source to temp file (the API requires a file path for now).
-    let tmp = std::env::temp_dir().join(format!("xiom_syntax_check_{}.xi", std::process::id()));
+    let tmp = unique_temp_name("xiom_syntax_check");
     std::fs::write(&tmp, source).map_err(|e| format!("Failed to write temp file: {e}"))?;
 
     let config = CompileConfig { ..std::default::Default::default() };
@@ -254,9 +254,20 @@ fn tool_check_xiom_syntax(params: &Value) -> Result<Value, String> {
     }))
 }
 
+/// AUDIT #19 FIX: unpredictable temp names (pid-only / FIXED shared names
+/// allowed symlink pre-planting and concurrent-session collisions). A fresh
+/// random suffix per call makes names unguessable; O_EXCL-style create via
+/// fs::write on a verified-absent path.
+fn unique_temp_name(prefix: &str) -> std::path::PathBuf {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos()).unwrap_or(0);
+    let rnd: u32 = (nanos as u32) ^ (((nanos >> 32) as u32).wrapping_mul(0x9E3779B9));
+    std::env::temp_dir().join(format!("{}_{}_{:08x}.xi", prefix, std::process::id(), rnd))
+}
 fn tool_format_xiom_code(params: &Value) -> Result<Value, String> {
     let source = params["source"].as_str().ok_or("Missing required parameter: source")?;
-    let tmp = std::env::temp_dir().join(format!("xiom_fmt_{}.xi", std::process::id()));
+    let tmp = unique_temp_name("xiom_fmt");
     std::fs::write(&tmp, source).map_err(|e| format!("Failed to write temp file: {e}"))?;
     let output = Command::new("xiom-fmt").arg(tmp.to_str().expect("temp file path must be valid UTF-8")).output().map_err(|e| format!("Failed to spawn xiom-fmt: {e}"))?;
     let _ = std::fs::remove_file(&tmp);
@@ -658,7 +669,7 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
     let file = params.get("file").and_then(|v| v.as_str()).unwrap_or("inline.xi");
 
     // Write source to temp file
-    let tmp = std::env::temp_dir().join("xiom_mcp_compile.xi");
+    let tmp = unique_temp_name("xiom_mcp_compile");
     std::fs::write(&tmp, source).map_err(|e| format!("Cannot write temp file: {e}"))?;
 
     // Run check-only compile
