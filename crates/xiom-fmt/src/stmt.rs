@@ -174,7 +174,27 @@ impl crate::Formatter {
                 self.buf.push_str(&ab.template);
                 self.buf.push_str("\");\n");
             }
-            Stmt::Defer(_, _) => todo!(),
+            // AUDIT #10 FIX: `defer` used to hit todo!() -- formatting any
+            // file containing defer CRASHED the formatter. Defer carries a
+            // Block; emit `defer { ... }`.
+            Stmt::Defer(body, _) => {
+                self.push_indent();
+                self.buf.push_str("defer {\n");
+                self.indent += 1;
+                for item in &body.stmts {
+                    match item {
+                        StmtOrExpr::Stmt(inner) => self.format_stmt(inner),
+                        StmtOrExpr::Expr(expr) => {
+                            self.push_indent();
+                            self.format_expr(expr);
+                            self.buf.push_str(";\n");
+                        }
+                    }
+                }
+                self.indent -= 1;
+                self.push_indent();
+                self.buf.push_str("}\n");
+            }
             Stmt::Assert(cond, msg, _) => {
                 self.buf.push_str("assert(");
                 self.format_expr(cond);
