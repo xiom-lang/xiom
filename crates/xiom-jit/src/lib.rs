@@ -1,4 +1,4 @@
-// XIOM OrcJIT -- Production-Grade Process-Pool JIT Compilation Engine
+// XIOM JIT -- Process-Pool Dynamic-Loading Compilation Engine
 // Copyright (c) 2026 Eleftherios Notas
 // Licensed under the MIT or Apache-2.0 license, at your option.
 //
@@ -10,6 +10,12 @@
 //   5. Symbol caching -- resolved function pointers cached for instant re-call
 //
 // Performance: 500ms -> ~120ms (cold), ~5ms (warm cache)
+//
+// HONESTY NOTE (audit #17): this is a dynamic-loading engine, NOT an
+// OrcJIT-style in-memory JIT. Hot reload keeps retired modules MAPPED so
+// previously returned pointers never dangle; global state resets across
+// reloads (the runtime's layout-checked save/restore API is wired the
+// moment codegen emits per-module state tables).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -91,6 +97,15 @@ pub struct JitEngine {
     output_dir: PathBuf,
     /// Currently loaded module (for hot reload)
     active_module: Option<JitModule>,
+    /// AUDIT #17 FIX (unload-liveness UB): swapping `active_module` used to
+    /// DROP the old JitModule -- unloading its DLL while any previously
+    /// returned symbol pointer / cached fn reference was still live =
+    /// use-after-free on the next call. Retired modules now stay LOADED for
+    /// the engine's lifetime; pointers remain valid (memory cost grows by
+    /// one module per reload -- bounded in practice, documented trade-off).
+    /// A refcounted unload story is future work alongside real state
+    /// migration.
+    retired_modules: Vec<JitModule>,
     /// Incremental cache: source hash -> compiled DLL path
     cache: HashMap<String, PathBuf>,
     /// Whether incremental compilation is enabled (--lazy flag)
@@ -113,6 +128,7 @@ impl JitEngine {
             runtime_lib,
             output_dir,
             active_module: None,
+            retired_modules: Vec::new(),
             cache: HashMap::new(),
             incremental: lazy,
         })
@@ -129,6 +145,10 @@ impl JitEngine {
         if self.incremental {
             if let Some(cached_path) = self.cache.get(source_hash) {
                 if cached_path.exists() {
+                    // AUDIT #17: retire (keep mapped) instead of unloading.
+                    if let Some(old) = self.active_module.take() {
+                        self.retired_modules.push(old);
+                    }
                     self.active_module = Some(JitModule::load(cached_path)?);
                     if let Some(ref mut m) = self.active_module {
                         m.source_hash = source_hash.to_string();
@@ -141,7 +161,11 @@ impl JitEngine {
         // Compile LLVM IR -> shared library via clang
         let lib_path = self.compile_ir_to_lib(ir_text, source_hash)?;
 
-        // Load the compiled library
+        // Load the compiled library. AUDIT #17: retire the old module FIRST
+        // (keep it mapped) so previously returned pointers never dangle.
+        if let Some(old) = self.active_module.take() {
+            self.retired_modules.push(old);
+        }
         let module = JitModule::load(&lib_path)?;
         self.active_module = Some(module);
 
@@ -286,12 +310,19 @@ impl HotReloadWatcher {
 // Hot Reload Manager
 // ============================================================================
 
-/// Manages hot reload lifecycle: watch -> recompile -> atomic swap -> state migrate.
+/// Manages hot reload lifecycle: watch -> recompile -> swap.
+///
+/// AUDIT #17 FIX (state migration honesty): the old manager carried a
+/// `state_snapshot` field that was NEVER populated and silently discarded
+/// on reload while advertising "state migrate" in its own docs. Reality:
+/// compiled modules do not yet export globals-table hooks, so GLOBAL STATE
+/// RESETS on every reload. The runtime's xiom_hot_save_state_v2/
+/// restore_state_v2 (layout-hash validated) is ready and wired the moment
+/// codegen emits per-module state tables -- tracked in the readiness plan.
+/// This loop now says exactly that, instead of pretending.
 pub struct HotReloadManager {
     pub engine: JitEngine,
     pub watcher: HotReloadWatcher,
-    /// Previous global state for migration
-    state_snapshot: Option<Vec<u8>>,
 }
 
 impl HotReloadManager {
@@ -302,12 +333,15 @@ impl HotReloadManager {
         Self {
             watcher: HotReloadWatcher::new(source_path),
             engine,
-            state_snapshot: None,
         }
     }
 
-    /// Run the watch loop. Compiles on change, reloads module, migrates state.
+    /// Run the watch loop. Compiles on change and swaps the module.
     /// `compile_fn` receives the source text and returns (ir_text, source_hash).
+    ///
+    /// HONESTY NOTE: global state does NOT survive a reload today (no
+    /// module-side state hooks exist). The message below says so on every
+    /// reload so no user mistakes a reset for a migration.
     pub fn watch_loop<F>(
         &mut self,
         source_path: &Path,
@@ -318,6 +352,8 @@ impl HotReloadManager {
     {
         eprintln!("[HOT-RELOAD] Watching '{}' -- Ctrl+C to stop",
             source_path.display());
+        eprintln!("[HOT-RELOAD] NOTE: global state RESETS on each reload \
+            (module state hooks not yet emitted by codegen).");
 
         loop {
             if self.watcher.has_changed() {
@@ -330,11 +366,10 @@ impl HotReloadManager {
                 // Compile
                 let (ir_text, source_hash) = compile_fn(&source)?;
 
-                // Load new module (atomic swap)
-                let _snapshot = self.state_snapshot.clone();
+                // Swap module (old module stays mapped; pointers stay valid)
                 match self.engine.compile_and_load(&ir_text, &source_hash) {
                     Ok(_module) => {
-                        eprintln!("[HOT-RELOAD] Reload complete");
+                        eprintln!("[HOT-RELOAD] Reload complete (globals reset)");
                     }
                     Err(e) => {
                         eprintln!("[HOT-RELOAD] Compilation failed: {e}");
