@@ -10,7 +10,6 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use serde_json::Value;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process;
 
@@ -587,28 +586,15 @@ fn install_from_registry_download(name: &str, version: Option<&str>, registry: &
     eprintln!("xiom pkg: downloading {} v{} from {}", name, latest, download_url);
 
     // Download
-    let tmp = std::env::temp_dir().join(format!("xiom_pkg_{}_{}.tar.gz", name, latest));
-    let dl_result = http_get_binary(&download_url);
-    match dl_result {
-        Ok(data) => {
-            std::fs::write(&tmp, &data).map_err(|e| format!("write: {e}"))?;
-            // Extract
-            let xiom_home = get_xiom_home();
-            let pkg_dir = xiom_home.join("packages").join(format!("{}-{}", name, latest));
-            let _ = std::fs::create_dir_all(&pkg_dir);
-            let status = std::process::Command::new("tar")
-                .args(["-xzf", &tmp.to_string_lossy(), "-C", &pkg_dir.to_string_lossy()])
-                .status()
-                .map_err(|e| format!("tar: {e}"))?;
-            if status.success() {
-                println!("xiom pkg: installed {} v{} -> {}", name, latest, pkg_dir.display());
-                Ok(())
-            } else {
-                Err("tar extraction failed".to_string())
-            }
-        }
-        Err(e) => Err(format!("download failed: {e}")),
-    }
+    // AUDIT #19 FIX: unpredictable temp name + raw `tar -xzf` replaced by
+    // the hardened registry extractor (member-path validation, random temps).
+    let data = http_get_binary(&download_url)?;
+    let xiom_home = get_xiom_home();
+    let pkg_dir = xiom_home.join("packages").join(format!("{}-{}", name, latest));
+    let _ = std::fs::create_dir_all(&pkg_dir);
+    crate::registry::extract_tar_gz(&data, &pkg_dir)?;
+    println!("xiom pkg: installed {} v{} -> {}", name, latest, pkg_dir.display());
+    Ok(())
 }
 
 /// Read the local packages/index.json registry manifest.
@@ -631,34 +617,14 @@ fn download_and_install(pkg_name: &str, version: &str, url: &str) -> Result<(), 
     let _ = std::fs::create_dir_all(&pkg_dir);
     eprintln!("xiom pkg: downloading {}...", url);
 
-    // Try ureq first, then curl, then PowerShell
-    let data = match ureq::get(url).call() {
-        Ok(resp) => {
-            let mut buf = Vec::new();
-            resp.into_reader().read_to_end(&mut buf).map_err(|e| format!("read: {e}"))?;
-            buf
-        }
-        Err(_) => {
-            http_get_binary(url)?
-        }
-    };
+    // AUDIT #19 FIX: shared hardened transport + extractor (validated member
+    // paths, random temps). GitHub-release installs carry no index hash, so
+    // checksum verification does not apply here (registry installs enforce it).
+    let data = http_get_binary(url)?;
+    crate::registry::extract_tar_gz(&data, &pkg_dir)?;
 
-    // Save and extract
-    let tmp = std::env::temp_dir().join(format!("xiom_pkg_{}_{}.tar.gz", pkg_name, version));
-    std::fs::write(&tmp, &data).map_err(|e| format!("write: {e}"))?;
-
-    let status = std::process::Command::new("tar")
-        .args(["-xzf", &tmp.to_string_lossy(), "-C", &pkg_dir.to_string_lossy()])
-        .status()
-        .map_err(|e| format!("tar: {e}"))?;
-
-    if status.success() {
-        let _ = std::fs::remove_file(&tmp);
-        println!("xiom pkg: installed {} v{} -> {}", pkg_name, version, pkg_dir.display());
-        Ok(())
-    } else {
-        Err("extraction failed".to_string())
-    }
+    println!("xiom pkg: installed {} v{} -> {}", pkg_name, version, pkg_dir.display());
+    Ok(())
 }
 fn get_xiom_home() -> PathBuf {
     std::env::var("XIOM_HOME").ok().map(PathBuf::from).unwrap_or_else(|| {

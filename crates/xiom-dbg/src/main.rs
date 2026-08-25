@@ -317,6 +317,14 @@ fn main() -> io::Result<()> {
         // DAP uses HTTP-like Content-Length header framing
         if trimmed.starts_with("Content-Length:") {
             let content_len: usize = trimmed["Content-Length:".len()..].trim().parse().unwrap_or(0);
+            // AUDIT #13 FIX: the body buffer trusted an untrusted header --
+            // one hostile frame OOM-killed the debugger. Cap frames; oversize
+            // requests are dropped and the session ends cleanly.
+            const MAX_FRAME_BYTES: usize = 64 * 1024 * 1024; // 64 MiB
+            if content_len > MAX_FRAME_BYTES {
+                eprintln!("dbg: dropping oversized frame ({} bytes)", content_len);
+                break;
+            }
             // Read the blank line separator
             let mut blank = String::new();
             reader.read_line(&mut blank)?;
