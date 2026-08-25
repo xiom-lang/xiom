@@ -66,6 +66,42 @@ honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
 module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
 Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
 
+### Round-16d (2026-08-25, overnight): audit sweep -- SEVEN more findings closed
+
+Autonomous batch series, each fully validated before commit:
+- 833d23d5 fix(driver,lexer): #11 sandbox false-green CLOSED (unreadable
+  input exited 0!); library-half of #12 CLOSED (compile() process::exit ->
+  Err; explain_error returns bool). \xNN restored as documented CODEPOINT
+  U+00NN (m32 corpus relies on '\x80'==128 -- overnight e2e caught my
+  over-strict rejection); m36_r15 migrated to soft-keyword intent.
+- 56e26bdc fix(fmt,lsp,dbg): #10 fmt defer todo!() crash CLOSED (renders
+  `defer { .. }`; suite 79/79); #9 LSP string severities -> INTEGERS;
+  #20 dbg MI injection CLOSED via mi_quote() on breakpoint paths + IDE
+  evaluate box.
+- b3fc1e8a fix(pkg,mcp,lsp,dbg): SUPPLY-CHAIN CORE CLOSED -- #5 command
+  injection (curl/PS/raw-TCP ladder -> ureq-only TLS + timeouts +
+  size caps; http:// rejected unless XIOM_PKG_ALLOW_HTTP=1);
+  #4 client sha256 VERIFICATION enforced at install (index parses both
+  server object-map + legacy list shapes; unhashed refused unless
+  XIOM_PKG_ALLOW_UNHASHED=1; mismatch = hard error); #19 traversal-checked
+  extraction (tar -tzf pre-validation: absolute/drive-letter/.. members
+  rejected) + random temp names everywhere (both divergent install paths
+  routed through one hardened extractor; MCP temps de-predicted); #13
+  LSP/DAP frames capped at 64 MiB.
+- ab988867 fix(parser): Some/None/Ok/Err demoted to SOFT -- Type.Variant
+  qualified access flows through ident positions; reserving them broke 16
+  e2e programs (overnight e2e caught it; rustc does not reserve them).
+- PENDING: #18 second half CLOSED -- xiom.toml [compiler] table was parsed
+  but IGNORED; manifest values now act as project defaults with CLI-flag
+  precedence (release/incremental/max-depth/target; timeout-secs still
+  CLI-only pending cancellation-token work). Functional probe verified.
+
+AUDIT SCORECARD after tonight: top-20 findings -- #1 #2 #3 #4 #5 #7 #8
+#9 #10 #11 #12(lib) #13 #14 #15 #16 #19 #20 CLOSED (+ both halves of #18
+pending commit). REMAINING OPEN: #6 (structural types/interning),
+#12(watchdog cancellation -> Stage 5), #17 (JIT honesty), plus campaign
+BUG 57 geom family / CRT-layout / json heap / stack cookies / clang
+variants (Stage 4), soundness gates (Stage 3), Item A/B.
 ### Round-16c (2026-08-25, early am): Stage 2a LANDED -- byte-offset spans + trivia + literal honesty + reserved words
 
 Commits: f30cc25f (spans/trivia/#15) + a9258be ascii fix + this one
