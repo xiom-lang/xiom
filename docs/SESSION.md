@@ -66,6 +66,41 @@ honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
 module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
 Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
 
+### Round-17 (2026-08-25 morning): BUG 57 FIXED -- the biggest stdlib-facing compiler bug
+
+Commit: 92d40274. e2e 2294/2295 (new test included; simd_runtime remains
+the only env-fail on this laptop). THREE coordinated roots, full map in
+COMPILER_BUGS.md "BUG 57 FIXED" section:
+1. vec_elem_from_type_annotation flattened nested generics (TWO divergent
+   copies of the fn existed -- lib.rs copy is live for decl.rs, types.rs
+   copy dead-but-present; BOTH now type_string_full + keep-in-sync note).
+2. Chained indexes lost element TYPE at the inner level (container is an
+   Index expression; resolver only knows Ident/Field) -> scalar i64 load
+   -> sitofp of raw f64 bits = -4.6094342186137e+18. NEW:
+   IrEmitter.indexed_elem_types (Debug-keyed Index expr -> yielded XIOM
+   type); outer inserts, inner consults container key + strips one layer;
+   floats take a typed load path; primitives stay on the scalar loader
+   (first-cut fed "Int" into alloca %struct.Int = unsized-type error --
+   smoke_collect_cache caught it, fixed same session).
+3. call.rs push-inference consults the map so defensive-copy rows
+   register real elem types.
+
+DEBUGGING LESSON (repeat performance): the fastest path to this fix was
+dumping IR and reading it against the RUNTIME semantics -- the IR looked
+"correct" until each extractvalue was checked against what the NEXT
+instruction expected (elem_size slot vs float bits). The jit-cache trap
+(cleared ~/.xiom/jit before trusting probe output) and manual
+clang+runtime-source builds (bypassing the harness) were decisive.
+
+FOR THE STDLIB SESSION: re-sweep geom_vec/mat/quat, curves/bezier,
+matrix.det/trace/rank consumers, smoke_collect_cache (regression caught
+during dev is now fixed) on this build. Probes probe_geom1/2 +
+tests/regression/m57_geom_nested_param.xi all exit 0.
+
+REMAINING compiler-lane work: Stage 2b (expand_impl_blocks lowering pass
++ ErrorGuaranteed), Stage 2c (#6 interning/structural TypeId), Stage 3
+soundness gates + Item A/B, Stage 4 crash families (CRT-layout/json heap/
+stack cookies/clang variants). Audit top-20: ALL CLOSED except #6.
 ### Round-16d (2026-08-25, overnight): audit sweep -- SEVEN more findings closed
 
 Autonomous batch series, each fully validated before commit:
