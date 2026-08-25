@@ -46,6 +46,37 @@ checker 178/178, parser 97/97, ctfe 97/97 (match the desktop numbers exactly);
 full e2e running at doc time. Build from clean target: 1m07s, no new warnings
 beyond the known xiom-check unused_mut + codegen dead-code set.
 
+### BUG 57 FIXED (2026-08-25, overnight): chained-index element types -- THREE coordinated roots
+
+Fix spans expr.rs + lib.rs + types.rs + call.rs; probes probe_geom1/2 now
+exit 0 with correct values (-3/3/3, trace=2/det=1); new regression
+tests/regression/m57_geom_nested_param.xi registered as
+e2e_m57_geom_nested_param. Root causes (in discovery order):
+
+1. vec_elem_from_type_annotation rendered nested container args via
+   type_from_ast, which DROPS generic args -> `&Vec[Vec[Float64]]` param
+   registered elem="Vec" (bare). Fixed to type_string_full -> "Vec[Float64]".
+   GOTCHA: TWO copies of this fn exist (lib.rs:~2312 live for decl.rs,
+   types.rs:578) -- BOTH patched; keep in sync.
+2. resolve_vec_elem_type(container) only knows IDENT/FIELD containers.
+   For chained m[i][j], the inner container is an INDEX EXPRESSION ->
+   None -> scalar i64 load -> caller sitofp on RAW FLOAT BITS =
+   -4.6094342186137e+18 (exactly -3.0's bit pattern as i64).
+   FIX: new indexed_elem_types map on IrEmitter: key = Debug form of an
+   Index EXPR, value = XIOM type of what it YIELDS. Outer index inserts;
+   inner index looks up ITS CONTAINER and strips one Vec layer.
+3. First-cut of the map fed primitives into the struct-memcpy path ->
+   `alloca %struct.Int` = "Cannot allocate unsized type"
+   (smoke_collect_cache compile fail). Primitive elems now fall through to
+   the scalar loader; only struct/nested-Vec elements take memcpy.
+
+Also en route: mc.push(m[i]) push-side inference consulted the new map
+(call.rs) so defensive-copy rows register "Vec[Float64]" not "Vec[Int]".
+
+VERIFIED: m57 e2e green; feature-reg 510/510; stdlib-exec 70/70(+2);
+parser/checker/ctfe green; full e2e running at doc time. The geom smokes
+(vec/mat/quat) and curves/bezier consumers should be re-swept by the
+stdlib session on this build.
 ### R16c -- verifier honesty LANDED (2026-08-25, audit #3/#8/#14 CLOSED)
 
 crates/xiom-verify rewritten production-grade; suite 31/31 (27 kept + 4 new

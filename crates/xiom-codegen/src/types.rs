@@ -587,9 +587,12 @@ impl crate::IrEmitter {
         };
         match inner {
             Type::Named(ident, type_args) if ident.name == "Vec" => {
-                type_args.first().map(|t| Self::type_from_ast(t))
+                // BUG 57 FIX: render the FULL generic name ("Vec[Float64]",
+                // not a bare "Vec") -- chained indexing needs the nested
+                // element type to survive registration.
+                type_args.first().map(|t| Self::type_string_full(t))
             }
-            Type::Vec(inner) => Some(Self::type_from_ast(inner)),
+            Type::Vec(inner) => Some(Self::type_string_full(inner)),
             _ => None,
         }
     }
