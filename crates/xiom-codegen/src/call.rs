@@ -1145,6 +1145,19 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                             self.local.local_vec_elem.get(&ai.name)
                                                 .or_else(|| self.local.local_vec_handle.get(&ai.name))
                                                 .cloned()
+                                        } else if let Some(vt) =
+                                            self.indexed_elem_types.get(&Self::expr_key(arg0))
+                                        {
+                                            // BUG 57 FIX: the pushed value is a
+                                            // CHAINED INDEX (`mc.push(m[i])`) --
+                                            // the map recorded its VALUE type
+                                            // ("Vec[Float64]"); strip to the
+                                            // element ("Float64").
+                                            if vt.starts_with("Vec[") && vt.ends_with(']') {
+                                                Some(vt[4..vt.len() - 1].to_string())
+                                            } else {
+                                                None
+                                            }
                                         } else {
                                             None
                                         };

@@ -2656,10 +2656,6 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 if is_vec {
                     // OPT-R7: Use extractvalue directly from the SSA struct value
                     // instead of creating a fresh alloca+memset+store+GEP+load cycle.
-                    // The old code leaked 32 bytes of stack per index access when
-                    // called inside a loop (alloca %struct.Vec + memset + 4 stores +
-                    // 3 GEP-loads = ~14 redundant LLVM instructions per access).
-                    // Extract fields 0/1/3 directly (data, len, elem_size).
                     let data_ptr = self.fresh_tmp();
                     let len_tmp = self.fresh_tmp();
                     let esz_val = self.fresh_tmp();
@@ -2687,6 +2683,20 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     self.emitln(&format!("  {byte_off} = mul i64 {idx}, {esz_val}"));
                     let elem_ptr = self.fresh_tmp();
                     self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
+                    // AUDIT BUG 57 FIX: chained indexing -- the map stores the
+                    // VALUE TYPE each index-expression yields (keyed by that
+                    // expression); our element type is that, stripped one
+                    // Vec layer.
+                    let mapped_elem = self.indexed_elem_types
+                        .get(&Self::expr_key(container))
+                        .cloned()
+                        .and_then(|vt| {
+                            if vt.starts_with("Vec[") && vt.ends_with(']') {
+                                Some(vt[4..vt.len() - 1].to_string())
+                            } else {
+                                None
+                            }
+                        });
                     // BUG 37/36 follow-up: Vec[Str] elements are STRING
                     // HANDLES (i8* in 8-byte slots). Load the handle and
                     // inttoptr it back to i8* -- the generic scalar path
@@ -2703,7 +2713,33 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     // For struct elements with a known element type, load the
                     // struct directly from Vec data via memcpy, bypassing the
                     // ptrtoint/inttoptr chain of emit_elem_load+val_to_struct.
-                    if let Some(elem_type_name) = self.resolve_vec_elem_type(container) {
+                    let resolved_elem = self.resolve_vec_elem_type(container)
+                        .or_else(|| mapped_elem.clone());
+                    if let Some(elem_type_name) = resolved_elem {
+                        // Record for CHAINED indexes: this Index expression
+                        // yields elements of type elem_type_name.
+                        self.indexed_elem_types
+                            .insert(Self::expr_key(expr), elem_type_name.clone());
+                        // FLOAT ELEMENTS: the scalar loader loads i64 bits and
+                        // callers sitofp -- raw float bits reinterpreted as an
+                        // integer produce garbage (BUG 57: -3.0 -> -4.6e18).
+                        // Load typed instead.
+                        if matches!(elem_type_name.as_str(), "Float64" | "Float32") {
+                            let llvm_f = if elem_type_name == "Float64" { "double" } else { "float" };
+                            let fp = self.fresh_tmp();
+                            let fv = self.fresh_tmp();
+                            self.emitln(&format!("  {fp} = bitcast i8* {elem_ptr} to {llvm_f}*"));
+                            self.emitln(&format!("  {fv} = load {llvm_f}, {llvm_f}* {fp}"));
+                            return Ok((fv, llvm_f.to_string()));
+                        }
+                        // PRIMITIVE elements keep the scalar loader below --
+                        // the struct-memcpy path must only fire for real
+                        // struct/nested-Vec elements (alloca %struct.Int was
+                        // an unsized-type compile error).
+                        let is_primitive_elem = matches!(elem_type_name.as_str(),
+                            "Int" | "Bool" | "Str" | "UInt8" | "Int8" | "Int16"
+                            | "Int32" | "UInt16" | "UInt32" | "Char");
+                        if !is_primitive_elem {
                         // BUG 23 #2 fix: NESTED Vec[Vec[T]] -- the element IS a
                         // generic %struct.Vec (32 bytes); memcpy it like any
                         // struct element so `m[i][j]` / `m[i].len()` work.
@@ -2720,6 +2756,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         let loaded = self.fresh_tmp();
                         self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {struct_alloca}"));
                         return Ok((loaded, struct_ty));
+                        }
                     }
                     // Fallback: use emit_elem_load for unknown element types.
                     let signed = self.vec_elem_signed(container);

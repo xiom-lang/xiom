@@ -4410,6 +4410,7 @@ fn e2e_safety_probe() {
 
 // BUG 22/23 batch regression tests (2026-08-12)
 #[test] fn e2e_m37_catalog_boundary() { assert_eq!(compile_and_run("tests\\regression\\m37_catalog_boundary.xi"), Some(0)); }
+#[test] fn e2e_m57_geom_nested_param()   { assert_eq!(compile_and_run("tests\\regression\\m57_geom_nested_param.xi"), Some(0)); }
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

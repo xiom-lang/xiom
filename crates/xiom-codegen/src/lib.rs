@@ -90,11 +90,27 @@ pub struct IrEmitter {
     /// v0.54 Phase B: CTFE engine for compile-time function evaluation.
     /// Populated during register_functions; used by evaluate_const_init.
     pub ctfe: RefCell<CtfeEngine>,
+    /// AUDIT BUG 57 FIX: chained indexing (`m[i][j]` on a `&Vec[Vec[F64]]`
+    /// PARAM) loses the inner element TYPE -- the intermediate `m[i]` is an
+    /// expression, so local-based lookups miss and the scalar loader
+    /// defaults to Int (float bits then get sitofp'd = garbage).
+    /// Map: Debug-key of an Index EXPRESSION -> the XIOM type of the
+    /// elements that expression yields ("Float64", "Vec[Point]", ...).
+    /// Filled by the outer index arm; consulted by the inner one.
+    pub indexed_elem_types: HashMap<String, String>,
 }
 
 
 
 impl IrEmitter {
+    /// Stable per-site key for an expression (Debug rendering). Used by the
+    /// chained-index element-type map (BUG 57): the same source-level Index
+    /// expression compiles to the same key within a body, so an outer index
+    /// can hand its element type to a nested one.
+    pub(crate) fn expr_key(e: &Expr) -> String {
+        format!("{e:?}")
+    }
+
     /// Security review (2026-08-13): maximum CTFE recursion depth for
     /// `evaluate_const_init`. Pathological const expressions bail out
     /// (evaluated at runtime instead) rather than hanging the compiler.
@@ -108,6 +124,7 @@ impl IrEmitter {
             str_counter: 0,
             has_llvm_trap_decl: false,
     guard_heap_depth: 0,
+            indexed_elem_types: HashMap::new(),
             unsafe_block_counter: 0,
             closure_counter: 0,
             in_unsafe_block_fn: false,
@@ -2302,9 +2319,12 @@ impl IrEmitter {
             other => other,
         };
         match inner {
-            Type::Vec(inner) => Some(Self::type_from_ast(inner)),
+            // BUG 57 FIX: FULL generic names ("Vec[Float64]", not "Vec") --
+            // chained indexing needs the nested element type to survive
+            // registration. (Keep in sync with the types.rs copy!)
+            Type::Vec(inner) => Some(Self::type_string_full(inner)),
             Type::Named(ident, type_args) if ident.name == "Vec" => {
-                type_args.first().map(|t| Self::type_from_ast(t))
+                type_args.first().map(|t| Self::type_string_full(t))
             }
             _ => None,
         }
