@@ -198,7 +198,9 @@ fn real_main() {
     // 5c-R: --explain EXXXX opens the error code reference
     if let Some(pos) = args.iter().position(|a| a == "--explain") {
         if let Some(code) = args.get(pos + 1) {
-            xiom::explain_error(code);
+            if !xiom::explain_error(code) {
+                process::exit(1);
+            }
             return;
         }
         eprintln!("usage: xiom --explain <code>  (e.g., xiom --explain X0010)");
@@ -775,9 +777,37 @@ fn real_main() {
 
         let mut overall_exit = 0;
         for source_path in &source_paths {
-            let source = std::fs::read_to_string(source_path).unwrap_or_default();
-            let tokens = Lexer::new(&source).tokenize();
-            if let Ok(program) = Parser::new(tokens).parse_program() {
+            // AUDIT #11 FIX: unreadable input used to flow through
+            // unwrap_or_default() as an EMPTY program -- the audit then
+            // scored nothing and the process exited 0 (false-green CI).
+            let source = match std::fs::read_to_string(source_path) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("error: cannot read '{source_path}': {e}");
+                    overall_exit = std::cmp::max(overall_exit, 3);
+                    continue;
+                }
+            };
+            let mut parser = Parser::new(Lexer::new(&source).tokenize());
+            // AUDIT #11 FIX (part 2): parse failures were silently skipped
+            // via `if let Ok`, and partial-AST errors were never taken.
+            let program = match parser.parse_program() {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    overall_exit = std::cmp::max(overall_exit, 3);
+                    continue;
+                }
+            };
+            let parse_errors = parser.take_errors();
+            if !parse_errors.is_empty() {
+                for e in &parse_errors {
+                    eprintln!("parse error: {e:?}");
+                }
+                overall_exit = std::cmp::max(overall_exit, 3);
+                continue;
+            }
+            {
                 let mut auditor = SafetyAuditor::new();
                 let report = auditor.audit(&program, source_path);
 
