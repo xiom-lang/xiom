@@ -2344,10 +2344,13 @@ impl Parser {
         "module", "use", "pub", "type", "enum", "interface", "impl",
         "true", "false", "self", "unsafe", "extern",
         "as", "is", "and", "or", "not",
-        "Some", "None", "Ok", "Err",
     ];
     // SOFT (still accepted): spawn, await, comptime, asm, defer, move,
-    // derive -- stdlib uses several as method/module names.
+    // derive -- stdlib uses several as method/module names. ALSO SOFT:
+    // Some/None/Ok/Err -- enum VARIANTS are written Type.Variant
+    // (`Result.Err(...)`, `R.Ok(a/b)`) and flow through ident positions;
+    // reserving them broke 16 e2e programs overnight (rustc does not
+    // reserve them either).
 
     fn parse_ident(&mut self) -> Result<Ident, ParseError> {
         let tok = self.advance();
