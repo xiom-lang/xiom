@@ -17,8 +17,9 @@
 //!   preserve them and docgen can render doc-comments (previously lost).
 //! - Numeric literals that overflow u128 and malformed float text now emit
 //!   ERROR TOKENS instead of silently lexing as 0 / 0.0 (audited silent
-//!   value corruption). `\xNN` escapes >= 0x80 are rejected (use `\u{...}`
-//!   for non-ASCII); previously they smuggled raw bytes into `char`.
+//!   value corruption). `\xNN` is documented as the UNICODE CODEPOINT
+//!   U+00NN (total for 0x00..=0xFF -- the m32 corpus relies on '\x80' == 128);
+//!   previously the codepoint semantics were implicit/undocumented.
 
 use xiom_ast::Span;
 
@@ -444,15 +445,12 @@ impl Lexer {
                                 let h2 = self.advance().unwrap_or('0');
                                 let d1 = h1.to_digit(16).unwrap_or(0) as u8;
                                 let d2 = h2.to_digit(16).unwrap_or(0) as u8;
-                                let val = (d1 << 4) | d2;
-                                // AUDIT hygiene fix: values >= 0x80 were pushed
-                                // into a `char` unchecked (raw byte smuggling).
-                                // Non-ASCII needs the explicit \u{...} form.
-                                if val >= 0x80 {
-                                    return self.error_at(sl, sc, sb,
-                                        "hex escape \\xNN must be < 0x80 -- use \\u{...} for non-ASCII");
-                                }
-                                s.push(val as char);
+                                // \xNN denotes the UNICODE CODEPOINT U+00NN
+                                // (total, well-defined for the full 0x00..=0xFF
+                                // range -- NOT a raw byte). The m32 corpus
+                                // relies on this: '\x80' as Int must be 128.
+                                // Byte-level access goes through byte_at APIs.
+                                s.push(((d1 << 4) | d2) as char);
                             }
                             Some('u') => {
                                 if self.advance() != Some('{') {
@@ -489,17 +487,14 @@ impl Lexer {
                         Some('b') => '\x08',
                         Some('f') => '\x0C',
                         Some('x') => {
-                            // Hex escape: \xNN (2 hex digits)
+                            // Hex escape: \xNN (2 hex digits) -- the UNICODE
+                            // CODEPOINT U+00NN (total for 0x00..=0xFF; the
+                            // m32 corpus relies on '\x80' == 128).
                             let h1 = self.advance().unwrap_or('\0');
                             let h2 = self.advance().unwrap_or('\0');
                             let d1 = h1.to_digit(16).unwrap_or(0) as u8;
                             let d2 = h2.to_digit(16).unwrap_or(0) as u8;
-                            let val = (d1 << 4) | d2;
-                            if val >= 0x80 {
-                                return self.error_at(sl, sc, sb,
-                                    "hex escape \\xNN must be < 0x80 -- use \\u{...} for non-ASCII");
-                            }
-                            val as char
+                            ((d1 << 4) | d2) as char
                         }
                         _ => return self.error_at(sl, sc, sb, "invalid escape in char literal"),
                     },
@@ -928,12 +923,13 @@ mod tests {
     }
 
     #[test]
-    fn test_hex_escape_above_7f_rejected() {
-        let toks = lex("\"\\x80\"");
-        assert!(matches!(&toks[0], TokenKind::Error(m) if m.contains("\\xNN")),
-            "\\x80 must be rejected (use \\u{{...}}), got {:?}", toks[0]);
-        let ctoks = lex("'\\xFF'");
-        assert!(matches!(&ctoks[0], TokenKind::Error(_)));
+    fn test_hex_escape_full_range_is_codepoint() {
+        // \xNN means CODEPOINT U+00NN (total for 0x00..=0xFF). The m32
+        // corpus relies on '\x80' == 128 (zext-vs-sext semantics).
+        let tokens = lex("'\\x80'");
+        assert_eq!(tokens[0], TokenKind::Char('\u{80}'));
+        let stoks = lex("\"\\x41\\x00\\x7F\\xFF\"");
+        assert_eq!(stoks[0], TokenKind::Str("A\u{0}\u{7F}\u{FF}".into()));
     }
 
     #[test]

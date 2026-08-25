@@ -1241,8 +1241,11 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                         match run_status {
                             Ok(s) => eprintln!("  exit code: {}", s.code().unwrap_or(-1)),
                             Err(e) => {
-                                eprintln!("error: cannot run '{exe}': {e}");
-            std::process::exit(1);
+                                // AUDIT #12 FIX: this was process::exit(1)
+                                // inside LIBRARY code -- it killed embedders
+                                // (MCP/LSP call into this crate). Return the
+                                // error and let the caller decide.
+                                return Err(vec![format!("cannot run '{exe}': {e}")]);
                             }
                         }
                     }
@@ -1863,7 +1866,7 @@ pub fn is_newer(src: &std::path::Path, dst: &std::path::Path) -> bool {
 
 /// 5c-R: Display the error code reference for `--explain <code>`.
 /// Reads from `docs/error_codes/{code}.md` relative to the project root.
-pub fn explain_error(code: &str) {
+pub fn explain_error(code: &str) -> bool {
     let root = std::env::current_dir().unwrap_or_default();
     let path = root.join("docs").join("error_codes").join(format!("{code}.md"));
     match std::fs::read_to_string(&path) {
@@ -1871,12 +1874,15 @@ pub fn explain_error(code: &str) {
             println!("{content}");
             println!("--");
             println!("For the full error-code index: docs/error_codes/README.md");
+            true
         }
         Err(_) => {
             eprintln!("Unknown error code: {code}");
             eprintln!("Available codes are listed in docs/error_codes/README.md");
             eprintln!("Run: xiom --explain X0010  (for type mismatch)");
-            std::process::exit(1);
+            // AUDIT #12 FIX: no process::exit in library code -- the caller
+            // maps false to its own exit code.
+            false
         }
     }
 }
