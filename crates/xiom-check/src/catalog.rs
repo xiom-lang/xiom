@@ -405,7 +405,7 @@ impl ModuleCatalog {
         // modules (e.g. stdlib folder modules with `impl Num[Float64] { }`)
         // expose the expanded `Type.method` freestanding fns to both the
         // checker's registration and the driver's external-decl injection.
-        let program = program.expand_impl_blocks();
+        let program = xiom_lowering::expand_impl_blocks(&program);
 
         let mut types = HashMap::new();
         let mut functions = HashMap::new();

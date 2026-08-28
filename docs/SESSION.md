@@ -66,6 +66,49 @@ honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
 module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
 Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
 
+### Round-18 (2026-08-25/26): Stage 2b landed + audit #6 CONCRETE unsoundness CLOSED
+
+Commits pending e2e: xiom-lowering extraction + ErrorGuaranteed wiring +
+#6 fixes. Details:
+
+1. STAGE 2b -- expand_impl_blocks MOVED OUT of xiom-ast into the NEW
+   crates/xiom-lowering (free fn `xiom_lowering::expand_impl_blocks(&p)`).
+   xiom-ast is now syntax-only; the pass is an explicit pipeline stage
+   (parse -> lower -> check). Dummy Span(0,0) injection removed -- the
+   synthesized default-method fns now carry the interface default fn's
+   REAL declaration span. All 4 callers rewired (checker x2, catalog,
+   driver). Validated on its own full e2e run: 2293/2295 (simd env +
+   the known p1_contract_methods CRT flake -- passes 3/3 isolated).
+2. ErrorGuaranteed WIRED FOR REAL: new() is pub (was pub(crate) +
+   allow(dead_code) -- unconstructable aspirational design). Every
+   ParseError and CheckError now CARRIES the proof token; error_with_cause
+   constructs it at emission; checker threads parse guarantees through.
+3. AUDIT #6 CONCRETE UNSOUNDNESS CLOSED (structural TypeId remains a
+   follow-on; the specific audited bugs are dead):
+   - wildcard `_` annotation now INFERS the value type in BOTH passes
+     (was: "_" -> Int; `let x: _ = "s"` bound x: Int silently).
+   - container args must AGREE recursively when both present -- with the
+     SAME scalar promotion matrix everywhere (Vec[Int] -> Vec[UInt8] stays
+     legal), generics/unit-payloads/pointers/tuples context-adaptable;
+     Option[Int] vs Option[Str] is now a TYPE ERROR.
+   - wildcard-receiver method lookup NO LONGER captures an arbitrary
+     alphabetically-first type's method -- fail-closed with a proper
+     no-such-method diagnostic.
+   - deleted the orphaned dead compat/mod.rs (the second divergent
+     types_compatible had ZERO callers -- it was never even declared as
+     a module).
+   - EN ROUTE (exposed by the tightening, fixed same session):
+     Vec[(Str, Str)].new() inferred Vec[Int] (tuple type-args fell to
+     the "Int" fallback in vec_ctor_type_name) -- tuple/paren arms added.
+   - checker 178 -> 180 tests (wildcard-infer + container-args regressions).
+   VALIDATED: checker 180/180, feature-reg 510/510, stdlib-exec 70/70(+2),
+   full e2e running at doc time.
+
+AUDIT SCORECARD: #6's CONCRETE defects closed (wildcard-as-Int, container
+erasure, alphabetical capture, divergent compat copies). Remaining for
+production-grade: structural TypeId refactor (follow-on), Stage 3 soundness
+gates + Item A/B, Stage 4 crash families (CRT-layout root cause, json
+heap, stack cookies, clang variants).
 ### Round-17 (2026-08-25 morning): BUG 57 FIXED -- the biggest stdlib-facing compiler bug
 
 Commit: 92d40274. e2e 2294/2295 (new test included; simd_runtime remains

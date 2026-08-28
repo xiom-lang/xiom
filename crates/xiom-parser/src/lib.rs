@@ -47,10 +47,10 @@ impl Parser {
 
     /// Record an error without aborting. After MAX_PARSE_ERRORS, returns Err.
     fn recoverable_error(&mut self, msg: String, span: Span) -> Result<(), ParseError> {
-        let err = ParseError { message: msg, span };
+        let err = ParseError { message: msg, span, guaranteed: xiom_ast::ErrorGuaranteed::new() };
         self.errors.push(err);
         if self.errors.len() >= Self::MAX_PARSE_ERRORS {
-            Err(ParseError { message: "too many parse errors -- aborting".to_string(), span })
+            Err(ParseError { message: "too many parse errors -- aborting".to_string(), span, guaranteed: xiom_ast::ErrorGuaranteed::new() })
         } else {
             Ok(())
         }
@@ -289,6 +289,7 @@ impl Parser {
         ParseError {
             message: msg.into(),
             span: self.peek().span,
+            guaranteed: xiom_ast::ErrorGuaranteed::new(),
         }
     }
 
@@ -304,7 +305,7 @@ impl Parser {
                     let span = e.span;
                     let _ = self.recoverable_error(e.message, span);
                     if self.errors.len() >= Self::MAX_PARSE_ERRORS {
-                        return Err(ParseError { message: "too many parse errors -- aborting".to_string(), span });
+                        return Err(ParseError { message: "too many parse errors -- aborting".to_string(), span, guaranteed: xiom_ast::ErrorGuaranteed::new() });
                     }
                     // 5c-R: use brace-depth-aware statement recovery instead of
                     // top-level-only sync (rustc lesson: panic-mode recovery)
@@ -2512,7 +2513,15 @@ impl Parser {
 static EOF_TOKEN: Token = Token { kind: TokenKind::Eof, span: Span::new(0, 0), lexeme: String::new() };
 
 #[derive(Debug, Clone)]
-pub struct ParseError { pub message: String, pub span: Span }
+pub struct ParseError {
+    pub message: String,
+    pub span: Span,
+    /// AUDIT FIX (readiness Stage 2b): the ErrorGuaranteed proof token,
+    /// constructible for real now (was pub(crate) in xiom-ast). Carries
+    /// into the checker's CheckError so error-poisoned work is skippable
+    /// on the strength of the token.
+    pub guaranteed: xiom_ast::ErrorGuaranteed,
+}
 
 impl std::fmt::Display for ParseError { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "parse error at {}: {}", self.span, self.message) } }
 impl std::error::Error for ParseError {}

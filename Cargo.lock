@@ -1331,6 +1331,7 @@ dependencies = [
  "xiom-graph",
  "xiom-jit",
  "xiom-lexer",
+ "xiom-lowering",
  "xiom-parser",
  "xiom-verify",
 ]
@@ -1346,6 +1347,7 @@ dependencies = [
  "insta",
  "xiom-ast",
  "xiom-lexer",
+ "xiom-lowering",
  "xiom-parser",
 ]
 
@@ -1439,6 +1441,13 @@ name = "xiom-lexer"
 version = "0.1.0"
 dependencies = [
  "insta",
+ "xiom-ast",
+]
+
+[[package]]
+name = "xiom-lowering"
+version = "0.1.0"
+dependencies = [
  "xiom-ast",
 ]
 

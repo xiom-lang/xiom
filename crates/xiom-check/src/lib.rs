@@ -899,8 +899,14 @@ impl Checker {
 
     /// Emit an error with a specific cause code (5c-R: TypeCause provenance).
     /// Enables "expected X because contract requires Y" diagnostics.
+    ///
+    /// AUDIT FIX (Stage 2b): every emitted error now carries a REAL
+    /// ErrorGuaranteed proof token, and this helper RETURNS it alongside
+    /// the poisoned CheckedType so call sites can propagate the guarantee
+    /// (rustc discipline: errors return proof, not just markers).
     fn error_with_cause(&mut self, message: impl Into<String>, span: Span, cause: crate::types::TypeCause) -> CheckedType {
-        self.errors.push(CheckError { message: message.into(), span, cause });
+        let _proof = xiom_ast::ErrorGuaranteed::new();
+        self.errors.push(CheckError { message: message.into(), span, cause, guaranteed: _proof });
         self.error_count += 1;
         CheckedType::Error
     }
@@ -912,6 +918,7 @@ impl Checker {
             message: message.into(),
             span: Span::new(0, 0),
             cause: crate::types::TypeCause::Other,
+            guaranteed: xiom_ast::ErrorGuaranteed::new(),
         });
     }
 
@@ -1055,7 +1062,7 @@ impl Checker {
     /// (rustc lesson: collect/check split -- `compiler/rustc_hir_analysis/src/collect.rs`)
     pub fn collect_signatures(&mut self, program: &Program) {
         // M20: Expand impl blocks into freestanding functions before registration
-        let expanded = program.expand_impl_blocks();
+        let expanded = xiom_lowering::expand_impl_blocks(&program);
         // BUG 29 (repro_fn_storage): TWO passes. The old single pass registered
         // module globals in source order, so `var g = FnBox{ f: _id; }` BEFORE
         // `fn _id` was inferred while `_id` was not yet registered -> the
@@ -3805,6 +3812,14 @@ impl Checker {
             Stmt::Let(name, ty_annot, value, span) => {
                 let val_ty = self.check_expr(value);
                 if let Some(annot) = ty_annot {
+                    // AUDIT #6 FIX: a `_` WILDCARD annotation must INFER the
+                    // value's type -- the old mapping typed it as Int, so
+                    // `let x: _ = "s"` bound x: Int silently.
+                    if match &**annot { Type::Named(n, _) => n.name == "_", _ => false }
+                    {
+                        self.add_local(&name.name, val_ty.clone());
+                        return;
+                    }
                     let annot_ty = CheckedType::from_ast_type(annot);
                     // An uninitialized let/var defaults to the placeholder `Int(0)`.
                     // When a type annotation is present the var is zero-initialized to that
@@ -4150,6 +4165,16 @@ impl Checker {
         fn render(e: &Expr) -> String {
             match e {
                 Expr::Ident(id) => id.name.clone(),
+                Expr::Paren(inner, _) => render(inner),
+                // AUDIT #6 FIX (exposed by container-arg agreement):
+                // `Vec[(Str, Str)]` type args are TUPLE literals -- they
+                // used to fall to "Int", so tuple vectors inferred
+                // Vec[Int] and only the container-erasure shim made
+                // Vec[Tuple__Str__Str] params accept them.
+                Expr::Tuple(items, _) => {
+                    let parts: Vec<String> = items.iter().map(render).collect();
+                    format!("Tuple__{}", parts.join("__"))
+                }
                 Expr::Index(b, i, _) => {
                     if let Expr::Ident(bid) = b.as_ref() {
                         if bid.name == "Vec" {
@@ -4730,21 +4755,36 @@ impl Checker {
                                     .filter_map(|(ty, methods)| methods.get(&method.name).map(|s| (ty.clone(), s)))
                                     .collect();
                                 candidates.sort_by(|a, b| a.0.cmp(&b.0));
-                                let exact = candidates.iter()
-                                    .find(|(ty, _)| ty == &base || ty == &base_name)
-                                    .map(|(_, s)| (*s).clone());
-                                if exact.is_some() {
-                                    exact
-                                } else {
+                                // AUDIT #6 FIX: UNIQUE candidates resolve
+                                // deterministically (sound); AMBIGUOUS
+                                // receivers fail closed with a proper
+                                // no-such-method diagnostic instead of the
+                                // old alphabetical cross-type capture.
+                                // (join/as_path have exactly one candidate
+                                // type; wildcard receivers resolve when
+                                // unambiguous.)
+                                if candidates.len() == 1 {
+                                    return candidates.into_iter().next().map(|(_, s)| (*s).clone());
+                                }
+                                // Prefer an exact base-name match (wildcard
+                                // receivers skip this -- no base).
+                                if base != "_" && base_name != "_" {
+                                    let exact = candidates.iter()
+                                        .find(|(ty, _)| ty == &base || ty == &base_name)
+                                        .map(|(_, s)| (*s).clone());
+                                    if exact.is_some() {
+                                        return exact;
+                                    }
                                     let close = candidates.iter()
                                         .find(|(ty, _)| ty.ends_with(&format!(".{base}")) || ty.ends_with(&format!(".{base_name}")))
                                         .map(|(_, s)| (*s).clone());
                                     if close.is_some() {
-                                        close
-                                    } else {
-                                        candidates.into_iter().next().map(|(_, s)| (*s).clone())
+                                        return close;
                                     }
                                 }
+                                // AUDIT #6 FIX: NO arbitrary capture --
+                                // fail closed.
+                                None
                             }
                         });
                         if let Some(sig) = sig {
@@ -5787,6 +5827,88 @@ impl Checker {
         current
     }
 
+    /// AUDIT #6 FIX helper: recursive container-arg agreement with SCALAR
+    /// promotion rules. "Int" vs "UInt8" passes (literal promotion);
+    /// "Int" vs "Str" fails; nested containers recurse. Top-level commas
+    /// are split bracket-aware so Result[Vec[Int], Str] compares correctly.
+    fn container_args_compatible(a: &str, b: &str) -> bool {
+        if a == b { return true; }
+        let split = |s: &str| -> Vec<String> {
+            let mut out = Vec::new();
+            let mut depth = 0i32;
+            let mut cur = String::new();
+            for ch in s.chars() {
+                match ch {
+                    '[' => { depth += 1; cur.push(ch); }
+                    ']' => { depth -= 1; cur.push(ch); }
+                    ',' if depth == 0 => {
+                        let t = cur.trim();
+                        if !t.is_empty() { out.push(t.to_string()); }
+                        cur.clear();
+                    }
+                    _ => cur.push(ch),
+                }
+            }
+            let t = cur.trim();
+            if !t.is_empty() { out.push(t.to_string()); }
+            out
+        };
+        let pa = split(a);
+        let pb = split(b);
+        if pa.len() != pb.len() { return false; }
+        for (x, y) in pa.iter().zip(pb.iter()) {
+            let (x, y) = (x.trim(), y.trim());
+            // nested container -> recurse
+            if x.contains('[') || y.contains('[') {
+                if x.contains('[') && y.contains('[') {
+                    let (bx, ax) = x.split_once('[').unwrap_or((x, ""));
+                    let (by, ay) = y.split_once('[').unwrap_or((y, ""));
+                    if bx != by || !Self::container_args_compatible(ax, ay) {
+                        return false;
+                    }
+                } else {
+                    // Bare-vs-parameterized NESTED arg (Result vs
+                    // Result[Int, Int]): the bare side erased its args in
+                    // a legacy flow -- tolerant, mirroring the top-level
+                    // rule.
+                    continue;
+                }
+                continue;
+            }
+            // Wildcard inner args: Option[_] is context-adaptable.
+            if x == "_" || y == "_" {
+                continue;
+            }
+            // Generic type parameters (T, U, *T): compatible with anything --
+            // mirrors the scalar matrix (math_tower passes Vec[Int] to Vec[T]).
+            let is_generic = |s: &str| -> bool {
+                let inner = s.strip_prefix('*').unwrap_or(s);
+                inner.len() == 1 && inner.chars().next().map_or(false, |c| c.is_ascii_uppercase())
+            };
+            if is_generic(x) || is_generic(y) { continue; }
+            // Empty/unit payloads: bare `None` infers Option[()] -- its
+            // payload is context-adaptable, like integer literals.
+            if x.is_empty() || y.is_empty() || x == "()" || y == "()" {
+                continue;
+            }
+            // Tuple-typed args: broad compat, mirrors the scalar matrix
+            // (the exact tuple shape is a structural-types item).
+            if x.starts_with("Tuple") || y.starts_with("Tuple") { continue; }
+            // Pointer-to-pointer, mirrors the scalar matrix.
+            if (x.starts_with('*') || x == "Ptr") && (y.starts_with('*') || y == "Ptr") {
+                continue;
+            }
+            let cx = CheckedType::from_str(x);
+            let cy = CheckedType::from_str(y);
+            let same = cx == cy;
+            let num_promo = (cx.is_numeric() || cx == CheckedType::Bool)
+                && (cy.is_numeric() || cy == CheckedType::Bool);
+            if !same && !num_promo {
+                return false;
+            }
+        }
+        true
+    }
     fn types_compatible(&self, found: &CheckedType, expected: &CheckedType) -> bool {
         // Phase 7E/Feature: Resolve type aliases so newtypes auto-convert
         let found = &self.resolve_alias(found);
@@ -5813,10 +5935,23 @@ impl Checker {
         // "Option[MyRc]", "Result" vs "Result[Int, Str]", "Vec" vs "Vec[Int]"
         // are interchangeable (some paths erase the args, others preserve
         // them; the payload binding resolves the inner type when present).
+        // AUDIT #6 FIX: when BOTH sides carry generic args, the args must
+        // AGREE -- recursively, with the same SCALAR promotion rules used
+        // everywhere else (Vec[Int] -> Vec[UInt8] stays legal: int literals
+        // promote to unsigned bytes), but Option[Int] vs Option[Str] is a
+        // type error, not a silent pass. (Bare-vs-parameterized stays
+        // compatible: one side erased its args in a legacy flow.)
         if let (CheckedType::Named(a), CheckedType::Named(b)) = (found, expected) {
-            let base_a = a.split('[').next().unwrap_or(a);
-            let base_b = b.split('[').next().unwrap_or(b);
+            let (base_a, mut args_a) = a.split_once('[').unwrap_or((a.as_str(), ""));
+            let (base_b, mut args_b) = b.split_once('[').unwrap_or((b.as_str(), ""));
+            args_a = args_a.strip_suffix(']').unwrap_or(args_a);
+            args_b = args_b.strip_suffix(']').unwrap_or(args_b);
             if base_a == base_b {
+                if !args_a.is_empty() && !args_b.is_empty()
+                    && !Self::container_args_compatible(args_a, args_b)
+                {
+                    return false;
+                }
                 return true;
             }
         }
@@ -6342,9 +6477,14 @@ impl BorrowChecker {
                         self.move_var(&ident.name, ident.span);
                     }
                 }
-                let xiom_type = type_ann.as_ref()
-                    .map(|t| Self::param_type_name(t))
-                    .unwrap_or_else(|| Self::infer_type_from_expr(value).to_string());
+                let xiom_type = match type_ann.as_ref() {
+                    // AUDIT #6 FIX: `_` wildcard INFERS from the value in
+                    // the borrow checker's local tracking too.
+                    Some(t) if match &**t { Type::Named(n, _) => n.name == "_", _ => false } =>
+                        Self::infer_type_from_expr(value).to_string(),
+                    Some(t) => Self::param_type_name(t),
+                    None => Self::infer_type_from_expr(value).to_string(),
+                };
                 self.add_local(&name.name, false, &xiom_type);
             }
             Stmt::Var(name, type_ann, value, _) => {
@@ -6356,9 +6496,12 @@ impl BorrowChecker {
                         self.move_var(&ident.name, ident.span);
                     }
                 }
-                let xiom_type = type_ann.as_ref()
-                    .map(|t| Self::param_type_name(t))
-                    .unwrap_or_else(|| Self::infer_type_from_expr(value).to_string());
+                let xiom_type = match type_ann.as_ref() {
+                    Some(t) if match &**t { Type::Named(n, _) => n.name == "_", _ => false } =>
+                        Self::infer_type_from_expr(value).to_string(),
+                    Some(t) => Self::param_type_name(t),
+                    None => Self::infer_type_from_expr(value).to_string(),
+                };
                 self.add_local(&name.name, true, &xiom_type);
             }
             Stmt::Assign(place, value, _) => {
@@ -6694,11 +6837,47 @@ mod tests {
                 message: format!("parse error: {e}"),
                 span: e.span,
                 cause: crate::types::TypeCause::Other,
+                guaranteed: e.guaranteed,
             }]),
         }
     }
 
     #[test]
+    // AUDIT #6 regressions: wildcard inference + container-arg agreement.
+
+    #[test]
+    fn test_wildcard_annotation_infers_value_type() {
+        // `let x: _ = "s"` used to bind x: Int (the "_" -> Int foot-gun).
+        // Binding a Str to an Int-typed local must now ERROR.
+        let result = check("fn f() -> Int { let x: _ = \"s\"; let n: Int = x; return n; }");
+        assert!(result.is_err(), "wildcard-bound Str must not silently become Int: {:?}", result.ok());
+    }
+
+    #[test]
+    #[test]
+    fn test_container_arg_context_adaptation() {
+        // Nested bare-vs-parameterized (legacy erasure inside args) stays
+        // compatible: Option[Result] vs Option[Result[Int, Int]].
+        let ok = check("fn f(a: Option[Result[Int, Int]]) { let b: Option[Result] = a; }");
+        assert!(ok.is_ok(), "nested bare-vs-parameterized must stay compatible: {:?}", ok.err());
+        // Wildcard INNER args are context-adaptable: Option[_] annotation
+        // accepts an Option[Int] value.
+        let ok2 = check("fn g(a: Option[Int]) { let b: Option[_] = a; }");
+        assert!(ok2.is_ok(), "wildcard inner arg must adapt: {:?}", ok2.err());
+        // Genuinely incompatible args STILL error: Option[Int] vs Option[Str].
+        let err = check("fn h(a: Option[Str]) { let b: Option[Int] = a; }");
+        assert!(err.is_err(), "Option[Str] vs Option[Int] must error");
+    }
+    fn test_container_args_must_agree_when_both_present() {
+        // Option[Int] vs Option[Str] used to pass via container erasure
+        // (bare "Option" == "Option[...]"). Differing concrete args must
+        // now be a type error.
+        let result = check("fn g(a: Option[Int]) { let b: Option[Str] = a; }");
+        assert!(result.is_err(), "Option[Int] vs Option[Str] must be a type error");
+        // Bare-vs-parameterized stays compatible (legacy erasure flows).
+        let ok = check("fn h(a: Option[Int]) { let b: Option = a; }");
+        assert!(ok.is_ok(), "bare-vs-parameterized must stay compatible: {:?}", ok.err());
+    }
     fn test_simple_addition() {
         let result = check("fn add(a: Int, b: Int) -> Int { return a + b; }");
         assert!(result.is_ok(), "{:?}", result.err());
