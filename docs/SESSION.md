@@ -66,6 +66,34 @@ honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
 module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
 Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
 
+### Round-20 (2026-08-28): stdlib-report triage + cast-truncation warning + BUG 57 follow-up
+
+1. Read docs/REPORT_TO_COMPILER_SESSION.md (stdlib r17 delta, grown to
+   16 findings). TRIAGED:
+   - FIXED this round: finding #15 (unparenthesized `expr as Type`) --
+     reproduced 0xC000001D (div-by-zero trap: 256 as UInt8 -> 0); root
+     cause = `as` binds TIGHTER than binary ops (Rust parity, consistent
+     semantics). Added a compile-time WARNING for direct literal
+     truncation ("cast truncates: literal N does not fit in T --
+     parenthesize the expression"). cbcc6031.
+   - PARTIAL: geom_vec/mat compile regression from BUG 57 -- per-fn map
+     scoping + Vec-safe scalar extraction landed (5264d669); upstream
+     root (basis[u] reads bypass the is_vec resolution section; a second
+     emitter stores the i64 back AS %struct.Vec) tracked with an
+     instrument plan in COMPILER_BUGS.md "BUG 57 FOLLOW-UP".
+   - OPEN (queue, priority order): module-level [256] array
+     mis-materialization (#8 -- backing undersized, AV at page boundary);
+     OS-entropy multi-draw breakpoint (#3b-2.2 -- security gap: entropy
+     still on legacy PRNG); cross-module struct-param resolution (#10),
+     self-param method prefix calls (#9), bare-name overload binding
+     (#12), delegation crash (stdlib-audit #3 -- MISSING from readiness
+     plan; slot into Stage 2c/early Stage 4: blocks their entire dedup
+     program), &mut Vec push final-byte loss (#16), Str-memcpy chained
+     concat (#13), json heap layer, stack cookies, CRT-layout cluster,
+     clang variants.
+2. Stdlib-side progress acknowledged: gzip>=4096 AV resolved (crc table
+   root), chacha-poly1305 RFC-correct, KAT smokes green, deflate is now
+   REAL RFC 1951/1952 interop, sweep 887/927.
 ### Round-19 FOR THE STDLIB SESSION -- CATALOG FINDINGS (Item A surface)
 
 Catalog body type-checking is now LIVE (warnings, capped at 5 per build).
