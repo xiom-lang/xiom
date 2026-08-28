@@ -952,6 +952,13 @@ impl IrEmitter {
         self.local.bool_locals.clear();
         self.local.ptr_locals.clear();
         self.local.local_vec_elem.clear();
+        // AUDIT BUG 57 FOLLOW-UP (stdlib r17 finding): the chained-index
+        // element-type map is keyed by AST Debug form (same SOURCE spans
+        // across monomorphisations of a generic fn) -- leaving entries in
+        // across function bodies leaked the FIRST instantiation's concrete
+        // types into later ones ("%tmpN defined with type i64 but expected
+        // %struct.Vec"; geom_vec/mat compile errors). Scope it per body.
+        self.indexed_elem_types.clear();
         self.local.local_opt_payload.clear();
         self.local.local_opt_payload_xiom.clear();
         self.local.loop_depth = 0;

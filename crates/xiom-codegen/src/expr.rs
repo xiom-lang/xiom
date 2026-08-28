@@ -2725,6 +2725,10 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         // integer produce garbage (BUG 57: -3.0 -> -4.6e18).
                         // Load typed instead.
                         if matches!(elem_type_name.as_str(), "Float64" | "Float32") {
+                            if std::env::var_os("XIOM_B57_DEBUG").is_some() {
+                                let kk = Self::expr_key(container);
+                                eprintln!("[b57f] FLOAT path key={}", &kk[..kk.len().min(70)]);
+                            }
                             let llvm_f = if elem_type_name == "Float64" { "double" } else { "float" };
                             let fp = self.fresh_tmp();
                             let fv = self.fresh_tmp();
@@ -2759,6 +2763,11 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         }
                     }
                     // Fallback: use emit_elem_load for unknown element types.
+                    if std::env::var_os("XIOM_B57_DEBUG").is_some() {
+                        let kk = Self::expr_key(container);
+                        eprintln!("[b57miss] FALLBACK key={} resolve={:?}",
+                            &kk[..kk.len().min(70)], self.resolve_vec_elem_type(container));
+                    }
                     let signed = self.vec_elem_signed(container);
                     let elem = self.emit_elem_load(&elem_ptr, &esz_val, signed);
                     // 5c.29: float elements round-trip as raw bits -- reinterpret

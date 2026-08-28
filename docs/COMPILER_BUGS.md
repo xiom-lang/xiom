@@ -46,6 +46,38 @@ checker 178/178, parser 97/97, ctfe 97/97 (match the desktop numbers exactly);
 full e2e running at doc time. Build from clean target: 1m07s, no new warnings
 beyond the known xiom-check unused_mut + codegen dead-code set.
 
+### BUG 57 FOLLOW-UP (2026-08-28, stdlib r17 finding): geom_vec/mat compile regression -- DIAGNOSED, PARTIAL
+
+Post-BUG 57, smoke_geom_vec/mat changed from RUNTIME garbage to a COMPILE
+error: "%tmpN defined with type i64 but expected %struct.Vec" inside the
+gram_schmidt/_vec_dot region (IR lines 20759-20761). Established facts:
+
+1. The invalid IR = extract_scalar_field0 applied to a %struct.Vec VALUE
+   (coerce.rs) -- a Vec operand reached the binary-op struct-scalar
+   extraction (expr.rs ~1728-1733), which loads field 0 AS i64 (it is the
+   i8* DATA POINTER). DEFENSIVE FIX LANDED: Vec/Slice now load field 0 as
+   the pointer + ptrtoint (VALID IR, same i64-bits semantics the pre-map
+   codegen had). Error moved one temp forward (tmp380 -> tmp381): a SECOND
+   emitter then stores that i64 AS %struct.Vec (alloca Vec + store Vec)
+   -- its identity not yet found (not coerce_value/emit_vec_store_fields/
+   call.rs:1749 per greps).
+2. Trace evidence: instrumented runs show ONLY ONE map-resolution event in
+   the whole gram_schmidt region (vc[i][j] FLOAT at line 310) -- the
+   basis[u] / basis[u][jj] reads NEVER reach the is_vec branch's
+   resolution section (no FLOAT, no MEMCPY, no FALLBACK trace). They
+   compile through a bypassing path (suspect: the indexed-WRITE RHS in
+   stmt.rs or the &basis[u] Ref-arm address path, or an INLINED
+   _vec_dot body polluting gram_schmidt's IR). fn attribution via define
+   lines is unreliable here (alwaysinline bodies).
+3. Per-fn map clear added at compile_fn entry (correct hygiene -- generic
+   fns share source spans across monomorphisations) but did NOT fix this
+   case, so the leak is within a single body or via a non-map path.
+
+NEXT SESSION PLAN: instrument the stmt.rs indexed-write RHS path and the
+Expr::Ref Index-address path for Vec[Vec[Float64]]; correlate IR tmp
+lineage via -g-style comments (emit a "; idx-read" marker in each
+candidate emitter, rebuild, read the failing block's ancestry). The
+stdio session has geom_vec/mat parked; quat is GREEN with BUG 57.
 ### BUG 57 FIXED (2026-08-25, overnight): chained-index element types -- THREE coordinated roots
 
 Fix spans expr.rs + lib.rs + types.rs + call.rs; probes probe_geom1/2 now

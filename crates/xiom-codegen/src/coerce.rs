@@ -455,8 +455,31 @@ impl IrEmitter {
         if !struct_ty.starts_with("%struct.") {
             return val.to_string();
         }
-        // Empty (zero-sized) structs have no field 0 -- GEP would be invalid.
         let type_name = &struct_ty[8..];
+        // AUDIT BUG 57 follow-up: a Vec/Slice value must NEVER take the
+        // scalar field-0 extraction -- field 0 is the DATA POINTER (i8*);
+        // loading it as i64 produced invalid IR ("%tmpN defined with type
+        // i64 but expected %struct.Vec"; geom_vec/mat compile errors).
+        // Load it AS the pointer and ptrtoint: VALID IR with the same
+        // value semantics the pre-map codegen had (an i64 operand whose
+        // bits are the data pointer). The upstream root (a chained-index
+        // read yielding a Vec where a double was expected) is tracked as
+        // the BUG 57-geom follow-up.
+        let is_vecish = type_name == "Vec" || type_name == "Slice"
+            || type_name.ends_with(".Vec") || type_name.ends_with(".Slice");
+        if is_vecish {
+            let slot = self.fresh_tmp();
+            self.emitln(&format!("  {slot} = alloca {struct_ty}"));
+            self.emitln(&format!("  store {struct_ty} {val}, {struct_ty}* {slot}"));
+            let gep = self.fresh_tmp();
+            self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {slot}, i32 0, i32 0"));
+            let ptr = self.fresh_tmp();
+            self.emitln(&format!("  {ptr} = load i8*, i8** {gep}"));
+            let as_i64 = self.fresh_tmp();
+            self.emitln(&format!("  {as_i64} = ptrtoint i8* {ptr} to i64"));
+            return as_i64;
+        }
+        // Empty (zero-sized) structs have no field 0 -- GEP would be invalid.
         let is_empty = self.types.type_meta.get(&type_name.to_string()).map(|m| m.fields.is_empty()).unwrap_or(false);
         if is_empty {
             return "0".to_string();
