@@ -758,7 +758,24 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     }
     checker.build_catalog_index();
     let is_multi_file = effective_sources.len() > 1 || checker.source_dirs.len() > 0;
-    if let Err(errors) = checker.check_program(&program) {
+    let check_outcome = checker.check_program(&program);
+    // AUDIT FIX (Stage 3): checker WARNINGS (exhaustiveness, catalog body
+    // findings) are no longer silent on the plain compile path. Catalog
+    // findings are capped at 5 + a summary so real-world builds stay
+    // readable until the stdlib session clears the corpus.
+    let warnings = checker.take_warnings();
+    let (catalog_warns, own_warns): (Vec<_>, Vec<_>) =
+        warnings.into_iter().partition(|w| w.message.starts_with("catalog body"));
+    for w in &catalog_warns[..catalog_warns.len().min(5)] {
+        eprintln!("warning[W000]: {l}:{c}: {m}", l = w.span.line, c = w.span.col, m = w.message);
+    }
+    if catalog_warns.len() > 5 {
+        eprintln!("warning[W000]: ... {} more catalog-body warning(s) suppressed", catalog_warns.len() - 5);
+    }
+    for w in &own_warns {
+        eprintln!("warning[W000]: {l}:{c}: {m}", l = w.span.line, c = w.span.col, m = w.message);
+    }
+    if let Err(errors) = check_outcome {
         if config.diagnostics_json {
             let parts: Vec<String> = errors.iter().map(|err| {
                 let suggestion = suggest_fix(&err.message);
