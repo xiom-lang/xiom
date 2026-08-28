@@ -5616,6 +5616,30 @@ impl Checker {
             Expr::As(inner, ty, span) => {
                 let inner_ty = self.check_expr(inner);
                 let target_ty = CheckedType::from_ast_type(ty);
+                // AUDIT follow-up (stdlib finding #15): `as` binds tighter
+                // than binary operators (Rust parity), so `len % 256 as UInt8`
+                // casts the LITERAL -- 256 truncates to 0 and the `%` traps
+                // with an illegal instruction at runtime. Warn at COMPILE
+                // time when a direct integer literal truncates, so the
+                // ambiguous form gets parenthesized.
+                if let Expr::Int(raw, _) = &**inner {
+                    let val = *raw as i64;
+                    let (min, max): (i64, i64) = match &target_ty {
+                        CheckedType::UInt8 => (0, 255),
+                        CheckedType::Int8 => (-128, 127),
+                        CheckedType::UInt16 => (0, 65535),
+                        CheckedType::Int16 => (-32768, 32767),
+                        CheckedType::UInt32 => (0, 4_294_967_295),
+                        CheckedType::Int32 => (-2_147_483_648, 2_147_483_647),
+                        CheckedType::Char => (0, 1_114_111),
+                        _ => (i64::MIN, i64::MAX),
+                    };
+                    if val < min || val > max {
+                        self.warn(format!(
+                            "cast truncates: literal {val} does not fit in {} -- parenthesize the expression you intend to cast, e.g. (a % b) as {}",
+                            target_ty.name(), target_ty.name()));
+                    }
+                }
                 // Phase 7E/Feature: Resolve aliases so `x as Int` works when x: VkHandle
                 let inner_resolved = self.resolve_alias(&inner_ty);
                 let target_resolved = self.resolve_alias(&target_ty);
@@ -6902,6 +6926,21 @@ mod tests {
 
     #[test]
     #[test]
+    #[test]
+    fn test_cast_truncation_warns() {
+        // stdlib finding #15: `as` binds tighter than binary ops (Rust
+        // parity), so `len % 256 as UInt8` casts the literal -- 256 -> 0
+        // and the `%` traps (illegal instruction) at runtime. A direct
+        // literal truncation must WARN at compile time.
+        let src = "fn main() -> Int { var x = 256 as UInt8; return 0; }";
+        let tokens = Lexer::new(src).tokenize();
+        let program = Parser::new(tokens).parse_program().expect("parse");
+        let mut checker = Checker::new();
+        let _ = checker.check_program(&program);
+        let warns = checker.take_warnings();
+        assert!(warns.iter().any(|w| w.message.contains("truncates")),
+            "literal-truncating cast must warn: {:?}", warns);
+    }
     fn test_container_arg_context_adaptation() {
         // Nested bare-vs-parameterized (legacy erasure inside args) stays
         // compatible: Option[Result] vs Option[Result[Int, Int]].
