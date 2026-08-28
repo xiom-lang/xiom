@@ -467,7 +467,7 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     // expand_impl_blocks erases the impl declarations.
     checker.register_impls_from_program(&program);
     // M20: Expand impl blocks into freestanding functions before type checking
-    let program = program.expand_impl_blocks();
+    let program = xiom_lowering::expand_impl_blocks(&program);
     if let Some(primary) = effective_sources.first() {
         let file_path = Path::new(primary);
         // Add the file's parent directory (e.g. examples/)
@@ -721,7 +721,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     let mut checker = Checker::new();
     checker.register_impls_from_program(&program);
     // M20: Expand impl blocks
-    program = program.expand_impl_blocks();
+    program = xiom_lowering::expand_impl_blocks(&program);
 
     // Stage 3: Type Check
     checker.set_strict_exhaustive(config.strict_exhaustive);

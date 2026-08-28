@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/xiom-lexer",
     "crates/xiom-ast",
+    "crates/xiom-lowering",
     "crates/xiom-parser",
     "crates/xiom-check",
     "crates/xiom-codegen",

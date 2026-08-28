@@ -346,6 +346,10 @@ pub struct CheckError {
     pub span: Span,
     /// 5c-R: Why this error occurred (enables cause-aware diagnostics)
     pub cause: TypeCause,
+    /// AUDIT FIX (readiness Stage 2b): the ErrorGuaranteed PROOF TOKEN --
+    /// real now. Downstream passes can rely on its presence to skip
+    /// error-poisoned work instead of string-matching messages.
+    pub guaranteed: xiom_ast::ErrorGuaranteed,
 }
 
 impl fmt::Display for CheckError {

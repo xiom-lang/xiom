@@ -18,6 +18,7 @@ winres = "0.1"
 xiom-lexer = { path = "../xiom-lexer" }
 xiom-parser = { path = "../xiom-parser" }
 xiom-ast = { path = "../xiom-ast" }
+xiom-lowering = { path = "../xiom-lowering" }
 xiom-check = { path = "../xiom-check" }
 xiom-codegen = { path = "../xiom-codegen" }
 xiom-verify = { path = "../xiom-verify" }
