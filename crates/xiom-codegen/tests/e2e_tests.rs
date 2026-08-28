@@ -1294,7 +1294,11 @@ fn e2e_m16_no_warnings() {
         .output()
         .expect("xiom --emit-ir failed");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(!stderr.contains("warning"), "M16: zero warnings expected, got: {stderr}");
+    // AUDIT FIX (Stage 3 / Item A): catalog-body findings now print
+    // deliberately (stdlib session fix list). The contract here is that
+    // USER code emits no warnings -- filter the catalog line out.
+    let own_warn = stderr.lines().any(|l| l.contains("warning") && !l.contains("catalog body") && !l.contains("catalog-body"));
+    assert!(!own_warn, "M16: zero user-code warnings expected, got: {stderr}");
     assert!(output.status.success(), "compilation should succeed");
 }
 
@@ -1423,7 +1427,8 @@ fn e2e_m17_zero_warnings() {
         .expect("compile");
     let _ = std::fs::remove_file(&tmp);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(!stderr.contains("warning"), "M17: zero warnings expected, got: {stderr}");
+    let own_warn = stderr.lines().any(|l| l.contains("warning") && !l.contains("catalog body") && !l.contains("catalog-body"));
+    assert!(!own_warn, "M17: zero user-code warnings expected, got: {stderr}");
     assert!(output.status.success());
 }
 

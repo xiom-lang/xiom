@@ -66,6 +66,50 @@ honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
 module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
 Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
 
+### Round-19 FOR THE STDLIB SESSION -- CATALOG FINDINGS (Item A surface)
+
+Catalog body type-checking is now LIVE (warnings, capped at 5 per build).
+KNOWN catalog-body findings visible on this build (xiom.io and others --
+fix these in the stdlib lane, then the rollout flips to hard errors):
+1. io/print + io/println + time_now + sleep: whole-body `unsafe` block
+   with no `requires` (T007 -- Unsafe Confinement requirement c). Add
+   requires clauses (e.g. non-null/size guards) or narrow the unsafe.
+2. xiom.io catalog body ~354:42: `assignment type mismatch: Int32 =
+   Result[Unit, IOError]` -- a REAL latent type error in a catalog fn
+   (was silently accepted; likely a Result being assigned into an Int32
+   local or a mis-typed helper return).
+WARNING VISIBILITY: user-code warnings now print on the plain compile
+path (warning[W000] line:col). Exhaustiveness now emits ONE precise
+warning per missing variant (deduped base names).
+### Round-19 (2026-08-27/28): Stage 3 -- Item A + exhaustiveness + warning visibility
+
+1. ITEM A -- CATALOG BODY TYPE-CHECKING (Phase 1 rollout, user-approved):
+   register_external_module now runs check_top_decl over every loaded
+   catalog module's bodies (was signature-only -- undefined bare names
+   silently became zero-param stubs). Findings route through the new
+   checking_catalog flag into WARNINGS ("catalog body: ...") so the
+   stdlib session can fix the corpus without builds breaking; flips to
+   hard errors when clean. Validated with a synthetic bad module
+   (undefined var + return-type mismatch both caught) AND against the
+   real corpus (zero findings on smoke_collect_cache; feature-reg
+   510/510 + stdlib-exec 70/70 with checking active).
+2. EXHAUSTIVENESS for arbitrary enums VERIFIED + FIXED: variants
+   registered BOTH bare and qualified ("Op" + "Token.Op") caused
+   duplicate warnings and false positives on the qualified keys; the
+   loop now dedupes to BASE names -- one precise warning per missing
+   variant (probe: Token{Ident,Num,Op} matched on 2 arms -> exactly
+   "variant 'Op' of 'Token' not covered").
+3. WARNING VISIBILITY: compile()'s plain path dropped all checker
+   warnings (exhaustiveness etc.) -- they now print as
+   "warning[W000]: line:col: msg" on BOTH the error and success paths.
+   (First attempt routed compile_or_exit through
+   compile_with_diagnostics, which is a DIFFERENT pipeline with
+   different observable output -- 2266 e2e failures in 6 minutes caught
+   it instantly; reverted to the in-compile() print. LESSON: the two
+   compile entry points are NOT interchangeable.)
+
+Validated: checker 181/181, feature-reg 510/510, stdlib-exec 70/70(+2),
+full e2e running at doc time (expect 2294/2295 + simd env).
 ### Round-18 (2026-08-25/26): Stage 2b landed + audit #6 CONCRETE unsoundness CLOSED
 
 Commits pending e2e: xiom-lowering extraction + ErrorGuaranteed wiring +

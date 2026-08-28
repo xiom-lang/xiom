@@ -117,6 +117,9 @@ pub struct Checker {
     /// 5c-R: Counter for emitted errors -- enables `has_errors()` gate for
     /// "stop on first error" discipline (rustc lesson: ErrorGuaranteed).
     error_count: usize,
+    /// ITEM A (Stage 3): true while checking EXTERNAL catalog fn bodies --
+    /// findings route to warnings (staged rollout).
+    pub checking_catalog: bool,
     /// 5c.30: When inside a method body, the RECEIVER type name so bare
     /// calls like `init()` can be resolved as `self.init()` (G-10/G-25 fix).
     current_receiver: Option<String>,
@@ -200,6 +203,12 @@ impl Checker {
             current_receiver: None,
             current_generic_bounds: HashMap::new(),
             error_count: 0,
+            // ITEM A (Stage 3): catalog-body checking rollout flag. When
+            // true, type errors found while checking EXTERNAL catalog
+            // function bodies are routed to WARNINGS instead of hard
+            // errors (the catalog corpus has never been checked; the
+            // stdlib session fixes findings, then this flips).
+            checking_catalog: false,
             type_arena: TypeArena::new(),
             aliases: HashMap::new(),
             send_sync_types: HashSet::new(),
@@ -280,6 +289,21 @@ impl Checker {
                     .or_insert(exports);
             }
         }
+
+        // ITEM A (Stage 3): CATALOG BODY TYPE-CHECKING (Phase 1 rollout).
+        // External module bodies were registered signature-only --
+        // undefined bare names inside them silently became zero-param
+        // stubs (path.xi join_paths). Bodies are now checked; findings
+        // surface as WARNINGS while the catalog corpus gets cleaned up,
+        // after which checking_catalog routing flips to hard errors.
+        let prev_module = self.current_module.clone();
+        self.current_module = None; // items are top-level; Module arms join
+        self.checking_catalog = true;
+        for item in &program.items {
+            self.check_top_decl(item);
+        }
+        self.checking_catalog = false;
+        self.current_module = prev_module;
     }
 
     fn register_builtins(&mut self) {
@@ -905,9 +929,23 @@ impl Checker {
     /// the poisoned CheckedType so call sites can propagate the guarantee
     /// (rustc discipline: errors return proof, not just markers).
     fn error_with_cause(&mut self, message: impl Into<String>, span: Span, cause: crate::types::TypeCause) -> CheckedType {
+        let msg = message.into();
         let _proof = xiom_ast::ErrorGuaranteed::new();
-        self.errors.push(CheckError { message: message.into(), span, cause, guaranteed: _proof });
-        self.error_count += 1;
+        // ITEM A (Stage 3): catalog-body findings surface as WARNINGS
+        // (staged rollout -- flip to hard errors once the catalog corpus
+        // is clean). The CheckedType::Error return still suppresses
+        // cascades identically.
+        if self.checking_catalog {
+            self.warnings.push(CheckError {
+                message: format!("catalog body: {msg}"),
+                span,
+                cause,
+                guaranteed: _proof,
+            });
+        } else {
+            self.errors.push(CheckError { message: msg, span, cause, guaranteed: _proof });
+            self.error_count += 1;
+        }
         CheckedType::Error
     }
 
@@ -5790,6 +5828,15 @@ impl Checker {
             }
         };
         if variants.is_empty() { return; }
+        // AUDIT #6/#16 FIX: variants register BOTH bare and qualified
+        // ("Op" AND "Token.Op") -- dedupe to BASE names so coverage
+        // compares pattern names against the same form (the old loop
+        // double-warned and false-flagged qualified keys as uncovered).
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let variants: Vec<String> = variants.into_iter()
+            .map(|v| v.rsplit('.').next().unwrap_or(&v).to_string())
+            .filter(|v| seen.insert(v.clone()))
+            .collect();
         for variant in &variants {
             let covered = arms.iter().any(|arm| pattern_covers_variant(&arm.pattern, variant));
             if !covered {
