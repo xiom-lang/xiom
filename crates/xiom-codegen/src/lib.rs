@@ -426,6 +426,47 @@ impl IrEmitter {
                     Self::default_const_for(llvm_ty)
                 }
             }
+            Expr::Array(items, _) => {
+                // R2 (M58 residual, 2026-09-09): a module-level `var` with an
+                // all-constant ARRAY literal initializer (`var _tbl: [256]Int =
+                // [256 literals]`) must lower to a CONSTANT aggregate. The old
+                // path routed it to the runtime-init ctor, whose compile_expr
+                // on the array literal yields an i8* heap buffer -- storing a
+                // 'ptr' into an [N x T] global is invalid IR ("%tmp defined
+                // with type 'ptr' but expected '[4 x i64]'").
+                if llvm_ty.starts_with('[') && llvm_ty.contains(" x ") {
+                    let rest = &llvm_ty[1..];
+                    if let Some(xpos) = rest.find(" x ") {
+                        let inner = rest[xpos + 3..].trim_end_matches(']').to_string();
+                        let mut rendered: Vec<String> = items
+                            .iter()
+                            .map(|e| {
+                                let v = Self::global_const_init(e, &inner);
+                                if inner.starts_with('[') {
+                                    v
+                                } else {
+                                    format!("{inner} {v}")
+                                }
+                            })
+                            .collect();
+                        // Pad/truncate to the declared extent (defensive; the
+                        // checker enforces the real length).
+                        if let Ok(n) = rest[..xpos].trim().parse::<usize>() {
+                            while rendered.len() < n {
+                                let pad = Self::default_const_for(&inner);
+                                rendered.push(if inner.starts_with('[') {
+                                    pad
+                                } else {
+                                    format!("{inner} {pad}")
+                                });
+                            }
+                            rendered.truncate(n);
+                        }
+                        return format!("[{}]", rendered.join(", "));
+                    }
+                }
+                Self::default_const_for(llvm_ty)
+            }
             _ => Self::default_const_for(llvm_ty),
         }
     }
