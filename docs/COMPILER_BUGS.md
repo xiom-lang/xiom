@@ -3325,6 +3325,41 @@ BUG 38 (is-Some + match double-check binds 0 -- BUG 30 #1/#2 family).
 Bounded/Ord impls (generic bounded fns, no impls -- interface dispatch
 itself verified working); smoke_alloc_basic needs `use xiom.ptr;`;
 smoke_hash_folder needs `use xiom.convert.toint;`.
+---
+
+## 2026-09-09 -- R4 FIXED: guard-arena escape via outer-Vec growth (compiler lane)
+
+The CSPRNG-flip blocker (stdlib report R4; probes r4c_single5000 /
+r4b_os_5000 in tmp/bug_probes) is fixed in the RUNTIME, not the caller
+frame the bisect suspected.
+
+Root cause: `xiom_guard_realloc` (stdlib/runtime/xiom_runtime.c) migrated
+ANY confined-block Vec growth into the guard arena -- including Vecs whose
+data was allocated on the MAIN heap before the block (crypto.xi
+os_secure_random_bytes declares `result` outside `unsafe`, grows it inside
+the 4096-byte chunk loop). The arena is discarded wholesale at block exit
+(xiom_guard_heap_exit frees every slab), so the returned Vec's data
+pointer dangled: byte reads AV'd 0xC0000005. The 16-byte draw survived
+only because the initial malloc(16) capacity was never exceeded (no
+growth -> no arena migration); 5000-byte draws grew past capacity and
+AV'd on reads -- single OR double call (the "second-call" bisect framing
+was incidental: their small probes happened to stay under capacity).
+
+Fix (xiom_runtime.c, 4 edits):
+- XiomGuardArena tracks per-slab sizes (parallel long* slab_sizes) so
+  membership tests and slab teardown (munmap on POSIX) use the real
+  extent, including oversized slabs.
+- xiom_guard_realloc now checks arena membership of `old`; main-heap
+  pointers grow in place with plain realloc (data outlives the block),
+  arena-born pointers keep the arena copy path (confinement intact).
+- xiom_guard_alloc / heap_exit updated for the sizes array.
+
+Verified: single- and double-5000-byte probes exit 0 with plausible
+sums; m18_guard confinement subset 125/125; e2e_m59_guard_arena_escape
+(regression; red pre-fix: AV exit code, green after). Full e2e +
+feature-reg + stdlib-exec run at doc time. Stdlib session may flip
+secure_random_bytes -> os_secure_random_bytes.
+
 ## 2026-09-09 (stdlib lane) -- re-verified on round-20 binary (HEAD 223603ce + stdlib T007/io fixes): two items still OPEN
 
 ### R1. byte_at contextual OOB read STILL BROKEN (state-dependent bound check)

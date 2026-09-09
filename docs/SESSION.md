@@ -66,6 +66,37 @@ honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
 module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
 Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
 
+### Round-21c (2026-09-09): R4 FIXED -- guard-arena escape (CSPRNG-flip blocker)
+
+Compiler lane, third bug. The stdlib session's R4 (cross-module OS-entropy
+multi-draw AV, blocking the secure_random_bytes -> os_secure_random_bytes
+flip) was NOT a caller-frame/second-call defect -- reproduced with
+tmp/bug_probes/r4c_single5000.xi (SINGLE 5000-byte draw AVs on byte
+reads) and root-caused in the RUNTIME: xiom_guard_realloc migrated any
+confined-block Vec growth into the guard arena, including Vecs allocated
+on the main heap BEFORE the unsafe block (crypto.xi result Vec, chunk
+loop). Arena slabs are freed wholesale at block exit -> returned Vec data
+dangled -> 0xC0000005 on reads. The stdlib bisect (20-byte draws) missed
+it because small draws never exceeded the initial malloc(16) capacity, so
+no growth -> no arena migration.
+
+Fix (stdlib/runtime/xiom_runtime.c): per-slab size tracking + arena
+membership check in xiom_guard_realloc -- main-heap pointers grow via
+plain realloc (escape-safe), arena-born pointers keep the arena path
+(confinement semantics intact: m18_guard 125/125).
+
+Regression: tests/regression/m59_guard_arena_escape.xi +
+e2e_m59_guard_arena_escape. Verified single+double 5000-byte probes exit
+0. Full e2e + feature-reg + stdlib-exec running at doc time.
+STDLIB LANE: the CSPRNG flip (secure_random_bytes -> os_secure_random_bytes)
+is unblocked.
+
+NEXT compiler-lane: R1 (byte_at contextual OOB -- bound check must be a
+pure function of (str, index)), then R2 (M58 residual: module-level
+mutable-array LITERAL init emits pointer-as-array store), then the
+delegation-crash family (probes deleg1/deleg2.xi; checker reachability
+suspect).
+
 ### Round-21b (2026-09-09): M58 FIXED -- module-level array mis-materialization
 
 Second compiler-lane bug (round-20 OPEN queue item #1: module-level [256]
