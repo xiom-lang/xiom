@@ -66,6 +66,32 @@ honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
 module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
 Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
 
+### Round-22 (2026-09-09): Delegation crash FIXED -- qualified calls beat local shadows
+
+Compiler lane, sixth bug. stdlib-audit #3, the crash that forced the
+stdlib's copy-paste module twins (base64/base58/base32/percent/punycode/
+...). Root cause: Checker::collect_external_decls skipped injecting any
+stdlib free fn whose BARE name matched a user fn (user_free_fns shadow
+set), so the leaf-qualified key never registered; codegen's
+resolve_module_call fell through to the bare name and bound the LOCAL
+fn. The skip's duplicate-@alloc rationale was obsolete (injected decls
+are leaf-qualified: @alloc.alloc vs user's bare @alloc).
+
+Fix: injection dedups by the QUALIFIED key only (xiom-check/lib.rs).
+Bare calls keep shadowing; qualified calls bind the module namespace.
+
+Regression: tests/regression/m62_delegation_shadow.xi +
+e2e_m62_delegation_shadow (red pre-fix exit 1, green after). Probes
+deleg1/deleg2 now both emit @convert.to_base58. Full e2e + feature-reg
++ stdlib-exec running at doc time.
+STDLIB LANE: delegation is unblocked -- consolidate the duplicate
+modules behind re-export shims.
+
+NEXT compiler-lane: Stage 4 crash families (CRT-layout + -O0 miscompile
+root cause first -- baseline-rebuild discipline), then json heap layer,
+stack cookies, clang variants; then Stage 5 remainder; then Stage 2c
+structural TypeId/interning; Stages 6-7.
+
 ### Round-21e (2026-09-09): R1 FIXED -- byte_at/char_at upper-OOB reads
 
 Compiler lane, fifth bug (stdlib report R1). The "state-dependent bound

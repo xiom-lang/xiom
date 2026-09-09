@@ -2107,13 +2107,22 @@ impl Checker {
     pub fn collect_external_decls(&mut self, program: &Program) -> Vec<TopDecl> {
         // Names already declared in the program (to avoid duplicates).
         let mut existing: HashSet<String> = HashSet::new();
-        // BARE names of free fns declared in the USER program (including nested
-        // modules). These shadow same-named stdlib fns: e.g. `module sys { pub fn
-        // alloc }` must block injecting xiom.alloc's `alloc` (whose qualified
-        // dedup key "xiom.alloc.alloc" would otherwise not collide with the
-        // user's bare "alloc", producing a duplicate `@alloc` definition).
-        let mut user_free_fns: HashSet<String> = HashSet::new();
-        fn collect_names(items: &[TopDecl], existing: &mut HashSet<String>, user_free_fns: &mut HashSet<String>) {
+        // Delegation-crash fix (stdlib-audit #3, 2026-09-09): the old
+        // `user_free_fns` shadow set made injection SKIP any stdlib free fn
+        // whose BARE name matched a user fn -- so `xiom.num.convert.to_base58`
+        // never registered its leaf-qualified key ("convert.to_base58") when
+        // the user module declared its own `pub fn to_base58`, and the
+        // module-qualified call fell through to the bare name and bound the
+        // LOCAL fn (silent wrong-module resolution; historically the
+        // 0xC0000005 delegation crash). The skip's original rationale
+        // (duplicate `@alloc` from `module sys { pub fn alloc }`) no longer
+        // applies: injected decls arrive LEAF-qualified and emit qualified
+        // symbols (@alloc.alloc), while the user's bare fn keeps the bare
+        // symbol -- the codegen alias map prefers the existing bare entry,
+        // so bare calls still bind the user's fn. Qualified-key dedup below
+        // (module-qualified free fns, methods, impl fns) is the only gate
+        // injection needs.
+        fn collect_names(items: &[TopDecl], existing: &mut HashSet<String>) {
             for item in items {
                 match item {
                     TopDecl::Type(td) => { existing.insert(td.name.name.clone()); }
@@ -2128,16 +2137,13 @@ impl Checker {
                             fd.name.name.clone()
                         };
                         existing.insert(key);
-                        if fd.receiver.is_none() {
-                            user_free_fns.insert(fd.name.name.clone());
-                        }
                     }
-                    TopDecl::Module(md) => { collect_names(&md.items, existing, user_free_fns); }
+                    TopDecl::Module(md) => { collect_names(&md.items, existing); }
                     _ => {}
                 }
             }
         }
-        collect_names(&program.items, &mut existing, &mut user_free_fns);
+        collect_names(&program.items, &mut existing);
 
         // Primitive / builtin types that should never be injected.
         const PRIMITIVES: &[&str] = &[
@@ -2199,7 +2205,6 @@ impl Checker {
                 primitives: &[&str],
                 generic_types: &HashSet<String>,
                 module_name: &str,
-                user_free_fns: &HashSet<String>,
                 out: &mut Vec<TopDecl>,
             ) {
                 // BUG 9 / BUG 29: struct-name walkers shared by the Fn and Const
@@ -2401,8 +2406,7 @@ impl Checker {
                                 fd.name.name.clone()
                             };
                             if !existing.contains(&dedup_key)
-                                && !primitives.contains(&fd.name.name.as_str())
-                                && !(fd.receiver.is_none() && user_free_fns.contains(&fd.name.name)) {
+                                && !primitives.contains(&fd.name.name.as_str()) {
                                 existing.insert(dedup_key);
                                 // BUG 9 fix (2026-08-11): inject NON-pub struct/enum
                                 // types referenced by this fn's signature (params,
@@ -2491,7 +2495,7 @@ impl Checker {
                             // external-decl injection, so wrapped decls would never
                             // reach codegen. Module context is preserved instead by
                             // leaf-qualifying free fn names above.
-                            collect_pub_decls(&md.items, existing, primitives, generic_types, module_name, user_free_fns, out);
+                            collect_pub_decls(&md.items, existing, primitives, generic_types, module_name, out);
                         }
                         TopDecl::Extern(eb) => {
                             // Inject external modules' `extern "C"` blocks so their
@@ -2556,7 +2560,7 @@ impl Checker {
 
         for cached in self.catalog.all_cached() {
             let cached_module_name = cached.dotted_name.clone();
-            collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &cached_module_name, &user_free_fns, &mut decls);
+            collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &cached_module_name, &mut decls);
         }
 
         // BUG 28 #4: submodules resolved via catalog PEEK during checking
@@ -2571,7 +2575,7 @@ impl Checker {
             let segs: Vec<String> = dotted.split('.').map(|s| s.to_string()).collect();
             if let Some(cached) = self.catalog.peek_owned(&segs) {
                 let cached_module_name = cached.dotted_name.clone();
-                collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &cached_module_name, &user_free_fns, &mut decls);
+                collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &cached_module_name, &mut decls);
             }
         }
 
