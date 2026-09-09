@@ -4424,6 +4424,9 @@ fn e2e_safety_probe() {
 // stack copies of the loaded global value lost writes; fixed via direct
 // global GEPs in the index read/write arms.
 #[test] fn e2e_m58_module_array_global() { assert_eq!(compile_and_run("tests\\regression\\m58_module_array_global.xi"), Some(0)); }
+// M59 (stdlib R4): guard-arena escape -- outer-Vec growth inside a confined
+// block must stay on the main heap (runtime xiom_guard_realloc membership fix).
+#[test] fn e2e_m59_guard_arena_escape() { assert_eq!(compile_and_run("tests\\regression\\m59_guard_arena_escape.xi"), Some(0)); }
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }
