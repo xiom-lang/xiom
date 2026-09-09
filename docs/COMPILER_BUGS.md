@@ -3361,3 +3361,23 @@ limitations, not stdlib defects (code compiles and runs correctly):
 When Item A flips warnings to hard errors, the T007 class is CLEARED
 (128 whole-body-unsafe fns now carry requires); the classes above will
 still fire and need checker-side resolution or span-level triage.
+
+### R4. Cross-module OS-entropy multi-draw STILL AVs on round-20 (bisected 2026-09-09)
+The r17-era blocker for the secure_random_bytes -> os_secure_random_bytes
+flip persists. Full bisect on the round-20 binary (probes preserved in the
+stdlib_campaign probes dir):
+- single cross-module call to crypto.os_secure_random_bytes + byte reads:
+  WORKS (exit 0).
+- TWO calls in one frame + byte reads of either Vec: AV (0xC0000005).
+- two calls WITHOUT byte reads: WORKS -- corruption shows up only when the
+  returned Vec bytes are read.
+- two calls in SEPARATE frames (each one os draw per frame) + reads: AV.
+- reads of the FIRST draw's Vec after the second call: AV (both Vecs corrupt).
+Shape = the second invocation of a cross-module fn containing
+unsafe+extern+Vec (xiom_os_entropy loop) poisons Vec value slots in the
+caller frame. This is what blocks the honest CSPRNG flip; the stdlib
+interim (one flag-gated OS draw per process seeding the legacy LCG,
+documented as NOT a CSPRNG) is committed and locked by
+smoke_stress_crypto_secure_random_seeded. Flip the moment this lands;
+direction: second-call Vec return-value slot clobbering (compare the
+single-call vs double-call IR of the caller frame).
