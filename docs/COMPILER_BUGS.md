@@ -3327,6 +3327,46 @@ itself verified working); smoke_alloc_basic needs `use xiom.ptr;`;
 smoke_hash_folder needs `use xiom.convert.toint;`.
 ---
 
+## 2026-09-09 -- Delegation crash FIXED: qualified calls bind catalog fns despite local shadows
+
+stdlib-audit #3 (the crash that forced the stdlib's copy-paste base64/
+base58/base32/... duplicates). Current manifestation was silent wrong-
+module resolution: `xiom.num.convert.to_base58(255)` bound a LOCAL
+`pub fn to_base58` when the user module declared one. Probes:
+tmp/bug_probes/deleg1.xi (shadow) + deleg2.xi (control) -- IR diff showed
+@to_base58 (bare local) vs @convert.to_base58 (correct).
+
+Root cause: Checker::collect_external_decls kept a `user_free_fns`
+shadow set and SKIPPED injecting any stdlib free fn whose BARE name
+matched a user fn (xiom-check/src/lib.rs:2405). The skipped fn's
+leaf-qualified key ("convert.to_base58") never registered in codegen,
+so resolve_module_call's leaf lookup missed and fell through to the
+bare name -> local fn. The skip's original rationale (duplicate @alloc
+from `module sys { pub fn alloc }`) was obsolete: injected decls arrive
+LEAF-qualified and emit qualified symbols (@alloc.alloc); the user's
+bare fn keeps the bare symbol, and the codegen alias map prefers the
+existing bare entry, so bare calls still bind the user's fn.
+
+Fix: injection now dedups by the QUALIFIED key only (module-qualified
+free fns, methods, impl fns); user_free_fns removed. Bare calls keep
+shadowing; qualified calls bind the module namespace strictly.
+
+Regression: tests/regression/m62_delegation_shadow.xi +
+e2e_m62_delegation_shadow (qualified->catalog "ABC", bare->local
+"LOCAL"; red pre-fix exit 1, green after). Existing user-alloc shadow
+(m35_z06) exercised by the full suite. Full e2e + feature-reg +
+stdlib-exec run at doc time. STDLIB LANE: same-name delegation is now
+safe -- the base64/base58/base32/... copy-paste duplicates can be
+consolidated behind re-export shims.
+
+Also fixed in this round: the parallel e2e FLAKE -- e2e_cross_package_
+extern vs e2e_cross_package_use both compile examples/e2e/cross_pkg/
+main.xi, so both targeted the SAME output binary (e2e_main.exe) and
+raced it (intermittent FAILED in full runs, always green in isolation).
+The harness now suffixes every output with a per-invocation counter
+(e2e_tests.rs compile_and_run_once_with_flags), making names unique
+across tests and retries.
+
 ## 2026-09-09 -- R1 FIXED: byte_at/char_at upper-OOB reads (runtime clamp)
 
 Stdlib report R1: byte_at("", 999) returned 4 after a string-op preamble

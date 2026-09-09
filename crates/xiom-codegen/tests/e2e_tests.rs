@@ -68,7 +68,20 @@ fn compile_and_run_with_flags(source_path: &str, extra_args: &[&str]) -> Option<
 fn compile_and_run_once_with_flags(source_path: &str, extra_args: &[&str]) -> Option<i32> {
     let source = Path::new(source_path);
     let exe_suffix = if cfg!(target_os = "windows") { ".exe" } else { "" };
-    let exe_name = format!("e2e_{}{}", source.file_stem()?.to_str()?, exe_suffix);
+    // Parallel-flake fix (2026-09-09): the output name was derived from the
+    // SOURCE file stem alone, so tests compiling the SAME source raced on one
+    // binary -- e2e_cross_package_extern vs e2e_cross_package_use both compile
+    // examples/e2e/cross_pkg/main.xi -> both target e2e_main.exe, and the
+    // loser links/runs while the winner removes it (intermittent FAILED in
+    // full parallel runs, always green in isolation). A per-invocation
+    // counter makes every output name unique across tests AND retries.
+    static EXE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let exe_name = format!(
+        "e2e_{}_{}{}",
+        source.file_stem()?.to_str()?,
+        EXE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        exe_suffix
+    );
 
     // BUG 40-era hardening (2026-08-17): a STALE exe from an interrupted
     // run can hold the output path open -- clang then fails with
@@ -4432,6 +4445,9 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m60_module_array_literal() { assert_eq!(compile_and_run("tests\\regression\\m60_module_array_literal.xi"), Some(0)); }
 // M61 (stdlib R1): byte_at/char_at upper-OOB reads clamped (pure (s,pos)).
 #[test] fn e2e_m61_byte_at_oob() { assert_eq!(compile_and_run("tests\\regression\\m61_byte_at_oob.xi"), Some(0)); }
+// M62 (stdlib-audit #3 delegation crash): qualified calls bind the catalog fn
+// despite a local same-name shadow (injection dedups by qualified key now).
+#[test] fn e2e_m62_delegation_shadow() { assert_eq!(compile_and_run("tests\\regression\\m62_delegation_shadow.xi"), Some(0)); }
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }
