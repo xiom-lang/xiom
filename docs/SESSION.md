@@ -66,6 +66,35 @@ honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
 module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
 Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
 
+### Round-21b (2026-09-09): M58 FIXED -- module-level array mis-materialization
+
+Second compiler-lane bug (round-20 OPEN queue item #1: module-level [256]
+array mis-materialization / stdlib finding 3b-2 #8). Reproduced with a
+standalone probe (module `var _tbl: [256]Int;`, lazy fill via index writes,
+read-back sum): printed exit 1 on the round-20 binary.
+
+Root cause: index reads AND writes into a module-level [N x T] global
+compiled the container as a plain Ident (load the whole global by value,
+expr.rs:803), then the fixed-array arm spilled that VALUE into a fresh
+stack alloca and GEP'd the copy (expr.rs 2806-2815 / stmt.rs 790-805).
+Writes hit the stack copy and the store-back never fired -- silent write
+loss, reads of stale snapshots (the "reads all zeros + undersized backing"
+family). Lazy-init gates made it worse (re-init every call).
+
+Fix: Ident containers resolving to a module-global array now GEP the real
+global directly in BOTH the index-read arm (expr.rs) and index-write arm
+(stmt.rs) -- no load/copy/store-back. IR verified: 4 direct global GEPs,
+zero stack copies in the probe.
+
+Regression: tests/regression/m58_module_array_global.xi +
+e2e_m58_module_array_global. RED-GREEN proven via the PRINTED exit-code
+line (pre-fix 1, post-fix 0) -- note to self: `xiom --run` always returns
+0; read the printed line (this discipline cost me two confused minutes).
+Full e2e + feature-reg + stdlib-exec running at doc time.
+
+NEXT compiler-lane: round-20 OPEN queue -- OS-entropy multi-draw (security
+gap, 3b-2.2), then cross-module struct-param resolution / delegation crash.
+
 ### Round-21 (2026-09-09): BUG 57 FOLLOW-UP FIXED -- nested Vec ctor element registration
 
 Compiler lane, first bug of the readiness campaign (bug #1 of the round-20

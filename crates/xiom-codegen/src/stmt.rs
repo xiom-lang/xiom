@@ -785,6 +785,14 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             if let Some((slot, _slot_ty)) = self.lookup_local(&id.name).cloned() {
                                 (arr_ptr, arr_ptr_ty) = (slot, format!("{cont_ty}*"));
                                 is_ident = true;
+                            } else if let Some((symbol, _gty)) = self.local.module_globals.get(&id.name).cloned() {
+                                // Stdlib finding 3b-2 #8 (module-level arrays):
+                                // write THROUGH the real global. The old path
+                                // wrote into a stack copy of the loaded value and
+                                // the store-back was dropped -- array writes were
+                                // silently lost (crc tables stayed all zeros).
+                                (arr_ptr, arr_ptr_ty) = (format!("@{symbol}"), format!("{cont_ty}*"));
+                                is_ident = true;
                             }
                         }
                         if !is_ident {

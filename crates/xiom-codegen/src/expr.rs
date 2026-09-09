@@ -2802,6 +2802,14 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             // Use the existing alloca pointer directly -- avoids
                             // creating a fresh alloca on every loop iteration.
                             (slot.clone(), format!("{cont_ty}*"))
+                        } else if let Some((symbol, _gty)) = self.local.module_globals.get(&id.name).cloned() {
+                            // Stdlib finding 3b-2 #8 (module-level arrays): GEP the
+                            // REAL global directly. The old fallback spilled the
+                            // loaded [N x T] VALUE into a fresh stack alloca and
+                            // indexed the copy -- reads saw a stale snapshot and
+                            // writes were silently lost (module crc tables read
+                            // back all zeros; undersized-backing AV family).
+                            (format!("@{symbol}"), format!("{cont_ty}*"))
                         } else {
                             let arr_slot = self.fresh_tmp();
                             self.emitln(&format!("  {arr_slot} = alloca {cont_ty}"));

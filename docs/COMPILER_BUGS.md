@@ -7,6 +7,35 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-09 -- M58 FIXED: module-level mutable arrays indexed through stack copies
+
+Stdlib finding 3b-2 #8 ("module-level arrays mis-materialized; crc table
+reads back all zeros; backing undersized; AV near page boundaries").
+Probes: tmp/bug_probes/arr_global.xi + gz12u.xi/mygzip.xi shape
+(`var _crc32_table: [256]UInt;`).
+
+Root cause: index READS and WRITES into a module-level `[N x T]` global
+compiled the container via the plain Ident arm (load the WHOLE global by
+value, expr.rs:803), then the fixed-array arm spilled that value into a
+FRESH stack alloca and GEP'd the COPY (expr.rs:2806-2815; stmt.rs:790-805).
+For reads the runtime saw a stale snapshot taken at the read site; for
+writes the element store hit the stack copy and the whole-array store-back
+to the global never fired -- every write was silently lost. Lazy-init
+patterns (`if _tbl[1] == 0 { fill(); }`) then re-ran init every call and
+reads stayed zeros. Two [128] arrays appeared to "survive" only because
+their accidental layout/sizes hid the stale-copy reads in the specific
+probes.
+
+Fix: Ident containers that resolve to a module global with an array type
+now GEP the REAL global directly (`@symbol`) in both the index-read arm
+(crates/xiom-codegen/src/expr.rs) and the index-write arm
+(crates/xiom-codegen/src/stmt.rs); no load/copy/store-back involved.
+
+Regression: tests/regression/m58_module_array_global.xi +
+e2e_m58_module_array_global (two array sizes, head/tail checks, RMW;
+red on the pre-fix binary -- printed exit 1, green after -- exit 0).
+Full e2e + feature-reg + stdlib-exec run at doc time.
+
 ## 2026-09-09 -- BUG 57 FOLLOW-UP FIXED: nested Vec ctor element registration (geom_vec/mat)
 
 Root cause of the post-BUG-57 geom compile regression

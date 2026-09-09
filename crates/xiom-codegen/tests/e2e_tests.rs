@@ -4420,6 +4420,10 @@ fn e2e_safety_probe() {
 // element double-wrapped ("Vec[Vec[Float64]]"); chained reads compiling
 // before the first push memcpy'd whole Vecs out of double slots (invalid IR).
 #[test] fn e2e_m57b_geom_local_nested() { assert_eq!(compile_and_run("tests\\regression\\m57b_geom_local_nested.xi"), Some(0)); }
+// M58 (stdlib finding 3b-2 #8): module-level mutable arrays indexed through
+// stack copies of the loaded global value lost writes; fixed via direct
+// global GEPs in the index read/write arms.
+#[test] fn e2e_m58_module_array_global() { assert_eq!(compile_and_run("tests\\regression\\m58_module_array_global.xi"), Some(0)); }
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }
