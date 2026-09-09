@@ -7,6 +7,42 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-09 -- BUG 57 FOLLOW-UP FIXED: nested Vec ctor element registration (geom_vec/mat)
+
+Root cause of the post-BUG-57 geom compile regression
+(`store %struct.Vec <i64>` / "defined with type i64 but expected
+%struct.Vec") was NOT a second emitter -- it was an off-by-one-wrap in the
+DECL-SITE element registration for nested generic Vec ctors:
+
+- `IrEmitter::vec_ctor_elem_type` (crates/xiom-codegen/src/lib.rs, the LIVE
+  copy used by bindings) rendered `Vec[Vec[Float64]].new()` by re-wrapping
+  the OUTER Vec around the inner type-arg expression:
+  `type_arg_to_name(Index(Vec, idx))` -> "Vec[Vec[Float64]]" (DOUBLE-wrapped;
+  the element of `basis` should be "Vec[Float64]").
+- `basis[u]` reads then recorded "Vec[Vec[Float64]]" into
+  `indexed_elem_types`; the chained inner read `basis[u][jj]` stripped ONE
+  layer (mapped_elem) but resolve preferred the struct path: a whole
+  %struct.Vec was memcpy'd out of an 8-byte double slot (stride from
+  field 3), then the struct->scalar coercion (coerce.rs 433-442) emitted
+  extract_scalar_field0 -> ptrtoint (defensive fix, valid), and a SECOND
+  extract with the stale type spilled that i64 back INTO a %struct.Vec
+  alloca -- the invalid store.
+- Why only SOME functions failed: single-pass compilation means reads
+  inside a loop body compile BEFORE a later `basis.push(v)` that would have
+  corrected the entry via push-inference (call.rs 1124-1172). gram_schmidt
+  reads at linear.xi 268/271 precede the push at 284; vectors that were
+  pushed before their first read were coincidentally correct.
+- FIX: the nested-ctor arm now renders the INNER type arg only
+  (`type_arg_to_name(idx)` -> "Vec[Float64]"). Element registers
+  single-wrapped; outer reads yield Vec elements, inner reads strip to
+  "Float64" and take the typed float load path.
+- REGRESSION: tests/regression/m57b_geom_local_nested.xi +
+  e2e_m57b_geom_local_nested (gram_schmidt ordering shape; red on the
+  pre-fix binary with the exact invalid-IR signature, green after).
+- VERIFIED: smoke_geom_vec 6/6 + smoke_geom_mat/quat/2d/3d/collision OK;
+  checker 182/182, parser 99/99, ctfe 36/36, fmt 79/79, lexer 29/29.
+  Full e2e + feature-reg + stdlib-exec run at doc time.
+
 ## 2026-08-24 -- compiler session, Stage 0 ground truth (fresh laptop environment)
 
 Readiness plan created: `docs/COMPILER_READINESS_PLAN.md` (merges the round-15
