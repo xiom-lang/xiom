@@ -2278,9 +2278,13 @@ impl IrEmitter {
                                     // (`Vec[Vec[Int]].new()`) -- the type arg is itself
                                     // an Index expression; render it to "Vec[Int]" so
                                     // the element type and size resolve correctly.
+                                    // BUG 57 follow-up: render the INNER type ARG
+                                    // (idx) only -- re-wrapping the outer Vec around
+                                    // it produced "Vec[Vec[Int]]" (elem double-wrapped;
+                                    // chained basis[u][jj] reads then memcpy'd a whole
+                                    // Vec from an 8-byte double slot -> invalid IR).
                                     _ => {
-                                        let span = b.span;
-                                        let rendered = Self::type_arg_to_name(&Expr::Index(base.clone(), idx.clone(), span));
+                                        let rendered = Self::type_arg_to_name(idx);
                                         if rendered != "Int" {
                                             return Some(rendered);
                                         }

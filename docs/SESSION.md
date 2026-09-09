@@ -66,6 +66,37 @@ honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
 module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
 Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
 
+### Round-21 (2026-09-09): BUG 57 FOLLOW-UP FIXED -- nested Vec ctor element registration
+
+Compiler lane, first bug of the readiness campaign (bug #1 of the round-20
+OPEN queue was NOT this one; this was the pre-scoped BUG 57 follow-up from
+COMPILER_BUGS.md 49-80).
+
+Root cause: `vec_ctor_elem_type`'s nested-ctor arm rendered
+`Vec[Vec[Float64]].new()` by re-wrapping the OUTER Vec around the inner
+type-arg expr, registering the element DOUBLE-wrapped ("Vec[Vec[Float64]]").
+Chained inner reads (`basis[u][jj]`) then memcpy'd a whole %struct.Vec out
+of an 8-byte double slot and the struct->scalar coercion spilled the i64
+back into a %struct.Vec alloca (the "second emitter" the follow-up could not
+find -- there was no second emitter; it was extract_scalar_field0 running
+twice with a stale type label). Only some functions failed because single-
+pass compilation orders reads before a corrective push (gram_schmidt reads
+at linear.xi 268/271 precede basis.push(v) at 284).
+
+Fix: render the inner type ARG only (type_arg_to_name(idx)) -- one commit
+squashed the whole family. Instrumented trace proved the fix: basis resolves
+"Vec[Float64]", inner reads take the FLOAT path.
+
+Regression: tests/regression/m57b_geom_local_nested.xi +
+e2e_m57b_geom_local_nested (red on pre-fix binary with the exact signature,
+green after). Verified: geom smokes vec 6/6 + mat/quat/2d/3d/collision OK;
+quick suites checker 182 / parser 99 / ctfe 36 / fmt 79 / lexer 29.
+Full e2e + feature-reg + stdlib-exec running at doc time.
+
+NEXT compiler-lane: round-20 OPEN queue item #1 -- module-level [256]
+array mis-materialization (backing undersized, AV at page boundary; probe
+source in REPORT_TO_COMPILER_SESSION.md 3b findings).
+
 ### Round-20 (2026-08-28): stdlib-report triage + cast-truncation warning + BUG 57 follow-up
 
 1. Read docs/REPORT_TO_COMPILER_SESSION.md (stdlib r17 delta, grown to
