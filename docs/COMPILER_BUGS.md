@@ -3327,6 +3327,27 @@ itself verified working); smoke_alloc_basic needs `use xiom.ptr;`;
 smoke_hash_folder needs `use xiom.convert.toint;`.
 ---
 
+## 2026-09-09 -- R1 FIXED: byte_at/char_at upper-OOB reads (runtime clamp)
+
+Stdlib report R1: byte_at("", 999) returned 4 after a string-op preamble
+but 0 before one -- the bound check looked "state-dependent". Root cause:
+xiom_byte_at (xiom_runtime.c) only clamped pos < 0; for pos >= len it
+read PAST the NUL terminator into adjacent heap bytes. The value was
+heap-adjacency luck (allocation history), not compiler state.
+
+Fix: xiom_byte_at and xiom_char_at now clamp
+pos >= strnlen(str, 1MB) -> return 0 -- a pure function of (str, pos),
+matching the language's strlen-based length model (xiom_str_len is
+strlen; Str values are NUL-terminated). Direct extern callers (base32/
+ascii85 alphabets) index in-bounds, so the added scan is O(alphabet) per
+access there; correctness over speed for the raw accessors.
+
+Regression: tests/regression/m61_byte_at_oob.xi + e2e_m61_byte_at_oob
+(boundary positions on empty/short strings, negative pos, in-bounds
+value check, and R1's exact preamble shape). Pre-fix red is
+nondeterministic (garbage reads: 1/4 runs nonzero); post-fix always 0.
+Full e2e + feature-reg + stdlib-exec run at doc time.
+
 ## 2026-09-09 -- R2 FIXED: module-level mutable arrays with literal initializers
 
 Stdlib report R2 (M58 residual): `var _tbl: [256]Int = [256 literals];`

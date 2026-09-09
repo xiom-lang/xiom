@@ -66,6 +66,28 @@ honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
 module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
 Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
 
+### Round-21e (2026-09-09): R1 FIXED -- byte_at/char_at upper-OOB reads
+
+Compiler lane, fifth bug (stdlib report R1). The "state-dependent bound
+check" framing was wrong: xiom_byte_at only clamped pos < 0; pos >= len
+read past the NUL terminator into adjacent heap bytes, so the returned
+garbage tracked allocation history (4 after a preamble, 0 before one),
+not compiler state. The r17 "partial fix" only appeared to work because
+the isolated probe's buffer neighbor was zeroed.
+
+Fix: xiom_byte_at + xiom_char_at clamp pos >= strnlen(str, 1MB) -> 0 --
+pure function of (str, pos); matches the strlen-based Str length model.
+
+Regression: tests/regression/m61_byte_at_oob.xi + e2e_m61_byte_at_oob
+(empty/short boundaries, negative, in-bounds value, R1 preamble shape).
+Pre-fix red nondeterministic (1/4 nonzero), post-fix always 0. Full e2e
++ feature-reg + stdlib-exec running at doc time.
+
+NEXT compiler-lane: delegation crash family (deleg1/deleg2 probes;
+checker reachability), then review the stdlib session's round-21 close
+queue for new compiler-side blockers (R7 family touched codegen-adjacent
+call poisoning), then Stage 2c / Stage 4.
+
 ### Round-21d (2026-09-09): R2 FIXED -- module-level array literal initializers
 
 Compiler lane, fourth bug (stdlib report R2, M58 residual; done while the
